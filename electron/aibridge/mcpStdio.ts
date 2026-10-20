@@ -23,11 +23,16 @@ import path from 'node:path';
 import { BRIDGE_INSTRUCTIONS, BRIDGE_TOOLS, selectTools } from '@/services/aiBridge/manifest';
 import { toolAnnotations } from '@/services/aiRuntime/toolPolicy';
 import { buildToolResult } from './mcpContent';
+import { publishingCompatContext, publishingCompatIdentity, publishingCompatModule, publishingCompatTools } from '../publishing/compat';
 
 const SERVER_NAME = 'writers-hoard';
 const SERVER_VERSION = '1.0.0';
 const DEFAULT_PROTOCOL = '2025-06-18';
 const BASE_URL = process.env.WH_BRIDGE_URL || 'http://127.0.0.1:8766';
+const moduleArgument = process.argv.indexOf('--publishing-module');
+const selectedModule = moduleArgument < 0 ? process.env.WH_PUBLISHING_MODULE : process.argv[moduleArgument + 1];
+if (moduleArgument >= 0 && !selectedModule) throw new Error('--publishing-module requires a module name.');
+const COMPAT_MODULE = selectedModule ? publishingCompatModule(selectedModule) : '';
 
 /**
  * Where Electron would keep this app's userData, per platform. Two names are
@@ -79,6 +84,7 @@ function request(
   route: string,
   payload?: unknown,
   timeoutMs = 60_000,
+  identity: Record<string, string> = {},
 ): Promise<BridgeResponse> {
   return new Promise((resolve) => {
     const url = new URL(route, BASE_URL);
@@ -92,6 +98,7 @@ function request(
         path: url.pathname + url.search,
         headers: {
           Authorization: `Bearer ${TOKEN}`,
+          ...identity,
           ...(data
             ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
             : {}),
@@ -144,6 +151,9 @@ function fail(id: JsonRpcId, code: number, message: string): void {
 
 /** Tool results travel as content blocks — see mcpContent.ts. */
 const toolResult = buildToolResult;
+function compatToolResult(body: unknown, isError = false): Record<string, unknown> {
+  return { ...toolResult(body, isError), ...(body && typeof body === 'object' && !Array.isArray(body) ? { structuredContent: body } : {}) };
+}
 
 /**
  * Toolsets this client wants, e.g. WH_BRIDGE_GROUPS=writing,story. Unset means
@@ -157,6 +167,7 @@ const GROUPS = (process.env.WH_BRIDGE_GROUPS ?? '')
 
 /** The catalogue, trimmed to what the app currently permits when reachable. */
 async function listTools(): Promise<unknown[]> {
+  if (COMPAT_MODULE) return publishingCompatTools(COMPAT_MODULE);
   const query = GROUPS.length ? `?groups=${encodeURIComponent(GROUPS.join(','))}` : '';
   const live = await request('GET', `/api/tools${query}`);
   const served = (live.body as { tools?: unknown }).tools;
@@ -175,7 +186,10 @@ async function listTools(): Promise<unknown[]> {
   }));
 }
 
-async function callTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function callTool(name: string, args: Record<string, unknown>, meta: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  if (COMPAT_MODULE && !publishingCompatTools(COMPAT_MODULE).some(tool => tool.name === name)) {
+    return toolResult({ error: `Unknown tool in ${COMPAT_MODULE}: ${name}`, code: 'unknown-tool' }, true);
+  }
   if (!TOKEN) {
     return toolResult(
       {
@@ -184,6 +198,27 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
       },
       true,
     );
+  }
+  if (COMPAT_MODULE) {
+    // A mounted native route checks that this exact module is ON before it
+    // can start a worker. Discovery and calls to an OFF module never enable it.
+    const native = publishingCompatTools(COMPAT_MODULE).find(tool => tool.name === name)!;
+    const schema = native.inputSchema as Record<string, unknown>;
+    const budget = Number(('x-timeout-s' in native ? native['x-timeout-s'] : undefined) || schema['x-timeout-s'] || 180);
+    const wait = typeof args.wait_s === 'number' ? args.wait_s : 0;
+    const response = await request('POST', `/compat/${COMPAT_MODULE}/api/agent/call`,
+      { name, arguments: args, ...publishingCompatContext(meta) }, Math.max(budget, Math.max(0, wait) + 90) * 1000, publishingCompatIdentity(meta));
+    if (response.status === 0) {
+      if (response.body.error === 'timed out') {
+        const annotations = 'annotations' in native ? native.annotations as { readOnlyHint?: boolean } : undefined;
+        const body = { error: 'timeout', tool: name, outcome_unknown: !annotations?.readOnlyHint,
+          message: 'The request may still be running. Check its native status before retrying; it was not replayed.' };
+        return compatToolResult(body, true);
+      }
+      return toolResult({ error: 'Writers Hoard is not running. Open it explicitly.', code: 'app-closed' }, true);
+    }
+    const body = response.body;
+    return compatToolResult(body, response.status >= 400 || body.ok === false);
   }
   // Give the socket the tool's own budget plus a margin, so a deliberately
   // slow tool (an Instagram listing) is not cut off by the transport while the
@@ -230,7 +265,7 @@ export async function handleRpc(message: Record<string, unknown>): Promise<void>
       reply(id, {
         protocolVersion: requested || DEFAULT_PROTOCOL,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+        serverInfo: { name: COMPAT_MODULE ? `${SERVER_NAME}-${COMPAT_MODULE}` : SERVER_NAME, version: SERVER_VERSION },
         // Handed to the model verbatim: this is the briefing that means nobody
         // has to explain the app in a prompt.
         instructions: BRIDGE_INSTRUCTIONS,
@@ -249,7 +284,16 @@ export async function handleRpc(message: Record<string, unknown>): Promise<void>
         params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
           ? (params.arguments as Record<string, unknown>)
           : {};
-      reply(id, await callTool(name, args));
+      const meta = params._meta && typeof params._meta === 'object' && !Array.isArray(params._meta)
+        ? params._meta as Record<string, unknown> : {};
+      const token = meta.progressToken;
+      let progress = 0;
+      const beat = COMPAT_MODULE && (typeof token === 'string' || typeof token === 'number') ? setInterval(() => {
+        progress += 10;
+        send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress, message: name + ' is running' } });
+      }, 10_000) : undefined;
+      try { reply(id, await callTool(name, args, meta)); }
+      finally { if (beat) clearInterval(beat); }
       return;
     }
     default:
