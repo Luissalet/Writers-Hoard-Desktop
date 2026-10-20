@@ -1,0 +1,24 @@
+export const mapHistoryCopy = {
+  es: {
+    title: 'Épocas del mapa', current: 'Mapa actual', capture: 'Guardar época', name: 'Nombre de la época', date: 'Fecha del mundo',
+    dateHint: 'Admite tu calendario: «Año 431», «Antes de la inundación» o una fecha real.', description: 'Notas de esta época',
+    empty: 'Conserva cómo cambian las fronteras, rutas y lugares de tu mundo.',
+    savedOnly: 'Se guardan la imagen, las figuras, las capas y los marcadores ya guardados.',
+    preview: 'Vista histórica · solo lectura', return: 'Volver al mapa actual', restore: 'Restaurar esta época',
+    restoreHelp: 'La imagen, figuras, capas y marcadores actuales se sustituirán por esta época. Antes se guardará una copia de seguridad del mapa actual en el historial.',
+    recovery: 'Mapa actual antes de restaurar', delete: 'Eliminar época', deleteHelp: 'Se eliminará esta copia histórica. El mapa actual se conserva.',
+    save: 'Guardar datos de la época', failed: 'No se pudo guardar el cambio. Tu mapa actual se conserva; puedes reintentarlo.',
+    scrub: 'Recorrer las épocas del mapa', showForm: 'Nueva época', cancel: 'Cancelar', working: 'Guardando…', noDate: 'Sin fecha',
+  },
+  en: {
+    title: 'Map eras', current: 'Current map', capture: 'Save era', name: 'Era name', date: 'World date',
+    dateHint: 'Use your calendar: “Year 431”, “Before the flood” or a real date.', description: 'Era notes',
+    empty: 'Keep how borders, routes and places change through your world’s history.',
+    savedOnly: 'Captures the saved background, shapes, layers and markers.',
+    preview: 'Historical preview · read only', return: 'Back to current map', restore: 'Restore this era',
+    restoreHelp: 'The current background, shapes, layers and markers will be replaced with this era. A safety copy of the current map will first be saved in the history.',
+    recovery: 'Current map before restoring', delete: 'Delete era', deleteHelp: 'This historical copy will be deleted. The current map is kept.',
+    save: 'Save era details', failed: 'Could not save the change. Your current map is preserved; you can retry.',
+    scrub: 'Browse map eras', showForm: 'New era', cancel: 'Cancel', working: 'Saving…', noDate: 'No date',
+  },
+};

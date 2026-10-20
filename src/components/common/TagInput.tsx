@@ -8,9 +8,11 @@ interface TagInputProps {
   placeholder?: string;
   /** Known tags to suggest as the user types (e.g. tags already used elsewhere). */
   suggestions?: string[];
+  inputId?: string;
+  describedBy?: string;
 }
 
-export default function TagInput({ tags, onChange, placeholder, suggestions = [] }: TagInputProps) {
+export default function TagInput({ tags, onChange, placeholder, suggestions = [], inputId, describedBy }: TagInputProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('common.addTag');
   const [input, setInput] = useState('');
@@ -111,6 +113,8 @@ export default function TagInput({ tags, onChange, placeholder, suggestions = []
           </span>
         ))}
         <input
+          id={inputId}
+          aria-describedby={describedBy}
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}

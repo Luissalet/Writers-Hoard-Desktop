@@ -91,7 +91,7 @@ function FindingRow({
       return;
     }
     const adapter = getAnchorAdapter(finding.engineId);
-    if (adapter) adapter.navigateToEntity(finding.entityId, projectId);
+    if (adapter) adapter.navigateToEntity(finding.entityId, projectId, navigate);
     else navigate(`/project/${encodeURIComponent(projectId)}/${encodeURIComponent(finding.engineId)}`);
   };
 

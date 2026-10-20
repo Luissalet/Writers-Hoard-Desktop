@@ -162,6 +162,13 @@ export async function readJson<T>(zip: JSZip, path: string): Promise<T | null> {
 // Context objects passed to engine strategies
 // ---------------------------------------------------------------------------
 
+/** Binary counterpart of readJson, using preloaded bytes inside restore transactions. */
+export async function readBinary(zip: JSZip, path: string): Promise<Uint8Array | null> {
+  const preloaded = preloadedEntry(zip, path);
+  if (preloaded !== undefined) return preloaded;
+  return zip.file(path)?.async('uint8array') ?? null;
+}
+
 export interface ExportContext {
   zip: JSZip;
   projectId: string;

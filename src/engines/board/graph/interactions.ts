@@ -31,6 +31,6 @@ export function findOpenPosition(
 
 /** Keep shortcuts inside the canvas and out of forms, dialogs and toolbars. */
 export function isCanvasShortcutTarget(target: EventTarget | null, container: HTMLElement | null): boolean {
-  if (!(target instanceof HTMLElement) || !container?.contains(target)) return false;
+  if (!(target instanceof Element) || !container?.contains(target)) return false;
   return !target.closest('input, textarea, select, button, [contenteditable="true"], [role="dialog"], [role="menu"]');
 }

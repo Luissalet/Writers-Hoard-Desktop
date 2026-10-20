@@ -3,7 +3,7 @@ import { Network, Plus, Trash2, X, LayoutGrid, List } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, ConfirmDialog, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import ColorPicker from '@/components/common/ColorPicker';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
@@ -25,6 +25,7 @@ type ViewMode = 'matrix' | 'list';
 
 export default function RelationshipsEngine({ projectId }: EngineComponentProps) {
   const { t, locale } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const copy = getRelationshipsCopy(locale);
   const { items: relationships, loading, error, refresh, addItem: addRel, editItem: editRel, removeItem: removeRel } =
     useRelationships(projectId);

@@ -138,6 +138,8 @@ export interface BoardNode {
   position: { x: number; y: number };
   size: BoardSize;
   shape?: BoardShape;
+  /** Local percentage points in this node's bounds; ordinary graph semantics still apply. */
+  freehand?: { points: Array<{ x: number; y: number }>; width: number };
   layerId?: string;
   zIndex: number;
   locked?: boolean;

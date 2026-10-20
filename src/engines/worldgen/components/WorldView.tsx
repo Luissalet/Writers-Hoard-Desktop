@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
 import { toast } from '@/components/common/toast';
 import { EngineSpinner } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
@@ -77,6 +78,7 @@ import { regionKindVisible, semanticZoomProfile } from '../core/semanticZoom';
 import { regionClient } from '../region/client';
 import { bindCanonWorld, registerCanonPersistence } from '../canonSnapshots';
 import { registerRenderedTilePersistence } from '../renderedSnapshots';
+import { sheetCopy } from '../sheets/copy';
 
 // Canon supertiles persist across sessions from the moment the engine loads
 // (PENDIENTE §2b.1). Module scope on purpose: the registration must exist
@@ -91,6 +93,7 @@ import type { RegionData } from '../region/types';
 // still arrive on demand — but this IS the opening view now, so the chunk is
 // requested the moment the module loads rather than on a first click.
 const World3D = lazy(() => import('./World3D'));
+const FixedSheetView = lazy(() => import('../sheets/FixedSheetView'));
 
 const VIEW_MODES: ViewMode[] = ['atlas', 'elevation', 'temperature', 'precipitation', 'plates', 'flow'];
 const SHAPES_3D: Shape3D[] = ['plane', 'globe'];
@@ -142,7 +145,7 @@ interface WorldViewProps {
    */
   onSaveEdits: (edits: string) => Promise<void> | void;
   /** Persist lightweight named regional views; generated regional pixels stay derived. */
-  onSaveRegions: (regions: SavedWorldRegion[]) => Promise<void> | void;
+  onSaveRegions: (regions: SavedWorldRegion[], baseline?: SavedWorldRegion[]) => Promise<void> | void;
   onThumbnail: (thumbnail: string) => Promise<void> | void;
   focusWaypoint: WaypointFocus | null;
   focusSpatial?: SpatialFocus | null;
@@ -164,6 +167,7 @@ export default function WorldView({
   focusRegion,
 }: WorldViewProps) {
   const { t, locale } = useTranslation();
+  const pane = useEnginePane();
   const copy = worldWorkspaceCopy(locale);
   const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
   // Start above the whole map; perspective and export chart remain available.
@@ -187,6 +191,7 @@ export default function WorldView({
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
   const [regionAt, setRegionAt] = useState<{ x: number; y: number; savedId?: string } | null>(null);
   const [savedRegions, setSavedRegions] = useState<SavedWorldRegion[]>(() => world.regions ?? []);
+  const [fixedSheet, setFixedSheet] = useState<{ region: SavedWorldRegion; existing: boolean; draftKey?: string } | null>(null);
   const [viewport, setViewport] = useState<WorldViewport>({
     u: 0.5,
     v: 0.5,
@@ -292,8 +297,9 @@ export default function WorldView({
   const thumbRef = useRef<string | undefined>(world.thumbnail);
   const requestedPlan = useRef<RegenerationPlan | null>(null);
   const saveRegionsRef = useRef(onSaveRegions);
+  const regionBase = useRef(world.regions ?? []);
   saveRegionsRef.current = onSaveRegions;
-  const regionWriter = useMemo(() => createWorldEditWriter(`regions:${world.id}`, json => saveRegionsRef.current(JSON.parse(json))), [world.id]);
+  const regionWriter = useMemo(() => createWorldEditWriter(`regions:${world.id}`, async json => { const next: SavedWorldRegion[] = JSON.parse(json); await saveRegionsRef.current(next, regionBase.current); regionBase.current = next; }), [world.id]);
   useEffect(() => () => { void regionWriter.flush(); }, [regionWriter]);
 
   const handleDone = useCallback(async (data: WorldData) => {
@@ -305,6 +311,7 @@ export default function WorldView({
         editsSeed.current = saved.params.seed;
         setParams(normalizeParams(saved.params));
         setSavedRegions(saved.regions ?? []);
+        regionBase.current = saved.regions ?? [];
         requestedPlan.current = null;
         setRecipeError(null);
       } catch (error) {
@@ -354,6 +361,7 @@ export default function WorldView({
   }, [persistRegions, savedRegions]);
 
   const openSavedRegion = useCallback((region: SavedWorldRegion) => {
+    if (region.frameMode === 'canon') { setRegionAt(null); setFixedSheet({ region, existing: true }); return; }
     const width = data?.width ?? world.params.width;
     const height = data?.height ?? Math.max(1, Math.round(world.params.width / 2));
     setRegionAt({ x: region.x, y: region.y, savedId: region.id });
@@ -594,7 +602,8 @@ export default function WorldView({
     const region = savedRegions.find((candidate) => candidate.id === focusRegion.id);
     if (region && data) {
       setConsumedRegionToken(focusRegion.token);
-      setRegionAt({ x: region.x, y: region.y, savedId: region.id });
+      if (region.frameMode === 'canon') setFixedSheet({ region, existing: true });
+      else setRegionAt({ x: region.x, y: region.y, savedId: region.id });
       setViewport({
         u: ((region.x / data.width) % 1 + 1) % 1,
         v: Math.min(1, Math.max(0, region.y / data.height)),
@@ -1200,12 +1209,12 @@ export default function WorldView({
   }, [afterEdit, environment]);
 
   useEffect(() => {
-    const u = () => { if (!generationBusyRef.current && !preparingRef.current) undoEdit(); };
-    const r = () => { if (!generationBusyRef.current && !preparingRef.current) redoEdit(); };
+    const u = (event: Event) => { if (ownsEnginePaneEvent(pane, event) && !generationBusyRef.current && !preparingRef.current) undoEdit(); };
+    const r = (event: Event) => { if (ownsEnginePaneEvent(pane, event) && !generationBusyRef.current && !preparingRef.current) redoEdit(); };
     window.addEventListener('wg-undo', u);
     window.addEventListener('wg-redo', r);
     return () => { window.removeEventListener('wg-undo', u); window.removeEventListener('wg-redo', r); };
-  }, [undoEdit, redoEdit]);
+  }, [undoEdit, redoEdit, pane]);
 
   const theme = useMemo(() => themeById(themeId), [themeId]);
 
@@ -1318,6 +1327,7 @@ export default function WorldView({
    */
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, e)) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA'
         || (e.target as HTMLElement | null)?.isContentEditable) return;
@@ -1337,7 +1347,7 @@ export default function WorldView({
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
-  }, [view, flyCamera]);
+  }, [view, flyCamera, pane]);
 
   const flyTo = useCallback((u: number, v: number) => {
     flyCamera(u, v);
@@ -2411,6 +2421,7 @@ export default function WorldView({
             saveRegion(region);
             setRegionAt({ x: region.x, y: region.y, savedId: region.id });
           }}
+          onFrame={(region) => { setFixedSheet({ region: { ...region, id: generateId('region'), title: `${region.title} · ${sheetCopy[locale].copySuffix}`, frameMode: 'canon', createdAt: Date.now(), updatedAt: Date.now() }, existing: false, draftKey: regionAt.savedId ?? 'new' }); }}
           onClose={() => setRegionAt(null)}
           onFlyHere={(x, y, spanKm) => {
             setRegionAt(null);
@@ -2428,6 +2439,7 @@ export default function WorldView({
           sitesPolicy={worldSitesPolicy}
         />
       )}
+      {fixedSheet && data && geography && canonSource && <Suspense fallback={<EngineSpinner />}><FixedSheetView key={fixedSheet.region.id} record={world} initial={fixedSheet.region} existing={fixedSheet.existing} draftKey={fixedSheet.draftKey} world={data} canon={canonSource} geography={geography} theme={theme} prepare={async () => await editWriter.flush() && await regionWriter.flush()} onSaved={regions => { regionBase.current = regions; setSavedRegions(regions); void onRefreshWorld?.(); }} onClose={() => setFixedSheet(null)} /></Suspense>}
 
       {/* ---- City plan ---- */}
       {data && cityFor && (

@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
-import { describeWorldDate, parseWorldDate, type WorldCalendar } from '../worldCalendar';
+import { describeWorldDate, formatWorldDate, parseWorldDate, type WorldCalendar } from '../worldCalendar';
 
 interface WorldDateFieldProps {
   calendar: WorldCalendar;
@@ -17,9 +17,11 @@ interface WorldDateFieldProps {
  */
 export function WorldDateField({ calendar, label, value, onChange, optional, testId }: WorldDateFieldProps) {
   const { t } = useTranslation();
+  const monthListId = useId();
   const parsed = useMemo(() => (value.trim() ? parseWorldDate(calendar, value) : null), [calendar, value]);
   const info = useMemo(() => (parsed ? describeWorldDate(calendar, parsed) : null), [calendar, parsed]);
-  const example = `12 ${calendar.months[0].name} 3 ${calendar.eras[0].abbr}`;
+  const firstYear = Math.min(...calendar.eras.map(era => era.startYear));
+  const example = formatWorldDate(calendar, { year: firstYear + 2, month: 1, day: Math.min(12, calendar.months[0].days) });
   const inputId = testId ? `${testId}-input` : undefined;
   return (
     <div>
@@ -32,12 +34,12 @@ export function WorldDateField({ calendar, label, value, onChange, optional, tes
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={example}
-        list="world-calendar-months"
+        list={monthListId}
         aria-invalid={!!value.trim() && !parsed}
         className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
       />
-      <datalist id="world-calendar-months">
-        {calendar.months.map((m) => <option key={m.name} value={`1 ${m.name} 1 ${calendar.eras[0].abbr}`} />)}
+      <datalist id={monthListId}>
+        {calendar.months.map((m, index) => <option key={m.name} value={formatWorldDate(calendar, { year: firstYear, month: index + 1, day: 1 })} />)}
       </datalist>
       {value.trim() && (
         <p className={`text-[11px] mt-1 ${parsed ? 'text-text-muted' : 'text-danger'}`} role="status" data-testid={testId ? `${testId}-reading` : undefined}>

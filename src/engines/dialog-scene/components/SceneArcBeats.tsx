@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { useProject } from '@/hooks/useProjects';
 import { getArcBeatsForScene } from '@/engines/character-arc/operations';
 import { arcBeatPath } from '@/engines/character-arc/beatLinks';
@@ -26,6 +26,7 @@ export default function SceneArcBeats({
   beforeNavigate: () => Promise<boolean>;
 }) {
   const { t } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const { project } = useProject(projectId);
   const [busy, setBusy] = useState(false);
   // A switched-off engine hides its data from the author (lesson #40): no

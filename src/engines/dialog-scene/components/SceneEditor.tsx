@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Plus, Link2, Volume2 } from 'lucide-react';
+import { lazy, Suspense, useState, useMemo, useCallback, useRef } from 'react';
+import { Plus, Link2, MessageCircle, Volume2 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -38,6 +38,11 @@ import { createAnnotation } from '@/engines/annotations/operations';
 import { getSetting, PROJECT_SETTING_PREFIXES, updateSetting } from '@/db/operations';
 import { toast } from '@/components/common/toast';
 import { db } from '@/db';
+import { flushPendingWrites } from '@/services/pendingWrites';
+import { conversationCopy } from '../conversation/copy';
+
+const ConversationPreview = lazy(() => import('../conversation/ConversationPreview'));
+interface ConversationSnapshot { id: string; scene: Scene; blocks: DialogBlock[]; cast: SceneCast[] }
 
 interface SceneEditorProps {
   scene: Scene;
@@ -103,6 +108,8 @@ export default function SceneEditor({
   onBack,
 }: SceneEditorProps) {
   const { t, locale } = useTranslation();
+  const conversationText = conversationCopy[locale];
+  const editorRoot = useRef<HTMLDivElement>(null);
   void _scenes; // available for future scene-navigation features
   const { items: blocks, addItem: addBlock, editItem: editBlock, removeItem: removeBlock, reorder } =
     useDialogBlocks(scene.id);
@@ -156,6 +163,27 @@ export default function SceneEditor({
   const [editingSetting, setEditingSetting] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showTableRead, setShowTableRead] = useState(false);
+  const [conversation, setConversation] = useState<ConversationSnapshot | null>(null);
+  const [openingConversation, setOpeningConversation] = useState(false);
+  const openConversation = async () => {
+    if (openingConversation) return;
+    setOpeningConversation(true);
+    try {
+      if (!(await flushPendingWrites()).ok) throw new Error('Pending scene edits could not be saved.');
+      const freshScene = await db.scenes.get(scene.id);
+      if (!freshScene || freshScene.projectId !== scene.projectId) throw new Error('Scene unavailable.');
+      const [freshBlocks, freshCast] = await Promise.all([db.dialogBlocks.where('sceneId').equals(scene.id).toArray(), db.sceneCasts.where('sceneId').equals(scene.id).toArray()]);
+      setConversation({ id: crypto.randomUUID(), scene: freshScene, blocks: freshBlocks.filter(block => block.projectId === scene.projectId), cast: freshCast });
+    } catch { toast.error(conversationText.failure); }
+    finally { setOpeningConversation(false); }
+  };
+  const jumpFromConversation = (blockId: string) => {
+    setConversation(null);
+    window.requestAnimationFrame(() => {
+      const target = [...(editorRoot.current?.querySelectorAll<HTMLElement>('[data-dialog-block-id]') ?? [])].find(element => element.dataset.dialogBlockId === blockId);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' }); target?.querySelector<HTMLElement>('textarea, input, button')?.focus();
+    });
+  };
   // Blocks waiting for delete confirmation, like every other delete in the
   // app. A list because a dual pair's "Delete both" asks for its two blocks
   // in one click (onDeleteLeft + onDeleteRight) and gets one question.
@@ -206,7 +234,7 @@ export default function SceneEditor({
   const jumpFromTableRead = useCallback(async (anchor: ReadAloudNoteAnchor) => {
     setShowTableRead(false);
     window.setTimeout(() => {
-      const target = [...document.querySelectorAll<HTMLElement>('[data-dialog-block-id]')]
+      const target = [...(editorRoot.current?.querySelectorAll<HTMLElement>('[data-dialog-block-id]') ?? [])]
         .find((element) => element.dataset.dialogBlockId === anchor.blockId);
       target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       target?.querySelector<HTMLElement>('textarea, input, button')?.focus();
@@ -356,9 +384,9 @@ export default function SceneEditor({
   const blockIds = useMemo(() => blocks.map((b) => b.id), [blocks]);
 
   return (
-    <div className="h-full flex flex-col bg-deep">
+    <div ref={editorRoot} className="h-full flex flex-col bg-deep">
       {/* Header */}
-      <div className="border-b border-border bg-surface/30 px-6 py-4 flex items-center justify-between">
+      <div className="border-b border-border bg-surface/30 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex-1 flex items-start gap-3">
           {/* Scene number badge */}
           <span className={`inline-flex items-center justify-center w-10 h-10 rounded-lg text-sm font-bold flex-shrink-0 mt-0.5 ${
@@ -432,8 +460,9 @@ export default function SceneEditor({
           )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ChronometryBadge blocks={blocks} />
+          <button type="button" data-testid="conversation-open" onClick={() => void openConversation()} disabled={openingConversation || blocks.length === 0} aria-busy={openingConversation} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-text-muted transition hover:border-accent-gold/50 hover:text-accent-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold disabled:opacity-40"><MessageCircle size={15} aria-hidden="true" />{openingConversation ? conversationText.loading : conversationText.button}</button>
           <button
             type="button"
             onClick={() => setShowTableRead(true)}
@@ -763,6 +792,9 @@ export default function SceneEditor({
           </div>
         </div>
       </div>
+      <Modal open={conversation !== null} onClose={() => setConversation(null)} title={conversationText.title} fullscreen>
+        {conversation && <Suspense fallback={<p className="p-5 text-text-muted">{conversationText.loading}</p>}><ConversationPreview key={conversation.id} scene={conversation.scene} blocks={conversation.blocks} cast={conversation.cast} onSource={jumpFromConversation} /></Suspense>}
+      </Modal>
       <Modal
         open={showTableRead}
         onClose={() => setShowTableRead(false)}

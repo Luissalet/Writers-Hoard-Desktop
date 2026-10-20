@@ -5,6 +5,10 @@ import type { Project, CodexEntry, Timeline, TimelineEvent, WorldMap, MapPin } f
 import type { Relationship } from '@/engines/relationships/types';
 import es from '@/locales/es';
 import en from '@/locales/en';
+import { eventEntryIds } from '@/engines/timeline/eventDetails';
+import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
+import type { WorldCalendar } from '@/engines/timeline/worldCalendar';
+import { timelineEventLabel } from '@/engines/timeline/eventClock';
 
 export const BIBLE_SECTIONS = ['codex', 'timeline', 'maps', 'relationships'] as const;
 export type BibleSection = typeof BIBLE_SECTIONS[number];
@@ -25,6 +29,7 @@ export interface BibleData {
   maps: WorldMap[];
   pins: MapPin[];
   relationships: Relationship[];
+  calendar?: WorldCalendar;
 }
 export const bibleCopy = (locale: 'es' | 'en' = 'es') => locale === 'es' ? {
   title: 'Biblia del mundo', codex: 'Codex', timeline: 'Cronología', maps: 'Mapas', relationships: 'Relaciones',
@@ -48,7 +53,7 @@ export async function loadBibleData(projectId: string): Promise<BibleData> {
       db.mapPins.where('projectId').equals(projectId).toArray(),
       db.relationships.where('projectId').equals(projectId).toArray(),
     ]);
-    return { project, entries, timelines, events, maps, pins, relationships };
+    return { project, entries, timelines, events, maps, pins, relationships, calendar: (await resolveWorldCalendar(projectId))?.calendar };
   });
 }
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
@@ -98,7 +103,7 @@ export function buildWorldBible(data: BibleData, selection: BibleSelection = {},
     if (section === 'codex') body = entries.map(entry => {
       return `<article id="${anchor('entry', entry.id)}"><h3>${esc(entry.title)}</h3><p class="meta">${esc(label('codex.types', entry.type))} · ${entry.tags.map(esc).join(', ')}</p>${raster(entry.avatar) ? `<img class="portrait" src="${entry.avatar}" alt="${esc(entry.title)}">` : ''}<dl>${Object.entries(entry.fields).filter(([, value]) => value).map(([key, value]) => `<dt>${esc(label('codex.field', key))}</dt><dd>${esc(value)}</dd>`).join('')}</dl>${rich(entry.content)}${entry.relations.length ? `<ul>${entry.relations.map(relation => `<li>${link(relation.targetId, relation.targetTitle)} — ${esc(relation.type)} ${esc(relation.description)}</li>`).join('')}</ul>` : ''}${source(entry.id, entry.updatedAt, entry.familySource?.ref)}</article>`;
     }).join('');
-    if (section === 'timeline') body = timelines.map(timeline => `<article><h3>${esc(timeline.title)}</h3><p>${esc(timeline.description)}</p><ol>${events.filter(event => event.timelineId === timeline.id).map(event => `<li><h4>${esc(event.date)} · ${esc(event.title)}</h4><p>${esc(event.description).replace(/\n/g, '<br>')}</p>${event.linkedEntryId ? `<p>${link(event.linkedEntryId, event.linkedEntryId)}</p>` : ''}${source(event.id, event.updatedAt, event.familySource?.ref)}</li>`).join('')}</ol>${source(timeline.id, timeline.updatedAt)}</article>`).join('');
+    if (section === 'timeline') body = timelines.map(timeline => `<article><h3>${esc(timeline.title)}</h3><p>${esc(timeline.description)}</p><ol>${events.filter(event => event.timelineId === timeline.id).map(event => `<li><h4>${esc(timelineEventLabel(event, timeline.worldCalendar ?? data.calendar ?? data.project.worldCalendar, locale))} · ${esc(event.title)}</h4><p>${esc(event.description).replace(/\n/g, '<br>')}</p>${raster(event.image) ? `<img class="portrait" src="${esc(event.image)}" alt="${esc(event.title)}">` : ''}${eventEntryIds(event).length ? `<ul>${eventEntryIds(event).map(id => `<li>${link(id, id)}</li>`).join('')}</ul>` : ''}${source(event.id, event.updatedAt, event.familySource?.ref)}</li>`).join('')}</ol>${source(timeline.id, timeline.updatedAt)}</article>`).join('');
     if (section === 'maps') body = maps.map(map => {
       const mapPins = pins.filter(pin => pin.mapId === map.id);
       const markers = mapPins.filter(pin => Number.isFinite(pin.position.x) && Number.isFinite(pin.position.y)).map(pin => `<span class="pin" style="left:${Math.min(100, Math.max(0, pin.position.x))}%;top:${Math.min(100, Math.max(0, pin.position.y))}%" title="${esc(pin.name)}">${mapPins.indexOf(pin) + 1}</span>`).join('');

@@ -45,12 +45,13 @@ function isTextEntry(node: Element | null): boolean {
 }
 
 export function ownsEditorShortcut(surface: HTMLElement): boolean {
+  if (surface.closest('[hidden], [inert]')) return false;
   const active = document.activeElement;
   if (active && surface.contains(active)) return true;
   if (isTextEntry(active)) return false;
 
   const fallback =
-    lastFocused && surfaces.includes(lastFocused)
+    lastFocused && !lastFocused.closest('[hidden], [inert]') && surfaces.includes(lastFocused)
       ? lastFocused
       : surfaces.length === 1
         ? surfaces[0]

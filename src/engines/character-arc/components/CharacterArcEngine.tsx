@@ -23,7 +23,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { t, useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, ConfirmDialog, LinkSelect, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { useProject } from '@/hooks/useProjects';
 import { toast } from '@/components/common/toast';
 import EmptyState from '@/components/common/EmptyState';
@@ -682,6 +682,7 @@ function BeatRow({
   links: ArcBeatLink[];
 }) {
   const { t } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [navigating, setNavigating] = useState(false);

@@ -164,9 +164,9 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
 
   const handleDoubleClick = useCallback(() => {
     if (node.locked || data.layerLocked) return;
-    if (INLINE_EDITABLE.has(node.kind)) setEditing(true);
+    if (INLINE_EDITABLE.has(node.kind) && !node.freehand) setEditing(true);
     else data.onEdit(id);
-  }, [node.locked, node.kind, data, id]);
+  }, [node.locked, node.kind, node.freehand, data, id]);
 
   const roleDef = getNodeRole(node.role);
   const RoleIcon = roleDef ? ROLE_ICONS[roleDef.icon as keyof typeof ROLE_ICONS] : undefined;
@@ -284,6 +284,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
         );
 
       case 'shape':
+        if (node.freehand) return <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full overflow-visible" data-testid={`board-stroke-${node.id}`}><title>{node.title}</title><polyline points={node.freehand.points.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke={node.color} strokeWidth={node.freehand.width} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></svg>;
         return (
           <div style={shapeStyle(node)} className="flex items-center justify-center p-3 text-center">
             {titleNode ?? <span className="text-sm font-semibold text-text-primary">{node.title}</span>}

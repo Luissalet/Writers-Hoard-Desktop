@@ -98,20 +98,20 @@ registerAnchorAdapter({
     return beat?.title ?? null;
   },
   getEngineChipLabel: () => t('engines.outline.name'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     void (async () => {
       const outline = await db.outlines.get(entityId);
       if (outline?.projectId === pid) {
-        navigateTo(
+        navigate(
           `/project/${encodeURIComponent(pid)}/outline?outline=${encodeURIComponent(outline.id)}`,
         );
         return;
       }
       const beat = await db.outlineBeats.get(entityId);
       if (!beat || beat.projectId !== pid) return;
-      navigateTo(
+      navigate(
         `/project/${encodeURIComponent(pid)}/outline?outline=${encodeURIComponent(beat.outlineId)}&beat=${encodeURIComponent(beat.id)}`,
       );
     })();

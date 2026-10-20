@@ -13,6 +13,7 @@ import { updateProject } from '@/db/operations';
 import { rememberProjectTab } from '@/services/projectIntelligence';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAppStore } from '@/stores/appStore';
+import ProjectWorkspace from '@/components/project/workspace/ProjectWorkspace';
 
 export default function ProjectDetail() {
   const { t } = useTranslation();
@@ -135,7 +136,7 @@ export default function ProjectDetail() {
       <div className="flex-1 overflow-hidden flex flex-col">
         {error && <ReadErrorNotice onRetry={refresh} />}
         {/* Engine content — no more tab bar */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <ProjectWorkspace key={id} projectId={id!} engines={engines}>
           {tab === 'overview' ? (
             <EngineErrorBoundary
               resetKey={`${id}:overview`}
@@ -183,7 +184,7 @@ export default function ProjectDetail() {
               </div>
             </div>
           )}
-        </div>
+        </ProjectWorkspace>
       </div>
 
       {/* Engine Manager Modal */}

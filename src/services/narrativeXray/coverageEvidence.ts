@@ -20,6 +20,7 @@
  */
 
 import { db } from '@/db';
+import { eventEntryIds } from '@/engines/timeline/eventDetails';
 import { getSetting, updateSetting } from '@/db/operations';
 import {
   buildAppearanceCandidates,
@@ -93,6 +94,7 @@ export interface TimelineEvidenceRow {
   eventId: string;
   title: string;
   linkedEntryId?: string;
+  linkedEntryIds?: string[];
   status: EvidenceStatus;
   inferred: EvidenceStatus;
   manual?: EvidenceStatus;
@@ -394,7 +396,7 @@ export function writingHasPovTag(content: string, name: string, aliases: string[
 
 export function buildTimelineEvidenceFromParts(input: {
   projectId: string;
-  events: Array<{ id: string; title: string; linkedEntryId?: string }>;
+  events: Array<{ id: string; title: string; linkedEntryId?: string; linkedEntryIds?: string[] }>;
   mentionedEntryIds: Set<string>;
   writings: Array<{ id: string; title: string; chapter?: number; content: string }>;
   writingHashes: Map<string, string>;
@@ -403,13 +405,14 @@ export function buildTimelineEvidenceFromParts(input: {
   const manuscriptHash = manuscriptHashFromWritingHashes(input.writingHashes);
   const rows: TimelineEvidenceRow[] = [];
   for (const event of input.events) {
+    const links = eventEntryIds(event);
     const witness = findEventWitness(input.writings, event.title);
     const inferred = inferTimelineEvidence({
       eventTitle: event.title,
       eventWitnessedInProse: Boolean(witness),
-      linkedEntryId: event.linkedEntryId,
+      linkedEntryId: links[0],
       characterMentionedInAnyWriting: Boolean(
-        event.linkedEntryId && input.mentionedEntryIds.has(event.linkedEntryId),
+        links.some(id => input.mentionedEntryIds.has(id)),
       ),
     });
     const override = input.overrides.rows[event.id];
@@ -426,7 +429,8 @@ export function buildTimelineEvidenceFromParts(input: {
     rows.push({
       eventId: event.id,
       title: event.title,
-      linkedEntryId: event.linkedEntryId,
+      linkedEntryId: links[0],
+      linkedEntryIds: links,
       inferred,
       manual: override?.status,
       writingId: override?.writingId ?? witness?.writingId,
@@ -656,7 +660,7 @@ export async function loadTimelineEvidence(projectId: string): Promise<TimelineE
   );
   return buildTimelineEvidenceFromParts({
     projectId,
-    events: events.map((e) => ({ id: e.id, title: e.title, linkedEntryId: e.linkedEntryId })),
+    events: events.map((e) => ({ id: e.id, title: e.title, linkedEntryId: e.linkedEntryId, linkedEntryIds: e.linkedEntryIds })),
     mentionedEntryIds,
     writings: writings.map((w) => ({
       id: w.id,

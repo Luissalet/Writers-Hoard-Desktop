@@ -74,7 +74,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: PenLine,
     color: '#c4973b',
     defaultEngines: ['writings', 'codex', 'timeline', 'board', 'maps', 'gallery', 'outline'],
-    suggestedEngines: ['worldgen', 'real-atlas', 'storyboard', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
+    suggestedEngines: ['worldgen', 'real-atlas', 'storyboard', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit', 'dictionary'],
   },
   {
     // Fiction set in the real world — as it is, or with deliberate changes

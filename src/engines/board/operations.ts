@@ -1,3 +1,4 @@
+import { archiveWithMutation } from '@/services/documentArchive/store';
 // ============================================
 // Board Engine — Database Operations
 // ============================================
@@ -45,6 +46,9 @@ const deleteBoardRow = makeCascadeDeleteOp({
  * existed: invisible, unreachable, and never collected.
  */
 export async function deleteBoard(id: string): Promise<void> {
+  return archiveWithMutation('board', id, () => deleteBoardRows(id));
+}
+async function deleteBoardRows(id: string): Promise<void> {
   await db.transaction(
     'rw',
     ['boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews', 'annotations', 'annotationReferences'],

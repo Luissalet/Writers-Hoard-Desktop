@@ -167,12 +167,12 @@ registerAnchorAdapter({
       .find((region) => region.id === entityId)?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.worldgen'),
-  async navigateToEntity(entityId: string, projectId?: string) {
+  async navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     try {
       const route = await resolveWorldgenRoute(pid, entityId);
-      if (route) navigateTo(route);
+      if (route) navigate(route);
     } catch (error) {
       console.warn('[worldgen] Could not resolve linked place', error);
     }

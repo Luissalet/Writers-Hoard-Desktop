@@ -8,7 +8,7 @@ import '@xyflow/react/dist/style.css';
 import { GitBranch, Plus, Route, Search, Trash2, X } from 'lucide-react';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import { resolveEntity } from '@/engines/_shared';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import { DEFAULT_SIZE, EDGE_KINDS, GRID_STEP, SURFACE_PALETTE } from '../catalog';
@@ -32,6 +32,9 @@ import EntityPicker from './EntityPicker';
 import { EdgeInspector, NodeInspector } from './Inspector';
 import { LayersPanel, MetricsPanel, ViewsPanel } from './SidePanels';
 import Toolbar, { type PanelKey } from './Toolbar';
+import FreehandOverlay from './FreehandOverlay';
+import { makeFreehandNode } from '../freehand';
+import { freehandCopy } from '../freehandCopy';
 
 const nodeTypes = { board: BoardNodeView };
 const fitOptions = { padding: { top: '128px', left: '112px', right: '48px', bottom: '64px' }, maxZoom: 1 } as const;
@@ -83,6 +86,7 @@ export default function BoardCanvas(props: BoardCanvasProps) {
 
 function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasProps) {
   const { t, locale } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const copy = getBoardCopy(locale);
   const [searchParams] = useSearchParams();
   const targetNodeId = searchParams.get('node');
@@ -109,6 +113,9 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [snap, setSnap] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
+  const [drawing, setDrawing] = useState(false);
+  const [drawingColor, setDrawingColor] = useState('#d5b575');
+  const [drawingWidth, setDrawingWidth] = useState(3);
   const [pickerFor, setPickerFor] = useState<string | 'new' | null>(null);
   const [pathIds, setPathIds] = useState<{ nodes: Set<string>; edges: Set<string> } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ nodes: string[]; edges: string[] } | null>(null);
@@ -269,7 +276,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
       if (!node?.ref || node.ref.missing) return;
       navigateTo(`/project/${projectId}/${node.ref.engineId}`);
     },
-    [graph.nodeById, projectId],
+    [graph.nodeById, projectId, navigateTo],
   );
 
   // ---- React Flow nodes ------------------------------------------------
@@ -760,6 +767,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
       const mod = event.ctrlKey || event.metaKey;
 
       if (event.key === 'Escape') {
+        setDrawing(false);
         setLink(null);
         setPathIds(null);
         setSelectedNodeIds(new Set());
@@ -1112,6 +1120,9 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
         }}
         deleteKeyCode={null}
         zoomOnDoubleClick={false}
+        panOnDrag={!drawing}
+        zoomOnScroll={!drawing}
+        zoomOnPinch={!drawing}
         // Loose: any handle accepts a thread from any other. Strict mode meant
         // you had to leave from a bottom/right dot and land on a top/left one,
         // which is a rule the board has no reason to impose.
@@ -1137,7 +1148,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
           size={1}
           color="#2a2a3a"
         />
-        <Controls className="board-chrome" position="bottom-right" showInteractive={false} fitViewOptions={fitOptions} />
+        <Controls className="board-chrome wh-canvas-controls" position="bottom-right" showInteractive={false} fitViewOptions={fitOptions} />
         <MiniMap
           className="board-chrome !ml-28"
           position="bottom-left"
@@ -1165,11 +1176,12 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
 
         <Panel position="top-left">
           <Toolbar
-            onAdd={addNode}
+            onAdd={kind => { setDrawing(false); addNode(kind); }}
+            drawing={drawing}
+            drawingDisabled={graph.loading}
+            onToggleDrawing={() => { setDrawing(value => !value); setLink(null); setPanel(null); }}
             linking={Boolean(link)}
-            onToggleLink={() =>
-              setLink((current) => (current ? null : { sources: [], targets: [], stage: 'source', kind: 'related' }))
-            }
+            onToggleLink={() => { setDrawing(false); setLink((current) => (current ? null : { sources: [], targets: [], stage: 'source', kind: 'related' })); }}
             onUndo={graph.undo}
             onRedo={graph.redo}
             canUndo={graph.canUndo}
@@ -1340,6 +1352,11 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
             </div>
           </Panel>
         ) : null}
+        {drawing && <FreehandOverlay color={drawingColor} width={drawingWidth} onColor={setDrawingColor} onWidth={setDrawingWidth} onDone={() => setDrawing(false)} disabled={graph.loading || (!!activeLayerId && (layerById.get(activeLayerId)?.locked === true || layerById.get(activeLayerId)?.visible === false))} onStroke={(points, zoom) => {
+          if (graph.loading || (activeLayerId && (layerById.get(activeLayerId)?.locked || layerById.get(activeLayerId)?.visible === false))) return;
+          const node = makeFreehandNode({ projectId, boardId, title: freehandCopy(locale).title, color: drawingColor, width: drawingWidth, points, layerId: activeLayerId ?? undefined, tolerance: 1 / Math.max(.005, zoom) });
+          if (node) { graph.addNodes([node], freehandCopy(locale).title); setSelectedNodeIds(new Set([node.id])); setSelectedEdgeIds(new Set()); }
+        }} />}
       </ReactFlow>
 
       {(selectedNode || selectedEdge || panel) && (

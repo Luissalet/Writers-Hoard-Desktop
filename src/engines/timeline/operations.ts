@@ -1,3 +1,4 @@
+import { archiveWithMutation } from '@/services/documentArchive/store';
 // ============================================
 // Timeline Engine — Database Operations
 // ============================================
@@ -29,6 +30,9 @@ export async function updateTimeline(id: string, changes: Partial<Timeline>): Pr
  * survived in Dexie and were written into every backup ZIP.
  */
 export async function deleteTimeline(id: string): Promise<void> {
+  return archiveWithMutation('timeline', id, () => deleteTimelineRows(id));
+}
+async function deleteTimelineRows(id: string): Promise<void> {
   await db.transaction('rw', db.timelines, db.timelineEvents, db.timelineConnections, async () => {
     const eventIds = (
       await db.timelineEvents.where('timelineId').equals(id).primaryKeys()

@@ -5,8 +5,8 @@
 // A collapsible panel beside the manuscript. It lists the codex entries whose
 // name or alias occurs in the text (no model: the matcher in
 // services/codexReference), shows their essentials, and opens the full entry
-// in the panel itself. Searching also reaches the project's notes and library,
-// read-only. The editor is never touched: items take focus without moving the
+// in the panel itself. A consulted Codex entry can be edited without leaving
+// the manuscript. Notes/library remain read-only. Items take focus without moving the
 // editor's selection, and Escape hands focus back to it.
 //
 // Two shapes, one component:
@@ -22,10 +22,18 @@
 // "Mentioned" is all it claims. A name in the text is not presence in a scene
 // and not a point of view.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
-import { BookOpen, ChevronLeft, Pin, PinOff, Search, X } from 'lucide-react';
+import { BookOpen, ChevronLeft, Pencil, Pin, PinOff, Search, X } from 'lucide-react';
 import { useCodexEntries } from '@/engines/codex/hooks';
+import { saveCodexDraft } from '@/engines/codex/operations';
+import CodexEntryForm from '@/components/codex/CodexEntryForm';
+import Modal from '@/components/common/Modal';
+import { notifyDataChanged } from '@/engines/_shared/dataChanged';
+import { OPEN_CODEX_REFERENCE, type OpenCodexReferenceDetail } from '@/services/codexReference/inlineMentions';
+import { useEnginePane, paneReferenceScope, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
+import { isAliasField, readAliases } from '@/services/codexReference/aliases';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
   bodyParagraphs,
@@ -105,8 +113,14 @@ export default function ReferencePanel({
   loadedRange = null,
 }: Props) {
   const { t } = useTranslation();
-  const { items: entries } = useCodexEntries(projectId);
-  const narrow = useNarrow(narrowBreakpoint);
+  const pane = useEnginePane();
+  const referenceScope = paneReferenceScope(writingId, pane);
+  const panelBodyId = useId();
+  const floating = (children: ReactNode) => pane?.overlayTarget ? createPortal(children, pane.overlayTarget) : children;
+  const positioning = pane?.overlayTarget ? 'absolute' : 'fixed';
+  const { items: entries, refresh } = useCodexEntries(projectId);
+  const windowNarrow = useNarrow(narrowBreakpoint);
+  const narrow = pane?.width !== undefined ? pane.width < narrowBreakpoint : windowNarrow;
   const { width } = prefs;
   const drawer = mode === 'temporary' || narrow;
   const open = drawer ? prefs.consult : prefs.open;
@@ -119,6 +133,19 @@ export default function ReferencePanel({
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewSource, setPreviewSource] = useState<ReferenceSourceItem | null>(null);
   const [liveText, setLiveText] = useState('');
+  const [editingEntry, setEditingEntry] = useState<CodexEntry | null>(null);
+  const [savingEntry, setSavingEntry] = useState(false);
+  const [entryDirty, setEntryDirty] = useState(false);
+  useEffect(() => {
+    const openMention = (event: Event) => {
+      const detail = (event as CustomEvent<OpenCodexReferenceDetail>).detail;
+      if (pane && !pane.visible || !detail || detail.handled || detail.projectId !== projectId || detail.scopeId && detail.scopeId !== referenceScope || !entries.some(entry => entry.id === detail.entryId) || editingEntry) return;
+      detail.handled = true;
+      setPreviewSource(null); setPreviewId(detail.entryId); setQuery(''); setOpen(true);
+    };
+    window.addEventListener(OPEN_CODEX_REFERENCE, openMention);
+    return () => window.removeEventListener(OPEN_CODEX_REFERENCE, openMention);
+  }, [entries, projectId, referenceScope, setOpen, editingEntry, pane]);
   const previewTitleRef = useRef<HTMLHeadingElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const firstRun = useRef(true);
@@ -218,6 +245,7 @@ export default function ReferencePanel({
     editor?.view.focus();
   }, [editor]);
 
+
   const closePreviews = () => {
     setPreviewId(null);
     setPreviewSource(null);
@@ -235,6 +263,8 @@ export default function ReferencePanel({
   // The panel's shortcut. Capture on the window so it works from the editor.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, event)) return;
+      if (editingEntry) return;
       if (event.ctrlKey && event.altKey && !event.shiftKey && event.key.toLowerCase() === 'r') {
         event.preventDefault();
         toggle();
@@ -242,7 +272,7 @@ export default function ReferencePanel({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [toggle]);
+  }, [toggle, editingEntry, pane]);
 
   // Escape from the text closes a drawer left open over it (inside the panel
   // its own handler runs first and stops the event).
@@ -251,6 +281,8 @@ export default function ReferencePanel({
     // Capture phase: this Escape is spent on the drawer, so it must not also
     // leave focus mode (the editor's own handler listens on the way back up).
     const handler = (event: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, event)) return;
+      if (editingEntry) return;
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       // From inside the panel, its own handler (preview, search, then close) decides.
       if (event.target instanceof Element && event.target.closest('[data-testid="reference-panel"]')) return;
@@ -259,13 +291,14 @@ export default function ReferencePanel({
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [drawer, open, setOpen]);
+  }, [drawer, open, setOpen, editingEntry, pane]);
 
   useEffect(() => {
     if (previewId || previewSource) previewTitleRef.current?.focus();
   }, [previewId, previewSource]);
 
   const onPanelKeyDown = (event: React.KeyboardEvent) => {
+    if (editingEntry) return;
     if (event.key !== 'Escape') return;
     event.stopPropagation();
     if (previewId || previewSource) closePreviews();
@@ -374,10 +407,13 @@ export default function ReferencePanel({
   const previewEntry = previewId ? byId.get(previewId) : undefined;
   const renderPreview = (entry: CodexEntry) => {
     const paragraphs = bodyParagraphs(entry.content);
-    const fields = Object.entries(entry.fields ?? {}).filter(([, value]) => typeof value === 'string' && value.trim());
+    const fields = Object.entries(entry.fields ?? {}).filter(([key, value]) => !isAliasField(key) && typeof value === 'string' && value.trim());
     return (
       <div data-testid="reference-preview" className="space-y-3">
-        {backButton}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          {backButton}
+          <button type="button" onMouseDown={keepEditorFocus} onClick={() => { setEntryDirty(false); setEditingEntry(entry); }} data-testid="reference-edit-entry" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-text-primary hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50"><Pencil size={13} aria-hidden="true" />{t('codex.editEntry')}</button>
+        </div>
         <div className="flex items-start gap-3">
           {entry.avatar && <img src={entry.avatar} alt="" className="h-16 w-16 flex-shrink-0 rounded object-cover" />}
           <div className="min-w-0">
@@ -386,6 +422,7 @@ export default function ReferencePanel({
             </h3>
             <p className="text-[10px] uppercase tracking-wide text-text-muted">{typeLabel(entry.type)}</p>
             {entry.tags.length > 0 && <p className="mt-1 text-xs text-text-muted">{entry.tags.join(' · ')}</p>}
+            {readAliases(entry.fields).length > 0 && <p className="mt-1 text-xs text-text-muted">{t('codex.aliases')}: {readAliases(entry.fields).join(' · ')}</p>}
           </div>
         </div>
         {fields.length > 0 && (
@@ -398,6 +435,7 @@ export default function ReferencePanel({
             ))}
           </dl>
         )}
+        {Object.entries(entry.referenceFields ?? {}).some(([, ids]) => ids.length > 0) && <dl className="space-y-2 text-xs">{Object.entries(entry.referenceFields ?? {}).map(([key, ids]) => ids.length > 0 && <div key={key}><dt className="font-semibold text-text-primary">{key}</dt><dd className="flex flex-wrap gap-2 mt-1">{ids.map(id => { const target = byId.get(id); return target ? <button key={id} type="button" onMouseDown={keepEditorFocus} onClick={() => setPreviewId(target.id)} className="text-accent-gold underline underline-offset-2">{target.title}</button> : <span key={id} className="text-text-muted">{t('codex.fields.missingReference')}</span>; })}</dd></div>)}</dl>}
         {paragraphs.length > 0 ? (
           <div className="space-y-2 text-sm leading-relaxed text-text-primary">
             {paragraphs.map((paragraph, index) => (
@@ -441,7 +479,7 @@ export default function ReferencePanel({
         onMouseDown={keepEditorFocus}
         onClick={toggle}
         aria-expanded={open}
-        aria-controls="reference-panel-body"
+        aria-controls={panelBodyId}
         aria-label={t('writings.reference.toggle')}
         title={`${t('writings.reference.toggle')} (Ctrl+Alt+R)`}
         data-testid="reference-toggle"
@@ -475,7 +513,7 @@ export default function ReferencePanel({
   );
 
   const body = open && (
-    <div id="reference-panel-body" className="mt-3 space-y-3">
+    <div id={panelBodyId} className="mt-3 space-y-3">
       {previewEntry ? (
         renderPreview(previewEntry)
       ) : previewSource ? (
@@ -528,6 +566,27 @@ export default function ReferencePanel({
     </div>
   );
 
+  const entryEditor = (
+    <Modal open={editingEntry !== null} busy={savingEntry} dismissible={!entryDirty} onClose={() => setEditingEntry(null)} restoreFocus={focusEditor} title={t('codex.editEntry')} wide>
+      {editingEntry && (
+        <CodexEntryForm
+          key={editingEntry.id}
+          projectId={projectId}
+          entry={editingEntry}
+          onPendingChange={setSavingEntry}
+          onDirtyChange={setEntryDirty}
+          onSave={async (draft, base) => {
+            await saveCodexDraft(base ?? editingEntry, draft);
+            await refresh();
+            notifyDataChanged({ source: 'other', projectId, table: 'codexEntries', entityId: draft.id });
+            setEditingEntry(null);
+          }}
+          onCancel={() => setEditingEntry(null)}
+        />
+      )}
+    </Modal>
+  );
+
   const resizeHandle = open && !drawer && (
     <div
       role="separator"
@@ -562,19 +621,19 @@ export default function ReferencePanel({
   if (drawer && !open) {
     // Closed drawer: one floating button, always inside the viewport, so the
     // panel is never down at the end of a long chapter.
-    return (
+    return floating(
       <button
         ref={toggleRef}
         type="button"
         onMouseDown={keepEditorFocus}
         onClick={toggle}
         aria-expanded={false}
-        aria-controls="reference-panel-body"
+        aria-controls={panelBodyId}
         aria-label={t('writings.reference.toggle')}
         title={`${t('writings.reference.toggle')} (Ctrl+Alt+R)`}
         data-testid="reference-toggle"
         data-mode="floating"
-        className={`fixed bottom-4 ${anchor === 'left' ? 'left-4' : 'right-4'} z-30 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-2 text-sm font-semibold text-text-primary shadow-lg backdrop-blur transition hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50`}
+        className={`${positioning} pointer-events-auto bottom-4 ${anchor === 'left' ? 'left-4' : 'right-4'} z-30 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-2 text-sm font-semibold text-text-primary shadow-lg backdrop-blur transition hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50`}
       >
         <BookOpen size={15} aria-hidden="true" className="text-accent-gold" />
         {t('writings.reference.title')}
@@ -583,7 +642,7 @@ export default function ReferencePanel({
   }
 
   if (drawer) {
-    return (
+    return floating(
       <>
         {mode === 'docked' && (
           <button
@@ -591,7 +650,7 @@ export default function ReferencePanel({
             tabIndex={-1}
             aria-hidden="true"
             onClick={() => setOpen(false)}
-            className="fixed inset-0 z-30 bg-black/40"
+            className={`${positioning} pointer-events-auto inset-0 z-30 bg-black/40`}
             data-testid="reference-backdrop"
           />
         )}
@@ -604,17 +663,19 @@ export default function ReferencePanel({
           data-temporary={mode === 'temporary' ? 'true' : 'false'}
           data-open="true"
           onKeyDown={onPanelKeyDown}
-          style={{ width: `min(${width}px, calc(100vw - 24px))` }}
-          className="fixed inset-y-0 right-0 z-40 overflow-y-auto border-l border-border bg-surface p-3 shadow-2xl"
+          style={{ width: `min(${width}px, calc(${pane?.overlayTarget ? '100%' : '100vw'} - 24px))` }}
+          className={`${positioning} pointer-events-auto inset-y-0 right-0 z-40 overflow-y-auto border-l border-border bg-surface p-3 shadow-2xl`}
         >
           {header}
           {body}
         </aside>
+        {entryEditor}
       </>
     );
   }
 
   return (
+    <>
     <section
       aria-label={t('writings.reference.toggle')}
       data-testid="reference-panel"
@@ -627,5 +688,7 @@ export default function ReferencePanel({
       {header}
       {body}
     </section>
+    {entryEditor}
+    </>
   );
 }

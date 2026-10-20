@@ -15,6 +15,7 @@ import type { Relationship, RelationshipKind } from '@/engines/relationships/typ
 import { htmlToMarkdown } from '@/engines/writings/manuscriptExport';
 import { markdownToTiptapHtml } from '@/services/aiBridge/markdown';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
+import { eventEntryIds } from '@/engines/timeline/eventDetails';
 import {
   CLIP, clip, digest, normalizeStatus, strings, textFields, thingKind,
   type ThingKind, type WorldEntity, type WorldStatus,
@@ -179,11 +180,11 @@ export interface EventContent {
 }
 
 /** What the exchange sees of an event: its date, one line of what happened, and who it touches. */
-export function eventContent(event: Pick<TimelineEvent, 'title' | 'description' | 'date' | 'linkedEntryId'>): EventContent {
+export function eventContent(event: Pick<TimelineEvent, 'title' | 'description' | 'date' | 'linkedEntryId' | 'linkedEntryIds'>): EventContent {
   const title = (event.title ?? '').trim();
   const body = (event.description ?? '').trim();
   const text = title && body && !body.toLowerCase().startsWith(title.toLowerCase()) ? `${title} — ${body}` : body || title;
-  return { date: clip(event.date, 'date'), summary: clip(text, 'summary'), entities: event.linkedEntryId ? [event.linkedEntryId] : [] };
+  return { date: clip(event.date, 'date'), summary: clip(text, 'summary'), entities: eventEntryIds(event) };
 }
 
 export const eventHash = (event: Parameters<typeof eventContent>[0]): string => digest(eventContent(event));

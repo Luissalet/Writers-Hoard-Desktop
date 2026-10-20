@@ -21,9 +21,13 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const { timelines, loading: timelinesLoading, addTimeline, editTimeline, removeTimeline } = useTimelines(projectId);
   const [activeTimelineId, setActiveTimelineId] = useState<string>('');
-  const [viewMode, setViewMode] = useState<ViewMode>('swimlane');
+  const linkedView=useDeepLinkParam('view');
+  const [viewMode, setViewMode] = useState<ViewMode>(linkedView==='list'?'list':'swimlane');
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarScope, setCalendarScope] = useState<'project' | 'timeline'>('project');
   const worldCalendar = useWorldCalendar(projectId);
+  const timelineCalendar = useWorldCalendar(projectId, activeTimelineId || undefined);
+  const activeTimeline = timelines.find(timeline => timeline.id === activeTimelineId);
   const navigate = useNavigate();
   // Dated chapters ride along as a read-only lane; opening one goes to the editor.
   const writings = useLiveQuery(() => db.writings.where('projectId').equals(projectId).toArray(), [projectId]);
@@ -221,7 +225,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
         </div>
         <button
           type="button"
-          onClick={() => setCalendarOpen(true)}
+          onClick={() => { setCalendarScope('project'); setCalendarOpen(true); }}
           data-testid="world-calendar-open"
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border text-text-muted hover:text-text-primary transition"
           title={worldCalendar ? worldCalendar.calendar.name : t('timeline.world.noCalendar')}
@@ -229,6 +233,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
           <Globe size={13} aria-hidden="true" />
           {t('timeline.world.openEditor')}{worldCalendar ? ` · ${worldCalendar.calendar.name}` : ''}
         </button>
+        {activeTimeline && <button type="button" data-testid="timeline-settings-open" className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border text-accent-gold" onClick={() => { setCalendarScope('timeline'); setCalendarOpen(true); }}><Clock size={13} />{t('timeline.settings.open')} · {activeTimeline.title}</button>}
         {viewMode === 'swimlane' && timelines.length > 1 && (
           <span className="text-[10px] text-text-dim">
             {t('timeline.statsTimelines').replace('{count}', String(timelines.length))} · {t('timeline.statsEvents').replace('{count}', String(allEvents.length))} · {t('timeline.statsConnections').replace('{count}', String(connections.length))}
@@ -265,7 +270,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
         )
       )}
 
-      <WorldCalendarEditor projectId={projectId} open={calendarOpen} onClose={() => setCalendarOpen(false)} resolved={worldCalendar} />
+      <WorldCalendarEditor key={`${calendarScope}:${calendarScope === 'timeline' ? activeTimelineId : 'project'}`} projectId={projectId} open={calendarOpen} onClose={() => setCalendarOpen(false)} resolved={calendarScope === 'timeline' ? timelineCalendar : worldCalendar} timeline={calendarScope === 'timeline' ? activeTimeline : undefined} />
 
       <CollectionDashboard
         icon={Clock}

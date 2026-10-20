@@ -11,6 +11,7 @@ import CodexFolderImportPanel from './CodexFolderImportPanel';
 import { useTranslation } from '@/i18n/useTranslation';
 import { Download, RefreshCw, FolderOpen } from 'lucide-react';
 import '@/styles/genealogy.css';
+import RelationTreesWorkspace from './RelationTreesWorkspace';
 
 /**
  * Adapter from the real Dexie table to the minimal surface the pure repo
@@ -35,7 +36,7 @@ function genealogyTable(): GenealogyTableLike {
  * this first version: the importers and the MCP apply/undo flow feed the same
  * table.
  */
-export default function GenealogyTreeView({ projectId }: { projectId: string }) {
+function CanonicalGenealogyTreeView({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
   const importPanelId = useId();
   const { items: codexEntries, loading, error, refresh } = useCodexEntries(projectId);
@@ -138,9 +139,10 @@ export default function GenealogyTreeView({ projectId }: { projectId: string }) 
         // escapes names and labels; it is trusted markup by construction.
         dangerouslySetInnerHTML={{ __html: svg }}
       />
-      <button type="button" onClick={() => void refresh()}>
-        Recargar
-      </button>
     </div>
   );
+}
+
+export default function GenealogyTreeView({ projectId }: { projectId: string }) {
+  return <RelationTreesWorkspace key={projectId} projectId={projectId} canonical={<CanonicalGenealogyTreeView projectId={projectId} />} />;
 }

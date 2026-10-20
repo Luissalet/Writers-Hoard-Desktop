@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, TrendingUp, Network, Clapperboard, ChevronRight } from 'lucide-react';
+import { BookOpen, TrendingUp, Network, Clapperboard, ChevronRight, Clock } from 'lucide-react';
 import { db } from '@/db/index';
 import { useTranslation } from '@/i18n/useTranslation';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
@@ -25,6 +25,7 @@ import { RELATIONSHIP_KIND_CONFIG } from '@/engines/relationships/types';
 import type { RelationshipKind } from '@/engines/relationships/types';
 import type { CodexAppearance } from '@/services/projectIntelligence';
 import type { CodexEntry } from '@/types';
+import { eventEntryIds } from '@/engines/timeline/eventDetails';
 
 interface CharacterConnectionsProps {
   projectId: string;
@@ -37,9 +38,10 @@ interface ConnectionsData {
   arcs: { id: string; title: string; status?: string }[];
   relationships: { id: string; otherName: string; kind: string }[];
   scenes: { id: string; title: string; sceneNumber?: number }[];
+  events: { id: string; title: string }[];
 }
 
-const EMPTY: ConnectionsData = { arcs: [], relationships: [], scenes: [] };
+const EMPTY: ConnectionsData = { arcs: [], relationships: [], scenes: [], events: [] };
 
 const CHIP_CLASS = 'text-xs px-2 py-1 rounded-lg bg-elevated border border-border text-text-primary';
 
@@ -83,11 +85,12 @@ export default function CharacterConnections({
     let cancelled = false;
     (async () => {
       try {
-        const [arcs, relsA, relsB, casts] = await Promise.all([
+        const [arcs, relsA, relsB, casts, events] = await Promise.all([
           db.characterArcs.where('characterId').equals(entry.id).toArray(),
           db.relationships.where('entityAId').equals(entry.id).toArray(),
           db.relationships.where('entityBId').equals(entry.id).toArray(),
           db.sceneCasts.filter((c) => c.characterId === entry.id).toArray(),
+          db.timelineEvents.where('projectId').equals(projectId).filter(event => eventEntryIds(event).includes(entry.id)).toArray(),
         ]);
         const sceneIds = [...new Set(casts.map((c) => c.sceneId))];
         const scenes = (await db.scenes.bulkGet(sceneIds)).filter(
@@ -95,6 +98,7 @@ export default function CharacterConnections({
         );
         if (cancelled) return;
         setData({
+          events: events.sort((a, b) => a.order - b.order).map(event => ({ id: event.id, title: event.title })),
           arcs: arcs
             .filter((a) => a.projectId === projectId)
             .map((a) => ({ id: a.id, title: a.title, status: a.status })),
@@ -119,7 +123,7 @@ export default function CharacterConnections({
   }, [entry.id, projectId]);
 
   const total =
-    data.arcs.length + data.relationships.length + data.scenes.length + appearances.length;
+    data.arcs.length + data.relationships.length + data.scenes.length + data.events.length + appearances.length;
   if (total === 0) return null;
 
   const chip = CHIP_CLASS;
@@ -128,7 +132,7 @@ export default function CharacterConnections({
   // on the chapter rather than on the list of them.
   const openWriting = (writingId: string) => {
     const adapter = getAnchorAdapter('writings');
-    if (adapter) adapter.navigateToEntity(writingId, projectId);
+    if (adapter) adapter.navigateToEntity(writingId, projectId, navigate);
     else navigate(`/project/${projectId}/writings?writing=${encodeURIComponent(writingId)}`);
   };
 
@@ -192,6 +196,9 @@ export default function CharacterConnections({
           ))}
         </Section>
       )}
+      {data.events.length > 0 && <Section icon={Clock} label={t('engines.timeline.name')} onNavigate={() => navigate(`/project/${encodeURIComponent(projectId)}/timeline`)}>
+        {data.events.map(event => <button key={event.id} type="button" className={`${chip} hover:text-accent-gold`} onClick={() => navigate(`/project/${encodeURIComponent(projectId)}/timeline?entity=${encodeURIComponent(event.id)}`)}>{event.title}</button>)}
+      </Section>}
     </div>
   );
 }

@@ -24,7 +24,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from '@/components/codex/codexTypeMeta';
 import GalleryLightbox from './GalleryLightbox';
 import { useImageHandoffStore } from '@/stores/imageHandoffStore';
-import { navigateTo } from '@/engines/_shared/anchoring/navigation';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import {
   BoundedImportQueue,
@@ -106,6 +106,7 @@ export default function InspirationGallery({
   importConcurrency = DEFAULT_GALLERY_IMPORT_CONCURRENCY,
 }: InspirationGalleryProps) {
   const { t } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const [lightboxImage, setLightboxImage] = useState<InspirationImage | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');

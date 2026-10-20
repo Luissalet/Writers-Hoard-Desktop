@@ -27,7 +27,7 @@ import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
 import { beatNeedsChapter, writeChapterForBeat } from '../beatToChapter';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 
 /**
  * Una fila arrastrable.
@@ -145,6 +145,7 @@ export default function BeatList({
   focusedBeatId,
 }: BeatListProps) {
   const { t } = useTranslation();
+  const navigateTo = usePaneNavigate();
   // El teclado va incluido a propósito: un asa que sólo responde al ratón deja
   // fuera de reordenar a quien no lo usa, y el sensor es una línea.
   const sensors = useSensors(

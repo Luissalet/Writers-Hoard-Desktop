@@ -15,7 +15,7 @@
 //
 // The store is module-level so the AI bridge tools set and read exactly what
 // the screen shows.
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 const PREFS_KEY = 'writers-hoard:reference:panel';
 export const MIN_WIDTH = 280;
@@ -143,10 +143,24 @@ export function setReferenceConsult(open: boolean): ReferenceUiState {
 }
 
 /** Open/closed, width and temporary consult of the panel; shared with the AI bridge. */
-export function useReferencePrefs(): ReferencePrefs {
-  const state = useSyncExternalStore(subscribe, getReferenceUi, getReferenceUi);
+const scopedConsult = new Map<string, boolean>();
+const scopedSnapshots = new Map<string, ReferenceUiState>();
+const scopedOwners = new Map<string, number>();
+function getScopedReferenceUi(scope: string): ReferenceUiState {
+  const shared = getReferenceUi(), previous = scopedSnapshots.get(scope), consult = scopedConsult.get(scope) ?? false;
+  if (previous && previous.open === shared.open && previous.width === shared.width && previous.consult === consult) return previous;
+  const next = { ...shared, consult }; scopedSnapshots.set(scope, next); return next;
+}
+export function useReferencePrefs(scope?: string): ReferencePrefs {
+  const read = useMemo(() => scope ? () => getScopedReferenceUi(scope) : getReferenceUi, [scope]);
+  const state = useSyncExternalStore(subscribe, read, read);
+  useEffect(() => {
+    if (!scope) return;
+    scopedOwners.set(scope, (scopedOwners.get(scope) ?? 0) + 1);
+    return () => { const owners = (scopedOwners.get(scope) ?? 1) - 1; if (owners) scopedOwners.set(scope, owners); else { scopedOwners.delete(scope); scopedConsult.delete(scope); scopedSnapshots.delete(scope); } };
+  }, [scope]);
   return useMemo(
-    () => ({ ...state, setOpen: setReferenceOpen, setWidth: setReferenceWidth, setConsult: setReferenceConsult }),
-    [state],
+    () => ({ ...state, setOpen: setReferenceOpen, setWidth: setReferenceWidth, setConsult: scope ? (open: boolean) => { scopedConsult.set(scope, open); emit(); } : setReferenceConsult }),
+    [state, scope],
   );
 }

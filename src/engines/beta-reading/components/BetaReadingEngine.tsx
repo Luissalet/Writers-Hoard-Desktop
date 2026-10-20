@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { liveQuery } from 'dexie';
 import { db } from '@/db';
 import { EngineSpinner } from '@/engines/_shared';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import type { EngineComponentProps } from '@/engines/_types';
 import { downloadTextFile } from '@/engines/writings/manuscriptExport';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -80,6 +80,7 @@ const byChapterOrder = (a: Writing, b: Writing) =>
 
 export default function BetaReadingEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const { model, failed, retry } = useBetaReading(projectId);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);

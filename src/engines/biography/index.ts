@@ -92,7 +92,7 @@ registerAnchorAdapter({
     return fact?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.biography'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     // A fact deep-links to the biography it belongs to — the view opens per
@@ -101,7 +101,7 @@ registerAnchorAdapter({
       const bio = await db.biographies.get(entityId);
       const targetId = bio ? entityId : (await db.biographyFacts.get(entityId))?.biographyId;
       if (!targetId) return;
-      navigateTo(`/project/${pid}/biography?bio=${encodeURIComponent(targetId)}`);
+      navigate(`/project/${pid}/biography?bio=${encodeURIComponent(targetId)}`);
     })();
   },
 });

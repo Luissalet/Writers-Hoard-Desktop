@@ -8,6 +8,7 @@ import {
 import { getAllEngines } from '@/engines/_registry';
 import { toLocalDateKey } from '@/engines/writing-stats/date';
 import { t } from '@/i18n/useTranslation';
+import { isAliasField, readAliases } from '@/services/codexReference/aliases';
 import {
   findRequiredMatch,
   foldSearchText,
@@ -197,7 +198,7 @@ const SLICES: Record<string, IndexSlice> = {
       projectId: entry.projectId,
       title: entry.title,
       subtitle: entry.type,
-      body: stripHtml(entry.content ?? ''),
+      body: [stripHtml(entry.content ?? ''), ...readAliases(entry.fields), ...Object.entries(entry.fields ?? {}).filter(([key]) => !isAliasField(key)).map(([, value]) => value)].filter(Boolean).join('\n'),
       tags: entry.tags,
       type: entry.type,
       updatedAt: entry.updatedAt,

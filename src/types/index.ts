@@ -47,6 +47,29 @@ export interface Project {
    * leap rule). Books of a saga without one use their saga's.
    */
   worldCalendar?: WorldCalendar;
+  /** Local language dictionaries; included in the project's portable backup. */
+  dictionaries?: import('@/engines/dictionary/types').WorldDictionary[];
+  /** Self-contained local GLB references, portable with the project backup. */
+  modelAssets?: Array<{ id: string; name: string; dataUrl: string; size: number; createdAt: number }>;
+  /** Independent authored relation trees and variants; canonical genealogy remains separate. */
+  relationTrees?: import('@/engines/genealogy/relationTrees').RelationTreeDocument[];
+  /** Offline RPG sheets with local checks and portable roll history. */
+  characterSheets?: import('@/engines/character-sheets/types').CharacterSheet[];
+  /** Independent local charts; no renderer or database code in this type leaf. */
+  radarCharts?: import('@/engines/radar/types').RadarChartDocument[];
+  codexTemplates?: import('@/engines/codex/templateTypes').CodexTemplate[];
+  /** Typed records and formula sheets, kept with portable project metadata. */
+  dataTables?: import('@/engines/tables/types').WorldTable[];
+  wikiOptions?: import('./worldWiki').WorldWikiOptions;
+  readerPresentation?: import('@/engines/writings/readerPresentationTypes').ReaderPresentation;
+  /** Manual positions in the derived local Codex graph; card content remains canonical. */
+  codexGraphLayout?: import('@/engines/codex/worldGraph/types').CodexGraphLayout;
+  /** Mixed document library: organizational references; source records stay canonical. */
+  workspaceFolders?: import('@/components/project/workspace/library/types').WorkspaceFolder[];
+  workspacePlacements?: import('@/components/project/workspace/library/types').WorkspacePlacement[];
+  workspaceRevision?: number;
+  /** Trusted source-extension JSON, scoped by developer namespace; no executable content. */
+  localToolStates?: import('@/engines/local/stateTypes').LocalToolStates;
   createdAt: number;
   updatedAt: number;
 }
@@ -79,6 +102,10 @@ export interface CodexEntry {
   id: string;
   projectId: string;
   type: CodexEntryType;
+  /** A reusable author-defined type/template within the broad category. */
+  templateId?: string;
+  /** Named properties that refer to other Codex entries by stable id. */
+  referenceFields?: Record<string, string[]>;
   title: string;
   avatar?: string; // base64 data URL (cropped for display)
   avatarOriginal?: string; // base64 — original uncropped source
@@ -116,6 +143,11 @@ export interface Timeline {
   title: string;
   color: string;             // Lane color in swim-lane view
   description?: string;      // Phase / era description
+  /** Absent timelines retain the project's or saga's calendar. */
+  worldCalendar?: import('@/engines/timeline/worldCalendar').WorldCalendar;
+  /** Visible absolute years, inclusive; events outside remain stored. */
+  yearRange?: { start: number; end: number };
+  displayPrecision?: 'year' | 'day' | 'hour';
   /** Present on the timeline an imported story world's events were filed in. */
   familySource?: FamilySource;
   createdAt: number;
@@ -145,6 +177,14 @@ export interface TimelineEvent {
   lane: string;
   color: string;
   linkedEntryId?: string;
+  /** All linked Codex cards. linkedEntryId remains the primary legacy link. */
+  linkedEntryIds?: string[];
+  /** Embedded local raster image and a named icon from the timeline palette. */
+  image?: string;
+  icon?: 'calendar' | 'flag' | 'star' | 'swords' | 'crown' | 'heart' | 'book' | 'sun' | 'moon' | 'ship' | 'mountain';
+  /** Local clock HH:mm, independent of timezone; world hours may exceed 23. */
+  time?: string;
+  endTime?: string;
   /** Present when this event was imported from a story world. */
   familySource?: FamilySource;
   createdAt: number;
@@ -167,11 +207,57 @@ export interface TimelineConnection {
 }
 
 // Maps
+export interface MapPoint { x: number; y: number }
+
+/** Coordinates are percentages of the source image, independent of zoom. */
+export interface MapFeature {
+  id: string;
+  kind: 'region' | 'path' | 'label';
+  name: string;
+  description?: string;
+  points: MapPoint[];
+  color: string;
+  opacity?: number;
+  linkedEntryId?: string;
+  layerId?: string;
+}
+
+export interface MapNamedLayer { id: string; name: string; visible: boolean }
+
+/** Named historical states remain separate from the editable current map. */
+export interface MapVersion {
+  id: string;
+  name: string;
+  date: string;
+  description?: string;
+  createdAt: number;
+  backgroundImage?: string;
+  features: MapFeature[];
+  pins: MapPin[];
+  layers?: MapNamedLayer[];
+  layerVisibility?: MapLayerVisibility;
+  source?: 'uploaded' | 'gallery' | 'worldgen';
+  sourceWorldId?: string;
+  sourceRevision?: number;
+}
+
+export interface MapLayerVisibility {
+  pins: boolean;
+  region: boolean;
+  path: boolean;
+  label: boolean;
+}
+
 export interface WorldMap {
   id: string;
   projectId: string;
   title: string;
   backgroundImage?: string; // base64
+  /** Local vector annotations travel with the map in archives and backups. */
+  features?: MapFeature[];
+  layerVisibility?: MapLayerVisibility;
+  layers?: MapNamedLayer[];
+  versions?: MapVersion[];
   /** Uploaded/Gallery maps remain standalone; Worldgen maps retain provenance. */
   source?: 'uploaded' | 'gallery' | 'worldgen';
   sourceWorldId?: string;
@@ -189,6 +275,7 @@ export interface MapPin {
   color?: string;
   position: { x: number; y: number };
   linkedEntryId?: string;
+  layerId?: string;
   /** Present when this pin mirrors a Worldgen waypoint. */
   sourceWaypointId?: string;
   description?: string;

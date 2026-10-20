@@ -16,14 +16,14 @@ export function publishingCompatModule(value: string): string {
 export function publishingCompatTools(module: string) {
   const native = catalogue.filter(tool => module === 'borges'
     ? ['library', 'links', 'paperwork'].includes(tool.module || '') : tool.module === module);
-  const tools = native.map(({ module: _module, native_name, ...tool }) => ({ ...tool, name: native_name || tool.name }));
+  const tools = native.map(({ module: _module, native_name, ...tool }) => { void _module; return { ...tool, name: native_name || tool.name }; });
   if (module !== 'borges') return tools;
   return [
     { name: 'borges_modules', description: 'List modules without starting any engine.', inputSchema: { type: 'object', properties: {} } },
     { name: 'borges_set_module', description: "Enable or disable one module explicitly. All modules default OFF; enable only on the user's request.",
       inputSchema: { type: 'object', properties: { module: { type: 'string', enum: ['library', 'links', 'paperwork'] }, enabled: { type: 'boolean' },
         automatic: { type: 'boolean', description: 'Allow background automation explicitly; OFF by default.' } }, required: ['module', 'enabled'] } },
-    ...catalogue.filter(tool => tool.name === 'borges_search_all').map(({ module: _module, native_name: _native, ...tool }) => tool),
+    ...catalogue.filter(tool => tool.name === 'borges_search_all').map(({ module: _module, native_name: _native, ...tool }) => { void _module; void _native; return tool; }),
     ...tools,
   ];
 }

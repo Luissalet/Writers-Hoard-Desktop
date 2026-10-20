@@ -8,6 +8,7 @@ import {
 // hook, and the callbacks and effects below use this one, so that a translation
 // never becomes a dependency of the draw loop or of the WebGL setup.
 import { useTranslation, t as translate } from '@/i18n/useTranslation';
+import { useEnginePane, ownsEnginePaneEvent, dispatchEnginePaneCommand } from '@/engines/_shared/EnginePaneContext';
 import {
   drawArrivalMark, drawScreenCompass, drawScreenScaleBar, northOnScreen,
 } from '../cartography/screenFurniture';
@@ -444,6 +445,7 @@ export default function World3D({
   onZoomTo,
 }: World3DProps) {
   const { t } = useTranslation();
+  const pane = useEnginePane();
   const hostRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const [mesh, setMesh] = useState(1);
@@ -3152,6 +3154,7 @@ export default function World3D({
     };
 
     const down = (e: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, e)) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement | null)?.isContentEditable) return;
       if (e.shiftKey !== keys.current.shift || (e.ctrlKey || e.metaKey) !== keys.current.ctrl) {
@@ -3160,8 +3163,8 @@ export default function World3D({
       }
       if (e.ctrlKey || e.metaKey) {
         // The world's own undo, so a sculpt step and a map step are one history.
-        if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); window.dispatchEvent(new Event('wg-undo')); }
-        if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); window.dispatchEvent(new Event('wg-redo')); }
+        if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); dispatchEnginePaneCommand(pane, e.shiftKey ? 'wg-redo' : 'wg-undo'); }
+        if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); dispatchEnginePaneCommand(pane, 'wg-redo'); }
         return;
       }
       if (!over.current) return;
@@ -3191,7 +3194,7 @@ export default function World3D({
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
     };
-  }, [onTool, onShape, scenePos, request]);
+  }, [onTool, onShape, scenePos, request, pane]);
 
   useEffect(() => {
     if (!failed) return;

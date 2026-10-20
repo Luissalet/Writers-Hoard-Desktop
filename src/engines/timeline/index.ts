@@ -4,6 +4,10 @@ import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, readBackupJson } from '@/engines/_shared';
 import { db } from '@/db';
+import { registerLocaleStrings } from '@/i18n/useTranslation';
+import es from './locales/es';
+import en from './locales/en';
+registerLocaleStrings({ es, en });
 const TimelineEngine = lazy(() => import('./TimelineEngine'));
 
 const timelineEngine: EngineDefinition = {

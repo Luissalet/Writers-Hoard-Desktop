@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { useTranslation } from '@/i18n/useTranslation';
 
 export interface ReferenceChipProps {
@@ -24,6 +25,7 @@ export default function ReferenceChip({
   targetEntityId,
 }: ReferenceChipProps) {
   const { t } = useTranslation();
+  const navigate = usePaneNavigate();
   const adapter = getAnchorAdapter(targetEngineId);
   const [title, setTitle] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -59,7 +61,7 @@ export default function ReferenceChip({
 
   return (
     <button
-      onClick={() => adapter.navigateToEntity(targetEntityId)}
+      onClick={() => adapter.navigateToEntity(targetEntityId, undefined, navigate)}
       disabled={loading}
       className="w-full flex items-center gap-2 rounded-md border border-accent-gold/40 bg-accent-gold/5 hover:bg-accent-gold/10 transition px-2.5 py-1.5 text-left group"
     >

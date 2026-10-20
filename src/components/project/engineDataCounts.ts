@@ -36,7 +36,7 @@ export async function countEngineRows(
     projectScopedTables(engine).map(tableName =>
       db.table(tableName).where(PROJECT_INDEX).equals(projectId).count()),
   );
-  return perTable.reduce((total, count) => total + count, 0);
+  return perTable.reduce((total, count) => total + count, 0) + (await engine.countProjectItems?.(projectId) ?? 0);
 }
 
 /**

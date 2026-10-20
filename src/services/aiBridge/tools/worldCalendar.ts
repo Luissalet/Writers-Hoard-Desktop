@@ -9,15 +9,16 @@ import {
 } from '@/engines/timeline/worldCalendar';
 import { resolveWorldCalendar, saveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
 import {
-  BridgeError, optBoolean, optNumber, resolveProjectForEngine, resolveProjectId, withAudit, type ToolArgs,
+  BridgeError, optBoolean, optNumber, optString, resolveProjectForEngine, resolveProjectId, withAudit, type ToolArgs,
 } from './shared';
 import { worldDateArg } from './worldDateArg';
+import { saveTimelineSettings } from '@/engines/timeline/timelineSettings';
 
 export { worldDateArg };
 
 /** The calendar a project uses (its own or its saga's), or a clear error. */
-export async function requireWorldCalendar(projectId: string): Promise<WorldCalendar> {
-  const resolved = await resolveWorldCalendar(projectId);
+export async function requireWorldCalendar(projectId: string, timelineId?: string): Promise<WorldCalendar> {
+  const resolved = await resolveWorldCalendar(projectId, timelineId);
   if (!resolved) {
     throw new BridgeError(
       'not-found',
@@ -32,12 +33,14 @@ export async function whWorldCalendarGet(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const project = await db.projects.get(projectId);
   if (!project) throw new BridgeError('not-found', `No project with id "${projectId}".`);
-  const resolved = await resolveWorldCalendar(projectId);
+  const timelineId = optString(args, 'timelineId');
+  const resolved = await resolveWorldCalendar(projectId, timelineId);
   if (!resolved) return { projectId, calendar: null, hint: 'No world calendar. wh_world_calendar_set defines one.' };
   return {
     projectId,
     calendar: resolved.calendar,
     inheritedFrom: resolved.inherited ? resolved.ownerProjectId : undefined,
+    ownerTimelineId: resolved.ownerTimelineId,
     daysInCommonYear: resolved.calendar.months.reduce((sum, m) => sum + m.days, 0),
   };
 }
@@ -46,6 +49,18 @@ export async function whWorldCalendarSet(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'timeline');
   const project = await db.projects.get(projectId);
   if (!project) throw new BridgeError('not-found', `No project with id "${projectId}".`);
+  const timelineId = optString(args, 'timelineId');
+  if (timelineId) {
+    const timeline = await db.timelines.get(timelineId);
+    if (!timeline || timeline.projectId !== projectId) throw new BridgeError('not-found', 'Timeline is not in this project.');
+    const remove = optBoolean(args, 'remove');
+    const input = args.calendar;
+    if (!remove && (!input || typeof input !== 'object' || Array.isArray(input))) throw new BridgeError('bad-args', 'calendar is required.');
+    const calendar = remove ? undefined : { schema: WORLD_CALENDAR_SCHEMA, moons: [], holidays: [], ...(input as object) } as unknown as WorldCalendar;
+    try { await saveTimelineSettings(projectId, timelineId, { worldCalendar: calendar }); }
+    catch (error) { throw new BridgeError('conflict', error instanceof Error ? error.message : String(error)); }
+    return withAudit({ projectId, timelineId, saved: !remove, removed: !!remove }, { projectId, entityId: timelineId, summary: remove ? 'restored project calendar inheritance' : `set timeline calendar "${calendar!.name}"`, kind: 'update', before: { worldCalendar: timeline.worldCalendar } });
+  }
   if (optBoolean(args, 'remove')) {
     if (!project.worldCalendar) throw new BridgeError('bad-args', 'This project has no calendar of its own to remove.');
     const dated = await db.timelineEvents.where('projectId').equals(projectId).filter((e) => e.dateMode === 'world').count();
@@ -63,7 +78,8 @@ export async function whWorldCalendarSet(args: ToolArgs): Promise<unknown> {
   const errors = validateWorldCalendar(calendar);
   if (errors.length) throw new BridgeError('bad-args', `The calendar is not valid: ${errors.join(' ')}`);
   // Refuse a change that would leave existing world dates pointing at days that no longer exist.
-  const events = await db.timelineEvents.where('projectId').equals(projectId).filter((e) => e.dateMode === 'world').toArray();
+  const independent = new Set((await db.timelines.where('projectId').equals(projectId).filter(timeline => !!timeline.worldCalendar).primaryKeys()) as string[]);
+  const events = await db.timelineEvents.where('projectId').equals(projectId).filter((e) => e.dateMode === 'world' && !independent.has(e.timelineId)).toArray();
   const broken = events.filter((event) => {
     try {
       if (event.worldDate) toDayNumber(calendar, event.worldDate);
@@ -99,7 +115,7 @@ export async function whWorldCalendarSet(args: ToolArgs): Promise<unknown> {
 
 export async function whWorldDate(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
-  const calendar = await requireWorldCalendar(projectId);
+  const calendar = await requireWorldCalendar(projectId, optString(args, 'timelineId'));
   const dayNumber = optNumber(args, 'dayNumber');
   let date = dayNumber !== undefined
     ? (() => {

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { askCopilotAbout, copilotAvailable } from '@/stores/copilotHandoffStore';
 import { registerCopilotEditor, type WriterEditorIdentity } from '@/services/copilot/faustusContext';
+import { useEnginePane, paneReferenceScope } from '@/engines/_shared/EnginePaneContext';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 import { useAppStore } from '@/stores/appStore';
 import FindReplaceBar from './FindReplaceBar';
@@ -41,10 +42,22 @@ import { createRevisionExtensions } from '@/engines/writings/revisions';
 import RevisionControls from './revisions/RevisionControls';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
+import { createDictionaryGlossPlugin, createGlossMatcher, dictionaryGlossKey } from '@/engines/dictionary/glosses';
+import { createInlineMentionsPlugin, inlineMentionsKey, OPEN_CODEX_REFERENCE, type OpenCodexReferenceDetail } from '@/services/codexReference/inlineMentions';
+import { navigateTo } from '@/engines/_shared/anchoring';
+import { WikiMarksControls } from './wiki/WikiMarks';
+import { WikiHidden, WikiSpoiler } from './wiki/marks';
 import { createEditorialExtensions } from '@/engines/writings/editorial';
 import EditorialControls from './editorial/EditorialControls';
 import ProofingControls from './proofing/ProofingControls';
 import HeadingNavigator from './navigation/HeadingNavigator';
+import { CodexBlock } from './codexBlocks/CodexBlock';
+import CodexBlockControls from './codexBlocks/CodexBlockControls';
+import { createCodexBlockHost } from './codexBlocks/model';
+import { MediaBlock } from './mediaBlocks/MediaBlock';
+import MediaBlockControls from './mediaBlocks/MediaBlockControls';
+import { ToolDocumentBlock } from './toolBlocks/ToolDocumentBlock';
+import ToolDocumentControls from './toolBlocks/ToolDocumentControls';
 import {
   isFindShortcut,
   isReplaceShortcut,
@@ -93,6 +106,8 @@ interface TiptapEditorProps {
    */
   onEditorReady?: (editor: Editor | null) => void;
   copilotIdentity?: WriterEditorIdentity;
+  /** World references also work in combined documents without registering an AI editor. */
+  referenceContext?: { projectId: string; scopeId: string; entryId?: string };
   /** Optional. Extra buttons rendered at the end of the toolbar's left group. */
   toolbarExtra?: React.ReactNode;
   /**
@@ -207,9 +222,24 @@ export default function TiptapEditor({
   pageLayout,
   footnoteStyle = 'numbers',
   ghostText,
+  referenceContext,
 }: TiptapEditorProps) {
   const { t, locale } = useTranslation();
-  const editorialProjectId = copilotIdentity?.projectId;
+  const pane = useEnginePane();
+  const editorialProjectId = referenceContext?.projectId ?? copilotIdentity?.projectId;
+  const blockScopeId = paneReferenceScope(referenceContext?.scopeId ?? copilotIdentity?.objectId, pane);
+  const [codexBlockHost] = useState(() => createCodexBlockHost({ projectId: editorialProjectId, scopeId: blockScopeId }));
+  useEffect(() => { codexBlockHost.setContext({ projectId: editorialProjectId, scopeId: blockScopeId }); }, [codexBlockHost, editorialProjectId, blockScopeId]);
+  const mentionEntries = useLiveQuery(async () => {
+    if (!editorialProjectId) return [];
+    const project = await db.projects.get(editorialProjectId);
+    return project?.enabledEngines.includes('codex') ? db.codexEntries.where('projectId').equals(editorialProjectId).toArray() : [];
+  }, [editorialProjectId]);
+  const projectDictionaries = useLiveQuery(async () => {
+    if (!editorialProjectId) return undefined;
+    const project = await db.projects.get(editorialProjectId);
+    return project?.enabledEngines.includes('dictionary') ? project.dictionaries : undefined;
+  }, [editorialProjectId]);
   const editorialReferences = useLiveQuery<Citation[]>(async () => editorialProjectId
     ? await db.citations.where('projectId').equals(editorialProjectId).toArray()
     : [], [editorialProjectId]);
@@ -250,6 +280,11 @@ export default function TiptapEditor({
       ...createAdvancedExtensions(),
       ...createRevisionExtensions(),
       ...createEditorialExtensions(),
+      WikiHidden,
+      WikiSpoiler,
+      CodexBlock.configure(codexBlockHost),
+      MediaBlock.configure(codexBlockHost),
+      ToolDocumentBlock.configure(codexBlockHost),
       ...(extensions ?? []),
     ],
     content,
@@ -288,12 +323,30 @@ export default function TiptapEditor({
     return () => onEditorReady(null);
   }, [editor, onEditorReady]);
   const copilotProjectId = copilotIdentity?.projectId;
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editorialProjectId || !projectDictionaries?.some(dictionary => dictionary.detectInManuscript)) return;
+    editor.registerPlugin(createDictionaryGlossPlugin(projectDictionaries, wordId => {
+      (pane?.navigate ?? navigateTo)(`/project/${encodeURIComponent(editorialProjectId)}/dictionary?entity=${encodeURIComponent(wordId)}`);
+    }));
+    return () => { if (!editor.isDestroyed) editor.unregisterPlugin(dictionaryGlossKey); };
+  }, [editor, editorialProjectId, projectDictionaries, pane?.navigate]);
   const copilotObjectId = copilotIdentity?.objectId;
+  const referenceScopeId = paneReferenceScope(referenceContext?.scopeId ?? copilotObjectId, pane);
+  const referenceEntryId = referenceContext?.entryId ?? copilotObjectId;
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editorialProjectId || !mentionEntries?.length) return;
+    editor.registerPlugin(createInlineMentionsPlugin(mentionEntries.filter(entry => entry.id !== referenceEntryId), id => {
+      const detail: OpenCodexReferenceDetail = { projectId: editorialProjectId, entryId: id, scopeId: referenceScopeId, handled: false };
+      window.dispatchEvent(new CustomEvent(OPEN_CODEX_REFERENCE, { detail }));
+      if (!detail.handled) (pane?.navigate ?? navigateTo)(`/project/${encodeURIComponent(editorialProjectId)}/codex?entry=${encodeURIComponent(id)}`);
+    }, createGlossMatcher(projectDictionaries ?? [])));
+    return () => { if (!editor.isDestroyed) editor.unregisterPlugin(inlineMentionsKey); };
+  }, [editor, editorialProjectId, mentionEntries, referenceEntryId, referenceScopeId, projectDictionaries, pane?.navigate]);
   const copilotKind = copilotIdentity?.kind;
   useEffect(() => {
     if (!editor || !copilotProjectId || !copilotObjectId || !copilotKind) return;
-    return registerCopilotEditor(editor, { projectId: copilotProjectId, objectId: copilotObjectId, kind: copilotKind });
-  }, [editor, copilotProjectId, copilotObjectId, copilotKind]);
+    return registerCopilotEditor(editor, { projectId: copilotProjectId, objectId: copilotObjectId, kind: copilotKind, paneId: pane?.instanceId });
+  }, [editor, copilotProjectId, copilotObjectId, copilotKind, pane?.instanceId]);
 
   // Page mode is a ProseMirror plugin registered on the live editor, the way
   // the find bar registers its search plugin: the document, the history and
@@ -643,16 +696,24 @@ export default function TiptapEditor({
       </div>
 
       {/* Find & replace, inside the document it searches */}
-      <AdvancedEditorToolbar editor={editor} locale={locale} />
+      <details className="border-b border-border bg-surface/50" data-editor-advanced-disclosure>
+        <summary className="w-fit cursor-pointer rounded px-3 py-2 text-xs text-text-muted hover:text-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold">{locale === 'es' ? 'Formato avanzado' : 'Advanced formatting'}</summary>
+        <AdvancedEditorToolbar editor={editor} locale={locale} />
+      </details>
       <RevisionControls editor={editor} locale={locale} />
+      <details className="border-b border-border bg-surface/50" data-editor-document-tools>
+        <summary className="w-fit cursor-pointer rounded px-3 py-2 text-xs text-text-muted hover:text-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold">{locale === 'es' ? 'Referencias y herramientas del documento' : 'References and document tools'}</summary>
       <div className="flex flex-wrap items-start gap-2 border-b border-border bg-surface/50 px-2 py-1.5">
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><EditorialControls editor={editor} locale={locale} references={editorialReferences ?? []} /></div>
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><HeadingNavigator editor={editor} locale={locale} /></div>
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ProofingControls editor={editor} locale={locale} projectId={editorialProjectId} /></div>
+        <div className="min-w-0 grow basis-40"><WikiMarksControls editor={editor} locale={locale} /></div>
+        {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><CodexBlockControls editor={editor} projectId={editorialProjectId} entries={mentionEntries ?? []} locale={locale} /></div>}
+        {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><MediaBlockControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
+        {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ToolDocumentControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
+        <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><DocumentTools editor={editor} locale={locale} /></div>
       </div>
-      <div className="px-2 py-1.5 border-b border-border bg-surface/50">
-        <DocumentTools editor={editor} locale={locale} />
-      </div>
+      </details>
       {findSession && (
         <FindReplaceBar
           editor={editor}

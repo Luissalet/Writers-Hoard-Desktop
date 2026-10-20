@@ -22,8 +22,16 @@ export interface WritingRecoveryDraft {
   updatedAt: number;
 }
 
-function journalKey(projectId: string, writingId: string): string {
-  return `${KEY_PREFIX}:${projectId}:${writingId}`;
+function journalKey(projectId: string, writingId: string, owner?: string): string {
+  return `${KEY_PREFIX}:${projectId}:${writingId}${owner ? `:pane:${encodeURIComponent(owner)}` : ''}`;
+}
+
+const activeOwners = new Map<string, number>();
+/** A live sibling's crash copy must never be adopted by another pane. */
+export function registerWritingRecoveryOwner(projectId: string, writingId: string, owner?: string): () => void {
+  const key = journalKey(projectId, writingId, owner); activeOwners.set(key, (activeOwners.get(key) ?? 0) + 1);
+  let released = false;
+  return () => { if (released) return; released = true; const count = (activeOwners.get(key) ?? 1) - 1; if (count) activeOwners.set(key, count); else activeOwners.delete(key); };
 }
 
 function getStorage(): Storage | null {
@@ -43,6 +51,7 @@ export function writeWritingRecoveryDraft(
   content: string,
   baseTitle: string,
   baseContent: string,
+  owner?: string,
 ): void {
   const storage = getStorage();
   if (!storage) return;
@@ -57,18 +66,18 @@ export function writeWritingRecoveryDraft(
     updatedAt: Date.now(),
   };
   try {
-    storage.setItem(journalKey(projectId, writingId), JSON.stringify(draft));
+    storage.setItem(journalKey(projectId, writingId, owner), JSON.stringify(draft));
   } catch (err) {
     // Quota/security failures must never interrupt typing or saving.
     console.warn('[writings] recovery journal unavailable', err);
   }
 }
 
-export function clearWritingRecoveryDraft(projectId: string, writingId: string): void {
+export function clearWritingRecoveryDraft(projectId: string, writingId: string, owner?: string): void {
   const storage = getStorage();
   if (!storage) return;
   try {
-    storage.removeItem(journalKey(projectId, writingId));
+    storage.removeItem(journalKey(projectId, writingId, owner));
   } catch {
     // Best effort only.
   }
@@ -109,14 +118,26 @@ const NOTHING_TO_RECOVER: WritingRecoveryOutcome = { kind: 'none' };
  */
 export function inspectWritingRecoveryDraft(
   writing: Pick<Writing, 'id' | 'projectId' | 'title' | 'content'>,
+  owner?: string,
 ): WritingRecoveryOutcome {
   const storage = getStorage();
   if (!storage) return NOTHING_TO_RECOVER;
-  const key = journalKey(writing.projectId, writing.id);
+  const ownKey = journalKey(writing.projectId, writing.id, owner), prefix = `${journalKey(writing.projectId, writing.id)}:pane:`;
+  const candidates: Array<{ key: string; raw: string; updatedAt: number }> = [];
   try {
-    const raw = storage.getItem(key);
-    if (!raw) return NOTHING_TO_RECOVER;
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
+    for (const key of keys) {
+      if (!key) continue;
+      const belongs = key === journalKey(writing.projectId, writing.id) || key.startsWith(prefix);
+      if (key !== ownKey && (!belongs || activeOwners.has(key))) continue;
+      const raw = storage.getItem(key); if (!raw) continue;
+      try { const parsed = JSON.parse(raw); candidates.push({ key, raw, updatedAt: typeof parsed?.updatedAt === 'number' ? parsed.updatedAt : 0 }); } catch { storage.removeItem(key); }
+    }
+  } catch { return NOTHING_TO_RECOVER; }
+  candidates.sort((left, right) => left.key === ownKey ? -1 : right.key === ownKey ? 1 : right.updatedAt - left.updatedAt);
+  for (const { key, raw } of candidates) try {
     const draft = JSON.parse(raw) as Partial<WritingRecoveryDraft>;
+    if (key !== ownKey && (draft.projectId !== writing.projectId || draft.writingId !== writing.id)) continue;
     if (
       draft.version !== JOURNAL_VERSION ||
       draft.projectId !== writing.projectId ||
@@ -128,16 +149,19 @@ export function inspectWritingRecoveryDraft(
       typeof draft.updatedAt !== 'number'
     ) {
       storage.removeItem(key);
-      return NOTHING_TO_RECOVER;
+      continue;
     }
     if (draft.title === writing.title && draft.content === writing.content) {
       storage.removeItem(key);
-      return NOTHING_TO_RECOVER;
+      continue;
     }
     // The baseline check, in the order that matters: the equality above already
     // took the "crashed just after the write landed" case, so anything reaching
     // here whose baseline no longer matches the row was based on a version of
     // the chapter that no longer exists.
+    // Claim an inactive old pane's copy under the new stable session key. A
+    // quota failure leaves the old copy in place rather than deleting it.
+    if (key !== ownKey) { try { storage.setItem(ownKey, raw); storage.removeItem(key); } catch { /* Keep the original crash copy. */ } }
     if (draft.baseContent !== writing.content || draft.baseTitle !== writing.title) {
       return { kind: 'conflict', draft: draft as WritingRecoveryDraft };
     }
@@ -148,8 +172,8 @@ export function inspectWritingRecoveryDraft(
     } catch {
       // Best effort only.
     }
-    return NOTHING_TO_RECOVER;
   }
+  return NOTHING_TO_RECOVER;
 }
 
 /**

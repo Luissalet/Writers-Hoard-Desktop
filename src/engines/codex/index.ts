@@ -17,10 +17,13 @@ import {
 } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
+import { searchEntries } from '@/services/codexReference/matcher';
+import { readAliases } from '@/services/codexReference/aliases';
 const CodexEngine = lazy(() => import('./CodexEngine'));
 
 const codexEngine: EngineDefinition = {
   id: 'codex',
+  countProjectItems: async projectId => (await db.projects.get(projectId))?.codexTemplates?.length ?? 0,
   name: 'Codex',
   description: 'Encyclopedia of characters, locations, items, and world details',
   icon: BookOpen,
@@ -50,17 +53,17 @@ registerEntityResolver({
     };
   },
   searchEntities: async (query: string, projectId?: string) => {
-    const q = query.toLowerCase();
     const base = projectId
       ? db.codexEntries.where('projectId').equals(projectId)
       : db.codexEntries.toCollection();
-    const rows = await base.filter(e => e.title.toLowerCase().includes(q)).toArray();
+    const rows = searchEntries(query, await base.toArray(), 30);
     return rows.map(e => ({
       id: e.id,
       type: e.type,
       engineId: 'codex',
       projectId: e.projectId,
       title: e.title,
+      searchTerms: readAliases(e.fields),
       subtitle: e.type,
       thumbnail: e.avatar,
     }));
@@ -80,10 +83,10 @@ registerAnchorAdapter({
     return entry?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.codex'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${encodeURIComponent(pid)}/codex?entry=${encodeURIComponent(entityId)}`);
+    navigate(`/project/${encodeURIComponent(pid)}/codex?entry=${encodeURIComponent(entityId)}`);
   },
 });
 

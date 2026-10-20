@@ -1,3 +1,4 @@
+import { archiveWithMutation } from '@/services/documentArchive/store';
 import { db } from '@/db';
 import { makeEntityHook, makeTableOps, makeCascadeDeleteOp, deleteEntityAnnotations } from '@/engines/_shared';
 import type { WorldMap, MapPin } from '@/types';
@@ -20,7 +21,10 @@ const deleteWorldMapRow = makeCascadeDeleteOp({
   cascades: [{ table: 'mapPins', foreignKey: 'mapId' }],
 });
 
-async function deleteWorldMap(id: string): Promise<void> {
+export async function deleteWorldMap(id: string): Promise<void> {
+  return archiveWithMutation('maps', id, () => deleteWorldMapRows(id));
+}
+async function deleteWorldMapRows(id: string): Promise<void> {
   await db.transaction(
     'rw',
     ['worldMaps', 'mapPins', 'annotations', 'annotationReferences'],

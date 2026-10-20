@@ -6,12 +6,16 @@ import {
   defaultWorldCalendar, validateWorldCalendar, type WorldCalendar,
 } from '../worldCalendar';
 import { saveWorldCalendar, type ResolvedWorldCalendar } from '../worldCalendarStore';
+import CalendarPresetControls from './CalendarPresetControls';
+import type { Timeline } from '@/types';
+import { saveTimelineSettings } from '../timelineSettings';
 
 interface WorldCalendarEditorProps {
   projectId: string;
   open: boolean;
   onClose: () => void;
   resolved: ResolvedWorldCalendar | null | undefined;
+  timeline?: Timeline;
 }
 
 const input = 'px-2 py-1.5 bg-elevated border border-border rounded-md text-sm text-text-primary outline-none focus:border-accent-gold transition';
@@ -24,12 +28,16 @@ const addButton = 'inline-flex items-center gap-1 text-xs text-accent-gold hover
 /** Clone so edits never touch the stored row until saved. */
 const copy = (c: WorldCalendar): WorldCalendar => JSON.parse(JSON.stringify(c)) as WorldCalendar;
 
-export default function WorldCalendarEditor({ projectId, open, onClose, resolved }: WorldCalendarEditorProps) {
+export default function WorldCalendarEditor({ projectId, open, onClose, resolved, timeline }: WorldCalendarEditorProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<WorldCalendar>(() => defaultWorldCalendar(t('timeline.world.defaultName')));
   const [weekdaysText, setWeekdaysText] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const [precision, setPrecision] = useState<Timeline['displayPrecision']>('hour');
+  const [useOwnCalendar, setUseOwnCalendar] = useState(false);
 
   // Load the draft once per opening. `t` is a new function on every render and
   // `resolved` is re-read live, so depending on them would wipe what is typed.
@@ -43,7 +51,11 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
     setDraft(start);
     setWeekdaysText(start.weekdays.join(', '));
     setErrors([]);
-  }, [open, resolved, defaultName]);
+    setRangeStart(timeline?.yearRange ? String(timeline.yearRange.start) : '');
+    setRangeEnd(timeline?.yearRange ? String(timeline.yearRange.end) : '');
+    setPrecision(timeline?.displayPrecision ?? 'hour');
+    setUseOwnCalendar(!!timeline?.worldCalendar);
+  }, [open, resolved, defaultName, timeline]);
 
   const set = (patch: Partial<WorldCalendar>) => setDraft((d) => ({ ...d, ...patch }));
   const withWeekdays = (): WorldCalendar => ({
@@ -54,14 +66,18 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
   const save = async () => {
     const calendar = withWeekdays();
     const problems = validateWorldCalendar(calendar);
-    setErrors(problems);
+    setErrors(problems.map(problem => problem.startsWith('hoursPerDay') ? t('timeline.details.invalidHours') : /^leap\.(exceptEvery|restoreEvery)/.test(problem) ? t('timeline.details.invalidLeap') : problem));
     if (problems.length) return;
     setSaving(true);
     try {
-      await saveWorldCalendar(projectId, calendar);
+      if (timeline) {
+        if (!!rangeStart !== !!rangeEnd) throw new Error('timeline.settings.invalidRange');
+        await saveTimelineSettings(projectId, timeline.id, { worldCalendar: useOwnCalendar ? calendar : undefined, yearRange: rangeStart && rangeEnd ? { start: Number(rangeStart), end: Number(rangeEnd) } : undefined, displayPrecision: precision });
+      } else await saveWorldCalendar(projectId, calendar);
       onClose();
     } catch (error) {
-      setErrors([error instanceof Error ? error.message : String(error)]);
+      const message = error instanceof Error ? error.message : String(error);
+      setErrors([message.startsWith('timeline.settings.invalidExisting:') ? t('timeline.settings.invalidExisting').replace('{event}', message.split(':').slice(1).join(':')) : message.startsWith('timeline.settings.') ? t(message) : message]);
     } finally {
       setSaving(false);
     }
@@ -70,23 +86,35 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
   const remove = async () => {
     setSaving(true);
     try {
-      await saveWorldCalendar(projectId, null);
+      if (timeline) await saveTimelineSettings(projectId, timeline.id, { worldCalendar: undefined });
+      else await saveWorldCalendar(projectId, null);
       onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setErrors([message.startsWith('timeline.settings.invalidExisting:') ? t('timeline.settings.invalidExisting').replace('{event}', message.split(':').slice(1).join(':')) : message]);
     } finally {
       setSaving(false);
     }
   };
 
-  const ownCalendar = resolved && !resolved.inherited;
+  const ownCalendar = timeline ? resolved?.ownerTimelineId === timeline.id : resolved && !resolved.inherited;
   return (
-    <Modal open={open} onClose={() => { if (!saving) onClose(); }} title={t('timeline.world.editorTitle')} wide busy={saving}>
-      <fieldset disabled={saving} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1" data-testid="world-calendar-editor">
+    <Modal open={open} onClose={() => { if (!saving) onClose(); }} title={t(timeline ? 'timeline.settings.open' : 'timeline.world.editorTitle')} wide busy={saving}>
+      <fieldset disabled={saving} className="space-y-4 min-w-0" data-testid="world-calendar-editor">
+        {timeline && <div className="space-y-3 rounded-lg bg-elevated p-3"><p className="text-sm font-semibold text-accent-gold">{timeline.title}</p><p className="text-xs text-text-muted">{t('timeline.settings.scopeHelp')}</p><div className="flex flex-wrap gap-3"><label className="text-xs text-text-muted">{t('timeline.settings.fromYear')}<input aria-label={t('timeline.settings.fromYear')} type="number" className={`${input} block w-28 mt-1`} value={rangeStart} onChange={event => setRangeStart(event.target.value)} /></label><label className="text-xs text-text-muted">{t('timeline.settings.toYear')}<input aria-label={t('timeline.settings.toYear')} type="number" className={`${input} block w-28 mt-1`} value={rangeEnd} onChange={event => setRangeEnd(event.target.value)} /></label><button type="button" className={addButton} onClick={() => { setRangeStart(''); setRangeEnd(''); }}>{t('timeline.settings.allYears')}</button><label className="text-xs text-text-muted">{t('timeline.settings.precision')}<select aria-label={t('timeline.settings.precision')} className={`${input} block mt-1`} value={precision} onChange={event => setPrecision(event.target.value as Timeline['displayPrecision'])}>{(['year', 'day', 'hour'] as const).map(value => <option key={value} value={value}>{t(`timeline.settings.${value}`)}</option>)}</select></label></div><p className="text-xs text-text-muted">{t('timeline.settings.rangeHelp')}</p></div>}
         {resolved?.inherited && (
           <p className="text-xs text-text-muted bg-elevated rounded-md p-2">{t('timeline.world.inheritedNote')}</p>
         )}
+        {timeline && <label className="flex items-center gap-2 text-sm text-accent-gold"><input type="checkbox" checked={useOwnCalendar} onChange={event => setUseOwnCalendar(event.target.checked)} />{t('timeline.settings.independent')}</label>}
+        <fieldset className="space-y-4 disabled:opacity-50" disabled={!!timeline && !useOwnCalendar}>
+        <CalendarPresetControls calendar={withWeekdays()} onLoad={calendar => { setDraft(calendar); setWeekdaysText(calendar.weekdays.join(', ')); setErrors([]); }} />
         <div>
           <label htmlFor="wc-name" className="block text-sm text-text-muted mb-1">{t('timeline.world.name')}</label>
           <input id="wc-name" className={`${input} w-full`} value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+        </div>
+        <div>
+          <label htmlFor="wc-hours" className="block text-sm text-text-muted mb-1">{t('timeline.details.hours')}</label>
+          <input id="wc-hours" type="number" min={1} max={1000} className={num} value={draft.hoursPerDay ?? 24} onChange={event => set({ hoursPerDay: Number(event.target.value) })} />
         </div>
 
         <div className={section}>
@@ -120,8 +148,10 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
 
         <div className={section}>
           <p className={heading}>{t('timeline.world.eras')}</p>
+          <p className="text-xs text-text-muted">{t('timeline.settings.erasHelp')}</p>
+          <label className="flex gap-2 text-xs text-text-muted"><input type="checkbox" checked={draft.allowNegativeYears !== false} onChange={event => set({ allowNegativeYears: event.target.checked })} />{t('timeline.settings.negativeYears')}</label>
           {draft.eras.map((era, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={i} className="flex items-center flex-wrap gap-2">
               <input aria-label={t('timeline.world.eraName')} className={`${input} flex-1`} value={era.name}
                 onChange={(e) => set({ eras: draft.eras.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
               <input aria-label={t('timeline.world.eraAbbr')} className={`${input} w-20`} value={era.abbr}
@@ -133,6 +163,8 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
                   onChange={(e) => set({ eras: draft.eras.map((x, j) => (j === i ? { ...x, countdown: e.target.checked || undefined } : x)) })} />
                 {t('timeline.world.countdown')}
               </label>
+              <label className="flex gap-1 text-xs text-text-muted"><input type="checkbox" checked={!!era.yearZero} disabled={era.countdown} onChange={event => set({ eras: draft.eras.map((item, index) => index === i ? { ...item, yearZero: event.target.checked || undefined } : item) })} />{t('timeline.settings.yearZero')}</label>
+              {i < draft.eras.length - 1 && <label className="flex items-center gap-1 text-xs text-text-muted">{t('timeline.settings.duration')}<input type="number" min={1} className={num} value={draft.eras[i + 1].startYear - era.startYear} onChange={event => { const length = Number(event.target.value); const delta = length - (draft.eras[i + 1].startYear - era.startYear); set({ eras: draft.eras.map((item, index) => index > i ? { ...item, startYear: item.startYear + delta } : item) }); }} /></label>}
               <button type="button" className={iconButton} aria-label={t('timeline.world.removeEra')} disabled={draft.eras.length === 1}
                 onClick={() => set({ eras: draft.eras.filter((_, j) => j !== i) })}><Trash2 size={14} aria-hidden="true" /></button>
             </div>
@@ -201,10 +233,13 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
                 onChange={(e) => set({ leap: { ...draft.leap!, month: Number(e.target.value) } })}>
                 {draft.months.map((m, k) => <option key={k} value={k + 1}>{m.name}</option>)}
               </select>
+              <label>{t('timeline.details.leapExcept')} <input aria-label={t('timeline.details.leapExcept')} type="number" min={1} className={num} value={draft.leap.exceptEvery ?? ''} onChange={event => set({ leap: { ...draft.leap!, exceptEvery: event.target.value ? Number(event.target.value) : undefined, ...(!event.target.value ? { restoreEvery: undefined } : {}) } })} /></label>
+              <label>{t('timeline.details.leapRestore')} <input aria-label={t('timeline.details.leapRestore')} type="number" min={1} className={num} disabled={!draft.leap.exceptEvery} value={draft.leap.restoreEvery ?? ''} onChange={event => set({ leap: { ...draft.leap!, restoreEvery: event.target.value ? Number(event.target.value) : undefined } })} /></label>
             </div>
           )}
         </div>
 
+        </fieldset>
         {errors.length > 0 && (
           <ul className="text-xs text-danger space-y-1 bg-danger/10 rounded-md p-2" role="alert" data-testid="world-calendar-errors">
             {errors.map((e) => <li key={e}>{e}</li>)}
@@ -213,13 +248,13 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
 
         <div className="flex items-center justify-between pt-2">
           {ownCalendar ? (
-            <button type="button" onClick={() => void remove()} className="text-xs text-danger hover:underline">{t('timeline.world.remove')}</button>
+            <button type="button" onClick={() => void remove()} className="text-xs text-danger hover:underline">{t(timeline ? 'timeline.settings.useProject' : 'timeline.world.remove')}</button>
           ) : <span />}
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-text-muted hover:text-text-primary">{t('common.cancel')}</button>
             <button type="button" onClick={() => void save()} data-testid="world-calendar-save"
               className="px-4 py-2 text-sm rounded-lg bg-accent-gold text-deep font-semibold hover:brightness-110">
-              {resolved?.inherited ? t('timeline.world.saveOwn') : t('common.save')}
+              {!timeline && resolved?.inherited ? t('timeline.world.saveOwn') : t('common.save')}
             </button>
           </div>
         </div>
