@@ -45,6 +45,8 @@ import FootnotesPanel from '@/components/editor/footnotes/FootnotesPanel';
 import { collectFootnotes } from '@/components/editor/footnotes/footnoteModel';
 import type { PageLayoutOptions, PageNote } from '@/components/editor/pageMode/PageLayout';
 import { useAppStore } from '@/stores/appStore';
+import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
+import { registerPendingFlusher } from '@/services/pendingWrites';
 import { usePageCount } from '@/components/editor/pageMode/usePageCount';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import {
@@ -80,7 +82,7 @@ import {
   updateWritingAtVersion,
   type DeletedWritingBundle,
 } from '../operations';
-import { writeWritingRecoveryDraft } from '../recoveryJournal';
+import { writeWritingRecoveryDraft, registerWritingRecoveryOwner } from '../recoveryJournal';
 import { takeSnapshot } from '../snapshots';
 
 /** Debounce for the autosave (ms) — the single-chapter editor's. */
@@ -286,6 +288,10 @@ export default function BookEditor({
   footnotePlacement = 'chapter',
 }: BookEditorProps) {
   const { t, locale } = useTranslation();
+  const pane = useEnginePane();
+  const recoveryOwner = pane?.primary ? undefined : pane?.instanceId;
+  useEffect(() => { const release = writings.map(writing => registerWritingRecoveryOwner(projectId, writing.id, recoveryOwner)); return () => release.forEach(cleanup => cleanup()); }, [projectId, recoveryOwner, writings]);
+  const saveOwner = `book:${pane?.instanceId ?? 'main'}:${projectId}`;
   // Flow or Word-style sheets, from the writer's reading preferences. The
   // editor swaps the page plugin on the live document, so a change of layout
   // or paper never remounts it — and never loses what is not saved yet.
@@ -297,7 +303,7 @@ export default function BookEditor({
     footerLabel: (page, total) =>
       t('editor.page.footer').replace('{page}', String(page)).replace('{total}', String(total)),
   };
-  const referencePrefs = useReferencePrefs();
+  const referencePrefs = useReferencePrefs(pane?.primary ? undefined : pane?.instanceId);
   const ghostText = useGhostText(projectId);
   const numbered = numberedInOrder(writings);
   const unnumberedCount = writings.length - numbered.length;
@@ -714,7 +720,7 @@ export default function BookEditor({
       const title = section.title.trim() || untitled;
       const baseTitle = entry.title.trim() || untitled;
       if (title === baseTitle && normalizeHtml(section.html) === normalizeHtml(entry.html)) continue;
-      writeWritingRecoveryDraft(projectId, section.writingId, title, section.html, baseTitle, entry.persisted);
+      writeWritingRecoveryDraft(projectId, section.writingId, title, section.html, baseTitle, entry.persisted, recoveryOwner);
     }
   };
 
@@ -789,9 +795,11 @@ export default function BookEditor({
   }, []);
 
   const unsaved = saveState !== 'saved';
+  useEffect(() => { if (unsaved) return registerPendingFlusher(saveOwner, () => flushSaveRef.current()); }, [saveOwner, unsaved]);
+  useEffect(() => () => reportUnsavedWork(null, saveOwner), [saveOwner]);
   useEffect(() => {
     if (!unsaved) {
-      reportUnsavedWork(null);
+      reportUnsavedWork(null, saveOwner);
       return;
     }
     reportUnsavedWork({
@@ -799,13 +807,14 @@ export default function BookEditor({
       message: t('writings.book.closeWindow.stuckMessage'),
       closeAnyway: t('writings.closeWindow.close'),
       keepOpen: t('writings.closeWindow.keepOpen'),
-    });
+    }, saveOwner);
     // `locale` and not `t`: the translator is a new function every render.
-  }, [unsaved, locale]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [unsaved, locale, saveOwner]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ctrl/Cmd+S saves now.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, event)) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         void flushSaveRef.current();
@@ -813,7 +822,7 @@ export default function BookEditor({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [pane]);
 
   useEffect(() => {
     return onDataChanged((detail) => {
@@ -1317,7 +1326,7 @@ export default function BookEditor({
         // and takes the same breakpoint for one layout to reason about.
         <div
           className={`grid grid-cols-1 gap-4 items-start ${
-            notesOpen ? 'xl:grid-cols-[minmax(0,1fr)_320px]' : ''
+            notesOpen ? pane?.width !== undefined ? pane.width >= 1280 ? 'grid-cols-[minmax(0,1fr)_320px]' : '' : 'xl:grid-cols-[minmax(0,1fr)_320px]' : ''
           }`}
           // Read by the stylesheet: with `chapter`, every chapter heading
           // resets the footnote counter, so the numbers in the prose restart
@@ -1326,6 +1335,7 @@ export default function BookEditor({
         >
           <TiptapEditor
             key={loaded.key}
+            referenceContext={{ projectId, scopeId: bookScopeId(projectId) }}
             content={loaded.html}
             onDocumentChange={handleChange}
             placeholder={t('writings.startWriting')}

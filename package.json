@@ -19,6 +19,7 @@
     "audit:security": "npm audit --audit-level=moderate",
     "verify:signing": "node scripts/check-release-signing.mjs",
     "test:critical": "electron scripts/run-critical-tests.cjs",
+    "test:vvd": "node scripts/run-vvd-tests.cjs",
     "test:media": "node scripts/run-media-commons-tests.mjs",
     "commons:sync": "node scripts/sync-hoard-commons.mjs",
     "commons:check": "node scripts/sync-hoard-commons.mjs --check",

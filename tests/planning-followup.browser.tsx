@@ -1,5 +1,6 @@
-import { act } from 'react';
-import { createRoot } from 'react-dom/client';
+import { act, type ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
+import { createRoot, type Root } from 'react-dom/client';
 import MapView, { type PinDraft } from '@/components/maps/MapView';
 import DivergenceEditor from '@/engines/real-atlas/components/DivergenceEditor';
 import { isRowDraftSnapshot } from '@/engines/real-atlas/components/useRowDraft';
@@ -12,6 +13,8 @@ import { t } from '@/i18n/useTranslation';
 import type { MapPin, TimelineEvent, TimelineConnection } from '@/types';
 import { db } from '@/db';
 import { deleteProject } from '@/db/operations';
+
+function renderWithRouter(root: Root, content: ReactNode) { root.render(<MemoryRouter>{content}</MemoryRouter>); }
 
 function button(label: string): HTMLButtonElement {
   const found = [...document.querySelectorAll('button')].find((element) => element.textContent?.trim() === label);
@@ -42,7 +45,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
     const savedPins: string[] = [];
     const pins: MapPin[] = ['A', 'B'].map((id) => ({ id, projectId: prefix, mapId: 'map', name: id, description: '', icon: 'city', position: { x: 20, y: 20 } }));
     const renderMap = async (id: string, key = 'map') => act(async () => {
-      root.render(<MapView key={key} projectId={prefix} mapId="map" focusPinId={id} pins={pins} drafts={drafts} backgroundImage="data:image/gif;base64,R0lGODlhAQABAAAAACw=" onUploadBackground={() => {}} onAddPin={() => {}} onEditPin={async (pinId) => { if (fail) throw new Error('save failed'); savedPins.push(pinId); }} onDeletePin={() => {}} />);
+      renderWithRouter(root, <MapView key={key} projectId={prefix} mapId="map" focusPinId={id} pins={pins} drafts={drafts} backgroundImage="data:image/gif;base64,R0lGODlhAQABAAAAACw=" onUploadBackground={() => {}} onAddPin={() => {}} onEditPin={async (pinId) => { if (fail) throw new Error('save failed'); savedPins.push(pinId); }} onDeletePin={() => {}} />);
     });
     await renderMap('A');
     await act(async () => { typeInto(host.querySelector('textarea')!, 'Harbour draft'); });
@@ -52,7 +55,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
     if (host.querySelector('textarea')?.value !== 'Harbour draft') throw new Error('Map switching discarded draft');
     await act(async () => { button(t('common.save')).click(); });
     if (!host.querySelector('[role="alert"]') || !drafts.has('A')) throw new Error('Map failed save lost recovery copy');
-    await act(async () => { root.render(null); });
+    await act(async () => { renderWithRouter(root, null); });
     drafts = createLocalDraftStore(`${prefix}-maps`, acceptPin);
     await renderMap('A', 'reopen');
     if (host.querySelector('textarea')?.value !== 'Harbour draft') throw new Error('Map reopening lost persisted draft');
@@ -66,13 +69,13 @@ export async function testPlanningFollowup(): Promise<string[]> {
     fail = true;
     let savedTitle = '';
     const renderAtlas = async (divergence: AtlasDivergence) => act(async () => {
-      root.render(<DivergenceEditor key={divergence.id} projectId={prefix} divergence={divergence} places={[]} draftStore={atlasDrafts} onSave={async (changes) => { if (fail) throw new Error('save failed'); savedTitle = changes.title!; }} onDelete={async () => {}} />);
+      renderWithRouter(root, <DivergenceEditor key={divergence.id} projectId={prefix} divergence={divergence} places={[]} draftStore={atlasDrafts} onSave={async (changes) => { if (fail) throw new Error('save failed'); savedTitle = changes.title!; }} onDelete={async () => {}} />);
     });
     await renderAtlas(row);
     await act(async () => { typeInto(host.querySelector('input')!, 'Alternate history'); });
     await renderAtlas({ ...row, id: 'divergence-B', title: 'B' });
     if (host.querySelector('input')?.value !== 'B') throw new Error('Atlas draft leaked between rows');
-    await act(async () => { root.render(null); });
+    await act(async () => { renderWithRouter(root, null); });
     atlasDrafts = createLocalDraftStore(`${prefix}-atlas`, isRowDraftSnapshot);
     await renderAtlas({ ...row, updatedAt: 2, reality: 'External research' });
     if (host.querySelector('input')?.value !== 'Alternate history' || host.querySelector('textarea')?.value !== 'External research') throw new Error('Atlas reopening failed to merge saved changes with draft');
@@ -82,7 +85,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
     await act(async () => { button(t('realAtlas.divergence.save')).click(); });
     if (savedTitle !== 'Alternate history' || atlasDrafts.has(row.id)) throw new Error('Atlas retry did not retire recovered draft');
     passed.push('Real Atlas: durable drafts merge external updates and survive failed explicit saves');
-    await act(async () => { root.render(null); });
+    await act(async () => { renderWithRouter(root, null); });
 
     const journalKey = `${prefix}-failure`;
     const originalSetItem = Storage.prototype.setItem;
@@ -141,7 +144,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
     for (const mode of ['list', 'lanes']) {
       let saved = 0;
       const persist = async () => { saved++; };
-      await act(async () => { root.render(mode === 'list'
+      await act(async () => { renderWithRouter(root, mode === 'list'
         ? <TimelineView projectId={prefix} timelineId={timeline.id} events={[]} onAddEvent={persist} onEditEvent={persist} onDeleteEvent={() => {}} />
         : <SwimLaneView projectId={prefix} timelines={[timeline]} events={[]} connections={[]} onAddEvent={persist} onEditEvent={persist} onDeleteEvent={() => {}} onAddConnection={() => {}} onEditConnection={() => {}} onDeleteConnection={() => {}} onEditTimeline={() => {}} />); });
       await act(async () => { if (mode === 'list') button(t('timeline.addFirstEvent')).click(); else clickText(host, '+'); });
@@ -152,7 +155,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
       await act(async () => { typeInto(document.querySelectorAll<HTMLInputElement>('input[type="date"]')[1], '2026-09-09'); });
       await act(async () => { button(t('timeline.create')).click(); });
       if (saved !== 1) throw new Error(`${mode} rejects valid same-day range`);
-      await act(async () => { root.render(null); });
+      await act(async () => { renderWithRouter(root, null); });
     }
     passed.push('Timeline list and lanes: reversed date ranges are blocked and same-day ranges can save');
 
@@ -161,7 +164,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
     let connectionFails = true;
     let renamed = '';
     const attempts: TimelineConnection[] = [];
-    await act(async () => { root.render(<SwimLaneView projectId={prefix} timelines={[timeline]} events={events} connections={[]} onAddEvent={() => {}} onEditEvent={() => {}} onDeleteEvent={() => {}} onAddConnection={async (connection) => { attempts.push(connection); if (connectionFails) throw new Error('connection failed'); }} onEditConnection={() => {}} onDeleteConnection={() => {}} onEditTimeline={async (_id, changes) => { if (renameFails) throw new Error('rename failed'); renamed = changes.title!; }} />); });
+    await act(async () => { renderWithRouter(root, <SwimLaneView projectId={prefix} timelines={[timeline]} events={events} connections={[]} onAddEvent={() => {}} onEditEvent={() => {}} onDeleteEvent={() => {}} onAddConnection={async (connection) => { attempts.push(connection); if (connectionFails) throw new Error('connection failed'); }} onEditConnection={() => {}} onDeleteConnection={() => {}} onEditTimeline={async (_id, changes) => { if (renameFails) throw new Error('rename failed'); renamed = changes.title!; }} />); });
     await act(async () => { clickText(host, 'Lane'); });
     await act(async () => { typeInto(document.querySelector<HTMLInputElement>('[role="dialog"] input')!, 'Parallel history'); });
     await act(async () => { button(t('common.save')).click(); });

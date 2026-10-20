@@ -1,0 +1,3 @@
+const es = { draw: 'Dibujar', title: 'Dibujo a mano alzada', help: 'Arrastra para dibujar. Cada trazo se guarda y puede moverse, cambiar de tamaño o deshacerse.', done: 'Terminar', color: 'Color del trazo', width: 'Grosor del trazo', locked: 'Selecciona una capa visible y desbloqueada para dibujar.' };
+const en: typeof es = { draw: 'Draw', title: 'Freehand drawing', help: 'Drag to draw. Each stroke is saved and can be moved, resized or undone.', done: 'Done', color: 'Stroke color', width: 'Stroke width', locked: 'Select a visible, unlocked layer to draw.' };
+export function freehandCopy(locale: string) { return locale === 'es' ? es : en; }

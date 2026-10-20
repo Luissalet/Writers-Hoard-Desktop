@@ -1,0 +1,17 @@
+import {useEffect,useState} from 'react';
+import {defineLocalTool,type LocalToolJson,type LocalToolProps,type LocalToolSnapshot} from '@/engines/local/sdk';
+type State={version:1;notes:string};
+function validateState(value:LocalToolJson):value is State{return Boolean(value&&typeof value==='object'&&!Array.isArray(value)&&value.version===1&&typeof value.notes==='string'&&value.notes.length<=100000);}
+function LocalNotebook({client}:LocalToolProps<State>){
+  const [snapshot,setSnapshot]=useState<LocalToolSnapshot<State>|null>(null),[notes,setNotes]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(false),[titles,setTitles]=useState<string[]>([]);
+  useEffect(()=>{let active=true;void client.read().then(value=>{if(active){setSnapshot(value);setNotes(value.data.notes);}}).catch(()=>{if(active)setStatus('Could not read saved state. Existing data was not changed.');});return()=>{active=false;};},[client]);
+  const reload=async()=>{try{const value=await client.read();setSnapshot(value);setNotes(value.data.notes);setStatus('Saved version loaded.');}catch{setStatus('Could not load saved state. Your draft remains here.');}};
+  const save=async()=>{if(!snapshot||busy)return;setBusy(true);try{const value=await client.save({version:1,notes},snapshot.revision);setSnapshot(value);setStatus('Saved locally.');}catch{setStatus('Save refused. Your draft remains here. Another pane may have changed the saved version.');}finally{setBusy(false);}};
+  return <section className="space-y-4 p-5 text-text-primary" aria-label={__NAME__}>
+    <h2 className="font-display text-2xl">{__NAME__}</h2><p className="text-sm text-text-muted">A local notebook example. Save your draft before leaving this tool.</p>
+    <label className="block space-y-2 text-sm">Notes<textarea aria-label="Notes" rows={8} maxLength={100000} disabled={!snapshot||busy} value={notes} onChange={event=>setNotes(event.target.value)} className="block w-full rounded-lg border border-border bg-elevated p-3"/></label>
+    <div className="flex flex-wrap gap-2"><button type="button" disabled={!snapshot||busy} onClick={()=>{void save();}} className="rounded-lg bg-accent-gold px-4 py-2 text-deep">Save locally</button><button type="button" disabled={busy} onClick={()=>{void reload();}} className="rounded-lg border border-border px-4 py-2">Discard own draft and reload saved</button><button type="button" onClick={()=>{void client.queryCodex({limit:20}).then(cards=>{setTitles(cards.map(card=>card.title));setStatus('Local Codex refreshed.');}).catch(()=>setStatus('Could not read this project’s Codex.'));}} className="rounded-lg border border-border px-4 py-2">Read this project’s Codex</button></div>
+    {status&&<p role="status" className="text-sm text-text-muted">{status}</p>}{titles.length>0&&<ul className="list-disc pl-5">{titles.map((title,index)=><li key={index}>{title}</li>)}</ul>}
+  </section>;
+}
+export default defineLocalTool<State>({namespace:__NAMESPACE__,name:{en:__NAME__,es:__NAME__},description:{en:'A trusted source extension with project-local notes and a read-only Codex query.',es:'Una extensión de código fuente con notas locales del proyecto y consulta del Codex.'},initialState:{version:1,notes:''},validateState,component:LocalNotebook});

@@ -15,6 +15,10 @@ import {
 } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
+import { registerLocaleStrings } from '@/i18n/useTranslation';
+import parallelEn from './locales/en';
+import parallelEs from './locales/es';
+registerLocaleStrings({ en: parallelEn, es: parallelEs });
 const WritingsEngine = lazy(() => import('./WritingsEngine'));
 
 const writingsEngine: EngineDefinition = {
@@ -86,10 +90,10 @@ registerAnchorAdapter({
     return writing?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.writings'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${encodeURIComponent(pid)}/writings?writing=${encodeURIComponent(entityId)}`);
+    navigate(`/project/${encodeURIComponent(pid)}/writings?writing=${encodeURIComponent(entityId)}`);
   },
 });
 

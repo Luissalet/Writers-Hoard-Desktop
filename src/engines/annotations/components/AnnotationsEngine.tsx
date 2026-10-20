@@ -12,6 +12,7 @@ import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { useAnnotationsForProject } from '../hooks';
 import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import type { Annotation, NoteType } from '../types';
@@ -118,6 +119,7 @@ function EngineGroup({ engineId, annotations }: { engineId: string; annotations:
 
 function AnnotationRow({ ann }: { ann: Annotation }) {
   const { t } = useTranslation();
+  const navigate = usePaneNavigate();
   const adapter = getAnchorAdapter(ann.sourceEngineId);
   const snippet =
     ann.noteBody ||
@@ -139,7 +141,7 @@ function AnnotationRow({ ann }: { ann: Annotation }) {
       )}
       {adapter && (
         <button
-          onClick={() => adapter.navigateToEntity(ann.sourceEntityId, ann.projectId)}
+          onClick={() => adapter.navigateToEntity(ann.sourceEntityId, ann.projectId, navigate)}
           className="text-[11px] text-accent-gold hover:underline flex-shrink-0"
         >
           {t('common.open')}

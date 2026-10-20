@@ -339,8 +339,9 @@ export async function importWorldDoc(projectId: string, raw: unknown, options: I
       if (!summary) return report('skipped', undefined, 'no_summary');
       const text = incomingEvent(summary);
       const date = clip(item.date, 'date');
-      const linkedEntryId = (Array.isArray(item.entities) ? item.entities : []).map(resolveEntry).find(Boolean);
-      const probe = { title: text.title, description: text.description, date, linkedEntryId };
+      const linkedEntryIds = (Array.isArray(item.entities) ? item.entities : []).map(resolveEntry).filter((id): id is string => !!id);
+      const linkedEntryId = linkedEntryIds[0];
+      const probe = { title: text.title, description: text.description, date, linkedEntryId, linkedEntryIds };
       const incomingHash = eventHash(probe);
       const revision = String(item.revision || digest({ date, summary })).slice(0, 200);
       const refs = [item.ref, ...sameRefs(item)];
@@ -361,7 +362,7 @@ export async function importWorldDoc(projectId: string, raw: unknown, options: I
         const link = linked.familySource!;
         if (link.revision === revision && link.ref === item.ref) return report('unchanged', linked.id);
         if (eventHash(linked) !== link.localHash) return report('local_modified', linked.id, 'edited here after it was imported');
-        const changes = { title: text.title, description: text.description, date, linkedEntryId, updatedAt: now };
+        const changes = { title: text.title, description: text.description, date, linkedEntryId, linkedEntryIds, updatedAt: now };
         const next: TimelineEvent = { ...linked, ...changes, familySource: receipt(item.ref, item, eventHash({ ...linked, ...changes }), revision) };
         await db.timelineEvents.put(next);
         eventsById.set(next.id, next);
@@ -384,7 +385,7 @@ export async function importWorldDoc(projectId: string, raw: unknown, options: I
       const event: TimelineEvent = {
         id: generateId('event'), projectId, timelineId: lane.id, title: text.title, description: text.description, date, dateMode: 'text',
         eventType: 'point', order: siblings.reduce((max, row) => Math.max(max, row.order), -1) + 1, lane: '', color: lane.color,
-        ...(linkedEntryId ? { linkedEntryId } : {}), createdAt: now, updatedAt: now,
+        ...(linkedEntryId ? { linkedEntryId, linkedEntryIds } : {}), createdAt: now, updatedAt: now,
       };
       event.familySource = receipt(item.ref, item, eventHash(event), revision);
       await db.timelineEvents.add(event);

@@ -14,6 +14,11 @@ export interface WritingSnapshot {
   wordCount: number;
   reason: SnapshotReason;
   createdAt: number;
+  /** Explicitly mutable alternatives; ordinary history rows never carry this. */
+  kind?: 'parallel-draft';
+  draftName?: string;
+  updatedAt?: number;
+  basedOnVersion?: number;
 }
 
 /**

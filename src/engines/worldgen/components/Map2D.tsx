@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useEnginePane, ownsEnginePaneEvent, dispatchEnginePaneCommand } from '@/engines/_shared/EnginePaneContext';
 import type { BiomeId, LandmarkType, WorldData, ViewMode } from '../core/types';
 import { BIOME_COLORS, renderAtlasWindow, renderBase, renderRivers, updateAtlasCells } from '../core/render';
 import { SculptGesture } from '../sculpt/ops';
@@ -855,6 +856,7 @@ export default function Map2D({
   measuring = false, onEndMeasure,
 }: Map2DProps) {
   const { t } = useTranslation();
+  const pane = useEnginePane();
   /**
    * Why the last gesture did nothing, in the hint bar, for a few seconds.
    *
@@ -3837,6 +3839,7 @@ export default function Map2D({
   // tool. Ctrl+Z goes to the world's own history, which is shared with 3D.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, e)) return;
       // A modal over the map (a confirm dialog, a settings sheet) owns the
       // keyboard while it is up: its Escape closes IT, and must not also
       // abandon a lasso or undo a stroke underneath.
@@ -3956,10 +3959,10 @@ export default function Map2D({
         const k = e.key.toLowerCase();
         if (k === 'z') {
           e.preventDefault();
-          window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
+          dispatchEnginePaneCommand(pane, e.shiftKey ? 'wg-redo' : 'wg-undo');
         } else if (k === 'y') {
           e.preventDefault();
-          window.dispatchEvent(new CustomEvent('wg-redo'));
+          dispatchEnginePaneCommand(pane, 'wg-redo');
         }
       }
     };
@@ -3977,7 +3980,7 @@ export default function Map2D({
     };
   }, [
     closeRealmPoly, abandonRealmPoly, dropRealmCorner, abandonMove, flyHome, goBack,
-    measuring, hasRuler, onEndMeasure, zoomAbout, cancelFlight, scheduleDraw, reportViewport, PW, PH, wraps,
+    measuring, hasRuler, onEndMeasure, zoomAbout, cancelFlight, scheduleDraw, reportViewport, PW, PH, wraps, pane,
   ]);
 
   /** The nearest town to a screen point, within a screen-sized reach. */

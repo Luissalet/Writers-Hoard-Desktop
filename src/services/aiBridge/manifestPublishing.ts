@@ -1854,7 +1854,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "link_video",
-    "description": "Transcript (with timestamps) and key frames of a saved video link â€” transcripciÃ³n del vÃ­deo, fotogramas clave\nReturns what the background analysis obtained for a saved video: status (none, queued, running, done, partial, failed, no_source), the transcript (status, via, language, text, timed segments) and the key frames (index, t_s, time, reason and the absolute path of the JPEG). Identify the link by id or url. If the status is none or no_source, offer link_video_analyze. Quote only what is returned.\nSinÃ³nimos: quÃ© dice el vÃ­deo, transcripciÃ³n del reel, resumen del vÃ­deo, fotogramas, capturas del vÃ­deo, subtÃ­tulos locales",
+    "description": "Transcript (with timestamps) and key frames of a saved video link — transcripción del vídeo, fotogramas clave\nReturns what the background analysis obtained for a saved video: status (none, queued, running, done, partial, failed, no_source), the transcript (status, via, language, text, timed segments) and the key frames (index, t_s, time, reason and the absolute path of the JPEG). Identify the link by id or url. If the status is none or no_source, offer link_video_analyze. Quote only what is returned.\nSinÃ³nimos: quÃ© dice el vÃ­deo, transcripciÃ³n del reel, resumen del vÃ­deo, fotogramas, capturas del vÃ­deo, subtÃ­tulos locales",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -15930,7 +15930,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "wh_publishing_link_project",
-    "description": "Persist a Writer project reference to a native library, reading, paperwork or publishing object/output. Retains its native ID and ownership; copies no source data.",
+    "description": "Persist a Writer project reference to a native library, reading, paperwork or publishing object/output.\nRetains its native ID and ownership; copies no source data.",
     "schema": {
       "type": "object",
       "properties": {

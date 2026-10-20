@@ -1,4 +1,6 @@
 import Dexie, { type Table } from 'dexie';
+import type { LocalMediaAsset } from '@/engines/media/types';
+import type { DocumentArchive } from '@/services/documentArchive/types';
 import type {
   Project,
   CodexEntry,
@@ -69,9 +71,10 @@ import { migrateLegacyBoards } from './legacyBoardMigration';
 import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 38;
+export const CURRENT_DB_VERSION = 40;
 
 export class WritersHoardDB extends Dexie {
+  documentArchives!: Table<DocumentArchive>;
   projects!: Table<Project>;
   codexEntries!: Table<CodexEntry>;
   writings!: Table<Writing>;
@@ -153,6 +156,7 @@ export class WritersHoardDB extends Dexie {
   betaComments!: Table<BetaCommentRow>;
   referencePins!: Table<ReferencePinRow>;
   genealogyLinks!: Table<GenealogyLinkRow>;
+  localMediaAssets!: Table<LocalMediaAsset>;
 
   constructor() {
     super('WritersHoardDB');
@@ -1001,7 +1005,7 @@ export class WritersHoardDB extends Dexie {
     // A new version creates the missing table for those databases and repairs
     // legacy genealogy rows in databases that already reached v37. All other
     // stores and rows are inherited unchanged from the previous versions.
-    this.version(CURRENT_DB_VERSION).stores({
+    this.version(38).stores({
         referencePins: 'id, projectId',
         genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
       })
@@ -1023,6 +1027,13 @@ export class WritersHoardDB extends Dexie {
           await table.put(next);
         }
       });
+    // v39: audio/video bytes live separately from lightweight project metadata.
+    this.version(39).stores({
+      localMediaAssets: 'id, projectId, kind, *tags, updatedAt',
+    });
+    this.version(CURRENT_DB_VERSION).stores({
+      documentArchives: 'id, projectId, kind, sourceId, archivedAt',
+    });
   }
 }
 

@@ -1,4 +1,5 @@
 import { entryNames, entrySummary, findMentions, searchEntries } from '@/services/codexReference/matcher';
+import { parseAliasValue, readAliases, replaceAliases } from '@/services/codexReference/aliases';
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -52,5 +53,15 @@ export function runCodexReferenceLogicTests(): string[] {
   assert(searchEntries('ALVARITO', all)[0]?.id === 'alvaro', 'search finds aliases, accent-insensitive');
   assert(entrySummary({ fields: { Edad: '30' }, content: '<p>Una <b>cartógrafa</b>.</p><p>Segunda.</p>' }) === 'Una cartógrafa. Segunda.', 'summary strips tags');
   passed.push('search and summary');
+
+  const imported = e('imported', 'Lucía Torres', { aliases: JSON.stringify(['La Cartógrafa', 'Torres, Lucía', 'LUCIA', 'Lucía', '', 42]) });
+  assert(readAliases(imported.fields).join('|') === 'La Cartógrafa|Torres, Lucía|LUCIA', 'JSON-array imports preserve punctuation, discard invalid values and deduplicate folded names');
+  assert(findMentions('La cartografa habló con Torres, Lucía.', [imported])[0]?.count === 2, 'imported JSON aliases are usable names, without brackets or quotes');
+  assert(searchEntries('CARTOGRAFA', [imported])[0]?.id === imported.id, 'search uses the same imported alias parsing');
+  assert(parseAliasValue(' El Faro ; la Torre|Puerto\nEL FARO').join('|') === 'El Faro|la Torre|Puerto', 'manual alias separators and case-insensitive deduplication');
+  const edited = replaceAliases({ aliases: '["old"]', Apodos: 'older', source: 'Keep this provenance' }, ['New', 'NEW', 'Other']);
+  assert(edited.source === 'Keep this provenance' && !('Apodos' in edited) && readAliases(edited).join('|') === 'New|Other', 'editing aliases preserves other fields and retires old alias spellings');
+  assert(!('aliases' in replaceAliases(edited, [])), 'removing all aliases leaves no phantom imported names');
+  passed.push('imported aliases: JSON arrays, punctuation, deduplication and lossless field editing');
   return passed;
 }

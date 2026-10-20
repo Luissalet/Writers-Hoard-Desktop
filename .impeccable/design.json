@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-18T21:36:14.164879+00:00",
+  "generatedAt": "2026-10-20T10:27:58.192163+00:00",
   "title": "Design System: Writer's Hoard",
   "extensions": {
     "colorMeta": {
@@ -293,6 +293,14 @@
       {
         "name": "native-drawer",
         "value": "760px"
+      },
+      {
+        "name": "world-tools-lg",
+        "value": "1024px"
+      },
+      {
+        "name": "workspace-xl",
+        "value": "1280px"
       }
     ]
   },
@@ -351,16 +359,41 @@
       "description": "Personaje u otra referencia breve de contexto.",
       "html": "<span class=\"ds-chip\">Inés</span>",
       "css": ".ds-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;background:var(--hoard-sunken,#121414);border:1px solid var(--hoard-border,#3a3d3e);font:12px var(--font-sans);color:var(--hoard-text,#e1eaec)}"
+    },
+    {
+      "name": "Botón secundario Writer",
+      "kind": "button",
+      "refersTo": "writer-button-secondary",
+      "description": "Acciones de biblioteca, paneles y ajustes del lector.",
+      "html": "<button class=\"ds-writer-secondary\">Cancelar</button>",
+      "css": ".ds-writer-secondary{display:inline-flex;min-height:36px;align-items:center;justify-content:center;gap:8px;border:1px solid var(--color-border);border-radius:8px;padding:8px 12px;background:transparent;color:var(--color-text-primary);font:14px var(--font-sans)}.ds-writer-secondary:hover:not(:disabled){background:var(--color-elevated)}.ds-writer-secondary:focus-visible{outline:2px solid var(--color-accent-gold);outline-offset:3px}.ds-writer-secondary:disabled{opacity:.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Botón primario Writer",
+      "kind": "button",
+      "refersTo": "writer-button-primary",
+      "description": "Guardar presentación con tinta oscura en reposo y hover.",
+      "html": "<button class=\"ds-writer-primary\">Guardar presentación</button>",
+      "css": ".ds-writer-primary{display:inline-flex;min-height:36px;align-items:center;justify-content:center;gap:8px;border:1px solid var(--color-border);border-radius:8px;padding:8px 12px;background:var(--color-accent-gold);color:var(--color-deep);font:14px var(--font-sans)}.ds-writer-primary:hover:not(:disabled){background:var(--color-accent-amber)}.ds-writer-primary:focus-visible{outline:2px solid var(--color-accent-gold);outline-offset:3px}.ds-writer-primary:disabled{opacity:.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Controles de lienzo",
+      "kind": "custom",
+      "refersTo": "canvas-control",
+      "description": "Tratamiento compartido de zoom y encuadre en árboles y Board; la muestra representa el aspecto, no el comportamiento ReactFlow.",
+      "html": "<div class=\"ds-canvas-controls\"><button aria-label=\"Acercar\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg></button><button aria-label=\"Alejar\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h14\"/></svg></button><button aria-label=\"Encuadrar\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5\"/></svg></button></div>",
+      "css": ".ds-canvas-controls{display:inline-flex;flex-direction:column;box-shadow:0 0 2px 1px rgba(0,0,0,.08)}.ds-canvas-controls button{display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:5px;border:0;border-bottom:1px solid var(--color-border);background:var(--color-surface);color:var(--color-text-primary);cursor:pointer}.ds-canvas-controls button:last-child{border-bottom:0}.ds-canvas-controls svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.ds-canvas-controls button:hover{background:var(--color-elevated);color:var(--color-accent-gold)}.ds-canvas-controls button:focus-visible{outline:2px solid var(--color-accent-gold);outline-offset:-2px}"
     }
   ],
   "narrative": {
     "northStar": "El escritorio Writer de la familia Hoard",
-    "overview": "Writer conserva su identidad de escritorio: carbón, oro, marca propia, títulos con la pila Cinzel y controles con la pila Source Sans 3. La ficción se abre dentro de ese marco de Electron y mantiene su interfaz de mundos completa en una superficie de estilos aislada. No se cambia la identidad ni se establece un producto móvil.\n\nLa extensión distingue claramente los controles que habilitan funciones del espacio de trabajo que aparece después. El estado apagado conserva cuatro interruptores, ubicación de datos y explicación; el estado activo añade navegación de mundo, transcripción y herramientas laterales. La lectura de manuscritos sigue teniendo tipografía y medida propias, separadas del título de la aplicación.",
+    "overview": "Writer conserva su identidad de escritorio: carbón, oro, marca propia, títulos con la pila Cinzel y controles con la pila Source Sans 3. La ficción se abre dentro de ese marco de Electron y mantiene su interfaz de mundos completa en una superficie de estilos aislada. No se cambia la identidad ni se establece un producto móvil.\n\nLa extensión distingue claramente los controles que habilitan funciones del espacio de trabajo que aparece después. El estado apagado conserva cuatro interruptores, ubicación de datos y explicación; el estado activo añade navegación de mundo, transcripción y herramientas laterales. La lectura de manuscritos sigue teniendo tipografía y medida propias, separadas del título de la aplicación.\n\nLas herramientas de mundo amplían ese escritorio mediante documentos reales, biblioteca mixta, paneles independientes y edición contextual del origen. El contenido espacial, la prosa y las salidas de lectura conservan sus materiales propios; el marco de autoría mantiene el carbón, el oro y los controles de Writer. Esta extensión se registra a partir del código construido, sin sustituir las reglas de ficción ni las superficies de publicación existentes.",
     "keyCharacteristics": [
       "Carbón y oro del marco existente, con icono Writer y SVG canónico de Faustus.",
       "Interruptores explícitos con estado escrito y acceso directo a la carpeta de ficción.",
       "Espacio de trabajo denso con navegación, transcripción y contexto simultáneos.",
-      "Tipografía de lectura configurable en el manuscrito, distinta del título de la aplicación."
+      "Tipografía de lectura configurable en el manuscrito, distinta del título de la aplicación.",
+      "Documentos conectados mediante biblioteca, paneles con estado propio y edición contextual del origen."
     ],
     "rules": [
       {
@@ -369,9 +402,24 @@
         "section": "colors"
       },
       {
+        "name": "The Content Palette Rule",
+        "body": "El color configurable de un documento permanece en ese documento; la herramienta que lo edita conserva los colores y el foco de Writer.",
+        "section": "colors"
+      },
+      {
         "name": "The Prose and Chrome Rule",
         "body": "Los títulos de la aplicación y la prosa del manuscrito pertenecen a roles distintos; los encabezados de capítulo heredan la familia de lectura del manuscrito.",
         "section": "typography"
+      },
+      {
+        "name": "The Primary Ink Rule",
+        "body": "La etiqueta de una acción primaria dorada mantiene tinta oscura en reposo y hover; no hereda el texto claro del botón secundario.",
+        "section": "colors"
+      },
+      {
+        "name": "The Canvas Chrome Rule",
+        "body": "Los controles de un lienzo heredan las superficies, tinta y foco del escritorio aunque su biblioteca aporte un tema claro por defecto.",
+        "section": "colors"
       }
     ],
     "dos": [
@@ -379,13 +427,18 @@
       "Do acompañar cada interruptor con su etiqueta y estado escrito.",
       "Do mostrar una explicación visible cuando una función necesaria está apagada.",
       "Do mantener las preferencias de lectura del manuscrito y su medida de línea.",
-      "Do conservar bordes, foco y texto de estado en ambos ámbitos de estilos."
+      "Do conservar bordes, foco y texto de estado en ambos ámbitos de estilos.",
+      "Do conservar tinta oscura en acciones doradas y controles de lienzo con superficie, texto y foco legibles.",
+      "Do mantener el estado propio de cada panel y devolver las referencias a su documento de origen.",
+      "Do limitar los colores, fondos y fuentes elegidos por el autor al documento o lector que configuran."
     ],
     "donts": [
       "Don’t sustituir la identidad existente por una marca de ficción nueva.",
       "Don’t usar la tipografía de títulos como regla general para la prosa extensa.",
       "Don’t expresar el estado únicamente mediante el color.",
-      "Don’t presentar los ajustes de ventana estrecha como soporte móvil verificado."
+      "Don’t presentar los ajustes de ventana estrecha como soporte móvil verificado.",
+      "Don’t convertir los colores de un mapa, Códex o lector en una nueva paleta de marca.",
+      "Don’t cerrar una edición pendiente como si se hubiera guardado cuando existe un fallo o formulario sin enviar."
     ]
   }
 }

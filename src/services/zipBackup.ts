@@ -15,6 +15,7 @@ import {
 import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
 import { lexicalTerms, sha256Hex } from '@/services/judge/text';
 import type { ReferenceDocument, ReferenceLens, ReferenceSection } from '@/services/judge/types';
+import {validateLocalToolStates,type LocalToolStates} from '@/engines/local/stateTypes';
 // Engine initialization is part of the backup contract: every strategy must
 // be registered before an archive is inspected, exported, or restored.
 import '@/engines';
@@ -89,6 +90,7 @@ interface ProjectRecord {
   id: string;
   title: string;
   coverImage?: string;
+  localToolStates?: LocalToolStates;
 }
 
 interface PreparedProject {
@@ -276,6 +278,7 @@ async function writeProjectToZip(
 ): Promise<void> {
   const projectDir = `projects/${sanitize(project.title)}__${project.id}`;
   const metadata: ProjectRecord = { ...project };
+  try{validateLocalToolStates(metadata.localToolStates);}catch(error){failures.push(failure('export',error,{projectId:project.id,projectDir,path:`${projectDir}/project.json`}));return;}
   if (metadata.coverImage) {
     const { blob, ext } = dataUrlToBlob(metadata.coverImage);
     if (blob.byteLength === 0) {
@@ -837,6 +840,7 @@ async function preflightArchive(
       continue;
     }
     const project = { ...(raw as ProjectRecord) };
+    try{validateLocalToolStates(project.localToolStates);}catch(error){failures.push(failure('preflight',error,{projectDir,path}));continue;}
     if (typeof project.id !== 'string' || !project.id.trim()) {
       failures.push(failure('preflight', `Project in "${path}" has no valid id.`, { path }));
       continue;
@@ -937,10 +941,16 @@ async function importStrategy(
     // intact. Verified rather than assumed: with the wrapper gone every
     // strategy reports `Dexie.currentTransaction` set, and the restore that
     // used to hang for ever returns in forty milliseconds.
-    await strategy.importProject({
-      zip,
-      projectId: project.projectId,
-      projectDir: project.projectDir,
+    // A nested scope shares the restore's physical transaction. It also gives
+    // Dexie an async boundary per engine: a long run of empty native-await
+    // strategies can otherwise exhaust its zone-echo budget before the next
+    // IndexedDB request, taking later engines outside the atomic restore.
+    await db.transaction('rw', db.tables, async () => {
+      await strategy.importProject({
+        zip,
+        projectId: project.projectId,
+        projectDir: project.projectDir,
+      });
     });
   } catch (error) {
     throw new BackupOperationError('import', [

@@ -3,11 +3,12 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical,
   AlignStartHorizontal, AlignStartVertical, BarChart3, Bookmark, Camera, Circle,
   Frame, Grid3x3, Image as ImageIcon, Layers, Link2, Magnet, Maximize,
-  Network, Redo2, Share2, Spline, Square, StickyNote, Tag, Type, Undo2, User,
+  Network, Pencil, Redo2, Share2, Spline, Square, StickyNote, Tag, Type, Undo2, User,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { LayoutKind } from '../graph/layout';
 import type { BoardNodeKind } from '../types';
+import { freehandCopy } from '../freehandCopy';
 
 export type PanelKey = 'layers' | 'views' | 'metrics' | null;
 
@@ -33,6 +34,9 @@ export interface ToolbarProps {
   onPanel: (panel: PanelKey) => void;
   onFit: () => void;
   onExport: () => void;
+  drawing?: boolean;
+  drawingDisabled?: boolean;
+  onToggleDrawing?: () => void;
 }
 
 const NODE_BUTTONS: Array<{ kind: BoardNodeKind; icon: typeof User; labelKey: string }> = [
@@ -69,7 +73,8 @@ const groupClass =
   'grid grid-cols-2 items-center gap-0.5 rounded-xl border border-border bg-surface p-1';
 
 export default function Toolbar(props: ToolbarProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const drawingCopy = freehandCopy(locale);
   const [layoutOpen, setLayoutOpen] = useState(false);
 
   return (
@@ -95,6 +100,7 @@ export default function Toolbar(props: ToolbarProps) {
         >
           <Share2 size={15} />
         </button>
+        {props.onToggleDrawing && <button type="button" title={drawingCopy.draw} aria-label={drawingCopy.draw} aria-pressed={props.drawing ?? false} disabled={props.drawingDisabled} onClick={props.onToggleDrawing} className={`col-span-2 flex h-9 items-center justify-center gap-1 rounded-lg text-xs text-text-muted hover:bg-elevated hover:text-accent-gold disabled:opacity-40 ${props.drawing ? activeClass : ''}`} data-testid="board-freehand-toggle"><Pencil size={14} />{drawingCopy.draw}</button>}
       </div>
 
       <div className={groupClass}>
@@ -102,6 +108,7 @@ export default function Toolbar(props: ToolbarProps) {
           type="button"
           title={props.undoLabel ? `${t('board.tool.undo')}: ${props.undoLabel}` : t('board.tool.undo')}
           onClick={props.onUndo}
+          data-testid="board-undo"
           disabled={!props.canUndo}
           className={buttonClass}
         >
@@ -111,6 +118,7 @@ export default function Toolbar(props: ToolbarProps) {
           type="button"
           title={props.redoLabel ? `${t('board.tool.redo')}: ${props.redoLabel}` : t('board.tool.redo')}
           onClick={props.onRedo}
+          data-testid="board-redo"
           disabled={!props.canRedo}
           className={buttonClass}
         >

@@ -97,6 +97,7 @@ export async function readWordDeltas(
     .aboveOrEqual(startMs)
     .each((snapshot) => {
       if (snapshot.projectId !== projectId) return;
+      if (snapshot.kind === 'parallel-draft') return;
       if (!current.has(snapshot.writingId) || baselines.has(snapshot.writingId)) return;
       baselines.set(snapshot.writingId, snapshot.wordCount);
     });

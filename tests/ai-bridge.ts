@@ -32,6 +32,7 @@ import {
 } from '@/services/aiBridge/confirmation';
 import es from '@/locales/es';
 import en from '@/locales/en';
+import { PUBLISHING_TOOLS, PUBLISHING_ANNOTATIONS } from '@/services/aiBridge/manifestPublishing';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -64,8 +65,12 @@ function testManifestHandlerParity(): void {
   // wh_remove_place is not one: it appends a `remove` edit to a world's list,
   // which wh_restore_place and the undo reverse, and no row goes anywhere.
   const deleters = BRIDGE_TOOLS.filter(
-    (t) => /delete|remove|destroy/i.test(t.name) && t.name !== 'wh_remove_place',
+    (t) => /delete|remove|destroy/i.test(t.name) && t.name !== 'wh_remove_place' && !PUBLISHING_TOOLS.some(native => native.name === t.name),
   );
+  // The incorporated publishing applications retain their native deletion
+  // vocabulary. Their destructive contract is explicit metadata, rather than
+  // the single confirmation endpoint used by Writer-owned project entities.
+  for (const tool of PUBLISHING_TOOLS) if (PUBLISHING_ANNOTATIONS[tool.name]?.destructiveHint) assert(tool.writes, `native destructive tool ${tool.name} must be write-gated`);
   assert(deleters.length === 1, 'there should be exactly one deletion tool, wh_delete');
   assert(
     getBridgeTool('wh_remove_place')?.description.includes('Not a deletion'),

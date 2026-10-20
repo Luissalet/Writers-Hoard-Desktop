@@ -159,7 +159,7 @@ export async function whDelete(args: ToolArgs): Promise<unknown> {
     lines.push(t('bridge.delete.alsoRemoves').replace('{what}', () => t(`bridge.delete.cascade.${type}`)));
   }
   if (reason) lines.push(t('bridge.delete.reason').replace('{reason}', () => reason));
-  lines.push(t('bridge.delete.irreversible'));
+  lines.push(t(['writing','codex-entry','timeline','board'].includes(type) ? 'bridge.delete.recoverable' : 'bridge.delete.irreversible'));
 
   const confirmed = await requestBridgeConfirmation({
     title: t('settings.bridge.confirmTitle'),

@@ -22,10 +22,10 @@ export function registerFallbackAnchorAdapters(): void {
       getEngineChipLabel() {
         return getEngine(resolver.engineId)?.name ?? resolver.engineId;
       },
-      navigateToEntity(entityId, projectId) {
+      navigateToEntity(entityId, projectId, navigate = navigateTo) {
         const owner = projectId ?? getCurrentProjectIdFromUrl();
         if (!owner) return;
-        navigateTo(
+        navigate(
           `/project/${encodeURIComponent(owner)}/${resolver.engineId}?entity=${encodeURIComponent(entityId)}`,
         );
       },

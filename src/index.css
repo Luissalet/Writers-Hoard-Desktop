@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+/* Shared by the tree and Board controls; preserve native ReactFlow behavior. */
+.wh-canvas-controls.react-flow__controls {
+  --xy-controls-button-background-color: var(--color-surface);
+  --xy-controls-button-background-color-hover: var(--color-elevated);
+  --xy-controls-button-color: var(--color-text-primary);
+  --xy-controls-button-color-hover: var(--color-accent-gold);
+  --xy-controls-button-border-color: var(--color-border);
+}
+.wh-canvas-controls .react-flow__controls-button:focus-visible {
+  outline: 2px solid var(--color-accent-gold);
+  outline-offset: -2px;
+}
+
+.tiptap .wh-wiki-hidden {
+  text-decoration: underline dashed;
+  text-decoration-color: var(--color-text-muted);
+  text-underline-offset: 0.25em;
+  background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+.tiptap .wh-wiki-spoiler {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--color-accent-gold);
+  text-underline-offset: 0.25em;
+  background: color-mix(in srgb, var(--color-accent-gold) 14%, transparent);
+}
+
 /* Reserve the native caption controls; only this strip drags the window. */
 .desktop-titlebar {
   -webkit-app-region: drag;

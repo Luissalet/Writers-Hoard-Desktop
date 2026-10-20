@@ -14,7 +14,10 @@ import {
   Images,
   Link2,
   Move,
+  Download,
 } from 'lucide-react';
+import { saveAs } from 'file-saver';
+import { useEmbeddedToolCloseGuard } from '@/components/editor/toolBlocks/EmbeddedToolCloseContext';
 import type { CodexEntry, MapPin } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
@@ -22,6 +25,10 @@ import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
 import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
 import { ConfirmDialog } from '@/engines/_shared';
+import { useMapFeatures, type MapFeatureOptions } from './useMapFeatures';
+import { MapFeatureCanvas, MapFeatureInspector, MapFeatureToolbar } from './MapFeatureEditor';
+import { exportMapSvg, mapItemVisible } from './mapGeometry';
+import MapViewportControls from './MapViewportControls';
 
 const PIN_ICONS: Record<string, { icon: typeof MapPinIcon; color: string }> = {
   city: { icon: MapPinIcon, color: '#c4973b' },
@@ -36,7 +43,7 @@ const PIN_ICONS: Record<string, { icon: typeof MapPinIcon; color: string }> = {
   custom: { icon: MapPinIcon, color: '#e8e5e0' },
 };
 
-interface MapViewProps {
+interface MapViewProps extends MapFeatureOptions {
   projectId: string;
   mapId: string;
   backgroundImage?: string;
@@ -54,6 +61,7 @@ interface MapViewProps {
   focusPinId?: string | null;
   /** Owned by the engine so a map switch retains another pin's draft. */
   drafts?: Map<string, PinDraft>;
+  onOpenEntry?: (entryId: string) => void;
 }
 
 export interface PinDraft {
@@ -62,6 +70,7 @@ export interface PinDraft {
   icon: MapPin['icon'];
   color?: string;
   linkedEntryId?: string;
+  layerId?: string;
 }
 
 interface PinDragState {
@@ -89,6 +98,15 @@ export default function MapView({
   onDeletePin,
   focusPinId,
   drafts: suppliedDrafts,
+  features,
+  layerVisibility,
+  onChangeFeatures,
+  onChangeLayers,
+  onOpenEntry,
+  namedLayers,
+  onChangeNamedLayers,
+  readOnly = false,
+  featureDrafts,
 }: MapViewProps) {
   const { t } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
@@ -111,8 +129,15 @@ export default function MapView({
   const drafts = suppliedDrafts ?? localDrafts;
   const mapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imageSize, setImageSize] = useState({ width: 1000, height: 600 });
+  const featureEditor = useMapFeatures({ features, layerVisibility, onChangeFeatures, onChangeLayers, namedLayers, onChangeNamedLayers, readOnly, featureDrafts });
 
   const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null;
+  useEmbeddedToolCloseGuard(()=>{
+    if(readOnly)return true;
+    if(savingPin||creatingPin||featureEditor.busy||showPinForm||featureEditor.dirty||featureEditor.drawing&&featureEditor.points.length>0)return false;
+    return !pinDraft||!selectedPin||JSON.stringify(pinDraft)===JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId});
+  });
   const linkedEntry = selectedPin?.linkedEntryId
     ? codexEntries.find((entry) => entry.id === selectedPin.linkedEntryId)
     : null;
@@ -130,6 +155,7 @@ export default function MapView({
       icon: pin.icon,
       color: pin.color,
       linkedEntryId: pin.linkedEntryId,
+      layerId: pin.layerId,
     });
   }, [drafts]);
 
@@ -190,6 +216,7 @@ export default function MapView({
       icon: pinType,
       position: pendingPosition,
       description: pinDescription,
+      layerId: featureEditor.activeLayerId || undefined,
     });
     setShowPinForm(false);
     setPinName('');
@@ -216,8 +243,10 @@ export default function MapView({
         icon: pinDraft.icon,
         color: pinDraft.color,
         linkedEntryId: pinDraft.linkedEntryId || undefined,
+        layerId: pinDraft.layerId || undefined,
       });
       if (drafts.get(id) === submitted) drafts.delete(id);
+      setPinDraft(current=>current===submitted?{...submitted,name:submitted.name.trim(),description:submitted.description.trim()}:current);
     } catch {
       setEditPinFailedId(id);
     } finally {
@@ -233,7 +262,7 @@ export default function MapView({
     // que ya estabas editando te borraba la descripción recién escrita: abrías
     // el pin, escribías, y lo arrastrabas para recolocarlo antes de guardar.
     if (pin.id !== selectedPinId) selectPin(pin);
-    if (placingPin || e.button !== 0) return;
+    if (readOnly || placingPin || e.button !== 0) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     setDragState({
@@ -293,7 +322,7 @@ export default function MapView({
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
+      {!readOnly && <div className="flex items-center gap-3 flex-wrap">
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -315,7 +344,7 @@ export default function MapView({
           <>
             <div className="w-px h-6 bg-border" />
             <button
-              onClick={() => setPlacingPin(!placingPin)}
+              onClick={() => { featureEditor.changeTool('select'); setPlacingPin(!placingPin); }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition ${
                 placingPin
                   ? 'bg-accent-gold text-deep font-semibold'
@@ -345,30 +374,37 @@ export default function MapView({
             )}
           </>
         )}
-      </div>
+      </div>}
+
+      {backgroundImage && <MapFeatureToolbar editor={featureEditor} onToolChange={() => setPlacingPin(false)} />}
+      {backgroundImage && featureEditor.enabled && <button type="button" className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold" onClick={() => saveAs(new Blob([exportMapSvg(backgroundImage, imageSize.width, imageSize.height, featureEditor.features, pins, featureEditor.layers, featureEditor.namedLayers)], { type: 'image/svg+xml;charset=utf-8' }), `map-${mapId}.svg`)}><Download size={14} />{featureEditor.copy.export}</button>}
 
       {/* Map Canvas */}
+      <div className={featureEditor.selected ? 'grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]' : 'space-y-4'}>
       {!backgroundImage ? (
         <EmptyState
           icon={<MapPinIcon size={40} />}
           title={t('maps.empty.title')}
           message={t('maps.empty.message')}
-          action={{ label: t('maps.empty.action'), onClick: () => fileInputRef.current?.click() }}
+          action={readOnly ? undefined : { label: t('maps.empty.action'), onClick: () => fileInputRef.current?.click() }}
         />
       ) : (
-        <div className="rounded-xl overflow-hidden border border-border bg-deep">
+        <div className="relative min-w-0 rounded-xl overflow-hidden border border-border bg-deep">
           <TransformWrapper
             initialScale={1}
-            minScale={0.3}
+            minScale={0.05}
             maxScale={5}
-            panning={{ disabled: placingPin || dragState !== null }}
+            panning={{ disabled: placingPin || featureEditor.drawing || dragState !== null }}
+            doubleClick={{ disabled: placingPin || featureEditor.drawing }}
           >
+            <MapViewportControls mapRef={mapRef} imageWidth={imageSize.width} imageHeight={imageSize.height} />
             <TransformComponent wrapperStyle={{ width: '100%', height: '500px' }}>
               <div ref={mapRef} className="relative inline-block" onClick={handleMapClick}>
-                <img src={backgroundImage} alt="World map" className="max-w-none" style={{ maxHeight: '800px' }} />
+                <img src={backgroundImage} alt={featureEditor.copy.mapAlt} draggable={false} onLoad={event => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} className="max-w-none block" style={{ maxHeight: '800px' }} />
+                <MapFeatureCanvas editor={featureEditor} aspectRatio={imageSize.width / imageSize.height} />
 
                 {/* Pins */}
-                {pins.map(pin => {
+                {featureEditor.layers.pins && pins.filter(pin => mapItemVisible(pin, featureEditor.namedLayers)).map(pin => {
                   const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
                   const Icon = config.icon;
                   const isSelected = selectedPinId === pin.id;
@@ -377,11 +413,13 @@ export default function MapView({
                     <div
                       key={pin.id}
                       className="absolute group"
+                      data-map-pin-id={pin.id}
                       style={{
                         left: `${position.x}%`,
                         top: `${position.y}%`,
                         transform: 'translate(-50%, -100%)',
                         touchAction: 'none',
+                        pointerEvents: featureEditor.drawing ? 'none' : undefined,
                       }}
                       onMouseEnter={() => setHoveredPin(pin.id)}
                       onMouseLeave={() => setHoveredPin(null)}
@@ -393,7 +431,7 @@ export default function MapView({
                     >
                       <div className="relative">
                         <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center shadow-lg cursor-move border-2 transition-transform hover:scale-125 ${
+                          className={`w-8 h-8 rounded-full flex items-center justify-center shadow-lg ${readOnly ? 'cursor-pointer' : 'cursor-move'} border-2 transition-transform hover:scale-125 ${
                             isSelected
                               ? 'border-white ring-2 ring-accent-gold ring-offset-2 ring-offset-deep'
                               : 'border-white/20'
@@ -421,10 +459,14 @@ export default function MapView({
                   );
                 })}
               </div>
+
             </TransformComponent>
           </TransformWrapper>
         </div>
       )}
+
+      {backgroundImage && <MapFeatureInspector editor={featureEditor} entries={sortedCodexEntries} onOpenEntry={onOpenEntry} />}
+      </div>
 
       {/* Pin sidebar */}
       {pins.length > 0 && (
@@ -452,23 +494,24 @@ export default function MapView({
                     >
                       <Icon size={14} style={{ color: pin.color ?? config.color }} />
                       <span className="text-sm text-text-primary flex-1 truncate">{pin.name}</span>
-                      <Move size={12} className="text-text-dim opacity-0 group-hover:opacity-100" />
+                      {!readOnly && <Move size={12} className="text-text-dim opacity-0 group-hover:opacity-100" />}
                     </button>
-                    <button
+                    {!readOnly && <button
                       type="button"
                       onClick={() => setPendingDeletePin(pin)}
                       className="p-1.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-danger/20 rounded transition"
                       title={t('common.delete')}
                     >
                       <Trash2 size={12} className="text-danger" />
-                    </button>
+                    </button>}
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {selectedPin && pinDraft && (
+          {selectedPin && readOnly && <div className="rounded-xl border border-border bg-surface p-4"><h4 className="font-serif text-accent-gold">{selectedPin.name}</h4><p className="mt-2 text-sm text-text-muted whitespace-pre-wrap">{selectedPin.description}</p>{linkedEntry && onOpenEntry && <button type="button" className="mt-3 text-sm text-accent-gold" onClick={() => onOpenEntry(linkedEntry.id)}>{featureEditor.copy.openEntry}: {linkedEntry.title}</button>}</div>}
+          {selectedPin && pinDraft && !readOnly && (
             <div className="bg-surface border border-border rounded-xl p-4 min-w-0">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <h4 className="font-serif font-bold text-accent-gold text-sm truncate">
@@ -521,6 +564,9 @@ export default function MapView({
                   className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition resize-none"
                 />
               </div>
+
+              {!!featureEditor.namedLayers.length && <label className="mt-4 block text-xs text-text-muted">{featureEditor.copy.layer}<select value={pinDraft.layerId ?? ''} onChange={event => patchPinDraft({ ...pinDraft, layerId: event.target.value || undefined })} className="mt-1.5 w-full rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary" data-testid="map-pin-layer"><option value="">{featureEditor.copy.ungrouped}</option>{featureEditor.namedLayers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}</select></label>}
+              {linkedEntry && onOpenEntry && <button type="button" onClick={() => onOpenEntry(linkedEntry.id)} className="mt-3 inline-flex items-center gap-1.5 text-sm text-accent-gold hover:underline"><Link2 size={14} />{featureEditor.copy.openEntry}: {linkedEntry.title}</button>}
 
               <div className="mt-4">
                 <label className="block text-xs text-text-muted mb-2">{t('common.changeIcon')}</label>
@@ -580,6 +626,7 @@ export default function MapView({
                 <button
                   type="button"
                   onClick={() => void handleSavePinEdits()}
+                  data-testid="map-pin-save"
                   disabled={savingPin || !pinDraft.name.trim()}
                   className="px-4 py-2 bg-accent-gold text-deep text-sm font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50"
                 >

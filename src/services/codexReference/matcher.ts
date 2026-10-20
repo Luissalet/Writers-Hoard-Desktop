@@ -9,6 +9,8 @@
 // match only says the NAME occurs in the text: it is not presence, point of
 // view or any claim about the scene.
 
+import { foldAlias, isAliasField, readAliases } from './aliases';
+
 export interface MatchableEntry {
   id: string;
   title: string;
@@ -23,12 +25,11 @@ export interface ReferenceMatch {
   count: number;
 }
 
-const ALIAS_KEY_RE = /^(alias|aliases|aka|apodo|apodos|sobrenombre|sobrenombres|nickname|nicknames|otros nombres|also known as|other names)$/i;
 const MIN_NAME_LENGTH = 2;
 
 /** Lowercase, accents stripped, so "Álvaro" and "alvaro" compare equal. */
 export function normalizeForMatch(text: string): string {
-  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return foldAlias(text);
 }
 
 /** The entry's title plus any aliases kept in its fields, without repeats. */
@@ -43,10 +44,7 @@ export function entryNames(entry: MatchableEntry): string[] {
     names.push(name);
   };
   add(entry.title ?? '');
-  for (const [key, value] of Object.entries(entry.fields ?? {})) {
-    if (!ALIAS_KEY_RE.test(key.trim()) || typeof value !== 'string') continue;
-    for (const part of value.split(/[,;|\n]/)) add(part);
-  }
+  for (const alias of readAliases(entry.fields)) add(alias);
   return names;
 }
 
@@ -152,7 +150,7 @@ export function bodyParagraphs(html: string | undefined): string[] {
 export function entrySummary(entry: { fields?: Record<string, string>; content?: string }, max = 160): string {
   const body = bodyParagraphs(entry.content).join(' ');
   const firstField = Object.entries(entry.fields ?? {}).find(
-    ([key, value]) => !ALIAS_KEY_RE.test(key.trim()) && typeof value === 'string' && value.trim(),
+    ([key, value]) => !isAliasField(key) && typeof value === 'string' && value.trim(),
   );
   const text = body || (firstField ? firstField[1].trim() : '');
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;

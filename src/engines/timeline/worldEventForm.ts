@@ -3,6 +3,7 @@
 import type { TimelineEvent } from '@/types';
 import { formatWorldRange, parseWorldDate, validateWorldRange, type WorldCalendar } from './worldCalendar';
 import { worldEventEndKey, worldEventKey, worldEventLabel } from './worldCalendarStore';
+import { realEventTimeKey } from './eventClock';
 
 export interface WorldFormResult {
   /** i18n key of the problem, or null. */
@@ -31,11 +32,11 @@ export function chronologicalCompare(calendar: WorldCalendar | null | undefined)
     if (aw !== null && bw !== null) return aw - bw || (worldEventEndKey(a, calendar)! - worldEventEndKey(b, calendar)!) || a.order - b.order;
     if (aw !== null) return -1;
     if (bw !== null) return 1;
-    const aDate = a.dateMode === 'calendar' && a.realDate ? a.realDate : '';
-    const bDate = b.dateMode === 'calendar' && b.realDate ? b.realDate : '';
-    if (aDate && bDate) return aDate.localeCompare(bDate);
-    if (aDate && !bDate) return -1;
-    if (!aDate && bDate) return 1;
+    const aDate = realEventTimeKey(a);
+    const bDate = realEventTimeKey(b);
+    if (aDate !== null && bDate !== null) return aDate - bDate || a.order - b.order;
+    if (aDate !== null) return -1;
+    if (bDate !== null) return 1;
     return a.order - b.order;
   };
 }

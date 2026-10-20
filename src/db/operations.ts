@@ -1,3 +1,4 @@
+import { archiveWithMutation } from '@/services/documentArchive/store';
 import { db } from './index';
 import type {
   Project,
@@ -17,6 +18,10 @@ import {
 import { deleteEntityAnnotations } from '@/engines/_shared/deleteEntityAnnotations';
 import type { BoardEndpoint } from '@/engines/board/types';
 import { clearProjectDraftStores } from '@/hooks/localDraftStore';
+import { projectToolIds, remapWorldMetadata, remapWorldRichContent } from '@/services/worldMetadata';
+import { decodeLocalMedia, encodeLocalMedia, type PortableLocalMedia } from '@/engines/media/portability';
+import { remapImportedWorldMap, remapImportedMapPin, unlinkCodexEntryFromMap } from '@/engines/maps/mapPortability';
+import { eventEntryIds } from '@/engines/timeline/eventDetails';
 
 // ===== Projects =====
 
@@ -300,6 +305,9 @@ export async function updateCodexEntry(id: string, changes: Partial<CodexEntry>)
  *    point at, so it goes with its reference rows.
  */
 export async function deleteCodexEntry(id: string): Promise<void> {
+  return archiveWithMutation('codex', id, () => deleteCodexEntryRows(id));
+}
+async function deleteCodexEntryRows(id: string): Promise<void> {
   const entry = await db.codexEntries.get(id);
   const projectId = entry?.projectId;
 
@@ -312,7 +320,10 @@ export async function deleteCodexEntry(id: string): Promise<void> {
       db.sceneCasts,
       db.dialogBlocks,
       db.mapPins,
+      db.worldMaps,
       db.inspirationImages,
+      db.localMediaAssets,
+      db.timelineEvents,
       db.annotations,
       db.annotationReferences,
     ],
@@ -356,6 +367,11 @@ export async function deleteCodexEntry(id: string): Promise<void> {
       if (pins.length > 0) {
         await db.mapPins.bulkPut(pins.map((p) => ({ ...p, linkedEntryId: undefined })));
       }
+      const mapQuery = projectId ? db.worldMaps.where('projectId').equals(projectId) : db.worldMaps.toCollection();
+      for (const map of await mapQuery.toArray()) {
+        const unlinked = unlinkCodexEntryFromMap(map, id);
+        if (unlinked !== map) await db.worldMaps.put(unlinked);
+      }
 
       const images = await db.inspirationImages.where('linkedEntryIds').equals(id).toArray();
       if (images.length > 0) {
@@ -370,7 +386,16 @@ export async function deleteCodexEntry(id: string): Promise<void> {
 
       await deleteEntityAnnotations('codex', id);
 
+      const eventQuery = projectId ? db.timelineEvents.where('projectId').equals(projectId) : db.timelineEvents.toCollection();
+      const linkedEvents = (await eventQuery.toArray()).filter(event => eventEntryIds(event).includes(id));
+      if (linkedEvents.length) await db.timelineEvents.bulkPut(linkedEvents.map(event => {
+        const links = eventEntryIds(event).filter(entryId => entryId !== id);
+        return { ...event, linkedEntryIds: links, linkedEntryId: links[0], updatedAt: Date.now() };
+      }));
+
       await db.codexEntries.delete(id);
+      const mediaQuery = projectId ? db.localMediaAssets.where('projectId').equals(projectId) : db.localMediaAssets.toCollection();
+      await mediaQuery.filter(asset => asset.linkedEntryIds.includes(id)).modify(asset => { asset.linkedEntryIds = asset.linkedEntryIds.filter(entryId => entryId !== id); });
     },
   );
 }
@@ -422,6 +447,9 @@ export async function createTimeline(timeline: Timeline): Promise<string> {
 }
 
 export async function deleteTimeline(id: string): Promise<void> {
+  return archiveWithMutation('timeline', id, () => deleteTimelineRows(id));
+}
+async function deleteTimelineRows(id: string): Promise<void> {
   await db.transaction('rw', [db.timelines, db.timelineEvents], async () => {
     await db.timelines.delete(id);
     await db.timelineEvents.where('timelineId').equals(id).delete();
@@ -459,6 +487,9 @@ export async function updateWorldMap(id: string, changes: Partial<WorldMap>): Pr
 }
 
 export async function deleteWorldMap(id: string): Promise<void> {
+  return archiveWithMutation('maps', id, () => deleteWorldMapRows(id));
+}
+async function deleteWorldMapRows(id: string): Promise<void> {
   await db.transaction('rw', [db.worldMaps, db.mapPins], async () => {
     await db.worldMaps.delete(id);
     await db.mapPins.where('mapId').equals(id).delete();
@@ -648,6 +679,7 @@ export async function exportProjectData(projectId: string) {
     mapPins: pins,
     imageCollections: collections,
     inspirationImages: images,
+    localMediaAssets: await Promise.all((await db.localMediaAssets.where('projectId').equals(projectId).toArray()).map(encodeLocalMedia)),
     exportedAt: Date.now(),
   };
 }
@@ -658,7 +690,7 @@ export async function exportProjectData(projectId: string) {
  * Scrapper snapshots on the way in (see engines/scrapper/legacyLinks.ts).
  */
 export async function importProjectData(
-  data: Awaited<ReturnType<typeof exportProjectData>> & { externalLinks?: LegacyExternalLink[] },
+  data: Omit<Awaited<ReturnType<typeof exportProjectData>>, 'localMediaAssets'> & { localMediaAssets?: PortableLocalMedia[]; externalLinks?: LegacyExternalLink[] },
 ): Promise<string> {
   const idMap = new Map<string, string>();
   const remap = (oldId: string, prefix: string): string => {
@@ -669,17 +701,22 @@ export async function importProjectData(
   };
 
   const newProjectId = remap(data.project!.id, 'proj');
+  const media = decodeLocalMedia(data.localMediaAssets ?? [], data.project!.id);
+  const codexIds = new Set(data.codexEntries?.map(entry => entry.id) ?? []), mediaIds = new Set(media.map(asset => asset.id));
+  const toolIds = projectToolIds(data.project!, data);
+  const richContent = (content: string) => remapWorldRichContent(content, data.project!.id, newProjectId, remap, codexIds, mediaIds, toolIds);
 
   await db.transaction('rw', [
     db.projects, db.codexEntries, db.writings, db.timelines, db.timelineEvents,
     db.boards, db.boardNodes, db.boardEdges, db.boardLayers, db.boardViews,
     db.worldMaps, db.mapPins,
-    db.imageCollections, db.inspirationImages, db.snapshots,
+    db.imageCollections, db.inspirationImages, db.snapshots, db.localMediaAssets,
   ], async () => {
     // Project
     await db.projects.add({
       ...data.project!,
       id: newProjectId,
+      ...remapWorldMetadata(data.project!, remap, codexIds, mediaIds, new Set(data.writings?.map(writing => writing.id) ?? []), toolIds),
       title: `${data.project!.title} (Imported)`,
       // JSON imports clone IDs. Keep workflow pointers inside the new project;
       // unlike ZIP, this legacy format does not carry notes or citations.
@@ -703,13 +740,21 @@ export async function importProjectData(
 
     // Codex entries
     for (const e of data.codexEntries || []) {
-      await db.codexEntries.add({ ...e, id: remap(e.id, 'codex'), projectId: newProjectId });
+      await db.codexEntries.add({ ...e, id: remap(e.id, 'codex'), projectId: newProjectId,
+        content: richContent(e.content),
+        templateId: e.templateId ? remap(e.templateId, 'template') : undefined,
+        referenceFields: e.referenceFields ? Object.fromEntries(Object.entries(e.referenceFields).map(([key, ids]) => [key, ids.filter(id => data.codexEntries?.some(entry => entry.id === id)).map(id => remap(id, 'codex'))])) : undefined,
+        relations: (e.relations ?? []).filter(relation => data.codexEntries?.some(entry => entry.id === relation.targetId))
+          .map(relation => ({ ...relation, targetId: remap(relation.targetId, 'codex') })),
+      });
     }
 
     // Writings
     for (const w of data.writings || []) {
-      await db.writings.add({ ...w, id: remap(w.id, 'wr'), projectId: newProjectId });
+      await db.writings.add({ ...w, id: remap(w.id, 'wr'), projectId: newProjectId, content: richContent(w.content) });
     }
+
+    for (const asset of media) await db.localMediaAssets.add({ ...asset, id: remap(asset.id, 'media'), projectId: newProjectId, linkedEntryIds: asset.linkedEntryIds.filter(id => codexIds.has(id)).map(id => remap(id, 'codex')) });
 
     // Timelines
     for (const t of data.timelines || []) {
@@ -718,8 +763,11 @@ export async function importProjectData(
 
     // Timeline events
     for (const ev of data.timelineEvents || []) {
+      const links = eventEntryIds(ev).filter(id => data.codexEntries?.some(entry => entry.id === id)).map(id => remap(id, 'codex'));
       await db.timelineEvents.add({
         ...ev,
+        linkedEntryIds: links,
+        linkedEntryId: links[0],
         id: remap(ev.id, 'evt'),
         projectId: newProjectId,
         timelineId: remap(ev.timelineId, 'tl'),
@@ -789,18 +837,14 @@ export async function importProjectData(
     }
 
     // World maps
+    const importedCodexIds = new Set((data.codexEntries ?? []).map(entry => entry.id));
     for (const m of data.worldMaps || []) {
-      await db.worldMaps.add({ ...m, id: remap(m.id, 'map'), projectId: newProjectId });
+      await db.worldMaps.add(remapImportedWorldMap(m, newProjectId, remap, importedCodexIds));
     }
 
     // Map pins
     for (const p of data.mapPins || []) {
-      await db.mapPins.add({
-        ...p,
-        id: remap(p.id, 'pin'),
-        projectId: newProjectId,
-        mapId: remap(p.mapId, 'map'),
-      });
+      await db.mapPins.add(remapImportedMapPin(p, newProjectId, remap(p.mapId, 'map'), remap, importedCodexIds));
     }
 
     // Image collections

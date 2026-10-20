@@ -92,10 +92,10 @@ registerAnchorAdapter({
     return (await db.inquiryHypotheses.get(entityId))?.statement.slice(0, 120) ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.inquiry'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${pid}/inquiry?claim=${encodeURIComponent(entityId)}`);
+    navigate(`/project/${pid}/inquiry?claim=${encodeURIComponent(entityId)}`);
   },
 });
 

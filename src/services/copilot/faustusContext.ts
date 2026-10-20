@@ -1,8 +1,9 @@
 import { db } from '@/db';
 import type { Editor } from '@tiptap/react';
 import type { WriterHoardContext } from './faustusProtocol';
+import { getActiveEnginePaneId } from '@/engines/_shared/EnginePaneContext';
 
-export interface WriterEditorIdentity { projectId: string; objectId: string; kind: string }
+export interface WriterEditorIdentity { projectId: string; objectId: string; kind: string; paneId?: string }
 const editors = new Map<Editor, WriterEditorIdentity>();
 let lastEditor: Editor | null = null;
 
@@ -26,8 +27,11 @@ export async function writerContext(dataSpaceId: string, projectId: string, engi
   const project = await db.projects.get(projectId);
   if (!project) throw new Error('Writer project is no longer available.');
   const query = new URLSearchParams(search);
-  const focused = [...editors.keys()].find((editor) => editor.isFocused) ?? lastEditor ?? [...editors.keys()].at(-1);
+  const activePane = getActiveEnginePaneId();
+  const visible = [...editors.keys()].filter(editor => !editor.isDestroyed && !editor.view.dom.closest('[hidden], [inert]'));
+  const focused = visible.find(editor => editor.isFocused) ?? (lastEditor && visible.includes(lastEditor) && (!editors.get(lastEditor)?.paneId || editors.get(lastEditor)?.paneId === activePane) ? lastEditor : undefined) ?? visible.find(editor => editors.get(editor)?.paneId === activePane) ?? visible.at(-1);
   const identity = focused ? editors.get(focused) : null;
+  if (identity?.projectId === projectId && identity.paneId === activePane) engine = identity.kind;
   const objectId = identity?.projectId === projectId && identity.kind === engine ? identity.objectId : engine ? (DOCUMENT_PARAMS[engine] ?? ['entity']).map((key) => query.get(key)).find(Boolean) : null;
   const context: WriterHoardContext = {
     contract_version: '1.0',

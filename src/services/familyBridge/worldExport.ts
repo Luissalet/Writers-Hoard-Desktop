@@ -19,6 +19,9 @@ import {
   type WorldDoc, type WorldEntity, type WorldEvent, type WorldRelation,
 } from './worldSchema';
 import { entityBody, entryContent, eventContent, relationContent, sectionOf } from './worldMap';
+import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
+import type { WorldCalendar } from '@/engines/timeline/worldCalendar';
+import { timelineEventLabel } from '@/engines/timeline/eventClock';
 
 export interface WorldExportInput {
   project: { id: string; title: string; description?: string };
@@ -26,6 +29,7 @@ export interface WorldExportInput {
   relationships: Relationship[];
   events: TimelineEvent[];
   timelines?: Timeline[];
+  calendar?: WorldCalendar;
   language?: 'es' | 'en';
   /** Secret relationships stay with the author unless this is set. */
   includeSecret?: boolean;
@@ -85,7 +89,8 @@ export function buildWorldDoc(input: WorldExportInput): WorldExportResult {
   const timelineRank = new Map((input.timelines ?? []).map((timeline, index) => [timeline.id, index]));
   const events = [...input.events].sort((a, b) => (timelineRank.get(a.timelineId) ?? 0) - (timelineRank.get(b.timelineId) ?? 0) || a.order - b.order);
   for (const event of events) {
-    const content = eventContent(event);
+    const calendar = input.timelines?.find(timeline => timeline.id === event.timelineId)?.worldCalendar ?? input.calendar;
+    const content = eventContent({ ...event, date: timelineEventLabel(event, calendar) });
     if (!content.summary) {
       skipped.emptyEvents += 1;
       continue;
@@ -135,7 +140,7 @@ export async function loadWorldDoc(projectId: string, options: { includeSecret?:
     db.timelines.where('projectId').equals(projectId).sortBy('createdAt'),
   ]);
   const result = buildWorldDoc({
-    project, entries, relationships, events, timelines,
+    project, entries, relationships, events, timelines, calendar: (await resolveWorldCalendar(projectId))?.calendar,
     language: useLocaleStore.getState().locale,
     includeSecret: options.includeSecret,
   });
