@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "id": "gutenberg",
+  "name": "Gutenberg's Hoard \u00b7 Writer's Hoard",
+  "purpose": "Local editorial publishing with incorporated layout engine, complete desktop editor, editable stories/pages and PDF export.",
+  "capabilities": [
+    "publication-catalog",
+    "native-designcraft-documents",
+    "native-designcraft-mcp-discovery",
+    "native-designcraft-mcp-dispatch",
+    "persistent-designcraft-sessions",
+    "editorial-page-preview",
+    "multipage-native-pdf",
+    "multipage-raster-pdf",
+    "hoard-source-references",
+    "hub-work-profiles",
+    "owned-editorial-engine",
+    "owned-desktop-editor",
+    "gutenberg-native-archives",
+    "historical-document-import",
+    "engine-mcp-discovery",
+    "engine-mcp-dispatch"
+  ],
+  "placeholders": [
+    "COMPAT_DIR",
+    "WRITER_DIR",
+    "OWNER_URL",
+    "APP_URL",
+    "TOKEN_FILE",
+    "DATA_DIR",
+    "WRITER_EXE",
+    "WRITER_ADAPTER"
+  ],
+  "defaults": {
+    "WRITER_DIR": "{COMPAT_DIR}/../..",
+    "OWNER_URL": "http://127.0.0.1:8766",
+    "APP_URL": "{OWNER_URL}/compat/gutenberg",
+    "TOKEN_FILE": "%APPDATA%/writers-hoard/aibridge/token",
+    "DATA_DIR": "%APPDATA%/writers-hoard/publishing/data/publishing",
+    "WRITER_EXE": "%LOCALAPPDATA%/Programs/Writers Hoard/Writers Hoard.exe",
+    "WRITER_ADAPTER": "%LOCALAPPDATA%/Programs/Writers Hoard/resources/app.asar.unpacked/dist-electron/aibridge/mcpStdio.cjs"
+  },
+  "app": {
+    "url_default": "{APP_URL}",
+    "ui_url": null,
+    "health": {
+      "path": "/api/health",
+      "expect": {
+        "service": "writers-hoard-ai-bridge"
+      }
+    }
+  },
+  "mcp": {
+    "transport": "stdio",
+    "command": "{WRITER_EXE}",
+    "args": [
+      "{WRITER_ADAPTER}",
+      "--publishing-module",
+      "gutenberg"
+    ],
+    "env": {
+      "ELECTRON_RUN_AS_NODE": "1",
+      "WH_BRIDGE_URL": "{OWNER_URL}",
+      "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}"
+    }
+  },
+  "x-family": {
+    "standalone": false,
+    "agent_contract": true,
+    "absorbed_by": {
+      "id": "writer",
+      "module": "gutenberg",
+      "standalone": false,
+      "repository": "https://github.com/Luissalet/Writers-Hoard-Desktop"
+    }
+  },
+  "notes": "Capabilities and native data belong to Writer's Hoard. Modules are enabled explicitly in the owner."
+}
