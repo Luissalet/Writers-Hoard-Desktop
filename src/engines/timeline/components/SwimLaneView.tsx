@@ -10,7 +10,12 @@ import { validateTimelineDates } from '../dateValidation';
 import { WorldDateField } from './WorldDateField';
 import { useWorldCalendar, worldDateText } from '../useWorldCalendar';
 import { readWorldForm, worldEventKey, worldEventLabel } from '../worldEventForm';
-import type { WorldCalendar } from '../worldCalendar';
+import { formatWorldDate, toDayNumber, validateWorldRange, type WorldCalendar } from '../worldCalendar';
+import { compactTimelineLabel, eventWithinYearRange, saveTimelineSettings } from '../timelineSettings';
+import { emptyEventDetails, editEventDetails, eventDetailFields, safeEventImage } from '../eventDetails';
+import { realEventTimeKey, timelineEventLabel, validateEventClock } from '../eventClock';
+import EventDetailsFields, { EventDetailsPreview, EventIcon } from './EventDetailsFields';
+import { useDeepLinkParam } from '@/engines/_shared';
 
 const DAY_MS = 86_400_000;
 
@@ -19,12 +24,13 @@ const DAY_MS = 86_400_000;
  * (the calendar may have been renamed since it was saved) and its day number.
  * Never written back — edits go through ids and explicit changes.
  */
-type ViewEvent = TimelineEvent & { worldKey?: number | null };
+type ViewEvent = TimelineEvent & { worldKey?: number | null; displayDate?: string };
 
-function toViewEvents(events: TimelineEvent[], calendar: WorldCalendar | null): ViewEvent[] {
-  return events.map((evt) => (evt.dateMode === 'world'
-    ? { ...evt, date: worldEventLabel(evt, calendar), worldKey: worldEventKey(evt, calendar) }
-    : evt));
+function toViewEvents(events: TimelineEvent[], calendarFor: (id: string) => WorldCalendar | null, timelines: Timeline[], locale: string): ViewEvent[] {
+  return events.map(evt => {
+    const calendar = calendarFor(evt.timelineId);
+    return { ...evt, ...(evt.dateMode === 'world' ? { date: worldEventLabel(evt, calendar), worldKey: worldEventKey(evt, calendar) } : {}), displayDate: compactTimelineLabel(evt, calendar, timelines.find(timeline => timeline.id === evt.timelineId)?.displayPrecision, locale) };
+  });
 }
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { isManuscriptEventId, MANUSCRIPT_EVENT_PREFIX, MANUSCRIPT_LANE_ID } from '@/engines/writings/chapterWorldDate';
@@ -91,9 +97,7 @@ function getLaneY(laneIndex: number): number {
  *  Returns a timestamp for calendar events, null for text-only. */
 function getEventTimeKey(evt: ViewEvent): number | null {
   if (evt.dateMode === 'world') return typeof evt.worldKey === 'number' ? evt.worldKey * DAY_MS : null;
-  if (evt.dateMode === 'calendar' && evt.realDate) {
-    return new Date(evt.realDate + 'T00:00:00').getTime();
-  }
+  if (evt.dateMode === 'calendar') return realEventTimeKey(evt);
   return null;
 }
 
@@ -110,13 +114,14 @@ function getEventTimeKey(evt: ViewEvent): number | null {
  */
 function buildEventPositions(
   timelines: Timeline[],
-  events: TimelineEvent[]
+  events: TimelineEvent[], boundaries: number[] = []
 ): { positions: Map<string, { x: number; y: number; laneIdx: number; evtIdx: number }>; totalWidth: number } {
   const map = new Map<string, { x: number; y: number; laneIdx: number; evtIdx: number }>();
   const START_X = LANE_LABEL_WIDTH + 60;
 
   // 1. Collect all unique calendar timestamps across ALL timelines
   const allTimestamps = new Set<number>();
+  boundaries.forEach(value => allTimestamps.add(value));
   events.forEach(evt => {
     const t = getEventTimeKey(evt);
     if (t !== null) allTimestamps.add(t);
@@ -218,24 +223,12 @@ function connectionPath(x1: number, y1: number, x2: number, y2: number): string 
   return `M ${x1} ${y1} C ${x1 + dx * 0.5} ${y1}, ${x2 - dx * 0.5} ${y2}, ${x2} ${y2}`;
 }
 
-/** Get the display date string for an event */
-function getDisplayDate(evt: TimelineEvent): string {
-  if (evt.dateMode === 'calendar' && evt.realDate) {
-    return formatDate(evt.realDate, evt.realDateEnd);
-  }
-  return evt.date || '';
-}
-
-function formatDate(iso: string, endIso?: string): string {
-  const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
-  try {
-    const start = new Date(iso + 'T00:00:00').toLocaleDateString(undefined, opts);
-    if (endIso) {
-      const end = new Date(endIso + 'T00:00:00').toLocaleDateString(undefined, opts);
-      return `${start} — ${end}`;
-    }
-    return start;
-  } catch { return iso; }
+function getDisplayDate(evt: TimelineEvent, locale?: string): string { return timelineEventLabel(evt, undefined, locale); }
+function compactEventDate(evt: TimelineEvent, locale?: string, max = 24): string {
+  const label = (evt as ViewEvent).displayDate ?? getDisplayDate(evt, locale);
+  if ((evt as ViewEvent).displayDate !== undefined && !label.includes(evt.time ?? '\0')) return label.slice(0, max);
+  if (label.length <= max || !evt.time) return label.slice(0, max);
+  return `${label.slice(0, Math.max(4, max - evt.time.length - 4))}… · ${evt.time}`;
 }
 
 // TYPE_LABELS is built inside the component to use t() — see getTypeLabels()
@@ -272,7 +265,9 @@ function EventNode({
   onHoverStart: (rect: DOMRect) => void;
   onHoverEnd: () => void;
 }) {
+  const { locale } = useTranslation();
   const type = evt.eventType || 'point';
+  const hasVisual = Boolean(evt.icon || safeEventImage(evt.image));
   const gRef = useRef<SVGGElement>(null);
 
   const handleMouseEnter = () => {
@@ -285,6 +280,10 @@ function EventNode({
     <g
       ref={gRef}
       className="cursor-pointer"
+      role="button"
+      tabIndex={0}
+      aria-label={`${evt.title}${getDisplayDate(evt, locale) ? ` · ${getDisplayDate(evt, locale)}` : ''}`}
+      onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onDoubleClick(); } }}
       onClick={onClick}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
       onContextMenu={onContextMenu}
@@ -308,19 +307,19 @@ function EventNode({
             width={EVENT_SPACING * 0.7} height={RANGE_HEIGHT} rx={RANGE_HEIGHT / 2}
             fill={`${evt.color}30`} stroke={evt.color}
             strokeWidth={isSelected || isConnecting ? 3 : 2} />
-          <text x={x + EVENT_SPACING * 0.35 - EVENT_RADIUS} y={y + 1}
+          <text x={x + EVENT_SPACING * 0.35 - EVENT_RADIUS + (hasVisual ? 12 : 0)} y={y + 1}
             textAnchor="middle" dominantBaseline="middle"
             fill={evt.color} fontSize={11} fontWeight={600}
             fontFamily="ui-serif, Georgia, serif"
             className="pointer-events-none select-none">
-            {evt.title.length > 16 ? evt.title.slice(0, 15) + '…' : evt.title}
+            {evt.title.length > (hasVisual ? 10 : 16) ? evt.title.slice(0, hasVisual ? 9 : 15) + '…' : evt.title}
           </text>
           {/* Date below range bar */}
-          {getDisplayDate(evt) && (
+          {getDisplayDate(evt, locale) && (
             <text x={x + EVENT_SPACING * 0.35 - EVENT_RADIUS} y={y + RANGE_HEIGHT / 2 + 14}
               textAnchor="middle" fill="#8a8578" fontSize={9}
               className="pointer-events-none select-none">
-              {getDisplayDate(evt).slice(0, 30)}
+              {compactEventDate(evt, locale, 30)}
             </text>
           )}
         </>
@@ -337,11 +336,11 @@ function EventNode({
             className="pointer-events-none select-none">
             {evt.title.length > 20 ? evt.title.slice(0, 19) + '…' : evt.title}
           </text>
-          {getDisplayDate(evt) && (
+          {getDisplayDate(evt, locale) && (
             <text x={x} y={y - MILESTONE_SIZE - 10}
               textAnchor="middle" fill="#8a8578" fontSize={9}
               className="pointer-events-none select-none">
-              {getDisplayDate(evt).slice(0, 24)}
+              {compactEventDate(evt, locale)}
             </text>
           )}
         </>
@@ -356,15 +355,17 @@ function EventNode({
             className="pointer-events-none select-none">
             {evt.title.length > 20 ? evt.title.slice(0, 19) + '…' : evt.title}
           </text>
-          {getDisplayDate(evt) && (
+          {getDisplayDate(evt, locale) && (
             <text x={x} y={y - EVENT_RADIUS - 8}
               textAnchor="middle" fill="#8a8578" fontSize={9}
               className="pointer-events-none select-none">
-              {getDisplayDate(evt).slice(0, 24)}
+              {compactEventDate(evt, locale)}
             </text>
           )}
         </>
       )}
+
+      {safeEventImage(evt.image) ? <image href={evt.image} x={x - 14} y={y - 14} width={28} height={28} preserveAspectRatio="xMidYMid slice" className="pointer-events-none" /> : evt.icon ? <g color={evt.color} className="pointer-events-none"><EventIcon icon={evt.icon} x={x - 8} y={y - 8} /></g> : null}
 
       {/* Source indicator: spinning dashed ring */}
       {isConnecting && (
@@ -391,11 +392,14 @@ export default function SwimLaneView({
   onAddConnection, onEditConnection, onDeleteConnection,
   onEditTimeline, manuscript,
 }: SwimLaneViewProps) {
-  const { t } = useTranslation();
-  const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
+  const { t, locale } = useTranslation();
+  const calendarSource = useWorldCalendar(projectId);
+  const projectCalendar = calendarSource?.calendar ?? null;
+  const calendarFor = useCallback((id: string) => timelines.find(timeline => timeline.id === id)?.worldCalendar ?? projectCalendar, [timelines, projectCalendar]);
+  const visibleStoredEvents = useMemo(() => storedEvents.filter(event => eventWithinYearRange(event, timelines.find(timeline => timeline.id === event.timelineId)?.yearRange)), [storedEvents, timelines]);
   const events = useMemo(
-    () => toViewEvents(manuscript ? [...storedEvents, ...manuscript.events] : storedEvents, worldCalendar),
-    [storedEvents, manuscript, worldCalendar],
+    () => toViewEvents(manuscript ? [...visibleStoredEvents, ...manuscript.events] : visibleStoredEvents, calendarFor, timelines, locale),
+    [visibleStoredEvents, manuscript, calendarFor, timelines, locale],
   );
   const lanes = useMemo(() => (manuscript ? [...timelines, manuscript.lane] : timelines), [timelines, manuscript]);
   const TYPE_LABELS: Record<string, string> = useMemo(() => ({
@@ -409,8 +413,11 @@ export default function SwimLaneView({
   const [connectingFromId, setConnectingFromId] = useState<string | null>(null);
   const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
   const [showEventForm, setShowEventForm] = useState(false);
+  const linkedEntity = useDeepLinkParam('entity');
+  const [appliedEntity, setAppliedEntity] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [moveFailed, setMoveFailed] = useState(false);
   const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
   const { items: codexEntries } = useCodexEntries(projectId);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; eventId: string } | null>(null);
@@ -448,25 +455,38 @@ export default function SwimLaneView({
     lane: 'Main',
     color: '#c4973b',
     timelineId: '',
-    linkedEntryId: '',
+    ...emptyEventDetails(),
   });
   // What the form held when it opened: Escape and the backdrop only close it
   // while nothing typed since then would be lost.
   const [formOpenedWith, setFormOpenedWith] = useState(form);
+  const worldCalendar = calendarFor(form.timelineId);
   const loadForm = (next: typeof form) => {
     setForm(next);
     setFormOpenedWith(next);
   };
   const formDirty = (Object.keys(form) as (keyof typeof form)[]).some((key) => form[key] !== formOpenedWith[key]);
 
-  const { positions, totalWidth } = useMemo(() => buildEventPositions(lanes, events), [lanes, events]);
+  const boundaries = useMemo(() => timelines.flatMap(timeline => {
+    if (!timeline.yearRange) return [];
+    const calendar = calendarFor(timeline.id);
+    const world = calendar && !storedEvents.some(event => event.timelineId === timeline.id && event.dateMode === 'calendar');
+    return [timeline.yearRange.start, timeline.yearRange.end].map(year => {
+      if (world) {
+        try { return { key: toDayNumber(calendar, { year }) * DAY_MS, label: formatWorldDate(calendar, { year }) }; }
+        catch { return { key: NaN, label: '' }; }
+      }
+      const date = new Date(0); date.setUTCFullYear(year, 0, 1); date.setUTCHours(0, 0, 0, 0);
+      return { key: date.getTime(), label: String(year) };
+    }).filter(boundary => Number.isFinite(boundary.key));
+  }), [timelines, calendarFor, storedEvents]);
+  const { positions, totalWidth } = useMemo(() => buildEventPositions(lanes, events, boundaries.map(boundary => boundary.key)), [lanes, events, boundaries]);
 
   const svgWidth = Math.max(800, totalWidth + 80);
   const svgHeight = Math.max(300, TOP_PADDING + lanes.length * LANE_HEIGHT + 40);
   const world = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
-  const dateError = form.dateMode === 'calendar'
-    ? validateTimelineDates(form.realDate, form.realDateEnd)
-    : world?.error ?? null;
+  const dateError = (form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : world?.error ?? null)
+    ?? validateEventClock({ ...form, ...world?.fields }, worldCalendar);
 
   const saveTimelineName = async () => {
     if (!renamingTimeline || !renameTitle.trim() || renaming) return;
@@ -640,7 +660,10 @@ export default function SwimLaneView({
     const handleMouseUp = () => {
       if (dragStarted.current && draggingId && dragTargetLane !== null && dragTargetIdx !== null) {
         const evt = events.find(e => e.id === draggingId);
-        if (evt) {
+        const destinationCalendar = calendarFor(dragTargetLane);
+        const invalidMove = evt?.dateMode === 'world' && (!destinationCalendar || !evt.worldDate || !!validateWorldRange(destinationCalendar, evt.worldDate, evt.worldDateEnd) || !!validateEventClock(evt, destinationCalendar));
+        setMoveFailed(!!invalidMove);
+        if (evt && !invalidMove) {
           const targetTlId = dragTargetLane;
           const targetIdx = dragTargetIdx;
           const laneEvts = getEventsForTimeline(events, targetTlId).filter(e => e.id !== draggingId);
@@ -650,7 +673,7 @@ export default function SwimLaneView({
           laneEvts.forEach((e, i) => {
             if (e.id === draggingId) {
               // Move to new timeline + new order
-              onEditEvent(e.id, { timelineId: targetTlId, order: i });
+              void Promise.resolve(onEditEvent(e.id, { timelineId: targetTlId, order: i, ...(e.dateMode === 'world' ? { date: timelineEventLabel(e, destinationCalendar) } : {}) })).catch(() => setMoveFailed(true));
             } else if (e.order !== i) {
               onEditEvent(e.id, { order: i });
             }
@@ -671,7 +694,7 @@ export default function SwimLaneView({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingId, dragTargetLane, dragTargetIdx, events, timelines, zoom, onEditEvent, positions]);
+  }, [draggingId, dragTargetLane, dragTargetIdx, events, timelines, zoom, onEditEvent, positions, calendarFor]);
 
   // ── Reorder helpers (for context menu) ──
   const moveEvent = useCallback((evtId: string, direction: -1 | 1) => {
@@ -701,7 +724,7 @@ export default function SwimLaneView({
     loadForm({
       title: '', description: '', date: '', dateMode: 'text', eventType: 'point',
       realDate: '', realDateEnd: '', worldText: '', worldTextEnd: '', lane: 'Main', color: tl?.color || '#c4973b',
-      timelineId, linkedEntryId: '',
+      timelineId, ...emptyEventDetails(),
     });
     setEditingEvent(null);
     setShowEventForm(true);
@@ -713,9 +736,9 @@ export default function SwimLaneView({
       date: evt.date, dateMode: evt.dateMode || 'text',
       eventType: evt.eventType || 'point',
       realDate: evt.realDate || '', realDateEnd: evt.realDateEnd || '',
-      worldText: worldDateText(worldCalendar, evt.worldDate), worldTextEnd: worldDateText(worldCalendar, evt.worldDateEnd),
+      worldText: worldDateText(calendarFor(evt.timelineId), evt.worldDate), worldTextEnd: worldDateText(calendarFor(evt.timelineId), evt.worldDateEnd),
       lane: evt.lane, color: evt.color, timelineId: evt.timelineId,
-      linkedEntryId: evt.linkedEntryId || '',
+      ...editEventDetails(evt),
     });
     setEditingEvent(evt);
     setShowEventForm(true);
@@ -728,11 +751,10 @@ export default function SwimLaneView({
     setSaveFailed(false);
     try {
 
-    const dateValue = form.dateMode === 'calendar' && form.realDate
-      ? formatDate(form.realDate, form.realDateEnd) : world ? world.label : form.date;
+    const dateValue = timelineEventLabel({ ...form, ...world?.fields }, worldCalendar, locale);
 
     const effectiveType: TimelineEventType =
-      (form.dateMode === 'calendar' && form.realDateEnd) || world?.fields.worldDateEnd ? 'range' : form.eventType;
+      (form.dateMode !== 'text' && form.endTime) || (form.dateMode === 'calendar' && form.realDateEnd) || world?.fields.worldDateEnd ? 'range' : form.eventType;
     const worldFields = world ? world.fields : { worldDate: undefined, worldDateEnd: undefined };
 
     if (editingEvent) {
@@ -752,7 +774,7 @@ export default function SwimLaneView({
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         ...worldFields,
         lane: form.lane, color: form.color,
-        linkedEntryId: form.linkedEntryId || undefined,
+        ...eventDetailFields(form, form.dateMode),
         ...(timelineChanged ? { timelineId: form.timelineId, order: newOrder } : {}),
       });
     } else {
@@ -764,7 +786,7 @@ export default function SwimLaneView({
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         ...worldFields,
         order: nextOrderInLane(events, form.timelineId), lane: form.lane, color: form.color,
-        linkedEntryId: form.linkedEntryId || undefined,
+        ...eventDetailFields(form, form.dateMode),
         createdAt: Date.now(), updatedAt: Date.now(),
       });
     }
@@ -776,6 +798,9 @@ export default function SwimLaneView({
       setSaving(false);
     }
   };
+
+  const linkedEvent = storedEvents.find(event => event.id === linkedEntity);
+  if (linkedEvent && calendarSource !== undefined && appliedEntity !== linkedEntity) { setAppliedEntity(linkedEntity); openEditForm(linkedEvent); }
 
   // Close context menus on outside click
   useEffect(() => {
@@ -794,6 +819,9 @@ export default function SwimLaneView({
 
   return (
     <div className="space-y-3">
+      {moveFailed && <p role="alert" className="text-sm text-danger">{t('timeline.settings.invalidMove')}</p>}
+      {timelines.filter(timeline => timeline.yearRange).map(timeline => <div key={timeline.id} className="text-xs text-text-muted flex flex-wrap gap-3 items-center" data-testid="timeline-range-note"><span>{timeline.title} · {t('timeline.settings.rangeNote').replace('{start}', String(timeline.yearRange!.start)).replace('{end}', String(timeline.yearRange!.end)).replace('{count}', String(storedEvents.filter(event => event.timelineId === timeline.id && !eventWithinYearRange(event, timeline.yearRange)).length))}</span><button type="button" className="text-accent-gold hover:underline" onClick={() => void saveTimelineSettings(projectId, timeline.id, { yearRange: undefined })}>{t('timeline.settings.allYears')}</button></div>)}
+      {timelines.some(timeline => timeline.worldCalendar) && <p className="text-xs text-text-muted">{t('timeline.settings.alignment')}</p>}
       {connecting && <p role="status" className="text-sm text-text-muted">{t('common.saving')}</p>}
       {failedConnection && (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-danger">
@@ -854,6 +882,7 @@ export default function SwimLaneView({
           {/* Shared time axis markers (for calendar events) */}
           {(() => {
             const allTimestamps = new Set<number>();
+            boundaries.forEach(boundary => allTimestamps.add(boundary.key));
             events.forEach(evt => {
               const t = getEventTimeKey(evt);
               if (t !== null) allTimestamps.add(t);
@@ -863,15 +892,16 @@ export default function SwimLaneView({
 
             const START_X = LANE_LABEL_WIDTH + 60;
             const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short' };
-            const worldLabels = new Map<number, string>();
+            const worldLabels = new Map<number, string>(boundaries.map(boundary => [boundary.key, boundary.label]));
             events.forEach((evt) => {
               if (evt.dateMode === 'world' && typeof evt.worldKey === 'number' && !worldLabels.has(evt.worldKey * DAY_MS)) {
-                worldLabels.set(evt.worldKey * DAY_MS, (evt.date.split(' – ')[0] ?? '').slice(0, 18));
+                worldLabels.set(evt.worldKey * DAY_MS, compactEventDate(evt, locale));
               }
             });
             return sorted.map((ts, i) => {
               const x = START_X + i * EVENT_SPACING;
-              const label = worldLabels.get(ts) ?? new Date(ts).toLocaleDateString(undefined, opts);
+              const timed = events.find(event => event.time && getEventTimeKey(event) === ts);
+              const label = worldLabels.get(ts) ?? (timed ? compactEventDate(timed, locale) : new Date(ts).toLocaleDateString(locale, { ...opts, timeZone: 'UTC' }));
               return (
                 <g key={`axis-${ts}`}>
                   {/* Vertical guide line */}
@@ -1097,15 +1127,16 @@ export default function SwimLaneView({
                 {tooltip.event && (
                   <>
                     <p className="text-sm font-serif font-bold text-text-primary truncate">{tooltip.event.title}</p>
-                    {getDisplayDate(tooltip.event) && (
+                    {getDisplayDate(tooltip.event, locale) && (
                       <p className="text-xs text-accent-gold mt-0.5 flex items-center gap-1">
                         {tooltip.event.dateMode === 'calendar' && <Calendar size={10} />}
-                        {getDisplayDate(tooltip.event)}
+                        {getDisplayDate(tooltip.event, locale)}
                       </p>
                     )}
                     {tooltip.event.description && (
                       <p className="text-xs text-text-muted mt-1 line-clamp-3">{tooltip.event.description}</p>
                     )}
+                    <EventDetailsPreview event={tooltip.event} entries={codexEntries} interactive={false} />
                     <div className="flex items-center gap-2 mt-1.5">
                       <span className="text-[10px] text-text-dim uppercase tracking-wider">{tooltip.event.lane}</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded"
@@ -1134,6 +1165,16 @@ export default function SwimLaneView({
           )}
         </AnimatePresence>
       </div>
+
+      {selectedEventId && (() => {
+        const event = events.find(value => value.id === selectedEventId);
+        return event ? <aside className="border border-border rounded-lg p-4 bg-surface space-y-2" aria-label={event.title}>
+          <div className="flex items-start justify-between gap-3"><div><h4 className="text-text-primary font-semibold">{event.title}</h4><p className="text-xs text-accent-gold">{getDisplayDate(event, locale)}</p></div><button type="button" onClick={() => setSelectedEventId(null)} className="p-1 text-text-muted hover:text-text-primary" aria-label={t('common.close')}><X size={16} /></button></div>
+          {event.description && <p className="text-sm text-text-muted">{event.description}</p>}
+          <EventDetailsPreview event={event} entries={codexEntries} />
+          <button type="button" onClick={() => openEditForm(event)} className="inline-flex items-center gap-2 text-sm text-accent-gold hover:underline"><Edit3 size={14} />{t('timeline.editEvent')}</button>
+        </aside> : null;
+      })()}
 
       {/* Context Menu */}
       <AnimatePresence>
@@ -1320,7 +1361,11 @@ export default function SwimLaneView({
               </label>
               <select
                 value={form.timelineId}
-                onChange={(e) => setForm({ ...form, timelineId: e.target.value })}
+                onChange={(e) => {
+                  const parsed = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
+                  const nextCalendar = calendarFor(e.target.value);
+                  setForm({ ...form, timelineId: e.target.value, ...(parsed && !parsed.error ? { worldText: worldDateText(nextCalendar, parsed.fields.worldDate), worldTextEnd: worldDateText(nextCalendar, parsed.fields.worldDateEnd) } : {}) });
+                }}
                 className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               >
                 {timelines.map(tl => (
@@ -1417,24 +1462,7 @@ export default function SwimLaneView({
             <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} size="sm" />
           </div>
 
-          {/* Codex link. `TimelineEvent.linkedEntryId` was declared in
-              types.ts and neither read nor written anywhere, so an event could
-              not be tied to the character or place it was about. */}
-          {codexEntries.length > 0 && (
-            <div>
-              <label className="block text-sm text-text-muted mb-1.5">{t('timeline.linkedEntry')}</label>
-              <select
-                value={form.linkedEntryId}
-                onChange={(e) => setForm({ ...form, linkedEntryId: e.target.value })}
-                className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
-              >
-                <option value="">{t('timeline.noLinkedEntry')}</option>
-                {codexEntries.map((entry) => (
-                  <option key={entry.id} value={entry.id}>{entry.title}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <EventDetailsFields value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
 
           {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
           {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}

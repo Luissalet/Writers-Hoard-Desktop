@@ -19,7 +19,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
   const { items: boards, loading, addItem, editItem, removeItem } = useBoards(projectId);
   const [activeId, setActiveId] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
-  const targetId = searchParams.get('node');
+  const targetId = searchParams.get('node') ?? searchParams.get('board');
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);

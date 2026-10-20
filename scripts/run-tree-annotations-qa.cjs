@@ -1,0 +1,53 @@
+const { app, BrowserWindow } = require('electron');
+const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), esbuild = require('esbuild');
+const root = path.resolve(__dirname, '..'), directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-tree-annotations-'));
+app.setPath('userData', path.join(directory, 'profile'));
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function main() {
+  const { build } = await import('vite'), { default: tailwind } = await import('@tailwindcss/vite');
+  const styles = await build({ configFile: false, root, plugins: [tailwind()], logLevel: 'error', build: { write: false, minify: false, rollupOptions: { input: path.join(root, 'src/index.css') } } });
+  const css = styles.output.find(item => item.type === 'asset' && item.fileName.endsWith('.css')); if (!css) throw new Error('No compiled CSS');
+  fs.writeFileSync(path.join(directory, 'preview.css'), css.source + '\n' + fs.readFileSync(path.join(root, 'node_modules/@xyflow/react/dist/style.css'), 'utf8'));
+  await esbuild.build({ entryPoints: [path.join(root, 'tests/tree-annotations-preview.tsx')], bundle: true, platform: 'browser', format: 'iife', target: 'chrome130', jsx: 'automatic', outfile: path.join(directory, 'preview.js'), alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' }, define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{"DEV":false,"BASE_URL":"/"}', 'import.meta.url': '"file:///tree-preview.js"' }, logLevel: 'warning' });
+  fs.writeFileSync(path.join(directory, 'preview.html'), '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="preview.css"><style>html,body,#root{height:100%;margin:0}</style></head><body><div id="root"></div><script src="preview.js"></script></body></html>');
+  await app.whenReady(); const win = new BrowserWindow({ show: false, width: 1440, height: 1060, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
+  win.webContents.session.enableNetworkEmulation({ offline: true }); await win.loadFile(path.join(directory, 'preview.html'));
+  const wait = async predicate => { for (let i = 0; i < 160; i++) { if (await win.webContents.executeJavaScript(predicate)) return; await pause(50); } throw new Error('Tree QA timeout: ' + predicate); };
+  await wait('window.__previewReady && document.querySelector(\'select[aria-label="Documento"] option[value="visual-family"]\')');
+  await win.webContents.executeJavaScript('(()=>{const s=document.querySelector(\'select[aria-label="Documento"]\');s.value="visual-family";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
+  await wait('!!document.querySelector(\'[data-testid="tree-annotation-text"]\')');
+  const button = async name => { await win.webContents.executeJavaScript(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(name)});if(!b)throw Error('Missing button');b.click()})()`); await pause(120); };
+  await button('Dibujar'); await wait('!!document.querySelector(\'[data-testid="board-freehand-canvas"]\')');
+  const rect = await win.webContents.executeJavaScript('(()=>{const r=document.querySelector(\'[data-testid="board-freehand-canvas"]\').getBoundingClientRect();return{x:r.x,y:r.y}})()');
+  win.webContents.debugger.attach('1.3'); const send = args => win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', args);
+  const points = [[80, 420], [170, 400], [260, 450], [350, 420], [430, 440], [410, 415], [430, 440], [399, 447]];
+  await send({ type: 'mousePressed', x: rect.x + points[0][0], y: rect.y + points[0][1], button: 'left', buttons: 1, clickCount: 1 });
+  for (const [x, y] of points.slice(1)) { await send({ type: 'mouseMoved', x: rect.x + x, y: rect.y + y, button: 'left', buttons: 1 }); await pause(20); }
+  await send({ type: 'mouseReleased', x: rect.x + 399, y: rect.y + 447, button: 'left', buttons: 0, clickCount: 1 }); await pause(150);
+  await button('Terminar'); await button('Guardar árbol');
+  let tree = await win.webContents.executeJavaScript('window.__readTree()'), stroke = tree.annotations.find(item => item.kind === 'stroke');
+  if (!stroke || stroke.points.length < 3 || tree.nodes.length !== 3 || tree.edges.length !== 2) throw new Error('Native pen did not persist independent vector stroke');
+  const nodeRect = await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('.react-flow__node[data-id="${stroke.id}"]').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+  const hit = await win.webContents.executeJavaScript(`(()=>{const n=document.querySelector('.react-flow__node[data-id="${stroke.id}"]');return {hit:document.elementFromPoint(${nodeRect.x},${nodeRect.y})?.outerHTML.slice(0,300),node:n.outerHTML.slice(0,1500),pointer:getComputedStyle(n).pointerEvents,z:getComputedStyle(n).zIndex}})()`);
+  await win.webContents.executeJavaScript('window.__mouseLog=[];["mousedown","mousemove","mouseup"].forEach(type=>document.addEventListener(type,event=>window.__mouseLog.push({type: event.type,target:event.target.tagName,cls:event.target.getAttribute("class"),x:event.clientX,y:event.clientY,button:event.button,buttons:event.buttons}),true))');
+  await send({ type: 'mousePressed', x: nodeRect.x, y: nodeRect.y, button: 'left', buttons: 1, clickCount: 1 });
+  await send({ type: 'mouseMoved', x: nodeRect.x + 6, y: nodeRect.y + 4, button: 'left', buttons: 1 }); await pause(30);
+  await send({ type: 'mouseMoved', x: nodeRect.x + 48, y: nodeRect.y + 25, button: 'left', buttons: 1 }); await pause(50);
+  await send({ type: 'mouseReleased', x: nodeRect.x + 48, y: nodeRect.y + 25, button: 'left', buttons: 0, clickCount: 1 }); await pause(180); await button('Guardar árbol');
+  const moved = (await win.webContents.executeJavaScript('window.__readTree()')).annotations.find(item => item.id === stroke.id);
+  if (!moved || moved.position.x === stroke.position.x || JSON.stringify(moved.points) !== JSON.stringify(stroke.points)) { const mouseLog=await win.webContents.executeJavaScript('window.__mouseLog'); fs.writeFileSync(path.join(directory, 'drag-failure.png'), (await win.webContents.capturePage()).toPNG()); throw new Error('Native drag changed geometry or failed to move stroke: ' + JSON.stringify({ moved, stroke, nodeRect, hit, mouseLog, directory })); }
+  await win.webContents.executeJavaScript('document.querySelector(\'button[aria-label="Deshacer"]\').click()'); await pause(80); await button('Guardar árbol');
+  tree = await win.webContents.executeJavaScript('window.__readTree()'); if (tree.annotations.find(item => item.id === stroke.id).position.x !== stroke.position.x) throw new Error('Whole-drag undo failed');
+  await button('Dibujar');
+  await send({ type: 'mousePressed', x: rect.x + 100, y: rect.y + 490, button: 'left', buttons: 1, clickCount: 1 });
+  await send({ type: 'mouseMoved', x: rect.x + 180, y: rect.y + 520, button: 'left', buttons: 1 });
+  await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }); await pause(80);
+  await send({ type: 'mouseReleased', x: rect.x + 180, y: rect.y + 520, button: 'left', buttons: 0, clickCount: 1 });
+  if (await win.webContents.executeJavaScript('!!document.querySelector(\'[data-testid="board-freehand-canvas"]\')') || (await win.webContents.executeJavaScript('window.__readTree()')).annotations.length !== 2) throw new Error('Escape did not cancel unfinished drawing');
+  await win.webContents.executeJavaScript('document.querySelector(\'[data-testid="tree-annotation-text"]\').dispatchEvent(new MouseEvent("click",{bubbles:true}))');
+  const shot = async name => { await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))'); await pause(180); if (await win.webContents.executeJavaScript('document.documentElement.scrollWidth>innerWidth')) throw new Error('Horizontal overflow'); fs.writeFileSync(path.join(directory, name + '.png'), (await win.webContents.capturePage()).toPNG()); };
+  await shot('tree-annotations-desktop'); win.setContentSize(720, 1000); await pause(100); await win.webContents.executeJavaScript('document.querySelector(".react-flow__controls-fitview").click()'); await pause(250); await shot('tree-annotations-narrow');
+  await win.webContents.executeJavaScript('document.querySelector(\'[data-testid="tree-annotation-inspector"]\').scrollIntoView({block:"start"})'); await shot('tree-annotation-inspector-narrow');
+  console.log(`PASS native pen capture, persistence, stroke drag, whole-drag undo, Escape cancellation and real CSS desktop/narrow: ${directory}`); app.exit(0);
+}
+main().catch(error => { console.error(error.stack || error); app.exit(1); });

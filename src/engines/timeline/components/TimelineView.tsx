@@ -10,8 +10,16 @@ import ColorPicker from '@/components/common/ColorPicker';
 import { validateTimelineDates } from '../dateValidation';
 import { WorldDateField } from './WorldDateField';
 import { useWorldCalendar, worldDateText } from '../useWorldCalendar';
-import { chronologicalCompare, readWorldForm, worldEventLabel } from '../worldEventForm';
+import { chronologicalCompare, readWorldForm } from '../worldEventForm';
 import type { WorldCalendar } from '../worldCalendar';
+import { useCodexEntries } from '@/engines/codex/hooks';
+import { emptyEventDetails, editEventDetails, eventDetailFields } from '../eventDetails';
+import { timelineEventLabel, validateEventClock } from '../eventClock';
+import EventDetailsFields, { EventDetailsPreview, EventIcon } from './EventDetailsFields';
+import { useDeepLinkParam } from '@/engines/_shared';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db';
+import { compactTimelineLabel, eventWithinYearRange, saveTimelineSettings } from '../timelineSettings';
 
 interface TimelineViewProps {
   projectId: string;
@@ -22,38 +30,18 @@ interface TimelineViewProps {
   onDeleteEvent: (id: string) => void;
 }
 
-/** Format an ISO date string into a human-readable form */
-function formatRealDate(iso: string, endIso?: string): string {
-  const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
-  try {
-    const start = new Date(iso + 'T00:00:00').toLocaleDateString(undefined, opts);
-    if (endIso) {
-      const end = new Date(endIso + 'T00:00:00').toLocaleDateString(undefined, opts);
-      return `${start} — ${end}`;
-    }
-    return start;
-  } catch {
-    return iso;
-  }
-}
-
-/** Get the display date string for an event */
-function getDisplayDate(evt: TimelineEvent, calendar?: WorldCalendar | null): string {
-  if (evt.dateMode === 'world') return worldEventLabel(evt, calendar);
-  if (evt.dateMode === 'calendar' && evt.realDate) {
-    return formatRealDate(evt.realDate, evt.realDateEnd);
-  }
-  return evt.date || '';
-}
+function getDisplayDate(evt: TimelineEvent, calendar?: WorldCalendar | null, locale?: string): string { return timelineEventLabel(evt, calendar, locale); }
 
 type SortMode = 'manual' | 'chronological';
 
-export default function TimelineView({ projectId, timelineId, events, onAddEvent, onEditEvent, onDeleteEvent }: TimelineViewProps) {
-  const { t } = useTranslation();
+export default function TimelineView({ projectId, timelineId, events: storedEvents, onAddEvent, onEditEvent, onDeleteEvent }: TimelineViewProps) {
+  const { t, locale } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
+  const linkedEntity = useDeepLinkParam('entity');
+  const [appliedEntity, setAppliedEntity] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('manual');
   const [form, setForm] = useState({
     title: '',
@@ -67,8 +55,13 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
     worldTextEnd: '',
     lane: 'Main',
     color: '#c4973b',
+    ...emptyEventDetails(),
   });
-  const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
+  const calendarSource = useWorldCalendar(projectId, timelineId);
+  const worldCalendar = calendarSource?.calendar ?? null;
+  const timeline = useLiveQuery(() => db.timelines.get(timelineId), [timelineId]);
+  const events = storedEvents.filter(event => eventWithinYearRange(event, timeline?.yearRange));
+  const { items: codexEntries } = useCodexEntries(projectId);
   // What the form held when it opened: Escape and the backdrop only close it
   // while nothing typed since then would be lost.
   const [formOpenedWith, setFormOpenedWith] = useState(form);
@@ -84,9 +77,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
   // Check if there are any calendar-mode events (enables chronological sort)
   const hasCalendarEvents = events.some(e => (e.dateMode === 'calendar' && e.realDate) || (e.dateMode === 'world' && e.worldDate));
   const world = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
-  const dateError = form.dateMode === 'calendar'
-    ? validateTimelineDates(form.realDate, form.realDateEnd)
-    : world?.error ?? null;
+  const dateError = (form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : world?.error ?? null)
+    ?? validateEventClock({ ...form, ...world?.fields }, worldCalendar);
 
   const handleSave = async () => {
     if (!form.title.trim() || saving || dateError) return;
@@ -94,13 +86,11 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
     setSaveFailed(false);
     try {
 
-    const dateValue = form.dateMode === 'calendar' && form.realDate
-      ? formatRealDate(form.realDate, form.realDateEnd)
-      : world ? world.label : form.date;
+    const dateValue = timelineEventLabel({ ...form, ...world?.fields }, worldCalendar, locale);
 
     // Auto-detect eventType: if there's an end date, it's a range
     const effectiveType: TimelineEventType =
-      (form.dateMode === 'calendar' && form.realDateEnd) || world?.fields.worldDateEnd ? 'range' : form.eventType;
+      (form.dateMode !== 'text' && form.endTime) || (form.dateMode === 'calendar' && form.realDateEnd) || world?.fields.worldDateEnd ? 'range' : form.eventType;
     const worldFields = world ? world.fields : { worldDate: undefined, worldDateEnd: undefined };
 
     if (editingEvent) {
@@ -113,6 +103,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         ...worldFields,
+        ...eventDetailFields(form, form.dateMode),
         lane: form.lane,
         color: form.color,
       });
@@ -129,6 +120,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
+        ...worldFields,
+        ...eventDetailFields(form, form.dateMode),
         // Not `events.length`: once anything has been deleted the count is
         // lower than the highest `order`, and the new event lands tied with a
         // row that is already there — a tie no reorder can break.
@@ -152,7 +145,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
 
   const resetForm = () => {
     setSaveFailed(false);
-    loadForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', worldText: '', worldTextEnd: '', lane: 'Main', color: '#c4973b' });
+    loadForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', worldText: '', worldTextEnd: '', lane: 'Main', color: '#c4973b', ...emptyEventDetails() });
   };
 
   const openEdit = (evt: TimelineEvent) => {
@@ -169,17 +162,21 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       worldTextEnd: worldDateText(worldCalendar, evt.worldDateEnd),
       lane: evt.lane,
       color: evt.color,
+      ...editEventDetails(evt),
     });
     setEditingEvent(evt);
     setShowForm(true);
   };
 
   // Sort events
+  const linkedEvent = storedEvents.find(event => event.id === linkedEntity);
+  if (linkedEvent && calendarSource !== undefined && appliedEntity !== linkedEntity) { setAppliedEntity(linkedEntity); openEdit(linkedEvent); }
   const sortedEvents = [...events].sort(sortMode === 'chronological' ? chronologicalCompare(worldCalendar) : (a, b) => a.order - b.order);
 
 
   return (
     <div className="space-y-6">
+      {timeline?.yearRange && <div className="text-xs text-text-muted flex flex-wrap items-center gap-3" data-testid="timeline-range-note"><span>{t('timeline.settings.rangeNote').replace('{start}', String(timeline.yearRange.start)).replace('{end}', String(timeline.yearRange.end)).replace('{count}', String(storedEvents.length - events.length))}</span><button type="button" className="text-accent-gold hover:underline" onClick={() => void saveTimelineSettings(projectId, timelineId, { yearRange: undefined })}>{t('timeline.settings.allYears')}</button></div>}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-serif font-bold text-accent-gold">{t('timeline.timelineHeading')}</h3>
         <div className="flex items-center gap-2">
@@ -231,8 +228,9 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.05 }}
                 >
+                  {evt.icon && <span className="relative z-10 w-8 h-8 flex items-center justify-center" style={{ color: evt.color }}><EventIcon icon={evt.icon} /></span>}
                   {/* Node shape — varies by eventType */}
-                  {(evt.eventType || 'point') === 'milestone' ? (
+                  {evt.icon ? null : (evt.eventType || 'point') === 'milestone' ? (
                     <div
                       className="relative z-10 w-8 h-8 flex items-center justify-center flex-shrink-0"
                       style={{ color: evt.color }}
@@ -270,23 +268,24 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          {getDisplayDate(evt, worldCalendar) && (
+                          {getDisplayDate(evt, worldCalendar, locale) && (
                             <span
                               className="text-xs px-2 py-0.5 rounded inline-flex items-center gap-1"
                               style={{ backgroundColor: `${evt.color}20`, color: evt.color }}
                             >
                               {evt.dateMode === 'calendar' && <Calendar size={10} />}
-                              {getDisplayDate(evt, worldCalendar)}
+                              {compactTimelineLabel(evt, worldCalendar, timeline?.displayPrecision, locale)}
                             </span>
                           )}
                           <span className="text-[10px] text-text-dim uppercase tracking-wider">{evt.lane}</span>
                         </div>
                         <h4 className="font-serif font-bold text-text-primary group-hover:text-accent-gold transition">
-                          {evt.title}
+                          <button type="button" className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold rounded" onClick={event => { event.stopPropagation(); openEdit(evt); }}>{evt.title}</button>
                         </h4>
                         {evt.description && (
                           <p className="text-sm text-text-muted mt-1 line-clamp-2">{evt.description}</p>
                         )}
+                        <EventDetailsPreview event={evt} entries={codexEntries} />
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                         <button className="p-1 hover:bg-elevated rounded" title={t('common.dragToReorder')} aria-label={t('common.dragToReorder')}><GripVertical size={14} className="text-text-dim" aria-hidden="true" /></button>
@@ -457,6 +456,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
               size="sm"
             />
           </div>
+          <EventDetailsFields value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
           {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
           {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
           <div className="flex gap-3 pt-2">

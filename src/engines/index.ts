@@ -30,8 +30,17 @@ import '@/engines/real-atlas';
 import '@/engines/inquiry';
 import '@/engines/beta-reading';
 import '@/engines/fiction';
+import '@/engines/dictionary';
+import '@/engines/model-viewer';
+import '@/engines/tables';
+import '@/engines/media';
+import '@/engines/archive';
+import '@/engines/character-sheets';
+import '@/engines/radar';
 import '@/services/projectToolsBackup';
 import '@/services/copilot/backup';
+import {registerInstalledLocalTools} from './local/bootstrap';
+registerInstalledLocalTools();
 import { registerFallbackAnchorAdapters } from '@/engines/_shared/anchoring/registerFallbackAdapters';
 registerFallbackAnchorAdapters();
 

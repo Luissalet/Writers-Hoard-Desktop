@@ -84,6 +84,7 @@ export const BRIDGE_ENGINE_IDS = [
   'beta-reading',
   'genealogy',
   'fiction',
+  'dictionary', 'model-viewer', 'tables', 'media', 'character-sheets', 'archive', 'radar',
 ];
 
 // ---------------------------------------------------------------------------
@@ -157,7 +158,7 @@ Switch an engine on for a project. Projects only show the engines they have enab
     name: 'wh_delete',
     description:
       `Delete one item, after the person at the keyboard confirms in an app dialog.
-Delete one thing, after asking the person at the keyboard. A dialog opens in the app naming what will go and what goes with it; if nobody confirms — including because nobody is there — nothing is deleted and the call fails. Deletion cannot be undone, so prefer saying what should go and letting the writer do it; use this when they have clearly asked you to remove something.`,
+Delete one thing, after asking the person at the keyboard. A dialog opens in the app naming what will go and what goes with it; if nobody confirms — including because nobody is there — nothing is deleted and the call fails. Core world documents go to Document archive for recovery; other item deletions may be permanent. Prefer saying what should go and letting the writer do it; use this when they have clearly asked you to remove something.`,
     writes: true,
     // Two minutes: the dialog waits for a human, and a human may be elsewhere.
     timeoutMs: 150_000,
@@ -651,6 +652,11 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
         color: s('Colour as #rrggbb.'),
         order: n('Position within the timeline. Appended last if omitted.'),
         linkedEntryId: s('Codex entry id this event is about, if any.'),
+        linkedEntryIds: arr('All linked Codex entry ids in this project. The first is the primary legacy link.'),
+        time: s('Local HH:mm start time. World calendars use their hoursPerDay; real dates use 24 hours.'),
+        endTime: s('Optional local HH:mm end time, on realDateEnd/worldDateEnd or the start day.'),
+        icon: s('Named timeline icon.', { enum: ['calendar', 'flag', 'star', 'swords', 'crown', 'heart', 'book', 'sun', 'moon', 'ship', 'mountain'] }),
+        image: s('Embedded raster image data URL, at most 5 MB. No remote URL or SVG.'),
       },
       required: ['timelineId', 'title'],
       additionalProperties: false,
@@ -677,6 +683,11 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
         color: s('New colour.'),
         order: n('New position.'),
         linkedEntryId: s('New linked codex entry id.'),
+        linkedEntryIds: arr('Replace the linked Codex cards; [] removes all. The first becomes the primary link.'),
+        time: s('New local HH:mm start time; an empty string removes it.'),
+        endTime: s('New local HH:mm end time; an empty string removes it.'),
+        icon: s('Named timeline icon; an empty string removes it.', { enum: ['', 'calendar', 'flag', 'star', 'swords', 'crown', 'heart', 'book', 'sun', 'moon', 'ship', 'mountain'] }),
+        image: s('Embedded raster data URL under 5 MB; an empty string removes it.'),
       },
       required: ['id'],
       additionalProperties: false,
@@ -688,18 +699,19 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
       `Read the project's own world calendar: months, week, eras, moons, holidays, leap rule.
 Read the invented calendar the project dates its events in. A book of a saga without its own calendar uses the saga's (inheritedFrom says which). Returns calendar:null when there is none.`,
     writes: false,
-    schema: { type: 'object', properties: { projectId: PROJECT_ID }, additionalProperties: false },
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, timelineId: s('Optional timeline calendar scope; absent uses the project / saga calendar.') }, additionalProperties: false },
   },
   {
     name: 'wh_world_calendar_set',
     description:
       `Define or replace the project's world calendar, or remove it.
-Define the story world's calendar. calendar = { name, months:[{name, days, intercalary?}], weekdays:[names], weekdayOffset?, eras:[{name, abbr, startYear, countdown?}], moons:[{name, periodDays, newMoonDay?}], holidays:[{name, month, day}], leap?:{every, offset?, month, extraDays} }. Years are absolute (year 1 is the first of the count); an era starts at an absolute year and a countdown era counts backwards to the next one. intercalary months sit outside the week. Refuses a change that would strand existing world-dated events unless force:true.`,
+Define the story world's calendar. calendar = { name, months:[{name, days, intercalary?}], weekdays:[names], weekdayOffset?, eras:[{name, abbr, startYear, countdown?, yearZero?}], moons:[{name, periodDays, newMoonDay?}], holidays:[{name, month, day}], hoursPerDay?, allowNegativeYears?, leap?:{every, offset?, month, extraDays, exceptEvery?, restoreEvery?} }. Years are absolute (year 1 is the first of the count); an era starts at an absolute year and a countdown era counts backwards to the next one. intercalary months sit outside the week. Refuses a change that would strand existing world-dated events unless force:true.`,
     writes: true,
     schema: {
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
+        timelineId: s('Optional timeline calendar scope; absent uses the project / saga calendar.'),
         calendar: { type: 'object', description: 'The whole calendar, as described above.' },
         remove: b('Remove the project\'s own calendar (events keep their text label).'),
         force: b('Save even if some world-dated events no longer fit.'),
@@ -717,6 +729,7 @@ Describe a date in the project's world calendar: label, absolute day number, era
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
+        timelineId: s('Optional timeline calendar scope; absent uses the project / saga calendar.'),
         date: WORLD_DATE('The date to describe.'),
         dayNumber: n('Alternative to date: days since the first day of year 1 (day 0).'),
         plusDays: n('Days to add (negative to go back).'),
@@ -1193,7 +1206,7 @@ When researching or checking factual text, use wh_get_research_evidence to inspe
 4. The legacy prose tools use Markdown. For formatted manuscript editing, use wh_get_writing_document, wh_format_writing and wh_edit_writing_document: these preserve rich formatting, tables and page breaks without flattening the chapter. Their ranges are ProseMirror positions from the inspected document. Native wh_document_* sessions handle file documents, assets, layout and export independently of chapter rows; use wh_document_commands with query to discover exact command ids and parameters. Native selection offsets are UTF-8 bytes, not ProseMirror positions. Save native sessions explicitly to preserve them after the desktop process closes.
 5. Only the fields you pass are changed. To add one attribute to a character, send just that attribute — the rest of the sheet is preserved.
 6. To continue a scene use wh_append_writing, not wh_update_writing. Replacing a whole chapter to add a paragraph risks losing the writer's own edits.
-7. Deleting is the one thing you cannot undo. wh_delete exists, but it opens a dialog the writer has to confirm, and a call that nobody answers deletes nothing. Prefer saying what should go and letting them do it; reach for the tool only when they have clearly asked you to remove something. If a deletion is declined, drop it — do not ask again.
+7. Core world documents deleted through wh_delete can be recovered from Document archive; other item deletions may be permanent. wh_delete exists, but it opens a dialog the writer has to confirm, and a call that nobody answers deletes nothing. Prefer saying what should go and letting them do it; reach for the tool only when they have clearly asked you to remove something. If a deletion is declined, drop it — do not ask again.
 8. Manuscript changes are snapshotted before they happen and can be undone from the app's history panel. Say what you changed so the writer can check it.
 9. If you can see images: wh_view_snapshot_image returns a clipping's picture, and wh_tag_snapshot writes what you saw back onto it. Describe what is actually in the frame — concrete subjects, setting, mood, colour, technique — not what the caption already says. Two to six tags beats twenty.
 10. Some tools are slow by design: listing an Instagram collection paces its requests to avoid being blocked, and downloading media takes as long as it takes. Let them run and tell the user what is happening instead of retrying.

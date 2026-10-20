@@ -16,6 +16,15 @@ import { codexDraftStore } from './codexDrafts';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { SendToProsperoButton, ScheherazadeButtons } from '@/components/family/FamilyHandoff';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './codexTypeMeta';
+import { searchEntries } from '@/services/codexReference/matcher';
+import { isAliasField, readAliases } from '@/services/codexReference/aliases';
+import { useProject } from '@/hooks/useProjects';
+import CodexTemplateManager from './CodexTemplateManager';
+import { templateFromEntry, type CodexTemplate } from '@/engines/codex/templates';
+import { effectiveCodexTemplate, effectiveTemplatePresentation,selectableCodexTemplates, templateIsWithin, templatePath } from '@/engines/codex/templateHierarchy';
+import {ProjectIcon} from '@/components/common/ProjectIcon';
+import {templatePresentationCopy} from '@/engines/codex/templatePresentationCopy';
+import { generateId } from '@/utils/idGenerator';
 
 interface CodexEntryListProps {
   projectId: string;
@@ -23,6 +32,7 @@ interface CodexEntryListProps {
   onAdd: (entry: CodexEntry) => Promise<void>;
   onEdit: (id: string, changes: Partial<CodexEntry>, base?: CodexEntry) => Promise<void>;
   onDelete: (id: string) => void | Promise<unknown>;
+  focusEntryId?: string | null;
 }
 
 /**
@@ -83,8 +93,13 @@ function LinkedImages({
   );
 }
 
-export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDelete }: CodexEntryListProps) {
-  const { t } = useTranslation();
+export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDelete, focusEntryId }: CodexEntryListProps) {
+  const { t,locale } = useTranslation();
+  const { project } = useProject(projectId);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateSeed, setTemplateSeed] = useState<CodexTemplate | undefined>();
+  const [formTemplate, setFormTemplate] = useState<CodexTemplate | undefined>();
+  const [filterTemplate, setFilterTemplate] = useState('');
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [savingForm, setSavingForm] = useState(false);
@@ -96,6 +111,9 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const selectedEntry = entries.find(entry => entry.id === selectedEntryId && entry.projectId === projectId) ?? null;
 
+  const selectedTemplateSource = project?.codexTemplates?.find(template => template.id === selectedEntry?.templateId);
+  const selectedTemplate = selectedTemplateSource ? effectiveCodexTemplate(selectedTemplateSource, project?.codexTemplates ?? []) : undefined;
+
   // Deep link: `/project/:id/codex?entry=<id>` — how global search, Cmd+K and
   // annotation backlinks arrive here. Opens the detail modal on the record
   // instead of dumping the author on the grid.
@@ -103,7 +121,8 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   // Render-adjust rather than an effect (same pattern as CompileModal): the
   // selection is applied while rendering and marked as applied, so closing the
   // modal doesn't get undone by the next unrelated re-render.
-  const deepLinkedEntryId = useDeepLinkParam('entry');
+  const routedEntryId = useDeepLinkParam('entry');
+  const deepLinkedEntryId = routedEntryId;
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
   if (deepLinkedEntryId && deepLinkedEntryId !== appliedDeepLink) {
     const target = entries.find((e) => e.id === deepLinkedEntryId);
@@ -111,6 +130,13 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
       setAppliedDeepLink(deepLinkedEntryId);
       setSelectedEntryId(target.id);
     }
+  }
+  // A graph-open request is consumed once. Keeping it separate from route
+  // requests allows later search/backlink navigation to open another card.
+  const [appliedFocus, setAppliedFocus] = useState<string | null>(null);
+  if (focusEntryId && focusEntryId !== appliedFocus) {
+    const target = entries.find(entry => entry.id === focusEntryId && entry.projectId === projectId);
+    if (target) { setAppliedFocus(focusEntryId); setSelectedEntryId(target.id); }
   }
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState<CodexEntry | null>(null);
 
@@ -142,11 +168,8 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
     };
   }, [projectId, characterOpened, appearanceIndex]);
 
-  const filtered = entries.filter(e => {
-    const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase());
-    const matchesType = filterType === 'all' || e.type === filterType;
-    return matchesSearch && matchesType;
-  });
+  const typeEntries = entries.filter(e => (filterType === 'all' || e.type === filterType) && (!filterTemplate || templateIsWithin(e.templateId, filterTemplate, project?.codexTemplates ?? [])));
+  const filtered = search.trim() ? searchEntries(search, typeEntries, typeEntries.length) : typeEntries;
 
   const types: (CodexEntryType | 'all')[] = ['all', 'character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
 
@@ -179,8 +202,10 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           ))}
         </div>
         <ScheherazadeButtons projectId={projectId} />
+        <button type="button" onClick={() => { setTemplateSeed(undefined); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.title')}</button>
+        {!!project?.codexTemplates?.length && <select aria-label={t('codex.templates.template')} value={filterTemplate} onChange={event => setFilterTemplate(event.target.value)} className="px-2 py-2 rounded-lg border border-border bg-elevated text-sm text-text-primary"><option value="">{t('codex.types.all')}</option>{selectableCodexTemplates(project.codexTemplates,filterTemplate).map(template => <option key={template.id} value={template.id}>{templatePath(template, project.codexTemplates!)}{effectiveTemplatePresentation(template,project.codexTemplates??[]).hiddenFromPickers?` (${templatePresentationCopy[locale].hiddenTag})`:''}</option>)}</select>}
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => { setFormTemplate(undefined); setShowForm(true); }}
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
         >
           <Plus size={16} />
@@ -200,7 +225,9 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map(entry => {
             const Icon = typeIcons[entry.type] || HelpCircle;
-            const color = typeColors[entry.type];
+            const entryTemplate=project?.codexTemplates?.find(template=>template.id===entry.templateId),appearance=effectiveTemplatePresentation(entryTemplate,project?.codexTemplates??[]);
+            const color = appearance.color??typeColors[entry.type];
+            const imageSize=appearance.imageLayout==='portrait'?'w-10 h-14':appearance.imageLayout==='landscape'?'w-16 h-10':'w-10 h-10';
             return (
               <button
                 key={entry.id}
@@ -208,18 +235,18 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                 className="text-left p-4 bg-surface border border-border rounded-xl hover:border-accent-gold/40 transition group"
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}20` }}>
-                    {entry.avatar ? (
-                      <img src={entry.avatar} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                  <div className={`${entry.avatar&&appearance.imageLayout!=='none'?imageSize:'w-10 h-10'} rounded-lg flex items-center justify-center flex-shrink-0`} style={{ backgroundColor: `${color}20` }}>
+                    {entry.avatar&&appearance.imageLayout!=='none' ? (
+                      <img src={entry.avatar} alt="" className={`${imageSize} rounded-lg object-cover`} />
                     ) : (
-                      <Icon size={20} style={{ color }} />
+                      <ProjectIcon name={appearance.icon} fallback={Icon} size={20} style={{ color }} />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-serif font-bold text-text-primary group-hover:text-accent-gold transition truncate">
                       {entry.title}
                     </h3>
-                    <p className="text-xs mt-0.5" style={{ color }}>{t(`codex.types.${entry.type}`)}</p>
+                    <p className="text-xs mt-0.5 flex items-center gap-1.5" style={{ color }}>{entryTemplate&&<ProjectIcon name={appearance.icon} fallback={Icon} size={12}/>}<span>{entryTemplate?.name??t(`codex.types.${entry.type}`)}</span></p>
                     {entry.tags.length > 0 && (
                       <div className="flex gap-1 mt-2 flex-wrap">
                         {entry.tags.slice(0, 3).map(tag => (
@@ -243,6 +270,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           key={editEntry?.id ?? 'new'}
           projectId={projectId}
           entry={editEntry || undefined}
+          template={editEntry ? undefined : formTemplate}
           onPendingChange={setSavingForm}
           onDirtyChange={setFormDirty}
           onSave={async (entry, base) => {
@@ -260,13 +288,14 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           onCancel={() => { setShowForm(false); setEditEntry(null); }}
         />
       </Modal>
+      <CodexTemplateManager key={templateSeed?.id ?? 'templates'} projectId={projectId} open={showTemplates} initial={templateSeed} onClose={() => setShowTemplates(false)} onUse={template => { setFormTemplate(template); setShowTemplates(false); setSelectedEntryId(null); setEditEntry(null); setShowForm(true); }} />
 
       {/* Detail View Modal */}
       <Modal open={!!selectedEntry} onClose={() => setSelectedEntryId(null)} title={selectedEntry?.title} wide>
         {selectedEntry && (
           <div className="space-y-4">
             <div className="flex items-start gap-4 mb-4">
-              {selectedEntry.avatar && (
+              {selectedEntry.avatar&&selectedTemplate?.imageLayout!=='none' && (
                 <button
                   type="button"
                   onClick={() => setLightboxSrc(selectedEntry.avatarOriginal || selectedEntry.avatar || null)}
@@ -274,11 +303,12 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                   aria-label={t('gallery.lightbox.title')}
                   title={t('gallery.lightbox.title')}
                 >
-                  <img src={selectedEntry.avatar} alt="" className="w-24 h-24 rounded-xl object-cover border border-border" />
+                  <img src={selectedEntry.avatar} alt="" className={`${selectedTemplate?.imageLayout==='portrait'?'w-24 h-36':selectedTemplate?.imageLayout==='landscape'?'w-48 h-28':'w-24 h-24'} rounded-xl object-cover border border-border`} />
                 </button>
               )}
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: `${typeColors[selectedEntry.type]}20`, color: typeColors[selectedEntry.type] }}>
+                <span className="text-xs px-2 py-1 rounded inline-flex items-center gap-1.5" style={{ backgroundColor: `${selectedTemplate?.color??typeColors[selectedEntry.type]}20`, color: selectedTemplate?.color??typeColors[selectedEntry.type] }}>
+                  <ProjectIcon name={selectedTemplate?.icon} fallback={typeIcons[selectedEntry.type]} size={14}/>
                   {t(`codex.types.${selectedEntry.type}`)}
                 </span>
                 {selectedEntry.tags.map(tag => (
@@ -289,9 +319,15 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
               </div>
             </div>
 
+            {readAliases(selectedEntry.fields).length > 0 && (
+              <p className="text-sm text-text-muted break-words"><span className="font-semibold">{t('codex.aliases')}:</span> {readAliases(selectedEntry.fields).join(' · ')}</p>
+            )}
+            {selectedEntry.templateId && <p className="text-sm text-text-muted">{t('codex.templates.template')}: {project?.codexTemplates?.find(template => template.id === selectedEntry.templateId)?.name ?? t('codex.templates.retired')}</p>}
+            {Object.entries(selectedEntry.referenceFields ?? {}).map(([key, ids]) => <div key={key}><h4 className="text-sm text-text-muted mb-1">{selectedTemplate?.referenceFieldDefinitions?.find(definition => definition.key === key)?.label ?? key}</h4><div className="flex flex-wrap gap-2">{ids.map(id => { const target = entries.find(entry => entry.id === id); return target ? <button key={id} type="button" onClick={() => setSelectedEntryId(target.id)} className="text-sm text-accent-gold underline underline-offset-2">{target.title}</button> : <span key={id} className="text-xs text-text-dim">{t('codex.fields.missingReference')}</span>; })}</div></div>)}
+
             {/* Fields */}
             <div className="grid grid-cols-2 gap-3">
-              {Object.entries(selectedEntry.fields).filter(([, v]) => v).map(([key, value]) => (
+              {Object.entries(selectedEntry.fields).filter(([key, v]) => v && !isAliasField(key)).map(([key, value]) => (
                 <div key={key} className="p-3 bg-elevated rounded-lg">
                   <div className="text-xs text-text-muted mb-1 capitalize">{key.replace(/([A-Z])/g, ' $1')}</div>
                   <div className="text-sm text-text-primary">{value}</div>
@@ -333,6 +369,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             </div>
 
             <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => { const seed = templateFromEntry(selectedEntry, generateId('codex-template'), selectedEntry.title, Date.now()); const source = project?.codexTemplates?.find(template => template.id === selectedEntry.templateId); setTemplateSeed({ ...seed, ...effectiveTemplatePresentation(source,project?.codexTemplates??[]),referenceFieldDefinitions: source ? effectiveCodexTemplate(source, project?.codexTemplates ?? []).referenceFieldDefinitions : seed.referenceFieldDefinitions }); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.fromEntry')}</button>
               <button
                 onClick={() => { setSelectedEntryId(null); setEditEntry(selectedEntry); }}
                 className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"

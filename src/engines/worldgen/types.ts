@@ -24,6 +24,8 @@ export interface SavedWorldRegion {
   y: number;
   spanKm: number;
   params: RegionParams;
+  /** Fixed, reversible window composed from the world's shared canonical terrain. */
+  frameMode?: 'canon';
   createdAt: number;
   updatedAt: number;
 }

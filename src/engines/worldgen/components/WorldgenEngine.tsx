@@ -11,6 +11,7 @@ import { worldWaypointOps } from '../operations';
 import { createWorldAlternative, freshWorldEdits } from '../recipe';
 import { worldWorkspaceCopy } from '../workspaceCopy';
 import ReadErrorNotice from '@/components/common/ReadErrorNotice';
+import { saveWorldRegionChanges } from '../sheets/store';
 import { useGeneratedWorlds } from '../hooks';
 import WorldView, {
   type RegionFocus,
@@ -167,7 +168,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
               setActiveWorldId(alternative.id);
             }}
             onSaveEdits={(edits) => editWorld(activeWorld.id, { edits })}
-            onSaveRegions={(regions) => editWorld(activeWorld.id, { regions })}
+            onSaveRegions={async (regions, baseline) => { await saveWorldRegionChanges(projectId, activeWorld.id, baseline ?? activeWorld.regions ?? [], regions); }}
             onThumbnail={(thumbnail) => editWorld(activeWorld.id, { thumbnail })}
             focusWaypoint={focusWaypoint && focusWaypoint.id ? focusWaypoint : null}
             focusSpatial={focusSpatial}

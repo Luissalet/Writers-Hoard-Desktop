@@ -2,6 +2,7 @@ import { useCallback, useState, useEffect, useRef } from 'react';
 import { Play, Pause, X } from 'lucide-react';
 import type { VideoSegment } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
 
 interface TeleprompterViewProps {
   segments: VideoSegment[];
@@ -18,6 +19,7 @@ const formatTime = (seconds: number): string => {
 
 export default function TeleprompterView({ segments, onExit }: TeleprompterViewProps) {
   const { t } = useTranslation();
+  const pane = useEnginePane();
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -41,13 +43,14 @@ export default function TeleprompterView({ segments, onExit }: TeleprompterViewP
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, e)) return;
       if (e.key === 'Escape') {
         onExit();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onExit]);
+  }, [onExit, pane]);
 
   // Reading the template once keeps `paint` stable across renders, so the
   // animation loop is never torn down and restarted by a re-render.

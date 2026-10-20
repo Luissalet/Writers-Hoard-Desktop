@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
+  Crop,
   Download,
   EyeOff,
   Loader2,
@@ -39,6 +40,7 @@ import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
 import type { SavedWorldRegion } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { sheetCopy } from '../sheets/copy';
 
 interface RegionSheetViewProps {
   world: WorldData;
@@ -52,6 +54,7 @@ interface RegionSheetViewProps {
   onSelectSpatialEntity?: (entity: WorldSpatialEntity | null) => void;
   onEditEntity?: (edit: WorldEdit) => void;
   onSaveRegion?: (region: SavedWorldRegion) => void;
+  onFrame?: (region: SavedWorldRegion) => void;
   onClose: () => void;
   /** Close the sheet and fly the shared camera to this window (world cells + span). */
   onFlyHere?: (x: number, y: number, spanKm: number) => void;
@@ -106,9 +109,9 @@ export default function RegionSheetView({
   onSaveRegion,
   onClose,
   onFlyHere,
-  onPickSettlement, sitesPolicy,
+  onPickSettlement, sitesPolicy, onFrame,
 }: RegionSheetViewProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -346,7 +349,7 @@ export default function RegionSheetView({
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-black/70 backdrop-blur-sm">
-      <div className="flex items-center gap-2 border-b border-white/10 bg-black/50 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-black/50 px-3 py-2">
         <input
           value={title || region?.title || ''}
           onChange={(event) => setTitle(event.target.value)}
@@ -360,6 +363,7 @@ export default function RegionSheetView({
           </span>
         )}
         <div className="flex-1" />
+        {onFrame && <button type="button" data-testid="region-fix-sheet" onClick={() => { const now = Date.now(); onFrame({ id: saved?.id ?? generateId('region'), title: title.trim() || displayRegion?.title || t('worldgen.sheet.defaultTitle'), x: centre.x, y: centre.y, spanKm: SPANS[spanIdx], params: regionParams, createdAt: saved?.createdAt ?? now, updatedAt: now }); }} className="flex min-h-9 items-center gap-2 rounded border border-white/15 px-2 text-xs text-white/90"><Crop size={14} aria-hidden="true" />{sheetCopy[locale].create}</button>}
         <div className="mr-2 flex items-center gap-1">
           <button
             type="button"

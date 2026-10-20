@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEnginePane, ownsEnginePaneEvent, dispatchEnginePaneCommand } from '@/engines/_shared/EnginePaneContext';
 import type { WorldData } from '../core/types';
 import type { WorldViewport } from '../types';
 import type { HumanGeography, Settlement } from '../core/settlements';
@@ -137,6 +138,7 @@ export default function CartoMap({
   onPickSettlement, onZoomTo, onInspect, onViewChange, annotations,
   viewport, onViewportChange, flyTarget, flyMark = null, canonWorld, canonEdits,
 }: CartoMapProps) {
+  const pane = useEnginePane();
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inkRef = useRef<HTMLCanvasElement>(null);
@@ -862,14 +864,15 @@ export default function CartoMap({
   // this sheet is editable.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, e)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
+        dispatchEnginePaneCommand(pane, e.shiftKey ? 'wg-redo' : 'wg-undo');
       }
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
-  }, []);
+  }, [pane]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     cancelFlight();

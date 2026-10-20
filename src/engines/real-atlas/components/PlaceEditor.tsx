@@ -1,10 +1,11 @@
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Crosshair, ExternalLink, Globe, Plus, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import TagInput from '@/components/common/TagInput';
 import { toast } from '@/components/common/toast';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
-import { getAnchorAdapter, navigateTo } from '@/engines/_shared/anchoring';
+import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import { findPlaceAppearances, MIN_APPEARANCE_NAME_LENGTH, type AppearanceWriting } from '../appearances';
 import { ATLAS_PLACE_KINDS, type AtlasDivergence, type AtlasPlace, type AtlasPlaceKind } from '../types';
 import { GEOCODE_MAX_QUERY_LENGTH, parseNominatimResults, type GeocodeHit } from '../geocode';
@@ -133,6 +134,7 @@ function useSettled(value: string, delayMs: number): string {
  */
 function AppearsIn({ projectId, name, aliases, writings }: { projectId: string; name: string; aliases: string[]; writings: readonly AppearanceWriting[] }) {
   const { t } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const settledName = useSettled(name, APPEARANCE_DEBOUNCE_MS);
   // A key rather than the array: a fresh `aliases` array with the same
   // names must not rescan the manuscript.
@@ -147,7 +149,7 @@ function AppearsIn({ projectId, name, aliases, writings }: { projectId: string; 
   // the chapter rather than on the list of them.
   const openWriting = (writingId: string) => {
     const adapter = getAnchorAdapter('writings');
-    if (adapter) adapter.navigateToEntity(writingId, projectId);
+    if (adapter) adapter.navigateToEntity(writingId, projectId, navigateTo);
     else navigateTo(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(writingId)}`);
   };
 

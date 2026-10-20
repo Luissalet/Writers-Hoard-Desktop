@@ -106,12 +106,12 @@ registerAnchorAdapter({
     return pin?.name ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.maps'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     void db.worldMaps.get(entityId).then((map) => {
       const param = map ? 'map' : 'pin';
-      navigateTo(`/project/${pid}/maps?${param}=${encodeURIComponent(entityId)}`);
+      navigate(`/project/${pid}/maps?${param}=${encodeURIComponent(entityId)}`);
     });
   },
 });

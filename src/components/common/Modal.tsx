@@ -10,6 +10,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAppStore } from '@/stores/appStore';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 
 interface ModalProps {
   open: boolean;
@@ -31,6 +32,8 @@ interface ModalProps {
   dismissible?: boolean;
   /** Destructive confirmations pass their safe default (usually Cancel). */
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /** Editors can restore their exact text selection after this dialog closes. */
+  restoreFocus?: () => void;
 }
 
 const modalStack: HTMLElement[] = [];
@@ -91,8 +94,10 @@ export default function Modal({
   busy = false,
   dismissible = true,
   initialFocusRef,
+  restoreFocus,
 }: ModalProps) {
   const { t } = useTranslation();
+  const pane = useEnginePane();
   const systemReduceMotion = useReducedMotion();
   const motionPreference = useAppStore((state) => state.motion);
   const reduceMotion = motionPreference === 'reduce'
@@ -103,10 +108,12 @@ export default function Modal({
   const onCloseRef = useRef(onClose);
   const busyRef = useRef(busy);
   const dismissibleRef = useRef(dismissible);
+  const restoreFocusRef = useRef(restoreFocus);
 
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => { busyRef.current = busy; }, [busy]);
   useEffect(() => { dismissibleRef.current = dismissible; }, [dismissible]);
+  useEffect(() => { restoreFocusRef.current = restoreFocus; }, [restoreFocus]);
 
   useEffect(() => {
     if (!open) return;
@@ -158,8 +165,10 @@ export default function Modal({
       if (index >= 0) modalStack.splice(index, 1);
       restoreBackground();
       const previous = previousFocusRef.current;
+      const restore = restoreFocusRef.current;
       window.setTimeout(() => {
-        if (previous?.isConnected) previous.focus();
+        if (restore) restore();
+        else if (previous?.isConnected) previous.focus();
       }, 0);
     };
   }, [initialFocusRef, open]);
@@ -172,6 +181,7 @@ export default function Modal({
 
   return createPortal(
     <motion.div
+      data-engine-pane-id={pane?.instanceId}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -188,10 +198,10 @@ export default function Modal({
         aria-label={title ? undefined : ariaLabel ?? t('common.dialog')}
         aria-busy={busy || undefined}
         tabIndex={-1}
-        className={`relative overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/60 ${
+        className={`relative overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/60 ${
           fullscreen
             ? 'w-[min(96vw,100rem)] max-h-[94vh]'
-            : `rounded-xl border border-border bg-surface shadow-2xl ${wide ? 'w-full max-w-3xl' : 'w-full max-w-lg'}`
+            : wide ? 'w-full max-w-3xl' : 'w-full max-w-lg'
         }`}
         initial={reduceMotion ? { opacity: 0 } : { scale: 0.95, opacity: 0 }}
         animate={reduceMotion ? { opacity: 1 } : { scale: 1, opacity: 1 }}

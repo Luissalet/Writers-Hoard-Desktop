@@ -3,9 +3,9 @@ import type { CodexEntry } from '@/types';
 import { db } from '@/db';
 import { updateCodexEntry } from '@/db/operations';
 
-export type CodexEditableKey = 'title' | 'content' | 'tags' | 'avatar' | 'avatarOriginal';
+export type CodexEditableKey = 'title' | 'content' | 'tags' | 'avatar' | 'avatarOriginal' | 'templateId' | 'type';
 export interface CodexFieldConflict {
-  key: CodexEditableKey | `fields.${string}`;
+  key: CodexEditableKey | `fields.${string}` | `referenceFields.${string}`;
   current: string | string[] | undefined;
   draft: string | string[] | undefined;
 }
@@ -20,7 +20,7 @@ export class CodexEditConflict extends Error {
   }
 }
 
-const editableKeys: CodexEditableKey[] = ['title', 'content', 'tags', 'avatar', 'avatarOriginal'];
+const editableKeys: CodexEditableKey[] = ['title', 'content', 'tags', 'avatar', 'avatarOriginal', 'templateId', 'type'];
 const equalValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const fieldValue = (entry: CodexEntry, key: CodexEditableKey) => key === 'avatarOriginal'
   ? entry.avatarOriginal || entry.avatar || undefined
@@ -60,8 +60,19 @@ export async function saveCodexDraft(base: CodexEntry, draft: CodexEntry): Promi
         fieldsChanged = true;
       }
     }
-    if (conflicts.length) throw new CodexEditConflict(conflicts, current);
     if (fieldsChanged) changes.fields = fields;
+    const references = { ...(current.referenceFields ?? {}) };
+    let referencesChanged = false;
+    for (const key of new Set([...Object.keys(base.referenceFields ?? {}), ...Object.keys(draft.referenceFields ?? {})])) {
+      const next = draft.referenceFields?.[key];
+      const previous = base.referenceFields?.[key];
+      const remote = current.referenceFields?.[key];
+      if (equalValue(next, previous)) continue;
+      if (!equalValue(remote, previous) && !equalValue(remote, next)) conflicts.push({ key: `referenceFields.${key}`, current: remote, draft: next });
+      else { if (next === undefined) delete references[key]; else references[key] = [...next]; referencesChanged = true; }
+    }
+    if (conflicts.length) throw new CodexEditConflict(conflicts, current);
+    if (referencesChanged) changes.referenceFields = references;
     if (Object.keys(changes).length) await updateCodexEntry(base.id, changes);
     return (await db.codexEntries.get(base.id))!;
   });

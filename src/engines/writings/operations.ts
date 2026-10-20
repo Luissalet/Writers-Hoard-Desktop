@@ -1,3 +1,4 @@
+import { archiveWithMutation, archiveValuesEqual, restoreArchivedDocument, ArchiveRestoreConflict } from '@/services/documentArchive/store';
 // ============================================
 // Writings Engine — Database Operations
 // ============================================
@@ -443,7 +444,7 @@ export function takeLastDeletedWriting(id: string): DeletedWritingBundle | null 
  * nothing to offer back.
  */
 export async function deleteWritingRestorable(id: string): Promise<DeletedWritingBundle | null> {
-  const bundle = await db.transaction(
+  const bundle = await archiveWithMutation('writings', id, () => db.transaction(
     'rw',
     [db.writings, db.writingSnapshots, db.outlineBeats, db.annotations, db.annotationReferences],
     async (): Promise<DeletedWritingBundle | null> => {
@@ -486,7 +487,7 @@ export async function deleteWritingRestorable(id: string): Promise<DeletedWritin
         deletedAt: Date.now(),
       };
     },
-  );
+  ));
 
   // Kept only for the delete that armed the slot for this id; every other
   // deletion — the AI bridge's included — is free the moment this returns.
@@ -523,6 +524,18 @@ export async function deleteWriting(id: string): Promise<void> {
  * the writer has since pointed at another chapter.
  */
 export async function restoreDeletedWriting(bundle: DeletedWritingBundle): Promise<void> {
+  const archives = await db.documentArchives.where('sourceId').equals(bundle.writing.id).filter(row => row.projectId === bundle.writing.projectId && row.kind === 'writings').toArray();
+  if (archives.length) {
+    const archive = archives.find(row => row.mutations.some(patch => patch.table === 'writings' && archiveValuesEqual(patch.beforeRow, bundle.writing)));
+    if (!archive) throw new ArchiveRestoreConflict();
+    await restoreArchivedDocument(bundle.writing.projectId, archive.id);
+    return;
+  }
+  const occupied = await db.writings.get(bundle.writing.id);
+  if (occupied) {
+    if (!archiveValuesEqual(occupied, bundle.writing)) throw new ArchiveRestoreConflict();
+    return; // Already restored: an old Undo must not resurrect newly removed children.
+  }
   await db.transaction(
     'rw',
     [db.writings, db.writingSnapshots, db.outlineBeats, db.annotations, db.annotationReferences],

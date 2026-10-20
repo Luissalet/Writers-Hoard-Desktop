@@ -19,6 +19,8 @@ export interface CodexFormValues {
   fields: Record<string, string>;
   content: string;
   tags: string[];
+  templateId?: string;
+  referenceFields?: Record<string, string[]>;
 }
 
 /**
@@ -52,6 +54,8 @@ function isCodexFormDraft(value: unknown): value is CodexFormDraft {
     && typeof draft.title === 'string' && typeof draft.content === 'string'
     && isStringRecord(draft.fields) && isStringList(draft.tags)
     && isOptionalString(draft.avatar) && isOptionalString(draft.avatarOriginal)
+    && isOptionalString(draft.templateId)
+    && (draft.referenceFields === undefined || (typeof draft.referenceFields === 'object' && draft.referenceFields !== null && Object.values(draft.referenceFields).every(isStringList)))
     && (base === undefined || (typeof base === 'object' && base !== null
       && typeof base.id === 'string' && typeof base.projectId === 'string'
       && typeof base.title === 'string' && typeof base.content === 'string'
@@ -73,13 +77,16 @@ export function codexFormValues(entry?: CodexEntry): CodexFormValues {
     fields: entry?.fields || getTemplateFields(type),
     content: entry?.content || '',
     tags: entry?.tags || [],
+    templateId: entry?.templateId,
+    referenceFields: entry?.referenceFields ?? {},
   };
 }
 
 export function sameCodexFormValues(a: CodexFormValues, b: CodexFormValues): boolean {
   return a.type === b.type && a.title === b.title && a.content === b.content
     && a.avatar === b.avatar && a.avatarOriginal === b.avatarOriginal
-    && JSON.stringify(a.fields) === JSON.stringify(b.fields) && JSON.stringify(a.tags) === JSON.stringify(b.tags);
+    && JSON.stringify(a.fields) === JSON.stringify(b.fields) && JSON.stringify(a.tags) === JSON.stringify(b.tags)
+    && a.templateId === b.templateId && JSON.stringify(a.referenceFields ?? {}) === JSON.stringify(b.referenceFields ?? {});
 }
 
 const fits = (...images: (string | undefined)[]) => images.every(image => (image ?? '').length <= IMAGE_LIMIT);

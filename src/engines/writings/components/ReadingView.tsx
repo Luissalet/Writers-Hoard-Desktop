@@ -1,7 +1,10 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, ChevronLeft, ChevronRight, Keyboard, ListTree, PenLine, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Bookmark, ChevronLeft, ChevronRight, Keyboard, ListTree, Palette, PenLine, X } from 'lucide-react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db';
 import type { Writing } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
 import { useAppStore } from '@/stores/appStore';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { extractFootnotesFromHtml, renderEndnotesHtml } from '@/components/editor/footnotes/footnoteModel';
@@ -22,6 +25,16 @@ import {
   type ReadingPosition,
 } from '../readingWindow';
 import { loadReadingPosition, saveReadingPosition } from '../readingPositionPersist';
+import { hydrateLocalMediaBlocks } from '@/engines/media/readingBlocks';
+import { hydrateToolDocumentBlocks } from '@/components/editor/toolBlocks/reading';
+import { hydrateCodexBlocks } from '@/components/editor/codexBlocks/reading';
+import type { Project } from '@/types';
+import type { ChapterPresentation } from '../readerPresentationTypes';
+import { readerColor, readerInk, readerRaster, safeReaderPresentation } from '../readerPresentation';
+import ReaderPresentationModal from './ReaderPresentationModal';
+import ReaderBookCover from './ReaderBookCover';
+import ReaderSoundtrackControl from './ReaderSoundtrackControl';
+import { READER_PRESENTATION_CSS } from '../readerPresentationStyle';
 
 /** One arrow press of prose. */
 const LINE_STEP_PX = 96;
@@ -44,6 +57,8 @@ interface ReadingPieceProps {
   /** The number of the piece's first note: 1, or one past the previous piece's last. */
   footnoteStart: number;
   onOpenInEditor: (writing: Writing) => void;
+  presentation?: ChapterPresentation;
+  coverProject?: Project;
 }
 
 /**
@@ -66,9 +81,16 @@ const ReadingPiece = memo(function ReadingPiece({
   footnoteStyle,
   footnoteStart,
   onOpenInEditor,
+  presentation,
+  coverProject,
 }: ReadingPieceProps) {
   const { t, locale } = useTranslation();
+  const proseRef = useRef<HTMLDivElement>(null);
   const column = { maxWidth: 'var(--wh-reading-measure)' };
+  const background = readerColor(presentation?.background), ink = readerInk(background);
+  const themed = Boolean(background || presentation && presentation.font !== 'inherit');
+  const font = presentation?.font && presentation.font !== 'inherit' ? `var(--wh-face-${presentation.font})` : undefined;
+  const theme = { backgroundColor: background || undefined, '--reader-ink': ink || undefined, '--reader-font': font, ...(ink ? { '--color-text-primary': ink, '--color-text-muted': ink, '--color-text-dim': ink, '--color-text-secondary': ink, '--color-accent-gold': ink } : {}) } as CSSProperties;
   // The chapter's footnotes, listed under its prose. The references keep
   // their CSS numbers, the list its own, and both count in document order —
   // from `footnoteStart`: the stylesheet resets the counter per prose body,
@@ -85,9 +107,20 @@ const ReadingPiece = memo(function ReadingPiece({
     },
   );
   const counter = footnoteStart > 1 ? { counterReset: `wh-footnote ${footnoteStart - 1}` } : undefined;
+  useEffect(() => {
+    if (proseRef.current) return hydrateLocalMediaBlocks(proseRef.current, piece.projectId, locale === 'es' ? 'El medio local no está disponible.' : 'The local media file is unavailable.');
+  }, [piece.content, piece.projectId, endnotes, locale]);
+  useEffect(() => {
+    if (proseRef.current) return hydrateToolDocumentBlocks(proseRef.current, piece.projectId, locale);
+  }, [piece.content, piece.projectId, endnotes, locale]);
+  useEffect(() => {
+    if (proseRef.current) return hydrateCodexBlocks(proseRef.current, piece.projectId, locale === 'es' ? 'La entrada local no está disponible.' : 'The local entry is unavailable.');
+  }, [piece.content, piece.projectId, endnotes, locale]);
 
   return (
-    <article data-piece-id={piece.id} className="px-6 pt-8 pb-2">
+    <article data-piece-id={piece.id} data-reader-mode={presentation?.mode ?? 'flow'} style={theme} className={`px-6 pt-8 pb-2 ${themed ? 'wh-reader-themed' : ''} ${presentation?.mode === 'pages' ? 'wh-reader-pages' : ''}`}>
+      {coverProject?.readerPresentation?.cover.showAtStart && <div className="mb-8"><ReaderBookCover title={coverProject.title} artwork={coverProject.coverImage} cover={coverProject.readerPresentation.cover} locale={locale} /></div>}
+      {presentation?.imageLayout !== 'none' && readerRaster(presentation?.image) && <img className={`wh-reader-chapter-image ${presentation?.imageLayout === 'beside' ? 'wh-reader-image-beside' : ''}`} src={presentation.image} alt="" />}
       <header className="mx-auto flex items-start gap-3" style={column}>
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-text-dim font-medium">
@@ -114,7 +147,7 @@ const ReadingPiece = memo(function ReadingPiece({
 
       {piece.content.trim() ? (
         <div className="tiptap-editor mt-2">
-          <div className="ProseMirror" style={counter} dangerouslySetInnerHTML={sanitizedHtml(piece.content + endnotes)} />
+          <div ref={proseRef} className="ProseMirror" tabIndex={presentation?.mode === 'pages' ? 0 : undefined} aria-label={presentation?.mode === 'pages' ? piece.title : undefined} style={counter} dangerouslySetInnerHTML={sanitizedHtml(piece.content + endnotes)} />
         </div>
       ) : (
         <p className="mx-auto mt-4 text-sm italic text-text-dim" style={column}>
@@ -122,7 +155,8 @@ const ReadingPiece = memo(function ReadingPiece({
         </p>
       )}
 
-      <div className="mx-auto mt-6 h-px bg-border/70" style={column} />
+      {presentation?.mode === 'pages' && <div className="mx-auto mt-4 flex justify-between gap-3" style={column}><button className="min-h-9 rounded-lg border border-current px-3 text-sm" onClick={() => proseRef.current?.scrollBy({ left: -proseRef.current.clientWidth, behavior: 'instant' })}>{locale === 'es' ? 'Página anterior' : 'Previous page'}</button><button className="min-h-9 rounded-lg border border-current px-3 text-sm" onClick={() => proseRef.current?.scrollBy({ left: proseRef.current.clientWidth, behavior: 'instant' })}>{locale === 'es' ? 'Página siguiente' : 'Next page'}</button></div>}
+      <div className="mx-auto mt-6 h-px clear-both bg-border/70" style={column} />
     </article>
   );
 });
@@ -161,6 +195,11 @@ export default function ReadingView({
   footnotePlacement = 'chapter',
 }: ReadingViewProps) {
   const { t, locale } = useTranslation();
+  const projectId = pieces[0]?.projectId;
+  const project = useLiveQuery(() => projectId ? db.projects.get(projectId) : undefined, [projectId]);
+  const readerProject = useMemo(() => project?.id === projectId ? { ...project, readerPresentation: safeReaderPresentation(project.readerPresentation) } : undefined, [project, projectId]);
+  const [showPresentation, setShowPresentation] = useState(false);
+  const pane = useEnginePane();
   const reading = useAppStore((s) => s.reading);
   const loadReading = useAppStore((s) => s.loadReading);
 
@@ -522,6 +561,8 @@ export default function ReadingView({
   // rather than passed through — this is a page, not a form.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, event)) return;
+      if (showPresentation || event.defaultPrevented || event.target instanceof Element && event.target.closest('input,select,textarea,button,audio,video')) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const scroller = scrollerRef.current;
       const step = (delta: number) => {
@@ -574,7 +615,7 @@ export default function ReadingView({
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeIndex, jumpTo, onClose, pieces.length]);
+  }, [activeIndex, jumpTo, onClose, pieces.length, pane, showPresentation]);
 
   // Keep the rail showing the piece being read.
   useEffect(() => {
@@ -618,6 +659,7 @@ export default function ReadingView({
       aria-label={t('writings.reading.title')}
       className="fixed inset-0 z-40 flex flex-col bg-deep"
     >
+      <style>{READER_PRESENTATION_CSS}</style>
       <header className="flex flex-shrink-0 items-center gap-3 border-b border-border px-4 py-2.5">
         <button
           type="button"
@@ -627,6 +669,8 @@ export default function ReadingView({
           <X size={16} />
           {t('writings.reading.exit')}
         </button>
+
+        {readerProject && <button type="button" className="min-h-9 rounded-lg border border-border p-2 text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold" aria-label={locale === 'es' ? 'Presentación del lector' : 'Reader presentation'} onClick={() => setShowPresentation(true)}><Palette size={16} /></button>}
 
         <button
           type="button"
@@ -713,6 +757,7 @@ export default function ReadingView({
           prose rather than in the header, because a header that grows a row
           when a bookmark is restored reflows the first screenful of the book
           the reader has just been put back into. */}
+      {readerProject && <ReaderSoundtrackControl project={readerProject} writings={pieces} viewport={scrollerRef} locale={locale} />}
       {resumedPiece && (
         <div
           role="status"
@@ -787,12 +832,15 @@ export default function ReadingView({
               footnoteStyle={footnoteStyle}
               footnoteStart={footnoteStarts[pieceWindow.first + offset] ?? 1}
               onOpenInEditor={onOpenInEditor}
+              presentation={piece.projectId === readerProject?.id ? readerProject.readerPresentation.chapters[piece.id] : undefined}
+              coverProject={piece.id === pieces[0]?.id ? readerProject : undefined}
             />
           ))}
           <div ref={tailRef} aria-hidden="true" />
           <p className="px-6 py-10 text-center text-xs text-text-dim">{t('writings.reading.end')}</p>
         </div>
       </div>
+      {showPresentation && readerProject && <ReaderPresentationModal project={readerProject} writings={pieces.filter(piece => piece.projectId === readerProject.id)} initialWritingId={activePiece?.id} onClose={() => setShowPresentation(false)} />}
     </div>
   );
 }

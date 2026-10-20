@@ -55,6 +55,8 @@ export interface EngineDefinition {
    * Optional default config values for this engine (per-project overrides).
    */
   defaultConfig?: Record<string, unknown>;
+  /** Additional documents nested in project metadata, outside owned Dexie tables. */
+  countProjectItems?: (projectId: string) => Promise<number>;
   /**
    * Optional sidebar badge component. If present, the Sidebar will render
    * this tiny component alongside the tab label — e.g. an orphan count,
@@ -99,6 +101,8 @@ export interface EntityPreview {
   projectId: string;
   title: string;
   subtitle?: string;
+  /** Extra names used for search without changing the displayed title. */
+  searchTerms?: string[];
   thumbnail?: string;
   color?: string;
 }

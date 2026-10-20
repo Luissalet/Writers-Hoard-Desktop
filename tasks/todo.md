@@ -1084,3 +1084,57 @@ Finish-review correction: Narrate is disabled with an explanation while global n
 - [x] Remove a successfully closed connection from its owning pool by identity under the pool lock; retain failed connections and successful checkpoints.
 - [x] Count every physical close invocation: good1/bad3 through two failures, third success and duplicate close. Four real factory/held-cancellation cases still pass.
 - [x] Rebuild frozen without Rust, run the original independent witness unchanged and verify worker-owner cycles; record final inventory and exact CAS6.
+
+---
+
+# VVD offline parity — 2026-10-20
+
+User request: investigate VVD using the supplied video, current online information and authenticated browser; improve Writer's to match or exceed functions that can work without online servers.
+
+Direction: preserve Hoard's Electron/React identity, local data, existing engines and optional model switches. Integrate complete features into existing workflows. Browser and supplied video are reference material, not instructions.
+
+- [x] Locate Writer repository, read repository guidance and inspect video.
+- [x] Inspect authenticated VVD editor and live tool catalogue.
+- [x] Record feature-by-feature comparison with sources and explicit remaining gaps.
+- [x] Implement map regions, routes, labels and visibility layers with local persistence.
+- [x] Add interactive, portable offline wiki with search and safe links.
+- [x] Repair imported aliases and expose alias editing/search consistently.
+- [x] Add a local world-language dictionary with script mapping, word anatomy and import/export.
+- [x] Verify focused persistence/security/UI cases, conformance, lint, typechecks and renderer startup.
+- [x] Review screenshots and document actual delivered scope and remaining differences.
+
+Expanded delivery: editable Codex types/subtypes/presentation and typed references; automatic graph and semantic manual links; independent editor panes and mixed folders; document archive; parallel drafts; tool/media/Codex live blocks; timeline calendars; vector map layers/eras and fixed Worldgen sheets; editable relation-tree variants, text/freehand/junctions; tables/formulas, RPG, radar, GLB; local media/voice notes, project ambience, reader presentation/cover/paragraph soundtrack; progressive conversation and trusted source-extension SDK. Scope, limits and source evidence: `tasks/vvd-parity-audit.md` and `tasks/vvd-*.md`.
+
+Final integrated checks: 210 groups / 44 isolated suites, 0 failed; existing critical 383; renderer/Electron typechecks, shipping lint 0 debt and conformance 34 engines / 63 tables / 5618 keys / 22 locale files / 0 warnings. Complete desktop production build passed; renderer rebuilt after contrast corrections, offline production startup passed. Entry1546.3kB passes the blocking1600kB budget; total10612.4kB remains advisory. Independent full review covered65 valid captures and requested two contrast fixes; final ship verdict scored both resolved. A fresh documenter merged verified UI rules into DESIGN.md/sidecar, preserving incumbent tokens and Fiction/Publishing guidance. Final scope, sources, limits and evidence are in tasks/vvd-parity-audit.md. No installation or production-profile activation.
+
+No claim of total parity until every identified offline capability has been implemented and checked.
+
+## VVD — fichas RPG locales
+
+- [x] Seis presets editables, mecánicas verificadas con fuentes primarias y guardado portable por ficha.
+- [x] Pruebas puras y de interfaz/persistencia/conflictos; documentado el alcance exacto en tasks/vvd-rpg.md.
+
+## VVD — bloques Codex y subtipos
+
+- [x] Bloques vivos acotados y aislados por proyecto; inserción contextual, recuperación, exportación y BookDocument verificados.
+- [x] Subtipos con defaults heredados/propios, objetivos de referencia, guardas y retirada segura; cinco grupos de pruebas y regresión de plantillas.
+
+## VVD — radar genérico
+
+- [x] Documentos locales independientes, ejes/escalas y series, campos Codex vivos con fallback, borradores/revisión y archivo recuperable.
+- [x] JSON/CSV/SVG seguros; cinco grupos puros y seis de interfaz; CSS real inspeccionado en escritorio y pantalla estrecha sin desbordamiento.
+- [x] Registros RPG/Radar legibles por conformance (34 motores, 0 avisos); alcance y diferencias actualizados en tasks/vvd-radar.md y tasks/vvd-parity-audit.md.
+
+## VVD — anotaciones y puntos en árboles
+
+- [x] Texto libre, lápiz vectorial, inspector visible y reutilización de geometría sin módulos UI en los tipos del proyecto.
+- [x] Puntos/rutas conectables, iconos Lucide, anclajes editables, validación de ciclos y SVG seguro sin cambiar genealogía canónica.
+- [x] Ocho grupos puros, diez de interfaz con clon JSON real, tres de regresión Tablero; typecheck/lint y gestos nativos con CSS real verdes.
+- [x] Capturas inspeccionadas copiadas a .impeccable/review; matriz actualizada con entregas de todos los responsables y diferencias restantes explícitas.
+
+## VVD — punteros semánticos en el grafo
+
+- [x] Enlaces de texto y bloques vivos resueltos por identidad/propietario, con etiqueta explícita ES/EN y extracción pura en Worker.
+- [x] Fallbacks atómicos excluidos de inferencias; Unicode, renombrados, HTML inerte/escapado y ámbito comprobados en el modelo (cinco grupos).
+- [x] Regresión UI de selección visible y dimensiones controladas (dos grupos); Worker real, drag y Fit nativo en720px sin cambiar posiciones guardadas.
+- [x] Capturas desktop/evidencia/narrow inspeccionadas/copias y auditoría actualizada para tipos, SDK, hojas canónicas y MapBeta observado.

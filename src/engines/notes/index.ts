@@ -89,9 +89,9 @@ registerAnchorAdapter({
     return note ? noteTitle(note) : null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.notes'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     if (projectId) {
-      navigateTo(
+      navigate(
         projectId === GLOBAL_NOTES_SCOPE
           ? `/notes?note=${encodeURIComponent(entityId)}`
           : `/project/${encodeURIComponent(projectId)}/notes?note=${encodeURIComponent(entityId)}`,
@@ -101,7 +101,7 @@ registerAnchorAdapter({
     void (async () => {
       const note = (await db.table('notes').get(entityId)) as Note | undefined;
       if (!note) return;
-      navigateTo(
+      navigate(
         note.projectId === GLOBAL_NOTES_SCOPE
           ? `/notes?note=${encodeURIComponent(entityId)}`
           : `/project/${encodeURIComponent(note.projectId)}/notes?note=${encodeURIComponent(entityId)}`,

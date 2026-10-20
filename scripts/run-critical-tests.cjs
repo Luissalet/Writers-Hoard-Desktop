@@ -59,6 +59,7 @@ async function main() {
       format: 'iife',
       target: 'chrome130',
       jsx: 'automatic',
+      loader: { '.html': 'text' },
       sourcemap: 'inline',
       alias: {
         '@': path.resolve(__dirname, '..', 'src'),

@@ -15,7 +15,7 @@ import { Users, AlertTriangle, MessageSquare, Eye } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner } from '@/engines/_shared';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import EmptyState from '@/components/common/EmptyState';
 import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import { useProject } from '@/hooks/useProjects';
@@ -28,6 +28,7 @@ const NO_ROWS: CharacterUsage[] = [];
 
 export default function PovAuditEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const { items, loading, error, refetching, refresh } = useUsageReport(projectId);
   const { project } = useProject(projectId);
   const [filter, setFilter] = useState<FilterMode>('all');

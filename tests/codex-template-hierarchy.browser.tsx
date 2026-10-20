@@ -1,0 +1,74 @@
+import { act, StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import { db } from '@/db';
+import type { Project, CodexEntry } from '@/types';
+import { saveCodexTemplate, deleteCodexTemplate, CodexTemplateConflict, applyCodexTemplate, type CodexTemplate } from '@/engines/codex/templates';
+import { effectiveCodexTemplate, hierarchyOrder, templateIsWithin, templatePath } from '@/engines/codex/templateHierarchy';
+import CodexTemplateManager from '@/components/codex/CodexTemplateManager';
+import CodexEntryForm from '@/components/codex/CodexEntryForm';
+import CodexEntryList from '@/components/codex/CodexEntryList';
+import { codexDraftStore } from '@/components/codex/codexDrafts';
+import { t } from '@/i18n/useTranslation';
+import { useLocaleStore } from '@/stores/localeStore';
+const P = 'test-template-hierarchy';
+const pause = () => new Promise(resolve => setTimeout(resolve, 40));
+function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
+function setValue(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) { const prototype = node instanceof HTMLSelectElement ? HTMLSelectElement.prototype : node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(node, value); node.dispatchEvent(new Event(node instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); }
+const template = (id: string, name: string, fields: Record<string, string> = {}): CodexTemplate => ({ id, name, category: 'custom', fields, content: '', revision: 0, createdAt: 1, updatedAt: 1 });
+export async function testCodexTemplateHierarchy(): Promise<string[]> {
+  const host = document.getElementById('root'); assert(host, 'Missing root'); const root = createRoot(host), passed: string[] = [];
+  useLocaleStore.setState({ locale: 'en', loaded: true });
+  const project: Project = { id: P, title: 'Hierarchy', description: '', mode: 'custom', type: 'standalone', color: '#000', status: 'draft', enabledEngines: ['codex'], engineOrder: ['codex'], createdAt: 1, updatedAt: 1 };
+  const render = async (node: React.ReactNode) => { await act(async () => { root.render(<StrictMode><MemoryRouter>{node}</MemoryRouter></StrictMode>); await pause(); }); await act(async () => { await pause(); }); };
+  const wait = async (label: string, condition: () => boolean) => { const end = Date.now() + 5000; while (!condition() && Date.now() < end) await act(async () => { await pause(); }); assert(condition(), `Timeout: ${label}`); };
+  const button = (label: string, scope: ParentNode = document) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.trim() === label || node.getAttribute('aria-label') === label);
+  const click = async (node: HTMLElement | null | undefined, label: string) => { assert(node, `Missing ${label}`); await act(async () => { node.click(); await pause(); }); await act(async () => { await pause(); }); };
+  const field = <T extends HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(label: string) => { const node = document.querySelector<T>(`[aria-label="${label}"]`); assert(node, `Missing field ${label}`); return node; };
+  const change = async (label: string, value: string) => { await act(async () => { setValue(field(label), value); await pause(); }); };
+  const templates = async () => (await db.projects.get(P))!.codexTemplates!;
+  const reject = async (candidate: CodexTemplate, revision: number | null) => { let failed = false; try { await saveCodexTemplate(P, candidate, revision); } catch { failed = true; } assert(failed, `Invalid template accepted: ${candidate.name}`); };
+  const makeEntry = (id: string, title: string, type: CodexEntry['type'], templateId?: string): CodexEntry => ({ id, projectId: P, title, type, templateId, content: '<p>Existing authored content.</p>', fields: { habitat: 'Existing card habitat' }, tags: [], relations: [], createdAt: 1, updatedAt: 1 });
+  const entryIds: string[] = [];
+  try {
+    await db.projects.put(project); codexDraftStore(P).clear();
+    const location = await saveCodexTemplate(P, { ...template('realm', 'Realm'), category: 'location' }, null);
+    const desert = await saveCodexTemplate(P, { ...template('desert', 'Desert'), category: 'location', parentTemplateId: location.id, contentMode: 'inherit' }, null);
+    const oasis = await saveCodexTemplate(P, { ...template('oasis', 'Oasis'), category: 'location', parentTemplateId: desert.id }, null);
+    let creature = await saveCodexTemplate(P, { ...template('creature', 'Creature', { habitat: 'Parent habitat' }), content: '<p>Parent body.</p>', referenceFieldDefinitions: [{ key: 'Territory', label: 'Territory', targetType: 'location', targetTemplateId: location.id }] }, null);
+    const mammal = await saveCodexTemplate(P, { ...template('mammal', 'Mammal', { fur: 'Soft' }), parentTemplateId: creature.id, contentMode: 'inherit' }, null);
+    let bat = await saveCodexTemplate(P, { ...template('bat', 'Bat', { flight: 'Yes' }), parentTemplateId: mammal.id, contentMode: 'inherit' }, null);
+    let all = await templates(); const resolved = effectiveCodexTemplate(bat, all);
+    assert(resolved.fields.habitat === 'Parent habitat' && resolved.fields.fur === 'Soft' && resolved.fields.flight === 'Yes' && resolved.content.includes('Parent body') && resolved.referenceFieldDefinitions?.[0].label === 'Territory', 'Three-level defaults were not inherited');
+    assert(templatePath(bat, all) === 'Creature / Mammal / Bat' && templateIsWithin(bat.id, creature.id, all) && !templateIsWithin(location.id, creature.id, all), 'Hierarchy path or filtering wrong');
+    const own = effectiveCodexTemplate({ ...bat, fields: { habitat: '', Territory: 'Plain custom text' }, contentMode: 'replace', content: '' }, all); assert(own.fields.habitat === '' && !own.referenceFieldDefinitions?.some(field => field.key === 'Territory') && own.content === '', 'Blank/kind/content override not honored');
+    const draft = applyCodexTemplate(bat, { habitat: 'Already authored' }, '<p>Already authored.</p>', all); assert(draft.fields.habitat === 'Already authored' && draft.content.includes('Already authored') && draft.fields.fur === 'Soft', 'Apply overwrote existing content');
+    await reject({ ...creature, parentTemplateId: bat.id }, creature.revision); await reject({ ...bat, parentTemplateId: location.id }, bat.revision); await reject({ ...bat, parentTemplateId: 'missing' }, bat.revision); await reject({ ...creature, category: 'character' }, creature.revision); await reject({ ...bat, fields: { Habitat: 'one', hábitat: 'two' } }, bat.revision);
+    const malformed = [{ ...creature, parentTemplateId: bat.id }, bat, mammal]; assert(hierarchyOrder(malformed).length === 3 && effectiveCodexTemplate(bat, malformed).id === bat.id, 'Malformed imported cycles did not terminate'); passed.push('three-level defaults, explicit blank/kind/body overrides, safe apply and hierarchy/category/cycle guards');
+    const card = makeEntry('existing-bat', 'Existing Bat', 'custom', bat.id); entryIds.push(card.id); await db.codexEntries.put(card);
+    await db.projects.update(P, { description: 'Concurrent metadata' }); const before = effectiveCodexTemplate(bat, all); await deleteCodexTemplate(P, mammal.id, mammal.revision); all = await templates(); bat = all.find(item => item.id === bat.id)!;
+    assert(bat.parentTemplateId === creature.id && bat.fields.fur === 'Soft' && !Object.hasOwn(bat.fields, 'habitat') && effectiveCodexTemplate(bat, all).content === before.content, 'Retiring middle type lost defaults or froze grandparent fields');
+    let stale = false; try { await saveCodexTemplate(P, { ...bat, revision: 1 }, 1); } catch (error) { stale = error instanceof CodexTemplateConflict; } assert(stale, 'Retirement did not invalidate child draft revision');
+    creature = await saveCodexTemplate(P, { ...creature, fields: { habitat: 'Changed ancestor habitat' } }, creature.revision); all = await templates(); assert(effectiveCodexTemplate(bat, all).fields.habitat === 'Changed ancestor habitat', 'Grandparent defaults no longer flow after reparent');
+    assert(JSON.stringify(await db.codexEntries.get(card.id)) === JSON.stringify(card) && (await db.projects.get(P))!.description === 'Concurrent metadata', 'Template edits changed existing card or unrelated metadata'); passed.push('retiring a middle type reparents safely, preserves future inheritance and rejects stale edits without rewriting cards');
+    let used: CodexTemplate | undefined;
+    await render(<CodexTemplateManager projectId={P} open initial={bat} onClose={() => undefined} onUse={value => { used = value; }} />);
+    await wait('parent selector', () => !!document.querySelector('[aria-label="Parent type"]'));
+    assert(field<HTMLSelectElement>('Parent type').value === creature.id && ![...field<HTMLSelectElement>('Parent type').options].some(option => option.value === bat.id), 'Parent selector allows self or lost selected parent');
+    await click(button('Override · habitat'), 'override inherited habitat'); await change(`${t('codex.templates.fields')} · habitat`, 'Subtype habitat'); await click(button(t('codex.templates.save')), 'save own subtype override'); await wait('manager clean', () => !button(t('codex.templates.use'))?.disabled);
+    await click(button(t('codex.fields.remove').replace('{name}', 'habitat')), 'reset own override'); assert(button('Override · habitat'), 'Removing own default did not restore inheritance');
+    await click(button('Override · Territory'), 'override inherited reference'); await change('Target subtype · Territory', desert.id); await change('Starting content', 'replace'); assert(document.querySelector('.tiptap'), 'Own body editor unavailable'); await change('Starting content', 'inherit');
+    await click(button(t('codex.templates.save')), 'save inherited subtype'); await wait('subtype ready', () => !button(t('codex.templates.use'))?.disabled); await click(button(t('codex.templates.use')), 'create using inherited type'); assert(used?.fields.habitat === 'Changed ancestor habitat' && used.content.includes('Parent body') && used.referenceFieldDefinitions?.[0].targetTemplateId === desert.id, 'Use did not resolve inherited defaults'); passed.push('manager clearly shows parent/defaults, override/reset and inherited body plus subtype reference targeting');
+    const desertEntry = makeEntry('desert-entry', 'Salt Desert', 'location', desert.id), oasisEntry = makeEntry('oasis-entry', 'Quiet Oasis', 'location', oasis.id), otherEntry = makeEntry('other-place', 'Unclassified Place', 'location'); entryIds.push(desertEntry.id, oasisEntry.id, otherEntry.id); await db.codexEntries.bulkPut([desertEntry, oasisEntry, otherEntry]);
+    let created: CodexEntry | undefined;
+    await render(<CodexEntryForm projectId={P} template={used} onCancel={() => undefined} onSave={async value => { created = value; await db.codexEntries.put(value); entryIds.push(value.id); }} />);
+    await wait('form references', () => !!document.querySelector('[data-reference-field="Territory"] select'));
+    const select = document.querySelector<HTMLSelectElement>('[data-reference-field="Territory"] select')!; await wait('scoped targets loaded', () => [...select.options].some(option => option.value === oasisEntry.id)); assert([...select.options].some(option => option.value === desertEntry.id) && ![...select.options].some(option => option.value === otherEntry.id), 'Reference subtype filter did not admit descendants/exclude untyped cards');
+    await act(async () => { setValue(document.querySelector<HTMLInputElement>(`input[placeholder="${t('codex.entryName')}"]`)!, 'New Bat'); setValue(select, oasisEntry.id); await pause(); }); await click(button(t('codex.createEntry')), 'save new inherited card'); assert(created?.fields.habitat === 'Changed ancestor habitat' && created.fields.fur === 'Soft' && created.referenceFields?.Territory[0] === oasisEntry.id && created.content.includes('Parent body'), 'New card did not persist inherited values and typed target'); passed.push('new card receives inherited defaults and reference picker enforces subtype including descendants');
+    codexDraftStore(P).clear(); const cards = await db.codexEntries.where('projectId').equals(P).toArray(); await render(<CodexEntryList projectId={P} entries={cards} onAdd={async () => undefined} onEdit={async () => undefined} onDelete={() => undefined} />);
+    await change(t('codex.templates.template'), creature.id); assert(host.textContent?.includes('Existing Bat') && host.textContent.includes('New Bat') && !host.textContent.includes('Unclassified Place'), 'Parent filter did not include descendant cards');
+    all = await templates(); creature = all.find(item => item.id === creature.id)!; const leafBefore = effectiveCodexTemplate(all.find(item => item.id === bat.id)!, all); await deleteCodexTemplate(P, creature.id, creature.revision); all = await templates(); const leaf = all.find(item => item.id === bat.id)!; assert(!leaf.parentTemplateId && effectiveCodexTemplate(leaf, all).fields.habitat === leafBefore.fields.habitat && effectiveCodexTemplate(leaf, all).content === leafBefore.content, 'Deleting root lost child effective defaults');
+    const realm = all.find(item => item.id === location.id)!; await deleteCodexTemplate(P, realm.id, realm.revision); all = await templates(); assert(all.find(item => item.id === desert.id)?.parentTemplateId === undefined, 'Retiring reference target root did not reparent locations'); assert(JSON.stringify(await db.codexEntries.get(card.id)) === JSON.stringify(card), 'Deleting hierarchy templates rewrote existing cards'); passed.push('parent-inclusive Codex filter and root retirement preserve authored cards and effective defaults');
+  } finally { await act(async () => { root.unmount(); }); codexDraftStore(P).clear(); await db.codexEntries.bulkDelete(entryIds); await db.projects.delete(P); }
+  return passed;
+}

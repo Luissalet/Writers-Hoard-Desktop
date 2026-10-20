@@ -13,6 +13,7 @@ import ReferencePanel from '@/engines/writings/components/ReferencePanel';
 import { getReferenceUi, setReferenceConsult, useReferencePrefs } from '@/engines/writings/components/referencePrefs';
 import { migrateLocalPins, readPins } from '@/services/codexReference/pins';
 import { createProjectZipArchive, importProjectZip } from '@/services/zipBackup';
+import { OPEN_CODEX_REFERENCE, type OpenCodexReferenceDetail } from '@/services/codexReference/inlineMentions';
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -156,6 +157,16 @@ export async function testCodexReferencePanel(): Promise<string[]> {
     assert(editor.view.hasFocus(), 'focus returns to the editor');
     assert(editor.state.selection.from === before.from && editor.state.selection.to === before.to, 'the selection survived Escape');
     passed.push('preview opens in the panel, Escape closes it, focus returns to the editor and the selection is intact');
+
+    const mention: OpenCodexReferenceDetail = { projectId: P, entryId: `${P}-faro`, scopeId: `${W}-other`, handled: false };
+    await act(async () => { window.dispatchEvent(new CustomEvent(OPEN_CODEX_REFERENCE, { detail: mention })); await pause(); });
+    assert(!mention.handled && !byTestId('reference-preview'), 'A mention belongs only to its editor scope');
+    mention.scopeId = W;
+    await act(async () => { window.dispatchEvent(new CustomEvent(OPEN_CODEX_REFERENCE, { detail: mention })); await pause(); });
+    assert(mention.handled && byTestId('reference-preview')?.textContent?.includes('Torre blanca'), 'Scoped inline mention opens the local panel and consumes navigation');
+    await key(document.activeElement ?? byTestId('reference-preview')!, { key: 'Escape' });
+    assert(editor.state.selection.from === before.from && editor.state.selection.to === before.to, 'Inline mention preview preserves manuscript selection');
+    passed.push('inline mention events open only their project/editor panel and preserve the manuscript selection');
 
     // ---- search reaches entries the chapter does not mention -----------------------------------------
     const search = byTestId('reference-search') as HTMLInputElement;

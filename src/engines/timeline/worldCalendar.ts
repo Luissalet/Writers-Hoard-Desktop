@@ -35,6 +35,8 @@ export interface WorldEra {
    * year just before the next era is 1. Only valid on an era that has a next one.
    */
   countdown?: boolean;
+  /** Forward counting starts at zero instead of the legacy one. */
+  yearZero?: boolean;
 }
 
 export interface WorldMoon {
@@ -59,11 +61,18 @@ export interface WorldLeapRule {
   /** 1-based month that gains the extra days. */
   month: number;
   extraDays: number;
+  /** Gregorian-style century exceptions, both measured from offset. */
+  exceptEvery?: number;
+  restoreEvery?: number;
 }
 
 export interface WorldCalendar {
   schema: typeof WORLD_CALENDAR_SCHEMA;
   name: string;
+  /** Local hours in a day; absent calendars retain the historical 24 hours. */
+  hoursPerDay?: number;
+  /** False restricts dates to the first era's start and later. Legacy: unrestricted. */
+  allowNegativeYears?: boolean;
   months: WorldMonth[];
   weekdays: string[];
   /** Weekday index (0-based) of day 0. Default 0. */
@@ -140,6 +149,8 @@ export function validateWorldCalendar(input: unknown): string[] {
   const cal = input as Partial<WorldCalendar>;
   if (cal.schema !== WORLD_CALENDAR_SCHEMA) errors.push(`schema must be "${WORLD_CALENDAR_SCHEMA}".`);
   if (!nonEmpty(cal.name)) errors.push('name is required.');
+  if (cal.hoursPerDay !== undefined && (!isInt(cal.hoursPerDay) || cal.hoursPerDay < 1 || cal.hoursPerDay > 1000)) errors.push('hoursPerDay must be between 1 and 1000.');
+  if (cal.allowNegativeYears !== undefined && typeof cal.allowNegativeYears !== 'boolean') errors.push('allowNegativeYears must be a boolean.');
   if (!Array.isArray(cal.months) || cal.months.length === 0) errors.push('At least one month is required.');
   else {
     if (cal.months.length > 100) errors.push('At most 100 months.');
@@ -162,6 +173,7 @@ export function validateWorldCalendar(input: unknown): string[] {
     sorted.forEach((e, i) => {
       if (!nonEmpty(e?.name) || !nonEmpty(e?.abbr)) errors.push('Every era needs a name and an abbreviation.');
       if (!isInt(e?.startYear)) errors.push(`Era "${e?.name ?? '?'}" needs an integer startYear.`);
+      if (e?.yearZero !== undefined && typeof e.yearZero !== 'boolean') errors.push('yearZero must be a boolean.');
       if (e?.countdown && i === sorted.length - 1) errors.push(`Era "${e.name}" counts down, so another era must follow it.`);
       if (i > 0 && sorted[i - 1].startYear === e.startYear) errors.push('Two eras cannot start the same year.');
     });
@@ -187,6 +199,8 @@ export function validateWorldCalendar(input: unknown): string[] {
     if (!isInt(l.extraDays) || l.extraDays < 1 || l.extraDays > 1000) errors.push('leap.extraDays must be between 1 and 1000.');
     if (!Array.isArray(cal.months) || !cal.months[l.month - 1]) errors.push('leap.month must be an existing month.');
     if (l.offset !== undefined && !isInt(l.offset)) errors.push('leap.offset must be an integer.');
+    if (l.exceptEvery !== undefined && (!isInt(l.exceptEvery) || l.exceptEvery < l.every || l.exceptEvery % l.every !== 0)) errors.push('leap.exceptEvery must be a positive multiple of leap.every.');
+    if (l.restoreEvery !== undefined && (!isInt(l.restoreEvery) || !l.exceptEvery || l.restoreEvery < l.exceptEvery || l.restoreEvery % l.exceptEvery !== 0)) errors.push('leap.restoreEvery must be a positive multiple of leap.exceptEvery.');
   }
   return errors;
 }
@@ -198,11 +212,16 @@ const mod = (a: number, b: number) => ((a % b) + b) % b;
 
 /** Leap years in (-inf, n], counted relative so differences are exact. */
 function leapIndex(cal: WorldCalendar, n: number): number {
-  return cal.leap ? floorDiv(n - (cal.leap.offset ?? 0), cal.leap.every) : 0;
+  const leap = cal.leap;
+  if (!leap) return 0;
+  const relative = n - (leap.offset ?? 0);
+  return floorDiv(relative, leap.every) - (leap.exceptEvery ? floorDiv(relative, leap.exceptEvery) : 0) + (leap.restoreEvery ? floorDiv(relative, leap.restoreEvery) : 0);
 }
 
 export function isLeapYear(cal: WorldCalendar, year: number): boolean {
-  return !!cal.leap && mod(year - (cal.leap.offset ?? 0), cal.leap.every) === 0;
+  if (!cal.leap) return false;
+  const relative = year - (cal.leap.offset ?? 0);
+  return mod(relative, cal.leap.every) === 0 && (!cal.leap.exceptEvery || mod(relative, cal.leap.exceptEvery) !== 0 || (!!cal.leap.restoreEvery && mod(relative, cal.leap.restoreEvery) === 0));
 }
 
 const baseYearDays = (cal: WorldCalendar) => cal.months.reduce((s, m) => s + m.days, 0);
@@ -226,6 +245,7 @@ function yearStart(cal: WorldCalendar, year: number): number {
 /** Throws when the date does not exist in the calendar. */
 export function assertValidDate(cal: WorldCalendar, date: WorldDate): void {
   if (!isInt(date.year)) throw new RangeError('The year must be an integer.');
+  if (cal.allowNegativeYears === false && date.year < Math.min(...cal.eras.map(era => era.startYear))) throw new RangeError('This calendar starts at its first era.');
   if (date.month === undefined) {
     if (date.day !== undefined) throw new RangeError('A day needs a month.');
     return;
@@ -328,7 +348,7 @@ export function eraOf(cal: WorldCalendar, year: number): { era: WorldEra; year: 
   for (let i = 0; i < eras.length; i++) if (eras[i].startYear <= year) index = i;
   const era = eras[index];
   if (era.countdown && eras[index + 1]) return { era, year: eras[index + 1].startYear - year };
-  return { era, year: year - era.startYear + 1 };
+  return { era, year: year - era.startYear + (era.yearZero ? 0 : 1) };
 }
 
 /** Absolute year from a year counted in an era (by name or abbreviation). */
@@ -339,7 +359,7 @@ export function absoluteYear(cal: WorldCalendar, eraRef: string, yearInEra: numb
   if (index < 0) throw new RangeError(`No era "${eraRef}". Eras: ${eras.map((e) => e.abbr).join(', ')}.`);
   const era = eras[index];
   if (era.countdown && eras[index + 1]) return eras[index + 1].startYear - yearInEra;
-  return era.startYear + yearInEra - 1;
+  return era.startYear + yearInEra - (era.yearZero ? 0 : 1);
 }
 
 // ── text ───────────────────────────────────────────────────────────────────
@@ -407,6 +427,12 @@ export function parseWorldDate(cal: WorldCalendar, text: string): WorldDate | nu
   if (eraRef) year = absoluteYear(cal, eraRef, yearNumber);
   else if (cal.eras.length === 1) year = absoluteYear(cal, cal.eras[0].abbr, yearNumber);
   else year = yearNumber;
+  // An explicit era suffix must round-trip to that era; "100 First Era"
+  // cannot silently become "0 Second Era" after a configured boundary.
+  if (eraRef) {
+    const actual = eraOf(cal, year);
+    if (![actual.era.name, actual.era.abbr].some(ref => ref.toLowerCase() === eraRef!.toLowerCase())) return null;
+  }
   const date: WorldDate = { year, ...(month !== undefined ? { month } : {}), ...(day !== undefined ? { day } : {}), ...(approx ? { approx } : {}) };
   try { assertValidDate(cal, date); } catch { return null; }
   return date;

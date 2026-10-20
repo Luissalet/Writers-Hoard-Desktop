@@ -95,10 +95,10 @@ registerAnchorAdapter({
     return divergence?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.real-atlas'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${pid}/real-atlas?place=${encodeURIComponent(entityId)}`);
+    navigate(`/project/${pid}/real-atlas?place=${encodeURIComponent(entityId)}`);
   },
 });
 

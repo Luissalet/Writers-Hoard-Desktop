@@ -1,16 +1,23 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useId, useState, useRef } from 'react';
 import type { CodexEntry, CodexEntryType } from '@/types';
 import { getTemplateFields } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
-import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus, X } from 'lucide-react';
+import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus, Plus, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { CodexEditConflict, type CodexFieldConflict } from '@/engines/codex/operations';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { ConfirmDialog } from '@/engines/_shared';
 import { codexDraftStore, codexFormValues, restoreCodexDraft, sameCodexFormValues, toCodexDraft } from './codexDrafts';
+import { foldAlias, isAliasField, readAliases, replaceAliases } from '@/services/codexReference/aliases';
+import { useProject } from '@/hooks/useProjects';
+import { useCodexEntries } from '@/engines/codex/hooks';
+import { applyCodexTemplate, type CodexTemplate } from '@/engines/codex/templates';
+import { effectiveCodexTemplate, effectiveTemplatePresentation, selectableCodexTemplates, templateIsWithin, templatePath } from '@/engines/codex/templateHierarchy';
+import { templatePresentationCopy } from '@/engines/codex/templatePresentationCopy';
+import { ProjectIcon } from '@/components/common/ProjectIcon';
 
 const typeConfig: Record<CodexEntryType, { icon: typeof User; labelKey: string; color: string }> = {
   character: { icon: User, labelKey: 'codex.types.character', color: '#c4973b' },
@@ -66,9 +73,12 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   location: 'codex.field.location',
 };
 
+const RESERVED_FIELD_NAMES = new Set([...Object.getOwnPropertyNames(Object.prototype).map(foldAlias), 'prototype']);
+
 interface CodexEntryFormProps {
   projectId: string;
   entry?: CodexEntry;
+  template?: CodexTemplate;
   onSave: (entry: CodexEntry, base?: CodexEntry) => Promise<void>;
   onPendingChange?: (pending: boolean) => void;
   /** Whether the form holds unsaved input (typed now or recovered). */
@@ -77,13 +87,19 @@ interface CodexEntryFormProps {
   onCancel: () => void;
 }
 
-export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onPendingChange, onDirtyChange }: CodexEntryFormProps) {
-  const { t } = useTranslation();
+export default function CodexEntryForm({ projectId, entry, template, onSave, onCancel, onPendingChange, onDirtyChange }: CodexEntryFormProps) {
+  const { t,locale } = useTranslation();
+  const presentationCopy=templatePresentationCopy[locale];
+  const { project } = useProject(projectId);
+  const { items: codexEntries } = useCodexEntries(projectId);
+  const aliasesInputId = useId();
   const draftId = entry?.id ?? 'new';
   const [drafts] = useState(() => codexDraftStore(projectId));
   const [initial] = useState(() => {
     const stored = drafts.get(draftId);
-    return stored ? { ...restoreCodexDraft(stored, entry), recovered: true } : { values: codexFormValues(entry), base: entry, recovered: false };
+    const blank = codexFormValues(entry);
+    const values = template && !entry ? { ...blank, ...applyCodexTemplate(template, {}, '') } : blank;
+    return stored ? { ...restoreCodexDraft(stored, entry), recovered: true } : { values, base: entry, recovered: false };
   });
   const [type, setType] = useState<CodexEntryType>(initial.values.type);
   const [title, setTitle] = useState(initial.values.title);
@@ -92,6 +108,11 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
   const [fields, setFields] = useState<Record<string, string>>(initial.values.fields);
   const [content, setContent] = useState(initial.values.content);
   const [tags, setTags] = useState<string[]>(initial.values.tags);
+  const [templateId, setTemplateId] = useState(initial.values.templateId);
+  const [referenceFields, setReferenceFields] = useState<Record<string, string[]>>(initial.values.referenceFields ?? {});
+  const rawTemplate = project?.codexTemplates?.find(item => item.id === templateId) ?? (template?.id === templateId ? template : undefined);
+  const activeTemplate = rawTemplate ? effectiveCodexTemplate(rawTemplate, project?.codexTemplates ?? []) : undefined;
+  const referenceDefinitions = activeTemplate?.referenceFieldDefinitions ?? [];
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -102,14 +123,18 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
   const [conflict, setConflict] = useState<CodexEditConflict | null>(null);
   const [recovered, setRecovered] = useState(initial.recovered);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [newFieldName, setNewFieldName] = useState('');
+  const [fieldError, setFieldError] = useState('');
+  const [pendingRemoveField, setPendingRemoveField] = useState<string | null>(null);
+  const [fieldKind, setFieldKind] = useState<'text' | 'reference'>('text');
 
   // Mirror unsaved input into the recovery store: closing the modal unmounts
   // this form, and what was typed has to survive it.
-  const dirty = recovered || !sameCodexFormValues({ type, title, avatar, avatarOriginal, fields, content, tags }, codexFormValues(entry));
+  const dirty = recovered || !sameCodexFormValues({ type, title, avatar, avatarOriginal, fields, content, tags, templateId, referenceFields }, codexFormValues(entry));
   useEffect(() => {
-    if (dirty) drafts.set(draftId, toCodexDraft({ type, title, avatar, avatarOriginal, fields, content, tags }, base));
+    if (dirty) drafts.set(draftId, toCodexDraft({ type, title, avatar, avatarOriginal, fields, content, tags, templateId, referenceFields }, base));
     else drafts.delete(draftId);
-  }, [drafts, draftId, dirty, type, title, avatar, avatarOriginal, fields, content, tags, base]);
+  }, [drafts, draftId, dirty, type, title, avatar, avatarOriginal, fields, content, tags, templateId, referenceFields, base]);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   const discardDraft = () => {
@@ -122,17 +147,28 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
     setFields(saved.fields);
     setContent(saved.content);
     setTags(saved.tags);
+    setTemplateId(saved.templateId);
+    setReferenceFields(saved.referenceFields ?? {});
     setBase(entry);
     setConflict(null);
     setSaveError(false);
     setRecovered(false);
     setConfirmDiscard(false);
+    setNewFieldName('');
+    setFieldError('');
+    setPendingRemoveField(null);
   };
 
   const resolveConflict = (item: CodexFieldConflict, keepDraft: boolean) => {
     if (!conflict || !base) return;
     const nextBase = { ...base, fields: { ...base.fields } };
-    if (item.key.startsWith('fields.')) {
+    if (item.key.startsWith('referenceFields.')) {
+      const key = item.key.slice('referenceFields.'.length);
+      const value = conflict.current.referenceFields?.[key];
+      nextBase.referenceFields = { ...(base.referenceFields ?? {}) };
+      if (value === undefined) delete nextBase.referenceFields[key]; else nextBase.referenceFields[key] = value;
+      if (!keepDraft) setReferenceFields(previous => { const next = { ...previous }; if (value === undefined) delete next[key]; else next[key] = [...value]; return next; });
+    } else if (item.key.startsWith('fields.')) {
       const key = item.key.slice(7);
       const value = conflict.current.fields[key];
       if (value === undefined) delete nextBase.fields[key];
@@ -144,7 +180,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
         return next;
       });
     } else {
-      const key = item.key as 'title' | 'content' | 'tags' | 'avatar' | 'avatarOriginal';
+      const key = item.key as 'title' | 'content' | 'tags' | 'avatar' | 'avatarOriginal' | 'templateId' | 'type';
       Object.assign(nextBase, { [key]: conflict.current[key] });
       if (!keepDraft) {
         if (key === 'title') setTitle(conflict.current.title);
@@ -152,6 +188,8 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
         if (key === 'tags') setTags([...conflict.current.tags]);
         if (key === 'avatar') setAvatar(conflict.current.avatar ?? '');
         if (key === 'avatarOriginal') setAvatarOriginal(conflict.current.avatarOriginal ?? conflict.current.avatar ?? '');
+        if (key === 'templateId') setTemplateId(conflict.current.templateId);
+        if (key === 'type') setType(conflict.current.type);
       }
     }
     setBase(nextBase);
@@ -159,12 +197,12 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
     setConflict(remaining.length ? new CodexEditConflict(remaining, conflict.current) : null);
   };
 
-  const conflictLabel = (key: CodexFieldConflict['key']) => key.startsWith('fields.')
-    ? t(FIELD_LABEL_KEYS[key.slice(7)] || key.slice(7))
-    : t(({ title: 'common.title', content: 'codex.extendedNotes', tags: 'common.tags', avatar: 'codex.avatar', avatarOriginal: 'codex.avatar' } as Record<string, string>)[key]);
-  const conflictDraftValue = (key: CodexFieldConflict['key']) => key.startsWith('fields.')
+  const conflictLabel = (key: CodexFieldConflict['key']) => key.startsWith('referenceFields.') ? key.slice('referenceFields.'.length) : key.startsWith('fields.')
+    ? t(isAliasField(key.slice(7)) ? 'codex.aliases' : FIELD_LABEL_KEYS[key.slice(7)] || key.slice(7))
+    : t(({ title: 'common.title', content: 'codex.extendedNotes', tags: 'common.tags', avatar: 'codex.avatar', avatarOriginal: 'codex.avatar', templateId: 'codex.templates.template', type: 'codex.entryType' } as Record<string, string>)[key]);
+  const conflictDraftValue = (key: CodexFieldConflict['key']) => key.startsWith('referenceFields.') ? referenceFields[key.slice('referenceFields.'.length)] : key.startsWith('fields.')
     ? fields[key.slice(7)]
-    : ({ title, content, tags, avatar, avatarOriginal } as Record<string, string | string[]>)[key];
+    : ({ title, content, tags, avatar, avatarOriginal, templateId, type } as Record<string, string | string[] | undefined>)[key];
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -176,9 +214,37 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
 
   const handleTypeChange = (newType: CodexEntryType) => {
     setType(newType);
+    setTemplateId(undefined);
     if (!entry) {
-      setFields(getTemplateFields(newType));
+      const previousTemplate = getTemplateFields(type);
+      setFields(previous => ({ ...getTemplateFields(newType), ...Object.fromEntries(Object.entries(previous).filter(([key]) => !Object.hasOwn(previousTemplate, key))) }));
     }
+  };
+
+  const addField = () => {
+    const name = newFieldName.trim().replace(/\s+/g, ' ');
+    const normalized = foldAlias(name);
+    if (!name) { setFieldError('codex.fields.nameRequired'); return; }
+    if (isAliasField(name) || RESERVED_FIELD_NAMES.has(normalized)) {
+      setFieldError('codex.fields.nameReserved'); return;
+    }
+    if ([...Object.keys(fields), ...Object.keys(referenceFields), ...referenceDefinitions.map(definition => definition.key)].some(key => foldAlias(key.trim().replace(/\s+/g, ' ')) === normalized || foldAlias(t(FIELD_LABEL_KEYS[key] || key)) === normalized)) {
+      setFieldError('codex.fields.nameExists'); return;
+    }
+    if (fieldKind === 'reference') setReferenceFields(previous => ({ ...previous, [name]: [] }));
+    else setFields(previous => ({ ...previous, [name]: '' }));
+    setNewFieldName('');
+    setFieldError('');
+  };
+
+  const removeField = (name: string) => {
+    setFields(previous => {
+      const next = { ...previous };
+      delete next[name];
+      return next;
+    });
+    setReferenceFields(previous => { const next = { ...previous }; delete next[name]; return next; });
+    setPendingRemoveField(null);
   };
 
   const handleSave = async () => {
@@ -196,6 +262,8 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
       avatar: avatar || undefined,
       avatarOriginal: avatarOriginal || avatar || undefined,
       fields,
+      templateId,
+      referenceFields,
       content,
       tags,
       relations: entry?.relations || [],
@@ -225,6 +293,25 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
           </button>
         </div>
       )}
+      {(project?.codexTemplates?.length || templateId) ? (
+        <div>
+          <label htmlFor={`${aliasesInputId}-template`} className="block text-sm text-text-muted mb-1.5">{t('codex.templates.template')}</label>
+          <select id={`${aliasesInputId}-template`} value={templateId ?? ''} onChange={event => {
+            const selected = project?.codexTemplates?.find(item => item.id === event.target.value);
+            if (!selected) { setTemplateId(undefined); return; }
+            if(selected.id!==templateId&&effectiveTemplatePresentation(selected,project?.codexTemplates??[]).hiddenFromPickers)return;
+            const applied = applyCodexTemplate(selected, fields, content, project?.codexTemplates ?? []);
+            setType(applied.type); setTemplateId(applied.templateId); setFields(applied.fields); setContent(applied.content);
+          }} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold">
+            <option value="">{t('codex.templates.none')}</option>
+            {templateId && !project?.codexTemplates?.some(item => item.id === templateId) && <option value={templateId}>{activeTemplate?.name ?? t('codex.templates.retired')}</option>}
+            {selectableCodexTemplates(project?.codexTemplates ?? [],templateId).map(item => <option key={item.id} value={item.id}>{templatePath(item, project?.codexTemplates ?? [])} · {t(`codex.types.${item.category}`)}{effectiveTemplatePresentation(item,project?.codexTemplates??[]).hiddenFromPickers?` (${presentationCopy.hiddenTag})`:''}</option>)}
+          </select>
+          <p className="text-xs text-text-dim mt-1.5">{t('codex.templates.applyHint')}</p>
+          {activeTemplate&&<div className="mt-2 flex items-center gap-2 text-sm" style={{color:activeTemplate.color??typeConfig[type].color}}><ProjectIcon name={activeTemplate.icon} fallback={typeConfig[type].icon} size={18}/><span>{activeTemplate.name}</span></div>}
+        </div>
+      ) : null}
+
       {/* Type selector */}
       {!entry && (
         <div>
@@ -256,13 +343,13 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
       {/* Title + Avatar */}
       <div className="flex gap-4 items-start">
         {/* Avatar */}
-        <div className="flex-shrink-0">
+        {activeTemplate?.imageLayout==='none'?<p data-testid="codex-hidden-image" className="max-w-44 text-xs leading-relaxed text-text-muted">{presentationCopy.hiddenImage}</p>:<div className="flex-shrink-0">
           <label className="block text-sm text-text-muted mb-1.5">{t('codex.avatar')}</label>
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           {avatar ? (
             // Sibling buttons, not nested ones: the image re-crops, the overlay
             // actions replace or remove, and each is reachable by keyboard.
-            <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-border group">
+            <div className={`relative rounded-xl overflow-hidden border border-border group ${activeTemplate?.imageLayout==='portrait'?'w-20 h-28':activeTemplate?.imageLayout==='landscape'?'w-32 h-20':'w-20 h-20'}`}>
               <button
                 type="button"
                 onClick={() => setPendingAvatar(avatarOriginal || avatar)}
@@ -296,13 +383,13 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
           ) : (
             <button
               onClick={() => avatarInputRef.current?.click()}
-              className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-text-muted hover:border-accent-gold/50 hover:text-accent-gold transition"
+              className={`${activeTemplate?.imageLayout==='portrait'?'w-20 h-28':activeTemplate?.imageLayout==='landscape'?'w-32 h-20':'w-20 h-20'} rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-text-muted hover:border-accent-gold/50 hover:text-accent-gold transition`}
             >
               <ImagePlus size={20} />
               <span className="text-[10px]">{t('common.image')}</span>
             </button>
           )}
-        </div>
+        </div>}
 
         {/* Title */}
         <div className="flex-1">
@@ -316,15 +403,31 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
         </div>
       </div>
 
+      <div>
+        <label htmlFor={aliasesInputId} className="block text-sm text-text-muted mb-1.5">{t('codex.aliases')}</label>
+        <TagInput
+          inputId={aliasesInputId}
+          describedBy={`${aliasesInputId}-hint`}
+          tags={readAliases(fields)}
+          onChange={aliases => setFields(previous => replaceAliases(previous, aliases))}
+          placeholder={t('codex.aliasesPlaceholder')}
+        />
+        <p id={`${aliasesInputId}-hint`} className="mt-1.5 text-xs text-text-dim">{t('codex.aliasesHint')}</p>
+      </div>
+
       {/* Template fields */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {Object.entries(fields).map(([key, value]) => (
+        {Object.entries(fields).filter(([key]) => !isAliasField(key)).map(([key, value]) => (
           <div key={key}>
-            <label className="block text-sm text-text-muted mb-1.5">
-              {t(FIELD_LABEL_KEYS[key] || key)}
-            </label>
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <label htmlFor={`${aliasesInputId}-field-${encodeURIComponent(key)}`} className="text-sm text-text-muted break-words min-w-0">{t(FIELD_LABEL_KEYS[key] || key)}</label>
+              {!Object.hasOwn(getTemplateFields(type), key) && (
+                <button type="button" onClick={() => value ? setPendingRemoveField(key) : removeField(key)} className="shrink-0 rounded p-1 text-text-muted hover:text-danger hover:bg-danger/10" aria-label={t('codex.fields.remove').replace('{name}', key)} title={t('codex.fields.remove').replace('{name}', key)}><X size={14} aria-hidden="true" /></button>
+              )}
+            </div>
             {key === 'backstory' || key === 'history' || key === 'physicalDescription' || key === 'personality' ? (
               <textarea
+                id={`${aliasesInputId}-field-${encodeURIComponent(key)}`}
                 value={value}
                 onChange={(e) => setFields({ ...fields, [key]: e.target.value })}
                 rows={3}
@@ -332,6 +435,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
               />
             ) : (
               <input
+                id={`${aliasesInputId}-field-${encodeURIComponent(key)}`}
                 value={value}
                 onChange={(e) => setFields({ ...fields, [key]: e.target.value })}
                 className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition text-sm"
@@ -341,13 +445,43 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
         ))}
       </div>
 
+      <div>
+        <label htmlFor={`${aliasesInputId}-new-field`} className="block text-sm text-text-muted mb-1.5">{t('codex.fields.custom')}</label>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            id={`${aliasesInputId}-new-field`}
+            value={newFieldName}
+            onChange={event => { setNewFieldName(event.target.value); setFieldError(''); }}
+            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addField(); } }}
+            placeholder={t('codex.fields.namePlaceholder')}
+            aria-invalid={!!fieldError}
+            aria-describedby={`${aliasesInputId}-field-help`}
+            className="min-w-0 flex-1 px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition text-sm"
+          />
+          <select aria-label={t('codex.fields.kind')} value={fieldKind} onChange={event => setFieldKind(event.target.value as 'text' | 'reference')} className="px-2 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary"><option value="text">{t('codex.fields.text')}</option><option value="reference">{t('codex.fields.reference')}</option></select>
+          <button type="button" onClick={addField} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated"><Plus size={14} aria-hidden="true" />{t('codex.fields.add')}</button>
+        </div>
+        <p id={`${aliasesInputId}-field-help`} role={fieldError ? 'alert' : undefined} className={`mt-1.5 text-xs ${fieldError ? 'text-danger' : 'text-text-dim'}`}>{t(fieldError || 'codex.fields.hint')}</p>
+      </div>
+
+      {[...new Set([...Object.keys(referenceFields), ...referenceDefinitions.map(definition => definition.key)])].map(key => {
+        const definition = referenceDefinitions.find(item => item.key === key);
+        const selectedIds = referenceFields[key] ?? [];
+        const targets = codexEntries.filter(item => (!definition?.targetType || item.type === definition.targetType) && (!definition?.targetTemplateId || templateIsWithin(item.templateId, definition.targetTemplateId, project?.codexTemplates ?? [])) && !selectedIds.includes(item.id) && !effectiveTemplatePresentation(project?.codexTemplates?.find(template=>template.id===item.templateId),project?.codexTemplates??[]).hiddenFromPickers);
+        return <div key={key} className="space-y-2" data-reference-field={key}>
+          <div className="flex items-center justify-between gap-2"><label htmlFor={`${aliasesInputId}-ref-${encodeURIComponent(key)}`} className="text-sm text-text-muted">{definition?.label || key}</label>{!definition && <button type="button" aria-label={t('codex.fields.remove').replace('{name}', key)} onClick={() => selectedIds.length ? setPendingRemoveField(key) : removeField(key)} className="p-1 rounded text-text-muted hover:text-danger"><X size={14} /></button>}</div>
+          {selectedIds.length > 0 && <ul className="flex flex-wrap gap-2">{selectedIds.map(id => <li key={id} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-sm text-text-primary"><span className="break-words">{codexEntries.find(item => item.id === id)?.title ?? t('codex.fields.missingReference')}</span><button type="button" aria-label={`${t('common.remove')} ${codexEntries.find(item => item.id === id)?.title ?? id}`} onClick={() => setReferenceFields(previous => ({ ...previous, [key]: selectedIds.filter(target => target !== id) }))} className="p-1 text-text-muted hover:text-danger"><X size={12} /></button></li>)}</ul>}
+          <select id={`${aliasesInputId}-ref-${encodeURIComponent(key)}`} value="" onChange={event => { const id = event.target.value; if (id) setReferenceFields(previous => ({ ...previous, [key]: [...new Set([...(previous[key] ?? []), id])] })); }} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary"><option value="">{t('codex.fields.chooseReference')}{definition?.targetType ? ` · ${t(`codex.types.${definition.targetType}`)}` : ''}</option>{targets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
+        </div>;
+      })}
+
       {/* Rich text content */}
       <div>
         <label className="flex items-center gap-2 text-sm text-text-muted mb-1.5">
           <BookOpen size={14} />
           {t('codex.extendedNotes')}
         </label>
-        <TiptapEditor content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} />
+        <TiptapEditor content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
       </div>
 
       {/* Tags */}
@@ -373,7 +507,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
                       ? <img src={value} alt="" className="max-h-28 rounded object-contain" />
                       : item.key === 'content'
                         ? <div className="max-h-40 overflow-auto break-words text-sm text-text-primary" dangerouslySetInnerHTML={sanitizedHtml(String(value ?? ''))} />
-                        : <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-text-primary">{Array.isArray(value) ? value.join(', ') : value || '—'}</pre>}
+                        : <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-text-primary">{Array.isArray(value) ? value.map(itemValue => item.key.startsWith('referenceFields.') ? codexEntries.find(entry => entry.id === itemValue)?.title ?? t('codex.fields.missingReference') : itemValue).join(', ') : value || '—'}</pre>}
                     <button type="button" onClick={() => resolveConflict(item, version === 'draft')} className="mt-3 rounded border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated">{t(version === 'draft' ? 'codex.keepYourVersion' : 'codex.useLatestVersion')}</button>
                   </div>
                   );
@@ -407,6 +541,15 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
           setPendingAvatar(null);
         }}
         onCancel={() => setPendingAvatar(null)}
+      />
+      <ConfirmDialog
+        open={pendingRemoveField !== null}
+        destructive
+        title={t('codex.fields.removeTitle')}
+        confirmLabel={t('common.remove')}
+        message={t('codex.fields.removeConfirm').replace('{name}', pendingRemoveField ?? '')}
+        onConfirm={() => { if (pendingRemoveField !== null) removeField(pendingRemoveField); }}
+        onCancel={() => setPendingRemoveField(null)}
       />
       <ConfirmDialog
         open={confirmDiscard}

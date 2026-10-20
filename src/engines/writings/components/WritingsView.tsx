@@ -49,6 +49,8 @@ import type { PublishingProfile } from '@/types/projectTools';
 import { generateId } from '@/utils/idGenerator';
 import { countWords, stripHtml } from '@/utils/text';
 import TiptapEditor from '@/components/editor/TiptapEditor';
+import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
+import { registerPendingFlusher } from '@/services/pendingWrites';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
 import FootnotesPanel from '@/components/editor/footnotes/FootnotesPanel';
 import { collectFootnotes, normalizeFootnotePlacement, normalizeFootnoteStyle } from '@/components/editor/footnotes/footnoteModel';
@@ -57,6 +59,7 @@ import { usePageCount } from '@/components/editor/pageMode/usePageCount';
 import { useAppStore } from '@/stores/appStore';
 import { FOCUS_MODE_SHORTCUT, matchesShortcut, shortcutCaps } from '@/components/common/shortcuts';
 import BookEditor from './BookEditor';
+import ParallelDraftWorkspace, { type ParallelWorkspaceStart } from './ParallelDraftWorkspace';
 import FocusChrome from './FocusChrome';
 import TagInput from '@/components/common/TagInput';
 import Modal from '@/components/common/Modal';
@@ -68,7 +71,7 @@ import SprintControl from './SprintControl';
 import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
 import ReferencePanel from './ReferencePanel';
-import { getReferenceUi, referenceDockPx, setReferenceConsult, useReferencePrefs } from './referencePrefs';
+import { referenceDockPx, useReferencePrefs } from './referencePrefs';
 import { useGhostText } from '@/components/editor/ghostText/useGhostText';
 import CompileModal from './CompileModal';
 import ManuscriptImportModal from './ManuscriptImportModal';
@@ -108,6 +111,7 @@ import {
 import GettingStartedChecklist from '@/components/project/GettingStartedChecklist';
 import {
   clearWritingRecoveryDraft,
+  registerWritingRecoveryOwner,
   inspectWritingRecoveryDraft,
   writeWritingRecoveryDraft,
   type WritingRecoveryDraft,
@@ -281,6 +285,7 @@ function WritingMetaFields({
   onUpdate: (id: string, changes: Partial<Writing>) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const pane = useEnginePane();
   const synopsisField = useDebouncedField(
     writing.synopsis ?? '',
     (value) => onUpdate(writing.id, { synopsis: value.trim() ? value : undefined }),
@@ -288,7 +293,7 @@ function WritingMetaFields({
 
   return (
     <>
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+    <div className={`grid grid-cols-1 gap-4 items-start ${pane?.width !== undefined ? pane.width >= 1024 ? 'grid-cols-[minmax(0,1fr)_320px]' : '' : 'lg:grid-cols-[minmax(0,1fr)_320px]'}`}>
       <label className="block">
         <span className="block mb-1.5 text-[10px] text-text-dim uppercase tracking-wider font-medium">
           {t('writings.synopsisOptional')}
@@ -463,6 +468,11 @@ interface WritingsViewProps {
 
 export default function WritingsView({ projectId, writings, onAdd, onDelete, onRefresh }: WritingsViewProps) {
   const { t, locale } = useTranslation();
+  const pane = useEnginePane();
+  const reportPaneTitle = pane?.reportTitle;
+  const recoveryOwner = pane?.primary ? undefined : pane?.instanceId;
+  const saveOwner = `chapter:${pane?.instanceId ?? 'main'}:${projectId}`;
+  const navigate = useNavigate();
   const statusLabel = (status: WritingStatus) => t(`writings.status.${status}`);
   // Drafts stays the landing tab. "All" is new, and making it the default
   // would move the ground under every author who already knows where their
@@ -472,6 +482,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   const [manuscriptView, setManuscriptView] = useState<ManuscriptViewMode>('list');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [openWriting, setOpenWriting] = useState<Writing | null>(null);
+  const recoveryWritingId = openWriting?.id;
+  useEffect(() => { if (recoveryWritingId) return registerWritingRecoveryOwner(projectId, recoveryWritingId, recoveryOwner); }, [recoveryWritingId, projectId, recoveryOwner]);
+  useEffect(() => { reportPaneTitle?.(openWriting?.title); }, [openWriting?.title, reportPaneTitle]);
+  const [parallelWorkspace, setParallelWorkspace] = useState<ParallelWorkspaceStart | null>(null);
+  const parallelReturnSelection = useRef<{ writingId: string; from: number; to: number } | null>(null);
   const [editedContent, setEditedContent] = useState('');
   const [editedTitle, setEditedTitle] = useState('');
   const [showGooglePicker, setShowGooglePicker] = useState(false);
@@ -521,7 +536,13 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // (footnotes) and the page count. The setter is what TiptapEditor gets:
   // it is stable, so its effect does not re-run per render.
   const [liveEditor, setLiveEditor] = useState<Editor | null>(null);
-  const referencePrefs = useReferencePrefs();
+  useEffect(() => {
+    const position = parallelReturnSelection.current;
+    if (!liveEditor || !position || openWriting?.id !== position.writingId) return;
+    liveEditor.commands.setTextSelection({ from: Math.min(position.from, liveEditor.state.doc.content.size), to: Math.min(position.to, liveEditor.state.doc.content.size) });
+    parallelReturnSelection.current = null;
+  }, [liveEditor, openWriting?.id]);
+  const referencePrefs = useReferencePrefs(pane?.primary ? undefined : pane?.instanceId);
   const ghostText = useGhostText(projectId);
   const [pendingJudgeNavigation, setPendingJudgeNavigation] = useState<{
     writingId: string;
@@ -645,8 +666,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       session.content,
       session.savedTitle,
       session.savedContent,
+      recoveryOwner,
     );
-  }, [projectId]);
+  }, [projectId, recoveryOwner]);
 
   const flushSave = useCallback((): Promise<boolean> => {
     const session = editorRef.current;
@@ -749,7 +771,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             setSaveState('dirty');
           }
         } else {
-          clearWritingRecoveryDraft(projectId, writingId);
+          clearWritingRecoveryDraft(projectId, writingId, recoveryOwner);
           if (mountedRef.current && editorRef.current === session) {
             setRecoveredDraft(false);
             setSaveState('saved');
@@ -765,7 +787,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       session.savePromise = null;
     });
     return session.savePromise;
-  }, [persistRecoveryDraft, projectId, writeWriting]);
+  }, [persistRecoveryDraft, projectId, writeWriting, recoveryOwner]);
 
   // Keep the ref in sync with typed state + debounce the flush.
   useEffect(() => {
@@ -780,7 +802,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           window.clearTimeout(s.journalTimer);
           s.journalTimer = null;
         }
-        if (s.openId) clearWritingRecoveryDraft(projectId, s.openId);
+        if (s.openId) clearWritingRecoveryDraft(projectId, s.openId, recoveryOwner);
         setRecoveredDraft(false);
         setSaveState('saved');
       }
@@ -811,7 +833,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       void flushSave();
     }, AUTOSAVE_MS);
     return () => window.clearTimeout(autosaveTimer);
-  }, [editedContent, editedTitle, flushSave, incoming, persistRecoveryDraft, projectId]);
+  }, [editedContent, editedTitle, flushSave, incoming, persistRecoveryDraft, projectId, recoveryOwner]);
 
   // Flush on unmount (sidebar navigation, global-search jumps, etc.). The
   // journal is synchronous; the DB flush is best-effort once React is leaving.
@@ -888,9 +910,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // lands — while it is null main never intercepts the close at all, which is
   // what keeps the ordinary X instant.
   const unsaved = openWriting !== null && saveState !== 'saved';
+  useEffect(() => { if (unsaved) return registerPendingFlusher(saveOwner, flushSave); }, [flushSave, saveOwner, unsaved]);
+  useEffect(() => () => reportUnsavedWork(null, saveOwner), [saveOwner]);
   useEffect(() => {
     if (!unsaved) {
-      reportUnsavedWork(null);
+      reportUnsavedWork(null, saveOwner);
       return;
     }
     reportUnsavedWork({
@@ -898,15 +922,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       message: t('writings.closeWindow.stuckMessage'),
       closeAnyway: t('writings.closeWindow.close'),
       keepOpen: t('writings.closeWindow.keepOpen'),
-    });
+    }, saveOwner);
     // `locale` and not `t`: the translator is a new function every render.
-  }, [unsaved, locale]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [unsaved, locale, saveOwner]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ctrl/Cmd+S saves immediately; Mod+Shift+F toggles focus mode; Escape
   // leaves it.
   useEffect(() => {
     if (!openWriting) return;
     const handler = (e: KeyboardEvent) => {
+      if (!ownsEnginePaneEvent(pane, e)) return;
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void flushSave();
@@ -916,13 +941,13 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         setFocusMode((on) => !on);
       } else if (e.key === 'Escape') {
         // A consult drawer open over the page closes first; focus mode stays.
-        if (getReferenceUi().consult) setReferenceConsult(false);
+        if (referencePrefs.consult) referencePrefs.setConsult(false);
         else setFocusMode(false);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [openWriting, flushSave]);
+  }, [openWriting, flushSave, pane, referencePrefs]);
 
   // Focus mode is the page and nothing else: the overlay below hides the
   // app's own furniture, and the window goes to full screen for the rest —
@@ -1060,6 +1085,10 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // annotation backlinks all navigate here; until now the URL landed on the
   // list and the author had to find the chapter again by hand.
   const deepLinkedWritingId = useDeepLinkParam('writing');
+  const deepLinkedWorkspace = useDeepLinkParam('workspace');
+  const deepLinkedDraft = useDeepLinkParam('draft');
+  const deepLinkedCompare = useDeepLinkParam('compareWriting');
+  const deepLinkedCompareDraft = useDeepLinkParam('compareDraft');
 
   const handleOpenWriting = useCallback((writing: Writing) => {
     // The chapter on screen is where the writer is: the dashboard's "Continue"
@@ -1071,7 +1100,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     // replaced, so the ROW opens and the draft becomes a question — putting it
     // in the editor would autosave the older text over the newer one inside the
     // debounce, before the writer had read a word of either.
-    const recovery = inspectWritingRecoveryDraft(writing);
+    const recovery = inspectWritingRecoveryDraft(writing, recoveryOwner);
     const draft = recovery.kind === 'draft' ? recovery.draft : null;
     const conflict = recovery.kind === 'conflict' ? recovery.draft : null;
     const content = draft?.content ?? writing.content;
@@ -1129,15 +1158,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         },
         'manual',
       );
-      if (filed) clearWritingRecoveryDraft(writing.projectId, writing.id);
+      if (filed) clearWritingRecoveryDraft(writing.projectId, writing.id, recoveryOwner);
     });
-  }, [projectId]);
+  }, [projectId, recoveryOwner]);
 
   // Open whatever the deep link pointed at, once the row is available.
   // Guarded so it never yanks the author out of a document they already have
   // open (e.g. a stale param surviving a re-render).
   const deepLinkOpened = useRef<string | null>(null);
   useEffect(() => {
+    if (parallelWorkspace) return;
     if (!deepLinkedWritingId || deepLinkOpened.current === deepLinkedWritingId) return;
     if (openWriting) return;
     const target = writings.find((w) => w.id === deepLinkedWritingId);
@@ -1145,7 +1175,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     deepLinkOpened.current = deepLinkedWritingId;
     setActiveStatus(target.status);
     handleOpenWriting(target);
-  }, [deepLinkedWritingId, writings, openWriting, handleOpenWriting]);
+  }, [deepLinkedWritingId, writings, openWriting, handleOpenWriting, parallelWorkspace]);
 
   // The writer's answer to a draft whose chapter moved on. Both answers are
   // safe by the time they are offered — the draft is already a version — so
@@ -1241,7 +1271,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             session.savedTitle = row.title;
             session.savedWordCount = row.wordCount || countWords(row.content);
             session.savedVersion = row.updatedAt;
-            clearWritingRecoveryDraft(projectId, openWritingId);
+            clearWritingRecoveryDraft(projectId, openWritingId, recoveryOwner);
             setEditedContent(row.content);
             setEditedTitle(row.title);
             setOpenWriting(current => (current && current.id === row.id ? row : current));
@@ -1264,7 +1294,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         })
         .catch(err => console.error('[writings] could not re-read the open chapter', err));
     });
-  }, [openWritingId, projectId]);
+  }, [openWritingId, projectId, recoveryOwner]);
 
   // ---------------------------------------------------------------------
   // Answering "this chapter changed underneath you".
@@ -1348,7 +1378,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         s.contested = false;
         // The journal held the text that has just become a version; leaving it
         // would raise the same question again on the next open.
-        clearWritingRecoveryDraft(projectId, writingId);
+        clearWritingRecoveryDraft(projectId, writingId, recoveryOwner);
         setIncoming(null);
         setEditedContent(other.content);
         setEditedTitle(other.title);
@@ -1369,7 +1399,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         toast.success(translateNow('writings.externalChange.tookIncoming'));
       })
       .catch(err => console.error('[writings] could not take the incoming chapter', err));
-  }, [incoming, projectId]);
+  }, [incoming, projectId, recoveryOwner]);
 
   const leaveEditor = useCallback(() => {
     setPendingLeave(false);
@@ -1389,6 +1419,27 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     setRecoveryConflict(null);
     setIncoming(null);
   }, []);
+
+  const handleOpenParallelWorkspace = useCallback(async (start: ParallelWorkspaceStart) => {
+    if (!await flushSave()) { setPendingLeave(true); return; }
+    const position = liveEditor && !liveEditor.isDestroyed ? { from: liveEditor.state.selection.from, to: liveEditor.state.selection.to } : undefined;
+    if (position) parallelReturnSelection.current = { writingId: start.writingId, ...position };
+    leaveEditor();
+    setParallelWorkspace({ ...start, selection: position });
+    const params = new URLSearchParams({ writing: start.writingId, workspace: 'drafts' });
+    if (start.draftId) params.set('draft', start.draftId);
+    if (start.compareWritingId || start.split) params.set('compareWriting', start.compareWritingId ?? start.writingId);
+    if (start.compareDraftId) params.set('compareDraft', start.compareDraftId);
+    navigate(`/project/${encodeURIComponent(projectId)}/writings?${params}`, { replace: true });
+  }, [flushSave, leaveEditor, liveEditor, navigate, projectId]);
+  const appliedParallelLink = useRef('');
+  useEffect(() => {
+    if (deepLinkedWorkspace !== 'drafts' || !deepLinkedWritingId || parallelWorkspace || !writings.some(writing => writing.id === deepLinkedWritingId && !writing.isGoogleDoc)) return;
+    const signature = [deepLinkedWritingId, deepLinkedDraft, deepLinkedCompare, deepLinkedCompareDraft].join('|');
+    if (appliedParallelLink.current === signature) return;
+    appliedParallelLink.current = signature;
+    void handleOpenParallelWorkspace({ writingId: deepLinkedWritingId, draftId: deepLinkedDraft ?? undefined, compareWritingId: deepLinkedCompare ?? undefined, compareDraftId: deepLinkedCompareDraft ?? undefined });
+  }, [deepLinkedWorkspace, deepLinkedWritingId, deepLinkedDraft, deepLinkedCompare, deepLinkedCompareDraft, parallelWorkspace, writings, handleOpenParallelWorkspace]);
 
   // Back used to be a silent no-op for as long as the save kept failing — the
   // button simply did nothing, with nothing on screen to say why. Ask instead:
@@ -1485,9 +1536,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       return;
     }
     const adapter = getAnchorAdapter(engineId);
-    if (adapter) adapter.navigateToEntity(entityId, projectId);
+    if (adapter) adapter.navigateToEntity(entityId, projectId, navigate);
     else toast.error(t('judge.action.sourceMissing'));
-  }, [handleJudgeNavigate, projectId, t]);
+  }, [handleJudgeNavigate, projectId, t, navigate]);
 
   const handleReadAloudSource = useCallback((anchor: ReadAloudNoteAnchor, annotate: boolean) => {
     const body = stripHtml(editedContent);
@@ -1915,7 +1966,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           expectDeletedWriting(id);
           void onDelete(id)
             .then(() => {
-              clearWritingRecoveryDraft(projectId, id);
+              clearWritingRecoveryDraft(projectId, id, recoveryOwner);
               setUndoBundle(takeLastDeletedWriting(id));
             })
             .catch((err) => console.error('[writings] failed to delete writing', err));
@@ -2016,6 +2067,13 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   );
 
   // ---- Whole book ----
+  if (parallelWorkspace) return <ParallelDraftWorkspace key={projectId} projectId={projectId} start={parallelWorkspace} onClose={async writingId => {
+    const row = await db.writings.get(writingId);
+    setParallelWorkspace(null);
+    if (row?.projectId === projectId) handleOpenWriting(row);
+    navigate(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(writingId)}`, { replace: true });
+    await onRefresh?.();
+  }} />;
   if (bookMode) {
     return (
       <BookEditor
@@ -2418,6 +2476,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           </button>
 
           {/* Version history */}
+          <button type="button" onClick={() => void handleOpenParallelWorkspace({ writingId: openWriting.id })} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-border text-xs text-text-muted hover:text-accent-gold hover:border-accent-gold/40" title={t('writings.parallel.open')}><Columns3 size={15} />{t('writings.parallel.open')}</button>
           <button
             onClick={() => {
               void flushSave().then((saved) => {
@@ -2636,7 +2695,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           // underneath on anything narrower rather than squeezing the paper.
           <div
             className={`grid grid-cols-1 gap-4 items-start ${
-              pageMode
+              pane?.width !== undefined ? pane.width >= referenceDockPx(pageMode) ? 'grid-cols-[minmax(0,1fr)_var(--wh-side-w,320px)]' : '' : pageMode
                 ? 'min-[1440px]:grid-cols-[minmax(0,1fr)_var(--wh-side-w,320px)]'
                 : 'lg:grid-cols-[minmax(0,1fr)_var(--wh-side-w,320px)]'
             }`}
@@ -2665,7 +2724,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             />
             <div
               className={`space-y-5 ${
-                pageMode ? 'min-[1440px]:sticky min-[1440px]:top-4' : 'lg:sticky lg:top-4'
+                pane?.width !== undefined ? pane.width >= referenceDockPx(pageMode) ? 'sticky top-4' : '' : pageMode ? 'min-[1440px]:sticky min-[1440px]:top-4' : 'lg:sticky lg:top-4'
               }`}
             >
               <ReferencePanel
@@ -2747,7 +2806,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
               savedTitle: title,
               savedWordCount: wordCount,
             };
-            clearWritingRecoveryDraft(projectId, restoredId);
+            clearWritingRecoveryDraft(projectId, restoredId, recoveryOwner);
             setRecoveredDraft(false);
             setSaveError(null);
             setSaveState('saved');

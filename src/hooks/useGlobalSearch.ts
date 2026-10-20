@@ -17,6 +17,7 @@ export interface SearchResult {
   projectId?: string;
   thumbnail?: string;
   snippet?: string;
+  searchTerms?: string[];
 }
 
 const EMPTY_ENGINE_IDS: string[] = [];
@@ -60,6 +61,7 @@ export function useGlobalSearch(projectId?: string, enabledEngineIds: string[] =
         }),
         id: entity.id,
         title: entity.title,
+        searchTerms: entity.searchTerms,
         subtitle: entity.subtitle ?? entity.type,
         engineId: entity.engineId,
         projectId: entity.projectId,
@@ -68,7 +70,7 @@ export function useGlobalSearch(projectId?: string, enabledEngineIds: string[] =
     ];
 
     const fuse = new Fuse(titleItems, {
-      keys: ['title', 'subtitle'],
+      keys: ['title', 'subtitle', 'searchTerms'],
       threshold: 0.3,
     });
     const ranked = fuse.search(query, { limit: 12 }).map(result => result.item);

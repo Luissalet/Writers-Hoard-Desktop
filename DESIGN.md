@@ -1,6 +1,6 @@
 ---
 name: "Writer's Hoard"
-description: "Sistema vigente del escritorio Writer y de su extensión de ficción interactiva."
+description: "Sistema vigente del escritorio Writer, sus herramientas de mundo y su extensión de ficción interactiva."
 colors:
   deep: "#17191a"
   surface: "#202223"
@@ -95,6 +95,21 @@ components:
     textColor: "{colors.fiction-text}"
     rounded: "{rounded.panel}"
     padding: "16px"
+  writer-button-secondary:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-primary}"
+    rounded: "{rounded.control}"
+    padding: "8px 12px"
+    height: "36px"
+  writer-button-primary:
+    backgroundColor: "{colors.accent-gold}"
+    textColor: "{colors.deep}"
+    rounded: "{rounded.control}"
+    padding: "8px 12px"
+    height: "36px"
+  canvas-control:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text-primary}"
 ---
 # Design System: Writer's Hoard
 
@@ -106,12 +121,15 @@ Writer conserva su identidad de escritorio: carbón, oro, marca propia, títulos
 
 La extensión distingue claramente los controles que habilitan funciones del espacio de trabajo que aparece después. El estado apagado conserva cuatro interruptores, ubicación de datos y explicación; el estado activo añade navegación de mundo, transcripción y herramientas laterales. La lectura de manuscritos sigue teniendo tipografía y medida propias, separadas del título de la aplicación.
 
+Las herramientas de mundo amplían ese escritorio mediante documentos reales, biblioteca mixta, paneles independientes y edición contextual del origen. El contenido espacial, la prosa y las salidas de lectura conservan sus materiales propios; el marco de autoría mantiene el carbón, el oro y los controles de Writer. Esta extensión se registra a partir del código construido, sin sustituir las reglas de ficción ni las superficies de publicación existentes.
+
 **Key Characteristics:**
 
 - Carbón y oro del marco existente, con icono Writer y SVG canónico de Faustus.
 - Interruptores explícitos con estado escrito y acceso directo a la carpeta de ficción.
 - Espacio de trabajo denso con navegación, transcripción y contexto simultáneos.
 - Tipografía de lectura configurable en el manuscrito, distinta del título de la aplicación.
+- Documentos conectados mediante biblioteca, paneles con estado propio y edición contextual del origen.
 
 ## Colors
 
@@ -128,6 +146,10 @@ El oro `accent-gold` identifica marca, selección de navegación, foco y control
 `deep`, `surface` y `elevated` componen el marco, lateral y controles. `border` y `border-hover` separan y responden a interacción. Los tres tonos de texto ordenan contenido, ayuda y metadatos. La ficción conserva los tonos neutros de la variante familiar dentro de sus estilos aislados; la cabecera contiene los tokens usados para las muestras de esa variante. Su opción clara conservada pertenece al ámbito interno y no recolorea el marco oscuro de Electron.
 
 **The Writer Identity Rule.** La ficción hereda el icono, el marco y el oro de Writer; sus herramientas no introducen una nueva identidad de producto.
+
+Los tipos y subtipos de Códex, los colores de nodos y conexiones, las capas de mapas y las anotaciones de árbol son codificación de contenido. Los selectores de color de cubierta y capítulo pertenecen a la presentación elegida por el autor. Sus valores no amplían la paleta normativa del marco; el papel blanco, noche y sepia del lector no son nuevos temas de navegación.
+
+**The Content Palette Rule.** El color configurable de un documento permanece en ese documento; la herramienta que lo edita conserva los colores y el foco de Writer.
 
 ## Typography
 
@@ -151,11 +173,19 @@ Activar Mundos y juego monta el espacio nativo: lateral interior de 220px, cabec
 
 El código conserva reglas para ventanas estrechas: el lateral exterior se contrae bajo 800px; Play pasa a columna bajo 900px y la navegación interna pasa a cajón bajo 760px. Son ajustes del escritorio, no una promesa ni una verificación de producto móvil. Las capturas de esta extensión corresponden a Electron de escritorio.
 
+El espacio de proyecto conserva una barra de herramientas adaptable, un panel principal y hasta cuatro pestañas compañeras con historial y estado de editor propios. En ventanas grandes los dos paneles se sitúan en columnas con una proporción ajustable del 35–65%; por debajo del punto `xl` (1280px) pasan a filas de al menos 30rem, con desplazamiento propio. Las acciones de duplicar, volver al principal y cerrar siguen visibles. La biblioteca mixta separa carpetas y documentos en una columna de 15rem más contenido flexible desde `lg` (1024px); debajo se apila. Sus filas se adaptan y conservan título, tipo, carpeta y acciones de apertura.
+
+Los inspectores de grafos y árboles pasan bajo el lienzo cuando no cabe su columna lateral. El lienzo conserva pan, zoom y encuadre; tablas y contenido espacial mantienen desplazamiento en lugar de comprimir sus coordenadas. El grafo de mundo usa tarjetas controladas de 220px de ancho y 74px de altura mínima, con evidencia y enlaces al origen en un inspector separado. El árbol usa su propia geometría editable. Estas dimensiones pertenecen a esos componentes y no son una cuadrícula universal.
+
+La presentación del lector usa una vista de cubierta junto a sus ajustes desde `lg`, y se apila en ventanas estrechas. La salida HTML autónoma dedica el espacio al libro, índice y capítulos, con medida máxima de 900px y navegación de lectura. El modo de páginas horizontales conserva sus controles de avance. Son salidas de documento, no una transformación del escritorio de autoría.
+
 ## Elevation & Depth
 
 La estructura principal se separa con color y bordes. Las tarjetas nativas mantienen la sombra difusa familiar `0 8px 28px rgba(0, 0, 0, 0.38)`; no hay sombra de offset duro en la ficción. El marco conserva foco dorado de 2px con separación de 3px; el ámbito nativo usa su foco familiar de 2px separado 2px, y los campos añaden borde de acento y contorno suave.
 
 La anchura del lateral exterior transiciona en 200ms. El producto conserva las preferencias de movimiento del sistema y el ajuste explícito de movimiento reducido; no se añade animación decorativa a los interruptores de ficción. Las sombras del modo página y de diálogos mantienen ámbito propio y no se convierten en relieve obligatorio del panel de funciones.
+
+La cubierta del lector tiene profundidad y giro como vista del libro configurado por el autor. Esa geometría se limita al contenido de lectura y a su estudio de presentación; no establece una tarjeta tridimensional para herramientas o navegación.
 
 ## Shapes
 
@@ -171,6 +201,10 @@ Son botones con `role=switch`, nombre accesible y `aria-checked`, no una pista d
 
 La ficción nativa conserva botones secundarios con superficie tonal, borde, relleno 7px/14px y altura mínima de 36px. Los primarios usan el oro cálido y tinta oscura; hover usa oro claro. El estado deshabilitado reduce opacidad a la mitad y usa cursor de prohibición. Narrar se deshabilita cuando la narración global está apagada y muestra ayuda visible asociada; Enviar sigue disponible para escritura manual si el campo tiene contenido. El manejador verifica el estado actual antes de crear un borrador.
 
+En las herramientas de mundo, los secundarios comparten borde fino, texto claro, esquinas de 8px, relleno 8px/12px y altura mínima de 36px. El hover usa `elevated`; el foco visible usa oro. La acción de guardar en Presentación del lector usa tinta `deep` sobre `accent-gold` y pasa a `accent-amber` al hover, conservando la tinta. Las clases estructurales se comparten sin mezclar los colores de primario y secundario. El estado ocupado deshabilita las acciones y reduce su opacidad.
+
+**The Primary Ink Rule.** La etiqueta de una acción primaria dorada mantiene tinta oscura en reposo y hover; no hereda el texto claro del botón secundario.
+
 ### Inputs / Fields
 
 La carpeta se despliega con `details`; etiqueta accesible, campo flexible y botón de confirmación comparten una línea adaptable. Campo y botón se deshabilitan mientras Mundos y juego está activo o hay una operación pendiente. El espacio nativo conserva campos con relleno 8px/10px, borde tonal, superficie oscura y foco de acento. El compositor usa textarea flexible de altura mínima 44px; el borrador propuesto se presenta con acciones explícitas de aceptación o rechazo.
@@ -183,6 +217,24 @@ El lateral exterior usa entradas de 14px, iconos de 18px, relleno 10px/12px y es
 
 Escena, dados y continuidad conservan tarjetas de 16px de relleno, borde fino, esquinas de 10px y sombra difusa. Chips y pestañas de modo usan contornos redondos completos, con estado seleccionado escrito y acento. Las tarjetas son herramientas de contexto, no contenedores decorativos para cada párrafo.
 
+### Contextual documents and dialogs
+
+Los bloques de herramienta y las referencias de Códex muestran contenido y acceso al documento de origen; el origen se edita con su herramienta real en un diálogo de contexto. El selector de inserción se despliega bajo su botón y ofrece búsqueda y tipo, sin mantener todo el catálogo abierto. El diálogo de herramienta usa un cuerpo desplazable con borde y fondo profundo; la ayuda, la acción de guardar/cerrar y los avisos de bloqueo permanecen explícitos. La navegación interna respeta el ámbito del documento y no sustituye la ruta o selección del editor anfitrión.
+
+Los diálogos comunes conservan título serif dorado, superficie tonal, borde y esquinas de 12px. El modal grande usa anchura `min(96vw, 100rem)` y altura máxima de 94vh; los diálogos normal y ancho conservan sus medidas existentes. El foco queda atrapado, el fondo es inerte y al cerrar se restaura el foco previo. Los cambios pendientes o fallos de guardado se comunican en el diálogo y requieren una salida explícita; no se disimulan con un cierre exitoso. Los formularios sin enviar conservan su acción propia antes de cerrar.
+
+### Spatial tools and canvas controls
+
+Árboles y Board usan los controles nativos de ReactFlow dentro de un ámbito común: superficie `surface`, texto `text-primary`, borde `border`; al hover cambian a `elevated` y oro. El foco es un contorno dorado de 2px hacia el interior, para seguir visible en la pila de botones. La biblioteca conserva sus operaciones de zoom y encuadre. El grafo de mundo tiene su tratamiento oscuro equivalente. Tipos de conexión, leyendas, títulos y evidencia acompañan el color; la selección de nodos usa borde/anillo dorado.
+
+**The Canvas Chrome Rule.** Los controles de un lienzo heredan las superficies, tinta y foco del escritorio aunque su biblioteca aporte un tema claro por defecto.
+
+Los mapas con capas e historial, hojas físicas de Worldgen, calendarios de cronología, diccionarios y fuentes, tablas, hojas RPG, radar, GLB y medios conservan la forma del contenido y sus herramientas contextuales. No se deriva de una visualización especializada un patrón obligatorio para las demás herramientas.
+
+### Reader, wiki and parallel text
+
+El estudio del lector separa cubierta, ajustes de capítulo y audio. Fondo, familia de lectura, imagen y modo de páginas son opciones del documento. La cubierta puede usar la imagen local del proyecto, y el audio conserva controles explícitos. La exportación de lector o wiki autónomo ofrece navegación y referencias para leer fuera del editor; no arrastra la barra de autoría. Las marcas de contenido oculto y spoiler del editor usan subrayado discontinuo/punteado y fondo tonal, además del color. Las vistas de conversación y borradores paralelos conservan su contexto de lectura y edición, con estado de guardado por borrador.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -192,6 +244,9 @@ Escena, dados y continuidad conservan tarjetas de 16px de relleno, borde fino, e
 - **Do** mostrar una explicación visible cuando una función necesaria está apagada.
 - **Do** mantener las preferencias de lectura del manuscrito y su medida de línea.
 - **Do** conservar bordes, foco y texto de estado en ambos ámbitos de estilos.
+- **Do** conservar tinta oscura en acciones doradas y controles de lienzo con superficie, texto y foco legibles.
+- **Do** mantener el estado propio de cada panel y devolver las referencias a su documento de origen.
+- **Do** limitar los colores, fondos y fuentes elegidos por el autor al documento o lector que configuran.
 
 ### Don't:
 
@@ -199,3 +254,5 @@ Escena, dados y continuidad conservan tarjetas de 16px de relleno, borde fino, e
 - **Don’t** usar la tipografía de títulos como regla general para la prosa extensa.
 - **Don’t** expresar el estado únicamente mediante el color.
 - **Don’t** presentar los ajustes de ventana estrecha como soporte móvil verificado.
+- **Don’t** convertir los colores de un mapa, Códex o lector en una nueva paleta de marca.
+- **Don’t** cerrar una edición pendiente como si se hubiera guardado cuando existe un fallo o formulario sin enviar.

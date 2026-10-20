@@ -57,7 +57,8 @@ export async function listSnapshotMeta(writingId: string): Promise<WritingSnapsh
   await db.writingSnapshots
     .where('writingId')
     .equals(writingId)
-    .each(({ id, writingId: owner, projectId, title, wordCount, reason, createdAt }) => {
+    .each(({ id, writingId: owner, projectId, title, wordCount, reason, createdAt, kind }) => {
+      if (kind === 'parallel-draft') return;
       rows.push({ id, writingId: owner, projectId, title, wordCount, reason, createdAt });
     });
   // `createdAt` is indexed, but only globally — a range read over it would walk
@@ -86,7 +87,7 @@ export async function readSnapshot(snapshotId: string): Promise<WritingSnapshot 
  * past of the chapter and its cost grows every time the chapter is opened.
  */
 export async function listSnapshots(writingId: string): Promise<WritingSnapshot[]> {
-  const rows = await db.writingSnapshots.where('writingId').equals(writingId).toArray();
+  const rows = await db.writingSnapshots.where('writingId').equals(writingId).filter(row => row.kind !== 'parallel-draft').toArray();
   return rows.sort((a, b) => b.createdAt - a.createdAt);
 }
 

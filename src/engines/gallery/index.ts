@@ -38,16 +38,16 @@ registerAnchorAdapter({
     if (image) return image.notes || t('gallery.lightbox.imageAlt');
     return (await db.imageCollections.get(entityId))?.title ?? null;
   },
-  navigateToEntity(entityId, projectId) {
+  navigateToEntity(entityId, projectId, navigate = navigateTo) {
     void (async () => {
       const image = await db.inspirationImages.get(entityId);
       if (image && (!projectId || projectId === image.projectId)) {
-        navigateTo(`/project/${encodeURIComponent(image.projectId)}/gallery?image=${encodeURIComponent(entityId)}`);
+        navigate(`/project/${encodeURIComponent(image.projectId)}/gallery?image=${encodeURIComponent(entityId)}`);
         return;
       }
       const album = await db.imageCollections.get(entityId);
       if (album && (!projectId || projectId === album.projectId)) {
-        navigateTo(`/project/${encodeURIComponent(album.projectId)}/gallery?album=${encodeURIComponent(entityId)}`);
+        navigate(`/project/${encodeURIComponent(album.projectId)}/gallery?album=${encodeURIComponent(entityId)}`);
       }
     })();
   },

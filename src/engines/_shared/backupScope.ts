@@ -308,6 +308,9 @@ const REFERENCE_SPECS: Readonly<Record<string, readonly ReferenceSpec[]>> = {
       contained: false,
     },
   ],
+  localMediaAssets: [
+    { label: 'linkedEntryIds', values: many('linkedEntryIds'), targets: fixed('codexEntries'), contained: false },
+  ],
   inspirationImages: [
     { label: 'collectionId', values: one('collectionId'), targets: fixed('imageCollections'), contained: false },
     { label: 'linkedEntryIds', values: many('linkedEntryIds'), targets: fixed('codexEntries'), contained: false },
@@ -423,6 +426,7 @@ const REFERENCE_SPECS: Readonly<Record<string, readonly ReferenceSpec[]>> = {
   timelineEvents: [
     { label: 'timelineId', values: one('timelineId'), targets: fixed('timelines'), contained: true },
     { label: 'linkedEntryId', values: one('linkedEntryId'), targets: fixed('codexEntries'), contained: false },
+    { label: 'linkedEntryIds', values: many('linkedEntryIds'), targets: fixed('codexEntries'), contained: false },
   ],
   videoSegments: [
     { label: 'videoPlanId', values: one('videoPlanId'), targets: fixed('videoPlans'), contained: true },
@@ -520,6 +524,45 @@ const PROJECT_SCOPE_FIELDS: Readonly<Record<string, string>> = {
 function directProjectScopeField(tableName: string, table: Table): string | null {
   const field = PROJECT_SCOPE_FIELDS[tableName] ?? 'projectId';
   return table.schema.primKey.name === field || Boolean(table.schema.idxByName[field]) ? field : null;
+}
+
+/** Strict local restore guard: planned rows and live dependencies form one scope. */
+export async function validateDocumentRestoreRows(projectId: string, planned: readonly { table: string; record: Row }[], references = true): Promise<void> {
+  const tables = new Map(db.tables.map(table => [table.name, table]));
+  const records = new Map(planned.map(row => [`${row.table}:${keyToken(primaryKey(row.record, tables.get(row.table)!))}`, row.record]));
+  const read = async (table: string, key: unknown): Promise<Row | undefined> => records.get(`${table}:${keyToken(key)}`) ?? await tables.get(table)?.get(key);
+  const owner = async (tableName: string, row: Row, seen = new Set<string>()): Promise<string | null> => {
+    if (tableName === 'projects') return typeof row.id === 'string' ? row.id : null;
+    const table = tables.get(tableName); if (!table) return null;
+    const field = directProjectScopeField(tableName, table);
+    if (field) return typeof row[field] === 'string' ? row[field] as string : null;
+    const child = CHILD_SCOPES[tableName];
+    if (!child) return null;
+    const token = `${child.parentTable}:${keyToken(row[child.parentField])}`;
+    if (seen.has(token)) return null; seen.add(token);
+    const parent = await read(child.parentTable, row[child.parentField]);
+    return parent ? owner(child.parentTable, parent, seen) : null;
+  };
+  for (const item of planned) {
+    if (!tables.has(item.table) || await owner(item.table, item.record) !== projectId) throw new Error('Archive row belongs outside this project.');
+    if (!references) continue;
+    const specs = REFERENCE_SPECS[item.table] ?? [];
+    for (const spec of specs) for (const key of spec.values(item.record)) {
+      const targets = spec.targets(item.record).filter(table => tables.has(table));
+      let valid = false;
+      for (const target of targets) {
+        const row = await read(target, key);
+        if (row && await owner(target, row) === (spec.targetOwner ? spec.targetOwner(item.record) : projectId)) { valid = true; break; }
+      }
+      if (!valid) throw new Error(`Restore dependency unavailable: ${item.table}.${spec.label}. Restore the related document first.`);
+    }
+    if (item.table === 'codexEntries' && item.record.referenceFields && typeof item.record.referenceFields === 'object') {
+      for (const value of Object.values(item.record.referenceFields)) if (Array.isArray(value)) for (const key of value) {
+        const row = await read('codexEntries', key);
+        if (!row || await owner('codexEntries', row) !== projectId) throw new Error('Restore reference field target unavailable.');
+      }
+    }
+  }
 }
 
 function importedKey(

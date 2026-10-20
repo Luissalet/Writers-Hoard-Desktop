@@ -103,19 +103,19 @@ registerAnchorAdapter({
     return beat?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.character-arc'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  navigateToEntity(entityId: string, projectId?: string, navigate = navigateTo) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     // The editor opens per arc; a beat opens its arc and unfolds itself there.
     void (async () => {
       const arc = await db.characterArcs.get(entityId);
       if (arc) {
-        navigateTo(`/project/${pid}/character-arc?arc=${encodeURIComponent(arc.id)}`);
+        navigate(`/project/${pid}/character-arc?arc=${encodeURIComponent(arc.id)}`);
         return;
       }
       const beat = await db.arcBeats.get(entityId);
       if (!beat) return;
-      navigateTo(arcBeatPath(pid, beat.arcId, beat.id));
+      navigate(arcBeatPath(pid, beat.arcId, beat.id));
     })();
   },
 });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
-import { navigateTo } from '@/engines/_shared/anchoring';
+import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Seed, Payoff } from '../types';
 import { getSeedsCopy } from '../copy';
@@ -10,6 +10,7 @@ export type { SeedSourceCatalog } from '../sourceLinks';
 
 export default function SourceLinks({ row, catalog, kind, beforeNavigate }: { row: Seed | Payoff; catalog: SeedSourceCatalog; kind: 'planting' | 'payoff'; beforeNavigate: () => Promise<boolean> }) {
   const { locale } = useTranslation();
+  const navigateTo = usePaneNavigate();
   const copy = getSeedsCopy(locale);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
