@@ -95,6 +95,8 @@ export interface WorldPresentation {
   layers?: Partial<Record<WorldPresentationLayer, boolean>>;
   /** A square or hex play grid over the map, in km; null or absent = none. */
   grid?: import('./cartography/mapGrid').MapGrid | null;
+  /** How the reader's-eye map starts before any fog stroke: blank paper (default), all sketched, or all in ink. */
+  readerStart?: 'blank' | 'sketch' | 'ink';
 }
 
 /**

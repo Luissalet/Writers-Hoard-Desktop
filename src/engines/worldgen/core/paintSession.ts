@@ -31,6 +31,11 @@ interface Snapshot {
   environment: EnvironmentFields;
 }
 
+/** True when every edit is reader's-eye fog, which the world itself ignores. */
+function onlyFog(edits: readonly WorldEdit[]): boolean {
+  return edits.length > 0 && edits.every((edit) => edit.kind === 'fog');
+}
+
 export class PaintSession {
   private pristine: Snapshot;
   private undone: WorldEdit[][] = [];
@@ -110,7 +115,9 @@ export class PaintSession {
     this.edits.push(...deserializeEdits(serializeEdits(edits)));
     this.groups.push(edits.length);
     this.undone.length = 0;
-    this.replay();
+    // The reader's-eye fog changes nothing in the world: replaying for it would
+    // bump the revision and send the geography off to a full rebuild.
+    if (!onlyFog(edits)) this.replay();
   }
 
   /** Adopt only the matching revision. Owned worker results can be consumed without another full-grid copy. */
@@ -130,7 +137,7 @@ export class PaintSession {
     const group = this.edits.splice(this.edits.length - n, n);
     if (!group.length) return;
     this.undone.push(group);
-    this.replay();
+    if (!onlyFog(group)) this.replay();
   }
 
   redo(): void {
@@ -138,7 +145,7 @@ export class PaintSession {
     if (!group) return;
     this.edits.push(...group);
     this.groups.push(group.length);
-    this.replay();
+    if (!onlyFog(group)) this.replay();
   }
 
   /** Throw everything away and go back to the generated world. */

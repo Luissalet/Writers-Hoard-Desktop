@@ -461,6 +461,8 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
 export interface CartoCanvasOptions {
   /** A square or hex play grid in km. */
   grid?: import('./mapGrid').MapGrid | null;
+  /** The reader's-eye fog, over the lettering. */
+  fog?: import('./readerFogLayer').ReaderFogLayer | null;
   /** GPU base pass, when the caller has one. */
   drawBase?: (w: number, h: number, view: CartoView) => CanvasImageSource | null;
   theme: CartoTheme;
@@ -490,6 +492,7 @@ export function renderCartoCanvas(world: WorldData, opts: CartoCanvasOptions): H
     view: opts.view,
     layers: opts.layers,
     grid: opts.grid,
+    fog: opts.fog,
     density: opts.density,
     reliefAmount: opts.reliefAmount,
     typeScale: opts.typeScale,

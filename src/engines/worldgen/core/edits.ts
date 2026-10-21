@@ -174,6 +174,12 @@ export type WorldEdit =
     spacing?: number;
     curve?: number;
   }
+  /**
+   * The reader's-eye map: mark ground as seen, heard of or hidden. Painted like
+   * a brush; `chapter` says in which chapter it is revealed (absent = always).
+   * Read by `core/readerFog.ts` only — it changes nothing in the world itself.
+   */
+  | { kind: 'fog'; op: 'seen' | 'heard' | 'hide'; stroke: Stroke; chapter?: number }
   /** Remove painted markers and labels within a radius. */
   | { kind: 'eraseMarkers'; x: number; y: number; radius: number }
   /**
@@ -1211,6 +1217,11 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
   const points = (pts: unknown) => Array.isArray(pts)
     && pts.every((p) => !!p && typeof p === 'object'
       && typeof (p as Pt).x === 'number' && typeof (p as Pt).y === 'number');
+  if ((e as { kind: string }).kind === 'fog') {
+    const f = e as { op?: unknown; chapter?: unknown };
+    if (f.op !== 'seen' && f.op !== 'heard' && f.op !== 'hide') return false;
+    if (f.chapter !== undefined && !(typeof f.chapter === 'number' && Number.isInteger(f.chapter) && f.chapter >= 0)) return false;
+  }
   if ('stroke' in e) {
     const stroke = (e as { stroke?: unknown }).stroke;
     return !!stroke && typeof stroke === 'object' && points((stroke as { pts?: unknown }).pts);

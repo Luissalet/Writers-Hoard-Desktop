@@ -43,12 +43,17 @@ Hecho en esta continuación (revisión independiente en rondas, ver
 [tasks/vvd1095](tasks/vvd1095/README.md)): aspecto guardado del mundo, mundos en
 blanco, áreas y contornos reales a escala, ajustes de viaje del mundo, épocas de
 mapa enlazadas a la cronología con reproducción, edición de rótulos con
-tiradores y biblioteca de 32 sellos, todo con interfaz, MCP, deshacer y ámbito
-de época.
+tiradores, biblioteca de 32 sellos, reproducción del viaje día a día, rejilla
+de juego y niebla del lector por capítulos, todo con interfaz, MCP, deshacer y
+ámbito de época.
 
 Siguiente, en este orden:
-- Lente de comercio y niebla/sucesos de campaña sobre el mapa (A2).
+- Lente de comercio y sucesos de campaña sobre el mapa (A2); la niebla del
+  lector ya existe y los sucesos pueden apoyarse en sus capítulos.
 - Pulido del mapa clásico y una herramienta MCP genérica para elementos del mapa.
+- Niebla del lector también en la vista 3D (hoy: Mapa, Carta y exportaciones);
+  en la Carta en vivo, dejar a la vista el marco y la cartela (la exportación PNG
+  ya los conserva); arranque «tierra a tinta», poblaciones como puntos y rastro.
 - Oleadas posteriores según las listas priorizadas de C-writing, D1-tools,
   D2-platform y B-campaign.
 

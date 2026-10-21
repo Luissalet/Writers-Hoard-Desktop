@@ -789,8 +789,8 @@ const PENDING_NOTE =
 export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_render_world_map', writes: false,
-    description: `Render a generated world as a portable PNG using the same cartographic materials as the app. Styles: wonder (illustrated parchment), antique (engraving), relief (continuous painted terrain) and survey (night contour chart). Without theme it uses the world's saved look (wh_get_world_presentation), including its layers and relief density. Does not change the geography or saved world. ${PENDING_NOTE}`,
-    schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
+    description: `Render a generated world as a portable PNG using the same cartographic materials as the app. Styles: wonder (illustrated parchment), antique (engraving), relief (continuous painted terrain) and survey (night contour chart). Without theme it uses the world's saved look (wh_get_world_presentation), including its layers, relief density and play grid. readerView renders the reader's-eye map (blank paper where the story has not been, a wash over what is only heard of), optionally only up to readerChapter. Does not change the geography or saved world. ${PENDING_NOTE}`,
+    schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), readerView: { type: 'boolean', description: "Render the reader's-eye map (fog painted with wh_paint_reader_fog)." }, readerChapter: { type: 'integer', minimum: 0, description: "Only the fog strokes revealed up to this chapter (implies readerView)." }, width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
   },
   {
     name: 'wh_get_world_presentation', writes: false,
@@ -806,6 +806,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       skin3D: s('3D surface.', { enum: ['satelite', 'dibujado', 'arcilla'] }),
       reliefAmount: n('Relief symbol density, 0.3 to 2. Default 1.'),
       layers: { type: 'object', description: 'Layers to show (true) or hide (false).', properties: Object.fromEntries(['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'].map((key) => [key, { type: 'boolean' }])), additionalProperties: false },
+      readerStart: s("How the reader's-eye map starts before any fog stroke: blank (default), sketch (all heard of) or ink (all seen).", { enum: ['blank', 'sketch', 'ink'] }),
       grid: { anyOf: [{ type: 'object', properties: { kind: { type: 'string', enum: ['square', 'hex'] }, km: { type: 'number', minimum: 1, maximum: 2000 } }, required: ['kind', 'km'], additionalProperties: false }, { type: 'null' }], description: 'A square or hex play grid over the map, cell size in km; null removes it.' },
       expectedRevision: n('Revision read before changing; a different current revision refuses the write.'),
     }, required: ['worldId'], additionalProperties: false },
@@ -846,7 +847,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_plan_journey', writes: false,
-    description: `Plan a journey on a generated world with the least-time model of the Travel panel: real gradient, ground, roads, rivers, ice and season. Stops are place keys (wh_find_place) or world cells; routes leg by leg through intermediate stops, each leg optionally with its own mode. Pace easy uses 75% of the day, hard 130% plus a rest day after every three. Returns distance, hours, days (rest days included), road share, crossings, realms, climb and where each night falls. Uses the world's travel settings unless profile/pace are given. ${PENDING_NOTE}`,
+    description: `Plan a journey on a generated world with the least-time model of the Travel panel: real gradient, ground, roads, rivers, ice and season. Stops are place keys (wh_find_place) or world cells; routes leg by leg through intermediate stops, each leg optionally with its own mode. Pace easy uses 75% of the day, hard 130% plus a rest day after every six on the move. Returns distance, hours, days (rest days included), road share, crossings, realms, climb, where each night falls and the route's path in cells (pass it as points to wh_paint_reader_fog to mark the way as seen on the reader's map). Uses the world's travel settings unless profile/pace are given. ${PENDING_NOTE}`,
     schema: { type: 'object', properties: {
       worldId: WORLD_ID,
       stops: { type: 'array', minItems: 2, maxItems: 12, description: 'Ordered stops: {place: key} or {x, y} world cells.', items: { type: 'object', properties: { place: PLACE_KEY, x: CELL_X, y: CELL_Y }, additionalProperties: false } },
@@ -1055,6 +1056,42 @@ A picture on the map with an optional name; it adds no settlement to the geograp
         name: s('Optional name written beside it.'),
       },
       required: ['worldId', 'x', 'y', 'glyph'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_paint_reader_fog',
+    description:
+      `Paint the reader's-eye map: mark ground as seen, heard of, or hidden again.
+A brush stroke along the given cells with a radius in cells. It changes nothing in the world itself; it is what the Reader's view, wh_reader_view and wh_render_world_map readerView show. chapter makes the stroke appear only from that chapter on (omit for "from the start"). Strokes apply in order and the last one over a cell wins. Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        op: s('seen (in ink), heard (a sketch under a wash) or hide (blank paper again).', { enum: ['seen', 'heard', 'hide'] }),
+        points: { type: 'array', minItems: 1, maxItems: 500, description: 'World cells along the stroke; one cell paints a disc.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+        radiusCells: { type: 'number', minimum: 0.5, description: 'Brush radius in world cells, default 6.' },
+        chapter: { type: 'integer', minimum: 0, description: 'Chapter from which this stroke is revealed; omit for always.' },
+      },
+      required: ['worldId', 'op', 'points'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_reader_view',
+    description:
+      `What the reader knows of a world's map, up to a chapter.
+Returns the share of the map seen, heard of and hidden, the chapters that reveal something, the saved starting state (readerStart) and, for any cells given, whether each is seen, heard or hidden. Render it with wh_render_world_map readerView.`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        chapter: { type: 'integer', minimum: 0, description: 'Count only the strokes revealed up to this chapter; omit for all.' },
+        cells: { type: 'array', maxItems: 200, items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+      },
+      required: ['worldId'],
       additionalProperties: false,
     },
   },

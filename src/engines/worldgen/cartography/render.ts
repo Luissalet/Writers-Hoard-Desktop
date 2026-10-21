@@ -14,6 +14,7 @@
 // geodesic distance instead of a blurred alpha mask.
 
 import { drawMapGrid, type MapGrid } from './mapGrid';
+import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
 import { scaleCount } from '@/utils/capacity';
 import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
@@ -74,6 +75,8 @@ export const DEFAULT_LAYERS: CartoLayers = {
 export interface CartoOptions {
   /** A square or hex play grid in km, drawn under the lettering. */
   grid?: MapGrid | null;
+  /** The reader's-eye fog, drawn over the lettering (an unseen place has no name yet). */
+  fog?: ReaderFogLayer | null;
   theme: CartoTheme;
   /** Output size in pixels. */
   width: number;
@@ -501,6 +504,11 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
       layers: { roads: L.roads, borders: L.borders, settlements: L.settlements, labels: L.labels },
       typeScale: opts.typeScale,
     });
+  }
+
+  // ---- stage 3b: what the reader has not seen yet --------------------------
+  if (opts.fog) {
+    drawReaderFog(ctx, opts.fog, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, true);
   }
 
   drawFurniture(

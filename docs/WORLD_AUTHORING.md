@@ -102,6 +102,16 @@ handles or exact values, in the atlas, the Carta and the 3D view. Point → Stam
 places one of 32 pictures (settlements, places such as inns, shrines, mills or
 barrows, forts and nature) in three sizes with an optional name; stamps move,
 rename and erase like other painted objects and show in every view.
+The Fog brush (Paint → Reader) marks ground as seen, heard of or hidden again,
+optionally from a chapter on; Ctrl hides. "Reader's view" in the map toolbar
+shows the atlas and the Carta as the reader knows them up to a chosen chapter:
+blank paper where the story has not been, a wash over what is only heard of,
+with names and pointer hits hidden under the paper. How the reader's map starts
+(blank, all heard of, all seen) is saved with the world's look, and the Carta
+PNG export carries the reader's view while it is open. In the Travel panel,
+"Mark the route as seen" paints the planned route into the reader's map with a
+sight radius in km, from a chapter on. The fog changes nothing in the world;
+the 3D view does not draw it.
 
 Graph filters include concrete custom types and descendants. Relation trees
 create connected neighbors in four directions and reconnect edge endpoints;

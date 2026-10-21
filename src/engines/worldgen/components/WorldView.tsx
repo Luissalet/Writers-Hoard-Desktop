@@ -1,4 +1,6 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
+import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
+import type { ReaderFogLayer } from '../cartography/readerFogLayer';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldRuntimeKey } from '../era';
@@ -163,7 +165,7 @@ interface WorldViewProps {
 /** A look as flat fields, so changes are compared and saved one field at a time. */
 function flattenLook(look: WorldPresentation): Record<string, unknown> {
   // The grid is compared and saved whole, as one field.
-  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null };
+  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null, readerStart: look.readerStart };
   for (const [key, value] of Object.entries(look.layers ?? {})) out[`layers.${key}`] = value;
   return out;
 }
@@ -221,6 +223,11 @@ export default function WorldView({
   const [skin3D, setSkin3D] = useState<Skin3D>(savedLook.skin3D);
   /** The play grid over the map (squares or hexes, in km), saved with the look. */
   const [mapGrid, setMapGrid] = useState<MapGrid | null>(savedLook.grid ?? null);
+  /** How the reader's-eye map starts before any fog stroke, saved with the look. */
+  const [readerStart, setReaderStart] = useState<ReaderStart>(savedLook.readerStart);
+  /** The reader's-eye view: on/off, and up to which chapter (null = everything painted). */
+  const [readerView, setReaderView] = useState(false);
+  const [readerChapter, setReaderChapter] = useState<number | null>(null);
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
   const [regionAt, setRegionAt] = useState<{ x: number; y: number; savedId?: string } | null>(null);
   const [savedRegions, setSavedRegions] = useState<SavedWorldRegion[]>(() => world.regions ?? []);
@@ -268,7 +275,8 @@ export default function WorldView({
     reliefAmount: reliefSettled,
     layers: Object.fromEntries(PRESENTATION_LAYERS.map((key) => [key, cartoLayers[key] !== false && (key !== 'borders' || cartoLayers.borders === true)])),
     grid: mapGrid,
-  }), [themeId, skin3D, reliefSettled, cartoLayers, mapGrid]);
+    readerStart,
+  }), [themeId, skin3D, reliefSettled, cartoLayers, mapGrid, readerStart]);
   /** The stored look this view last knew, field by field (layers as "layers.x"). */
   const lookBaseline = useRef(flattenLook(lookToSave));
   const lookRevision = useRef(world.presentationRevision ?? 0);
@@ -279,14 +287,14 @@ export default function WorldView({
     if (revision <= lookRevision.current) return;
     lookRevision.current = revision;
     const resolved = resolvePresentation(world.presentation);
-    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid });
+    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid, readerStart: resolved.readerStart });
     // Adopt what changed elsewhere, but only for fields this view has not
     // changed itself and not yet saved: that choice is still on its way.
     const local = flattenLook(lookLocal.current), base = lookBaseline.current, next: Record<string, unknown> = {};
     for (const key of Object.keys(incoming)) next[key] = local[key] !== base[key] ? local[key] : incoming[key];
     lookBaseline.current = incoming;
     const look = unflattenLook(next);
-    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null);
+    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null); setReaderStart(look.readerStart ?? 'blank');
     setCartoLayers((current) => ({ ...current, ...look.layers }));
   }, [world.presentation, world.presentationRevision]);
   useEffect(() => {
@@ -816,6 +824,24 @@ export default function WorldView({
     return out.length ? out : undefined;
   }, [data, geography, manuscriptLinks]);
 
+  /**
+   * The reader's-eye fog. Shown as paper in the reader's view, and as a light
+   * tint while the author has the fog brush out, so they can see what they
+   * have marked without losing the map under it.
+   */
+  const fogEdits = useMemo(() => {
+    void paintRev;
+    return (session.current?.edits ?? []).filter((edit) => edit.kind === 'fog');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
+  }, [paintRev, data]);
+  const readerChapters = useMemo(() => fogChapters(fogEdits), [fogEdits]);
+  const fogMode: ReaderFogLayer['mode'] | null = readerView ? 'reader' : tool.mode === 'fog' ? 'author' : null;
+  const fogLayer = useMemo<ReaderFogLayer | undefined>(() => {
+    if (!fogMode || !data) return undefined;
+    const mask = fogMask(fogEdits, data.width, data.height, readerStart, fogMode === 'reader' ? readerChapter : null);
+    return { mask, width: data.width, height: data.height, mode: fogMode };
+  }, [fogMode, data, fogEdits, readerStart, readerChapter]);
+
   const annotations: CartoAnnotations | undefined = useMemo(() => {
     const pins: NonNullable<CartoAnnotations['pins']> = [];
     if (journeyFrom) pins.push({ x: journeyFrom.x, y: journeyFrom.y, label: journeyFrom.name, kind: 'from' });
@@ -831,8 +857,9 @@ export default function WorldView({
       title: rg.title,
       active: rg.id === regionAt?.savedId,
     }));
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer) return undefined;
     return {
+      fog: fogLayer,
       pins,
       linked,
       regions: regions.length ? regions : undefined,
@@ -848,7 +875,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1565,6 +1592,10 @@ export default function WorldView({
         title: world.title,
         subtitle: t('worldgen.export.atlasSuffix'),
         typeScale: 1.5,
+        // What the reader sees on screen is what the export carries: the play
+        // grid, and the reader's-eye fog while that view is open.
+        grid: mapGrid,
+        fog: fogLayer?.mode === 'reader' ? fogLayer : null,
       });
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
       // A 4K canvas is where `toBlob` runs out of memory. Returning quietly
@@ -1574,7 +1605,7 @@ export default function WorldView({
     } finally {
       setExporting(false);
     }
-  }, [data, theme, cartoLayers, reliefSettled, geography, world.title, t]);
+  }, [data, theme, cartoLayers, reliefSettled, geography, world.title, t, mapGrid, fogLayer]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -1894,6 +1925,33 @@ export default function WorldView({
                   km
                 </label>
               )}
+            </div>
+          )}
+          {(view === 'map' || view === 'carta') && (
+            <div className="flex items-center gap-1" data-testid="worldgen-reader">
+              <button type="button" data-testid="worldgen-reader-toggle" aria-pressed={readerView}
+                title={t('worldgen.reader.hint')}
+                onClick={() => setReaderView((on) => !on)}
+                className={`border rounded-lg px-2 py-1.5 text-xs transition ${readerView ? 'border-accent-gold/60 text-accent-gold bg-accent-gold/10' : 'border-border text-text-primary bg-elevated hover:border-accent-gold/40'}`}>
+                {t('worldgen.reader.title')}
+              </button>
+              {/* Always laid out, only disabled while the view is closed: opening
+                  it must not reflow the toolbar and move the map under the pointer. */}
+                  <select data-testid="worldgen-reader-chapter" disabled={!readerView} aria-label={t('worldgen.reader.chapter')} title={t('worldgen.reader.chapter')}
+                    value={readerChapter === null ? '' : String(readerChapter)}
+                    onChange={(e) => setReaderChapter(e.target.value === '' ? null : Number(e.target.value))}
+                    className="bg-elevated border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60 disabled:opacity-40">
+                    <option value="">{t('worldgen.reader.allChapters')}</option>
+                    {[...new Set([...readerChapters, ...(readerChapter === null ? [] : [readerChapter])])].sort((a, b) => a - b).map((n) => (
+                      <option key={n} value={n}>{t('worldgen.reader.upTo').replace('{n}', String(n))}</option>
+                    ))}
+                  </select>
+                  <select data-testid="worldgen-reader-start" disabled={!readerView} aria-label={t('worldgen.reader.start')} title={t('worldgen.reader.start')}
+                    value={readerStart}
+                    onChange={(e) => setReaderStart(e.target.value as ReaderStart)}
+                    className="bg-elevated border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60 disabled:opacity-40">
+                    {READER_STARTS.map((start) => <option key={start} value={start}>{t(`worldgen.reader.start.${start}`)}</option>)}
+                  </select>
             </div>
           )}
         </div>
@@ -2390,6 +2448,7 @@ export default function WorldView({
                   onClearVia={() => setJourneyVia([])}
                   onRoute={(route, color) => setJourneyRoute({ route, color })}
                   onTraveller={setTraveller}
+                  onRevealRoute={applyEdit}
                   paleo={paleoState}
                   onPaleo={setPaleoState}
                 />
