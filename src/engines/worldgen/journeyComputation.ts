@@ -30,7 +30,7 @@ export function computeJourneyJob(job: JourneyJob, publish: (reply: JourneyReply
   publish({ type: 'route', route });
   let completed = 0;
   const table = job.compare ? JOURNEY_MODES.map(mode => ({ mode, seasons: JOURNEY_SEASONS.map(season => {
-    const result = mode === job.options.mode && season === job.options.season ? route : planRoute(job.world, job.geography, job.from, job.to, { ...job.options, mode, season }, job.locale);
+    const result = mode === job.options.mode && season === job.options.season && !job.options.legModes ? route : planRoute(job.world, job.geography, job.from, job.to, { ...job.options, mode, season, legModes: undefined }, job.locale);
     publish({ type: 'progress', completed: ++completed }); return result;
   }) })) : null;
   publish({ type: 'done', table });

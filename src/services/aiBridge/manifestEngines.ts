@@ -811,6 +811,39 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
     schema: { type: 'object', properties: { worldId: WORLD_ID, points: { type: 'array', minItems: 2, maxItems: 500, description: 'Points in world cells, in order.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } } }, required: ['worldId', 'points'], additionalProperties: false },
   },
   {
+    name: 'wh_get_world_travel_settings', writes: false,
+    description: 'Read a generated world\'s travel physics (speed factor per way of travelling, cost factor per kind of ground off the road; 1 = built-in) and its usual pace. The Travel panel and wh_plan_journey use them.',
+    schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_set_world_travel_settings', writes: true,
+    description: 'Change a generated world\'s travel physics or usual pace. profile replaces the whole profile ({} restores the built-in physics). Factors go from 0.25 to 4. Saved itineraries keep the settings they were planned with. Undo reverts only fields still holding this call\'s value.',
+    schema: { type: 'object', properties: {
+      worldId: WORLD_ID,
+      profile: { type: 'object', description: 'speed: factor per mode (2 = twice as fast); ground: factor per ground class off the road (2 = twice as slow).', properties: {
+        speed: { type: 'object', properties: Object.fromEntries(['foot', 'horse', 'cart', 'boat', 'ship'].map((key) => [key, { type: 'number', minimum: 0.25, maximum: 4 }])), additionalProperties: false },
+        ground: { type: 'object', properties: Object.fromEntries(['open', 'dry', 'forest', 'jungle', 'marsh', 'mountains', 'ice'].map((key) => [key, { type: 'number', minimum: 0.25, maximum: 4 }])), additionalProperties: false },
+      }, additionalProperties: false },
+      pace: s('Usual pace for new plans.', { enum: ['easy', 'steady', 'hard'] }),
+      expectedRevision: n('Revision read before changing; a different current revision refuses the write.'),
+    }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_plan_journey', writes: false,
+    description: `Plan a journey on a generated world with the least-time model of the Travel panel: real gradient, ground, roads, rivers, ice and season. Stops are place keys (wh_find_place) or world cells; routes leg by leg through intermediate stops, each leg optionally with its own mode. Pace easy uses 75% of the day, hard 130% plus a rest day after every three. Returns distance, hours, days (rest days included), road share, crossings, realms, climb and where each night falls. Uses the world's travel settings unless profile/pace are given. ${PENDING_NOTE}`,
+    schema: { type: 'object', properties: {
+      worldId: WORLD_ID,
+      stops: { type: 'array', minItems: 2, maxItems: 12, description: 'Ordered stops: {place: key} or {x, y} world cells.', items: { type: 'object', properties: { place: PLACE_KEY, x: CELL_X, y: CELL_Y }, additionalProperties: false } },
+      mode: s('Way of travelling.', { enum: ['foot', 'horse', 'cart', 'boat', 'ship'] }),
+      legModes: { type: 'array', description: 'One mode per leg (stops - 1).', items: { type: 'string', enum: ['foot', 'horse', 'cart', 'boat', 'ship'] } },
+      season: s('Season.', { enum: ['spring', 'summer', 'autumn', 'winter'] }),
+      pace: s('Pace; default the world\'s usual pace.', { enum: ['easy', 'steady', 'hard'] }),
+      hoursPerDay: n('Hours of usable daylight per day before pace; default by season.'),
+      profile: { type: 'object', description: 'Override the world\'s travel physics for this plan only (same shape as wh_set_world_travel_settings).' },
+      locale: s('Language of terrain words.', { enum: ['en', 'es'] }),
+    }, required: ['worldId', 'stops'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_worlds',
     description:
       `List generated worlds with their id, seed, edit counts and waypoints.

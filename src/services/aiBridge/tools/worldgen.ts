@@ -878,3 +878,92 @@ export async function whMeasureWorld(args: ToolArgs): Promise<unknown> {
     ...(points.length >= 3 ? { areaKm2: Math.round(polygonAreaKm2(points, width, height)), closedPerimeterKm: round(closedPerimeterKm(points, width, height)) } : {}),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Travel: the world's physics and the planner
+// ---------------------------------------------------------------------------
+
+/** The world's travel physics and usual pace. */
+export async function whGetWorldTravelSettings(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  return { worldId: world.id, revision: world.travelRevision ?? 0, profile: world.travelProfile ?? {}, pace: world.travelPace ?? 'steady' };
+}
+
+/** Change the world's travel physics or usual pace, with optional compare-and-swap. */
+export async function whSetWorldTravelSettings(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const change: { profile?: unknown; pace?: unknown } = {};
+  if (args.profile !== undefined) change.profile = args.profile;
+  if (args.pace !== undefined) change.pace = args.pace === 'steady' ? undefined : args.pace;
+  if (!('profile' in change) && !('pace' in change)) throw new BridgeError('bad-args', 'Nothing to change: pass profile or pace.');
+  const { saveWorldTravelSettings } = await import('@/engines/worldgen/journeyOperations');
+  try {
+    const receipt = await saveWorldTravelSettings({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id, change, optNumber(args, 'expectedRevision'));
+    return withAudit(
+      { worldId: world.id, revision: receipt.revision, profile: receipt.to.profile ?? {}, pace: receipt.to.pace ?? 'steady' },
+      { projectId: world.projectId, entityId: world.id, summary: `changed travel settings of world "${world.title}"`, before: { __worldTravelSettings: receipt } },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new BridgeError(/changed \(revision/.test(message) ? 'conflict' : /no longer belongs/.test(message) ? 'not-found' : 'bad-args', message);
+  }
+}
+
+/**
+ * Plan a journey with the same least-time model as the Travel panel: modes,
+ * seasons, pace, per-leg modes and the world's own travel physics.
+ */
+export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { planRoute, normalizeTravelProfile, TRAVEL_PACES, effectiveHoursPerDay } = await import('@/engines/worldgen/core/travel');
+  const modes = ['foot', 'horse', 'cart', 'boat', 'ship'] as const, seasons = ['spring', 'summer', 'autumn', 'winter'] as const;
+  const mode = optEnum(args, 'mode', modes) ?? 'foot', season = optEnum(args, 'season', seasons) ?? 'summer';
+  if (args.mode !== undefined && args.mode !== mode) throw new BridgeError('bad-args', `mode must be one of ${modes.join(', ')}.`);
+  if (args.season !== undefined && args.season !== season) throw new BridgeError('bad-args', `season must be one of ${seasons.join(', ')}.`);
+  const pace = args.pace === undefined ? world.travelPace : optEnum(args, 'pace', TRAVEL_PACES);
+  if (args.pace !== undefined && args.pace !== pace) throw new BridgeError('bad-args', `pace must be one of ${TRAVEL_PACES.join(', ')}.`);
+  let profile;
+  try { profile = normalizeTravelProfile(args.profile !== undefined ? args.profile : world.travelProfile); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+  const raw = args.stops;
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > 12) throw new BridgeError('bad-args', 'stops must be 2 to 12 items: {place: key} or {x, y} world cells.');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { data, atlas, geo } = opened.world;
+  const stops = raw.map((stop, index) => {
+    const s = stop as Record<string, unknown>;
+    if (typeof s?.place === 'string') {
+      const place = atlas.byKey.get(s.place);
+      if (!place) throw new BridgeError('not-found', `stops[${index}]: no place "${s.place}"; use wh_find_place for keys.`);
+      return { x: place.x, y: place.y, name: place.name };
+    }
+    if (typeof s?.x === 'number' && typeof s?.y === 'number' && Number.isFinite(s.x) && Number.isFinite(s.y)) {
+      if (s.y < 0 || s.y >= data.height) throw new BridgeError('bad-args', `stops[${index}].y must be within the world grid.`);
+      return { x: ((Math.round(s.x) % data.width) + data.width) % data.width, y: Math.round(s.y), name: `${Math.round(s.x)},${Math.round(s.y)}` };
+    }
+    throw new BridgeError('bad-args', `stops[${index}] must be {place} or {x, y}.`);
+  });
+  let legModes: (typeof modes[number])[] | undefined;
+  if (args.legModes !== undefined) {
+    if (!Array.isArray(args.legModes) || args.legModes.length !== stops.length - 1 || !args.legModes.every(item => (modes as readonly unknown[]).includes(item))) throw new BridgeError('bad-args', `legModes must list ${stops.length - 1} modes, one per leg.`);
+    legModes = args.legModes as (typeof modes[number])[];
+  }
+  const hoursPerDay = optNumber(args, 'hoursPerDay');
+  if (hoursPerDay !== undefined && (hoursPerDay <= 0 || hoursPerDay > 24)) throw new BridgeError('bad-args', 'hoursPerDay must be more than 0 and at most 24.');
+  const options = { mode, season, ...(pace && pace !== 'steady' ? { pace } : {}), ...(legModes ? { legModes } : {}), ...(Object.keys(profile).length ? { profile } : {}), ...(hoursPerDay ? { hoursPerDay } : {}), via: stops.slice(1, -1).map(({ x, y }) => ({ x, y })) };
+  const locale = optEnum(args, 'locale', ['es', 'en'] as const) ?? 'en';
+  const route = planRoute(data, geo, stops[0], stops[stops.length - 1], options, locale);
+  if (route.impossible) return { worldId: world.id, impossible: route.impossible, stops: stops.map(stop => stop.name) };
+  const r = (value: number, places = 1) => Math.round(value * 10 ** places) / 10 ** places;
+  return {
+    worldId: world.id,
+    stops: stops.map(stop => stop.name),
+    mode, season, pace: pace ?? 'steady', legModes: legModes ?? null,
+    hoursPerDay: r(effectiveHoursPerDay(options), 2),
+    km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0,
+    roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
+    crossings: route.crossings.length, realms: route.realms,
+    terrain: route.legs.slice(0, 8).map(leg => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad })),
+    nights: route.stages.slice(0, 60).map(stage => ({ night: stage.night, x: Math.round(stage.x), y: Math.round(stage.y), rough: stage.rough, terrain: stage.terrain, nearest: stage.nearest ? { name: stage.nearest.name, km: r(stage.nearest.km) } : null })),
+  };
+}

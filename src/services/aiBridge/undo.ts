@@ -90,6 +90,13 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: result.reverted.length > 0, kind, entityId, what: summary, caveat: result.kept.length ? `Changed again since, kept as they are: ${result.kept.join(', ')}.` : undefined };
   }
 
+  if (entry.tool === 'wh_set_world_travel_settings' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__worldTravelSettings' in entry.before) {
+    const { revertWorldTravelSettings } = await import('@/engines/worldgen/journeyOperations');
+    const receipt = (entry.before as { __worldTravelSettings: import('@/engines/worldgen/journeyOperations').TravelSettingsReceipt }).__worldTravelSettings;
+    const result = await revertWorldTravelSettings({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined }, entityId, receipt);
+    return { undone: result.reverted.length > 0, kind, entityId, what: summary, caveat: result.kept.length ? `Changed again since, kept as they are: ${result.kept.join(', ')}.` : undefined };
+  }
+
   if (entry.tool === 'wh_project_duplicate' && entry.before && typeof entry.before === 'object') {
     const operationId = (entry.before as Record<string, unknown>).__projectDuplicateOperation;
     if (typeof operationId !== 'string') throw new BridgeError('cannot-undo', 'Project duplicate receipt is missing.');

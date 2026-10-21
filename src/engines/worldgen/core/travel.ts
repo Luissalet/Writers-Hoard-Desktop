@@ -60,8 +60,93 @@ export interface TravelOptions {
   via?: { x: number; y: number }[];
   /** Hours of travel per day. Left undefined, it follows the season. */
   hoursPerDay?: number;
+  /**
+   * How hard the party pushes: easy keeps long rests, hard rides like a
+   * messenger and needs a rest day every few days. Absent = steady, as before.
+   */
+  pace?: TravelPace;
+  /** One mode per leg between consecutive stops; missing entries use `mode`. */
+  legModes?: TravelMode[];
+  /** The author's own speeds and ground costs; absent = the built-in physics. */
+  profile?: TravelProfile;
   /** Planet radius, for honest distances. */
   planetRadiusKm?: number;
+}
+
+export type TravelPace = 'easy' | 'steady' | 'hard';
+export const TRAVEL_PACES: TravelPace[] = ['easy', 'steady', 'hard'];
+/** Share of the day's usable hours actually spent moving. */
+export const PACE_HOURS: Record<TravelPace, number> = { easy: 0.75, steady: 1, hard: 1.3 };
+/** A hard pace spends a full day resting after this many days on the move. */
+export const HARD_PACE_REST_EVERY = 3;
+
+/** Kinds of open country, as the author thinks of them, each with its own cost. */
+export type GroundClass = 'open' | 'dry' | 'forest' | 'jungle' | 'marsh' | 'mountains' | 'ice';
+export const GROUND_CLASSES: GroundClass[] = ['open', 'dry', 'forest', 'jungle', 'marsh', 'mountains', 'ice'];
+
+/**
+ * The author's travel physics. Multipliers over the built-in model, so the
+ * least-time search, the seasons and the gradients keep working: speed 1.2
+ * makes that mode 20% faster everywhere, ground 2 makes that country twice as
+ * slow to cross off the road. Absent keys are 1.
+ */
+export interface TravelProfile {
+  speed?: Partial<Record<TravelMode, number>>;
+  ground?: Partial<Record<GroundClass, number>>;
+}
+export const TRAVEL_FACTOR_RANGE = { min: 0.25, max: 4 } as const;
+
+/** Validates a profile; unknown keys and out-of-range factors are refused. */
+export function normalizeTravelProfile(input: unknown): TravelProfile {
+  if (input === undefined || input === null) return {};
+  if (typeof input !== 'object' || Array.isArray(input)) throw new Error('Travel profile must be an object.');
+  const raw = input as Record<string, unknown>, out: TravelProfile = {};
+  for (const key of Object.keys(raw)) if (key !== 'speed' && key !== 'ground') throw new Error(`Unknown travel profile field "${key}".`);
+  const table = <K extends string>(value: unknown, keys: readonly K[], what: string): Partial<Record<K, number>> | undefined => {
+    if (value === undefined) return undefined;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${what} must be an object of factors.`);
+    const result: Partial<Record<K, number>> = {};
+    for (const [key, factor] of Object.entries(value as Record<string, unknown>)) {
+      if (!keys.includes(key as K)) throw new Error(`Unknown ${what} "${key}".`);
+      if (typeof factor !== 'number' || !Number.isFinite(factor) || factor < TRAVEL_FACTOR_RANGE.min || factor > TRAVEL_FACTOR_RANGE.max) throw new Error(`${what} "${key}" must be from ${TRAVEL_FACTOR_RANGE.min} to ${TRAVEL_FACTOR_RANGE.max}.`);
+      if (factor !== 1) result[key as K] = Math.round(factor * 100) / 100;
+    }
+    return Object.keys(result).length ? result : undefined;
+  };
+  const speed = table(raw.speed, ['foot', 'horse', 'cart', 'boat', 'ship'] as const, 'speed');
+  const ground = table(raw.ground, GROUND_CLASSES, 'ground');
+  if (speed) out.speed = speed;
+  if (ground) out.ground = ground;
+  return out;
+}
+
+const GROUND_OF: Partial<Record<number, GroundClass>> = {
+  [Biome.Grassland]: 'open', [Biome.Savanna]: 'open', [Biome.Steppe]: 'open', [Biome.Shrubland]: 'open', [Biome.Chaparral]: 'open',
+  [Biome.AlpineMeadow]: 'open', [Biome.Beach]: 'open', [Biome.Moor]: 'open', [Biome.Tundra]: 'open', [Biome.Puna]: 'open',
+  [Biome.Desert]: 'dry', [Biome.Erg]: 'dry', [Biome.Reg]: 'dry', [Biome.Badlands]: 'dry', [Biome.SaltFlat]: 'dry',
+  [Biome.FogDesert]: 'dry', [Biome.ColdDesert]: 'dry', [Biome.AshPlain]: 'dry', [Biome.ThornScrub]: 'dry',
+  [Biome.TemperateForest]: 'forest', [Biome.TemperateRainforest]: 'forest', [Biome.BorealForest]: 'forest',
+  [Biome.MontaneForest]: 'forest', [Biome.RiparianForest]: 'forest',
+  [Biome.TropicalRainforest]: 'jungle', [Biome.TropicalForest]: 'jungle', [Biome.MonsoonForest]: 'jungle',
+  [Biome.CloudForest]: 'jungle', [Biome.Bamboo]: 'jungle', [Biome.Mangrove]: 'jungle',
+  [Biome.Marsh]: 'marsh', [Biome.PeatBog]: 'marsh', [Biome.SaltMarsh]: 'marsh',
+  [Biome.Alpine]: 'mountains', [Biome.Karst]: 'mountains', [Biome.Volcanic]: 'mountains',
+  [Biome.Glacier]: 'ice', [Biome.IceCap]: 'ice',
+};
+/** Which ground class a biome belongs to, for the author's cost table. */
+export function groundClassOf(biome: number): GroundClass | undefined { return GROUND_OF[biome]; }
+function speedFactor(opts: TravelOptions, mode: TravelMode): number { return opts.profile?.speed?.[mode] ?? 1; }
+function groundFactor(opts: TravelOptions, biome: number): number { const g = GROUND_OF[biome]; return g ? opts.profile?.ground?.[g] ?? 1 : 1; }
+
+/** The hours actually spent moving each day: the season's (or the author's) daylight times the pace. */
+export function effectiveHoursPerDay(opts: Pick<TravelOptions, 'season' | 'hoursPerDay' | 'pace'>): number {
+  const base = Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay! : SEASON_HOURS[opts.season];
+  return base * PACE_HOURS[opts.pace ?? 'steady'];
+}
+/** Rest days a hard pace adds to a journey of this many days on the move. */
+export function paceRestDays(pace: TravelPace | undefined, travelDays: number): number {
+  if (pace !== 'hard' || !(travelDays > 0)) return 0;
+  return Math.floor(Math.max(0, Math.ceil(travelDays - 1e-9) - 1) / HARD_PACE_REST_EVERY);
 }
 
 export interface RouteLeg {
@@ -119,6 +204,8 @@ export interface Route {
   ascentM: number;
   /** Set when no route exists for this mode — a cart cannot cross an ocean. */
   impossible?: string;
+  /** Full days of rest the pace required, already included in `days`. */
+  restDays?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +414,7 @@ function cellCost(
       // terminal access steps never turn dry coastal land into a waterway.
       const shore = fromWater ? to : from;
       if (fromWater !== toWater && terminals.has(shore) && !isSea(world, shore) && !isLake(world, shore)) {
-        return { hours: km / BASE_KMH.foot.off, onRoad: false };
+        return { hours: km / (BASE_KMH.foot.off * speedFactor(opts, 'foot')), onRoad: false };
       }
       return { hours: Infinity, onRoad: false };
     }
@@ -348,7 +435,7 @@ function cellCost(
     const along = (world.currentU[to] * dx + world.currentV[to] * dy) / len;
     const help = Math.max(0.62, Math.min(1.5, 1 + along * 0.42));
     const drag = 1 + ice * 1.6;
-    return { hours: km / (BASE_KMH.ship.road * help / drag), onRoad: false };
+    return { hours: km / (BASE_KMH.ship.road * speedFactor(opts, 'ship') * help / drag), onRoad: false };
   }
 
   if (mode === 'boat') {
@@ -356,7 +443,7 @@ function cellCost(
     // Flat lakes and coastal water have no upstream/downstream penalty.
     const flowing = !isSea(world, to) && !isLake(world, to) && !isLake(world, from);
     const downhill = world.elevation[to] < world.elevation[from];
-    const kmh = BASE_KMH.boat.road * (flowing ? (downhill ? 1.45 : 0.62) : 1);
+    const kmh = BASE_KMH.boat.road * speedFactor(opts, 'boat') * (flowing ? (downhill ? 1.45 : 0.62) : 1);
     return { hours: km / kmh, onRoad: false };
   }
 
@@ -364,16 +451,16 @@ function cellCost(
   if (mode === 'cart' && !road) {
     // Not forbidden — just very slow, so a cart will go a long way round to stay
     // on a road, which is the correct behaviour and produces the correct answer.
-    const drag = (BIOME_DRAG[b] ?? 1.5) * 2.2;
+    const drag = (BIOME_DRAG[b] ?? 1.5) * 2.2 * groundFactor(opts, b);
     const grade = gradePenalty(world, from, to, km);
     if (grade > 4) return { hours: Infinity, onRoad: false };
-    const kmh = BASE_KMH.cart.off / (drag * grade * seasonFactor(world, to, opts.season, b));
+    const kmh = BASE_KMH.cart.off * speedFactor(opts, 'cart') / (drag * grade * seasonFactor(world, to, opts.season, b));
     return { hours: km / kmh, onRoad: false };
   }
 
-  const drag = road ? (roads[to] === 2 ? 1 : 1.12) : (BIOME_DRAG[b] ?? 1.4);
+  const drag = road ? (roads[to] === 2 ? 1 : 1.12) : (BIOME_DRAG[b] ?? 1.4) * groundFactor(opts, b);
   const grade = gradePenalty(world, from, to, km);
-  const base = road ? BASE_KMH[mode].road : BASE_KMH[mode].off;
+  const base = (road ? BASE_KMH[mode].road : BASE_KMH[mode].off) * speedFactor(opts, mode);
   const kmh = base / (drag * grade * seasonFactor(world, to, opts.season, b));
   return { hours: km / kmh, onRoad: road };
 }
@@ -489,10 +576,17 @@ function solveRoute(
   to: { x: number; y: number },
   opts: TravelOptions,
 ): Route {
+  const pace = opts.pace;
   opts = {
     ...opts,
-    hoursPerDay: Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay : SEASON_HOURS[opts.season],
+    // The pace scales the hours on the move; the rest days are added once, at the end.
+    hoursPerDay: effectiveHoursPerDay(opts),
+    pace: undefined,
     planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371,
+  };
+  const withRest = (route: Route): Route => {
+    const restDays = paceRestDays(pace, route.days);
+    return restDays && !route.impossible ? { ...route, days: route.days + restDays, restDays } : route;
   };
   // "By way of X" is a chain of journeys, not one journey with a hint. Each leg
   // is solved on its own and the results are welded; a single search with a
@@ -501,13 +595,16 @@ function solveRoute(
   if (opts.via && opts.via.length) {
     const points = [from, ...opts.via, to];
     const legsOut: Route[] = [];
+    const modes: TravelMode[] = [];
     for (let k = 0; k < points.length - 1; k++) {
-      const leg = planRoute(world, geo, points[k], points[k + 1], { ...opts, via: undefined });
+      const mode = opts.legModes?.[k] ?? opts.mode;
+      const leg = solveRoute(world, geo, points[k], points[k + 1], { ...opts, mode, via: undefined, legModes: undefined });
       if (leg.impossible) return leg;
-      legsOut.push(leg);
+      legsOut.push(leg); modes.push(mode);
     }
-    return weldRoutes(world, geo, legsOut, opts);
+    return withRest(weldRoutes(world, geo, legsOut, opts, modes));
   }
+  if (opts.legModes?.[0] && opts.legModes[0] !== opts.mode) opts = { ...opts, mode: opts.legModes[0] };
   const W = world.width, H = world.height, N = W * H;
   const metric = travelMetric(world, opts.planetRadiusKm!);
   const roads = roadMask(world, geo);
@@ -523,7 +620,8 @@ function solveRoute(
   // a planar/base-speed heuristic overestimated at high latitudes and could
   // permanently close a cell before its quickest approach was considered.
   const boost = opts.mode === 'ship' ? 1.5 : opts.mode === 'boat' ? 1.45 : opts.season === 'winter' ? 1 / 0.42 : 1;
-  const fastest = Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off) * boost;
+  const minGround = Math.min(1, ...Object.values(opts.profile?.ground ?? {}));
+  const fastest = Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off / minGround) * speedFactor(opts, opts.mode) * boost;
   const heur = (i: number) => greatCircleKm(world, i, goal, metric.radius) / fastest;
 
   const dist = new Float64Array(N).fill(Infinity);
@@ -607,7 +705,7 @@ function solveRoute(
   const hours = dist[goal];
   const hpd = opts.hoursPerDay ?? SEASON_HOURS[opts.season];
   const profile = elevationProfile(world, cells);
-  return {
+  return withRest({
     cells,
     km,
     hours,
@@ -621,7 +719,7 @@ function solveRoute(
     stages: findStages(world, geo, roads, cells, metric, hpd, opts, terminals),
     realms: realmsAlong(world, geo, cells),
     ...profile,
-  };
+  });
 }
 
 /**
@@ -635,6 +733,8 @@ function solveRoute(
 function findStages(
   world: WorldData, geo: TravelGeography, roads: Uint8Array,
   cells: number[], metric: TravelMetric, hoursPerDay: number, opts: TravelOptions, terminals: ReadonlySet<number>,
+  /** For a journey whose legs travel differently: the mode of the step ending at each cell index. */
+  stepModes?: TravelMode[],
 ): RouteStage[] {
   const W = world.width;
   const out: RouteStage[] = [];
@@ -647,7 +747,7 @@ function findStages(
   let acc = 0, accKm = 0, night = 1;
   for (let k = 1; k < cells.length && night < 400; k++) {
     const a = cells[k - 1], b = cells[k];
-    const c = cellCost(world, roads, a, b, metric, opts, terminals);
+    const c = cellCost(world, roads, a, b, metric, stepModes?.[k] && stepModes[k] !== opts.mode ? { ...opts, mode: stepModes[k] } : opts, terminals);
     if (!isFinite(c.hours)) continue;
     const stepKm = stepDistance(world, metric, a, b);
 
@@ -684,7 +784,7 @@ function findStages(
       const ci = Math.min(world.height - 1, Math.max(0, Math.round(y))) * W + Math.round(x) % W;
       const onRoad = roads[ci] > 0;
       const inRealm = geo.realmOf[ci] >= 0;
-      const roofKm = opts.mode === 'horse' ? 8 : 5;
+      const roofKm = (stepModes?.[k] ?? opts.mode) === 'horse' ? 8 : 5;
       const rough = !(best && best.km <= roofKm) && !(onRoad && inRealm);
 
       out.push({
@@ -756,12 +856,13 @@ function elevationProfile(
  */
 /** Join consecutive legs into one journey, without double-counting the joints. */
 function weldRoutes(
-  world: WorldData, geo: TravelGeography, parts: Route[], opts: TravelOptions,
+  world: WorldData, geo: TravelGeography, parts: Route[], opts: TravelOptions, modes?: TravelMode[],
 ): Route {
   const cells: number[] = [];
-  for (const p of parts) {
-    for (let k = cells.length ? 1 : 0; k < p.cells.length; k++) cells.push(p.cells[k]);
-  }
+  const stepModes: TravelMode[] = [];
+  parts.forEach((p, part) => {
+    for (let k = cells.length ? 1 : 0; k < p.cells.length; k++) { cells.push(p.cells[k]); stepModes.push(modes?.[part] ?? opts.mode); }
+  });
   const hpd = opts.hoursPerDay ?? SEASON_HOURS[opts.season];
   const km = parts.reduce((a, p) => a + p.km, 0);
   const hours = parts.reduce((a, p) => a + p.hours, 0);
@@ -772,7 +873,7 @@ function weldRoutes(
   // solved in pieces there.
   const metric = travelMetric(world, opts.planetRadiusKm ?? 6371);
   const terminals = new Set(parts.flatMap(part => [part.cells[0], part.cells[part.cells.length - 1]]));
-  const stages = findStages(world, geo, roadMask(world, geo), cells, metric, hpd, opts, terminals);
+  const stages = findStages(world, geo, roadMask(world, geo), cells, metric, hpd, opts, terminals, modes && new Set(modes).size > 1 ? stepModes : undefined);
   const profile = elevationProfile(world, cells);
   const realms: string[] = [];
   for (const p of parts) for (const n of p.realms) if (realms[realms.length - 1] !== n) realms.push(n);
