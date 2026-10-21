@@ -48,13 +48,52 @@ export function fogChapters(edits: readonly WorldEdit[]): number[] {
 }
 
 /**
- * A "seen" stroke along a route: what the party saw on the way, within a sight
- * radius. Cells are world indices; the points are thinned to no more than half
- * the radius apart, and a step that jumps the seam is unwrapped so the stroke
- * stays one continuous line.
+ * Pieces of a long line, each short enough to be one brush stroke.
+ *
+ * A stroke's points are unwrapped against its FIRST point, so a line running
+ * more than half way round the planet would fold back across the whole sheet.
+ * The points are first unwrapped against each other (so a seam crossing stays
+ * continuous), then cut into pieces no wider than a quarter of the world,
+ * sharing their joining point.
  */
-export function routeFogEdit(cells: readonly number[], width: number, radiusCells: number, chapter: number | null = null): WorldEdit | null {
-  if (!cells.length || width < 1 || !(radiusCells > 0)) return null;
+export function splitLongLine(points: readonly { x: number; y: number }[], width: number): { x: number; y: number }[][] {
+  if (!points.length) return [];
+  const line: { x: number; y: number }[] = [];
+  for (const p of points) {
+    let x = p.x;
+    if (line.length) {
+      const prev = line[line.length - 1].x;
+      while (x - prev > width / 2) x -= width;
+      while (x - prev < -width / 2) x += width;
+    }
+    line.push({ x, y: p.y });
+  }
+  const limit = Math.max(1, width / 4);
+  const pieces: { x: number; y: number }[][] = [];
+  let piece: { x: number; y: number }[] = [line[0]];
+  for (let k = 1; k < line.length; k++) {
+    const p = line[k];
+    if (Math.abs(p.x - piece[0].x) > limit && piece.length > 1) {
+      pieces.push(piece);
+      piece = [piece[piece.length - 1]];
+    }
+    piece.push(p);
+  }
+  pieces.push(piece);
+  // Each piece back on the sheet near its own start, so stored points stay in range.
+  return pieces.map((pts) => {
+    const shift = Math.floor(pts[0].x / width) * width;
+    return pts.map((q) => ({ x: q.x - shift, y: q.y }));
+  });
+}
+
+/**
+ * "Seen" strokes along a route: what the party saw on the way, within a sight
+ * radius. Cells are world indices; the points are thinned to no more than half
+ * the radius apart, and a long route becomes several strokes (see `splitLongLine`).
+ */
+export function routeFogEdits(cells: readonly number[], width: number, radiusCells: number, chapter: number | null = null): WorldEdit[] {
+  if (!cells.length || width < 1 || !(radiusCells > 0)) return [];
   const step = Math.max(1, radiusCells / 2);
   const pts: { x: number; y: number }[] = [];
   let prevX = 0, keptX = 0, keptY = 0;
@@ -63,7 +102,6 @@ export function routeFogEdit(cells: readonly number[], width: number, radiusCell
     let x = (i % width) + 0.5;
     const y = Math.floor(i / width) + 0.5;
     if (k > 0) {
-      // Unwrapped against the previous cell, so a seam crossing stays continuous.
       while (x - prevX > width / 2) x -= width;
       while (x - prevX < -width / 2) x += width;
     }
@@ -73,6 +111,13 @@ export function routeFogEdit(cells: readonly number[], width: number, radiusCell
       keptX = x; keptY = y;
     }
   }
-  const stroke = { pts, radius: radiusCells, strength: 1, softness: 0.35 };
-  return chapter === null ? { kind: 'fog', op: 'seen', stroke } : { kind: 'fog', op: 'seen', stroke, chapter };
+  return fogStrokeEdits(pts, width, 'seen', radiusCells, chapter);
+}
+
+/** One fog edit per piece of a line (see `splitLongLine`). */
+export function fogStrokeEdits(points: readonly { x: number; y: number }[], width: number, op: FogOp, radiusCells: number, chapter: number | null = null): WorldEdit[] {
+  return splitLongLine(points, width).map((pts): WorldEdit => {
+    const stroke = { pts, radius: radiusCells, strength: 1, softness: 0.35 };
+    return chapter === null ? { kind: 'fog', op, stroke } : { kind: 'fog', op, stroke, chapter };
+  });
 }

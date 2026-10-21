@@ -110,8 +110,19 @@ with names and pointer hits hidden under the paper. How the reader's map starts
 (blank, all heard of, all seen) is saved with the world's look, and the Carta
 PNG export carries the reader's view while it is open. In the Travel panel,
 "Mark the route as seen" paints the planned route into the reader's map with a
-sight radius in km, from a chapter on. The fog changes nothing in the world;
-the 3D view does not draw it.
+sight radius in km, from a chapter on; a long route is stored as several
+strokes so it never folds across the sheet. The fog changes nothing in the
+world; the 3D view does not draw it (the fog and event tools say so there).
+The Events tool (Paint → Reader) puts story events on the map: a kind (fight,
+find, meeting, rest, change, travelling, camp, inn, other), a title, a chapter
+and planned or happened; a click places the next one, picking one edits it in
+the inspector (title and note are saved when the field is left), dragging moves
+it, and the list shows the story so far by chapter. The Reader's view marks the
+events that have happened by its chapter and hides the planned route, journey
+pins, banner and other author marks. In the curved projections (Robinson,
+Mollweide, azimuthal) the atlas draws the fog and events through the
+projection; the play grid, route and banner show on the equirectangular and
+Mercator atlas and on the Carta.
 
 Graph filters include concrete custom types and descendants. Relation trees
 create connected neighbors in four directions and reconnect edge endpoints;

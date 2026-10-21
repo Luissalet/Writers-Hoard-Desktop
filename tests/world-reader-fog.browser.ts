@@ -7,7 +7,7 @@ import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
 import { deserializeEdits, serializeEdits, type WorldEdit } from '@/engines/worldgen/core/edits';
 import { commitPaintStroke, type PaintSpec } from '@/engines/worldgen/core/paintCommit';
-import { FOG_HEARD, FOG_HIDDEN, FOG_SEEN, fogChapters, fogMask, fogShares, routeFogEdit } from '@/engines/worldgen/core/readerFog';
+import { FOG_HEARD, FOG_HIDDEN, FOG_SEEN, fogChapters, fogMask, fogShares, routeFogEdits } from '@/engines/worldgen/core/readerFog';
 import { drawReaderFog, fogHides } from '@/engines/worldgen/cartography/readerFogLayer';
 import { drawAnnotations } from '@/engines/worldgen/cartography/annotations';
 import { resolvePresentation, revertWorldPresentation, saveWorldPresentation } from '@/engines/worldgen/presentation';
@@ -42,10 +42,14 @@ export async function testReaderFog(): Promise<string[]> {
     assert(JSON.stringify(fogChapters(edits)) === '[2,5]', 'Chapters list');
     // Along a route: thinned points, seam unwrapped, the whole corridor seen.
     const route = [...Array.from({ length: 10 }, (_, k) => 20 * W + 54 + k), ...Array.from({ length: 10 }, (_, k) => 20 * W + k)];
-    const along = routeFogEdit(route, W, 4, 4);
-    assert(along?.kind === 'fog' && along.op === 'seen' && along.chapter === 4 && along.stroke.pts.length < route.length && along.stroke.pts.every((p, k, a) => k === 0 || Math.abs(p.x - a[k - 1].x) < W / 2), `Route stroke ${JSON.stringify(along)}`);
-    const corridor = fogMask([along!], W, H, 'blank', 4);
-    assert([54, 58, 63, 0, 5, 9].every((x) => at(corridor, x, 20) === FOG_SEEN) && at(corridor, 30, 20) === FOG_HIDDEN && at(fogMask([along!], W, H, 'blank', 3), 58, 20) === FOG_HIDDEN, 'Route corridor');
+    const along = routeFogEdits(route, W, 4, 4);
+    assert(along.length >= 1 && along.every((e) => e.kind === 'fog' && e.op === 'seen' && e.chapter === 4) && along.reduce((n, e) => n + (e.kind === 'fog' ? e.stroke.pts.length : 0), 0) < route.length + along.length, `Route strokes ${JSON.stringify(along)}`);
+    const corridor = fogMask(along, W, H, 'blank', 4);
+    assert([54, 58, 63, 0, 5, 9].every((x) => at(corridor, x, 20) === FOG_SEEN) && at(corridor, 30, 20) === FOG_HIDDEN && at(fogMask(along, W, H, 'blank', 3), 58, 20) === FOG_HIDDEN, 'Route corridor');
+    // A route three quarters of the way round must not fold across the sheet.
+    const long = Array.from({ length: 48 }, (_, k) => 8 * W + k);
+    const longMask = fogMask(routeFogEdits(long, W, 2), W, H);
+    assert(at(longMask, 24, 8) === FOG_SEEN && at(longMask, 56, 8) === FOG_HIDDEN && at(longMask, 60, 8) === FOG_HIDDEN, 'A long route folded across the sheet');
     // Storage: round-trips; a bad op or chapter costs only that edit.
     const back = deserializeEdits(serializeEdits(edits));
     assert(back.length === 4 && back[1].kind === 'fog' && back[1].chapter === 2, 'Round trip');

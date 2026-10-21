@@ -19,6 +19,7 @@
 // would make the tool unusable.
 
 import { normalizeLabelChange } from './labelShape';
+import { normalizeStoryEvent, type StoryEvent } from './storyEvents';
 import { isStampGlyph } from '../cartography/stampGlyphs';
 import { Biome, type BiomeId, type WorldData } from './types';
 import { classifyBiomes } from './biomes';
@@ -180,6 +181,10 @@ export type WorldEdit =
    * Read by `core/readerFog.ts` only — it changes nothing in the world itself.
    */
   | { kind: 'fog'; op: 'seen' | 'heard' | 'hide'; stroke: Stroke; chapter?: number }
+  /** A story event on the map, whole, under its id (`core/storyEvents.ts`); a later one replaces it. */
+  | ({ kind: 'story' } & StoryEvent)
+  /** Take a story event off the map. */
+  | { kind: 'storyRemove'; id: string }
   /** Remove painted markers and labels within a radius. */
   | { kind: 'eraseMarkers'; x: number; y: number; radius: number }
   /**
@@ -1222,6 +1227,12 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     if (f.op !== 'seen' && f.op !== 'heard' && f.op !== 'hide') return false;
     if (f.chapter !== undefined && !(typeof f.chapter === 'number' && Number.isInteger(f.chapter) && f.chapter >= 0)) return false;
   }
+  if ((e as { kind: string }).kind === 'story') {
+    const record: Record<string, unknown> = { ...(e as Record<string, unknown>) };
+    delete record.kind;
+    try { normalizeStoryEvent(record); return true; } catch { return false; }
+  }
+  if ((e as { kind: string }).kind === 'storyRemove') return typeof (e as { id?: unknown }).id === 'string';
   if ('stroke' in e) {
     const stroke = (e as { stroke?: unknown }).stroke;
     return !!stroke && typeof stroke === 'object' && points((stroke as { pts?: unknown }).pts);

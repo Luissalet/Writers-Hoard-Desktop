@@ -1019,7 +1019,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_wiki_profile_publish', 'wh_wiki_profile_restore_config',
   'wh_capture_map_version', 'wh_link_map_version',
   'wh_set_world_presentation', 'wh_set_world_travel_settings',
-  'wh_update_label', 'wh_add_stamp', 'wh_paint_reader_fog',
+  'wh_update_label', 'wh_add_stamp', 'wh_paint_reader_fog', 'wh_add_story_event', 'wh_update_story_event', 'wh_remove_story_event',
 ];
 
 // Receipt-based recovery, like audit Undo, stays usable after switching a tab off.
@@ -1218,6 +1218,9 @@ async function buildGuardProbes(
       ['wh_update_label', { worldId, key: 'label:1,1', curve: 0.2 }],
       ['wh_add_stamp', { worldId, x: 1, y: 1, glyph: 'inn' }],
       ['wh_paint_reader_fog', { worldId, op: 'seen', points: [{ x: 1, y: 1 }] }],
+      ['wh_add_story_event', { worldId, x: 1, y: 1, title: 'x' }],
+      ['wh_update_story_event', { worldId, id: 'x', title: 'y' }],
+      ['wh_remove_story_event', { worldId, id: 'x' }],
       ['wh_set_world_presentation', { worldId, theme: 'antique' }],
       ['wh_set_world_travel_settings', { worldId, pace: 'hard' }],
       ['wh_capture_map_version', { mapId, name: 'x' }],

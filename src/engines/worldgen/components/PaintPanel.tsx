@@ -8,6 +8,8 @@ import type { SettlementRank } from '../core/settlements';
 import type { BrushTip, Falloff, LandOp, PaintFilter, TerrainOp } from '../core/edits';
 import type { PointKind } from '../core/paintCommit';
 import { FOG_OPS, type FogOp } from '../core/readerFog';
+import StoryEditor from './StoryEditor';
+import type { StoryEvent, StoryStatus, StoryType } from '../core/storyEvents';
 export type { PointKind };
 import { biomeName } from '../core/gazetteer';
 import { biomeLocaleKey } from '../core/biomeKeys';
@@ -68,7 +70,9 @@ export type PaintMode =
   | 'labels'
   // NIEBLA DEL LECTOR: qué ha visto ya el lector, de qué ha oído hablar y qué
   // sigue siendo papel en blanco. No cambia el mundo; sólo la vista del lector.
-  | 'fog';
+  | 'fog'
+  // SUCESOS: qué pasa dónde y en qué capítulo; un clic lo pone en el mapa.
+  | 'story';
 
 export interface PaintTool {
   mode: PaintMode;
@@ -111,6 +115,11 @@ export interface PaintTool {
   fogOp: FogOp;
   /** The chapter in which the stroke is revealed; null = from the start. */
   fogChapter: number | null;
+  /** The next story event placed with a click: kind, title, chapter and whether it has happened. */
+  storyType: StoryType;
+  storyTitle: string;
+  storyChapter: number | null;
+  storyStatus: StoryStatus;
   /** Which country the frontier brush hands ground to. -1 is unclaimed. */
   realm: number;
   /** How the frontier is drawn: freehand, bucket, straight-edged lasso, curved lasso. */
@@ -151,6 +160,10 @@ export const DEFAULT_PAINT_TOOL: PaintTool = {
   point: 'town',
   fogOp: 'seen',
   fogChapter: null,
+  storyType: 'meeting',
+  storyTitle: '',
+  storyChapter: null,
+  storyStatus: 'happened',
   /** The first country, not −1. −1 is what Ctrl already does, so a tool whose
    *  resting state is its own negative unclaims the first province the reader
    *  paints — before they have chosen anybody at all. */
@@ -198,6 +211,7 @@ const GROUPS: { title: string; note: string; modes: ModeSpec[] }[] = [
     note: 'worldgen.paint.group.reader.note',
     modes: [
       { id: 'fog', label: 'worldgen.paint.mode.fog', hint: 'worldgen.paint.mode.fog.hint', negative: 'worldgen.paint.mode.fog.negative' },
+      { id: 'story', label: 'worldgen.paint.mode.story', hint: 'worldgen.paint.mode.story.hint', negative: '' },
     ],
   },
 ];
@@ -347,6 +361,15 @@ interface PaintPanelProps {
   selectedLabel?: PaintedLabel | null;
   onRelabel?: (change: LabelChange, key: string) => void;
   onRemoveLabel?: () => void;
+  /** True when a flat-map-only tool is chosen while the globe is shown. */
+  flatOnlyNote?: boolean;
+  /** Story events, the selected one, and what can be done with them. */
+  storyEvents?: StoryEvent[];
+  selectedStoryId?: string | null;
+  onSelectStory?: (id: string | null) => void;
+  onUpdateStory?: (id: string, patch: Partial<Omit<StoryEvent, 'id'>>) => void;
+  onRemoveStory?: (id: string) => void;
+  onFocusStory?: (event: StoryEvent) => void;
 }
 
 /**
@@ -408,6 +431,7 @@ function groundLabel(km: number, t: (key: string) => string): string {
 export default function PaintPanel({
   tool, onChange, strokeCount, canUndo, canRedo, onUndo, onRedo, onClear, onExport,
   cellKm, realms, busy, selectedLabel = null, onRelabel, onRemoveLabel,
+  flatOnlyNote = false, storyEvents = [], selectedStoryId = null, onSelectStory, onUpdateStory, onRemoveStory, onFocusStory,
 }: PaintPanelProps) {
   const { t } = useTranslation();
   const riverKm = groundScale(RIVER_CELLS_MIN * (cellKm ?? 1), RIVER_CELLS_MAX * (cellKm ?? 1));
@@ -548,6 +572,10 @@ export default function PaintPanel({
         </div>
       )}
 
+      {flatOnlyNote && (
+        <p className="rounded bg-amber-400/15 px-2 py-1.5 text-[11px] leading-snug text-amber-100" data-testid="paint-flat-only">{t('worldgen.paint.flatOnly')}</p>
+      )}
+
       {tool.mode === 'fog' && (
         <div className="flex flex-col gap-2" data-testid="paint-fog">
           <Row label={t('worldgen.paint.fog.row')}>
@@ -580,6 +608,19 @@ export default function PaintPanel({
           </label>
           <p className="text-[10px] leading-snug text-white/45">{t('worldgen.paint.fog.note')}</p>
         </div>
+      )}
+
+      {tool.mode === 'story' && (
+        <StoryEditor
+          draft={tool}
+          onDraft={(patch) => onChange({ ...tool, ...patch })}
+          events={storyEvents}
+          selectedId={selectedStoryId}
+          onSelect={(id) => onSelectStory?.(id)}
+          onUpdate={(id, patch) => onUpdateStory?.(id, patch)}
+          onRemove={(id) => onRemoveStory?.(id)}
+          onFocus={(event) => onFocusStory?.(event)}
+        />
       )}
 
       {tool.mode === 'labels' && (

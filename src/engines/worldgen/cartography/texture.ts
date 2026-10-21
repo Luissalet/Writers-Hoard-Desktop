@@ -463,6 +463,8 @@ export interface CartoCanvasOptions {
   grid?: import('./mapGrid').MapGrid | null;
   /** The reader's-eye fog, over the lettering. */
   fog?: import('./readerFogLayer').ReaderFogLayer | null;
+  /** Story events to mark, over the fog. */
+  story?: import('./storyMarks').StoryMark[] | null;
   /** GPU base pass, when the caller has one. */
   drawBase?: (w: number, h: number, view: CartoView) => CanvasImageSource | null;
   theme: CartoTheme;
@@ -493,6 +495,7 @@ export function renderCartoCanvas(world: WorldData, opts: CartoCanvasOptions): H
     layers: opts.layers,
     grid: opts.grid,
     fog: opts.fog,
+    story: opts.story,
     density: opts.density,
     reliefAmount: opts.reliefAmount,
     typeScale: opts.typeScale,
