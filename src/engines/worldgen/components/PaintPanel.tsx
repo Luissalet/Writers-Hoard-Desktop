@@ -1,3 +1,6 @@
+import LabelEditor from './LabelEditor';
+import type { PaintedLabel } from '../core/edits';
+import type { LabelChange } from '../core/labelShape';
 import { useMemo, useState } from 'react';
 import { Biome, type BiomeId, type RuinKind } from '../core/types';
 import type { SettlementRank } from '../core/settlements';
@@ -57,7 +60,10 @@ export type PaintMode =
   | 'road' | 'frontera'
   // MOVER: coger lo que ya existe y llevarlo a otro sitio. No pinta nada; es
   // el único modo cuyo gesto es el arrastre sobre una cosa que ya está ahí.
-  | 'move';
+  | 'move'
+  // RÓTULOS: elegir un rótulo pintado y cambiarle texto, estilo, tamaño,
+  // ángulo, espaciado y curva, con tiradores en el mapa.
+  | 'labels';
 
 export interface PaintTool {
   mode: PaintMode;
@@ -168,6 +174,7 @@ const GROUPS: { title: string; note: string; modes: ModeSpec[] }[] = [
       { id: 'road', label: 'worldgen.paint.mode.road', hint: 'worldgen.paint.mode.road.hint', negative: 'worldgen.paint.mode.road.negative' },
       { id: 'frontera', label: 'worldgen.paint.mode.frontera', hint: 'worldgen.paint.mode.frontera.hint', negative: 'worldgen.paint.mode.frontera.negative' },
       { id: 'move', label: 'worldgen.paint.mode.move', hint: 'worldgen.paint.mode.move.hint', negative: '' },
+      { id: 'labels', label: 'worldgen.paint.mode.labels', hint: 'worldgen.paint.mode.labels.hint', negative: '' },
     ],
   },
 ];
@@ -312,6 +319,10 @@ interface PaintPanelProps {
    */
   realms?: { id: number; name: string; hue: number }[];
   busy?: boolean;
+  /** The Labels tool: the painted label selected on the map, and its writers. */
+  selectedLabel?: PaintedLabel | null;
+  onRelabel?: (change: LabelChange) => void;
+  onRemoveLabel?: () => void;
 }
 
 /**
@@ -372,7 +383,7 @@ function groundLabel(km: number, t: (key: string) => string): string {
 
 export default function PaintPanel({
   tool, onChange, strokeCount, canUndo, canRedo, onUndo, onRedo, onClear, onExport,
-  cellKm, realms, busy,
+  cellKm, realms, busy, selectedLabel = null, onRelabel, onRemoveLabel,
 }: PaintPanelProps) {
   const { t } = useTranslation();
   const riverKm = groundScale(RIVER_CELLS_MIN * (cellKm ?? 1), RIVER_CELLS_MAX * (cellKm ?? 1));
@@ -510,6 +521,10 @@ export default function PaintPanel({
             </div>
           </Row>
         </div>
+      )}
+
+      {tool.mode === 'labels' && (
+        <LabelEditor label={selectedLabel} onChange={(change) => onRelabel?.(change)} onRemove={() => onRemoveLabel?.()} />
       )}
 
       {tool.mode === 'point' && (

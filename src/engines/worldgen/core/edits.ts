@@ -150,7 +150,27 @@ export type WorldEdit =
     /** Which type style to draw it in. */
     style: 'region' | 'water' | 'range' | 'settlement' | 'note';
     size?: number;
+    /** Radians, clockwise on screen. */
     angle?: number;
+    /** Extra letter spacing as a share of the type size; absent = the style's. */
+    spacing?: number;
+    /** −1..1: bows down (negative) or arches up (positive); absent = straight. */
+    curve?: number;
+  }
+  /**
+   * Change a painted label after placing it — its words, style, size, angle,
+   * letter spacing or bend — keyed by where it was first painted, like a move.
+   * Only the fields given change; later changes win.
+   */
+  | {
+    kind: 'relabel';
+    key: string;
+    text?: string;
+    style?: 'region' | 'water' | 'range' | 'settlement' | 'note';
+    size?: number;
+    angle?: number;
+    spacing?: number;
+    curve?: number;
   }
   /** Remove painted markers and labels within a radius. */
   | { kind: 'eraseMarkers'; x: number; y: number; radius: number }
@@ -365,6 +385,10 @@ export interface PaintedLabel {
   style: 'region' | 'water' | 'range' | 'settlement' | 'note';
   size?: number;
   angle?: number;
+  spacing?: number;
+  curve?: number;
+  /** Stable identity: `label:x,y` at the origin, the key moves and changes use. */
+  key: string;
 }
 
 export interface AppliedEdits {
@@ -721,7 +745,18 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
         population: e.population, ruin: e.ruin, landmark: e.landmark,
       });
     } else if (e.kind === 'label') {
-      out.labels.push({ x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle });
+      const key = editKey('label', e.x, e.y);
+      // A new label painted where one was removed or renamed starts afresh.
+      out.removed.delete(key); delete out.renames[key];
+      out.labels.push({ x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle, spacing: e.spacing, curve: e.curve, key });
+    } else if (e.kind === 'relabel') {
+      // The most recent label painted at that origin is the one changed.
+      const label = [...out.labels].reverse().find((item) => item.key === e.key);
+      if (label) {
+        for (const field of ['text', 'style', 'size', 'angle', 'spacing', 'curve'] as const) {
+          if (e[field] !== undefined) (label as unknown as Record<string, unknown>)[field] = e[field];
+        }
+      }
     } else if (e.kind === 'rename') {
       out.renames[e.key] = e.name;
     } else if (e.kind === 'populate') {
@@ -809,6 +844,11 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     out.markers = out.markers.filter((m) => !hit(m));
     out.labels = out.labels.filter((l) => !hit(l));
   }
+  // A painted label answers to the same keyed edits as a generated name:
+  // renamed in place, or removed (and restored) without erasing round it.
+  out.labels = out.labels
+    .filter((l) => !out.removed.has(l.key))
+    .map((l) => (out.renames[l.key] ? { ...l, text: out.renames[l.key] } : l));
 
   // Hand-placed content is parked on the world, not just returned: the human
   // geography merges painted towns into the road network and the renderer draws
@@ -1128,6 +1168,7 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     return !!stroke && typeof stroke === 'object' && points((stroke as { pts?: unknown }).pts);
   }
   const kind = (e as { kind: string }).kind;
+  if (kind === 'relabel') return typeof (e as { key?: unknown }).key === 'string';
   if (kind === 'river' || kind === 'realmArea' || kind === 'placesZone') {
     return points((e as { pts?: unknown }).pts);
   }
