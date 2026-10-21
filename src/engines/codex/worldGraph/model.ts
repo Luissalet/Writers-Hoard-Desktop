@@ -2,6 +2,8 @@ import { createMentionIndex } from '@/services/codexReference/indexedMentions';
 import { bodyParagraphs, normalizeForMatch } from '@/services/codexReference/matcher';
 import { isAliasField, readAliases } from '@/services/codexReference/aliases';
 import { extractContentCodexReferences } from '@/services/codexReference/contentReferences';
+import {templateIsWithin} from '../templateHierarchy';
+import type {CodexTemplate} from '../templateTypes';
 import type { CodexGraphLayout, WorldGraph, WorldGraphEdge, WorldGraphFilters, WorldGraphInput, WorldGraphNode } from './types';
 
 const identity = (...parts: string[]) => parts.map(encodeURIComponent).join(':');
@@ -11,7 +13,7 @@ export function buildWorldGraph(input: WorldGraphInput): WorldGraph {
   const entries = input.entries.filter(entry => entry.projectId === input.projectId);
   const byId = new Map(entries.map(entry => [entry.id, entry]));
   const content = new Map(entries.map(entry => [entry.id, extractContentCodexReferences(entry.content, input.projectId)]));
-  const nodes: WorldGraphNode[] = entries.map(entry => ({ id: entry.id, title: entry.title, type: entry.type, aliases: readAliases(entry.fields), tags: entry.tags ?? [], summary: bodyParagraphs(content.get(entry.id)!.mentionHtml)[0]?.slice(0, 180) ?? '', degree: 0 }));
+  const nodes: WorldGraphNode[] = entries.map(entry => ({ id: entry.id, title: entry.title, type: entry.type, templateId:entry.templateId, aliases: readAliases(entry.fields), tags: entry.tags ?? [], summary: bodyParagraphs(content.get(entry.id)!.mentionHtml)[0]?.slice(0, 180) ?? '', degree: 0 }));
   const index = createMentionIndex(entries);
   const edges: WorldGraphEdge[] = [];
   const stats = { scannedDocuments: 0, scannedCharacters: 0, ambiguousMatches: 0, unresolvedReferences: 0, indexedNames: index.patternCount };
@@ -66,7 +68,7 @@ export function buildWorldGraph(input: WorldGraphInput): WorldGraph {
   return { projectId: input.projectId, nodes, edges, stats };
 }
 
-export function filterWorldGraph(graph: WorldGraph, filters: WorldGraphFilters) {
+export function filterWorldGraph(graph: WorldGraph, filters: WorldGraphFilters, templates:readonly CodexTemplate[] = []) {
   const kinds = new Set(filters.kinds), edges = graph.edges.filter(edge => kinds.has(edge.kind));
   const neighbors = new Map<string, Set<string>>();
   for (const edge of edges) {
@@ -84,7 +86,8 @@ export function filterWorldGraph(graph: WorldGraph, filters: WorldGraphFilters) 
     }
   }
   const query = normalizeForMatch(filters.query).trim();
-  const eligible = graph.nodes.filter(node => (filters.type === 'all' || node.type === filters.type)
+  const eligible = graph.nodes.filter(node => (filters.types ? filters.types.includes(node.type) : filters.type === 'all' || node.type === filters.type)
+    && (!filters.templateId || templates.some(item=>item.id===filters.templateId) && (filters.includeDescendants!==false ? templateIsWithin(node.templateId,filters.templateId,templates) : node.templateId===filters.templateId))
     && (!filters.tag || node.tags.includes(filters.tag)) && (!neighborhood || neighborhood.has(node.id))
     && (filters.showIsolated || (neighbors.get(node.id)?.size ?? 0) > 0)
     && (!query || normalizeForMatch([node.title, ...node.aliases].join(' ')).includes(query)));

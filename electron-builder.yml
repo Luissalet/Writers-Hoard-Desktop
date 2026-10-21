@@ -23,9 +23,26 @@ files:
 asarUnpack:
   - '**/node_modules/ffmpeg-static/**'
   - 'dist-electron/aibridge/**'
+  - '**/node_modules/onnxruntime-node/**'
+  - '**/node_modules/sharp/**'
+  - '**/node_modules/@img/**'
 
 # The yt-dlp binary lives outside asar entirely (downloaded by `npm run fetch:bin`).
 extraResources:
+  - from: resources/visualSearch
+    to: visualSearch
+    filter:
+      - '*.md'
+      - 'LICENSE*'
+  - from: resources/entityDetection
+    to: entityDetection
+    filter:
+      - '*.md'
+      - 'LICENSE*'
+  - from: publishing/runtime/voice/writer-voice-worker
+    to: voice
+    filter:
+      - '**/*'
   - from: publishing/runtime/writer-publishing-worker
     to: publishing
     filter:

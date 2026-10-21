@@ -1,7 +1,7 @@
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { clearWritingRecoveryDraft, inspectWritingRecoveryDraft, writeWritingRecoveryDraft, registerWritingRecoveryOwner } from './recoveryJournal';
 import { loadPaneDocument, paneTargetKey, PaneConflictError, savePaneDocument, snapshotPaneText, type PaneDocument } from './parallelDrafts';
-import { takeSnapshot } from './snapshots';
+import { eraSnapshotOperations } from '@/services/worldEras/writings';
 
 export type PaneSaveStatus = 'saved' | 'dirty' | 'saving' | 'conflict' | 'error';
 export interface PaneState { content: string; status: PaneSaveStatus; incoming: PaneDocument | null; recovered: boolean; error: string | null; version: number }
@@ -48,7 +48,7 @@ export class ParallelEditorSession {
     // A conflicted journal must keep its OLD baseline. Re-basing it onto the
     // current row would turn the next reopen into an automatic overwrite.
     if (recovery.kind === 'conflict') this.document = { ...document, content: recovery.draft.baseContent };
-    if (!document.draftId) void takeSnapshot({ id: document.writingId, projectId: document.projectId, title: document.title, content: document.content }, 'auto');
+    if (!document.draftId) void eraSnapshotOperations(document).takeSnapshot({ id: document.writingId, projectId: document.projectId, title: document.title, content: document.content }, 'auto');
     if (this.state.status === 'dirty') this.schedule();
   }
   subscribe(listener: (state: PaneState) => void): () => void { this.listener = listener; listener(this.state); return () => { if (this.listener === listener) this.listener = null; }; }
@@ -109,7 +109,7 @@ export class ParallelEditorSession {
     const content = this.state.content;
     try {
       await snapshotPaneText(this.document, this.state.content);
-      const latest = await loadPaneDocument(this.document.projectId, this.document);
+      const latest = await loadPaneDocument(this.document.projectId, this.document, this.document.eraId);
       if (this.state.content !== content) { this.publish({ incoming: latest, status: 'conflict' }); this.persist(); return false; }
       this.document = latest; this.publish({ content: latest.content, incoming: null, status: 'saved', error: null, version: latest.version }); this.persist(); return true;
     } catch (error) { this.publish({ error: String(error) }); return false; }

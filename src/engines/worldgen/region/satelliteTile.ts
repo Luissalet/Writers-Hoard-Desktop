@@ -38,7 +38,7 @@ import { createWorldCoastField } from './coastField';
 import { worldRiverMinimumPixels, worldRiverWidthMetres } from './riverScale';
 import { DEFAULT_REGION_PARAMS, type RegionData } from './types';
 import { drawTownPlans, PLAN_MAX_METRES_PER_PX } from './townPlan';
-import { canonCoverFor, type CanonCache, type TilePlace } from './deepTile';
+import { canonCoverFor, styledRegionPlaces, type CanonCache, type TilePlace } from './deepTile';
 import {
   TILE_PX, tileCountX, tileView, wrapTileX, type TileKey,
 } from '../cartography/tiles';
@@ -536,14 +536,14 @@ export function renderSatelliteDeepTile(
   const built: { key: string; data: RegionData }[] = [];
   const placed = canonCoverFor(world, geography, cache, cover, opts.edits, limits, built, opts.quantizeCanon);
 
-  const region = composeCanonWindow(world, placed, spec);
+  const region = styledRegionPlaces(composeCanonWindow(world, placed, spec), world, opts.edits);
   const m = region.margin;
   const places: TilePlace[] = [];
   for (const p of region.places) {
     if (p.x < m || p.x >= m + spec.cw || p.y < m || p.y >= m + spec.ch) continue;
     if (!p.name) continue;
     places.push({
-      worldX: p.worldX, worldY: p.worldY,
+      sourceKey: p.sourceKey, style: p.style, worldX: p.worldX, worldY: p.worldY,
       name: p.name, kind: p.kind, importance: p.importance,
     });
   }

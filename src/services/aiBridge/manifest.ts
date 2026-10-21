@@ -1,3 +1,16 @@
+import { VISUAL_SEARCH_TOOLS } from '@/services/visualSearch/bridgeManifest';
+import {MANUSCRIPT_REVIEW_TOOLS} from '@/engines/writings/manuscriptReview/bridgeManifest';
+import {PROJECT_GENRE_TOOLS} from '@/services/projectGenres/bridgeManifest';
+import {WORLD_FOLDER_IMPORT_TOOLS} from '@/services/worldFolderImport/bridgeManifest';
+import {PROJECT_PIN_TOOLS} from '@/services/projectPin/bridgeManifest';
+import {PROJECT_DUPLICATE_TOOLS} from '@/services/projectDuplicate/bridgeManifest';
+import {WRITING_TOOL_DOCK_TOOLS} from '@/engines/writings/toolDock/bridgeManifest';
+import { WORLD_GRAPH_QUERY_TOOLS } from '@/engines/codex/worldGraph/bridgeManifest';
+import { RELATION_TREE_ACTION_TOOLS } from '@/engines/genealogy/treeActionManifest';
+import { WIKI_PROFILE_TOOLS } from '@/services/wikiProfiles/bridgeManifest';
+import { ENTITY_DETECTION_TOOLS } from '@/services/entityDetection/bridgeManifest';
+import { PARALLEL_DRAFT_TOOLS } from '@/engines/writings/parallelDraftManifest';
+import { CODEX_OPTION_LIST_TOOLS } from '@/engines/codex/optionListBridgeManifest';
 // ============================================================================
 // AI bridge — tool manifest (pure data, no DOM, no Dexie)
 // ============================================================================
@@ -17,6 +30,25 @@
 // no Dexie, no DOM — so reading the beat sheets from it keeps the template
 // list here and the one the handler validates against the same list.
 import { BEAT_SHEET_TEMPLATES } from '@/engines/outline/types';
+import { MODEL_TOOLS } from '@/engines/model-viewer/bridgeManifest';
+import { RADAR_TOOLS } from '@/engines/radar/bridgeManifest';
+import { SHEET_TOOLS } from '@/engines/character-sheets/bridgeManifest';
+import { WORLD_STYLE_TOOLS } from './manifestWorldStyle';
+import { WORLD_ERA_TOOLS } from '@/services/worldEras/bridgeManifest';
+import { READER_TOOLS } from './manifestReader';
+import { VOICE_MEMO_TOOLS } from '@/engines/media/voiceManifest';
+import { BOARD_CANVAS_TOOLS } from '@/engines/board/canvasManifest';
+import { WORKSPACE_APPEARANCE_TOOLS } from '@/services/workspaceAppearance/bridgeManifest';
+import { LOCAL_TOOL_TOOLS } from '@/engines/local/manifest';
+import { RELATION_TREE_TOOLS } from '@/engines/genealogy/treeManifest';
+import { DOCUMENT_HISTORY_TOOLS } from '@/services/documentHistory/bridgeManifest';
+import { MODEL_READER_WIKI_TOOLS } from '@/engines/model-viewer/wikiManifest';
+import { TIMELINE_BATCH_TOOLS } from '@/engines/timeline/batchManifest';
+import { ANNOTATION_THREAD_TOOLS } from '@/engines/annotations/bridgeManifest';
+import { DOCUMENT_IMAGE_TOOLS } from '@/services/documentImage/bridgeManifest';
+import { TABLE_TOOLS } from '@/engines/tables/bridgeManifest';
+import { PUBLISHED_EDITION_TOOLS } from '@/services/publishedEditions/bridgeManifest';
+import { DICTIONARY_TOOLS } from '@/engines/dictionary/bridgeManifest';
 import {
   arr,
   b,
@@ -61,15 +93,17 @@ import { PROOFING_TOOLS } from './manifestProofing';
 import { NAVIGATION_TOOLS } from './manifestNavigation';
 import { FICTION_TOOLS } from './manifestFiction';
 import { PUBLISHING_TOOLS } from './manifestPublishing';
+import { CODEX_PROPERTY_TOOLS } from './manifestCodexProperties';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
 /** Beat sheet ids a model may ask for, and the only ones the handler accepts. */
 export const TEMPLATE_IDS = BEAT_SHEET_TEMPLATES.map((template) => template.id);
+const inEra = (tools: BridgeTool[]): BridgeTool[] => tools.map(tool => ({ ...tool, description: `${tool.description} eraId selects era; preserves Base.`, schema: { ...tool.schema, properties: { ...tool.schema.properties, projectId: PROJECT_ID, eraId: s('Named era ID. Omit for Shared base; provide projectId when selecting an era.') } } }));
 
 /**
- * The engines this bridge has tools for, and the only ones wh_enable_engine
- * will switch on.
+ * The builtin engines this bridge has tools for. wh_enable_engine also accepts
+ * source extensions present in the live local-tool registry.
  *
  * Written out rather than read from `engines/_registry`, which imports React
  * icons and would drag the whole renderer into the main process. The list is
@@ -148,7 +182,7 @@ Switch an engine on for a project. Projects only show the engines they have enab
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
-        engineId: s('Engine to switch on.', { enum: [...BRIDGE_ENGINE_IDS] }),
+        engineId: s('Builtin engine ID or the local-tool-* engineId returned by wh_local_tool_list for a compiled source extension.'),
       },
       required: ['engineId'],
       additionalProperties: false,
@@ -194,6 +228,7 @@ Full-text search across the project's prose: manuscripts, codex entries, diary e
       properties: {
         query: s('What to look for. Fewer than 3 characters returns nothing.'),
         projectId: PROJECT_ID,
+        eraId: s('Optional named-era scope for effective prose, Codex, notes, timelines and map pins. Omit for Shared base. Never switches a pane.'),
         limit: n('Maximum hits. Default 8, maximum 50.'),
       },
       required: ['query'],
@@ -439,6 +474,7 @@ List persisted Judge review receipts for a project or one writing. Returns hashe
 const CODEX_TYPES = ['character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
 
 const CODEX_TOOLS: BridgeTool[] = [
+  ...CODEX_PROPERTY_TOOLS,
   {
     name: 'wh_list_codex',
     description:
@@ -478,6 +514,9 @@ Create a character sheet, location, item, faction or concept. \`fields\` is a fr
         projectId: PROJECT_ID,
         type: s('Entry type. Default "character".', { enum: CODEX_TYPES }),
         title: s('Name of the character, place or thing.'),
+        templateId: s('Optional reusable type/template from wh_codex_templates. Applies inherited defaults and calculations.'),
+        folderId: s('Optional existing Library folder. Empty string creates in Unfiled. Supply expectedLibraryRevision with it.'),
+        expectedLibraryRevision: n('Observed revision from wh_workspace_library_get. Required with folderId; card and placement commit atomically.', {type:'integer',minimum:0}),
         fields: {
           type: 'object',
           description: 'Structured attributes as a flat label→value map of strings.',
@@ -1073,29 +1112,60 @@ Change a beat. Only the fields you pass are touched. Moving a beat to "drafted" 
 // ---------------------------------------------------------------------------
 
 export const BRIDGE_TOOLS: BridgeTool[] = [
+  {name:'wh_workspace_library_get',writes:false,group:'core',description:'Read the project Library folders, placements, document references and exact revision. Pass its revision and an existing folder ID to wh_create_codex_entry to create a card inside that folder atomically. Explicit era reads its contextual Library; omitted era reads Shared base. Does not start disabled engines.',schema:{type:'object',properties:{projectId:PROJECT_ID,eraId:s('Optional named era; omit for Shared base.')},additionalProperties:false}} satisfies BridgeTool,
+  ...PROJECT_GENRE_TOOLS,
+  ...WORLD_FOLDER_IMPORT_TOOLS,
+  ...PROJECT_PIN_TOOLS,
+  ...PROJECT_DUPLICATE_TOOLS,
+  ...WRITING_TOOL_DOCK_TOOLS,
+  ...MODEL_TOOLS,
+  ...RADAR_TOOLS,
+  ...SHEET_TOOLS,
   ...grouped('story', BIBLE_TOOLS),
   // Core spans every engine or none, so it carries no engineId.
   ...grouped('core', CONTEXT_TOOLS),
-  ...grouped('writing', inEngine('writings', WRITING_TOOLS)),
+  ...grouped('writing', inEngine('writings', inEra(WRITING_TOOLS))),
   ...grouped('writing', inEngine('outline', OUTLINE_TOOLS)),
-  ...grouped('writing', inEngine('notes', NOTE_TOOLS)),
+  ...grouped('writing', inEngine('notes', inEra(NOTE_TOOLS))),
   ...grouped('writing', inEngine('diary', DIARY_TOOLS)),
   // Reads the chapter and the codex; pins are local preferences, so no engineId.
-  ...grouped('writing', REFERENCE_TOOLS),
-  ...grouped('people', inEngine('codex', CODEX_TOOLS)),
+  ...grouped('writing', REFERENCE_TOOLS.map(tool => ['wh_chapter_references', 'wh_pin_reference', 'wh_reference_search', 'wh_reference_preview'].includes(tool.name) ? inEra([tool])[0] : tool)),
+  ...grouped('people', inEngine('codex', inEra(CODEX_TOOLS))),
   ...grouped('people', inEngine('biography', BIOGRAPHY_TOOLS)),
   ...grouped('people', inEngine('relationships', RELATIONSHIP_TOOLS)),
   ...grouped('people', inEngine('genealogy', GENEALOGY_BRIDGE_TOOLS)),
   ...grouped('people', inEngine('codex', CODEX_FOLDER_IMPORT_TOOLS)),
-  ...grouped('story', inEngine('timeline', TIMELINE_TOOLS)),
+  ...grouped('story', inEngine('timeline', inEra(TIMELINE_TOOLS))),
   ...grouped('story', inEngine('seeds', SEED_TOOLS)),
   ...grouped('story', inEngine('character-arc', ARC_TOOLS)),
-  ...grouped('script', inEngine('dialog-scene', DIALOG_TOOLS)),
-  ...grouped('visual', inEngine('board', BOARD_TOOLS)),
+  ...grouped('script', inEngine('dialog-scene', inEra(DIALOG_TOOLS))),
+  ...grouped('visual', inEngine('board', [...inEra(BOARD_TOOLS), ...BOARD_CANVAS_TOOLS])),
+  ...grouped('core', WORKSPACE_APPEARANCE_TOOLS),
+  ...LOCAL_TOOL_TOOLS,
+  ...grouped('people', inEngine('genealogy', RELATION_TREE_TOOLS)),
+  ...DOCUMENT_HISTORY_TOOLS,
+  ...MODEL_READER_WIKI_TOOLS,
+  ...grouped('story', inEngine('timeline', TIMELINE_BATCH_TOOLS)),
+  ...ANNOTATION_THREAD_TOOLS,
+  ...DOCUMENT_IMAGE_TOOLS,
+  ...TABLE_TOOLS,
+  ...PUBLISHED_EDITION_TOOLS,
+  ...DICTIONARY_TOOLS,
+  ...CODEX_OPTION_LIST_TOOLS,
+  ...VISUAL_SEARCH_TOOLS,
+  ...WIKI_PROFILE_TOOLS,
+  ...MANUSCRIPT_REVIEW_TOOLS,
+  ...WORLD_GRAPH_QUERY_TOOLS,
+  ...RELATION_TREE_ACTION_TOOLS,
+  ...ENTITY_DETECTION_TOOLS,
+  ...PARALLEL_DRAFT_TOOLS,
   ...grouped('visual', inEngine('gallery', GALLERY_TOOLS)),
   ...grouped('visual', inEngine('image-studio', IMAGE_STUDIO_TOOLS)),
-  ...grouped('visual', inEngine('maps', MAP_TOOLS)),
-  ...grouped('visual', inEngine('worldgen', WORLDGEN_TOOLS)),
+  ...grouped('visual', inEngine('maps', inEra(MAP_TOOLS))),
+  ...grouped('visual', inEngine('worldgen', inEra([...WORLDGEN_TOOLS, ...WORLD_STYLE_TOOLS]))),
+  ...WORLD_ERA_TOOLS,
+  ...grouped('writing', inEngine('writings', READER_TOOLS)),
+  ...grouped('visual', inEngine('media', VOICE_MEMO_TOOLS)),
   ...grouped('visual', inEngine('real-atlas', REAL_ATLAS_TOOLS)),
   ...grouped('visual', inEngine('storyboard', STORYBOARD_TOOLS)),
   ...grouped('visual', inEngine('video-planner', VIDEO_TOOLS)),
@@ -1119,7 +1189,15 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('writing', inEngine('writings', NAVIGATION_TOOLS)),
   ...FICTION_TOOLS,
   ...PUBLISHING_TOOLS,
-];
+].map(tool => {
+  // Catalogue summaries stay readable; retain the full operational details.
+  const first = tool.description.split('\n', 1)[0];
+  if (first.length <= 110) return tool;
+  const sentence = first.lastIndexOf('. ', 109);
+  const boundary = sentence >= 0 ? sentence + 1 : first.lastIndexOf(' ', 110);
+  if (boundary < 1) return tool;
+  return { ...tool, description: `${tool.description.slice(0, boundary)}\n\n${tool.description.slice(boundary).trimStart()}` };
+});
 
 export const BRIDGE_TOOL_NAMES: string[] = BRIDGE_TOOLS.map((tool) => tool.name);
 

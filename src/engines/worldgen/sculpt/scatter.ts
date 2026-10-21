@@ -49,13 +49,15 @@
 // se aleje y vuelva encuentra el mismo bosque, árbol por árbol.
 //
 // Y LA ALTURA SALE DEL MISMO CAMPO QUE LA MALLA. `heightAt` reconstruye el
-// R32F con los mismos pesos suavizados que `baseHeightAt` del vertex shader del
+// R32F con la misma reconstrucción monótona de `baseHeightAt` del vertex shader del
 // terreno (ver scene3d.ts) — o mejor, con la propia `surface.heightAtUV` si
 // quien llama la pasa. Si los dos lados reconstruyeran distinto, los árboles
 // flotarían sobre las lomas y se hundirían en los valles, medio metro de escena
 // que a este tamaño son doscientos metros de nada.
 
 import * as THREE from 'three';
+import { sampleWorldHeight } from '../core/heightSampling';
+import { isForestBiome } from '../core/forestCover';
 // `R_GLOBE` no se importa: el radio del globo entra por `ScatterOptions.radius`,
 // que es lo que hace que este módulo se pueda probar sin una escena montada.
 import { SIZE_X, GLOBE_RELIEF } from './scene3d';
@@ -400,32 +402,6 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/**
- * La reconstrucción del campo de alturas, IDÉNTICA a `baseHeightAt` del vertex
- * shader del terreno: pesos suavizados, x envuelta, y recortada. Copiada y no
- * importada porque `bilinearWrapped` de scene3d.ts no está exportada; si algún
- * día lo está, esto se borra. Cualquier diferencia entre las dos sale como
- * árboles flotando sobre las lomas.
- */
-function heightFromField(
-  values: Float32Array, width: number, height: number, u: number, v: number,
-): number {
-  const tx = u * width - 0.5;
-  const ty = v * height - 0.5;
-  const x0 = Math.floor(tx);
-  const y0 = Math.floor(ty);
-  const sx = tx - x0, sy = ty - y0;
-  const fx = sx * sx * (3 - 2 * sx);
-  const fy = sy * sy * (3 - 2 * sy);
-  const ax = ((x0 % width) + width) % width;
-  const bx = (((x0 + 1) % width) + width) % width;
-  const ay = Math.min(height - 1, Math.max(0, y0));
-  const by = Math.min(height - 1, Math.max(0, y0 + 1));
-  const a = values[ay * width + ax] * (1 - fx) + values[ay * width + bx] * fx;
-  const b = values[by * width + ax] * (1 - fx) + values[by * width + bx] * fx;
-  return a * (1 - fy) + b * fy;
-}
-
 // ---------------------------------------------------------------------------
 // Los números que gobiernan la siembra
 // ---------------------------------------------------------------------------
@@ -578,6 +554,7 @@ uniform vec3  uAnchor;      // el punto que se está mirando
 uniform float uTime;
 uniform float uWind;
 uniform float uGlobal;      // 0–1, el desvanecido por encuadre
+uniform float uOpenGroundLod;
 uniform vec4  uQuad[15];    // (y0, y1, w0, w1) por especie·3 + cuadrilátero
 uniform float uBark[5];
 uniform vec3  uBarkCol;
@@ -586,6 +563,7 @@ in float aCard;             // 0 o 1: cuál de las dos cartas cruzadas
 in vec3  iPos;              // el pie de la planta, en el mundo
 in vec4  iParam;            // (especie, nivel, escala, fase)
 in vec3  iTint;
+in float iForest;
 
 out vec3 vCol;
 
@@ -627,7 +605,7 @@ void main() {
   float fog = uFogOn * (1.0 - exp(-pow(dxz / max(1e-3, uFogDist), 1.3)));
   float hazeOut = 1.0 - smoothstep(0.90, 0.998, fog);
 
-  float h = uSize * iParam.z * grow * ring * uGlobal * hazeOut;
+  float h = uSize * iParam.z * grow * ring * uGlobal * hazeOut * mix(uOpenGroundLod,1.0,iForest);
 
   // ---- la carta ------------------------------------------------------------
   //
@@ -813,15 +791,19 @@ export function createScatter(o: ScatterOptions): Scatter {
   const iPos = new Float32Array(maxInstances * 3);
   const iParam = new Float32Array(maxInstances * 4);
   const iTint = new Float32Array(maxInstances * 3);
+  const iForest = new Float32Array(maxInstances);
   const aPos = new THREE.InstancedBufferAttribute(iPos, 3);
   const aParam = new THREE.InstancedBufferAttribute(iParam, 4);
   const aTint = new THREE.InstancedBufferAttribute(iTint, 3);
+  const aForest = new THREE.InstancedBufferAttribute(iForest, 1);
   aPos.setUsage(THREE.DynamicDrawUsage);
   aParam.setUsage(THREE.DynamicDrawUsage);
   aTint.setUsage(THREE.DynamicDrawUsage);
+  aForest.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('iPos', aPos);
   geometry.setAttribute('iParam', aParam);
   geometry.setAttribute('iTint', aTint);
+  geometry.setAttribute('iForest', aForest);
   geometry.instanceCount = 0;
 
   const quadArr: THREE.Vector4[] = QUADS.map((q) => new THREE.Vector4(q[0], q[1], q[2], q[3]));
@@ -837,6 +819,7 @@ export function createScatter(o: ScatterOptions): Scatter {
     uFogOn: { value: 1 },
     uShape: { value: 0 },
     uSize: { value: 0.02 },
+    uOpenGroundLod: { value: 1 },
     uLod: { value: 12 },
     uReach: { value: REACH_CELLS * o.sizeX },
     uReachMax: { value: 1e9 },
@@ -905,7 +888,7 @@ export function createScatter(o: ScatterOptions): Scatter {
   function heightAt(u: number, v: number): number {
     if (externalHeight) return externalHeight(u, v);
     if (!elevation) return 0;
-    return heightFromField(elevation, W, H, u, v);
+    return sampleWorldHeight(elevation, W, H, u, v);
   }
 
   /** Dónde cae un uv en la escena. Gemelo exacto de `placeAt` en scene3d.ts. */
@@ -1228,6 +1211,7 @@ export function createScatter(o: ScatterOptions): Scatter {
           if (pl.cum[KIND_COUNT - 1] <= 0) continue;
 
           const j = sown;
+          iForest[j] = isForestBiome(biomeA[ci]) ? 1 : 0;
           iPos[j * 3] = p.x; iPos[j * 3 + 1] = p.y; iPos[j * 3 + 2] = p.z;
           iParam[j * 4] = kind;
           iParam[j * 4 + 1] = lv;
@@ -1256,6 +1240,7 @@ export function createScatter(o: ScatterOptions): Scatter {
     aPos.clearUpdateRanges(); aPos.addUpdateRange(0, sown * 3); aPos.needsUpdate = true;
     aParam.clearUpdateRanges(); aParam.addUpdateRange(0, sown * 4); aParam.needsUpdate = true;
     aTint.clearUpdateRanges(); aTint.addUpdateRange(0, sown * 3); aTint.needsUpdate = true;
+    aForest.clearUpdateRanges(); aForest.addUpdateRange(0, sown); aForest.needsUpdate = true;
     geometry.instanceCount = sown;
 
     sownKinds = 0;
@@ -1304,6 +1289,9 @@ export function createScatter(o: ScatterOptions): Scatter {
       // El que llegue por contrato acota, no manda: `spanKm` sale de la ventana
       // de la malla y vale el mundo entero con la cámara baja (ver findAnchor).
       const frameKm = Math.min(frameUnits * kmPerUnit, Math.max(1, u.spanKm));
+      // At map scale the continuous physical canopy owns forest coverage;
+      // isolated savanna/scrub individuals belong to the approaching view.
+      uniforms.uOpenGroundLod.value = 1 - smoothstep(120, 900, frameKm);
 
       // Al cuadrado: ver FRAME_OFF_KM. La rampa recta deja las plantas cuatro
       // píxeles durante media década de encuadre, y cuatro píxeles oscuros son

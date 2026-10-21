@@ -929,7 +929,7 @@ export async function promoteSnapshotToWriting(snapshotId: string): Promise<Conv
  * same-millisecond and direct-Dexie-write gaps without coupling this workflow
  * to the image-runtime recipe hasher.
  */
-function fingerprintConversionTarget(writing: Writing): string {
+export function fingerprintConversionTarget(writing: Writing): string {
   const semantic = JSON.stringify({
     id: writing.id,
     projectId: writing.projectId,

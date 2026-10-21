@@ -26,6 +26,7 @@
 // picado entero, bit a bit igual en cualquier driver.
 
 import * as THREE from 'three';
+import { WORLD_HEIGHT_GLSL } from '../core/heightSampling';
 import { GLOBE_RELIEF } from './scene3d';
 import type { WorldData } from '../core/types';
 import { buildLakeGeometry } from './lakeGeometry';
@@ -168,29 +169,9 @@ out vec4 outColor;
 // ---------------------------------------------------------------------------
 // El fondo
 // ---------------------------------------------------------------------------
-// LA MISMA RECONSTRUCCIÓN QUE EL TERRENO, pesos suavizados incluidos (ver
-// baseHeightAt en scene3d.ts). No es un detalle: si el agua reconstruyera el
-// campo de otra manera, su cero y el cero del terreno cruzarían en sitios
-// distintos y la espuma quedaría un poco tierra adentro o un poco mar adentro,
-// que es peor que no tener espuma. R32F no se puede filtrar en hardware, así
-// que la bilineal va a mano — cuatro fetches y no puede fallar.
-float floorKmAt(vec2 uv) {
-  vec2 t = uv * uGrid - 0.5;
-  vec2 f = fract(t);
-  f = f * f * (3.0 - 2.0 * f);
-  ivec2 i = ivec2(floor(t));
-  int gw = int(uGrid.x);
-  int gh = int(uGrid.y);
-  int ax = ((i.x % gw) + gw) % gw;
-  int bx = (((i.x + 1) % gw) + gw) % gw;
-  int ay = clamp(i.y, 0, gh - 1);
-  int by = clamp(i.y + 1, 0, gh - 1);
-  float h00 = texelFetch(uHeight, ivec2(ax, ay), 0).r;
-  float h10 = texelFetch(uHeight, ivec2(bx, ay), 0).r;
-  float h01 = texelFetch(uHeight, ivec2(ax, by), 0).r;
-  float h11 = texelFetch(uHeight, ivec2(bx, by), 0).r;
-  return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
-}
+// Foam and terrain use exactly the same reconstructed zero crossing.
+${WORLD_HEIGHT_GLSL}
+float floorKmAt(vec2 uv) { return sampleWorldHeightTexture(uv); }
 
 // ---------------------------------------------------------------------------
 // El oleaje
@@ -482,22 +463,26 @@ void main() {
   // antialiasada por construcción.
   float foam = 0.0;
   if (uHasHeight > 0.5 && outside <= 0.0) {
-    float w = max(dw * 2.4, 1e-5);
+    float w = max(dw * 0.65, 1e-5);
     // El borde se rompe con la octava gruesa del propio oleaje: una orla de
     // ancho constante alrededor de un continente es un trazo de rotulador.
-    float edge = dKm + (coarse - 0.5) * w * 1.7;
+    float edge = dKm + (coarse - 0.5) * w * 2.2;
     float lip = 1.0 - smoothstep(0.0, w, max(edge, 0.0));
     // Y una segunda banda, más ancha y a rayas, que es la resaca.
-    float surf = 1.0 - smoothstep(0.0, w * 5.0, max(edge, 0.0));
-    float stripes = smoothstep(0.42, 0.80, coarse);
-    foam = clamp(max(lip, surf * stripes * 0.75), 0.0, 1.0);
+    float surf = 1.0 - smoothstep(0.0, w * 2.2, max(edge, 0.0));
+    float stripes = smoothstep(0.48, 0.76, coarse);
+    float breaking = smoothstep(0.43, 0.73, coarse);
+    // Fragmented breakers, not a white outline around every quiet inlet.
+    float slope = dw / max(1e-5, kmPerPx);
+    float exposure = mix(0.2, 0.75, smoothstep(0.08, 0.8, slope));
+    foam = clamp(max(lip * breaking, surf * stripes * 0.3) * exposure, 0.0, 0.65);
     // A vista de mapa se queda en un tercio: sigue siendo la línea de costa,
     // pero deja de ser el elemento más brillante de un planeta entero.
-    foam *= mix(0.34, 1.0, waveGate);
+    foam *= mix(0.22, 0.65, waveGate);
   }
   // La espuma es agua con aire: refleja, no emite. De noche tiene que apagarse
   // con todo lo demás o queda un collar fosforescente alrededor de cada isla.
-  col = mix(col, vec3(0.93, 0.96, 0.98) * lightAmt, foam);
+  col = mix(col, vec3(0.76, 0.85, 0.85) * lightAmt, foam);
 
   float alpha = clamp(bodyA + F * 0.85 + glint + foam, 0.0, 1.0);
 

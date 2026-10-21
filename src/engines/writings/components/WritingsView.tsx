@@ -1,3 +1,7 @@
+import {saveAuthoredWriting,dockMetadataAdvance} from '../toolDock/authoredSave';
+import ToolDockPanel from '../toolDock/ToolDockPanel';
+import {canLeaveToolDocks} from '../toolDock/pending';
+import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -43,7 +47,6 @@ import {
 } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { useNavigate } from 'react-router-dom';
 import type { FootnoteMarkerStyle, FootnotePlacement, Writing, WritingStatus } from '@/types';
 import type { PublishingProfile } from '@/types/projectTools';
 import { generateId } from '@/utils/idGenerator';
@@ -74,6 +77,7 @@ import ReferencePanel from './ReferencePanel';
 import { referenceDockPx, useReferencePrefs } from './referencePrefs';
 import { useGhostText } from '@/components/editor/ghostText/useGhostText';
 import CompileModal from './CompileModal';
+import PublishedEditionsModal from '@/services/publishedEditions/PublishedEditionsModal';
 import ManuscriptImportModal from './ManuscriptImportModal';
 import HistoryModal from './HistoryModal';
 import ReadingView from './ReadingView';
@@ -81,7 +85,8 @@ import RecentlyChanged from './RecentlyChanged';
 import NarrativeCoveragePanel from './NarrativeCoveragePanel';
 import PublishingProfileModal from '@/components/project/PublishingProfileModal';
 import { buildManuscriptBoard, type ManuscriptViewMode } from '@/services/narrativeXray/manuscriptViews';
-import { ensureSnapshot, takeSnapshot } from '../snapshots';
+import { useEraWritingOperations, useEraSnapshotOperations } from '@/services/worldEras/writings';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { generateImageFromSelection } from '../generateImageFromSelection';
 import { db } from '@/db';
 import { touchProject, updateProject } from '@/db/operations';
@@ -117,12 +122,6 @@ import {
   type WritingRecoveryDraft,
 } from '../recoveryJournal';
 import {
-  expectDeletedWriting,
-  getWriting,
-  getWritingVersion,
-  restoreDeletedWriting,
-  takeLastDeletedWriting,
-  updateWritingAtVersion,
   WritingConflictError,
   type DeletedWritingBundle,
 } from '../operations';
@@ -332,7 +331,7 @@ function WritingMetaFields({
  */
 function LinkedBeatChip({ projectId, writingId }: { projectId: string; writingId: string }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
   const [beat, setBeat] = useState<OutlineBeat | null>(null);
 
   useEffect(() => {
@@ -429,6 +428,7 @@ interface EditorSession {
   savedContent: string;
   savedTitle: string;
   savedWordCount: number;
+  savedToolDock?: Writing['toolDock'];
   /**
    * The row version this session last saw confirmed — the token every flush
    * writes against, so a flush composed before somebody else's write can never
@@ -469,10 +469,13 @@ interface WritingsViewProps {
 export default function WritingsView({ projectId, writings, onAdd, onDelete, onRefresh }: WritingsViewProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
+  const scope = useWorldEraScope(projectId);
+  const { expectDeletedWriting, getWriting, getWritingVersion, restoreDeletedWriting, takeLastDeletedWriting, updateWritingAtVersion } = useEraWritingOperations(projectId);
+  const { ensureSnapshot, takeSnapshot } = useEraSnapshotOperations(projectId);
   const reportPaneTitle = pane?.reportTitle;
-  const recoveryOwner = pane?.primary ? undefined : pane?.instanceId;
+  const recoveryOwner = scope.eraId ? `${pane?.instanceId ?? 'main'}:era:${scope.eraId}` : pane?.primary ? undefined : pane?.instanceId;
   const saveOwner = `chapter:${pane?.instanceId ?? 'main'}:${projectId}`;
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
   const statusLabel = (status: WritingStatus) => t(`writings.status.${status}`);
   // Drafts stays the landing tab. "All" is new, and making it the default
   // would move the ground under every author who already knows where their
@@ -512,6 +515,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // the banner renders, and it is what pauses the autosave.
   const [incoming, setIncoming] = useState<IncomingChapter | null>(null);
   const [showCompile, setShowCompile] = useState(false);
+  const [showPublishedEditions,setShowPublishedEditions]=useState(false);
   // Bringing an existing book in. Deliberately not gated on `writings.length`:
   // the project with nothing in it yet is exactly the one this is for.
   const [showManuscriptImport, setShowManuscriptImport] = useState(false);
@@ -648,13 +652,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
    */
   const writeWriting = useCallback(
     async (id: string, changes: Partial<Writing>, expectedVersion?: number): Promise<number> => {
-      const version = await updateWritingAtVersion(id, changes, expectedVersion);
       const session = editorRef.current;
+      const authored=expectedVersion!==undefined&&session.openId===id&&Object.keys(changes).length===3&&['title','content','wordCount'].every(key=>Object.hasOwn(changes,key));
+      const saved=authored?await saveAuthoredWriting(scope,id,{title:session.savedTitle,content:session.savedContent,wordCount:session.savedWordCount,updatedAt:expectedVersion!,toolDock:session.savedToolDock},changes as Pick<Writing,'title'|'content'|'wordCount'>):undefined;
+      const version=saved?.version??await updateWritingAtVersion(id,changes,expectedVersion);
+      if(saved&&session.openId===id)session.savedToolDock=saved.toolDock;
       if (session.openId === id) session.savedVersion = version;
       await onRefreshRef.current?.();
       return version;
     },
-    [],
+    [updateWritingAtVersion, scope],
   );
 
   const persistRecoveryDraft = useCallback((session: EditorSession) => {
@@ -1124,6 +1131,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       savedContent: writing.content,
       savedTitle: writing.title,
       savedWordCount: writing.wordCount || countWords(writing.content),
+      savedToolDock: writing.toolDock,
       // The version this session is writing against from here on. It is the row
       // as handed to us, which is the row the list last read — if that is
       // already stale the first flush finds out and asks, which is the point.
@@ -1160,7 +1168,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       );
       if (filed) clearWritingRecoveryDraft(writing.projectId, writing.id, recoveryOwner);
     });
-  }, [projectId, recoveryOwner]);
+  }, [projectId, recoveryOwner, takeSnapshot]);
 
   // Open whatever the deep link pointed at, once the row is available.
   // Guarded so it never yanks the author out of a document they already have
@@ -1238,8 +1246,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     if (!openWritingId) return;
     return onDataChanged((detail) => {
       if (detail.entityId && detail.entityId !== openWritingId) return;
-      void db.writings
-        .get(openWritingId)
+      void getWriting(openWritingId)
         .then((row) => {
           const session = editorRef.current;
           if (!mountedRef.current) return;
@@ -1257,6 +1264,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           // question up twice.
           if (session.savePromise) return;
 
+          if(dockMetadataAdvance({title:session.savedTitle,content:session.savedContent,wordCount:session.savedWordCount,updatedAt:session.savedVersion,toolDock:session.savedToolDock},row)){
+            session.savedVersion=row.updatedAt;session.savedToolDock=row.toolDock;
+            setOpenWriting(current=>current?.id===row.id?row:current);
+            return;
+          }
           const dirty =
             session.content !== session.savedContent || session.title !== session.savedTitle;
           if (!dirty) {
@@ -1271,6 +1283,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             session.savedTitle = row.title;
             session.savedWordCount = row.wordCount || countWords(row.content);
             session.savedVersion = row.updatedAt;
+            session.savedToolDock = row.toolDock;
             clearWritingRecoveryDraft(projectId, openWritingId, recoveryOwner);
             setEditedContent(row.content);
             setEditedTitle(row.title);
@@ -1294,7 +1307,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         })
         .catch(err => console.error('[writings] could not re-read the open chapter', err));
     });
-  }, [openWritingId, projectId, recoveryOwner]);
+  }, [openWritingId, projectId, recoveryOwner, getWriting]);
 
   // ---------------------------------------------------------------------
   // Answering "this chapter changed underneath you".
@@ -1344,7 +1357,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         return flushSave();
       })
       .catch(err => console.error('[writings] could not keep the editor text', err));
-  }, [flushSave, incoming, projectId]);
+  }, [flushSave, incoming, projectId, takeSnapshot]);
 
   /**
    * Take the version that is on disk. What is in the editor is filed first, so
@@ -1399,7 +1412,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         toast.success(translateNow('writings.externalChange.tookIncoming'));
       })
       .catch(err => console.error('[writings] could not take the incoming chapter', err));
-  }, [incoming, projectId, recoveryOwner]);
+  }, [incoming, projectId, recoveryOwner, takeSnapshot]);
 
   const leaveEditor = useCallback(() => {
     setPendingLeave(false);
@@ -1421,6 +1434,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   }, []);
 
   const handleOpenParallelWorkspace = useCallback(async (start: ParallelWorkspaceStart) => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!await flushSave()) { setPendingLeave(true); return; }
     const position = liveEditor && !liveEditor.isDestroyed ? { from: liveEditor.state.selection.from, to: liveEditor.state.selection.to } : undefined;
     if (position) parallelReturnSelection.current = { writingId: start.writingId, ...position };
@@ -1431,7 +1445,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     if (start.compareWritingId || start.split) params.set('compareWriting', start.compareWritingId ?? start.writingId);
     if (start.compareDraftId) params.set('compareDraft', start.compareDraftId);
     navigate(`/project/${encodeURIComponent(projectId)}/writings?${params}`, { replace: true });
-  }, [flushSave, leaveEditor, liveEditor, navigate, projectId]);
+  }, [flushSave, leaveEditor, liveEditor, navigate, projectId, scope.eraId, pane?.instanceId]);
   const appliedParallelLink = useRef('');
   useEffect(() => {
     if (deepLinkedWorkspace !== 'drafts' || !deepLinkedWritingId || parallelWorkspace || !writings.some(writing => writing.id === deepLinkedWritingId && !writing.isGoogleDoc)) return;
@@ -1445,13 +1459,14 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // button simply did nothing, with nothing on screen to say why. Ask instead:
   // the recovery journal already holds the draft, so leaving is safe.
   const handleCloseWriting = useCallback(async () => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
       return;
     }
     leaveEditor();
-  }, [flushSave, leaveEditor]);
+  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId]);
 
   // Retry closes the editor if the write finally lands; if it fails again the
   // author stays put with the error indicator, rather than in a dialog loop.
@@ -1487,13 +1502,14 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // when the write fails take exactly the Back button's path — the unsaved
   // dialog, never a chevron that silently does nothing.
   const handleNavigateWriting = useCallback(async (target: Writing) => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
       return;
     }
     handleOpenWriting(target);
-  }, [flushSave, handleOpenWriting]);
+  }, [flushSave, handleOpenWriting, projectId, scope.eraId, pane?.instanceId]);
 
   const stageJudgeAnnotation = useCallback((finding: JudgeFinding, body: string) => {
     let start = finding.anchor.start;
@@ -1638,7 +1654,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       toast.error(t('judge.action.applyFailed'));
       return false;
     }
-  }, [editedContent, editedTitle, liveEditor, openWriting?.id, projectId, t]);
+  }, [editedContent, editedTitle, liveEditor, openWriting?.id, projectId, t, ensureSnapshot]);
 
   // Opening a piece from the "changed recently" panel, which spans the whole
   // project: land in a tab that contains it, so the editor's prev/next
@@ -1663,6 +1679,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // surface that cannot save it.
   const handleReadFromHere = useCallback(async () => {
     const startId = editorRef.current.openId;
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
@@ -1671,7 +1688,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     leaveEditor();
     setReadingStartId(startId);
     setReading(true);
-  }, [flushSave, leaveEditor]);
+  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId]);
 
   // Leaving reading mode for the editor: one piece, at the point it was read.
   const handleReadingOpenInEditor = useCallback((writing: Writing) => {
@@ -1688,6 +1705,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // The whole book from the editor: the open chapter is flushed and closed
   // first, because the book loads every chapter from Dexie and edits it there.
   const handleOpenBookFromEditor = useCallback(async () => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
@@ -1695,7 +1713,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     }
     leaveEditor();
     setBookMode(true);
-  }, [flushSave, leaveEditor]);
+  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId]);
 
   // From the row on disk, not from the list: the book flushed the chapter a
   // moment ago, and the list is the refetch BEFORE that write — opening what
@@ -1711,7 +1729,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     target ??= writings.find((w) => w.id === id);
     setBookMode(false);
     if (target) handleOpenWriting(target);
-  }, [writings, handleOpenWriting]);
+  }, [writings, handleOpenWriting, getWriting]);
 
   const handleCreate = async () => {
     if (!newTitle.trim()) return;
@@ -1741,6 +1759,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   };
 
   const handleSaveContent = async () => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     // A Save button that quietly does nothing is the failure mode this editor
     // has been bitten by before (see the Back button). While the chapter is
@@ -1788,7 +1807,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     const handler = () => closeCardMenu();
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
-  }, [cardMenuId, closeCardMenu]);
+  }, [cardMenuId, closeCardMenu, projectId, scope.eraId, pane?.instanceId]);
 
   // ---------------------------------------------------------------------
   // Sending one chapter out.
@@ -1888,7 +1907,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     if (plan.length === 0) return false;
     setOrderBusy(true);
     try {
-      await applyChapterNumbers(projectId, plan);
+      await applyChapterNumbers(projectId, plan, scope);
       await onRefresh?.();
       return true;
     } catch (err) {
@@ -1900,7 +1919,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     } finally {
       setOrderBusy(false);
     }
-  }, [onRefresh, projectId, t]);
+  }, [onRefresh, projectId, t, scope]);
 
   const handleMoveChapter = useCallback(
     (id: string, direction: ChapterDirection) => applyOrderPlan(moveChapter(writings, id, direction)),
@@ -2068,7 +2087,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
   // ---- Whole book ----
   if (parallelWorkspace) return <ParallelDraftWorkspace key={projectId} projectId={projectId} start={parallelWorkspace} onClose={async writingId => {
-    const row = await db.writings.get(writingId);
+    const row = await getWriting(writingId);
     setParallelWorkspace(null);
     if (row?.projectId === projectId) handleOpenWriting(row);
     navigate(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(writingId)}`, { replace: true });
@@ -2362,6 +2381,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
           <div className="flex-1" />
 
+          {focusMode&&<ToolDockPanel scope={scope} owner={{kind:'writings',documentId:openWriting.id}} temporary/>}
           {!focusMode && (
             /* Status switcher */
             <div className="flex items-center gap-1 bg-surface border border-border rounded-lg px-1 py-0.5">
@@ -2664,6 +2684,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           <TiptapEditor
             key={`focus-editor-${openWriting.id}`}
             copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
+            prepareExternal={flushSave}
+            canAcceptExternalBlock={()=>{const session=editorRef.current;return !session.savePromise&&session.content===session.savedContent&&session.title===session.savedTitle;}}
             content={editedContent}
             onChange={setEditedContent}
             placeholder={t('writings.startWriting')}
@@ -2710,6 +2732,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             <TiptapEditor
               key={`editor-${openWriting.id}`}
               copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
+            prepareExternal={flushSave}
+            canAcceptExternalBlock={()=>{const session=editorRef.current;return !session.savePromise&&session.content===session.savedContent&&session.title===session.savedTitle;}}
               content={editedContent}
               onChange={setEditedContent}
               placeholder={t('writings.startWriting')}
@@ -2755,6 +2779,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                 placement={footnotePlacement}
                 onPlacementChange={handleFootnotePlacement}
               />
+              <ToolDockPanel scope={scope} owner={{kind:'writings',documentId:openWriting.id}}/>
               <AnnotationSurface
                 projectId={projectId}
                 engineId="writings"
@@ -3010,6 +3035,10 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         >
           <BookDown size={16} />
           {t('writings.compile.button')}
+        </button>
+
+        <button type="button" onClick={()=>setShowPublishedEditions(true)} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition hover:border-accent-gold/40 hover:text-accent-gold">
+          <BookOpen size={16}/>{locale==='es'?'Ediciones publicadas':'Published editions'}
         </button>
 
         <button
@@ -3489,6 +3518,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           open
           onClose={() => setShowManuscriptImport(false)}
           projectId={projectId}
+          eraId={scope.eraId}
           onImported={async () => {
             await onRefresh?.();
           }}
@@ -3496,6 +3526,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       )}
 
       {/* Compile / Export manuscript */}
+      {showPublishedEditions&&<PublishedEditionsModal projectId={projectId} eraId={scope.eraId} writings={[...manuscriptOrder,...writings.filter(writing=>!manuscriptOrder.some(chapter=>chapter.id===writing.id))]} onClose={()=>setShowPublishedEditions(false)} onRestored={()=>{void onRefresh?.();}}/>}
       <CompileModal
         open={showCompile}
         onClose={() => setShowCompile(false)}

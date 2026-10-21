@@ -8,6 +8,8 @@ import {
 } from '@/components/editor/footnotes/footnoteModel';
 import type { FootnoteMarkerStyle } from '@/types';
 import { xmlSafeText, type PublishingDocument } from './publishingDocument';
+import {formattingFromElement,formattingHtmlAttributes,INLINE_KEYS,BLOCK_KEYS,SCENE_BREAK_TEXT} from '@/components/editor/advanced/model';
+import {EDITORIAL_PROSE_CSS} from '@/components/editor/advanced/proseStyle';
 
 const XHTML_TAGS = new Set([
   'a', 'aside', 'b', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3',
@@ -71,7 +73,10 @@ function serializeXhtmlNode(node: Node): string {
     return [...node.childNodes].map(serializeXhtmlNode).join('');
   }
   const tag = sourceTag === 'b' ? 'strong' : sourceTag === 'i' ? 'em' : sourceTag;
+  const format=formattingFromElement(node);
+  if(tag==='hr'&&format.ornament)return `<p class="wh-scene-break" data-wh-ornament="${format.ornament}" role="separator">${escapeXml(SCENE_BREAK_TEXT[format.ornament])}</p>`;
   const attributes: string[] = [];
+  for(const[key,value]of Object.entries(formattingHtmlAttributes(format,tag==='span'?INLINE_KEYS:/^(p|h[1-6])$/.test(tag)?BLOCK_KEYS:[])))attributes.push(` ${key}="${escapeXml(value)}"`);
   if (tag === 'a') {
     const href = node.getAttribute('href');
     if (href) attributes.push(` href="${escapeXml(href)}"`);
@@ -254,7 +259,7 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
 
   const navBody = `<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc" id="toc"><h1>${escapeXml(document.title)}</h1><ol>${navigation.map(item => `<li><a href="${item.href}">${escapeXml(item.title)}</a></li>`).join('')}</ol></nav>`;
   zip.file('EPUB/nav.xhtml', xhtmlPage(document, document.title, navBody));
-  zip.file('EPUB/styles.css', `body { font-family: serif; line-height: 1.55; margin: 5%; }
+  zip.file('EPUB/styles.css', `${EDITORIAL_PROSE_CSS}\nbody { font-family: serif; line-height: 1.55; margin: 5%; }
 h1 { text-align: center; margin: 1.5em 0 1em; }
 p { margin: 0 0 0.5em; }
 .title-page { text-align: center; margin-top: 30%; }

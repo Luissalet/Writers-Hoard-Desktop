@@ -1,3 +1,7 @@
+import {dockMetadataAdvance} from '../toolDock/authoredSave';
+import ToolDockPanel from '../toolDock/ToolDockPanel';
+import {canLeaveToolDocks} from '../toolDock/pending';
+import {chapterBlocks as sourceChapterBlocks,CHAPTER_HEADING_NAME as SOURCE_CHAPTER_HEADING} from '@/components/editor/chapterHeading/chapterBlocks';
 // ============================================
 // The whole book in one editor
 // ============================================
@@ -35,7 +39,6 @@ import {
   X,
 } from 'lucide-react';
 import type { FootnoteMarkerStyle, FootnotePlacement, Writing } from '@/types';
-import { db } from '@/db';
 import { updateProject } from '@/db/operations';
 import { countWords } from '@/utils/text';
 import { isDesktop } from '@/utils/platform';
@@ -77,13 +80,11 @@ import { numberedInOrder } from '../chapterOrder';
 import { canonicalHtml, composeBookHtml, normalizeHtml, splitBookDoc } from '../bookDocument';
 import { saveBook, type BookBaseline, type BookBaselineEntry, type BookConflict } from '../bookSave';
 import {
-  restoreDeletedWriting,
-  takeLastDeletedWriting,
-  updateWritingAtVersion,
   type DeletedWritingBundle,
 } from '../operations';
 import { writeWritingRecoveryDraft, registerWritingRecoveryOwner } from '../recoveryJournal';
-import { takeSnapshot } from '../snapshots';
+import { useEraWritingOperations, useEraSnapshotOperations } from '@/services/worldEras/writings';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 
 /** Debounce for the autosave (ms) — the single-chapter editor's. */
 const AUTOSAVE_MS = 1200;
@@ -289,7 +290,10 @@ export default function BookEditor({
 }: BookEditorProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
-  const recoveryOwner = pane?.primary ? undefined : pane?.instanceId;
+  const scope = useWorldEraScope(projectId);
+  const { restoreDeletedWriting, takeLastDeletedWriting, updateWritingAtVersion, getWritings, getWriting } = useEraWritingOperations(projectId);
+  const { takeSnapshot } = useEraSnapshotOperations(projectId);
+  const recoveryOwner = scope.eraId ? `${pane?.instanceId ?? 'main'}:era:${scope.eraId}` : pane?.primary ? undefined : pane?.instanceId;
   useEffect(() => { const release = writings.map(writing => registerWritingRecoveryOwner(projectId, writing.id, recoveryOwner)); return () => release.forEach(cleanup => cleanup()); }, [projectId, recoveryOwner, writings]);
   const saveOwner = `book:${pane?.instanceId ?? 'main'}:${projectId}`;
   // Flow or Word-style sheets, from the writer's reading preferences. The
@@ -383,10 +387,7 @@ export default function BookEditor({
   useEffect(() => {
     if (!fromId || !toId) return;
     let cancelled = false;
-    void db.writings
-      .where('projectId')
-      .equals(projectId)
-      .toArray()
+    void getWritings(projectId)
       .then(async (all) => {
         if (cancelled) return;
         const ordered = numberedInOrder(all);
@@ -428,7 +429,7 @@ export default function BookEditor({
     return () => {
       cancelled = true;
     };
-  }, [projectId, fromId, toId, generation]);
+  }, [projectId, fromId, toId, generation, getWritings, takeSnapshot]);
 
   // ---------------------------------------------------------------------
   // The session baseline: the rows as this editor was built from them, each
@@ -442,8 +443,10 @@ export default function BookEditor({
     for (const row of book.rows) {
       baseline.set(row.id, {
         title: row.title,
+        persistedTitle: row.title,
         html: canonicalHtml(row.content, editor.schema),
         persisted: row.content,
+        toolDock: row.toolDock,
         version: row.updatedAt,
         chapter: row.chapter ?? 0,
         wordCount: row.wordCount || countWords(row.content),
@@ -541,8 +544,7 @@ export default function BookEditor({
   const recheckOpenChapters = (session: BookSession): void => {
     if (session.reloading) return;
     const ids = [...session.baseline.keys()];
-    void db.writings
-      .bulkGet(ids)
+    void Promise.all(ids.map(getWriting))
       .then((rows) => {
         if (!mountedRef.current || sessionRef.current !== session || session.reloading) return;
         // A save started since this read: it will answer, and the read is stale.
@@ -556,7 +558,7 @@ export default function BookEditor({
           const entry = session.baseline.get(id);
           if (!entry || session.contested.has(id)) return;
           if (!row) moved.push({ writingId: id, kind: 'gone' });
-          else if (row.updatedAt !== entry.version) moved.push({ writingId: id, kind: 'moved', current: row });
+          else if(row.updatedAt!==entry.version){if(dockMetadataAdvance({title:entry.persistedTitle??entry.title,content:entry.persisted,wordCount:entry.wordCount,updatedAt:entry.version,toolDock:entry.toolDock},row))session.baseline.set(id,{...entry,version:row.updatedAt,toolDock:row.toolDock});else moved.push({writingId:id,kind:'moved',current:row});}
         });
         if (moved.length === 0) return;
         if (!session.dirty && session.contested.size === 0) {
@@ -606,6 +608,7 @@ export default function BookEditor({
         let result;
         try {
           result = await saveBook({
+            scope,
             projectId,
             baseline: session.baseline,
             sections,
@@ -903,6 +906,7 @@ export default function BookEditor({
       session.baseline.set(id, {
         ...entry,
         title: found.current.title,
+        persistedTitle: found.current.title,
         html: canonicalHtml(found.current.content, live.editor.schema),
         persisted: found.current.content,
         version: found.current.updatedAt,
@@ -919,6 +923,7 @@ export default function BookEditor({
   // Heading actions.
   // ---------------------------------------------------------------------
   const handleOpenChapter = async (writingId: string) => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!(await flushSave())) {
       setPendingLeave(() => () => onOpenChapter(writingId));
       return;
@@ -1074,6 +1079,7 @@ export default function BookEditor({
   // that silently does nothing.
   // ---------------------------------------------------------------------
   const handleClose = async () => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!(await flushSave())) {
       setPendingLeave(() => onClose);
       return;
@@ -1082,6 +1088,7 @@ export default function BookEditor({
   };
 
   const handleRangeChange = async (next: BookRange) => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!(await flushSave())) {
       toast.info(
         sessionRef.current.contested.size > 0
@@ -1094,6 +1101,7 @@ export default function BookEditor({
   };
 
   const handleSaveClick = async () => {
+    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved && sessionRef.current.contested.size > 0) toast.info(t('writings.externalChange.hint'));
   };
@@ -1202,6 +1210,7 @@ export default function BookEditor({
             <File size={15} />
           </button>
         </div>
+        <ToolDockPanel scope={scope} owner={{kind:'project'}} temporary/>
         <button
           type="button"
           onClick={toggleNotes}
@@ -1336,6 +1345,10 @@ export default function BookEditor({
           <TiptapEditor
             key={loaded.key}
             referenceContext={{ projectId, scopeId: bookScopeId(projectId) }}
+            prepareExternal={()=>flushSaveRef.current()}
+            canAcceptExternalBlock={()=>!sessionRef.current.dirty&&!sessionRef.current.savePromise}
+            onExternalBlockCommit={(owner,root)=>{if(owner.kind!=='writings')return;const session=sessionRef.current,baseline=session.baseline.get(owner.documentId);if(!baseline||session.dirty||session.savePromise)return;const row=root as unknown as Writing,section=editorRef.current?splitBookDoc(editorRef.current.state.doc,editorRef.current.schema).find(section=>section.writingId===owner.documentId):undefined;if(section)session.baseline.set(owner.documentId,{...baseline,title:row.title,persistedTitle:row.title,html:section.html,persisted:row.content,version:row.updatedAt,wordCount:row.wordCount});}}
+            documentOwner={(editor,pos)=>{const block=sourceChapterBlocks(editor.state.doc,editor.schema.nodes[SOURCE_CHAPTER_HEADING]).find(block=>pos>=block.from&&pos<block.to);return block?.writingId?{kind:'writings',documentId:block.writingId}:undefined;}}
             content={loaded.html}
             onDocumentChange={handleChange}
             placeholder={t('writings.startWriting')}

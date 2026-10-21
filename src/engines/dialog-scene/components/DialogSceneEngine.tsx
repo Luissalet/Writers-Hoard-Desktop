@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import { useScenes } from '../hooks';
-import { autoNumberScenes } from '../operations';
+import { useSceneOperations } from '../hooks';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import SceneListView from './SceneListView';
 import SceneEditor from './SceneEditor';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 
 export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
+  const scope = useWorldEraScope(projectId), { autoNumberScenes } = useSceneOperations();
   const { t } = useTranslation();
   const { items: scenes, loading, addItem: addScene, editItem: editScene, removeItem: removeScene, reorder, refresh } =
     useScenes(projectId);
@@ -48,14 +50,14 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
   const handleImported = useCallback(async () => {
     await autoNumberScenes(projectId);
     await refresh();
-  }, [projectId, refresh]);
+  }, [projectId, refresh, autoNumberScenes]);
 
   // Auto-number on initial load if any scene lacks a number
   useEffect(() => {
-    if (!loading && scenes.some((s) => !s.isLocked && s.sceneNumber === undefined)) {
+    if (!scope.eraId && !loading && scenes.some((s) => !s.isLocked && s.sceneNumber === undefined)) {
       void autoNumberScenes(projectId).then(refresh).catch(() => toast.error(t('dialogScene.saveError')));
     }
-  }, [loading, scenes, projectId, refresh, t]);
+  }, [loading, scenes, projectId, refresh, t, scope.eraId, autoNumberScenes]);
 
   if (loading && scenes.length === 0) return <EngineSpinner className="flex items-center justify-center h-full bg-deep" />;
 
@@ -65,7 +67,7 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
     <div className="h-full">
       {activeScene ? (
         <SceneEditor
-          key={activeScene.id}
+          key={`${activeScene.id}:${scope.eraId ?? 'base'}`}
           scene={activeScene}
           scenes={scenes}
           onUpdateScene={(changes) => editScene(activeScene.id, changes)}

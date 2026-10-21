@@ -16,6 +16,7 @@
 import { scaleCount } from '@/utils/capacity';
 import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
+import { isForestBiome } from '../core/forestCover';
 import { createRng, type Rng } from '../core/rng';
 import { blur, distanceTo, labelLandmasses, localRelief, ridgeMask, scatterByScore, traceRidgeChains } from './fields';
 import { chaikin, marchingSquares, polylineVisible, resample, simplify, wobble, type Contour, type Pt } from './contours';
@@ -311,6 +312,11 @@ function getPaper(
  * and view-independent, cached per zoom bucket, and the view filter happens at
  * draw time where it belongs.
  */
+/** The GPU and exported sheet use the same cached parchment and world seed. */
+export function getCartoPaper(world: WorldData, theme: CartoTheme, width: number, height: number): Uint8ClampedArray {
+  return getPaper(`${world.params.seed}::paper`, theme, width, height);
+}
+
 export interface SymbolPlacement {
   x: number;
   y: number;
@@ -447,6 +453,8 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   // else's wobble.
   const inkNoise = makeInkNoise(seed, view, scale, world.width);
 
+  if (L.forests && theme.terrain?.canopy) drawForestCover(ctx, world, theme, view, scale);
+
   // Mar abierto: punteado primero, isóbata de plataforma encima. Los dos van
   // DEBAJO de la costa — la línea de tierra es la que manda en el agua.
   if (L.coastRings) drawSeaStipple(ctx, world, fields, theme, view, scale, OW, OH);
@@ -458,13 +466,14 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   drawCoastlines(ctx, coast, theme, inkNoise, scale, world.width, view, toScreenX, toScreenY);
 
   if (L.shading) drawHachure(ctx, world, fields, theme, view, scale, OW, OH);
+  if (L.relief && theme.terrain) drawTerrainContours(ctx, world, theme, view, scale, toScreenX, toScreenY, reliefAmount);
   if (L.rivers) drawRivers(ctx, world, theme, view, scale, toScreenX, toScreenY);
   drawLakes(ctx, world, theme, view, inkNoise, scale, toScreenX, toScreenY);
 
   let symbolCount = 0;
   const emit = opts.emitSymbol;
-  if (L.forests) symbolCount += drawForests(ctx, world, fields, theme, view, scale, density, seed, toScreenX, toScreenY, emit);
-  if (L.relief) symbolCount += drawRelief(ctx, world, fields, theme, view, scale, density, reliefAmount, seed, toScreenX, toScreenY, emit);
+  if (L.forests && theme.terrain?.forests !== false) symbolCount += drawForests(ctx, world, fields, theme, view, scale, density, seed, toScreenX, toScreenY, emit);
+  if (L.relief && theme.terrain?.symbols !== false) symbolCount += drawRelief(ctx, world, fields, theme, view, scale, density, reliefAmount, seed, toScreenX, toScreenY, emit);
   if (emit && opts.drawSymbols) {
     // Composited HERE, between the ink and the culture layer, which is exactly
     // where the canvas2D symbols used to land in the painter's order.
@@ -528,6 +537,8 @@ function renderBaseRaster(
   const landBase = hexToRgb(theme.land.base);
   const shadeC = hexToRgb(theme.land.shadeColor);
   const snowC = hexToRgb(theme.land.snow);
+  const terrain = theme.terrain;
+  const highland = terrain ? hexToRgb(terrain.highland) : landBase;
   const ringC = hexToRgb(theme.ocean.rings.color);
   const paperBase = hexToRgb(theme.paper.base);
   const paperLum = paperBase[0] * 0.3 + paperBase[1] * 0.5 + paperBase[2] * 0.2;
@@ -623,6 +634,11 @@ function renderBaseRaster(
           }
         }
 
+        if (L.relief && terrain) {
+          const t = Math.min(1, Math.max(0, (e - terrain.start) / (terrain.at - terrain.start)));
+          const alpha = Math.min(1, t * t * (3 - 2 * t) * terrain.alpha * (opts.reliefAmount ?? 1));
+          r += (highland[0] - r) * alpha; g += (highland[1] - g) * alpha; b += (highland[2] - b) * alpha;
+        }
         if (L.shading && theme.land.shading > 0) {
           // Relief shading from the real heightmap, kept gentle: on a drawn map
           // the symbols carry the terrain and the shading only seats them.
@@ -747,7 +763,8 @@ function projectContour(
   let shift = 0;
   while (mean + shift < cx - W / 2) shift += W;
   while (mean + shift > cx + W / 2) shift -= W;
-  return pts.map((p) => ({ x: toX(p.x + shift), y: toY(p.y) }));
+  // Raster samples live at cell centres; marching squares uses sample indices.
+  return pts.map((p) => ({ x: toX(p.x + shift + 0.5), y: toY(p.y + 0.5) }));
 }
 
 function drawCoastlines(
@@ -775,6 +792,39 @@ function drawCoastlines(
     if (c.closed) ctx.closePath();
     ctx.stroke();
   }
+}
+
+const TERRAIN_CONTOURS = new WeakMap<WorldData, { rev: number; interval: number; levels: Contour[][] }>();
+
+/** Contours follow the generated elevation, with index lines every fifth
+ * interval. Their world-space geometry is shared by pans, tiles and exports. */
+function drawTerrainContours(ctx: Ctx, world: WorldData, theme: CartoTheme, view: CartoView, scale: number, toX: (x: number) => number, toY: (y: number) => number, amount: number): void {
+  const cfg = theme.terrain!.contours;
+  if (cfg.alpha <= 0 || cfg.interval <= 0) return;
+  const rev = world.revision ?? 0;
+  let cached = TERRAIN_CONTOURS.get(world);
+  if (!cached || cached.rev !== rev || cached.interval !== cfg.interval) {
+    let max = 0;
+    for (const e of world.elevation) max = Math.max(max, e);
+    const levels: Contour[][] = [];
+    for (let elevation = cfg.interval; elevation < max; elevation += cfg.interval) levels.push(marchingSquares(world.elevation, world.width, world.height, elevation, true));
+    TERRAIN_CONTOURS.set(world, cached = { rev, interval: cfg.interval, levels });
+  }
+  ctx.save(); ctx.strokeStyle = cfg.color;
+  for (const [index, contours] of cached.levels.entries()) {
+    const major = (index + 1) % 5 === 0;
+    ctx.globalAlpha = Math.min(1, cfg.alpha * amount) * (major ? 1 : 0.6);
+    ctx.lineWidth = cfg.width * (major ? 1.65 : 1) * Math.max(0.75, Math.min(1.6, scale));
+    for (const contour of contours) {
+      if (contour.pts.length < 4 || !polylineVisible(contour.pts, view, world.width, 4 / scale)) continue;
+      const points = chaikin(simplify(projectContour(contour.pts, world.width, view, toX, toY), 0.25), contour.closed, 1);
+      ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      if (contour.closed) ctx.closePath();
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 // ---- water: shelf break and open-water stipple ----------------------------
@@ -994,6 +1044,7 @@ function drawRivers(
   const all = world.painted?.rivers.length
     ? [...generated, ...world.painted.rivers]
     : generated;
+  const junctions = new Set(all.map(river => river.cells[river.cells.length - 1]));
   for (const river of all) {
     const n = river.cells.length;
     if (n < 3) continue;
@@ -1024,28 +1075,39 @@ function drawRivers(
     while (mean + shift < cx - W / 2) shift += W;
     while (mean + shift > cx + W / 2) shift -= W;
 
-    let pts = raw.map((p) => ({ x: toX(p.x + shift), y: toY(p.y) }));
-    pts = simplify(pts, 0.4);
-    // Simplifying a straight watercourse correctly leaves its two endpoints.
-    // It is still a drawable line, not a missing river.
-    if (pts.length < 2) continue;
-    pts = chaikin(pts, false, 2);
-
-    // Width grows from headwater to mouth; drawn as a few tapered pieces so a
-    // big river visibly thickens the way an inked one does.
-    const wMax = (theme.rivers.minWidth + theme.rivers.maxWidth * river.flow) * Math.max(0.7, Math.min(2.4, scale));
-    const pieces = 6;
-    for (let k = 0; k < pieces; k++) {
-      const i0 = Math.floor((k * (pts.length - 1)) / pieces);
-      const i1 = Math.ceil(((k + 1) * (pts.length - 1)) / pieces);
-      if (i1 <= i0) continue;
-      const t = (k + 0.5) / pieces;
-      ctx.lineWidth = Math.max(0.5, theme.rivers.minWidth * Math.max(0.7, scale) + (wMax - theme.rivers.minWidth) * t);
-      ctx.beginPath();
-      ctx.moveTo(pts[i0].x, pts[i0].y);
-      for (let i = i0 + 1; i <= i1 && i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.stroke();
+    const projected = raw.map((p) => ({ x: toX(p.x + shift), y: toY(p.y) }));
+    const pts: Pt[] = [];
+    let start = 0;
+    // Smoothing a trunk across a tributary's endpoint moves the confluence
+    // away from that endpoint. Keep network junctions as exact shared anchors.
+    for (let k = 1; k < n; k++) {
+      if (k !== n - 1 && !junctions.has(river.cells[k])) continue;
+      const part = chaikin(simplify(projected.slice(start, k + 1), 0.4), false, 2);
+      pts.push(...(pts.length ? part.slice(1) : part)); start = k;
     }
+    if (pts.length < 2) continue;
+
+    // Authored pen widths stay a visual hierarchy at print scale. Multiplying
+    // the minimum by raw zoom made a brook kilometres wide on a continent.
+    const zoom = Math.max(0.75, Math.min(1.35, 0.8 + Math.log2(Math.max(1, scale)) * 0.18));
+    const head = theme.rivers.minWidth * zoom;
+    const mouth = (theme.rivers.minWidth + theme.rivers.maxWidth * river.flow ** 2) * zoom;
+    const lengths = [0];
+    for (let k = 1; k < pts.length; k++) lengths.push(lengths[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
+    const left: Pt[] = [], right: Pt[] = [];
+    for (let k = 0; k < pts.length; k++) {
+      const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)];
+      const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy) || 1;
+      const progress = lengths[k] / (lengths[lengths.length - 1] || 1);
+      const halfWidth = (head + (mouth - head) * progress) / 2;
+      left.push({ x: pts[k].x - dy / length * halfWidth, y: pts[k].y + dx / length * halfWidth });
+      right.push({ x: pts[k].x + dy / length * halfWidth, y: pts[k].y - dx / length * halfWidth });
+    }
+    // One continuous tapered ribbon, with no round caps between width steps.
+    ctx.fillStyle = theme.rivers.color; ctx.beginPath(); ctx.moveTo(left[0].x, left[0].y);
+    for (let k = 1; k < left.length; k++) ctx.lineTo(left[k].x, left[k].y);
+    for (let k = right.length - 1; k >= 0; k--) ctx.lineTo(right[k].x, right[k].y);
+    ctx.closePath(); ctx.fill();
   }
 }
 
@@ -1075,7 +1137,7 @@ function drawLakes(
     let shift = 0;
     while (mean + shift < cx - W / 2) shift += W;
     while (mean + shift > cx + W / 2) shift -= W;
-    let pts = c.pts.map((p) => ({ x: toX(p.x + shift), y: toY(p.y) }));
+    let pts = c.pts.map((p) => ({ x: toX(p.x + shift + 0.5), y: toY(p.y + 0.5) }));
     pts = chaikin(simplify(pts, 0.3), c.closed, 2);
     if (pts.length < 4) continue;
     pts = wobble(pts, 0.3, noise, c.closed);
@@ -1107,6 +1169,32 @@ const FOREST_BIOMES = new Set<number>([
   Biome.BorealForest, Biome.TemperateForest, Biome.TemperateRainforest,
   Biome.TropicalForest, Biome.TropicalRainforest,
 ]);
+
+const FOREST_COVER_CACHE = new WeakMap<WorldData, { key: string; canvas: HTMLCanvasElement | OffscreenCanvas }>();
+
+/** Continuous closed-canopy occupation precedes individual crowns. Holes in
+ * the physical biome mask stay holes; symbols no longer have to invent mass. */
+function drawForestCover(ctx: Ctx, world: WorldData, theme: CartoTheme, view: CartoView, scale: number): void {
+  const key = `${world.revision ?? 0}:${theme.id}:${theme.forest.shadow}`;
+  let hit = FOREST_COVER_CACHE.get(world);
+  if (!hit || hit.key !== key) {
+    const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(world.width, world.height) : document.createElement('canvas');
+    canvas.width = world.width; canvas.height = world.height;
+    const c = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+    c.fillStyle = theme.forest.shadow; c.fillRect(0, 0, 1, 1);
+    const color = c.getImageData(0, 0, 1, 1).data, image = c.createImageData(world.width, world.height);
+    for (let i = 0; i < world.biome.length; i++) {
+      image.data[i*4] = color[0]; image.data[i*4+1] = color[1]; image.data[i*4+2] = color[2];
+      image.data[i*4+3] = world.elevation[i] > 0 && isForestBiome(world.biome[i]) ? 135 : 0;
+    }
+    c.putImageData(image, 0, 0); hit = { key, canvas }; FOREST_COVER_CACHE.set(world, hit);
+  }
+  ctx.save(); ctx.imageSmoothingEnabled = true;
+  for (let copy = Math.floor(view.x/world.width); copy <= Math.floor((view.x+view.w)/world.width); copy++) {
+    ctx.drawImage(hit.canvas, (copy*world.width-view.x)*scale, -view.y*scale, world.width*scale, world.height*scale);
+  }
+  ctx.restore();
+}
 
 /**
  * World-global relief placement. Deliberately independent of the view so it can
@@ -1358,6 +1446,28 @@ function symbolSize(base: number, scale: number): number {
   return base * Math.max(0.55, Math.min(1.9, 0.55 + 0.45 * scale));
 }
 
+/** Fit the actual, jittered feet and scree onto one landmass. Ridge chains
+ * and scattered peaks share this check after their final displacement. */
+function reliefCoastScale(world: WorldData, fields: CartoFields, x: number, y: number, width: number, height: number): number {
+  const W = world.width, H = world.height;
+  const at = (wx: number, wy: number) => fields.landmass[Math.min(H - 1, Math.max(0, Math.round(wy))) * W + ((Math.round(wx) % W) + W) % W];
+  const landmass = at(x, y);
+  if (landmass < 0) return 0;
+  const fits = (factor: number) => {
+    for (const dx of [-0.7, -0.45, -0.2, 0, 0.2, 0.45, 0.7]) {
+      for (const dy of [-0.05, 0.12, 0.25]) {
+        if (at(x + dx * width * factor, y + dy * height * factor) !== landmass) return false;
+      }
+    }
+    return true;
+  };
+  if (fits(1)) return 1;
+  let low = 0, high = 1;
+  for (let i = 0; i < 8; i++) { const middle = (low + high) / 2; if (fits(middle)) low = middle; else high = middle; }
+  // A tiny isolated mark is less useful than keeping the coast legible.
+  return low >= 0.24 ? low : 0;
+}
+
 function drawRelief(
   ctx: Ctx,
   world: WorldData,
@@ -1411,9 +1521,12 @@ function drawRelief(
   for (const { x, wx, y, isHill, size, p } of visible) {
     const sx = toX(x), sy = toY(y);
     const jitterSeed = rngFor(seed, wx, y);
-    const h = size * (1 + (jitterSeed() - 0.5) * 2 * theme.mountains.sizeJitter);
+    let h = size * (1 + (jitterSeed() - 0.5) * 2 * theme.mountains.sizeJitter);
     const ratio = isHill ? 1.7 + jitterSeed() * 0.8 : 2.3 + jitterSeed() * 2.2;
-    const w = h * ratio * 0.55 * (p.broad ?? 1);
+    let w = h * ratio * 0.55 * (p.broad ?? 1);
+    const fit = reliefCoastScale(world, fields, wx, y, w / scale, h / scale);
+    if (!fit) continue;
+    h *= fit; w *= fit;
 
     const xi = ((Math.round(wx) % W) + W) % W;
     const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
@@ -1490,7 +1603,7 @@ function placeForests(
     // El corazón de la masa se aprieta un 30 % respecto a la orilla: es lo que
     // hace que un bosque tenga BORDE en vez de desvanecerse por igual.
     radiusAt: (sc, x, y) =>
-      Math.max(1.0, (tSize * (sc > 0.4 ? 0.95 : 2.1) * (1.15 - 0.34 * massAt(x, y))) / bucketScale / density),
+      Math.max(theme.terrain?.canopy ? 0.38 : 1.0, (tSize * (sc > 0.4 ? (theme.terrain?.canopy ? 0.55 : 0.95) : 2.1) * (1.15 - 0.34 * massAt(x, y))) / bucketScale / density),
     maxPoints: budget,
     accept: (x, y) => {
       const xi = ((Math.round(x) % W) + W) % W;
@@ -1583,10 +1696,16 @@ function drawForests(
     }
     const hh = h * scale2;
 
+    // Painted forests read as stands, with a shared canopy rather than a
+    // uniform stipple of individual tree stamps. The original biome mask and
+    // distance to its edge still own where the stand exists.
+    const canopy = theme.terrain?.canopy && FOREST_BIOMES.has(b);
+    if (canopy && fields.landDist[yi * W + xi] < hh * 0.75 / scale + 0.3) continue;
+
     if (emit) {
       // A tree's atlas cell is square, so the quad is too; a mountain's carries
       // its own width, which is what gives the range its silhouette.
-      emit({ kind, x: toX(x), y: toY(y), w: hh * (kind === 'dune' || kind === 'marsh' || kind === 'ice' ? 1.9 : 1), h: hh, variant: r(), snow: 0 });
+      emit({ kind, x: toX(x), y: toY(y), w: hh * (canopy ? 1.5 : kind === 'dune' || kind === 'marsh' || kind === 'ice' ? 1.9 : 1), h: hh, variant: r(), snow: 0 });
       continue;
     }
     // Dentro de la masa hay bruma: los ejemplares del corazón se lavan hacia el
@@ -1595,6 +1714,10 @@ function drawForests(
     const depth = mass * 0.85;
     ctx.save();
     ctx.translate(toX(x), toY(y));
+    if (canopy) {
+      drawCanopyStand(ctx, r, theme, hh, mass, b === Biome.BorealForest || T < 4);
+      ctx.restore(); continue;
+    }
     switch (kind) {
       case 'cactus': drawCactus(ctx, r, theme, hh); break;
       case 'dune': drawDune(ctx, r, theme, hh); break;
@@ -1607,6 +1730,26 @@ function drawForests(
     ctx.restore();
   }
   return visible.length;
+}
+
+/** Overlapping original crown shapes, stable in world space and at tile edges. */
+function drawCanopyStand(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number, mass: number, conifer: boolean): void {
+  const crowns = 3 + Math.floor(mass * 3);
+  ctx.fillStyle = theme.forest.shadow;
+  ctx.globalAlpha = 0.6 + mass * 0.25;
+  ctx.beginPath(); ctx.ellipse(0, h * 0.04, h * 0.67, h * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  for (let k = 0; k < crowns; k++) {
+    const x = (rng() - .5) * h * .85, y = (rng() - .5) * h * .3, size = h * (.35 + rng() * .14);
+    ctx.fillStyle = k % 3 === 0 ? theme.forest.shadow : theme.forest.light;
+    ctx.beginPath();
+    if (conifer) {
+      ctx.moveTo(x, y - size); ctx.lineTo(x + size * .52, y + size * .3); ctx.lineTo(x - size * .52, y + size * .3); ctx.closePath();
+    } else ctx.ellipse(x, y - size * .25, size * .72, size * .63, (rng() - .5) * .5, 0, Math.PI * 2);
+    ctx.fill();
+    // Only exposed crowns carry ink; dense interiors merge into one mass.
+    if (mass < .4) { ctx.strokeStyle = theme.forest.ink; ctx.lineWidth = Math.max(.25, h * .035); ctx.stroke(); }
+  }
 }
 
 export { rgbCss, resample };

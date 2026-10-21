@@ -22,6 +22,8 @@ import {
 } from '../core/paintCommit';
 import type { EditTarget, Pt, Stroke, WorldEdit } from '../core/edits';
 import { editKey, filterFor } from '../core/edits';
+import { settlementStyle, placeFont, labelScale, symbolScale } from '../core/placeStyle';
+import { drawPlaceBuilding } from '../cartography/placeSymbol';
 import { strokeMask } from '../sculpt/ops';
 import { Biome } from '../core/types';
 import { settlementCellCenter, type HumanGeography, type Road, type Settlement } from '../core/settlements';
@@ -45,6 +47,7 @@ import { map2DLayerPlan, map2DVectorRiverFallback } from '../cartography/map2dLa
 import { levelFor, tileCountX, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
 import { drawRoadNetwork, unwrapRoad } from '../cartography/roadOverlay';
 import { drawRealmBorders, realmBorders, realmTint } from '../cartography/realmOverlay';
+import { realmAnchors } from '../cartography/realmAnchors';
 import { drawArrivalMark, drawScreenScaleBar } from '../cartography/screenFurniture';
 import {
   drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported,
@@ -313,81 +316,6 @@ function worldId(w: object): number {
   let id = WORLD_IDS.get(w);
   if (id === undefined) { id = nextWorldId++; WORLD_IDS.set(w, id); }
   return id;
-}
-
-/** A cell a realm actually holds, and how much ground it holds in all. */
-interface RealmAnchor {
-  x: number;
-  y: number;
-  /** Cells claimed, which is what decides whether the name fits on screen. */
-  cells: number;
-}
-
-/**
- * Where each realm's name goes, worked out ONCE per geography.
- *
- * Finding it costs two passes over the whole grid — two million lookups on a
- * 2048-wide world — which is affordable once and ruinous on every frame of a
- * pan. Keyed on `realmOf`, exactly like the border extraction in
- * `cartography/realmOverlay`: that array is what changes when the political map
- * changes, and a geography rebuilt after a stroke brings a new one.
- */
-const REALM_ANCHORS = new WeakMap<Int32Array, Array<RealmAnchor | null>>();
-
-function realmAnchors(W: number, H: number, geo: HumanGeography): Array<RealmAnchor | null> {
-  const cached = REALM_ANCHORS.get(geo.realmOf);
-  if (cached) return cached;
-  const of = geo.realmOf;
-  const n = geo.realms.length;
-  // Longitude is averaged as an ANGLE. A realm that straddles the antimeridian
-  // has columns near 0 and near W, and the plain mean of those puts its capital
-  // on the far side of the planet.
-  const cosCol = new Float64Array(W), sinCol = new Float64Array(W);
-  for (let x = 0; x < W; x++) {
-    const a = (x / W) * Math.PI * 2;
-    cosCol[x] = Math.cos(a); sinCol[x] = Math.sin(a);
-  }
-  const cos = new Float64Array(n), sin = new Float64Array(n);
-  const sumY = new Float64Array(n), count = new Float64Array(n);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const r = of[y * W + x];
-      if (r < 0 || r >= n) continue;
-      cos[r] += cosCol[x]; sin[r] += sinCol[x];
-      sumY[r] += y; count[r]++;
-    }
-  }
-  const cx = new Float64Array(n), cy = new Float64Array(n);
-  for (let r = 0; r < n; r++) {
-    cx[r] = ((Math.atan2(sin[r], cos[r]) / (Math.PI * 2)) * W % W + W) % W;
-    cy[r] = count[r] ? sumY[r] / count[r] : 0;
-  }
-  // Second pass: the nearest cell the realm actually HOLDS. A centroid falls in
-  // open sea whenever the country curls round a bay and inside the neighbour
-  // whenever it is two halves either side of one — and a name lettered over
-  // someone else's ground is worse than no name at all.
-  const best = new Float64Array(n).fill(Infinity);
-  const out: Array<RealmAnchor | null> = new Array(n).fill(null);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const r = of[y * W + x];
-      if (r < 0 || r >= n) continue;
-      let dx = x - cx[r];
-      while (dx > W / 2) dx -= W;
-      while (dx < -W / 2) dx += W;
-      const dy = y - cy[r];
-      const d2 = dx * dx + dy * dy;
-      if (d2 >= best[r]) continue;
-      best[r] = d2;
-      out[r] = { x, y, cells: 0 };
-    }
-  }
-  for (let r = 0; r < n; r++) {
-    const a = out[r];
-    if (a) a.cells = count[r];
-  }
-  REALM_ANCHORS.set(geo.realmOf, out);
-  return out;
 }
 
 /**
@@ -818,7 +746,7 @@ function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): H
  * per projection to save a few milliseconds on a switch nobody makes twice a
  * second is the wrong trade.
  */
-const TINT_SHEETS = new WeakMap<Int32Array, { key: string; canvas: HTMLCanvasElement | null }>();
+const TINT_SHEETS = new WeakMap<Int32Array, { key: string; source: HTMLCanvasElement; canvas: HTMLCanvasElement | null }>();
 
 function projectedRealmTint(
   world: { width: number; height: number },
@@ -832,14 +760,14 @@ function projectedRealmTint(
   const W = world.width, H = world.height;
   const key = `${projection}:${W}x${H}`;
   const hit = TINT_SHEETS.get(geo.realmOf);
-  if (hit && hit.key === key) return hit.canvas;
+  if (hit && hit.key === key && hit.source === flat) return hit.canvas;
   const src = flat.getContext('2d')?.getImageData(0, 0, W, H);
   let canvas: HTMLCanvasElement | null = null;
   if (src) {
     const { px, w, h } = reprojectRgba(src.data, W, H, projection);
     canvas = makeCanvas(px, w, h);
   }
-  TINT_SHEETS.set(geo.realmOf, { key, canvas });
+  TINT_SHEETS.set(geo.realmOf, { key, source: flat, canvas });
   return canvas;
 }
 
@@ -1531,7 +1459,7 @@ export default function Map2D({
     const moves = world.painted?.moves;
     const movedAt = (key: string): Pt | undefined => moves?.[key];
     const mapLabels: Array<{
-      value: { text: string; color: string; size: number; weight: number };
+      value: { text: string; color: string; size: number; weight: number; font: string };
       x: number;
       y: number;
       width: number;
@@ -1547,16 +1475,17 @@ export default function Map2D({
       weight: number,
       priority: number,
       area?: { maxWidth: number },
+      font = '"Source Sans 3", sans-serif',
     ) => {
       if (x < 0 || x > cw || y < 0 || y > ch) return;
-      ctx.font = `${weight} ${size}px "Source Sans 3", sans-serif`;
+      ctx.font = `${weight} ${size}px ${font}`;
       let width = ctx.measureText(text).width;
       if (area) {
         const budget = Math.min(area.maxWidth, cw * 0.48);
         if (width > budget) {
           size *= budget / width;
           if (size < 10) return;
-          ctx.font = `${weight} ${size}px "Source Sans 3", sans-serif`;
+          ctx.font = `${weight} ${size}px ${font}`;
           width = ctx.measureText(text).width;
         }
         x -= width / 2;
@@ -1568,7 +1497,7 @@ export default function Map2D({
         if (width > cw - 12) {
           size *= (cw - 12) / width;
           if (size < 9) return;
-          ctx.font = `${weight} ${size}px "Source Sans 3", sans-serif`;
+          ctx.font = `${weight} ${size}px ${font}`;
           width = ctx.measureText(text).width;
         }
         x = Math.max(6, Math.min(cw - width - 6, x));
@@ -1576,7 +1505,7 @@ export default function Map2D({
       }
       if (x < 6 || x + width > cw - 6 || y - size * 0.7 < 4 || y + size * 0.7 > ch - 4) return;
       mapLabels.push({
-        value: { text, color, size, weight },
+        value: { text, color, size, weight, font },
         x,
         y,
         width,
@@ -2041,7 +1970,7 @@ export default function Map2D({
         // political geography.
         const across = Math.sqrt(anchor.cells) * pxPerCell;
         if (across < 120) continue;
-        const size = Math.max(10, Math.min(14, 9 + across / 110));
+        const size = Math.max(10, Math.min(14, 9 + across / 110)) * labelScale(realm.style ?? {});
         // Compact caps preserve the name as a word and fit the actual country.
         const text = realm.name.toUpperCase();
         ctx.font = `600 ${size}px "Source Sans 3", sans-serif`;
@@ -2052,12 +1981,12 @@ export default function Map2D({
           queueLabel(
             // Area labels reserve a centred box, fitted to their territory.
             text, sx, sy,
-            `hsl(${realm.hue} 55% 78%)`, size, 600,
+            realm.style?.color ?? `hsl(${realm.hue} 55% 78%)`, size, 600,
             // Above the towns, which top out at 100: with the political layer
             // switched on, the country is the thing the reader switched it on
             // to see. Below the seas, which only letter where they have room.
             110,
-            { maxWidth: across * 0.85 },
+            { maxWidth: across * 0.85 }, placeFont(realm.style ?? {}, '"Source Sans 3", sans-serif'),
           );
         }
       }
@@ -2180,9 +2109,9 @@ export default function Map2D({
               sx + 8,
               sy,
               lm.style.color ?? '#f6efe0',
-              10,
+              10 * labelScale(lm.style),
               600,
-              65 + lm.importance * 20,
+              65 + lm.importance * 20, undefined, placeFont(lm.style, '"Source Sans 3", sans-serif'),
             );
           }
         }
@@ -2241,9 +2170,9 @@ export default function Map2D({
               sx + 7,
               sy,
               entity.style.color ?? '#f6efe0',
-              10,
+              10 * labelScale(entity.style),
               600,
-              30 + entity.importance * 30,
+              30 + entity.importance * 30, undefined, placeFont(entity.style, '"Source Sans 3", sans-serif'),
             );
           }
         }
@@ -2262,10 +2191,14 @@ export default function Map2D({
         for (const ru of geography.ruins) {
           // `ru` llega ya mudada por la geografía; la llave del dibujo la
           // redirige `applyEdits` al origen si el lector vuelve a arrastrar.
-          const ruKey = editKey('ruin', ru.x, ru.y);
+          const ruKey = ru.sourceKey ?? editKey('ruin', ru.x, ru.y);
+          const style = world.painted?.styles?.[ruKey] ?? {};
           const [sx, sy] = toScreen((ru.x + 0.5) / W, (ru.y + 0.5) / H, copyOx);
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
-          const r = ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2;
+          const r = (ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2) * symbolScale(style);
+          ctx.save(); ctx.translate(sx, sy);
+          const custom = drawPlaceBuilding(ctx, style, undefined, r, ru.kind); ctx.restore();
+          if (!custom) {
           // A broken square: the universal "this was a building and is not any
           // more", and legible at four pixels where a drawn ruin symbol is mud.
           ctx.strokeStyle = 'rgba(226,214,190,0.85)';
@@ -2274,13 +2207,14 @@ export default function Map2D({
           ctx.moveTo(sx - r, sy + r); ctx.lineTo(sx - r, sy - r); ctx.lineTo(sx, sy - r);
           ctx.moveTo(sx + r, sy - r * 0.2); ctx.lineTo(sx + r, sy + r); ctx.lineTo(sx + r * 0.1, sy + r);
           ctx.stroke();
+          }
           hits.push({
             kind: 'note', x: sx, y: sy, reach: r + 7, bias: 1.2,
             note: `${ru.name} · ${t('worldgen.atlas.kind.ruin')}`,
             mover: { target: 'ruin', key: ruKey, label: ru.name },
           });
           if (semantic.tier === 'local') {
-            queueLabel(ru.name, sx + r + 4, sy, '#ddd2ba', 9.5, 500, 20 + ru.importance * 20);
+            queueLabel(ru.name, sx + r + 4, sy, style.color ?? '#ddd2ba', 9.5 * labelScale(style), 500, 20 + ru.importance * 20, undefined, placeFont(style, '"Source Sans 3", sans-serif'));
           }
         }
       }
@@ -2325,7 +2259,8 @@ export default function Map2D({
           // de rótulo y nada más (ver `NamedFeature.x`).
           // `f` llega ya mudado por la geografía (el ancla del rótulo es lo
           // que se muda); `applyEdits` redirige la llave si se arrastra otra vez.
-          const fKey = editKey('feature', f.x, f.y, `${f.kind}:`);
+          const fKey = f.sourceKey ?? editKey('feature', f.x, f.y, `${f.kind}:`);
+          const style = world.painted?.styles?.[fKey] ?? {};
           const [sx, sy] = toScreen((f.x + 0.5) / W, (f.y + 0.5) / H, copyOx);
           if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
           const water = river || f.kind === 'sea' || f.kind === 'bay' || f.kind === 'strait'
@@ -2345,17 +2280,17 @@ export default function Map2D({
           queueLabel(
             f.kind === 'continent' || f.kind === 'ocean' ? f.name.toUpperCase() : f.name,
             sx, sy,
-            water ? 'rgba(178,214,236,0.92)' : 'rgba(238,228,205,0.9)',
-            river
+            style.color ?? (water ? 'rgba(178,214,236,0.92)' : 'rgba(238,228,205,0.9)'),
+            (river
               ? Math.max(9, Math.min(12, 8 + f.importance * 5))
-              : Math.max(10, Math.min(14, 10 + f.importance * 4)),
+              : Math.max(10, Math.min(14, 10 + f.importance * 4))) * labelScale(style),
             600,
             // Above the towns: at the zoom where a sea has room for its name,
             // the sea is what you are looking at. A river goes just over the
             // towns too (they top out at 100) and under the realms and the
             // seas, which name more ground than it does.
             river ? 96 + f.importance * 12 : 120 + f.importance * 30,
-            river ? undefined : { maxWidth: f.extent * ((PW * scale) / W) * 0.85 },
+            river ? undefined : { maxWidth: f.extent * ((PW * scale) / W) * 0.85 }, placeFont(style, '"Source Sans 3", sans-serif'),
           );
         }
       }
@@ -2415,14 +2350,15 @@ export default function Map2D({
           // says about its rank: half a gesture with an invisible first end is
           // the reader wondering whether the click registered at all.
           const pending = roadFrom?.id === s.id;
-          if (rank > maxRank && !pending) continue;
+          const style = settlementStyle(world, s);
+          if (rank > maxRank && !pending && !style.labelVisible) continue;
           // `s` llega ya mudado por la geografía; la llave del dibujo la
           // redirige `applyEdits` al origen si el lector vuelve a arrastrar.
-          const sKey = editKey('settlement', s.x, s.y);
+          const sKey = s.sourceKey ?? editKey('settlement', s.x, s.y);
           const centre = settlementCellCenter(s);
           const [sx, sy] = toScreen(centre.x / W, centre.y / H, copyOx);
           if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
-          const r = rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2;
+          const r = (rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2) * symbolScale(style);
           // The reach is the DOT plus a finger's worth, not a flat 14 px over
           // every town in the world — see the note on `painted`.
           hits.push({
@@ -2443,14 +2379,18 @@ export default function Map2D({
           // remains in the branch so alternate layer contracts can opt into
           // tile-owned marks without changing hit testing.
           if (deepMarks && tileZ >= SAT_DEEP_Z + 2) continue;
+          ctx.save(); ctx.translate(sx, sy);
+          const custom = drawPlaceBuilding(ctx, style, s.culture, r, s.rank); ctx.restore();
+          if (!custom) {
           ctx.beginPath();
           ctx.arc(sx, sy, r, 0, Math.PI * 2);
-          ctx.fillStyle = pending ? '#ffd479' : rank === 0 ? '#ffd479' : '#f4ead4';
+          ctx.fillStyle = style.color ?? (pending ? '#ffd479' : rank === 0 ? '#ffd479' : '#f4ead4');
           ctx.fill();
           ctx.lineWidth = 1.5;
           ctx.strokeStyle = 'rgba(6,8,13,0.92)';
           ctx.stroke();
-          if (!deepMarks && (rank === 0
+          }
+          if (!deepMarks && (style.labelVisible || rank === 0
               || (rank <= 1 && semantic.tier !== 'planetary')
               || (rank <= 2 && (semantic.tier === 'regional' || semantic.tier === 'local'))
               || semantic.tier === 'local')) {
@@ -2463,10 +2403,11 @@ export default function Map2D({
               s.name,
               sx + r + 5,
               sy,
-              '#f6efe0',
-              Math.round((rank <= 1 ? 11 : 10) + boost),
+              style.color ?? '#f6efe0',
+              Math.round(((rank <= 1 ? 11 : 10) + boost) * labelScale(style)),
               rank <= 1 ? 600 : 500,
-              100 - rank * 15,
+              style.labelVisible ? 250 : 100 - rank * 15,
+              undefined, placeFont(style, '"Source Sans 3", sans-serif'),
             );
           }
         }
@@ -2524,24 +2465,29 @@ export default function Map2D({
           const geographic = DEEP_FEATURE_KINDS.has(p.kind);
           if (geographic ? !showFeatures : !showSettlements) continue;
           if (p.importance < placeFloor) continue;
-          const labeled = tileZ >= 14 || p.importance >= placeFloor * 1.7;
+          const style = (p.sourceKey && world.painted?.styles?.[p.sourceKey]) || p.style || {};
+          const labeled = style.labelVisible || tileZ >= 14 || p.importance >= placeFloor * 1.7;
           for (const copyOx of copies) {
             const [sx, sy] = toScreen(p.worldX / W, p.worldY / H, copyOx);
             if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
             const big = p.kind === 'town' || p.kind === 'village';
             hits.push({ kind: 'place', x: sx, y: sy, place: p, reach: big ? 10 : 8, bias: 1.1 });
+            ctx.save(); ctx.translate(sx, sy);
+            const custom = drawPlaceBuilding(ctx, style, undefined, 4 * symbolScale(style), p.kind); ctx.restore();
+            if (!custom) {
             ctx.beginPath();
             ctx.arc(sx, sy, big ? 3 : 2, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(20,18,14,0.75)';
             ctx.fill();
+            }
             if (labeled) {
               // La misma regla que el rótulo del mundo: crece con el zoom.
               const boost = Math.max(0, Math.min(8, (Math.log2((PW * scale) / W) - 1) * 2));
               queueLabel(
-                p.name, sx + 5, sy, '#f2ecdd',
-                Math.round((big ? 11 : 9.5) + (big ? boost : boost * 0.75)),
+                p.name, sx + 5, sy, style.color ?? '#f2ecdd',
+                Math.round(((big ? 11 : 9.5) + (big ? boost : boost * 0.75)) * labelScale(style)),
                 big ? 600 : 500,
-                40 + p.importance * 30,
+                40 + p.importance * 30, undefined, placeFont(style, '"Source Sans 3", sans-serif'),
               );
             }
           }
@@ -2737,7 +2683,7 @@ export default function Map2D({
 
     for (const candidate of declutterLabels(mapLabels, Math.max(8, Math.round(semantic.labelBudget * Math.min(1, cw * ch / 400000))), 4)) {
       const item = candidate.value;
-      ctx.font = `${item.weight} ${item.size}px "Source Sans 3", sans-serif`;
+      ctx.font = `${item.weight} ${item.size}px ${item.font}`;
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
       ctx.strokeStyle = 'rgba(6,8,13,0.88)';
@@ -4968,6 +4914,9 @@ function drawRegionalEntity(
     drawLandmark(ctx, entity, x, y, selected);
     return;
   }
+  ctx.save(); ctx.translate(x, y);
+  const custom = drawPlaceBuilding(ctx, entity.style, undefined, 4 * symbolScale(entity.style), entity.type); ctx.restore();
+  if (custom) return;
   const size = Math.min(2, Math.max(0.7, entity.style.size ?? 1));
   const important = entity.type === 'town' || entity.type === 'village'
     || entity.type === 'abbey' || entity.type === 'tower';

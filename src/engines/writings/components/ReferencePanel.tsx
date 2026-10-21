@@ -214,7 +214,7 @@ export default function ReferencePanel({
     if (!open || !needle) return;
     let alive = true;
     const timer = window.setTimeout(() => {
-      searchSources(projectId, needle)
+      searchSources(projectId, needle, 20, pane?.projectId === projectId ? pane.eraId : undefined)
         .then((hits) => { if (alive) setSourceHits(hits); })
         .catch(() => { if (alive) setSourceHits([]); });
     }, SOURCE_DEBOUNCE_MS);
@@ -222,7 +222,7 @@ export default function ReferencePanel({
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [query, projectId, open]);
+  }, [query, projectId, open, pane?.projectId, pane?.eraId]);
 
   const byId = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const rows = useMemo<Row[]>(() => {
@@ -576,7 +576,7 @@ export default function ReferencePanel({
           onPendingChange={setSavingEntry}
           onDirtyChange={setEntryDirty}
           onSave={async (draft, base) => {
-            await saveCodexDraft(base ?? editingEntry, draft);
+            await saveCodexDraft(base ?? editingEntry, draft, { projectId, eraId: pane?.projectId === projectId ? pane.eraId : undefined });
             await refresh();
             notifyDataChanged({ source: 'other', projectId, table: 'codexEntries', entityId: draft.id });
             setEditingEntry(null);

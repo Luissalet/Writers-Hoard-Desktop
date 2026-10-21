@@ -1,3 +1,4 @@
+import { useWorldEraScope, bindEraOperation } from '@/services/worldEras/hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -5,10 +6,10 @@ import Modal from '@/components/common/Modal';
 import {
   defaultWorldCalendar, validateWorldCalendar, type WorldCalendar,
 } from '../worldCalendar';
-import { saveWorldCalendar, type ResolvedWorldCalendar } from '../worldCalendarStore';
+import { saveWorldCalendar as saveWorldCalendarScoped, type ResolvedWorldCalendar } from '../worldCalendarStore';
 import CalendarPresetControls from './CalendarPresetControls';
 import type { Timeline } from '@/types';
-import { saveTimelineSettings } from '../timelineSettings';
+import { saveTimelineSettings as saveTimelineSettingsScoped } from '../timelineSettings';
 
 interface WorldCalendarEditorProps {
   projectId: string;
@@ -30,6 +31,9 @@ const copy = (c: WorldCalendar): WorldCalendar => JSON.parse(JSON.stringify(c)) 
 
 export default function WorldCalendarEditor({ projectId, open, onClose, resolved, timeline }: WorldCalendarEditorProps) {
   const { t } = useTranslation();
+  const scope = useWorldEraScope(projectId);
+  const saveWorldCalendar = bindEraOperation(saveWorldCalendarScoped, scope.eraId, 2);
+  const saveTimelineSettings = bindEraOperation(saveTimelineSettingsScoped, scope.eraId, 3);
   const [draft, setDraft] = useState<WorldCalendar>(() => defaultWorldCalendar(t('timeline.world.defaultName')));
   const [weekdaysText, setWeekdaysText] = useState('');
   const [errors, setErrors] = useState<string[]>([]);

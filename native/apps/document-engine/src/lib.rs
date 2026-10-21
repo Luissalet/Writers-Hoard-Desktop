@@ -218,6 +218,9 @@ impl DocumentEngine {
             "document.exportHtml" => {
                 let session = self.session(args)?;
                 let include_revisions = args.get("includeRevisions").and_then(Value::as_bool).unwrap_or(false);
+                if args.get("includeComments").and_then(Value::as_bool).unwrap_or(false) {
+                    return manuscript_projection(&session.doc, include_revisions);
+                }
                 Ok(
                     json!({"html":writer_formats::html::export_with_revisions(&session.doc, include_revisions),"assets":archive::encode_assets(&session.doc.media),"includeRevisions":include_revisions,"warnings":if include_revisions { writer_formats::writers::revision_warnings(&session.doc) } else { Vec::new() }}),
                 )
@@ -348,6 +351,53 @@ impl DocumentEngine {
             _ => Err(format!("unknown document action: {action}")),
         }
     }
+}
+
+/// Comment boundaries travel through the *same* HTML exporter as zero-width
+/// bookmarks. No native UTF-8 offset is mistaken for a browser text offset.
+fn manuscript_projection(doc: &Document, include_revisions: bool) -> ResultValue {
+    use writer_doc::para::InlineObject;
+    let mut projection = doc.clone();
+    let prefix = format!("wh-import-{}-", std::process::id());
+    let mut effects = 0usize;
+    let mut objects = 0usize;
+    let mut equations = 0usize;
+    for path in doc.para_paths(StoryRef::Body) {
+        if let Some(para) = doc.para(StoryRef::Body, &path) {
+            for (range, run) in para.run_ranges() {
+                if !para.text.get(range).unwrap_or_default().chars().any(|c| !c.is_whitespace() && c != '\u{fffc}') { continue; }
+                let props = doc.styles.resolve_char(para.props.style.as_deref(), run);
+                if props.small_caps || props.caps || props.outline || props.shadow || props.emboss || props.engrave || props.hidden { effects += 1; }
+            }
+            for object in &para.objects {
+                match object { InlineObject::Opaque { .. } | InlineObject::Graphic { .. } => objects += 1, InlineObject::Equation { .. } => equations += 1, _ => {} }
+            }
+        }
+    }
+    let mut findings = vec![json!({"code":"page-layout-retained-in-original","count":1})];
+    for (code, count) in [("character-effects-retained-in-original", effects), ("embedded-object-retained-in-source", objects), ("equations-as-text", equations)] {
+        if count > 0 { findings.push(json!({"code":code,"count":count})); }
+    }
+    for path in projection.para_paths(StoryRef::Body) {
+        let para = projection.para_mut(StoryRef::Body, &path).map_err(|e| e.to_string())?;
+        for object in &mut para.objects {
+            let marker = match object {
+                InlineObject::CommentStart { id } => Some(format!("{prefix}start-{id}")),
+                InlineObject::CommentEnd { id } => Some(format!("{prefix}end-{id}")),
+                _ => None,
+            };
+            if let Some(name) = marker { *object = InlineObject::BookmarkStart { name }; }
+        }
+    }
+    let comments: Vec<Value> = doc.comments.iter().map(|(id, comment)| json!({
+        "id": id.to_string(), "author": comment.author, "date": comment.date,
+        "parent": comment.parent.map(|id| id.to_string()), "resolved": comment.resolved,
+        "text": doc.plain_text(StoryRef::Part(comment.part)),
+        "startMarker": format!("{prefix}start-{id}"), "endMarker": format!("{prefix}end-{id}")
+    })).collect();
+    Ok(json!({"html": writer_formats::html::export_with_revisions(&projection, include_revisions),
+        "comments": comments, "warnings": writer_formats::writers::revision_warnings(doc), "findings": findings,
+        "includeRevisions": include_revisions, "commentProjectionVersion": 1}))
 }
 
 fn required<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> {

@@ -2,6 +2,7 @@ import { db } from '@/db';
 import type JSZip from 'jszip';
 import { readBinary, readJson, type BackupStrategy } from '@/engines/_shared/backupRegistry';
 import { MAX_MEDIA_BYTES, MAX_PROJECT_MEDIA_BYTES, mediaKind, type LocalMediaAsset } from './types';
+import { validateVoiceMeta } from './voiceValidation';
 type ArchiveAsset = Omit<LocalMediaAsset, 'blob'> & { file: string };
 const fileFor = (id: string) => `assets/${encodeURIComponent(id)}.bin`;
 // Construct Blob handles during read-only preflight, before the restore's IDB transaction.
@@ -14,6 +15,7 @@ async function rows(zip: JSZip, projectDir: string): Promise<LocalMediaAsset[]> 
   for (const row of descriptors) {
     if (!row || typeof row.id !== 'string' || typeof row.projectId !== 'string' || typeof row.title !== 'string' || row.file !== fileFor(row.id) || !mediaKind(row.mime) || !Number.isSafeInteger(row.size) || row.size <= 0 || row.size > MAX_MEDIA_BYTES || !Array.isArray(row.tags) || row.tags.some(tag => typeof tag !== 'string') || !Array.isArray(row.linkedEntryIds) || row.linkedEntryIds.some(id => typeof id !== 'string') || typeof row.notes !== 'string') throw new Error('Invalid media record.');
     total += row.size; if (total > MAX_PROJECT_MEDIA_BYTES) throw new Error('Media archive exceeds project capacity.');
+    if(row.voiceMemo){if(mediaKind(row.mime)!=='audio')throw new Error('Invalid voice memo media.');validateVoiceMeta(row.voiceMemo);}
     const bytes = await readBinary(zip, `${projectDir}/media/${row.file}`);
     if (!bytes || bytes.byteLength !== row.size) throw new Error('Media bytes are missing or truncated.');
     const { file: _file, ...metadata } = row;

@@ -1,3 +1,5 @@
+import { scopedTableOps } from '@/services/worldEras/tableOps';
+import { worldEraToolScope, checkEraLinkedRow } from '@/services/worldEras/toolScope';
 // ============================================================================
 // AI bridge tools — maps and their pins
 // ============================================================================
@@ -6,13 +8,12 @@
 // `WorldMap.backgroundImage` is base64 that never leaves the app through here.
 
 import type { MapPin } from '@/types';
-import { mapPinOps, worldMapOps } from '@/engines/maps/operations';
+import { mapPinOps as baseMapPinOps, worldMapOps as baseWorldMapOps } from '@/engines/maps/operations';
 import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
-  checkLinkedRow,
   BridgeError,
   optEnum,
   optNumber,
@@ -34,6 +35,7 @@ function clampPercent(value: number | undefined, fallback: number): number {
 }
 
 export async function whListMaps(args: ToolArgs): Promise<unknown> {
+  const scope = worldEraToolScope(args), worldMapOps = scopedTableOps(scope, 'worldMaps', 'projectId', baseWorldMapOps), mapPinOps = scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps);
   const projectId = resolveProjectId(args);
   const maps = await worldMapOps.getAll(projectId);
   return {
@@ -58,13 +60,14 @@ export async function whListMaps(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whAddMapPin(args: ToolArgs): Promise<unknown> {
+  const scope = worldEraToolScope(args), worldMapOps = scopedTableOps(scope, 'worldMaps', 'projectId', baseWorldMapOps), mapPinOps = scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps);
   const mapId = requireString(args, 'mapId');
   const map = await worldMapOps.getOne(mapId);
   if (!map) throw new BridgeError('not-found', `No map with id "${mapId}".`);
   await assertEngineEnabled(map.projectId, 'maps');
   assertRowInScope(args, map.projectId);
   const linkedEntryId = optString(args, 'linkedEntryId') || undefined;
-  await checkLinkedRow(db.codexEntries, linkedEntryId, map.projectId, 'codex entry');
+  await checkEraLinkedRow(args, db.codexEntries, linkedEntryId, map.projectId, 'codex entry');
   const pin: MapPin = {
     id: generateId('pin'),
     projectId: map.projectId,
@@ -91,6 +94,7 @@ export async function whAddMapPin(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
+  const scope = worldEraToolScope(args), mapPinOps = scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps);
   const id = requireString(args, 'id');
   const pin = await mapPinOps.getOne(id);
   if (!pin) throw new BridgeError('not-found', `No map pin with id "${id}".`);
@@ -106,7 +110,7 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
   if (icon !== undefined) changes.icon = icon;
   const linkedEntryId = optString(args, 'linkedEntryId');
   if (linkedEntryId !== undefined) {
-    await checkLinkedRow(db.codexEntries, linkedEntryId, pin.projectId, 'codex entry');
+    await checkEraLinkedRow(args, db.codexEntries, linkedEntryId, pin.projectId, 'codex entry');
     changes.linkedEntryId = linkedEntryId;
   }
   const x = optNumber(args, 'x');
@@ -121,6 +125,13 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
+  const before: Record<string, unknown> = {};
+  const absent: string[] = [];
+  for (const key of Object.keys(changes) as (keyof MapPin)[]) {
+    if (pin[key] === undefined) absent.push(key);
+    else before[key] = pin[key];
+  }
+  if (absent.length) before.__absent = absent;
   await mapPinOps.update(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
@@ -128,7 +139,7 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
       projectId: pin.projectId,
       entityId: id,
       summary: `updated pin "${pin.name}"`,
-      before: { name: pin.name, position: pin.position, icon: pin.icon },
+      before,
     },
   );
 }

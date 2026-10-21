@@ -233,7 +233,7 @@ export function testFootnoteBridgeLiteralSyntaxSurvives(): void {
   assert(injected.includes('x %%WHLIFT0%% y'), `the literal placeholder text was not kept: ${injected}`);
   assert(JSON.stringify(notesOf(injected)) === JSON.stringify([['1', 'secret']]), `the placeholder duplicated or lost the note: ${JSON.stringify(notesOf(injected))}`);
   const privateUse = markdownToTiptapHtml('x 0 y[^1]\n\n[^1]: secret', { footnotes: true });
-  assert(JSON.stringify(notesOf(privateUse)) === JSON.stringify([['1', 'secret']]) && !privateUse.includes(''), `the sentinel characters themselves reached a lifted note: ${privateUse}`);
+  assert(JSON.stringify(notesOf(privateUse)) === JSON.stringify([['1', 'secret']]) && privateUse.includes('x 0 y'), `literal private-use prose changed or duplicated a lifted note: ${privateUse}`);
 }
 
 // ── (d) The bridge's own handlers, against Dexie ────────────────────────────

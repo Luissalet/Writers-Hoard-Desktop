@@ -14,8 +14,9 @@ export async function createLocalToolScaffold({rootDir=repository,namespace,name
   try{
     const template=await readFile(path.join(repository,'scripts/templates/local-tool.tsx.txt'),'utf8');
     const module=template.replaceAll('__NAMESPACE__',JSON.stringify(namespace)).replaceAll('__NAME__',JSON.stringify(name.trim()));
-    for(const [file,content]of [['module.tsx',module],['README.md',`# ${name.trim()}\n\nTrusted source extension: ${namespace}.\n\nRebuild Writer’s Hoard, then enable this tool manually in the project’s engine manager. No project is enabled by scaffolding. Read docs/local-tool-sdk.md before editing or distributing source code.\n`]]){const filePath=path.join(directory,file);await writeFile(filePath,content,{flag:'wx'});created.push(filePath);}
-    return {directory,modulePath:path.join(directory,'module.tsx'),engineId:`local-tool-${namespace}`};
+    const test=(await readFile(path.join(repository,'scripts/templates/local-tool.test.ts.txt'),'utf8')).replaceAll('__NAMESPACE_FLAG__',namespace);
+    for(const [file,content]of [['module.tsx',module],['module.test.ts',test],['local-tool.source.json',JSON.stringify({namespace,version:'0.1.0',files:['module.tsx']},null,2)+'\n'],['README.md',`# ${name.trim()}\n\nTrusted source extension: ${namespace}.\n\nRebuild Writer’s Hoard, then enable this tool manually in the project’s engine manager. No project is enabled by scaffolding. Read docs/local-tool-sdk.md before editing or distributing source code.\n\nRun your memory-host author test: node scripts/test-local-tool.mjs --id ${namespace}\n`]]){const filePath=path.join(directory,file);await writeFile(filePath,content,{flag:'wx'});created.push(filePath);}
+    return {directory,modulePath:path.join(directory,'module.tsx'),engineId:`local-tool-${namespace}`,testPath:path.join(directory,'module.test.ts')};
   }catch(error){for(const file of created)await unlink(file).catch(()=>{});await rmdir(directory).catch(()=>{});throw error;}
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){

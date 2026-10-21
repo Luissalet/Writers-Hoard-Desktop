@@ -26,6 +26,10 @@ interface ManuscriptChapterListProps {
   disabled: boolean;
   onRename: (key: string, title: string) => void;
   onToggle: (key: string) => void;
+  targets?: { id: string; title: string }[];
+  selectedTargets?: Record<string, string>;
+  onTarget?: (key: string, targetId: string) => void;
+  previews?: Record<string, string>;
 }
 
 export default function ManuscriptChapterList({
@@ -33,8 +37,10 @@ export default function ManuscriptChapterList({
   disabled,
   onRename,
   onToggle,
+  targets, selectedTargets, onTarget, previews,
 }: ManuscriptChapterListProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const es = locale === 'es';
 
   // Numbered before the markup, not inside it: the counter has to run straight
   // through the list in order, and a `map` callback is not the place to keep a
@@ -53,7 +59,7 @@ export default function ManuscriptChapterList({
         return (
           <div
             key={row.key}
-            className={`flex items-center gap-3 px-3 py-2 ${row.included ? '' : 'opacity-45'}`}
+            className={`flex flex-wrap items-center gap-3 px-3 py-2 ${row.included ? '' : 'opacity-45'}`}
           >
             <input
               type="checkbox"
@@ -82,6 +88,12 @@ export default function ManuscriptChapterList({
             <span className="shrink-0 text-xs tabular-nums text-text-muted">
               {row.words.toLocaleString()} {t('writings.words')}
             </span>
+            {targets && <label className="flex w-full min-w-0 items-center gap-2 pl-10 text-xs text-text-secondary">{es?'Destino':'Target'}
+              <select aria-label={`${es?'Destino de':'Target for'} ${row.title}`} value={selectedTargets?.[row.key] ?? ''} disabled={disabled || !row.included} onChange={event => onTarget?.(row.key, event.target.value)} className="min-w-0 flex-1 rounded border border-border bg-elevated px-2 py-1.5 text-text-primary">
+                <option value="">{es?'Nuevo borrador':'New draft'}</option>{targets.map(target => <option key={target.id} value={target.id}>{es?'Reemplazar':'Replace'}: {target.title}</option>)}
+              </select>
+            </label>}
+            {previews?.[row.key] && <p className="w-full break-words pl-10 text-xs leading-relaxed text-text-secondary">{previews[row.key]}</p>}
           </div>
         );
       })}

@@ -95,7 +95,7 @@ export default function AnnotationSurface({
         title={marginTitle}
       />
       {betweenSlot}
-      <BacklinksSection engineId={engineId} entityId={entityId} />
+      <BacklinksSection projectId={projectId} engineId={engineId} entityId={entityId} />
     </div>
   );
 }

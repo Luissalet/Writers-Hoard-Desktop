@@ -15,7 +15,10 @@ export interface WritingSnapshot {
   reason: SnapshotReason;
   createdAt: number;
   /** Explicitly mutable alternatives; ordinary history rows never carry this. */
-  kind?: 'parallel-draft';
+  kind?: 'parallel-draft' | 'parallel-draft-history';
+  /** Immutable history belongs to this alternative, never to another draft. */
+  sourceDraftId?: string;
+  sourceDraftVersion?: number;
   draftName?: string;
   updatedAt?: number;
   basedOnVersion?: number;

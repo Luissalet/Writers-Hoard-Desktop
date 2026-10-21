@@ -1,3 +1,5 @@
+import {createCanvasPile,setPileCollapsed} from '../graph/piles';
+import {hiddenCanvasNodeIds,pileSelection,pileItemCount} from '../graph/membership';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -7,13 +9,14 @@ import {
 import '@xyflow/react/dist/style.css';
 import { GitBranch, Plus, Route, Search, Trash2, X } from 'lucide-react';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
-import { resolveEntity } from '@/engines/_shared';
+import {useWorldEraScope} from '@/services/worldEras/hooks';
+import {boardReferenceRoute,resolveBoardTile} from '../entityTiles';
 import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import { DEFAULT_SIZE, EDGE_KINDS, GRID_STEP, SURFACE_PALETTE } from '../catalog';
-import { useBoardGraph, useBoardLayers, useBoardViews } from '../hooks';
-import { boundsOfNodes, boxOfNode } from '../graph/geometry';
+import { useBoardGraph, useBoardLayers, useBoardViews, type BoardPendingReview } from '../hooks';
+import { boundsOfNodes } from '../graph/geometry';
 import { cloneSelection, makeEdge, makeNode, nodesInsideFrame } from '../graph/mutations';
 import { runLayout, type LayoutKind } from '../graph/layout';
 import { computeMetrics } from '../graph/metrics';
@@ -23,7 +26,7 @@ import { canMoveNode, findOpenPosition, isCanvasShortcutTarget } from '../graph/
 import { getBoardCopy } from '../copy';
 import { rememberProjectRoute } from '@/services/projectIntelligence';
 import type {
-  Board, BoardBox, BoardEdge, BoardEndpoint, BoardEntityRef, BoardLayer, BoardNode,
+  Board, BoardBox, BoardEdge, BoardEndpoint, BoardLayer, BoardNode,
   BoardNodeKind, BoardSide, BoardView, BoardViewport,
 } from '../types';
 import BoardNodeView, { type BoardFlowNode } from './BoardNodeView';
@@ -32,8 +35,9 @@ import EntityPicker from './EntityPicker';
 import { EdgeInspector, NodeInspector } from './Inspector';
 import { LayersPanel, MetricsPanel, ViewsPanel } from './SidePanels';
 import Toolbar, { type PanelKey } from './Toolbar';
-import FreehandOverlay from './FreehandOverlay';
-import { makeFreehandNode } from '../freehand';
+import FreehandOverlay,{type InkTool} from './FreehandOverlay';
+import { erasedNodeIds,makeFreehandNode } from '../freehand';
+import {arrangeCanvasNodes,expandFrameMoves} from '../canvasGeometry';
 import { freehandCopy } from '../freehandCopy';
 
 const nodeTypes = { board: BoardNodeView };
@@ -86,12 +90,15 @@ export default function BoardCanvas(props: BoardCanvasProps) {
 
 function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasProps) {
   const { t, locale } = useTranslation();
+  const worldScope=useWorldEraScope(projectId);
   const navigateTo = usePaneNavigate();
   const copy = getBoardCopy(locale);
   const [searchParams] = useSearchParams();
   const targetNodeId = searchParams.get('node');
   const boardId = board.id;
-  const graph = useBoardGraph(boardId);
+  const graph = useBoardGraph(boardId,projectId);
+  const [pendingReview,setPendingReview]=useState<BoardPendingReview|null>(null);
+  const recoveryText=(value:unknown):string=>{if(value===null||value===undefined)return '∅';if(typeof value==='string')return value.startsWith('data:')?'[media]':value.replace(/<[^>]*>/g,'');return typeof value==='object'?'[structured value]':String(value);};
   const { items: layers, addItem: addLayer, editItem: editLayer, removeItem: removeLayer } =
     useBoardLayers(boardId);
   const { items: views, addItem: addView, editItem: editView, removeItem: removeView } =
@@ -116,6 +123,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
   const [drawing, setDrawing] = useState(false);
   const [drawingColor, setDrawingColor] = useState('#d5b575');
   const [drawingWidth, setDrawingWidth] = useState(3);
+  const [inkTool,setInkTool]=useState<InkTool>('pen');
   const [pickerFor, setPickerFor] = useState<string | 'new' | null>(null);
   const [pathIds, setPathIds] = useState<{ nodes: Set<string>; edges: Set<string> } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ nodes: string[]; edges: string[] } | null>(null);
@@ -182,18 +190,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
     [layerById],
   );
 
-  const collapsedFrames = useMemo(
-    () => graph.nodes.filter((node) => node.kind === 'frame' && node.collapsed),
-    [graph.nodes],
-  );
-
-  const hiddenByCollapse = useMemo(() => {
-    const hidden = new Set<string>();
-    for (const frame of collapsedFrames) {
-      for (const child of nodesInsideFrame(frame, graph.nodes)) hidden.add(child.id);
-    }
-    return hidden;
-  }, [collapsedFrames, graph.nodes]);
+  const hiddenByCollapse=useMemo(()=>hiddenCanvasNodeIds(graph.nodes),[graph.nodes]);
 
   const visibleNodes = useMemo(
     () =>
@@ -258,8 +255,8 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
   }, []);
 
   const requestDelete = useCallback((id: string) => {
-    setPendingDelete({ nodes: [id], edges: [] });
-  }, []);
+    setPendingDelete({ nodes:pileSelection([id],graph.nodes).map(node=>node.id), edges: [] });
+  }, [graph.nodes]);
 
   const startLink = useCallback((id: string) => {
     setLink({ sources: [{ id, on: 'node' }], targets: [], stage: 'target', kind: 'related' });
@@ -273,11 +270,13 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
   const openRef = useCallback(
     (id: string) => {
       const node = graph.nodeById.get(id);
-      if (!node?.ref || node.ref.missing) return;
-      navigateTo(`/project/${projectId}/${node.ref.engineId}`);
+      if (!node?.ref) return;
+      const ref=node.ref;void resolveBoardTile(worldScope,ref).then(tile=>{if(tile)navigateTo(boardReferenceRoute(projectId,ref));});
     },
-    [graph.nodeById, projectId, navigateTo],
+    [graph.nodeById, projectId, navigateTo,worldScope],
   );
+
+  const togglePile=useCallback((id:string)=>{const frame=graph.nodeById.get(id);if(!frame||!canMoveNode(frame,layerById))return;graph.patchNodes([{id,changes:setPileCollapsed(frame,graph.nodes,!frame.collapsed)}],frame.collapsed?copy.openPile:copy.collapsePile);},[graph,layerById,copy.openPile,copy.collapsePile]);
 
   // ---- React Flow nodes ------------------------------------------------
 
@@ -312,13 +311,15 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
           onStartLink: startLink,
           onOpenRef: openRef,
           onRename: renameNode,
+          onToggleFrame:togglePile,
+          memberCount:node.kind==='frame'?pileItemCount(node,graph.nodes):0,
         },
       };
     });
   }, [
     visibleNodes, positionOf, sizeOf, layerById, selectedNodeIds, queryMode,
     queryResult.passthrough, queryResult.nodeIds, pathIds, link,
-    openInspector, requestDelete, startLink, openRef, renameNode,
+    openInspector, requestDelete, startLink, openRef, renameNode,togglePile,graph.nodes,
   ]);
 
   // ---- drag / resize ---------------------------------------------------
@@ -620,8 +621,8 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
 
   const deleteSelection = useCallback(() => {
     if (selectedNodeIds.size === 0 && selectedEdgeIds.size === 0) return;
-    setPendingDelete({ nodes: Array.from(selectedNodeIds), edges: Array.from(selectedEdgeIds) });
-  }, [selectedNodeIds, selectedEdgeIds]);
+    setPendingDelete({ nodes: pileSelection(selectedNodeIds,graph.nodes).map(node=>node.id), edges: Array.from(selectedEdgeIds) });
+  }, [selectedNodeIds, selectedEdgeIds,graph.nodes]);
 
   const confirmDelete = useCallback(() => {
     if (!pendingDelete) return;
@@ -633,12 +634,12 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
 
   const copySelection = useCallback(() => {
     if (selectedNodes.length === 0) return;
-    const ids = new Set(selectedNodes.map((node) => node.id));
-    clipboard.nodes = selectedNodes.map((node) => ({ ...node }));
+    const copied=pileSelection(selectedNodes.map(node=>node.id),graph.nodes),ids = new Set(copied.map((node) => node.id));
+    clipboard.nodes = copied.map((node) => ({ ...node }));
     clipboard.edges = graph.edges.filter((edge) =>
       [...edge.sources, ...edge.targets].every((endpoint) => endpoint.on !== 'node' || ids.has(endpoint.id)),
     );
-  }, [selectedNodes, graph.edges]);
+  }, [selectedNodes, graph.edges,graph.nodes]);
 
   const paste = useCallback(
     (offset = { x: 40, y: 40 }) => {
@@ -668,62 +669,10 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
     setSelectedNodeIds(new Set([frame.id]));
   }, [selectedNodes, projectId, boardId, activeLayerId, graph, t]);
 
-  const align = useCallback(
-    (mode: 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bottom') => {
-      if (movableNodes.length < 2) return;
-      const boxList = movableNodes.map((node) => ({ node, box: boxOfNode(node) }));
-      const minX = Math.min(...boxList.map((entry) => entry.box.x));
-      const maxX = Math.max(...boxList.map((entry) => entry.box.x + entry.box.width));
-      const minY = Math.min(...boxList.map((entry) => entry.box.y));
-      const maxY = Math.max(...boxList.map((entry) => entry.box.y + entry.box.height));
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
+  const collapseSelection=useCallback(()=>{const frame=createCanvasPile(graph.nodes,selectedNodes.map(node=>node.id),copy.pile);if(activeLayerId)frame.layerId=activeLayerId;graph.addNodes([frame],copy.collapsePile);setSelectedNodeIds(new Set([frame.id]));setSelectedEdgeIds(new Set());void flow.setCenter(frame.position.x+frame.size.width/2,frame.position.y+frame.size.height/2,{zoom:1,duration:200});},[graph,selectedNodes,copy.pile,copy.collapsePile,activeLayerId,flow]);
 
-      const patches = boxList.map(({ node, box }) => {
-        const position = { ...node.position };
-        if (mode === 'left') position.x = minX;
-        if (mode === 'right') position.x = maxX - box.width;
-        if (mode === 'center-x') position.x = centerX - box.width / 2;
-        if (mode === 'top') position.y = minY;
-        if (mode === 'bottom') position.y = maxY - box.height;
-        if (mode === 'center-y') position.y = centerY - box.height / 2;
-        return { id: node.id, changes: { position } };
-      });
-      graph.patchNodes(patches, t('board.history.align'));
-    },
-    [movableNodes, graph, t],
-  );
-
-  const distribute = useCallback(
-    (axis: 'x' | 'y') => {
-      if (movableNodes.length < 3) return;
-      const sorted = movableNodes
-        .slice()
-        .sort((a, b) => (axis === 'x' ? a.position.x - b.position.x : a.position.y - b.position.y));
-      const first = sorted[0];
-      const last = sorted[sorted.length - 1];
-      const span =
-        axis === 'x'
-          ? last.position.x + last.size.width - first.position.x
-          : last.position.y + last.size.height - first.position.y;
-      const totalSize = sorted.reduce(
-        (sum, node) => sum + (axis === 'x' ? node.size.width : node.size.height),
-        0,
-      );
-      const gap = (span - totalSize) / (sorted.length - 1);
-
-      let cursor = axis === 'x' ? first.position.x : first.position.y;
-      const patches = sorted.map((node) => {
-        const position = { ...node.position };
-        if (axis === 'x') position.x = cursor;
-        else position.y = cursor;
-        cursor += (axis === 'x' ? node.size.width : node.size.height) + gap;
-        return { id: node.id, changes: { position } };
-      });
-      graph.patchNodes(patches, t('board.history.distribute'));
-    },
-    [movableNodes, graph, t],
-  );
+  const align = useCallback((mode:'left'|'center-x'|'right'|'top'|'center-y'|'bottom')=>{graph.patchNodes(expandFrameMoves(graph.nodes,arrangeCanvasNodes(movableNodes,mode),node=>canMoveNode(node,layerById)),t('board.history.align'));},[movableNodes,graph,t,layerById]);
+  const distribute = useCallback((axis:'x'|'y')=>{graph.patchNodes(expandFrameMoves(graph.nodes,arrangeCanvasNodes(movableNodes,axis==='x'?'distribute-x':'distribute-y'),node=>canMoveNode(node,layerById)),t('board.history.distribute'));},[movableNodes,graph,t,layerById]);
 
   const applyLayout = useCallback(
     (kind: LayoutKind) => {
@@ -834,10 +783,10 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
         const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
         const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
         graph.patchNodes(
-          movableNodes.map((node) => ({
+          expandFrameMoves(graph.nodes,movableNodes.map((node) => ({
             id: node.id,
             changes: { position: { x: node.position.x + dx, y: node.position.y + dy } },
-          })),
+          })),node=>canMoveNode(node,layerById)),
           t('board.history.move'),
           'nudge',
         );
@@ -848,7 +797,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
     return () => window.removeEventListener('keydown', handler, true);
   }, [
     graph, copySelection, paste, groupIntoFrame, deleteSelection, commitLink,
-    link, selectedNodeIds, movableNodes, visibleNodes, t, pendingDelete, pickerFor,
+    link, selectedNodeIds, movableNodes, visibleNodes, t, pendingDelete, pickerFor, layerById,
   ]);
 
   // ---- clipboard images ------------------------------------------------
@@ -867,68 +816,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
     return () => window.removeEventListener('paste', handler);
   }, [addImagesFromFiles, pendingDelete, pickerFor, graph.loading]);
 
-  // ---- cross-engine reference revalidation -----------------------------
-
-  const revalidatedFor = useRef<string | null>(null);
-  // Destructured so the effect depends on the three members it actually uses
-  // rather than on `graph`, which is a fresh object on every render.
-  const { loading: graphLoading, nodes: graphNodes, sync: graphSync } = graph;
-  useEffect(() => {
-    if (graphLoading || revalidatedFor.current === boardId) return;
-    const referencing = graphNodes.filter((node) => node.ref);
-    if (referencing.length === 0) {
-      revalidatedFor.current = boardId;
-      return;
-    }
-
-    let cancelled = false;
-    type RefPatch = { id: string; changes: Partial<BoardNode> };
-    void Promise.all(
-      referencing.map(async (node): Promise<RefPatch | null> => {
-        const ref = node.ref;
-        if (!ref) return null;
-        try {
-          const preview = await resolveEntity(ref.entityId, ref.entityType);
-          if (!preview) {
-            return ref.missing
-              ? null
-              : { id: node.id, changes: { ref: { ...ref, missing: true, checkedAt: Date.now() } } };
-          }
-          const next: BoardEntityRef = {
-            ...ref,
-            title: preview.title,
-            subtitle: preview.subtitle,
-            thumbnail: preview.thumbnail,
-            color: preview.color,
-            engineId: preview.engineId,
-            missing: false,
-            checkedAt: Date.now(),
-          };
-          const unchanged =
-            ref.title === next.title &&
-            ref.subtitle === next.subtitle &&
-            ref.thumbnail === next.thumbnail &&
-            !ref.missing;
-          return unchanged ? null : { id: node.id, changes: { ref: next } };
-        } catch {
-          return null;
-        }
-      }),
-    ).then((patches) => {
-      if (cancelled) return;
-      // Marked done only once the pass has actually finished: claiming it
-      // up-front meant a cancelled pass — and `graph` is a fresh object every
-      // render, so every render cancelled one — could never be retried, and a
-      // card pinned to a deleted record kept showing its stale cached title.
-      revalidatedFor.current = boardId;
-      const real = patches.filter((patch): patch is RefPatch => patch !== null);
-      if (real.length > 0) graphSync(real);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [graphLoading, graphNodes, graphSync, boardId]);
+  // Live tiles resolve effective records reactively in their own read-only component.
 
   // ---- deep link -------------------------------------------------------
 
@@ -1254,7 +1142,14 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
                 title={graph.error.message}
               >
                 {t('board.saveFailed')}
-                <button type="button" onClick={() => void graph.flush()} className="ml-2 underline underline-offset-2">{copy.saveRetry}</button>
+                <button type="button" onClick={() => void graph.flush()} className="ml-2 min-h-9 underline underline-offset-2">{copy.saveRetry}</button>
+                <button type="button" onClick={() => void graph.reviewPending().then(setPendingReview)} className="ml-2 min-h-9 underline underline-offset-2">{locale==='es'?'Revisar cambios guardados':'Review saved changes'}</button>
+                {pendingReview&&<section aria-label={locale==='es'?'Cambios pendientes':'Pending changes'} className="mt-2 max-h-64 max-w-[min(480px,80vw)] overflow-auto text-text-primary">
+                  <p className="mb-2">{locale==='es'?'Conservar aplica tus campos modificados sobre esta versión revisada.':'Keeping changes applies your edited fields to this reviewed version.'}</p>
+                  {pendingReview.changes.map((change,index)=><div key={index} className="mb-2 border-t border-border pt-2 break-words"><strong>{change.title} · {change.field}</strong><p>{locale==='es'?'Guardado':'Saved'}: {recoveryText(change.saved)}</p><p>{locale==='es'?'Pendiente':'Pending'}: {recoveryText(change.draft)}</p></div>)}
+                  <button type="button" className="min-h-9 rounded border border-border px-3" onClick={()=>void graph.keepPending(pendingReview).then(saved=>{if(saved)setPendingReview(null);})}>{locale==='es'?'Conservar mis cambios pendientes':'Keep my pending changes'}</button>
+                  <button type="button" className="ml-2 min-h-9 px-2" onClick={()=>setPendingReview(null)}>{locale==='es'?'Cerrar':'Close'}</button>
+                </section>}
               </div>
             ) : null}
           </div>
@@ -1310,13 +1205,13 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
           </Panel>
         ) : selectedNodes.length > 1 || selectedEdgeIds.size > 0 ? (
           <Panel position="bottom-center">
-            <div className="board-chrome flex items-center gap-2 rounded-xl border border-border bg-surface/95 px-3 py-2 shadow-xl backdrop-blur">
+            <div className="board-chrome flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/95 px-3 py-2 shadow-xl backdrop-blur">
               <span className="text-xs text-text-muted">
                 {t('board.selection.count')
                   .replace('{nodes}', String(selectedNodes.length))
                   .replace('{edges}', String(selectedEdgeIds.size))}
               </span>
-              {selectedNodes.length > 1 && <button type="button" onClick={groupIntoFrame} className="rounded-lg border border-border px-2 py-1 text-xs text-text-primary">{copy.group}</button>}
+              {selectedNodes.length > 1 && <button type="button" onClick={groupIntoFrame} className="rounded-lg border border-border px-2 py-1 text-xs text-text-primary">{copy.group}</button>}{selectedNodes.length>1&&<button type="button" onClick={collapseSelection} className="min-h-9 rounded-lg border border-border px-2 py-1 text-xs text-text-primary">{copy.collapsePile}</button>}
               {SURFACE_PALETTE.map((color) => (
                 <button
                   key={color}
@@ -1352,9 +1247,10 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
             </div>
           </Panel>
         ) : null}
-        {drawing && <FreehandOverlay color={drawingColor} width={drawingWidth} onColor={setDrawingColor} onWidth={setDrawingWidth} onDone={() => setDrawing(false)} disabled={graph.loading || (!!activeLayerId && (layerById.get(activeLayerId)?.locked === true || layerById.get(activeLayerId)?.visible === false))} onStroke={(points, zoom) => {
+        {drawing && <FreehandOverlay tool={inkTool} onTool={setInkTool} color={drawingColor} width={drawingWidth} onColor={setDrawingColor} onWidth={setDrawingWidth} onDone={() => setDrawing(false)} disabled={graph.loading || (!!activeLayerId && (layerById.get(activeLayerId)?.locked === true || layerById.get(activeLayerId)?.visible === false))} onStroke={(points, zoom) => {
           if (graph.loading || (activeLayerId && (layerById.get(activeLayerId)?.locked || layerById.get(activeLayerId)?.visible === false))) return;
-          const node = makeFreehandNode({ projectId, boardId, title: freehandCopy(locale).title, color: drawingColor, width: drawingWidth, points, layerId: activeLayerId ?? undefined, tolerance: 1 / Math.max(.005, zoom) });
+          if(inkTool==='eraser'){const ids=erasedNodeIds(visibleNodes.filter(node=>canMoveNode(node,layerById)),points,8/Math.max(.005,zoom));if(ids.length){graph.remove(ids,[],freehandCopy(locale).erase);setSelectedNodeIds(new Set());setSelectedEdgeIds(new Set());}return;}
+          const node = makeFreehandNode({ tool:inkTool,projectId, boardId, title: freehandCopy(locale).title, color: drawingColor, width: drawingWidth, points, layerId: activeLayerId ?? undefined, tolerance: 1 / Math.max(.005, zoom) });
           if (node) { graph.addNodes([node], freehandCopy(locale).title); setSelectedNodeIds(new Set([node.id])); setSelectedEdgeIds(new Set()); }
         }} />}
       </ReactFlow>
@@ -1431,7 +1327,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
               node={selectedNode}
               layers={layers}
               onPatch={(changes) =>
-                graph.patchNodes([{ id: selectedNode.id, changes }], t('board.history.edit'), `edit:${selectedNode.id}`)
+                graph.patchNodes([{ id: selectedNode.id, changes:changes.collapsed!==undefined?setPileCollapsed(selectedNode,graph.nodes,changes.collapsed):changes }], t('board.history.edit'), `edit:${selectedNode.id}`)
               }
               onDelete={() => requestDelete(selectedNode.id)}
               onBindEntity={() => setPickerFor(selectedNode.id)}
@@ -1524,6 +1420,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
               projectId,
               boardId,
               kind: 'entity',
+              size:preview.engineId==='maps'?{width:360,height:260}:{width:280,height:220},
               position: center,
               title: preview.title,
               color: preview.color ?? '#4a9e6d',

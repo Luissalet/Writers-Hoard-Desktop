@@ -13,6 +13,7 @@ export interface WorldGraphNode {
   id: string;
   title: string;
   type: CodexEntryType;
+  templateId?: string;
   aliases: string[];
   tags: string[];
   summary: string;
@@ -47,6 +48,10 @@ export interface WorldGraphInput {
 export interface WorldGraphFilters {
   query: string;
   type: CodexEntryType | 'all';
+  /** When present, replaces the legacy single category (an empty set matches nothing). */
+  types?: CodexEntryType[];
+  templateId?: string;
+  includeDescendants?: boolean;
   tag: string;
   kinds: WorldGraphEdgeKind[];
   focusId: string;

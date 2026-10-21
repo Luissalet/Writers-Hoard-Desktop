@@ -1,3 +1,4 @@
+import {useLocalToolAtomPending} from '@/engines/local/blocks/pending';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import {
@@ -51,7 +52,7 @@ interface MapViewProps extends MapFeatureOptions {
   codexEntries?: CodexEntry[];
   onUploadBackground: (imageData: string) => void;
   onAddPin: (pin: MapPin) => void | Promise<void>;
-  onEditPin: (id: string, changes: Partial<MapPin>) => void | Promise<void>;
+  onEditPin: (id: string, changes: Partial<MapPin>, baseline?:MapPin) => void | MapPin | Promise<void|MapPin>;
   onDeletePin: (id: string) => void | Promise<void>;
   /**
    * Pin to open on mount, from a `?pin=` deep link (search hit, backlink).
@@ -65,6 +66,9 @@ interface MapViewProps extends MapFeatureOptions {
 }
 
 export interface PinDraft {
+  /** Rejected drag remains a recoverable explicit pending edit. */
+  position?:MapPin['position'];
+  baseline?:MapPin;
   name: string;
   description: string;
   icon: MapPin['icon'];
@@ -80,6 +84,7 @@ interface PinDragState {
   startClientY: number;
   moved: boolean;
   position: MapPin['position'];
+  baseline:MapPin;
 }
 
 function clampPercentage(value: number): number {
@@ -136,8 +141,9 @@ export default function MapView({
   useEmbeddedToolCloseGuard(()=>{
     if(readOnly)return true;
     if(savingPin||creatingPin||featureEditor.busy||showPinForm||featureEditor.dirty||featureEditor.drawing&&featureEditor.points.length>0)return false;
-    return !pinDraft||!selectedPin||JSON.stringify(pinDraft)===JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId});
+    return !pinDraft||!selectedPin||JSON.stringify({...pinDraft,baseline:undefined})===JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId});
   });
+  useLocalToolAtomPending(!readOnly&&(savingPin||creatingPin||featureEditor.busy||showPinForm||featureEditor.dirty||featureEditor.drawing&&featureEditor.points.length>0||!!pinDraft&&!!selectedPin&&JSON.stringify({...pinDraft,baseline:undefined})!==JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId})));
   const linkedEntry = selectedPin?.linkedEntryId
     ? codexEntries.find((entry) => entry.id === selectedPin.linkedEntryId)
     : null;
@@ -149,7 +155,17 @@ export default function MapView({
 
   const selectPin = useCallback((pin: MapPin) => {
     setSelectedPinId(pin.id);
-    setPinDraft(drafts.get(pin.id) ?? {
+    const recovered=drafts.get(pin.id);
+    if (recovered) {
+      // The submitted object must remain the journal owner so a successful
+      // retry retires it without deleting a newer edit made during the save.
+      const normalized = recovered.baseline ? recovered : { ...recovered, baseline: structuredClone(pin) };
+      if (normalized !== recovered) drafts.set(pin.id, normalized);
+      setPinDraft(normalized);
+      return;
+    }
+    setPinDraft({
+      baseline:structuredClone(pin),
       name: pin.name,
       description: pin.description ?? '',
       icon: pin.icon,
@@ -237,16 +253,19 @@ export default function MapView({
     setSavingPin(true);
     setEditPinFailedId(null);
     try {
-      await onEditPin(id, {
+      const changes:Partial<MapPin>={
         name: pinDraft.name.trim(),
         description: pinDraft.description.trim(),
         icon: pinDraft.icon,
         color: pinDraft.color,
         linkedEntryId: pinDraft.linkedEntryId || undefined,
         layerId: pinDraft.layerId || undefined,
-      });
+        ...(pinDraft.position?{position:pinDraft.position}:{}),
+      };
+      const before=submitted.baseline??selectedPin,initial={name:before.name,description:before.description??'',icon:before.icon,color:before.color,linkedEntryId:before.linkedEntryId||undefined,layerId:before.layerId||undefined,position:before.position},changed=Object.fromEntries(Object.entries(changes).filter(([key,value])=>JSON.stringify(value)!==JSON.stringify(initial[key as keyof typeof initial])));
+      const saved=await onEditPin(id,changed,submitted.baseline),confirmed=saved??{...selectedPin,...changes};
       if (drafts.get(id) === submitted) drafts.delete(id);
-      setPinDraft(current=>current===submitted?{...submitted,name:submitted.name.trim(),description:submitted.description.trim()}:current);
+      setPinDraft(current=>current===submitted?{name:confirmed.name,description:confirmed.description??'',icon:confirmed.icon,color:confirmed.color,linkedEntryId:confirmed.linkedEntryId,layerId:confirmed.layerId,baseline:confirmed}:current);
     } catch {
       setEditPinFailedId(id);
     } finally {
@@ -271,7 +290,7 @@ export default function MapView({
       startClientX: e.clientX,
       startClientY: e.clientY,
       moved: false,
-      position: pin.position,
+      position: pin.position,baseline:structuredClone(pin),
     });
   };
 
@@ -298,7 +317,10 @@ export default function MapView({
       Math.hypot(e.clientX - dragState.startClientX, e.clientY - dragState.startClientY) >= 3;
     if (moved) {
       try {
-        await onEditPin(pinId, { position });
+        await onEditPin(pinId, { position },dragState.baseline);
+      } catch {
+        const original=dragState.baseline,recovered=drafts.get(pinId)??pinDraft??{name:original.name,description:original.description??'',icon:original.icon,color:original.color,linkedEntryId:original.linkedEntryId,layerId:original.layerId};
+        const pending={...recovered,position,baseline:recovered.baseline??original};drafts.set(pinId,pending);setPinDraft(pending);setEditPinFailedId(pinId);
       } finally {
         setDragState(null);
       }

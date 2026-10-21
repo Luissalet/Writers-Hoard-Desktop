@@ -1,0 +1,96 @@
+import { act, StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import { db } from '@/db';
+import type { Project } from '@/types';
+import { createSheet, exportSheet, parseSheetImport, presets, validateSheet, type CharacterSheet } from '@/engines/character-sheets/types';
+import { applyCocDamage, applyCocSanityLoss, cocCanPush, cocConstitution, cocIntelligence, cocRoll, healCoc, improveCocSkill, pushCocRoll, reconcileCocSheet, resolveCocSheet, setCocOverride, startCocDay } from '@/engines/character-sheets/cocRules';
+import { deleteSheet, saveSheet, SheetConflict } from '@/engines/character-sheets/operations';
+import { sheetDraftStore } from '@/engines/character-sheets/drafts';
+import CharacterSheetsEngine from '@/engines/character-sheets/CharacterSheetsEngine';
+import { exportProjectData, importProjectData } from '@/db/operations';
+import { restoreArchivedMetadata } from '@/services/documentArchive/metadata';
+import { useLocaleStore } from '@/stores/localeStore';
+import { runBridgeTool } from '@/services/aiBridge/dispatch';
+import { getBridgeTool } from '@/services/aiBridge/manifest';
+
+function assert(value:unknown,message:string):asserts value{if(!value)throw new Error(message);}
+function fails(action:()=>unknown,message:string){let failed=false;try{action();}catch{failed=true;}assert(failed,message);}
+const die=(...values:number[])=>{let index=0;return(sides:number)=>{const value=values[index++];assert(value>=1&&value<=sides,`Bad deterministic d${sides}: ${value}`);return value;};};
+const hp=(sheet:CharacterSheet)=>sheet.resources.find(item=>item.id==='hp')!;
+const san=(sheet:CharacterSheet)=>sheet.resources.find(item=>item.id==='sanity')!;
+const pause=()=>new Promise(done=>setTimeout(done,50));
+const P='coc-depth-offline';
+export async function testCocDepth():Promise<string[]>{
+  const passed:string[]=[],fresh=()=>createSheet('coc7','Dr. Vale');
+  let sheet=fresh(),next=structuredClone(sheet);next.coc!.pulp=true;next=reconcileCocSheet(next,sheet);assert(hp(next).max===20&&hp(next).current===20&&!next.coc!.overrides.hp,'Pulp full HP did not update automatically');
+  sheet=setCocOverride(next,'hp',24);next=structuredClone(sheet);next.traits.find(item=>item.id==='con')!.value=90;next=reconcileCocSheet(next,sheet);assert(hp(next).max===24,'Manual HP override lost on CON edit');next=setCocOverride(next,'hp');assert(hp(next).max===28,'HP reset did not use current rule values');next.traits.find(item=>item.id==='siz')!.value=55;next=reconcileCocSheet(next,sheet);assert(hp(next).max===29,'Pulp rounded twice rather than floor((CON+SIZ)/5)');
+  sheet=fresh();hp(sheet).current=3;next=structuredClone(sheet);next.traits.find(item=>item.id==='con')!.value=90;next=reconcileCocSheet(next,sheet);assert(hp(next).max===14&&hp(next).current===3,'Derived edit healed spent HP');
+  const legacy=fresh();delete legacy.coc;hp(legacy).max=17;hp(legacy).current=4;legacy.skills.find(item=>item.label==='Dodge')!.value=61;legacy.details.era='1890s';const adopted=resolveCocSheet(legacy);assert(hp(adopted).max===17&&hp(adopted).current===4&&adopted.coc!.overrides.dodge===61&&!legacy.coc&&adopted.details.era==='1890s','Legacy manual values lost or source mutated');
+  const mythos=fresh();mythos.skills.find(item=>item.label==='Cthulhu Mythos')!.value=32;assert(san(resolveCocSheet(mythos)).max===67&&san(mythos).current===50,'Maximum SAN failed to use Mythos');
+  for(const [str,dex,siz,age,expected]of [[40,40,50,30,7],[50,40,50,30,8],[60,60,50,30,9],[60,60,50,40,8],[60,60,50,50,7],[60,60,50,60,6],[60,60,50,70,5],[60,60,50,80,4]]){const movement=fresh();movement.traits.find(item=>item.id==='str')!.value=str;movement.traits.find(item=>item.id==='dex')!.value=dex;movement.traits.find(item=>item.id==='siz')!.value=siz;movement.numbers.age=age;assert(resolveCocSheet(movement).numbers.move===expected,`Movement mismatch for age ${age}`);movement.coc!.pulp=true;assert(resolveCocSheet(movement).numbers.move===(str<siz&&dex<siz?7:str>siz&&dex>siz?9:8),'Pulp applied age penalty');}
+  const legacyMove=fresh();delete legacyMove.coc;legacyMove.numbers.age=60;assert(resolveCocSheet(legacyMove).numbers.move===8&&resolveCocSheet(legacyMove).coc!.overrides.move===8,'Legacy MOV 8 was silently changed');
+  for(const preset of presets){const item=createSheet(preset,'Portable');validateSheet(item);assert(parseSheetImport(exportSheet(item)).preset===preset,`Lost preset ${preset}`);}
+  passed.push('CoC automatic derived values, odd Pulp rounding, per-value override/reset, damaged-resource preservation, legacy adoption and all six preset JSON');
+
+  sheet=applyCocDamage(fresh(),5);assert(sheet.coc!.conditions.majorWound&&sheet.coc!.pendingCon==='wound'&&hp(sheet).current===5,'Half-max hit did not cause major wound');sheet=cocConstitution(sheet,die(90));assert(sheet.coc!.conditions.unconscious,'Failed wound CON did not cause unconsciousness');
+  sheet=applyCocDamage(sheet,5);assert(sheet.coc!.conditions.dying&&sheet.coc!.pendingCon==='dying','Zero HP with major wound did not cause dying');sheet=cocConstitution(sheet,die(90));assert(sheet.coc!.conditions.dead,'Failed dying CON did not kill');
+  sheet=fresh();for(const amount of [4,4,2])sheet=applyCocDamage(sheet,amount);assert(hp(sheet).current===0&&sheet.coc!.conditions.unconscious&&!sheet.coc!.conditions.dying,'Cumulative minor wounds incorrectly caused dying');
+  assert(applyCocDamage(fresh(),10).coc!.conditions.dead,'Single max-HP blow was not fatal');sheet=healCoc(applyCocDamage(fresh(),6),1);assert(!sheet.coc!.conditions.majorWound&&hp(sheet).current===5,'Half-max recovery did not clear major wound');fails(()=>applyCocDamage(fresh(),-1),'Negative damage accepted');
+  passed.push('CoC half-HP major wounds, consciousness checks, cumulative minor wounds, zero-HP dying, round CON/death and explicit recovery');
+
+  sheet=applyCocSanityLoss(fresh(),5);assert(sheet.coc!.pendingInt&&!sheet.coc!.conditions.indefiniteInsanity,'Five SAN did not queue INT');next=cocIntelligence(sheet,die(23,7));assert(next.coc!.conditions.temporaryInsanity&&next.coc!.temporaryHours===7&&!next.coc!.pendingInt,'Successful INT did not trigger 1d10-hour temporary insanity');assert(!cocIntelligence(sheet,die(90)).coc!.conditions.temporaryInsanity,'Failed INT incorrectly caused temporary insanity');
+  sheet=applyCocSanityLoss(sheet,5);assert(sheet.coc!.conditions.indefiniteInsanity&&sheet.coc!.daySanityLoss===10&&!sheet.coc!.pendingInt,'One-fifth daily loss did not cause indefinite insanity');sheet=startCocDay(sheet);assert(sheet.coc!.dayStartSanity===40&&sheet.coc!.daySanityLoss===0&&sheet.coc!.conditions.indefiniteInsanity,'New day reset current SAN or conditions');assert(applyCocSanityLoss(sheet,40).coc!.conditions.permanentInsanity,'Zero SAN did not mark permanent insanity');
+  passed.push('CoC five-point SAN shock, successful/failed INT, temporary duration, cumulative one-fifth daily loss and nonhealing day reset');
+
+  sheet=cocRoll(fresh(),'STR',50,{difficulty:'hard',kind:'trait'},die(66));const original=sheet.rolls[0];assert(cocCanPush(original),'Failed trait cannot be pushed');sheet=pushCocRoll(sheet,original.id,'Brace against the doorway',die(23));assert(sheet.rolls[0].passed&&sheet.rolls[0].outcome==='hard'&&sheet.rolls[0].coc!.pushedFrom===original.id&&sheet.rolls[1].total===66&&sheet.rolls[1].coc!.pushedBy===sheet.rolls[0].id,'Pushed roll lost original, hard difficulty or links');fails(()=>pushCocRoll(sheet,original.id,'Again',die(1)),'Second push accepted');fails(()=>pushCocRoll(sheet,sheet.rolls[0].id,'Again',die(1)),'Pushed result can be pushed');
+  for(const kind of ['combat','sanity','luck'] as const){const item=cocRoll(fresh(),kind,50,{kind},die(90));assert(!cocCanPush(item.rolls[0]),`${kind} can be pushed`);}
+  sheet=fresh();const skill=sheet.skills.find(item=>item.label==='Spot Hidden')!;sheet=cocRoll(sheet,skill.label,skill.value,{kind:'skill',skillId:skill.id},die(12));assert(sheet.coc!.checkedSkills.includes(skill.id),'Successful skill not marked');sheet=improveCocSkill(sheet,skill.id,die(90,7));assert(sheet.skills.find(item=>item.id===skill.id)!.value===32&&!sheet.coc!.checkedSkills.includes(skill.id)&&sheet.rolls[0].total===7,'Development failed to apply gain/clear mark');fails(()=>improveCocSkill(sheet,skill.id,die(99,9)),'Unmarked skill improved twice');const credit=sheet.skills.find(item=>item.label==='Credit Rating')!;sheet=cocRoll(sheet,credit.label,80,{kind:'skill',skillId:credit.id},die(1));assert(!sheet.coc!.checkedSkills.includes(credit.id),'Credit Rating received improvement mark');
+  passed.push('CoC one justified linked push, history preservation, forbidden push kinds, successful skill marks and one development gain');
+
+  const project:Project={id:P,title:'Offline CoC QA',description:'',mode:'custom',type:'standalone',status:'draft',color:'#000',enabledEngines:['character-sheets'],engineOrder:['character-sheets'],createdAt:1,updatedAt:1};await db.projects.put(project);sheet=await saveSheet(P,sheet,null);const stale=structuredClone(sheet);sheet=await saveSheet(P,{...sheet,title:'Dr. Vale'},sheet.revision);let conflicted=false;try{await saveSheet(P,stale,stale.revision);}catch(error){conflicted=error instanceof SheetConflict;}assert(conflicted,'CoC stale save overwrote state');
+  const cloneId=await importProjectData(await exportProjectData(P));const clone=(await db.projects.get(cloneId))!.characterSheets![0];assert(clone.id!==sheet.id&&JSON.stringify(clone.coc)===JSON.stringify(sheet.coc)&&clone.rolls[0].id===sheet.rolls[0].id,'Project clone lost CoC state/history or reused sheet ID');
+  await deleteSheet(P,sheet.id,sheet.revision);const archive=await db.documentArchives.where('projectId').equals(P).first();assert(archive,'CoC delete did not archive');await db.transaction('rw',db.projects,async()=>restoreArchivedMetadata(archive));assert(JSON.stringify((await db.projects.get(P))!.characterSheets![0].coc)===JSON.stringify(sheet.coc),'Archive restore lost CoC state');
+  const bad=structuredClone(sheet);bad.coc!.daySanityLoss=NaN;fails(()=>validateSheet(bad),'Malformed CoC state accepted');await db.projects.delete(cloneId);
+  passed.push('CoC versioned state, atomic CAS, project clone, JSON and Document archive restore retain conditions, skill checks and linked history');
+
+  for(const name of ['list','get','create','update','delete','export','import','coc_action'])assert(getBridgeTool(`wh_sheet_${name}`),`Unregistered wh_sheet_${name}`);
+  const run=async(name:string,args:Record<string,unknown>)=>{const reply=await runBridgeTool(name,{projectId:P,...args});assert(reply.ok,`${name}: ${reply.code} ${reply.error}`);return reply.result;};
+  const created=await run('wh_sheet_create',{title:'MCP Investigator',preset:'coc7'}) as {sheet:CharacterSheet};let native=created.sheet;
+  native=(await run('wh_sheet_coc_action',{sheetId:native.id,revision:native.revision,action:'mode',pulp:true,era:'modern'}) as {sheet:CharacterSheet}).sheet;assert(hp(native).max===20&&hp(native).current===20&&native.skills.some(item=>item.label==='Electronics'),'MCP mode did not perform UI-equivalent automatic rules');
+  native=(await run('wh_sheet_coc_action',{sheetId:native.id,revision:native.revision,action:'override',key:'hp',value:24}) as {sheet:CharacterSheet}).sheet;native=(await run('wh_sheet_coc_action',{sheetId:native.id,revision:native.revision,action:'override',key:'hp'}) as {sheet:CharacterSheet}).sheet;assert(hp(native).max===20,'MCP override reset failed');
+  native=(await run('wh_sheet_coc_action',{sheetId:native.id,revision:native.revision,action:'damage',amount:10}) as {sheet:CharacterSheet}).sheet;assert(native.coc!.conditions.majorWound&&hp(native).current===10,'MCP damage did not apply rules');
+  const nativeAction=async(action:string,args:Record<string,unknown>={})=>{native=(await run('wh_sheet_coc_action',{sheetId:native.id,revision:native.revision,action,...args}) as {sheet:CharacterSheet}).sheet;return native;};
+  const getRandomValues=crypto.getRandomValues;
+  const fixedRandom=(value:number)=>Object.defineProperty(crypto,'getRandomValues',{configurable:true,value:(array:Uint32Array)=>{array.fill(value);return array;}});
+  try{
+    fixedRandom(0);await nativeAction('constitution');assert(!native.coc!.pendingCon&&!native.coc!.conditions.unconscious,'Native CON check did not resolve wound');
+    await nativeAction('sanity-loss',{amount:5});await nativeAction('intelligence');assert(native.coc!.conditions.temporaryInsanity&&native.coc!.temporaryHours===1,'Native INT check did not resolve SAN shock');
+    await nativeAction('new-day');assert(native.coc!.dayStartSanity===45&&native.coc!.daySanityLoss===0,'Native daily tracker reset failed');
+    const id=native.skills.find(item=>item.label==='Spot Hidden')!.id;await nativeAction('mark-skill',{subjectId:id,enabled:true});fixedRandom(89);await nativeAction('improve-skill',{subjectId:id});assert(native.skills.find(item=>item.id===id)!.value===35&&!native.coc!.checkedSkills.includes(id),'Native skill development failed');
+    fixedRandom(65);await nativeAction('roll',{subjectId:'str',difficulty:'hard'});const failed=native.rolls[0];assert(failed.total===66&&!failed.passed,'Native characteristic roll failed fixture');fixedRandom(22);await nativeAction('push',{rollId:failed.id,justification:'Brace against the door'});assert(native.rolls[0].total===23&&native.rolls[0].passed&&native.rolls[0].coc!.pushedFrom===failed.id,'Native linked push lost result/difficulty');
+    const refusedPush=await runBridgeTool('wh_sheet_coc_action',{projectId:P,sheetId:native.id,revision:native.revision,action:'push',rollId:failed.id,justification:'Again'});assert(!refusedPush.ok,'Native original pushed twice');
+    await nativeAction('condition',{condition:'dying',enabled:true});assert(native.coc!.pendingCon==='dying','Keeper condition did not queue dying check');await nativeAction('stabilize');assert(!native.coc!.conditions.dying&&!native.coc!.pendingCon,'Native stabilization left a pending dying check');await nativeAction('heal',{amount:1});assert(hp(native).current===11,'Native recovery did not update current HP');
+  }finally{Object.defineProperty(crypto,'getRandomValues',{configurable:true,value:getRandomValues});}
+  let refused=false;try{await run('wh_sheet_coc_action',{sheetId:native.id,revision:1,action:'damage',amount:1});}catch{refused=true;}assert(refused,'MCP stale action accepted');
+  const payload=await run('wh_sheet_export',{sheetId:native.id}) as {json:string};const imported=await run('wh_sheet_import',{json:payload.json}) as {sheet:CharacterSheet};assert(imported.sheet.id!==native.id&&JSON.stringify(imported.sheet.coc)===JSON.stringify(native.coc),'MCP import lost state');
+  const changed=await run('wh_sheet_update',{sheetId:imported.sheet.id,revision:imported.sheet.revision,sheet:{...imported.sheet,title:'Imported via MCP'}}) as {sheet:CharacterSheet};assert(changed.sheet.title==='Imported via MCP','MCP CRUD update failed');await run('wh_sheet_delete',{sheetId:changed.sheet.id,revision:changed.sheet.revision});assert((await run('wh_sheet_get',{sheetId:native.id}) as {sheet:CharacterSheet}).sheet.id===native.id&&(await run('wh_sheet_list',{}) as {sheets:unknown[]}).sheets.length===2,'MCP scoped reads failed');
+  passed.push('Eight registered native bridge tools dispatch real CRUD/import/export/archive, CoC actions and stale-revision refusal');
+
+  // Real editor, actual local draft store and current app styles; no app profile or server.
+  const host=document.getElementById('root')!;const root=createRoot(host);useLocaleStore.setState({locale:'en',loaded:true});sheetDraftStore(P).clear();await db.projects.update(P,{characterSheets:[]});await saveSheet(P,fresh(),null);
+  const render=async(open=true)=>{await act(async()=>{root.render(<StrictMode><MemoryRouter>{open&&<CharacterSheetsEngine projectId={P}/>}</MemoryRouter></StrictMode>);await pause();});await act(async()=>{await pause();});};
+  const click=async(node:HTMLElement|undefined|null)=>{assert(node,'Missing UI control');await act(async()=>{node.click();await pause();});await act(async()=>{await pause();});};
+  const button=(label:string)=>[...host.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent?.trim()===label);
+  const field=(label:string)=>{const node=host.querySelector<HTMLInputElement|HTMLSelectElement>(`[aria-label="${label}"]`);assert(node,`Missing ${label}`);return node;};
+  const input=async(label:string,value:string)=>{await act(async()=>{const node=field(label),proto=node instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value')!.set!.call(node,value);node.dispatchEvent(new Event(node instanceof HTMLSelectElement?'change':'input',{bubbles:true}));await pause();});};
+  await render();assert(host.querySelector('[data-testid="coc-play"]'),'CoC did not open compact Play tab');const pulp=[...host.querySelectorAll('label')].find(node=>node.textContent?.startsWith('Pulp'))!.querySelector('input')!;await click(pulp);assert(field('HP · current').value==='20','Pulp pointer action did not react automatically');
+  await input('Damage received','10');await click(button('Apply damage'));assert(field('HP · current').value==='10'&&host.textContent?.includes('CON · remain conscious'),'Damage UI did not present pending CON action');
+  await input('Sanity lost','5');await click(button('Apply loss'));assert(field('Sanity · current').value==='45'&&button('INT · comprehend the horror'),'SAN UI did not queue INT');
+  const summary=host.querySelector('details summary');await click(summary as HTMLElement);await input('Maximum HP','24');assert(field('HP · current').value==='10','Manual maximum healed HP');await click(host.querySelector('[aria-label="Reset Maximum HP"]'));assert(field('Maximum HP').value==='20','Per-value reset UI failed');
+  await input('Name','Recovered CoC investigator');await render(false);await render();assert(field('Name').value==='Recovered CoC investigator'&&field('HP · current').value==='10'&&field('Sanity · current').value==='45','Local recovery lost play state');
+  const selected=host.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')!;await act(async()=>{selected.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await pause();});assert(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent==='Traits & skills','Keyboard tabs lost Play→Stats navigation');await click(button('Play'));await click(button('Save sheet'));await act(async()=>{await pause();});assert((await db.projects.get(P))!.characterSheets![0].coc!.pendingInt,'Saved play state lost SAN consequence');
+  passed.push('CoC actual editor pointer actions, responsive Play layout, keyboard tabs, per-value reset, unsaved recovery and saved rule state');
+  (window as unknown as {cocDepthShowEditor:()=>Promise<void>}).cocDepthShowEditor=async()=>{await render(false);const preview=fresh();preview.title='Dr. Ada Vale';preview.details.occupation='Field researcher';await db.projects.update(P,{characterSheets:[]});await saveSheet(P,preview,null);sheetDraftStore(P).clear();await render();};
+  return passed;
+}

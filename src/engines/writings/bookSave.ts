@@ -1,3 +1,4 @@
+import {saveAuthoredWriting} from './toolDock/authoredSave';
 // ============================================
 // Saving the book — one diff, one pass over the rows
 // ============================================
@@ -39,18 +40,13 @@
 //     reported as collisions.
 
 import { db } from '@/db';
+import { eraWritingOperations } from '@/services/worldEras/writings';
+import type { WorldEraScope } from '@/services/worldEras/types';
 import type { Writing } from '@/types';
 import { countWords } from '@/utils/text';
 import { generateId } from '@/utils/idGenerator';
 import { diffBookSections, type BookSection } from './bookDocument';
 import {
-  createWriting,
-  deleteWritingRestorable,
-  expectDeletedWriting,
-  getWritings,
-  restoreDeletedWriting,
-  takeLastDeletedWriting,
-  updateWritingAtVersion,
   WritingConflictError,
   WritingGoneError,
   type DeletedWritingBundle,
@@ -59,6 +55,8 @@ import {
 /** A row as this book session last saw it confirmed on disk. */
 export interface BookBaselineEntry {
   title: string;
+  /** Saved row title can differ from an intentionally empty editor heading. */
+  persistedTitle?: string;
   /** Canonical prose (see `canonicalHtml`), without the heading. */
   html: string;
   /**
@@ -72,6 +70,7 @@ export interface BookBaselineEntry {
   version: number;
   chapter: number;
   wordCount: number;
+  toolDock?: Writing['toolDock'];
 }
 
 /** Keyed by writing id, in book order. */
@@ -84,6 +83,7 @@ export type BookConflict =
   | { writingId: string; kind: 'gone' };
 
 export interface SaveBookOptions {
+  scope?: WorldEraScope;
   projectId: string;
   baseline: BookBaseline;
   sections: readonly BookSection[];
@@ -164,6 +164,7 @@ function toConflict(err: unknown, writingId: string): BookConflict {
 
 export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult> {
   const { projectId, baseline, sections, confirmedDeletes, firstChapter, untitledTitle } = options;
+  const { createWriting, deleteWritingRestorable, expectDeletedWriting, getWritings, restoreDeletedWriting, takeLastDeletedWriting, updateWritingAtVersion } = eraWritingOperations(options.scope ?? { projectId });
   const contested = options.contested ?? new Set<string>();
   const outsideChapters = options.outsideChapters ?? new Set<number>();
   const diff = diffBookSections(baseline, sections);
@@ -189,19 +190,18 @@ export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult
     const wordCount = countWords(update.html);
     const title = update.title.trim() || untitledTitle;
     try {
-      const version = await updateWritingAtVersion(
-        update.writingId,
-        { title, content: update.html, wordCount },
-        entry.version,
-      );
+      const saved=await saveAuthoredWriting(options.scope??{projectId},update.writingId,{title:entry.persistedTitle??entry.title,content:entry.persisted,wordCount:entry.wordCount,updatedAt:entry.version,toolDock:entry.toolDock},{title,content:update.html,wordCount});
+      const version=saved.version;
       // The baseline keeps the heading's own text, not the title the row was
       // given: a heading left empty must not read as a title change on every
       // pass.
       next.set(update.writingId, {
         ...entry,
         title: update.title.trim(),
+        persistedTitle: title,
         html: update.html,
         persisted: update.html,
+        toolDock: saved.toolDock,
         wordCount,
         version,
       });
@@ -231,7 +231,7 @@ export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult
       try {
         // One transaction: a refusal rolls back the rows already moved, so
         // a failed pass leaves every number exactly as it was.
-        await db.transaction('rw', [db.writings], async () => {
+        await db.transaction('rw', options.scope?.eraId ? db.tables : [db.writings], async () => {
           for (const row of moving) {
             await updateWritingAtVersion(row.id, { chapter: row.chapter + shift.by }, row.updatedAt);
           }
@@ -272,6 +272,7 @@ export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult
         );
         next.set(id, {
           title: create.title.trim(),
+          persistedTitle: title,
           html: create.html,
           persisted: create.html,
           version,
@@ -285,6 +286,7 @@ export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult
         result.conflicts.push(toConflict(err, id));
         next.set(id, {
           title: bundle.writing.title,
+          persistedTitle: bundle.writing.title,
           html: bundle.writing.content,
           persisted: bundle.writing.content,
           version: bundle.writing.updatedAt,
@@ -313,6 +315,7 @@ export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult
     });
     next.set(id, {
       title: create.title.trim(),
+      persistedTitle: title,
       html: create.html,
       persisted: create.html,
       version: now,

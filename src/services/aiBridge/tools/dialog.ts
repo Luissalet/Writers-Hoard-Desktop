@@ -8,18 +8,12 @@
 // reconciles those later, so they are filled in at write time here.
 
 import { db } from '@/db';
+import { appendConversationTurn } from '@/engines/dialog-scene/conversation/authoring';
 import type { DialogBlock, DialogBlockType, Scene, SceneCast } from '@/engines/dialog-scene/types';
-import {
-  addCastMember,
-  createDialogBlock,
-  createScene,
-  getDialogBlocks,
-  getScene,
-  getSceneCast,
-  getScenes,
-  updateDialogBlock,
-  updateScene,
-} from '@/engines/dialog-scene/operations';
+import { dialogSceneOperations } from '@/engines/dialog-scene/scopedOperations';
+import { worldEraToolScope } from '@/services/worldEras/toolScope';
+import { listEraRows, readEraRow } from '@/services/worldEras/store';
+import type { CodexEntry } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
@@ -37,26 +31,34 @@ import {
   type ToolArgs,
 } from './shared';
 
+const operations = (args: ToolArgs) => dialogSceneOperations(worldEraToolScope(args));
 const BLOCK_TYPES = [
   'dialog', 'stage-direction', 'action', 'transition', 'note', 'slug',
 ] as const satisfies readonly DialogBlockType[];
 
 const DEFAULT_SPEAKER_COLOR = '#c4973b';
 
-async function mustGetScene(id: string): Promise<Scene> {
-  const scene = await getScene(id);
+export async function whAppendConversationTurn(args: ToolArgs): Promise<unknown> {
+  const scene = await mustGetScene(requireString(args, 'sceneId'), args);
+  await assertEngineEnabled(scene.projectId, 'dialog-scene'); assertRowInScope(args, scene.projectId);
+  const block = await appendConversationTurn(scene.id, { speaker: optString(args, 'speaker') ?? '', content: requireString(args, 'content') }, worldEraToolScope(args));
+  return withAudit(block, { projectId: scene.projectId, entityId: block.id, table: 'dialogBlocks', kind: 'create', summary: `appended conversation turn to "${scene.title}"` });
+}
+
+async function mustGetScene(id: string, args: ToolArgs): Promise<Scene> {
+  const scene = await operations(args).getScene(id);
   if (!scene) throw new BridgeError('not-found', `No scene with id "${id}".`);
   return scene;
 }
 
 export async function whListScenes(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
-  const scenes = await getScenes(projectId);
+  const scenes = await operations(args).getScenes(projectId);
   // sceneCasts is indexed by sceneId only — it carries no projectId — so it is
   // fetched by the ids we already have rather than scanned.
   const [blocks, casts] = await Promise.all([
-    db.dialogBlocks.where('projectId').equals(projectId).toArray(),
-    db.sceneCasts.where('sceneId').anyOf(scenes.map((scene) => scene.id)).toArray(),
+    listEraRows<DialogBlock>({ projectId, eraId: worldEraToolScope(args)?.eraId }, 'dialogBlocks'),
+    listEraRows<SceneCast>({ projectId, eraId: worldEraToolScope(args)?.eraId }, 'sceneCasts'),
   ]);
   return {
     projectId,
@@ -85,9 +87,9 @@ export async function whListScenes(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whGetScene(args: ToolArgs): Promise<unknown> {
-  const scene = await mustGetScene(requireString(args, 'id'));
+  const scene = await mustGetScene(requireString(args, 'id'), args);
   assertRowInScope(args, scene.projectId);
-  const [blocks, cast] = await Promise.all([getDialogBlocks(scene.id), getSceneCast(scene.id)]);
+  const [blocks, cast] = await Promise.all([operations(args).getDialogBlocks(scene.id), operations(args).getSceneCast(scene.id)]);
   return {
     id: scene.id,
     projectId: scene.projectId,
@@ -111,7 +113,7 @@ export async function whGetScene(args: ToolArgs): Promise<unknown> {
 
 export async function whCreateScene(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'dialog-scene');
-  const siblings = await getScenes(projectId);
+  const siblings = await operations(args).getScenes(projectId);
   const now = Date.now();
   const scene: Scene = {
     id: generateId('scene'),
@@ -124,15 +126,15 @@ export async function whCreateScene(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createScene(scene);
+  await operations(args).createScene(scene);
   return withAudit(
     { id: scene.id, title: scene.title, created: true },
-    { projectId, entityId: scene.id, summary: `created scene "${scene.title}"` },
+    { projectId, entityId: scene.id, table: 'scenes', summary: `created scene "${scene.title}"` },
   );
 }
 
 export async function whUpdateScene(args: ToolArgs): Promise<unknown> {
-  const scene = await mustGetScene(requireString(args, 'id'));
+  const scene = await mustGetScene(requireString(args, 'id'), args);
   await assertEngineEnabled(scene.projectId, 'dialog-scene');
   assertRowInScope(args, scene.projectId);
   const changes: Partial<Scene> = {};
@@ -148,12 +150,12 @@ export async function whUpdateScene(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
-  await updateScene(scene.id, changes);
+  await operations(args).updateScene(scene.id, changes);
   return withAudit(
     { id: scene.id, updated: Object.keys(changes) },
     {
       projectId: scene.projectId,
-      entityId: scene.id,
+      entityId: scene.id, table: 'scenes',
       summary: `updated scene "${scene.title}"`,
       before: { title: scene.title, setting: scene.setting, isOmitted: scene.isOmitted },
     },
@@ -170,8 +172,9 @@ export async function whUpdateScene(args: ToolArgs): Promise<unknown> {
 async function resolveSpeaker(
   scene: Scene,
   name: string,
+  args: ToolArgs,
 ): Promise<{ characterName: string; characterColor: string; characterId?: string }> {
-  const cast = await getSceneCast(scene.id);
+  const cast = await operations(args).getSceneCast(scene.id);
   const existing = cast.find(
     (member) => member.characterName.toLowerCase() === name.toLowerCase(),
   );
@@ -184,7 +187,7 @@ async function resolveSpeaker(
   }
   // Match a codex character by title, case-insensitively — the same rule the
   // Fountain import uses, so a script imported and a line added agree.
-  const entries = await db.codexEntries.where('projectId').equals(scene.projectId).toArray();
+  const entries = await listEraRows<CodexEntry>({ projectId: scene.projectId, eraId: worldEraToolScope(args)?.eraId }, 'codexEntries');
   const character = entries.find(
     (entry) => entry.type === 'character' && entry.title.toLowerCase() === name.toLowerCase(),
   );
@@ -195,12 +198,12 @@ async function resolveSpeaker(
     characterName: name,
     color: DEFAULT_SPEAKER_COLOR,
   };
-  await addCastMember(member);
+  await operations(args).addCastMember(member);
   return { characterName: name, characterColor: member.color, characterId: member.characterId };
 }
 
 export async function whAddDialog(args: ToolArgs): Promise<unknown> {
-  const scene = await mustGetScene(requireString(args, 'sceneId'));
+  const scene = await mustGetScene(requireString(args, 'sceneId'), args);
   await assertEngineEnabled(scene.projectId, 'dialog-scene');
   assertRowInScope(args, scene.projectId);
   const type = optEnum(args, 'type', BLOCK_TYPES) ?? 'dialog';
@@ -212,7 +215,7 @@ export async function whAddDialog(args: ToolArgs): Promise<unknown> {
   }
 
   const identity = speaker?.trim()
-    ? await resolveSpeaker(scene, speaker.trim())
+    ? await resolveSpeaker(scene, speaker.trim(), args)
     : { characterName: '', characterColor: DEFAULT_SPEAKER_COLOR, characterId: undefined };
 
   // Dual dialogue is two blocks sharing a group id; the first one may not have
@@ -220,7 +223,7 @@ export async function whAddDialog(args: ToolArgs): Promise<unknown> {
   let dualGroupId: string | undefined;
   const dualWith = optString(args, 'dualWithBlockId');
   if (dualWith) {
-    const partner = await db.dialogBlocks.get(dualWith);
+    const partner = worldEraToolScope(args) ? await readEraRow<DialogBlock>(worldEraToolScope(args)!, 'dialogBlocks', dualWith) : await db.dialogBlocks.get(dualWith);
     if (!partner) throw new BridgeError('not-found', `No dialog block with id "${dualWith}".`);
     // Same scene, not merely same project: a dual group spans two adjacent
     // blocks of one scene, and the editor pairs them by scene order.
@@ -232,10 +235,10 @@ export async function whAddDialog(args: ToolArgs): Promise<unknown> {
       );
     }
     dualGroupId = partner.dualGroupId ?? generateId('dual');
-    if (!partner.dualGroupId) await updateDialogBlock(partner.id, { dualGroupId });
+    if (!partner.dualGroupId) await operations(args).updateDialogBlock(partner.id, { dualGroupId });
   }
 
-  const siblings = await getDialogBlocks(scene.id);
+  const siblings = await operations(args).getDialogBlocks(scene.id);
   const now = Date.now();
   const block: DialogBlock = {
     id: generateId('block'),
@@ -253,12 +256,12 @@ export async function whAddDialog(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createDialogBlock(block);
+  await operations(args).createDialogBlock(block);
   return withAudit(
     { id: block.id, sceneId: scene.id, order: block.order, created: true },
     {
       projectId: scene.projectId,
-      entityId: block.id,
+      entityId: block.id, table: 'dialogBlocks',
       summary: `added ${type} to scene "${scene.title}"${identity.characterName ? ` (${identity.characterName})` : ''}`,
     },
   );
@@ -266,7 +269,7 @@ export async function whAddDialog(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateDialogBlock(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const block = await db.dialogBlocks.get(id);
+  const block = worldEraToolScope(args) ? await readEraRow<DialogBlock>(worldEraToolScope(args)!, 'dialogBlocks', id) : await db.dialogBlocks.get(id);
   if (!block) throw new BridgeError('not-found', `No dialog block with id "${id}".`);
   await assertEngineEnabled(block.projectId, 'dialog-scene');
   assertRowInScope(args, block.projectId);
@@ -282,8 +285,8 @@ export async function whUpdateDialogBlock(args: ToolArgs): Promise<unknown> {
   }
   const speaker = optString(args, 'character');
   if (speaker !== undefined && speaker.trim()) {
-    const scene = await mustGetScene(block.sceneId);
-    const identity = await resolveSpeaker(scene, speaker.trim());
+    const scene = await mustGetScene(block.sceneId, args);
+    const identity = await resolveSpeaker(scene, speaker.trim(), args);
     changes.characterName = identity.characterName;
     changes.characterColor = identity.characterColor;
     changes.characterId = identity.characterId;
@@ -292,12 +295,12 @@ export async function whUpdateDialogBlock(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
-  await updateDialogBlock(id, changes);
+  await operations(args).updateDialogBlock(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
     {
       projectId: block.projectId,
-      entityId: id,
+      entityId: id, table: 'dialogBlocks',
       summary: `edited a ${block.type} block`,
       // Whole and under their real column names: undo writes this object back
       // verbatim, so a truncated line would replace the monologue with its

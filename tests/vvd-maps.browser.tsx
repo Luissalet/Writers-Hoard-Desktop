@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import JSZip from 'jszip';
 import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 import MapsEngine from '@/engines/maps/MapsEngine';
 import '@/engines/maps';
 import { getAllBackupStrategies, preloadArchive } from '@/engines/_shared/backupRegistry';
@@ -51,6 +52,7 @@ export async function testVvdMaps(): Promise<string[]> {
     await waitFor('Map did not mount', () => !!host.querySelector('[data-testid="map-feature-canvas"]'));
   };
   try {
+    await db.projects.bulkAdd([P, `${P}-foreign`].map(id => ({ id, title: 'Map fixture', type: 'standalone' as const, mode: 'custom' as const, color: '#cab57d', description: '', status: 'draft' as const, enabledEngines: ['maps'], engineOrder: ['maps'], createdAt: 1, updatedAt: 1 })));
     const canvas = document.createElement('canvas'); canvas.width = 800; canvas.height = 480;
     const context = canvas.getContext('2d')!; context.fillStyle = '#3b5557'; context.fillRect(0, 0, 800, 480); context.fillStyle = '#8d956b'; context.beginPath(); context.ellipse(400, 240, 320, 180, -.1, 0, 2 * Math.PI); context.fill();
     await db.worldMaps.put({ id: M, projectId: P, title: 'Local atlas', backgroundImage: canvas.toDataURL(), createdAt: 1, updatedAt: 1 });
@@ -144,8 +146,8 @@ export async function testVvdMaps(): Promise<string[]> {
     return passed;
   } finally {
     await act(async () => { root.unmount(); });
-    await db.worldMaps.where('projectId').equals(P).delete(); await db.mapPins.where('projectId').equals(P).delete(); await db.codexEntries.where('projectId').equals(P).delete();
-    await db.worldMaps.where('projectId').equals(`${P}-foreign`).delete(); await db.mapPins.where('projectId').equals(`${P}-foreign`).delete();
+    await deleteProject(P);
+    await deleteProject(`${P}-foreign`);
     style.remove();
   }
 }

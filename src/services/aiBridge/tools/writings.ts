@@ -5,16 +5,9 @@
 // Every path that can lose text takes a 'pre-ai' snapshot first, so anything
 // an external model does here is undoable from the app's history panel.
 
-import { db } from '@/db';
 import type { Writing, WritingStatus } from '@/types';
-import {
-  createWriting,
-  getWriting,
-  getWritings,
-  updateWriting,
-  WritingConflictError,
-} from '@/engines/writings/operations';
-import { listSnapshotMeta, restoreSnapshot, takeSnapshot } from '@/engines/writings/snapshots';
+import { WritingConflictError } from '@/engines/writings/operations';
+import { eraWritingOperations, eraSnapshotOperations } from '@/services/worldEras/writings';
 import { extractFootnotesFromHtml } from '@/components/editor/footnotes/footnoteModel';
 import { countWords } from '@/utils/text';
 import { projectWritingHtml } from '@/engines/writings/revisionProjection';
@@ -38,6 +31,9 @@ import {
   withAudit,
   type ToolArgs,
 } from './shared';
+
+function scopedWriting(args: ToolArgs, projectId?: string) { const eraId = optString(args, 'eraId'); return eraWritingOperations({ projectId: projectId ?? (eraId ? resolveProjectId(args) : ''), eraId }); }
+function scopedSnapshots(args: ToolArgs, projectId?: string) { const eraId = optString(args, 'eraId'); return eraSnapshotOperations({ projectId: projectId ?? (eraId ? resolveProjectId(args) : ''), eraId }); }
 
 const STATUSES = ['idea', 'draft', 'finished'] as const satisfies readonly WritingStatus[];
 
@@ -100,8 +96,8 @@ function worldDateView(calendar: WorldCalendar | null, w: Pick<Writing, 'worldDa
   return { worldDate: w.worldDate, worldDateEnd: w.worldDateEnd, worldDateText: text };
 }
 
-async function mustGetWriting(id: string): Promise<Writing> {
-  const writing = await getWriting(id);
+async function mustGetWriting(id: string, args: ToolArgs): Promise<Writing> {
+  const writing = await scopedWriting(args).getWriting(id);
   if (!writing) throw new BridgeError('not-found', `No writing with id "${id}".`);
   return writing;
 }
@@ -125,9 +121,10 @@ async function mustGetWriting(id: string): Promise<Writing> {
 async function writeToUnmovedRow(
   existing: Writing,
   changes: Partial<Writing>,
+  args: ToolArgs,
 ): Promise<void> {
   try {
-    await updateWriting(existing.id, changes, existing.updatedAt);
+    await scopedWriting(args, existing.projectId).updateWriting(existing.id, changes, existing.updatedAt);
   } catch (err) {
     if (!(err instanceof WritingConflictError)) throw err;
     throw new BridgeError(
@@ -144,7 +141,7 @@ async function writeToUnmovedRow(
 export async function whListWritings(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const status = optEnum(args, 'status', STATUSES);
-  const writings = await getWritings(projectId);
+  const writings = await scopedWriting(args, projectId).getWritings(projectId);
   const calendar = (await resolveWorldCalendar(projectId))?.calendar ?? null;
   const filtered = status ? writings.filter((w) => w.status === status) : writings;
   return {
@@ -170,7 +167,7 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whGetWriting(args: ToolArgs): Promise<unknown> {
-  const writing = await mustGetWriting(requireString(args, 'id'));
+  const writing = await mustGetWriting(requireString(args, 'id'), args);
   assertRowInScope(args, writing.projectId);
   const calendar = (await resolveWorldCalendar(writing.projectId))?.calendar ?? null;
   const finalHtml = projectWritingHtml(writing.content);
@@ -212,7 +209,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createWriting(writing);
+  await scopedWriting(args, projectId).createWriting(writing);
   return withAudit(
     { id: writing.id, title: writing.title, wordCount: writing.wordCount, created: true },
     { projectId, entityId: writing.id, summary: `created writing "${title}"` },
@@ -236,7 +233,7 @@ export async function whImportStorySession(args: ToolArgs): Promise<unknown> {
   const sourceRevision = `sha256:${sourceHash}`;
   const html = manuscriptHtmlFromMarkdown(content);
   const importedContentHash = await sha256(html);
-  let existing = await getWriting(id);
+  let existing = await scopedWriting(args).getWriting(id);
 
   if (!existing) {
     const now = Date.now();
@@ -249,7 +246,7 @@ export async function whImportStorySession(args: ToolArgs): Promise<unknown> {
       },
     };
     try {
-      await createWriting(writing);
+      await scopedWriting(args, projectId).createWriting(writing);
       return withAudit(
         { id, title, state: 'created', created: true, sourceHash },
         { projectId, entityId: id, kind: 'create', summary: `imported story session as writing "${title}"` },
@@ -257,7 +254,7 @@ export async function whImportStorySession(args: ToolArgs): Promise<unknown> {
     } catch (error) {
       // A concurrent import can win the same stable id. Inspect that row below.
       if (!(error instanceof Error) || error.name !== 'ConstraintError') throw error;
-      existing = await getWriting(id);
+      existing = await scopedWriting(args).getWriting(id);
     }
   }
 
@@ -284,14 +281,14 @@ export async function whImportStorySession(args: ToolArgs): Promise<unknown> {
     };
   }
 
-  await takeSnapshot(existing, 'pre-ai');
+  await scopedSnapshots(args, existing.projectId).takeSnapshot(existing, 'pre-ai');
   await writeToUnmovedRow(existing, {
     content: html, wordCount: countWords(html),
     storySessionSource: {
       app: 'scheherazade', worldId, sessionId, sourceRef, sourceRevision, sourceHash,
       importedContentHash, importedAt: Date.now(),
     },
-  });
+  }, args);
   return withAudit(
     { id, title: existing.title, state: 'refreshed', sourceHash, updated: ['content', 'storySessionSource'] },
     {
@@ -306,7 +303,7 @@ export async function whImportStorySession(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
-  const existing = await mustGetWriting(requireString(args, 'id'));
+  const existing = await mustGetWriting(requireString(args, 'id'), args);
   await assertEngineEnabled(existing.projectId, 'writings');
   assertRowInScope(args, existing.projectId);
   const markdown = optString(args, 'content');
@@ -314,7 +311,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
 
   if (markdown !== undefined) {
     // Overwriting a body is the one destructive act left in this surface.
-    await takeSnapshot(existing, 'pre-ai');
+    await scopedSnapshots(args, existing.projectId).takeSnapshot(existing, 'pre-ai');
     changes.content = manuscriptHtmlFromMarkdown(markdown);
     changes.wordCount = countWords(changes.content);
   }
@@ -345,7 +342,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   for (const key of Object.keys(changes) as Array<keyof Writing>) {
     before[key] = key === 'content' ? existing.content ?? '' : existing[key];
   }
-  await writeToUnmovedRow(existing, changes);
+  await writeToUnmovedRow(existing, changes, args);
   return withAudit(
     { id: existing.id, updated: Object.keys(changes), wordCount: changes.wordCount ?? existing.wordCount },
     {
@@ -358,7 +355,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
-  const existing = await mustGetWriting(requireString(args, 'id'));
+  const existing = await mustGetWriting(requireString(args, 'id'), args);
   await assertEngineEnabled(existing.projectId, 'writings');
   assertRowInScope(args, existing.projectId);
   // Only the addition is converted; the chapter's own bytes — its notes, their
@@ -369,10 +366,10 @@ export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
     requireString(args, 'content'),
     extractFootnotesFromHtml(existing.content ?? '').map((note) => note.id),
   );
-  await takeSnapshot(existing, 'pre-ai');
+  await scopedSnapshots(args, existing.projectId).takeSnapshot(existing, 'pre-ai');
   const content = `${existing.content ?? ''}${addition}`;
   const wordCount = countWords(content);
-  await writeToUnmovedRow(existing, { content, wordCount });
+  await writeToUnmovedRow(existing, { content, wordCount }, args);
   return withAudit(
     { id: existing.id, wordCount, added: wordCount - existing.wordCount },
     {
@@ -391,9 +388,9 @@ export async function whListWritingVersions(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   // Load the writing first: the snapshot list itself carries no projectId to
   // check, and the id alone would page through another project's history.
-  const writing = await mustGetWriting(id);
+  const writing = await mustGetWriting(id, args);
   assertRowInScope(args, writing.projectId);
-  const snapshots = await listSnapshotMeta(id);
+  const snapshots = await scopedSnapshots(args, writing.projectId).listSnapshotMeta(id);
   return {
     writingId: id,
     versions: snapshots.map((snapshot) => ({
@@ -412,12 +409,12 @@ export async function whRestoreWritingVersion(args: ToolArgs): Promise<unknown> 
   // the whole job in one call and answers with prose only, so by the time it
   // returns there is nothing left to check the engine against — and the write
   // would already have happened.
-  const snapshot = await db.writingSnapshots.get(snapshotId);
+  const snapshot = await scopedSnapshots(args).readSnapshot(snapshotId);
   if (!snapshot) throw new BridgeError('not-found', `No snapshot with id "${snapshotId}".`);
   await assertEngineEnabled(snapshot.projectId, 'writings');
   assertRowInScope(args, snapshot.projectId);
 
-  const restored = await restoreSnapshot(snapshotId);
+  const restored = await scopedSnapshots(args, snapshot.projectId).restoreSnapshot(snapshotId);
   if (!restored) {
     throw new BridgeError('not-found', `No snapshot with id "${snapshotId}", or its writing is gone.`);
   }

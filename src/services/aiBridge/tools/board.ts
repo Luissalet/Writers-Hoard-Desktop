@@ -1,3 +1,6 @@
+import { scopedTableOps } from '@/services/worldEras/tableOps';
+import { worldEraToolScope } from '@/services/worldEras/toolScope';
+import { listEraRows } from '@/services/worldEras/store';
 // ============================================================================
 // AI bridge tools — the corkboard
 // ============================================================================
@@ -11,17 +14,7 @@
 
 import { db } from '@/db';
 import type { Board, BoardEdge, BoardNode, BoardNodeKind, BoardSurface } from '@/engines/board/types';
-import {
-  createBoard,
-  createBoardEdge,
-  createBoardNode,
-  getBoard,
-  getBoardEdges,
-  getBoardNode,
-  getBoardNodes,
-  getBoards,
-  updateBoardNode,
-} from '@/engines/board/operations';
+import * as boardBase from '@/engines/board/operations';
 import { DEFAULT_NODE_COLOR, DEFAULT_SIZE, edgeKindColor } from '@/engines/board/catalog';
 import { generateId } from '@/utils/idGenerator';
 import {
@@ -59,7 +52,7 @@ export async function whCreateBoard(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createBoard(board);
+  await boardOperations(args).boards.create(board);
   return withAudit(
     { id: board.id, title: board.title, surface: board.surface, created: true },
     { projectId, entityId: board.id, summary: `created board "${board.title}"` },
@@ -68,9 +61,9 @@ export async function whCreateBoard(args: ToolArgs): Promise<unknown> {
 
 export async function whListBoards(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
-  const boards = await getBoards(projectId);
-  const nodes = await db.boardNodes.where('projectId').equals(projectId).toArray();
-  const edges = await db.boardEdges.where('projectId').equals(projectId).toArray();
+  const boards = await boardOperations(args).boards.getAll(projectId);
+  const nodes = worldEraToolScope(args) ? await listEraRows<BoardNode>(worldEraToolScope(args)!, 'boardNodes') : await db.boardNodes.where('projectId').equals(projectId).toArray();
+  const edges = worldEraToolScope(args) ? await listEraRows<BoardEdge>(worldEraToolScope(args)!, 'boardEdges') : await db.boardEdges.where('projectId').equals(projectId).toArray();
   return {
     projectId,
     boards: boards.map((board) => ({
@@ -86,10 +79,10 @@ export async function whListBoards(args: ToolArgs): Promise<unknown> {
 
 export async function whGetBoard(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const board = await getBoard(id);
+  const board = await boardOperations(args).boards.getOne(id);
   if (!board) throw new BridgeError('not-found', `No board with id "${id}".`);
   assertRowInScope(args, board.projectId);
-  const [nodes, edges] = await Promise.all([getBoardNodes(id), getBoardEdges(id)]);
+  const [nodes, edges] = await Promise.all([boardOperations(args).nodes.getAll(id), boardOperations(args).edges.getAll(id)]);
   const nameOf = (nodeId: string): string =>
     nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
   return {
@@ -133,11 +126,11 @@ function nextFreeSpot(existing: BoardNode[]): { x: number; y: number } {
 
 export async function whAddBoardCard(args: ToolArgs): Promise<unknown> {
   const boardId = requireString(args, 'boardId');
-  const board = await getBoard(boardId);
+  const board = await boardOperations(args).boards.getOne(boardId);
   if (!board) throw new BridgeError('not-found', `No board with id "${boardId}".`);
   await assertEngineEnabled(board.projectId, 'board');
   assertRowInScope(args, board.projectId);
-  const existing = await getBoardNodes(boardId);
+  const existing = await boardOperations(args).nodes.getAll(boardId);
 
   const x = optNumber(args, 'x');
   const y = optNumber(args, 'y');
@@ -167,7 +160,7 @@ export async function whAddBoardCard(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createBoardNode(node);
+  await boardOperations(args).nodes.create(node);
   return withAudit(
     { id: node.id, boardId, position, created: true },
     {
@@ -180,7 +173,7 @@ export async function whAddBoardCard(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateBoardCard(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const node = await getBoardNode(id);
+  const node = await boardOperations(args).nodes.getOne(id);
   if (!node) throw new BridgeError('not-found', `No board card with id "${id}".`);
   await assertEngineEnabled(node.projectId, 'board');
   assertRowInScope(args, node.projectId);
@@ -201,7 +194,7 @@ export async function whUpdateBoardCard(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
-  await updateBoardNode(id, changes);
+  await boardOperations(args).nodes.update(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
     {
@@ -219,7 +212,7 @@ export async function whConnectBoardCards(args: ToolArgs): Promise<unknown> {
   if (sourceId === targetId) {
     throw new BridgeError('bad-args', 'A card cannot be threaded to itself.');
   }
-  const [source, target] = await Promise.all([getBoardNode(sourceId), getBoardNode(targetId)]);
+  const [source, target] = await Promise.all([boardOperations(args).nodes.getOne(sourceId), boardOperations(args).nodes.getOne(targetId)]);
   if (!source) throw new BridgeError('not-found', `No board card with id "${sourceId}".`);
   await assertEngineEnabled(source.projectId, 'board');
   assertRowInScope(args, source.projectId);
@@ -254,7 +247,7 @@ export async function whConnectBoardCards(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createBoardEdge(edge);
+  await boardOperations(args).edges.create(edge);
   return withAudit(
     { id: edge.id, created: true },
     {
@@ -267,7 +260,7 @@ export async function whConnectBoardCards(args: ToolArgs): Promise<unknown> {
 
 export async function whViewBoardImage(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const node = await getBoardNode(id);
+  const node = await boardOperations(args).nodes.getOne(id);
   if (!node) throw new BridgeError('not-found', `No board card with id "${id}".`);
   assertRowInScope(args, node.projectId);
   if (!node.image?.startsWith('data:')) {
@@ -278,4 +271,13 @@ export async function whViewBoardImage(args: ToolArgs): Promise<unknown> {
     { id: node.id, title: node.title, role: node.role, tags: node.tags },
     [{ ...media, label: node.title }],
   );
+}
+
+function boardOperations(args: ToolArgs) {
+  const scope = worldEraToolScope(args);
+  return {
+    boards: scopedTableOps(scope, 'boards', 'projectId', { getAll: boardBase.getBoards, getOne: boardBase.getBoard, create: boardBase.createBoard, update: boardBase.updateBoard, delete: boardBase.deleteBoard }),
+    nodes: scopedTableOps(scope, 'boardNodes', 'boardId', { getAll: boardBase.getBoardNodes, getOne: boardBase.getBoardNode, create: boardBase.createBoardNode, update: boardBase.updateBoardNode, delete: boardBase.deleteBoardNode }),
+    edges: scopedTableOps(scope, 'boardEdges', 'boardId', { getAll: boardBase.getBoardEdges, getOne: boardBase.getBoardEdge, create: boardBase.createBoardEdge, update: boardBase.updateBoardEdge, delete: boardBase.deleteBoardEdge }),
+  };
 }

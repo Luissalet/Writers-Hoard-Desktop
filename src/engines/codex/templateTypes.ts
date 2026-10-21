@@ -1,4 +1,20 @@
 import type { CodexEntryType } from '@/types';
+export type CalculationResultType='whole'|'decimal'|'percent'|'text';
+export type CodexPropertyKind = 'text' | 'number' | 'date' | 'color' | 'multiselect';
+export interface CodexPropertyDefinition {
+  /** Stable identity and storage key; changing the label never rewrites cards. */
+  id: string;
+  key: string;
+  label: string;
+  kind: CodexPropertyKind;
+  presets?: string[];
+  /** Colors belong to exact option values, independently of preset ordering. */
+  optionColors?: Record<string, string>;
+  formula?: string;
+  resultType?: CalculationResultType;
+  /** The tokens in formula are bound to property identities when saved. */
+  formulaBindings?: Record<string, string>;
+}
 export interface ReferenceFieldDefinition { key: string; label: string; targetType?: CodexEntryType; targetTemplateId?: string }
 export interface CodexTemplate {
   id: string;
@@ -14,6 +30,7 @@ export interface CodexTemplate {
   imageLayout?: 'portrait' | 'landscape' | 'none';
   hiddenFromPickers?: boolean;
   fields: Record<string, string>;
+  propertyDefinitions?: CodexPropertyDefinition[];
   content: string;
   referenceFieldDefinitions?: ReferenceFieldDefinition[];
   revision: number;

@@ -7,6 +7,7 @@ import { getModeConfig } from '@/config/projectPresets';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Project } from '@/types';
+import GenrePicker from '@/services/projectGenres/GenrePicker';
 
 interface EditProjectModalProps {
   project: Project;
@@ -21,6 +22,7 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
   const [type, setType] = useState<Project['type']>(project.type);
   const [status, setStatus] = useState<Project['status']>(project.status);
   const [description, setDescription] = useState(project.description ?? '');
+  const [genres,setGenres]=useState(project.genres??[]);
   const [color, setColor] = useState(project.color || '#c4973b');
   const [icon, setIcon] = useState(project.icon ?? '');
   const [saving, setSaving] = useState(false);
@@ -30,6 +32,7 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
     || type !== project.type
     || status !== project.status
     || description !== (project.description ?? '')
+    || JSON.stringify(genres)!==JSON.stringify(project.genres??[])
     || color !== (project.color || '#c4973b')
     || icon !== (project.icon ?? '');
   const setShowEngineManager = useAppStore(s => s.setShowEngineManager);
@@ -47,6 +50,7 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
         type,
         status,
         description: description.trim(),
+        genres,
         color,
         icon: icon || undefined,
       });
@@ -129,6 +133,7 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
           />
         </div>
 
+        <GenrePicker value={genres} onChange={setGenres} disabled={saving}/>
         <div>
           <label className="mb-1.5 block text-sm text-text-muted">{t('project.edit.preset')}</label>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-elevated px-4 py-3">

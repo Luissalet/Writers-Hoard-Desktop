@@ -13,6 +13,7 @@
 import type { Writing } from '@/types';
 import { isDesktop } from '@/utils/platform';
 import { projectWritingHtml } from './revisionProjection';
+import {EDITORIAL_PROSE_CSS,prepareStaticEditorialHtml} from '@/components/editor/advanced/proseStyle';
 import {
   footnoteAnchors,
   footnoteRefsOutOfCode,
@@ -338,7 +339,7 @@ export function renderPublishingHtml(document: PublishingDocument): string {
     <section class="chapter">
       <h1 class="chapter-title" id="${chapterAnchorId(scope)}">${escapeHtml(section.title)}</h1>
       ${section.synopsis ? `<p class="synopsis">${escapeHtml(section.synopsis)}</p>` : ''}
-      <div class="content">${footnotes.html}</div>
+      <div class="content">${prepareStaticEditorialHtml(footnotes.html)}</div>
       ${endnotes}
     </section>`;
     })
@@ -361,6 +362,7 @@ export function renderPublishingHtml(document: PublishingDocument): string {
 <meta charset="utf-8">
 <title>${escapeHtml(document.title)}</title>
 <style>
+${EDITORIAL_PROSE_CSS}
   @page { margin: 2.2cm 2cm; }
   * { box-sizing: border-box; }
   body {

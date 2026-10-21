@@ -1,3 +1,5 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { worldgenScopeOperations, worldRuntimeKey } from '../era';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Mountain } from 'lucide-react';
@@ -7,7 +9,6 @@ import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } f
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { generateId } from '@/utils/idGenerator';
 import { DEFAULT_PARAMS } from '../core/types';
-import { worldWaypointOps } from '../operations';
 import { createWorldAlternative, freshWorldEdits } from '../recipe';
 import { worldWorkspaceCopy } from '../workspaceCopy';
 import ReadErrorNotice from '@/components/common/ReadErrorNotice';
@@ -20,6 +21,7 @@ import WorldView, {
 } from './WorldView';
 
 export default function WorldgenEngine({ projectId }: EngineComponentProps) {
+  const scope = useWorldEraScope(projectId);
   const { t, locale } = useTranslation();
   const {
     items: worlds,
@@ -70,7 +72,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
     const wpId = searchParams.get('waypoint');
     if (!wpId) return;
     let alive = true;
-    worldWaypointOps.getOne(wpId).then((wp) => {
+    worldgenScopeOperations(scope).waypoints.getOne(wpId).then((wp) => {
       if (!alive || !wp) return;
       setActiveWorldId(wp.worldId);
       setFocusWaypoint({ id: wp.id, token: Date.now() });
@@ -82,7 +84,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
     return () => {
       alive = false;
     };
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, scope]);
 
   useEffect(() => {
     const placeId = searchParams.get('place');
@@ -158,17 +160,17 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
       {activeWorld && (
         <>
           <WorldView
-            key={activeWorld.id}
+            key={worldRuntimeKey(activeWorld.id, scope.eraId)}
             projectId={projectId}
             world={activeWorld}
             onRefreshWorld={refresh}
             onCreateAlternative={async (params) => {
-              const alternative = await createWorldAlternative(activeWorld.id, params, `${worldWorkspaceCopy(locale).alternativeName} ${activeWorld.title}`);
+              const alternative = await createWorldAlternative(activeWorld.id, params, `${worldWorkspaceCopy(locale).alternativeName} ${activeWorld.title}`, scope);
               await refresh();
               setActiveWorldId(alternative.id);
             }}
             onSaveEdits={(edits) => editWorld(activeWorld.id, { edits })}
-            onSaveRegions={async (regions, baseline) => { await saveWorldRegionChanges(projectId, activeWorld.id, baseline ?? activeWorld.regions ?? [], regions); }}
+            onSaveRegions={async (regions, baseline) => { await saveWorldRegionChanges(projectId, activeWorld.id, baseline ?? activeWorld.regions ?? [], regions, undefined, scope.eraId); }}
             onThumbnail={(thumbnail) => editWorld(activeWorld.id, { thumbnail })}
             focusWaypoint={focusWaypoint && focusWaypoint.id ? focusWaypoint : null}
             focusSpatial={focusSpatial}

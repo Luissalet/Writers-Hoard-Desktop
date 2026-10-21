@@ -1,18 +1,22 @@
 import type { CodexEntry, CodexEntryType } from '@/types';
+import type { CodexTemplate, CodexPropertyDefinition } from '@/engines/codex/templateTypes';
 
 export const CODEX_IMPORT_FORMATS = ['obsidian', 'notion', 'worldanvil', 'campfire'] as const;
 export type CodexImportFormat = typeof CODEX_IMPORT_FORMATS[number];
-export interface CodexFolderInput { format: CodexImportFormat; files: { path: string; text: string }[] }
+export interface CodexImportDecision { id: string; include?: boolean; title?: string; type?: CodexEntryType; templateId?: string }
+export interface CodexFolderInput { format: CodexImportFormat; files: { path: string; text: string }[]; decisions?: CodexImportDecision[] }
 export interface CodexImportIssue { index: number; path?: string; code: string; message: string }
 export interface CodexImportDocument {
   path: string; title: string; type: CodexEntryType; body: string;
   sourceText: string; explicitId?: string; fields: Record<string, string>; tags: string[];
+  templateId?: string; propertyDefinitions?: CodexPropertyDefinition[];
 }
 export interface CodexFolderPreview {
   additions: (CodexImportDocument & { id: string })[];
   duplicates: { path: string; id: string }[];
   conflicts: { path: string; id: string; reason: string }[];
   issues: CodexImportIssue[];
+  skipped?: { id: string; path: string }[];
 }
 
 const sourcePath = '__importSourcePath';
@@ -161,11 +165,29 @@ export function codexImportId(projectId: string, format: CodexImportFormat, path
   return `codex-import:${encodeURIComponent(projectId)}:${format}:${encodeURIComponent(path)}`;
 }
 
-export function previewCodexFolderImport(projectId: string, input: CodexFolderInput, existing: readonly CodexEntry[]): CodexFolderPreview {
+export function previewCodexFolderImport(projectId: string, input: CodexFolderInput, existing: readonly CodexEntry[], templates: readonly CodexTemplate[] = []): CodexFolderPreview {
   const parsed = parseCodexFolder(input);
   const preview: CodexFolderPreview = { additions: [], duplicates: [], conflicts: [], issues: parsed.issues };
+  const decisions = new Map<string, CodexImportDecision>();
+  for (const decision of input.decisions ?? []) {
+    if (!decision || typeof decision.id !== 'string' || decisions.has(decision.id) || !parsed.documents.some(document => codexImportId(projectId, input.format, document.path) === decision.id)) throw new CodexImportError('stale_import', 'The import plan no longer matches these source documents. Preview the selected files again.');
+    if (decision.include !== undefined && typeof decision.include !== 'boolean' || decision.title !== undefined && (typeof decision.title !== 'string' || !decision.title.trim()) || decision.type !== undefined && !types.has(decision.type) || decision.templateId !== undefined && typeof decision.templateId !== 'string') throw new CodexImportError('bad-args', 'Invalid import decision. Use a non-empty title, a supported category and a template from this project.');
+    decisions.set(decision.id, decision);
+  }
   for (const document of parsed.documents) {
     const id = codexImportId(projectId, input.format, document.path);
+    const decision = decisions.get(id);
+    if (decision?.include === false) { (preview.skipped ??= []).push({ id, path: document.path }); continue; }
+    if (decision?.title !== undefined) document.title = decision.title.trim();
+    if (decision?.type !== undefined) document.type = decision.type;
+    if (decision?.templateId) {
+      const template = templates.find(template => template.id === decision.templateId);
+      if (!template) throw new CodexImportError('stale_import', 'A selected template is no longer available. Review the import plan.');
+      if (decision.type !== undefined && decision.type !== template.category) throw new CodexImportError('bad-args', 'The template and category must agree.');
+      document.type = template.category; document.templateId = template.id;
+      document.fields = { ...template.fields, ...document.fields };
+      if (template.propertyDefinitions) document.propertyDefinitions = structuredClone(template.propertyDefinitions);
+    }
     const previous = existing.find(entry => entry.id === id || (entry.projectId === projectId && entry.fields[sourcePath] === document.path && entry.fields[sourceFormat] === input.format));
     if (!previous) preview.additions.push({ ...document, id });
     else if (previous.projectId === projectId && previous.fields[sourcePath] === document.path && previous.fields[sourceFormat] === input.format && previous.fields[sourceContent] === document.sourceText) preview.duplicates.push({ path: document.path, id: previous.id });
@@ -175,6 +197,7 @@ export function previewCodexFolderImport(projectId: string, input: CodexFolderIn
 }
 
 export interface CodexImportStore {
+  templates?(projectId: string): Promise<CodexTemplate[]>;
   list(projectId: string): Promise<CodexEntry[]>;
   get(id: string): Promise<CodexEntry | undefined>;
   addAll(rows: CodexEntry[]): Promise<unknown>;
@@ -196,17 +219,19 @@ export function createCodexFolderImporter(store: CodexImportStore, htmlFromMarkd
   const receipts = new Map<string, { projectId: string; snapshots: CodexEntry[] }>();
   return {
     async preview(projectId: string, input: CodexFolderInput) {
-      return previewCodexFolderImport(projectId, input, await store.list(projectId));
+      return previewCodexFolderImport(projectId, input, await store.list(projectId), await store.templates?.(projectId) ?? []);
     },
     async apply(projectId: string, input: CodexFolderInput) {
       const result = await store.atomic(async () => {
-        const preview = previewCodexFolderImport(projectId, input, await store.list(projectId));
+        const preview = previewCodexFolderImport(projectId, input, await store.list(projectId), await store.templates?.(projectId) ?? []);
         const now = Date.now();
         const rows: CodexEntry[] = preview.additions.map(document => ({
           id: document.id, projectId, type: document.type, title: document.title,
           content: htmlFromMarkdown(document.body), tags: document.tags, relations: [],
           fields: { ...document.fields, [sourcePath]: document.path, [sourceFormat]: input.format, [sourceContent]: document.sourceText, ...(document.explicitId ? { [sourceId]: document.explicitId } : {}) },
           createdAt: now, updatedAt: now,
+          ...(document.templateId ? { templateId: document.templateId } : {}),
+          ...(document.propertyDefinitions ? { propertyDefinitions: document.propertyDefinitions } : {}),
         }));
         if (rows.length) await store.addAll(rows);
         return { preview, rows };

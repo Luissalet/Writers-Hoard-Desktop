@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { assetBytes, ModelError, type ModelAsset } from './model';
+import { assetBytes, ModelError, type ModelAsset } from './portable';
 
 export type Lighting = 'studio' | 'soft' | 'daylight';
+export type CameraMode = 'orbit' | 'fly';
+export type CameraDirection = 'forward' | 'back' | 'left' | 'right' | 'up' | 'down';
 export interface ModelViewport {
   reset(): void;
   zoom(direction: 'in' | 'out'): void;
@@ -11,6 +13,11 @@ export interface ModelViewport {
   setWireframe(enabled: boolean): void;
   setLighting(lighting: Lighting): void;
   setAnimation(index: number, playing: boolean): void;
+  setCameraMode(mode: CameraMode): void;
+  setAutoRotate(enabled: boolean): void;
+  setActive(active: boolean): void;
+  move(direction: CameraDirection): void;
+  cameraPosition(): [number, number, number];
   animations: string[];
   dispose(): void;
 }
@@ -39,7 +46,7 @@ export function disposeModelResources(roots: THREE.Object3D[]): void {
   for (const skeleton of skeletons) skeleton.dispose();
 }
 
-export async function createModelViewport(container: HTMLElement, asset: ModelAsset, label: string, onError: (error: ModelError) => void, signal?: AbortSignal): Promise<ModelViewport> {
+export async function createModelViewport(container: HTMLElement, asset: ModelAsset, label: string, onError: (error: ModelError) => void, signal?: AbortSignal, onCameraModeChange?: (mode: CameraMode) => void): Promise<ModelViewport> {
   if (signal?.aborted) throw new ModelError('failed');
   const bytes = assetBytes(asset);
   let renderer: THREE.WebGLRenderer;
@@ -66,6 +73,7 @@ export async function createModelViewport(container: HTMLElement, asset: ModelAs
   fillLight.position.set(-4, 2, -3);
   scene.add(ambient, keyLight, fillLight);
   let disposed = false;
+  let active = true;
   let frame = 0;
   let mixer: THREE.AnimationMixer | undefined;
   let model: THREE.Object3D | undefined;
@@ -73,7 +81,54 @@ export async function createModelViewport(container: HTMLElement, asset: ModelAs
   let clips: THREE.AnimationClip[] = [];
   let activeAction: THREE.AnimationAction | undefined;
   let previousTime = 0;
-  const render = () => { if (!disposed) renderer.render(scene, camera); };
+  let cameraMode: CameraMode = 'orbit';
+  let autoRotate = false;
+  let animationPlaying = false;
+  const keys = new Set<string>();
+  let dragging = false;
+  let tick: (time: number) => void = () => {};
+  const schedule = () => { if (!disposed && active && !document.hidden && !frame) { previousTime = performance.now(); frame = requestAnimationFrame(tick); } };
+  const setActive = (value: boolean) => {
+    active = value;
+    if (!active || document.hidden) { cancelAnimationFrame(frame); frame = 0; clearKeys(); }
+    else { render(); if (animationPlaying || autoRotate) schedule(); }
+  };
+  const setCameraMode = (mode: CameraMode) => {
+    cameraMode = mode; controls.enabled = mode === 'orbit'; keys.clear(); dragging = false;
+    if (mode === 'orbit') controls.update();
+    if (mode === 'orbit' && autoRotate) schedule();
+    onCameraModeChange?.(mode); render();
+  };
+  const move = (direction: CameraDirection, distance = 0.3) => {
+    const vector = new THREE.Vector3();
+    if (direction === 'up' || direction === 'down') vector.set(0, direction === 'up' ? 1 : -1, 0);
+    else {
+      camera.getWorldDirection(vector);
+      if (direction === 'back') vector.negate();
+      else if (direction === 'left' || direction === 'right') { vector.cross(camera.up).normalize(); if (direction === 'left') vector.negate(); }
+    }
+    camera.position.addScaledVector(vector, distance); render();
+  };
+  const clearKeys = () => { keys.clear(); dragging = false; };
+  const visibility = () => setActive(active);
+  const keyDown = (event: KeyboardEvent) => {
+    const key = event.key.toLowerCase();
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (key === 'r') { event.preventDefault(); reset(); return; }
+    if (key === 'escape') { event.preventDefault(); setCameraMode('orbit'); return; }
+    if (key === 'w' && cameraMode === 'orbit') setCameraMode('fly');
+    if (cameraMode === 'fly' && ['w', 'a', 's', 'd', ' ', 'shift'].includes(key)) { event.preventDefault(); keys.add(key); schedule(); }
+  };
+  const keyUp = (event: KeyboardEvent) => keys.delete(event.key.toLowerCase());
+  const pointerDown = (event: PointerEvent) => { renderer.domElement.focus(); if (cameraMode === 'fly' && event.button === 0) { dragging = true; renderer.domElement.setPointerCapture(event.pointerId); } };
+  const pointerUp = () => { dragging = false; };
+  const pointerMove = (event: PointerEvent) => {
+    if (cameraMode !== 'fly' || !dragging) return;
+    const rotation = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+    rotation.y -= event.movementX * 0.004; rotation.x = THREE.MathUtils.clamp(rotation.x - event.movementY * 0.004, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+    camera.quaternion.setFromEuler(rotation); render();
+  };
+  const render = () => { if (!disposed && active && !document.hidden) renderer.render(scene, camera); };
   const resize = () => {
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
@@ -85,6 +140,10 @@ export async function createModelViewport(container: HTMLElement, asset: ModelAs
     if (disposed) return;
     disposed = true;
     cancelAnimationFrame(frame); observer.disconnect(); controls.removeEventListener('change', render); controls.dispose();
+    clearKeys();
+    renderer.domElement.removeEventListener('keydown', keyDown); renderer.domElement.removeEventListener('blur', clearKeys);
+    renderer.domElement.removeEventListener('pointerdown', pointerDown); renderer.domElement.removeEventListener('pointermove', pointerMove); renderer.domElement.removeEventListener('pointerup', pointerUp); renderer.domElement.removeEventListener('pointercancel', pointerUp);
+    window.removeEventListener('keyup', keyUp); window.removeEventListener('blur', clearKeys); document.removeEventListener('visibilitychange', visibility);
     renderer.domElement.removeEventListener('webglcontextlost', contextLost);
     signal?.removeEventListener('abort', dispose);
     mixer?.stopAllAction(); if (model) mixer?.uncacheRoot(model);
@@ -94,8 +153,11 @@ export async function createModelViewport(container: HTMLElement, asset: ModelAs
   controls.addEventListener('change', render);
   signal?.addEventListener('abort', dispose, { once: true });
   renderer.domElement.addEventListener('webglcontextlost', contextLost);
+  renderer.domElement.addEventListener('keydown', keyDown); renderer.domElement.addEventListener('blur', clearKeys);
+  renderer.domElement.addEventListener('pointerdown', pointerDown); renderer.domElement.addEventListener('pointermove', pointerMove); renderer.domElement.addEventListener('pointerup', pointerUp); renderer.domElement.addEventListener('pointercancel', pointerUp);
+  window.addEventListener('keyup', keyUp); window.addEventListener('blur', clearKeys); document.addEventListener('visibilitychange', visibility);
   observer.observe(container);
-  const reset = () => { camera.position.set(3, 2, 3); controls.target.set(0, 0, 0); camera.up.set(0, 1, 0); controls.update(); render(); };
+  const reset = () => { setCameraMode('orbit'); camera.position.set(3, 2, 3); controls.target.set(0, 0, 0); camera.up.set(0, 1, 0); controls.update(); render(); };
   reset(); resize();
   try {
     const manager = new THREE.LoadingManager();
@@ -123,12 +185,25 @@ export async function createModelViewport(container: HTMLElement, asset: ModelAs
     clips = gltf.animations;
     if (clips.length) mixer = new THREE.AnimationMixer(model);
     reset();
-    const tick = (time: number) => {
-      if (disposed || !activeAction || activeAction.paused) return;
-      mixer?.update(Math.min((time - previousTime) / 1000, 0.1)); previousTime = time; render(); frame = requestAnimationFrame(tick);
+    tick = (time: number) => {
+      frame = 0;
+      if (disposed || !active || document.hidden) return;
+      const elapsed = Math.max(0, Math.min((time - previousTime) / 1000, 0.1)); previousTime = time;
+      if (animationPlaying) mixer?.update(elapsed);
+      if (autoRotate && cameraMode === 'orbit') { controls.autoRotate = true; controls.update(elapsed); controls.autoRotate = false; }
+      if (cameraMode === 'fly' && keys.size) {
+        for (const [key, direction] of [['w', 'forward'], ['s', 'back'], ['a', 'left'], ['d', 'right'], [' ', 'up'], ['shift', 'down']] as const) if (keys.has(key)) move(direction, elapsed * 2);
+      }
+      render();
+      if (animationPlaying || autoRotate && cameraMode === 'orbit' || cameraMode === 'fly' && keys.size) frame = requestAnimationFrame(tick);
     };
     return {
       reset,
+      setCameraMode,
+      setActive,
+      move,
+      cameraPosition: () => camera.position.toArray(),
+      setAutoRotate(enabled) { autoRotate = enabled; if (enabled) schedule(); },
       zoom(direction) {
         const offset = camera.position.clone().sub(controls.target);
         offset.setLength(THREE.MathUtils.clamp(offset.length() * (direction === 'in' ? 0.8 : 1.25), controls.minDistance, controls.maxDistance));
@@ -151,12 +226,12 @@ export async function createModelViewport(container: HTMLElement, asset: ModelAs
         fillLight.intensity = lighting === 'daylight' ? 0.6 : 1.5; render();
       },
       setAnimation(index, playing) {
-        cancelAnimationFrame(frame);
         if (!mixer || !clips[index]) return;
         const next = mixer.clipAction(clips[index]);
         if (next !== activeAction) { activeAction?.stop(); activeAction = next; activeAction.reset(); }
         activeAction.paused = !playing; activeAction.play();
-        if (playing) { previousTime = performance.now(); frame = requestAnimationFrame(tick); } else render();
+        animationPlaying = playing;
+        if (playing) schedule(); else render();
       },
       animations: clips.map((clip, index) => clip.name || String(index + 1)),
       dispose,

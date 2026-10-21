@@ -1,3 +1,6 @@
+import { useWorldEraScope, useEraRows } from '@/services/worldEras/hooks';
+import type { Writing } from '@/types';
+import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useState, useMemo, useEffect } from 'react';
 import { Clock, List, Layers, Globe } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -8,17 +11,16 @@ import { countConnectionsForEvent, findTimelineIdForEntity } from './operations'
 import { generateId } from '@/utils/idGenerator';
 import TimelineView from './components/TimelineView';
 import SwimLaneView from './components/SwimLaneView';
+import TimelineBatchBar from './components/TimelineBatchBar';
 import WorldCalendarEditor from './components/WorldCalendarEditor';
 import { useWorldCalendar } from './useWorldCalendar';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { useNavigate } from 'react-router-dom';
-import { db } from '@/db';
 import { manuscriptTimelineItems } from '@/engines/writings/chapterWorldDate';
 
 type ViewMode = 'list' | 'swimlane';
 
 export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
+  const scope = useWorldEraScope(projectId);
   const { timelines, loading: timelinesLoading, addTimeline, editTimeline, removeTimeline } = useTimelines(projectId);
   const [activeTimelineId, setActiveTimelineId] = useState<string>('');
   const linkedView=useDeepLinkParam('view');
@@ -28,9 +30,9 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const worldCalendar = useWorldCalendar(projectId);
   const timelineCalendar = useWorldCalendar(projectId, activeTimelineId || undefined);
   const activeTimeline = timelines.find(timeline => timeline.id === activeTimelineId);
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
   // Dated chapters ride along as a read-only lane; opening one goes to the editor.
-  const writings = useLiveQuery(() => db.writings.where('projectId').equals(projectId).toArray(), [projectId]);
+  const writings = useEraRows<Writing>('writings', projectId);
   const manuscript = useMemo(() => {
     const items = manuscriptTimelineItems(worldCalendar?.calendar, writings ?? [], projectId, t('timeline.manuscriptLane'));
     return items && {
@@ -77,11 +79,11 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   useEffect(() => {
     if (!deepLinkedEntityId) return;
     let cancelled = false;
-    void findTimelineIdForEntity(projectId, deepLinkedEntityId).then((id) => {
+    void findTimelineIdForEntity(projectId, deepLinkedEntityId, scope.eraId).then((id) => {
       if (!cancelled && id) setActiveTimelineId(id);
     });
     return () => { cancelled = true; };
-  }, [deepLinkedEntityId, projectId]);
+  }, [deepLinkedEntityId, projectId, scope.eraId]);
 
   useEnsureDefault({
     items: timelines,
@@ -190,7 +192,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
    */
   const askRemoveEvent = (id: string, run: (id: string) => Promise<void>) => {
     const event = allEvents.find((e) => e.id === id) ?? activeEvents.find((e) => e.id === id);
-    void countConnectionsForEvent(id).then((connections) => {
+    void countConnectionsForEvent(id, scope).then((connections) => {
       setPendingDelete({ id, title: event?.title ?? '', connections, run });
     });
   };
@@ -242,6 +244,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
       </div>
 
       {/* Active view */}
+      <TimelineBatchBar key={`${projectId}:${scope.eraId ?? 'base'}`} projectId={projectId} events={allEvents} onChanged={() => { refreshActiveEvents(); refreshAllEvents(); refreshConnections(); }} />
       {viewMode === 'swimlane' ? (
         <SwimLaneView
           projectId={projectId}

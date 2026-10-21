@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
+import { listEraRows } from '@/services/worldEras/store';
+import type { LocalMediaAsset } from '@/engines/media/types';
 import type { Project, Writing } from '@/types';
 import { installReaderSoundtrack, readerSoundChapter } from '../readerSoundtrack';
 
-export default function ReaderSoundtrackControl({ project, writings, viewport, locale }: { project: Project; writings: Writing[]; viewport: RefObject<HTMLDivElement | null>; locale: 'es' | 'en' }) {
+export default function ReaderSoundtrackControl({ project, writings, viewport, locale, eraId }: { project: Project; writings: Writing[]; viewport: RefObject<HTMLDivElement | null>; locale: 'es' | 'en'; eraId?: string }) {
   const button = useRef<HTMLButtonElement>(null), status = useRef<HTMLSpanElement>(null);
   const chapters = useMemo(() => writings.filter(writing => writing.projectId === project.id).map(writing => readerSoundChapter(writing.id, project.readerPresentation?.chapters[writing.id])), [project, writings]);
   const ids = useMemo(() => [...new Set(chapters.flatMap(chapter => [chapter.audio?.assetId, ...chapter.cues.map(cue => cue.track.assetId)]).filter((id): id is string => Boolean(id)))], [chapters]);
-  const assets = useLiveQuery(() => db.localMediaAssets.bulkGet(ids), [ids]);
+  const assets = useLiveQuery<Array<LocalMediaAsset | undefined>>(() => eraId ? listEraRows<LocalMediaAsset>({ projectId: project.id, eraId }, 'localMediaAssets').then(rows => rows.filter(row => ids.includes(row.id))) : db.localMediaAssets.bulkGet(ids), [ids, project.id, eraId]);
   useEffect(() => {
     if (!viewport.current || !button.current || !status.current || !assets) return;
     const sources: Record<string, string> = {};

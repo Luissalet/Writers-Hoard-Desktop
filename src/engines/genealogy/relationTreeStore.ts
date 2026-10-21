@@ -1,7 +1,10 @@
+import { saveRevisionedEraMetadata, archiveEraMetadata } from '@/services/worldEras/metadata';
 import { db } from '@/db';
 import { archiveMetadataWithMutation } from '@/services/documentArchive/metadata';
 import { notifyProjectsChanged } from '@/db/operations';
 import { validateRelationTree, type RelationTreeDocument } from './relationTrees';
+import { decodeTreeImage } from './treeImages';
+import Dexie from 'dexie';
 
 export class RelationTreeConflict extends Error {
   readonly current: RelationTreeDocument | undefined;
@@ -9,11 +12,16 @@ export class RelationTreeConflict extends Error {
 }
 
 /** Compare only this tree's revision, then patch the latest project row atomically. */
-export async function saveRelationTree(projectId: string, draft: RelationTreeDocument, expectedRevision: number | null): Promise<RelationTreeDocument> {
+export async function saveRelationTree(projectId: string, draft: RelationTreeDocument, expectedRevision: number | null, eraId?: string): Promise<RelationTreeDocument> {
   validateRelationTree(draft);
-  const saved = await db.transaction('rw', db.projects, async () => {
+  // Decode before opening the persistence transaction; malformed artwork never commits a partial tree.
+  const decoded=Promise.all([...new Set(draft.nodes.flatMap(node => node.image ? [node.image] : []))].map(decodeTreeImage));
+  if(Dexie.currentTransaction)await Dexie.waitFor(decoded);else await decoded;
+  if (eraId) return saveRevisionedEraMetadata({ projectId, eraId }, 'genealogy', draft, expectedRevision, current => new RelationTreeConflict(current));
+  const saved = await db.transaction('rw', db.projects, db.codexEntries, async () => {
     const project = await db.projects.get(projectId);
     if (!project) throw new Error('project_missing');
+    for (const id of new Set(draft.nodes.flatMap(node => node.codexEntryId ? [node.codexEntryId] : []))) if ((await db.codexEntries.get(id))?.projectId !== projectId) throw new Error('invalid_codex_link');
     const trees = project.relationTrees ?? [];
     const current = trees.find(tree => tree.id === draft.id);
     if (expectedRevision === null ? current !== undefined : current?.revision !== expectedRevision) throw new RelationTreeConflict(current);
@@ -26,7 +34,8 @@ export async function saveRelationTree(projectId: string, draft: RelationTreeDoc
   return saved;
 }
 
-export async function deleteRelationTree(projectId: string, id: string, expectedRevision: number): Promise<void> {
+export async function deleteRelationTree(projectId: string, id: string, expectedRevision: number, eraId?: string): Promise<void> {
+  if (eraId) return archiveEraMetadata({ projectId, eraId }, 'genealogy', id, expectedRevision, current => new RelationTreeConflict(current));
   await archiveMetadataWithMutation('relation-tree',projectId,id,()=>db.transaction('rw', db.projects, async () => {
     const project = await db.projects.get(projectId);
     if (!project) throw new Error('project_missing');

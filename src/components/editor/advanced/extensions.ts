@@ -2,7 +2,8 @@ import { Extension, Mark, Node, mergeAttributes, type AnyExtension, type Editor 
 import { Plugin, TextSelection } from '@tiptap/pm/state';
 import { TableMap } from '@tiptap/pm/tables';
 import { TableCell, TableHeader, TableKit } from '@tiptap/extension-table';
-import { BLOCK_KEYS, FORMAT_ATTRIBUTES, INLINE_KEYS, formattingFromElement, formattingHtmlAttributes, normalizeAdvancedFormatting, normalizeColumnWidths, type AdvancedFormatting } from './model';
+import { BLOCK_KEYS, FORMAT_ATTRIBUTES, INLINE_KEYS, SCENE_BREAK_KEYS, SCENE_BREAK_STYLES, formattingFromElement, formattingHtmlAttributes, normalizeAdvancedFormatting, normalizeColumnWidths, type AdvancedFormatting,type SceneBreakStyle } from './model';
+import {EDITORIAL_PROSE_CSS} from './proseStyle';
 import { normalizeAdvancedHtml } from './interchange';
 
 const TextFormat = Mark.create({
@@ -38,9 +39,10 @@ const ParagraphFormat = Extension.create({
   addGlobalAttributes() {
     return [{ types: ['paragraph', 'heading'], attributes: Object.fromEntries(BLOCK_KEYS.map(key => [key, {
       default: null,
+      keepOnSplit:key!=='dropCap',
       parseHTML: (element: HTMLElement) => formattingFromElement(element)[key] ?? null,
       renderHTML: (attributes: Record<string, unknown>) => formattingHtmlAttributes({ [key]: attributes[key] }, [key]),
-    }])) }];
+    }])) },{types:['horizontalRule'],attributes:{ornament:{default:null,parseHTML:(element:HTMLElement)=>formattingFromElement(element).ornament??null,renderHTML:(attrs:Record<string,unknown>)=>formattingHtmlAttributes(attrs,SCENE_BREAK_KEYS)}}}];
   },
   onCreate() {
     const document = this.editor.view.dom.ownerDocument;
@@ -48,6 +50,7 @@ const ParagraphFormat = Extension.create({
     const style = document.createElement('style');
     style.id = 'wh-advanced-editor-css';
     style.textContent = '.ProseMirror table{border-collapse:collapse;table-layout:fixed;width:100%;overflow:hidden}.ProseMirror td,.ProseMirror th{border:1px solid var(--color-border,#888);padding:.4em;position:relative;vertical-align:top}.ProseMirror th{font-weight:bold}.ProseMirror .selectedCell::after{background:rgba(180,150,80,.2);content:"";position:absolute;inset:0;pointer-events:none}.ProseMirror .column-resize-handle{position:absolute;right:-2px;top:0;bottom:0;width:4px;background:var(--color-accent-gold,#c9a35c)}.wh-manual-page-break{break-after:page;page-break-after:always;border-top:1px dashed var(--color-border,#888);height:1em;margin:1em 0}@media print{.wh-manual-page-break{border:0;height:0;margin:0}}';
+    style.textContent+=EDITORIAL_PROSE_CSS;
     document.head.appendChild(style);
   },
 });
@@ -69,6 +72,9 @@ export function createAdvancedExtensions(): AnyExtension[] {
 }
 
 export interface EditorRange { from: number; to: number }
+export function insertSceneBreak(editor:Editor,ornament:SceneBreakStyle):boolean{
+  return SCENE_BREAK_STYLES.includes(ornament)&&editor.commands.insertContent({type:'horizontalRule',attrs:{ornament}});
+}
 export function validEditorRange(editor: Editor, range: EditorRange): boolean {
   return Number.isInteger(range.from) && Number.isInteger(range.to) && range.from >= 0 && range.to >= range.from && range.to <= editor.state.doc.content.size;
 }
@@ -105,6 +111,7 @@ export function applyAdvancedFormatting(editor: Editor, input: unknown, range?: 
   if (Object.keys(block).length) tr.doc.nodesBetween(from, to, (node, pos) => {
     if (node.type.name === 'paragraph' || node.type.name === 'heading') tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...block });
   });
+  if(format.ornament!==undefined)tr.doc.nodesBetween(from,to,(node,pos)=>{if(node.type.name==='horizontalRule')tr.setNodeMarkup(pos,undefined,{...node.attrs,ornament:format.ornament});});
   for (const key of ['subscript', 'superscript'] as const) {
     if (format[key] === undefined) continue;
     const type = editor.schema.marks[key];
@@ -125,13 +132,15 @@ export function describeAdvancedDocument(editor: Editor) {
   const marks: { from: number; to: number; type: string; formatting: AdvancedFormatting }[] = [];
   const tables: { from: number; rows: number; columns: number }[] = [];
   const pageBreaks: number[] = [];
+  const sceneBreaks:{from:number;ornament:SceneBreakStyle|null}[]=[];
   editor.state.doc.descendants((node, pos) => {
     if (node.type.name === 'paragraph' || node.type.name === 'heading') blocks.push({ from: pos, to: pos + node.nodeSize, type: node.type.name, formatting: normalizeAdvancedFormatting(node.attrs) });
     if (node.type.name === 'table') tables.push({ from: pos, rows: node.childCount, columns: TableMap.get(node).width });
     if (node.type.name === 'pageBreak') pageBreaks.push(pos);
+    if(node.type.name==='horizontalRule')sceneBreaks.push({from:pos,ornament:normalizeAdvancedFormatting(node.attrs).ornament??null});
     if (node.isText) for (const mark of node.marks) {
       if (['advancedTextStyle', 'subscript', 'superscript'].includes(mark.type.name)) marks.push({ from: pos, to: pos + node.nodeSize, type: mark.type.name, formatting: normalizeAdvancedFormatting(mark.attrs) });
     }
   });
-  return { selection: { from: editor.state.selection.from, to: editor.state.selection.to }, blocks, marks, tables, pageBreaks };
+  return { selection: { from: editor.state.selection.from, to: editor.state.selection.to }, blocks, marks, tables, pageBreaks,sceneBreaks };
 }

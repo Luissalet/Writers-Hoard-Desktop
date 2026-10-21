@@ -15,12 +15,14 @@ import {
 import { useProjects } from '@/hooks/useProjects';
 import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import ProjectCard from '@/components/bubbles/ProjectCard';
+import {setProjectPinned} from '@/services/projectPin/store';
 import EmptyState from '@/components/common/EmptyState';
 import { StoragePersistenceWarning } from '@/components/common/StorageStatus';
 import TopBar from '@/components/layout/TopBar';
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import ImportCollisionDialog from '@/components/dashboard/ImportCollisionDialog';
 import { importProjectData, importFullDatabase } from '@/db/operations';
+import DuplicateProjectModal from '@/components/project/DuplicateProjectModal';
 import {
   describeBackupError,
   exportFullZip,
@@ -98,6 +100,7 @@ export default function Dashboard() {
   // Same React-owned confirmation for project deletion — a single hover-click
   // must never wipe a whole project.
   const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
+  const [duplicateProjectSource,setDuplicateProjectSource]=useState<Project|null>(null);
   const [pendingProjectImport, setPendingProjectImport] = useState<{
     file: File;
     preview: ProjectZipImportPreview;
@@ -702,8 +705,10 @@ export default function Dashboard() {
                   index={i}
                   onClick={() => navigate(`/project/${project.id}`)}
                   onDelete={() => setPendingDeleteProject(project)}
+                  onDuplicate={()=>setDuplicateProjectSource(project)}
                   onColorChange={(color) => editProject(project.id, { color })}
                   onIconChange={(icon) => editProject(project.id, { icon: icon || undefined })}
+                  onPin={async()=>{await setProjectPinned(project.id,!project.pinned,project.pinned??false);}}
                   totalWords={stats?.totalWords ?? 0}
                   daysSinceEdit={
                     stats?.lastWrittenAt != null ? localDaysSince(stats.lastWrittenAt) : null
@@ -750,6 +755,7 @@ export default function Dashboard() {
         onCancel={() => setPendingDeleteProject(null)}
       />
 
+      {duplicateProjectSource&&<DuplicateProjectModal key={duplicateProjectSource.id} project={duplicateProjectSource} onClose={()=>setDuplicateProjectSource(null)} onOpen={projectId=>{setDuplicateProjectSource(null);void refresh();navigate(`/project/${projectId}`);}}/>}
       <ImportCollisionDialog
         open={pendingProjectImport !== null}
         collisions={pendingProjectImport?.preview.collisions ?? []}

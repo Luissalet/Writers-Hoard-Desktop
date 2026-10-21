@@ -1,0 +1,9 @@
+import {getAnnotationsForEntity} from '../operations';
+import {useState} from 'react';
+import {useLiveQuery} from 'dexie-react-hooks';
+import {useTranslation} from '@/i18n/useTranslation';
+import {listWorkspaceDocuments} from '@/components/project/workspace/library/catalog';
+import {workspaceDocumentKey} from '@/components/project/workspace/library/types';
+import type {WorldEraScope} from '@/services/worldEras/types';
+import NoteCreator from './NoteCreator';
+export default function NewThreadComposer({scope,onDone}:{scope:WorldEraScope;onDone:()=>void}){const {locale}=useTranslation(),es=locale==='es',[selected,setSelected]=useState('');const documents=useLiveQuery(()=>listWorkspaceDocuments(scope.projectId,undefined,scope.eraId),[scope]),target=documents?.find(row=>workspaceDocumentKey(row)===selected);const annotations=useLiveQuery(()=>target?getAnnotationsForEntity(target.engineId,target.entityId,scope):[],[target?.engineId,target?.entityId,scope]),position=(annotations??[]).reduce((max,row)=>Math.max(max,row.position+1),0);return <div className="min-w-0 space-y-3 border-y border-border py-4"><label className="block text-xs text-text-muted">{es?'Documento de esta era':'Document in this era'}<select aria-label={es?'Documento para comentar':'Document to comment on'} className="mt-1 block min-h-10 w-full max-w-full rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary" value={selected} onChange={event=>setSelected(event.target.value)}><option value="">{es?'Elige un documento':'Choose a document'}</option>{documents?.map(row=><option key={workspaceDocumentKey(row)} value={workspaceDocumentKey(row)}>{row.title} · {row.engineId}</option>)}</select></label>{target&&<NoteCreator key={selected} projectId={scope.projectId} eraId={scope.eraId} sourceEngineId={target.engineId} sourceEntityId={target.entityId} anchor={{type:'entity'}} position={position} onCreated={onDone} onCancel={onDone}/>}</div>;}

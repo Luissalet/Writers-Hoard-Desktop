@@ -1,6 +1,7 @@
 import type { Writing } from '@/types';
+import { useMemo } from 'react';
 import { makeEntityHook } from '../_shared/makeEntityHook';
-import * as ops from './operations';
+import { useEraWritingOperations } from '@/services/worldEras/writings';
 
 /**
  * Writings CRUD. Migrated onto `makeEntityHook` (2026-07-11) so it inherits the
@@ -9,16 +10,10 @@ import * as ops from './operations';
  * every save/status-change — previously this hook was a hand-rolled duplicate
  * that flipped `loading=true` on each refresh.
  */
-const useWritingsEntity = makeEntityHook<Writing>({
-  fetchFn: ops.getWritings,
-  createFn: ops.createWriting,
-  updateFn: ops.updateWriting,
-  deleteFn: ops.deleteWriting,
-});
-
 export function useWritings(projectId: string) {
-  const { items, hasLoaded, loading, refetching, error, refresh, addItem, editItem, removeItem } =
-    useWritingsEntity(projectId);
+  const operations = useEraWritingOperations(projectId);
+  const useWritingsEntity = useMemo(() => makeEntityHook<Writing>({ fetchFn: operations.getWritings, createFn: operations.createWriting, updateFn: operations.updateWriting, deleteFn: operations.deleteWriting }), [operations]);
+  const { items, hasLoaded, loading, refetching, error, refresh, addItem, editItem, removeItem } = useWritingsEntity(projectId);
   return {
     writings: items,
     hasLoaded,

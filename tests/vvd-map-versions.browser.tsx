@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import JSZip from 'jszip';
 import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 import MapsEngine from '@/engines/maps/MapsEngine';
 import '@/engines/maps';
 import { getAllBackupStrategies, preloadArchive } from '@/engines/_shared/backupRegistry';
@@ -34,6 +35,7 @@ export async function testVvdMapVersions(): Promise<string[]> {
     await waitFor('Map did not mount', () => !!host.querySelector('[data-testid="map-tool-region"]'));
   };
   try {
+    await db.projects.bulkAdd([P, `${P}-foreign`].map(id => ({ id, title: 'Map versions fixture', type: 'standalone' as const, mode: 'custom' as const, color: '#cab57d', description: '', status: 'draft' as const, enabledEngines: ['maps'], engineOrder: ['maps'], createdAt: 1, updatedAt: 1 })));
     const canvas = document.createElement('canvas'); canvas.width = 600; canvas.height = 400; const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#375559'; ctx.fillRect(0, 0, 600, 400); const oldBackground = canvas.toDataURL(); ctx.fillStyle = '#685547'; ctx.fillRect(0, 0, 600, 400); const newBackground = canvas.toDataURL();
     await db.worldMaps.put({ id: M, projectId: P, title: 'Changing borders', backgroundImage: oldBackground, features: [{ id: F, kind: 'region', name: 'Old border', color: '#d5b575', points: [{ x: 10, y: 10 }, { x: 50, y: 10 }, { x: 50, y: 70 }] }], createdAt: 1, updatedAt: 1 });
     await db.mapPins.put({ id: PIN, projectId: P, mapId: M, name: 'Old city', icon: 'city', position: { x: 20, y: 30 } });
@@ -133,7 +135,8 @@ export async function testVvdMapVersions(): Promise<string[]> {
     return passed;
   } finally {
     await act(async () => { root.unmount(); });
-    await db.worldMaps.where('projectId').equals(P).delete(); await db.mapPins.where('projectId').equals(P).delete(); await db.mapPins.where('projectId').equals(`${P}-foreign`).delete();
+    await deleteProject(P);
+    await deleteProject(`${P}-foreign`);
     localStorage.removeItem(`wh.map-features-drafts.v1.${P}`); localStorage.removeItem(`wh.maps-drafts.v1.${P}`);
   }
 }

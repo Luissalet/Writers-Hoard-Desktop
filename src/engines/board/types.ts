@@ -90,7 +90,7 @@ export type BoardNodeKind =
   | 'frame'
   | 'entity';
 
-export type BoardShape = 'rectangle' | 'circle' | 'diamond' | 'pill' | 'hexagon';
+export type BoardShape = 'rectangle' | 'circle' | 'diamond' | 'pill' | 'hexagon' | 'arrow' | 'line' | 'ellipse' | 'oval' | 'triangle' | 'rhombus' | 'pentagon' | 'octagon' | 'star' | 'heart' | 'cloud';
 
 /**
  * A live pointer at a record owned by another engine (a codex entry, a scene,
@@ -139,12 +139,16 @@ export interface BoardNode {
   size: BoardSize;
   shape?: BoardShape;
   /** Local percentage points in this node's bounds; ordinary graph semantics still apply. */
-  freehand?: { points: Array<{ x: number; y: number }>; width: number };
+  freehand?: { points: Array<{ x: number; y: number; pressure?:number }>; width: number; tool?:'pen'|'marker'; opacity?:number };
   layerId?: string;
   zIndex: number;
   locked?: boolean;
   /** Frames only: hide the nodes contained in this frame. */
   collapsed?: boolean;
+  /** Explicit pile/group membership. Absent preserves legacy geometric frame containment. */
+  memberNodeIds?:string[];
+  /** Bounds restored when opening a compact pile; member coordinates stay authored. */
+  expandedSize?:BoardSize;
   /** Excluded from auto-layout — the node stays where the author put it. */
   pinned?: boolean;
   tags: string[];

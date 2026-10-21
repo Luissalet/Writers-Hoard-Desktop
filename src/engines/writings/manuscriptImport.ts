@@ -335,9 +335,9 @@ export function splitIntoChapters(
         blocks = blocks.slice(1);
       }
       const words = blocks.reduce((total, block) => total + block.words, 0);
-      // Nothing to write: a boundary on the first line, a heading with no text
-      // under it, a tail of blank paragraphs. Never becomes an empty chapter.
-      if (words === 0) continue;
+      // Words do not measure visual content: rich import also admits images
+      // and tables (including an empty form). Bare titles/blank tails stay empty.
+      if (words === 0 && !blocks.some(block => /<(?:img|table)\b/i.test(block.html))) continue;
       chapters.push({
         key: chunk.key,
         // The file name only names a chapter that IS the whole file; once a

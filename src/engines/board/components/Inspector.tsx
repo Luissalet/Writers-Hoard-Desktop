@@ -1,3 +1,4 @@
+import {getBoardCopy} from '../copy';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeftRight, ArrowRight, ArrowLeftFromLine, ChevronDown, ChevronUp,
@@ -9,9 +10,10 @@ import TiptapEditor from '@/components/editor/TiptapEditor';
 import { useTranslation } from '@/i18n/useTranslation';
 import { EDGE_KINDS, NODE_ROLES, POSTIT_PALETTE, edgeKindColor } from '../catalog';
 import type { BoardEdge, BoardLayer, BoardNode, BoardShape } from '../types';
+import {BOARD_SHAPES,boardShapeLabel} from '../shapes';
 import { freehandCopy } from '../freehandCopy';
 
-const SHAPES: BoardShape[] = ['rectangle', 'circle', 'diamond', 'pill', 'hexagon'];
+const SHAPES: BoardShape[] = BOARD_SHAPES;
 const LINE_STYLES: BoardEdge['style'][] = ['solid', 'dashed', 'dotted'];
 const CURVATURES: BoardEdge['curvature'][] = ['curved', 'straight', 'step', 'arc'];
 const DIRECTIONS: BoardEdge['direction'][] = ['none', 'forward', 'backward', 'both'];
@@ -151,9 +153,10 @@ export function NodeInspector({ node, layers, onPatch, onDelete, onBindEntity, o
 
       {node.kind === 'shape' && !node.freehand ? (
         <Field label={t('board.inspector.shape')}>
-          <Choice options={SHAPES} value={node.shape ?? 'rectangle'} onChange={(shape) => onPatch({ shape })} />
+          <Choice options={SHAPES} labelFor={shape=>boardShapeLabel(shape,locale)} value={node.shape ?? 'rectangle'} onChange={(shape) => onPatch({ shape })} />
         </Field>
       ) : null}
+      {node.freehand&&<Field label={drawingCopy.brush}><Choice options={['pen','marker'] as const} value={node.freehand.tool??'pen'} labelFor={tool=>drawingCopy[tool]} onChange={tool=>onPatch({freehand:{...node.freehand!,tool,opacity:tool==='marker'?.32:1}})}/></Field>}
       {node.freehand && <Field label={drawingCopy.width}><input type="range" min="1" max="24" value={node.freehand.width} onChange={event => onPatch({ freehand: { ...node.freehand!, width: Number(event.target.value) } })} aria-label={drawingCopy.width} className="w-full accent-accent-gold" /></Field>}
 
       {usesRichText ? (
@@ -362,7 +365,7 @@ export function NodeInspector({ node, layers, onPatch, onDelete, onBindEntity, o
             onClick={() => onPatch({ collapsed: !node.collapsed })}
             className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-text-muted"
           >
-            {node.collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />} {t('board.inspector.collapse')}
+            {node.collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />} {node.collapsed?getBoardCopy(locale).openPile:getBoardCopy(locale).collapsePile}
           </button>
         ) : null}
         <button

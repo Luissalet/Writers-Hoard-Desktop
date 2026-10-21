@@ -1,9 +1,14 @@
+import {SourceToolBlock} from '@/engines/local/blocks/SourceToolBlock';
+import SourceToolBlockControls from '@/engines/local/blocks/SourceToolBlockControls';
+import {registerLocalToolEditor,type LocalToolEditorHost,type LocalToolEditorContext} from '@/engines/local/blocks/editorHost';
+import type {LocalToolBlockOwner} from '@/engines/local/blocks/types';
 import { useEditor, EditorContent } from '@tiptap/react';
+import './revisionMarks.css';
 import type { AnyExtension, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect,useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
   Bold,
@@ -22,6 +27,7 @@ import {
   Bot,
   Superscript,
   Sparkles,
+  Languages,
 } from 'lucide-react';
 import { askCopilotAbout, copilotAvailable } from '@/stores/copilotHandoffStore';
 import { registerCopilotEditor, type WriterEditorIdentity } from '@/services/copilot/faustusContext';
@@ -34,7 +40,7 @@ import { GhostText, ghostSuggestionOf, type GhostTextHost } from './ghostText/Gh
 import type { GhostTextBinding } from './ghostText/useGhostText';
 import { GHOST_DEBOUNCE_MS } from '@/services/ghostText/ghostText';
 import { createPageLayoutPlugin, pageLayoutKey, type PageLayoutOptions } from './pageMode/PageLayout';
-import type { FootnoteMarkerStyle } from '@/types';
+import type { CodexEntry, FootnoteMarkerStyle } from '@/types';
 import type { Citation } from '@/types/projectTools';
 import { AdvancedEditorToolbar, createAdvancedExtensions } from './advanced';
 import DocumentTools from './documents/DocumentTools';
@@ -42,6 +48,7 @@ import { createRevisionExtensions } from '@/engines/writings/revisions';
 import RevisionControls from './revisions/RevisionControls';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
+import { getEraProject, listEraRows } from '@/services/worldEras/store';
 import { createDictionaryGlossPlugin, createGlossMatcher, dictionaryGlossKey } from '@/engines/dictionary/glosses';
 import { createInlineMentionsPlugin, inlineMentionsKey, OPEN_CODEX_REFERENCE, type OpenCodexReferenceDetail } from '@/services/codexReference/inlineMentions';
 import { navigateTo } from '@/engines/_shared/anchoring';
@@ -58,6 +65,8 @@ import { MediaBlock } from './mediaBlocks/MediaBlock';
 import MediaBlockControls from './mediaBlocks/MediaBlockControls';
 import { ToolDocumentBlock } from './toolBlocks/ToolDocumentBlock';
 import ToolDocumentControls from './toolBlocks/ToolDocumentControls';
+import EntityDetectionControls from './entityDetection/EntityDetectionControls';
+import { entityPreferences } from '@/services/entityDetection/service';
 import {
   isFindShortcut,
   isReplaceShortcut,
@@ -106,6 +115,10 @@ interface TiptapEditorProps {
    */
   onEditorReady?: (editor: Editor | null) => void;
   copilotIdentity?: WriterEditorIdentity;
+  documentOwner?:LocalToolBlockOwner|((editor:Editor,position:number)=>LocalToolBlockOwner|undefined);
+  prepareExternal?:()=>Promise<boolean>;
+  canAcceptExternalBlock?:()=>boolean;
+  onExternalBlockCommit?:(owner:LocalToolBlockOwner,root:Record<string,unknown>)=>void;
   /** World references also work in combined documents without registering an AI editor. */
   referenceContext?: { projectId: string; scopeId: string; entryId?: string };
   /** Optional. Extra buttons rendered at the end of the toolbar's left group. */
@@ -168,6 +181,7 @@ interface FindSession {
 }
 
 const HIDDEN_MENU: FloatingMenuState = { visible: false, top: 0, left: 0 };
+const SelectionDictionaryDialog = lazy(() => import('@/engines/dictionary/SelectionDictionaryDialog'));
 const CONTEXT_WINDOW = 40;
 // Wider than the annotation window: the image model wants scene context.
 const IMAGE_CONTEXT_WINDOW = 500;
@@ -223,22 +237,34 @@ export default function TiptapEditor({
   footnoteStyle = 'numbers',
   ghostText,
   referenceContext,
+  documentOwner,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,
 }: TiptapEditorProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
   const editorialProjectId = referenceContext?.projectId ?? copilotIdentity?.projectId;
+  const editorialEraId = pane?.projectId === editorialProjectId ? pane?.eraId : undefined;
   const blockScopeId = paneReferenceScope(referenceContext?.scopeId ?? copilotIdentity?.objectId, pane);
+  const emittedHtmlRef=useRef<string|null>(null);
+  const sourceEditorRef=useRef<Editor|null>(null),sourceContext=useRef<LocalToolEditorContext>({projectId:editorialProjectId??'',owner:()=>undefined});
+  useLayoutEffect(()=>{sourceContext.current={projectId:editorialProjectId??'',eraId:editorialEraId,prepareExternal,acceptExternal:canAcceptExternalBlock,committed:(owner,root)=>{if(typeof documentOwner!=='function'&&typeof root.content==='string')emittedHtmlRef.current=root.content;onExternalBlockCommit?.(owner,root);},owner:(editor,position)=>typeof documentOwner==='function'?documentOwner(editor,position):documentOwner??(copilotIdentity?.kind==='writings'?{kind:'writings',documentId:copilotIdentity.objectId}:undefined)};},[editorialProjectId,editorialEraId,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,documentOwner,copilotIdentity]);
+  const [sourceHost]=useState<LocalToolEditorHost>(()=>({context:()=>sourceContext.current,editor:()=>sourceEditorRef.current}));
+  useEffect(()=>registerLocalToolEditor(sourceHost),[sourceHost]);
   const [codexBlockHost] = useState(() => createCodexBlockHost({ projectId: editorialProjectId, scopeId: blockScopeId }));
   useEffect(() => { codexBlockHost.setContext({ projectId: editorialProjectId, scopeId: blockScopeId }); }, [codexBlockHost, editorialProjectId, blockScopeId]);
   const mentionEntries = useLiveQuery(async () => {
     if (!editorialProjectId) return [];
     const project = await db.projects.get(editorialProjectId);
-    return project?.enabledEngines.includes('codex') ? db.codexEntries.where('projectId').equals(editorialProjectId).toArray() : [];
-  }, [editorialProjectId]);
+    return project?.enabledEngines.includes('codex') ? editorialEraId ? listEraRows<CodexEntry>({ projectId: editorialProjectId, eraId: editorialEraId }, 'codexEntries') : db.codexEntries.where('projectId').equals(editorialProjectId).toArray() : [];
+  }, [editorialProjectId, editorialEraId]);
   const projectDictionaries = useLiveQuery(async () => {
     if (!editorialProjectId) return undefined;
-    const project = await db.projects.get(editorialProjectId);
+    const project = editorialEraId ? await getEraProject({ projectId: editorialProjectId, eraId: editorialEraId }) : await db.projects.get(editorialProjectId);
     return project?.enabledEngines.includes('dictionary') ? project.dictionaries : undefined;
+  }, [editorialProjectId, editorialEraId]);
+  const entityDetectionPreferences = useLiveQuery(async () => {
+    if (!editorialProjectId) return undefined;
+    const project = await db.projects.get(editorialProjectId);
+    return project?.enabledEngines.includes('codex') ? entityPreferences(project) : undefined;
   }, [editorialProjectId]);
   const editorialReferences = useLiveQuery<Citation[]>(async () => editorialProjectId
     ? await db.citations.where('projectId').equals(editorialProjectId).toArray()
@@ -246,6 +272,8 @@ export default function TiptapEditor({
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<FloatingMenuState>(HIDDEN_MENU);
+  const [dictionarySelection, setDictionarySelection] = useState<{ projectId: string; eraId?: string; text: string }>();
+  const dictionaryEnabled = projectDictionaries !== undefined;
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [findSession, setFindSession] = useState<FindSession | null>(null);
@@ -258,7 +286,7 @@ export default function TiptapEditor({
   // The HTML last handed to `onChange`. The host hands it straight back as
   // `content`, and the sync effect below can skip serialising the document a
   // second time to find out that nothing came from outside.
-  const emittedHtmlRef = useRef<string | null>(null);
+
   // Ghost text. The extension is built once with the editor, so everything it
   // asks the app goes through this host, which reads the latest binding.
   const ghostBindingRef = useRef(ghostText);
@@ -285,6 +313,7 @@ export default function TiptapEditor({
       CodexBlock.configure(codexBlockHost),
       MediaBlock.configure(codexBlockHost),
       ToolDocumentBlock.configure(codexBlockHost),
+      SourceToolBlock.configure({host:sourceHost}),
       ...(extensions ?? []),
     ],
     content,
@@ -303,6 +332,7 @@ export default function TiptapEditor({
     },
   });
 
+  useLayoutEffect(()=>{sourceEditorRef.current=editor;return()=>{sourceEditorRef.current=null;};},[editor]);
   useEffect(() => {
     void loadReading();
   }, [loadReading]);
@@ -339,9 +369,9 @@ export default function TiptapEditor({
       const detail: OpenCodexReferenceDetail = { projectId: editorialProjectId, entryId: id, scopeId: referenceScopeId, handled: false };
       window.dispatchEvent(new CustomEvent(OPEN_CODEX_REFERENCE, { detail }));
       if (!detail.handled) (pane?.navigate ?? navigateTo)(`/project/${encodeURIComponent(editorialProjectId)}/codex?entry=${encodeURIComponent(id)}`);
-    }, createGlossMatcher(projectDictionaries ?? [])));
+    }, createGlossMatcher(projectDictionaries ?? []), entityDetectionPreferences));
     return () => { if (!editor.isDestroyed) editor.unregisterPlugin(inlineMentionsKey); };
-  }, [editor, editorialProjectId, mentionEntries, referenceEntryId, referenceScopeId, projectDictionaries, pane?.navigate]);
+  }, [editor, editorialProjectId, mentionEntries, referenceEntryId, referenceScopeId, projectDictionaries, pane?.navigate, entityDetectionPreferences]);
   const copilotKind = copilotIdentity?.kind;
   useEffect(() => {
     if (!editor || !copilotProjectId || !copilotObjectId || !copilotKind) return;
@@ -452,7 +482,7 @@ export default function TiptapEditor({
   // Track selection → position the floating "Annotate" button over the
   // active range. Hidden when no editor, no callback, or selection collapses.
   useEffect(() => {
-    if (!editor || (!onAnnotate && !onGenerateImage && !copilotAvailable())) return;
+    if (!editor || (!onAnnotate && !onGenerateImage && !copilotAvailable() && !dictionaryEnabled)) return;
 
     const update = () => {
       const { from, to, empty } = editor.state.selection;
@@ -489,7 +519,7 @@ export default function TiptapEditor({
       // (the host passes inline callbacks, so it re-runs on each keystroke).
       editor.off('blur', onBlur);
     };
-  }, [editor, onAnnotate, onGenerateImage]);
+  }, [editor, onAnnotate, onGenerateImage, dictionaryEnabled]);
 
   const handleAnnotateClick = () => {
     if (!editor || !onAnnotate) return;
@@ -584,11 +614,16 @@ export default function TiptapEditor({
       className="tiptap-editor relative border border-border rounded-lg overflow-hidden bg-elevated"
     >
       {/* Floating selection actions over a non-empty selection. */}
-      {menu.visible && (onAnnotate || onGenerateImage || copilotAvailable()) && (
+      {dictionarySelection && dictionarySelection.projectId === editorialProjectId && dictionarySelection.eraId === editorialEraId && <Suspense fallback={null}><SelectionDictionaryDialog key={`${editorialProjectId}:${editorialEraId ?? 'base'}`} projectId={dictionarySelection.projectId} eraId={dictionarySelection.eraId} selection={dictionarySelection.text} onClose={() => { setDictionarySelection(undefined); editor.commands.focus(); }} /></Suspense>}
+      {menu.visible && (onAnnotate || onGenerateImage || copilotAvailable() || dictionaryEnabled) && (
         <div
-          className="absolute z-20 -translate-x-1/2 flex items-center gap-0.5 p-0.5 rounded-lg bg-surface border border-accent-gold/40 shadow-lg"
-          style={{ top: menu.top, left: menu.left }}
+          className="absolute z-20 flex w-max max-w-full flex-wrap items-center justify-center gap-0.5 p-0.5 rounded-lg bg-surface border border-accent-gold/40 shadow-lg"
+          style={{ top: menu.top, left: '50%', transform: 'translateX(-50%)' }}
         >
+          {dictionaryEnabled && editorialProjectId && <button type="button" className="flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-accent-gold hover:bg-accent-gold hover:text-deep" onMouseDown={event => event.preventDefault()} onClick={() => {
+            const { from, to } = editor.state.selection, text = editor.state.doc.textBetween(from, to, ' ', ' ');
+            if (text.trim()) { setDictionarySelection({ projectId: editorialProjectId, eraId: editorialEraId, text }); setMenu(HIDDEN_MENU); }
+          }}><Languages size={13} />{locale === 'es' ? 'Diccionario' : 'Dictionary'}</button>}
           {onAnnotate && (
             <button
               type="button"
@@ -711,6 +746,8 @@ export default function TiptapEditor({
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><CodexBlockControls editor={editor} projectId={editorialProjectId} entries={mentionEntries ?? []} locale={locale} /></div>}
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><MediaBlockControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ToolDocumentControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
+        {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><SourceToolBlockControls editor={editor} projectId={editorialProjectId} locale={locale}/></div>}
+        {editorialProjectId && entityDetectionPreferences && <div className="min-w-0 basis-full"><EntityDetectionControls key={`${editorialProjectId}:${editorialEraId ?? 'base'}`} editor={editor} projectId={editorialProjectId} eraId={editorialEraId} entries={mentionEntries ?? []} preferences={entityDetectionPreferences} /></div>}
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><DocumentTools editor={editor} locale={locale} /></div>
       </div>
       </details>

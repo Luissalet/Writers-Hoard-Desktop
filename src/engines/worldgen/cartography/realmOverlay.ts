@@ -32,9 +32,11 @@
 // reason, and go stale together.
 
 import type { HumanGeography } from '../core/settlements';
+import type { WorldSpatialStyle } from '../core/spatialEntities';
 
 /** Cell-corner coordinates: cell (x, y) spans [x, x+1) × [y, y+1). */
 export interface BorderSegments {
+  styles?: Map<number, WorldSpatialStyle>;
   /** Flat runs of x0, y0, x1, y1 — one segment per four entries. */
   xy: Float32Array;
   /** Hue 0–360 of the more senior realm at each segment. */
@@ -66,7 +68,7 @@ const CACHE = new WeakMap<Int32Array, BorderSegments>();
  */
 export function realmBorders(world: { width: number; height: number }, geo: HumanGeography): BorderSegments {
   const cached = CACHE.get(geo.realmOf);
-  if (cached) return cached;
+  if (cached) { cached.styles = new Map(geo.realms.map(r => [r.hue, r.style ?? {}])); return cached; }
   const W = world.width, H = world.height;
   const of = geo.realmOf;
   // Two passes: count, then fill. Growing a JS array of a few thousand entries
@@ -104,6 +106,7 @@ export function realmBorders(world: { width: number; height: number }, geo: Huma
     }
   }
   const out = mergeRuns({ xy, hue, count: k });
+  out.styles = new Map(geo.realms.map(r => [r.hue, r.style ?? {}]));
   CACHE.set(geo.realmOf, out);
   return out;
 }
@@ -304,7 +307,7 @@ export function drawRealmBorders(
   // the harness reads to answer "is the frontier visible from here", and a
   // segment that passed the cell window and then landed off the canvas is not.
   for (const [h, list] of byHue) {
-    ctx.strokeStyle = `hsl(${h} 62% 62%)`;
+    ctx.strokeStyle = segs.styles?.get(h)?.color ?? `hsl(${h} 62% 62%)`;
     ctx.beginPath();
     const lin = opts.linear;
     if (lin) {
@@ -343,7 +346,7 @@ export function drawRealmBorders(
 // The wash
 // ---------------------------------------------------------------------------
 
-const TINT_CACHE = new WeakMap<Int32Array, HTMLCanvasElement | null>();
+const TINT_CACHE = new WeakMap<Int32Array, { key: string; canvas: HTMLCanvasElement | null }>();
 
 /**
  * A country's colour, as a canvas at world-cell resolution.
@@ -364,8 +367,9 @@ export function realmTint(
   world: { width: number; height: number },
   geo: HumanGeography,
 ): HTMLCanvasElement | null {
+  const key = JSON.stringify(geo.realms.map(r => [r.hue, r.style]));
   const hit = TINT_CACHE.get(geo.realmOf);
-  if (hit !== undefined) return hit;
+  if (hit?.key === key) return hit.canvas;
   const W = world.width, H = world.height;
   let canvas: HTMLCanvasElement | null = null;
   if (typeof document !== 'undefined' && geo.realms.length) {
@@ -379,6 +383,10 @@ export function realmTint(
       // One RGB per realm, resolved once: `hsl()` per cell would be two million
       // string parses.
       const rgb = geo.realms.map((r) => hslToRgb(r.hue, 0.55, 0.58));
+      for (const r of geo.realms) if (r.style?.color) {
+        ctx.fillStyle = r.style.color; ctx.fillRect(0, 0, 1, 1);
+        const c = ctx.getImageData(0, 0, 1, 1).data; rgb[r.id] = [c[0], c[1], c[2]];
+      }
       for (let i = 0; i < W * H; i++) {
         const r = geo.realmOf[i];
         if (r < 0 || r >= rgb.length) continue;
@@ -386,12 +394,15 @@ export function realmTint(
         px[i * 4] = c[0];
         px[i * 4 + 1] = c[1];
         px[i * 4 + 2] = c[2];
-        px[i * 4 + 3] = 255;
+        const style = geo.realms[r]?.style;
+        const hatch = style?.areaStyle === 'hatch';
+        const pattern = !hatch || (((i % W) + Math.floor(i / W)) % 8 < 2);
+        px[i * 4 + 3] = style?.areaStyle === 'outline' || !pattern ? 0 : Math.round(255 * Math.min(1, Math.max(0, style?.areaOpacity ?? 1)));
       }
       ctx.putImageData(img, 0, 0);
     }
   }
-  TINT_CACHE.set(geo.realmOf, canvas);
+  TINT_CACHE.set(geo.realmOf, { key, canvas });
   return canvas;
 }
 
@@ -400,4 +411,15 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   const a = s * Math.min(l, 1 - l);
   const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
   return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
+/** Same styled territory raster on the photographic 3D skin. */
+export function drawRealmWash(ctx: CanvasRenderingContext2D, world: { width: number; height: number }, geo: HumanGeography,
+  view: { x: number; y: number; w: number; h: number }, width: number, height: number): void {
+  if (!geo.realms.some(r => r.style?.areaStyle || r.style?.areaOpacity !== undefined || r.style?.color)) return;
+  const tint = realmTint(world, geo); if (!tint) return;
+  ctx.save(); ctx.globalAlpha = .16;
+  const sx = width / view.w, sy = height / view.h;
+  for (let k = Math.floor(view.x / world.width); k <= Math.floor((view.x + view.w) / world.width); k++) ctx.drawImage(tint, (k * world.width - view.x) * sx, -view.y * sy, world.width * sx, world.height * sy);
+  ctx.restore();
 }

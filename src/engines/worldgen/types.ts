@@ -67,6 +67,8 @@ export interface GeneratedWorld {
   regions?: SavedWorldRegion[];
   /** Named travel plans; geographic paths and durations are derived on opening. */
   journeys?: WorldJourney[];
+  /** Own contextual manuscript links; absence inherits shared links. */
+  manuscriptLinks?: import('@/types/projectTools').EntityLink[];
   /** Small JPEG data URL preview for dashboards / future use. */
   thumbnail?: string;
   createdAt: number;

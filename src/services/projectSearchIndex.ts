@@ -9,6 +9,10 @@ import { getAllEngines } from '@/engines/_registry';
 import { toLocalDateKey } from '@/engines/writing-stats/date';
 import { t } from '@/i18n/useTranslation';
 import { isAliasField, readAliases } from '@/services/codexReference/aliases';
+import { projectCodexEntry } from '@/engines/codex/properties';
+import { getEraProject, listEraRows } from '@/services/worldEras/store';
+import { eraAdapterForTable } from '@/services/worldEras/adapters';
+import type { WorldEraScope } from '@/services/worldEras/types';
 import {
   findRequiredMatch,
   foldSearchText,
@@ -89,12 +93,13 @@ interface SearchDocument extends SearchFacets {
 }
 
 /** One table (or tight group of tables) worth of indexable prose. */
+type SearchScope = string | WorldEraScope;
 interface IndexSlice {
   /** Dexie tables whose mutation makes this slice stale. */
   tables: readonly string[];
   /** Engines this slice can produce hits for — lets `engine:` skip whole tables. */
   engines: readonly string[];
-  build: (projectId?: string) => Promise<SourceDocument[]>;
+  build: (projectId?: SearchScope) => Promise<SourceDocument[]>;
 }
 
 /**
@@ -151,12 +156,14 @@ function writingSearchText(html: string): string {
  */
 async function projectRows<T, D>(
   table: Table<T>,
-  projectId: string | undefined,
+  projectId: SearchScope | undefined,
   select: (row: T) => D,
 ): Promise<D[]> {
   const projected: D[] = [];
-  const collection = projectId
-    ? table.where('projectId').equals(projectId)
+  if (typeof projectId === 'object' && eraAdapterForTable(table.name)) return (await listEraRows<T>(projectId, table.name)).map(select);
+  const id = typeof projectId === 'object' ? projectId.projectId : projectId;
+  const collection = id
+    ? table.where('projectId').equals(id)
     : table.toCollection();
   await collection.each((row) => {
     projected.push(select(row));
@@ -174,6 +181,7 @@ async function projectRows<T, D>(
  * fixed once. Their titles remain searchable through the entity resolvers.
  */
 const SLICES: Record<string, IndexSlice> = {
+  sourceToolDocuments:{tables:['projects'],get engines(){return getAllEngines().filter(engine=>engine.id.startsWith('local-tool-')).map(engine=>engine.id);},async build(scope){const projects=scope?[typeof scope==='object'?await getEraProject(scope):await db.projects.get(scope)]:await db.projects.toArray();return projects.flatMap(project=>(project?.sourceToolDocuments??[]).map(row=>({id:row.id,projectId:project!.id,engineId:'local-tool-'+row.namespace,title:row.title,subtitle:row.namespace,type:'local-tool',body:row.codec?Object.entries(row.codec.fields).filter(([,field])=>field.kind==='scalar'||field.kind==='prose').map(([key])=>JSON.stringify((row.data as Record<string,unknown>)[key])??'').join('\n'):'',updatedAt:row.updatedAt})));}},
   writings: {
     tables: ['writings'],
     engines: ['writings'],
@@ -190,19 +198,25 @@ const SLICES: Record<string, IndexSlice> = {
     })),
   },
   codexEntries: {
-    tables: ['codexEntries'],
+    tables: ['codexEntries', 'projects'],
     engines: ['codex'],
-    build: projectId => projectRows(db.codexEntries, projectId, entry => ({
+    async build(projectId) {
+      const projects = projectId ? [typeof projectId === 'object' ? await getEraProject(projectId) : await db.projects.get(projectId)] : await projectRows(db.projects, undefined, project => ({ id: project.id, codexTemplates: project.codexTemplates }));
+      const templates = new Map(projects.filter(project => project !== undefined).map(project => [project.id, project.codexTemplates ?? []]));
+      return projectRows(db.codexEntries, projectId, entry => {
+      const projection = projectCodexEntry(entry, templates.get(entry.projectId));
+      return {
       id: entry.id,
       engineId: 'codex',
       projectId: entry.projectId,
       title: entry.title,
       subtitle: entry.type,
-      body: [stripHtml(entry.content ?? ''), ...readAliases(entry.fields), ...Object.entries(entry.fields ?? {}).filter(([key]) => !isAliasField(key)).map(([, value]) => value)].filter(Boolean).join('\n'),
+      body: [stripHtml(entry.content ?? ''), ...readAliases(entry.fields), ...Object.entries(projection.fields).filter(([key]) => !isAliasField(key)).map(([key, value]) => `${projection.properties[key]?.label ?? key}: ${value}`)].filter(Boolean).join('\n'),
       tags: entry.tags,
       type: entry.type,
       updatedAt: entry.updatedAt,
-    })),
+    }; });
+    },
   },
   diaryEntries: {
     tables: ['diaryEntries'],
@@ -544,7 +558,7 @@ function finalizeDocument(source: SourceDocument): SearchDocument {
 /** Read and fold one slice. Retaining the result is the caller's decision. */
 async function buildSliceDocuments(
   slice: IndexSlice,
-  projectId: string | undefined,
+  projectId: SearchScope | undefined,
 ): Promise<SearchDocument[]> {
   const documents = await slice.build(projectId);
   return documents
@@ -575,21 +589,23 @@ async function sliceDocuments(
   projectId: string,
   sliceKey: string,
   slice: IndexSlice,
+  eraId?: string,
 ): Promise<SearchDocument[]> {
-  const cached = projectCache(projectId).get(sliceKey);
+  const cacheKey = eraId ? JSON.stringify([projectId, eraId]) : projectId;
+  const cached = projectCache(cacheKey).get(sliceKey);
   if (cached) return cached;
 
-  const pendingKey = `${projectId}/${sliceKey}`;
+  const pendingKey = JSON.stringify([projectId, eraId ?? null, sliceKey]);
   const inFlight = pending.get(pendingKey);
   if (inFlight) return inFlight;
 
   const stamp = stamps.get(sliceKey) ?? 0;
-  const build = buildSliceDocuments(slice, projectId).then(
+  const build = buildSliceDocuments(slice, eraId ? { projectId, eraId } : projectId).then(
     (kept) => {
       pending.delete(pendingKey);
       // Drop the result on the floor if the slice was invalidated, or the
       // project evicted, while it was building.
-      if ((stamps.get(sliceKey) ?? 0) === stamp) caches.get(projectId)?.set(sliceKey, kept);
+      if ((stamps.get(sliceKey) ?? 0) === stamp) caches.get(cacheKey)?.set(sliceKey, kept);
       return kept;
     },
     (error: unknown) => {
@@ -681,7 +697,9 @@ export async function searchProjectDocuments(
   query: ParsedSearchQuery,
   projectId?: string,
   limit = 8,
+  eraId?: string,
 ): Promise<ProjectSearchOutcome> {
+  if (eraId && !projectId) throw new Error('world_era_project_required');
   if (query.isEmpty) return EMPTY_OUTCOME;
   if (!query.hasFilters && query.textLength < MIN_QUERY_LENGTH) return EMPTY_OUTCOME;
 
@@ -700,7 +718,7 @@ export async function searchProjectDocuments(
     // the dashboard into a permanent copy — body and folded haystack — of
     // everything the writer owns.
     const documents = projectId
-      ? await sliceDocuments(projectId, sliceKey, slice)
+      ? await sliceDocuments(projectId, sliceKey, slice, eraId)
       : await buildSliceDocuments(slice, undefined);
     for (const document of documents) {
       if (projectId && document.projectId !== projectId) continue;
@@ -757,8 +775,9 @@ export async function searchProjectContent(
   query: string,
   projectId?: string,
   limit = 8,
+  eraId?: string,
 ): Promise<ContentSearchHit[]> {
-  const outcome = await searchProjectDocuments(parseSearchQuery(query), projectId, limit);
+  const outcome = await searchProjectDocuments(parseSearchQuery(query), projectId, limit, eraId);
   return outcome.hits;
 }
 
@@ -808,7 +827,7 @@ function mutatedTables(parts?: Record<string, unknown>): Set<string> | null {
 
 function onStorageMutated(parts?: Record<string, unknown>): void {
   const tables = mutatedTables(parts);
-  if (!tables) {
+  if (!tables || tables.has('worldEraVariants')) {
     invalidateProjectSearchIndex();
     return;
   }

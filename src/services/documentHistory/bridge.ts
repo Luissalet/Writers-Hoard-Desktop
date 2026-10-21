@@ -1,0 +1,12 @@
+import { BridgeError, requireString, resolveProjectId, type ToolArgs } from '@/services/aiBridge/tools/shared';
+import { eraDocumentKinds, type EraDocumentKind } from '@/services/worldEras/types';
+import { encodeEraValue } from '@/services/worldEras/portability';
+import { getDocumentHistory, listDocumentHistory, listProjectHistoryDocuments, readHistoryPresent, restoreDocumentHistory, saveDocumentHistory, undoDocumentHistory } from './store';
+function scope(args:ToolArgs){const kind=requireString(args,'kind');if(!(eraDocumentKinds as readonly string[]).includes(kind))throw new BridgeError('bad-args','Unsupported document kind.');return{projectId:resolveProjectId(args),kind:kind as EraDocumentKind,entityId:requireString(args,'entityId')};}
+export const DOCUMENT_HISTORY_HANDLERS={
+ async wh_document_history_list(args:ToolArgs){if(args.kind===undefined && args.entityId===undefined){const projectId=resolveProjectId(args);return{projectId,documents:await listProjectHistoryDocuments(projectId)};}const target=scope(args),present=await readHistoryPresent(target.projectId,target.kind,target.entityId);return{...target,current:present?{version:present.version,title:present.document.root.title??present.document.root.name}:null,versions:await listDocumentHistory(target.projectId,target.kind,target.entityId)};},
+ async wh_document_history_get(args:ToolArgs){const target=scope(args),entry=await getDocumentHistory(target.projectId,target.kind,target.entityId,requireString(args,'historyId'));return{...entry,document:await encodeEraValue(entry.document)};},
+ async wh_document_history_save(args:ToolArgs){const target=scope(args);return saveDocumentHistory(target.projectId,target.kind,target.entityId,requireString(args,'expectedVersion'));},
+ async wh_document_history_restore(args:ToolArgs){const target=scope(args);if(args.expectedVersion!==null && typeof args.expectedVersion!=='string')throw new BridgeError('bad-args','Read the current version before restoring.');return restoreDocumentHistory(target.projectId,target.kind,target.entityId,requireString(args,'historyId'),args.expectedVersion as string|null);},
+ async wh_document_history_undo(args:ToolArgs){const target=scope(args);if(args.historyId!==null && typeof args.historyId!=='string')throw new BridgeError('bad-args','Use the undo receipt returned by restore.');return undoDocumentHistory({...target,historyId:args.historyId as string|null,expectedVersion:requireString(args,'expectedVersion')});},
+};

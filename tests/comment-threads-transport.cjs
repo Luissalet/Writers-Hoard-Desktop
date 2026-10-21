@@ -1,0 +1,71 @@
+// Full native route: MCP stdio -> HTTP -> executor -> IPC -> renderer tools -> IndexedDB.
+// The profile, token, listener, data and child adapter are all isolated and temporary.
+const { app, BrowserWindow, ipcMain } = require('electron');
+const { build } = require('esbuild');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const http = require('node:http');
+const { spawn } = require('node:child_process');
+const { createInterface } = require('node:readline');
+const assert = require('node:assert/strict');
+const root = path.resolve(__dirname, '..'), directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-comment-transport-'));
+app.setPath('userData', path.join(directory, 'profile'));
+let bridge, child, win;
+async function main() {
+  const reserve = http.createServer(); await new Promise(resolve => reserve.listen(0, '127.0.0.1', resolve));
+  const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve)); process.env.WH_AIBRIDGE_PORT = String(port);
+  const shared = { bundle: true, logLevel: 'warning', alias: { '@': path.join(root, 'src') } };
+  const nativeFile = path.join(directory, 'native.cjs');
+  await build({ ...shared, stdin: { contents: `export * from './electron/aibridge/server'; export * from './electron/aibridge/state'; export * from './electron/aibridge/rpc'; export { DEFAULT_PARAMS } from './src/engines/worldgen/core/types'; export { defaultWorldCalendar } from './src/engines/timeline/worldCalendar';`, resolveDir: root }, platform: 'node', format: 'cjs', external: ['electron'], outfile: nativeFile });
+  const adapter = path.join(directory, 'mcp.cjs');
+  await build({ ...shared, entryPoints: [path.join(root, 'electron/aibridge/mcpStdio.ts')], platform: 'node', format: 'cjs', outfile: adapter });
+  await build({ ...shared, entryPoints: [path.join(root, 'tests/comment-threads-transport.renderer.ts')], platform: 'browser', format: 'iife', jsx: 'automatic', outfile: path.join(directory, 'renderer.js'), loader: { '.css': 'empty' }, banner: { js: 'const __qaEmptyGlob = () => ({});' }, define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env': '{"DEV":false,"BASE_URL":"/"}', 'import.meta.glob': '__qaEmptyGlob', 'import.meta.url': '"file:///transport-test.js"' } });
+  fs.writeFileSync(path.join(directory, 'preload.cjs'), `const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('electronAPI',{aiBridge:{onRequest:fn=>{const listener=(_,payload)=>fn(payload);ipcRenderer.on('aibridge:request',listener);return()=>ipcRenderer.removeListener('aibridge:request',listener)},reply:payload=>ipcRenderer.invoke('aibridge:reply',payload)}});`);
+  fs.writeFileSync(path.join(directory, 'index.html'), '<!doctype html><meta charset="utf-8"><div id="root"></div><script src="renderer.js"></script>');
+  await app.whenReady(); bridge = require(nativeFile); await bridge.setBridgeConfig({ enabled: true, writesEnabled: true }); const token = await bridge.getBridgeToken();
+  ipcMain.handle('aibridge:reply', (event, payload) => { assert.equal(event.sender, win.webContents); bridge.resolveBridgeReply(payload); });
+  win = new BrowserWindow({ show: false, webPreferences: { preload: path.join(directory, 'preload.cjs'), contextIsolation: true, sandbox: true, backgroundThrottling: false } });
+  bridge.setBridgeWindowResolver(() => win);
+  await win.loadFile(path.join(directory, 'index.html')); const deadline = Date.now() + 30000;
+  while (!await win.webContents.executeJavaScript('window.__commentsReady === true')) { const failure=await win.webContents.executeJavaScript('window.__commentsFailure??null');if(failure)throw Error(failure);if (Date.now() > deadline) throw Error('Renderer fixture did not start'); await new Promise(resolve => setTimeout(resolve, 40)); }
+  await bridge.startAiBridge({ version: 'synthetic-qa', hasWindow: () => true });
+  const url = `http://127.0.0.1:${port}`;
+  const catalog = await (await fetch(`${url}/api/tools`, { headers: { Authorization: `Bearer ${token}` } })).json();
+  assert(catalog.tools.some(tool => tool.name === 'wh_model_import') && catalog.tools.some(tool => tool.name === 'wh_sheet_coc_action') && catalog.tools.some(tool => tool.name === 'wh_radar_set_value'));
+  child = spawn(process.execPath, [adapter], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', WH_BRIDGE_TOKEN: token, WH_BRIDGE_URL: url } });
+  const lines = createInterface({ input: child.stdout }), pending = new Map(); let sequence = 0, stderr = '';
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  lines.on('line', line => { const reply = JSON.parse(line), item = pending.get(reply.id); if (item) { clearTimeout(item.timer); pending.delete(reply.id); item.resolve(reply); } });
+  const rpc = (method, params) => new Promise((resolve, reject) => { const id = ++sequence; const timer = setTimeout(() => { pending.delete(id); reject(Error(`MCP ${method} timed out: ${stderr.slice(-500)}`)); }, 45000); pending.set(id, { resolve, timer }); child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'); });
+  const call = async (name, args) => { const reply = await rpc('tools/call', { name, arguments: args }); assert(!reply.error, `${name}: JSON-RPC error`); const content = JSON.parse(reply.result.content.find(block => block.type === 'text').text); assert(!reply.result.isError, `${name}: ${JSON.stringify(content)}`); return content; };
+  await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'synthetic-authoring-test', version: '1' } });
+  const projectId = 'transport-world';
+  await call('wh_enable_engine',{projectId,engineId:'annotations'});
+  const base=await call('wh_annotate',{projectId,engineId:'writings',entityId:'transport-chapter',note:'Base comment',quote:'Ágata reaches the harbor.'});
+  assert.equal((await call('wh_list_annotations',{projectId})).annotations[0].id,base.id);
+  const eraId=(await call('wh_world_era_save',{projectId,expectedRevision:null,era:{name:'Past comments',description:''}})).era.id,scope={projectId,eraId};
+  const writing=await call('wh_world_era_document_get',{...scope,kind:'writings',entityId:'transport-chapter'});await call('wh_world_era_document_save',{...scope,kind:'writings',expectedVersion:writing.version,document:{...writing.document,root:{...writing.document.root,content:'<p>Ancient harbor prose.</p>'}}});
+  const person=await call('wh_create_codex_entry',{...scope,title:'Ancient person',type:'character'});
+  const thread=await call('wh_annotate',{...scope,engineId:'writings',entityId:'transport-chapter',note:'Past comment',quote:'Ancient harbor prose.'});
+  let read=await call('wh_annotation_thread_get',{...scope,id:thread.id});assert.equal(read.revision,0);assert.equal(read.anchor.selectedText,'Ancient harbor prose.');assert.equal((await call('wh_list_annotations',{...scope,engineId:'writings',entityId:'transport-chapter'})).count,1);assert.equal((await call('wh_list_annotations',{projectId})).count,1);
+  const reply=await call('wh_annotation_reply',{...scope,id:thread.id,expectedRevision:0,body:'Native reply',mentions:[{engineId:'codex',entityId:person.id}]});const replyId=reply.annotation.replies[0].id;
+  const stale=await rpc('tools/call',{name:'wh_annotation_reply',arguments:{...scope,id:thread.id,expectedRevision:0,body:'Stale unsaved reply'}});assert(stale.result.isError);read=await call('wh_annotation_thread_get',{...scope,id:thread.id});assert.equal(read.replies.length,1);
+  const foreign=await rpc('tools/call',{name:'wh_annotation_reply',arguments:{...scope,id:thread.id,expectedRevision:1,body:'Foreign mention',mentions:[{engineId:'codex',entityId:'comments-foreign-card'}]}});assert(foreign.result.isError);
+  let changed=await call('wh_annotation_update',{...scope,id:thread.id,expectedRevision:1,body:'Edited past comment'});
+  changed=await call('wh_annotation_set_resolved',{...scope,id:thread.id,expectedRevision:changed.annotation.revision,resolved:true});assert(changed.annotation.resolvedAt);changed=await call('wh_annotation_undo',{...scope,receipt:changed.undo});assert(!changed.annotation.resolvedAt);
+  changed=await call('wh_annotation_edit_reply',{...scope,id:thread.id,expectedRevision:changed.annotation.revision,replyId,body:'Edited native reply'});assert.equal(changed.annotation.replies[0].id,replyId);
+  changed=await call('wh_annotation_remove_reply',{...scope,id:thread.id,expectedRevision:changed.annotation.revision,replyId});assert.equal(changed.annotation.replies.length,0);changed=await call('wh_annotation_undo',{...scope,receipt:changed.undo});assert.equal(changed.annotation.replies[0].body,'Edited native reply');
+  const deleted=await call('wh_annotation_delete',{...scope,id:thread.id,expectedRevision:changed.annotation.revision});changed=await call('wh_annotation_undo',{...scope,receipt:deleted.undo});assert.equal(changed.annotation.anchor.selectedText,'Ancient harbor prose.');assert.equal(changed.annotation.replies[0].mentions[0].entityId,person.id);
+  changed=await call('wh_annotation_reply',{...scope,id:thread.id,expectedRevision:changed.annotation.revision,body:'Later reply preserved after another deletion'});
+  const laterDelete=await call('wh_annotation_delete',{...scope,id:thread.id,expectedRevision:changed.annotation.revision});
+  const replay=await rpc('tools/call',{name:'wh_annotation_undo',arguments:{...scope,receipt:deleted.undo}});assert(replay.result.isError,'Consumed deletion receipt replay should reject');
+  const absent=await rpc('tools/call',{name:'wh_annotation_thread_get',arguments:{...scope,id:thread.id}});assert(absent.result.isError,'Consumed receipt resurrected obsolete comment');
+  changed=await call('wh_annotation_undo',{...scope,receipt:laterDelete.undo});assert.equal(changed.annotation.replies[1].body,'Later reply preserved after another deletion');
+  const revision=changed.annotation.revision;await bridge.setBridgeConfig({writesEnabled:false});assert.equal((await call('wh_annotation_thread_get',{...scope,id:thread.id})).revision,revision);const denied=await rpc('tools/call',{name:'wh_annotation_reply',arguments:{...scope,id:thread.id,expectedRevision:revision,body:'Existing switch test'}});assert(denied.result.isError);await bridge.setBridgeConfig({writesEnabled:true});
+  assert.equal((await call('wh_annotation_thread_get',{projectId,id:base.id})).noteBody,'Base comment');
+  console.log('PASS actual native stdio→HTTP→executor→IPC comments: create/quote/list/get, Base/era separation, local era-only mention, reply/edit/remove, resolve/reopen viaUndo, CAS/foreign rejection, deleteUndo and readonly switch');
+  child.stdin.end();await new Promise(resolve=>child.once('exit',resolve));child=null;lines.close();bridge.stopAiBridge();win.destroy();app.exit(0);
+
+}
+main().catch(error => { console.error(error.stack || String(error)); child?.kill(); bridge?.stopAiBridge(); if (win && !win.isDestroyed()) win.destroy(); app.exit(1); });

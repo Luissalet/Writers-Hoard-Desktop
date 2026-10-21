@@ -121,6 +121,13 @@ function typeOf(value: unknown): string {
   return typeof value;
 }
 
+/** Null is an intentional value in revision contracts that explicitly allow it. */
+function acceptsNull(spec: Record<string, unknown> | undefined): boolean {
+  if (!spec) return false;
+  if (spec.type === 'null' || Array.isArray(spec.type) && spec.type.includes('null') || Array.isArray(spec.enum) && spec.enum.includes(null)) return true;
+  return ['anyOf', 'oneOf'].some(key => Array.isArray(spec[key]) && (spec[key] as unknown[]).some(branch => Boolean(branch && typeof branch === 'object' && acceptsNull(branch as Record<string, unknown>))));
+}
+
 /**
  * `project_id` for `projectId`. The other apps of the family speak snake_case
  * and a model that has read their tool lists writes it here too, so a key the
@@ -162,7 +169,7 @@ export function validateToolArgs(
 
   for (const key of schema.required ?? []) {
     const value = input[key];
-    if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
+    if (value === undefined || value === null && !acceptsNull(props[key]) || (typeof value === 'string' && !value.trim())) {
       problems.push(`"${key}" is required`);
     }
   }
@@ -170,7 +177,8 @@ export function validateToolArgs(
   for (const [key, raw] of Object.entries(input)) {
     const spec = props[key];
     if (!spec) continue; // unknown key: dropped, never fatal
-    if (raw === undefined || raw === null) continue;
+    if (raw === undefined) continue;
+    if (raw === null) { if (acceptsNull(spec)) out[key] = null; continue; }
     const expected = typeof spec.type === 'string' ? spec.type : undefined;
     let value: unknown = raw;
     if (expected === 'number' && typeof raw === 'string' && raw.trim() && Number.isFinite(Number(raw))) {

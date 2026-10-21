@@ -1,0 +1,7 @@
+import type {BoardNode} from '../types';
+import {makeNode} from './mutations';
+import {boundsOfNodes} from './geometry';
+import {frameMembers,pileSelection} from './membership';
+/** Collapse changes the wrapper only; opening never reconstructs or repositions members. */
+export function setPileCollapsed(frame:BoardNode,nodes:readonly BoardNode[],collapsed:boolean):BoardNode{if(frame.kind!=='frame')throw Error('canvas_frame_required');if(Boolean(frame.collapsed)===collapsed&&(!collapsed||frame.expandedSize))return structuredClone(frame);return{...frame,memberNodeIds:frame.memberNodeIds??frameMembers(frame,nodes).map(node=>node.id),expandedSize:collapsed?frame.expandedSize??{...frame.size}:undefined,size:collapsed?{width:220,height:112}:{...frame.expandedSize??frame.size},collapsed,updatedAt:Math.max(Date.now(),frame.updatedAt+1)};}
+export function createCanvasPile(nodes:readonly BoardNode[],selectedIds:readonly string[],title='Pile'):BoardNode{const selected=pileSelection(selectedIds,nodes);if(!selected.length)throw Error('canvas_selection_required');const owner=selected[0];if(selected.some(node=>node.projectId!==owner.projectId||node.boardId!==owner.boardId))throw Error('canvas_selection_scope_invalid');const bounds=boundsOfNodes(selected,40)!;const frame={...makeNode({projectId:owner.projectId,boardId:owner.boardId,kind:'frame',title,position:{x:bounds.x,y:bounds.y-32},size:{width:bounds.width,height:bounds.height+32},layerId:owner.layerId}),memberNodeIds:[...new Set(selectedIds)]};return setPileCollapsed(frame,[...nodes,frame],true);}

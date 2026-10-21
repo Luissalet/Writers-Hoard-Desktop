@@ -1,6 +1,7 @@
 import type { Paragraph, ParagraphChild, Table, TableOfContents } from 'docx';
 import { FOOTNOTE_REF_SELECTOR, FOOTNOTE_TEXT_ATTR } from '@/components/editor/footnotes/footnoteModel';
 import type { PublishingDocument } from './publishingDocument';
+import {formattingFromElement,SCENE_BREAK_TEXT} from '@/components/editor/advanced/model';
 
 type DocxModule = typeof import('docx');
 
@@ -12,6 +13,7 @@ interface InlineStyle {
   italics?: boolean;
   underline?: boolean;
   monospace?: boolean;
+  smallCaps?:boolean;
   /** Inside <pre>: newlines and runs of spaces are content, not layout. */
   preformatted?: boolean;
 }
@@ -95,6 +97,7 @@ function inlineChildren(
             italics: style.italics,
             underline: style.underline ? {} : undefined,
             font: style.monospace ? 'Courier New' : undefined,
+            smallCaps:style.smallCaps,
           }));
         });
         continue;
@@ -107,6 +110,7 @@ function inlineChildren(
         italics: style.italics,
         underline: style.underline ? {} : undefined,
         font: style.monospace ? 'Courier New' : undefined,
+        smallCaps:style.smallCaps,
       }));
       continue;
     }
@@ -130,6 +134,7 @@ function inlineChildren(
       italics: style.italics || tag === 'em' || tag === 'i',
       underline: style.underline || tag === 'u' || tag === 'a',
       monospace: style.monospace || tag === 'code',
+      smallCaps:formattingFromElement(node).smallCaps??style.smallCaps,
     };
     children.push(...inlineChildren(node.childNodes, docx, notes, nextStyle));
   }
@@ -298,7 +303,7 @@ function paragraphsFromElement(
   if (tag === 'hr') {
     // The manuscript convention for a scene or POV break.
     return [new docx.Paragraph({
-      children: [new docx.TextRun({ text: '* * *' })],
+      children: [new docx.TextRun({ text: formattingFromElement(element).ornament?SCENE_BREAK_TEXT[formattingFromElement(element).ornament!]:'* * *' })],
       alignment: docx.AlignmentType.CENTER,
       spacing: { before: 240, after: 240 },
     })];
@@ -321,14 +326,26 @@ function paragraphsFromElement(
     })];
   }
   if (tag === 'p' || tag === 'pre') {
-    const children = inlineChildren(element.childNodes, docx, context.notes, {
+    const format=formattingFromElement(element),source=element.cloneNode(true)as Element,initials:BlockChild[]=[];
+    if(tag==='p'&&format.dropCap){
+      const text=source.textContent??'',letter=/[\p{L}\p{N}]/u.exec(text);
+      if(letter){
+        const grapheme=[...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text.slice(letter.index))][0]?.segment??'';
+        const end=letter.index+grapheme.length,initial=text.slice(0,end);let remaining=end;
+        const walker=source.ownerDocument.createTreeWalker(source,4);let node=walker.nextNode();
+        while(node&&remaining>0){const value=node.textContent??'',count=Math.min(remaining,value.length);node.textContent=value.slice(count);remaining-=count;node=walker.nextNode();}
+        initials.push(new docx.Paragraph({children:[new docx.TextRun({text:initial,size:72})],keepNext:true,frame:{type:'alignment',alignment:{x:docx.HorizontalPositionAlign.LEFT,y:docx.VerticalPositionAlign.TOP},dropCap:docx.DropCapType.DROP,lines:3,width:0,height:0,anchor:{horizontal:docx.FrameAnchorType.TEXT,vertical:docx.FrameAnchorType.TEXT},wrap:docx.FrameWrap.AROUND,space:{horizontal:120,vertical:0}}}));
+      }
+    }
+    const children = inlineChildren(source.childNodes, docx, context.notes, {
       italics: context.quoted,
       monospace: tag === 'pre',
       preformatted: tag === 'pre',
     });
-    return [new docx.Paragraph({
+    const indent=context.quoted||format.indent!==undefined||format.firstLineIndent!==undefined?{...(context.quoted?{left:720,right:720}:{}),...(format.indent!==undefined?{left:(context.quoted?720:0)+Math.round(format.indent*360)}:{}),...(format.firstLineIndent!==undefined?{firstLine:format.dropCap?0:Math.round(format.firstLineIndent*240)}:{})}:undefined;
+    return [...initials,new docx.Paragraph({
       children,
-      indent: context.quoted ? { left: 720, right: 720 } : undefined,
+      indent,
       spacing: { after: 120 },
     })];
   }

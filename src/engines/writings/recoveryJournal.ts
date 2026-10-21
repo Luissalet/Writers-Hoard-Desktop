@@ -128,6 +128,9 @@ export function inspectWritingRecoveryDraft(
     const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
     for (const key of keys) {
       if (!key) continue;
+      const candidateOwner = key.startsWith(prefix) ? decodeURIComponent(key.slice(prefix.length)) : undefined;
+      const candidateEra = candidateOwner?.split(':era:')[1], ownEra = owner?.split(':era:')[1];
+      if (candidateEra !== ownEra) continue;
       const belongs = key === journalKey(writing.projectId, writing.id) || key.startsWith(prefix);
       if (key !== ownKey && (!belongs || activeOwners.has(key))) continue;
       const raw = storage.getItem(key); if (!raw) continue;

@@ -22,7 +22,7 @@ import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { DELETABLE, DELETABLE_TYPES } from '@/services/aiBridge/tools/deletion';
 import { undoAuditEntry } from '@/services/aiBridge/undo';
 import { BridgeError } from '@/services/aiBridge/tools/shared';
-import { applyProjectScope } from '@/services/aiRuntime/toolPolicy';
+import { applyProjectScope, validateToolArgs } from '@/services/aiRuntime/toolPolicy';
 import { deleteSeed } from '@/engines/seeds/operations';
 import { db } from '@/db';
 import {
@@ -59,13 +59,20 @@ function testManifestHandlerParity(): void {
   // Read-only clients must still get the whole reading surface.
   assert(BRIDGE_TOOLS.some((t) => t.writes), 'no write tools at all');
   assert(BRIDGE_TOOLS.some((t) => !t.writes), 'no read tools at all');
-  // Exactly one way to delete, and it is a write tool so the writes switch
-  // gates it. Per-engine delete tools would each need their own confirmation
-  // and their own cascade — that is how the wrong op gets called.
+  // Core entity cascades retain wh_delete. Scoped document archival,
+  // configuration and subdocument edits have explicit domain operations.
+  // Each must remain a write, and a new removal API requires updating this
+  // contract rather than silently entering a reading catalogue.
+  const scopedRemovals = new Set([
+    'wh_model_remove', 'wh_sheet_delete', 'wh_delete_codex_template', 'wh_local_tool_block_remove',
+    'wh_annotation_remove_reply', 'wh_annotation_delete',
+    'wh_table_remove_column', 'wh_codex_option_list_delete', 'wh_wiki_profile_delete',
+  ]);
+  for (const name of scopedRemovals) assert(getBridgeTool(name)?.writes, `${name} must remain a registered write operation`);
   // wh_remove_place is not one: it appends a `remove` edit to a world's list,
   // which wh_restore_place and the undo reverse, and no row goes anywhere.
   const deleters = BRIDGE_TOOLS.filter(
-    (t) => /delete|remove|destroy/i.test(t.name) && t.name !== 'wh_remove_place' && !PUBLISHING_TOOLS.some(native => native.name === t.name),
+    (t) => /delete|remove|destroy/i.test(t.name) && t.name !== 'wh_remove_place' && !scopedRemovals.has(t.name) && !PUBLISHING_TOOLS.some(native => native.name === t.name),
   );
   // The incorporated publishing applications retain their native deletion
   // vocabulary. Their destructive contract is explicit metadata, rather than
@@ -122,12 +129,17 @@ function testManifestHandlerParity(): void {
       `tool ${tool.name} claims engine "${tool.engineId}", which is not a known engine`,
     );
   }
-  const enableEnum = (getBridgeTool('wh_enable_engine')?.schema.properties.engineId as
-    { enum?: string[] })?.enum ?? [];
-  assert(
-    enableEnum.length === BRIDGE_ENGINE_IDS.length,
-    'wh_enable_engine offers a different set of engines than the bridge knows about',
-  );
+  // Source extensions are registered at build time, so a static enum would
+  // exclude them. The handler validates the live registry; the wire schema must
+  // accept every builtin and a compiled extension ID, while rejecting objects.
+  const enable = getBridgeTool('wh_enable_engine');
+  assert(enable, 'wh_enable_engine is missing');
+  for (const engineId of [...BRIDGE_ENGINE_IDS, 'local-tool-contract-fixture']) {
+    assert(validateToolArgs(enable.schema, { engineId }).ok,
+      `wh_enable_engine schema excludes ${engineId}`);
+  }
+  assert(!validateToolArgs(enable.schema, { engineId: {} }).ok,
+    'wh_enable_engine schema accepts an object as an engine ID');
   // Every write tool that names an engine and takes a projectId is guarded at
   // runtime; the self-test proves the guard, this proves the list is complete.
   const guardable = BRIDGE_TOOLS.filter(
@@ -545,14 +557,14 @@ export async function testCopilotScopeLeak(): Promise<void> {
     tool: string,
     args: Record<string, unknown>,
     scope: string,
-  ): Promise<{ code: string; message: string }> => {
+  ): Promise<{ code: string; message: string; result?: unknown }> => {
     const spec = getBridgeTool(tool);
     assert(spec, `no manifest entry for ${tool}`);
     const verdict = applyProjectScope(spec, args, { origin: 'copilot', projectId: scope });
     if (!verdict.ok) return { code: verdict.code, message: verdict.error };
     try {
-      await TOOL_HANDLERS[tool](verdict.args);
-      return { code: '', message: '' };
+      const result = await TOOL_HANDLERS[tool](verdict.args);
+      return { code: '', message: '', result };
     } catch (err) {
       if (err instanceof BridgeError) return { code: err.code, message: err.message };
       return { code: 'other', message: err instanceof Error ? err.message : String(err) };
@@ -626,10 +638,24 @@ export async function testCopilotScopeLeak(): Promise<void> {
     { tool: 'wh_list_writing_versions', args: { id: writingId } },
     { tool: 'wh_list_beats', args: { outlineId } },
     { tool: 'wh_list_events', args: { timelineId } },
-    { tool: 'wh_list_annotations', args: { engineId: 'writings', entityId: writingId } },
   ];
 
   try {
+    // Annotation queries now filter project AND era before reading any body.
+    // A foreign entity yields an empty list, rather than reaching the old
+    // post-query scope check. Prove both absence and the own-project result.
+    const annotationArgs = { engineId: 'writings', entityId: writingId };
+    const foreignNotes = await scoped('wh_list_annotations', annotationArgs, A);
+    const foreignRows = foreignNotes.result as { count: number; annotations: unknown[] };
+    assert(foreignNotes.code === '' && foreignRows?.count === 0
+      && foreignRows.annotations.length === 0,
+    'annotation query exposed another project\'s notes');
+    const ownNotes = await scoped('wh_list_annotations', annotationArgs, B);
+    const ownRows = ownNotes.result as { count: number; annotations: { entityId: string; note: string }[] };
+    assert(ownNotes.code === '' && ownRows?.count === 1
+      && ownRows.annotations[0]?.entityId === writingId
+      && ownRows.annotations[0]?.note === 'Revisar el tiempo verbal.',
+    'annotation query did not return the own-project fixture');
     for (const { tool, args, heavy } of CASES) {
       const fromA = await scoped(tool, args, A);
       assert(

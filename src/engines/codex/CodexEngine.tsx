@@ -1,6 +1,7 @@
+import { useEraNavigate } from '@/services/worldEras/navigation';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { lazy, Suspense, useState } from 'react';
 import { LayoutGrid, Network } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useCodexEntries } from './hooks';
@@ -13,11 +14,12 @@ import { worldGraphCopy } from './worldGraph/copy';
 const WorldGraphPane = lazy(() => import('./worldGraph/WorldGraphPane'));
 
 export default function CodexEngine({ projectId }: EngineComponentProps) {
+  const scope = useWorldEraScope(projectId);
   const { items: entries, loading, refresh, addItem: addEntry, editItem: editEntry, removeItem: removeEntry } = useCodexEntries(projectId);
   const [view, setView] = useState<'cards' | 'graph'>('cards');
   const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
   const { locale } = useTranslation(); const copy = worldGraphCopy[locale];
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
 
   if (loading) return <EngineSpinner />;
 
@@ -36,7 +38,7 @@ export default function CodexEngine({ projectId }: EngineComponentProps) {
       onAdd={addEntry}
       onEdit={async (id, changes, base) => {
         if (base) {
-          await saveCodexDraft(base, changes as CodexEntry);
+          await saveCodexDraft(base, changes as CodexEntry, scope);
           await refresh();
         } else await editEntry(id, changes);
       }}

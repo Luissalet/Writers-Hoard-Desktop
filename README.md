@@ -23,6 +23,48 @@ directory. The complete UI, 19 original MCP tools and native API are incorporate
 in Writer; the former server is unnecessary. The installed app includes its
 private worker runtime. See [operation, data and limits](docs/FICTION.md).
 
+## Local world authoring
+
+The current source adds named eras over Shared base, independent document panes,
+a mixed Library, reusable Codex types/properties and contextual document editors.
+Library's **New card** reuses the normal Codex form and saves the card with its
+selected folder atomically. Manuscript tools can sit in a separate, reorderable
+dock with project/chapter inheritance; its layout does not become reader prose.
+Maps, trees, calendars, typed tables, local media, Reader and static wiki retain
+their document-specific editors and exports. The optional 5e (2014), SRD 5.1
+character profile preserves manual values and played counters; it is not a
+complete rules or spell-catalogue engine.
+
+**Duplicate project** creates one local project copy, remaps declared internal
+references and copies available managed Scrapper files. Global library and native
+publishing originals remain shared. A copied book stays in its saga; a copied
+saga does not recursively copy its children. Interrupted native completion resumes
+the same copy; Undo requires an unchanged copy. This operation is separate from
+the partial legacy project/full JSON formats.
+
+See [local workflows, recovery and limits](docs/WORLD_AUTHORING.md) and the
+[local tool SDK](docs/local-tool-sdk.md). Source tools require trusted source and
+a local build; archives do not embed arbitrary compiled JavaScript. Cached local
+recognition/search models need preparation before offline use. Text generation
+uses the configured global runtime. The 21 October composed source checks pass: 210 groups across 44 suites with
+0 failures, 383 critical checks, renderer/Electron builds, shipping lint with
+0 debt and conformance (34 engines, 64 tables, 5650 keys, 22 locale files).
+The production entry is 1589.09 kB, below the blocking 1600 kB budget; lazy/total
+size advisories remain. Production dependency audit reports 0 vulnerabilities.
+Native document-service tests pass 14 with 0 skipped; directory packaging,
+packaged startup smoke and CPU dependency checks pass. D3, W01, the bounded 5e
+profile, map M1/M2/M3 corrections, Archive and legacy-tool corrections have
+independent SHIP verdicts within their reviewed contracts.
+
+These are composed checks, not a global `verify:release` result. The inherited
+full development audit still reports 13 findings, and the optional `resources/bin`
+packaging warning remains. QA, manual and repository documentation are complete;
+Git integration remains pending.
+Installation, the real user profile and total feature parity are not certified.
+
+[Final verification and limits](tasks/worldcraft1041-final-verification.md);
+manual revision/readback evidence: `tasks/evidence/worldcraft1041-manual-verification.json`.
+
 ## Quick start
 
 ```bash

@@ -1,3 +1,6 @@
+import { listEraRows, saveEraDocument } from '@/services/worldEras/store';
+import type { CodexEntry } from '@/types';
+import type { EraRow } from '@/services/worldEras/types';
 // ============================================
 // Script import — shared contract + persistence
 // ============================================
@@ -87,6 +90,7 @@ export function castKeyOf(name: string): string {
 export async function importScript(
   projectId: string,
   parsed: ParsedScript,
+  eraId?: string,
 ): Promise<ScriptImportResult> {
   if (parsed.scenes.length === 0) throw new ScriptImportError('empty');
 
@@ -94,7 +98,7 @@ export async function importScript(
 
   // Read the codex BEFORE the transaction — `codexEntries` is not in the
   // transaction's table list, and Dexie forbids touching unlisted tables.
-  const codexRows = await db.codexEntries.where('projectId').equals(projectId).toArray();
+  const codexRows = await listEraRows<CodexEntry>({ projectId, eraId }, 'codexEntries');
   const codexByName = new Map<string, string>();
   for (const row of codexRows) {
     if (row.type === 'character') codexByName.set(row.title.trim().toLowerCase(), row.id);
@@ -103,8 +107,8 @@ export async function importScript(
   let sceneCount = 0;
   let blockCount = 0;
 
-  await db.transaction('rw', db.scenes, db.dialogBlocks, db.sceneCasts, async () => {
-    const existing = await db.scenes.where('projectId').equals(projectId).toArray();
+  await db.transaction('rw', eraId ? db.tables : [db.scenes, db.dialogBlocks, db.sceneCasts], async () => {
+    const existing = await listEraRows<Scene>({ projectId, eraId }, 'scenes');
     // max+1 beats count(): `order` may have gone sparse over time.
     const baseOrder = existing.reduce((max, s) => Math.max(max, s.order + 1), 0);
 
@@ -180,6 +184,10 @@ export async function importScript(
     sceneCount = sceneRows.length;
     blockCount = blockRows.length;
 
+    if (eraId) {
+      for (const scene of sceneRows) await saveEraDocument({ projectId, eraId }, 'dialog-scene', { root: scene as unknown as EraRow, children: { dialogBlocks: blockRows.filter(row => row.sceneId === scene.id) as unknown as EraRow[], sceneCasts: castRows.filter(row => row.sceneId === scene.id) as unknown as EraRow[] } }, null);
+      return;
+    }
     await db.scenes.bulkAdd(sceneRows);
     if (blockRows.length > 0) await db.dialogBlocks.bulkAdd(blockRows);
     if (castRows.length > 0) await db.sceneCasts.bulkAdd(castRows);

@@ -28,7 +28,9 @@ import {
   type GeneratedWorld,
   type WorldWaypoint,
 } from '@/engines/worldgen/types';
-import { generatedWorldOps, worldWaypointOps } from '@/engines/worldgen/operations';
+import { worldgenScopeOperations, worldRuntimeKey, listWorldLinks, saveWorldLink } from '@/engines/worldgen/era';
+import { worldEraToolScope } from '@/services/worldEras/toolScope';
+import { readEraRow } from '@/services/worldEras/store';
 import {
   applyWorldEdits,
   isForging,
@@ -108,7 +110,7 @@ const LINK_ENGINE: Record<LinkTarget, string> = {
 
 async function loadWorld(args: ToolArgs): Promise<GeneratedWorld> {
   const worldId = requireString(args, 'worldId');
-  const world = await generatedWorldOps.getOne(worldId);
+  const world = await worldgenScopeOperations(worldEraToolScope(args)).worlds.getOne(worldId);
   if (!world) throw new BridgeError('not-found', `No generated world with id "${worldId}".`);
   assertRowInScope(args, world.projectId);
   return world;
@@ -210,6 +212,7 @@ function placeShape(place: AtlasPlace, data: WorldData): Record<string, unknown>
     importance: round(place.importance, 2),
     realmKey: place.realmKey,
     source: place.source,
+    style: place.style,
   };
 }
 
@@ -276,12 +279,13 @@ function worldDigest(world: GeneratedWorld, waypoints: WorldWaypoint[]): Record<
  * here ever says `deleted`: hiding a place is an edit, not a row going away.
  */
 async function appendEdit<T extends object>(
+  args: ToolArgs,
   world: GeneratedWorld,
   edit: WorldEdit,
   result: T,
   summary: string,
 ): Promise<unknown> {
-  const { before, delivered } = await applyWorldEdits(world, [edit]);
+  const { before, delivered } = await applyWorldEdits(world, [edit], worldEraToolScope(args)?.eraId);
   return withAudit(
     { ...result, delivered },
     {
@@ -300,27 +304,50 @@ async function appendEdit<T extends object>(
 
 export async function whListWorlds(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
-  const worlds = await generatedWorldOps.getAll(projectId);
+  const worlds = await worldgenScopeOperations(worldEraToolScope(args)).worlds.getAll(projectId);
   return {
     projectId,
     worlds: await Promise.all(
-      worlds.map(async (world) => worldDigest(world, await worldWaypointOps.getAll(world.id))),
+      worlds.map(async (world) => worldDigest(world, await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getAll(world.id))),
     ),
   };
 }
 
 export async function whGetWorld(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
-  const waypoints = await worldWaypointOps.getAll(world.id);
+  const waypoints = await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getAll(world.id);
   return {
     ...worldDigest(world, waypoints),
     params: normalizeParams(world.params),
     // An open view means place reads are instant and edits land on screen.
-    live: liveWorld(world.id) !== undefined,
+    live: liveWorld(worldRuntimeKey(world.id, worldEraToolScope(args)?.eraId)) !== undefined,
     // A forge in progress means a place read will answer pending until it ends.
-    forging: isForging(world.id),
+    forging: isForging(worldRuntimeKey(world.id, worldEraToolScope(args)?.eraId)),
     waypoints: waypoints.map(waypointShape),
   };
+}
+
+/** The same material renderer used by the cartographic view and PNG export. */
+export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const themeId = optEnum(args, 'theme', ['wonder', 'antique', 'relief', 'survey'] as const) ?? 'wonder';
+  let view: { x: number; y: number; w: number; h: number } | undefined;
+  if (args.view !== undefined) {
+    if (!args.view || typeof args.view !== 'object' || Array.isArray(args.view)) throw new BridgeError('bad-args', 'view must be a rectangle in world cells: {x,y,w,h}.');
+    const candidate = args.view as Record<string, unknown>;
+    if (!['x', 'y', 'w', 'h'].every(key => typeof candidate[key] === 'number' && Number.isFinite(candidate[key]))) throw new BridgeError('bad-args', 'view coordinates must be finite numbers.');
+    view = { x: Number(candidate.x), y: Number(candidate.y), w: Number(candidate.w), h: Number(candidate.h) };
+    if (view.x < 0 || view.y < 0 || view.w <= 0 || view.h <= 0 || view.x + view.w > opened.world.data.width || view.y + view.h > opened.world.data.height) throw new BridgeError('bad-args', 'view must lie within the world grid.');
+  }
+  const width = optNumber(args, 'width') ?? 1600;
+  const height = optNumber(args, 'height') ?? Math.round(width * (view?.h ?? opened.world.data.height) / (view?.w ?? opened.world.data.width));
+  if (!Number.isSafeInteger(width) || width < 1 || !Number.isSafeInteger(height) || height < 1) throw new BridgeError('bad-args', 'Image width and height must be positive integers.');
+  const { renderCartoCanvas } = await import('@/engines/worldgen/cartography/texture');
+  const { themeById } = await import('@/engines/worldgen/cartography/theme');
+  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title });
+  return { worldId: world.id, theme: themeId, view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
 }
 
 export async function whListPlaces(args: ToolArgs): Promise<unknown> {
@@ -329,7 +356,7 @@ export async function whListPlaces(args: ToolArgs): Promise<unknown> {
   const scope = optEnum(args, 'scope', DEPTHS) ?? 'full';
   const limit = clampLimit(optNumber(args, 'limit'), 200, 1000);
 
-  const opened = await openWorldForReading(world, scope);
+  const opened = await openWorldForReading(world, scope, worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
   const { data, atlas, live } = opened.world;
 
@@ -351,7 +378,7 @@ export async function whFindPlace(args: ToolArgs): Promise<unknown> {
   const query = requireString(args, 'query').trim();
   const limit = clampLimit(optNumber(args, 'limit'), 10, 100);
 
-  const opened = await openWorldForReading(world, 'full');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
   const { data, atlas, live } = opened.world;
 
@@ -377,7 +404,7 @@ export async function whPlaceAt(args: ToolArgs): Promise<unknown> {
   const { x, y } = cellCoords(args, worldSize(world));
   const maxCells = Math.max(1, optNumber(args, 'maxCells') ?? 8);
 
-  const opened = await openWorldForReading(world, 'full');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
   const { data, atlas, live } = opened.world;
 
@@ -397,7 +424,7 @@ export async function whPlaceAt(args: ToolArgs): Promise<unknown> {
 
 export async function whWorldSummary(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
-  const opened = await openWorldForReading(world, 'full');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
   const { data, geo, live } = opened.world;
   return {
@@ -449,7 +476,7 @@ export async function whAddPlace(args: ToolArgs): Promise<unknown> {
     // The engine silently skips a town founded in the sea. Refusing here costs
     // one read and saves the model a key that points at nothing; a world still
     // being forged cannot be checked, and the placement goes ahead.
-    const opened = await openWorldForReading(world, 'places');
+    const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
     if (opened.ok) {
       const elevation = elevationAt(opened.world.data, x, y);
       if (elevation !== undefined && elevation <= 0) {
@@ -463,7 +490,7 @@ export async function whAddPlace(args: ToolArgs): Promise<unknown> {
   }
 
   return appendEdit(
-    world,
+    args, world,
     edit,
     { key, marker, x, y, name },
     `placed ${marker} "${name ?? key}" at ${x},${y} in world "${world.title}"`,
@@ -477,7 +504,7 @@ export async function whRenamePlace(args: ToolArgs): Promise<unknown> {
   const target = placeTarget(key);
   const name = requireString(args, 'name').trim();
   return appendEdit(
-    world,
+    args, world,
     { kind: 'rename', target, key, name },
     { key, name },
     `renamed place ${key} to "${name}" in world "${world.title}"`,
@@ -491,7 +518,7 @@ export async function whMovePlace(args: ToolArgs): Promise<unknown> {
   const target = placeTarget(key);
   const { x, y } = cellCoords(args, worldSize(world));
   return appendEdit(
-    world,
+    args, world,
     { kind: 'move', target, key, x, y },
     { key, x, y },
     `moved place ${key} to ${x},${y} in world "${world.title}"`,
@@ -506,7 +533,7 @@ export async function whRemovePlace(args: ToolArgs): Promise<unknown> {
   // `removed`, never `deleted`: the place is hidden by an edit that
   // wh_restore_place (or an undo) reverses, and no row goes anywhere.
   return appendEdit(
-    world,
+    args, world,
     { kind: 'remove', target, key },
     { key, removed: true },
     `removed place ${key} from world "${world.title}"`,
@@ -519,7 +546,7 @@ export async function whRestorePlace(args: ToolArgs): Promise<unknown> {
   const key = requireString(args, 'key');
   const target = placeTarget(key);
   return appendEdit(
-    world,
+    args, world,
     { kind: 'restore', target, key },
     { key, restored: true },
     `restored place ${key} in world "${world.title}"`,
@@ -534,7 +561,7 @@ export async function whAddLabel(args: ToolArgs): Promise<unknown> {
   const style = optEnum(args, 'style', LABEL_STYLES) ?? 'note';
   const edit: LabelEdit = { kind: 'label', x, y, text, style };
   return appendEdit(
-    world,
+    args, world,
     edit,
     { key: editKey('label', x, y), text, style, x, y },
     `labelled ${x},${y} "${text}" in world "${world.title}"`,
@@ -547,7 +574,7 @@ export async function whAddLabel(args: ToolArgs): Promise<unknown> {
 
 export async function whListWaypoints(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
-  const waypoints = await worldWaypointOps.getAll(world.id);
+  const waypoints = await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getAll(world.id);
   return { worldId: world.id, waypoints: waypoints.map(waypointShape) };
 }
 
@@ -558,7 +585,7 @@ export async function whAddWaypoint(args: ToolArgs): Promise<unknown> {
   const u = wrapU(requireNumber(args, 'u'));
   const v = clampV(requireNumber(args, 'v'));
   // Colours cycle through the palette the way the view's own pin tool does.
-  const existing = await worldWaypointOps.getAll(world.id);
+  const existing = await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getAll(world.id);
   const now = Date.now();
   const waypoint: WorldWaypoint = {
     id: generateId('wpt'),
@@ -572,7 +599,7 @@ export async function whAddWaypoint(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await worldWaypointOps.create(waypoint);
+  await worldgenScopeOperations(worldEraToolScope(args)).waypoints.create(waypoint);
   return withAudit(
     { id: waypoint.id, worldId: world.id, u, v, created: true },
     {
@@ -585,7 +612,7 @@ export async function whAddWaypoint(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateWaypoint(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const waypoint = await worldWaypointOps.getOne(id);
+  const waypoint = await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getOne(id);
   if (!waypoint) throw new BridgeError('not-found', `No world waypoint with id "${id}".`);
   assertRowInScope(args, waypoint.projectId);
   await assertEngineEnabled(waypoint.projectId, ENGINE);
@@ -621,7 +648,7 @@ export async function whUpdateWaypoint(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
-  await worldWaypointOps.update(id, changes);
+  await worldgenScopeOperations(worldEraToolScope(args)).waypoints.update(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
     {
@@ -641,10 +668,11 @@ export async function whUpdateWaypoint(args: ToolArgs): Promise<unknown> {
 async function findLinkTarget(
   type: LinkTarget,
   id: string,
+  args: ToolArgs,
 ): Promise<{ projectId: string; title: string } | undefined> {
   switch (type) {
     case 'codex-entry': {
-      const row = await db.codexEntries.get(id);
+      const row = worldEraToolScope(args) ? await readEraRow<{ projectId: string; title: string }>(worldEraToolScope(args)!, 'codexEntries', id) : await db.codexEntries.get(id);
       return row && { projectId: row.projectId, title: row.title };
     }
     case 'scene': {
@@ -655,11 +683,11 @@ async function findLinkTarget(
       };
     }
     case 'writing': {
-      const row = await db.writings.get(id);
+      const row = worldEraToolScope(args) ? await readEraRow<{ projectId: string; title: string }>(worldEraToolScope(args)!, 'writings', id) : await db.writings.get(id);
       return row && { projectId: row.projectId, title: row.title };
     }
     case 'timeline-event': {
-      const row = await db.timelineEvents.get(id);
+      const row = worldEraToolScope(args) ? await readEraRow<{ projectId: string; title: string }>(worldEraToolScope(args)!, 'timelineEvents', id) : await db.timelineEvents.get(id);
       return row && { projectId: row.projectId, title: row.title };
     }
   }
@@ -678,7 +706,7 @@ export async function whLinkPlace(args: ToolArgs): Promise<unknown> {
     );
   }
   const targetId = requireString(args, 'targetId');
-  const target = await findLinkTarget(targetType, targetId);
+  const target = await findLinkTarget(targetType, targetId, args);
   if (!target) throw new BridgeError('not-found', `No ${targetType} with id "${targetId}".`);
   if (target.projectId !== world.projectId) {
     throw new BridgeError(
@@ -688,7 +716,7 @@ export async function whLinkPlace(args: ToolArgs): Promise<unknown> {
   }
 
   const sourceEntityId = spatialEntityId(world.id, key);
-  const existing = (await db.entityLinks.where('sourceEntityId').equals(sourceEntityId).toArray())
+  const existing = (await listWorldLinks({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id)).filter(link => link.sourceEntityId === sourceEntityId)
     .find((link) => link.targetEntityType === targetType && link.targetEntityId === targetId);
   if (existing) {
     return { id: existing.id, sourceEntityId, created: false, alreadyLinked: true };
@@ -698,7 +726,7 @@ export async function whLinkPlace(args: ToolArgs): Promise<unknown> {
   // still being forged answers pending rather than filing a link titled with
   // a bare key. A key the atlas does not know (a regional-sheet hamlet) keeps
   // the key as its title, which is what the inspector would show too.
-  const opened = await openWorldForReading(world, 'full');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
   const placeName = opened.world.atlas.byKey.get(key)?.name ?? key;
 
@@ -719,7 +747,7 @@ export async function whLinkPlace(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await db.entityLinks.add(link);
+  await saveWorldLink({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id, link);
   return withAudit(
     {
       id: link.id,
@@ -741,9 +769,7 @@ export async function whListPlaceLinks(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const key = optString(args, 'key');
   const prefix = spatialEntityId(world.id, '');
-  const rows = key
-    ? await db.entityLinks.where('sourceEntityId').equals(spatialEntityId(world.id, key)).toArray()
-    : await db.entityLinks.where('sourceEntityId').startsWith(prefix).toArray();
+  const rows = (await listWorldLinks({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id)).filter(link => !key || link.sourceEntityId === spatialEntityId(world.id, key));
   const links = rows.filter(
     (link) => link.projectId === world.projectId && link.sourceEntityType === 'world-spatial',
   );

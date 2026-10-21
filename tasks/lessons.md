@@ -1,5 +1,30 @@
 # Lessons Learned
 
+## 84. Token boundaries follow the tokenizer, not whitespace assumptions
+**Date:** 2026-10-20
+**Context:** A Unicode-letter adjacency check rejected valid Chinese names because neighboring Han characters are normal BERT basic units. Removing the check altogether would instead admit partial Latin WordPieces.
+**Rule:** Verify the complete token stream and require spans to start/end on actual basic-unit boundaries. Test natural CJK prose, astral UTF-16 offsets, repeated names and partial Latin tokens independently. Model scores do not establish universal accuracy.
+
+## 83. Recover rejected edits without calling them committed versions
+**Date:** 2026-10-20
+**Context:** Adding own-draft history to the legacy rejected-edit recovery path mislabeled an unsuccessful CAS write as a saved version. A new history discriminator could also pass the old canonical restore endpoint.
+**Rule:** Keep recovery receipts/journals distinct from committed preimages. Every new snapshot kind needs an audit of lists, direct reads, restores, exports and clone pointers. Test failed writes and the old restore endpoint with the new kind, not only the new happy path.
+
+## 82. Native UI tests wait for the actual actionable state
+**Date:** 2026-10-20
+**Context:** A history test clicked a button before its session had loaded; a wiki test combined Ctrl+A and text insertion without confirming focus. Both produced misleading failures. Exporting a reusable Electron runner also exposed that its default loader may not set require.main.
+**Rule:** Wait for enabled controls and expected document identities, assert focused text and exact values, and separate selection/insertion when needed. An Electron runner must support both direct invocation and an inert import; test both. Preserve failed QA evidence and distinguish it from product failures.
+
+## 81. Await the Windows GUI process before crediting a test
+**Date:** 2026-10-20
+**Context:** PowerShell returned immediately after launching electron.exe, reporting exit0 without the test having finished. The GUI wrote output after the shell's following command.
+**Rule:** Pipe native Electron output to a waiting consumer or launch through a Node child process that awaits exit. Credit a run only when its explicit result and final exit are observed. Never count a quick launcher return as PASS.
+
+## 80. A category inventory does not establish workflow or visual parity
+**Date:** 2026-10-20
+**Context:** Luis rejected an extensive comparison because populated maps and individual controls had not been explored deeply enough. Passing implementation tests and matching category names missed current workflows and material visual differences.
+**Rule:** Inspect real populated tools, every relevant submenu, and current changelogs. Separate authenticated observations, documentation, source evidence and historical claims. Compare representative complex content at useful scales, let asynchronous rendering settle, and demonstrate the actual before/after. Never infer complete parity from a tool name, a small fixture or test counts.
+
 ## 79. Consolidation follows the approved ownership map and the host router
 **Date:** 2026-10-19
 **Context:** Luis corrected the map: Cicero stays separate; all of Borges (Library, Links and Kafka) belongs to Writer together with Gutenberg, preserving the fiction engine. Home/Cook and People/Dorian stay separate. The desktop host owns the window hash, so copying a module hash router would navigate away from Writer.
@@ -1439,3 +1464,38 @@ An async-generator/exit stack consumes a callback that raises. Keep app/error/st
 HTTPX closure: is_closed is not proof of released resources. The owned wrapper snapshots actual default/proxy transports and HTTPcore connections before a pool can consume its list, then checkpoints each physical close. Tests cover a real SDK twin poisoned by early HTTPX CLOSED, two failing OFFs, a held third close with consumer cancellation, and an actual HTTPcore/HTTP11 pool path. SDK files remain unchanged.
 
 CAS6 correction: snapshotting a connection is insufficient if its pool still owns it after successful close. Remove that exact identity under the pool lock only after success, so later transport shutdown cannot repeat completed physical cleanup. Test streams must count every invocation before checking their closed flag; a locally idempotent fake can hide duplicated calls.
+
+- Release pin CAS: clearing a persistent selection must preserve a tombstone with increasing revision. Never delete the record and restart revision numbering; add a stale pre-clear→re-pin regression for ABA. Root caught this at B contract review before pin service implementation.
+
+85. Visual QA must preserve bundler CSS contracts: Vite `?inline` imports return strings for shadow roots. Configure esbuild equivalently; leaked native global CSS can invalidate host screenshots even when interactions pass. Record affected evidence and replay it after fixing the harness; do not patch product components to compensate.
+
+86. Asynchronous image reads must patch the latest form state, not a captured props object. Invalidate on new file, remove and unmount; test a held read against later name/footer edits and removal.
+
+87. Native select-all and text insertion need separate acknowledged input handshakes. Assert focused input and final value before blaming product CAS or number parsing for a race in a QA driver.
+
+88. Compact projections must preserve authored labels, marked-state semantics and explicit zero values, including known resource IDs. Check customized built-ins alongside unknown fields; hiding untouched defaults is not permission to omit authored data.
+
+89. A visual transform is not proof of saved pixels. Exercise Rotate→Attach without a fresh crop, then select a known coloured region after rotation/zoom and decode the actual result. Confirmation should use the current controlled selection, rather than a separate completion snapshot that may lag behind it.
+
+90. Preview selections are bound to the values they were reviewed against. If the author edits one of those values while the preview is open, invalidate its automatic/explicit replacement selection before Apply; unrelated edits may remain selected. Test the actual late draft, not only a newly computed preview.
+
+91. Reference identity must survive deduplication until validation. A valid source
+namespace must not hide an invalid same-ID atom; coalesce warning output only
+after checking each exact request. Test both orders and multiple bad namespaces.
+
+92. For native gesture QA, establish that the actual event arrives before blaming
+the handler. Preserve no-event driver diagnostics separately from a genuine
+passive-listener preventDefault failure; repeat the same delivered-input oracle
+and verify ordinary scroll plus StrictMode cleanup after the narrow repair.
+
+93. A remounted live-query view can still show its loading branch after React
+act returns. Await the loaded semantic surface before checking recovery output;
+preserve the original failed run and prove fixture-only edits by reversal.
+
+94. Check the real draw → persist → edit metadata path. Saving new geometry must
+advance its editor baseline; drawing alone cannot establish that later metadata
+edits preserve the shape.
+
+95. Legacy absent DOM attributes must stay absent when the pure DTO distinguishes
+absence from empty or null. Fix serialization defaults without weakening external
+validation, and reopen both HTML and JSON in the regression oracle.

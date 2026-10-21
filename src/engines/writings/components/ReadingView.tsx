@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Bookmark, ChevronLeft, ChevronRight, Keyboard, ListTree, Palette, PenLine, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
+import { getEraProject } from '@/services/worldEras/store';
 import type { Writing } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
@@ -34,6 +35,8 @@ import { readerColor, readerInk, readerRaster, safeReaderPresentation } from '..
 import ReaderPresentationModal from './ReaderPresentationModal';
 import ReaderBookCover from './ReaderBookCover';
 import ReaderSoundtrackControl from './ReaderSoundtrackControl';
+import ReaderPlaybackControl from './ReaderPlaybackControl';
+import type { ReaderPlaybackOptions } from '../readerPlayback';
 import { READER_PRESENTATION_CSS } from '../readerPresentationStyle';
 
 /** One arrow press of prose. */
@@ -59,6 +62,8 @@ interface ReadingPieceProps {
   onOpenInEditor: (writing: Writing) => void;
   presentation?: ChapterPresentation;
   coverProject?: Project;
+  playback: ReaderPlaybackOptions;
+  eraId?: string;
 }
 
 /**
@@ -83,6 +88,8 @@ const ReadingPiece = memo(function ReadingPiece({
   onOpenInEditor,
   presentation,
   coverProject,
+  playback,
+  eraId,
 }: ReadingPieceProps) {
   const { t, locale } = useTranslation();
   const proseRef = useRef<HTMLDivElement>(null);
@@ -107,15 +114,16 @@ const ReadingPiece = memo(function ReadingPiece({
     },
   );
   const counter = footnoteStart > 1 ? { counterReset: `wh-footnote ${footnoteStart - 1}` } : undefined;
+  const proseHtml = useMemo(() => sanitizedHtml(piece.content + endnotes), [piece.content, endnotes]);
   useEffect(() => {
-    if (proseRef.current) return hydrateLocalMediaBlocks(proseRef.current, piece.projectId, locale === 'es' ? 'El medio local no está disponible.' : 'The local media file is unavailable.');
-  }, [piece.content, piece.projectId, endnotes, locale]);
+    if (proseRef.current) return hydrateLocalMediaBlocks(proseRef.current, piece.projectId, locale === 'es' ? 'El medio local no está disponible.' : 'The local media file is unavailable.', eraId,locale);
+  }, [piece.content, piece.projectId, endnotes, locale, eraId]);
   useEffect(() => {
-    if (proseRef.current) return hydrateToolDocumentBlocks(proseRef.current, piece.projectId, locale);
-  }, [piece.content, piece.projectId, endnotes, locale]);
+    if (proseRef.current) return hydrateToolDocumentBlocks(proseRef.current, piece.projectId, locale, eraId);
+  }, [piece.content, piece.projectId, endnotes, locale, eraId]);
   useEffect(() => {
-    if (proseRef.current) return hydrateCodexBlocks(proseRef.current, piece.projectId, locale === 'es' ? 'La entrada local no está disponible.' : 'The local entry is unavailable.');
-  }, [piece.content, piece.projectId, endnotes, locale]);
+    if (proseRef.current) return hydrateCodexBlocks(proseRef.current, piece.projectId, locale === 'es' ? 'La entrada local no está disponible.' : 'The local entry is unavailable.', eraId);
+  }, [piece.content, piece.projectId, endnotes, locale, eraId]);
 
   return (
     <article data-piece-id={piece.id} data-reader-mode={presentation?.mode ?? 'flow'} style={theme} className={`px-6 pt-8 pb-2 ${themed ? 'wh-reader-themed' : ''} ${presentation?.mode === 'pages' ? 'wh-reader-pages' : ''}`}>
@@ -145,9 +153,10 @@ const ReadingPiece = memo(function ReadingPiece({
         </button>
       </header>
 
+      {piece.content.trim() && <ReaderPlaybackControl prose={proseRef} content={piece.content} options={playback} locale={locale} />}
       {piece.content.trim() ? (
         <div className="tiptap-editor mt-2">
-          <div ref={proseRef} className="ProseMirror" tabIndex={presentation?.mode === 'pages' ? 0 : undefined} aria-label={presentation?.mode === 'pages' ? piece.title : undefined} style={counter} dangerouslySetInnerHTML={sanitizedHtml(piece.content + endnotes)} />
+          <div ref={proseRef} className="ProseMirror" tabIndex={presentation?.mode === 'pages' ? 0 : undefined} aria-label={presentation?.mode === 'pages' ? piece.title : undefined} style={counter} dangerouslySetInnerHTML={proseHtml} />
         </div>
       ) : (
         <p className="mx-auto mt-4 text-sm italic text-text-dim" style={column}>
@@ -196,10 +205,11 @@ export default function ReadingView({
 }: ReadingViewProps) {
   const { t, locale } = useTranslation();
   const projectId = pieces[0]?.projectId;
-  const project = useLiveQuery(() => projectId ? db.projects.get(projectId) : undefined, [projectId]);
+  const pane = useEnginePane();
+  const eraId = pane?.projectId === projectId ? pane?.eraId : undefined;
+  const project = useLiveQuery(() => projectId ? eraId ? getEraProject({ projectId, eraId }) : db.projects.get(projectId) : undefined, [projectId, eraId]);
   const readerProject = useMemo(() => project?.id === projectId ? { ...project, readerPresentation: safeReaderPresentation(project.readerPresentation) } : undefined, [project, projectId]);
   const [showPresentation, setShowPresentation] = useState(false);
-  const pane = useEnginePane();
   const reading = useAppStore((s) => s.reading);
   const loadReading = useAppStore((s) => s.loadReading);
 
@@ -216,7 +226,7 @@ export default function ReadingView({
   const [pieceWindow, setPieceWindow] = useState<PieceWindow>(() =>
     windowAround(startIndex, pieces.length),
   );
-  const [railOpen, setRailOpen] = useState(true);
+  const [railOpen, setRailOpen] = useState(() => window.innerWidth >= 900);
   /** The piece a saved position dropped the reader into, while the note about it shows. */
   const [resumedPiece, setResumedPiece] = useState<Writing | null>(null);
   /** Whether the saved position has been read and dealt with; nothing is written before it has. */
@@ -295,8 +305,13 @@ export default function ReadingView({
             heightOf,
           )
         : position;
-      const fraction = manuscriptProgress(read, prefixes, totalWords);
-      if (barRef.current) barRef.current.style.width = `${(fraction * 100).toFixed(1)}%`;
+      let fraction = manuscriptProgress(read, prefixes, totalWords);
+      if (scroller) for (const prose of scroller.querySelectorAll<HTMLElement>('[data-reader-playback-incomplete]')) {
+        const id = prose.closest<HTMLElement>('[data-piece-id]')?.dataset.pieceId;
+        const index = pieces.findIndex(piece => piece.id === id);
+        if (index >= 0 && index <= read.index) fraction = Math.min(fraction, manuscriptProgress({ index, fraction: Number(prose.dataset.readerRevealedFraction) || 0 }, prefixes, totalWords));
+      }
+      if (barRef.current) { barRef.current.style.width = `${(fraction * 100).toFixed(1)}%`; barRef.current.parentElement?.setAttribute('aria-valuenow', String(Math.round(fraction * 100))); }
       if (percentRef.current) {
         percentRef.current.textContent = fraction.toLocaleString(locale, {
           style: 'percent',
@@ -305,7 +320,7 @@ export default function ReadingView({
       }
       return position;
     },
-    [heightOf, locale, pieces.length, prefixes, totalWords],
+    [heightOf, locale, pieces, prefixes, totalWords],
   );
 
   const pieceElement = useCallback((scroller: HTMLElement, id: string) => {
@@ -417,8 +432,10 @@ export default function ReadingView({
     };
 
     scroller.addEventListener('scroll', onScroll, { passive: true });
+    scroller.addEventListener('wh-reader-reveal', onScroll);
     return () => {
       scroller.removeEventListener('scroll', onScroll);
+      scroller.removeEventListener('wh-reader-reveal', onScroll);
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, [paintProgress, pieces.length]);
@@ -725,7 +742,7 @@ export default function ReadingView({
             in viewport-fuls: a 400-word idea and a 4 000-word chapter do not
             move the bar by the same amount. */}
         <div className="flex flex-shrink-0 items-center gap-2" title={t('writings.reading.progressHint')}>
-          <div className="h-1.5 w-28 overflow-hidden rounded-full bg-elevated">
+          <div role="progressbar" aria-label={t('writings.reading.progressHint')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={0} className="h-1.5 w-28 overflow-hidden rounded-full bg-elevated">
             <div ref={barRef} className="h-full rounded-full bg-accent-gold" style={{ width: '0%' }} />
           </div>
           <span ref={percentRef} className="w-9 text-right text-[11px] tabular-nums text-text-muted">
@@ -757,7 +774,7 @@ export default function ReadingView({
           prose rather than in the header, because a header that grows a row
           when a bookmark is restored reflows the first screenful of the book
           the reader has just been put back into. */}
-      {readerProject && <ReaderSoundtrackControl project={readerProject} writings={pieces} viewport={scrollerRef} locale={locale} />}
+      {readerProject && <ReaderSoundtrackControl project={readerProject} writings={pieces} viewport={scrollerRef} locale={locale} eraId={eraId} />}
       {resumedPiece && (
         <div
           role="status"
@@ -821,7 +838,7 @@ export default function ReadingView({
           ref={scrollerRef}
           tabIndex={-1}
           onClick={handleProseClick}
-          className="relative flex-1 overflow-y-auto outline-none"
+          className="wh-reader-body relative flex-1 overflow-y-auto outline-none"
         >
           <div ref={leadRef} aria-hidden="true" />
           {mounted.map((piece, offset) => (
@@ -834,13 +851,15 @@ export default function ReadingView({
               onOpenInEditor={onOpenInEditor}
               presentation={piece.projectId === readerProject?.id ? readerProject.readerPresentation.chapters[piece.id] : undefined}
               coverProject={piece.id === pieces[0]?.id ? readerProject : undefined}
+              playback={readerProject?.readerPresentation.playback ?? { mode: 'read', wordsPerMinute: 240 }}
+              eraId={eraId}
             />
           ))}
           <div ref={tailRef} aria-hidden="true" />
-          <p className="px-6 py-10 text-center text-xs text-text-dim">{t('writings.reading.end')}</p>
+          <p data-reader-end className="px-6 py-10 text-center text-xs text-text-dim">{t('writings.reading.end')}</p>
         </div>
       </div>
-      {showPresentation && readerProject && <ReaderPresentationModal project={readerProject} writings={pieces.filter(piece => piece.projectId === readerProject.id)} initialWritingId={activePiece?.id} onClose={() => setShowPresentation(false)} />}
+      {showPresentation && readerProject && <ReaderPresentationModal project={readerProject} writings={pieces.filter(piece => piece.projectId === readerProject.id)} initialWritingId={activePiece?.id} eraId={eraId} onClose={() => setShowPresentation(false)} />}
     </div>
   );
 }

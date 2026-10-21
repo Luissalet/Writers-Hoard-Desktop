@@ -64,6 +64,8 @@ export function deepTileSpec(world: WorldData, key: TileKey): CanonWindowSpec {
 /** A named place riding a deep tile's reply, in WORLD cell coordinates —
  *  the main thread letters these live (names never bake into tiles). */
 export interface TilePlace {
+  sourceKey?: string;
+  style?: import('../core/spatialEntities').WorldSpatialStyle;
   worldX: number;
   worldY: number;
   name: string;
@@ -189,6 +191,14 @@ export interface DeepTileResult {
   places: TilePlace[];
 }
 
+/** Presentation is folded at render time, so cached physical canon stays pure. */
+export function styledRegionPlaces(region: RegionData, world: WorldData, edits?: WorldEdit[]): RegionData {
+  const styles = { ...world.painted?.styles };
+  for (const e of edits ?? []) if (e.kind === 'style') styles[e.key] = { ...styles[e.key], ...e.style };
+  if (!Object.keys(styles).length) return region;
+  return { ...region, places: region.places.map(p => ({ ...p, style: styles[p.sourceKey] ?? p.style })) };
+}
+
 /**
  * Render one deep display tile. Generates (or reuses) the canon supertiles
  * under it, composes the exact window, and inks it pliego-style.
@@ -207,14 +217,14 @@ export function renderDeepTile(
   const placed = canonCoverFor(world, geography, cache, cover, opts.edits,
     { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES }, built, opts.quantizeCanon);
 
-  const region = composeCanonWindow(world, placed, spec);
+  const region = styledRegionPlaces(composeCanonWindow(world, placed, spec), world, opts.edits);
   const m = region.margin;
   const places: TilePlace[] = [];
   for (const p of region.places) {
     if (p.x < m || p.x >= m + spec.cw || p.y < m || p.y >= m + spec.ch) continue;
     if (!p.name) continue;
     places.push({
-      worldX: p.worldX, worldY: p.worldY,
+      sourceKey: p.sourceKey, style: p.style, worldX: p.worldX, worldY: p.worldY,
       name: p.name, kind: p.kind, importance: p.importance,
     });
   }

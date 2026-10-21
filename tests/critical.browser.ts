@@ -944,6 +944,7 @@ async function testScriptImportRoundTrip(): Promise<void> {
   assert(fs1.blocks[2].type === 'transition' && fs1.blocks[3].type === 'slug', 'fdx transition/shot mapping wrong');
 
   // ── Persistence: append-only rows, locked numbers, codex stamping ──
+  await db.projects.put({ id: projectId, title: 'Script import', mode: 'playwright', type: 'standalone', color: '#777777', description: '', status: 'draft', enabledEngines: ['dialog-scene', 'codex'], engineOrder: [], createdAt: now, updatedAt: now });
   await db.codexEntries.add({
     id: 'codex-marta', projectId, type: 'character', title: 'Marta',
     fields: {}, content: '', tags: [], relations: [], createdAt: now, updatedAt: now,
@@ -968,6 +969,7 @@ async function testScriptImportRoundTrip(): Promise<void> {
     await db.scenes.where('projectId').equals(projectId).delete();
     await db.codexEntries.delete('codex-marta');
   });
+  await (await import('@/db/operations')).deleteProject(projectId);
 
   passed.push('Fountain/FDX import round trip + persistence');
 }

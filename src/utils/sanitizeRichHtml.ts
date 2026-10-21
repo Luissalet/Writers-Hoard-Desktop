@@ -1,5 +1,5 @@
 import DOMPurify, { type Config } from 'dompurify';
-import { FORMAT_ATTRIBUTES, formattingFromElement, formattingHtmlAttributes, INLINE_KEYS, BLOCK_KEYS, normalizeColumnWidths } from '@/components/editor/advanced/model';
+import { FORMAT_ATTRIBUTES, formattingFromElement, formattingHtmlAttributes, INLINE_KEYS, BLOCK_KEYS, SCENE_BREAK_KEYS, normalizeColumnWidths } from '@/components/editor/advanced/model';
 import { REVISION_ATTRIBUTES, REVISION_BREAK_ATTRIBUTES, revisionMetadataFromElement, revisionHtmlAttributes } from '@/engines/writings/revisions/model';
 import { EDITORIAL_ATTRIBUTES, normalizeEditorialStyle, normalizeEditorialSection, normalizeEditorialCitation, parseEditorialAttribute, serializeEditorialMetadata } from '@/components/editor/editorial/model';
 
@@ -57,7 +57,7 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
       node.classList.remove('wh-revision-insertion', 'wh-revision-deletion');
     }
   }
-  const keys = node.tagName === 'SPAN' ? INLINE_KEYS : /^(P|H[1-6])$/.test(node.tagName) ? BLOCK_KEYS : [];
+  const keys = node.tagName === 'SPAN' ? INLINE_KEYS : /^(P|H[1-6])$/.test(node.tagName) ? BLOCK_KEYS : node.tagName==='HR'?SCENE_BREAK_KEYS:[];
   const attrs = formattingHtmlAttributes(formattingFromElement(node), keys);
   for (const attr of Object.values(FORMAT_ATTRIBUTES)) node.removeAttribute(attr);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);

@@ -7,8 +7,14 @@ const liveStores = new Map<string, Map<string, object>>();
 
 /** Exact project-owned keys only; keep their emptied owners for safe retries. */
 export function clearProjectDraftStores(projectId: string): void {
-  for (const prefix of ['wh.maps-drafts.v1.', 'wh.map-features-drafts.v1.', 'wh.real-atlas-drafts.v1.', 'wh.editorial-drafts.v1.', 'wh.codex-drafts.v1.', 'wh.relation-trees.v1.', 'wh.character-sheets.v1.', 'wh.dictionary-drafts.v1.', 'wh.radar-drafts.v1.', 'wh.world-sheets-drafts.v1.']) {
-    createLocalDraftStore(`${prefix}${projectId}`, (value): value is object => value !== null && typeof value === 'object').clear();
+  const keys = new Set(liveStores.keys());
+  try { for (let index = 0; index < localStorage.length; index++) { const key = localStorage.key(index); if (key) keys.add(key); } } catch { /* In-memory owners can still be cleared. */ }
+  for (const prefix of ['wh.annotation-drafts.v1.', 'wh.maps-drafts.v1.', 'wh.map-features-drafts.v1.', 'wh.real-atlas-drafts.v1.', 'wh.editorial-drafts.v1.', 'wh.codex-drafts.v1.', 'wh.tool-dock-drafts.v1.', 'wh.relation-trees.v1.', 'wh.character-sheets.v1.', 'wh.dictionary-drafts.v1.', 'wh.radar-drafts.v1.', 'wh.world-sheets-drafts.v1.', 'wh.conversation-drafts.v1.', 'wh.board-era-drafts.v1.']) {
+    const baseKey = `${prefix}${projectId}`;
+    keys.add(baseKey);
+    for (const key of keys) if (key === baseKey || key.startsWith(`${baseKey}.era:`)) {
+      createLocalDraftStore(key, (value): value is object => value !== null && typeof value === 'object').clear();
+    }
   }
   try { localStorage.removeItem(`writing-workflow-draft:${projectId}`); } catch { /* Saved project deletion remains authoritative. */ }
 }

@@ -1,5 +1,29 @@
 use super::*;
 
+#[test]
+fn manuscript_comment_boundaries_share_html_projection_without_mutating_source() {
+    let mut engine = DocumentEngine::default();
+    let id = import_html(&mut engine, "<h1>Chapter</h1><p>Ágata 👩‍🚀 café.</p><table><tr><td>Cell</td></tr></table>");
+    engine.dispatch("execute", &json!({"sessionId":id,"command":"select.text","params":{"text":"Ágata 👩‍🚀"}})).unwrap();
+    let created = engine.dispatch("execute", &json!({"sessionId":id,"command":"review.newComment","params":{"text":"Name"}})).unwrap();
+    let comment_id = created["commandResult"]["id"].as_u64().unwrap();
+    engine.dispatch("execute", &json!({"sessionId":id,"command":"review.reply","params":{"id":comment_id,"text":"Reply"}})).unwrap();
+    engine.dispatch("execute", &json!({"sessionId":id,"command":"review.resolveComment","params":{"id":comment_id,"value":true}})).unwrap();
+    let before = engine.dispatch("document.inspect", &json!({"sessionId":id})).unwrap();
+    let projected = engine.dispatch("document.exportHtml", &json!({"sessionId":id,"includeRevisions":true,"includeComments":true})).unwrap();
+    assert_eq!(projected["commentProjectionVersion"], 1);
+    assert_eq!(projected["comments"].as_array().unwrap().len(), 2);
+    assert!(!projected["findings"].as_array().unwrap().iter().any(|finding| finding["code"] == "character-effects-retained-in-original" || finding["code"] == "embedded-object-retained-in-source"));
+    let first = &projected["comments"][0];
+    assert_eq!(first["resolved"], true);
+    let html = projected["html"].as_str().unwrap();
+    assert!(html.contains(first["startMarker"].as_str().unwrap()));
+    assert!(html.contains(first["endMarker"].as_str().unwrap()));
+    assert!(html.contains("<table"));
+    let after = engine.dispatch("document.inspect", &json!({"sessionId":id})).unwrap();
+    assert_eq!(before, after);
+}
+
 fn import_html(engine: &mut DocumentEngine, html: &str) -> String {
     engine.dispatch("document.importHtml", &json!({"html":html})).unwrap()["sessionId"].as_str().unwrap().into()
 }

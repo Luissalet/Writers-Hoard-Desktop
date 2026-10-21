@@ -5,6 +5,7 @@ import type { GenealogyLink, GenealogyLinkKind } from './validate';
 import { annotationIssues, annotationLines, annotationPolyline, type RelationTreeAnnotation } from './relationTreeAnnotations';
 import { edgePathIds, relationTreeSegments, treeEdgeLabelPosition, type RelationTreeJunction } from './relationTreeRoutes';
 import { isRelationIcon, relationIconSvg } from './relationIcons';
+import { validTreeImage } from './treeImages';
 
 export interface RelationTreeNode {
   id: string;
@@ -12,6 +13,8 @@ export interface RelationTreeNode {
   codexEntryId?: string;
   position: { x: number; y: number };
   deceased?: boolean;
+  /** Optional embedded local artwork, independent of the linked card's avatar. */
+  image?: string;
 }
 export interface RelationTreeEdge {
   id: string;
@@ -33,11 +36,15 @@ export interface RelationTreeDocument {
   annotations?: RelationTreeAnnotation[];
   junctions?: RelationTreeJunction[];
   viewport?: { x: number; y: number; zoom: number };
+  preset?: 'family' | 'corporate' | 'military' | 'royal' | 'blank';
+  snapToNodes?: boolean;
   copiedFrom?: string;
+  relationVocabulary?: RelationVocabulary[];
   revision: number;
   createdAt: number;
   updatedAt: number;
 }
+export interface RelationVocabulary {id:string;name:string;kind:RelationTreeEdge['kind'];label?:string;icon?:string;style:RelationTreeEdge['style']}
 export const TREE_KINDS = ['biological_parent', 'adoptive_parent', 'guardian', 'partner', 'custom'] as const;
 const STYLES = new Set(['solid', 'dashed', 'dotted']);
 const HANDLES = new Set(['top', 'bottom', 'left', 'right']);
@@ -50,11 +57,18 @@ export class RelationTreeValidationError extends Error {
 export function validateRelationTree(tree: RelationTreeDocument): void {
   const issues: string[] = [];
   if (!tree.id || typeof tree.id !== 'string' || !tree.title?.trim()) issues.push('invalid_title');
+  if (tree.preset !== undefined && !['family', 'corporate', 'military', 'royal', 'blank'].includes(tree.preset)) issues.push('invalid_preset');
+  if (tree.snapToNodes !== undefined && typeof tree.snapToNodes !== 'boolean') issues.push('invalid_snap');
+  if(tree.relationVocabulary!==undefined){
+    if(!Array.isArray(tree.relationVocabulary))issues.push('invalid_vocabulary');
+    else{const ids=new Set<string>();for(const value of tree.relationVocabulary){if(!value||typeof value.id!=='string'||!value.id||ids.has(value.id)||typeof value.name!=='string'||!value.name.trim()||!TREE_KINDS.includes(value.kind)||!STYLES.has(value.style)||value.label!==undefined&&typeof value.label!=='string'||value.icon!==undefined&&!isRelationIcon(value.icon))issues.push('invalid_vocabulary');if(value)ids.add(value.id);}}
+  }
   const nodeIds = new Set<string>();
   for (const node of tree.nodes) {
     if (!node.id || nodeIds.has(node.id)) issues.push('duplicate_node');
     nodeIds.add(node.id);
     if (!node.label?.trim() && !node.codexEntryId) issues.push('empty_node');
+    if (node.image !== undefined && !validTreeImage(node.image)) issues.push('invalid_tree_image');
     if (!Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) issues.push('invalid_position');
   }
   const junctionIds = new Set<string>();
@@ -127,13 +141,14 @@ export function exportRelationTreeSvg(tree: RelationTreeDocument, names: Readonl
     const tangent = (point: typeof a, side: string) => ({ x: point.x + (side === 'left' ? -offset : side === 'right' ? offset : 0), y: point.y + (side === 'top' ? -offset : side === 'bottom' ? offset : 0) });
     const c1 = tangent(a, sourceSide), c2 = tangent(b, targetSide);
     const dash = edge.style === 'dashed' ? '8 5' : edge.style === 'dotted' ? '2 5' : '';
-    const label = edge.segmentIndex ? '' : edge.label || edge.kind;
+    const label = edge.segmentIndex || edge.label === '' ? '' : edge.label || edge.kind;
     const labelPoint = treeEdgeLabelPosition(tree, tree.edges.find(item => item.id === edge.logicalId)!) ?? { x: (x + tx) / 2, y: (y + ty) / 2 - 8 };
     return `<g><path d="M${x} ${y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${tx} ${ty}" fill="none" stroke="#716650" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ''}${edge.last && edge.kind.endsWith('_parent') ? ' marker-end="url(#arrow)"' : ''}/>${relationIconSvg(edge.icon, labelPoint.x - 9, labelPoint.y - 25)}${label ? `<text x="${labelPoint.x}" y="${labelPoint.y}" text-anchor="middle" font-size="12">${esc(label)}</text>` : ''}</g>`;
   }).join('');
   const cards = tree.nodes.map(node => {
     const label = node.codexEntryId ? names.get(node.codexEntryId) ?? node.label : node.label;
-    return `<g transform="translate(${node.position.x} ${node.position.y})"><rect width="200" height="75" rx="8" fill="${node.deceased ? '#e4e1db' : '#faf8f2'}" stroke="#716650"/><text x="12" y="30" font-size="14"${node.deceased ? ' text-decoration="line-through"' : ''}>${esc(label.length > 26 ? `${label.slice(0, 25)}…` : label)}</text>${node.deceased ? '<path d="M180 12V34M172 20H188" stroke="#716650" stroke-width="2"/>' : ''}<title>${esc(label)}</title></g>`;
+    const image = node.image ? `<image href="${esc(node.image)}" x="10" y="18" width="36" height="36"/>` : '', limit = image ? 19 : 26;
+    return `<g transform="translate(${node.position.x} ${node.position.y})"><rect width="200" height="75" rx="8" fill="${node.deceased ? '#e4e1db' : '#faf8f2'}" stroke="#716650"/>${image}<text x="${image ? 56 : 12}" y="30" font-size="14"${node.deceased ? ' text-decoration="line-through"' : ''}>${esc(label.length > limit ? `${label.slice(0, limit - 1)}…` : label)}</text>${node.deceased ? '<path d="M180 12V34M172 20H188" stroke="#716650" stroke-width="2"/>' : ''}<title>${esc(label)}</title></g>`;
   }).join('');
   const points = (tree.junctions ?? []).map(point => `<circle cx="${point.position.x + 8}" cy="${point.position.y + 8}" r="6" stroke="#716650" stroke-width="2" fill="white"/>`).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${x1 - x0} ${y1 - y0}" width="${x1 - x0}" height="${y1 - y0}"><title>${esc(tree.title)}</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#716650"/></marker></defs><rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="white"/><g fill="#242d36" font-family="system-ui,sans-serif">${drawings}${edges}${cards}${points}</g></svg>`;

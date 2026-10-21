@@ -25,6 +25,8 @@
 // whole world, which is exactly the old behaviour.
 
 import * as THREE from 'three';
+import { sampleWorldHeight, WORLD_HEIGHT_GLSL } from '../core/heightSampling';
+import { FOREST_COVER_GLSL } from '../core/forestCover';
 import { Biome } from '../core/types';
 
 export type SculptShape = 'plane' | 'globe';
@@ -75,34 +77,6 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
-function bilinearWrapped(
-  values: Float32Array,
-  width: number,
-  height: number,
-  u: number,
-  v: number,
-): number {
-  const tx = u * width - 0.5;
-  const ty = v * height - 0.5;
-  const x0 = Math.floor(tx);
-  const y0 = Math.floor(ty);
-  // Los mismos pesos suavizados que usa `baseHeightAt` en el shader. Si la
-  // CPU y la GPU reconstruyeran el terreno de forma distinta, la cámara se
-  // apoyaría en un suelo que no es el que se ve, y el ratón señalaría un
-  // punto que no es donde está — sub-celda, pero real. Una superficie, una
-  // fórmula, los dos lados.
-  const sx = tx - x0, sy = ty - y0;
-  const fx = sx * sx * (3 - 2 * sx);
-  const fy = sy * sy * (3 - 2 * sy);
-  const ax = ((x0 % width) + width) % width;
-  const bx = (((x0 + 1) % width) + width) % width;
-  const ay = Math.min(height - 1, Math.max(0, y0));
-  const by = Math.min(height - 1, Math.max(0, y0 + 1));
-  const a = values[ay * width + ax] * (1 - fx) + values[ay * width + bx] * fx;
-  const b = values[by * width + ax] * (1 - fx) + values[by * width + bx] * fx;
-  return a * (1 - fy) + b * fy;
-}
-
 function bilinearClamped(
   values: Float32Array,
   width: number,
@@ -151,49 +125,9 @@ export function clampCameraToSurface(
 }
 
 const HEIGHT_FN = /* glsl */`
-// Bilinear read of an R32F texture with NEAREST filtering.
-//
-// R32F is not linearly filterable without an extension, and asking for LINEAR
-// anyway yields an incomplete texture that samples as zero — which shows up as
-// a flat grey world and took an afternoon to find the first time. Doing the
-// interpolation by hand costs four fetches and cannot fail.
-float baseHeightAt(vec2 uv) {
-  vec2 t = uv * uGrid - 0.5;
-  vec2 f = fract(t);
-  // Pesos SUAVIZADOS, no lineales. Y es la diferencia entre un mundo que
-  // parece hecho de cubos y uno que no.
-  //
-  // La interpolación bilineal pura da una superficie continua pero con
-  // DERIVADA a saltos: dentro de cada celda el gradiente es constante, y
-  // cambia de golpe al cruzar al vecino. Como la normal de esta superficie
-  // sale de diferencias centradas sobre ese campo, la iluminación queda
-  // constante por celda — y lo que se ve son facetas cuadradas de veinte
-  // kilómetros, que es exactamente lo que Luis llamó "vergonzosamente
-  // pixelado". No era falta de malla ni de textura: era el filtro de
-  // reconstrucción.
-  //
-  // Con f = f*f*(3-2f) los pesos llegan a los bordes de celda con derivada
-  // nula, el gradiente cruza de forma continua y las facetas desaparecen.
-  // El valor EN el centro de cada celda no se toca (f=0 y f=1 siguen dando
-  // 0 y 1), así que el terreno sigue pasando por los datos del generador y
-  // heightAtCell sigue devolviendo lo mismo: cambia cómo se rellena entre
-  // celdas, no lo que hay en ellas.
-  // (Sin comillas invertidas en este comentario: vive dentro de un template
-  //  literal de JavaScript y una sola cerraría el shader entero.)
-  f = f * f * (3.0 - 2.0 * f);
-  ivec2 i = ivec2(floor(t));
-  int gw = int(uGrid.x);
-  int gh = int(uGrid.y);
-  int ax = ((i.x % gw) + gw) % gw;
-  int bx = (((i.x + 1) % gw) + gw) % gw;
-  int ay = clamp(i.y, 0, gh - 1);
-  int by = clamp(i.y + 1, 0, gh - 1);
-  float h00 = texelFetch(uHeight, ivec2(ax, ay), 0).r;
-  float h10 = texelFetch(uHeight, ivec2(bx, ay), 0).r;
-  float h01 = texelFetch(uHeight, ivec2(ax, by), 0).r;
-  float h11 = texelFetch(uHeight, ivec2(bx, by), 0).r;
-  return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
-}
+// Monotone reconstruction preserves ramps, samples and continuous slopes.
+${WORLD_HEIGHT_GLSL}
+float baseHeightAt(vec2 uv) { return sampleWorldHeightTexture(uv); }
 
 /** Value noise on a 2D lattice, cheap and continuous. */
 float ampHash(vec2 p) {
@@ -406,6 +340,7 @@ uniform vec2  uGrid;
 uniform vec2  uDetailGrid;
 uniform vec2  uDetailOrigin;
 uniform vec2  uDetailSize;
+uniform float uDetailDisp;
 uniform float uDetailOn;
 /** The canonical patch's own colours, for the close range. The world raster
  *  magnified a hundredfold is a blur; this is drawn from the patch's cover. */
@@ -507,6 +442,8 @@ in vec3 vWorld;
 out vec4 outColor;
 
 ${HEIGHT_FN}
+${FOREST_COVER_GLSL}
+
 
 // ---------------------------------------------------------------------------
 // Close-range detail
@@ -564,6 +501,14 @@ float fbm3(vec3 p) {
  * behind it could be a valley, and your eye keeps asking. Plane only: on the
  * globe the ray leaves the parameterisation and the honest thing is to skip it.
  */
+float shadowHeight(vec2 uv) {
+  vec2 t = uv * uGrid - 0.5, f = fract(t);
+  ivec2 i = ivec2(floor(t)), grid = ivec2(uGrid);
+  int ax = ((i.x % grid.x)+grid.x)%grid.x, bx = (ax+1)%grid.x;
+  int ay = clamp(i.y,0,grid.y-1), by = clamp(i.y+1,0,grid.y-1);
+  return mix(mix(texelFetch(uHeight,ivec2(ax,ay),0).r,texelFetch(uHeight,ivec2(bx,ay),0).r,f.x),
+             mix(texelFetch(uHeight,ivec2(ax,by),0).r,texelFetch(uHeight,ivec2(bx,by),0).r,f.x),f.y);
+}
 float sunShadow(vec2 uv, float e) {
   if (uShadow <= 0.001 || uShape > 0.5 || uHeadlight > 0.5) return 1.0;
   vec3 L = normalize(uSun);
@@ -572,24 +517,20 @@ float sunShadow(vec2 uv, float e) {
   vec2 dir = vec2(L.x / uSizeX, L.z / uSizeZ);
   float dl = length(vec2(L.x, L.z));
   if (dl < 1e-4) return 1.0;
-  float reach = 0.055;                       // how far a peak may shade, in uv
+  float cellUnits = uSizeX/uGrid.x;
+  float reach = min(uSizeX*0.055,cellUnits*16.0);
+  // The receiver and blockers use the same continuous coarse shadow field.
+  // Nearest-cell blockers cast grid-shaped false self-shadows on a smooth hill.
+  float receiver = shadowHeight(uv) * uYMul;
   float shade = 0.0;
   for (int k = 1; k <= 14; k++) {
     float t = float(k) / 14.0;
-    float march = t * t * reach;              // dense near the point, sparse far
+    float march = t * t * reach;              // scene units, in BOTH axes
     vec2 s = uv + dir * (march / max(1e-5, dl));
-    float rayY = e * uYMul + (march * uSizeX * L.y / max(1e-5, dl));
-    // One nearest fetch, not the bilinear read.
-    //
-    // The shadow ray asks "is anything in the way", and a shadow edge half a cell
-    // off is invisible; four fetches per step to place it exactly would make this
-    // function alone cost more than the rest of the shader put together. Fourteen
-    // steps at one fetch each instead of twenty at four is five times cheaper for
-    // a difference nobody can see.
-    float terrY = texelFetch(uHeight, ivec2(
-      ((int(floor(s.x * uGrid.x)) % int(uGrid.x)) + int(uGrid.x)) % int(uGrid.x),
-      clamp(int(floor(s.y * uGrid.y)), 0, int(uGrid.y) - 1)), 0).r * uYMul;
-    shade = max(shade, clamp((terrY - rayY) * 3.0 / max(0.02, march * uSizeX), 0.0, 1.0));
+    float rayY = receiver + march * L.y / max(1e-5, dl);
+    float terrY = shadowHeight(s) * uYMul;
+    float penumbra = max(cellUnits*0.015,march*0.025);
+    shade = max(shade, smoothstep(cellUnits*0.002,penumbra,terrY-rayY));
   }
   return 1.0 - shade * uShadow;
 }
@@ -635,9 +576,13 @@ float tipDist(vec2 d, vec2 cell, float r) {
 }
 
 void main() {
-  float e = vElev;
+  // Interpolating vertex height shades each triangle's planar approximation,
+  // especially under exaggeration. Lighting addresses the same reconstructed
+  // surface as displacement/picking, including its mesh-limited canon patch.
+  float e = heightAtDisp(vUV, uDetailDisp);
+  vec3 surfaceWorld = placeAt(vUV, e);
   bool underwater = e <= uSea;
-  vec2 texel = 1.0 / uGrid;
+  vec2 texel = 0.2 / uGrid;
 
   // THE LIGHTING RESOLUTION FOLLOWS THE DATA. These central differences used
   // to step ±1 WORLD cell always — ±20 km — even inside the canonical detail
@@ -651,7 +596,7 @@ void main() {
   /**
    * LAS DERIVADAS, POR EL MARCO LOCAL.
    *
-   * «dFdx(vWorld)» es la diferencia entre dos píxeles vecinos de un número que
+   * «dFdx(surfaceWorld)» es la diferencia entre dos píxeles vecinos de un número que
    * vale ~96 unidades. A 250 m de vano esa diferencia es 1,5e-9 y el escalón del
    * float32 a esa magnitud es 7,6e-6: la derivada salía **exactamente cero**, y
    * con ella «pxUnits» se iba al mínimo, «resolvable» a uno y el marco tangente
@@ -663,11 +608,11 @@ void main() {
    * desplazamiento de la escena, y a escala de planeta no hacía falta).
    */
   vec3 dpx = uShape < 0.5
-    ? vec3(dFdx(vLocal.x) * uSizeX, dFdx(vElev) * uYMul, dFdx(vLocal.y) * uSizeZ)
-    : dFdx(vWorld);
+    ? vec3(dFdx(vLocal.x) * uSizeX, dFdx(e) * uYMul, dFdx(vLocal.y) * uSizeZ)
+    : dFdx(surfaceWorld);
   vec3 dpy = uShape < 0.5
-    ? vec3(dFdy(vLocal.x) * uSizeX, dFdy(vElev) * uYMul, dFdy(vLocal.y) * uSizeZ)
-    : dFdy(vWorld);
+    ? vec3(dFdy(vLocal.x) * uSizeX, dFdy(e) * uYMul, dFdy(vLocal.y) * uSizeZ)
+    : dFdy(surfaceWorld);
   if (uDetailOn > 0.5) {
     float wx0 = vUV.x - uDetailOrigin.x;
     wx0 -= round(wx0);
@@ -694,10 +639,10 @@ void main() {
   // be wrong between vertices anyway. Central differences on the texture give a
   // normal at full grid resolution no matter how coarse the mesh is, which is
   // why a 1024-wide mesh can carry a 4096-wide world without looking it.
-  float hxp = heightAt(vUV + vec2(texel.x, 0.0));
-  float hxm = heightAt(vUV - vec2(texel.x, 0.0));
-  float hyp = heightAt(vUV + vec2(0.0, texel.y));
-  float hym = heightAt(vUV - vec2(0.0, texel.y));
+  float hxp = heightAtDisp(vUV + vec2(texel.x, 0.0), uDetailDisp);
+  float hxm = heightAtDisp(vUV - vec2(texel.x, 0.0), uDetailDisp);
+  float hyp = heightAtDisp(vUV + vec2(0.0, texel.y), uDetailDisp);
+  float hym = heightAtDisp(vUV - vec2(0.0, texel.y), uDetailDisp);
   float hx = hxp - hxm;
   float hy = hyp - hym;
   vec3 n;
@@ -705,7 +650,7 @@ void main() {
     n = normalize(vec3(-hx * uYMul / (uSizeX * texel.x * 2.0), 1.0,
                        -hy * uYMul / (uSizeZ * texel.y * 2.0)));
   } else {
-    vec3 up = normalize(vWorld);
+    vec3 up = normalize(surfaceWorld);
     float lat = (0.5 - vUV.y) * 3.14159265;
     float cl = max(0.08, cos(lat));
     float lon = (vUV.x - 0.5) * 6.2831853;
@@ -720,7 +665,7 @@ void main() {
   // negative on a ridge. It is the single cheapest thing that makes a sculpt
   // read as a solid object rather than as a shaded picture of one — every
   // sculpting program has it and it is why their clay looks like clay.
-  float lap = (hxp + hxm + hyp + hym) * 0.25 - heightAt(vUV);
+  float lap = (hxp + hxm + hyp + hym) * 0.25 - e;
   float cav = clamp(lap * uYMul / max(1e-5, uSizeX * texel.x) * 6.0, -1.0, 1.0);
   // BAJO EL AGUA, NADA DE CAVIDAD. La normal ya se endereza con la profundidad
   // (ver más arriba: el fondo oceánico tiene CUATRO VECES el desnivel por celda
@@ -769,7 +714,7 @@ void main() {
     // becomes film grain over it.
     float cellUnits = uSizeX / uGrid.x;
     f = min(f, 1.0 / max(1e-5, cellUnits * 0.010));
-    float m = fbm3(vWorld * f);
+    float m = fbm3(surfaceWorld * f);
     micro = m - 0.5;
     // The slope the bump adds is amplitude × frequency, so the amplitude has to
     // fall as the frequency rises or the ground turns to gravel the moment you
@@ -829,7 +774,7 @@ void main() {
     // a esta escala nadie estaba leyendo. Lo que se gana: un mar que parece
     // agua en vez de una plancha de azulejos.
     float depth = smoothstep(0.0, 0.08, uSea - e);
-    vec3 stillNormal = uShape < 0.5 ? vec3(0.0, 1.0, 0.0) : normalize(vWorld);
+    vec3 stillNormal = uShape < 0.5 ? vec3(0.0, 1.0, 0.0) : normalize(surfaceWorld);
     n = normalize(mix(n, stillNormal, depth * 0.97));
   }
 
@@ -933,11 +878,23 @@ void main() {
     }
   }
 
+  // A map-scale canopy is a continuous physical biome footprint. Its crown
+  // light follows this 3D sun and normal; trees remain the near-scale layer.
+  float canopy = underwater || uClay > 0.5 ? 0.0 : smoothstep(0.18, 0.85, forestCoverAt(vUV));
+  if (canopy > 0.001) {
+    vec2 q = vUV * uGrid;
+    float crowns = ampNoise(q * 7.5) * 0.65 + ampNoise(q * 17.0) * 0.35;
+    col = mix(col, col * vec3(0.62,0.77,0.57) * (0.84 + crowns * 0.30), canopy * 0.72);
+    float dx = ampNoise((q+vec2(0.03,0.0))*7.5)-ampNoise((q-vec2(0.03,0.0))*7.5);
+    float dz = ampNoise((q+vec2(0.0,0.03))*7.5)-ampNoise((q-vec2(0.0,0.03))*7.5);
+    n = normalize(n + vec3(-dx,0.0,-dz) * canopy * 0.3);
+  }
+
   // ---- light --------------------------------------------------------------
-  vec3 L = mix(normalize(uSun), normalize(uCam - vWorld), uHeadlight);
+  vec3 L = mix(normalize(uSun), normalize(uCam - surfaceWorld), uHeadlight);
   float lam = clamp(dot(n, L), 0.0, 1.0);
   float sky = 0.5 + 0.5 * n.y;
-  vec3 V = normalize(uCam - vWorld);
+  vec3 V = normalize(uCam - surfaceWorld);
   // A broad specular sheen, which is what tells you a surface is curving away.
   float spec = pow(clamp(dot(reflect(-L, n), V), 0.0, 1.0), 22.0) * (uClay > 0.5 ? 0.28 : 0.12);
   // Fresnel rim: separates the silhouette from the background at a glance.
@@ -1016,7 +973,7 @@ void main() {
   // herramienta, no sitio. Un aro de pincel que se desvanece con la distancia es
   // el contorno con el que apuntas desapareciendo justo donde más falta hace.
   if (uFogOn > 0.5) {
-    float dxz = uShape < 0.5 ? length(vWorld.xz - uCam.xz) : length(vWorld - uCam);
+    float dxz = uShape < 0.5 ? length(surfaceWorld.xz - uCam.xz) : length(surfaceWorld - uCam);
     vec3 fogCol = mix(uHorizon, uFogWarm, pow(max(dot(-V, uSun), 0.0), 3.0) * 0.55);
     col = mix(col, fogCol, 1.0 - exp(-pow(dxz / max(1e-3, uFogDist), 1.3)));
   }
@@ -1666,7 +1623,7 @@ export class SculptSurface {
    * believes does not exist.
    */
   heightAtUV(u: number, v: number): number {
-    const base = bilinearWrapped(this.heights, this.W, this.H, u, v);
+    const base = sampleWorldHeight(this.heights, this.W, this.H, u, v);
     const patch = this.detailPatch;
     if (!patch) return base;
     let wrappedX = u - patch.u;

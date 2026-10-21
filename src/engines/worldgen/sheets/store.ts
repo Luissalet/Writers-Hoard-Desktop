@@ -1,3 +1,4 @@
+import { worldgenScopeOperations } from '../era';
 import { db } from '@/db';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { stableStringify } from '../region/workerProtocol';
@@ -7,9 +8,10 @@ import type { WorldData } from '../core/types';
 
 export class WorldRegionConflict extends Error {}
 /** Apply only changed region IDs. Unrelated concurrent regions/metadata survive. */
-export async function saveWorldRegionChanges(projectId: string, worldId: string, base: readonly SavedWorldRegion[], next: readonly SavedWorldRegion[], expectedParams?: GeneratedWorld['params']): Promise<SavedWorldRegion[]> {
-  const result = await db.transaction('rw', db.generatedWorlds, async () => {
-    const world = await db.generatedWorlds.get(worldId);
+export async function saveWorldRegionChanges(projectId: string, worldId: string, base: readonly SavedWorldRegion[], next: readonly SavedWorldRegion[], expectedParams?: GeneratedWorld['params'], eraId?: string): Promise<SavedWorldRegion[]> {
+  const { worlds } = worldgenScopeOperations({ projectId, eraId });
+  const result = await db.transaction('rw', eraId ? db.tables : [db.generatedWorlds], async () => {
+    const world = await worlds.getOne(worldId);
     if (!world || world.projectId !== projectId || (expectedParams && stableStringify(world.params) !== stableStringify(expectedParams))) throw new WorldRegionConflict('World changed');
     const previous = new Map(base.map(item => [item.id, item])), proposed = new Map(next.map(item => [item.id, item])), current = new Map((world.regions ?? []).map(item => [item.id, item]));
     if (proposed.size !== next.length) throw new WorldRegionConflict('Duplicate region identity');
@@ -23,7 +25,7 @@ export async function saveWorldRegionChanges(projectId: string, worldId: string,
         current.set(id, structuredClone(after));
       } else current.delete(id);
     }
-    const regions = [...current.values()]; await db.generatedWorlds.update(worldId, { regions, updatedAt: Date.now() }); return regions;
+    const regions = [...current.values()]; await worlds.update(worldId, { regions, updatedAt: Date.now() }); return regions;
   });
   notifyDataChanged({ source: 'other', table: 'generatedWorlds', projectId, entityId: worldId }); return result;
 }

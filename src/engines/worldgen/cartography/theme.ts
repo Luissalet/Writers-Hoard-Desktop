@@ -36,6 +36,18 @@ export interface SymbolStyle {
 export interface CartoTheme {
   id: string;
   name: string;
+  /** An atlas can describe height with pigment and measured lines instead of
+   * pictorial peaks. Absent keeps the original hand-drawn vocabulary. */
+  terrain?: {
+    symbols: boolean;
+    forests: boolean;
+    canopy?: boolean;
+    highland: string;
+    start: number;
+    at: number;
+    alpha: number;
+    contours: { interval: number; color: string; alpha: number; width: number };
+  };
 
   // ---- Paper -------------------------------------------------------------
   paper: {
@@ -419,7 +431,58 @@ export const THEME_ANTIQUE: CartoTheme = {
   furniture: { ink: '#4a3618', accent: '#8a6c3d', frame: '#5b451f', frameFill: '#ded0ac', teeth: 64, flourish: false },
 };
 
-export const THEMES: CartoTheme[] = [THEME_WONDER, THEME_ANTIQUE];
+/** Pigment carries the mountain's actual shape; small tree canopies describe
+ * wooded masses without covering the valleys in large peak silhouettes. */
+export const THEME_RELIEF: CartoTheme = {
+  ...THEME_WONDER,
+  id: 'relief', name: 'Relieve pintado',
+  terrain: { symbols: false, forests: true, canopy: true, highland: '#9b8e73', start: 0.6, at: 3.3, alpha: 0.86, contours: { interval: 0.5, color: '#756d56', alpha: 0.18, width: 0.55 } },
+  paper: { base: '#e9e6cf', grain: '#c8c5ab', stain: '#b8ae88', grainAmount: 0.16, blotchAmount: 0.14, vignette: 0.16 },
+  ocean: {
+    ...THEME_WONDER.ocean,
+    shallow: '#83b9bd', deep: '#325f79', deepAt: 4.4,
+    rings: { count: 2, spacing: 4.5, width: 1.6, color: '#b7d7cf', alpha: 0.2, falloff: 0.6 },
+    shelf: { enabled: true, depth: 0.55, color: '#508f9e', alpha: 0.18, width: 0.7 },
+    stipple: { enabled: false, color: '#325f79', alpha: 0, spacing: 12 },
+  },
+  coastline: { color: '#4e685c', width: 0.85, wobble: 0.2 },
+  land: { ...THEME_WONDER.land, base: '#d8d7ae', tintAlpha: 0.7, shading: 1, shadeColor: '#294237', snow: '#edf0e9', hachure: { ...THEME_WONDER.land.hachure, enabled: false } },
+  forest: { ...THEME_WONDER.forest, size: 3.8, ink: '#3d5941', light: '#81936b', shadow: '#4e6a4c', lineWidth: 0.48, aerial: 0.45 },
+  rivers: { color: '#497f99', maxWidth: 1.1, minWidth: 0.32 },
+  roads: { major: '#9c7450', minor: '#9e8b67', majorWidth: 1.3, minorWidth: 0.75, dash: [4, 2.5] },
+  type: { ...THEME_WONDER.type, color: '#34493e', halo: 'rgba(233,230,207,0.85)', oceanColor: '#1c4c64', haloWidth: 2.4 },
+  furniture: { ink: '#34493e', accent: '#7d8a69', frame: '#6b7962', frameFill: '#d5d7bc', teeth: 40, flourish: false },
+};
+
+/** A nautical night sheet: height remains measurable through real contours,
+ * while restrained phosphor ink leaves waterways and names unmistakable. */
+export const THEME_SURVEY: CartoTheme = {
+  ...THEME_ANTIQUE,
+  id: 'survey', name: 'Carta nocturna',
+  terrain: { symbols: false, forests: false, highland: '#356d74', start: 0.2, at: 4, alpha: 0.7, contours: { interval: 0.4, color: '#6eb7b6', alpha: 0.38, width: 0.55 } },
+  paper: { base: '#11242c', grain: '#17323b', stain: '#0c1b24', grainAmount: 0.08, blotchAmount: 0.1, vignette: 0.16 },
+  ocean: {
+    shallow: '#16333e', deep: '#091922', deepAt: 4.5,
+    rings: { count: 2, spacing: 4, width: 0.65, color: '#527b87', alpha: 0.24, falloff: 0.5 },
+    hatch: { enabled: false, color: '#315664', alpha: 0, spacing: 8 },
+    shelf: { enabled: true, depth: 0.6, color: '#416672', alpha: 0.28, width: 0.6 },
+    stipple: { enabled: false, color: '#315664', alpha: 0, spacing: 12 },
+  },
+  coastline: { color: '#b1d9d4', width: 0.85, wobble: 0.1 },
+  mountains: { ...THEME_ANTIQUE.mountains, ink: '#6eb7b6', light: '#426e76', shadow: '#18353f', hatch: '#548c96', snow: '#88adb4' },
+  hills: { ...THEME_ANTIQUE.hills, ink: '#6eb7b6', light: '#426e76', shadow: '#18353f' },
+  forest: { ...THEME_ANTIQUE.forest, ink: '#52888c', light: '#46777a', shadow: '#17343e' },
+  land: { ...THEME_ANTIQUE.land, base: '#27434a', tintAlpha: 0.08, shading: 0.7, shadeColor: '#091b25', snow: '#88adb4', hachure: { ...THEME_ANTIQUE.land.hachure, enabled: false } },
+  rivers: { color: '#91cbd2', maxWidth: 1, minWidth: 0.3 },
+  lakes: { fill: '#173642', stroke: '#8bc2cb', width: 0.75 },
+  roads: { major: '#d0b788', minor: '#a69e80', majorWidth: 1.1, minorWidth: 0.7, dash: [3, 3] },
+  settlement: { ink: '#d8e7db', fill: '#17323c', capitalFill: '#d0b788' },
+  borders: { width: 0.9, alpha: 0.6, dash: [4, 4], fillAlpha: 0.04 },
+  type: { ...THEME_ANTIQUE.type, color: '#c9dfd7', halo: 'rgba(12,29,38,0.88)', haloWidth: 2.6, oceanColor: '#85b6c2' },
+  furniture: { ink: '#accfc9', accent: '#c2aa7b', frame: '#5f8b91', frameFill: '#18343d', teeth: 32, flourish: false },
+};
+
+export const THEMES: CartoTheme[] = [THEME_WONDER, THEME_ANTIQUE, THEME_RELIEF, THEME_SURVEY];
 
 export function themeById(id: string): CartoTheme {
   return THEMES.find((t) => t.id === id) ?? THEME_WONDER;

@@ -1,0 +1,23 @@
+{
+  "scope": "Manuscript comment projection and effective-body diagnostics; historical VERIFICATION.json remains the earlier build record",
+  "binary": "native/bin/writer-document-engine.exe",
+  "sha256": "a6f3cb13f336a15dc904742997e34302fe90a1f807dcce0588de4ac47754e1af",
+  "build": "node scripts/build-document-engine.mjs",
+  "checks": {
+    "nativeLibrary": { "command": "cargo test --locked -p writer-document-engine --lib", "pass": 21, "fail": 0 },
+    "electronDocumentService": { "command": "WRITER_DOCUMENT_ENGINE_TEST_BINARY=<absolute owned binary> npm run test:document-service", "pass": 14, "fail": 0, "skip": 0 },
+    "manuscriptCore": 6,
+    "manuscriptEdges": 5,
+    "normalUi1440And640": 2,
+    "db43To44": 1,
+    "browserFallback": 1,
+    "external62MiBBinaryEnvelope": 1,
+    "existingStableRegressionGroups": 55
+  },
+  "limits": [
+    "Synthetic compatible DOCX fixtures, not universal Word fidelity or a real-world corpus",
+    "No Word desktop application run",
+    "Unmapped, excluded and cross-chapter comments remain in the preserved original",
+    "The general history matrix needs a fixture for its newly added local-tool kind; its retained failure is not counted as PASS"
+  ]
+}

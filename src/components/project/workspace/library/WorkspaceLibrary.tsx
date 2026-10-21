@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {writeLocalToolDocumentDrag,localToolReferenceForEngine} from '@/engines/local/references';
+import DocumentHistoryPanel, { type HistoryTarget } from '@/services/documentHistory/DocumentHistoryPanel';
+import DocumentImageDialog from '@/services/documentImage/DocumentImageDialog';
+import type { EraDocumentKind } from '@/services/worldEras/types';
+import { getEraProject } from '@/services/worldEras/store';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowDown, ArrowUp, Columns2, FileText, Folder, FolderPlus, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, Columns2, FilePlus, FileText, Folder, FolderPlus, History, Search } from 'lucide-react';
 import { db } from '@/db';
 import { useTranslation } from '@/i18n/useTranslation';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
@@ -12,15 +17,19 @@ import { libraryCopy } from './copy';
 
 const button = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
 const input = 'min-h-10 min-w-0 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold';
-export interface WorkspaceLibraryProps { projectId: string; enabledEngineIds: readonly string[]; onOpen: (route: string, destination: 'main' | 'beside') => Promise<boolean>; onManage: () => Promise<boolean>; onBusyChange?: (busy: boolean) => void }
+const CreateCodexDialog = lazy(() => import('./CreateCodexDialog'));
+export interface WorkspaceLibraryProps { projectId: string; eraId?: string; enabledEngineIds: readonly string[]; onOpen: (route: string, destination: 'main' | 'beside') => Promise<boolean>; onManage: () => Promise<boolean>; onBusyChange?: (busy: boolean) => void }
 
-export default function WorkspaceLibrary({ projectId, enabledEngineIds, onOpen, onManage, onBusyChange }: WorkspaceLibraryProps) {
+export default function WorkspaceLibrary({ projectId, eraId, enabledEngineIds, onOpen, onManage, onBusyChange }: WorkspaceLibraryProps) {
   const { locale, t } = useTranslation(), copy = libraryCopy[locale];
+  const [history, setHistory] = useState<{ target?: HistoryTarget }>();
+  const [imageTarget, setImageTarget] = useState<{ kind: EraDocumentKind; entityId: string; title: string }>();
+  const [creating, setCreating] = useState<{folderId?:string}>();
   const [refresh, setRefresh] = useState(0), [folderId, setFolderId] = useState('*'), [query, setQuery] = useState(''), [type, setType] = useState('');
   const [name, setName] = useState(''), [renameName, setRenameName] = useState(''), [destination, setDestination] = useState(''), [selection, setSelection] = useState<Set<string>>(new Set()), [limit, setLimit] = useState(100);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmRemove, setConfirmRemove] = useState(false); const locked = useRef(false);
   useEffect(() => { onBusyChange?.(busy); return () => onBusyChange?.(false); }, [busy, onBusyChange]);
-  const data = useLiveQuery(async () => { try { const project = await db.projects.get(projectId); if (!project) throw new Error('Missing project'); return { project, documents: await listWorkspaceDocuments(projectId, project) }; } catch { return { failed: true as const }; } }, [projectId, refresh]);
+  const data = useLiveQuery(async () => { try { const project = await (eraId ? getEraProject({ projectId, eraId }) : db.projects.get(projectId)); if (!project) throw new Error('Missing project'); return { project, documents: await listWorkspaceDocuments(projectId, project, eraId) }; } catch { return { failed: true as const }; } }, [projectId, eraId, refresh]);
   const project = data && 'project' in data ? data.project : undefined, documents = useMemo<WorkspaceDocument[]>(() => data && 'documents' in data ? data.documents ?? [] : [], [data]);
   const library = useMemo(() => readWorkspaceLibrary(project ?? {}), [project]);
   const tree = useMemo(() => folderTree(library.folders), [library.folders]);
@@ -32,7 +41,7 @@ export default function WorkspaceLibrary({ projectId, enabledEngineIds, onOpen, 
   const selected = documents.filter(document => selection.has(workspaceDocumentKey(document)));
   const run = async (action: WorkspaceLibraryAction, success?: () => void) => {
     if (locked.current) return; locked.current = true; setBusy(true); setError('');
-    try { await updateWorkspaceLibrary(projectId, library.revision, action); success?.(); }
+    try { await updateWorkspaceLibrary(projectId, library.revision, action, eraId); success?.(); }
     catch (failure) { setError(failure instanceof WorkspaceLibraryConflict ? copy.conflict : failure instanceof WorkspaceLibraryInvalidAction ? copy.invalid : copy.failed); setRefresh(value => value + 1); }
     finally { locked.current = false; setBusy(false); }
   };
@@ -42,6 +51,11 @@ export default function WorkspaceLibrary({ projectId, enabledEngineIds, onOpen, 
   if (!data) return <p className="p-5 text-text-muted">{copy.loading}</p>;
   if ('failed' in data) return <div className="space-y-3 p-5"><p role="alert">{copy.loadFailure}</p><button className={button} onClick={() => setRefresh(value => value + 1)}>{copy.retry}</button></div>;
   return <section className="space-y-4 p-4 sm:p-6" data-testid="workspace-library">
+    {creating && project && <Suspense fallback={<p role="status">{copy.loading}</p>}><CreateCodexDialog project={project} eraId={eraId} initialFolderId={creating.folderId} onClose={()=>setCreating(undefined)}/></Suspense>}
+    {enabledEngineIds.includes('codex') && <button type="button" className={button} disabled={busy} data-testid="library-create-card" onClick={()=>setCreating({folderId:activeFolder})}><FilePlus size={15} aria-hidden="true"/>{locale==='es'?'Nueva ficha':'New card'}</button>}
+    {imageTarget && <DocumentImageDialog projectId={projectId} eraId={eraId} target={imageTarget} onClose={() => setImageTarget(undefined)} />}
+    <button type="button" className={button} data-testid="library-history" onClick={()=>setHistory({})}><History size={15} aria-hidden="true"/>{locale==='es'?'Historial de Base compartida':'Shared base history'}</button>
+    {history && <DocumentHistoryPanel key={JSON.stringify(history.target)} projectId={projectId} initialTarget={history.target} onClose={()=>setHistory(undefined)}/>}
     <p className="max-w-prose text-sm text-text-muted">{copy.help}</p>
     {error && <p role="alert" className="rounded-lg border border-danger p-3 text-sm text-danger">{error}</p>}
     <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
@@ -67,8 +81,8 @@ export default function WorkspaceLibrary({ projectId, enabledEngineIds, onOpen, 
         <label className="flex items-center gap-2 text-xs text-text-muted"><input type="checkbox" checked={visible.length > 0 && visible.every(document => selection.has(workspaceDocumentKey(document)))} onChange={event => setSelection(previous => { const next = new Set(previous); for (const document of visible) { if (event.target.checked) next.add(workspaceDocumentKey(document)); else next.delete(workspaceDocumentKey(document)); } return next; })} />{copy.selectAll}</label>
         <ul className="divide-y divide-border rounded-xl border border-border" data-testid="library-documents">{visible.map(document => { const key = workspaceDocumentKey(document), placement = placements.get(key), enabled = enabledEngineIds.includes(document.engineId); return <li key={key} data-library-document={key} className="flex flex-wrap items-center gap-3 p-3">
           <input type="checkbox" aria-label={`${copy.select}: ${document.title || copy.untitled}`} checked={selection.has(key)} onChange={event => setSelection(previous => { const next = new Set(previous); if (event.target.checked) next.add(key); else next.delete(key); return next; })} />
-          <FileText size={17} className="shrink-0 text-text-muted" aria-hidden="true" /><div className="min-w-24 flex-1"><p className="break-words text-sm font-medium text-text-primary">{document.title || copy.untitled}</p><p className="break-words text-xs text-text-muted">{engineName(document.engineId)} · {placement?.folderId ? folderPath(library.folders, placement.folderId) : copy.root}{!enabled && ` · ${copy.disabled}`}</p></div>
-          <div className="flex flex-wrap gap-1">{enabled ? <><button type="button" className={button} data-library-open="main" disabled={busy} onClick={() => void open(document.route)}>{copy.main}</button><button type="button" className={button} data-library-open="beside" disabled={busy} aria-label={`${copy.beside}: ${document.title || copy.untitled}`} title={copy.beside} onClick={() => void open(document.route, true)}><Columns2 size={15} aria-hidden="true" /></button></> : <button type="button" className={button} disabled={busy} onClick={() => void open()}>{copy.manage}</button>}{folderId !== '*' && !query && !type && ([-1, 1] as const).map(direction => <button key={direction} type="button" className={button} disabled={busy} aria-label={`${direction < 0 ? copy.up : copy.down}: ${document.title || copy.untitled}`} onClick={() => void run({ kind: 'order-document', document, direction })}>{direction < 0 ? <ArrowUp size={14} /> : <ArrowDown size={14} />}</button>)}</div>
+          <span draggable={!busy} className="cursor-grab text-text-muted active:cursor-grabbing" title={locale==='es'?'Arrastrar referencia a una herramienta local':'Drag reference to a local tool'} onDragStart={event=>{const reference=localToolReferenceForEngine(document.engineId,document.entityId);if(reference)writeLocalToolDocumentDrag(event.dataTransfer,{projectId,eraId},reference);else event.preventDefault();}}><FileText size={17} className="shrink-0" aria-hidden="true" /></span><div className="min-w-24 flex-1"><p className="break-words text-sm font-medium text-text-primary">{document.title || copy.untitled}</p><p className="break-words text-xs text-text-muted">{engineName(document.engineId)} · {placement?.folderId ? folderPath(library.folders, placement.folderId) : copy.root}{!enabled && ` · ${copy.disabled}`}</p></div>
+          <div className="flex flex-wrap gap-1">{<button type="button" className={button} disabled={busy} data-library-image={key} aria-label={`${locale === 'es' ? 'Exportar imagen' : 'Export image'}: ${document.title}`} onClick={() => setImageTarget({ kind: document.engineId.startsWith('local-tool-')?'local-tool':document.engineId as import('@/services/worldEras/types').EraDocumentKind, entityId: document.entityId, title: document.title })}>PNG</button>}{!eraId && <button type="button" className={button} data-library-history={key} aria-label={`${locale==='es'?'Historial':'History'}: ${document.title}`} onClick={()=>setHistory({target:{kind:document.engineId.startsWith('local-tool-')?'local-tool':document.engineId as import('@/services/worldEras/types').EraDocumentKind,entityId:document.entityId,title:document.title}})}><History size={15} aria-hidden="true"/>{locale==='es'?'Historial':'History'}</button>}{enabled ? <><button type="button" className={button} data-library-open="main" disabled={busy} onClick={() => void open(document.route)}>{copy.main}</button><button type="button" className={button} data-library-open="beside" disabled={busy} aria-label={`${copy.beside}: ${document.title || copy.untitled}`} title={copy.beside} onClick={() => void open(document.route, true)}><Columns2 size={15} aria-hidden="true" /></button></> : <button type="button" className={button} disabled={busy} onClick={() => void open()}>{copy.manage}</button>}{folderId !== '*' && !query && !type && ([-1, 1] as const).map(direction => <button key={direction} type="button" className={button} disabled={busy} aria-label={`${direction < 0 ? copy.up : copy.down}: ${document.title || copy.untitled}`} onClick={() => void run({ kind: 'order-document', document, direction })}>{direction < 0 ? <ArrowUp size={14} /> : <ArrowDown size={14} />}</button>)}</div>
         </li>; })}</ul>
         {!filtered.length && <p className="py-8 text-center text-sm text-text-muted">{copy.empty}</p>}{visible.length < filtered.length && <button type="button" className={button} onClick={() => setLimit(value => value + 100)}>{copy.more}</button>}
         {missing > 0 && <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted"><span>{copy.missing}: {missing}</span><button type="button" className={button} disabled={busy} onClick={() => void run({ kind: 'prune' })}>{copy.clean}</button></div>}

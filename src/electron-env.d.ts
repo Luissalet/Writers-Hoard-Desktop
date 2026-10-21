@@ -278,6 +278,7 @@ export interface AiBridgeAuditEntry {
   tool: string;
   client?: string;
   projectId?: string;
+  eraId?: string;
   entityId?: string;
   summary?: string;
   kind?: 'create' | 'update' | 'delete' | 'undo';
@@ -306,6 +307,10 @@ export interface ShutdownWarning {
 }
 
 export interface ElectronAPI {
+  visualSearch: import('./services/visualSearch/types').VisualSearchAPI;
+  entityDetection: import('./services/entityDetection/types').EntityDetectionAPI;
+  documentImages: import('./services/documentImage/types').DocumentImageAPI;
+  projectDuplicate: import('./services/projectDuplicate/types').ProjectDuplicateNative;
   publishing: {
     status: () => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean; state?: string; error?: string }> }>;
     setModule: (module: string, enabled: boolean, automatic?: boolean) => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean; state?: string; error?: string }> }>;
@@ -324,7 +329,7 @@ export interface ElectronAPI {
   isDesktop: true;
   platform: string;
   openWindowMenu: () => void;
-  media: {
+  media: import('./engines/media/voiceTypes').VoiceRuntimeAPI & {
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string) => Promise<SaveResult>;
     downloaderHealth: () => Promise<MediaDownloaderHealthResult>;
     detectDownloadPlatform: (url: string) => Promise<MediaPlatformResult>;

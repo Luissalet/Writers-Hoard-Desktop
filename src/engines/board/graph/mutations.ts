@@ -1,3 +1,4 @@
+import {frameMembers,pileSelection} from './membership';
 // ============================================
 // Board Engine — Pure graph mutations
 // ============================================
@@ -31,7 +32,7 @@ export function planDeletion(
   nodeIds: string[],
   edgeIds: string[] = [],
 ): DeletionPlan {
-  const doomedNodes = new Set(nodeIds);
+  const doomedNodes = new Set(pileSelection(nodeIds,nodes).map(node=>node.id));
   const doomedEdges = new Set(edgeIds);
 
   const survives = (endpoint: BoardEndpoint): boolean =>
@@ -67,9 +68,8 @@ export function planDeletion(
     });
   }
 
-  // Frames take their contents with them only when the caller asked for it;
-  // by default a deleted frame leaves its cards on the board, which is what
-  // people expect from a region they drew around things.
+  // Explicit piles carry their members; legacy geometric frames still leave
+  // their contained cards on the board when only the region is removed.
   const removedNodeIds = nodes.filter((node) => doomedNodes.has(node.id)).map((node) => node.id);
 
   return {
@@ -192,11 +192,14 @@ export function cloneSelection(
       projectId,
       position: { x: node.position.x + offset.x, y: node.position.y + offset.y },
       size: { ...node.size },
+      expandedSize:node.expandedSize?{...node.expandedSize}:undefined,
       tags: [...(node.tags ?? [])],
       createdAt: now,
       updatedAt: now,
     };
   });
+
+  for(const node of clonedNodes)if(node.memberNodeIds)node.memberNodeIds=node.memberNodeIds.filter(id=>idMap.has(id)).map(id=>idMap.get(id)!);
 
   // Which edges survive the copy. A meta-edge (one anchored ON another edge)
   // may only be kept if its anchor is kept too — so this is a fixed point, not
@@ -254,15 +257,4 @@ export function cloneSelection(
 }
 
 /** Nodes whose centre falls inside a frame — how frames carry their contents. */
-export function nodesInsideFrame(frame: BoardNode, nodes: BoardNode[]): BoardNode[] {
-  const left = frame.position.x;
-  const top = frame.position.y;
-  const right = left + frame.size.width;
-  const bottom = top + frame.size.height;
-  return nodes.filter((node) => {
-    if (node.id === frame.id) return false;
-    const cx = node.position.x + node.size.width / 2;
-    const cy = node.position.y + node.size.height / 2;
-    return cx >= left && cx <= right && cy >= top && cy <= bottom;
-  });
-}
+export function nodesInsideFrame(frame: BoardNode, nodes: BoardNode[]): BoardNode[] {return frameMembers(frame,nodes);}
