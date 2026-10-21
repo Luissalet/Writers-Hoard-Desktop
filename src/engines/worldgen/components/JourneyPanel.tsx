@@ -3,15 +3,15 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
-  describeDuration, MODE_KEY, SEASON_KEY,
-  type Route, type Season, type TravelMode,
+  describeDuration, effectiveHoursPerDay, GROUND_CLASSES, MODE_KEY, SEASON_KEY, TRAVEL_PACES,
+  type GroundClass, type Route, type Season, type TravelMode, type TravelPace, type TravelProfile,
 } from '../core/travel';
 import { seaLevelForIce, type PaleoState } from '../core/paleo';
 import { useJourneyComputation, useJourneyPaleo } from '../useJourneyComputation';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { GeneratedWorld } from '../types';
 import { journeyNormalizedStops, journeyRecipeKey, type WorldJourney } from '../journeyTypes';
-import { deleteWorldJourney, saveWorldJourney } from '../journeyOperations';
+import { deleteWorldJourney, saveWorldJourney, saveWorldTravelSettings } from '../journeyOperations';
 import { ConfirmDialog } from '@/engines/_shared';
 import JourneyCreativeCapture from './JourneyCreativeCapture';
 
@@ -70,6 +70,15 @@ function JourneyPanelContent({
   const [showAll, setShowAll] = useState(false);
   const [showStages, setShowStages] = useState(false);
   const [customOptions, setCustomOptions] = useState<Pick<WorldJourney['options'], 'hoursPerDay' | 'planetRadiusKm'>>({});
+  /** How hard the party pushes; the world remembers the author's usual pace. */
+  const [pace, setPace] = useState<TravelPace>(worldRecord?.travelPace ?? 'steady');
+  /** One mode per leg between stops; empty entries follow the journey's mode. */
+  const [legModes, setLegModes] = useState<(TravelMode | '')[]>([]);
+  /** The world's own speeds and ground costs, edited here and saved with the world. */
+  const [profile, setProfile] = useState<TravelProfile>(worldRecord?.travelProfile ?? {});
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsError, setSettingsError] = useState(false);
+  const profileBaseline = useRef(JSON.stringify({ profile: worldRecord?.travelProfile ?? {}, pace: worldRecord?.travelPace ?? 'steady' }));
   const [journeyName, setJourneyName] = useState('');
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -79,7 +88,36 @@ function JourneyPanelContent({
   const [deletingJourney, setDeletingJourney] = useState<WorldJourney | null>(null);
   const [deleteError, setDeleteError] = useState(false);
   const [deletedJourneys, setDeletedJourneys] = useState<WorldJourney[]>([]);
-  const hoursPerDay = customOptions.hoursPerDay ?? HPD[season];
+  const legCount = via.length + 1;
+  const activeLegModes = legModes.slice(0, legCount);
+  const mixedModes = activeLegModes.some(value => value && value !== mode);
+  const planOptions: WorldJourney['options'] = {
+    ...customOptions, mode, season,
+    ...(pace !== 'steady' ? { pace } : {}),
+    ...(mixedModes ? { legModes: Array.from({ length: legCount }, (_, index) => activeLegModes[index] || mode) } : {}),
+    ...(Object.keys(profile).length ? { profile } : {}),
+  };
+  const hoursPerDay = effectiveHoursPerDay(planOptions);
+  /** Persist travel physics and pace with the world, after the hand stops. */
+  useEffect(() => {
+    if (!worldRecord) return;
+    const serialized = JSON.stringify({ profile, pace });
+    if (serialized === profileBaseline.current) return;
+    const timer = window.setTimeout(() => {
+      profileBaseline.current = serialized;
+      void saveWorldTravelSettings({ projectId: worldRecord.projectId, eraId: scope.eraId }, worldRecord.id, { profile, pace: pace === 'steady' ? undefined : pace })
+        .then(() => setSettingsError(false))
+        .catch(() => { profileBaseline.current = ''; setSettingsError(true); });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [profile, pace, worldRecord, scope.eraId]);
+  const setFactor = (table: 'speed' | 'ground', key: TravelMode | GroundClass, value: number) => setProfile(current => {
+    const next = { ...(current[table] ?? {}) } as Record<string, number>;
+    if (Math.abs(value - 1) < 0.001) delete next[key]; else next[key] = Math.round(value * 100) / 100;
+    const out: TravelProfile = { ...current };
+    if (Object.keys(next).length) (out as Record<string, unknown>)[table] = next; else delete out[table];
+    return out;
+  });
   const savedJourneys = [...new Map([...savedLocally, ...(worldRecord?.journeys ?? [])].map(journey => [journey.id, journey])).values()]
     .filter(journey => !deletedJourneys.some(deleted => deleted.id === journey.id && JSON.stringify(deleted) === JSON.stringify(journey)));
   const currentRecipeKey = worldRecord ? journeyRecipeKey({ ...worldRecord, params: world.params }) : '';
@@ -91,7 +129,7 @@ function JourneyPanelContent({
     const journey: WorldJourney = {
       id: crypto.randomUUID(), name: journeyName.trim(),
       stops: journeyNormalizedStops([from, ...via, to], world),
-      options: { ...customOptions, mode, season }, recipeKey: currentRecipeKey, createdAt: now, updatedAt: now,
+      options: planOptions, recipeKey: currentRecipeKey, createdAt: now, updatedAt: now,
     };
     try {
       await saveWorldJourney(worldRecord.id, worldRecord.projectId, journey, scope.eraId);
@@ -116,7 +154,7 @@ function JourneyPanelContent({
     finally { savingRef.current = false; setSaving(false); }
   };
 
-  const calculation = useJourneyComputation(world, geography, from, to, via, { ...customOptions, mode, season }, showAll, locale);
+  const calculation = useJourneyComputation(world, geography, from, to, via, planOptions, showAll, locale);
   const { route, table } = calculation;
   const paleoCalculation = useJourneyPaleo(world, paleo, locale);
 
@@ -139,6 +177,8 @@ function JourneyPanelContent({
                 if (!journey) return;
                 setMode(journey.options.mode); setSeason(journey.options.season);
                 setCustomOptions({ hoursPerDay: journey.options.hoursPerDay, planetRadiusKm: journey.options.planetRadiusKm });
+                setPace(journey.options.pace ?? 'steady'); setLegModes(journey.options.legModes ?? []);
+                if (journey.options.profile) setProfile(journey.options.profile);
                 setOpenedJourney(journey); onPick(null); onOpenJourney?.(journey);
               }}>
               <option value="">{t('worldgen.journey.openSaved')}</option>
@@ -227,6 +267,59 @@ function JourneyPanelContent({
               <Chip key={s} on={season === s} onClick={() => setSeason(s)}>{t(SEASON_KEY[s])}</Chip>
             ))}
           </div>
+          <div className="flex flex-col gap-1" role="group" aria-label={t('worldgen.journey.pace')}>
+            <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.pace')}</span>
+            <div className="flex flex-wrap gap-1">
+              {TRAVEL_PACES.map((p) => (
+                <Chip key={p} on={pace === p} onClick={() => setPace(p)}>{t(`worldgen.journey.pace.${p}`)}</Chip>
+              ))}
+            </div>
+            <p className="text-[10px] leading-snug text-white/40">{t(`worldgen.journey.pace.${pace}.hint`)}</p>
+          </div>
+          {via.length > 0 && (
+            <div className="flex flex-col gap-1" aria-label={t('worldgen.journey.legs')}>
+              <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.legs')}</span>
+              {Array.from({ length: legCount }, (_, index) => {
+                const stops = [from!, ...via, to!];
+                return (
+                  <label key={index} className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-white/60">{stops[index].name} → {stops[index + 1].name}</span>
+                    <select aria-label={t('worldgen.journey.legMode').replace('{n}', String(index + 1))} value={activeLegModes[index] || mode}
+                      onChange={(event) => setLegModes(current => { const next = Array.from({ length: legCount }, (_, k) => current[k] ?? ''); next[index] = event.target.value as TravelMode; return next; })}
+                      className="rounded border border-white/20 bg-[#191d25] px-1.5 py-0.5 text-white/90">
+                      {MODES.map((m) => <option key={m} value={m}>{t(MODE_KEY[m])}</option>)}
+                    </select>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <button type="button" onClick={() => setSettingsOpen(open => !open)} aria-expanded={settingsOpen}
+            className="text-left text-[10px] text-amber-300/80 hover:text-amber-300">
+            {t('worldgen.journey.settings')}{settingsOpen ? ' ▴' : ' ▾'}
+          </button>
+          {settingsOpen && (
+            <div className="flex flex-col gap-2 rounded border border-white/10 p-2" data-testid="journey-travel-settings">
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-white/60">{t('worldgen.journey.hoursPerDay')}</span>
+                <input type="number" min={1} max={20} step={0.5} aria-label={t('worldgen.journey.hoursPerDay')}
+                  value={customOptions.hoursPerDay ?? HPD[season]}
+                  onChange={(event) => { const value = Number(event.target.value); setCustomOptions(current => ({ ...current, hoursPerDay: Number.isFinite(value) && value > 0 && value <= 24 && value !== HPD[season] ? value : undefined })); }}
+                  className="w-16 rounded border border-white/20 bg-white/5 px-1.5 py-0.5 text-right text-white/90" />
+              </label>
+              <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.speeds')}</span>
+              {MODES.map((m) => (
+                <Factor key={m} label={t(MODE_KEY[m])} value={profile.speed?.[m] ?? 1} onChange={(value) => setFactor('speed', m, value)} />
+              ))}
+              <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.ground')}</span>
+              {GROUND_CLASSES.map((g) => (
+                <Factor key={g} label={t(`worldgen.journey.ground.${g}`)} value={profile.ground?.[g] ?? 1} onChange={(value) => setFactor('ground', g, value)} />
+              ))}
+              <p className="text-[10px] leading-snug text-white/40">{t('worldgen.journey.settingsNote')}</p>
+              {(profile.speed || profile.ground) && <button type="button" onClick={() => setProfile({})} className="self-start text-[10px] text-white/55 underline">{t('worldgen.journey.settingsReset')}</button>}
+              {settingsError && <p role="alert" className="text-red-300">{t('worldgen.journey.settingsError')}</p>}
+            </div>
+          )}
 
           {calculation.busy && <p role="status" className="text-amber-200/75">{route && showAll
             ? t('worldgen.journey.comparing').replace('{n}', String(calculation.completed))
@@ -240,6 +333,11 @@ function JourneyPanelContent({
               <div className="text-lg text-white/90 leading-none">
                 {describeDuration(route.hours, hoursPerDay, t)}
               </div>
+              {(route.restDays ?? 0) > 0 && (
+                <div className="text-[10px] text-amber-200/80" data-testid="journey-rest-days">
+                  {t('worldgen.journey.restDays').replace('{n}', String(route.restDays))}
+                </div>
+              )}
               <div className="text-[10px] text-white/50">
                 {t('worldgen.journey.byRoad').replace('{n}', Math.round(route.km).toLocaleString('es-ES'))} ·
                 {' '}{t('worldgen.journey.straightLine').replace('{n}', Math.round(route.directKm).toLocaleString('es-ES'))} ·
@@ -410,6 +508,18 @@ function EndButton({ label, place, active, onClick }: {
         {place ? place.name : t('worldgen.journey.choose')}
       </span>
     </button>
+  );
+}
+
+/** A travel factor as a percentage slider: 100% is the built-in value. */
+function Factor({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="grid grid-cols-[1fr_5rem_2.75rem] items-center gap-2">
+      <span className="truncate text-white/60">{label}</span>
+      <input type="range" min={25} max={400} step={5} value={Math.round(value * 100)} aria-label={label}
+        onChange={(event) => onChange(Number(event.target.value) / 100)} className="accent-amber-400" />
+      <span className="text-right tabular-nums text-white/70">{Math.round(value * 100)}%</span>
+    </label>
   );
 }
 

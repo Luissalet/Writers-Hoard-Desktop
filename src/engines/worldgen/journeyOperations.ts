@@ -2,13 +2,74 @@ import { worldgenScopeOperations } from './era';
 import { db } from '@/db';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import type { WorldJourney } from './journeyTypes';
+import type { GeneratedWorld } from './types';
+import { normalizeTravelProfile, TRAVEL_PACES, type TravelPace, type TravelProfile } from './core/travel';
 
 function validJourney(journey: WorldJourney): boolean {
   return !!journey.id && !!journey.name.trim() && journey.stops.length >= 2
     && journey.stops.every(stop => typeof stop.name === 'string' && Number.isFinite(stop.u) && stop.u >= 0 && stop.u < 1 && Number.isFinite(stop.v) && stop.v >= 0 && stop.v <= 1)
     && ['foot', 'horse', 'cart', 'boat', 'ship'].includes(journey.options.mode)
     && ['spring', 'summer', 'autumn', 'winter'].includes(journey.options.season)
-    && [journey.options.hoursPerDay, journey.options.planetRadiusKm].every(value => value === undefined || (Number.isFinite(value) && value > 0));
+    && [journey.options.hoursPerDay, journey.options.planetRadiusKm].every(value => value === undefined || (Number.isFinite(value) && value > 0))
+    && (journey.options.pace === undefined || TRAVEL_PACES.includes(journey.options.pace))
+    && (journey.options.legModes === undefined || (Array.isArray(journey.options.legModes) && journey.options.legModes.length === journey.stops.length - 1
+      && journey.options.legModes.every(mode => ['foot', 'horse', 'cart', 'boat', 'ship'].includes(mode))))
+    && validProfile(journey.options.profile);
+}
+
+function validProfile(profile: unknown): boolean {
+  try { normalizeTravelProfile(profile); return true; } catch { return false; }
+}
+
+export interface TravelSettingsReceipt { from: { profile?: TravelProfile; pace?: TravelPace }; to: { profile?: TravelProfile; pace?: TravelPace }; revision: number }
+
+/**
+ * Save the world's travel physics and default pace in its own era. Itineraries
+ * snapshot what they were planned with, so changing this never rewrites a
+ * saved journey; it applies to the next plan.
+ */
+export async function saveWorldTravelSettings(scope: { projectId: string; eraId?: string }, worldId: string, change: { profile?: unknown; pace?: unknown }, expectedRevision?: number): Promise<TravelSettingsReceipt> {
+  const next: { profile?: TravelProfile; pace?: TravelPace } = {};
+  if ('profile' in change) next.profile = normalizeTravelProfile(change.profile);
+  if ('pace' in change) {
+    if (change.pace !== undefined && change.pace !== null && !TRAVEL_PACES.includes(change.pace as TravelPace)) throw new Error(`pace must be one of ${TRAVEL_PACES.join(', ')}.`);
+    next.pace = (change.pace ?? undefined) as TravelPace | undefined;
+  }
+  const { worlds } = worldgenScopeOperations(scope);
+  const receipt = await db.transaction('rw', scope.eraId ? db.tables : [db.generatedWorlds], async () => {
+    const current = await worlds.getOne(worldId);
+    if (!current || current.projectId !== scope.projectId) throw new Error('World no longer belongs to this project');
+    const revision = current.travelRevision ?? 0;
+    if (expectedRevision !== undefined && expectedRevision !== revision) throw new Error(`Travel settings changed (revision ${revision}); read them again before saving.`);
+    const from = { profile: current.travelProfile, pace: current.travelPace };
+    const to = { profile: 'profile' in next ? (Object.keys(next.profile ?? {}).length ? next.profile : undefined) : current.travelProfile, pace: 'pace' in next ? next.pace : current.travelPace };
+    if (JSON.stringify(from) === JSON.stringify(to)) return { from, to, revision };
+    await worlds.update(worldId, { travelProfile: to.profile, travelPace: to.pace, travelRevision: revision + 1, updatedAt: Date.now() });
+    return { from, to, revision: revision + 1 };
+  });
+  notifyDataChanged({ source: 'other', table: 'generatedWorlds', entityId: worldId, projectId: scope.projectId });
+  return receipt;
+}
+
+/** Undo one recorded change, keeping fields changed again since. */
+export async function revertWorldTravelSettings(scope: { projectId: string; eraId?: string }, worldId: string, receipt: TravelSettingsReceipt): Promise<{ reverted: string[]; kept: string[] }> {
+  const { worlds } = worldgenScopeOperations(scope);
+  const result = await db.transaction('rw', scope.eraId ? db.tables : [db.generatedWorlds], async () => {
+    const current = await worlds.getOne(worldId);
+    if (!current || current.projectId !== scope.projectId) throw new Error('World no longer belongs to this project');
+    const reverted: string[] = [], kept: string[] = [], patch: Partial<GeneratedWorld> = {};
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    for (const [field, key] of [['profile', 'travelProfile'], ['pace', 'travelPace']] as const) {
+      if (same(receipt.from[field], receipt.to[field])) continue;
+      if (!same(current[key], receipt.to[field])) { kept.push(field); continue; }
+      (patch as Record<string, unknown>)[key] = receipt.from[field];
+      reverted.push(field);
+    }
+    if (reverted.length) await worlds.update(worldId, { ...patch, travelRevision: (current.travelRevision ?? 0) + 1, updatedAt: Date.now() });
+    return { reverted, kept };
+  });
+  notifyDataChanged({ source: 'undo', table: 'generatedWorlds', entityId: worldId, projectId: scope.projectId });
+  return result;
 }
 
 /** Atomic append, preserving concurrent recipes and other itineraries. Retrying the same ID is idempotent. */
