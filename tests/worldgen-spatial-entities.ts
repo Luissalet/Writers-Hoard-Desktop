@@ -26,6 +26,7 @@ function emptyAppliedEdits(): AppliedEdits {
     terrainChanged: false,
     markers: [],
     labels: [],
+    stamps: [],
     rivers: [],
     renames: {},
     removed: new Set(),

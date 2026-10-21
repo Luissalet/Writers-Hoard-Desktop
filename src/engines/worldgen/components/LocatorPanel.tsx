@@ -124,13 +124,23 @@ export default function LocatorPanel({
     }
     for (const pl of world.painted?.labels ?? []) {
       out.push({
-        key: `label:${pl.x},${pl.y}`,
+        key: pl.key ?? `label:${pl.x},${pl.y}`,
         name: pl.text,
         folded: fold(pl.text),
         kindLabel: t('worldgen.hover.yourLabel'),
         x: pl.x, y: pl.y,
         // Lo que el lector escribió va delante de lo que el generador nombró.
         importance: 1.2,
+      });
+    }
+    // Los sellos con nombre también se buscan, donde estén ahora.
+    for (const st of world.painted?.stamps ?? []) {
+      if (!st.name) continue;
+      const moved = world.painted?.moves?.[st.key];
+      out.push({
+        key: st.key, name: st.name, folded: fold(st.name),
+        kindLabel: `${t(`worldgen.stamp.${st.glyph}`)} · ${t('worldgen.hover.yourStamp')}`,
+        x: moved?.x ?? st.x, y: moved?.y ?? st.y, importance: 1.1,
       });
     }
     return out;

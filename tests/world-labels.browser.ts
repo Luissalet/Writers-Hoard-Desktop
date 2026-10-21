@@ -43,11 +43,17 @@ export async function testWorldLabels(): Promise<string[]> {
     assert(!labels.length, 'Remove did not hide a painted label');
     labels = applyEdits(flat(), [...edits, { kind: 'remove', target: 'label', key }, { kind: 'restore', target: 'label', key }]).labels;
     assert(labels.length === 1, 'Restore did not bring the label back');
+    // A second label in the same cell has its own key: removing or renaming the first never reaches it.
     labels = applyEdits(flat(), [...edits, { kind: 'remove', target: 'label', key }, { kind: 'label', x: 10, y: 8, text: 'Nuevo', style: 'note' }]).labels;
-    assert(labels.length === 2 && labels.filter((l) => l.key === key).length === 2 && labels[1].text === 'Nuevo', `A label painted again at a removed spot must show: ${JSON.stringify(labels)}`);
-    const roundTrip = deserializeEdits(serializeEdits([...edits, { kind: 'relabel' } as never]));
-    assert(roundTrip.length === edits.length, 'A relabel without a key must be dropped on reading');
-    passed.push('Relabel edits replay field by field after moves; painted labels answer rename, remove and restore; a malformed relabel is dropped');
+    assert(labels.length === 1 && labels[0].text === 'Nuevo' && labels[0].key === `${key}#2`, `Remove leaked onto a new label: ${JSON.stringify(labels)}`);
+    labels = applyEdits(flat(), [...edits, { kind: 'label', x: 10, y: 8, text: 'Otro', style: 'note' }, { kind: 'rename', target: 'label', key, name: 'Primero' }]).labels;
+    assert(labels.map((l) => l.text).join('|') === 'Primero|Otro', `Rename reached the wrong label: ${JSON.stringify(labels)}`);
+    // A later change of words wins over an earlier rename.
+    labels = applyEdits(flat(), [...edits, { kind: 'rename', target: 'label', key, name: 'Renombrado' }, { kind: 'relabel', key, text: 'Reescrito' }]).labels;
+    assert(labels[0].text === 'Reescrito', `Rename beat a later text change: ${labels[0].text}`);
+    const roundTrip = deserializeEdits(serializeEdits([...edits, { kind: 'relabel' } as never, { kind: 'relabel', key, size: 'huge' } as never, { kind: 'relabel', key, curve: 50 } as never]));
+    assert(roundTrip.length === edits.length, 'Malformed relabels must be dropped on reading');
+    passed.push('Relabel edits replay field by field after moves; painted labels answer rename, remove and restore with keys of their own per label; later words beat an earlier rename; malformed relabels are dropped');
 
     // Shape: straight runs centre on the anchor, a positive curve arches, the angle turns it.
     const widths = [10, 10, 10, 10, 10];
@@ -96,6 +102,8 @@ export async function testWorldLabels(): Promise<string[]> {
     const removed = await runBridgeTool('wh_remove_place', { worldId: W, key: 'label:40,30' });
     const gone = (await runBridgeTool('wh_list_labels', { worldId: W })).result as { labels: unknown[] };
     assert(removed.ok && !gone.labels.length, 'wh_remove_place did not remove the label');
+    const ghost = await runBridgeTool('wh_update_label', { worldId: W, key: 'label:40,30', curve: 0.1 });
+    assert(!ghost.ok && ghost.code === 'not-found', `Updated a removed label: ${JSON.stringify(ghost)}`);
     passed.push('Bridge: wh_add_label takes size, angle and spacing; wh_list_labels reports keys and shapes; wh_update_label validates, changes only what it is given and undoes; rename and remove work on label keys');
     return passed;
   } finally {

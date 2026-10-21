@@ -135,3 +135,16 @@ dictamen de otro flujo.
 Pruebas del cierre: [verificación final](tasks/worldcraft1041-final-verification.md)
 y `tasks/evidence/worldcraft1041-manual-verification.json` (revisión requerida y
 lectura exacta del manual actualizado).
+
+---
+
+## Mapas 1095 — cosas a revisar (no requieren decisión de Luis)
+
+- Un trazo de borrador (Ctrl+clic en Colocar) también quita rótulos y sellos
+  pintados después en ese punto; es el comportamiento anterior del borrador,
+  documentado por la revisión r3.
+- Al reabrir el mundo, los rótulos responden al puntero a partir del primer
+  dibujo completo (una fracción de segundo).
+- En QA, `capturePage` de una ventana oculta puede devolver un fotograma
+  anterior del lienzo; los oráculos leen DOM, IndexedDB o píxeles del propio
+  lienzo y las capturas sólo son evidencia.

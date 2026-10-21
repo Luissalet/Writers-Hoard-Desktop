@@ -31,7 +31,11 @@ Library's **New card** reuses the normal Codex form and saves the card with its
 selected folder atomically. Manuscript tools can sit in a separate, reorderable
 dock with project/chapter inheritance; its layout does not become reader prose.
 Maps, trees, calendars, typed tables, local media, Reader and static wiki retain
-their document-specific editors and exports. The optional 5e (2014), SRD 5.1
+their document-specific editors and exports. Generated worlds keep their look, start
+blank if wanted, measure areas against real outlines, plan journeys with the
+world's own pace and travel physics, and carry editable labels (angle, spacing,
+curve) and 32 map stamps; hand-drawn map eras can follow timeline events and play
+in sequence. Each has bridge tools (see docs/AI-BRIDGE.md, section 28). The optional 5e (2014), SRD 5.1
 character profile preserves manual values and played counters; it is not a
 complete rules or spell-catalogue engine.
 

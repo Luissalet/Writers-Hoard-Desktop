@@ -1821,9 +1821,14 @@ deshecho.
   `spacing` y `curve`; `wh_list_labels` devuelve clave, texto, estilo, celda
   actual y forma; `wh_update_label` cambia sólo los campos dados. Las claves
   `label:x,y` sirven también para `wh_move_place`, `wh_rename_place` y
-  `wh_remove_place`.
+  `wh_remove_place`. Un segundo rótulo en la misma celda tiene clave propia
+  (`label:x,y#2`).
+- **Sellos.** `wh_add_stamp` pone uno de 32 dibujos (posada, santuario, torre
+  del mago, túmulo, faro, monte…) en tamaño S, M o L con nombre opcional;
+  `wh_list_stamps` los devuelve con su clave `stamp:x,y`, que también vale para
+  mover, renombrar o quitar.
 
 Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
-nativo stdio + HTTP), `world-labels`, y los recorridos de interfaz
-`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels}-qa.cjs`.
+nativo stdio + HTTP), `world-labels`, `world-stamps`, y los recorridos de interfaz
+`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps}-qa.cjs`.

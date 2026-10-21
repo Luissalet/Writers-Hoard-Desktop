@@ -1037,6 +1037,33 @@ Write a free-standing label on the map at a cell — the name of a region, a bod
     },
   },
   {
+    name: 'wh_add_stamp',
+    description:
+      `Place a pictorial map stamp (inn, shrine, tower, barrow, mountain…) at a cell.
+A picture on the map with an optional name; it adds no settlement to the geography. Glyphs: hamlet, village, town, city, capital, camp, inn, temple, shrine, monastery, mill, windmill, farm, mine, lighthouse, harbour, bridge, well, standingStones, barrow, ruins, battlefield, castle, fort, tower, wizardTower, motte, walls, mountain, volcano, forest, cave. Move, rename or remove it by its key (stamp:x,y) with wh_move_place, wh_rename_place, wh_remove_place. Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        x: CELL_X,
+        y: CELL_Y,
+        glyph: s('Which stamp.'),
+        size: s('S, M (default) or L.', { enum: ['S', 'M', 'L'] }),
+        name: s('Optional name written beside it.'),
+      },
+      required: ['worldId', 'x', 'y', 'glyph'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_stamps',
+    description:
+      `List the stamps placed by hand on a world, with keys, glyph, size, name and cell.`,
+    writes: false,
+    schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_labels',
     description:
       `List the reader's painted labels on a world with keys, place and shape.

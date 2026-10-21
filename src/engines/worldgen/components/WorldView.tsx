@@ -2391,7 +2391,7 @@ export default function WorldView({
                 realms={realmChoices}
                 busy={painting || environment.busy}
                 selectedLabel={selectedLabel}
-                onRelabel={(change) => { if (selectedLabelKey) applyEdit({ kind: 'relabel', key: selectedLabelKey, ...change }); }}
+                onRelabel={(change, key) => applyEdit({ kind: 'relabel', key, ...change })}
                 onRemoveLabel={() => { if (selectedLabelKey) { applyEdit({ kind: 'remove', target: 'label', key: selectedLabelKey }); setSelectedLabelKey(null); } }}
               />
             ) : panelTab === 'params' ? (

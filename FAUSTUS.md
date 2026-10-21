@@ -20,6 +20,14 @@ document and optional era before writing; omitting `eraId` means Shared base.
 Do not infer a pane's scope from another open pane, guess revisions after a
 conflict, or overwrite an author's unsaved draft to make a retry succeed.
 
+Maps: read before writing. `wh_get_world_presentation` and
+`wh_get_world_travel_settings` return revisions to pass as `expectedRevision`;
+`wh_list_labels`, `wh_list_stamps` and `wh_list_map_versions` return the keys and
+ids that `wh_update_label`, `wh_move_place`/`wh_rename_place`/`wh_remove_place`
+and `wh_link_map_version` take. A painted label or stamp key is where it was
+first placed (`label:x,y`, `stamp:x,y`, with `#n` for a second one in the same
+cell), never its current position.
+
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means
 Unfiled; omitting placement options keeps ordinary card creation. A conflict

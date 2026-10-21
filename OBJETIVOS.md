@@ -36,3 +36,21 @@ No se certifican instalación, perfil real del usuario ni paridad total.
 Pruebas del cierre: [verificación final](tasks/worldcraft1041-final-verification.md)
 y `tasks/evidence/worldcraft1041-manual-verification.json` (revisión requerida y
 lectura exacta del manual actualizado).
+
+## Mapas — continuación del catálogo de VVD (Ágora 1095)
+
+Hecho en esta continuación (revisión independiente en rondas, ver
+[tasks/vvd1095](tasks/vvd1095/README.md)): aspecto guardado del mundo, mundos en
+blanco, áreas y contornos reales a escala, ajustes de viaje del mundo, épocas de
+mapa enlazadas a la cronología con reproducción, edición de rótulos con
+tiradores y biblioteca de 32 sellos, todo con interfaz, MCP, deshacer y ámbito
+de época.
+
+Siguiente, en este orden:
+- Lente de comercio y niebla/sucesos de campaña sobre el mapa (A2).
+- Pulido del mapa clásico y una herramienta MCP genérica para elementos del mapa.
+- Oleadas posteriores según las listas priorizadas de C-writing, D1-tools,
+  D2-platform y B-campaign.
+
+Ninguna fila del catálogo cambia de estado sin un flujo mostrado en interfaz y
+MCP; no se declara paridad.

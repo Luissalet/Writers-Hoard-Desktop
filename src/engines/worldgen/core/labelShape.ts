@@ -65,6 +65,8 @@ export interface LabelChange {
   curve?: number;
 }
 export const LABEL_STYLE_IDS = ['region', 'water', 'range', 'settlement', 'note'] as const;
+/** Letter spacing each style gets when the author has not set one: the Carta's own tracking. */
+export const LABEL_DEFAULT_SPACING: Record<typeof LABEL_STYLE_IDS[number], number> = { region: 0.2, water: 0.2, range: 0.28, settlement: 0.1, note: 0.1 };
 
 /** Validates a label change; refuses rather than clamps so callers learn the range. */
 export function normalizeLabelChange(input: Record<string, unknown>): LabelChange {
