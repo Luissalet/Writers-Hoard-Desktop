@@ -9,6 +9,8 @@ export const mapHistoryCopy = {
     recovery: 'Mapa actual antes de restaurar', delete: 'Eliminar época', deleteHelp: 'Se eliminará esta copia histórica. El mapa actual se conserva.',
     save: 'Guardar datos de la época', failed: 'No se pudo guardar el cambio. Tu mapa actual se conserva; puedes reintentarlo.',
     scrub: 'Recorrer las épocas del mapa', showForm: 'Nueva época', cancel: 'Cancelar', working: 'Guardando…', noDate: 'Sin fecha',
+    event: 'Evento de la cronología', noEvent: 'Sin evento', eventHint: 'Con un evento, la época toma su fecha y se ordena según la cronología.',
+    linked: 'Época del evento «{event}».', orphan: 'Su evento se borró en la cronología; se conserva la fecha escrita.', play: 'Reproducir', pause: 'Pausa',
   },
   en: {
     title: 'Map eras', current: 'Current map', capture: 'Save era', name: 'Era name', date: 'World date',
@@ -20,5 +22,7 @@ export const mapHistoryCopy = {
     recovery: 'Current map before restoring', delete: 'Delete era', deleteHelp: 'This historical copy will be deleted. The current map is kept.',
     save: 'Save era details', failed: 'Could not save the change. Your current map is preserved; you can retry.',
     scrub: 'Browse map eras', showForm: 'New era', cancel: 'Cancel', working: 'Saving…', noDate: 'No date',
+    event: 'Timeline event', noEvent: 'No event', eventHint: 'With an event, the era takes its date and follows the timeline’s order.',
+    linked: 'Era of the event “{event}”.', orphan: 'Its event was deleted in the timeline; the typed date is kept.', play: 'Play', pause: 'Pause',
   },
 };

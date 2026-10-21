@@ -9,6 +9,8 @@ import '@/index.css';
 async function preview() {
   useLocaleStore.setState({ locale: 'es' });
   const projectId = 'vvd-map-preview', mapId = 'vvd-map-preview-atlas';
+  // The map belongs to a real project, as every map in the app does; annotation panels read it.
+  await db.projects.put({ id: projectId, title: 'Las Tierras del Estuario', type: 'standalone', mode: 'custom', color: '#cab57d', description: '', status: 'draft', enabledEngines: ['maps'], engineOrder: ['maps'], createdAt: 1, updatedAt: 1 } as never);
   const canvas = document.createElement('canvas'); canvas.width = 1400; canvas.height = 800;
   const context = canvas.getContext('2d')!;
   context.fillStyle = '#334c51'; context.fillRect(0, 0, 1400, 800);

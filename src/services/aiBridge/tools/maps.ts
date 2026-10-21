@@ -143,3 +143,60 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
     },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Map eras: dated copies of a map, optionally standing for timeline events
+// ---------------------------------------------------------------------------
+
+async function loadMapForEras(args: ToolArgs) {
+  const scope = worldEraToolScope(args), worldMapOps = scopedTableOps(scope, 'worldMaps', 'projectId', baseWorldMapOps);
+  const mapId = requireString(args, 'mapId');
+  const map = await worldMapOps.getOne(mapId);
+  if (!map) throw new BridgeError('not-found', `No map with id "${mapId}".`);
+  assertRowInScope(args, map.projectId);
+  return { map, scope };
+}
+
+async function eventsFor(projectId: string, eraId?: string) {
+  const { listEraRows } = await import('@/services/worldEras/store');
+  return eraId ? (await listEraRows<import('@/types').TimelineEvent>({ projectId, eraId }, 'timelineEvents')) : db.timelineEvents.where('projectId').equals(projectId).toArray();
+}
+
+/** The map's eras in the order a reader travels them, with the events they stand for. */
+export async function whListMapVersions(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  const { orderMapVersions } = await import('@/engines/maps/versionTimeline');
+  const { resolveWorldCalendar } = await import('@/engines/timeline/worldCalendarStore');
+  const calendar = await resolveWorldCalendar(map.projectId, undefined, scope?.eraId).catch(() => null);
+  const rows = orderMapVersions(map.versions ?? [], await eventsFor(map.projectId, scope?.eraId), calendar?.calendar ?? null);
+  return { mapId: map.id, eras: rows.map(row => ({ id: row.version.id, name: row.version.name, date: row.dateLabel, typedDate: row.version.date, description: row.version.description ?? null, eventId: row.version.timelineEventId ?? null, eventTitle: row.event?.title ?? null, orphan: row.orphan, features: row.version.features.length, pins: row.version.pins.length, createdAt: row.version.createdAt })) };
+}
+
+/** Save the map as it stands now as a new era, optionally linked to a timeline event. */
+export async function whCaptureMapVersion(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const eventId = optString(args, 'eventId') || undefined;
+  await checkEraLinkedRow(args, db.timelineEvents, eventId, map.projectId, 'timeline event');
+  const { captureMapVersion } = await import('@/engines/maps/operations');
+  const { withMomentDate } = await import('@/engines/maps/versionTimeline');
+  const { resolveWorldCalendar } = await import('@/engines/timeline/worldCalendarStore');
+  const calendar = eventId ? (await resolveWorldCalendar(map.projectId, undefined, scope?.eraId).catch(() => null))?.calendar ?? null : null;
+  const metadata = withMomentDate({ name: requireString(args, 'name'), date: optString(args, 'date') ?? '', description: optString(args, 'description'), eventId }, eventId ? await eventsFor(map.projectId, scope?.eraId) : [], calendar);
+  const id = await captureMapVersion(map.id, metadata, scope);
+  return withAudit({ mapId: map.id, versionId: id, created: true }, { projectId: map.projectId, entityId: map.id, summary: `saved an era of map "${map.title}"`, before: { __mapVersionCapture: { mapId: map.id, versionId: id } } });
+}
+
+/** Link an era to a timeline event, or unlink it with eventId null. */
+export async function whLinkMapVersion(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const versionId = requireString(args, 'versionId');
+  if (!('eventId' in args)) throw new BridgeError('bad-args', 'eventId is required: an event id, or null to unlink.');
+  const eventId = args.eventId === null ? null : requireString(args, 'eventId');
+  if (eventId) await checkEraLinkedRow(args, db.timelineEvents, eventId, map.projectId, 'timeline event');
+  if (!map.versions?.some(version => version.id === versionId)) throw new BridgeError('not-found', `No era "${versionId}" on this map.`);
+  const { linkMapVersion } = await import('@/engines/maps/operations');
+  const previous = await linkMapVersion(map.id, versionId, eventId, scope);
+  return withAudit({ mapId: map.id, versionId, eventId, previousEventId: previous }, { projectId: map.projectId, entityId: map.id, summary: `${eventId ? 'linked' : 'unlinked'} an era of map "${map.title}"`, before: { __mapVersionLink: { mapId: map.id, versionId, from: previous, to: eventId } } });
+}

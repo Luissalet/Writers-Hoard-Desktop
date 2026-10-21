@@ -691,6 +691,21 @@ const PIN_ICONS = [
 
 export const MAP_TOOLS: BridgeTool[] = [
   {
+    name: 'wh_list_map_versions', writes: false,
+    description: 'List a map\'s eras (dated copies of its image, shapes, layers and pins) in the order a reader travels them: eras linked to timeline events first, in the timeline\'s chronology, then unlinked eras in the order they were saved. Each era gives its date label, the linked event, and whether that event was deleted.',
+    schema: { type: 'object', properties: { mapId: s('Map id, from wh_list_maps.') }, required: ['mapId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_capture_map_version', writes: true,
+    description: 'Save the map as it stands now as a new era (only saved content), optionally standing for a timeline event whose date then labels and orders it. Undo removes this era if it still exists.',
+    schema: { type: 'object', properties: { mapId: s('Map id.'), name: s('Era name.'), date: s('Typed world date, used when no event is linked.'), description: s('Era notes.'), eventId: s('Timeline event id the era stands for (wh_list_events).') }, required: ['mapId', 'name'], additionalProperties: false },
+  },
+  {
+    name: 'wh_link_map_version', writes: true,
+    description: 'Link an existing map era to a timeline event, or pass eventId null to unlink it. Undo restores the previous link only while this one is still in place.',
+    schema: { type: 'object', properties: { mapId: s('Map id.'), versionId: s('Era id, from wh_list_map_versions.'), eventId: { anyOf: [{ type: 'string' }, { type: 'null' }], description: 'Timeline event id, or null to unlink.' } }, required: ['mapId', 'versionId', 'eventId'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_maps',
     description:
       `List a project's maps with every pin: name, icon, description and codex link.
