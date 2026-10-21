@@ -1227,7 +1227,7 @@ Wave 1, maps:
 - [x] Review r5: grid and travelling banner drawn on the atlas too; Carta PNG export carries the grid; banner publishes at most ~12/s.
 - [x] Story events on the map: Events tool, inspector, story so far by chapter, reader's view by chapter, exports; MCP add/update/remove/list.
 - [x] Review r6: fog and events through curved projections; long fog lines split; reader's view hides author marks; flat-only tools say so in 3D.
-- [ ] Trade lens on the map (A2 #43–47).
-- [ ] Classic-map polish and a generic `wh_add_map_feature`.
+- [x] Trade lens: deterministic settlement economy, Trade tab with months, places, goods and sites; sites and shipments on the atlas and Carta; MCP economy and sites.
+- [ ] Classic-map polish and a generic `wh_add_map_feature` (A2 #6).
 
 Later waves follow the ranked lists in C-writing, D1-tools, D2-platform and B-campaign.

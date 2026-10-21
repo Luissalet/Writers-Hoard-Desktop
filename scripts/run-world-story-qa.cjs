@@ -98,6 +98,14 @@ async function main() {
   const both = state.events.find(e => e.id === council.id);
   assert(both.type === 'change' && both.title === 'El gran consejo', `Back-to-back edits: ${JSON.stringify(both)}`);
   tests.push('A rename committed on leaving the field and a kind change clicked straight after both stick');
+  // Words typed and not yet committed go to the event they were typed for when another is picked on the map.
+  await js(`(()=>{const i=document.querySelector('[data-testid="story-edit-title"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'El consejo final');i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await pause(150);
+  await tap(A.x, A.y);
+  await wait(`document.querySelector('[data-testid="story-edit-title"]')?.value==='Emboscada en el vado'`, 'ambush picked on the map');
+  for (let i = 0; i < 60; i++) { state = await storyEdits(); if (state.events.find(e => e.id === council.id)?.title === 'El consejo final') break; await pause(150); }
+  assert.equal(state.events.find(e => e.id === council.id).title, 'El consejo final', 'Typed title lost when picking another event');
+  tests.push('A title typed without Enter is saved to its own event when another event is picked on the map');
   // Drag the ambush.
   const A2 = { x: A.x + 70, y: A.y - 40 };
   await drag(A, A2);

@@ -1250,3 +1250,95 @@ export async function whListStoryEvents(args: ToolArgs): Promise<unknown> {
   if (status) events = events.filter((event) => event.status === status);
   return { worldId: world.id, events: events.map((event) => ({ ...event, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10 })) };
 }
+
+// ---------------------------------------------------------------------------
+// The trade lens
+// ---------------------------------------------------------------------------
+
+/** The economy of a world as the Trade tab shows it, from its settlements and the author's sites. */
+async function economyOf(args: ToolArgs, world: GeneratedWorld) {
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return { pending: pendingResult(world, opened) } as const;
+  const economy = await import('@/engines/worldgen/core/economy');
+  const { manual, removed } = economy.tradeSitesFrom(deserializeEdits(world.edits ?? '[]'));
+  const input = { world: opened.world.data, places: economy.placesFromSettlements(opened.world.geo.settlements), seed: String(opened.world.data.params.seed), manualSites: manual, removedSites: removed };
+  return { economy, input, sites: economy.autoSites(input), atlas: opened.world.atlas, size: { width: opened.world.data.width, height: opened.world.data.height } } as const;
+}
+
+/** Who is fed, who will go short, prices against the usual and what is moving, for a month. */
+export async function whWorldEconomy(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const month = optNumber(args, 'month') ?? 1;
+  if (!Number.isInteger(month) || month < 1 || month > 240) throw new BridgeError('bad-args', 'month must be a whole number from 1 to 240.');
+  const limit = clampLimit(optNumber(args, 'limit'), 30, 400);
+  const state = await economyOf(args, world);
+  if ('pending' in state) return state.pending;
+  const { economy, input, sites } = state;
+  const snapshots = economy.simulateEconomy(input, month, 0, sites);
+  const snap = snapshots[snapshots.length - 1];
+  const r = (v: number) => Math.round(v * 100) / 100;
+  const names = new Map(input.places.map((place) => [place.id, place]));
+  const wanted = typeof args.place === 'string' ? args.place.trim().toLocaleLowerCase() : null;
+  const rows = snap.places
+    .filter((p) => !wanted || p.name.toLocaleLowerCase() === wanted)
+    .map((p) => ({
+      id: p.id, name: p.name, population: names.get(p.id)?.population ?? 0, fed: p.fed,
+      shortIn: Object.fromEntries(Object.entries(p.shortIn).map(([good, months]) => [good, r(months ?? 0)])),
+      price: Object.fromEntries(economy.GOODS.map((good) => [good, r(p.price[good])])),
+      stock: Object.fromEntries(economy.GOODS.map((good) => [good, Math.round(p.stock[good])])),
+    }))
+    .sort((a, b) => Number(a.fed) - Number(b.fed) || economy.STAPLES.filter((g) => g in b.shortIn).length - economy.STAPLES.filter((g) => g in a.shortIn).length || b.population - a.population)
+    .slice(0, limit);
+  if (wanted && !rows.length) throw new BridgeError('not-found', `No settlement named "${args.place}"; use wh_find_place.`);
+  return {
+    worldId: world.id, month, fedPlaces: snap.places.filter((p) => p.fed).length, places: snap.places.length,
+    onTheMove: snap.onTheMove, sites: { generated: sites.filter((site) => site.auto).length, yours: sites.filter((site) => !site.auto).length },
+    goods: economy.goodsSummary(snap, sites).map((g) => ({ ...g, priceMin: r(g.priceMin), priceMax: r(g.priceMax) })),
+    movements: snap.movements.slice(0, 40).map((m) => ({ good: m.good, from: names.get(m.from)?.name ?? m.from, to: names.get(m.to)?.name ?? m.to, amount: Math.round(m.amount), bySea: m.bySea })),
+    placesDetail: rows,
+  };
+}
+
+/** The production sites: generated near each settlement and placed by the author. */
+export async function whListTradeSites(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const state = await economyOf(args, world);
+  if ('pending' in state) return state.pending;
+  const names = new Map(state.input.places.map((place) => [place.id, place.name]));
+  const onlyYours = args.onlyYours === true;
+  return {
+    worldId: world.id,
+    sites: state.sites.filter((site) => !onlyYours || !site.auto).slice(0, 1000).map((site) => ({ ...site, place: site.placeId !== null ? names.get(site.placeId) ?? null : null })),
+  };
+}
+
+/** Place a production site (farm, fishery, pasture, logging camp, quarry, mine, saltworks). */
+export async function whAddTradeSite(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const economy = await import('@/engines/worldgen/core/economy');
+  let at: { x: number; y: number };
+  if (typeof args.place === 'string') {
+    const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+    if (!opened.ok) return pendingResult(world, opened);
+    const place = opened.world.atlas.byKey.get(args.place);
+    if (!place) throw new BridgeError('not-found', `No place "${args.place}"; use wh_find_place for keys.`);
+    at = { x: Math.floor(place.x), y: Math.floor(place.y) };
+  } else at = cellCoords(args, worldSize(world));
+  let site;
+  try {
+    site = economy.normalizeTradeSite({ id: `site-${generateId()}`.slice(0, 60), kind: args.kind, size: args.size, x: at.x, y: at.y, placeId: null });
+  } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+  return appendEdit(args, world, economy.tradeSiteEdit(site), { site }, `placed a ${site.kind} in world "${world.title}"`);
+}
+
+/** Remove the author's site, or switch off a generated one. Not a deletion: an undoable edit. */
+export async function whRemoveTradeSite(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const id = requireString(args, 'id');
+  const state = await economyOf(args, world);
+  if ('pending' in state) return state.pending;
+  if (!state.sites.some((site) => site.id === id)) throw new BridgeError('not-found', `No trade site "${id}" on this world; use wh_list_trade_sites.`);
+  return appendEdit(args, world, state.economy.tradeSiteRemoveEdit(id), { id, removed: true }, `removed trade site ${id} from world "${world.title}"`);
+}
