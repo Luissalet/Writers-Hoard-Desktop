@@ -2,6 +2,7 @@ import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldRuntimeKey } from '../era';
 import { PRESENTATION_LAYERS, resolvePresentation, saveWorldPresentation } from '../presentation';
+import { SCALE_REFERENCES } from '../core/scaleReference';
 import type { WorldPresentation } from '../types';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { randomSeed } from '../randomSeed';
@@ -326,6 +327,8 @@ export default function WorldView({
    * a click has to mean ONE thing.
    */
   const [measuring, setMeasuring] = useState(false);
+  /** A real place laid over the map at its scale; a viewing aid, not saved. */
+  const [scaleReference, setScaleReference] = useState<string>('');
   // Declared up here with the rest of the view state rather than down in the
   // painting section, because whether a brush is out decides when the human
   // geography may be rebuilt — and that effect runs above it.
@@ -1820,6 +1823,18 @@ export default function WorldView({
               title={t('worldgen.measure.button')}
             />
           )}
+          {view === 'map' && (
+            <select
+              value={scaleReference}
+              onChange={(e) => setScaleReference(e.target.value)}
+              title={t('worldgen.scaleRef.title')}
+              aria-label={t('worldgen.scaleRef.title')}
+              className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${scaleReference ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-muted'}`}
+            >
+              <option value="">{t('worldgen.scaleRef.none')}</option>
+              {SCALE_REFERENCES.map((ref) => <option key={ref.id} value={ref.id}>{t(`worldgen.scaleRef.${ref.id}`)}</option>)}
+            </select>
+          )}
         </div>
 
         <div className="flex-1" />
@@ -1919,6 +1934,8 @@ export default function WorldView({
               tool={paintable && !measuring ? tool : undefined}
               onEdit={paintable ? applyEdit : undefined}
               measuring={measuring}
+              scaleReference={scaleReference || null}
+              scaleReferenceLabel={scaleReference ? t(`worldgen.scaleRef.${scaleReference}`) : ''}
               onEndMeasure={() => setMeasuring(false)}
               onPickSettlement={pickSettlement}
               onZoomTo={zoomToPoint}
