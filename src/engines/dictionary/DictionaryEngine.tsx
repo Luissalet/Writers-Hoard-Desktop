@@ -1,16 +1,15 @@
+import { useEraNavigate } from '@/services/worldEras/navigation';
+import { bindEraOperation, useWorldEraScope, useEraProject, useEraRows } from '@/services/worldEras/hooks';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { Download, Languages, Plus, Search, Settings2, Trash2, Upload } from 'lucide-react';
 import { saveAs } from 'file-saver';
-import { db } from '@/db';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import { useDeepLinkParam } from '@/engines/_shared';
-import { useNavigate } from 'react-router-dom';
 import { dictionaryCopy } from './copy';
 import { emptyWord, exportDictionary, nativeWord, parseDictionaryImport, searchWords, type DictionaryWord, type WorldDictionary } from './types';
-import { removeDictionary, removeWord, saveDictionary, saveWord } from './operations';
+import { removeDictionary as removeDictionaryScoped, removeWord as removeWordScoped, saveDictionary as saveDictionaryScoped, saveWord as saveWordScoped } from './operations';
 import { dictionaryDrafts, useDictionaryDraft } from './drafts';
 import { DictionaryScriptSettings } from './DictionaryScriptSettings';
 import { useDictionaryFont } from './useDictionaryFont';
@@ -42,7 +41,7 @@ function LanguageForm({ projectId, existing, initial, copy, busy, onSave, onCanc
   </form>;
 }
 
-function WordForm({ projectId, initial, dictionary, copy, busy, entries, onSave, onCancel }: { projectId: string; initial: DictionaryWord; dictionary: WorldDictionary; copy: Copy; busy: boolean; entries: { id: string; title: string }[]; onSave: (word: DictionaryWord, base: DictionaryWord | undefined, clear: () => void) => void; onCancel: () => void }) {
+export function WordForm({ projectId, initial, dictionary, copy, busy, entries, onSave, onCancel }: { projectId: string; initial: DictionaryWord; dictionary: WorldDictionary; copy: Copy; busy: boolean; entries: { id: string; title: string }[]; onSave: (word: DictionaryWord, base: DictionaryWord | undefined, clear: () => void) => void; onCancel: () => void }) {
   const { draft, setDraft, base, clear, recovered } = useDictionaryDraft(projectId, 'word', initial, dictionary.words.some(word => word.id === initial.id), dictionary.id);
   const { fontFamily } = useDictionaryFont(dictionary.font);
   const fields = ['word', 'nativeForm', 'pronunciation', 'partOfSpeech', 'meaning', 'examples', 'phrases', 'derivatives', 'origin'] as const;
@@ -67,9 +66,14 @@ export default function DictionaryEngine({ projectId }: EngineComponentProps) {
   const reportPaneTitle = pane?.reportTitle;
   const { locale } = useTranslation();
   const copy = dictionaryCopy[locale];
-  const navigate = useNavigate();
-  const project = useLiveQuery(() => db.projects.get(projectId), [projectId]);
-  const entries = useLiveQuery(() => db.codexEntries.where('projectId').equals(projectId).toArray(), [projectId]) ?? [];
+  const navigate = useEraNavigate();
+  const scope = useWorldEraScope(projectId);
+  const saveDictionary = bindEraOperation(saveDictionaryScoped, scope.eraId, 3);
+  const removeDictionary = bindEraOperation(removeDictionaryScoped, scope.eraId, 2);
+  const saveWord = bindEraOperation(saveWordScoped, scope.eraId, 4);
+  const removeWord = bindEraOperation(removeWordScoped, scope.eraId, 3);
+  const project = useEraProject(projectId);
+  const entries = useEraRows<import('@/types').CodexEntry>('codexEntries', projectId);
   const deepLink = useDeepLinkParam('entity');
   const [selectedId, setSelectedId] = useState('');
   const [query, setQuery] = useState('');
@@ -81,7 +85,7 @@ export default function DictionaryEngine({ projectId }: EngineComponentProps) {
   const [appliedLink, setAppliedLink] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const dictionaries = project?.dictionaries ?? [];
-  const recoveries = [...dictionaryDrafts(projectId).values()].filter(row => row.kind === 'language' || dictionaries.some(dictionary => dictionary.id === row.dictionaryId));
+  const recoveries = [...dictionaryDrafts(projectId, scope.eraId).values()].filter(row => row.kind === 'language' || dictionaries.some(dictionary => dictionary.id === row.dictionaryId));
   if(deepLink&&deepLink!==appliedLink&&dictionaries.some(dictionary=>dictionary.id===deepLink)){setSelectedId(deepLink);setQuery('');setAppliedLink(deepLink);}
   if (deepLink && deepLink !== appliedLink && dictionaries.some(dictionary => dictionary.words.some(word => word.id === deepLink))) {
     const dictionary = dictionaries.find(dictionary => dictionary.words.some(word => word.id === deepLink))!;

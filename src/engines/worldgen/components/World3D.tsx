@@ -30,6 +30,9 @@ import { createSky, type Sky } from '../sculpt/sky';
 import { lakeHeightAtUV } from '../core/lakeSurface';
 import { createWater, type Water } from '../sculpt/water';
 import { createScatter, type Scatter } from '../sculpt/scatter';
+import { createPlaceModels } from '../sculpt/places';
+import { settlementStyle, placeFont, labelScale, symbolScale, hasPlaceModel } from '../core/placeStyle';
+import { drawPlaceBuilding } from '../cartography/placeSymbol';
 import type { Pt, Stroke, TerrainOp, WorldEdit } from '../core/edits';
 import {
   commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
@@ -48,7 +51,7 @@ import { tileStats, oldestInFlightMs } from '../region/client';
 import { serveTile } from '../region/tileService';
 import { mapSourceKey, worldContentKey, worldFamilyKey, geographyContentKey } from '../region/contentIdentity';
 import { drawRoadNetwork, roadOverlayAlpha } from '../cartography/roadOverlay';
-import { drawRealmBorders, realmBorders } from '../cartography/realmOverlay';
+import { drawRealmBorders, realmBorders, drawRealmWash } from '../cartography/realmOverlay';
 import { drawTownStains } from '../cartography/townStains';
 import {
   drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported, satPxPerCanonCell,
@@ -58,10 +61,12 @@ import type { WorldViewport, WorldWaypoint } from '../types';
 import { CURVES, TIPS, type PaintTool } from './PaintPanel';
 import SculptView from './SculptView';
 import {
-  resolveWorldLandmarks,
+  resolveWorldLandmarks, resolveWorldSpatialEntity,
   type WorldSpatialEntity,
 } from '../core/spatialEntities';
 import { semanticZoomProfile } from '../core/semanticZoom';
+import { realmAnchors } from '../cartography/realmAnchors';
+import { editKey, realmEditKey } from '../core/edits';
 import {
   EARTH_KM, FLIGHT_MS, MIN_3D_SPAN_KM, MIN_SPAN_KM, type FlyMark, type FlyTarget,
 } from '../core/camera';
@@ -527,6 +532,7 @@ export default function World3D({
     sky: Sky;
     water: Water;
     scatter: Scatter;
+    placeModels: ReturnType<typeof createPlaceModels>;
     /** La dirección AL sol, la misma que `surface.setSun` construye. */
     sun: THREE.Vector3;
     /** Segundos de oleaje acumulados. No es el reloj de pared: ver el pulso. */
@@ -856,6 +862,7 @@ export default function World3D({
       seed: world.params.seed, sizeX: SIZE_X, sizeZ, radius: R_GLOBE,
     });
     scene.add(scatter.group);
+    const placeModels = createPlaceModels(); scene.add(placeModels.group);
     sembrar();
 
     // El almacén de teselas: mismo tipo, mismo protocolo y mismo worker que usa
@@ -877,7 +884,7 @@ export default function World3D({
         const req = serveTile(deep ? q.canonWorld! : q.world, q.geography, key, {
           ink: carta ? 'carta' : 'satellite',
           themeId: carta ? q.theme.id : 'satellite',
-          layers: { rivers: q.showRivers, roads: q.showRoads, borders: q.showBorders, fields: true },
+          layers: { rivers: q.showRivers, roads: !carta && q.showRoads, borders: q.showBorders, fields: true },
           density: 1,
           reliefAmount: 1,
           // `?? ''`: hondo sin ediciones sigue siendo contenido direccionable
@@ -906,7 +913,7 @@ export default function World3D({
     );
 
     const st = {
-      renderer, scene, camera, controls, surface, sky, water, scatter,
+      renderer, scene, camera, controls, surface, sky, water, scatter, placeModels,
       // La misma que `setSun(az, el)` arma; el efecto de la hora la rellena
       // antes del primer dibujo. Aquí, mediodía largo, por si acaso.
       sun: new THREE.Vector3(0, 1, 0),
@@ -960,6 +967,7 @@ export default function World3D({
       sky.dispose();
       water.dispose();
       scatter.dispose();
+      placeModels.dispose();
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
       renderer.dispose();
       /**
@@ -1186,6 +1194,21 @@ export default function World3D({
         });
       }
     }
+    if (geo && st.zoomInputs.showBorders) {
+      const anchors = realmAnchors(world.width, world.height, geo);
+      for (const realm of geo.realms) {
+        const anchor = anchors[realm.id];
+        if (!anchor || !realm.style || Math.sqrt(anchor.cells) / world.width / st.surface.uvWindow.size * w < 100) continue;
+        const at = place(anchor.x, anchor.y); if (!at) continue;
+        out.push({ x: at.x, y: at.y, kind: 'spatial', rank: -1, label: realm.name.toUpperCase(), color: realm.style.color ?? '#f2e3c4', spatial: resolveWorldSpatialEntity({ key: realmEditKey(realm.id), kind: 'realm', type: 'realm', name: realm.name, x: anchor.x, y: anchor.y, extent: 1, importance: 1, style: realm.style }) });
+      }
+    }
+    if (geo && sl) for (const ruin of geo.ruins) {
+      const key = ruin.sourceKey ?? editKey('ruin', ruin.x, ruin.y), style = world.painted?.styles?.[key];
+      if (!style || !semanticZoomProfile(st.surface.uvWindow.size * EARTH_KM).showRegionalTerrain) continue;
+      const at = place(ruin.x, ruin.y); if (!at) continue;
+      out.push({ x: at.x, y: at.y, kind: 'spatial', rank: 3, label: ruin.name, color: style.color ?? '#f2e3c4', spatial: resolveWorldSpatialEntity({ key, kind: 'ruin', type: ruin.kind, name: ruin.name, x: ruin.x, y: ruin.y, extent: 1, importance: ruin.importance, style }) });
+    }
     if (ss && geo) {
       // How much of the world is on screen decides how much of the gazetteer
       // is worth drawing: every village at full zoom is a grey smear, and only
@@ -1194,11 +1217,11 @@ export default function World3D({
       const profile = semanticZoomProfile(win * 40075);
       const maxRank = profile.settlementRank;
       const ranked = geo.settlements
-        .filter((s) => (RANK_ORDER[s.rank] ?? 3) <= maxRank)
+        .filter((s) => (RANK_ORDER[s.rank] ?? 3) <= maxRank || settlementStyle(world, s).labelVisible)
         .sort((a, b) => (RANK_ORDER[a.rank] ?? 3) - (RANK_ORDER[b.rank] ?? 3))
         .slice(0, Math.min(96, profile.labelBudget));
       for (const s of ranked) {
-        const at = place(s.x, s.y);
+        const at = place(s.x + .5, s.y + .5);
         if (!at) continue;
         out.push({
           x: at.x, y: at.y, kind: 'settlement',
@@ -1241,7 +1264,7 @@ export default function World3D({
     }
     // Arrival and authored pins reserve their names before generated places.
     return out.sort((a, b) => a.rank - b.rank);
-  }, [scenePos, world.width, world.height]);
+  }, [scenePos, world]);
 
   const drawOverlay = useCallback((marks: ScreenMark[]) => {
     const oc = overlayRef.current;
@@ -1261,6 +1284,26 @@ export default function World3D({
     ctx.clearRect(0, 0, w, h);
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
+
+    // Sheet routes are lettering-scale ink, not an albedo feature that may
+    // magnify into a pale motorway. Exactly one projected road pass owns them.
+    const roadScene = R.current;
+    if (roadScene && skin === 'dibujado' && showRoads && geography) {
+      const p = new THREE.Vector3(), toward = new THREE.Vector3();
+      drawRoadNetwork(ctx, geography.roads, {
+        worldWidth: world.width, worldHeight: world.height, width: w, height: h,
+        cellView: { x: (roadScene.surface.uvWindow.u-roadScene.surface.uvWindow.size/2)*world.width, y: (roadScene.surface.uvWindow.v-roadScene.surface.uvWindow.size/2)*world.height, w: roadScene.surface.uvWindow.size*world.width, h: roadScene.surface.uvWindow.size*world.height },
+        pxPerCell: 1, ink: { major: theme.roads.major, minor: theme.roads.minor, casing: theme.paper.base },
+        toScreen: (u, v) => {
+          u -= Math.round(u - roadScene.surface.uvWindow.u);
+          scenePos(u * world.width, v * world.height, p);
+          if (shapeRef.current === 'globe' && p.dot(toward.copy(roadScene.camera.position).sub(p)) <= 0) return null;
+          p.project(roadScene.camera);
+          if (p.z > 1 || p.z < -1) return null;
+          return [(p.x * .5 + .5) * w, (-p.y * .5 + .5) * h];
+        },
+      });
+    }
 
     /**
      * Labels that would collide are not drawn.
@@ -1318,11 +1361,20 @@ export default function World3D({
       }
       if (m.kind === 'spatial' && m.spatial) {
         const entity = m.spatial;
+        if (entity.kind === 'realm') {
+          const size = 14 * labelScale(entity.style), font = placeFont(entity.style, 'Georgia, serif');
+          ctx.font = `600 ${size}px ${font}`; const tw = ctx.measureText(m.label).width, x = m.x - tw / 2;
+          if (fits(x - 2, m.y - size * .7, x + tw + 2, m.y + size * .7)) { label(ctx, m.label, x, m.y, size, m.color, font); m.hit = { x0: x, y0: m.y - size, x1: x + tw, y1: m.y + size }; }
+          continue;
+        }
         const selected = entity.key === propsRef.current.selectedSpatialKey;
         const symbolScale = Math.min(2.4, Math.max(0.65, entity.style.size ?? 1));
         ctx.save();
         ctx.translate(m.x, m.y);
         ctx.scale(symbolScale, symbolScale);
+        const modeled = R.current?.placeModels.group.visible && hasPlaceModel(entity.style);
+        const custom = modeled || drawPlaceBuilding(ctx, entity.style, undefined, 5, entity.type);
+        if (!custom) {
         ctx.beginPath();
         if ((entity.style.icon ?? entity.type) === 'volcano') {
           ctx.moveTo(0, -6);
@@ -1346,6 +1398,7 @@ export default function World3D({
         ctx.lineWidth = 1.4;
         ctx.strokeStyle = selected ? '#fff1bd' : 'rgba(6,8,13,0.92)';
         ctx.stroke();
+        }
         ctx.restore();
         if (selected) {
           ctx.beginPath();
@@ -1365,18 +1418,24 @@ export default function World3D({
           y1: m.y + 10 * symbolScale,
         };
         if (alwaysLabel) {
-          ctx.font = '600 11px "Source Sans 3", system-ui, sans-serif';
+          const size = 11 * labelScale(entity.style), font = placeFont(entity.style, '"Source Sans 3", system-ui, sans-serif');
+          ctx.font = `600 ${size}px ${font}`;
           const tw = ctx.measureText(m.label).width;
           const lx = m.x + 8 * symbolScale + tw + 3 < w ? m.x + 8 * symbolScale : m.x - 8 * symbolScale - tw;
-          if (fits(lx - 2, m.y - 8, lx + tw + 2, m.y + 8)) {
-            label(ctx, m.label, lx, m.y, 11, entity.style.color ?? '#f6efe0');
+          if (fits(lx - 2, m.y - size * .7, lx + tw + 2, m.y + size * .7)) {
+            label(ctx, m.label, lx, m.y, size, entity.style.color ?? '#f6efe0', font);
             m.hit = { x0: m.x - 8, y0: m.y - 10, x1: lx + tw + 3, y1: m.y + 10 };
           }
         }
         continue;
       }
       const big = m.rank <= 1;
-      const r = m.rank === 0 ? 5 : m.rank === 1 ? 4 : m.rank === 2 ? 3 : 2.2;
+      const style = m.settlement ? settlementStyle(world, m.settlement) : {};
+      const r = (m.rank === 0 ? 5 : m.rank === 1 ? 4 : m.rank === 2 ? 3 : 2.2) * symbolScale(style);
+      ctx.save(); ctx.translate(m.x, m.y);
+      const modeled = R.current?.placeModels.group.visible && hasPlaceModel(style);
+      const custom = modeled || drawPlaceBuilding(ctx, style, m.settlement?.culture, r, m.settlement?.rank); ctx.restore();
+      if (!custom) {
       ctx.beginPath();
       ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
       ctx.fillStyle = m.rank === 0 ? '#ffd479' : '#f4ead4';
@@ -1391,13 +1450,15 @@ export default function World3D({
         ctx.lineWidth = 1.2;
         ctx.stroke();
       }
-      const size = big ? 12 : 11;
-      ctx.font = `${size >= 12 ? 600 : 500} ${size}px "Source Sans 3", system-ui, sans-serif`;
+      }
+      const size = (big ? 12 : 11) * labelScale(style);
+      const font = placeFont(style, '"Source Sans 3", system-ui, sans-serif');
+      ctx.font = `${size >= 12 ? 600 : 500} ${size}px ${font}`;
       const tw = ctx.measureText(m.label).width;
       const lx = m.x + r + 5 + tw + 3 < w ? m.x + r + 5 : m.x - r - 5 - tw;
       m.hit = undefined;
       if (fits(lx - 2, m.y - size * 0.7, lx + tw + 2, m.y + size * 0.7)) {
-        label(ctx, m.label, lx, m.y, size, '#f6efe0');
+        label(ctx, m.label, lx, m.y, size, style.color ?? '#f6efe0', font);
         m.hit = { x0: lx - 3, y0: m.y - size, x1: lx + tw + 3, y1: m.y + size };
       }
     }
@@ -1511,7 +1572,7 @@ export default function World3D({
         }
       }
     }
-  }, [scenePos]);
+  }, [scenePos, world, skin, showRoads, geography, theme]);
 
   const flushViewport = useCallback(() => {
     const st = R.current;
@@ -1735,6 +1796,7 @@ export default function World3D({
     }
 
     if (geo && st.zoomInputs.showBorders && geo.realms.length) {
+      if (st.zoomInputs.skin !== 'dibujado') drawRealmWash(ctx, w, geo, plan.view, plan.width, plan.height);
       const segments = realmBorders(w, geo);
       const scale = plan.width / plan.view.w;
       for (let k = Math.floor(plan.view.x / w.width); k <= Math.floor((plan.view.x + plan.view.w) / w.width); k++) {
@@ -2152,6 +2214,11 @@ export default function World3D({
      * la retícula: cuando hay un parche canónico atado, el terreno sube hasta
      * un kilómetro y las plantas se quedarían enterradas.
      */
+    st.placeModels.update(st.zoomInputs.world, st.zoomInputs.geography, st.surface, {
+      shape: shapeRef.current, spanKm: st.focusKm, visible: propsRef.current.showSettlements, sun: st.sun,
+      entities: propsRef.current.spatialEntities,
+      sunColor: light.color, sunIntensity: light.intensity, ambient: light.ambient,
+    });
     st.scatter.update({
       camera: c,
       sun: st.sun,
@@ -2475,7 +2542,7 @@ export default function World3D({
     if (skin === 'dibujado') {
       canvas = getCartoTexture(world, theme, geography ?? undefined,
         Math.min(4096, Math.max(2048, world.width)),
-        { rivers: showRivers, roads: showRoads, borders: showBorders });
+        { rivers: showRivers, roads: false, borders: showBorders });
       // La carta trae sus ríos dibujados en su propia lámina: el relleno de la
       // piel de cerca usa la misma imagen y no necesita base aparte.
       st.albedoBase = null;
@@ -2504,6 +2571,7 @@ export default function World3D({
         // wrap=false: este ráster ya cubre el cilindro entero; re-ramificar
         // por ventana empujaría los ríos orientales fuera del borde izquierdo.
         if (showRivers) drawWorldRivers(world, cctx, { x: 0, y: 0, w: world.width, h: world.height }, world.width, false);
+        if (showBorders && geography) drawRealmWash(cctx, world, geography, { x: 0, y: 0, w: world.width, h: world.height }, canvas.width, canvas.height);
         if (showBorders && geography) drawRealmBorders(cctx, realmBorders(world, geography), {
           worldWidth: world.width, worldHeight: world.height,
           toScreen: (u, v) => [u * world.width, v * world.height],
@@ -3450,8 +3518,8 @@ export default function World3D({
 // ---------------------------------------------------------------------------
 
 /** A label with a dark halo, so it reads over ice and over ocean alike. */
-function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color: string): void {
-  ctx.font = `${size >= 12 ? 600 : 500} ${size}px "Source Sans 3", system-ui, sans-serif`;
+function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color: string, font = '"Source Sans 3", system-ui, sans-serif'): void {
+  ctx.font = `${size >= 12 ? 600 : 500} ${size}px ${font}`;
   ctx.lineWidth = 3;
   ctx.lineJoin = 'round';
   ctx.strokeStyle = 'rgba(6,8,13,0.85)';

@@ -75,6 +75,7 @@ import { familySearch } from './familySearch';
 import { familyCall, familyRefs } from './familyCall';
 import { closeFiction, configureFiction, fictionService, isFictionRunning } from './fiction/service';
 import { closePublishing, configurePublishing, publishingService, isPublishingRunning } from './publishing/service';
+import { registerVoiceIpc, configureVoice, closeVoice } from './media/register';
 import {
   isExactRendererDocumentUrl,
   isIpcChannelAllowedForRole,
@@ -103,6 +104,11 @@ import { registerAiIpc } from './ai/ipc';
 import { registerFaustusIpc } from './ai/faustusIpc';
 import { registerDocumentIpc } from './documents/register';
 import { registerProofingIpc } from './proofing/register';
+import { registerDocumentImageIpc } from './documentImage';
+import { configureProjectDuplicate, registerProjectDuplicateIpc } from './projectDuplicate/register';
+import { registerVisualSearchIpc } from './visualSearch/ipc';
+import { registerEntityDetectionIpc } from './entityDetection/ipc';
+import { EntityDetectionRuntime } from './entityDetection/runtime';
 import { setBuiltinOllamaResolver } from './ai/connectionStore';
 import { shutdownGateway } from './ai/inferenceGateway';
 import { shutdownSdRuntime } from './ai/sdRuntime';
@@ -1394,8 +1400,15 @@ async function syncAiBridgeNow(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function registerIpc(): void {
+  registerVoiceIpc(assertIpcSender);
   registerDocumentIpc(assertIpcSender);
   registerProofingIpc(assertIpcSender);
+  registerDocumentImageIpc(assertIpcSender);
+  registerProjectDuplicateIpc(assertIpcSender);
+  registerVisualSearchIpc(assertIpcSender);
+  const entityDetection = new EntityDetectionRuntime(path.join(app.getPath('userData'), 'entity-detection'), path.join(__dirname, 'entityDetection/worker.cjs'));
+  registerEntityDetectionIpc({ handle: (channel, listener) => ipcMain.handle(channel, (event, ...args) => { assertIpcSender(event, channel); return listener(event, ...args); }) }, entityDetection);
+  app.once('will-quit', () => { void entityDetection.close(); });
   ipcMain.on('window:openMenu', (event) => {
     if (!acceptIpcSender(event, 'window:openMenu') || !mainWindow) return;
     Menu.getApplicationMenu()?.popup({ window: mainWindow, x: 12, y: 36 });
@@ -2323,6 +2336,9 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     const publishingRoot = app.isPackaged ? path.join(process.resourcesPath, 'publishing') : path.join(__dirname, '..', 'publishing');
+    configureVoice({ projectRoot: app.isPackaged ? process.resourcesPath : path.join(__dirname, '..'), runtimeDir: path.join(process.resourcesPath, 'voice'), modelsDir: path.join(app.getPath('userData'), 'voice', 'models'), isPackaged: app.isPackaged });
+    configureProjectDuplicate({ mediaRoot: scrapperMediaDir, recoveryDir: path.join(app.getPath('userData'), 'project-duplicate'),
+      publishingLinksPath: () => path.join(process.env.WH_PUBLISHING_DATA_DIR || path.join(app.getPath('userData'), 'publishing', 'data'), 'writer-project-links.db') });
     configurePublishing({ configFile: path.join(app.getPath('userData'), 'publishing', 'modules.json'),
       dataDir: process.env.WH_PUBLISHING_DATA_DIR || path.join(app.getPath('userData'), 'publishing', 'data'),
       command: process.env.WH_PUBLISHING_PYTHON || (app.isPackaged ? path.join(publishingRoot, process.platform === 'win32' ? 'writer-publishing-worker.exe' : 'writer-publishing-worker') : path.join(publishingRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')),
@@ -2442,6 +2458,7 @@ app.on('window-all-closed', () => {
 
 let fictionClosing = false;
 app.on('will-quit', event => {
+  closeVoice();
   if ((isFictionRunning() || isPublishingRunning()) && !fictionClosing) {
     event.preventDefault();
     fictionClosing = true;

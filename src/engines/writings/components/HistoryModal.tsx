@@ -11,13 +11,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { countWords, stripHtml } from '@/utils/text';
 import type { Writing } from '@/types';
 import type { WritingSnapshotMeta } from '../snapshotTypes';
-import {
-  deleteSnapshot,
-  listSnapshotMeta,
-  readSnapshot,
-  restoreSnapshot,
-  takeSnapshot,
-} from '../snapshots';
+import { useEraSnapshotOperations } from '@/services/worldEras/writings';
 
 interface HistoryModalProps {
   open: boolean;
@@ -154,6 +148,7 @@ export default function HistoryModal({
   // whole version history including every body, which on a chapter the writer
   // has opened three hundred times is tens of megabytes of HTML parsed out of
   // IndexedDB and pinned in this state array — to draw a column of dates.
+  const { deleteSnapshot, listSnapshotMeta, readSnapshot, restoreSnapshot, takeSnapshot } = useEraSnapshotOperations(writing.projectId);
   const [snapshots, setSnapshots] = useState<WritingSnapshotMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // The PREVIEW is one body, fetched when the writer picks a version. Exactly
@@ -164,7 +159,7 @@ export default function HistoryModal({
 
   const refresh = useCallback(async () => {
     setSnapshots(await listSnapshotMeta(writing.id));
-  }, [writing.id]);
+  }, [writing.id, listSnapshotMeta]);
 
   useEffect(() => {
     if (open) {
@@ -199,7 +194,7 @@ export default function HistoryModal({
     return () => {
       current = false;
     };
-  }, [selectedId]);
+  }, [selectedId, readSnapshot]);
 
   const reasonLabel = (reason: WritingSnapshotMeta['reason']) =>
     t(`writings.history.reason.${reason}`);

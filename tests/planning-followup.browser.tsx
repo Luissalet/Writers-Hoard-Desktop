@@ -40,6 +40,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
   const passed: string[] = [];
   const acceptPin = (value: unknown): value is PinDraft => !!value && typeof value === 'object' && 'name' in value;
   try {
+    await db.projects.put({ id: prefix, title: 'Planning followup', type: 'standalone', mode: 'custom', color: '#c4973b', description: '', status: 'draft', enabledEngines: ['maps', 'real-atlas'], engineOrder: ['maps', 'real-atlas'], createdAt: 1, updatedAt: 1 });
     let drafts = createLocalDraftStore(`${prefix}-maps`, acceptPin);
     let fail = true;
     const savedPins: string[] = [];
@@ -141,6 +142,10 @@ export async function testPlanningFollowup(): Promise<string[]> {
     passed.push('Project deletion: failed transactions retain recovery; committed deletion clears exact journals and retries storage failures');
 
     const timeline = { id: 'timeline', projectId: prefix, title: 'Lane', color: '#c4973b', createdAt: 1, updatedAt: 1 };
+    // The deletion assertions above intentionally removed the prior owner.
+    // The following independent timeline UI scenario needs a real owner again.
+    await db.projects.put({ id: prefix, title: 'Timeline followup', type: 'standalone', mode: 'custom', color: '#c4973b', description: '', status: 'draft', enabledEngines: ['timeline'], engineOrder: ['timeline'], createdAt: 1, updatedAt: 1 });
+    await db.timelines.put(timeline);
     for (const mode of ['list', 'lanes']) {
       let saved = 0;
       const persist = async () => { saved++; };
@@ -185,7 +190,7 @@ export async function testPlanningFollowup(): Promise<string[]> {
     await act(async () => { root.unmount(); });
     host.remove();
     for (const suffix of ['maps', 'atlas', 'failure', 'cold']) localStorage.removeItem(`${prefix}-${suffix}`);
-    await db.projects.delete(prefix);
+    await deleteProject(prefix);
     for (const key of [`wh.maps-drafts.v1.${prefix}`, `wh.real-atlas-drafts.v1.${prefix}`, `wh.maps-drafts.v1.${prefix}-neighbour`]) localStorage.removeItem(key);
   }
 }

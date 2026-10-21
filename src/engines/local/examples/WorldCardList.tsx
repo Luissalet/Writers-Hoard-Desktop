@@ -1,0 +1,5 @@
+import {useEffect,useState} from 'react';
+import type {LocalToolWorldBlockProps} from '../blocks/definitions';
+import type {LocalToolWorldRead} from '../sdk';
+import {useTranslation} from '@/i18n/useTranslation';
+export default function WorldCardList({client}:LocalToolWorldBlockProps){const {locale}=useTranslation(),[rows,setRows]=useState<LocalToolWorldRead[]>(),[error,setError]=useState('');useEffect(()=>{let active=true;void client.world.list('codex').then(value=>{if(active)setRows(value);}).catch(reason=>{if(active)setError(String(reason));});return()=>{active=false;};},[client]);return <div className="space-y-2">{error&&<p role="alert">{error}</p>}{!rows?<p role="status">{locale==='es'?'Leyendo fichas…':'Reading cards…'}</p>:<ul className="m-0 list-none space-y-2 p-0">{rows.map(({document:{root}})=><li key={root.id}><button type="button" className="min-h-10 rounded border border-border px-3 text-sm" onClick={()=>void client.openDocument('codex',root.id)}>{String(root.title)}</button></li>)}</ul>}</div>;}

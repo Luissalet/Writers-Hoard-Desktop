@@ -1,0 +1,13 @@
+{
+  "fixture": "tests/modal-dirty-guards.browser.tsx",
+  "originalSha256": "e54f085dbf0b159b10bdbcb361c29dc8ceb472da575700b4a1053c2f3b9549ff",
+  "currentSha256": "26d9047f980a20bced7fd09836c9af2099dc228bdc36b9e760465095f1ec1875",
+  "reverseOnlyRouterOwnersAndCleanupExact": true,
+  "assertionsChanged": false,
+  "actualResult": "5PASS",
+  "log": "D:/LocalAI/projectlesswork/worldcraft1041-modal-dirty-owner-ready.log",
+  "historicalRouterOnlyFailure": "D:/LocalAI/projectlesswork/worldcraft1041-modal-dirty-router-ready.log",
+  "productionChanged": false,
+  "lateScopedEslintExit": 0,
+  "electronTypecheckExit": 0
+}

@@ -26,7 +26,7 @@ export interface FixedSheetViewProps { record: GeneratedWorld; initial: SavedWor
 
 export default function FixedSheetView({ record, initial, existing, draftKey, world, canon, geography, theme, prepare, onSaved, onClose, request = requestFixedSheet }: FixedSheetViewProps) {
   const { locale } = useTranslation(), copy = sheetCopy[locale], pane = useEnginePane();
-  const store = useMemo(() => createLocalDraftStore<Recovery>(`wh.world-sheets-drafts.v1.${record.projectId}`, (value): value is Recovery => { const item = value as Partial<Recovery> | null; return !!item && typeof item.worldId === 'string' && !!item.value && typeof item.value.id === 'string' && typeof item.value.title === 'string' && !!item.value.params && Number.isFinite(item.value.spanKm); }), [record.projectId]);
+  const store = useMemo(() => createLocalDraftStore<Recovery>(`wh.world-sheets-drafts.v1.${record.projectId}${pane?.eraId ? `.era:${pane.eraId}` : ''}`, (value): value is Recovery => { const item = value as Partial<Recovery> | null; return !!item && typeof item.worldId === 'string' && !!item.value && typeof item.value.id === 'string' && typeof item.value.title === 'string' && !!item.value.params && Number.isFinite(item.value.spanKm); }), [record.projectId, pane?.eraId]);
   const recoveryKey = JSON.stringify([record.id, draftKey ?? initial.id, pane?.instanceId ?? 'standalone']);
   const [recovery] = useState(() => { const value = store.get(recoveryKey); return value?.worldId === record.id ? value : undefined; });
   const [base, setBase] = useState<SavedWorldRegion | undefined>(recovery?.base ?? (existing ? initial : undefined));
@@ -65,7 +65,7 @@ export default function FixedSheetView({ record, initial, existing, draftKey, wo
     try {
       if (fieldDirty || edgeDirty) throw new Error('Apply fields first');
       sheetSpec(canon.world, savedSheetFrame(draft)); if (!await prepare()) throw new Error('Pending write failed');
-      const value = { ...current, title: name.trim(), updatedAt: Date.now() }, regions = await saveWorldRegionChanges(record.projectId, record.id, base ? [base] : [], [value], recipe);
+      const value = { ...current, title: name.trim(), updatedAt: Date.now() }, regions = await saveWorldRegionChanges(record.projectId, record.id, base ? [base] : [], [value], recipe, pane?.eraId);
       setDraft(value); setBase(value); setName(value.title); store.delete(recoveryKey); onSaved(regions); setStatus(copy.saved);
     } catch (failure) { setError(failure instanceof WorldRegionConflict ? copy.conflict : copy.failure); }
     finally { lock.current = false; setSaving(false); }

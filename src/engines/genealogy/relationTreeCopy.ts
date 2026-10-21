@@ -1,5 +1,6 @@
 const es = {
-  canonical: 'Genealogía canónica', trees: 'Árboles y variantes', create: 'Nuevo árbol', copyCanonical: 'Crear árbol desde la genealogía',
+  reconnectInstructions:'Arrastra los círculos dorados de los extremos para reconectar. Escape cancela. También puedes cambiar el origen, destino y anclajes en el inspector.',
+  neighbor:'Añadir vecino',canonical: 'Genealogía canónica', trees: 'Árboles y variantes', create: 'Nuevo árbol', copyCanonical: 'Crear árbol desde la genealogía',
   name: 'Nombre del árbol', defaultName: 'Árbol de relaciones', variant: 'Crear variante', variantSuffix: 'variante', save: 'Guardar árbol', saved: 'Guardado', dirty: 'Borrador sin guardar',
   addNode: 'Añadir persona o nodo', addEdge: 'Conectar nodos', nodeName: 'Nombre del nodo', person: 'Ficha del Codex', freeNode: 'Nodo independiente',
   deceased: 'Fallecido', removeNode: 'Quitar nodo', removeEdge: 'Quitar relación', removeTree: 'Eliminar árbol',
@@ -21,7 +22,8 @@ const es = {
   junction: 'Punto de unión', insertJunction: 'Añadir punto de unión a la relación', removeJunction: 'Quitar punto de unión', removeJunctionConfirm: '¿Quitar este punto? Las relaciones que pasan por él continuarán directas; sus ramales conectados se quitarán al guardar.', junctionHelp: 'Este punto visual admite varias conexiones. Arrástralo o ajusta sus coordenadas; no es una ficha ni una persona.', icon: 'Icono de la relación', noIcon: 'Sin icono', anchorFrom: 'Anclaje de origen', anchorTo: 'Anclaje de destino', top: 'Arriba', bottom: 'Abajo', left: 'Izquierda', right: 'Derecha',
 };
 const en: typeof es = {
-  canonical: 'Canonical genealogy', trees: 'Trees and variants', create: 'New tree', copyCanonical: 'Create tree from genealogy',
+  reconnectInstructions:'Drag the gold circles at the outer endpoints to reconnect. Escape cancels. You can also change source, target and anchors in the inspector.',
+  neighbor:'Add neighbor',canonical: 'Canonical genealogy', trees: 'Trees and variants', create: 'New tree', copyCanonical: 'Create tree from genealogy',
   name: 'Tree name', defaultName: 'Relationship tree', variant: 'Create variant', variantSuffix: 'variant', save: 'Save tree', saved: 'Saved', dirty: 'Unsaved draft',
   addNode: 'Add person or node', addEdge: 'Connect nodes', nodeName: 'Node name', person: 'Codex entry', freeNode: 'Independent node',
   deceased: 'Deceased', removeNode: 'Remove node', removeEdge: 'Remove relationship', removeTree: 'Delete tree',

@@ -22,8 +22,10 @@ import { renderPaper } from '../cartography/paper';
 import { drawBroadleaf, drawConifer, drawCactus, drawDune, drawMarsh, drawPalm, type Ctx } from '../cartography/symbols';
 import { marchingSquares, chaikin as smoothContour } from '../cartography/contours';
 import type { CartoTheme } from '../cartography/theme';
-import { Biome } from '../core/types';
+import { Biome, type BiomeId } from '../core/types';
 import { Cover, COVER_LABEL_ES, type RegionData } from './types';
+import { placeFont, labelScale, symbolScale } from '../core/placeStyle';
+import { drawPlaceBuilding } from '../cartography/placeSymbol';
 
 export interface RegionRenderOptions {
   theme: CartoTheme;
@@ -151,6 +153,22 @@ const COVER_TINT: Record<number, string | null> = {
   [Cover.Beach]: '#e8dab0',
 };
 
+const COVER_BIOME: Record<number, BiomeId> = {
+  [Cover.Marsh]: Biome.Marsh, [Cover.Meadow]: Biome.RiparianForest,
+  [Cover.Wood]: Biome.TemperateForest, [Cover.Coppice]: Biome.TemperateForest,
+  [Cover.Scrub]: Biome.Shrubland, [Cover.Heath]: Biome.Chaparral,
+  [Cover.Moor]: Biome.Moor, [Cover.Grass]: Biome.Grassland,
+  [Cover.Pasture]: Biome.Grassland, [Cover.Arable]: Biome.Steppe,
+  [Cover.Orchard]: Biome.TemperateForest, [Cover.Vineyard]: Biome.Savanna,
+  [Cover.Rock]: Biome.Alpine, [Cover.Scree]: Biome.Reg,
+  [Cover.Waste]: Biome.ColdDesert, [Cover.Dune]: Biome.Erg, [Cover.Beach]: Biome.Beach,
+};
+function coverTint(theme: CartoTheme, cover: number): string | null {
+  if (!theme.terrain) return COVER_TINT[cover];
+  if (cover === Cover.Snow) return theme.land.snow;
+  return theme.land.tints[COVER_BIOME[cover]] ?? COVER_TINT[cover];
+}
+
 function hexToRgb(c: string): [number, number, number] {
   const h = c.replace('#', '');
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -208,7 +226,7 @@ export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions)
   drawWaterEdges(r, ctx, theme, px, py, s, !!ink);
 
   // ---- vegetation and surface symbols --------------------------------------
-  if (L.woods) drawVegetation(r, ctx, theme, px, py, s, rng, density, ink);
+  if (L.woods && theme.terrain?.forests !== false) drawVegetation(r, ctx, theme, px, py, s, rng, density, ink);
 
   // ---- the division of the ground ------------------------------------------
   if (L.fields) drawEnclosures(r, ctx, theme, px, py, s, rng, ink);
@@ -259,7 +277,7 @@ function paintGround(
   const RW = r.width - m * 2, RH = r.height - m * 2;
   const tint = new Int32Array(256 * 3).fill(-1);
   for (const k of Object.keys(COVER_TINT)) {
-    const c = COVER_TINT[Number(k)];
+    const c = coverTint(theme, Number(k));
     if (!c) continue;
     const [rr, gg, bb] = hexToRgb(c);
     tint[Number(k) * 3] = rr; tint[Number(k) * 3 + 1] = gg; tint[Number(k) * 3 + 2] = bb;
@@ -268,6 +286,9 @@ function paintGround(
   const [sr, sg, sb] = hexToRgb(theme.ocean.shallow);
   const [dr, dg, db] = hexToRgb(theme.ocean.deep);
   const alpha = theme.land.tintAlpha;
+  const terrain = theme.terrain;
+  const highland = terrain ? hexToRgb(terrain.highland) : [lr, lg, lb];
+  const paperBase = hexToRgb(theme.paper.base);
   const shadeAmt = shading ? theme.land.shading * 1.35 : 0;
   const deepAt = 0.35; // km — a regional sheet never shows abyssal ocean
 
@@ -295,6 +316,16 @@ function paintGround(
         cr = lr + (tint[ti] - lr) * alpha;
         cg = lg + (tint[ti + 1] - lg) * alpha;
         cb = lb + (tint[ti + 2] - lb) * alpha;
+      }
+
+      if (terrain) {
+        const t = Math.min(1, Math.max(0, (r.elevation[i] - terrain.start) / (terrain.at - terrain.start)));
+        const mix = t * t * (3 - 2 * t) * terrain.alpha;
+        cr += (highland[0] - cr) * mix; cg += (highland[1] - cg) * mix; cb += (highland[2] - cb) * mix;
+        // The wash keeps the original parchment visible beneath the pigment.
+        cr *= 0.7 + 0.3 * d[o] / (paperBase[0] || 1);
+        cg *= 0.7 + 0.3 * d[o + 1] / (paperBase[1] || 1);
+        cb *= 0.7 + 0.3 * d[o + 2] / (paperBase[2] || 1);
       }
 
       if (shadeAmt > 0) {
@@ -795,8 +826,42 @@ function drawStreams(
     ctx.lineWidth = w;
     ctx.globalAlpha = w <= 0.75 ? 0.8 : 1;
     ctx.beginPath();
-    ctx.moveTo(px(st.pts[0].x), py(st.pts[0].y));
-    for (let k = 1; k < st.pts.length; k++) ctx.lineTo(px(st.pts[k].x), py(st.pts[k].y));
+    // A projected trunk may start far outside the sheet, across open sea.
+    // Sample its segments against this sheet's water mask instead of drawing
+    // the off-coast approach as a long diagonal river through the ocean.
+    let drawing = false;
+    for (let k = 1; k < st.pts.length; k++) {
+      const a = st.pts[k - 1], b = st.pts[k];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      let lo = 0, hi = 1;
+      // Clip before sampling: projected trunks can extend an entire planet
+      // beyond a regional window. Neither traversal nor stroke needs that part.
+      for (const [position, delta, limit] of [[a.x, dx, r.width - 1], [a.y, dy, r.height - 1]]) {
+        if (delta === 0) { if (position < 0 || position > limit) hi = -1; continue; }
+        const first = -position / delta, last = (limit - position) / delta;
+        lo = Math.max(lo, Math.min(first, last)); hi = Math.min(hi, Math.max(first, last));
+      }
+      if (lo > hi) { drawing = false; continue; }
+      if (lo > 0) drawing = false;
+      const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) * (hi - lo)));
+      let previousX = 0, previousY = 0;
+      for (let step = 0; step <= steps; step++) {
+        const t = lo + (hi - lo) * step / steps;
+        const x = a.x + dx * t, y = a.y + dy * t;
+        const ix = Math.round(x), iy = Math.round(y);
+        if (ix < 0 || iy < 0 || ix >= r.width || iy >= r.height || r.water[iy * r.width + ix] === 1) {
+          if (drawing) ctx.lineTo(px(previousX), py(previousY));
+          drawing = false; continue;
+        }
+        if (!drawing) ctx.moveTo(px(x), py(y));
+        // Keep straight runs straight: only an original vertex or a shore
+        // transition becomes a canvas vertex, not every sampled raster cell.
+        if (step === steps) ctx.lineTo(px(x), py(y));
+        previousX = x; previousY = y;
+        drawing = true;
+      }
+      if (hi < 1) drawing = false;
+    }
     ctx.stroke();
     // A casing line on the big ones only: on a brook it doubles the width and
     // turns the whole drainage into a black net.
@@ -895,7 +960,9 @@ function drawPlaces(
     const pr = tink ? createRng(tink.seed, `place:${p.sourceKey}`) : rng;
     ctx.save();
     ctx.translate(x, y);
-    ctx.strokeStyle = ink;
+    ctx.scale(symbolScale(p.style ?? {}), symbolScale(p.style ?? {}));
+    if (drawPlaceBuilding(ctx, p.style ?? {}, p.culture, u * 2, p.kind)) { ctx.restore(); continue; }
+    ctx.strokeStyle = p.style?.color ?? ink;
     ctx.fillStyle = fill;
     ctx.lineWidth = Math.max(0.4, s * 0.2);
 
@@ -1230,16 +1297,17 @@ function drawLabels(
   // map and becomes a word search. Beyond that, the low ranks lose their names
   // and keep their symbols — which is exactly what a real map series does when
   // it generalises: the farm is still there, it just is not labelled.
-  const budget = Math.round((W * H) / 15000);
+  const budget = Math.round((W * H) / (theme.terrain ? 20000 : 15000));
   let used = 0;
   for (const p of places) {
     const rank = rankOf(p);
-    if (used >= budget && rank > 2) continue;
-    const size = Math.max(6, s * (rank === 0 ? 4.6 : rank <= 2 ? 3.5 : rank <= 5 ? 2.9 : 2.5) * typeScale);
+    if (used >= budget && rank > (theme.terrain ? 0 : 2) && !p.style?.labelVisible) continue;
+    const hierarchy = theme.terrain ? (rank === 0 ? 1.2 : rank <= 2 ? 1.1 : 1) : 1;
+    const size = Math.max(6, s * (rank === 0 ? 4.6 : rank <= 2 ? 3.5 : rank <= 5 ? 2.9 : 2.5) * typeScale) * hierarchy * labelScale(p.style ?? {});
     const caps = rank === 0;
     const weight = rank === 0 ? 600 : rank <= 2 ? 500 : 400;
     const italic = p.kind === 'ruin' || p.kind === 'ford' || p.kind === 'bridge' || p.kind === 'landmark';
-    ctx.font = `${italic ? 'italic ' : ''}${weight} ${size}px ${rank <= 2 ? theme.type.display : theme.type.body}`;
+    ctx.font = `${italic ? 'italic ' : ''}${weight} ${size}px ${placeFont(p.style ?? {}, rank <= 2 ? theme.type.display : theme.type.body)}`;
     const text = caps ? p.name.toUpperCase() : p.name;
     const w = ctx.measureText(text).width;
     const anchorX = px(p.x), anchorY = py(p.y);
@@ -1259,7 +1327,7 @@ function drawLabels(
     ctx.textAlign = 'left';
     ctx.strokeStyle = theme.type.halo;
     ctx.lineWidth = Math.max(2, size * 0.36);
-    ctx.fillStyle = theme.type.color;
+    ctx.fillStyle = p.style?.color ?? theme.type.color;
     ctx.strokeText(text, slot.x, slot.y + size / 2);
     ctx.fillText(text, slot.x, slot.y + size / 2);
   }
@@ -1330,8 +1398,11 @@ function drawLegend(r: RegionData, ctx: Ctx, theme: CartoTheme, W: number, H: nu
     // in the key as a patch of bare paper.
     const tint = k === Cover.Lake ? theme.lakes.fill
       : k === Cover.Sea ? theme.ocean.shallow
-        : COVER_TINT[k];
-    ctx.fillStyle = tint ?? theme.land.base;
+        : coverTint(theme, k);
+    if (theme.terrain && tint && k !== Cover.Lake && k !== Cover.Sea) {
+      const base = hexToRgb(theme.land.base), wash = hexToRgb(tint);
+      ctx.fillStyle = `rgb(${base.map((value, channel) => Math.round(value + (wash[channel] - value) * theme.land.tintAlpha)).join(',')})`;
+    } else ctx.fillStyle = tint ?? theme.land.base;
     ctx.fillRect(bx + size * 0.7, y - size * 0.42, size * 1.5, size * 0.84);
     ctx.strokeStyle = theme.furniture.ink;
     ctx.lineWidth = 0.6;

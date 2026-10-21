@@ -1,8 +1,10 @@
+import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { ArrowLeft, Columns2, Save, X } from 'lucide-react';
-import { db } from '@/db';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { eraWritingOperations } from '@/services/worldEras/writings';
 import { useTranslation, registerLocaleStrings } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import { closeAppWindow, keepAppWindow, registerCloseGuard, reportUnsavedWork } from '@/services/closeGuard';
@@ -23,7 +25,7 @@ export default function ParallelDraftWorkspace({ projectId, start, onClose }: Pr
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
   const saveOwner = `parallel-workspace:${pane?.instanceId ?? 'main'}:${projectId}`;
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
   const location = useLocation();
   const [left, setLeft] = useState<PaneTarget>({ writingId: start.writingId, draftId: start.draftId });
   const [right, setRight] = useState<PaneTarget | null>(start.compareWritingId || start.split ? { writingId: start.compareWritingId ?? start.writingId, draftId: start.compareDraftId } : null);
@@ -32,6 +34,7 @@ export default function ParallelDraftWorkspace({ projectId, start, onClose }: Pr
   const states = useRef(new Map<string, PaneState>());
   const requests = useRef({ left: 0, right: 0 });
   const selections = useRef<PaneSelectionMap>(new Map(start.selection && !start.draftId ? [[`left:${paneTargetKey({ writingId: start.writingId })}`, start.selection]] : []));
+  const scope = useWorldEraScope(projectId);
   const [unsaved, setUnsaved] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [actionFailed, setActionFailed] = useState(false);
@@ -40,7 +43,7 @@ export default function ParallelDraftWorkspace({ projectId, start, onClose }: Pr
   const [pending, setPending] = useState<{ kind: 'promote' | 'delete'; document: PaneDocument; currentVersion?: number } | null>(null);
   const chapters = useLiveQuery(async () => {
     const result: Array<{ id: string; title: string; chapter?: number }> = [];
-    await db.writings.where('projectId').equals(projectId).each(writing => { if (!writing.isGoogleDoc) result.push({ id: writing.id, title: writing.title, chapter: writing.chapter }); });
+    for (const writing of await eraWritingOperations(scope).getWritings(projectId)) if (!writing.isGoogleDoc) result.push({ id: writing.id, title: writing.title, chapter: writing.chapter });
     return result.sort((a, b) => (a.chapter ?? Number.MAX_SAFE_INTEGER) - (b.chapter ?? Number.MAX_SAFE_INTEGER) || a.title.localeCompare(b.title));
   }, [projectId]) ?? [];
   const stateChanged = useCallback((pane: string, state: PaneState) => {
@@ -55,25 +58,25 @@ export default function ParallelDraftWorkspace({ projectId, start, onClose }: Pr
     const saved = outcomes.every(Boolean); setBlocked(!saved); return saved;
   }, []);
   const route = useCallback((nextLeft: PaneTarget, nextRight: PaneTarget | null) => {
-    const params = new URLSearchParams(); params.set('writing', nextLeft.writingId); params.set('workspace', 'drafts');
+    const params = new URLSearchParams(); params.set('writing', nextLeft.writingId); params.set('workspace', 'drafts'); if (scope.eraId) params.set('era', scope.eraId);
     if (nextLeft.draftId) params.set('draft', nextLeft.draftId);
     if (nextRight) { params.set('compareWriting', nextRight.writingId); if (nextRight.draftId) params.set('compareDraft', nextRight.draftId); }
     navigate(`/project/${encodeURIComponent(projectId)}/writings?${params}`, { replace: true });
-  }, [navigate, projectId]);
+  }, [navigate, projectId, scope.eraId]);
   const commitTargets = useCallback((nextLeft: PaneTarget, nextRight: PaneTarget | null) => {
     targets.current = { left: nextLeft, right: nextRight }; setLeft(nextLeft); setRight(nextRight); route(nextLeft, nextRight);
   }, [route]);
   const changeTarget = useCallback(async (pane: 'left' | 'right', next: PaneTarget) => {
     const request = ++requests.current[pane];
     try {
-      await loadPaneDocument(projectId, next);
+      await loadPaneDocument(projectId, next, scope.eraId);
       const active = sessions.current.get(pane);
       if (active && !await active.flush()) { setBlocked(true); return false; }
       if (request !== requests.current[pane]) return false;
       setBlocked(false); setActionFailed(false);
       commitTargets(pane === 'left' ? next : targets.current.left, pane === 'right' ? next : targets.current.right); return true;
     } catch { setActionFailed(true); return false; }
-  }, [projectId, commitTargets]);
+  }, [projectId, commitTargets, scope.eraId]);
   const routeRequest = useRef('');
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -86,10 +89,10 @@ export default function ParallelDraftWorkspace({ projectId, start, onClose }: Pr
     let cancelled = false;
     void (async () => {
       if (!await flushAll() || cancelled) return;
-      try { await loadPaneDocument(projectId, nextLeft); if (nextRight) await loadPaneDocument(projectId, nextRight); if (!cancelled) { targets.current = { left: nextLeft, right: nextRight }; setLeft(nextLeft); setRight(nextRight); } } catch { if (!cancelled) setActionFailed(true); }
+      try { await loadPaneDocument(projectId, nextLeft, scope.eraId); if (nextRight) await loadPaneDocument(projectId, nextRight, scope.eraId); if (!cancelled) { targets.current = { left: nextLeft, right: nextRight }; setLeft(nextLeft); setRight(nextRight); } } catch { if (!cancelled) setActionFailed(true); }
     })();
     return () => { cancelled = true; };
-  }, [location.search, flushAll, projectId]);
+  }, [location.search, flushAll, projectId, scope.eraId]);
   useEffect(() => registerCloseGuard(async () => { if (await flushAll()) return true; setExit('window'); return false; }), [flushAll]);
   useEffect(() => { if (unsaved) return registerPendingFlusher(saveOwner, flushAll); }, [flushAll, saveOwner, unsaved]);
   useEffect(() => {
@@ -107,8 +110,8 @@ export default function ParallelDraftWorkspace({ projectId, start, onClose }: Pr
   const stage = async (kind: 'promote' | 'delete', document: PaneDocument) => {
     setActionFailed(false); if (!await flushAll()) return;
     try {
-      const draft = await loadPaneDocument(projectId, document);
-      const current = kind === 'promote' ? await loadPaneDocument(projectId, { writingId: document.writingId }) : null;
+      const draft = await loadPaneDocument(projectId, document, scope.eraId);
+      const current = kind === 'promote' ? await loadPaneDocument(projectId, { writingId: document.writingId }, scope.eraId) : null;
       setPending({ kind, document: draft, currentVersion: current?.version });
     } catch { setActionFailed(true); }
   };
@@ -130,7 +133,7 @@ export default function ParallelDraftWorkspace({ projectId, start, onClose }: Pr
     <ConfirmDialog open={!!pending} title={pending?.kind === 'promote' ? t('writings.parallel.promoteTitle') : t('writings.parallel.delete')} destructive={pending?.kind === 'delete'} message={t(pending?.kind === 'promote' ? 'writings.parallel.promoteConfirm' : 'writings.parallel.deleteConfirm').replace('{draft}', pending?.document.draftName ?? '').replace('{chapter}', pending?.document.title ?? '')} confirmLabel={t(pending?.kind === 'promote' ? 'writings.parallel.promote' : 'writings.parallel.delete')} onCancel={() => setPending(null)} onConfirm={async () => {
       const action = pending; if (!action) return;
       try {
-        if (action.kind === 'promote') { await promoteParallelDraft(projectId, action.document.draftId!, action.document.version, action.currentVersion!); setPromoted(true); }
+        if (action.kind === 'promote') { await promoteParallelDraft(projectId, action.document.draftId!, action.document.version, action.currentVersion!, scope.eraId); setPromoted(true); }
         else {
           await deleteParallelDraft(action.document);
           const nextLeft = targets.current.left.draftId === action.document.draftId ? { writingId: action.document.writingId } : targets.current.left;

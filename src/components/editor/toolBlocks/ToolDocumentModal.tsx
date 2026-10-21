@@ -1,11 +1,12 @@
-import { Suspense, useMemo, useRef, useState } from 'react';
+import LocalToolDocumentHost from '@/engines/local/documents/LocalToolDocumentHost';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { flushPendingWrites } from '@/services/pendingWrites';
 import { getEngine } from '@/engines/_registry';
-import { EnginePaneContext, activateEnginePane } from '@/engines/_shared/EnginePaneContext';
+import { EnginePaneContext, activateEnginePane, registerEnginePaneScope, useEnginePane } from '@/engines/_shared/EnginePaneContext';
 import Modal from '@/components/common/Modal';
 import PaneRouter from '@/components/project/workspace/PaneRouter';
-import { paneEngineId, workspaceRoute, type WorkspaceRoute } from '@/components/project/workspace/routes';
+import { paneEngineId, workspaceRoute, routeInEra, type WorkspaceRoute } from '@/components/project/workspace/routes';
 import { toolDocumentPath, toolEngineId, type ToolDocumentTarget } from './model';
 import { toolBlockCopy } from './copy';
 import { createToolDocumentSession } from './session';
@@ -13,15 +14,16 @@ import { listToolDocuments } from './preview';
 import { EmbeddedToolCloseContext,ToolDocumentDepth,type EmbeddedCloseGuard } from './EmbeddedToolCloseContext';
 
 export default function ToolDocumentModal({target,locale,onClose}:{target:ToolDocumentTarget;locale:'es'|'en';onClose:()=>void}) {
+  const parentPane=useEnginePane(),eraId=parentPane?.projectId===target.projectId?parentPane.eraId:undefined;
   const [instanceId] = useState(()=>`embedded-tool-${crypto.randomUUID()}`);
-  const [route,setRoute] = useState(()=>workspaceRoute(toolDocumentPath(target)));
-  const [session] = useState(()=>createToolDocumentSession(target));
+  const [route,setRoute] = useState(()=>routeInEra(workspaceRoute(toolDocumentPath(target)),eraId));
+  const [session] = useState(()=>createToolDocumentSession(target,eraId));
   const [busy,setBusy] = useState(false),[blocked,setBlocked] = useState(false);
   const body=useRef<HTMLDivElement>(null),dirtyForms=useRef(new Set<HTMLFormElement>());
   const guards=useRef(new Set<EmbeddedCloseGuard>());
   const register=useMemo(()=>(guard:EmbeddedCloseGuard)=>{guards.current.add(guard);return()=>{guards.current.delete(guard);};},[]);
-  const c=toolBlockCopy[locale],engineId=toolEngineId(target.kind),Engine=getEngine(engineId)?.component;
-  const available=useLiveQuery(async()=>(await listToolDocuments(target.projectId)).some(document=>document.kind===target.kind&&document.documentId===target.documentId),[target.projectId,target.kind,target.documentId]);
+  const c=toolBlockCopy[locale],engineId=toolEngineId(target.kind,target.namespace),Engine=getEngine(engineId)?.component;
+  const available=useLiveQuery(async()=>(await listToolDocuments(target.projectId,eraId)).some(document=>document.kind===target.kind&&document.documentId===target.documentId),[target.projectId,target.kind,target.documentId,eraId]);
   const save = async () => {
     // A deleted/moved source must never fall back to another document in the
     // reused engine. Its recovery journal remains available for a restore.
@@ -42,7 +44,8 @@ export default function ToolDocumentModal({target,locale,onClose}:{target:ToolDo
     if(paneEngineId(next,target.projectId,[engineId])!==engineId){setBlocked(true);return;}
     setBusy(true);try {if(await save()){setRoute(next);setBlocked(false);}else setBlocked(true);}finally{setBusy(false);}
   };
-  const pane=useMemo(()=>({instanceId,visible:true,primary:false,navigate:(to:string)=>{void navigate(workspaceRoute(to,route));}}),[instanceId,route,busy]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pane=useMemo(()=>({instanceId,projectId:target.projectId,eraId,visible:true,primary:false,navigate:(to:string)=>{void navigate(workspaceRoute(to,route));}}),[instanceId,route,busy,eraId,target.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>registerEnginePaneScope(instanceId,{projectId:target.projectId,eraId,navigate:pane.navigate}),[instanceId,target.projectId,eraId,pane.navigate]);
   return <Modal open title={`${c.edit} · ${c.kinds[target.kind]}`} fullscreen busy={busy} dismissible={false} onClose={()=>{void close();}}>
     <div className="flex min-h-0 flex-col gap-3 p-4" data-tool-document-modal>
       <div className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-prose text-sm text-text-muted">{c.help}</p><button type="button" disabled={busy} className="shrink-0 rounded-lg bg-accent-gold px-4 py-2 text-sm font-semibold text-deep disabled:opacity-50" onClick={()=>{void close();}}>{c.close}</button></div>
@@ -60,7 +63,7 @@ export default function ToolDocumentModal({target,locale,onClose}:{target:ToolDo
       }}>
         <EmbeddedToolCloseContext.Provider value={register}><ToolDocumentDepth.Provider value={1}><EnginePaneContext.Provider value={pane}>
           <PaneRouter projectId={target.projectId} engineId={engineId} route={route} onNavigate={next=>{void navigate(next);}} onBack={()=>{void navigate(workspaceRoute(toolDocumentPath(target)));}}>
-            <Suspense fallback={<p role="status">{c.loading}</p>}>{available===true&&Engine?<Engine projectId={target.projectId}/>:<p>{available===undefined?c.loading:c.unavailable}</p>}</Suspense>
+            <Suspense fallback={<p role="status">{c.loading}</p>}>{available===true&&target.kind==='local-tool'?<LocalToolDocumentHost projectId={target.projectId} eraId={eraId} documentId={target.documentId} namespace={target.namespace} view="fullscreen"/>:available===true&&Engine?<Engine projectId={target.projectId}/>:<p>{available===undefined?c.loading:c.unavailable}</p>}</Suspense>
           </PaneRouter>
         </EnginePaneContext.Provider></ToolDocumentDepth.Provider></EmbeddedToolCloseContext.Provider>
       </div>

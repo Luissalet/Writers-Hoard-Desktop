@@ -10,6 +10,16 @@
 // belong to the relationships engine).
 
 import type { CodexEntry, CodexEntryType } from '@/types';
+import { db } from '@/db';
+import { saveCodexDraft } from '@/engines/codex/operations';
+import { listEraRows, readEraRow, saveEraDocument } from '@/services/worldEras/store';
+import type { EraRow } from '@/services/worldEras/types';
+import { projectCodexEntry } from '@/engines/codex/properties';
+import { applyCodexTemplate, saveCodexTemplate, deleteCodexTemplate, type CodexTemplate } from '@/engines/codex/templates';
+import { effectiveCodexTemplate } from '@/engines/codex/templateHierarchy';
+import {createLibraryCodex} from '@/components/project/workspace/library/createCodex';
+import {WorkspaceLibraryConflict,WorkspaceLibraryInvalidAction} from '@/components/project/workspace/library/model';
+import { applyTemplateSync, previewTemplateSync, type TemplateSyncOptions, type TemplateSyncPreview } from '@/engines/codex/templateSync';
 import {
   createCodexEntry,
   getCodexEntries,
@@ -40,8 +50,9 @@ const TYPES = [
   'character', 'location', 'item', 'faction', 'concept', 'magic', 'custom',
 ] as const satisfies readonly CodexEntryType[];
 
-async function mustGetEntry(id: string): Promise<CodexEntry> {
-  const entry = await getCodexEntry(id);
+async function mustGetEntry(id: string, args: ToolArgs): Promise<CodexEntry> {
+  const eraId = optString(args, 'eraId');
+  const entry = eraId ? await readEraRow<CodexEntry>({ projectId: resolveProjectId(args), eraId }, 'codexEntries', id) : await getCodexEntry(id);
   if (!entry) throw new BridgeError('not-found', `No codex entry with id "${id}".`);
   return entry;
 }
@@ -49,15 +60,18 @@ async function mustGetEntry(id: string): Promise<CodexEntry> {
 export async function whListCodex(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const type = optEnum(args, 'type', TYPES);
-  const entries = await getCodexEntries(projectId);
+  const eraId = optString(args, 'eraId');
+  const entries = eraId ? await listEraRows<CodexEntry>({ projectId, eraId }, 'codexEntries') : await getCodexEntries(projectId);
   const filtered = type ? entries.filter((e) => e.type === type) : entries;
+  const templates = (await db.projects.get(projectId))?.codexTemplates ?? [];
   return {
     projectId,
     entries: filtered.map((entry) => ({
       id: entry.id,
       type: entry.type,
       title: entry.title,
-      fields: entry.fields,
+      ...projectCodexEntry(entry, templates),
+      templateId: entry.templateId,
       tags: entry.tags,
       hasBody: Boolean(entry.content && entry.content.trim()),
       updatedAt: entry.updatedAt,
@@ -66,14 +80,18 @@ export async function whListCodex(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whGetCodexEntry(args: ToolArgs): Promise<unknown> {
-  const entry = await mustGetEntry(requireString(args, 'id'));
+  const entry = await mustGetEntry(requireString(args, 'id'), args);
   assertRowInScope(args, entry.projectId);
+  const templates = (await db.projects.get(entry.projectId))?.codexTemplates ?? [];
   return {
     id: entry.id,
     projectId: entry.projectId,
     type: entry.type,
     title: entry.title,
-    fields: entry.fields,
+    ...projectCodexEntry(entry, templates),
+    storedFields: entry.fields,
+    templateId: entry.templateId,
+    referenceFields: entry.referenceFields,
     tags: entry.tags,
     updatedAt: entry.updatedAt,
     content: markdownFromHtml(entry.content),
@@ -86,33 +104,49 @@ export async function whCreateCodexEntry(args: ToolArgs): Promise<unknown> {
   const type = optEnum(args, 'type', TYPES) ?? 'character';
   const markdown = optString(args, 'content') ?? '';
   const now = Date.now();
+  const templateId = optString(args, 'templateId');
+  const templates = (await db.projects.get(projectId))?.codexTemplates ?? [];
+  const template = templates.find(item => item.id === templateId);
+  if (templateId && !template) throw new BridgeError('bad-args', 'Template not found in this project.');
+  const fields = optStringMap(args, 'fields') ?? {};
+  if (template && effectiveCodexTemplate(template, templates).propertyDefinitions?.some(item => item.formula && Object.hasOwn(fields, item.key))) throw new BridgeError('bad-args', 'Calculated properties cannot be written.');
+  const applied = template ? applyCodexTemplate(template, fields, markdown ? htmlFromMarkdown(markdown) : '', templates) : undefined;
   const entry: CodexEntry = {
     id: generateId('codex'),
     projectId,
     type,
     title,
-    fields: optStringMap(args, 'fields') ?? {},
-    content: markdown ? htmlFromMarkdown(markdown) : '',
+    fields: applied?.fields ?? fields,
+    content: applied?.content ?? (markdown ? htmlFromMarkdown(markdown) : ''),
+    ...(applied ? { type: applied.type, templateId: applied.templateId } : {}),
     tags: optStringArray(args, 'tags') ?? [],
     relations: [],
     createdAt: now,
     updatedAt: now,
   };
-  await createCodexEntry(entry);
+  const eraId = optString(args, 'eraId');
+    let libraryCreation;
+    if(Object.hasOwn(args,'folderId')||Object.hasOwn(args,'expectedLibraryRevision')){
+      if(typeof args.folderId!=='string'||!Number.isSafeInteger(args.expectedLibraryRevision)||Number(args.expectedLibraryRevision)<0)throw new BridgeError('bad-args','Folder creation needs folderId (empty for Unfiled) and the observed expectedLibraryRevision.');
+      try{libraryCreation=await createLibraryCodex({projectId,eraId},entry,Number(args.expectedLibraryRevision),args.folderId||undefined);}
+      catch(error){if(error instanceof WorkspaceLibraryConflict)throw new BridgeError('conflict','The Library changed. Read wh_workspace_library_get and review the destination before retrying.');if(error instanceof WorkspaceLibraryInvalidAction)throw new BridgeError('bad-args','Choose an existing folder from wh_workspace_library_get.');throw error;}
+    }else if (eraId) await saveEraDocument({ projectId, eraId }, 'codex', { root: entry as unknown as EraRow, children: {} }, null); else await createCodexEntry(entry);
   return withAudit(
     { id: entry.id, title: entry.title, type: entry.type, created: true },
-    { projectId, entityId: entry.id, summary: `created ${type} "${title}"` },
+      { projectId, entityId: entry.id, summary: `created ${type} "${title}"`, ...(libraryCreation?{before:{__workspaceCodexCreation:libraryCreation}}:{}) },
   );
 }
 
 export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
-  const entry = await mustGetEntry(requireString(args, 'id'));
+  const entry = await mustGetEntry(requireString(args, 'id'), args);
   await assertEngineEnabled(entry.projectId, 'codex');
   assertRowInScope(args, entry.projectId);
   const changes: Partial<CodexEntry> = {};
 
   const incomingFields = optStringMap(args, 'fields');
   if (incomingFields) {
+    const projection = projectCodexEntry(entry, (await db.projects.get(entry.projectId))?.codexTemplates ?? []);
+    if (Object.keys(incomingFields).some(key => projection.properties[key]?.calculated)) throw new BridgeError('bad-args', 'Calculated properties cannot be written. Change their inputs or template formula.');
     if (optBoolean(args, 'replaceFields') === true) {
       changes.fields = incomingFields;
     } else {
@@ -151,7 +185,8 @@ export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
   // The body is replaced whole and there is no snapshot table behind the codex,
   // so it goes into the log or it is gone.
   if (changes.content !== undefined) before.content = entry.content;
-  await updateCodexEntry(entry.id, changes);
+  const eraId = optString(args, 'eraId');
+  if (eraId) await saveCodexDraft(entry, { ...entry, ...changes }, { projectId: entry.projectId, eraId }); else await updateCodexEntry(entry.id, changes);
   return withAudit(
     { id: entry.id, updated: Object.keys(changes), fields: changes.fields ?? entry.fields },
     {
@@ -161,4 +196,38 @@ export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
       before,
     },
   );
+}
+
+export async function whCodexTemplates(args: ToolArgs): Promise<unknown> {
+  const projectId = resolveProjectId(args), project = await db.projects.get(projectId);
+  if (!project) throw new BridgeError('not-found', 'Project not found.');
+  const templates = project.codexTemplates ?? [];
+  return { projectId, templates, effectiveTemplates: templates.map(template => effectiveCodexTemplate(template, templates)) };
+}
+export async function whSaveCodexTemplate(args: ToolArgs): Promise<unknown> {
+  const projectId = await resolveProjectForEngine(args, 'codex');
+  const supplied = args.template;
+  if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) throw new BridgeError('bad-args', 'template is required.');
+  const template = supplied as CodexTemplate, now = Date.now();
+  const revision = args.expectedRevision;
+  if (revision !== null && (typeof revision !== 'number' || !Number.isInteger(revision))) throw new BridgeError('bad-args', 'expectedRevision must be null for creation or the current revision.');
+  const draft = { ...template, id: template.id || generateId('codex-template'), revision: 0, createdAt: now, updatedAt: now };
+  const saved = await saveCodexTemplate(projectId, draft, revision as number | null);
+  return withAudit({ projectId, template: saved }, { projectId, summary: `saved codex template "${saved.name}"` });
+}
+export async function whDeleteCodexTemplate(args: ToolArgs): Promise<unknown> {
+  const projectId = await resolveProjectForEngine(args, 'codex');
+  if (typeof args.expectedRevision !== 'number') throw new BridgeError('bad-args', 'expectedRevision is required.');
+  await deleteCodexTemplate(projectId, requireString(args, 'templateId'), args.expectedRevision);
+  return { projectId, deleted: true };
+}
+export async function whPreviewCodexSync(args: ToolArgs): Promise<unknown> {
+  const projectId = resolveProjectId(args);
+  return previewTemplateSync(projectId, requireString(args, 'templateId'), { includeSubtypes: optBoolean(args, 'includeSubtypes'), resetFields: optStringArray(args, 'resetFields'), content: optEnum(args, 'content', ['empty', 'keep', 'append', 'replace'] as const) } satisfies TemplateSyncOptions);
+}
+export async function whApplyCodexSync(args: ToolArgs): Promise<unknown> {
+  const projectId = await resolveProjectForEngine(args, 'codex');
+  const preview = args.preview as TemplateSyncPreview;
+  if (!preview || preview.projectId !== projectId || !Array.isArray(preview.changes)) throw new BridgeError('bad-args', 'Pass the complete preview returned for this project.');
+  return applyTemplateSync(preview);
 }

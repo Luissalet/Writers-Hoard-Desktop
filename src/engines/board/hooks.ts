@@ -1,3 +1,8 @@
+import { createLocalDraftStore } from '@/hooks/localDraftStore';
+import {onDataChanged} from '@/engines/_shared/dataChanged';
+import { commitEraBoardBatch, type EraBoardBaseline } from '@/services/worldEras/board';
+import { listEraRows } from '@/services/worldEras/store';
+import { useWorldEraScope, useEraEntities } from '@/services/worldEras/hooks';
 // ============================================
 // Board Engine — React hooks
 // ============================================
@@ -17,32 +22,38 @@
 // window teardown, so closing the app mid-drag cannot lose the last gesture.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { makeEntityHook } from '@/engines/_shared';
 import { registerPendingFlusher, trackPendingWrite } from '@/services/pendingWrites';
 import * as ops from './operations';
+import {rebaseBoardRow} from './graph/merge';
 import { planDeletion } from './graph/mutations';
 import type { Board, BoardEdge, BoardLayer, BoardNode, BoardView } from './types';
 
-export const useBoards = makeEntityHook<Board>({
+const useBoardsOptions = {
   fetchFn: ops.getBoards,
   createFn: ops.createBoard,
   updateFn: ops.updateBoard,
   deleteFn: ops.deleteBoard,
-});
+};
+const compareBoards = (a: Board, b: Board) => a.createdAt - b.createdAt;
+const compareLayers = (a: BoardLayer, b: BoardLayer) => a.order - b.order;
+const compareViews = (a: BoardView, b: BoardView) => a.order - b.order;
+export function useBoards(scopeId: string) { return useEraEntities<Board>(scopeId, 'boards', 'projectId', useBoardsOptions, undefined, compareBoards); }
 
-export const useBoardLayers = makeEntityHook<BoardLayer>({
+const useBoardLayersOptions = {
   fetchFn: ops.getBoardLayers,
   createFn: ops.createBoardLayer,
   updateFn: ops.updateBoardLayer,
   deleteFn: ops.deleteBoardLayer,
-});
+};
+export function useBoardLayers(scopeId: string) { return useEraEntities<BoardLayer>(scopeId, 'boardLayers', 'boardId', useBoardLayersOptions, undefined, compareLayers); }
 
-export const useBoardViews = makeEntityHook<BoardView>({
+const useBoardViewsOptions = {
   fetchFn: ops.getBoardViews,
   createFn: ops.createBoardView,
   updateFn: ops.updateBoardView,
   deleteFn: ops.deleteBoardView,
-});
+};
+export function useBoardViews(scopeId: string) { return useEraEntities<BoardView>(scopeId, 'boardViews', 'boardId', useBoardViewsOptions, undefined, compareViews); }
 
 // ---------------------------------------------------------------------------
 // Commands
@@ -77,6 +88,7 @@ interface PendingWrite {
   row: BoardNode | BoardEdge | null;
 }
 
+export interface BoardPendingReview {baseline:EraBoardBaseline;pendingVersion:number;changes:{id:string;title:string;field:string;saved:unknown;draft:unknown}[]}
 export interface BoardGraphApi {
   nodes: BoardNode[];
   edges: BoardEdge[];
@@ -125,14 +137,21 @@ export interface BoardGraphApi {
   undoLabel: string | null;
   redoLabel: string | null;
   flush: () => Promise<boolean>;
+  reviewPending: () => Promise<BoardPendingReview>;
+  keepPending: (review:BoardPendingReview) => Promise<boolean>;
 }
 
-export function useBoardGraph(boardId: string): BoardGraphApi {
+export function useBoardGraph(boardId: string,projectId?:string): BoardGraphApi {
+  const scope = useWorldEraScope(projectId);
+  const baseline = useRef<EraBoardBaseline>({ nodes: [], edges: [] });
+  const journal = useMemo(() => createLocalDraftStore<{ baseline: EraBoardBaseline; pending: [string, PendingWrite][] }>(`wh.board-era-drafts.v1.${scope.projectId}${scope.eraId?`.era:${scope.eraId}`:''}`, (value): value is { baseline: EraBoardBaseline; pending: [string, PendingWrite][] } => !!value && typeof value === 'object' && 'baseline' in value && 'pending' in value && Array.isArray(value.pending)), [scope]);
   const [nodes, setNodes] = useState<BoardNode[]>([]);
   const [edges, setEdges] = useState<BoardEdge[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [hasPendingWrites, setHasPendingWrites] = useState(false);
+  const externalRefresh = useRef(false);
+  const [externalRevision,setExternalRevision]=useState(0);
   const [historyState, setHistoryState] = useState({
     canUndo: false,
     canRedo: false,
@@ -159,6 +178,7 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
   const undoStack = useRef<Command[]>([]);
   const redoStack = useRef<Command[]>([]);
   const pending = useRef(new Map<string, PendingWrite>());
+  const pendingVersion=useRef(0);
   const flushTimer = useRef<number | null>(null);
   const mounted = useRef(true);
   const loadSeq = useRef(0);
@@ -214,10 +234,16 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
 
     try {
       await trackPendingWrite(
-        ops.commitBoardBatch({ nodePuts, edgePuts, nodeDeletes, edgeDeletes }),
+        scope.eraId ? commitEraBoardBatch(scope, boardId, { nodePuts, edgePuts, nodeDeletes, edgeDeletes }, baseline.current) : ops.commitBoardBatch({ nodePuts, edgePuts, nodeDeletes, edgeDeletes },baseline.current),
         () => flushRef.current(),
-        `board:${boardId}`,
+        `board:${boardId}:era:${scope.eraId ?? 'base'}`,
       );
+      for (const [kind, puts, deletes] of [['nodes', nodePuts, nodeDeletes], ['edges', edgePuts, edgeDeletes]] as const) {
+        const rows = new Map((baseline.current[kind] as (BoardNode | BoardEdge)[]).map(row => [row.id, row]));
+        deletes.forEach(id => rows.delete(id)); puts.forEach(row => rows.set(row.id, row));
+        Object.assign(baseline.current, { [kind]: [...rows.values()] });
+      }
+      if (pending.current.size) journal.set(boardId, { baseline: structuredClone(baseline.current), pending: [...pending.current] }); else journal.delete(boardId);
       if (mounted.current) {
         setError(null);
         setHasPendingWrites(pending.current.size > 0);
@@ -231,14 +257,15 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
       for (const [key, write] of writes) {
         if (!pending.current.has(key)) pending.current.set(key, write);
       }
+      journal.set(boardId,{baseline:structuredClone(baseline.current),pending:[...pending.current]});
       if (mounted.current) {
         setHasPendingWrites(true);
         setError(reason instanceof Error ? reason : new Error(String(reason)));
-        scheduleFlush(RETRY_DELAY_MS);
+        if(!(reason instanceof Error)||!['BoardBatchConflict','WorldEraConflict'].includes(reason.name))scheduleFlush(RETRY_DELAY_MS);
       }
       return false;
     }
-  }, [boardId, scheduleFlush]);
+  }, [boardId, scheduleFlush, scope, journal]);
 
   // A slow transaction must finish before the next one starts. Otherwise an
   // older failed batch can be retried AFTER a newer successful edit and put
@@ -259,12 +286,40 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
 
   const enqueue = useCallback(
     (kind: RowKind, id: string, row: BoardNode | BoardEdge | null) => {
+      pendingVersion.current++;
       pending.current.set(`${kind}:${id}`, { kind, id, row });
+      journal.set(boardId, { baseline: structuredClone(baseline.current), pending: [...pending.current] });
       setHasPendingWrites(true);
       scheduleFlush();
     },
-    [scheduleFlush],
+    [scheduleFlush, journal, boardId],
   );
+
+  const reviewPending=useCallback(async():Promise<BoardPendingReview>=>{
+    if(flushTimer.current!==null){window.clearTimeout(flushTimer.current);flushTimer.current=null;}
+    if(inFlightFlush.current)await inFlightFlush.current;
+    const version=pendingVersion.current;
+    const [savedNodes,savedEdges]=await Promise.all([scope.eraId?listEraRows<BoardNode>(scope,'boardNodes').then(rows=>rows.filter(row=>row.boardId===boardId)):ops.getBoardNodes(boardId),scope.eraId?listEraRows<BoardEdge>(scope,'boardEdges').then(rows=>rows.filter(row=>row.boardId===boardId)):ops.getBoardEdges(boardId)]);
+    const saved={nodes:savedNodes,edges:savedEdges},changes:BoardPendingReview['changes']=[];
+    for(const write of pending.current.values()){
+      const old=(write.kind==='node'?baseline.current.nodes:baseline.current.edges).find(row=>row.id===write.id),current=(write.kind==='node'?savedNodes:savedEdges).find(row=>row.id===write.id);
+      if(!write.row){changes.push({id:write.id,title:old&&'title'in old?old.title:write.id,field:'delete',saved:current,draft:null});continue;}
+      for(const field of new Set([...Object.keys(old??{}),...Object.keys(write.row)])){if(field==='updatedAt')continue;const value=write.row[field as keyof typeof write.row],before=old?.[field as keyof typeof old];if(JSON.stringify(before)===JSON.stringify(value))continue;changes.push({id:write.id,title:'title'in write.row?write.row.title:write.id,field,saved:current?.[field as keyof typeof current],draft:value});}
+    }
+    return{baseline:saved,pendingVersion:version,changes};
+  },[scope,boardId]);
+  const keepPending=useCallback(async(review:BoardPendingReview):Promise<boolean>=>{
+    if(review.pendingVersion!==pendingVersion.current){setError(new Error('Pending changes changed. Review saved changes again.'));return false;}
+    const rebased=new Map<string,PendingWrite>();
+    for(const [key,write] of pending.current){const oldRows=write.kind==='node'?baseline.current.nodes:baseline.current.edges,savedRows=write.kind==='node'?review.baseline.nodes:review.baseline.edges;rebased.set(key,{...write,row:write.row?rebaseBoardRow(write.row,oldRows.find(row=>row.id===write.id),savedRows.find(row=>row.id===write.id)):null});}
+    // Undo/redo must preserve fields authored remotely while this draft was pending.
+    for(const command of [...undoStack.current,...redoStack.current])for(const op of command.ops){const oldRows=op.kind==='node'?baseline.current.nodes:baseline.current.edges,savedRows=op.kind==='node'?review.baseline.nodes:review.baseline.edges,old=oldRows.find(row=>row.id===op.id),saved=savedRows.find(row=>row.id===op.id);if(op.before)op.before=rebaseBoardRow(op.before,old,saved);if(op.after)op.after=rebaseBoardRow(op.after,old,saved);}
+    baseline.current=structuredClone(review.baseline);pending.current=rebased;
+    const nextNodes=new Map(review.baseline.nodes.map(row=>[row.id,row])),nextEdges=new Map(review.baseline.edges.map(row=>[row.id,row]));
+    for(const write of rebased.values()){const rows=write.kind==='node'?nextNodes:nextEdges;if(write.row)rows.set(write.id,write.row as BoardNode&BoardEdge);else rows.delete(write.id);}
+    nodesRef.current=[...nextNodes.values()];edgesRef.current=[...nextEdges.values()];setNodes(nodesRef.current);setEdges(edgesRef.current);
+    journal.set(boardId,{baseline:structuredClone(baseline.current),pending:[...rebased]});const recoveryWrites=[...rebased.values()];const saved=await flush();if(saved){undoStack.current.push({label:'Recover pending changes',at:Date.now(),ops:recoveryWrites.map(write=>({kind:write.kind,id:write.id,before:(write.kind==='node'?review.baseline.nodes:review.baseline.edges).find(row=>row.id===write.id),after:write.row??undefined}))});redoStack.current=[];syncHistory();}return saved;
+  },[boardId,journal,flush,syncHistory]);
 
   // ---- load -----------------------------------------------------------
 
@@ -283,9 +338,17 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
     edgesRef.current = [];
     if (!boardId) return;
 
-    void Promise.all([ops.getBoardNodes(boardId), ops.getBoardEdges(boardId)])
+    void Promise.all([scope.eraId ? listEraRows<BoardNode>(scope, 'boardNodes').then(rows => rows.filter(row => row.boardId === boardId)) : ops.getBoardNodes(boardId), scope.eraId ? listEraRows<BoardEdge>(scope, 'boardEdges').then(rows => rows.filter(row => row.boardId === boardId)) : ops.getBoardEdges(boardId)])
       .then(([loadedNodes, loadedEdges]) => {
         if (seq !== loadSeq.current || !mounted.current) return;
+        const recovered = journal.get(boardId);
+        baseline.current = recovered?.baseline ?? { nodes: structuredClone(loadedNodes), edges: structuredClone(loadedEdges) };
+        if (recovered) {
+          pending.current = new Map(recovered.pending);
+          const nodes = new Map(loadedNodes.map(row => [row.id, row])), edges = new Map(loadedEdges.map(row => [row.id, row]));
+          for (const [, write] of recovered.pending) { const rows = write.kind === 'node' ? nodes : edges; if (write.row) rows.set(write.id, write.row as BoardNode & BoardEdge); else rows.delete(write.id); }
+          loadedNodes = [...nodes.values()]; loadedEdges = [...edges.values()]; setHasPendingWrites(true); scheduleFlush();
+        }
         nodesRef.current = loadedNodes;
         edgesRef.current = loadedEdges;
         setNodes(loadedNodes);
@@ -300,13 +363,32 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
       .finally(() => {
         if (seq === loadSeq.current && mounted.current) setLoading(false);
       });
-  }, [boardId]);
+  }, [boardId, scope, journal, scheduleFlush]);
+
+  useEffect(()=>onDataChanged(detail=>{
+    if(!['ai','undo','import'].includes(detail.source)||detail.projectId&&detail.projectId!==scope.projectId||detail.table&&!['boards','boardNodes','boardEdges','boardLayers','boardViews'].includes(detail.table))return;
+    externalRefresh.current=true;setExternalRevision(value=>value+1);
+  }),[scope]);
+  // External commands update an idle canvas. Buffered gestures finish first,
+  // preserving their in-memory draft and the era baseline used for CAS.
+  useEffect(()=>{
+    if(!externalRefresh.current||loading||hasPendingWrites)return;
+    let cancelled=false;
+    void (async()=>{
+      if(inFlightFlush.current)await inFlightFlush.current;
+      if(cancelled||pending.current.size)return;
+      const [nextNodes,nextEdges]=await Promise.all([scope.eraId?listEraRows<BoardNode>(scope,'boardNodes').then(rows=>rows.filter(row=>row.boardId===boardId)):ops.getBoardNodes(boardId),scope.eraId?listEraRows<BoardEdge>(scope,'boardEdges').then(rows=>rows.filter(row=>row.boardId===boardId)):ops.getBoardEdges(boardId)]);
+      if(cancelled||pending.current.size)return;
+      externalRefresh.current=false;baseline.current={nodes:structuredClone(nextNodes),edges:structuredClone(nextEdges)};nodesRef.current=nextNodes;edgesRef.current=nextEdges;setNodes(nextNodes);setEdges(nextEdges);
+    })().catch(reason=>{if(!cancelled)setError(reason instanceof Error?reason:new Error(String(reason)));});
+    return()=>{cancelled=true;};
+  },[externalRevision,hasPendingWrites,loading,scope,boardId]);
 
   // Make the board's in-memory batch visible to the app-wide close guard.
   useEffect(() => {
     if (!hasPendingWrites) return;
-    return registerPendingFlusher(`board:${boardId}`, () => flushRef.current());
-  }, [boardId, hasPendingWrites]);
+    return registerPendingFlusher(`board:${boardId}:era:${scope.eraId ?? 'base'}`, () => flushRef.current());
+  }, [boardId, hasPendingWrites, scope.eraId]);
 
   // Flush whatever is queued when the board changes or the view goes away.
   // Window teardown itself is coordinated centrally by PendingWritesHost.
@@ -546,5 +628,7 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
     undoLabel: historyState.undoLabel,
     redoLabel: historyState.redoLabel,
     flush,
+    reviewPending,
+    keepPending,
   };
 }

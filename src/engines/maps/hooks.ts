@@ -1,6 +1,7 @@
+import { useEraEntities } from '@/services/worldEras/hooks';
 import { archiveWithMutation } from '@/services/documentArchive/store';
 import { db } from '@/db';
-import { makeEntityHook, makeTableOps, makeCascadeDeleteOp, deleteEntityAnnotations } from '@/engines/_shared';
+import { makeTableOps, makeCascadeDeleteOp, deleteEntityAnnotations } from '@/engines/_shared';
 import type { WorldMap, MapPin } from '@/types';
 
 const worldMapOps = makeTableOps<WorldMap>({
@@ -35,21 +36,23 @@ async function deleteWorldMapRows(id: string): Promise<void> {
   );
 }
 
-export const useWorldMaps = makeEntityHook<WorldMap>({
+const useWorldMapsOptions = {
   fetchFn: worldMapOps.getAll,
   createFn: worldMapOps.create,
   updateFn: worldMapOps.update,
   deleteFn: deleteWorldMap,
-});
+};
+export function useWorldMaps(scopeId: string) { return useEraEntities<WorldMap>(scopeId, 'worldMaps', 'projectId', useWorldMapsOptions); }
 
 const mapPinOps = makeTableOps<MapPin>({
   tableName: 'mapPins',
   scopeField: 'mapId',
 });
 
-export const useMapPins = makeEntityHook<MapPin>({
+const useMapPinsOptions = {
   fetchFn: mapPinOps.getAll,
   createFn: mapPinOps.create,
   updateFn: mapPinOps.update,
   deleteFn: mapPinOps.delete,
-});
+};
+export function useMapPins(scopeId: string) { return useEraEntities<MapPin>(scopeId, 'mapPins', 'mapId', useMapPinsOptions); }

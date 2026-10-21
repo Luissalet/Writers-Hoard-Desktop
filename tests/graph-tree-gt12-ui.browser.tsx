@@ -1,0 +1,37 @@
+import {act} from 'react';
+import {createRoot} from 'react-dom/client';
+import {MemoryRouter} from 'react-router-dom';
+import {db} from '@/db';
+import RelationTreesWorkspace from '@/engines/genealogy/components/RelationTreesWorkspace';
+import {createLocalDraftStore} from '@/hooks/localDraftStore';
+import type {RelationTreeDocument} from '@/engines/genealogy/relationTrees';
+import {useLocaleStore} from '@/stores/localeStore';
+import {assert,prepareGraphTreeFixture} from './graph-tree-affordances.browser';
+const qa=window as any;let seq=0;
+const pause=()=>new Promise(r=>setTimeout(r,45));
+async function until(f:()=>unknown){for(let i=0;i<180;i++){if(f())return;await act(async()=>{await pause();});}throw Error('GT12 timeout '+qa.__testStage);}
+async function native(events:unknown[]){const n=++seq;await act(async()=>{qa.__native={n,events};await until(()=>qa.__nativeAck===n);await pause();});}
+async function key(keyCode:string){await native([{type:'keyDown',keyCode},{type:'keyUp',keyCode}]);}
+const point=(el:Element)=>{const b=el.getBoundingClientRect();return{x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)};};
+const edge=(id:string)=>[...document.querySelectorAll<SVGGElement>('.react-flow__edge')].find(e=>e.dataset.id===id)!;
+const handle=(id:string)=>document.querySelector(`.react-flow__node[data-id="${id}"] .react-flow__handle[data-handleid="bottom"]`)!;
+async function click(el:Element){el.scrollIntoView({block:'center',behavior:'instant'});const p=point(el);await native([{type:'mouseMove',...p},{type:'mouseDown',...p,button:'left',clickCount:1},{type:'mouseUp',...p,button:'left',clickCount:1}]);}
+async function select(id:string){document.querySelector('[data-testid="relation-tree-canvas"]')!.scrollIntoView({block:'start',behavior:'instant'});const path=edge(id).querySelector<SVGPathElement>('.react-flow__edge-interaction')!,p=path.getPointAtLength(path.getTotalLength()/2).matrixTransform(path.getScreenCTM()!);await native([{type:'mouseMove',x:Math.round(p.x),y:Math.round(p.y)},{type:'mouseDown',x:Math.round(p.x),y:Math.round(p.y),button:'left',clickCount:1},{type:'mouseUp',x:Math.round(p.x),y:Math.round(p.y),button:'left',clickCount:1}]);await until(()=>edge(id).classList.contains('selected'));}
+async function reconnect(cancel:boolean){const start=point(edge('route').querySelector('.react-flow__edgeupdater-source')!),end=point(handle('d'));await native([{type:'mouseMove',...start},{type:'mouseDown',...start,button:'left',clickCount:1}]);await native([{type:'mouseMove',x:Math.round((start.x+end.x)/2),y:Math.round((start.y+end.y)/2),button:'left'}]);if(cancel){assert(document.querySelector('.react-flow__connection'),'No active connection gesture');await key('ESCAPE');assert(!document.querySelector('.react-flow__connection'),'Escape retained the active connection line');}await native([{type:'mouseMove',...end,button:'left'},{type:'mouseUp',...end,button:'left',clickCount:1}]);}
+const painted=(el:Element)=>{const s=getComputedStyle(el),visible=(c:string)=>c!=='none'&&c!=='transparent'&&!/rgba\([^)]*,\s*0\)/.test(c);return Number(s.opacity)>0&&visible(s.fill)&&visible(s.stroke)&&Number.parseFloat(s.strokeWidth)>=2;};
+function checkMarkers(selectedId:string){const selected=[...document.querySelectorAll('.react-flow__edge.selected .react-flow__edgeupdater')];assert(selected.length===2&&selected.every(painted),'Selected logical edge must paint exactly two opaque outlined endpoint hitboxes');assert([...document.querySelectorAll('.react-flow__edge:not(.selected) .react-flow__edgeupdater')].every(el=>!painted(el)),'Unselected edge painted reconnect markers');assert(!edge('segment:'+JSON.stringify(['route',1])).querySelector('.react-flow__edgeupdater'),'Middle routed segment exposes a reconnect control');assert(edge(selectedId).getAttribute('aria-label')?.includes('Escape cancels'),'Selected edge lacks localized accessible reconnect instructions');for(const marker of selected){assert(marker.tagName==='circle','Paint must be on the actual updater hitbox');assert(marker.getBoundingClientRect().width>=10,'Marker too small to see');}}
+export async function testGraphTreeGt12Ui(){useLocaleStore.setState({locale:'en'});const passed:string[]=[];
+ for(const width of [1440,640]){
+  qa.__testStage='GT12 '+width;const n=++seq;qa.__want={w:width,h:1000,n};await until(()=>qa.__sizeAck===n);
+  const f=await prepareGraphTreeFixture('gt12-'+width),project=(await db.projects.get(f.projectId))!,trees=project.relationTrees!,base=trees.find(t=>t.id===f.treeId)!;
+  base.edges.push({id:'direct',source:'d',target:'c',kind:'custom',label:'Direct',style:'solid',sourceHandle:'bottom',targetHandle:'top'});await db.projects.update(f.projectId,{relationTrees:trees});const original=structuredClone(base.edges[0]);
+  const root=createRoot(document.getElementById('root')!);await act(async()=>root.render(<MemoryRouter initialEntries={['/project/'+f.projectId+'/genealogy?tree='+f.treeId]}><main className="bg-deep p-5 text-text-primary"><RelationTreesWorkspace projectId={f.projectId} canonical={<p>Canonical</p>}/></main></MemoryRouter>));await until(()=>edge('route'));await act(async()=>{await new Promise(r=>setTimeout(r,400));});
+  const drafts=createLocalDraftStore<{tree:RelationTreeDocument}>('wh.relation-trees.v1.'+f.projectId,(v):v is {tree:RelationTreeDocument}=>!!v&&typeof v==='object'),current=()=>drafts.get(f.treeId)?.tree;
+  await select('route');checkMarkers('route');const canvas=document.querySelector('[data-testid="relation-tree-canvas"]')!;canvas.scrollIntoView({block:'start',behavior:'instant'});qa.__shot={name:'gt12-selected-outer-'+width};await until(()=>qa.__shotDone==='gt12-selected-outer-'+width);
+  for(let i=0;i<2;i++){await reconnect(true);assert(!current(),'Escape created a local draft');assert(document.querySelector<HTMLButtonElement>('button[aria-label="Undo"]')!.disabled,'Escape created history');}
+  await reconnect(false);await until(()=>current()?.edges[0].source==='d');assert(JSON.stringify(current()!.edges[0])===JSON.stringify({...original,source:'d',sourceHandle:'bottom'}),'Fresh reconnect changed route/vocabulary metadata');await click(document.querySelector('button[aria-label="Undo"]')!);await until(()=>current()?.edges[0].source==='a');assert(JSON.stringify(current()!.edges[0])===JSON.stringify(original),'Undo did not restore exact route metadata');
+  await select('direct');checkMarkers('direct');await select('route');const source=document.querySelector<HTMLSelectElement>('select[aria-label="Source · Inspector"]')!;source.scrollIntoView({block:'center',behavior:'instant'});source.focus();const steps=[...source.options].findIndex(option=>option.value==='d');await key('HOME');for(let i=0;i<steps;i++)await key('DOWN');await key('TAB');await until(()=>current()?.edges[0].source==='d');assert(JSON.stringify(current()!.edges[0].via)===JSON.stringify(original.via),'Keyboard inspector changed route');for(let i=0;i<steps;i++)await click(document.querySelector('button[aria-label="Undo"]')!);await until(()=>current()?.edges[0].source==='a');
+  assert(document.documentElement.scrollWidth<=innerWidth+1,'GT12 viewport overflow');await act(async()=>root.unmount());passed.push('GT12 '+width+': selected-only opaque actual outer hitboxes, routed/direct endpoints; repeated native Escape no draft/history/connection line; fresh drag and keyboard inspector preserve metadata with Undo');
+ }
+ return passed;
+}

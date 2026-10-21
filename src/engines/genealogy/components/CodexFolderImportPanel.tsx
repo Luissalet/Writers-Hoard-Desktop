@@ -2,10 +2,11 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { FolderOpen, Files, Undo2 } from 'lucide-react';
 import { runBridgeTool } from '@/services/aiBridge/dispatch';
 import { useTranslation } from '@/i18n/useTranslation';
-import type { CodexFolderInput, CodexFolderPreview as Preview, CodexImportFormat as ImportFormat } from '../codexFolderImport';
-
-
-
+import type { CodexFolderInput, CodexFolderPreview as Preview, CodexImportFormat as ImportFormat, CodexImportDecision } from '../codexFolderImport';
+import type { CodexEntryType } from '@/types';
+import { useEraProject, useWorldEraScope } from '@/services/worldEras/hooks';
+import { selectableCodexTemplates, templatePath } from '@/engines/codex/templateHierarchy';
+import WorldFolderImportPanel from '@/components/import/WorldFolderImportPanel';
 type SourceFile = CodexFolderInput['files'][number];
 type ImportReply = {
   preview?: Preview;
@@ -18,7 +19,9 @@ export default function CodexFolderImportPanel({ projectId, onChanged }: {
   projectId: string;
   onChanged: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const scope = useWorldEraScope(projectId), project = useEraProject(projectId), templates = project?.codexTemplates ?? [];
+  const copy = locale === 'es' ? { include: 'Incluir', title: 'Título de destino', category: 'Categoría', template: 'Plantilla', none: 'Sin plantilla', content: 'Revisar contenido', plan: 'Revisa títulos y tipos antes de importar. Los originales se conservan completos.' } : { include: 'Include', title: 'Destination title', category: 'Category', template: 'Template', none: 'No template', content: 'Review content', plan: 'Review titles and types before importing. Complete original sources are retained.' };
   const formatId = useId();
   const folderInput = useRef<HTMLInputElement>(null);
   const filesInput = useRef<HTMLInputElement>(null);
@@ -27,6 +30,10 @@ export default function CodexFolderImportPanel({ projectId, onChanged }: {
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [unsupported, setUnsupported] = useState(0);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [decisions, setDecisions] = useState<Record<string, CodexImportDecision>>({});
+  const edit = (id: string, patch: Partial<CodexImportDecision>) => setDecisions(current => ({ ...current, [id]: { ...current[id], id, ...patch } }));
+  const included = preview?.additions.filter(entry => decisions[entry.id]?.include !== false) ?? [];
+  const invalidTitle = included.some(entry => !(decisions[entry.id]?.title ?? entry.title).trim());
   const [busy, setBusy] = useState<'reading' | 'working' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -37,14 +44,14 @@ export default function CodexFolderImportPanel({ projectId, onChanged }: {
 
   useEffect(() => {
     generation.current++;
-    setSources([]); setUnsupported(0); setPreview(null); setReceipts([]);
+    setSources([]); setUnsupported(0); setPreview(null); setReceipts([]); setDecisions({});
     setBusy(null); setError(null); setStatus(null);
-  }, [projectId]);
+  }, [projectId, scope.eraId]);
 
   const readFiles = async (list: FileList | null) => {
     if (!list?.length) return;
     const current = ++generation.current;
-    setBusy('reading'); setError(null); setStatus(null); setPreview(null);
+    setBusy('reading'); setError(null); setStatus(null); setPreview(null); setDecisions({});
     const selected = Array.from(list);
     const supported = selected.filter(file => /\.(md|markdown|json)$/i.test(file.name));
     try {
@@ -66,8 +73,8 @@ export default function CodexFolderImportPanel({ projectId, onChanged }: {
     setBusy('working'); setError(null); setStatus(null);
     try {
       const reply = await runBridgeTool(`wh_codex_import_${operation}`, operation === 'undo'
-        ? { projectId, applyId: receipts.at(-1)?.applyId }
-        : { projectId, format, files });
+        ? { projectId, eraId: scope.eraId, applyId: receipts.at(-1)?.applyId }
+        : { projectId, eraId: scope.eraId, format, files, ...(operation === 'apply' ? { decisions: Object.values(decisions) } : {}) });
       if (generation.current !== current) return;
       if (!reply.ok) {
         setError(reply.code === 'stale_import' ? t('genealogy.import.stale') : `${t('genealogy.import.failure')}: ${reply.error || reply.code}`);
@@ -80,7 +87,7 @@ export default function CodexFolderImportPanel({ projectId, onChanged }: {
         setReceipts(previous => [...previous, { applyId: result.applyId!, count }]);
         setStatus(`${count} ${t('genealogy.import.added')}`);
         // A new preview reflects what is now stored; never offer the old additions twice.
-        setPreview(null);
+        setPreview(null); setDecisions({});
         onChanged();
       }
       if (operation === 'undo') {
@@ -105,7 +112,7 @@ export default function CodexFolderImportPanel({ projectId, onChanged }: {
       <div className="codex-import-source">
         <label htmlFor={formatId}>{t('genealogy.import.format')}</label>
         <select id={formatId} value={format} disabled={!!busy} data-testid="codex-import-format" onChange={event => {
-          generation.current++; setFormat(event.target.value as ImportFormat); setPreview(null); setError(null); setStatus(t('genealogy.import.changed'));
+          generation.current++; setFormat(event.target.value as ImportFormat); setPreview(null); setDecisions({}); setError(null); setStatus(t('genealogy.import.changed'));
         }}>
           <option value="obsidian">Obsidian</option><option value="notion">Notion</option>
           <option value="worldanvil">World Anvil</option><option value="campfire">Campfire</option>
@@ -125,21 +132,34 @@ export default function CodexFolderImportPanel({ projectId, onChanged }: {
       {error && <p role="alert" className="codex-import-error" data-testid="codex-import-error">{error}</p>}
       {status && <p role="status" className="codex-import-feedback" data-testid="codex-import-status">{status}</p>}
       {preview && <>
+        <p className="text-sm text-text-muted">{copy.plan}</p>
         <div className="codex-import-summary" data-testid="codex-import-summary">
           <span>{t('genealogy.import.additions')}: <strong data-testid="codex-import-additions-count">{preview.additions.length}</strong></span>
           <span>{t('genealogy.import.duplicates')}: <strong data-testid="codex-import-duplicates-count">{preview.duplicates.length}</strong></span>
           <span>{t('genealogy.import.conflicts')}: <strong data-testid="codex-import-conflicts-count">{preview.conflicts.length}</strong></span>
           <span>{t('genealogy.import.issues')}: <strong data-testid="codex-import-issues-count">{preview.issues.length}</strong></span>
         </div>
-        <ul className="codex-import-preview-list" data-testid="codex-import-preview-list">
-          {preview.additions.map(entry => <li key={`add:${entry.path}:${entry.id}`}><strong>{entry.title}</strong><span>{entry.path} · {entry.type}</span></li>)}
+        <ul className="codex-import-preview-list" data-editable-plan data-testid="codex-import-preview-list">
+          {preview.additions.map(entry => {
+            const decision = decisions[entry.id], include = decision?.include !== false;
+            return <li key={`add:${entry.path}:${entry.id}`} data-testid="codex-import-plan-row">
+              <div className="flex w-full min-w-0 items-center gap-3"><input type="checkbox" checked={include} disabled={!!busy} onChange={event => edit(entry.id, { include: event.target.checked })} aria-label={`${copy.include} ${entry.path}`} /><span className="min-w-0 flex-1 break-words">{entry.path}</span></div>
+              <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
+                <label className="min-w-0 text-xs text-text-muted">{copy.title}<input type="text" className="mt-1 w-full min-w-0 rounded border border-border bg-elevated px-2.5 py-2 text-sm text-text-primary focus:outline-accent-gold" aria-label={`${copy.title}: ${entry.path}`} value={decision?.title ?? entry.title} required disabled={!include || !!busy} onChange={event => edit(entry.id, { title: event.target.value })} /></label>
+                <label className="min-w-0 text-xs text-text-muted">{copy.category}<select className="mt-1 w-full min-w-0" aria-label={`${copy.category}: ${entry.path}`} disabled={!include || !!busy} value={decision?.type ?? entry.type} onChange={event => edit(entry.id, { type: event.target.value as CodexEntryType, templateId: '' })}>{(['character','location','item','faction','concept','magic','custom'] as const).map(type => <option key={type} value={type}>{t(`codex.types.${type}`)}</option>)}</select></label>
+                {!!templates.length && <label className="min-w-0 text-xs text-text-muted sm:col-span-2">{copy.template}<select className="mt-1 w-full min-w-0" aria-label={`${copy.template}: ${entry.path}`} value={decision?.templateId ?? ''} disabled={!include || !!busy} onChange={event => { const template = templates.find(row => row.id === event.target.value); edit(entry.id, { templateId: event.target.value, ...(template ? { type: template.category } : {}) }); }}><option value="">{copy.none}</option>{selectableCodexTemplates(templates, decision?.templateId).map(template => <option key={template.id} value={template.id}>{templatePath(template, templates)}</option>)}</select></label>}
+              </div>
+              <details className="w-full min-w-0 text-xs text-text-muted"><summary className="cursor-pointer py-1 focus-visible:outline-accent-gold">{copy.content}</summary><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-body text-sm text-text-primary">{entry.body}</pre></details>
+            </li>;
+          })}
           {preview.duplicates.map((entry, index) => <li key={`dup:${index}`}><strong>{t('genealogy.import.duplicates')}</strong><span>{entry.path}</span></li>)}
           {preview.conflicts.map((entry, index) => <li key={`conflict:${index}`}><strong>{t('genealogy.import.conflicts')}</strong><span>{entry.path} · {entry.reason === 'source_changed_or_id_occupied' ? t('genealogy.import.conflictSource') : entry.reason}</span></li>)}
           {preview.issues.map((issue, index) => <li key={`issue:${index}`}><strong>{t('genealogy.import.issues')}</strong><span>{issue.path || `#${issue.index + 1}`} · {issue.message === 'Unclosed Markdown frontmatter.' ? t('genealogy.import.frontmatterOpen') : issue.message}</span></li>)}
         </ul>
-        <button type="button" className="codex-import-apply" disabled={!!busy || preview.additions.length === 0} data-testid="codex-import-apply" onClick={() => void perform('apply')}>{t('genealogy.import.apply')} ({preview.additions.length})</button>
+        <button type="button" className="codex-import-apply" disabled={!!busy || included.length === 0 || invalidTitle} data-testid="codex-import-apply" onClick={() => void perform('apply')}>{t('genealogy.import.apply')} ({included.length})</button>
       </>}
       <p className="codex-import-source-note">{t('genealogy.import.source')}</p>
+      <details className="mt-5 border-t border-border pt-4"><summary className="cursor-pointer py-2 font-display text-lg text-accent-gold">{locale==='es'?'Importar capítulos, tablas y cronologías':'Import chapters, tables and timelines'}</summary><div className="mt-3"><WorldFolderImportPanel projectId={projectId} onChanged={onChanged}/></div></details>
     </section>
   );
 }

@@ -1,0 +1,9 @@
+# D3 legacy era restore correction
+
+The root compatibility check found a reproducible loss of named-era writing-tool defaults and own chapter sidecars in same-ID legacy full JSON restores. The original material failure remains in `D:/LocalAI/projectlesswork/worldcraft1041-tool-dock-legacy-era-before.log`: `default=false, chapter=false`. This supplements the earlier D3 author proof; it does not replace or retroactively certify it.
+
+Three product leaves changed: `src/services/projectArchiveMetadata.ts`, `src/db/operations.ts`, and `src/services/zipBackup.ts`. Missing fields preserve the existing sidecar only for matching era/document identity. Explicit null retains its reset/inherit meaning. Missing eras are not recreated. Retained variant states use their own revision, and foreign project/era/document identities cannot supply a sidecar. Both project and full ZIP capture existing variants before replacement and apply the same helper after normal import.
+
+The original full JSON oracle now passes. The ZIP test helper previously skipped top-level arrays; this was a QA blind spot, corrected explicitly in `amendZip`, with earlier logs retained. The final test actually removes sidecars recursively from variant arrays, exercises full JSON, project ZIP and full ZIP, explicit null, scope boundaries, retained revision identity and absent eras. It passes as one bounded group, not a universal legacy-format claim. The existing four portability groups also pass unchanged in their assertions after this correction.
+
+Final logs: `worldcraft1041-tool-dock-legacy-era-full-final.log` (private profile TZeOPK), `worldcraft1041-tool-dock-portability-era-final.log` (3JObNi), and `worldcraft1041-renderer-legacy-era-final.log` (renderer typecheck exit0), under `D:/LocalAI/projectlesswork`. Scoped product ESLint passed. Independent D3 review remains required, including root shared wiring and this correction. No commit or integration has occurred.

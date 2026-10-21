@@ -1,4 +1,4 @@
-export interface StrokePoint { x: number; y: number }
+export interface StrokePoint { x: number; y: number; pressure?: number }
 
 function segmentDistance(point: StrokePoint, a: StrokePoint, b: StrokePoint): number {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -14,7 +14,11 @@ export function simplifyStroke(source: StrokePoint[], tolerance = 1): StrokePoin
   const pending: Array<[number, number]> = [[0, points.length - 1]];
   while (pending.length) {
     const [start, end] = pending.pop()!; let distance = Math.max(0, tolerance), farthest = -1;
-    for (let index = start + 1; index < end; index++) { const next = segmentDistance(points[index], points[start], points[end]); if (next > distance) { distance = next; farthest = index; } }
+    for (let index = start + 1; index < end; index++) { const geometric = segmentDistance(points[index], points[start], points[end]);
+      const a=points[start], b=points[end], point=points[index];
+      const span=Math.hypot(b.x-a.x,b.y-a.y), ratio=span?Math.min(1,Math.hypot(point.x-a.x,point.y-a.y)/span):0;
+      const pressure=point.pressure===undefined?0:Math.abs(point.pressure-((a.pressure??.5)*(1-ratio)+(b.pressure??.5)*ratio))*12;
+      const next = Math.max(geometric,pressure); if (next > distance) { distance = next; farthest = index; } }
     if (farthest >= 0) { keep[farthest] = 1; pending.push([start, farthest], [farthest, end]); }
   }
   return points.filter((_point, index) => keep[index]).map(point => ({ ...point }));

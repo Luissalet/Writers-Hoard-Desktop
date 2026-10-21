@@ -1138,3 +1138,60 @@ No claim of total parity until every identified offline capability has been impl
 - [x] Fallbacks atómicos excluidos de inferencias; Unicode, renombrados, HTML inerte/escapado y ámbito comprobados en el modelo (cinco grupos).
 - [x] Regresión UI de selección visible y dimensiones controladas (dos grupos); Worker real, drag y Fit nativo en720px sin cambiar posiciones guardadas.
 - [x] Capturas desktop/evidencia/narrow inspeccionadas/copias y auditoría actualizada para tipos, SDK, hojas canónicas y MapBeta observado.
+
+## Worldcraft1041 — deep-dive correction, current21 October
+
+This is the current continuation after the user's depth correction. Earlier
+aggregate/build/integration statements above retain their historical scope.
+The composed 21 October checks below cover the current source freeze; Git
+integration remains pending; QA, the family manual and repository docs are complete.
+
+- [x] Reconcile148 source-backed identities, keeping authenticated observations,
+  documentation, authored tests and independent review distinct.
+- [x] Independently review maps and authoring corrections, native DOCX/source
+  recovery, editions/history, classifiers, voice, cover/wiki, graph/tree,
+  genres, editorial PDF, image crop/type/property and project pin.
+- [x] Freeze D1 source documents after independent corrections and review.
+- [x] Implement D2 document/owned/world hosts and five focused adapters;
+  preserve the independent late-callback FAIL and freeze the narrow correction.
+- [x] Independently re-review D2 lifetime correction and remaining adapter scope.
+- [x] Correct and re-review publication missing-reference namespace collision;
+  finish independent Reader/wiki/frozen-publication/PNG consumers review.
+- [x] Finish W11 independent review and correct FI-1 deleted media reference and
+  FI-2 literal source-path collision with unchanged failure oracles.
+- [x] Reproduce L09 passive Ctrl-wheel default defect with actual native input;
+  narrow listener correction passes unchanged desktop/narrow oracle.
+- [x] Independently review L09 correction and ordinary-wheel/lifecycle behavior.
+- [x] Implement and independently review D3 persistent chapter/book compositor,
+  including the corrected legacy named-era sidecars.
+- [x] Resolve D2-2 return-action copy without changing save/guard behavior;
+  reverse-hash review and acknowledged native input10 pass. Historical failures
+  and original lifetime oracles remain recorded.
+- [x] Implement and independently review W01 one-project duplication against its
+  explicit table/reference inventory; legacy JSON coverage remains partial.
+- [x] Add and independently review the bounded 2014 5e class/level/resource/
+  prepared-spell workflow and common-export section correction, preserving
+  legacy presets and manual values.
+- [x] Record remaining offline differences and evidence ceilings in the final
+  verification and inventory; partial legacy JSON is not universal duplication.
+- [x] Independently review M1/M2/M3 map, Archive transaction and legacy-tool
+  corrections; preserve their original failures and unchanged oracles.
+- [x] Run the composed 44 suites / 210 groups / 0 failed and 383 critical checks;
+  production renderer/Electron builds, budget, shipping lint 0, conformance
+  34 engines / 64 tables / 5650 keys / 22 locale files / 0 warnings, production audit 0,
+  native document 14 / 0 skipped, directory packaging and packaged startup pass.
+  Entry 1589.09 kB is below 1600; lazy/total advisories remain. Packaged CPU
+  dependencies load without model inference or GPU activation.
+- [x] Update this scope's repository documentation with composed evidence and
+  limits. Logs: D:/LocalAI/projectlesswork/worldcraft1041-vvd-suite-corrected-final.log
+  and worldcraft1041-critical-final-composed.log, with final-composed shipping
+  and packaging evidence alongside them.
+- [x] Finish the family manual with revision-guarded update and exact readback.
+  No global verify:release claim: full development
+  audit retains 13 inherited findings and optional resources/bin warning remains.
+  Installation, real-profile validation and total parity are not certified.
+- [ ] Submit exact reviewed commits, integrate with fresh merge lock and preserve
+  unrelated shared work, without push; preserve evidence and clean task worktree.
+
+Final QA and limits: [composed verification](worldcraft1041-final-verification.md).
+Manual CAS/readback proof: `evidence/worldcraft1041-manual-verification.json`.

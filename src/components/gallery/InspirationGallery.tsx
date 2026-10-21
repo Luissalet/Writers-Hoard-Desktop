@@ -23,6 +23,8 @@ import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { useTranslation } from '@/i18n/useTranslation';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from '@/components/codex/codexTypeMeta';
 import GalleryLightbox from './GalleryLightbox';
+import VisualSearchControls from './VisualSearchControls';
+import type { VisualMatch } from '@/services/visualSearch/search';
 import { useImageHandoffStore } from '@/stores/imageHandoffStore';
 import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
@@ -105,11 +107,14 @@ export default function InspirationGallery({
   onDeleteCollection,
   importConcurrency = DEFAULT_GALLERY_IMPORT_CONCURRENCY,
 }: InspirationGalleryProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const navigateTo = usePaneNavigate();
   const [lightboxImage, setLightboxImage] = useState<InspirationImage | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'text' | 'visual'>('text');
+  const [visualResults, setVisualResults] = useState<{ query: string; source: readonly InspirationImage[]; matches: VisualMatch[] }>();
+  const receiveVisualResults = useCallback((matches: VisualMatch[] | undefined, source: readonly InspirationImage[], query: string) => setVisualResults(matches ? { query, source, matches } : undefined), []);
   const [filterEntryId, setFilterEntryId] = useState<string>('');
   const [uploadTags, setUploadTags] = useState<string[]>([]);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
@@ -330,10 +335,13 @@ export default function InspirationGallery({
     ? filteredByTag.filter(img => (img.linkedEntryIds || []).includes(filterEntryId))
     : filteredByTag;
   const searchTerms = foldReferenceText(searchQuery).trim().split(/\s+/).filter(Boolean);
-  const filtered = searchTerms.length ? filteredByEntry.filter(img => {
+  const matchingText = searchTerms.length ? filteredByEntry.filter(img => {
     const text = foldReferenceText([img.notes, ...img.tags, ...getLinkedEntries(img).map(entry => entry.title)].join(' '));
     return searchTerms.every(term => text.includes(term));
   }) : filteredByEntry;
+  const rankedImages = new Map(filteredByEntry.map(image => [image.id, image]));
+  const visualCurrent = visualResults?.query === searchQuery && visualResults.source.length === filteredByEntry.length && visualResults.source.every(image => rankedImages.get(image.id)?.imageData === image.imageData);
+  const filtered = searchMode === 'text' ? matchingText : visualCurrent ? visualResults!.matches.flatMap(match => { const image = rankedImages.get(match.id); return image ? [image] : []; }) : filteredByEntry;
   const hasFilters = Boolean(searchQuery || filterTag || filterEntryId);
   const clearFilters = () => { setSearchQuery(''); setFilterTag(''); setFilterEntryId(''); };
 
@@ -341,7 +349,7 @@ export default function InspirationGallery({
   // at once, decoding a full-size base64 payload per tile. The grid now grows a
   // page at a time; changing album, tag or entry starts again from the first
   // page (render-adjust, the same pattern the deep link in CodexEntryList uses).
-  const filterKey = `${activeCollectionId ?? ''}\u0000${filterTag}\u0000${filterEntryId}\u0000${searchQuery}`;
+  const filterKey = `${activeCollectionId ?? ''}\u0000${filterTag}\u0000${filterEntryId}\u0000${searchQuery}\u0000${searchMode}\u0000${visualCurrent}`;
   const [appliedFilterKey, setAppliedFilterKey] = useState(filterKey);
   const [visibleCount, setVisibleCount] = useState(GALLERY_PAGE_SIZE);
   if (filterKey !== appliedFilterKey) {
@@ -453,9 +461,11 @@ export default function InspirationGallery({
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
+        <select aria-label={locale === 'es' ? 'Modo de búsqueda de imágenes' : 'Image search mode'} className="min-h-10 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary" value={searchMode} onChange={event => setSearchMode(event.target.value as 'text' | 'visual')}><option value="text">{locale === 'es' ? 'Texto y etiquetas' : 'Text and tags'}</option><option value="visual">{locale === 'es' ? 'Contenido visual' : 'Visual content'}</option></select>
         <input type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} aria-label={t('gallery.searchReferences')} placeholder={t('gallery.searchReferences')} className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary" />
         {hasFilters && <button type="button" onClick={clearFilters} className="px-3 py-2 text-sm text-accent-gold hover:underline">{t('common.resetFilters')}</button>}
       </div>
+      {searchMode === 'visual' && <VisualSearchControls key={projectId} projectId={projectId} images={filteredByEntry} query={searchQuery} locale={locale} onResults={receiveVisualResults} />}
       <div className="flex items-center gap-3 flex-wrap">
         <div {...getRootProps()} className={`flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition border-2 border-dashed ${
           isDragActive ? 'border-accent-gold bg-accent-gold/10 text-accent-gold' : 'border-border text-text-muted hover:border-accent-gold/50 hover:text-text-primary'

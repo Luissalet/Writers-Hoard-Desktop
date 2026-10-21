@@ -33,6 +33,10 @@ resources/proofing
 .env
 
 # Scratch output from local debugging sessions
+/work/
+/.impeccable/*.log
+/.impeccable/*-detector.json
+/.impeccable/review/
 *.log.err
 /_to_delete/
 /story/.venv/
@@ -45,3 +49,4 @@ __pycache__/
 /publishing/runtime/
 /publishing/**/target/
 /publishing/**/bin/
+/src/engines/model-viewer/runtime.generated.txt

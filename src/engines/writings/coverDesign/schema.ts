@@ -1,0 +1,8 @@
+import {COVER_FONTS} from './types';
+const n={type:'number'},color={type:'string',pattern:'^#[a-fA-F0-9]{6}$'},box={id:{type:'string',minLength:1},x:n,y:n,width:{type:'number',exclusiveMinimum:0},height:{type:'number',exclusiveMinimum:0},rotation:n};
+export const COVER_JACKET_SCHEMA={type:'object',properties:{version:{const:1},elements:{type:'array',items:{oneOf:[
+ {type:'object',properties:{...box,kind:{const:'text'},text:{type:'string'},font:{type:'string',enum:COVER_FONTS},size:{type:'number',exclusiveMinimum:0},bold:{type:'boolean'},align:{type:'string',enum:['left','center','right']},color},required:[...Object.keys(box),'kind','text','font','size','bold','align','color'],additionalProperties:false},
+ {type:'object',properties:{...box,kind:{const:'image'},src:{type:'string',description:'Local PNG/JPEG/GIF/WebP/AVIF base64 data URL.'}},required:[...Object.keys(box),'kind','src'],additionalProperties:false},
+ {type:'object',properties:{...box,kind:{const:'ink'},color,weight:{type:'number',exclusiveMinimum:0},points:{type:'array',minItems:1,items:{type:'object',properties:{x:n,y:n,pressure:{type:'number',minimum:0,maximum:1}},required:['x','y'],additionalProperties:false}}},required:[...Object.keys(box),'kind','color','weight','points'],additionalProperties:false}
+]}}},required:['version','elements'],additionalProperties:false};
+export const READER_COVER_SCHEMA={type:'object',properties:{style:{enum:['hardcover','paperback','paper']},color,texture:{enum:['none','linen','lines']},artwork:{type:'boolean'},showAtStart:{type:'boolean'},jacket:COVER_JACKET_SCHEMA},required:['style','color','texture','artwork','showAtStart'],additionalProperties:false};

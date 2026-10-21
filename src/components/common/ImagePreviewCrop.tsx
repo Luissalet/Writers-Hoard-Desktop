@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
-import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
+import ReactCrop, { convertToPixelCrop, type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, RotateCw, ZoomIn, ZoomOut, Check, Maximize } from 'lucide-react';
@@ -21,7 +21,7 @@ interface ImagePreviewCropProps {
  */
 function getCroppedCanvas(
   image: HTMLImageElement,
-  crop: PixelCrop,
+  crop: PixelCrop | undefined,
   rotation: number,
   zoom: number,
 ): string {
@@ -31,14 +31,6 @@ function getCroppedCanvas(
   const displayedH = image.height;  // CSS layout height
   const scaleX = image.naturalWidth / displayedW;
   const scaleY = image.naturalHeight / displayedH;
-
-  // Scale crop coordinates from displayed space to natural image space
-  const naturalCrop = {
-    x: crop.x * scaleX,
-    y: crop.y * scaleY,
-    width: crop.width * scaleX,
-    height: crop.height * scaleY,
-  };
 
   // Step 1: Draw rotated + zoomed image onto a working canvas
   const radians = (rotation * Math.PI) / 180;
@@ -57,11 +49,17 @@ function getCroppedCanvas(
   wCtx.rotate(radians);
   wCtx.drawImage(image, -scaledW / 2, -scaledH / 2, scaledW, scaledH);
 
+  // Without a selection, keep the complete transformed image. A CSS rotation
+  // alone must not disappear when the user immediately presses Attach.
+  if (!crop) return workCanvas.toDataURL('image/jpeg', 0.92);
+
   // Step 2: Extract the crop region (scaled to work canvas coordinates)
-  const cropX = naturalCrop.x * zoom;
-  const cropY = naturalCrop.y * zoom;
-  const cropW = naturalCrop.width * zoom;
-  const cropH = naturalCrop.height * zoom;
+  // ReactCrop selects in the untransformed layout box. The CSS transform is
+  // centred there, so its rotated/zoomed canvas has a different origin.
+  const cropX = crop.x * scaleX - (image.naturalWidth - rotW) / 2;
+  const cropY = crop.y * scaleY - (image.naturalHeight - rotH) / 2;
+  const cropW = crop.width * scaleX;
+  const cropH = crop.height * scaleY;
 
   const outCanvas = document.createElement('canvas');
   outCanvas.width = cropW;
@@ -94,7 +92,6 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
   const onCancelRef = useRef(onCancel);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [crop, setCrop] = useState<Crop>();
-  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
 
@@ -142,14 +139,15 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
 
   const handleConfirm = async () => {
     if (!imageSrc) return;
-    if (!imgRef.current || !completedCrop) {
+    if (!imgRef.current || !crop && rotation === 0 && zoom === 1) {
       // No crop made — pass original as both
       onConfirm(imageSrc, imageSrc);
       return;
     }
     setProcessing(true);
     try {
-      const cropped = getCroppedCanvas(imgRef.current, completedCrop, rotation, zoom);
+      const selected = crop ? convertToPixelCrop(crop, imgRef.current.width, imgRef.current.height) : undefined;
+      const cropped = getCroppedCanvas(imgRef.current, selected && selected.width > 0 && selected.height > 0 ? selected : undefined, rotation, zoom);
       onConfirm(cropped, imageSrc);
     } catch {
       onConfirm(imageSrc, imageSrc);
@@ -161,12 +159,10 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
   const handleRotate = () => {
     setRotation((prev) => (prev + 90) % 360);
     setCrop(undefined);
-    setCompletedCrop(undefined);
   };
 
   const handleResetCrop = () => {
     setCrop({ unit: '%', x: 5, y: 5, width: 90, height: 90 });
-    setCompletedCrop(undefined);
   };
 
   return createPortal(
@@ -220,7 +216,6 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
             <ReactCrop
               crop={crop}
               onChange={(c) => setCrop(c)}
-              onComplete={(c) => setCompletedCrop(c)}
               className="image-crop-gold"
               style={{ maxHeight: '100%', maxWidth: '100%' }}
             >

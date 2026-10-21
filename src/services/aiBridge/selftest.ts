@@ -25,7 +25,8 @@ import { generateId } from '@/utils/idGenerator';
 import type { Project } from '@/types';
 import { DEFAULT_PARAMS } from '@/engines/worldgen/core/types';
 import { BRIDGE_TOOLS } from './manifest';
-import { SCOPE_KEY } from './schema';
+import { SCOPE_KEY, type BridgeTool } from './schema';
+import { validateToolArgs } from '@/services/aiRuntime/toolPolicy';
 import { TOOL_HANDLERS } from './tools';
 import { BridgeError, type ToolArgs } from './tools/shared';
 
@@ -1012,7 +1013,23 @@ const PARENT_PROBE_TOOLS = [
   'wh_link_place', 'wh_update_atlas_place', 'wh_update_divergence',
   'wh_update_claim', 'wh_rate_hypothesis', 'wh_undo_enrichment', 'wh_run_judge',
   'wh_beta_comment_set_status',
+  'wh_append_conversation_turn', 'wh_style_place',
+  'wh_timeline_batch_apply', 'wh_timeline_batch_undo',
+  'wh_wiki_profile_save', 'wh_wiki_profile_delete',
+  'wh_wiki_profile_publish', 'wh_wiki_profile_restore_config',
 ];
+
+// Receipt-based recovery, like audit Undo, stays usable after switching a tab off.
+const RECEIPT_RECOVERY_TOOLS = ['wh_timeline_batch_undo'];
+
+/** Optional era scope does not change a handler's parent/action validation order. */
+export function selfTestGuardPlan(tools: readonly BridgeTool[] = BRIDGE_TOOLS) {
+  const fixtureNames = new Set(PARENT_PROBE_TOOLS);
+  const writes = tools.filter(tool => tool.writes && tool.engineId);
+  const projectFirst = writes.filter(tool => tool.schema.properties.projectId && !fixtureNames.has(tool.name)).map(tool => tool.name);
+  const covered = new Set([...projectFirst, ...fixtureNames]);
+  return { projectFirst, parentFixtures: [...fixtureNames].filter(name => !RECEIPT_RECOVERY_TOOLS.includes(name)), receiptRecovery: [...RECEIPT_RECOVERY_TOOLS], uncovered: writes.filter(tool => !covered.has(tool.name)).map(tool => tool.name) };
+}
 
 /**
  * Build one real parent per engine, then switch every engine off.
@@ -1137,6 +1154,16 @@ async function buildGuardProbes(
     createdCitationIds: [], citationId, changes: [], createdAt: now,
   });
 
+  // Validated actions need their real arguments/receipts before a guard can be
+  // distinguished from parser, missing-parent or CAS errors. No network calls.
+  const wikiDelete = await call('wh_wiki_profile_save', { projectId, name: 'Delete host', options: {}, expectedRevision: null });
+  const wikiPublish = await call('wh_wiki_profile_save', { projectId, name: 'Publish host', options: {}, expectedRevision: null });
+  const wikiRestore = await call('wh_wiki_profile_save', { projectId, name: 'Restore host', options: {}, expectedRevision: null });
+  const publishedWiki = await call('wh_wiki_profile_publish', { projectId, profileId: wikiRestore.id, expectedRevision: wikiRestore.revision });
+  const batchTargets = await call('wh_timeline_batch_preview', { projectId });
+  const batch = await call('wh_timeline_batch_apply', { projectId, eventIds: [eventB], kind: 'remove', expectedTargets: batchTargets.targets });
+  const currentTargets = await call('wh_timeline_batch_preview', { projectId });
+
   await updateProject(projectId, { enabledEngines: [], updatedAt: Date.now() });
 
   return [
@@ -1159,6 +1186,7 @@ async function buildGuardProbes(
       ['wh_add_dialog', { sceneId, character: 'Host A', content: 'x' }],
       ['wh_update_dialog_block', { id: blockId, content: 'x' }],
       ['wh_update_scene', { id: sceneId, title: 'x' }],
+      ['wh_append_conversation_turn', { sceneId, content: 'x' }],
       ['wh_add_arc_beat', { arcId, title: 'x' }],
       ['wh_update_arc_beat', { id: arcBeatId, title: 'x' }],
       ['wh_update_relationship', { id: relationshipId, label: 'x' }],
@@ -1189,6 +1217,13 @@ async function buildGuardProbes(
       ['wh_link_place', {
         worldId, key: 'settlement:1,1', targetType: 'codex-entry', targetId: characterId,
       }],
+      ['wh_style_place', { worldId, key: 'settlement:1,1', style: { labelVisible: true } }],
+      ['wh_timeline_batch_apply', { projectId, eventIds: [eventA], kind: 'remove', expectedTargets: currentTargets.targets }],
+      ['wh_timeline_batch_undo', { projectId, receiptId: batch.receiptId }],
+      ['wh_wiki_profile_save', { projectId, name: 'Disabled create', options: {}, expectedRevision: null }],
+      ['wh_wiki_profile_delete', { projectId, profileId: wikiDelete.id, expectedRevision: wikiDelete.revision }],
+      ['wh_wiki_profile_publish', { projectId, profileId: wikiPublish.id, expectedRevision: wikiPublish.revision }],
+      ['wh_wiki_profile_restore_config', { projectId, profileId: publishedWiki.id, editionId: pick(publishedWiki, 'editions', 0, 'id'), expectedRevision: publishedWiki.revision }],
       ['wh_update_atlas_place', { id: atlasPlaceId, name: 'x' }],
       ['wh_update_divergence', { id: divergenceId, title: 'x' }],
       ['wh_update_claim', { id: claimId, statement: 'x' }],
@@ -1218,9 +1253,8 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
   const projectId = await createScratchProject(['pov-audit']);
 
   await h.step('writes into a switched-off engine are refused, every one of them', async () => {
-    const guarded = BRIDGE_TOOLS.filter(
-      (tool) => tool.writes && tool.engineId && tool.schema.properties.projectId,
-    );
+    const projectFirst = new Set(selfTestGuardPlan().projectFirst);
+    const guarded = BRIDGE_TOOLS.filter(tool => projectFirst.has(tool.name));
     expect(guarded.length >= 15, `only ${guarded.length} guarded tools found in the manifest`);
 
     const leaked: string[] = [];
@@ -1239,7 +1273,7 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
     expect(!leaked.length, `not guarded by enabledEngines: ${leaked.join('; ')}`);
   });
 
-  await h.step('writes that reach their project through a parent are guarded too', async () => {
+  await h.step('parent/action writes are guarded; valid receipt recovery remains available', async () => {
     // The tools above take a projectId. These take the id of something that
     // already exists — a chapter, an outline, an image — and only learn the
     // project from it. Guarding the first group and not this one would have
@@ -1252,7 +1286,18 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
     const leaked: string[] = [];
     try {
       const built = await buildGuardProbes((id) => { host = id; });
+      const actual = new Set(built.map(([name]) => name));
+      expect(actual.size === built.length && actual.size === PARENT_PROBE_TOOLS.length && PARENT_PROBE_TOOLS.every(name => actual.has(name)), 'declared parent probes differ from their actual fixtures');
       for (const [tool, args] of built) {
+        const schema = BRIDGE_TOOLS.find(item => item.name === tool)?.schema;
+        expect(schema, `probe has no manifest schema: ${tool}`);
+        const valid = validateToolArgs(schema, args);
+        expect(valid.ok, `invalid guard probe ${tool}: ${JSON.stringify(valid)}`);
+        if (RECEIPT_RECOVERY_TOOLS.includes(tool)) {
+          const recovered = await call(tool, args);
+          expect(recovered.restored === true, `${tool} did not restore its valid session receipt while disabled`);
+          continue;
+        }
         try {
           await call(tool, args);
           leaked.push(`${tool} (wrote anyway)`);
@@ -1273,13 +1318,7 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
   await h.step('every write tool that names an engine is actually covered', async () => {
     // The completeness property. Without it the two checks above only prove
     // something about the tools somebody remembered to include.
-    const byProject = BRIDGE_TOOLS
-      .filter((tool) => tool.writes && tool.engineId && tool.schema.properties.projectId)
-      .map((tool) => tool.name);
-    const covered = new Set([...byProject, ...PARENT_PROBE_TOOLS]);
-    const uncovered = BRIDGE_TOOLS
-      .filter((tool) => tool.writes && tool.engineId && !covered.has(tool.name))
-      .map((tool) => tool.name);
+    const { uncovered } = selfTestGuardPlan();
     expect(
       !uncovered.length,
       `write tools with no engine-guard check: ${uncovered.join(', ')} — add a probe to buildGuardProbes`,

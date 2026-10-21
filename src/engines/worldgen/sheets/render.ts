@@ -16,7 +16,7 @@ export function renderFixedSheet(result: FixedSheetResult, world: WorldData, the
     const entity = resolveWorldSpatialEntity({ key: place.sourceKey, kind: 'region', type: place.landmark ?? place.kind, name: place.name, x: place.worldX, y: place.worldY, extent: .4, importance: place.importance, source: 'regional' }, world.painted);
     if (entity.hidden) return [];
     let dx = entity.x - result.region.originX; dx = ((dx % world.width) + world.width) % world.width;
-    return [{ ...place, name: entity.name, x: dx / result.region.worldPerCellX, y: (entity.y - result.region.originY) / result.region.worldPerCellY, worldX: entity.x, worldY: entity.y }];
+    return [{ ...place, style: entity.style, name: entity.name, x: dx / result.region.worldPerCellX, y: (entity.y - result.region.originY) / result.region.worldPerCellY, worldX: entity.x, worldY: entity.y }];
   }) };
   renderRegion(region, source.getContext('2d') as unknown as Ctx, { theme, width: source.width, height: source.height, layers: { frame: false, scaleBar: false, legend: false }, tileInk: { seed: world.params.seed, gx0: spec.gx0 - spec.margin, gy0: spec.gy0 - spec.margin, wrapX: world.width * canonRefinement(world), contourIntervalM: 100 } });
   const ctx = canvas.getContext('2d')!;

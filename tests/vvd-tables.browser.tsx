@@ -14,7 +14,7 @@ export async function testVvdTables(): Promise<string[]> {
   const passed: string[] = []; const P = `tables-${Date.now()}`, Q = `${P}-other`;
   const root = createRoot(document.getElementById('root')!);
   const rejects = async (operation: () => unknown | Promise<unknown>) => { let rejected = false; try { await operation(); } catch { rejected = true; } assert(rejected, 'Invalid input must be rejected'); };
-  const type = async (input: HTMLInputElement, value: string) => { assert(input, 'Input missing'); await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); await pause(); }); };
+  const type = async (input: HTMLInputElement | HTMLTextAreaElement, value: string) => { assert(input, 'Input missing'); await act(async () => { Object.getOwnPropertyDescriptor(input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); await pause(); }); };
   const click = async (text: string) => { const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === text); assert(button, `Missing button ${text}`); await act(async () => { button.click(); await pause(180); }); };
   const render = async (key: string) => { await act(async () => { root.render(<StrictMode><MemoryRouter key={key}><TablesEngine projectId={P} /></MemoryRouter></StrictMode>); await pause(150); }); await act(async () => { await pause(250); }); };
   try {
@@ -47,16 +47,18 @@ export async function testVvdTables(): Promise<string[]> {
     const numberColumn = { id: 'count', name: 'Count', kind: 'number' as const };
     await addColumn(P, imported.id, numberColumn);
     await saveCell(P, imported.id, imported.rows[0].id, numberColumn.id, '42', '');
-    await rejects(() => saveCell(P, imported.id, imported.rows[0].id, numberColumn.id, '4.2', '42'));
+    await saveCell(P, imported.id, imported.rows[0].id, numberColumn.id, '4.2', '42');
+    await saveCell(P, imported.id, imported.rows[0].id, numberColumn.id, '-.125e2', '4.2');
+    for (const invalid of ['NaN', 'Infinity', '1e999', '9007199254740993', '4.2.1', '0x10']) await rejects(() => saveCell(P, imported.id, imported.rows[0].id, numberColumn.id, invalid, '-.125e2'));
     await rejects(() => saveCell(P, imported.id, imported.rows[0].id, numberColumn.id, '44', 'stale'));
     await rejects(() => addColumn(P, imported.id, { id: 'bad', name: 'BAD', field: '__proto__', kind: 'text' }));
     await Promise.all([saveCell(P, imported.id, imported.rows[0].id, imported.columns[0].id, 'Harbor', 'Port'), changeTable(P, imported.id, current => { current.title = 'Trade routes'; })]);
     const saved = (await db.projects.get(P))!.dataTables![0];
-    assert(saved.rows[0].cells[numberColumn.id] === '42' && saved.title === 'Trade routes' && !(await db.projects.get(Q))!.dataTables, 'Atomic fields and projects must remain isolated');
-    passed.push('Tables: typed integer cells, optimistic stale-write rejection, reserved fields, concurrent edits and project isolation');
+    assert(saved.rows[0].cells[numberColumn.id] === '-.125e2' && saved.title === 'Trade routes' && !(await db.projects.get(Q))!.dataTables, 'Atomic fields and projects must remain isolated');
+    passed.push('Tables: typed decimal/exponent cells, invalid/nonfinite/unsafe numbers, optimistic stale-write rejection, reserved fields, concurrent edits and project isolation');
 
     useLocaleStore.setState({ locale: 'en' }); await render('standalone');
-    let cell = document.querySelector<HTMLInputElement>('input[aria-label="A1 Name"]')!;
+    let cell = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="A1 Name"]')!;
     assert(cell?.value === 'Harbor', 'Persisted standalone cell must appear');
     await type(cell, 'Citadel'); await act(async () => { cell.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await pause(250); });
     assert((await db.projects.get(P))!.dataTables![0].rows[0].cells[imported.columns[0].id] === 'Citadel', 'Blur must save cell edits');
@@ -69,7 +71,7 @@ export async function testVvdTables(): Promise<string[]> {
     await db.codexEntries.put({ id: entryId, projectId: P, type: 'character', title: 'Iria', fields: { occupation: 'Navigator' }, tags: [], relations: [], content: '<p>Preserve prose</p>', createdAt: 1, updatedAt: 1 });
     await addTable(P, { id: 'live', title: 'Crew', mode: 'table', codexType: 'character', columns: [{ id: 'name', name: 'Name', kind: 'text', field: 'title' }, { id: 'job', name: 'Occupation', kind: 'text', field: 'occupation' }], rows: [] });
     await render('live'); await click('CrewLive Codex table');
-    cell = document.querySelector<HTMLInputElement>('input[aria-label="B1 Occupation"]')!;
+    cell = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="B1 Occupation"]')!;
     assert(cell?.value === 'Navigator', 'Live Codex cells must reflect real fields');
     await type(cell, 'Cartographer'); await act(async () => { cell.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await pause(250); });
     const updated = (await db.codexEntries.get(entryId))!;

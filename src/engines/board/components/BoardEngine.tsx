@@ -1,3 +1,6 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { readEraRow } from '@/services/worldEras/store';
+import type { BoardNode } from '../types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Network, Trash2 } from 'lucide-react';
@@ -10,11 +13,11 @@ import { useBoards } from '../hooks';
 import type { Board } from '../types';
 import BoardCanvas from './BoardCanvas';
 import { getBoardCopy } from '../copy';
-import { getBoardNode } from '../operations';
 import { rememberProjectRoute } from '@/services/projectIntelligence';
 
 export default function BoardEngine({ projectId }: EngineComponentProps) {
   const { t, locale } = useTranslation();
+  const scope = useWorldEraScope(projectId);
   const copy = getBoardCopy(locale);
   const { items: boards, loading, addItem, editItem, removeItem } = useBoards(projectId);
   const [activeId, setActiveId] = useState('');
@@ -57,11 +60,11 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
     let cancelled = false;
     void (async () => {
       const boardId = boards.some((item) => item.id === targetId)
-        ? targetId : (await getBoardNode(targetId))?.boardId;
+        ? targetId : (await readEraRow<BoardNode>(scope, 'boardNodes', targetId))?.boardId;
       if (!cancelled && boardId && boards.some((item) => item.id === boardId)) setActiveId(boardId);
     })();
     return () => { cancelled = true; };
-  }, [targetId, boards, loading]);
+  }, [targetId, boards, loading,scope]);
 
   useEffect(() => {
     if (activeId) rememberProjectRoute(projectId, { engineId: 'board', entityId: activeId });
@@ -176,7 +179,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
       {active ? (
         <>
           <BoardCanvas
-            key={active.id}
+            key={`${active.id}:era:${scope.eraId??'base'}`}
             projectId={projectId}
             board={active}
             onViewportChange={(viewport) => void editItem(active.id, { viewport })}

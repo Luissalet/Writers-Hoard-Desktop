@@ -1,18 +1,31 @@
+import type {ReaderSource} from '@/engines/writings/readerSource';
+import {sourceDocumentPreview,renderLocalToolPreview} from '@/engines/local/documents/preview';
 import { db } from '@/db';
+import { getEraProject, listEraRows, readEraRow } from '@/services/worldEras/store';
+import type { CodexEntry, WorldMap, MapPin, Timeline, TimelineEvent } from '@/types';
+import type { Board, BoardNode } from '@/engines/board/types';
+import { visibleCanvasNodes, pileItemCount } from '@/engines/board/graph/membership';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { exportMapSvg, DEFAULT_MAP_LAYERS } from '@/components/maps/mapGeometry';
 import { exportRelationTreeSvg } from '@/engines/genealogy/relationTrees';
-import { exportRadarSvg } from '@/engines/radar/interchange';
+import { exportRadarSvgComplete } from '@/engines/radar/interchange';
+import { validateSheet,type CharacterSheet } from '@/engines/character-sheets/types';
+import { sheetPaper } from '@/engines/character-sheets/paper';
+import { projectCodexEntry } from '@/engines/codex/properties';
 import { resolveRadarSeries } from '@/engines/radar/model';
 import { sheetValues } from '@/engines/tables/formulas';
+import { projectWorldTable } from '@/engines/tables/projection';
 import { cellKey } from '@/engines/tables/types';
 import { compactTimelineLabel } from '@/engines/timeline/timelineSettings';
 import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
 import { toolBlockCopy } from './copy';
+import { readerModel, modelReaderMarkup } from '@/engines/model-viewer/readerMarkup';
+import type { ModelAsset } from '@/engines/model-viewer/portable';
+import { prepareModelReaderRuntime } from '@/engines/model-viewer/offlineExport';
 import { escapeToolText as esc, targetAllowed, toolTarget, type ToolDocumentTarget } from './model';
 
-export interface ToolPreview { title: string; html: string; truncated: boolean }
-export interface ToolExportPolicy { includeMaps?: boolean; includeImages?: boolean; excludedMapIds?: ReadonlySet<string>|readonly string[]; excludedEntryIds?: ReadonlySet<string>|readonly string[]; excludedFields?:readonly string[] }
+export interface ToolPreview { title: string; html: string; truncated: boolean; model?: ModelAsset;sheet?:CharacterSheet }
+export interface ToolExportPolicy { source?:ReaderSource; eraId?: string; includeMaps?: boolean; includeImages?: boolean; includeMedia?: boolean; excludedMapIds?: ReadonlySet<string>|readonly string[]; excludedEntryIds?: ReadonlySet<string>|readonly string[]; excludedFields?:readonly string[] }
 const excluded = (ids:ReadonlySet<string>|readonly string[]|undefined,id:string|undefined) => Boolean(id && (Array.isArray(ids)?ids.includes(id):(ids as ReadonlySet<string>|undefined)?.has(id)));
 const text = (value: unknown, max = 400) => esc(String(value ?? '').slice(0, max));
 const list = (items: string[]) => `<ul>${items.map(item => `<li>${item}</li>`).join('')}</ul>`;
@@ -48,24 +61,29 @@ export function safeToolSvg(source: string): string {
  * semantic preview rather than trusting a supposedly prepared HTML string. */
 export function sanitizeToolPreviewHtml(source:string):string {
   const doc=new DOMParser().parseFromString(source,'text/html'),out=document.createElement('div');
-  const tags=new Set(['P','H3','H4','STRONG','B','EM','UL','OL','LI','TABLE','THEAD','TBODY','TR','TD','TH','DIV','SPAN']);
+  const tags=new Set(['P','H3','H4','STRONG','B','EM','UL','OL','LI','TABLE','THEAD','TBODY','TR','TD','TH','DIV','SPAN','SECTION','DL','DT','DD']);
   const visit=(node:Node,parent:Element)=>{
     if(node.nodeType===Node.TEXT_NODE){parent.append(document.createTextNode(node.textContent??''));return;}
     if(!(node instanceof Element))return;
     if(node.localName==='svg'){const safe=safeToolSvg(node.outerHTML);if(safe){const fragment=document.createElement('template');fragment.innerHTML=safe;parent.append(fragment.content);}return;}
     if(!tags.has(node.tagName))return;
     const element=document.createElement(node.tagName.toLowerCase());parent.append(element);
+    if(node.tagName==='SECTION'&&node.hasAttribute('data-wh-local-tool-preview'))element.setAttribute('data-wh-local-tool-preview','true');
     for(const child of node.childNodes)visit(child,element);
   };
   for(const child of doc.body.childNodes)visit(child,out);return out.innerHTML;
 }
 
 /** Query project scope before IDs. Foreign IDs never resolve even transiently. */
-export async function listToolDocuments(projectId: string): Promise<ToolDocumentTarget[]> {
-  const project = await db.projects.get(projectId); if (!project) return [];
+export async function listToolDocuments(projectId: string, eraId?: string): Promise<ToolDocumentTarget[]> {
+  const scope = { projectId, eraId };
+  const project = eraId ? await getEraProject(scope) : await db.projects.get(projectId); if (!project) return [];
   const result: ToolDocumentTarget[] = [];
   const add = (kind: ToolDocumentTarget['kind'], id: string, label: string) => result.push({ projectId, kind, documentId: id, label });
-  await Promise.all([
+  if (eraId) {
+    const [maps, boards, timelines] = await Promise.all([listEraRows<WorldMap>(scope, 'worldMaps'), listEraRows<Board>(scope, 'boards'), listEraRows<Timeline>(scope, 'timelines')]);
+    maps.forEach(row => add('maps', row.id, row.title)); boards.forEach(row => add('board', row.id, row.title)); timelines.forEach(row => add('timeline', row.id, row.title));
+  } else await Promise.all([
     db.worldMaps.where('projectId').equals(projectId).each(row => { add('maps', row.id, row.title); }),
     db.boards.where('projectId').equals(projectId).each(row => { add('board', row.id, row.title); }),
     db.timelines.where('projectId').equals(projectId).each(row => { add('timeline', row.id, row.title); }),
@@ -76,32 +94,40 @@ export async function listToolDocuments(projectId: string): Promise<ToolDocument
   project.characterSheets?.forEach(row => add('character-sheets', row.id, row.title));
   project.radarCharts?.forEach(row => add('radar', row.id, row.title));
   project.modelAssets?.forEach(row => add('model-viewer', row.id, row.name));
+  project.sourceToolDocuments?.forEach(row => result.push({projectId,kind:'local-tool',documentId:row.id,label:row.title,namespace:row.namespace}));
   return result.sort((a,b) => a.label.localeCompare(b.label));
 }
 
 export async function resolveToolPreview(target: ToolDocumentTarget, hostProjectId: string, locale: 'es'|'en' = 'en', policy:ToolExportPolicy = {}): Promise<ToolPreview|null> {
   if (!targetAllowed(target, { projectId: hostProjectId })) return null;
-  const project = await db.projects.get(hostProjectId); if (!project) return null;
+  const scope = { projectId: hostProjectId, eraId: policy.eraId };
+  if(policy.source&&policy.source.project.id!==hostProjectId)throw Error('reader_source_project_mismatch');const project = policy.source?policy.source.project:policy.eraId ? await getEraProject(scope) : await db.projects.get(hostProjectId); if (!project) return null;
   const missing = toolBlockCopy[locale].unavailable;
-  const entries = new Map<string, { id:string; projectId:string; title:string; fields:Record<string,string> }>();
-  const loadNames = async () => { await db.codexEntries.where('projectId').equals(hostProjectId).each(entry => { if(!excluded(policy.excludedEntryIds,entry.id))entries.set(entry.id, {id:entry.id,projectId:entry.projectId,title:entry.title,fields:Object.fromEntries(Object.entries(entry.fields).filter(([key])=>!policy.excludedFields?.includes(key)))}); }); };
+  const entries = new Map<string, { id:string; projectId:string; type:string; title:string; fields:Record<string,string> }>();
+  let codexRows: CodexEntry[] = [];
+  const loadNames = async () => { const rows = policy.source?policy.source.rows('codexEntries'):policy.eraId ? await listEraRows<CodexEntry>(scope, 'codexEntries') : await db.codexEntries.where('projectId').equals(hostProjectId).toArray(); codexRows = rows.filter(entry => !excluded(policy.excludedEntryIds, entry.id)); codexRows.forEach(entry => { entries.set(entry.id, {id:entry.id,projectId:entry.projectId,type:entry.type,title:entry.title,fields:Object.fromEntries(Object.entries(projectCodexEntry(entry, project.codexTemplates).fields).filter(([key])=>!policy.excludedFields?.includes(key)))}); }); };
   const result = (title: string, html: string, truncated = false): ToolPreview => ({title,html,truncated});
+  if(target.kind==='local-tool'){
+    const source=project.sourceToolDocuments?.find(row=>row.id===target.documentId&&row.namespace===target.namespace);if(!source)return null;
+    return result(source.title,renderLocalToolPreview(sourceDocumentPreview(source,locale),false));
+  }
   if (target.kind === 'maps') {
     if(policy.includeMaps===false||excluded(policy.excludedMapIds,target.documentId))return null;
-    const map = await db.worldMaps.where('projectId').equals(hostProjectId).filter(row => row.id === target.documentId).first(); if (!map) return null;
-    const pins = await db.mapPins.where('mapId').equals(map.id).filter(row => row.projectId === hostProjectId&&!excluded(policy.excludedEntryIds,row.linkedEntryId)).limit(200).toArray();
+    const map = policy.source?policy.source.rows('worldMaps').find(row=>row.id===target.documentId&&row.projectId===hostProjectId):policy.eraId ? await readEraRow<WorldMap>(scope, 'worldMaps', target.documentId) : await db.worldMaps.where('projectId').equals(hostProjectId).filter(row => row.id === target.documentId).first(); if (!map) return null;
+    const pins = policy.source?policy.source.rows('mapPins').filter(row=>row.mapId===map.id&&row.projectId===hostProjectId&&!excluded(policy.excludedEntryIds,row.linkedEntryId)).slice(0,200):policy.eraId ? (await listEraRows<MapPin>(scope, 'mapPins')).filter(row => row.mapId === map.id && !excluded(policy.excludedEntryIds, row.linkedEntryId)).slice(0,200) : await db.mapPins.where('mapId').equals(map.id).filter(row => row.projectId === hostProjectId&&!excluded(policy.excludedEntryIds,row.linkedEntryId)).limit(200).toArray();
     const svg = safeToolSvg(exportMapSvg(policy.includeImages===false?'':raster(map.backgroundImage ?? ''), 800, 450, (map.features ?? []).filter(row=>!excluded(policy.excludedEntryIds,row.linkedEntryId)).slice(0,200), pins, map.layerVisibility ?? DEFAULT_MAP_LAYERS, map.layers));
     return result(map.title, svg + list(pins.slice(0,8).map(pin => text(pin.name))), pins.length >= 200 || (map.features?.length ?? 0) > 200);
   }
   if (target.kind === 'board') {
-    const board = await db.boards.where('projectId').equals(hostProjectId).filter(row => row.id === target.documentId).first(); if (!board) return null;
-    const nodes = await db.boardNodes.where('boardId').equals(board.id).filter(row => row.projectId === hostProjectId).limit(31).toArray();
-    return result(board.title, list(nodes.slice(0,30).filter(node=>!excluded(policy.excludedEntryIds,node.ref?.entityId)).map(node => `<strong>${text(node.title)}</strong>${node.content ? ` — ${text(node.content)}` : ''}`)), nodes.length > 30);
+    const board = policy.source?policy.source.rows('boards').find(row=>row.id===target.documentId&&row.projectId===hostProjectId):policy.eraId ? await readEraRow<Board>(scope, 'boards', target.documentId) : await db.boards.where('projectId').equals(hostProjectId).filter(row => row.id === target.documentId).first(); if (!board) return null;
+    const allNodes = policy.source?policy.source.rows('boardNodes').filter(row=>row.boardId===board.id&&row.projectId===hostProjectId):policy.eraId ? (await listEraRows<BoardNode>(scope, 'boardNodes')).filter(row => row.boardId === board.id) : await db.boardNodes.where('boardId').equals(board.id).filter(row => row.projectId === hostProjectId).toArray();
+    const nodes = visibleCanvasNodes(allNodes);
+    return result(board.title, list(nodes.slice(0,30).filter(node=>!excluded(policy.excludedEntryIds,node.ref?.entityId)).map(node => `<strong>${text(node.title)}</strong>${node.kind==='frame'&&node.collapsed?` — ${pileItemCount(node,allNodes)} ${locale==='es'?'elementos':'items'}`:node.content ? ` — ${text(node.content)}` : ''}`)), nodes.length > 30);
   }
   if (target.kind === 'timeline') {
-    const lane = await db.timelines.where('projectId').equals(hostProjectId).filter(row => row.id === target.documentId).first(); if (!lane) return null;
-    const events = await db.timelineEvents.where('timelineId').equals(lane.id).filter(row => row.projectId === hostProjectId).limit(1001).toArray(); events.sort((a,b) => a.order-b.order);
-    const calendar = await resolveWorldCalendar(hostProjectId,lane.id);
+    const lane = policy.source?policy.source.rows('timelines').find(row=>row.id===target.documentId&&row.projectId===hostProjectId):policy.eraId ? await readEraRow<Timeline>(scope, 'timelines', target.documentId) : await db.timelines.where('projectId').equals(hostProjectId).filter(row => row.id === target.documentId).first(); if (!lane) return null;
+    const events = policy.source?policy.source.rows('timelineEvents').filter(row=>row.timelineId===lane.id&&row.projectId===hostProjectId).slice(0,1001):policy.eraId ? (await listEraRows<TimelineEvent>(scope, 'timelineEvents')).filter(row => row.timelineId === lane.id).slice(0,1001) : await db.timelineEvents.where('timelineId').equals(lane.id).filter(row => row.projectId === hostProjectId).limit(1001).toArray(); events.sort((a,b) => a.order-b.order);
+    const calendar = policy.source?policy.source.calendar(lane.id):await resolveWorldCalendar(hostProjectId,lane.id,policy.eraId);
     return result(lane.title, list(events.slice(0,12).map(event => `<strong>${text(event.title)}</strong> <span>${text(compactTimelineLabel(event, calendar?.calendar, lane.displayPrecision, locale))}</span>${event.description ? `<p>${text(event.description)}</p>` : ''}`)), events.length > 12);
   }
   if (target.kind === 'dictionary') {
@@ -111,28 +137,30 @@ export async function resolveToolPreview(target: ToolDocumentTarget, hostProject
   if (target.kind === 'tables') {
     const sheet = project.dataTables?.find(row => row.id === target.documentId); if (!sheet) return null;
     await loadNames();
-    const rows = sheet.codexType ? await db.codexEntries.where('projectId').equals(hostProjectId).filter(entry => entry.type === sheet.codexType&&!excluded(policy.excludedEntryIds,entry.id)).limit(13).toArray().then(rows => rows.map(entry => ({id:entry.id,cells:Object.fromEntries(sheet.columns.map(column => [column.id,column.field === 'title' ? entry.title : policy.excludedFields?.includes(column.field??column.name)?'':entry.fields[column.field ?? column.name] ?? '']))}))) : sheet.rows;
+    const projected = projectWorldTable(sheet, codexRows, project.codexTemplates), rows = projected.displayRows;
+    const columns = projected.columns;
     const values = sheet.mode === 'sheet' ? sheetValues(sheet) : null;
-    return result(sheet.title, table(sheet.columns.slice(0,8).map(column => column.name), rows.slice(0,12).map((row,r) => sheet.columns.slice(0,8).map((column,c) => {
-      const value = String(values?.get(cellKey(c,r)) ?? row.cells[column.id] ?? ''); return column.kind === 'reference' && value ? entries.get(value)?.title ?? missing : value;
-    }))), rows.length > 12 || sheet.columns.length > 8);
+    return result(sheet.title, table(columns.slice(0,8).map(column => column.name), rows.slice(0,12).map((row,r) => columns.slice(0,8).map((column,c) => {
+      const value = (sheet.codexType || sheet.codexTemplateId) && policy.excludedFields?.includes(column.field ?? column.name) ? '' : String(values?.get(cellKey(c,r)) ?? row.cells[column.id] ?? ''); return column.kind === 'reference' && value ? entries.get(value)?.title ?? missing : value;
+    }))), rows.length > 12 || columns.length > 8);
   }
   if (target.kind === 'relation-tree') {
     const tree = project.relationTrees?.find(row => row.id === target.documentId); if (!tree) return null;
     await loadNames(); const nodes = tree.nodes.slice(0,80), ids = new Set(nodes.map(node => node.id));
-    return result(tree.title, safeToolSvg(exportRelationTreeSvg({...tree,nodes:nodes.map(node => node.codexEntryId ? {...node,label:entries.get(node.codexEntryId)?.title ?? missing} : node),edges:tree.edges.filter(edge => ids.has(edge.source)&&ids.has(edge.target))}, new Map([...entries].map(([id,entry]) => [id,entry.title])))), tree.nodes.length > 80);
+    return result(tree.title, safeToolSvg(exportRelationTreeSvg({...tree,nodes:nodes.map(node => ({ ...node, ...(policy.includeImages === false ? { image: undefined } : {}), ...(node.codexEntryId ? { label: entries.get(node.codexEntryId)?.title ?? missing } : {}) })),edges:tree.edges.filter(edge => ids.has(edge.source)&&ids.has(edge.target))}, new Map([...entries].map(([id,entry]) => [id,entry.title])))), tree.nodes.length > 80);
   }
   if (target.kind === 'radar') {
     const chart = project.radarCharts?.find(row => row.id === target.documentId); if (!chart) return null;
     await loadNames(); const series = chart.series.filter(series=>!excluded(policy.excludedEntryIds,series.linkedEntryId)).map(series => resolveRadarSeries(series,chart.axes,[...entries.values()],hostProjectId)).map(series => series.missingEntry ? {...series,name:missing} : series);
-    return result(chart.title, safeToolSvg(exportRadarSvg(chart,series)));
+    return result(chart.title, safeToolSvg(await exportRadarSvgComplete(chart,series)));
   }
   if (target.kind === 'character-sheets') {
-    const sheet = project.characterSheets?.find(row => row.id === target.documentId); if (!sheet) return null;
-    return result(sheet.title, `<p>${text(sheet.preset)}</p>` + table(locale==='es'?['Rasgo','Valor']:['Trait','Value'], [...sheet.traits.slice(0,12).map(trait => [trait.label,String(trait.value)]),...sheet.resources.slice(0,12).map(resource => [resource.label,`${resource.current} / ${resource.max}`])]), sheet.traits.length > 12 || sheet.resources.length > 12);
+    const source = project.characterSheets?.find(row => row.id === target.documentId); if (!source) return null;
+    validateSheet(source);
+    return {...result(source.title,''),sheet:structuredClone(source)};
   }
-  const model = project.modelAssets?.find(row => row.id === target.documentId); if (!model) return null;
-  return result(model.name, `<p>${text(toolBlockCopy[locale].kinds['model-viewer'])} · GLB · ${text((model.size/1048576).toFixed(2))} MB</p>`);
+  const model = project.modelAssets?.find(row => row.id === target.documentId); if (!model || policy.includeMedia === false) return null;
+  return { ...result(model.name, ''), model: readerModel(model) };
 }
 
 /** Run after host sanitization. Only trusted semantic previews are injected;
@@ -140,11 +168,12 @@ export async function resolveToolPreview(target: ToolDocumentTarget, hostProject
 export async function prepareToolDocumentBlocksForExport(html: string, projectId: string, locale: 'es'|'en' = 'en', policy:ToolExportPolicy = {}): Promise<string> {
   const doc = new DOMParser().parseFromString(sanitizeRichHtml(html), 'text/html');
   for (const element of doc.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"]')) {
-    const target = toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,label:element.dataset.label});
+    const target = toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,label:element.dataset.label,namespace:element.dataset.namespace,presentation:element.dataset.presentation});
     let preview: ToolPreview|null = null;
     try { if (target) preview = await resolveToolPreview(target,projectId,locale,policy); } catch { /* Invalid sources get an honest fallback. */ }
     const section = doc.createElement('section'); section.className = 'wh-tool-export';
-    section.innerHTML = preview ? `<h3>${text(preview.title)}</h3>${preview.html}${preview.truncated ? `<p>${text(toolBlockCopy[locale].truncated)}</p>` : ''}` : `<p>${text(toolBlockCopy[locale].unavailable)}</p>`;
+    if (preview?.model) await prepareModelReaderRuntime();
+    section.innerHTML = preview ? `<h3>${text(preview.title)}</h3>${preview.model ? modelReaderMarkup(preview.model,locale) : preview.sheet?sheetPaper(preview.sheet,locale).svg:preview.html}${preview.truncated ? `<p>${text(toolBlockCopy[locale].truncated)}</p>` : ''}` : `<p>${text(toolBlockCopy[locale].unavailable)}</p>`;
     element.replaceWith(section);
   }
   return doc.body.innerHTML;

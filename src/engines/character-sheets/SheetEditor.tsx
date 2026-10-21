@@ -4,7 +4,11 @@ import { Dice5 } from 'lucide-react';
 
 import type { CharacterSheet, SheetRoll } from './types';
 
-import { cocCheck, d20Check, dualityCheck, rollExpression } from './mechanics';
+import { d20Check, dualityCheck, rollExpression } from './mechanics';
+import { cocRoll } from './cocRules';
+import CocPlayPanel from './CocPlayPanel';
+import DaggerheartPlayPanel from './DaggerheartPlayPanel';
+import FiveEPlayPanel from './FiveEPlayPanel';
 
 import { sheetCopy } from './copy';
 
@@ -17,14 +21,17 @@ import StatsPanel, { type PanelProps } from './StatsPanel';
 import ResourcePanel from './ResourcePanel';
 
 import RowsPanel from './RowsPanel';
+import SheetPaper from './SheetPaper';
 
-const tabs = ['stats', 'resources', 'rows', 'rolls', 'details'] as const;
+const allTabs = ['play', 'stats', 'resources', 'rows', 'rolls', 'details', 'paper'] as const;
 
 export default function SheetEditor({ sheet, sheets, locale, update, confirm, report, status }: PanelProps & { sheets: CharacterSheet[]; report: (error: string) => void; status: (message: string) => void }) {
 
   const c = sheetCopy[locale]; const coc = sheet.preset === 'coc7', duality = sheet.preset === 'daggerheart-character';
 
-  const [tab, setTab] = useState<typeof tabs[number]>('stats');
+  const dh=sheet.preset.startsWith('daggerheart'),fiveE=sheet.preset==='5e-character';
+  const tabs = allTabs.filter(item=>coc||dh||fiveE||item!=='play');
+  const [tab, setTab] = useState<typeof allTabs[number]>(coc||dh?'play':'stats');
 
   const [target, setTarget] = useState(10), [bonus, setBonus] = useState(0), [mode, setMode] = useState<'normal' | 'advantage' | 'disadvantage'>('normal');
 
@@ -45,7 +52,7 @@ export default function SheetEditor({ sheet, sheets, locale, update, confirm, re
 
   const check = (label: string, value: number) => {
 
-    try { addRoll(coc ? cocCheck(label, value, undefined, difficulty) : duality ? dualityCheck(label, value, target) : d20Check(label, value, target, mode, attack, undefined, sheet.preset !== 'daggerheart-adversary')); } catch { report(c.integer); }
+    try { if(coc){const skill=sheet.skills.find(item=>item.label===label);update(current=>cocRoll(current,label,value,{difficulty,skillId:skill?.id,kind:skill?/^(Fighting|Firearms|Dodge)/.test(label)?'combat':'skill':'trait'}));status(c.rolled);report('');}else addRoll(duality ? dualityCheck(label, value, target) : d20Check(label, value, target, mode, attack, undefined, sheet.preset !== 'daggerheart-adversary')); } catch { report(c.integer); }
 
   };
 
@@ -64,9 +71,14 @@ export default function SheetEditor({ sheet, sheets, locale, update, confirm, re
 
       if (next >= 0) { event.preventDefault(); setTab(tabs[next]); tabRefs.current[next]?.focus(); }
 
-    }}>{c[item]}</button>)}</div>
+    }}>{item==='play'?(locale==='es'?'Partida':'Play'):item==='paper'?(locale==='es'?'Papel':'Paper'):c[item]}</button>)}</div>
 
     <div role="tabpanel" id={`sheet-panel-${tab}`} aria-labelledby={`sheet-tab-${tab}`} className="space-y-5">
+
+      {tab === 'play' && coc && <CocPlayPanel {...panelProps} report={report}/>}
+      {tab === 'play' && dh && <DaggerheartPlayPanel {...panelProps}/>}
+      {tab === 'play' && fiveE && <FiveEPlayPanel {...panelProps} addRoll={addRoll} report={report}/>}
+      {tab === 'paper' && <SheetPaper {...panelProps}/>}
 
       {tab === 'stats' && sheet.preset === 'daggerheart-adversary' && <button className={button} onClick={() => check('Attack',sheet.numbers.attack ?? 0)}><Dice5 size={16} />{locale === 'es' ? 'Ataque del adversario' : 'Adversary attack'} · {sheet.numbers.attack ?? 0}</button>}
 
@@ -94,7 +106,7 @@ export default function SheetEditor({ sheet, sheets, locale, update, confirm, re
 
         <div className="flex items-center justify-between gap-2"><h3 className="font-display text-xl text-text-primary">{c.history}</h3><button className={button} disabled={!sheet.rolls.length} onClick={() => confirm(c.clearHelp, () => update(current => ({ ...current, rolls: [] })))}>{c.clearHistory}</button></div>
 
-        <ol className="space-y-2">{sheet.rolls.map(roll => <li key={roll.id} className="rounded-lg border border-border p-3 text-sm text-text-primary"><div className="flex flex-wrap justify-between gap-2"><strong>{roll.label}</strong><time className="text-xs text-text-muted" dateTime={new Date(roll.at).toISOString()}>{new Date(roll.at).toLocaleString(locale)}</time></div><div className="mt-2 flex flex-wrap items-center gap-3"><span className="font-mono text-text-muted">{roll.expression} [{roll.dice.join(', ')}]</span><strong className="font-mono text-xl text-accent-gold">{roll.total}</strong>{roll.target !== undefined && <span className="text-text-muted">{c.target}: {roll.target}</span>}<span>{outcome(roll)}</span></div></li>)}</ol>
+        <ol className="space-y-2">{sheet.rolls.map(roll => <li key={roll.id} className="rounded-lg border border-border p-3 text-sm text-text-primary"><div className="flex flex-wrap justify-between gap-2"><strong>{roll.label}</strong><time className="text-xs text-text-muted" dateTime={new Date(roll.at).toISOString()}>{new Date(roll.at).toLocaleString(locale)}</time></div><div className="mt-2 flex flex-wrap items-center gap-3"><span className="font-mono text-text-muted">{roll.expression} [{roll.dice.join(', ')}]</span><strong className="font-mono text-xl text-accent-gold">{roll.total}</strong>{roll.target !== undefined && <span className="text-text-muted">{c.target}: {roll.target}</span>}<span>{outcome(roll)}</span></div>{roll.coc?.pushedFrom&&<p className="mt-2 text-xs text-text-muted">{locale==='es'?'Forzada tras':'Pushed after'} {sheet.rolls.find(item=>item.id===roll.coc?.pushedFrom)?.total??'…'} · {roll.coc.justification}</p>}{roll.coc?.pushedBy&&<p className="mt-2 text-xs text-text-muted">{locale==='es'?'Forzada una vez →':'Pushed once →'} {sheet.rolls.find(item=>item.id===roll.coc?.pushedBy)?.total??'…'}</p>}</li>)}</ol>
 
       </>}
 

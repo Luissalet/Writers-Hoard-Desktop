@@ -1,0 +1,161 @@
+{
+  "reason": "Final index exposed EOF blanks and CRCRLF on newly tracked source. Only double CR and terminal newlines normalized. All split token bytes identical. Original failure log retained.",
+  "rows": [
+    {
+      "path": "resources/visualSearch/LICENSE-CLIP-MIT.txt",
+      "beforeSha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db",
+      "afterSha256": "893951b3bf94db8df1b13e05da5cdeb499400960e4d44a3962a8b33ed0b4f28e",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/components/import/WorldFolderImportPanel.tsx",
+      "beforeSha256": "96ddf7baff5e6ffb1d7fd7d6eff2f0eaa5a4052a25e0f0a45f0fc6eecf889664",
+      "afterSha256": "167eeaf00e110ad5a1f4ae68f7d982a49db59bc3f60dc1d5a8b10a545cb611b2",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/character-sheets/README.md",
+      "beforeSha256": "3579348e821d27ce5a86d6d1eda2ef268fa9e4681edbac218e07c8d1e66e16f7",
+      "afterSha256": "e3f115a16fa9e777884220fb38e8323e77915208ae3a7934e24b67a89a003f33",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/codex/worldGraph/bridgeManifest.ts",
+      "beforeSha256": "af74d1b94ef6447a69543b8277dec2f7d5959f0330f19a7b0689bb16650d9823",
+      "afterSha256": "1a0ab6c8b2a788b34e774700e84c5cc50db3c4d5bfd42b7c1615ec3fd0e328ef",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/genealogy/components/TreeAffordancePanels.tsx",
+      "beforeSha256": "493f9e6fb165d600c10768fa6b44e48b7f5747dd034e98a4c038463a82001f3d",
+      "afterSha256": "eba347a246f9886f2491a50275b254b1008278d82730517b818943cae421e2d8",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/genealogy/treeManifest.ts",
+      "beforeSha256": "95729856bfbd319c47c082fbe8905c19036c3788ede2440e596832ab13ed6775",
+      "afterSha256": "e700e9c9ffd8d9f38d1df5a76961025dba4ce697c6ae4d8d4b388296128d0ba0",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/local/blocks/SourceToolBlockControls.tsx",
+      "beforeSha256": "5b69f067d7714dc93e8706bda759fa9ea3b7c467e55ef410a7e09afbc871e79b",
+      "afterSha256": "e5736caf09c9fa3faa7444780d6b195b19df8503a40061ee612e9f0dd6574346",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/local/examples/WorldCardList.tsx",
+      "beforeSha256": "7f89f67fff2dc0060ce5d86e17dbd6b7ad03c6507c13178ef103c155f58f2f74",
+      "afterSha256": "d45ed02219dc0feba3773e756b1ddfe78e0884545c3e16f7f95694e3eaf46d40",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/model-viewer/portable.ts",
+      "beforeSha256": "63b3059ab15dd32d9ef569c3dd1223449c91bdcbd6860d1b9c6a9aa1c8f1976f",
+      "afterSha256": "798af1e23fc096e5d94d72a5421531d31d598066c4ea1afc0ae9ad5a606a7259",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/worldgen/cartography/realmAnchors.ts",
+      "beforeSha256": "3ad0a6ff60797725344341d2ad78e1fdac923ecb273abef4ccd8aa5be36df535",
+      "afterSha256": "073309049544f6b78f96d139e80d43a89cbfd7b518d3de7699c73196c9609e52",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/engines/worldgen/core/placeStyleCatalog.ts",
+      "beforeSha256": "71cd397bf89dff2bcb6e4d6a37a97f840daa80b216337a282cbdcf3c882aff4c",
+      "afterSha256": "9b142e8e6a15f06743e75bfaada879101492ce21074b789ea7d07772ea503794",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "src/services/worldFolderImport/plan.ts",
+      "beforeSha256": "1baa22e7c0deaa5cfafd824b1f52156059e0857f3687636b46b02455f7784af2",
+      "afterSha256": "a9e152b53476caeec149fad7938c226d91c0d61ffdd5f4743798ef9daba49c4b",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tasks/graph-tree-affordances1041.md",
+      "beforeSha256": "1f0042e7e37217bc3e600ecbd486a0b2f5cd6f634edc75bf5c7d431b11e1bfda",
+      "afterSha256": "0b2e1bbc20668fbb32a19ff57619b2db9f650dc8e165896c8647d9a9200bcd15",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tasks/statblock-depth1041.md",
+      "beforeSha256": "3de050b1b9eab075caf9b4a8dced7fdfcd8fba223936c91aec6f4f3f849b1a2e",
+      "afterSha256": "ba17e990e67076e9fe3288049449dc350753d99e6d24541187ceb2a96347d878",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/codex-properties-depth.browser.tsx",
+      "beforeSha256": "f67bef5c50695f4600bda7cc3a8cfd92290cb257805e32f25ea49f8b2d7bd8ab",
+      "afterSha256": "cc78e9abbceb91b53f95084c27d92c490ef4d800ff7c7ece3e4773e544c9769a",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/graph-tree-affordances-transport.cjs",
+      "beforeSha256": "7b514f23dce0441915a60f624defd9281e68892cb1dc277231c24245dc434835",
+      "afterSha256": "e154e4836e15b0dd5ed3536359c6110cbec0c7209c3283632abdf3fdb97c87e0",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/graph-tree-affordances-ui.browser.tsx",
+      "beforeSha256": "035e46a460cd5fdbf44e37cccf61c7f7bf6cf60866ba5063c2181b699ae965e8",
+      "afterSha256": "518cc3f2d81b9dadcb98b2ab40cd1c2130530fe0da839f3f9ed94fe7839d2562",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/graph-tree-affordances.browser.tsx",
+      "beforeSha256": "ce764d30a835d04902d579e07e20edfd3377f9898aa27b838b93cca371939edc",
+      "afterSha256": "20157b63fb7774b848f8d9dd92e7c7ffd1168e1b604509bcff72648f44d79328",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/graph-tree-independent-target-escape.browser.tsx",
+      "beforeSha256": "e7eeeffdb1c9d1218cf28131c585e578fd6359121c5e1e4ca8cf2e23079076f7",
+      "afterSha256": "03380735f60e989a6ecaf0d9dc1b861223d82c6a99f08733b8d66984fd32be17",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/graph-tree-independent-ui-diagnostic.browser.tsx",
+      "beforeSha256": "5cd5fadb1ba68b165c52e74d1cb9c354ca14bc613760e18272f96c08570a9400",
+      "afterSha256": "39d094d23e673c8fd530ce16cef8402d8d9b830d2f5e837d05533cc4ef0b2494",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/statblock-depth-transport.cjs",
+      "beforeSha256": "d5057865b89a20d0004a1d55589b43a3c5415a6457ef52f2157d00b8c56fa9fa",
+      "afterSha256": "d93cb02d5726bb2f80cd9c4e1c06f30c018af171ba3f30bf32590641cff762d6",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/statblock-depth-ui.browser.tsx",
+      "beforeSha256": "6ba43b32b1bbb55563e291fbcc29423bd825aba7ad3b5f1ec9c37097a48cca84",
+      "afterSha256": "f0b58bdc72114bce2c6f76c597ed92294d861bd72e28e5085899352b8774fadb",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/statblock-depth.browser.tsx",
+      "beforeSha256": "2115e1dd49f9a119a1a48857b5170caf0012ef026efb80ab7b0812875aa756fe",
+      "afterSha256": "6faee6f917df24d46c488e0c4cc401cba1b5a1ed94123c9ecbcabfcbc42a19a6",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/tree-presets-depth.browser.tsx",
+      "beforeSha256": "54600d3813dc0fe5ad6167d4ac7d895badb9e732d6411ceb087a3c2c4b4236b5",
+      "afterSha256": "ad5c965cd02cfe659d09a68879a26a7c88cc3c22988bf9d88638872bca4e0696",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/world-folder-import.browser.ts",
+      "beforeSha256": "56786835ad56f0088d0b59cb5514947b4ed22b59bf174d329eb5b08bfe9cfc93",
+      "afterSha256": "641fd151e8fb50dd6a9c984311785bdbbc6108d2149ae6577e63456afe2716ee",
+      "whitespaceOnly": true
+    },
+    {
+      "path": "tests/world-folder-import.ui.tsx",
+      "beforeSha256": "8a17fb504dc70d766f656a128ccb94cec16ffcbe1faa07314f9bcf999195ccd0",
+      "afterSha256": "02e9daa9f0a19f1d021810affaa0786a156dfe0e19516c4b9720130f1797fb67",
+      "whitespaceOnly": true
+    }
+  ]
+}

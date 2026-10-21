@@ -1,3 +1,6 @@
+import { scopedTableOps } from '@/services/worldEras/tableOps';
+import { worldEraToolScope, checkEraLinkedRow } from '@/services/worldEras/toolScope';
+import { listEraRows } from '@/services/worldEras/store';
 // ============================================================================
 // AI bridge tools — timelines, events and the links between them
 // ============================================================================
@@ -11,20 +14,11 @@ import type {
   TimelineEvent,
   TimelineEventType,
 } from '@/types';
-import {
-  createConnection,
-  createTimeline,
-  createTimelineEvent,
-  getAllProjectEvents,
-  getTimelineEvents,
-  getTimelines,
-  updateTimelineEvent,
-} from '@/engines/timeline/operations';
+import * as timelineBase from '@/engines/timeline/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
-  checkLinkedRow,
   BridgeError,
   optEnum,
   optNumber,
@@ -54,7 +48,7 @@ async function worldDating(
   current?: { worldDate?: WorldDate; worldDateEnd?: WorldDate },
   timelineId?: string,
 ): Promise<Pick<TimelineEvent, 'worldDate' | 'worldDateEnd' | 'date'>> {
-  const calendar = await requireWorldCalendar(projectId, timelineId);
+  const calendar = await requireWorldCalendar(projectId, timelineId, optString(args, 'eraId'));
   const worldDate = worldDateArg(calendar, args.worldDate, 'worldDate') ?? current?.worldDate;
   if (!worldDate) throw new BridgeError('bad-args', 'dateMode "world" needs "worldDate" (text like "12 Frostfall 431 TE" or { year, month, day }).');
   const worldDateEnd = args.worldDateEnd === null || args.worldDateEnd === ''
@@ -102,7 +96,7 @@ async function extraEventFields(projectId: string, args: ToolArgs, current?: Tim
     if (args.linkedEntryIds !== undefined && (!multi || multi.length > 100 || !Array.isArray(args.linkedEntryIds) || args.linkedEntryIds.some(id => typeof id !== 'string' || !id))) throw new BridgeError('bad-args', 'linkedEntryIds must be an array of up to 100 Codex ids.');
     const primary = optString(args, 'linkedEntryId');
     const ids = [...new Set(multi ?? [...(primary ? [primary] : []), ...(current ? eventEntryIds(current).filter(id => id !== current.linkedEntryId && id !== primary) : [])])];
-    for (const id of ids) await checkLinkedRow(db.codexEntries, id, projectId, 'codex entry');
+    for (const id of ids) await checkEraLinkedRow(args, db.codexEntries, id, projectId, 'codex entry');
     fields.linkedEntryIds = ids; fields.linkedEntryId = ids[0];
   }
   for (const key of ['time', 'endTime'] as const) if (args[key] !== undefined) fields[key] = optString(args, key) ? normalizeClock(optString(args, key)!) : undefined;
@@ -119,8 +113,8 @@ async function extraEventFields(projectId: string, args: ToolArgs, current?: Tim
   return fields;
 }
 
-async function validateEventDating(event: TimelineEvent): Promise<void> {
-  const calendar = event.dateMode === 'world' ? await requireWorldCalendar(event.projectId, event.timelineId) : null;
+async function validateEventDating(event: TimelineEvent, eraId?: string): Promise<void> {
+  const calendar = event.dateMode === 'world' ? await requireWorldCalendar(event.projectId, event.timelineId, eraId) : null;
   const problem = (event.dateMode === 'calendar' ? validateTimelineDates(event.realDate ?? '', event.realDateEnd ?? '') : null) ?? validateEventClock(event, calendar);
   if (problem) throw new BridgeError('bad-args', problem);
   if (event.dateMode !== 'text') event.date = timelineEventLabel(event, calendar);
@@ -128,7 +122,7 @@ async function validateEventDating(event: TimelineEvent): Promise<void> {
 
 export async function whListTimelines(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
-  const timelines = await getTimelines(projectId);
+  const timelines = await timelineOperations(args).timelines.getAll(projectId);
   return {
     projectId,
     timelines: timelines.map((timeline) => ({
@@ -156,7 +150,7 @@ export async function whCreateTimeline(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createTimeline(timeline);
+  await timelineOperations(args).timelines.create(timeline);
   return withAudit(
     { id: timeline.id, title: timeline.title, created: true },
     { projectId, entityId: timeline.id, summary: `created timeline "${timeline.title}"` },
@@ -166,22 +160,22 @@ export async function whCreateTimeline(args: ToolArgs): Promise<unknown> {
 export async function whListEvents(args: ToolArgs): Promise<unknown> {
   const timelineId = optString(args, 'timelineId');
   if (timelineId) {
-    const timeline = await db.timelines.get(timelineId);
+    const timeline = await timelineOperations(args).timelines.getOne(timelineId);
     if (!timeline) throw new BridgeError('not-found', `No timeline with id "${timelineId}".`);
     assertRowInScope(args, timeline.projectId);
-    const events = await getTimelineEvents(timelineId);
-    const calendar = (await resolveWorldCalendar(timeline.projectId, timelineId))?.calendar;
+    const events = await timelineOperations(args).events.getAll(timelineId);
+    const calendar = (await resolveWorldCalendar(timeline.projectId, timelineId, optString(args, 'eraId')))?.calendar;
     return { timelineId, events: events.map(event => serializeEvent({ ...event, date: timelineEventLabel(event, calendar) })) };
   }
   const projectId = resolveProjectId(args);
-  const events = await getAllProjectEvents(projectId);
-  const calendars = new Map(await Promise.all([...new Set(events.map(event => event.timelineId))].map(async id => [id, (await resolveWorldCalendar(projectId, id))?.calendar] as const)));
+  const events = worldEraToolScope(args) ? await listEraRows<TimelineEvent>(worldEraToolScope(args)!, 'timelineEvents') : await timelineBase.getAllProjectEvents(projectId);
+  const calendars = new Map(await Promise.all([...new Set(events.map(event => event.timelineId))].map(async id => [id, (await resolveWorldCalendar(projectId, id, optString(args, 'eraId')))?.calendar] as const)));
   return { projectId, events: events.map(event => serializeEvent({ ...event, date: timelineEventLabel(event, calendars.get(event.timelineId)) })) };
 }
 
 export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
   const timelineId = requireString(args, 'timelineId');
-  const timeline = await db.timelines.get(timelineId);
+  const timeline = await timelineOperations(args).timelines.getOne(timelineId);
   if (!timeline) {
     throw new BridgeError(
       'not-found',
@@ -191,8 +185,8 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(timeline.projectId, 'timeline');
   assertRowInScope(args, timeline.projectId);
   const linkedEntryId = optString(args, 'linkedEntryId') || undefined;
-  await checkLinkedRow(db.codexEntries, linkedEntryId, timeline.projectId, 'codex entry');
-  const siblings = await getTimelineEvents(timelineId);
+  await checkEraLinkedRow(args, db.codexEntries, linkedEntryId, timeline.projectId, 'codex entry');
+  const siblings = await timelineOperations(args).events.getAll(timelineId);
   const now = Date.now();
   const event: TimelineEvent = {
     id: generateId('event'),
@@ -217,9 +211,9 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
     if (event.worldDateEnd && !args.eventType) event.eventType = 'range';
   }
   Object.assign(event, await extraEventFields(timeline.projectId, args));
-  await validateEventDating(event);
+  await validateEventDating(event, optString(args, 'eraId'));
   if (event.endTime && !args.eventType) event.eventType = 'range';
-  await createTimelineEvent(event);
+  await timelineOperations(args).events.create(event);
   return withAudit(
     { id: event.id, title: event.title, timelineId, created: true },
     {
@@ -232,7 +226,7 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const existing = await db.timelineEvents.get(id);
+  const existing = await timelineOperations(args).events.getOne(id);
   if (!existing) throw new BridgeError('not-found', `No timeline event with id "${id}".`);
   await assertEngineEnabled(existing.projectId, 'timeline');
   assertRowInScope(args, existing.projectId);
@@ -244,7 +238,7 @@ export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
   };
   (['title', 'description', 'date', 'realDate', 'realDateEnd', 'lane', 'color', 'linkedEntryId'] as const)
     .forEach(assignString);
-  await checkLinkedRow(db.codexEntries, changes.linkedEntryId, existing.projectId, 'codex entry');
+  await checkEraLinkedRow(args, db.codexEntries, changes.linkedEntryId, existing.projectId, 'codex entry');
   const dateMode = optEnum(args, 'dateMode', DATE_MODES);
   if (dateMode !== undefined) changes.dateMode = dateMode;
   const eventType = optEnum(args, 'eventType', EVENT_TYPES);
@@ -263,9 +257,9 @@ export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
   const next = { ...existing, ...changes };
-  await validateEventDating(next);
+  await validateEventDating(next, optString(args, 'eraId'));
   if (next.dateMode !== 'text') changes.date = next.date;
-  await updateTimelineEvent(id, changes);
+  await timelineOperations(args).events.update(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
     {
@@ -284,8 +278,8 @@ export async function whConnectEvents(args: ToolArgs): Promise<unknown> {
     throw new BridgeError('bad-args', 'An event cannot be connected to itself.');
   }
   const [source, target] = await Promise.all([
-    db.timelineEvents.get(sourceEventId),
-    db.timelineEvents.get(targetEventId),
+    timelineOperations(args).events.getOne(sourceEventId),
+    timelineOperations(args).events.getOne(targetEventId),
   ]);
   if (!source) throw new BridgeError('not-found', `No event with id "${sourceEventId}".`);
   await assertEngineEnabled(source.projectId, 'timeline');
@@ -307,7 +301,7 @@ export async function whConnectEvents(args: ToolArgs): Promise<unknown> {
     style: optEnum(args, 'style', STYLES) ?? 'solid',
     createdAt: Date.now(),
   };
-  await createConnection(connection);
+  await timelineOperations(args).connections.create(connection);
   return withAudit(
     { id: connection.id, created: true },
     {
@@ -316,4 +310,13 @@ export async function whConnectEvents(args: ToolArgs): Promise<unknown> {
       summary: `linked "${source.title}" to "${target.title}"`,
     },
   );
+}
+
+function timelineOperations(args: ToolArgs) {
+  const scope = worldEraToolScope(args);
+  return {
+    timelines: scopedTableOps(scope, 'timelines', 'projectId', { getAll: timelineBase.getTimelines, getOne: id => db.timelines.get(id), create: timelineBase.createTimeline, update: timelineBase.updateTimeline, delete: timelineBase.deleteTimeline }),
+    events: scopedTableOps(scope, 'timelineEvents', 'timelineId', { getAll: timelineBase.getTimelineEvents, getOne: id => db.timelineEvents.get(id), create: timelineBase.createTimelineEvent, update: timelineBase.updateTimelineEvent, delete: timelineBase.deleteTimelineEvent }),
+    connections: scopedTableOps(scope, 'timelineConnections', 'projectId', { getAll: timelineBase.getConnectionsForProject, getOne: id => db.timelineConnections.get(id), create: timelineBase.createConnection, update: timelineBase.updateConnection, delete: timelineBase.deleteConnection }),
+  };
 }

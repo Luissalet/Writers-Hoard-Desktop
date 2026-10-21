@@ -15,6 +15,7 @@ import { arr, b, MARKDOWN_NOTE, n, PROJECT_ID, s, type BridgeTool } from './sche
 const BLOCK_TYPES = ['dialog', 'stage-direction', 'action', 'transition', 'note', 'slug'];
 
 export const DIALOG_TOOLS: BridgeTool[] = [
+  { name: 'wh_append_conversation_turn', writes: true, description: 'Append a dialogue turn or scene action using a stable speaker identity. Reads current order atomically; preserves the Codex character link. Use speaker cast:<sceneCastId>, entry:<CodexCharacterId>, or omit it for scene action.', schema: { type: 'object', properties: { sceneId: s('Target scene ID.'), speaker: s('cast:<sceneCastId> or entry:<CodexCharacterId>; empty or omitted means scene action.'), content: s('Authored turn text, including optional line breaks.') }, required: ['sceneId', 'content'], additionalProperties: false } },
   {
     name: 'wh_list_scenes',
     description:
@@ -772,6 +773,11 @@ const PENDING_NOTE =
 
 export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
+    name: 'wh_render_world_map', writes: false,
+    description: `Render a generated world as a portable PNG using the same cartographic materials as the app. Styles: wonder (illustrated parchment), antique (engraving), relief (continuous painted terrain) and survey (night contour chart). Does not change the geography or saved world. ${PENDING_NOTE}`,
+    schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_worlds',
     description:
       `List generated worlds with their id, seed, edit counts and waypoints.
@@ -1505,6 +1511,7 @@ List the margin notes in a project: what they say, what they are attached to, an
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
+        eraId: s('Contexto exacto del comentario. Omitir consulta Base; una era consulta sólo sus comentarios locales.'),
         engineId: s('Engine of the annotated entity, e.g. "writings", "codex", "seeds".'),
         entityId: s('The annotated entity. Requires engineId.'),
         orphanedOnly: b('Only notes whose anchor text has gone.'),
@@ -1522,6 +1529,7 @@ Leave a margin note on something. Pass \`quote\` with the exact phrase you are c
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
+        eraId: s('Contexto exacto del comentario. Omitir escribe en Base; una era conserva Base intacta.'),
         engineId: s('Engine of the thing you are annotating: "writings", "codex", "seeds"…'),
         entityId: s('Id of the thing you are annotating.'),
         note: s('What you want to say. Plain text or Markdown.'),

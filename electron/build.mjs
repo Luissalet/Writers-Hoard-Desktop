@@ -21,13 +21,15 @@ const common = {
   format: 'cjs',
   sourcemap: true,
   logLevel: 'info',
-  external: ['electron', 'electron-updater', 'ffmpeg-static'],
+  external: ['electron', 'electron-updater', 'ffmpeg-static', '@huggingface/transformers'],
   // The forge bundles renderer-side worldgen modules, which import shared code
   // through the same `@/` alias Vite and the test harness use.
   alias: { '@': path.join(ROOT, 'src') },
 };
 
 await Promise.all([
+  build({ ...common, entryPoints: ['electron/entityDetection/worker.ts'], outfile: 'dist-electron/entityDetection/worker.cjs' }),
+  build({ ...common, entryPoints: ['electron/visualSearch/worker.ts'], outfile: 'dist-electron/visualSearch/worker.cjs' }),
   build({ ...common, entryPoints: ['electron/main.ts'], outfile: 'dist-electron/main.cjs' }),
   build({ ...common, entryPoints: ['electron/preload.ts'], outfile: 'dist-electron/preload.cjs' }),
   build({ ...common, entryPoints: ['electron/migrationPreload.ts'], outfile: 'dist-electron/migrationPreload.cjs' }),

@@ -14,6 +14,7 @@ import {
   readBackupJson,
 } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
+import { exportManuscriptSourceBackup, readManuscriptSourceBackup } from './manuscriptReview/backup';
 import { db } from '@/db';
 import { registerLocaleStrings } from '@/i18n/useTranslation';
 import parallelEn from './locales/en';
@@ -29,6 +30,7 @@ const writingsEngine: EngineDefinition = {
   category: 'core',
   tables: {
     writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+    manuscriptSources: 'id, projectId, [projectId+sha256]',
     writingSnapshots: 'id, writingId, projectId, createdAt',
     referenceDocuments: 'id, &sha256, status, updatedAt',
     referenceSections: 'id, documentId, order, *terms',
@@ -105,6 +107,7 @@ registerAnchorAdapter({
 registerBackupStrategy({
   engineId: 'writings',
   tables: [
+    'manuscriptSources',
     'writings',
     'writingSnapshots',
     'referenceDocuments',
@@ -116,6 +119,7 @@ registerBackupStrategy({
     'referencePins',
   ],
   async exportProject({ zip, projectId, projectDir }) {
+    await exportManuscriptSourceBackup({ zip, projectId, projectDir });
     const rows = await db.writings.where('projectId').equals(projectId).toArray();
     for (const writing of rows) {
       const filename = `${sanitizeBackupName(writing.title)}__${writing.id}.json`;
@@ -138,9 +142,10 @@ registerBackupStrategy({
     const pins = await db.referencePins.where('projectId').equals(projectId).toArray();
     if (pins.length > 0) zip.file(`${projectDir}/writings/_reference_pins.json`, JSON.stringify(pins));
   },
-  async inspectImport({ zip, projectDir }) {
+  async inspectImport({ zip, projectDir, projectId }) {
     const folder = `${projectDir}/writings/`;
     const sections: Array<{ table: string; path: string; rows: readonly unknown[] }> = [];
+    sections.push({ table: 'manuscriptSources', path: `${folder}_sources/manifest.json`, rows: await readManuscriptSourceBackup({ zip, projectDir, projectId }) });
     const writingPaths: string[] = [];
     zip.forEach((path) => {
       const filename = path.slice(folder.length);
@@ -185,7 +190,9 @@ registerBackupStrategy({
     }
     return sections;
   },
-  async importProject({ zip, projectDir }) {
+  async importProject({ zip, projectDir, projectId }) {
+    const sourceRows = await readManuscriptSourceBackup({ zip, projectDir, projectId });
+    if (sourceRows.length) await db.manuscriptSources.bulkAdd(sourceRows);
     const folder = `${projectDir}/writings/`;
     const files: string[] = [];
     zip.forEach((path) => {

@@ -1,0 +1,14 @@
+/* Pending review stays visible in place, including when colors are unavailable. */
+.tiptap-editor .ProseMirror .wh-revision-insertion {
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.1em;
+  text-underline-offset: 0.16em;
+  background-color: rgb(201 168 84 / 12%);
+}
+
+.tiptap-editor .ProseMirror .wh-revision-deletion {
+  text-decoration-line: line-through;
+  text-decoration-thickness: 0.1em;
+  text-decoration-skip-ink: none;
+  background-color: rgb(205 102 84 / 10%);
+}

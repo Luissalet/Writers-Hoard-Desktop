@@ -1,0 +1,24 @@
+{
+  "scope": "A author testing kit frozen before B",
+  "files": {
+    "src/engines/local/clientContract.ts": "66e065749d1ba2f068036baaaf2d9ad72d0e141661df11c2cce443c1d3f62382",
+    "src/engines/local/execution.ts": "861bb6e098e292348a51bb97082ea04f51cca6a3cce3145ca188dc065822160d",
+    "src/engines/local/testing.ts": "c42b31d1549e60b374499e49b6742eeb1fccf7e70c93e876f06daf5973de7933",
+    "src/engines/local/storage.ts": "ca5abb22b9d15a7877a7abd9f77e5f67067e88fa2e48a98440c2b91f6b12fab3",
+    "src/engines/local/bridge.ts": "810b133b5daa42b21ec1774fe79b5bb798dcd0c9965ebffd04e43b090914a9d1",
+    "scripts/create-local-tool.mjs": "9c4419fb8de78e9cc47db79b482272997258c7738bae734f3aeafc1b15e2b613",
+    "scripts/test-local-tool.mjs": "bd2109a0bf7cc3732538c5ba9b04ebee4a71debbbf01e9109d4c3d3d6b5ffc26",
+    "scripts/templates/local-tool.test.ts.txt": "f3a4b063545b4989cf1a4e8dedfc01a9e034d4560fe55893c89bbaa43a90fc53",
+    "docs/local-tool-sdk.md": "55d79162ba40086e16009f7c59df17ceae819205f0c48bb97106f7201a37ed7d",
+    "tests/local-tool-author-kit.node.ts": "9cea42028187db474242f6d74448640c57ed3f9f6cf16edaec243c345ef71d3a",
+    "tests/local-tool-author-kit.node.cjs": "e7ec6de4d088d5850a6aa12b1f12cde56d1370b09646a17e1420f28b80ce4b4a",
+    "tests/local-tool-author-scenario.ts": "ef5c48aa0a10e86b48ba50098a0c82b1f6162672a9c06138d9abc45d36fd4f8e",
+    "tests/local-tool-author-scaffold.mjs": "e8bb54a13e97561562cf6ed0755c78fb86db67072bdbfd3fea003938e3168cd7",
+    "tests/local-tool-author-kit.browser.tsx": "f28c52ea2873b36e5ec26214dac6b6b2d40aa20e69c4dd7279108eea4faded1a",
+    "tests/local-tool-author-kit.ui.cjs": "58eb45b86c6912c2b4de1f9294022f800ef17a120bd423face950b160d53bf24",
+    "tests/local-tool-author-transport.cjs": "5f6021bea4541fe50abdf2196f77553a5a1582f9e58a06c736172bd066b7be23",
+    "tests/local-tool-author-transport.renderer.ts": "3d4b7d3a80554ff069b1c8f1a25436dea93ba0b90d1b2d83b20f2a01097a72d6",
+    "tests/fixtures/local-tools/author-kit.tsx": "cfaa0b487252bc03a13df23d56287052c108d7c72adb2baf56cb4872b718238d",
+    "tests/fixtures/local-tools/author-data.ts": "5c5c268c000cecf4579e6ecc72d3e8d1c79940157157597a48ecc995d0b74968"
+  }
+}

@@ -13,10 +13,11 @@ export const CodexBlock = Node.create<CodexBlockHost & { nodeView: boolean }>({
   addAttributes() { return {
     projectId: { default: '', parseHTML: element => blockIdentifier(element.getAttribute('data-project-id')), renderHTML: () => ({}) },
     entryId: { default: '', parseHTML: element => blockIdentifier(element.getAttribute('data-entry-id')), renderHTML: () => ({}) },
+    presentation:{default:'preview',parseHTML:element=>element.getAttribute('data-presentation')==='editor'?'editor':'preview',renderHTML:()=>({})},
     label: { default: '', parseHTML: element => blockLabel(element.getAttribute('data-label')), renderHTML: () => ({}) },
   }; },
   parseHTML() { return [{ tag: 'aside[data-wh-codex-block="true"]' }]; },
-  renderHTML({ node }) { const projectId = blockIdentifier(node.attrs.projectId), entryId = blockIdentifier(node.attrs.entryId), label = blockLabel(node.attrs.label); return ['aside', { 'data-wh-codex-block': 'true', 'data-project-id': projectId, 'data-entry-id': entryId, 'data-label': label }, ['p', {}, label ? `Codex: ${label}` : 'Codex reference']]; },
+  renderHTML({ node }) { const projectId = blockIdentifier(node.attrs.projectId), entryId = blockIdentifier(node.attrs.entryId), label = blockLabel(node.attrs.label); return ['aside', { 'data-wh-codex-block': 'true', 'data-project-id': projectId, 'data-entry-id': entryId, 'data-label': label,...(node.attrs.presentation==='editor'?{'data-presentation':'editor'}:{}) }, ['p', {}, label ? `Codex: ${label}` : 'Codex reference']]; },
   renderText({ node }) { return blockLabel(node.attrs.label) ? `[Codex: ${blockLabel(node.attrs.label)}]` : '[Codex reference]'; },
   addCommands() { return { insertCodexLiveBlock: target => ({ commands, state }) => {
     const safe = { projectId: blockIdentifier(target.projectId), entryId: blockIdentifier(target.entryId), label: blockLabel(target.label) };
@@ -28,5 +29,5 @@ export const CodexBlock = Node.create<CodexBlockHost & { nodeView: boolean }>({
     if (crossesChapter) return false;
     return commands.insertContent({ type: this.name, attrs: safe });
   } }; },
-  addNodeView() { return this.options.nodeView ? ReactNodeViewRenderer(CodexBlockView) : null; },
+  addNodeView() { return this.options.nodeView ? ReactNodeViewRenderer(CodexBlockView,{stopEvent:({event})=>event.target instanceof Element&&!!event.target.closest('[data-tool-editor-surface]')}) : null; },
 });

@@ -58,7 +58,7 @@ export async function listSnapshotMeta(writingId: string): Promise<WritingSnapsh
     .where('writingId')
     .equals(writingId)
     .each(({ id, writingId: owner, projectId, title, wordCount, reason, createdAt, kind }) => {
-      if (kind === 'parallel-draft') return;
+      if (kind !== undefined) return;
       rows.push({ id, writingId: owner, projectId, title, wordCount, reason, createdAt });
     });
   // `createdAt` is indexed, but only globally — a range read over it would walk
@@ -87,7 +87,7 @@ export async function readSnapshot(snapshotId: string): Promise<WritingSnapshot 
  * past of the chapter and its cost grows every time the chapter is opened.
  */
 export async function listSnapshots(writingId: string): Promise<WritingSnapshot[]> {
-  const rows = await db.writingSnapshots.where('writingId').equals(writingId).filter(row => row.kind !== 'parallel-draft').toArray();
+  const rows = await db.writingSnapshots.where('writingId').equals(writingId).filter(row => row.kind === undefined).toArray();
   return rows.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -229,6 +229,7 @@ export async function restoreSnapshot(
 ): Promise<{ title: string; content: string; wordCount: number } | null> {
   const snap = await readSnapshot(snapshotId);
   if (!snap) return null;
+  if (snap.kind === 'parallel-draft-history') throw Error('Use this alternative’s own history to restore that version.');
   const current = await db.writings.get(snap.writingId);
   if (!current) return null;
 

@@ -5,9 +5,10 @@ import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { validateDocumentRestoreRows } from '@/engines/_shared/backupScope';
 import type { ArchiveMutation, ArchivedDocumentKind, DocumentArchive } from './types';
 import { metadataFields, restoreArchivedMetadata, validateArchivedMetadata } from './metadata';
+import {renewToolDockGeneration,type ToolDockLayout} from '@/engines/writings/toolDock/types';
 
 type Row = Record<string, unknown>;
-export const archiveRootTable: Record<ArchivedDocumentKind, string> = { codex:'codexEntries',maps:'worldMaps',board:'boards',timeline:'timelines',writings:'writings',dictionary:'projects',tables:'projects','relation-tree':'projects','model-viewer':'projects','character-sheets':'projects',radar:'projects' };
+export const archiveRootTable: Record<ArchivedDocumentKind, string> = { 'local-tool':'projects',codex:'codexEntries',maps:'worldMaps',board:'boards',timeline:'timelines',writings:'writings',dictionary:'projects',tables:'projects','relation-tree':'projects','model-viewer':'projects','character-sheets':'projects',radar:'projects' };
 const allowedTables = new Set(['codexEntries','relationships','characterArcs','sceneCasts','dialogBlocks','mapPins','worldMaps','inspirationImages','localMediaAssets','timelineEvents','annotations','annotationReferences','writings','writingSnapshots','outlineBeats','boards','boardNodes','boardEdges','boardLayers','boardViews','timelines','timelineConnections']);
 const normalize = (value: unknown): unknown => value instanceof Blob ? { blobType:value.type,blobSize:value.size } : Array.isArray(value) ? value.map(normalize) : value && typeof value==='object' ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).filter(([,v])=>v!==undefined).map(([k,v])=>[k,normalize(v)])) : value;
 export const archiveValuesEqual = (left: unknown, right: unknown) => JSON.stringify(normalize(left))===JSON.stringify(normalize(right));
@@ -72,11 +73,13 @@ export async function archiveWithMutation<T>(kind:ArchivedDocumentKind,id:string
 
 export class ArchiveRestoreConflict extends Error { constructor(message='The document or one of its links changed after archiving. No changes were restored.') {super(message);this.name='ArchiveRestoreConflict';} }
 export async function restoreArchivedDocument(projectId:string,id:string):Promise<void> {
+  let sourceDocument=false;
   await db.transaction('rw',db.tables,async()=>{
     const archive=await db.documentArchives.get(id);
     if(!archive||archive.projectId!==projectId||!await db.projects.get(projectId))throw new ArchiveRestoreConflict('Archive not in this project.');
     validateArchive(archive,projectId);
     if(archive.metadata) {
+      sourceDocument=archive.kind==='local-tool';
       try {await restoreArchivedMetadata(archive);}catch(error){throw new ArchiveRestoreConflict(error instanceof Error?error.message:String(error));}
       await db.documentArchives.delete(id);return;
     }
@@ -94,6 +97,7 @@ export async function restoreArchivedDocument(projectId:string,id:string):Promis
         if(patch.beforeRow)planned.push({table:patch.table,record:patch.beforeRow});
       }
     }
+    for(const item of planned)if(item.table==='writings'&&item.record.toolDock)item.record={...item.record,toolDock:renewToolDockGeneration(item.record.toolDock as ToolDockLayout,crypto.randomUUID())};
     try {await validateDocumentRestoreRows(projectId,planned);}catch(error){throw new ArchiveRestoreConflict(error instanceof Error?error.message:String(error));}
     const plannedByKey=new Map(planned.map(item=>[`${item.table}:${item.record.id}`,item.record]));
     for(const patch of archive.mutations) {
@@ -102,7 +106,7 @@ export async function restoreArchivedDocument(projectId:string,id:string):Promis
     }
     await db.documentArchives.delete(id);
   });
-  notifyDataChanged({source:'undo',projectId});
+  if(sourceDocument&&Dexie.currentTransaction){let outer=Dexie.currentTransaction;while(outer.parent)outer=outer.parent;outer.on('complete',()=>Dexie.ignoreTransaction(()=>notifyDataChanged({source:'undo',projectId})));}else notifyDataChanged({source:'undo',projectId});
 }
 export async function forgetArchivedDocument(projectId:string,id:string) { await db.transaction('rw',db.documentArchives,async()=>{const row=await db.documentArchives.get(id);if(!row||row.projectId!==projectId)throw new Error('Archive not in this project');await db.documentArchives.delete(id);}); }
 

@@ -99,7 +99,7 @@ export function buildAtlas(world: WorldData, geo: HumanGeography): Atlas {
 
   for (const s of geo.settlements) {
     add(resolveWorldSpatialEntity({
-      key: editKey('settlement', s.x, s.y),
+      key: s.sourceKey ?? editKey('settlement', s.x, s.y),
       kind: 'settlement',
       type: s.rank,
       name: s.name,
@@ -112,7 +112,7 @@ export function buildAtlas(world: WorldData, geo: HumanGeography): Atlas {
   }
   for (const r of geo.ruins) {
     add(resolveWorldSpatialEntity({
-      key: editKey('ruin', r.x, r.y),
+      key: r.sourceKey ?? editKey('ruin', r.x, r.y),
       kind: 'ruin', type: r.kind, name: r.name,
       x: r.x, y: r.y, extent: 2, importance: r.importance * 0.6,
       source: r.painted ? 'painted' : 'generated',
@@ -120,7 +120,7 @@ export function buildAtlas(world: WorldData, geo: HumanGeography): Atlas {
   }
   for (const f of geo.features) {
     add(resolveWorldSpatialEntity({
-      key: editKey('feature', f.x, f.y, `${f.kind}:`),
+      key: f.sourceKey ?? editKey('feature', f.x, f.y, `${f.kind}:`),
       kind: 'feature', type: f.kind, name: f.name,
       x: f.x, y: f.y,
       extent: Math.max(2, f.extent),

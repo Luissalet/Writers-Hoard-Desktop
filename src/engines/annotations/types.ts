@@ -44,8 +44,16 @@ export interface AnnotationAnchor {
  * The note shell. One row per annotation in the `annotations` Dexie table.
  */
 export interface Annotation {
+  importedComment?: import('@/engines/writings/manuscriptReview/sourceTypes').ImportedCommentOrigin;
   id: string;
   projectId: string;
+  /** Exact comment context; absence means Shared base. */
+  eraId?: string;
+  /** Legacy rows read as revision0/open/without replies. */
+  revision?: number;
+  replies?: AnnotationReply[];
+  mentions?: AnnotationMention[];
+  resolvedAt?: number;
   /** Engine the anchor lives in — e.g. 'writings', 'codex'. */
   sourceEngineId: string;
   /** The entity being annotated (chapter id, codex entry id, seed id, etc.). */
@@ -85,6 +93,8 @@ export interface AnnotationReference {
  */
 export interface AnnotationWithReference extends Annotation {
   reference?: AnnotationReference;
+  /** Derived local titles for dashboard search; never persisted. */
+  mentionTitles?:string[];
 }
 
 /**
@@ -102,3 +112,9 @@ export interface BacklinkPreview {
   noteBody?: string;
   createdAt: number;
 }
+
+export interface AnnotationMention { engineId: string; entityId: string }
+export interface AnnotationReply { id: string; body: string; mentions?: AnnotationMention[]; createdAt: number; updatedAt: number; importedComment?: import('@/engines/writings/manuscriptReview/sourceTypes').ImportedCommentOrigin }
+export interface AnnotationThreadFields { noteBody?: string; mentions?: AnnotationMention[]; replies?: AnnotationReply[]; resolvedAt?: number }
+export type AnnotationUndo = { receiptId:string;projectId:string;eraId?:string;annotationId:string;expectedRevision:number;kind:'edit';before:AnnotationThreadFields } | { receiptId:string;projectId:string;eraId?:string;annotationId:string;kind:'delete';before:Annotation;reference?:AnnotationReference };
+export class AnnotationConflict extends Error { constructor(){super('annotation_thread_conflict');this.name='AnnotationConflict';} }

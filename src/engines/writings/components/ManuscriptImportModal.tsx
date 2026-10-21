@@ -12,7 +12,18 @@
 // Until that last click the database has not been touched, so the wrong rule,
 // the wrong file, or a change of mind costs nothing.
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { saveAs } from 'file-saver';
+import { db } from '@/db';
+import { eraWritingOperations } from '@/services/worldEras/writings';
+import { readWorldDocument } from '@/services/worldEras/store';
+import { inspectManuscriptFile } from '../manuscriptReview/inspect';
+import { planManuscriptImport } from '../manuscriptReview/plan';
+import { applyManuscriptImport } from '../manuscriptReview/persist';
+import { manuscriptFindingLabel } from '../manuscriptReview/findings';
+import type { ImportChoice, InspectedManuscript, ManuscriptPlan, ManuscriptSourceRow } from '../manuscriptReview/types';
+import { htmlToText } from '@/engines/_shared/anchoring/htmlToText';
+import { projectWritingHtml } from '../revisionProjection';
 import { Upload, Files, Hash, Scissors, LoaderCircle, FileText } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import { ConfirmDialog } from '@/engines/_shared';
@@ -23,22 +34,22 @@ import {
   MANUSCRIPT_ACCEPT,
   ManuscriptImportError,
   availableHeadingLevels,
-  readManuscriptFiles,
-  readPastedManuscript,
+  MAX_SOURCE_BYTES,
+  MAX_TOTAL_BYTES,
   splitIntoChapters,
   suggestedHeadingLevel,
   suggestedSplitMode,
   type ChapterSplitMode,
   type ManuscriptErrorCode,
   type ManuscriptProgress,
-  type ManuscriptSource,
 } from '../manuscriptImport';
-import { importManuscript, type ManuscriptImportResult } from '../manuscriptPersist';
+import type { ManuscriptImportResult } from '../manuscriptPersist';
 
 interface ManuscriptImportModalProps {
   open: boolean;
   onClose: () => void;
   projectId: string;
+  eraId?: string;
   /** Called once the rows exist, so the list behind the modal catches up. */
   onImported: () => void | Promise<void>;
 }
@@ -78,12 +89,19 @@ export default function ManuscriptImportModal({
   open,
   onClose,
   projectId,
+  eraId,
   onImported,
 }: ManuscriptImportModalProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const es = locale === 'es';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [sources, setSources] = useState<ManuscriptSource[]>([]);
+  const [sources, setSources] = useState<InspectedManuscript[]>([]);
+  const [targets, setTargets] = useState<{ id: string; title: string; updatedAt: number; version: string }[]>([]);
+  const [selectedTargets, setSelectedTargets] = useState<Record<string, string>>({});
+  const [plan, setPlan] = useState<ManuscriptPlan | null>(null);
+  const [planError, setPlanError] = useState('');
+  const [savedSources, setSavedSources] = useState<ManuscriptSourceRow[]>([]);
   const [pasted, setPasted] = useState('');
   const [mode, setMode] = useState<ChapterSplitMode>('heading');
   const [headingLevel, setHeadingLevel] = useState(1);
@@ -97,6 +115,12 @@ export default function ManuscriptImportModal({
   const [dragging, setDragging] = useState(false);
 
   const chapterLabel = t('writings.chapter');
+  useEffect(() => { let active = true; void (async () => {
+    const scope = { projectId, eraId }, rows = await eraWritingOperations(scope).getWritings(projectId);
+    const next = await Promise.all(rows.map(async row => ({ id: row.id, title: row.title, updatedAt: row.updatedAt, version: (await readWorldDocument(scope, 'writings', row.id))!.version })));
+    const stored = (await db.manuscriptSources.where('projectId').equals(projectId).toArray()).filter(row => row.receipts.some(receipt => receipt.eraId === eraId));
+    if (active) { setTargets(next); setSavedSources(stored); }
+  })().catch(error => { if (active) setPlanError(String(error)); }); return () => { active = false; }; }, [projectId, eraId]);
   const levels = useMemo(() => availableHeadingLevels(sources), [sources]);
 
   const chapters = useMemo(
@@ -118,6 +142,9 @@ export default function ManuscriptImportModal({
   }));
   const includedCount = rows.reduce((total, row) => total + (row.included ? 1 : 0), 0);
   const includedWords = rows.reduce((total, row) => total + (row.included ? row.words : 0), 0);
+  const choices: ImportChoice[] = rows.map(row => { const target = targets.find(target => target.id === selectedTargets[row.key]); return { key: row.key, title: row.title || chapters.find(chapter => chapter.key === row.key)!.title, included: row.included, ...(target ? { targetId: target.id, expectedUpdatedAt: target.updatedAt, expectedDocumentVersion: target.version } : {}) }; });
+  const choiceKey = JSON.stringify(choices);
+  useEffect(() => { let active = true; setPlan(null); setPlanError(''); if (sources.length) void planManuscriptImport(sources, { mode, headingLevel, separator }, { projectId, eraId }, JSON.parse(choiceKey) as ImportChoice[]).then(value => { if (active) setPlan(value); }).catch(error => { if (active) setPlanError(error instanceof Error ? error.message : String(error)); }); return () => { active = false; }; }, [sources, mode, headingLevel, separator, choiceKey, projectId, eraId]);
 
   const describeError = useCallback(
     (error: unknown): string => {
@@ -132,7 +159,7 @@ export default function ManuscriptImportModal({
   );
 
   /** Read something new, then open the preview on the rule that suits it. */
-  const load = async (read: () => Promise<ManuscriptSource[]>): Promise<void> => {
+  const load = async (read: () => Promise<InspectedManuscript[]>): Promise<void> => {
     setWorking(true);
     setProgress({ phase: 'reading', ratio: 0 });
     try {
@@ -140,6 +167,7 @@ export default function ManuscriptImportModal({
       setSources(next);
       setRenamed({});
       setExcluded({});
+      setSelectedTargets({});
       setMode(suggestedSplitMode(next));
       setHeadingLevel(suggestedHeadingLevel(next));
     } catch (error) {
@@ -153,30 +181,29 @@ export default function ManuscriptImportModal({
   const handleFiles = (list: FileList | null): void => {
     const files = list ? Array.from(list) : [];
     if (files.length === 0) return;
-    void load(() => readManuscriptFiles(files, (value) => setProgress(value)));
+    void load(async () => {
+      if (files.some(file => file.size > MAX_SOURCE_BYTES) || files.reduce((n, file) => n + file.size, 0) > MAX_TOTAL_BYTES) throw new ManuscriptImportError('too-large');
+      const next: InspectedManuscript[] = [];
+      for (const [index, file] of files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).entries()) { setProgress({ phase: 'reading', ratio: index / files.length, detail: file.name }); next.push(await inspectManuscriptFile(file)); }
+      return next;
+    });
   };
 
   const handlePaste = (): void => {
     const label = t('writings.manuscriptImport.pastedLabel');
-    void load(async () => [await readPastedManuscript(pasted, label)]);
+    void load(async () => [await inspectManuscriptFile(new File([pasted], `${label}.md`, { type: 'text/markdown' }))]);
   };
 
   const handleImport = async (): Promise<void> => {
     setConfirming(false);
-    const picked = chapters
-      .filter((chapter) => !excluded[chapter.key])
-      .map((chapter) => ({
-        title: renamed[chapter.key] ?? chapter.title,
-        blocks: chapter.blocks,
-      }));
-    if (picked.length === 0) return;
+    if (!plan) return;
 
     setWorking(true);
     setProgress({ phase: 'writing', ratio: 0 });
 
     let result: ManuscriptImportResult;
     try {
-      result = await importManuscript(projectId, picked, (value) => setProgress(value));
+      result = await applyManuscriptImport({ projectId, eraId }, sources, { mode, headingLevel, separator }, choices, plan.digest);
     } catch (error) {
       // The transaction rolled back: the project is exactly as it was, and the
       // preview stays on screen so the writer can try again or change the rule.
@@ -234,6 +261,7 @@ export default function ManuscriptImportModal({
     <>
       <Modal open={open} onClose={handleClose} title={t('writings.manuscriptImport.title')} wide>
         <div className="space-y-5">
+          {savedSources.length > 0 && <details className="rounded-lg border border-border p-3 text-sm text-text-secondary"><summary>{es?'Fuentes originales conservadas':'Preserved original sources'} ({savedSources.length})</summary><ul className="mt-2 space-y-2">{savedSources.map(source => <li key={source.id}><button type="button" className="break-all text-left text-accent-gold underline-offset-4 hover:underline" onClick={() => saveAs(source.original, source.name)}>{source.name}</button><span className="ml-2 text-xs">{source.receipts.filter(receipt => receipt.eraId === eraId).length} {es?'importaciones':'imports'}</span></li>)}</ul></details>}
           {sources.length === 0 ? (
             <>
               <p className="text-sm text-text-muted">{t('writings.manuscriptImport.intro')}</p>
@@ -380,20 +408,26 @@ export default function ManuscriptImportModal({
                   <ManuscriptChapterList
                     rows={rows}
                     disabled={working}
+                    targets={targets}
+                    selectedTargets={selectedTargets}
+                    onTarget={(key, targetId) => setSelectedTargets(current => ({ ...current, [key]: targetId }))}
+                    previews={Object.fromEntries(plan?.chapters.map(chapter => [chapter.key, `${es ? 'Texto final' : 'Final text'}: ${htmlToText(projectWritingHtml(chapter.content)).slice(0, 220)}${chapter.pendingRevisions ? ` · ${chapter.pendingRevisions} ${es ? 'cambios conservados para revisar' : 'changes retained for review'}` : ''}`]) ?? [])}
                     onRename={(key, title) => setRenamed((current) => ({ ...current, [key]: title }))}
                     onToggle={(key) =>
                       setExcluded((current) => ({ ...current, [key]: !current[key] }))
                     }
                   />
                 )}
-                <p className="text-xs text-text-dim">{t('writings.manuscriptImport.safeNote')}</p>
+                <p className="text-xs text-text-dim">{choices.some(choice => choice.included && choice.targetId) ? (es?'Sólo se reemplazan los destinos elegidos. Se conserva su versión previa; un conflicto cancela todo el lote.':'Only selected targets are replaced. Their previous versions are preserved; a conflict cancels the whole batch.') : t('writings.manuscriptImport.safeNote')}</p>
+                {plan && <section aria-label={es?'Diagnóstico de importación':'Import findings'} className="space-y-2 rounded-lg border border-border bg-elevated/40 p-3 text-xs leading-relaxed text-text-secondary"><p className="text-text-primary">{plan.importedComments} {es?'comentarios con rango exacto':'comments with exact ranges'} · {plan.retainedComments} {es?'disponibles sólo en el original':'available in the original only'}</p>{plan.findings.length > 0 && <ul className="space-y-1">{plan.findings.map((finding, index) => <li key={`${finding.code}-${index}`}>{manuscriptFindingLabel(finding.code, locale)} ({finding.count})</li>)}</ul>}<div className="flex flex-wrap gap-3">{sources.map((source, index) => <button type="button" key={`${source.sha256}-${index}`} className="break-all text-left text-accent-gold hover:underline" onClick={() => saveAs(source.original, source.name)}>{es?'Descargar original':'Download original'}: {source.name}</button>)}</div></section>}
+                {planError && <p role="alert" className="text-sm text-danger">{planError}</p>}
               </div>
 
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setConfirming(true)}
-                  disabled={working || includedCount === 0}
+                  disabled={working || includedCount === 0 || !plan}
                   className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-40"
                 >
                   {working && <LoaderCircle size={16} className="animate-spin" />}
@@ -450,7 +484,7 @@ export default function ManuscriptImportModal({
       <ConfirmDialog
         open={confirming}
         title={t('writings.manuscriptImport.title')}
-        message={t('writings.manuscriptImport.confirm')
+        message={choices.some(choice => choice.included && choice.targetId) ? (es?`Se aplicarán ${includedCount} capítulos: ${choices.filter(choice => choice.included && choice.targetId).length} reemplazos explícitos y los demás como borradores nuevos. Se conserva el original y la versión previa de los destinos.`:`Apply ${includedCount} chapters: ${choices.filter(choice => choice.included && choice.targetId).length} explicit replacements and the rest as new drafts. Original source and previous target versions are preserved.`) : t('writings.manuscriptImport.confirm')
           .replace('{count}', String(includedCount))
           .replace('{words}', includedWords.toLocaleString())}
         confirmLabel={t('writings.manuscriptImport.import')}

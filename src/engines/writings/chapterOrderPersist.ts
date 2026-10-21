@@ -23,6 +23,8 @@
 // manuscript that is already 1..n touches nothing at all.
 
 import { db } from '@/db';
+import { eraWritingOperations } from '@/services/worldEras/writings';
+import type { WorldEraScope } from '@/services/worldEras/types';
 import { touchProject } from '@/db/operations';
 import type { ChapterAssignment } from './chapterOrder';
 
@@ -34,9 +36,21 @@ import type { ChapterAssignment } from './chapterOrder';
 export async function applyChapterNumbers(
   projectId: string,
   assignments: readonly ChapterAssignment[],
+  scope?: WorldEraScope,
 ): Promise<number> {
   if (assignments.length === 0) return 0;
 
+  if (scope?.eraId) {
+    const operations = eraWritingOperations(scope);
+    let count = 0;
+    await db.transaction('rw', db.tables, async () => {
+      for (const assignment of assignments) {
+        const row = await operations.getWriting(assignment.id);
+        if (row?.projectId !== projectId) continue;
+        await operations.updateWritingAtVersion(row.id, { chapter: assignment.chapter }, row.updatedAt); count++;
+      }
+    }); return count;
+  }
   let written = 0;
   await db.transaction('rw', db.writings, async () => {
     const updatedAt = Date.now();

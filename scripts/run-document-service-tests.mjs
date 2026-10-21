@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const temporary = await mkdtemp(path.join(os.tmpdir(), 'writers-document-service-'));
+const temporaryRoot = await realpath(os.tmpdir());
+const temporary = await mkdtemp(path.join(temporaryRoot, 'writers-document-service-'));
 try {
   const output = path.join(temporary, 'nativeDocumentService.mjs');
   await build({
@@ -28,5 +29,9 @@ try {
     child.on('close', code => resolve(code ?? 1));
   });
 } finally {
-  await rm(temporary, { recursive: true, force: true });
+  const resolvedTemporary = await realpath(temporary);
+  const relative = path.relative(temporaryRoot, resolvedTemporary);
+  if (resolvedTemporary === path.resolve(temporary) && relative && !relative.startsWith('..') && !path.isAbsolute(relative) && path.basename(relative).startsWith('writers-document-service-')) {
+    await rm(resolvedTemporary, { recursive: true, force: true });
+  }
 }

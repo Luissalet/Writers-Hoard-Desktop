@@ -1,3 +1,6 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { listEraRows } from '@/services/worldEras/store';
+import type { DialogBlock } from '../types';
 import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye, Clapperboard, Upload, MessageSquare } from 'lucide-react';
 import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -178,6 +181,7 @@ export default function SceneListView({
 }: SceneListViewProps) {
   const { t } = useTranslation();
   const { project } = useProject(projectId);
+  const scope = useWorldEraScope(projectId);
   const [showNewScene, setShowNewScene] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [creating, setCreating] = useState(false);
@@ -191,12 +195,11 @@ export default function SceneListView({
   // screenwriting tool (Final Draft, Highland, Fade In…) imports.
   const handleExportFountain = async () => {
     try {
-      const [{ db }, { buildFountain }, { downloadTextFile, sanitizeFilename }] = await Promise.all([
-        import('@/db/index'),
+      const [{ buildFountain }, { downloadTextFile, sanitizeFilename }] = await Promise.all([
         import('../fountainExport'),
         import('@/engines/writings/manuscriptExport'),
       ]);
-      const blocks = await db.dialogBlocks.where('projectId').equals(projectId).toArray();
+      const blocks = await listEraRows<DialogBlock>(scope, 'dialogBlocks');
       const text = buildFountain({
         projectTitle: project?.title || t('dialogScene.title'),
         scenes,
@@ -229,7 +232,7 @@ export default function SceneListView({
         ? (await import('../fdxImport')).parseFdx(text, opts)
         : (await import('../fountainImport')).parseFountain(text, opts);
       const { importScript } = await import('../importPersist');
-      const { sceneCount, blockCount } = await importScript(projectId, parsed);
+      const { sceneCount, blockCount } = await importScript(projectId, parsed, scope.eraId);
       await onImported();
       toast.success(
         t('dialogScene.import.imported')

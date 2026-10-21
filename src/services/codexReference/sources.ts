@@ -9,6 +9,8 @@
 // panel and the AI bridge share.
 
 import { db } from '@/db';
+import { listEraRows, readEraRow } from '@/services/worldEras/store';
+import type { Note } from '@/engines/notes/types';
 import { bodyParagraphs, normalizeForMatch } from './matcher';
 
 export type ReferenceSourceKind = 'note' | 'citation';
@@ -99,25 +101,26 @@ export function searchSourceItems(
 }
 
 /** Every note and citation the project keeps, as source items. */
-export async function loadSourceItems(projectId: string): Promise<ReferenceSourceItem[]> {
+export async function loadSourceItems(projectId: string, eraId?: string): Promise<ReferenceSourceItem[]> {
   const [notes, citations] = await Promise.all([
-    db.notes.where('projectId').equals(projectId).toArray(),
+    eraId ? listEraRows<Note>({ projectId, eraId }, 'notes') : db.notes.where('projectId').equals(projectId).toArray(),
     db.citations.where('projectId').equals(projectId).toArray(),
   ]);
   return [...notes.map(noteToSource), ...citations.map(citationToSource)];
 }
 
-export async function searchSources(projectId: string, query: string, limit = 20): Promise<ReferenceSourceItem[]> {
+export async function searchSources(projectId: string, query: string, limit = 20, eraId?: string): Promise<ReferenceSourceItem[]> {
   if (!query.trim()) return [];
-  return searchSourceItems(query, await loadSourceItems(projectId), limit);
+  return searchSourceItems(query, await loadSourceItems(projectId, eraId), limit);
 }
 
 export async function getSource(
   projectId: string,
   kind: ReferenceSourceKind,
   id: string,
+  eraId?: string,
 ): Promise<ReferenceSourceItem | null> {
-  const row = kind === 'note' ? await db.notes.get(id) : await db.citations.get(id);
+  const row = kind === 'note' ? eraId ? await readEraRow<Note>({ projectId, eraId }, 'notes', id) : await db.notes.get(id) : await db.citations.get(id);
   if (!row || row.projectId !== projectId) return null;
   return kind === 'note' ? noteToSource(row as NoteLike) : citationToSource(row as CitationLike);
 }

@@ -7,8 +7,10 @@
 
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import '@/engines';
 import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 import { t } from '@/i18n/useTranslation';
 import BeatEditor from '@/engines/outline/components/BeatEditor';
 import SegmentEditor from '@/engines/video-planner/components/SegmentEditor';
@@ -84,6 +86,7 @@ export async function testModalDirtyGuards(): Promise<string[]> {
   const passed: string[] = [];
   const host = document.getElementById('root')!;
   const now = Date.now();
+  await db.projects.bulkPut(['guard-project','guard-story-state'].map(id => ({id,title:id,type:'standalone' as const,mode:'custom' as const,description:'',status:'draft' as const,color:'#777777',enabledEngines:['outline','codex','timeline','storyboard','video-planner'],engineOrder:['outline','codex','timeline','storyboard','video-planner'],createdAt:now,updatedAt:now})));
 
   {
     const beat: OutlineBeat = {
@@ -137,7 +140,7 @@ export async function testModalDirtyGuards(): Promise<string[]> {
   {
     const root = createRoot(host);
     await act(async () => {
-      root.render(<TimelineView projectId="guard-project" timelineId="guard-tl" events={[]} onAddEvent={() => {}} onEditEvent={() => {}} onDeleteEvent={() => {}} />);
+      root.render(<MemoryRouter><TimelineView projectId="guard-project" timelineId="guard-tl" events={[]} onAddEvent={() => {}} onEditEvent={() => {}} onDeleteEvent={() => {}} /></MemoryRouter>);
       await wait();
     });
     const openForm = async () => {
@@ -186,7 +189,7 @@ export async function testModalDirtyGuards(): Promise<string[]> {
     });
 
     const root = createRoot(host);
-    await act(async () => { root.render(<StoryStateLab projectId={PROJECT_ID} />); await wait(300); });
+    await act(async () => { root.render(<MemoryRouter><StoryStateLab projectId={PROJECT_ID} /></MemoryRouter>); await wait(300); });
     const confirmButton = (label: string) => [...dialog()!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === label);
 
     const deleteClaim = await waitFor(
@@ -225,5 +228,7 @@ export async function testModalDirtyGuards(): Promise<string[]> {
     passed.push('StoryStateLab: claim and moment deletes wait for ConfirmDialog');
   }
 
+  await deleteProject('guard-project');
+  await deleteProject('guard-story-state');
   return passed;
 }

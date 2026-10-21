@@ -1,0 +1,12 @@
+import tool from './module';
+import {createFakeLocalToolHost} from '@/engines/local/testing';
+/** Run with node scripts/test-local-tool.mjs --id __NAMESPACE_FLAG__. Extend with your own assertions. */
+export async function testLocalToolScaffold(){
+ const host=createFakeLocalToolHost(tool,{projects:[{id:'author-test',updatedAt:1,worldEras:[{id:'past'}]}]}),client=host.createClient({projectId:'author-test'});
+ const before=await client.read();if(before.revision!==null)throw Error('Expected unsaved initial state');
+ await client.save({...before.data,notes:'Author test note'},before.revision);
+ const past=host.createClient({projectId:'author-test',eraId:'past'}),inherited=await past.read();if(inherited.data.notes!=='Author test note'||inherited.provenance!=='base')throw Error('Era inheritance failed');
+ await past.save({...inherited.data,notes:'Past note'},inherited.revision);
+ if((await client.read()).data.notes!=='Author test note')throw Error('Era edit changed Base');
+ return ['Generated source tool saves scoped data and preserves Base across era edits using the public memory host'];
+}

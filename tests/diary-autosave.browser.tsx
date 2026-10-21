@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import EntryEditor from '@/engines/diary/components/EntryEditor';
 import DiaryEngine from '@/engines/diary/components/DiaryEngine';
 import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 import { discardPendingOwner, flushPendingWrites, getPendingWritesSnapshot, trackPendingWrite } from '@/services/pendingWrites';
 import type { DiaryEntry } from '@/engines/diary/types';
 import { t } from '@/i18n/useTranslation';
@@ -25,6 +26,7 @@ export async function testDiaryAutosave(): Promise<string[]> {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   try {
+    await db.projects.put({ id: entry.projectId, title: 'Diary callback fixture', mode: 'custom', type: 'idea', color: '#fff', description: '', status: 'draft', enabledEngines: ['diary'], engineOrder: ['diary'], createdAt: 1, updatedAt: 1 });
     await act(async () => { root.render(<EntryEditor entry={entry} onSave={async changes => {
       saved.push(changes.title ?? '');
       if (saved.length === 1) await new Promise<void>(resolve => { finishFirst = resolve; });
@@ -108,7 +110,7 @@ export async function testDiaryAutosave(): Promise<string[]> {
     await act(async () => root.unmount()); host.remove();
     discardPendingOwner(sentinelOwner);
     discardPendingOwner(`diary-draft:${entry.projectId}:failed-delete`);
-    await db.diaryEntries.where('projectId').equals(projectId).delete();
-    await db.projects.delete(projectId);
+    await deleteProject(projectId);
+    await deleteProject(entry.projectId);
   }
 }

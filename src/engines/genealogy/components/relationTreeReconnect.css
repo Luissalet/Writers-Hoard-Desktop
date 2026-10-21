@@ -1,0 +1,5 @@
+.wh-relation-tree-flow .react-flow__edge.selected .react-flow__edgeupdater {
+  fill: var(--color-surface);
+  stroke: var(--color-accent-gold);
+  stroke-width: 2;
+}

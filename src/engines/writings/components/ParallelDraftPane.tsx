@@ -5,10 +5,12 @@ import type { Editor } from '@tiptap/react';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { createParallelDraft, listParallelDraftMeta, loadPaneDocument, paneTargetKey, renameParallelDraft, type PaneDocument, type PaneTarget } from '../parallelDrafts';
 import { ParallelEditorSession, type PaneState } from '../parallelSession';
+import ParallelDraftHistoryModal from './ParallelDraftHistoryModal';
 
 const extensions = [FootnoteNode];
 const field = 'min-w-0 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold';
@@ -25,9 +27,10 @@ interface Props {
 }
 
 export default function ParallelDraftPane({ projectId, paneId, target, chapters, onTarget, register, onState, onPromote, onDelete, selections }: Props) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const workspace = useEnginePane();
-  const recoveryOwner = workspace?.primary ? undefined : workspace?.instanceId;
+  const scope = useWorldEraScope(projectId);
+  const recoveryOwner = scope.eraId ? `${workspace?.instanceId ?? 'main'}:era:${scope.eraId}` : workspace?.primary ? undefined : workspace?.instanceId;
   const [session, setSession] = useState<ParallelEditorSession | null>(null);
   const [state, setState] = useState<PaneState | null>(null);
   const [missing, setMissing] = useState(false);
@@ -35,16 +38,18 @@ export default function ParallelDraftPane({ projectId, paneId, target, chapters,
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [historyDocument, setHistoryDocument] = useState<PaneDocument>();
   const shell = useRef<HTMLDivElement>(null);
   const writingId = target.writingId, draftId = target.draftId;
   const targetKey = paneTargetKey(target);
-  const drafts = useLiveQuery(() => listParallelDraftMeta(projectId, writingId), [projectId, writingId]) ?? [];
+  useEffect(() => setHistoryDocument(undefined), [projectId, scope.eraId, targetKey]);
+  const drafts = useLiveQuery(() => listParallelDraftMeta(projectId, writingId, scope.eraId), [projectId, writingId, scope.eraId]) ?? [];
   useEffect(() => {
     let active: ParallelEditorSession | null = null;
     let stopped = false;
     let unsubscribeState: (() => void) | null = null;
     let unregister: (() => void) | null = null;
-    const subscription = liveQuery(() => loadPaneDocument(projectId, { writingId, draftId })).subscribe({
+    const subscription = liveQuery(() => loadPaneDocument(projectId, { writingId, draftId }, scope.eraId)).subscribe({
       next(document) {
         if (stopped) return;
         if (!active) {
@@ -55,7 +60,7 @@ export default function ParallelDraftPane({ projectId, paneId, target, chapters,
       error(error) { console.error('[parallel drafts] document unavailable', error); if (!stopped) setMissing(true); },
     });
     return () => { stopped = true; subscription.unsubscribe(); unsubscribeState?.(); unregister?.(); active?.dispose(); };
-  }, [projectId, writingId, draftId, paneId, register, onState, recoveryOwner]);
+  }, [projectId, writingId, draftId, paneId, register, onState, recoveryOwner, scope.eraId]);
   useEffect(() => {
     if (!editor) return;
     const key = `${paneId}:${targetKey}`;
@@ -92,6 +97,7 @@ export default function ParallelDraftPane({ projectId, paneId, target, chapters,
         {draftId && <button type="button" className={parallelButton} disabled={busy || !name.trim()} onClick={() => void action(active => renameParallelDraft(active.document, name))}>{t('writings.parallel.rename')}</button>}
       </div>
       {draftId && <div className="flex flex-wrap gap-2"><button type="button" className={parallelButton} disabled={busy || !session} onClick={() => void action(async active => onPromote(active.document))}>{t('writings.parallel.promote')}</button><button type="button" className={`${parallelButton} text-danger`} disabled={busy || !session} onClick={() => void action(async active => onDelete(active.document))}>{t('writings.parallel.delete')}</button></div>}
+      {draftId && <button type="button" className={parallelButton} disabled={busy || !session} onClick={() => void action(async active => { setHistoryDocument({ ...active.document }); })}>{locale === 'es' ? 'Historial del borrador' : 'Draft history'}</button>}
       {failed && <p role="alert" className="text-xs text-danger">{t('writings.parallel.actionFailed')}</p>}
       <p role="status" className="text-xs text-text-muted" data-testid={`parallel-status-${paneId}`}>{state ? t(`writings.parallel.${state.status === 'conflict' ? 'conflict' : state.status}`) : t('writings.parallel.loading')}</p>
       {state?.recovered && <p className="text-xs text-accent-gold">{t('writings.parallel.recovered')}</p>}
@@ -102,5 +108,6 @@ export default function ParallelDraftPane({ projectId, paneId, target, chapters,
       </div>}
     </div>
     {missing ? <p role="alert" className="p-6 text-text-muted">{t('writings.parallel.missing')}</p> : session && state ? <div className="p-3 min-h-80" data-testid={`parallel-editor-${paneId}`}><TiptapEditor key={`${paneId}:${targetKey}`} content={state.content} onChange={content => session.change(content)} onEditorReady={setEditor} referenceContext={{ projectId, scopeId: `parallel:${paneId}:${targetKey}` }} extensions={extensions} /></div> : <p role="status" className="p-6 text-text-muted">{t('writings.parallel.loading')}</p>}
+    {historyDocument && <ParallelDraftHistoryModal key={`${historyDocument.projectId}:${historyDocument.eraId ?? ''}:${paneTargetKey(historyDocument)}`} document={historyDocument} onClose={() => setHistoryDocument(undefined)} />}
   </section>;
 }

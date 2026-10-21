@@ -6,6 +6,7 @@ import { db } from '@/db';
 import { getAllProjects, updateProject } from '@/db/operations';
 import { searchProjectContent } from '@/services/projectSearchIndex';
 import { useAppStore } from '@/stores/appStore';
+import {listLocalToolDefinitions,localToolEngineId} from '@/engines/local/definitions';
 import { BRIDGE_ENGINE_IDS } from '../manifest';
 import { writerContext } from '@/services/copilot/faustusContext';
 import { useLocaleStore } from '@/stores/localeStore';
@@ -94,6 +95,7 @@ export async function whListProjects(): Promise<unknown> {
         mode: project.mode,
         type: project.type,
         status: project.status,
+        pinned: project.pinned??false,
         enabledEngines: project.enabledEngines,
         isOpen: project.id === openId,
         counts: await countsFor(project.id),
@@ -114,7 +116,7 @@ export async function whListProjects(): Promise<unknown> {
 export async function whEnableEngine(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const engineId = requireString(args, 'engineId');
-  if (!BRIDGE_ENGINE_IDS.includes(engineId)) {
+  if (!BRIDGE_ENGINE_IDS.includes(engineId)&&!listLocalToolDefinitions().some(definition=>localToolEngineId(definition.namespace)===engineId)) {
     throw new BridgeError(
       'bad-args',
       `"${engineId}" is not an engine this bridge works with. Known: ${BRIDGE_ENGINE_IDS.join(', ')}.`,
@@ -146,10 +148,12 @@ export async function whSearch(args: ToolArgs): Promise<unknown> {
   const query = requireString(args, 'query');
   const projectId = optString(args, 'projectId') ?? useAppStore.getState().currentProjectId ?? undefined;
   const limit = clampLimit(optNumber(args, 'limit'), 8, 50);
-  const hits = await searchProjectContent(query, projectId, limit);
+  const eraId = optString(args, 'eraId');
+  const hits = await searchProjectContent(query, projectId, limit, eraId);
   return {
     query,
     projectId: projectId ?? null,
+    eraId: eraId ?? null,
     hits,
     hint: hits.length
       ? 'Use the engineId and id of a hit with the matching read tool (wh_get_writing, wh_get_codex_entry...).'

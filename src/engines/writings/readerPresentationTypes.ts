@@ -11,6 +11,7 @@ export interface ChapterPresentation {
 }
 export interface ReaderPresentation {
   revision: number;
-  cover: { style: 'hardcover' | 'paperback' | 'paper'; color: string; texture: 'none' | 'linen' | 'lines'; artwork: boolean; showAtStart: boolean };
+  playback?: { mode: 'read' | 'play'; wordsPerMinute: number };
+  cover: { style: 'hardcover' | 'paperback' | 'paper'; color: string; texture: 'none' | 'linen' | 'lines'; artwork: boolean; showAtStart: boolean; jacket?:import('./coverDesign/types').CoverJacket };
   chapters: Record<string, ChapterPresentation>;
 }

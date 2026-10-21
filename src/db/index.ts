@@ -1,4 +1,6 @@
 import Dexie, { type Table } from 'dexie';
+import { installDocumentHistory } from '@/services/documentHistory/capture';
+import type { DocumentHistoryEntry } from '@/services/documentHistory/types';
 import type { LocalMediaAsset } from '@/engines/media/types';
 import type { DocumentArchive } from '@/services/documentArchive/types';
 import type {
@@ -71,10 +73,14 @@ import { migrateLegacyBoards } from './legacyBoardMigration';
 import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 40;
+export const CURRENT_DB_VERSION = 44;
 
 export class WritersHoardDB extends Dexie {
+  manuscriptSources!: Table<import('@/engines/writings/manuscriptReview/sourceTypes').ManuscriptSourceRow>;
+  worldEraVariants!: Table<import('@/services/worldEras/types').WorldEraVariant>;
+  worldEraAssets!: Table<import('@/services/worldEras/types').WorldEraAsset>;
   documentArchives!: Table<DocumentArchive>;
+  documentHistory!: Table<DocumentHistoryEntry>;
   projects!: Table<Project>;
   codexEntries!: Table<CodexEntry>;
   writings!: Table<Writing>;
@@ -1031,9 +1037,14 @@ export class WritersHoardDB extends Dexie {
     this.version(39).stores({
       localMediaAssets: 'id, projectId, kind, *tags, updatedAt',
     });
-    this.version(CURRENT_DB_VERSION).stores({
+    this.version(40).stores({
       documentArchives: 'id, projectId, kind, sourceId, archivedAt',
     });
+    this.version(41).stores({ worldEraVariants: 'id, projectId, [projectId+eraId], [projectId+eraId+kind], &[projectId+eraId+kind+entityId]' });
+    this.version(42).stores({ worldEraAssets: 'id, projectId, &[projectId+sha256]' });
+    this.version(43).stores({ documentHistory: 'id, projectId, [projectId+kind+entityId], createdAt, *assetIds' });
+    this.version(44).stores({ manuscriptSources: 'id, projectId, [projectId+sha256]' });
+    installDocumentHistory(this);
   }
 }
 

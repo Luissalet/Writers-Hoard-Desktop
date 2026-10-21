@@ -10,6 +10,8 @@ import SwimLaneView from '@/engines/timeline/components/SwimLaneView';
 import SegmentCard from '@/engines/video-planner/components/SegmentCard';
 import MapView from '@/components/maps/MapView';
 import PanelEditor from '@/engines/storyboard/components/PanelEditor';
+import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 
 function renderWithRouter(root: Root, content: ReactNode) { root.render(<MemoryRouter>{content}</MemoryRouter>); }
 
@@ -32,6 +34,10 @@ export async function testPlanningSaveRecovery(): Promise<string[]> {
   const timeline = { id: 'recovery-timeline', projectId: 'recovery-project', title: 'Timeline', color: '#c4973b', createdAt: 1, updatedAt: 1 };
   const passed: string[] = [];
   try {
+    // Live era-aware readers need a real owner even when save callbacks are
+    // deliberately injected failures. The UI assertions below stay unchanged.
+    await db.projects.put({ id: timeline.projectId, title: 'Recovery fixture', mode: 'custom', type: 'standalone', enabledEngines: ['timeline', 'maps', 'storyboard', 'video-planner'], createdAt: 1, updatedAt: 1 });
+    await db.timelines.put(timeline);
     for (const mode of ['list', 'lanes']) {
       let fail = true;
       let saved = 0;
@@ -112,6 +118,7 @@ export async function testPlanningSaveRecovery(): Promise<string[]> {
   } finally {
     await act(async () => { root.unmount(); });
     host.remove();
+    await deleteProject(timeline.projectId);
   }
 }
 

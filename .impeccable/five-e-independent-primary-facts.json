@@ -1,0 +1,77 @@
+{
+  "pdfSha256": "2504d2a0abb0a4d491a939be4f17910a2dde0312570ab8d208080225ccf0a1f0",
+  "facts": [
+    {
+      "class": "barbarian",
+      "printedPage": 8,
+      "die": 12,
+      "fixedIncrement": 7
+    },
+    {
+      "class": "bard",
+      "printedPage": 11,
+      "die": 8,
+      "fixedIncrement": 5
+    },
+    {
+      "class": "cleric",
+      "printedPage": 15,
+      "die": 8,
+      "fixedIncrement": 5
+    },
+    {
+      "class": "druid",
+      "printedPage": 19,
+      "die": 8,
+      "fixedIncrement": 5
+    },
+    {
+      "class": "fighter",
+      "printedPage": 24,
+      "die": 10,
+      "fixedIncrement": 6
+    },
+    {
+      "class": "monk",
+      "printedPage": 26,
+      "die": 8,
+      "fixedIncrement": 5
+    },
+    {
+      "class": "paladin",
+      "printedPage": 30,
+      "die": 10,
+      "fixedIncrement": 6
+    },
+    {
+      "class": "ranger",
+      "printedPage": 35,
+      "die": 10,
+      "fixedIncrement": 6
+    },
+    {
+      "class": "rogue",
+      "printedPage": 39,
+      "die": 8,
+      "fixedIncrement": 5
+    },
+    {
+      "class": "sorcerer",
+      "printedPage": 42,
+      "die": 6,
+      "fixedIncrement": 4
+    },
+    {
+      "class": "warlock",
+      "printedPage": 46,
+      "die": 8,
+      "fixedIncrement": 5
+    },
+    {
+      "class": "wizard",
+      "printedPage": 52,
+      "die": 6,
+      "fixedIncrement": 4
+    }
+  ]
+}

@@ -62,8 +62,8 @@ function isCodexFormDraft(value: unknown): value is CodexFormDraft {
       && isStringRecord(base.fields) && isStringList(base.tags) && Array.isArray(base.relations)));
 }
 
-export function codexDraftStore(projectId: string): Map<string, CodexFormDraft> {
-  return createLocalDraftStore(`wh.codex-drafts.v1.${projectId}`, isCodexFormDraft);
+export function codexDraftStore(projectId: string, eraId?: string): Map<string, CodexFormDraft> {
+  return createLocalDraftStore(`wh.codex-drafts.v1.${projectId}${eraId ? `.era:${eraId}` : ''}`, isCodexFormDraft);
 }
 
 /** The saved state of an entry, or of a fresh one, as the form holds it. */

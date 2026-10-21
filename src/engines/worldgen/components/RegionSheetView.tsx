@@ -192,6 +192,7 @@ export default function RegionSheetView({
       const icon = entity.style.icon;
       return [{
         ...place,
+        style: entity.style,
         name: entity.name,
         worldX: entity.x,
         worldY: entity.y,

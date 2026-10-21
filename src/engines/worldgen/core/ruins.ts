@@ -36,6 +36,7 @@ export type RuinSite =
   | 'ford' | 'mineral' | 'holy' | 'strait' | 'cape';
 
 export interface Ruin {
+  sourceKey?: string;
   id: number;
   kind: RuinKind;
   x: number;

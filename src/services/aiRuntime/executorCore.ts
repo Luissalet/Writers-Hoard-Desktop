@@ -32,6 +32,7 @@ export interface AuditLine {
   origin?: ExecutionContext['origin'];
   conversationId?: string;
   projectId?: string;
+  eraId?: string;
   entityId?: string;
   /** Every row a single call created, when it created more than one. */
   entityIds?: string[];
@@ -146,7 +147,8 @@ export function createToolExecutor(deps: ExecutorDeps) {
       error: outcome.error,
       kind: outcome.ok ? kind : undefined,
       table: typeof audit?.table === 'string' ? audit.table : undefined,
-      projectId: typeof audit?.projectId === 'string' ? audit.projectId : undefined,
+      projectId: typeof audit?.projectId === 'string' ? audit.projectId : typeof args.projectId === 'string' ? args.projectId : undefined,
+      eraId: typeof args.eraId === 'string' ? args.eraId : undefined,
       entityId: typeof audit?.entityId === 'string' ? audit.entityId : undefined,
       entityIds: Array.isArray(manyIds)
         ? manyIds.filter((id): id is string => typeof id === 'string')

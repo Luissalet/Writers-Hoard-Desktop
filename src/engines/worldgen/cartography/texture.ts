@@ -322,6 +322,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
         const m = mv[k];
         return {
           ...o,
+          sourceKey: k,
           ...(n ? { name: n } : {}),
           ...(pop === undefined ? {} : { population: pop }),
           ...(m ? { x: m.x, y: m.y } : {}),
@@ -351,6 +352,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
       const rank = m.rank ?? 'town';
       settlements.push({
         id: nextId++,
+        sourceKey: ek,
         x: Math.round(mvd?.x ?? m.x), y: Math.round(mvd?.y ?? m.y),
         // Named on the next full pass, when the language machinery is running.
         name: ren[ek] ?? m.name ?? '·',
@@ -372,6 +374,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
       haveR.add(k);
       ruins.push({
         id: ruins.length,
+        sourceKey: ek,
         kind: m.ruin ?? 'city',
         x: Math.round(mvd?.x ?? m.x), y: Math.round(mvd?.y ?? m.y),
         name: ren[ek] ?? m.name ?? '·',
@@ -416,7 +419,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
       // `compatibleEditKeys` conoce las dos grafías.
       const m = compatibleEditKeys('landmark', fk).map((k) => mv[k]).find(Boolean);
       if (!n && !m) return f;
-      return { ...f, ...(n ? { name: n } : {}), ...(m ? { x: m.x, y: m.y } : {}) };
+      return { ...f, sourceKey: fk, ...(n ? { name: n } : {}), ...(m ? { x: m.x, y: m.y } : {}) };
     });
   // Copies for the same reason `fix` copies: `patchedRealmOf` rewrites
   // `cellCount` from the overlay, and through an alias that rewrite lands in the
@@ -432,7 +435,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
     const n = compatibleEditKeys('realm', realmEditKey(r.id))
       .map((k) => ren[k])
       .find(Boolean);
-    return n ? { ...r, name: n } : { ...r };
+    return { ...r, ...(n ? { name: n } : {}), style: world.painted?.styles?.[realmEditKey(r.id)] };
   });
   const realmOf = patchedRealmOf(world, base, realms);
   /**

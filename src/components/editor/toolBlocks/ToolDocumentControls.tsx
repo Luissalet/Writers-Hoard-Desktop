@@ -5,10 +5,12 @@ import { Blocks,ChevronDown } from 'lucide-react';
 import { listToolDocuments } from './preview';
 import { toolBlockCopy } from './copy';
 import { useToolDocumentDepth } from './EmbeddedToolCloseContext';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 export default function ToolDocumentControls({editor,projectId,locale}:{editor:Editor;projectId:string;locale:'es'|'en'}) {
   const [open,setOpen]=useState(false),[query,setQuery]=useState(''),id=useId(),c=toolBlockCopy[locale],depth=useToolDocumentDepth();
   const subscribe=(changed:()=>void)=>{editor.on('transaction',changed);return()=>{editor.off('transaction',changed);};};useSyncExternalStore(subscribe,()=>editor.state);
-  const targets=useLiveQuery(()=>listToolDocuments(projectId),[projectId])??[];
+  const pane=useEnginePane(),eraId=pane?.projectId===projectId?pane.eraId:undefined;
+  const targets=useLiveQuery(()=>listToolDocuments(projectId,eraId),[projectId,eraId])??[];
   const filtered=targets.filter(target=>`${target.label} ${c.kinds[target.kind]}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice(0,40);
   const canInsert=!editor.isDestroyed&&editor.isEditable&&editor.can().insertToolDocumentBlock({projectId,kind:'maps',documentId:'placement',label:''});
   if(depth)return null;

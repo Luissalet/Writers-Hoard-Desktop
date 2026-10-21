@@ -1,0 +1,22 @@
+.wh-entity-controls { position: relative; font-size: 12px; color: var(--color-text-primary); }
+.wh-entity-controls summary { display: flex; align-items: center; gap: 6px; padding: 6px 8px; cursor: pointer; border-radius: 4px; }
+.wh-entity-controls summary:hover { background: var(--color-elevated); }
+.wh-entity-controls summary:focus-visible, .wh-entity-panel :is(button,select):focus-visible { outline: 2px solid var(--color-accent-gold); outline-offset: 2px; }
+.wh-entity-panel { width: min(100%, 560px); max-height: 70vh; overflow: auto; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; }
+.wh-entity-panel p { margin: 0 0 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.wh-entity-panel button, .wh-entity-panel select { min-height: 36px; border: 1px solid var(--color-border); background: var(--color-deep); color: var(--color-text-primary); border-radius: 4px; padding: 6px 10px; }
+.wh-entity-panel button:hover { background: var(--color-elevated); }
+.wh-entity-panel button:disabled { opacity: .55; cursor: wait; }
+.wh-entity-panel [role=switch] { display: flex; justify-content: space-between; gap: 16px; width: 100%; margin-bottom: 8px; text-align: left; }
+.wh-entity-panel [role=switch][aria-checked=true] strong { color: var(--color-accent-gold); }
+.wh-entity-panel ul { list-style: none; margin: 12px 0 0; padding: 0; }
+.wh-entity-panel li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--color-border); padding: 10px 0; }
+.wh-entity-panel li > span { flex: 1 0 100%; overflow-wrap: anywhere; font-weight: 600; }
+.wh-entity-panel li select { max-width: 200px; }
+.wh-entity-panel [role=alert] { margin-top: 12px; }
+.wh-entity-panel [role=alert] span { display: block; font-size: 12px; }
+.wh-entity-candidate { text-decoration: underline dashed var(--color-accent-gold); text-underline-offset: .22em; cursor: pointer; }
+.wh-codex-mention-animated { animation: wh-entity-link 400ms ease-out; }
+@keyframes wh-entity-link { from { background-color: var(--color-accent-gold); color: var(--color-deep); } to { background-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { .wh-codex-mention-animated { animation: none; } }
+[data-reduced-motion=true] .wh-codex-mention-animated { animation: none; }

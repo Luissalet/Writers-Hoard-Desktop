@@ -132,6 +132,7 @@ function groupResults(
 export function useCommandCenterSearch(
   projectId?: string,
   enabledEngineIds: string[] = EMPTY_ENGINE_IDS,
+  eraId?: string,
 ) {
   const search = useCallback(async (query: ParsedSearchQuery): Promise<CommandCenterGroup[]> => {
     if (query.isEmpty) return NO_GROUPS;
@@ -145,10 +146,10 @@ export function useCommandCenterSearch(
     const [projects, entities, content] = await Promise.all([
       !projectId && projectsCanAnswer(query) ? ops.getAllProjects() : Promise.resolve([]),
       probe && entitiesCanAnswer(query)
-        ? searchEntities(probe, undefined, projectId)
+        ? searchEntities(probe, undefined, projectId, eraId)
         : Promise.resolve([]),
       projectId
-        ? searchProjectDocuments(query, projectId, CONTENT_LIMIT)
+        ? searchProjectDocuments(query, projectId, CONTENT_LIMIT, eraId)
         : Promise.resolve(NO_CONTENT),
     ]);
 
@@ -232,7 +233,7 @@ export function useCommandCenterSearch(
     }
 
     return groupResults(results, totals, enabledEngineIds);
-  }, [enabledEngineIds, projectId]);
+  }, [enabledEngineIds, projectId, eraId]);
 
   return { search };
 }

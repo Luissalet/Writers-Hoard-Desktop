@@ -1,3 +1,4 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
@@ -63,6 +64,7 @@ function JourneyPanelContent({
   via, onClearVia, paleo, onPaleo, worldRecord, onOpenJourney, onJourneysChanged,
 }: JourneyPanelProps) {
   const { t, locale } = useTranslation();
+  const scope = useWorldEraScope(worldRecord?.projectId);
   const [mode, setMode] = useState<TravelMode>('foot');
   const [season, setSeason] = useState<Season>('summer');
   const [showAll, setShowAll] = useState(false);
@@ -92,7 +94,7 @@ function JourneyPanelContent({
       options: { ...customOptions, mode, season }, recipeKey: currentRecipeKey, createdAt: now, updatedAt: now,
     };
     try {
-      await saveWorldJourney(worldRecord.id, worldRecord.projectId, journey);
+      await saveWorldJourney(worldRecord.id, worldRecord.projectId, journey, scope.eraId);
       setSavedLocally(current => [...current, journey]); setJourneyName(''); setOpenedJourney(journey);
       // The write has committed. A failed parent refresh must not turn a retry into a duplicate save.
       try { await onJourneysChanged?.(); } catch { /* Local committed row remains available until refresh. */ }
@@ -104,7 +106,7 @@ function JourneyPanelContent({
     if (savingRef.current || !worldRecord || !deletingJourney) return;
     savingRef.current = true; setSaving(true); setDeleteError(false);
     try {
-      await deleteWorldJourney(worldRecord.id, worldRecord.projectId, deletingJourney);
+      await deleteWorldJourney(worldRecord.id, worldRecord.projectId, deletingJourney, scope.eraId);
       setDeletedJourneys(current => [...current, deletingJourney]);
       setSavedLocally(current => current.filter(journey => journey.id !== deletingJourney.id));
       if (openedJourney?.id === deletingJourney.id) setOpenedJourney(null);

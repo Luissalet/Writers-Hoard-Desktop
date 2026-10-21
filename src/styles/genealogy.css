@@ -179,6 +179,9 @@
 .codex-import-preview-list li span {
   color: var(--color-text-muted);
 }
+.codex-import-preview-list[data-editable-plan] { max-height: min(65vh, 640px); }
+.codex-import-preview-list[data-editable-plan] input[type="checkbox"] { accent-color: var(--color-accent-gold); }
+.codex-import-preview-list[data-editable-plan] pre { font-family: inherit; }
 
 .codex-import-apply {
   align-self: flex-start;

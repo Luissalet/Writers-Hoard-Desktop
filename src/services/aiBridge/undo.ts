@@ -18,11 +18,15 @@ import { db } from '@/db';
 import { DELETABLE } from './tools/deletion';
 import { undoEnrichment } from '@/engines/inquiry/enrichment';
 import { BridgeError, type ToolArgs } from './tools/shared';
+import { hideEraDocument, mutateEraRows, readEraRow, readWorldDocument, saveEraDocument } from '@/services/worldEras/store';
+import { eraAdapterForTable } from '@/services/worldEras/adapters';
+import type { EraDocumentKind } from '@/services/worldEras/types';
 
 export interface UndoResult {
   undone: boolean;
   kind: string;
   entityId: string;
+  entityIds?: string[];
   what: string;
   /** Set when the reversal is partial, and why. */
   caveat?: string;
@@ -55,7 +59,7 @@ function specForTable(table: string): { type: string; remove: (id: string) => Pr
 }
 
 export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
-  const entry = args.entry as Record<string, unknown> | undefined;
+  let entry = args.entry as Record<string, unknown> | undefined;
   if (!entry) throw new BridgeError('bad-args', 'No audit entry was passed to undo.');
 
   const kind = String(entry.kind ?? '');
@@ -71,6 +75,154 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
       'cannot-undo',
       'That entry records no entity, so there is nothing to put back. Bulk imports are not reversible this way.',
     );
+  }
+
+  if (['wh_parallel_draft_create', 'wh_parallel_draft_save', 'wh_parallel_draft_history_restore'].includes(String(entry.tool)) && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
+    const { undoParallelDraftChange } = await import('@/engines/writings/parallelDraftUndo');
+    const id = await undoParallelDraftChange(entry.projectId, typeof entry.eraId === 'string' ? entry.eraId : undefined, entry.before as Record<string, unknown>);
+    return { undone: true, kind, entityId: id, what: summary };
+  }
+
+  if (entry.tool === 'wh_project_duplicate' && entry.before && typeof entry.before === 'object') {
+    const operationId = (entry.before as Record<string, unknown>).__projectDuplicateOperation;
+    if (typeof operationId !== 'string') throw new BridgeError('cannot-undo', 'Project duplicate receipt is missing.');
+    const { undoProjectDuplicate } = await import('@/services/projectDuplicate/service');
+    const result = await undoProjectDuplicate(operationId);
+    return { undone: result.undone, kind, entityId: result.projectId, what: summary, caveat: result.unfinished.length ? result.unfinished.join('; ') : undefined };
+  }
+
+  if (entry.tool === 'wh_create_codex_entry' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__workspaceCodexCreation' in entry.before) {
+    const {undoLibraryCodexCreation}=await import('@/components/project/workspace/library/createCodex');
+    await undoLibraryCodexCreation({projectId:entry.projectId,eraId:typeof entry.eraId==='string'?entry.eraId:undefined},(entry.before as {__workspaceCodexCreation:import('@/components/project/workspace/library/createCodex').LibraryCodexCreation}).__workspaceCodexCreation);
+    return {undone:true,kind,entityId,what:summary};
+  }
+
+  if (['wh_writing_tool_dock_apply', 'wh_writing_tool_dock_block_apply'].includes(String(entry.tool)) && entry.before && typeof entry.before === 'object') {
+    const before = entry.before as Record<string, unknown>, owner = before.owner as Record<string, unknown> | undefined;
+    if (typeof before.__writingToolDockReceipt !== 'string' || typeof entry.projectId !== 'string' || !owner ||
+      (owner.kind !== 'project' && (owner.kind !== 'writings' || typeof owner.documentId !== 'string' || !owner.documentId))) {
+      throw new BridgeError('cannot-undo', 'This writing tool dock edit has no valid owner and receipt.');
+    }
+    const { reverseWritingToolDock } = await import('@/engines/writings/toolDock/store');
+    await reverseWritingToolDock({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined },
+      owner.kind === 'project' ? { kind: 'project' } : { kind: 'writings', documentId: owner.documentId as string }, before.__writingToolDockReceipt, 'undo');
+    return { undone: true, kind, entityId, what: summary };
+  }
+
+  if (entry.tool === 'wh_world_folder_import_apply' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
+    const receiptId = (entry.before as Record<string, unknown>).__worldFolderImportReceipt;
+    if (typeof receiptId === 'string') {
+      const {undoWorldFolderImport} = await import('@/services/worldFolderImport/persist');
+      const result = await undoWorldFolderImport({projectId:entry.projectId,eraId:typeof entry.eraId==='string'?entry.eraId:undefined},receiptId);
+      return {undone:true,kind,entityId,entityIds:result.removed.map(ref=>ref.id),what:summary};
+    }
+  }
+
+  if(entry.tool==='wh_project_pin_set'&&typeof entry.projectId==='string'&&entry.before&&typeof entry.before==='object'){
+    const change=(entry.before as Record<string,unknown>).__projectPin as {from:unknown;to:unknown}|undefined;
+    if(!change||typeof change.from!=='boolean'||typeof change.to!=='boolean')throw new BridgeError('cannot-undo','Project pin receipt is missing.');
+    const {setProjectPinned}=await import('@/services/projectPin/store');await setProjectPinned(entry.projectId,change.from,change.to);
+    return{undone:true,kind,entityId:entry.projectId,what:summary};
+  }
+
+  if (entry.tool === 'wh_board_canvas_action' && entry.before && typeof entry.before === 'object') {
+    const receiptId = (entry.before as Record<string, unknown>).__boardCanvasReceipt;
+    if (typeof receiptId === 'string' && typeof entry.projectId === 'string') {
+      const { undoCanvasAction } = await import('@/engines/board/canvasUndo');
+      const restored = await undoCanvasAction({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined }, receiptId);
+      return { undone: true, kind: 'update', entityId: restored.boardId, what: summary };
+    }
+  }
+
+  if (['wh_sheet_update', 'wh_sheet_ink_action', 'wh_sheet_coc_action', 'wh_sheet_daggerheart_action', 'wh_sheet_5e_action'].includes(String(entry.tool)) && entry.before && typeof entry.before === 'object') {
+    const receiptId = (entry.before as Record<string, unknown>).__sheetReceipt;
+    if (typeof receiptId === 'string' && typeof entry.projectId === 'string') {
+      const { undoSheetChange } = await import('@/engines/character-sheets/sheetUndo');
+      const id = await undoSheetChange({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined }, receiptId);
+      return { undone: true, kind, entityId: id, what: summary };
+    }
+  }
+
+  if (entry.tool === 'wh_relation_tree_action' && entry.before && typeof entry.before === 'object') {
+    const receiptId = (entry.before as Record<string, unknown>).__treeReceipt;
+    if (typeof receiptId === 'string' && typeof entry.projectId === 'string') {
+      const { undoTreeAction } = await import('@/engines/genealogy/treeUndo');
+      const id = await undoTreeAction({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined }, receiptId);
+      return { undone: true, kind, entityId: id, what: summary };
+    }
+  }
+
+  if (['wh_local_tool_block_insert','wh_local_tool_block_apply','wh_local_tool_block_remove'].includes(String(entry.tool)) && entry.before && typeof entry.before === 'object') {
+    const before=entry.before as Record<string,unknown>,owner=before.owner as Record<string,unknown>|undefined;
+    if(typeof before.__localToolBlockReceipt!=='string'||typeof entry.projectId!=='string'||!owner||!['codex','writings'].includes(String(owner.kind))||typeof owner.documentId!=='string'||!owner.documentId)throw new BridgeError('cannot-undo','This source block edit has no valid owner and receipt.');
+    const {reverseLocalToolBlock}=await import('@/engines/local/blocks/operations');
+    await reverseLocalToolBlock({projectId:entry.projectId,eraId:typeof entry.eraId==='string'?entry.eraId:undefined},{kind:owner.kind as 'codex'|'writings',documentId:owner.documentId},before.__localToolBlockReceipt,'undo');
+    return{undone:true,kind,entityId:owner.documentId,what:summary};
+  }
+
+  if(entry.tool==='wh_project_genres_set'&&typeof entry.projectId==='string'&&entry.before&&typeof entry.before==='object'){
+    const change=(entry.before as Record<string,unknown>).__projectGenres as {from:unknown;to:unknown}|undefined;
+    if(!change)throw new BridgeError('cannot-undo','This genre edit has no previous value.');
+    const {setProjectGenres}=await import('@/services/projectGenres/store');
+    await setProjectGenres(entry.projectId,change.from,change.to);
+    return{undone:true,kind,entityId:entry.projectId,what:summary};
+  }
+
+  // Logical IDs intentionally remain the same across eras. The ordinary
+  // table lookup below must never turn an era reversal into a Base write.
+  if (typeof entry.eraId === 'string') {
+    if (typeof entry.projectId !== 'string') throw new BridgeError('cannot-undo', 'This era change has no project scope.');
+    const scope = { projectId: entry.projectId, eraId: entry.eraId };
+    const tool = String(entry.tool ?? '');
+    const knownTables: Record<string, string> = {
+      wh_add_map_pin: 'mapPins', wh_update_map_pin: 'mapPins',
+      wh_create_board: 'boards', wh_add_board_card: 'boardNodes', wh_update_board_card: 'boardNodes', wh_connect_board_cards: 'boardEdges',
+      wh_create_timeline: 'timelines', wh_create_event: 'timelineEvents', wh_update_event: 'timelineEvents', wh_connect_events: 'timelineConnections',
+    };
+    if (typeof entry.table !== 'string' && knownTables[tool]) entry = { ...entry, table: knownTables[tool] };
+    const adapter = typeof entry.table === 'string' ? eraAdapterForTable(entry.table) : undefined;
+    const documentKind: EraDocumentKind | undefined = typeof entry.table === 'string' ? eraAdapterForTable(entry.table)?.kind : /codex_entry$/.test(tool) ? 'codex' : /writing(?:_version)?$/.test(tool) || tool === 'wh_import_story_session' ? 'writings' : undefined;
+    if (!documentKind) throw new BridgeError('cannot-undo', 'Use this era document’s version history to restore this change.');
+    if (kind === 'create') {
+      const targets = [...new Set(listed.length ? listed : [entityId])];
+      const tableName = typeof entry.table === 'string' ? entry.table : undefined;
+      const removed = await db.transaction('rw', db.tables, async () => {
+        let count = 0;
+        for (const id of targets) {
+          if (adapter?.parentField && tableName) {
+            if (!await readEraRow(scope, tableName, id)) continue;
+            await mutateEraRows(scope, [{ table: tableName, id, remove: true }]);
+          } else {
+            const current = await readWorldDocument(scope, documentKind, id);
+            if (!current) continue;
+            await hideEraDocument(scope, documentKind, id, current.version);
+          }
+          count++;
+        }
+        return count;
+      });
+      if (!removed) throw new BridgeError('not-found', 'Those items are no longer visible in this era.');
+      return { undone: true, kind, entityId: entityId || targets[0], entityIds: targets, what: summary, caveat: removed < targets.length ? `Removed ${removed} of ${targets.length}; the rest were already absent.` : undefined };
+    }
+    if (adapter?.parentField && typeof entry.table === 'string') {
+      const row = await readEraRow<Record<string, unknown>>(scope, entry.table, entityId);
+      if (!row) throw new BridgeError('not-found', 'That item is no longer visible in this era.');
+      if (kind === 'update' && entry.before && typeof entry.before === 'object') {
+        const { __absent, ...changes } = entry.before as Record<string, unknown>;
+        if (Array.isArray(__absent)) for (const key of __absent) if (typeof key === 'string') changes[key] = undefined;
+        await mutateEraRows(scope, [{ table: entry.table, id: entityId, changes }]);
+      } else throw new BridgeError('cannot-undo', 'This era change did not retain the item fields needed to restore it.');
+      return { undone: true, kind, entityId, what: summary };
+    }
+    const current = await readWorldDocument(scope, documentKind, entityId);
+    if (!current) throw new BridgeError('not-found', 'That document is no longer visible in this era.');
+    if (kind === 'update' && entry.before && typeof entry.before === 'object') {
+      const { __absent, ...fields } = entry.before as Record<string, unknown>;
+      const root = { ...current.document.root, ...fields };
+      if (Array.isArray(__absent)) for (const key of __absent) if (typeof key === 'string') delete root[key];
+      await saveEraDocument(scope, documentKind, { ...current.document, root }, current.version);
+    } else throw new BridgeError('cannot-undo', 'This era change did not retain the fields needed to restore it.');
+    return { undone: true, kind, entityId, what: summary };
   }
 
   if (kind === 'create' && entry.tool === 'wh_enrich_codex' && typeof entry.projectId === 'string') {

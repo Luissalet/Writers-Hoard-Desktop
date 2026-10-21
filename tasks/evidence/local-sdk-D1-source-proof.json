@@ -1,0 +1,161 @@
+{
+  "scope": "D1 independent source documents; no D2/D3, no CRDT, no source image/embed/export host",
+  "status": "D1 frozen; independent review passed the original D1 scope and both material fixes. D2/D3 excluded.",
+  "files": {
+    "docs/local-tool-sdk.md": "7ca67885e51c340b41653b5e2851b362b5680d5afaa5bb6a10f11caf713c1fb6",
+    "src/components/project/workspace/library/WorkspaceLibrary.tsx": "0e20ae82c2534889f5c9486b3bfdb759e2dc23a6601673508157aaa66747ca6c",
+    "src/components/project/workspace/library/catalog.ts": "e000a8b80d6bcc4cb63c4306f787a843ab0bb7600952b05b72779e2b0d052ee1",
+    "src/components/project/workspace/library/model.ts": "2d3e80e1a447f2da2dacf9425203641d831effc70afc065e9087adbb82ab5bd4",
+    "src/components/project/workspace/library/portability.ts": "3cc90c91c9c969b167c0e096cf3ba19ab7519c303a940bd37e96417a399d5772",
+    "src/components/project/workspace/library/types.ts": "a69dfa14748ded7d9eb468c2c74feda363a13aa2b708ddf925b34c2650622deb",
+    "src/engines/archive/ArchiveEngine.tsx": "bbc106194a4d12ebf073f98e4b232c0a2ec14eda1d0b4ec5d2c62934562a1d0c",
+    "src/engines/local/LocalToolReleaseManager.tsx": "c41053c0f7f5db270287263980df41d79fe51dd537759b2f22da56990f685b84",
+    "src/engines/local/ReferencePicker.tsx": "133faa653a5fbe90836d202546e5ccc678ff02cf6aa8ac31c8e3552f9a0d1422",
+    "src/engines/local/bootstrap.ts": "49efbb084f7cee9a87f5303986a8df3540058da7e86f9eaa29b31428f5b97b39",
+    "src/engines/local/bridge.ts": "d3adafb22408c02f72f32125c164f864bf156a4414df5dbe4508bc431befabf0",
+    "src/engines/local/clientContract.ts": "736b767c841dcbd0d5757810c1d62e50b6856ffb0b38dfa6ca235674ed05332d",
+    "src/engines/local/definitions.ts": "9c739af8bc8b604ec00820216d27478f1db3d1b1a29e1ceaa06e96012510046f",
+    "src/engines/local/documents/SourceToolWorkspace.tsx": "df429e6b27ee4f1ca40a2aadc785f3010d4702ead30777ee0426227c7db5a3cc",
+    "src/engines/local/documents/store.ts": "393091bfd28c398c21da57b1af9333351210b5e4e023ffc6b3c17c34af24f409",
+    "src/engines/local/documents/types.ts": "23df16f610d2dec8b176026efd51013db643a719dbe8a127ee6962eee5341e89",
+    "src/engines/local/examples/LinkedNotebook.tsx": "a4e119dc4cbcb050a65f6769eff6d702ed171c019740cb2fd71d0c4ab5695a8d",
+    "src/engines/local/examples/documentNotebookDefinition.ts": "1bdc668acf4d141b2adbb388cfd20ddccc2ab4109d7ad43231d7b632caabadb5",
+    "src/engines/local/examples/linkedNotebookDefinition.ts": "06dbe06aac9574a3df6a009ab3b9ab51d6e6178089126c151ce734150dc35de9",
+    "src/engines/local/execution.ts": "861bb6e098e292348a51bb97082ea04f51cca6a3cce3145ca188dc065822160d",
+    "src/engines/local/installations.ts": "eaafa161819309a492c74224a8d416453a125ebfb6641028c94d00b98dc6ab51",
+    "src/engines/local/installed/.gitkeep": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "src/engines/local/manifest.ts": "a72cd0c5890fe21516917ae0f2f9b8db92e6d839ab4366804caec946cd96a120",
+    "src/engines/local/operationSchema.ts": "581f5bc38502ee33a07c010fbfb2a7b576bbcb6c3be5185f04731792abc3e8b3",
+    "src/engines/local/references.ts": "982403fdc13a8eded56982173d2108237ae5ee36963a82aee9e567837b1eb437",
+    "src/engines/local/registry.tsx": "8ba63206dc6529f8a6829ad5cb8d6c6274aa118a2681665aa84c4872c32356dc",
+    "src/engines/local/releaseCopy.ts": "6888ef391a70515a593d80698a49f7ea65901459eb0fe8767265f7e709423940",
+    "src/engines/local/releaseFormat.d.mts": "04a8769d12d742844d6e47656a8775c025e08fb11d39a0ad476f3fb7651f9d44",
+    "src/engines/local/releaseFormat.mjs": "31543285983e791b7fce57ebceed0c96a4bd936989ccf0183a15d6abff77c607",
+    "src/engines/local/releases.ts": "d082333e1253b942115e714989d758ec0adb82e245c1dd276241760df940b0c5",
+    "src/engines/local/sdk.ts": "9a85ead0a3a2e78f7a0be9d22d0ab0c49ed8ec1ac0b5c21107337459488ad84e",
+    "src/engines/local/stateActions.ts": "3bcb6ec861dbb26abac8f0bfdce3d05c7c9a8c9aed802cf95079acbfbf54032c",
+    "src/engines/local/stateCodec.ts": "b32d76f216a2a8bd2116b0384d36c9c949b3cde814b071130960407aca7561ee",
+    "src/engines/local/stateRuntime.ts": "3aa844d89b0d3c3ff8ac4e23a47a036fd274640a68ef1ebd2d6d0a18f593e1d7",
+    "src/engines/local/stateTypes.ts": "20b4ba5fe2401ae40443de3f596493ca808ed4491f21394038e6f23b726c1c87",
+    "src/engines/local/storage.ts": "89d0a3c7c682cab5079b79fc58880113502243030f55ec1db5b03fe8bc057110",
+    "src/engines/local/testing.ts": "6f1a0e8fb454739b0af57578e6e4374da9aa893d8031e3eb5c6599b75c1713c3",
+    "src/engines/local/useLocalToolReferenceDrop.ts": "ff7230f81ed04a9cad05b1fef4daf626266d258bdaba6b19b212474d3d31b6b5",
+    "src/engines/local/useLocalToolState.ts": "ee84716ee7073c1ad517abaf6b3a3f8af051ca4d6bf06220647cd63f2c8fcaa0",
+    "src/services/documentArchive/metadata.ts": "5ce060f7ac06ed47f736cca069e23946e6f4382af67978665d1977c9462cdb3a",
+    "src/services/documentArchive/store.ts": "f43e6b2155cc81ae6b7bc376b5ecfec37ce7863ef2725bec6b9e58863148307a",
+    "src/services/documentArchive/types.ts": "02bbba6dc44d4604281d82c1fe7a9f7f35b5bd864da4dce99ba31fcc3055075a",
+    "src/services/documentHistory/store.ts": "0938b5258ae7fface82b96983bb9cd581b5ac6174b015ce20c8d11e36c07193e",
+    "src/services/projectSearchIndex.ts": "4d9ba6b29d31078b9389499182d5558e5ae20ccbebf16a5c17eaa4400488f852",
+    "src/services/worldEras/adapters.ts": "2b6c1eb401164602bcbb9d6d84897fcd506116e8bf16701671ee6f008ed192e9",
+    "src/services/worldEras/documentPrefixes.ts": "0d7a301902e6c977cf41b6ba3e5969b81a31f850eb0924830d3a9d41de80c75b",
+    "src/services/worldEras/registry.ts": "8d7c8f9a93cee66f310a29f123b2a567ea66f70bc6e45a8884df556672e8692f",
+    "src/services/worldEras/store.ts": "b941fcbda406ace6f8451dcbac0edeb26841bf97e2c6362daebb057c1dd988e8",
+    "src/services/worldEras/types.ts": "fd3b59d3f6d500942302028e827b8dc365fd43633d0342ffdf55fd6b4289d8e4",
+    "tasks/local-sdk-host1041.md": "323cea52e259415533a321353bb42b53aeaa7391e53538a5a5d59e2ddceab0ee",
+    "tests/document-history.browser.ts": "f3dcd836751bf6857c744c2db29dcd23cc1e8eef40660a2da235e0997e82a1f0",
+    "tests/history-import-order.browser.ts": "373d277457948f89ff087e15b8d34d30d50fb4d3ecfb9b3ef4964b7a23d9cb7b",
+    "tests/local-tool-document-lifetime.browser.tsx": "a36cf041af958c52cf432ad8e03c0cd465917542acae274d7c351642949dbd57",
+    "tests/local-tool-documents-retained.browser.ts": "c5e856943ef1e2bc157faf494397395107de3fe2b75ac41ed856194b144623e1",
+    "tests/local-tool-documents.browser.tsx": "82e5d3ca282c9319852522fa6053c412d243dfb21a793824a8750fb40b407959",
+    "tests/local-tool-documents.fixture.ts": "4bdd0682e1b26dba0107abad5787597b1048c3428d025c7cd2b48388b4419467",
+    "tests/local-tool-documents.memory.ts": "7ca10390feabe044f49d462068c43f74ffe9604bd5857f8a10b6940f820d2795",
+    "tests/local-tool-documents.scenario.ts": "909a6997711e0958c962afe4ff659a8db34c17cdcb1f55f6bfde7193ab89714b",
+    "tests/local-tool-documents.transport.cjs": "9af2050874d4b4e8bfd9bd8b53f9775c3d758a00d8f050ee450fe4485dcada7b",
+    "tests/local-tool-documents.transport.renderer.ts": "9e990b8d15e49957c356dac49433118b7a9c69a93fd82b8aae7079fd17da0f18",
+    "tests/local-tool-documents.ui.browser.tsx": "de6b36cf31b2a217d77460f8c67a90c7709b7a9660c075f80a840287b40793b3"
+  },
+  "necessaryPriorCDependencies": {
+    "docs/local-tool-sdk.md": {
+      "C": "9299146e4311bc2217f874f85544ee86f0e207830fb8a582245aa43c7f5bc03c",
+      "D1": "7ca67885e51c340b41653b5e2851b362b5680d5afaa5bb6a10f11caf713c1fb6"
+    },
+    "src/engines/local/bridge.ts": {
+      "C": "e018f1e2fde07a89f23efda214484533660b2bc66400c4742f50dc90d748d73f",
+      "D1": "d3adafb22408c02f72f32125c164f864bf156a4414df5dbe4508bc431befabf0"
+    },
+    "src/engines/local/examples/LinkedNotebook.tsx": {
+      "C": "6237b1d415a7d004b82a81de14e2e33cda5a09f82ff0cec498677d560ea19983",
+      "D1": "a4e119dc4cbcb050a65f6769eff6d702ed171c019740cb2fd71d0c4ab5695a8d"
+    },
+    "src/engines/local/manifest.ts": {
+      "C": "55f1909b6cc34fdd025e986c6de39489349e81a2cc191f85264b6b83734e9ecf",
+      "D1": "a72cd0c5890fe21516917ae0f2f9b8db92e6d839ab4366804caec946cd96a120"
+    },
+    "src/engines/local/references.ts": {
+      "C": "ff3c791e8a48150ad452b346691a409016bb836188c4ed067bc650e995762d0e",
+      "D1": "982403fdc13a8eded56982173d2108237ae5ee36963a82aee9e567837b1eb437"
+    },
+    "src/engines/local/registry.tsx": {
+      "C": "6ad5186f96613504b2ab53f535db81f6f65423e2b9e5b8081c46e33a58688a3d",
+      "D1": "8ba63206dc6529f8a6829ad5cb8d6c6274aa118a2681665aa84c4872c32356dc"
+    },
+    "src/engines/local/releases.ts": {
+      "C": "156427c77fc07761a183cd3f57fde62dec6d2bd80eee4b19649a2b8ef240c1d7",
+      "D1": "d082333e1253b942115e714989d758ec0adb82e245c1dd276241760df940b0c5"
+    },
+    "src/engines/local/sdk.ts": {
+      "C": "b0ca88a645a4421d44275f550733c161422e9579e0e70c5145a34def28f558d9",
+      "D1": "9a85ead0a3a2e78f7a0be9d22d0ab0c49ed8ec1ac0b5c21107337459488ad84e"
+    },
+    "src/engines/local/stateRuntime.ts": {
+      "C": "0d0b898d21a98a0b8b3b09bc80feb2378c89d4c51352a897d6778f5d504a9d74",
+      "D1": "3aa844d89b0d3c3ff8ac4e23a47a036fd274640a68ef1ebd2d6d0a18f593e1d7"
+    },
+    "src/engines/local/storage.ts": {
+      "C": "14860f7e3f91081de1856408b6dbdce38951967920fae89d5157babda77384ae",
+      "D1": "89d0a3c7c682cab5079b79fc58880113502243030f55ec1db5b03fe8bc057110"
+    },
+    "src/engines/local/testing.ts": {
+      "C": "1327d326e6df5bb81cbd82697296cb1b589297768af33fd2b0e1c285af64965d",
+      "D1": "6f1a0e8fb454739b0af57578e6e4374da9aa893d8031e3eb5c6599b75c1713c3"
+    }
+  },
+  "rootOwnedSeams": [
+    "src/types/index.ts Project.sourceToolDocuments",
+    "src/services/projectArchiveMetadata.ts validation/legacy-preserve",
+    "src/services/worldMetadata.ts Base clone remap/Library dynamic availability",
+    "src/db/operations.ts metadata normal JSON/full",
+    "src/services/zipBackup.ts metadata ZIP",
+    "src/services/worldEras/portability.ts pure local-tool remap branch"
+  ],
+  "checks": [
+    "npm run typecheck:renderer PASS",
+    "Scoped eslint SDK/Library/archive/era/store/history/search PASS",
+    "electron tests/local-tool-documents.transport.cjs PASS native stdio and identical no-DB fixture scenario plus normal reset/restore/History invalidation",
+    "electron scripts/run-codex-properties-ui.cjs tests/local-tool-documents.browser.tsx testSourceToolDocuments PASS4groups",
+    "electron scripts/run-codex-properties-ui.cjs tests/local-tool-documents.ui.browser.tsx testSourceToolDocumentsUi PASS4groups actual native input/CSS1440/640; asynchronous act warnings retained",
+    "electron scripts/run-codex-properties-ui.cjs tests/document-history.browser.ts testDocumentHistory PASS16kinds4groups",
+    "history-import-order adapters-first and db-first real isolated renderer PASS",
+    "node tests/local-tool-author-kit.node.cjs PASS5groups/noDB",
+    "node tests/local-tool-codec.node.cjs PASS4groups",
+    "electron tests/local-tool-author-transport.cjs PASS",
+    "electron tests/local-tool-codec.transport.cjs PASS",
+    "electron tests/local-tool-releases.runner.cjs PASS3groups real Vite packages/UI/MCP",
+    "local-tool-releases.browser testLocalToolReleases PASS4groups",
+    "local-tool-sdk.browser testLocalToolSdk PASS6groups",
+    "local-tool-codec.browser testLocalToolCodecPortability PASS2groups",
+    "git diff --check own tracked paths PASS (CRLF normalization warnings only)"
+  ],
+  "captures": {
+    "work/local-sdk-D1/local-source-documents-1440.png": "aaea7a4a0d5a778663f27475092c7bb1f5cb8d96b1e0284b1cf3889559ee0d9a",
+    "work/local-sdk-D1/local-source-documents-640.png": "31d11845c80d6f16685aabc997d73a552f0a4f759c3f314b8db83fa7aa79c3f3"
+  },
+  "reviewFixes": {
+    "status": "Independent reviewer authoring_finish_final repeated unchanged oracle, native4groups, lifetime StrictMode and five retained-state cases: SHIP limited to D1; all61 source hashes matched.",
+    "originalOracleSha256": "b45a3e3f687afeaeaa99d51a570e187762978352ae63dc1f1dc4238610fbe833",
+    "originalFailLogsPreserved": true,
+    "ownPostfixLog": "work/local-sdk-D1-fixes/own-reproduction-after.log",
+    "checks": [
+      "Original independent-D1.browser.tsx unchanged: four groups, findings:[]",
+      "Retarget lifetime during pending flush in StrictMode PASS",
+      "Five isolated retained-state pin cases PASS",
+      "D1 native stdio four groups incl hidden-state pin refusal and normal restore PASS",
+      "D1 native UI StrictMode actualCSS1440/640 PASS",
+      "D1 service4groups PASS",
+      "B pin/metadata portability4groups PASS",
+      "Renderer tsc/leaf lint/diffcheck PASS"
+    ],
+    "independentReport": "C:/Users/luism/Documents/Codex/2026-10-20/fun-with-qwen-image-2-x20/work/worldcraft1041-D1-independent-review.md",
+    "independentProvenance": "C:/Users/luism/Documents/Codex/2026-10-20/fun-with-qwen-image-2-x20/work/worldcraft1041-D1-independent-after-provenance.json"
+  }
+}

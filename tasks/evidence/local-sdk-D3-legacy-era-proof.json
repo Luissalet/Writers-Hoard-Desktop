@@ -1,0 +1,54 @@
+{
+  "portabilityPassGroups": 4,
+  "logs": [
+    {
+      "sha256": "8c7753389374d348469712ec2c0340d055cc669b375a9137447b5f106ecade29",
+      "path": "D:\\LocalAI\\projectlesswork\\worldcraft1041-tool-dock-legacy-era-before.log"
+    },
+    {
+      "sha256": "3fff4c0494d4acb43f95054323ea1cc7807cf3dc3e8c2fc603d03cb95df0bd7f",
+      "path": "D:\\LocalAI\\projectlesswork\\worldcraft1041-tool-dock-legacy-era-full-final.log"
+    },
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "path": "D:\\LocalAI\\projectlesswork\\worldcraft1041-tool-dock-legacy-era-full-final.err.log"
+    },
+    {
+      "sha256": "22996d0c0a6a7138a523949638d98ed89365b6c7f357d3df49ce061cdf0671c9",
+      "path": "D:\\LocalAI\\projectlesswork\\worldcraft1041-tool-dock-portability-era-final.log"
+    },
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "path": "D:\\LocalAI\\projectlesswork\\worldcraft1041-tool-dock-portability-era-final.err.log"
+    },
+    {
+      "sha256": "c13c9a3963a9c6183ed3ee31f5f3448041a66c568ed1184b9f531c66a0f85e03",
+      "path": "D:\\LocalAI\\projectlesswork\\worldcraft1041-renderer-legacy-era-final.log"
+    }
+  ],
+  "status": "author_verified_independent_pending",
+  "sources": [
+    {
+      "sha256": "6b89ece67244c17b2f6af447fb2519b6145b1a1f9f980aac3fc2b7d3bd037968",
+      "path": "src/services/projectArchiveMetadata.ts"
+    },
+    {
+      "sha256": "ae5ad9bb273ee8cf6799f31e40214dd867fa83448177824230daae33682a2558",
+      "path": "src/db/operations.ts"
+    },
+    {
+      "sha256": "5e5f33107f5c267e7f65658dc64093901c4677a49fcf630b529db6b3061ee7c1",
+      "path": "src/services/zipBackup.ts"
+    },
+    {
+      "sha256": "64da4fe4f35584b141529d0d6877913a11e2995ae03f9ce32c70a70692215f61",
+      "path": "tests/tool-dock-portability.browser.ts"
+    },
+    {
+      "sha256": "31d3ab52b8e46d6bf3e2d83bc5faab688577e582be5db61bf025c7674e35ad9e",
+      "path": "tasks/local-sdk-D3-legacy-era-addendum.md"
+    }
+  ],
+  "legacyEraPassGroups": 1,
+  "rendererExitCode": 0
+}

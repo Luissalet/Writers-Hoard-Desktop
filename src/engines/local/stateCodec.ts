@@ -1,0 +1,28 @@
+/** Portable opt-in state identities; no database or application bootstrap. */
+import {eraDocumentKinds,type EraDocumentKind} from '@/services/worldEras/types';
+import {cloneLocalToolJson,localToolNamespace,type LocalToolJson,type LocalToolStates} from './stateTypes';
+export type LocalToolDocumentReference={kind:EraDocumentKind;documentId:string}
+export type LocalToolFieldCodec={kind:'scalar'|'prose'|'reference'}|{kind:'map';referenceValues?:true}|{kind:'list';idKey:string;referenceKey?:string};
+export interface LocalToolStateCodec {version:1;fields:Record<string,LocalToolFieldCodec>}
+export type LocalToolContracts=Record<string,LocalToolStateCodec>;
+export const LOCAL_TOOL_CONTRACTS_KEY='localToolContracts' as const;
+export const localToolFieldKey=(key:unknown):key is string=>typeof key==='string'&&!!key&&!['__proto__','constructor','prototype'].includes(key);
+const object=(value:unknown):value is Record<string,LocalToolJson>=>!!value&&typeof value==='object'&&!Array.isArray(value);
+export function validateLocalToolReference(value:unknown):asserts value is LocalToolDocumentReference{if(!object(value)||Object.keys(value).length!==2||!eraDocumentKinds.includes(value.kind as EraDocumentKind)||typeof value.documentId!=='string'||!value.documentId)throw Error('local_tool_reference_invalid');}
+export function validateLocalToolCodec(value:unknown):asserts value is LocalToolStateCodec{
+ const safe=cloneLocalToolJson(value as LocalToolJson);if(!object(safe)||safe.version!==1||Object.keys(safe).length!==2||!object(safe.fields))throw Error('local_tool_codec_invalid');
+ for(const [key,field]of Object.entries(safe.fields)){if(!localToolFieldKey(key)||!object(field))throw Error('local_tool_codec_invalid');const keys=Object.keys(field);if(field.kind==='scalar'||field.kind==='prose'||field.kind==='reference'){if(keys.length!==1)throw Error('local_tool_codec_invalid');}else if(field.kind==='map'){if(keys.some(key=>!['kind','referenceValues'].includes(key))||field.referenceValues!==undefined&&field.referenceValues!==true)throw Error('local_tool_codec_invalid');}else if(field.kind==='list'){if(!localToolFieldKey(field.idKey)||field.referenceKey!==undefined&&(!localToolFieldKey(field.referenceKey)||field.referenceKey===field.idKey)||keys.some(key=>!['kind','idKey','referenceKey'].includes(key)))throw Error('local_tool_codec_invalid');}else throw Error('local_tool_codec_invalid');}
+}
+export function validateLocalToolContracts(value:unknown):asserts value is LocalToolContracts|undefined{if(value===undefined)return;const safe=cloneLocalToolJson(value as LocalToolJson);if(!object(safe))throw Error('local_tool_contracts_invalid');for(const [namespace,codec]of Object.entries(safe)){if(!localToolNamespace(namespace))throw Error('local_tool_contracts_invalid');validateLocalToolCodec(codec);}}
+export function validateLocalToolCodecState(data:LocalToolJson,codec:LocalToolStateCodec):void{
+ validateLocalToolCodec(codec);const safe=cloneLocalToolJson(data);if(!object(safe))throw Error('local_tool_codec_state_invalid');
+ for(const [key,field]of Object.entries(codec.fields)){const value=safe[key];if(value===undefined)continue;if(field.kind==='reference'){if(value!==null)validateLocalToolReference(value);}else if(field.kind==='prose'){if(typeof value!=='string')throw Error('local_tool_codec_state_invalid');}else if(field.kind==='map'){if(!object(value))throw Error('local_tool_codec_state_invalid');if(field.referenceValues)for(const reference of Object.values(value))if(reference!==null)validateLocalToolReference(reference);}else if(field.kind==='list'){if(!Array.isArray(value))throw Error('local_tool_codec_state_invalid');const ids=new Set<string>();for(const item of value){if(!object(item)||typeof item[field.idKey]!=='string'||!item[field.idKey]||ids.has(item[field.idKey] as string))throw Error('local_tool_codec_state_invalid');ids.add(item[field.idKey] as string);if(field.referenceKey&&item[field.referenceKey]!==undefined&&item[field.referenceKey]!==null)validateLocalToolReference(item[field.referenceKey]);}}}
+}
+/** Remap declared references only; opaque strings/prose and stable local item IDs remain exact. */
+export function remapLocalToolReferences<T extends LocalToolJson>(data:T,codec:LocalToolStateCodec,remap:(kind:EraDocumentKind,id:string)=>string):T{
+ validateLocalToolCodecState(data,codec);const next=cloneLocalToolJson(data) as Record<string,LocalToolJson>;const ref=(value:LocalToolJson)=>{if(value===null)return value;validateLocalToolReference(value);return{kind:value.kind,documentId:remap(value.kind,value.documentId)};};
+ for(const [key,field]of Object.entries(codec.fields)){const value=next[key];if(value===undefined)continue;if(field.kind==='reference')next[key]=ref(value);else if(field.kind==='map'&&field.referenceValues)next[key]=Object.fromEntries(Object.entries(value as Record<string,LocalToolJson>).map(([name,value])=>[name,ref(value)]));else if(field.kind==='list'&&field.referenceKey){const referenceKey=field.referenceKey;next[key]=(value as Record<string,LocalToolJson>[]).map(item=>({...item,...(item[referenceKey]!==undefined?{[referenceKey]:ref(item[referenceKey])}:{})}));}}
+ return next as T;
+}
+
+export function validateLocalToolContractStates(project:{localToolContracts?:unknown;localToolStates?:LocalToolStates;worldEras?:readonly {localToolStates?:LocalToolStates}[]}):void{validateLocalToolContracts(project.localToolContracts);for(const [namespace,codec]of Object.entries(project.localToolContracts??{}))for(const states of [project.localToolStates,...(project.worldEras??[]).map(era=>era.localToolStates)])if(states?.[namespace])validateLocalToolCodecState(states[namespace].data,codec);}

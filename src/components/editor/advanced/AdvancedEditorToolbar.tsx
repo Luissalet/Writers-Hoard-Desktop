@@ -1,8 +1,8 @@
 import { useEditorState, type Editor } from '@tiptap/react';
 import { useSyncExternalStore } from 'react';
 import { AlignLeft, AlignCenter, AlignRight, AlignJustify, IndentIncrease, IndentDecrease, Subscript, Superscript, Table2, Scissors, RemoveFormatting } from 'lucide-react';
-import { applyAdvancedFormatting } from './extensions';
-import { FONT_FAMILIES, PARAGRAPH_STYLES, type AdvancedFormatting } from './model';
+import { applyAdvancedFormatting,insertSceneBreak } from './extensions';
+import { FONT_FAMILIES, PARAGRAPH_STYLES,SCENE_BREAK_STYLES, type AdvancedFormatting,type SceneBreakStyle } from './model';
 
 export const ADVANCED_EDITOR_COPY = {
   es: { toolbar: 'Formato avanzado', font: 'Fuente', size: 'Tamaño', style: 'Estilo de párrafo', line: 'Interlineado', color: 'Color de texto', highlight: 'Resaltado', clear: 'Quitar formato', left: 'Alinear a la izquierda', center: 'Centrar', right: 'Alinear a la derecha', justify: 'Justificar', indent: 'Aumentar sangría', outdent: 'Reducir sangría', sub: 'Subíndice', sup: 'Superíndice', page: 'Salto de página', table: 'Tabla', insert: 'Insertar tabla 3 × 3', row: 'Añadir fila', column: 'Añadir columna', deleteRow: 'Eliminar fila', deleteColumn: 'Eliminar columna', merge: 'Combinar celdas', split: 'Dividir celda', header: 'Alternar encabezado', deleteTable: 'Eliminar tabla', inherit: 'Predeterminada', serif: 'Serif', sans: 'Sans serif', mono: 'Monoespaciada', normal: 'Normal', lead: 'Entrada', quote: 'Cita', caption: 'Pie de figura', none: 'Predeterminado', noColor: 'Quitar color', noHighlight: 'Quitar resaltado' },
@@ -16,6 +16,7 @@ const LINE_HEIGHTS = [1, 1.15, 1.5, 2, 2.5, 3];
 
 export default function AdvancedEditorToolbar({ editor, locale = 'es' }: { editor: Editor; locale?: 'es' | 'en' }) {
   const copy = ADVANCED_EDITOR_COPY[locale];
+  const editorial=locale==='es'?{caps:'Versalitas',drop:'Capitular',first:'Primera línea (em)',break:'Separador de escena',line:'Línea',asterism:'Asterismo',dots:'Puntos',diamond:'Diamante',space:'Espacio'}:{caps:'Small caps',drop:'Drop cap',first:'First line (em)',break:'Scene break',line:'Line',asterism:'Asterism',dots:'Dots',diamond:'Diamond',space:'Space'};
   const editable = useSyncExternalStore(listener => {
     editor.on('update', listener); editor.on('transaction', listener);
     return () => { editor.off('update', listener); editor.off('transaction', listener); };
@@ -56,6 +57,10 @@ export default function AdvancedEditorToolbar({ editor, locale = 'es' }: { edito
       <option value="">{copy.line}</option>{LINE_HEIGHTS.map(value => <option key={value} value={value}>{value}</option>)}
       {state.block.lineHeight && !LINE_HEIGHTS.includes(state.block.lineHeight) && <option value={state.block.lineHeight}>{state.block.lineHeight}</option>}
     </select>
+    <button type="button" className={`${button} px-2`} aria-label={editorial.caps} aria-pressed={state.inline.smallCaps===true} disabled={!editable} onMouseDown={event=>event.preventDefault()} onClick={()=>apply({smallCaps:state.inline.smallCaps!==true})}>{editorial.caps}</button>
+    <button type="button" className={`${button} px-2`} aria-label={editorial.drop} aria-pressed={state.block.dropCap===true} disabled={!editable} onMouseDown={event=>event.preventDefault()} onClick={()=>apply({dropCap:state.block.dropCap!==true})}>{editorial.drop}</button>
+    <label className="inline-flex items-center gap-1 text-xs text-text-primary">{editorial.first}<input type="number" min="0" step="0.25" className={`${control} w-16`} aria-label={editorial.first} disabled={!editable} value={state.block.firstLineIndent??''} placeholder="—" onChange={event=>{if(event.target.value===''||Number.isFinite(event.target.valueAsNumber))applyAdvancedFormatting(editor,{firstLineIndent:event.target.value===''?0:event.target.valueAsNumber});}}/></label>
+    <select className={control} aria-label={editorial.break} disabled={!editable} value="" onChange={event=>{if(!event.target.value)return;const ornament=event.target.value as SceneBreakStyle;if(editor.isActive('horizontalRule'))apply({ornament});else{editor.commands.focus();insertSceneBreak(editor,ornament);}}}><option value="">{editorial.break}</option>{SCENE_BREAK_STYLES.map(style=><option key={style} value={style}>{editorial[style]}</option>)}</select>
     <label className="inline-flex items-center gap-1 text-xs text-text-primary">{copy.color}<input className="h-7 w-7 cursor-pointer rounded border border-border" type="color" aria-label={copy.color} disabled={!editable} value={state.inline.color ?? '#000000'} onChange={event => apply({ color: event.target.value })} /></label>
     <button type="button" className={button} title={copy.noColor} aria-label={copy.noColor} disabled={!editable || !state.inline.color} onMouseDown={event => event.preventDefault()} onClick={() => apply({ color: null })}><RemoveFormatting size={14} /></button>
     <label className="inline-flex items-center gap-1 text-xs text-text-primary">{copy.highlight}<input className="h-7 w-7 cursor-pointer rounded border border-border" type="color" aria-label={copy.highlight} disabled={!editable} value={state.inline.highlight ?? '#fff2a8'} onChange={event => apply({ highlight: event.target.value })} /></label>
@@ -70,6 +75,6 @@ export default function AdvancedEditorToolbar({ editor, locale = 'es' }: { edito
       <option value="">{copy.table}</option><option value="insert">{copy.insert}</option>
       {(['row', 'column', 'deleteRow', 'deleteColumn', 'merge', 'split', 'header', 'deleteTable'] as const).map(action => <option key={action} value={action} disabled={!state.table}>{copy[action]}</option>)}
     </select></label>
-    <button type="button" className={button} title={copy.clear} aria-label={copy.clear} disabled={!editable} onMouseDown={event => event.preventDefault()} onClick={() => { apply({ fontFamily: 'inherit', fontSize: null, color: null, highlight: null, alignment: 'left', lineHeight: null, indent: 0, paragraphStyle: 'normal', subscript: false, superscript: false }); editor.chain().focus().unsetAllMarks().run(); }}><RemoveFormatting size={15} /></button>
+    <button type="button" className={button} title={copy.clear} aria-label={copy.clear} disabled={!editable} onMouseDown={event => event.preventDefault()} onClick={() => { apply({ fontFamily: 'inherit', fontSize: null, color: null, highlight: null, alignment: 'left', lineHeight: null, indent: 0, firstLineIndent:0,dropCap:false,smallCaps:false,paragraphStyle: 'normal', subscript: false, superscript: false }); editor.chain().focus().unsetAllMarks().run(); }}><RemoveFormatting size={15} /></button>
   </div>;
 }

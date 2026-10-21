@@ -1,0 +1,6 @@
+import type { BridgeTool } from '@/services/aiBridge/schema';
+export const VISUAL_SEARCH_TOOLS: BridgeTool[] = [
+  { name: 'wh_visual_search_status', writes: false, group: 'visual', description: 'Read on-device visual image search readiness. No model is started and no network request is made.', schema: { type: 'object', properties: {} } },
+  { name: 'wh_visual_search_prepare', writes: true, group: 'visual', timeoutMs: 600000, description: 'Prepare CPU visual image search. Downloads fixed multilingual CLIP model assets once; images and queries are never uploaded. Later search works offline.', schema: { type: 'object', properties: {} } },
+  { name: 'wh_visual_search_images', writes: false, group: 'visual', engineId: 'gallery', timeoutMs: 600000, description: 'Rank this project’s Gallery images by their actual pixels against a description in Spanish, English or another supported language. Uses the prepared local CPU model, never filenames/tags or remote inference. Scores are cosine similarity, not probabilities. Returns failures explicitly. Gallery is project-wide across eras.', schema: { type: 'object', properties: { projectId: { type: 'string' }, query: { type: 'string' }, collectionId: { type: 'string' } }, required: ['query'] } },
+];

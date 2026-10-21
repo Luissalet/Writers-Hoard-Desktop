@@ -1,3 +1,5 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
 import { useEffect, useState } from 'react';
 import { liveQuery } from 'dexie';
 import { Plus, Search, User, HelpCircle, Image as ImageIcon, X } from 'lucide-react';
@@ -104,13 +106,15 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const [showForm, setShowForm] = useState(false);
   const [savingForm, setSavingForm] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
-  const [drafts] = useState(() => codexDraftStore(projectId));
+  const scope = useWorldEraScope(projectId);
+  const [drafts] = useState(() => codexDraftStore(projectId, scope.eraId));
   const [editEntry, setEditEntry] = useState<CodexEntry | null>(null);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<CodexEntryType | 'all'>('all');
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const selectedEntry = entries.find(entry => entry.id === selectedEntryId && entry.projectId === projectId) ?? null;
 
+  const selectedProjection = selectedEntry ? projectCodexEntry(selectedEntry, project?.codexTemplates ?? []) : undefined;
   const selectedTemplateSource = project?.codexTemplates?.find(template => template.id === selectedEntry?.templateId);
   const selectedTemplate = selectedTemplateSource ? effectiveCodexTemplate(selectedTemplateSource, project?.codexTemplates ?? []) : undefined;
 
@@ -169,7 +173,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   }, [projectId, characterOpened, appearanceIndex]);
 
   const typeEntries = entries.filter(e => (filterType === 'all' || e.type === filterType) && (!filterTemplate || templateIsWithin(e.templateId, filterTemplate, project?.codexTemplates ?? [])));
-  const filtered = search.trim() ? searchEntries(search, typeEntries, typeEntries.length) : typeEntries;
+  const filtered = search.trim() ? searchEntries(search, typeEntries.map(entry => ({ ...entry, fields: projectCodexEntry(entry, project?.codexTemplates ?? []).fields })), typeEntries.length).map(found => typeEntries.find(entry => entry.id === found.id)!) : typeEntries;
 
   const types: (CodexEntryType | 'all')[] = ['all', 'character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
 
@@ -327,10 +331,10 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
 
             {/* Fields */}
             <div className="grid grid-cols-2 gap-3">
-              {Object.entries(selectedEntry.fields).filter(([key, v]) => v && !isAliasField(key)).map(([key, value]) => (
+              {Object.entries(selectedProjection?.fields ?? selectedEntry.fields).filter(([key, v]) => v && !isAliasField(key)).map(([key, value]) => (
                 <div key={key} className="p-3 bg-elevated rounded-lg">
-                  <div className="text-xs text-text-muted mb-1 capitalize">{key.replace(/([A-Z])/g, ' $1')}</div>
-                  <div className="text-sm text-text-primary">{value}</div>
+                  <div className="text-xs text-text-muted mb-1 capitalize">{selectedProjection?.properties[key]?.label ?? key.replace(/([A-Z])/g, ' $1')}</div>
+                  <div className="text-sm text-text-primary">{selectedProjection?.properties[key]?.displayValue??value}</div>
                 </div>
               ))}
             </div>
@@ -369,7 +373,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             </div>
 
             <div className="flex gap-3 pt-2">
-              <button type="button" onClick={() => { const seed = templateFromEntry(selectedEntry, generateId('codex-template'), selectedEntry.title, Date.now()); const source = project?.codexTemplates?.find(template => template.id === selectedEntry.templateId); setTemplateSeed({ ...seed, ...effectiveTemplatePresentation(source,project?.codexTemplates??[]),referenceFieldDefinitions: source ? effectiveCodexTemplate(source, project?.codexTemplates ?? []).referenceFieldDefinitions : seed.referenceFieldDefinitions }); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.fromEntry')}</button>
+              <button type="button" onClick={() => { const source = project?.codexTemplates?.find(template => template.id === selectedEntry.templateId); const seed = templateFromEntry(selectedEntry, generateId('codex-template'), selectedEntry.title, Date.now(), source ? propertyDefinitions(effectiveCodexTemplate(source, project?.codexTemplates ?? [])) : selectedEntry.propertyDefinitions); setTemplateSeed({ ...seed, ...effectiveTemplatePresentation(source,project?.codexTemplates??[]),referenceFieldDefinitions: source ? effectiveCodexTemplate(source, project?.codexTemplates ?? []).referenceFieldDefinitions : seed.referenceFieldDefinitions }); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.fromEntry')}</button>
               <button
                 onClick={() => { setSelectedEntryId(null); setEditEntry(selectedEntry); }}
                 className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"

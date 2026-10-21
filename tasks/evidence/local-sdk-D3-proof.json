@@ -1,0 +1,408 @@
+{
+  "format": "worldcraft1041-local-sdk-D3-proof/1",
+  "frozenAt": "2026-10-21T00:07:58.228434+00:00",
+  "status": "implemented-frozen-awaiting-independent-review",
+  "workspace": "D:\\LocalAI\\worktrees\\writer-worldcraft1041",
+  "uiProfile": "C:\\Users\\luism\\AppData\\Local\\Temp\\wh-codex-properties-ui-RFgztm",
+  "product": [
+    {
+      "path": "src/engines/writings/toolDock/DocumentDockBlock.tsx",
+      "sha256": "6ebf7a218761b4d7d4f6e49841c747e080522755568350ced15d803ffd33d00b",
+      "bytes": 3360
+    },
+    {
+      "path": "src/engines/writings/toolDock/SourceDockBlock.tsx",
+      "sha256": "0c659b7ff5f10f760d6e678ea9b341d1747696e0aad2d1d067c1f0fa3c96d968",
+      "bytes": 6302
+    },
+    {
+      "path": "src/engines/writings/toolDock/ToolDock.tsx",
+      "sha256": "47702237647d2b5b69f5836bec8452920cdd4a74c809f1cc7983657d0f4a0532",
+      "bytes": 17668
+    },
+    {
+      "path": "src/engines/writings/toolDock/ToolDockPanel.tsx",
+      "sha256": "90ad7563ee5304403aadd00a9937d000dbefcbc26854d7b98f184671c8a4f8ad",
+      "bytes": 1420
+    },
+    {
+      "path": "src/engines/writings/toolDock/authoredSave.ts",
+      "sha256": "3c31c654dae98daa5499e660caf76ad9968540f9ff787cb40aba7afe2a0f5873",
+      "bytes": 1416
+    },
+    {
+      "path": "src/engines/writings/toolDock/bridge.ts",
+      "sha256": "bbff69b5a2346b88c57556e2cac241bca3960b3158cf2697c6095476e69f9b82",
+      "bytes": 2104
+    },
+    {
+      "path": "src/engines/writings/toolDock/bridgeManifest.ts",
+      "sha256": "6ce3d84c030ed861745d0d631bd0702dcf0116d565e74d91ade4ffe84f20f726",
+      "bytes": 2297
+    },
+    {
+      "path": "src/engines/writings/toolDock/pending.ts",
+      "sha256": "56cf38ea8a8100b3c0d8b65e346b224014abf6176820a92a7496613d056b0e4c",
+      "bytes": 867
+    },
+    {
+      "path": "src/engines/writings/toolDock/store.ts",
+      "sha256": "5227f4c829e6bd7173ca7abbfd235b8063791d41c7f0eef3318f34ef0365e3f2",
+      "bytes": 14159
+    },
+    {
+      "path": "src/engines/writings/toolDock/types.ts",
+      "sha256": "011378a5c3e6696e0a02b1e4bd9733aeafcd4e129d4f5402d9e6d11a892c7529",
+      "bytes": 5583
+    },
+    {
+      "path": "src/engines/writings/components/WritingsView.tsx",
+      "sha256": "c21da62a299a84f96473ee753dbb8bc97dcd7e65796cb57f80d000fbe3572e7b",
+      "bytes": 165508
+    },
+    {
+      "path": "src/engines/writings/components/BookEditor.tsx",
+      "sha256": "0e89eae86f2d68c09db65cdc05c0028c14be850871177e79c0832eaa5ea36309",
+      "bytes": 65393
+    },
+    {
+      "path": "src/engines/writings/bookSave.ts",
+      "sha256": "f3a993893e9a1980de9805eb0e5433e7aabe87eed83b0dc5238a0a59180de53b",
+      "bytes": 17265
+    },
+    {
+      "path": "src/engines/local/blocks/client.ts",
+      "sha256": "0a893f00a090d2c93b24235b1c5f7970197dc72b245dba9bcfdf62bee2bd5c50",
+      "bytes": 3283
+    },
+    {
+      "path": "src/engines/local/blocks/types.ts",
+      "sha256": "3b89f1b62c02e5cf414ec9a695e2cafa9de3f46d9034f6d181ecc8f1b8b7693e",
+      "bytes": 7086
+    },
+    {
+      "path": "src/engines/local/sdk.ts",
+      "sha256": "02f1218945ee58a4aa08ffe0e3f4b7256da6eed316f4d400feda22dd6523cd6a",
+      "bytes": 7392
+    },
+    {
+      "path": "src/engines/local/releases.ts",
+      "sha256": "f424e903452ac59a2fa6b401760d0e0939cf2814cf3789f7c266f5a6cdafe31a",
+      "bytes": 5859
+    }
+  ],
+  "tests": [
+    {
+      "path": "tests/tool-dock-types.node.ts",
+      "sha256": "d9eda3fc35020c42dd8c6382b2333b896c3079486568582200e30181d5855cef",
+      "bytes": 3978
+    },
+    {
+      "path": "tests/tool-dock-types.node.cjs",
+      "sha256": "6c2bca3a8e614ac07b7728ef0eeb61d5a848384ab1a3c5d37aac1b92bfbd963d",
+      "bytes": 736
+    },
+    {
+      "path": "tests/tool-dock.browser.ts",
+      "sha256": "cbbf65494c1ce84f58608ab0a6ac6dd85e6cbc520325b2919c914dc97375a41e",
+      "bytes": 7223
+    },
+    {
+      "path": "tests/tool-dock-adversarial.browser.tsx",
+      "sha256": "949e853fc1b64a666a7f3149b3d4ac0c2379902541c5da45e00923178a8a9269",
+      "bytes": 20337
+    },
+    {
+      "path": "tests/tool-dock-ui.browser.tsx",
+      "sha256": "b4a1eff476eaecdde8c9a57e6153908b91267862c29e40dc4c062b210f3eaab0",
+      "bytes": 14243
+    },
+    {
+      "path": "tests/tool-dock-ui.runner.cjs",
+      "sha256": "81ae0c7e661756d494191ba4d8568e0cb92bec724737a83a1db04a763b227c1c",
+      "bytes": 653
+    },
+    {
+      "path": "tests/tool-dock.native.browser.ts",
+      "sha256": "ed3bdfe39e87bcc46c0c3f16dcc6075f8ebd1cd2bd9cc5d2e0c42790aa03badd",
+      "bytes": 2820
+    },
+    {
+      "path": "tests/tool-dock.transport.cjs",
+      "sha256": "9d8b8cee47a9904a34ab18d5f62acf50059fd2bb28315be1503f88dbb6465a9a",
+      "bytes": 7523
+    },
+    {
+      "path": "tests/tool-dock-retained.browser.ts",
+      "sha256": "ff6987da567ce829a000be707dcf60615f720abc7936c7f62c265977d26465be",
+      "bytes": 3718
+    },
+    {
+      "path": "tests/tool-dock-portability.browser.ts",
+      "sha256": "ab4a6e3872551e68cad27d8cd50b5a362b20213d8cb35b23886c9c31bcc468bf",
+      "bytes": 13585
+    }
+  ],
+  "regressionOracles": [
+    {
+      "path": "tests/local-tool-blocks.browser.ts",
+      "sha256": "fe3f05e3bd72858ecc0b9812a45cb9e2c44482ad7b9d40a382b6183aefd7dd74",
+      "bytes": 4881
+    },
+    {
+      "path": "tests/local-tool-documents-retained.browser.ts",
+      "sha256": "c5e856943ef1e2bc157faf494397395107de3fe2b75ac41ed856194b144623e1",
+      "bytes": 4024
+    },
+    {
+      "path": "tests/local-tool-blocks-retained.browser.ts",
+      "sha256": "e3185a032242aa5a9170fc0c8bf921c3efc0a792d76bc05d28cca287a5bc5d28",
+      "bytes": 3180
+    },
+    {
+      "path": "tests/local-tool-document-host-lease.browser.tsx",
+      "sha256": "307a49e17e55b7ee081aab025e46d5d9d28b214611b34318ae8e3d38652e6ef8",
+      "bytes": 7445
+    },
+    {
+      "path": "scripts/run-codex-properties-ui.cjs",
+      "sha256": "a85d1c420bf8730b48d816553587b0a27c103bbd0be68800161b6a48549ca484",
+      "bytes": 7767
+    }
+  ],
+  "rootSeamSnapshot": [
+    {
+      "path": "src/types/index.ts",
+      "sha256": "4453cb9e49e400b9d958c506fc844820090e057f84f76d136458a20d5fd83893",
+      "bytes": 20644
+    },
+    {
+      "path": "src/services/worldEras/types.ts",
+      "sha256": "ec4fad5b2b031939dc0f1e5f4b5306e31787d96530d9393920766ea966bc878b",
+      "bytes": 2052
+    },
+    {
+      "path": "src/services/worldEras/store.ts",
+      "sha256": "2e67502d263792eb369a2c43055f0e82a466d47c710b7bc35301e310091fb835",
+      "bytes": 19948
+    },
+    {
+      "path": "src/services/worldEras/portability.ts",
+      "sha256": "8a06275126aaeee88dc14ff485173c818be5d19bfc2e70d3ae968a6f07782eac",
+      "bytes": 11294
+    },
+    {
+      "path": "src/services/worldMetadata.ts",
+      "sha256": "5c633d5121b73f192f43cc65a0afa62b0df82908c12fecffe29143f986cc7c58",
+      "bytes": 16238
+    },
+    {
+      "path": "src/services/projectArchiveMetadata.ts",
+      "sha256": "6db5df0bec5fd1042aa3c25ed7ad12a32ea86e657b963d1e509a8b2521e1de2d",
+      "bytes": 3294
+    },
+    {
+      "path": "src/services/zipBackup.ts",
+      "sha256": "3c058898e42714d2a8b5870ea4797ab311565f25e2f5172aa633884f0f9be6a5",
+      "bytes": 44845
+    },
+    {
+      "path": "src/db/operations.ts",
+      "sha256": "984d9baf38a9e2feccf9cf1208e64e2b1b78709778286e4e87e17cb524a1818e",
+      "bytes": 59567
+    },
+    {
+      "path": "src/services/aiBridge/manifest.ts",
+      "sha256": "5e6ade1638342ff20a15afaeefaea38e00eebf147759e57873f34695787c01c6",
+      "bytes": 72930
+    },
+    {
+      "path": "src/services/aiBridge/tools/index.ts",
+      "sha256": "1078d2e4c2bc05393bae31b63f0916de5941b54d727e9b45410019b9b9930d09",
+      "bytes": 20724
+    },
+    {
+      "path": "src/services/aiBridge/undo.ts",
+      "sha256": "cc0e3806225dcb6b06d4e47a8f6148c42229624df9533bc3c8c3ec3d59640e8b",
+      "bytes": 20586
+    },
+    {
+      "path": "src/hooks/localDraftStore.ts",
+      "sha256": "41045458110f8566c4c43e0022b3ab39f8715af3f83c270de6e39f028788ba59",
+      "bytes": 3647
+    },
+    {
+      "path": "src/services/worldEras/metadata.ts",
+      "sha256": "61a4ffcdf4cc12c682a98c5ee7f86c21fd238b9acf629c9d68208c74283060ce",
+      "bytes": 2172
+    }
+  ],
+  "logs": [
+    {
+      "path": "work/local-sdk-D3/authored-final.log",
+      "sha256": "962b68051f20538e6cc96f8963499e03b56997258271470d5c1340e9ee929db7",
+      "bytes": 274
+    },
+    {
+      "path": "work/local-sdk-D3/D1-retained-regression.log",
+      "sha256": "5000410bfe3e5ec8fabad1fe8090e9ad3c8efdec1d1a8c6c6bad2a11e68dd6bf",
+      "bytes": 298
+    },
+    {
+      "path": "work/local-sdk-D3/D2-blocks-regression.log",
+      "sha256": "a96dad6d7c26904981597a9b867f180fd681fc99a328efcb19e7ec0fee16145c",
+      "bytes": 349
+    },
+    {
+      "path": "work/local-sdk-D3/D2-lease-regression.log",
+      "sha256": "121e1fd6983b8746069cc0ceaf1ae54912640259ecc80ad8b3560c9be8e5f2b0",
+      "bytes": 2348
+    },
+    {
+      "path": "work/local-sdk-D3/D2-retained-regression.log",
+      "sha256": "f09f5189f79e7cfa034085f8b80ebe461501312f6dd9c041084b8ec42dc0c80f",
+      "bytes": 169
+    },
+    {
+      "path": "work/local-sdk-D3/global-undo-final.log",
+      "sha256": "c730360b72fdaf06fc02d1121bc01d16a641f4084a5a5cb574241fe0db8fb924",
+      "bytes": 146
+    },
+    {
+      "path": "work/local-sdk-D3/height-CAS-final.log",
+      "sha256": "b06e71efc43eca55a6ddd0587282c8d7efdef72a53e4f6386161679eb9f00f4f",
+      "bytes": 173
+    },
+    {
+      "path": "work/local-sdk-D3/lease-final.log",
+      "sha256": "fe9646b352c08987c07727e26223e11dfd0825136f44f08c1e3b2ee76c0d1a19",
+      "bytes": 735
+    },
+    {
+      "path": "work/local-sdk-D3/lint-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "work/local-sdk-D3/native-final.log",
+      "sha256": "3597451a49594dc1232497db1608b7f13b0e31444de9a119049b38f8f3423f86",
+      "bytes": 5403
+    },
+    {
+      "path": "work/local-sdk-D3/offline-recovery-final.log",
+      "sha256": "261995e3a416e40aa7a523244054f4d1eec80f6f18fd3b3a926b5a879d083361",
+      "bytes": 187
+    },
+    {
+      "path": "work/local-sdk-D3/portability-final.log",
+      "sha256": "d12679330b7822bfc8d16145eec95b309594e93fb70361b5fa5d0a50816954fb",
+      "bytes": 588
+    },
+    {
+      "path": "work/local-sdk-D3/pure-final.log",
+      "sha256": "769b8ca778d1645b326905d0f52bd4cdbf1f8adc9f73d633e799dd0729062fa9",
+      "bytes": 482
+    },
+    {
+      "path": "work/local-sdk-D3/renderer-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "work/local-sdk-D3/retained-final.log",
+      "sha256": "86625ac0e6b27b69281ca72733235d8a72309a01a45264f6ba47b5ac7315a462",
+      "bytes": 289
+    },
+    {
+      "path": "work/local-sdk-D3/service-final.log",
+      "sha256": "538869a0a47089a3988b3496d9e2e2d7bf7b4406e99b4af1f3450f5d6aa821cc",
+      "bytes": 407
+    },
+    {
+      "path": "work/local-sdk-D3/two-panes-final.log",
+      "sha256": "a11be854685bc8297dd2e79b9a3dc62bfa4a9a125a275eead7b9d43ceb24b040",
+      "bytes": 631
+    },
+    {
+      "path": "work/local-sdk-D3/ui-final.log",
+      "sha256": "694bbe661b57b99fcf62117008daf0f1fbb3540cc8799ae0100281ceb1d53cca",
+      "bytes": 7700
+    }
+  ],
+  "captures": [
+    {
+      "path": "work/local-sdk-D3/captures/D3-book-1440.png",
+      "sha256": "d51a807f171120f324af0ae6bea0992cb5498ccacbc6a4278701664061d15036",
+      "bytes": 73868
+    },
+    {
+      "path": "work/local-sdk-D3/captures/D3-book-640.png",
+      "sha256": "6c377a8ae75c74b9120531012a283295be86d8cf1d2d23bd3ff39d8544c0ab69",
+      "bytes": 54100
+    },
+    {
+      "path": "work/local-sdk-D3/captures/D3-chapter-1440.png",
+      "sha256": "df2460412a972c4a516bafae1064e094c9036f3c25bec19ed48b630f8d496cf0",
+      "bytes": 37468
+    },
+    {
+      "path": "work/local-sdk-D3/captures/D3-chapter-640.png",
+      "sha256": "99c30c948b0b6b84d2d866e58603d0e8ee2556c7cdc3bab490983909b24d5e43",
+      "bytes": 38315
+    },
+    {
+      "path": "work/local-sdk-D3/captures/D3-era-640.png",
+      "sha256": "e1d7174735f3c9630722babd0e4ea043636dd57b9428a0472127b6744ee03bd6",
+      "bytes": 38971
+    }
+  ],
+  "docs": [
+    {
+      "path": "tasks/local-sdk-D3-plan.md",
+      "sha256": "3bfa61718ebef0bb9a78e6f6821df2e6a1fd1367ce90c5b3c1477ea647005daa",
+      "bytes": 13532
+    },
+    {
+      "path": "tasks/local-sdk-D3-closure.md",
+      "sha256": "53214f468c442954de3d68b7de38ecc8e8d53c343d689b30e460273611b7c0fb",
+      "bytes": 6943
+    }
+  ],
+  "limits": [
+    "No CRDT/online collaboration or VVD API compatibility claim",
+    "Dock is authoring sidecar, not automatic Reader/wiki manuscript content",
+    "Project default has session Undo; Writing override uses normal document history",
+    "Source code remains compiled locally; absent code renders saved semantic preview",
+    "Opaque source internal UI draft must use normal SDK pending/recovery contracts; host does not infer private React state"
+  ],
+  "diagnostics": {
+    "pointerDriver": "9RvFRZ trace pointermove.buttons=0; final driver uses Electron leftButtonDown modifier. Original Temp artifacts preserved.",
+    "mountReadiness": "z42vJG fixture clicked before source client ready at640; final fixture waits actual enabled Next round.",
+    "authoringTypo": "Hrne3W source binding notifier rename typo corrected; no frozen independent oracle was changed."
+  },
+  "rootSeamSnapshotPolicy": "Observed dependency hashes only, not owned-source freeze or certification of globals. Root is independently checking legacy era-default import preservation and may update these seams. Drift is reported separately from owned product/test hashes.",
+  "checks": [
+    {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.app.json --noEmit --pretty false",
+      "exitCode": 0,
+      "log": "work/local-sdk-D3/renderer-final.log"
+    },
+    {
+      "command": "node node_modules/eslint/bin/eslint.js <17 owned product paths>",
+      "exitCode": 0,
+      "log": "work/local-sdk-D3/lint-final.log"
+    },
+    {
+      "command": "git diff --check -- <owned product paths>",
+      "exitCode": 0,
+      "notes": "Only normal CRLF normalization notices; no whitespace errors."
+    }
+  ],
+  "driftAtPacketCheck": {
+    "product": [],
+    "tests": [],
+    "regressionOracles": [],
+    "rootSeamSnapshot": []
+  },
+  "packetCheckedAt": "2026-10-21T00:08:59.467939+00:00"
+}
