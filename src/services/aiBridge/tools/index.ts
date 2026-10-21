@@ -147,7 +147,7 @@ import {
 } from './board';
 import { whListImages, whTagImage, whViewImage } from './gallery';
 import { whGenerateImage } from './imageStudio';
-import { whAddMapPin, whListMaps, whUpdateMapPin } from './maps';
+import { whAddMapPin, whCaptureMapVersion, whLinkMapVersion, whListMaps, whListMapVersions, whUpdateMapPin } from './maps';
 import {
   whAddLabel,
   whAddPlace,
@@ -451,6 +451,9 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_list_maps: whListMaps,
   wh_add_map_pin: whAddMapPin,
   wh_update_map_pin: whUpdateMapPin,
+  wh_list_map_versions: whListMapVersions,
+  wh_capture_map_version: whCaptureMapVersion,
+  wh_link_map_version: whLinkMapVersion,
   // World generator
   wh_list_worlds: whListWorlds,
   wh_get_world: whGetWorld,

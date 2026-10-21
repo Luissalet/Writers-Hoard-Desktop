@@ -79,7 +79,7 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     ...(eraAdapters[kind].table?snapshot.tables[eraAdapters[kind].table!]??[]:sourceProject[eraAdapters[kind].metadata!] as unknown as Row[]??[]),
     ...[...snapshot.tables.worldEraVariants??[],...snapshot.tables.documentHistory??[]].filter(row=>row.kind===kind).flatMap(row=>[row,...row.history as Row[]??[]]).flatMap(row=>object(row.document)&&object(row.document.root)?[row.document.root]:[]),
   ];
-  const codexIds=new Set(roots('codex').map(row=>String(row.id))),mediaIds=new Set(roots('media').map(row=>String(row.id))),writingIds=new Set(roots('writings').map(row=>String(row.id)));
+  const codexIds=new Set(roots('codex').map(row=>String(row.id))),mediaIds=new Set(roots('media').map(row=>String(row.id))),writingIds=new Set(roots('writings').map(row=>String(row.id))),eventIds=new Set([...(snapshot.tables.timelineEvents??[])].map(row=>String(row.id)));
   // Missing local references remain missing in the copy; absence must not silently erase an authored link.
   const collect=(target:Set<string>)=>(id:unknown)=>{if(typeof id==='string'&&id)target.add(id);return id;};
   const metadataReferences:Record<string,string[]>={dictionaries:['words.*.linkedEntryId'],characterSheets:['linkedEntryId'],radarCharts:['series.*.linkedEntryId'],relationTrees:['nodes.*.codexEntryId']};
@@ -120,7 +120,7 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     for(const field of richFields[table]??[])if(typeof value[field]==='string')value[field]=rich(value[field]);
     if(table==='writings'){value.manuscriptSource=cloneManuscriptWritingSource(input.manuscriptSource as Writing['manuscriptSource'],remap);value.toolDock=remapToolDockLayout(input.toolDock as Writing['toolDock'],remap);}
     if(table==='manuscriptSources')value=cloneManuscriptSource(input as unknown as ManuscriptSourceRow,targetProjectId,remap) as unknown as Row;
-    if(table==='worldMaps')value=remapImportedWorldMap(input as unknown as WorldMap,targetProjectId,remap,codexIds) as unknown as Row;
+    if(table==='worldMaps')value=remapImportedWorldMap(input as unknown as WorldMap,targetProjectId,remap,codexIds,eventIds) as unknown as Row;
     if(table==='mapPins')value=remapImportedMapPin(input as unknown as MapPin,targetProjectId,remap(String(input.mapId),'map'),remap,codexIds) as unknown as Row;
     // The legacy map importer intentionally drops generated-world provenance; a complete local copy carries those worlds.
     if(table==='worldMaps'){

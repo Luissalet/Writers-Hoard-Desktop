@@ -97,6 +97,23 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: result.reverted.length > 0, kind, entityId, what: summary, caveat: result.kept.length ? `Changed again since, kept as they are: ${result.kept.join(', ')}.` : undefined };
   }
 
+  if (entry.tool === 'wh_capture_map_version' && entry.before && typeof entry.before === 'object' && '__mapVersionCapture' in entry.before) {
+    const receipt = (entry.before as { __mapVersionCapture: { mapId: string; versionId: string } }).__mapVersionCapture;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { deleteMapVersion } = await import('@/engines/maps/operations');
+    await deleteMapVersion(receipt.mapId, receipt.versionId, scope);
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
+  if (entry.tool === 'wh_link_map_version' && entry.before && typeof entry.before === 'object' && '__mapVersionLink' in entry.before) {
+    const receipt = (entry.before as { __mapVersionLink: { mapId: string; versionId: string; from: string | null; to: string | null } }).__mapVersionLink;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { linkMapVersion } = await import('@/engines/maps/operations');
+    try { await linkMapVersion(receipt.mapId, receipt.versionId, receipt.from, scope, receipt.to); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
   if (entry.tool === 'wh_project_duplicate' && entry.before && typeof entry.before === 'object') {
     const operationId = (entry.before as Record<string, unknown>).__projectDuplicateOperation;
     if (typeof operationId !== 'string') throw new BridgeError('cannot-undo', 'Project duplicate receipt is missing.');

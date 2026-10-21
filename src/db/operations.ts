@@ -893,8 +893,9 @@ export async function importProjectData(
 
     // World maps
     const importedCodexIds = new Set((data.codexEntries ?? []).map(entry => entry.id));
+    const importedEventIds = new Set((data.timelineEvents ?? []).map(event => event.id));
     for (const m of data.worldMaps || []) {
-      await db.worldMaps.add(remapImportedWorldMap(m, newProjectId, remap, importedCodexIds));
+      await db.worldMaps.add(remapImportedWorldMap(m, newProjectId, remap, importedCodexIds, importedEventIds));
     }
 
     // Map pins

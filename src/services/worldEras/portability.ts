@@ -78,7 +78,7 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
     }
   }
   const tools = projectToolIds(projectWithVariants, {writings:[...base.writings??[],...allRoots('writings')],scenes:[...base.scenes??[],...allRoots('dialog-scene')],generatedWorlds:[...base.generatedWorlds??[],...allRoots('worldgen')],worldMaps: [...base.worldMaps ?? [], ...allRoots('maps')], boards: [...base.boards ?? [], ...allRoots('board')], timelines: [...base.timelines ?? [], ...allRoots('timeline')] });
-  const referenceFields = new Set(['id', 'projectId', 'eraId', '__worldEraAssetId', '__documentHistoryAsset', 'templateId', 'writingId', 'sourceDraftId', 'sceneId', 'characterId', 'mapId', 'worldId', 'sourceWorldId', 'originWorldId', 'boardId', 'timelineId', 'layerId', 'layerIds', 'memberNodeIds', 'entityId', 'entryId', 'linkedEntryId', 'linkedEntryIds', 'targetId', 'sourceId', 'targetEntityId', 'sourceEntityId', 'sourceEventId', 'targetEventId', 'referenceFields']);
+  const referenceFields = new Set(['id', 'projectId', 'eraId', '__worldEraAssetId', '__documentHistoryAsset', 'templateId', 'writingId', 'sourceDraftId', 'sceneId', 'characterId', 'mapId', 'worldId', 'sourceWorldId', 'originWorldId', 'boardId', 'timelineId', 'layerId', 'layerIds', 'memberNodeIds', 'entityId', 'entryId', 'linkedEntryId', 'linkedEntryIds', 'targetId', 'sourceId', 'targetEntityId', 'sourceEntityId', 'sourceEventId', 'targetEventId', 'timelineEventId', 'referenceFields']);
   const rewrite = (value: unknown, key = ''): unknown => {
     if(key==='toolDock')return remapToolDockLayout(value as ToolDockValue,remap);
     if (typeof value === 'string' && key === 'sourceDraftId') return remap(value, 'wsnap');

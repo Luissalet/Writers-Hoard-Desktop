@@ -261,6 +261,8 @@ export interface MapVersion {
   source?: 'uploaded' | 'gallery' | 'worldgen';
   sourceWorldId?: string;
   sourceRevision?: number;
+  /** A timeline event this era of the map stands for; its date orders and labels the era. */
+  timelineEventId?: string;
 }
 
 export interface MapLayerVisibility {
