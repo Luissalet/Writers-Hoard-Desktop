@@ -18,6 +18,7 @@
 // stroke does not move the jet stream, and a two-second pause per brush stroke
 // would make the tool unusable.
 
+import { normalizeLabelChange } from './labelShape';
 import { Biome, type BiomeId, type WorldData } from './types';
 import { classifyBiomes } from './biomes';
 import { getRecalculationCheckpoint, installRecalculationCheckpoints, recalculateEnvironment, restoreEnvironment } from './recalculate';
@@ -281,14 +282,23 @@ export type WorldEdit =
    */
   | { kind: 'placesZone'; mode: 'add' | 'remove'; pts: Pt[]; radius: number }
   /** Erase generated roads passing within a radius. */
-  | { kind: 'eraseRoads'; x: number; y: number; radius: number };
+  | { kind: 'eraseRoads'; x: number; y: number; radius: number }
+  /**
+   * A hand-placed map stamp: an inn, a shrine, a wizard's tower, a barrow…
+   * Pictures only — it adds no settlement to the geography. Keyed by where it
+   * was first placed (`stamp:x,y`), so it moves, renames and is removed like
+   * any other object.
+   */
+  | { kind: 'stamp'; x: number; y: number; glyph: string; size?: 'S' | 'M' | 'L'; name?: string };
 
 export type EditTarget =
   | 'settlement' | 'ruin' | 'realm' | 'feature' | 'landmark' | 'region' | 'road'
   // Los rótulos pintados: identidad = posición de ORIGEN (`label:x,y`), como
   // todo lo demás. Sin llave propia no se podían arrastrar — eran el único
   // objeto del mapa que respondía al puntero y no al gesto de mover.
-  | 'label';
+  | 'label'
+  // Los sellos puestos a mano (`stamp:x,y`), con la misma identidad.
+  | 'stamp';
 
 /**
  * Identity for a generated river: the cell it ends at.
@@ -307,7 +317,7 @@ export function editKey(target: EditTarget, x: number, y: number, extra = ''): s
 }
 
 const TARGETS: EditTarget[] = [
-  'settlement', 'ruin', 'realm', 'feature', 'landmark', 'region', 'road', 'label',
+  'settlement', 'ruin', 'realm', 'feature', 'landmark', 'region', 'road', 'label', 'stamp',
 ];
 
 /**
@@ -391,6 +401,16 @@ export interface PaintedLabel {
   key: string;
 }
 
+export interface PaintedStamp {
+  x: number;
+  y: number;
+  glyph: string;
+  size?: 'S' | 'M' | 'L';
+  name?: string;
+  /** `stamp:x,y` at the origin, the key moves, renames and removals use. */
+  key: string;
+}
+
 export interface AppliedEdits {
   /** La política de sembrado que dicta la lista (grifo + zonas), derivada en
    *  el replay para que TODO consumidor del mundo (geografía humana, hojas)
@@ -400,6 +420,7 @@ export interface AppliedEdits {
   terrainChanged: boolean;
   markers: PaintedMarker[];
   labels: PaintedLabel[];
+  stamps: PaintedStamp[];
   /** Rivers drawn by hand, in the same shape the renderer already expects. */
   rivers: { cells: Uint32Array; flow: number }[];
   /** Generated-object key → the name the reader gave it. */
@@ -574,7 +595,7 @@ function seaDistanceFor(world: WorldData, elev: Float32Array, W: number, H: numb
 export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const W = world.width, H = world.height, N = W * H;
   const out: AppliedEdits = {
-    terrainChanged: false, markers: [], labels: [], rivers: [],
+    terrainChanged: false, markers: [], labels: [], stamps: [], rivers: [],
     renames: {}, populations: {}, removed: new Set(), moves: {}, styles: {},
     roads: [], roadErasers: [], realmCells: null,
     sitesPolicy: sitesPolicyFrom(edits),
@@ -738,6 +759,12 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   }
 
   // ---- 5. markers and labels ---------------------------------------------
+  const keyUses = new Map<string, number>();
+  const uniqueKey = (base: string): string => {
+    const n = (keyUses.get(base) ?? 0) + 1;
+    keyUses.set(base, n);
+    return n === 1 ? base : `${base}#${n}`;
+  };
   for (const e of edits) {
     if (e.kind === 'marker') {
       out.markers.push({
@@ -745,13 +772,18 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
         population: e.population, ruin: e.ruin, landmark: e.landmark,
       });
     } else if (e.kind === 'label') {
-      const key = editKey('label', e.x, e.y);
-      // A new label painted where one was removed or renamed starts afresh.
-      out.removed.delete(key); delete out.renames[key];
+      // A second label in the same cell gets its own key (`label:x,y#2`), so a
+      // removal or rename of the first never reaches it.
+      const key = uniqueKey(editKey('label', e.x, e.y));
       out.labels.push({ x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle, spacing: e.spacing, curve: e.curve, key });
+    } else if (e.kind === 'stamp') {
+      const key = uniqueKey(editKey('stamp', e.x, e.y));
+      out.stamps.push({ x: e.x, y: e.y, glyph: e.glyph, size: e.size, name: e.name, key });
     } else if (e.kind === 'relabel') {
       // The most recent label painted at that origin is the one changed.
       const label = [...out.labels].reverse().find((item) => item.key === e.key);
+      // A later change of words wins over an earlier rename.
+      if (label && e.text !== undefined) delete out.renames[e.key];
       if (label) {
         for (const field of ['text', 'style', 'size', 'angle', 'spacing', 'curve'] as const) {
           if (e[field] !== undefined) (label as unknown as Record<string, unknown>)[field] = e[field];
@@ -843,12 +875,16 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     };
     out.markers = out.markers.filter((m) => !hit(m));
     out.labels = out.labels.filter((l) => !hit(l));
+    out.stamps = out.stamps.filter((st) => !hit(st));
   }
   // A painted label answers to the same keyed edits as a generated name:
   // renamed in place, or removed (and restored) without erasing round it.
   out.labels = out.labels
     .filter((l) => !out.removed.has(l.key))
     .map((l) => (out.renames[l.key] ? { ...l, text: out.renames[l.key] } : l));
+  out.stamps = out.stamps
+    .filter((st) => !out.removed.has(st.key))
+    .map((st) => (out.renames[st.key] !== undefined ? { ...st, name: out.renames[st.key] } : st));
 
   // Hand-placed content is parked on the world, not just returned: the human
   // geography merges painted towns into the road network and the renderer draws
@@ -1168,7 +1204,14 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     return !!stroke && typeof stroke === 'object' && points((stroke as { pts?: unknown }).pts);
   }
   const kind = (e as { kind: string }).kind;
-  if (kind === 'relabel') return typeof (e as { key?: unknown }).key === 'string';
+  if (kind === 'relabel') {
+    const change: Record<string, unknown> = { ...(e as Record<string, unknown>) };
+    const key = change.key;
+    delete change.kind; delete change.key;
+    if (typeof key !== 'string') return false;
+    try { normalizeLabelChange(change); return true; } catch { return false; }
+  }
+  if (kind === 'stamp') return typeof (e as { glyph?: unknown }).glyph === 'string' && typeof (e as Pt).x === 'number' && typeof (e as Pt).y === 'number';
   if (kind === 'river' || kind === 'realmArea' || kind === 'placesZone') {
     return points((e as { pts?: unknown }).pts);
   }

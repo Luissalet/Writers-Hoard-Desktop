@@ -1220,7 +1220,7 @@ Wave 1, maps:
 - [x] Map eras linked to timeline events, ordered by calendar, with playback and portability.
 - [x] Painted labels: Labels tool with rotate/spacing/curve handles and exact values; 2D, Carta and 3D; MCP list/update.
 - [x] Independent review r1 (9 findings) and r2 (A–D) fixed with regression tests.
-- [ ] Hand-placeable stamp library with categories and sizes (A1 #59).
+- [x] Hand-placeable stamp library: 32 stamps in four categories, sizes S/M/L, names; all views; MCP add/list.
 - [ ] Trade lens and campaign fog/story events (A2).
 - [ ] Classic-map polish and a generic `wh_add_map_feature`.
 

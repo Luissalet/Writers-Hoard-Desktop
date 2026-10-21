@@ -29,6 +29,12 @@ normal y guarda ficha y carpeta seleccionada en una transacción. El manuscrito
 puede tener un dock aparte, ordenable y con herencia proyecto/capítulo; su diseño
 no pasa a ser prosa del lector. Mapas, árboles, calendarios, tablas tipadas,
 medios locales, Lector y wiki estática conservan sus editores y exportaciones.
+Los mundos generados guardan su aspecto, pueden empezar en blanco, miden áreas
+frente a contornos reales, planifican viajes con el ritmo y la física de viaje
+del propio mundo y llevan rótulos editables (ángulo, espaciado, curva) y 32
+sellos; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
+y reproducirse en orden. Cada capacidad tiene herramientas del puente
+(docs/AI-BRIDGE.md, sección 28).
 El perfil opcional 5e (2014), SRD 5.1 conserva valores manuales y contadores
 jugados; no es un motor completo de reglas ni catálogo de conjuros.
 

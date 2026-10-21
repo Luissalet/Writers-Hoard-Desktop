@@ -67,7 +67,8 @@ import {
 import { semanticZoomProfile } from '../core/semanticZoom';
 import { realmAnchors } from '../cartography/realmAnchors';
 import { editKey, realmEditKey } from '../core/edits';
-import { glyphBounds, labelGlyphs } from '../core/labelShape';
+import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING } from '../core/labelShape';
+import { drawStamp, isStampGlyph, STAMP_SIZES, type StampGlyph, type StampSize } from '../cartography/stampGlyphs';
 import {
   EARTH_KM, FLIGHT_MS, MIN_3D_SPAN_KM, MIN_SPAN_KM, type FlyMark, type FlyTarget,
 } from '../core/camera';
@@ -429,7 +430,9 @@ const FWD = new THREE.Vector3();
 interface ScreenMark {
   x: number;
   y: number;
-  kind: 'settlement' | 'waypoint' | 'spatial' | 'fly' | 'text';
+  kind: 'settlement' | 'waypoint' | 'spatial' | 'fly' | 'text' | 'stamp';
+  /** For `stamp`: which picture and how big. */
+  stamp?: { glyph: StampGlyph; size: StampSize };
   rank: number;
   /** For `text`: a painted label's shape (type size, angle, spacing, bend). */
   shape?: { size: number; angle: number; spacing: number; curve: number };
@@ -1198,6 +1201,13 @@ export default function World3D({
         });
       }
     }
+    // The reader's stamps, drawn as in the 2D, with their names.
+    for (const st of world.painted?.stamps ?? []) {
+      if (!isStampGlyph(st.glyph)) continue;
+      const moved = world.painted?.moves?.[st.key];
+      const at = place(moved?.x ?? st.x, moved?.y ?? st.y); if (!at) continue;
+      out.push({ x: at.x, y: at.y, kind: 'stamp', rank: 0, label: st.name ?? '', color: '#ffe9c2', stamp: { glyph: st.glyph, size: st.size ?? 'M' } });
+    }
     // The reader's own labels, at their (moved) place, shaped as in the 2D.
     for (const pl of world.painted?.labels ?? []) {
       const key = pl.key ?? editKey('label', pl.x, pl.y), moved = world.painted?.moves?.[key];
@@ -1207,7 +1217,7 @@ export default function World3D({
         x: at.x, y: at.y, kind: 'text', rank: -1,
         label: caps ? pl.text.toUpperCase() : pl.text,
         color: pl.style === 'water' ? '#b2d6ec' : '#ffe9c2',
-        shape: { size: Math.max(8, Math.min(48, pl.size ?? 12)), angle: pl.angle ?? 0, spacing: pl.spacing ?? (caps ? 0.14 : 0.02), curve: pl.curve ?? 0 },
+        shape: { size: Math.max(8, Math.min(48, pl.size ?? 12)), angle: pl.angle ?? 0, spacing: pl.spacing ?? LABEL_DEFAULT_SPACING[pl.style], curve: pl.curve ?? 0 },
       });
     }
     if (geo && st.zoomInputs.showBorders) {
@@ -1340,6 +1350,17 @@ export default function World3D({
     };
 
     for (const m of marks) {
+      if (m.kind === 'stamp' && m.stamp) {
+        const half = 11 * STAMP_SIZES[m.stamp.size];
+        if (!fits(m.x - half, m.y - half, m.x + half, m.y + half)) continue;
+        drawStamp(ctx, m.stamp.glyph, m.x, m.y, { size: m.stamp.size, halo: true });
+        if (m.label) {
+          ctx.font = '600 12px "Source Sans 3", system-ui, sans-serif';
+          const tw = ctx.measureText(m.label).width;
+          if (fits(m.x + half + 2, m.y - 8, m.x + half + tw + 6, m.y + 8)) label(ctx, m.label, m.x + half + 4, m.y, 12, m.color);
+        }
+        continue;
+      }
       if (m.kind === 'text' && m.shape) {
         const { size, angle, spacing, curve } = m.shape;
         ctx.font = `600 ${size}px "Source Sans 3", system-ui, sans-serif`;

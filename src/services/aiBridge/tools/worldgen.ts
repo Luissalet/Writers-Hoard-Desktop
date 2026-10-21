@@ -592,6 +592,40 @@ function labelShapeShown(shape: { size?: number; angle?: number; spacing?: numbe
   };
 }
 
+/** Put a pictorial stamp on the map: an inn, shrine, tower, barrow… */
+export async function whAddStamp(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { x, y } = cellCoords(args, worldSize(world));
+  const { isStampGlyph, STAMPS } = await import('@/engines/worldgen/cartography/stampGlyphs');
+  const glyph = requireString(args, 'glyph');
+  if (!isStampGlyph(glyph)) throw new BridgeError('bad-args', `glyph must be one of ${STAMPS.map((stamp) => stamp.id).join(', ')}.`);
+  const size = optEnum(args, 'size', ['S', 'M', 'L'] as const) ?? 'M';
+  if (args.size !== undefined && !['S', 'M', 'L'].includes(String(args.size))) throw new BridgeError('bad-args', 'size must be S, M or L.');
+  const name = optString(args, 'name')?.trim().slice(0, 120);
+  return appendEdit(
+    args, world,
+    { kind: 'stamp', x, y, glyph, ...(size !== 'M' ? { size } : {}), ...(name ? { name } : {}) },
+    { key: editKey('stamp', x, y), glyph, size, x, y, ...(name ? { name } : {}) },
+    `stamped ${glyph} at ${x},${y} in world "${world.title}"`,
+  );
+}
+
+/** The stamps placed by hand, with keys, glyph, size, name and current cell. */
+export async function whListStamps(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const painted = opened.world.data.painted;
+  return {
+    worldId: world.id,
+    stamps: (painted?.stamps ?? []).map((stamp) => {
+      const moved = painted?.moves?.[stamp.key];
+      return { key: stamp.key, glyph: stamp.glyph, size: stamp.size ?? 'M', name: stamp.name ?? null, x: moved?.x ?? stamp.x, y: moved?.y ?? stamp.y };
+    }),
+  };
+}
+
 /** The reader's painted labels, with their keys, current place and shape. */
 export async function whListLabels(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
@@ -613,7 +647,10 @@ export async function whUpdateLabel(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const key = requireString(args, 'key');
   if (!key.startsWith('label:')) throw new BridgeError('bad-args', 'key must be a painted label key (label:x,y) from wh_list_labels.');
-  if (!deserializeEdits(world.edits ?? '[]').some((edit) => edit.kind === 'label' && editKey('label', edit.x, edit.y) === key)) {
+  // Only a label that is on the map now: not one removed, erased or never painted.
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  if (!(opened.world.data.painted?.labels ?? []).some((label) => label.key === key)) {
     throw new BridgeError('not-found', `No painted label "${key}" on this world; use wh_list_labels.`);
   }
   let change: LabelChange;

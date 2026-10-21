@@ -619,7 +619,7 @@ export async function testCopilotScopeLeak(): Promise<void> {
     { tool: 'wh_remove_place', args: { worldId, key: 'settlement:1,1' } },
     { tool: 'wh_restore_place', args: { worldId, key: 'settlement:1,1' } },
     { tool: 'wh_add_label', args: { worldId, x: 1, y: 1, text: 'Mar' } },
-    { tool: 'wh_update_label', args: { worldId, key: 'label:1,1', curve: 0.5 } },
+    { tool: 'wh_update_label', args: { worldId, key: 'label:1,1', curve: 0.5 }, heavy: true },
     { tool: 'wh_list_labels', args: { worldId }, heavy: true },
     { tool: 'wh_list_places', args: { worldId }, heavy: true },
     { tool: 'wh_find_place', args: { worldId, query: 'Villa' }, heavy: true },

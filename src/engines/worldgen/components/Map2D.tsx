@@ -77,7 +77,8 @@ import { describeDuration, MODE_KEY, straightLineEstimates, type TravelProfile }
 import { keyboardNudge } from '../core/keyNav';
 import { legendFor } from '../cartography/legend';
 import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
-import { glyphBounds, labelGlyphs, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
+import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
+import { drawStamp, isStampGlyph, STAMP_SIZES } from '../cartography/stampGlyphs';
 
 /** Where the selected painted label sits on screen, for its handles. */
 interface LabelHandleGeom { key: string; cx: number; cy: number; angle: number; spacing: number; curve: number; size: number; glyphSum: number; count: number; halfW: number; widths: number[] }
@@ -2346,6 +2347,28 @@ export default function Map2D({
     // `painted.labels` had exactly one consumer in the whole tree — the Carta.
     // The Rótulo tool is only usable in THIS view and in the 3D, so every label
     // anyone has ever placed was invisible at the moment of placing it.
+    // ---- the stamps the reader placed ----------------------------------------
+    // Pictures, drawn where they were put (or moved to); a name, if given,
+    // joins the label queue beside them.
+    if (world.painted?.stamps?.length) {
+      for (const copyOx of copies) {
+        for (const st of world.painted.stamps) {
+          if (!isStampGlyph(st.glyph)) continue;
+          const stAt = movedAt(st.key);
+          const [sx, sy] = toScreen(((stAt?.x ?? st.x) + 0.5) / W, ((stAt?.y ?? st.y) + 0.5) / H, copyOx);
+          if (sx < -40 || sx > cw + 40 || sy < -40 || sy > ch + 40) continue;
+          const scale = STAMP_SIZES[st.size ?? 'M'];
+          drawStamp(ctx, st.glyph, sx, sy, { size: st.size ?? 'M', halo: true });
+          hits.push({
+            kind: 'note', x: sx, y: sy, reach: 12 + 6 * scale, bias: 0.85,
+            note: `${st.name ?? t(`worldgen.stamp.${st.glyph}`)} · ${t('worldgen.hover.yourStamp')}`,
+            mover: { target: 'stamp', key: st.key, label: st.name ?? t(`worldgen.stamp.${st.glyph}`) },
+          });
+          if (st.name) queueLabel(st.name, sx + 10 * scale + 4, sy, '#ffe9c2', 12, 600, 350);
+        }
+      }
+    }
+
     let selectedGeom: LabelHandleGeom | null = null;
     if (world.painted?.labels?.length) {
       for (const copyOx of copies) {
@@ -2376,14 +2399,23 @@ export default function Map2D({
           const text = caps ? pl.text.toUpperCase() : pl.text;
           const size = Math.max(LABEL_SIZE_RANGE.min, Math.min(LABEL_SIZE_RANGE.max, pl.size ?? 12));
           const angle = preview?.angle ?? pl.angle ?? 0;
-          const spacing = preview?.spacing ?? pl.spacing ?? (caps ? 0.14 : 0.02);
+          const spacing = preview?.spacing ?? pl.spacing ?? LABEL_DEFAULT_SPACING[pl.style];
           const curve = preview?.curve ?? pl.curve ?? 0;
           const font = '"Source Sans 3", sans-serif';
           ctx.font = `600 ${size}px ${font}`;
           const widths = [...text].map((ch) => ctx.measureText(ch).width);
           const glyphs = labelGlyphs(widths, size * spacing, curve, angle, sx, sy);
           const box = glyphBounds(glyphs, widths, size);
-          if (plKey === selectedLabelKey && !selectedGeom) {
+          // The words themselves answer the pointer, wherever a bend or a turn put them.
+          for (const g of glyphs) {
+            hits.push({
+              kind: 'note', x: g.x, y: g.y, reach: Math.max(8, size * 0.7), bias: 0.9,
+              note: `${pl.text} · ${t('worldgen.hover.yourLabel')}`,
+              mover: { target: 'label', key: plKey, label: pl.text },
+            });
+          }
+          // Handles go on the copy that is on screen, never on one across the seam.
+          if (plKey === selectedLabelKey && !selectedGeom && sx >= 0 && sx <= cw && sy >= 0 && sy <= ch) {
             const glyphSum = widths.reduce((a, b) => a + b, 0);
             selectedGeom = { key: plKey, cx: sx, cy: sy, angle, spacing, curve, size, glyphSum, count: widths.length, widths, halfW: (glyphSum + size * spacing * Math.max(0, widths.length - 1)) / 2 };
           }
@@ -4797,6 +4829,8 @@ export default function Map2D({
       if (m) setRulerPts((pts) => [...pts, { x: m.u * W, y: m.v * H }]);
       return;
     }
+    // The Labels tool's click only picks labels (done at the press): it opens no town and selects nothing else.
+    if (tool?.mode === 'labels') return;
     const wp = waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
     // El nombre de una comarca guardada la abre — antes que el pueblo que
@@ -4928,6 +4962,8 @@ export default function Map2D({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={() => {
+          // A cancelled handle drag leaves the label as it was.
+          if (labelDrag.current) { labelDrag.current = null; labelPreview.current = null; scheduleDraw(); }
           rollbackLiveBiome();
           const g = liveSculpt.current;
           if (g) {

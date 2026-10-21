@@ -94,7 +94,10 @@ the settings they were planned with. Hand-drawn map eras can stand for timeline
 events: they order by the world calendar (each event in its own timeline's
 calendar), play in sequence and keep their date if the event is deleted. The
 Labels tool picks a painted label and turns, spaces, sizes and curves it with
-handles or exact values, in the atlas, the Carta and the 3D view.
+handles or exact values, in the atlas, the Carta and the 3D view. Point → Stamp
+places one of 32 pictures (settlements, places such as inns, shrines, mills or
+barrows, forts and nature) in three sizes with an optional name; stamps move,
+rename and erase like other painted objects and show in every view.
 
 Graph filters include concrete custom types and descendants. Relation trees
 create connected neighbors in four directions and reconnect edge endpoints;
