@@ -1849,10 +1849,16 @@ deshecho.
   `wh_list_story_events` (orden por capítulo; `knownByChapter` deja lo que el
   lector sabe). `wh_render_world_map` los marca con `storyEvents: true`, y con
   `readerView` marca los ocurridos hasta su capítulo.
+- **Comercio.** `wh_world_economy` (mes 1..240: quién come, quién se queda sin
+  qué y cuándo, precios frente a lo normal, envíos por tierra y mar, mercancías
+  que nadie produce; `place` para el detalle de una población; determinista),
+  `wh_list_trade_sites`, `wh_add_trade_site` (granja, pesquería, pastos,
+  aserradero, cantera, mina, salinas; S/M/L; lugar o celda) y
+  `wh_remove_trade_site` (quita una del autor o apaga una generada; deshacible).
 
 Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
 nativo stdio + HTTP), `world-labels`, `world-stamps`, `world-grid`,
-`world-journey-playback`, `world-reader-fog`, `world-story-events`, y los
-recorridos de interfaz
-`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story}-qa.cjs`.
+`world-journey-playback`, `world-reader-fog`, `world-story-events`,
+`world-economy`, `world-trade`, y los recorridos de interfaz
+`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story,trade}-qa.cjs`.

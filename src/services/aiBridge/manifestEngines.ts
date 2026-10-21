@@ -1164,6 +1164,55 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     },
   },
   {
+    name: 'wh_world_economy',
+    description:
+      `The trade lens of a world: month by month, who is fed, who will go short of what and when (shortIn: months until a place first cannot get all it needs, trade included; grain, meat and salt are the staples), prices against the usual (1 = usual), shipments on the move by road and sea, and which goods nobody makes.
+Generated from the settlements (each opens farms, fisheries, pastures, logging camps, quarries, mines and saltworks near it by the ground) plus the sites the author placed. month is 1..240 (default 1). place narrows the detail to one settlement by name. Deterministic: the same world gives the same economy. ${PENDING_NOTE}`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        month: { type: 'integer', minimum: 1, maximum: 240, description: 'Which month, from 1.' },
+        place: s('A settlement name for its detail only.'),
+        limit: n('How many places in the detail, default 30.'),
+      },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_trade_sites',
+    description: `List a world's production sites with id, kind, size, cell, settlement and whether the author placed it (auto false). ${PENDING_NOTE}`,
+    writes: false,
+    schema: { type: 'object', properties: { worldId: WORLD_ID, onlyYours: { type: 'boolean', description: 'Only the sites the author placed.' } }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_add_trade_site',
+    description:
+      `Place a production site on a world: farm (grain), fishery (fish), pasture (meat, wool), camp (timber), quarry (stone), mine (iron) or saltworks (salt), size S, M or L, at a place key or a world cell. It joins the nearest settlement's economy. Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        kind: s('Kind of site.', { enum: ['farm', 'fishery', 'pasture', 'camp', 'quarry', 'mine', 'saltworks'] }),
+        size: s('S, M (default) or L.', { enum: ['S', 'M', 'L'] }),
+        place: PLACE_KEY,
+        x: CELL_X,
+        y: CELL_Y,
+      },
+      required: ['worldId', 'kind'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_remove_trade_site',
+    description: `Remove a site the author placed, or switch off a generated one, by id (wh_list_trade_sites). Not a deletion: it appends an undoable edit to the world's list.`,
+    writes: true,
+    schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Site id.') }, required: ['worldId', 'id'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_stamps',
     description:
       `List the stamps placed by hand on a world, with keys, glyph, size, name and cell.`,

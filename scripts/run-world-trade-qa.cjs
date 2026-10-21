@@ -1,0 +1,86 @@
+// The trade lens through the normal UI: open Trade, step and play the months,
+// read places and goods, place a mine on the map, remove it, and reopen.
+const { app, BrowserWindow } = require('electron');
+const path = require('node:path'), fs = require('node:fs'), os = require('node:os');
+const assert = require('node:assert/strict');
+const root = path.resolve(__dirname, '..'), temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-world-trade-qa-'));
+const evidence = process.env.WH_QA_EVIDENCE || path.join(temp, 'evidence');
+fs.mkdirSync(evidence, { recursive: true });
+app.setPath('userData', path.join(temp, 'profile')); let server;
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function main() {
+  const { createServer } = await import('vite');
+  server = await createServer({ root, cacheDir: path.join(temp, 'vite-cache'), server: { port: 0, host: '127.0.0.1', hmr: false, watch: null }, plugins: [{ name: 'world-trade-qa', configureServer(instance) { instance.middlewares.use('/__world_trade_qa', async (_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end(await instance.transformIndexHtml('/__world_trade_qa', '<!doctype html><html><meta charset="utf-8"><body><div id="root"></div><script type="module" src="/tests/world-presentation-preview.tsx"></script></body></html>')); }); } }] });
+  await server.listen(); await app.whenReady();
+  const win = new BrowserWindow({ width: 1440, height: 960, show: false, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
+  await win.loadURL(`${server.resolvedUrls.local[0]}__world_trade_qa`);
+  const js = expression => win.webContents.executeJavaScript(expression);
+  const wait = async (expression, what, tries = 1500) => { for (let i = 0; i < tries; i++) { const state = await js(`({ok:!!(${expression}),error:window.__lookError})`); if (state.error) throw Error(state.error); if (state.ok) return; await pause(100); } throw Error(`Timed out: ${what}`); };
+  const button = text => `[...document.querySelectorAll('button')].find(e=>{const s=e.textContent.trim();return (s===${JSON.stringify(text)}||s.startsWith(${JSON.stringify(text + ' (')}))&&!e.disabled;})`;
+  const click = async text => { await wait(button(text), `button ${text}`); await js(`${button(text)}.click()`); };
+  const byId = id => js(`document.querySelector('[data-testid="${id}"]').click()`);
+  const W = 'world-presentation-preview-world';
+  const forged = button('Carta');
+  const tests = [];
+  const tradeEdits = () => js(`(async()=>{const {db}=await import('/src/db/index.ts');const {deserializeEdits}=await import('/src/engines/worldgen/core/edits.ts');const r=await db.generatedWorlds.get('${W}');return deserializeEdits(r.edits||'[]').filter(e=>e.kind==='tradeSite'||e.kind==='tradeSiteRemove');})()`);
+  const caption = `document.querySelector('[data-testid="trade-caption"]')?.textContent ?? ''`;
+  const send = event => win.webContents.sendInputEvent(event);
+  const canvasRect = () => js(`(()=>{const c=[...document.querySelectorAll('canvas')].map(e=>e.getBoundingClientRect()).sort((a,b)=>b.width*b.height-a.width*a.height)[0];return {x:c.x,y:c.y,w:c.width,h:c.height};})()`);
+  const tap = async (x, y) => { send({ type: 'mouseMove', x, y }); await pause(60); send({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 }); await pause(60); send({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 }); await pause(600); };
+  const colourNear = (p, rgb) => js(`(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const c=[...document.querySelectorAll('canvas')].sort((a,b)=>b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight)[0];const r=c.getBoundingClientRect(),k=c.width/r.width;const d=c.getContext('2d').getImageData(Math.round((${p.x}-r.x-10)*k),Math.round((${p.y}-r.y-10)*k),Math.round(20*k),Math.round(20*k)).data;let n=0;for(let i=0;i<d.length;i+=4)if(Math.abs(d[i]-${rgb[0]})<10&&Math.abs(d[i+1]-${rgb[1]})<10&&Math.abs(d[i+2]-${rgb[2]})<10)n++;return n;})()`);
+  await wait('window.__lookReady', 'preview'); await wait(forged, 'first forge');
+  await click('Comercio');
+  await wait(`document.querySelector('[data-testid="trade-panel"]')`, 'trade panel', 3000);
+  const c1 = await js(caption);
+  assert(/^Mes 1 · \d+ envíos en camino$/.test(c1), `Caption ${c1}`);
+  const placeRows = await js(`document.querySelectorAll('[data-testid^="trade-place-"]').length`);
+  assert(placeRows > 0, 'No places in the trade lens');
+  tests.push(`Trade opens on month 1 ("${c1}") with ${placeRows} settlements, hungriest and soonest short first`);
+  await byId('trade-next'); await wait(`/^Mes 2 /.test(${caption})`, 'month 2');
+  await byId('trade-play');
+  await wait(`/^Mes [4-9]|^Mes 1[0-9]/.test(${caption})`, 'playing on', 200);
+  await byId('trade-play');
+  const playedTo = await js(caption);
+  tests.push(`Next month and Play move the clock (now "${playedTo}"), Pause stops it`);
+  const firstPlace = await js(`document.querySelector('[data-testid^="trade-place-"]').textContent`);
+  await js(`document.querySelector('[data-testid^="trade-place-"]').click()`);
+  await pause(800);
+  fs.writeFileSync(path.join(evidence, 'trade-places-1440.png'), (await win.webContents.capturePage()).toPNG());
+  tests.push(`Picking "${firstPlace.slice(0, 60)}" flies the map to it`);
+  await byId('trade-view-goods');
+  const goods = await js(`[...document.querySelectorAll('[data-testid^="trade-good-"]')].map(e=>e.textContent)`);
+  assert(goods.length === 8 && goods.every(g => /lo normal/.test(g)), `Goods ${JSON.stringify(goods)}`);
+  tests.push(`Goods lists all eight with their price range and where they are made ("${goods[0]}")`);
+  // Place a large mine with a trusted click.
+  await byId('trade-view-sites');
+  await byId('trade-kind-mine'); await byId('trade-size-L'); await byId('trade-place-site');
+  await wait(`/Haz clic/.test(document.querySelector('[data-testid="trade-place-site"]').textContent)`, 'placing armed');
+  const rect = await canvasRect();
+  const at = { x: Math.round(rect.x + rect.w * 0.45), y: Math.round(rect.y + rect.h * 0.55) };
+  await tap(at.x, at.y);
+  let edits; for (let i = 0; i < 60; i++) { edits = await tradeEdits(); if (edits.length) break; await pause(150); }
+  assert(edits.length === 1 && edits[0].siteKind === 'mine' && edits[0].size === 'L', `Mine not placed: ${JSON.stringify(edits)}`);
+  await wait(`document.querySelector('[data-testid="trade-site-${edits[0].id}"]')`, 'mine listed');
+  const mineInk = await colourNear(at, [90, 74, 110]);
+  assert(mineInk > 3, `No mine mark at the click (${mineInk})`);
+  tests.push(`Sites → Mine, L, "Place on the map", trusted click: a mine is saved at ${edits[0].x},${edits[0].y}, listed as yours and drawn there (${mineInk} px)`);
+  fs.writeFileSync(path.join(evidence, 'trade-mine-1440.png'), (await win.webContents.capturePage()).toPNG());
+  await byId('trade-place-site');
+  await byId(`trade-remove-${edits[0].id}`);
+  for (let i = 0; i < 60; i++) { edits = await tradeEdits(); if (edits.length === 2) break; await pause(150); }
+  assert(edits.length === 2 && edits[1].kind === 'tradeSiteRemove', `Remove: ${JSON.stringify(edits)}`);
+  await wait(`!document.querySelector('[data-testid="trade-site-${edits[0].id}"]')`, 'mine gone from the list');
+  tests.push('Removing the mine records an undoable edit and takes it off the list');
+  await pause(1500);
+  await js('window.__lookUnmount()'); await pause(200); await js('window.__lookMount()'); await wait(forged, 'reopened');
+  const kept = await tradeEdits();
+  assert(kept.length === 2, 'Reopen lost the trade edits');
+  await click('Comercio');
+  await wait(`/^Mes 1 /.test(${caption})`, 'trade after reopen', 3000);
+  tests.push('Reopening keeps both edits and the trade lens opens again');
+  win.setContentSize(640, 900); await pause(1200);
+  fs.writeFileSync(path.join(evidence, 'trade-panel-640.png'), (await win.webContents.capturePage()).toPNG());
+  for (const test of tests) console.log(`PASS ${test}`);
+  console.log(`EVIDENCE ${evidence}`);
+}
+main().then(async () => { await server?.close(); app.exit(0); }).catch(async error => { console.error(error.stack || error); await server?.close(); app.exit(1); });

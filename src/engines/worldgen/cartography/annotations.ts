@@ -10,6 +10,7 @@
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
 import { drawStoryMark, type StoryMark } from './storyMarks';
+import { drawTradeLayer, type TradeLayer } from './tradeMarks';
 import type { WorldData } from '../core/types';
 import type { PaleoMap } from '../core/paleo';
 import { marchingSquares, chaikin } from './contours';
@@ -21,6 +22,8 @@ export interface CartoAnnotations {
   fog?: ReaderFogLayer;
   /** A square or hex play grid in km, under everything else on this layer. */
   grid?: MapGrid;
+  /** The trade lens: sites and this month's shipments. */
+  trade?: TradeLayer;
   /** Story events to show, already filtered for the view (drawn last, over the fog). */
   story?: StoryMark[];
   /** The party on its way along the route, when the journey is being played. */
@@ -68,6 +71,9 @@ export function drawAnnotations(
     const x0 = sx(0);
     drawReaderFog(ctx, ann.fog, (wx) => x0 + wx * k, sy, true);
   }
+
+  // ---- the trade lens -------------------------------------------------------
+  if (ann.trade) drawTradeLayer(ctx, ann.trade, sx(0), sy, k, W);
 
   // ---- the play grid --------------------------------------------------------
   if (ann.grid) drawMapGrid(ctx, ann.grid, { width: ctx.canvas.width, height: ctx.canvas.height, cellPx: k, originX: sx(0), originY: sy(0), kmPerCell: 40075 / W });

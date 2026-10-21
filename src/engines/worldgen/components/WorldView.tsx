@@ -3,6 +3,9 @@ import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/r
 import type { ReaderFogLayer } from '../cartography/readerFogLayer';
 import { newStoryId, normalizeStoryEvent, storyEventsFrom, storyKnownBy, type StoryEvent } from '../core/storyEvents';
 import type { StoryMark } from '../cartography/storyMarks';
+import { autoSites, normalizeTradeSite, placesFromSettlements, simulateEconomy, tradeSiteEdit, tradeSiteRemoveEdit, tradeSitesFrom, type SiteKind, type SiteSize } from '../core/economy';
+import type { TradeLayer } from '../cartography/tradeMarks';
+import TradePanel from './TradePanel';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldRuntimeKey } from '../era';
@@ -329,7 +332,7 @@ export default function WorldView({
   const [showRoads, setShowRoads] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [panelTab, selectPanelTab] = useState<
-    'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'atlas' | 'regions' | 'places'
+    'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'trade' | 'atlas' | 'regions' | 'places'
   >('params');
   const setPanelTab = useCallback((tab: typeof panelTab) => {
     selectPanelTab(tab);
@@ -844,6 +847,33 @@ export default function WorldView({
   }, [paintRev, data]);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const readerChapters = useMemo(() => [...new Set([...fogChapters(fogEdits), ...storyEvents.flatMap((event) => event.chapter === undefined ? [] : [event.chapter])])].sort((a, b) => a - b), [fogEdits, storyEvents]);
+  /**
+   * The trade lens, worked out only while its tab is open: generated sites
+   * near every settlement plus the author's own, and two years month by month.
+   */
+  const [tradeMonth, setTradeMonth] = useState(0);
+  const [tradePlacing, setTradePlacing] = useState<{ kind: SiteKind; size: SiteSize } | null>(null);
+  const trade = useMemo(() => {
+    void paintRev;
+    if (panelTab !== 'trade' || !data || !geography?.settlements.length) return null;
+    const { manual, removed } = tradeSitesFrom(session.current?.edits ?? []);
+    const input = { world: data, places: placesFromSettlements(geography.settlements), seed: String(data.params.seed), manualSites: manual, removedSites: removed };
+    const sites = autoSites(input);
+    return { places: input.places, sites, snapshots: simulateEconomy(input, 24, 0, sites) };
+  }, [panelTab, data, geography, paintRev]);
+  const tradeLayer = useMemo<TradeLayer | undefined>(() => {
+    if (!trade) return undefined;
+    const snap = trade.snapshots[Math.min(tradeMonth, trade.snapshots.length - 1)];
+    const at = new Map(trade.places.map((place) => [place.id, place]));
+    return {
+      sites: trade.sites.map((site) => ({ x: site.x, y: site.y, kind: site.kind, manual: !site.auto })),
+      movements: (snap?.movements ?? []).flatMap((m) => {
+        const a = at.get(m.from), b = at.get(m.to);
+        return a && b ? [{ fromX: a.x, fromY: a.y, toX: b.x, toY: b.y, bySea: m.bySea }] : [];
+      }),
+    };
+  }, [trade, tradeMonth]);
+  useEffect(() => { if (panelTab !== 'trade') setTradePlacing(null); }, [panelTab]);
   // The author sees every event while the Story tool is out; the reader, what has happened by the chosen chapter.
   const storyMarks = useMemo<StoryMark[] | undefined>(() => {
     const shown = readerView ? storyKnownBy(storyEvents, readerChapter) : tool.mode === 'story' ? storyEvents : [];
@@ -875,10 +905,11 @@ export default function WorldView({
       title: rg.title,
       active: rg.id === regionAt?.savedId,
     }));
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer) return undefined;
     return {
       fog: fogLayer,
       story: storyMarks,
+      trade: tradeLayer,
       pins,
       linked,
       regions: regions.length ? regions : undefined,
@@ -894,7 +925,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1073,9 +1104,10 @@ export default function WorldView({
   /** The painted label the Labels tool is editing, by its origin key. */
   const [selectedLabelKey, setSelectedLabelKey] = useState<string | null>(null);
   const selectedLabel = selectedLabelKey ? data?.painted?.labels.find((label) => (label.key ?? editKey('label', label.x, label.y)) === selectedLabelKey) ?? null : null;
-  const applyEdit = useCallback((edit: WorldEdit) => {
+  /** Apply one edit; false when it was not taken (no session, or the world is busy). */
+  const applyEdit = useCallback((edit: WorldEdit): boolean => {
     const s = session.current;
-    if (!s || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return;
+    if (!s || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return false;
     // A stamp's name belongs to that stamp: the next one starts unnamed.
     if (edit.kind === 'stamp' && edit.name) setTool((current) => (current.stampName ? { ...current, stampName: '' } : current));
     setPainting(true);
@@ -1089,6 +1121,7 @@ export default function WorldView({
         afterEdit();
       }
     }, 0);
+    return true;
   }, [afterEdit]);
 
   /**
@@ -1119,7 +1152,8 @@ export default function WorldView({
       id: newStoryId(), x, y, type: tool.storyType, title, status: tool.storyStatus,
       ...(tool.storyChapter !== null ? { chapter: tool.storyChapter } : {}),
     });
-    applyEdit({ kind: 'story', ...event });
+    // Only a placed event clears the draft and is selected: a busy world drops the edit.
+    if (!applyEdit({ kind: 'story', ...event })) { toast.error(t('worldgen.story.busy')); return; }
     setTool((current) => ({ ...current, storyTitle: '' }));
     setSelectedStoryId(event.id);
   }, [tool.storyTitle, tool.storyType, tool.storyStatus, tool.storyChapter, applyEdit, t]);
@@ -2107,6 +2141,10 @@ export default function WorldView({
               onSelectLabel={setSelectedLabelKey}
               onSelectStory={setSelectedStoryId}
               onPlaceStory={paintable ? placeStory : undefined}
+              onPickCell={tradePlacing ? (x, y) => {
+                const site = normalizeTradeSite({ id: `site-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`, kind: tradePlacing.kind, x: Math.floor(x), y: Math.floor(y), size: tradePlacing.size, placeId: null });
+                applyEdit(tradeSiteEdit(site));
+              } : null}
               onMoveStory={paintable ? (id, x, y) => updateStory(id, { x, y }) : undefined}
               measuring={measuring}
               scaleReference={scaleReference || null}
@@ -2361,6 +2399,7 @@ export default function WorldView({
               un mapa plano, se queda donde estaba.
             */}
             <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); if (view === '3d') setView('map'); }} label={t('worldgen.journey.title')} />
+            <PanelTab active={panelTab === 'trade'} onClick={() => { setPanelTab('trade'); if (view === '3d') setView('map'); }} label={t('worldgen.trade.title')} />
             <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); if (view === '3d') setView('map'); }} label={t('worldgen.panel.atlas')} />
             <PanelTab
               active={panelTab === 'regions'}
@@ -2511,6 +2550,22 @@ export default function WorldView({
                 <p className="text-[11px] text-white/45">
                   {t('worldgen.panel.journeyBuilding')}
                 </p>
+              )
+            ) : panelTab === 'trade' ? (
+              trade ? (
+                <TradePanel
+                  places={trade.places}
+                  sites={trade.sites}
+                  snapshots={trade.snapshots}
+                  month={tradeMonth}
+                  onMonth={setTradeMonth}
+                  placing={tradePlacing}
+                  onPlacing={setTradePlacing}
+                  onRemoveSite={(id) => applyEdit(tradeSiteRemoveEdit(id))}
+                  onFocus={zoomToPoint}
+                />
+              ) : (
+                <p className="text-[11px] text-white/45">{t('worldgen.trade.building')}</p>
               )
             ) : panelTab === 'world' ? (
               <FiltersPanel
