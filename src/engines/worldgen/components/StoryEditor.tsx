@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { STORY_COLORS, STORY_NOTE_MAX, STORY_STATUSES, STORY_TITLE_MAX, STORY_TYPES, type StoryEvent, type StoryStatus, type StoryType } from '../core/storyEvents';
 
@@ -38,7 +38,28 @@ export default function StoryEditor({ draft, onDraft, events, selectedId, onSele
   const [seen, setSeen] = useState<string | null>(null);
   const key = selected ? `${selected.id}|${selected.title}|${selected.note ?? ''}` : null;
   if (key !== seen) { setSeen(key); setTitle(selected?.title ?? ''); setNote(selected?.note ?? ''); }
+  // Words typed for an event belong to that event: if another is picked (on the
+  // map, before the field blurs) or the editor closes, they are saved to the
+  // one they were typed for, not compared against the newly picked one.
+  const typed = useRef<{ id: string; title: string; note: string } | null>(null);
+  const latest = useRef({ events, onUpdate });
+  useEffect(() => { latest.current = { events, onUpdate }; });
+  useEffect(() => {
+    const id = selectedId;
+    return () => {
+      const pending = typed.current;
+      if (!id || !pending || pending.id !== id) return;
+      typed.current = null;
+      const stored = latest.current.events.find((event) => event.id === id);
+      if (!stored) return;
+      const patch: Partial<StoryEvent> = {};
+      if (pending.title.trim() && pending.title.trim() !== stored.title) patch.title = pending.title.trim().slice(0, STORY_TITLE_MAX);
+      if (pending.note.trim() !== (stored.note ?? '')) patch.note = pending.note.trim().slice(0, STORY_NOTE_MAX);
+      if (Object.keys(patch).length) latest.current.onUpdate(id, patch);
+    };
+  }, [selectedId]);
   const commitText = () => {
+    typed.current = null;
     if (!selected) return;
     const patch: Partial<StoryEvent> = {};
     if (title.trim() && title.trim() !== selected.title) patch.title = title.trim().slice(0, STORY_TITLE_MAX);
@@ -96,11 +117,11 @@ export default function StoryEditor({ draft, onDraft, events, selectedId, onSele
           </div>
           {typeChips(selected.type, (type) => onUpdate(selected.id, { type }), 'story-edit-type')}
           <input data-testid="story-edit-title" value={title} maxLength={STORY_TITLE_MAX}
-            onChange={(e) => setTitle(e.target.value)} onBlur={commitText}
+            onChange={(e) => { setTitle(e.target.value); typed.current = { id: selected.id, title: e.target.value, note }; }} onBlur={commitText}
             onKeyDown={(e) => { if (e.key === 'Enter') commitText(); }}
             className="rounded bg-white/10 px-2 py-1 text-[11px] text-white" />
           <textarea data-testid="story-edit-note" value={note} maxLength={STORY_NOTE_MAX} rows={3} placeholder={t('worldgen.story.notePlaceholder')}
-            onChange={(e) => setNote(e.target.value)} onBlur={commitText}
+            onChange={(e) => { setNote(e.target.value); typed.current = { id: selected.id, title, note: e.target.value }; }} onBlur={commitText}
             className="rounded bg-white/10 px-2 py-1 text-[11px] text-white placeholder:text-white/35" />
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1 text-[10px] text-white/55">

@@ -33,7 +33,8 @@ Los mundos generados guardan su aspecto, pueden empezar en blanco, miden áreas
 frente a contornos reales, planifican viajes con el ritmo y la física de viaje
 del propio mundo y llevan rótulos editables (ángulo, espaciado, curva), 32
 sellos, una rejilla de juego cuadrada o hexagonal, una niebla del lector que
-revela el mapa capítulo a capítulo y sucesos de la historia por capítulo; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
+revela el mapa capítulo a capítulo, sucesos de la historia por capítulo y una
+lente de comercio mes a mes (explotaciones, escasez, precios, envíos); las épocas de los mapas dibujados pueden seguir sucesos de la cronología
 y reproducirse en orden. Cada capacidad tiene herramientas del puente
 (docs/AI-BRIDGE.md, sección 28).
 El perfil opcional 5e (2014), SRD 5.1 conserva valores manuales y contadores

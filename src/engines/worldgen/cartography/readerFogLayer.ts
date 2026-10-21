@@ -112,21 +112,22 @@ let projectedCache: { key: string; mask: Uint8Array; canvas: HTMLCanvasElement |
 
 /**
  * The fog for a projection that is not a simple grid of rows and columns
- * (Robinson, Mollweide, azimuthal): sampled through the projection's inverse
- * every few screen pixels and laid over the view. In the reader's view the
- * paper also covers what lies outside the projected world. `key` names the
- * camera, so an unchanged view reuses its sheet.
+ * (Robinson, Mollweide, azimuthal). The sheet is sampled once per projection
+ * and mask over the projection's own unit square, through its inverse, and
+ * then laid over the map's rectangle on screen: panning and zooming only
+ * move it. In the reader's view the paper also covers what lies outside the
+ * projected world and outside the map's rectangle.
  */
 export function drawReaderFogProjected(
   ctx: CanvasRenderingContext2D,
   layer: ReaderFogLayer,
-  width: number,
-  height: number,
-  inverse: (sx: number, sy: number) => [number, number] | null,
+  inverse: (X: number, Y: number) => [number, number] | null,
   key: string,
-  step = 3,
+  rect: { x: number; y: number; w: number; h: number },
+  viewport: { width: number; height: number },
 ): void {
-  const w = Math.max(1, Math.ceil(width / step)), h = Math.max(1, Math.ceil(height / step));
+  const w = Math.min(1024, Math.max(64, layer.width));
+  const h = Math.max(32, Math.round(w * rect.h / Math.max(1, rect.w)));
   const fullKey = `${key}|${layer.mode}|${layer.paper ?? ''}|${w}x${h}`;
   let sheet = projectedCache && projectedCache.key === fullKey && projectedCache.mask === layer.mask ? projectedCache.canvas : null;
   if (!sheet) {
@@ -141,7 +142,7 @@ export function drawReaderFogProjected(
     const W = layer.width, H = layer.height;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const uv = inverse((x + 0.5) * step, (y + 0.5) * step);
+        const uv = inverse((x + 0.5) / w, (y + 0.5) / h);
         let alpha: number;
         if (!uv) alpha = layer.mode === 'reader' ? 255 : 0;
         else {
@@ -160,6 +161,14 @@ export function drawReaderFogProjected(
   }
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(sheet, 0, 0, w, h, 0, 0, w * step, h * step);
+  ctx.drawImage(sheet, 0, 0, w, h, rect.x, rect.y, rect.w, rect.h);
+  if (layer.mode === 'reader') {
+    ctx.fillStyle = layer.paper ?? DEFAULT_PAPER;
+    const { width: vw, height: vh } = viewport;
+    if (rect.y > 0) ctx.fillRect(0, 0, vw, rect.y);
+    if (rect.y + rect.h < vh) ctx.fillRect(0, rect.y + rect.h, vw, vh - rect.y - rect.h);
+    if (rect.x > 0) ctx.fillRect(0, rect.y, rect.x, rect.h);
+    if (rect.x + rect.w < vw) ctx.fillRect(rect.x + rect.w, rect.y, vw - rect.x - rect.w, rect.h);
+  }
   ctx.restore();
 }

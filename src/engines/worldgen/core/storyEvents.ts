@@ -89,7 +89,8 @@ export function newStoryId(): string {
   return `ev-${Date.now().toString(36)}-${random}`;
 }
 
-/** True for edits that only the reader's-eye views read: fog and story events. */
+/** True for edits the world itself ignores: the reader's fog, story events and trade sites. */
 export function isViewOnlyEdit(edit: WorldEdit): boolean {
-  return edit.kind === 'fog' || edit.kind === 'story' || edit.kind === 'storyRemove';
+  return edit.kind === 'fog' || edit.kind === 'story' || edit.kind === 'storyRemove'
+    || edit.kind === 'tradeSite' || edit.kind === 'tradeSiteRemove';
 }

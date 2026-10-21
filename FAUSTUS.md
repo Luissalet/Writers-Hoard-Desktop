@@ -32,7 +32,9 @@ check what the reader knows with `wh_reader_view` before describing a place as
 known, and render it with `wh_render_world_map` `readerView`/`readerChapter`. Story
 events (`wh_list_story_events`, `knownByChapter`) say what happened where and
 when; read them before describing what a character could know, and keep
-planned events apart from happened ones.
+planned events apart from happened ones. For trade, famine or prices in a
+scene, ask `wh_world_economy` for that month and settlement instead of
+inventing figures; it is deterministic for the world.
 
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means

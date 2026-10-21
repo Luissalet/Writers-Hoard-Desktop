@@ -195,6 +195,8 @@ interface Map2DProps {
   onSelectStory?: (id: string | null) => void;
   onPlaceStory?: (x: number, y: number) => void;
   onMoveStory?: (id: string, x: number, y: number) => void;
+  /** While set, a click on the map is a point for this (a trade site being placed) and nothing else. */
+  onPickCell?: ((x: number, y: number) => void) | null;
   onPickSettlement?: (s: Settlement) => void;
   /** Double-click: descend a league toward that ground (the parent flies). */
   onZoomTo?: (x: number, y: number) => void;
@@ -812,7 +814,7 @@ export default function Map2D({
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
-  selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory,
+  selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory, onPickCell,
 }: Map2DProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
@@ -2634,10 +2636,12 @@ export default function Map2D({
       // The play grid repeats with its own period, not the world's: drawn once,
       // from the copy under the middle of the screen, or two grids would
       // interleave at the seam.
-      const gridCopy = annotations.grid
+      // The trade lens repeats itself either side of the copy it is given, so
+      // it rides on the same single copy.
+      const gridCopy = annotations.grid || annotations.trade
         ? (copies.find((ox) => ox <= cw / 2 && cw / 2 < ox + mapW) ?? copies[0])
         : undefined;
-      if (marks.pins?.length || marks.route || marks.linked?.length || marks.traveller || annotations.grid) {
+      if (marks.pins?.length || marks.route || marks.linked?.length || marks.traveller || annotations.grid || annotations.trade) {
         for (const copyOx of copies) {
           // Un límite conocido: el salto de la costura se compara dentro de
           // `drawAnnotations` contra `ctx.canvas.width`, que es el búfer y no
@@ -2647,7 +2651,7 @@ export default function Map2D({
           // entre dos poblaciones casi nunca lo cruza; arreglarlo de verdad es
           // un parámetro más en esa función, que no es de esta vista.
           drawAnnotations(
-            ctx, copyOx === gridCopy ? { ...marks, grid: annotations.grid } : marks, world,
+            ctx, copyOx === gridCopy ? { ...marks, grid: annotations.grid, trade: annotations.trade } : marks, world,
             (wx) => toScreen(wx / W, 0, copyOx)[0],
             (wy) => toScreen(0, wy / H, copyOx)[1],
             (PW * scale) / W,
@@ -2827,12 +2831,10 @@ export default function Map2D({
     // Curved projections (Robinson, Mollweide, azimuthal) are sampled through
     // their inverse: rows and columns of the world are not lines on screen there.
     if (annotations?.fog && !wraps) {
-      drawReaderFogProjected(ctx, annotations.fog, cw, ch, (px, py) => {
-        const X = (px - view.ox) / mapW, Y = (py - view.oy) / mapH;
-        if (X < 0 || X > 1 || Y < 0 || Y > 1) return null;
+      drawReaderFogProjected(ctx, annotations.fog, (X, Y) => {
         const uv = spec.inverse(X, Y);
         return uv ? [uv[0], uv[1]] : null;
-      }, `${projection}|${view.ox.toFixed(1)}|${view.oy.toFixed(1)}|${scale.toFixed(4)}|${cw}x${ch}`);
+      }, projection, { x: view.ox, y: view.oy, w: mapW, h: mapH }, { width: cw, height: ch });
     }
     if (annotations?.fog && wraps) {
       for (const copyOx of copies) {
@@ -2855,13 +2857,16 @@ export default function Map2D({
       const held = storyDrag.current?.live ? storyDrag.current : null;
       for (const copyOx of copies) {
         for (const mark of annotations.story) {
-          let [mx, my] = toScreen(mark.x / W, mark.y / H, copyOx);
-          if (held && held.id === mark.id && copyOx === copies[0]) { mx = held.x; my = held.y; }
+          // The one in the hand is drawn once, under the pointer, below.
+          if (held && held.id === mark.id) continue;
+          const [mx, my] = toScreen(mark.x / W, mark.y / H, copyOx);
           if (mx < -40 || mx > cw + 220 || my < -20 || my > ch + 20) continue;
           drawStoryMark(ctx, mark, mx, my);
           hits.push({ kind: 'note', x: mx, y: my, reach: 12, bias: 2, storyId: mark.id, note: mark.title });
         }
       }
+      const inHand = held ? annotations.story.find((mark) => mark.id === held.id) : undefined;
+      if (held && inHand) drawStoryMark(ctx, inHand, held.x, held.y);
     }
 
     // The selected label's handles: turn, spread and bend it by hand.
@@ -4928,6 +4933,12 @@ export default function Map2D({
       if (m) setRulerPts((pts) => [...pts, { x: m.u * W, y: m.v * H }]);
       return;
     }
+    // A point asked for by a panel (a trade site): the click is that and nothing else.
+    if (onPickCell) {
+      const m = screenToMap(sx, sy);
+      if (m) onPickCell(m.u * W, m.v * H);
+      return;
+    }
     // The Labels tool's click only picks labels (done at the press): it opens no town and selects nothing else.
     if (tool?.mode === 'labels') return;
     // The Story tool's click on empty ground places the next event there.
@@ -5069,6 +5080,7 @@ export default function Map2D({
         onPointerCancel={() => {
           // A cancelled handle drag leaves the label as it was.
           if (labelDrag.current) { labelDrag.current = null; labelPreview.current = null; scheduleDraw(); }
+          if (storyDrag.current) { storyDrag.current = null; scheduleDraw(); }
           rollbackLiveBiome();
           const g = liveSculpt.current;
           if (g) {

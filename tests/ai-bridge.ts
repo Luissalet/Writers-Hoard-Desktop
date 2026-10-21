@@ -72,7 +72,7 @@ function testManifestHandlerParity(): void {
   // wh_remove_place is not one: it appends a `remove` edit to a world's list,
   // which wh_restore_place and the undo reverse, and no row goes anywhere.
   // wh_remove_story_event is the same: a `storyRemove` edit, undone like any other.
-  const worldEditRemovals = new Set(['wh_remove_place', 'wh_remove_story_event']);
+  const worldEditRemovals = new Set(['wh_remove_place', 'wh_remove_story_event', 'wh_remove_trade_site']);
   for (const name of worldEditRemovals) assert(getBridgeTool(name)?.description.includes('Not a deletion'), `${name} must say it is an undoable edit, not a deletion`);
   const deleters = BRIDGE_TOOLS.filter(
     (t) => /delete|remove|destroy/i.test(t.name) && !worldEditRemovals.has(t.name) && !scopedRemovals.has(t.name) && !PUBLISHING_TOOLS.some(native => native.name === t.name),

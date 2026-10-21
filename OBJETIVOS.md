@@ -48,7 +48,8 @@ de juego y niebla del lector por capítulos, todo con interfaz, MCP, deshacer y
 ámbito de época.
 
 Siguiente, en este orden:
-- Lente de comercio sobre el mapa (A2 #43–47).
+- Comercio: rutas de envío que rodeen bahías por tierra y usen los ríos; la
+  lente también en proyecciones curvas.
 - Sucesos: reproducción de la historia por capítulos en el mapa (A2 #25) y
   enlace de un suceso a su escena del manuscrito.
 - Pulido del mapa clásico y una herramienta MCP genérica para elementos del mapa.

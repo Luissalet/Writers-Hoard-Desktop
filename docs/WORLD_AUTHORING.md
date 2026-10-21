@@ -119,10 +119,25 @@ and planned or happened; a click places the next one, picking one edits it in
 the inspector (title and note are saved when the field is left), dragging moves
 it, and the list shows the story so far by chapter. The Reader's view marks the
 events that have happened by its chapter and hides the planned route, journey
-pins, banner and other author marks. In the curved projections (Robinson,
+pins, banner and other author marks. The Carta PNG export carries the events
+shown on screen: those known by the chapter in the Reader's view, all of them
+while the Events tool is out, none otherwise. In the curved projections (Robinson,
 Mollweide, azimuthal) the atlas draws the fog and events through the
 projection; the play grid, route and banner show on the equirectangular and
 Mercator atlas and on the Carta.
+The Trade tab is a deterministic economy over the settlements: each opens
+farms, fisheries, pastures, logging camps, quarries, mines and saltworks near
+it according to the ground, and month by month it eats, stores, and buys from
+its neighbours by road or, between ports, by sea. The tab plays or steps the
+months and lists who is fed and who goes short of a staple (grain, meat,
+salt) and in how many months, read off the simulation itself with trade
+included; prices against the usual, goods nobody makes (with the kind of site
+that would make them), and the sites of a settlement. Farms, pastures and
+fisheries feed their own town; logging camps, quarries, mines and saltworks
+are few and supply a region (towns and cities look further afield for them). The author can place sites on the map
+or switch generated ones off; both are undoable world edits that change
+nothing in the terrain. The atlas (equirectangular and Mercator) and the Carta
+draw the sites and that month's shipments.
 
 Graph filters include concrete custom types and descendants. Relation trees
 create connected neighbors in four directions and reconnect edge endpoints;
