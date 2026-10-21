@@ -49,11 +49,24 @@ export async function testWorldPresentationCore(): Promise<string[]> {
     assert(same.revision === 2, 'Saving an identical look created a new revision');
     assert(row.params.seed === params.seed && row.edits === world.edits, 'Presentation touched the recipe');
 
-    // Era scope: the past keeps its own look; Base is untouched.
-    await saveWorldPresentation(ERA, world.id, { theme: 'survey', skin3D: 'arcilla' });
+    // Era scope: while the era inherits the world, a look change is shared with
+    // Base and never copies the world into the era (later Base edits still show).
+    await saveWorldPresentation(ERA, world.id, { skin3D: 'arcilla' });
+    row = (await db.generatedWorlds.get(world.id))!;
+    const variants = () => db.worldEraVariants.where('[projectId+eraId+kind+entityId]').equals([P, ERA.eraId, 'worldgen', world.id]).count();
+    assert(row.presentation?.skin3D === 'arcilla' && await variants() === 0, `Look change forked the world into the era: ${JSON.stringify(row.presentation)}`);
+    await db.generatedWorlds.update(world.id, { title: 'Look planet renamed' });
+    assert((await worldgenScopeOperations(ERA).worlds.getOne(world.id))!.title === 'Look planet renamed', 'The era stopped following Base after a look change');
+    await db.generatedWorlds.update(world.id, { title: world.title });
+    // Once the era holds its own copy (an authoring change there), its look is its own.
+    await worldgenScopeOperations(ERA).worlds.update(world.id, { title: 'Look planet in the past' });
+    await saveWorldPresentation(ERA, world.id, { theme: 'survey' });
     const past = (await worldgenScopeOperations(ERA).worlds.getOne(world.id))!;
     row = (await db.generatedWorlds.get(world.id))!;
-    assert(past.presentation?.theme === 'survey' && past.presentation.layers?.roads === false && row.presentation?.theme === 'antique' && !row.presentation.skin3D, `Era look leaked: ${JSON.stringify({ past: past.presentation, base: row.presentation })}`);
+    assert(await variants() === 1 && past.presentation?.theme === 'survey' && past.presentation.layers?.roads === false && row.presentation?.theme === 'antique', `Era look leaked: ${JSON.stringify({ past: past.presentation, base: row.presentation })}`);
+    // One damaged stored field falls back alone.
+    const partial = resolvePresentation({ theme: 'neon', skin3D: 'arcilla', layers: { roads: false, lava: true } } as never);
+    assert(partial.theme === 'wonder' && partial.skin3D === 'arcilla' && partial.layers.roads === false, `A bad field reset the whole look: ${JSON.stringify(partial)}`);
 
     // Undo puts back only what still holds the undone value.
     const change = await saveWorldPresentation({ projectId: P }, world.id, { theme: 'relief', reliefAmount: 1.6 });
@@ -98,7 +111,7 @@ export async function testWorldPresentationCore(): Promise<string[]> {
     return [
       'Legacy worlds keep the old defaults; invalid looks are refused and corrupt stored looks fall back safely',
       'Look changes field-merge with revisions and compare-and-swap; identical saves create no revision; recipe untouched',
-      'A named era keeps its own look while Base is unchanged',
+      'An era that inherits a world shares its look with Base without copying the world; an era with its own copy keeps its own look; damaged fields fall back one by one',
       'Undo (direct and bridge __undo) reverts only fields still holding the undone value',
       'wh_get/wh_set_world_presentation validate, refuse stale revisions and unknown layers',
       'wh_render_world_map uses the saved look by default and an explicit theme when given',
