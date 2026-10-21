@@ -1,3 +1,4 @@
+import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldRuntimeKey } from '../era';
@@ -161,13 +162,18 @@ interface WorldViewProps {
 
 /** A look as flat fields, so changes are compared and saved one field at a time. */
 function flattenLook(look: WorldPresentation): Record<string, unknown> {
-  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount };
+  // The grid is compared and saved whole, as one field.
+  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null };
   for (const [key, value] of Object.entries(look.layers ?? {})) out[`layers.${key}`] = value;
   return out;
 }
 function unflattenLook(fields: Record<string, unknown>): WorldPresentation {
   const out: Record<string, unknown> = {}, layers: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(fields)) { if (key.startsWith('layers.')) layers[key.slice(7)] = value; else if (value !== undefined) out[key] = value; }
+  for (const [key, value] of Object.entries(fields)) {
+    if (key.startsWith('layers.')) layers[key.slice(7)] = value;
+    else if (key === 'grid') out.grid = typeof value === 'string' ? JSON.parse(value) : null;
+    else if (value !== undefined) out[key] = value;
+  }
   if (Object.keys(layers).length) out.layers = layers;
   return out as WorldPresentation;
 }
@@ -213,6 +219,8 @@ export default function WorldView({
   const savedLook = useMemo(() => resolvePresentation(world.presentation), [world.presentation]);
   const [themeId, setThemeId] = useState<string>(savedLook.theme);
   const [skin3D, setSkin3D] = useState<Skin3D>(savedLook.skin3D);
+  /** The play grid over the map (squares or hexes, in km), saved with the look. */
+  const [mapGrid, setMapGrid] = useState<MapGrid | null>(savedLook.grid ?? null);
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
   const [regionAt, setRegionAt] = useState<{ x: number; y: number; savedId?: string } | null>(null);
   const [savedRegions, setSavedRegions] = useState<SavedWorldRegion[]>(() => world.regions ?? []);
@@ -259,7 +267,8 @@ export default function WorldView({
     skin3D,
     reliefAmount: reliefSettled,
     layers: Object.fromEntries(PRESENTATION_LAYERS.map((key) => [key, cartoLayers[key] !== false && (key !== 'borders' || cartoLayers.borders === true)])),
-  }), [themeId, skin3D, reliefSettled, cartoLayers]);
+    grid: mapGrid,
+  }), [themeId, skin3D, reliefSettled, cartoLayers, mapGrid]);
   /** The stored look this view last knew, field by field (layers as "layers.x"). */
   const lookBaseline = useRef(flattenLook(lookToSave));
   const lookRevision = useRef(world.presentationRevision ?? 0);
@@ -270,14 +279,14 @@ export default function WorldView({
     if (revision <= lookRevision.current) return;
     lookRevision.current = revision;
     const resolved = resolvePresentation(world.presentation);
-    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers });
+    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid });
     // Adopt what changed elsewhere, but only for fields this view has not
     // changed itself and not yet saved: that choice is still on its way.
     const local = flattenLook(lookLocal.current), base = lookBaseline.current, next: Record<string, unknown> = {};
     for (const key of Object.keys(incoming)) next[key] = local[key] !== base[key] ? local[key] : incoming[key];
     lookBaseline.current = incoming;
     const look = unflattenLook(next);
-    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!);
+    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null);
     setCartoLayers((current) => ({ ...current, ...look.layers }));
   }, [world.presentation, world.presentationRevision]);
   useEffect(() => {
@@ -326,6 +335,8 @@ export default function WorldView({
   const [journeyPick, setJourneyPick] = useState<'from' | 'to' | 'via' | null>(null);
   const [journeyVia, setJourneyVia] = useState<Settlement[]>([]);
   const [journeyRoute, setJourneyRoute] = useState<{ route: TravelRoute | null; color: string }>({ route: null, color: '#a3261e' });
+  /** The party's banner while a journey is being played. */
+  const [traveller, setTraveller] = useState<CartoAnnotations['traveller'] | null>(null);
   const [paleoState, setPaleoState] = useState<PaleoState | null>(null);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<FlyTarget | null>(null);
@@ -820,12 +831,14 @@ export default function WorldView({
       title: rg.title,
       active: rg.id === regionAt?.savedId,
     }));
-    if (!pins.length && !r && !paleoState && !linked && !regions.length) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid) return undefined;
     return {
       pins,
       linked,
       regions: regions.length ? regions : undefined,
       route: r && r.cells.length > 1 ? { cells: r.cells, color: journeyRoute.color } : undefined,
+      traveller: traveller ?? undefined,
+      grid: mapGrid ?? undefined,
       paleo: paleoState && data ? (() => {
         const pm = paleoMap(data, paleoState);
         // Named here, where the world's own feature names are to hand: a bridge
@@ -835,7 +848,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1017,6 +1030,8 @@ export default function WorldView({
   const applyEdit = useCallback((edit: WorldEdit) => {
     const s = session.current;
     if (!s || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return;
+    // A stamp's name belongs to that stamp: the next one starts unnamed.
+    if (edit.kind === 'stamp' && edit.name) setTool((current) => (current.stampName ? { ...current, stampName: '' } : current));
     setPainting(true);
     // One frame of breathing room so the brush ring clears and the busy flag
     // paints before the main thread blocks on the edit.
@@ -1862,6 +1877,25 @@ export default function WorldView({
               {SCALE_REFERENCES.map((ref) => <option key={ref.id} value={ref.id}>{t(`worldgen.scaleRef.${ref.id}`)}</option>)}
             </select>
           )}
+          {(view === 'map' || view === 'carta') && (
+            <div className="flex items-center gap-1" data-testid="worldgen-grid">
+              <select value={mapGrid?.kind ?? ''} aria-label={t('worldgen.grid.title')} title={t('worldgen.grid.title')}
+                onChange={(e) => setMapGrid(e.target.value ? { kind: e.target.value as MapGrid['kind'], km: mapGrid?.km ?? 100 } : null)}
+                className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${mapGrid ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
+                <option value="">{t('worldgen.grid.none')}</option>
+                <option value="square">{t('worldgen.grid.square')}</option>
+                <option value="hex">{t('worldgen.grid.hex')}</option>
+              </select>
+              {mapGrid && (
+                <label className="flex items-center gap-1 text-xs text-text-muted">
+                  <input type="number" min={MAP_GRID_KM.min} max={MAP_GRID_KM.max} step={1} value={mapGrid.km} aria-label={t('worldgen.grid.km')}
+                    onChange={(e) => { const km = Number(e.target.value); if (Number.isFinite(km) && km >= MAP_GRID_KM.min && km <= MAP_GRID_KM.max) setMapGrid({ ...mapGrid, km }); }}
+                    className="w-16 bg-elevated border border-border rounded-lg px-1.5 py-1 text-xs text-text-primary" />
+                  km
+                </label>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex-1" />
@@ -2355,6 +2389,7 @@ export default function WorldView({
                   via={journeyVia}
                   onClearVia={() => setJourneyVia([])}
                   onRoute={(route, color) => setJourneyRoute({ route, color })}
+                  onTraveller={setTraveller}
                   paleo={paleoState}
                   onPaleo={setPaleoState}
                 />

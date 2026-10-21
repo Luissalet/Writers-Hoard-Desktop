@@ -82,6 +82,17 @@ async function main() {
   await js(`document.querySelector('[data-testid="journey-close"]').click()`);
   await wait(`${footSlider}==='200'`, 'world settings after closing the trip');
   tests.push('Closing the itinerary goes back to the world\'s settings, restored after reopening the engine');
+  // Play the journey: the banner leaves, spends nights where the planner put them, and arrives.
+  await wait(`document.querySelector('[data-testid="journey-play"]')`, 'journey player');
+  await js(`document.querySelector('[data-testid="journey-play"]').click()`);
+  const caption = `document.querySelector('[data-testid="journey-play-caption"]')?.textContent ?? ''`;
+  const seen = new Set();
+  for (let i = 0; i < 80; i++) { const c = await js(caption); if (c) seen.add(c); if ([...seen].some(x => /Noche/.test(x)) && seen.size >= 3) break; await pause(100); }
+  assert(seen.size >= 3 && [...seen].some(x => /Noche/.test(x)), `Playback did not reach a night: ${JSON.stringify([...seen])}`);
+  await pause(400); fs.writeFileSync(path.join(evidence, 'journey-playing-1440.png'), (await win.webContents.capturePage()).toPNG());
+  await js(`(()=>{const i=document.querySelector('[data-testid="journey-play-day"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,i.max);i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await wait(`/Llegada/.test(${caption})`, 'arrival caption');
+  tests.push(`Playing the journey moves the banner day by day and halts for the nights (${[...seen].join(' / ')}); the slider's end reads "${await js(caption)}"`);
   win.setContentSize(640, 900); await pause(1000);
   fs.writeFileSync(path.join(evidence, 'travel-settings-640.png'), (await win.webContents.capturePage()).toPNG());
   if (errors.length) console.log('CONSOLE ERRORS\n' + errors.slice(0, 8).join('\n'));

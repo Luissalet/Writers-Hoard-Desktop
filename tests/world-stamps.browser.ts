@@ -40,7 +40,7 @@ export async function testWorldStamps(): Promise<string[]> {
     assert(applied.stamps.length === 1 && applied.stamps[0].glyph === 'inn', 'Remove did not hide the stamp');
     applied = applyEdits(flat(), [...edits, { kind: 'eraseMarkers', x: 40, y: 20, radius: 2 }]);
     assert(applied.stamps.every((stamp) => stamp.glyph !== 'inn'), 'The eraser left the stamp');
-    assert(deserializeEdits(serializeEdits([...edits, { kind: 'stamp', x: 1 } as never])).length === edits.length, 'A stamp without a glyph must be dropped on reading');
+    assert(deserializeEdits(serializeEdits([...edits, { kind: 'stamp', x: 1 } as never, { kind: 'stamp', x: 1, y: 1, glyph: 'inn', size: 'XL' } as never, { kind: 'stamp', x: 1, y: 1, glyph: 'dragon' } as never, { kind: 'stamp', x: 1, y: 1, glyph: 'inn', name: 7 } as never])).length === edits.length, 'Malformed stamps must be dropped on reading');
     passed.push('Stamp edits replay with size and name, move, rename, remove and erase like other painted objects; malformed stamps are dropped');
 
     // Every glyph draws real ink at every size, and restores the context.
@@ -75,6 +75,12 @@ export async function testWorldStamps(): Promise<string[]> {
     const renamed = await runBridgeTool('wh_rename_place', { worldId: W, key: 'stamp:50,30', name: 'Faro Viejo' });
     const after = ((await runBridgeTool('wh_list_stamps', { worldId: W })).result as { stamps: { x: number; name: string }[] }).stamps;
     assert(moved.ok && renamed.ok && after[0].x === 55 && after[0].name === 'Faro Viejo', `Move/rename: ${JSON.stringify(after)}`);
+    // A second stamp in the same cell reports the key it really gets, and that key reaches only it.
+    const twin = await runBridgeTool('wh_add_stamp', { worldId: W, x: 50, y: 30, glyph: 'shrine' });
+    assert(twin.ok && (twin.result as { key: string }).key === 'stamp:50,30#2', `Twin key: ${JSON.stringify(twin.result)}`);
+    const twinGone = await runBridgeTool('wh_remove_place', { worldId: W, key: 'stamp:50,30#2' });
+    const twinAfter = ((await runBridgeTool('wh_list_stamps', { worldId: W })).result as { stamps: { glyph: string }[] }).stamps;
+    assert(twinGone.ok && twinAfter.length === 1 && twinAfter[0].glyph === 'lighthouse', `Removing the twin touched the first: ${JSON.stringify(twinAfter)}`);
     const audit = (added.result as { __audit: { before: unknown; entityId: string; projectId: string } }).__audit;
     const removed = await runBridgeTool('wh_remove_place', { worldId: W, key: 'stamp:50,30' });
     const gone = ((await runBridgeTool('wh_list_stamps', { worldId: W })).result as { stamps: unknown[] }).stamps;

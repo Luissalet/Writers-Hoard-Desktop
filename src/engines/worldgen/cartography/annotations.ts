@@ -7,6 +7,7 @@
 // dragged without paying for a re-render of the sheet, and — the real reason —
 // it is annotation, not cartography. A route drawn INTO the map would be a road.
 
+import { drawMapGrid, type MapGrid } from './mapGrid';
 import type { WorldData } from '../core/types';
 import type { PaleoMap } from '../core/paleo';
 import { marchingSquares, chaikin } from './contours';
@@ -14,6 +15,10 @@ import { marchingSquares, chaikin } from './contours';
 export interface CartoAnnotations {
   /** A planned route, as world cell indices. */
   route?: { cells: number[]; color?: string; label?: string };
+  /** A square or hex play grid in km, under everything else on this layer. */
+  grid?: MapGrid;
+  /** The party on its way along the route, when the journey is being played. */
+  traveller?: { x: number; y: number; label: string; resting: boolean };
   /** Journey ends. */
   pins?: { x: number; y: number; label: string; kind: 'from' | 'to' | 'mark' }[];
   /** The world at another sea level: shelf, drowned coast, ice. */
@@ -48,6 +53,9 @@ export function drawAnnotations(
 ): void {
   if (!ann) return;
   const W = world.width;
+
+  // ---- the play grid --------------------------------------------------------
+  if (ann.grid) drawMapGrid(ctx, ann.grid, { width: ctx.canvas.width, height: ctx.canvas.height, cellPx: k, originX: sx(0), originY: sy(0), kmPerCell: 40075 / W });
 
   // ---- the world at another sea level --------------------------------------
   if (ann.paleo) {
@@ -260,6 +268,29 @@ export function drawAnnotations(
       ctx.fillRect(x + 10, y - 9, w + 10, 18);
       ctx.fillStyle = '#f4ead2';
       ctx.fillText(pin.label, x + 15, y);
+    }
+    ctx.restore();
+  }
+
+  // ---- the party on the road -----------------------------------------------
+  // Last, over the pins: a banner on a pole and what the party is doing.
+  if (ann.traveller) {
+    const x = sx(ann.traveller.x), y = sy(ann.traveller.y);
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.ellipse(x, y + 1, 7, 2.6, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 22); ctx.lineWidth = 2.4; ctx.strokeStyle = '#2b2118'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y - 22); ctx.lineTo(x + 13, y - 18); ctx.lineTo(x, y - 13); ctx.closePath();
+    ctx.fillStyle = ann.traveller.resting ? '#d9a441' : '#c0392b'; ctx.fill();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(255,248,230,0.95)'; ctx.stroke();
+    if (ann.traveller.label) {
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      const w = ctx.measureText(ann.traveller.label).width;
+      ctx.fillStyle = 'rgba(20,16,10,0.85)';
+      ctx.fillRect(x + 16, y - 27, w + 12, 20);
+      ctx.fillStyle = '#ffe2a6';
+      ctx.fillText(ann.traveller.label, x + 22, y - 17);
     }
     ctx.restore();
   }

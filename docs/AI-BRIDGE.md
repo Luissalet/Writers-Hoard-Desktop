@@ -1797,7 +1797,8 @@ de época (`eraId`) y deshacer que sólo revierte lo que sigue teniendo el valor
 deshecho.
 
 - **Aspecto guardado del mundo.** `wh_get_world_presentation` y
-  `wh_set_world_presentation` (estilo, capas, densidad de relieve, piel 3D;
+  `wh_set_world_presentation` (estilo, capas, densidad de relieve, piel 3D,
+  cuadrícula de juego cuadrada o hexagonal en km;
   `expectedRevision` opcional). `wh_render_world_map` usa el aspecto guardado si
   no se le pasa un tema. En una época que hereda el mundo, el aspecto se guarda
   en Base y no copia el mundo a la época; si la época ya tiene su copia, se
@@ -1809,8 +1810,9 @@ deshecho.
 - **Viaje.** `wh_get_world_travel_settings` / `wh_set_world_travel_settings`
   (ritmo habitual y factores de velocidad por medio y de coste por tipo de
   terreno, con revisión) y `wh_plan_journey` (paradas por lugar o celda, ritmo,
-  medio por tramo). Los itinerarios guardados conservan los ajustes con los que
-  se planificaron.
+  medio por tramo; con `atDay`, dónde está el grupo ese día y si viaja, pasa la
+  noche, descansa o ha llegado). Los itinerarios guardados conservan los ajustes
+  con los que se planificaron.
 - **Épocas del mapa enlazadas a la cronología.** `wh_list_map_versions` (en el
   orden del calendario del mundo, cada evento en el calendario de su propia
   línea de tiempo), `wh_capture_map_version` (con `eventId`; sin fecha toma la
