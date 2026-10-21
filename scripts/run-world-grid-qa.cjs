@@ -25,12 +25,18 @@ async function main() {
   const set = (sel, v) => js(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});const p=e instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(e,${JSON.stringify(v)});e.dispatchEvent(new Event(e instanceof HTMLSelectElement?'change':'input',{bubbles:true}));})()`);
   await wait('window.__lookReady', 'preview'); await wait(forged, 'first forge');
   await wait(`document.querySelector('[data-testid="worldgen-grid"] select')`, 'grid control');
+  // The atlas canvas itself, hashed: the grid must change what the atlas draws, not only the Carta.
+  const atlasHash = () => js(`(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const c=[...document.querySelectorAll('canvas')].sort((a,b)=>b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight)[0];const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let h=0;for(let i=0;i<d.length;i+=7)h=(h*31+d[i])|0;return h;})()`);
+  let beforeGrid = await atlasHash(); for (let i = 0; i < 20; i++) { await pause(800); const again = await atlasHash(); if (again === beforeGrid) break; beforeGrid = again; }
   await set('[data-testid="worldgen-grid"] select', 'hex');
   await wait(`document.querySelector('[data-testid="worldgen-grid"] input')`, 'grid size');
   await set('[data-testid="worldgen-grid"] input', '400');
   let grid; for (let i = 0; i < 60; i++) { grid = await look(); if (grid?.km === 400) break; await pause(150); }
   assert(grid && grid.kind === 'hex' && grid.km === 400, `Grid not saved: ${JSON.stringify(grid)}`);
   tests.push('Choosing Hexes and 400 km in the toolbar saves the grid with the world\'s look');
+  await pause(1200); const afterGrid = await atlasHash();
+  assert(afterGrid !== beforeGrid, 'The atlas canvas did not change when the grid was turned on');
+  tests.push('The atlas (Mapa) canvas draws the grid: its pixels change when the grid is turned on');
   await pause(1200); fs.writeFileSync(path.join(evidence, 'grid-atlas-1440.png'), (await win.webContents.capturePage()).toPNG());
   await click('Carta'); await pause(3500);
   fs.writeFileSync(path.join(evidence, 'grid-carta-1440.png'), (await win.webContents.capturePage()).toPNG());

@@ -38,10 +38,26 @@ export default function JourneyPlayback({ route, worldWidth, fromName, toName, o
   // The map's banner follows the clock.
   const publish = useRef(onTraveller);
   useEffect(() => { publish.current = onTraveller; });
+  // At most ~12 times a second while only the position moves: the banner sits
+  // in the whole world view's state, and a re-render of it on every animation
+  // frame costs far more than the eye can tell. A new caption or phase, or the
+  // banner going away, is published at once.
+  const lastPublish = useRef({ at: 0, label: '', phase: '' as string | undefined });
+  const trailing = useRef(0);
   useEffect(() => {
-    publish.current(state ? { x: state.x, y: state.y, label, resting: state.phase === 'rest' || state.phase === 'night' } : null);
+    const value = state ? { x: state.x, y: state.y, label, resting: state.phase === 'rest' || state.phase === 'night' } : null;
+    const send = () => {
+      window.clearTimeout(trailing.current);
+      lastPublish.current = { at: performance.now(), label, phase: state?.phase };
+      publish.current(value);
+    };
+    const prev = lastPublish.current;
+    const wait = 80 - (performance.now() - prev.at);
+    if (!value || label !== prev.label || state?.phase !== prev.phase || wait <= 0) { send(); return; }
+    window.clearTimeout(trailing.current);
+    trailing.current = window.setTimeout(send, wait);
   }, [state?.x, state?.y, label, state?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => publish.current(null), []);
+  useEffect(() => () => { window.clearTimeout(trailing.current); publish.current(null); }, []);
   // Leaving a route behind clears its clock.
   const [seenRoute, setSeenRoute] = useState(route);
   if (seenRoute !== route) { setSeenRoute(route); setDay(0); setPlaying(false); setActive(false); }

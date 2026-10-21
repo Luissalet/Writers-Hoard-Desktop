@@ -148,3 +148,6 @@ lectura exacta del manual actualizado).
 - En QA, `capturePage` de una ventana oculta puede devolver un fotograma
   anterior del lienzo; los oráculos leen DOM, IndexedDB o píxeles del propio
   lienzo y las capturas sólo son evidencia.
+- La rejilla de juego se dibuja una sola vez desde la copia del mundo que hay
+  bajo el centro de la pantalla; si el tamaño en km no divide la circunferencia,
+  las celdas no casan al cruzar la costura (revisión r5, comportamiento aceptado).

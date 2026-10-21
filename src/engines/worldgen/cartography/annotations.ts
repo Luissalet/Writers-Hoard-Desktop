@@ -8,6 +8,7 @@
 // it is annotation, not cartography. A route drawn INTO the map would be a road.
 
 import { drawMapGrid, type MapGrid } from './mapGrid';
+import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
 import type { WorldData } from '../core/types';
 import type { PaleoMap } from '../core/paleo';
 import { marchingSquares, chaikin } from './contours';
@@ -15,6 +16,8 @@ import { marchingSquares, chaikin } from './contours';
 export interface CartoAnnotations {
   /** A planned route, as world cell indices. */
   route?: { cells: number[]; color?: string; label?: string };
+  /** The reader's-eye fog: blank paper where the story has not been yet. Drawn first. */
+  fog?: ReaderFogLayer;
   /** A square or hex play grid in km, under everything else on this layer. */
   grid?: MapGrid;
   /** The party on its way along the route, when the journey is being played. */
@@ -53,6 +56,15 @@ export function drawAnnotations(
 ): void {
   if (!ann) return;
   const W = world.width;
+
+  // ---- what the reader has not seen yet -------------------------------------
+  // `sx` may wrap round the seam (the Carta's does), which would fold the
+  // sheet to nothing: lay it out linearly from the origin and let `copies`
+  // fill either side.
+  if (ann.fog) {
+    const x0 = sx(0);
+    drawReaderFog(ctx, ann.fog, (wx) => x0 + wx * k, sy, true);
+  }
 
   // ---- the play grid --------------------------------------------------------
   if (ann.grid) drawMapGrid(ctx, ann.grid, { width: ctx.canvas.width, height: ctx.canvas.height, cellPx: k, originX: sx(0), originY: sy(0), kmPerCell: 40075 / W });

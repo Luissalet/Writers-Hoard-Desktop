@@ -79,6 +79,7 @@ import { legendFor } from '../cartography/legend';
 import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
 import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
 import { drawStamp, isStampGlyph, STAMP_SIZES } from '../cartography/stampGlyphs';
+import { drawReaderFog, fogHides, READER_PAPER } from '../cartography/readerFogLayer';
 
 /** Where the selected painted label sits on screen, for its handles. */
 interface LabelHandleGeom { key: string; cx: number; cy: number; angle: number; spacing: number; curve: number; size: number; glyphSum: number; count: number; halfW: number; widths: number[] }
@@ -426,7 +427,7 @@ function realmColor(
 function hasRadius(tool: PaintTool | null | undefined): boolean {
   if (!tool) return false;
   return tool.mode === 'terrain' || tool.mode === 'land' || tool.mode === 'biome'
-    || tool.mode === 'places'
+    || tool.mode === 'places' || tool.mode === 'fog'
     || (tool.mode === 'frontera' && tool.realmTool === 'brush');
 }
 
@@ -2619,8 +2620,15 @@ export default function Map2D({
         pins: annotations.pins,
         route: annotations.route,
         linked: annotations.linked,
+        traveller: annotations.traveller,
       };
-      if (marks.pins?.length || marks.route || marks.linked?.length) {
+      // The play grid repeats with its own period, not the world's: drawn once,
+      // from the copy under the middle of the screen, or two grids would
+      // interleave at the seam.
+      const gridCopy = annotations.grid
+        ? (copies.find((ox) => ox <= cw / 2 && cw / 2 < ox + mapW) ?? copies[0])
+        : undefined;
+      if (marks.pins?.length || marks.route || marks.linked?.length || marks.traveller || annotations.grid) {
         for (const copyOx of copies) {
           // Un límite conocido: el salto de la costura se compara dentro de
           // `drawAnnotations` contra `ctx.canvas.width`, que es el búfer y no
@@ -2630,7 +2638,7 @@ export default function Map2D({
           // entre dos poblaciones casi nunca lo cruza; arreglarlo de verdad es
           // un parámetro más en esa función, que no es de esta vista.
           drawAnnotations(
-            ctx, marks, world,
+            ctx, copyOx === gridCopy ? { ...marks, grid: annotations.grid } : marks, world,
             (wx) => toScreen(wx / W, 0, copyOx)[0],
             (wy) => toScreen(0, wy / H, copyOx)[1],
             (PW * scale) / W,
@@ -2805,6 +2813,24 @@ export default function Map2D({
       ctx.fillText(item.text, candidate.x, candidate.y);
     }
 
+    // ---- what the reader has not seen yet ------------------------------------
+    // Over the names too: a place the story has not reached has no name yet.
+    if (annotations?.fog && wraps) {
+      for (const copyOx of copies) {
+        drawReaderFog(ctx, annotations.fog,
+          (wx) => toScreen(wx / W, 0, copyOx)[0],
+          (wy) => toScreen(0, wy / H, copyOx)[1]);
+      }
+      // Beyond the poles is paper too: the reader's sheet has no sea margin.
+      if (annotations.fog.mode === 'reader') {
+        const top = toScreen(0, 0, view.ox)[1], bottom = toScreen(0, 1, view.ox)[1];
+        ctx.save(); ctx.fillStyle = READER_PAPER;
+        if (top > 0) ctx.fillRect(0, 0, cw, top);
+        if (bottom < ch) ctx.fillRect(0, bottom, cw, ch - bottom);
+        ctx.restore();
+      }
+    }
+
     // The selected label's handles: turn, spread and bend it by hand.
     labelHandles.current = null;
     if (selectedGeom && tool?.mode === 'labels') {
@@ -2849,6 +2875,8 @@ export default function Map2D({
         const pxPerCell = (PW * scale) / W;
         const tint = bt0.mode === 'biome'
           ? `rgba(${(BIOME_COLORS[bt0.biome] ?? [120, 160, 90]).join(',')},0.5)`
+          : bt0.mode === 'fog'
+            ? (negRef.current || bt0.fogOp === 'hide' ? 'rgba(236,227,200,0.55)' : bt0.fogOp === 'heard' ? 'rgba(150,170,200,0.4)' : 'rgba(120,200,150,0.4)')
           : bt0.mode === 'places'
             // Ámbar de asentamiento: la zona que la pincelada abre (o vacía,
             // con Ctrl) para el sembrado de lugares.
@@ -3122,7 +3150,15 @@ export default function Map2D({
     // The frame is complete: what it drew is now what the pointer answers to.
     // LAST, after the frontier handles: the lasso's first corner is drawn over
     // the labels and is the only thing in this frame that a click can close.
-    painted.current = hits;
+    // Under blank paper nothing answers the pointer: the reader cannot point at what is not there.
+    const fogLayer = annotations?.fog;
+    painted.current = fogLayer?.mode === 'reader' && wraps
+      ? hits.filter((h) => {
+        const X = (((h.x - view.ox) / mapW) % 1 + 1) % 1, Y = (h.y - view.oy) / mapH;
+        const uv = Y >= 0 && Y <= 1 ? spec.inverse(X, Y) : null;
+        return !uv || !fogHides(fogLayer, uv[0] * W, uv[1] * H);
+      })
+      : hits;
 
     // ---- la barra de escala --------------------------------------------------
     /**

@@ -351,8 +351,22 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   const { renderCartoCanvas } = await import('@/engines/worldgen/cartography/texture');
   const { themeById } = await import('@/engines/worldgen/cartography/theme');
   const { DEFAULT_LAYERS } = await import('@/engines/worldgen/cartography/render');
-  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
-  return { worldId: world.id, theme: themeId, view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
+  // The reader's-eye map: blank paper where the story has not been yet (up to a chapter, if given).
+  let fog: import('@/engines/worldgen/cartography/readerFogLayer').ReaderFogLayer | null = null;
+  const readerView = args.readerView === true || (args.readerChapter !== undefined && args.readerChapter !== null);
+  if (args.readerView !== undefined && typeof args.readerView !== 'boolean') throw new BridgeError('bad-args', 'readerView must be true or false.');
+  if (readerView) {
+    let chapter: number | null = null;
+    if (args.readerChapter !== undefined && args.readerChapter !== null) {
+      if (typeof args.readerChapter !== 'number' || !Number.isInteger(args.readerChapter) || args.readerChapter < 0) throw new BridgeError('bad-args', 'readerChapter must be a whole number from 0 up.');
+      chapter = args.readerChapter;
+    }
+    const { fogMask } = await import('@/engines/worldgen/core/readerFog');
+    const data = opened.world.data;
+    fog = { mask: fogMask(deserializeEdits(world.edits ?? '[]'), data.width, data.height, look.readerStart, chapter), width: data.width, height: data.height, mode: 'reader' };
+  }
+  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
+  return { worldId: world.id, theme: themeId, ...(readerView ? { readerView: true } : {}), view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
 }
 
 export async function whListPlaces(args: ToolArgs): Promise<unknown> {
@@ -913,8 +927,8 @@ export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
   const patch: Record<string, unknown> = {};
-  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers', 'grid']) if (args[key] !== undefined) patch[key] = args[key];
-  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount, layers or grid.');
+  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers', 'grid', 'readerStart']) if (args[key] !== undefined) patch[key] = args[key];
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount, layers, grid or readerStart.');
   const expected = optNumber(args, 'expectedRevision');
   const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
   try {
@@ -1070,5 +1084,78 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
     ...(at ? { atDay: { day: r(at.day, 2), x: r(at.x), y: r(at.y), phase: at.phase, night: at.stage?.night ?? null, nearest: at.stage?.nearest?.name ?? null } } : {}),
     terrain: route.legs.slice(0, 8).map(leg => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad })),
     nights: route.stages.slice(0, 60).map(stage => ({ night: stage.night, x: Math.round(stage.x), y: Math.round(stage.y), rough: stage.rough, terrain: stage.terrain, nearest: stage.nearest ? { name: stage.nearest.name, km: r(stage.nearest.km) } : null })),
+    // The route's cells, at most 400 of them evenly spaced (ends kept): ready to
+    // pass as `points` to wh_paint_reader_fog to mark the way as seen.
+    path: (() => {
+      const step = Math.max(1, Math.ceil(route.cells.length / 400));
+      const out = route.cells.filter((_, index) => index % step === 0 || index === route.cells.length - 1);
+      return out.map(cell => ({ x: cell % data.width, y: Math.floor(cell / data.width) }));
+    })(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The reader's-eye map
+// ---------------------------------------------------------------------------
+
+/** Mark ground on the reader's-eye map as seen, heard of or hidden, optionally from a chapter on. */
+export async function whPaintReaderFog(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const size = worldSize(world);
+  const op = optEnum(args, 'op', ['seen', 'heard', 'hide'] as const);
+  if (!op) throw new BridgeError('bad-args', 'op must be seen, heard or hide.');
+  if (!Array.isArray(args.points) || !args.points.length || args.points.length > 500) throw new BridgeError('bad-args', 'points must be a list of 1 to 500 {x,y} world cells along the stroke.');
+  const pts = (args.points as unknown[]).map((point, index) => {
+    if (!point || typeof point !== 'object') throw new BridgeError('bad-args', `points[${index}] must be {x,y}.`);
+    const { x, y } = cellCoords(point as ToolArgs, size);
+    return { x: x + 0.5, y: y + 0.5 };
+  });
+  const radius = optNumber(args, 'radiusCells') ?? 6;
+  if (!Number.isFinite(radius) || radius < 0.5 || radius > size.width / 2) throw new BridgeError('bad-args', `radiusCells must be from 0.5 to ${size.width / 2}.`);
+  let chapter: number | undefined;
+  if (args.chapter !== undefined && args.chapter !== null) {
+    if (typeof args.chapter !== 'number' || !Number.isInteger(args.chapter) || args.chapter < 0) throw new BridgeError('bad-args', 'chapter must be a whole number from 0 up, or omitted for "from the start".');
+    chapter = args.chapter;
+  }
+  const stroke = { pts, radius, strength: 1, softness: 0.35 };
+  return appendEdit(
+    args, world,
+    chapter === undefined ? { kind: 'fog', op, stroke } : { kind: 'fog', op, stroke, chapter },
+    { op, points: pts.length, radiusCells: radius, chapter: chapter ?? null },
+    `marked the reader's map ${op} in world "${world.title}"`,
+  );
+}
+
+/** What the reader knows of the map up to a chapter: shares, chapters and the state of given cells. */
+export async function whReaderView(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const size = worldSize(world);
+  const { fogMask, fogShares, fogChapters, FOG_SEEN, FOG_HEARD } = await import('@/engines/worldgen/core/readerFog');
+  const { resolvePresentation } = await import('@/engines/worldgen/presentation');
+  const start = resolvePresentation(world.presentation).readerStart;
+  let chapter: number | null = null;
+  if (args.chapter !== undefined && args.chapter !== null) {
+    if (typeof args.chapter !== 'number' || !Number.isInteger(args.chapter) || args.chapter < 0) throw new BridgeError('bad-args', 'chapter must be a whole number from 0 up.');
+    chapter = args.chapter;
+  }
+  const edits = deserializeEdits(world.edits ?? '[]').filter((edit) => edit.kind === 'fog');
+  const mask = fogMask(edits, size.width, size.height, start, chapter);
+  const shares = fogShares(mask);
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  let cells: { x: number; y: number; state: 'seen' | 'heard' | 'hidden' }[] | undefined;
+  if (args.cells !== undefined) {
+    if (!Array.isArray(args.cells) || args.cells.length > 200) throw new BridgeError('bad-args', 'cells must be a list of up to 200 {x,y} world cells.');
+    cells = (args.cells as unknown[]).map((cell, index) => {
+      if (!cell || typeof cell !== 'object') throw new BridgeError('bad-args', `cells[${index}] must be {x,y}.`);
+      const { x, y } = cellCoords(cell as ToolArgs, size);
+      const v = mask[y * size.width + x];
+      return { x, y, state: v === FOG_SEEN ? 'seen' : v === FOG_HEARD ? 'heard' : 'hidden' };
+    });
+  }
+  return {
+    worldId: world.id, readerStart: start, chapter, strokes: edits.length, chapters: fogChapters(edits),
+    shares: { seen: round(shares.seen), heard: round(shares.heard), hidden: round(shares.hidden) },
+    ...(cells ? { cells } : {}),
   };
 }

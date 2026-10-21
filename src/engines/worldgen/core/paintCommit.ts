@@ -50,6 +50,9 @@ export interface PaintSpec {
   ruin: RuinKind;
   rank: SettlementRank;
   labelStyle: 'region' | 'water' | 'range' | 'settlement' | 'note';
+  /** The fog brush: what the stroke marks, and from which chapter. */
+  fogOp?: 'seen' | 'heard' | 'hide';
+  fogChapter?: number | null;
   /** A label's words; for a stamp, its optional name. */
   labelText: string;
   /** Which map stamp the point tool puts down, and how big. */
@@ -257,6 +260,13 @@ export function commitPaintStroke(
       return only
         ? { kind: 'biome', biome: p.biome, stroke, only }
         : { kind: 'biome', biome: p.biome, stroke };
+    }
+    case 'fog': {
+      // Ctrl is the universal negative: it hides again whatever the brush showed.
+      const op = ctx.negative ? 'hide' : (p.fogOp ?? 'seen');
+      const chapter = typeof p.fogChapter === 'number' && Number.isInteger(p.fogChapter) && p.fogChapter >= 0
+        ? p.fogChapter : undefined;
+      return chapter === undefined ? { kind: 'fog', op, stroke } : { kind: 'fog', op, stroke, chapter };
     }
     case 'places':
       // El pincel de LUGARES escribe permiso, no píxeles: la pincelada entera
