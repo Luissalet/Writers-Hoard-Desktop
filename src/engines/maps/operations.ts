@@ -17,12 +17,14 @@ export const mapPinOps = makeTableOps<MapPin>({
   scopeField: 'mapId',
 });
 
-export interface MapVersionMetadata { name: string; date: string; description?: string }
+/** `eventId` links the era to a timeline event; null unlinks it; absent leaves the link as it is. */
+export interface MapVersionMetadata { name: string; date: string; description?: string; eventId?: string | null }
 
 function makeVersion(map: WorldMap, pins: MapPin[], metadata: MapVersionMetadata): MapVersion {
   if (!metadata.name.trim()) throw new Error('Map version needs a name');
   return {
     id: generateId('map-version'), name: metadata.name.trim(), date: metadata.date.trim(), description: metadata.description?.trim(), createdAt: Date.now(),
+    ...(metadata.eventId ? { timelineEventId: metadata.eventId } : {}),
     backgroundImage: map.backgroundImage, features: map.features ?? [], pins, layers: map.layers,
     layerVisibility: map.layerVisibility, source: map.source, sourceWorldId: map.sourceWorldId, sourceRevision: map.sourceRevision,
   };
@@ -51,7 +53,13 @@ export function captureMapVersion(mapId: string, metadata: MapVersionMetadata, s
 export function updateMapVersion(mapId: string, versionId: string, metadata: MapVersionMetadata, scope?: WorldEraScope): Promise<void> {
   return runMapVersionWrite(mapId, async map => {
     if (!metadata.name.trim() || !map.versions?.some(version => version.id === versionId)) throw new Error('Invalid map version');
-    await scopedMapUpdate(mapId, scope, { versions: map.versions.map(version => version.id === versionId ? { ...version, name: metadata.name.trim(), date: metadata.date.trim(), description: metadata.description?.trim() } : version), updatedAt: Date.now() });
+    await scopedMapUpdate(mapId, scope, { versions: map.versions.map(version => {
+      if (version.id !== versionId) return version;
+      const next: MapVersion = { ...version, name: metadata.name.trim(), date: metadata.date.trim(), description: metadata.description?.trim() };
+      if (metadata.eventId === null) delete next.timelineEventId;
+      else if (metadata.eventId) next.timelineEventId = metadata.eventId;
+      return next;
+    }), updatedAt: Date.now() });
   }, scope);
 }
 
@@ -90,3 +98,25 @@ export function restoreMapVersion(mapId: string, versionId: string, recoveryName
 
 async function scopedPins(mapId: string, scope?: WorldEraScope): Promise<MapPin[]> { return scope?.eraId ? (await listEraRows<MapPin>(scope, 'mapPins')).filter(pin => pin.mapId === mapId) : db.mapPins.where('mapId').equals(mapId).toArray(); }
 async function scopedMapUpdate(mapId: string, scope: WorldEraScope | undefined, changes: Partial<WorldMap>): Promise<void> { if (scope?.eraId) await mutateEraRows(scope, [{ table: 'worldMaps', id: mapId, changes }]); else await db.worldMaps.update(mapId, changes); }
+
+/**
+ * Link or unlink one era to a timeline event. With `expected`, the change only
+ * happens while the era still has that link — an undo cannot overwrite a newer
+ * choice. Returns the link it replaced.
+ */
+export function linkMapVersion(mapId: string, versionId: string, eventId: string | null, scope?: WorldEraScope, expected?: string | null): Promise<string | null> {
+  return runMapVersionWrite(mapId, async map => {
+    const version = map.versions?.find(item => item.id === versionId);
+    if (!version) throw new Error('Map version no longer exists');
+    const previous = version.timelineEventId ?? null;
+    if (expected !== undefined && previous !== expected) throw new Error('Map version link changed since');
+    if (previous === eventId) return previous;
+    await scopedMapUpdate(mapId, scope, { versions: map.versions!.map(item => {
+      if (item.id !== versionId) return item;
+      const next: MapVersion = { ...item };
+      if (eventId) next.timelineEventId = eventId; else delete next.timelineEventId;
+      return next;
+    }), updatedAt: Date.now() });
+    return previous;
+  }, scope);
+}

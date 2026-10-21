@@ -1,15 +1,17 @@
 import type { MapFeature, MapPin, WorldMap } from '@/types';
 
 /** The legacy JSON format clones project IDs but does not carry Worldgen rows. */
-export function remapImportedWorldMap(map: WorldMap, projectId: string, remap: (id: string, prefix: string) => string, codexIds: ReadonlySet<string>): WorldMap {
+export function remapImportedWorldMap(map: WorldMap, projectId: string, remap: (id: string, prefix: string) => string, codexIds: ReadonlySet<string>, eventIds?: ReadonlySet<string>): WorldMap {
   const id = remap(map.id, 'map');
   const entry = (entryId?: string) => entryId && codexIds.has(entryId) ? remap(entryId, 'codex') : undefined;
   const feature = (item: MapFeature): MapFeature => ({ ...item, linkedEntryId: entry(item.linkedEntryId) });
   const provenance = (source?: WorldMap['source']) => ({ source: source === 'worldgen' ? 'uploaded' as const : source, sourceWorldId: undefined, sourceRevision: undefined });
+  // A version linked to an imported timeline moment follows that moment; an unknown link stays visible as an orphan.
+  const moment = (eventId?: string) => eventId && eventIds?.has(eventId) ? remap(eventId, 'evt') : eventId;
   return {
     ...map, id, projectId, ...provenance(map.source), features: map.features?.map(feature),
     versions: map.versions?.map(version => ({
-      ...version, ...provenance(version.source), features: version.features.map(feature),
+      ...version, ...provenance(version.source), features: version.features.map(feature), timelineEventId: moment(version.timelineEventId),
       pins: version.pins.map(pin => remapImportedMapPin(pin, projectId, id, remap, codexIds)),
     })),
   };

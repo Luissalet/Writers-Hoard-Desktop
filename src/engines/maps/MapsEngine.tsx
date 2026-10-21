@@ -15,11 +15,19 @@ import { useCodexEntries } from '@/engines/codex/hooks';
 import { createLocalDraftStore, deleteWithDraftCleanup } from '@/hooks/localDraftStore';
 import type { MapFeature } from '@/types';
 import MapVersionHistory from '@/components/maps/MapVersionHistory';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db';
+import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
+import type { TimelineEvent } from '@/types';
 import { worldMapOps, mapPinOps, captureMapVersion, updateMapVersion, deleteMapVersion, restoreMapVersion } from './operations';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const scope = useWorldEraScope(projectId);
+  // Timeline moments map eras can stand for. A map stays usable when the
+  // timeline cannot be read: the history then simply offers no events.
+  const projectEvents = useLiveQuery(() => (scope.eraId ? listEraRows<TimelineEvent>(scope, 'timelineEvents') : db.timelineEvents.where('projectId').equals(projectId).toArray()).catch(() => [] as TimelineEvent[]), [projectId, scope.eraId]) ?? [];
+  const worldCalendar = useLiveQuery(() => resolveWorldCalendar(projectId, undefined, scope.eraId).catch(() => null), [projectId, scope.eraId]);
   const navigate = useEraNavigate();
   const { items: maps, loading: mapsLoading, addItem: addMap, editItem: editMap, removeItem: removeMap, refresh: refreshMaps } = useWorldMaps(projectId);
   const [activeMapId, setActiveMapId] = useState<string>('');
@@ -123,6 +131,8 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             onCapture={async metadata => { await captureMapVersion(activeMapId, metadata, scope); await refreshMaps(); }}
             onUpdate={async (id, metadata) => { await updateMapVersion(activeMapId, id, metadata, scope); await refreshMaps(); }}
             onDelete={async id => { await deleteMapVersion(activeMapId, id, scope); await refreshMaps(); }}
+            events={projectEvents}
+            calendar={worldCalendar?.calendar ?? null}
             onRestore={async (id, recoveryName) => {
               await restoreMapVersion(activeMapId, id, recoveryName, scope);
               await Promise.all([refreshMaps(), refreshPins()]);
