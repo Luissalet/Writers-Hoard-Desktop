@@ -58,6 +58,12 @@ export interface WorldParams {
    * has to live here or the world stops reproducing itself.
    */
   filters?: import('./generation').GenerationFilters;
+  /**
+   * An empty canvas instead of tectonic terrain: open sea to paint a coast on,
+   * or gently rolling land with no coast. Climate, rivers and biomes still run
+   * over whatever is painted. Absent = the generated planet, as before.
+   */
+  starter?: 'sea' | 'land';
 }
 
 export const DEFAULT_PARAMS: WorldParams = {
@@ -82,7 +88,9 @@ export const DEFAULT_PARAMS: WorldParams = {
 
 /** Fill any missing fields (worlds saved by older versions of the engine). */
 export function normalizeParams(params: Partial<WorldParams>): WorldParams {
-  return { ...DEFAULT_PARAMS, ...params, drainageVersion: params.drainageVersion === 2 ? 2 : 1, hydrologyVersion: params.hydrologyVersion === 2 ? 2 : 1 };
+  const normalized: WorldParams = { ...DEFAULT_PARAMS, ...params, drainageVersion: params.drainageVersion === 2 ? 2 : 1, hydrologyVersion: params.hydrologyVersion === 2 ? 2 : 1 };
+  if (normalized.starter !== 'sea' && normalized.starter !== 'land') delete normalized.starter;
+  return normalized;
 }
 
 /** Land-cover / biome classification per cell. */

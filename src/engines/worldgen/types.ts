@@ -71,8 +71,22 @@ export interface GeneratedWorld {
   manuscriptLinks?: import('@/types/projectTools').EntityLink[];
   /** Small JPEG data URL preview for dashboards / future use. */
   thumbnail?: string;
+  /** The author's chosen look; absent fields keep the built-in defaults. See presentation.ts. */
+  presentation?: WorldPresentation;
+  /** Increments on every saved presentation change, for compare-and-swap writers. */
+  presentationRevision?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export type WorldPresentationLayer = 'relief' | 'forests' | 'labels' | 'settlements' | 'roads' | 'borders' | 'frame' | 'compass' | 'scaleBar';
+
+/** How a world is shown to everyone who opens it, flat and in 3D, and in its exports. */
+export interface WorldPresentation {
+  theme?: 'wonder' | 'antique' | 'relief' | 'survey';
+  skin3D?: 'satelite' | 'dibujado' | 'arcilla';
+  reliefAmount?: number;
+  layers?: Partial<Record<WorldPresentationLayer, boolean>>;
 }
 
 /**

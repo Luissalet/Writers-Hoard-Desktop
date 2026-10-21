@@ -332,7 +332,9 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
-  const themeId = optEnum(args, 'theme', ['wonder', 'antique', 'relief', 'survey'] as const) ?? 'wonder';
+  const { resolvePresentation } = await import('@/engines/worldgen/presentation');
+  const look = resolvePresentation(world.presentation);
+  const themeId = optEnum(args, 'theme', ['wonder', 'antique', 'relief', 'survey'] as const) ?? look.theme;
   let view: { x: number; y: number; w: number; h: number } | undefined;
   if (args.view !== undefined) {
     if (!args.view || typeof args.view !== 'object' || Array.isArray(args.view)) throw new BridgeError('bad-args', 'view must be a rectangle in world cells: {x,y,w,h}.');
@@ -346,7 +348,8 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   if (!Number.isSafeInteger(width) || width < 1 || !Number.isSafeInteger(height) || height < 1) throw new BridgeError('bad-args', 'Image width and height must be positive integers.');
   const { renderCartoCanvas } = await import('@/engines/worldgen/cartography/texture');
   const { themeById } = await import('@/engines/worldgen/cartography/theme');
-  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title });
+  const { DEFAULT_LAYERS } = await import('@/engines/worldgen/cartography/render');
+  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
   return { worldId: world.id, theme: themeId, view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
 }
 
@@ -788,4 +791,66 @@ export async function whListPlaceLinks(args: ToolArgs): Promise<unknown> {
       createdAt: link.createdAt,
     })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// The saved look of a world
+// ---------------------------------------------------------------------------
+
+function presentationShape(world: GeneratedWorld, resolved: ReturnType<typeof import('@/engines/worldgen/presentation').resolvePresentation>) {
+  return { worldId: world.id, revision: world.presentationRevision ?? 0, saved: world.presentation ?? {}, effective: resolved };
+}
+
+/** Read the look everyone who opens the world sees: style, layers, relief density and 3D skin. */
+export async function whGetWorldPresentation(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { resolvePresentation } = await import('@/engines/worldgen/presentation');
+  return presentationShape(world, resolvePresentation(world.presentation));
+}
+
+/** Change the saved look, field by field, with optional compare-and-swap on the revision. */
+export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
+  const patch: Record<string, unknown> = {};
+  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers']) if (args[key] !== undefined) patch[key] = args[key];
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount or layers.');
+  const expected = optNumber(args, 'expectedRevision');
+  const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
+  try {
+    const receipt = await saveWorldPresentation(scope, world.id, patch, expected);
+    const resolved = resolvePresentation(receipt.to);
+    return withAudit(
+      { worldId: world.id, revision: receipt.revision, saved: receipt.to, effective: resolved },
+      { projectId: world.projectId, entityId: world.id, summary: `changed the look of world "${world.title}"`, before: { __worldPresentation: receipt } },
+    );
+  } catch (error) {
+    if (error instanceof WorldPresentationError) throw new BridgeError(error.code === 'conflict' ? 'conflict' : error.code === 'not-found' ? 'not-found' : 'bad-args', error.message);
+    throw error;
+  }
+}
+
+/** Create a generated world from a named starting point, the same way the engine's form does. */
+export async function whCreateWorld(args: ToolArgs): Promise<unknown> {
+  const { resolveProjectId } = await import('./shared');
+  const projectId = resolveProjectId(args);
+  await assertEngineEnabled(projectId, ENGINE);
+  const { WORLD_PRESETS, applyWorldPreset } = await import('@/engines/worldgen/core/presets');
+  const { DEFAULT_PARAMS } = await import('@/engines/worldgen/core/types');
+  const { freshWorldEdits } = await import('@/engines/worldgen/recipe');
+  const presetId = optEnum(args, 'preset', WORLD_PRESETS.map(preset => preset.id) as [string, ...string[]]) ?? 'continents';
+  if (args.preset !== undefined && presetId !== args.preset) throw new BridgeError('bad-args', `preset must be one of ${WORLD_PRESETS.map(preset => preset.id).join(', ')}.`);
+  const preset = WORLD_PRESETS.find(candidate => candidate.id === presetId)!;
+  const width = optNumber(args, 'width') ?? DEFAULT_PARAMS.width;
+  if (![1024, 2048, 3072].includes(width)) throw new BridgeError('bad-args', 'width must be 1024 (fast), 2048 (standard) or 3072 (high).');
+  const title = optString(args, 'title')?.trim() || 'World';
+  const seed = optString(args, 'seed')?.trim() || generateId('seed').slice(-8);
+  const now = Date.now();
+  const world: GeneratedWorld = { id: generateId('world'), projectId, title, params: applyWorldPreset({ ...DEFAULT_PARAMS, seed, width }, preset), edits: freshWorldEdits(), createdAt: now, updatedAt: now };
+  await worldgenScopeOperations(worldEraToolScope(args)).worlds.create(world);
+  return withAudit(
+    { id: world.id, worldId: world.id, title, preset: presetId, seed, width, starter: world.params.starter ?? null, created: true },
+    { projectId, entityId: world.id, summary: `created world "${title}" (${presetId})` },
+  );
 }
