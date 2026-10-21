@@ -69,8 +69,10 @@ import {
   type FlyTarget,
 } from '../core/camera';
 import {
-  cellDistanceKm, cellToLonLat, compassPoint, formatLatLon, measurePolyline, type CellPoint,
+  cellDistanceKm, cellToLonLat, closedPerimeterKm, compassPoint, formatLatLon, measurePolyline, polygonAreaKm2, type CellPoint,
 } from '../core/measure';
+import { placeReference, referenceRings, SCALE_REFERENCES } from '../core/scaleReference';
+import { loadBasemap, type Basemap } from '@/engines/real-atlas/basemap';
 import { describeDuration, MODE_KEY, straightLineEstimates } from '../core/travel';
 import { keyboardNudge } from '../core/keyNav';
 import { legendFor } from '../cartography/legend';
@@ -248,6 +250,13 @@ interface Map2DProps {
   measuring?: boolean;
   /** Esc with the ruler out and nothing measured puts the ruler away. */
   onEndMeasure?: () => void;
+  /**
+   * A real place drawn at this map's scale over the middle of the view, to
+   * judge how big the drawn land is. An id from `SCALE_REFERENCES`; null hides it.
+   */
+  scaleReference?: string | null;
+  /** Its name in the reader's language, for the label on the outline. */
+  scaleReferenceLabel?: string;
 }
 
 interface ViewState {
@@ -781,9 +790,9 @@ export default function Map2D({
   tool, onEdit, onTool, onPickSettlement, onZoomTo,
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
-  measuring = false, onEndMeasure,
+  measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '',
 }: Map2DProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const pane = useEnginePane();
   /**
    * Why the last gesture did nothing, in the hint bar, for a few seconds.
@@ -852,6 +861,21 @@ export default function Map2D({
   const [rulerPts, setRulerPts] = useState<CellPoint[]>([]);
   const rulerReading = measurePolyline(rulerPts, world.width, world.height);
   const hasRuler = rulerPts.length > 0;
+  /** Three points or more enclose a shape: its area and closed perimeter. */
+  const rulerAreaKm2 = rulerPts.length >= 3 ? polygonAreaKm2(rulerPts, world.width, world.height) : 0;
+  const rulerPerimeterKm = rulerPts.length >= 3 ? closedPerimeterKm(rulerPts, world.width, world.height) : 0;
+  /** The real outlines, decoded once and only when a comparison is asked for. */
+  const [basemap, setBasemap] = useState<Basemap | null>(null);
+  useEffect(() => {
+    if (!scaleReference || basemap) return;
+    let alive = true;
+    void loadBasemap().then((loaded) => { if (alive) setBasemap(loaded); });
+    return () => { alive = false; };
+  }, [scaleReference, basemap]);
+  const referenceShape = useMemo(() => {
+    const ref = scaleReference ? SCALE_REFERENCES.find((candidate) => candidate.id === scaleReference) : undefined;
+    return ref && basemap ? referenceRings(basemap, ref) : null;
+  }, [scaleReference, basemap]);
   /** Where the pointer is while the ruler is out, for the rubber band. A ref:
    *  it changes on every move and only the canvas reads it. */
   const rulerCursor = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
@@ -2912,7 +2936,69 @@ export default function Map2D({
             };
           }
         }
+        if (rulerPts.length >= 3) {
+          // The enclosed shape: a faint wash and the closing side, dashed. Each
+          // vertex is taken in the copy nearest the previous one, as the legs are.
+          const ring: [number, number][] = [verts[0]];
+          for (let k = 1; k < verts.length; k++) ring.push([near(ring[k - 1][0], verts[k][0]), verts[k][1]]);
+          const closeX = near(ring[ring.length - 1][0], ring[0][0]);
+          ctx.save();
+          ctx.beginPath();
+          ring.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(255,212,121,0.13)';
+          ctx.fill();
+          ctx.setLineDash([4, 4]);
+          ctx.lineWidth = 1.4;
+          ctx.strokeStyle = 'rgba(255,212,121,0.8)';
+          ctx.beginPath();
+          ctx.moveTo(ring[ring.length - 1][0], ring[ring.length - 1][1]);
+          ctx.lineTo(closeX, ring[0][1]);
+          ctx.stroke();
+          ctx.restore();
+        }
         drawRuler(ctx, { legs, vertices: verts.map(([x, y]) => ({ x, y })), band });
+      }
+    }
+
+    /*
+     * A real place at this map's scale, centred on what the reader is looking
+     * at. It follows the view: pan the map under it to compare another coast.
+     */
+    if (referenceShape && referenceShape.length) {
+      const centreX = wraps ? ((((cw / 2 - view.ox) / mapW) % 1) + 1) % 1 : (cw / 2 - view.ox) / mapW;
+      const centreY = (ch / 2 - view.oy) / mapH;
+      const centre = centreY >= 0 && centreY <= 1 ? spec.inverse(centreX, centreY) : null;
+      if (centre) {
+        const placed = placeReference(referenceShape, centre[0], centre[1]);
+        for (const copyOx of copies) {
+          ctx.save();
+          ctx.beginPath();
+          let top = Infinity, midX = 0, count = 0;
+          for (const ring of placed.rings) {
+            ring.forEach(([u, v], k) => {
+              const [x, y] = toScreen(u, v, copyOx);
+              if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+              if (y < top) top = y;
+              midX += x; count++;
+            });
+            ctx.closePath();
+          }
+          ctx.fillStyle = 'rgba(160,214,255,0.16)';
+          ctx.fill('evenodd');
+          ctx.lineWidth = 3.2; ctx.strokeStyle = 'rgba(8,10,16,0.75)'; ctx.stroke();
+          ctx.lineWidth = 1.4; ctx.setLineDash([5, 3]); ctx.strokeStyle = '#a8dcff'; ctx.stroke();
+          ctx.setLineDash([]);
+          if (count && scaleReferenceLabel) {
+            const label = `${scaleReferenceLabel} · ${kmText(placed.widthKm)} × ${kmText(placed.heightKm)}`;
+            ctx.font = '600 11px "Source Sans 3", sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const w = ctx.measureText(label).width + 12, x = midX / count, y = Math.max(14, top - 14);
+            ctx.fillStyle = 'rgba(6,8,13,0.86)'; ctx.beginPath(); ctx.roundRect(x - w / 2, y - 9, w, 18, 4); ctx.fill();
+            ctx.fillStyle = '#d6efff'; ctx.fillText(label, x, y);
+          }
+          ctx.restore();
+        }
       }
     }
 
@@ -3249,7 +3335,7 @@ export default function Map2D({
     // que algo mueva el mapa, y una ruta recién calculada tampoco.
     savedRegions, activeRegionId, annotations,
     // Y la regla: cada punto que cae es un tramo más que dibujar.
-    rulerPts, measuring,
+    rulerPts, measuring, referenceShape, scaleReferenceLabel,
   ]);
 
   // ---- export -----------------------------------------------------------------
@@ -4808,6 +4894,13 @@ export default function Map2D({
                   .replace('{deg}', String(Math.round(lastLeg.bearing)))}
               </div>
               <div className="text-white/75">{t('worldgen.measure.pace').replace('{list}', paces)}</div>
+              {rulerAreaKm2 > 0 && (
+                <div data-testid="worldgen-ruler-area" className="text-[#ffe9c2]">
+                  {t('worldgen.measure.area')
+                    .replace('{area}', `${Math.round(rulerAreaKm2).toLocaleString(locale)} km²`)
+                    .replace('{perimeter}', kmText(rulerPerimeterKm))}
+                </div>
+              )}
               <div className="text-white/45">
                 {formatLatLon(cellToLonLat(lastPt, W, H), cardinals, decimal)} · {t('worldgen.measure.keysHint')}
               </div>

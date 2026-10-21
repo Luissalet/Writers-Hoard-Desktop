@@ -806,6 +806,11 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
     }, additionalProperties: false },
   },
   {
+    name: 'wh_measure_world', writes: false,
+    description: 'Measure on a generated world like the map ruler: great-circle distance along points in world cells (each leg with bearing) and, for three or more points, the enclosed area in km² and the closed perimeter. Uses the planet size every map instrument uses.',
+    schema: { type: 'object', properties: { worldId: WORLD_ID, points: { type: 'array', minItems: 2, maxItems: 500, description: 'Points in world cells, in order.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } } }, required: ['worldId', 'points'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_worlds',
     description:
       `List generated worlds with their id, seed, edit counts and waypoints.
