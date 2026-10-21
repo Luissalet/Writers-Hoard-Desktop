@@ -52,7 +52,7 @@ export where relevant, then independently reviewed.
 
 Each item was shown through the normal UI with trusted input, through MCP
 (focused tests, and the native stdio transport where noted), across reopen, and
-reviewed independently (rounds r1–r3; reports in
+reviewed independently (rounds r1–r4, stamps from r4; reports in
 `D:/LocalAI/_claude_tmp/vvd1095-review`). Evidence screenshots:
 `D:/LocalAI/artifacts/writer-vvd1095`.
 

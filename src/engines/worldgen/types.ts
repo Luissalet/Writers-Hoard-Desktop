@@ -93,6 +93,8 @@ export interface WorldPresentation {
   skin3D?: 'satelite' | 'dibujado' | 'arcilla';
   reliefAmount?: number;
   layers?: Partial<Record<WorldPresentationLayer, boolean>>;
+  /** A square or hex play grid over the map, in km; null or absent = none. */
+  grid?: import('./cartography/mapGrid').MapGrid | null;
 }
 
 /**

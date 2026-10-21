@@ -19,6 +19,7 @@
 // would make the tool unusable.
 
 import { normalizeLabelChange } from './labelShape';
+import { isStampGlyph } from '../cartography/stampGlyphs';
 import { Biome, type BiomeId, type WorldData } from './types';
 import { classifyBiomes } from './biomes';
 import { getRecalculationCheckpoint, installRecalculationCheckpoints, recalculateEnvironment, restoreEnvironment } from './recalculate';
@@ -309,6 +310,17 @@ export type EditTarget =
  */
 export function riverKey(cells: ArrayLike<number>): string {
   return `river:${cells[cells.length - 1]}`;
+}
+
+/**
+ * The key the next painted label or stamp at a cell will get: `label:x,y` for
+ * the first, `label:x,y#2` for the second and so on — exactly as the replay in
+ * `applyEdits` assigns them, so a caller can report the key it just created.
+ */
+export function nextPaintedKey(edits: WorldEdit[], kind: 'label' | 'stamp', x: number, y: number): string {
+  const base = editKey(kind, x, y);
+  const uses = edits.filter((e) => e.kind === kind && editKey(kind, (e as { x: number }).x, (e as { y: number }).y) === base).length;
+  return uses ? `${base}#${uses + 1}` : base;
 }
 
 /** Stable identity for a generated object, derived from where it is. */
@@ -1211,7 +1223,12 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     if (typeof key !== 'string') return false;
     try { normalizeLabelChange(change); return true; } catch { return false; }
   }
-  if (kind === 'stamp') return typeof (e as { glyph?: unknown }).glyph === 'string' && typeof (e as Pt).x === 'number' && typeof (e as Pt).y === 'number';
+  if (kind === 'stamp') {
+    const st = e as { glyph?: unknown; size?: unknown; name?: unknown; x?: unknown; y?: unknown };
+    return isStampGlyph(st.glyph) && typeof st.x === 'number' && typeof st.y === 'number'
+      && (st.size === undefined || st.size === 'S' || st.size === 'M' || st.size === 'L')
+      && (st.name === undefined || typeof st.name === 'string');
+  }
   if (kind === 'river' || kind === 'realmArea' || kind === 'placesZone') {
     return points((e as { pts?: unknown }).pts);
   }

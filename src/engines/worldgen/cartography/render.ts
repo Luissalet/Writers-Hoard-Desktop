@@ -13,6 +13,7 @@
 // low minutes, and it is the only way to get the coast rings to respect real
 // geodesic distance instead of a blurred alpha mask.
 
+import { drawMapGrid, type MapGrid } from './mapGrid';
 import { scaleCount } from '@/utils/capacity';
 import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
@@ -71,6 +72,8 @@ export const DEFAULT_LAYERS: CartoLayers = {
 };
 
 export interface CartoOptions {
+  /** A square or hex play grid in km, drawn under the lettering. */
+  grid?: MapGrid | null;
   theme: CartoTheme;
   /** Output size in pixels. */
   width: number;
@@ -479,6 +482,11 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
     // where the canvas2D symbols used to land in the painter's order.
     const layer = opts.drawSymbols(OW, OH);
     if (layer) ctx.drawImage(layer as unknown as CanvasImageSource, 0, 0, OW, OH);
+  }
+
+  // ---- stage 2b: the play grid, under the lettering ------------------------
+  if (opts.grid) {
+    drawMapGrid(ctx, opts.grid, { width: OW, height: OH, cellPx: scale, originX: -view.x * scale, originY: -view.y * scale, kmPerCell: 40075 / world.width, color: theme.furniture.ink });
   }
 
   // ---- stage 3: culture layer, lettering and furniture --------------------

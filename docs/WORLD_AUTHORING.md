@@ -90,7 +90,11 @@ again. The ruler encloses areas (a ring round a pole measures the cap) and can
 lay a real outline such as Iberia or Japan over the map at true scale. Each
 world keeps its own travel settings (usual pace, speeds per mode, ground costs);
 journeys take a pace, a mode per leg and rest days, and saved itineraries keep
-the settings they were planned with. Hand-drawn map eras can stand for timeline
+the settings they were planned with. A planned journey can be played day by day:
+a banner follows the route, stops each night where the planner put it, rests on
+a hard pace's rest days and arrives, with a caption of what the party is doing.
+A square or hex play grid of any size in km can be laid over the atlas, the
+Carta and exports, and is saved with the world's look. Hand-drawn map eras can stand for timeline
 events: they order by the world calendar (each event in its own timeline's
 calendar), play in sequence and keep their date if the event is deleted. The
 Labels tool picks a painted label and turns, spaces, sizes and curves it with

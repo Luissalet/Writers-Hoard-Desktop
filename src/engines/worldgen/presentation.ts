@@ -2,6 +2,7 @@ import { db } from '@/db';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { worldgenScopeOperations } from './era';
 import { worldSettingsScope } from './settingsScope';
+import { normalizeMapGrid } from './cartography/mapGrid';
 import type { GeneratedWorld, WorldPresentation, WorldPresentationLayer } from './types';
 
 /**
@@ -17,6 +18,7 @@ export const PRESENTATION_DEFAULTS = {
   skin3D: 'satelite',
   reliefAmount: 1,
   layers: { relief: true, forests: true, labels: true, settlements: true, roads: true, borders: false, frame: true, compass: true, scaleBar: true },
+  grid: null,
 } as const satisfies Required<Omit<WorldPresentation, 'layers'>> & { layers: Record<WorldPresentationLayer, boolean> };
 export const RELIEF_AMOUNT_RANGE = { min: 0.3, max: 2 } as const;
 
@@ -29,7 +31,7 @@ export class WorldPresentationError extends Error {
 export function normalizePresentationPatch(input: unknown): WorldPresentation {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new WorldPresentationError('bad-value', 'Presentation must be an object.');
   const raw = input as Record<string, unknown>, out: WorldPresentation = {};
-  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'reliefAmount', 'layers'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
+  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'reliefAmount', 'layers', 'grid'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
   if (raw.theme !== undefined) {
     if (!PRESENTATION_THEMES.includes(raw.theme as never)) throw new WorldPresentationError('bad-value', `theme must be one of ${PRESENTATION_THEMES.join(', ')}.`);
     out.theme = raw.theme as WorldPresentation['theme'];
@@ -42,6 +44,9 @@ export function normalizePresentationPatch(input: unknown): WorldPresentation {
     const value = raw.reliefAmount;
     if (typeof value !== 'number' || !Number.isFinite(value) || value < RELIEF_AMOUNT_RANGE.min || value > RELIEF_AMOUNT_RANGE.max) throw new WorldPresentationError('bad-value', `reliefAmount must be a number from ${RELIEF_AMOUNT_RANGE.min} to ${RELIEF_AMOUNT_RANGE.max}.`);
     out.reliefAmount = Math.round(value * 100) / 100;
+  }
+  if (raw.grid !== undefined) {
+    try { out.grid = normalizeMapGrid(raw.grid); } catch (error) { throw new WorldPresentationError('bad-value', error instanceof Error ? error.message : String(error)); }
   }
   if (raw.layers !== undefined) {
     if (!raw.layers || typeof raw.layers !== 'object' || Array.isArray(raw.layers)) throw new WorldPresentationError('bad-value', 'layers must be an object of booleans.');
@@ -61,7 +66,7 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
   // Field by field: one damaged stored value falls back alone, never the whole look.
   const saved: WorldPresentation = {};
   const raw = presentation && typeof presentation === 'object' ? presentation as Record<string, unknown> : {};
-  for (const key of ['theme', 'skin3D', 'reliefAmount'] as const) {
+  for (const key of ['theme', 'skin3D', 'reliefAmount', 'grid'] as const) {
     try { Object.assign(saved, normalizePresentationPatch({ [key]: raw[key] })); } catch { /* default for this field */ }
   }
   if (raw.layers && typeof raw.layers === 'object') {
@@ -73,6 +78,7 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
     theme: saved.theme ?? PRESENTATION_DEFAULTS.theme,
     skin3D: saved.skin3D ?? PRESENTATION_DEFAULTS.skin3D,
     reliefAmount: saved.reliefAmount ?? PRESENTATION_DEFAULTS.reliefAmount,
+    grid: saved.grid ?? null,
     layers: { ...PRESENTATION_DEFAULTS.layers, ...(saved.layers ?? {}) },
   };
 }
@@ -129,6 +135,12 @@ export async function revertWorldPresentation(requested: { projectId: string; er
       if (now[key] !== receipt.to[key]) { kept.push(key); continue; }
       if (from[key] === undefined) delete now[key]; else (now as Record<string, unknown>)[key] = from[key];
       reverted.push(key);
+    }
+    // The grid is one value: compared and put back whole.
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    if (!same(receipt.to.grid, from.grid)) {
+      if (!same(now.grid, receipt.to.grid)) kept.push('grid');
+      else { if (from.grid === undefined) delete now.grid; else now.grid = from.grid; reverted.push('grid'); }
     }
     for (const layer of PRESENTATION_LAYERS) {
       const wrote = receipt.to.layers?.[layer], before = from.layers?.[layer];
