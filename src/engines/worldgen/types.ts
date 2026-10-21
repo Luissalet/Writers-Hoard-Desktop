@@ -75,6 +75,12 @@ export interface GeneratedWorld {
   presentation?: WorldPresentation;
   /** Increments on every saved presentation change, for compare-and-swap writers. */
   presentationRevision?: number;
+  /** The author's travel speeds and ground costs for this world; absent = built-in physics. */
+  travelProfile?: import('./core/travel').TravelProfile;
+  /** Default pace for new itineraries on this world. */
+  travelPace?: import('./core/travel').TravelPace;
+  /** Increments on every saved travel settings change. */
+  travelRevision?: number;
   createdAt: number;
   updatedAt: number;
 }
