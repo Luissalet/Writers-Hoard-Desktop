@@ -150,6 +150,8 @@ import { whGenerateImage } from './imageStudio';
 import { whAddMapPin, whCaptureMapVersion, whLinkMapVersion, whListMaps, whListMapVersions, whUpdateMapPin } from './maps';
 import {
   whAddLabel,
+  whListLabels,
+  whUpdateLabel,
   whAddPlace,
   whAddWaypoint,
   whFindPlace,
@@ -476,6 +478,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_remove_place: whRemovePlace,
   wh_restore_place: whRestorePlace,
   wh_add_label: whAddLabel,
+  wh_list_labels: whListLabels,
+  wh_update_label: whUpdateLabel,
   wh_list_waypoints: whListWaypoints,
   wh_add_waypoint: whAddWaypoint,
   wh_update_waypoint: whUpdateWaypoint,

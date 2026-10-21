@@ -52,6 +52,7 @@ import {
   type WorldData,
 } from '@/engines/worldgen/core/types';
 import { placeAt, type AtlasPlace, type AtlasPlaceKind } from '@/engines/worldgen/core/atlas';
+import { normalizeLabelChange, type LabelChange } from '@/engines/worldgen/core/labelShape';
 import { landmarkKey } from '@/engines/worldgen/core/spatialEntities';
 import { foldForSearch, matchRank } from '@/engines/worldgen/core/searchText';
 import { buildGazetteer } from '@/engines/worldgen/core/gazetteer';
@@ -562,12 +563,72 @@ export async function whAddLabel(args: ToolArgs): Promise<unknown> {
   const { x, y } = cellCoords(args, worldSize(world));
   const text = requireString(args, 'text').trim();
   const style = optEnum(args, 'style', LABEL_STYLES) ?? 'note';
-  const edit: LabelEdit = { kind: 'label', x, y, text, style };
+  const shape = labelShapeArgs(args);
+  const edit: LabelEdit = { kind: 'label', x, y, text, style, ...shape };
   return appendEdit(
     args, world,
     edit,
-    { key: editKey('label', x, y), text, style, x, y },
+    { key: editKey('label', x, y), text, style, x, y, ...labelShapeShown(shape) },
     `labelled ${x},${y} "${text}" in world "${world.title}"`,
+  );
+}
+
+/** size, angleDegrees, spacing and curve from tool arguments, validated. */
+function labelShapeArgs(args: ToolArgs): Omit<LabelChange, 'text' | 'style'> {
+  const raw: Record<string, unknown> = {};
+  for (const key of ['size', 'spacing', 'curve'] as const) if (args[key] !== undefined) raw[key] = args[key];
+  if (args.angleDegrees !== undefined) {
+    if (typeof args.angleDegrees !== 'number' || !Number.isFinite(args.angleDegrees) || Math.abs(args.angleDegrees) > 180) throw new BridgeError('bad-args', 'angleDegrees must be a number from -180 to 180.');
+    raw.angle = args.angleDegrees * Math.PI / 180;
+  }
+  try { return normalizeLabelChange(raw); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+}
+function labelShapeShown(shape: { size?: number; angle?: number; spacing?: number; curve?: number }) {
+  return {
+    ...(shape.size !== undefined ? { size: shape.size } : {}),
+    ...(shape.angle !== undefined ? { angleDegrees: Math.round(shape.angle * 180 / Math.PI * 10) / 10 } : {}),
+    ...(shape.spacing !== undefined ? { spacing: shape.spacing } : {}),
+    ...(shape.curve !== undefined ? { curve: shape.curve } : {}),
+  };
+}
+
+/** The reader's painted labels, with their keys, current place and shape. */
+export async function whListLabels(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const painted = opened.world.data.painted;
+  return {
+    worldId: world.id,
+    labels: (painted?.labels ?? []).map((label) => {
+      const key = label.key ?? editKey('label', label.x, label.y), moved = painted?.moves?.[key];
+      return { key, text: label.text, style: label.style, x: moved?.x ?? label.x, y: moved?.y ?? label.y, ...labelShapeShown(label) };
+    }),
+  };
+}
+
+/** Change a painted label's text, style, size, angle, letter spacing or bend. */
+export async function whUpdateLabel(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const key = requireString(args, 'key');
+  if (!key.startsWith('label:')) throw new BridgeError('bad-args', 'key must be a painted label key (label:x,y) from wh_list_labels.');
+  if (!deserializeEdits(world.edits ?? '[]').some((edit) => edit.kind === 'label' && editKey('label', edit.x, edit.y) === key)) {
+    throw new BridgeError('not-found', `No painted label "${key}" on this world; use wh_list_labels.`);
+  }
+  let change: LabelChange;
+  try {
+    change = { ...normalizeLabelChange({ text: args.text, style: args.style }), ...labelShapeArgs(args) };
+  } catch (error) {
+    if (error instanceof BridgeError) throw error;
+    throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error));
+  }
+  if (!Object.keys(change).length) throw new BridgeError('bad-args', 'Give at least one of text, style, size, angleDegrees, spacing, curve.');
+  return appendEdit(
+    args, world,
+    { kind: 'relabel', key, ...change },
+    { key, ...(change.text ? { text: change.text } : {}), ...(change.style ? { style: change.style } : {}), ...labelShapeShown(change) },
+    `changed label ${key} in world "${world.title}"`,
   );
 }
 

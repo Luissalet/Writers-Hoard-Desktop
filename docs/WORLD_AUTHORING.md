@@ -82,6 +82,20 @@ zones, layers, time versions, journeys and3D views remain editable locally.
 Imported map images support the document's own overlays. Map exports use the
 same cartographic materials; generated3D terrain is actual geometry.
 
+A generated world remembers its look (style, layers, relief density, 3D skin)
+for every view and export; an era that still inherits the world shares Base's
+look. Worlds can start as a blank sea or blank land and be painted with the
+Coast brush; continent-shaping controls are off until continents are generated
+again. The ruler encloses areas (a ring round a pole measures the cap) and can
+lay a real outline such as Iberia or Japan over the map at true scale. Each
+world keeps its own travel settings (usual pace, speeds per mode, ground costs);
+journeys take a pace, a mode per leg and rest days, and saved itineraries keep
+the settings they were planned with. Hand-drawn map eras can stand for timeline
+events: they order by the world calendar (each event in its own timeline's
+calendar), play in sequence and keep their date if the event is deleted. The
+Labels tool picks a painted label and turns, spaces, sizes and curves it with
+handles or exact values, in the atlas, the Carta and the 3D view.
+
 Graph filters include concrete custom types and descendants. Relation trees
 create connected neighbors in four directions and reconnect edge endpoints;
 Escape cancels a reconnection. Timelines support keyboard and native horizontal

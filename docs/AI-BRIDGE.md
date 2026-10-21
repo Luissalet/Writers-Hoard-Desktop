@@ -1789,3 +1789,41 @@ lectura estructurada y formateada, día inexistente, conservar y quitar la
 fecha), `scripts/run-world-calendar-tests.mjs` (lógica del calendario) y
 `npm run test:worlddates` (interfaz: fijar la fecha de un capítulo, verla en la
 lista, verla en la línea de tiempo en orden y quitarla).
+
+## 28. Mapas: aspecto, viaje, medidas, épocas y rótulos (Ágora 1095)
+
+Cada capacidad nueva de los mapas tiene su herramienta, con validación, ámbito
+de época (`eraId`) y deshacer que sólo revierte lo que sigue teniendo el valor
+deshecho.
+
+- **Aspecto guardado del mundo.** `wh_get_world_presentation` y
+  `wh_set_world_presentation` (estilo, capas, densidad de relieve, piel 3D;
+  `expectedRevision` opcional). `wh_render_world_map` usa el aspecto guardado si
+  no se le pasa un tema. En una época que hereda el mundo, el aspecto se guarda
+  en Base y no copia el mundo a la época; si la época ya tiene su copia, se
+  guarda en ella. El recibo de deshacer recuerda dónde se escribió.
+- **Mundos en blanco.** `wh_create_world` con `preset` (`blankSea`,
+  `blankLand` u otro), semilla, anchura (1024/2048/3072) y título.
+- **Medir.** `wh_measure_world`: tramos, distancia, área encerrada y perímetro
+  cerrado con tres o más puntos; un anillo que rodea un polo mide el casquete.
+- **Viaje.** `wh_get_world_travel_settings` / `wh_set_world_travel_settings`
+  (ritmo habitual y factores de velocidad por medio y de coste por tipo de
+  terreno, con revisión) y `wh_plan_journey` (paradas por lugar o celda, ritmo,
+  medio por tramo). Los itinerarios guardados conservan los ajustes con los que
+  se planificaron.
+- **Épocas del mapa enlazadas a la cronología.** `wh_list_map_versions` (en el
+  orden del calendario del mundo, cada evento en el calendario de su propia
+  línea de tiempo), `wh_capture_map_version` (con `eventId`; sin fecha toma la
+  del momento) y `wh_link_map_version` (`eventId` o `null`; sella la fecha de
+  una época sin fecha y el deshacer la quita). Deshacer una captura se niega si
+  la época se cambió después.
+- **Rótulos pintados.** `wh_add_label` acepta `size`, `angleDegrees`,
+  `spacing` y `curve`; `wh_list_labels` devuelve clave, texto, estilo, celda
+  actual y forma; `wh_update_label` cambia sólo los campos dados. Las claves
+  `label:x,y` sirven también para `wh_move_place`, `wh_rename_place` y
+  `wh_remove_place`.
+
+Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
+`world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
+nativo stdio + HTTP), `world-labels`, y los recorridos de interfaz
+`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels}-qa.cjs`.

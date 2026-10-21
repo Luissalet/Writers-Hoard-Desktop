@@ -1011,6 +1011,9 @@ export default function WorldView({
     scheduleSaveEdits();
   }, [data, scheduleSaveEdits]);
 
+  /** The painted label the Labels tool is editing, by its origin key. */
+  const [selectedLabelKey, setSelectedLabelKey] = useState<string | null>(null);
+  const selectedLabel = selectedLabelKey ? data?.painted?.labels.find((label) => (label.key ?? editKey('label', label.x, label.y)) === selectedLabelKey) ?? null : null;
   const applyEdit = useCallback((edit: WorldEdit) => {
     const s = session.current;
     if (!s || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return;
@@ -1957,6 +1960,8 @@ export default function WorldView({
               // have to be a stroke AND a point, and it can only be one.
               tool={paintable && !measuring ? tool : undefined}
               onEdit={paintable ? applyEdit : undefined}
+              selectedLabelKey={tool.mode === 'labels' ? selectedLabelKey : null}
+              onSelectLabel={setSelectedLabelKey}
               measuring={measuring}
               scaleReference={scaleReference || null}
               travelProfile={world.travelProfile}
@@ -2385,6 +2390,9 @@ export default function WorldView({
                 cellKm={Math.round(40075 / (data?.width ?? 1024))}
                 realms={realmChoices}
                 busy={painting || environment.busy}
+                selectedLabel={selectedLabel}
+                onRelabel={(change) => { if (selectedLabelKey) applyEdit({ kind: 'relabel', key: selectedLabelKey, ...change }); }}
+                onRemoveLabel={() => { if (selectedLabelKey) { applyEdit({ kind: 'remove', target: 'label', key: selectedLabelKey }); setSelectedLabelKey(null); } }}
               />
             ) : panelTab === 'params' ? (
               <ParamsPanel

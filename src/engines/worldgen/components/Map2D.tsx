@@ -77,6 +77,13 @@ import { describeDuration, MODE_KEY, straightLineEstimates, type TravelProfile }
 import { keyboardNudge } from '../core/keyNav';
 import { legendFor } from '../cartography/legend';
 import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
+import { glyphBounds, labelGlyphs, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
+
+/** Where the selected painted label sits on screen, for its handles. */
+interface LabelHandleGeom { key: string; cx: number; cy: number; angle: number; spacing: number; curve: number; size: number; glyphSum: number; count: number; halfW: number; widths: number[] }
+type LabelHandleName = 'rotate' | 'spacing' | 'curve';
+/** Pixels of handle travel for a full bend. */
+const CURVE_HANDLE_PX = 48;
 
 // La tabla completa vive en `core/biomeKeys.ts` (44 entradas): la copia local
 // se quedó en 17 cuando la revisión ecológica llevó `Biome` a 43 y el
@@ -178,6 +185,9 @@ interface Map2DProps {
   roadFrom?: Settlement | null;
   tool?: PaintTool;
   onEdit?: (edit: WorldEdit) => void;
+  /** The painted label being edited with the Labels tool, by its key. */
+  selectedLabelKey?: string | null;
+  onSelectLabel?: (key: string | null) => void;
   onPickSettlement?: (s: Settlement) => void;
   /** Double-click: descend a league toward that ground (the parent flies). */
   onZoomTo?: (x: number, y: number) => void;
@@ -793,6 +803,7 @@ export default function Map2D({
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
+  selectedLabelKey = null, onSelectLabel,
 }: Map2DProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
@@ -954,6 +965,15 @@ export default function Map2D({
    *
    * Un REF y no estado: se escribe en cada `pointermove` y sólo lo lee `draw`.
    */
+  /**
+   * The painted-label handles. `labelHandles` is written by each draw with the
+   * selected label's knobs; `labelDrag` holds a knob in the hand; `labelPreview`
+   * is the shape drawn while it moves and until the saved edit comes back.
+   */
+  const labelHandles = useRef<(LabelHandleGeom & { knobs: Record<LabelHandleName, { x: number; y: number }> }) | null>(null);
+  const labelDrag = useRef<{ handle: LabelHandleName; geom: LabelHandleGeom } | null>(null);
+  const labelPreview = useRef<{ key: string; shape: { angle?: number; spacing?: number; curve?: number } } | null>(null);
+  useEffect(() => { labelPreview.current = null; }, [world, revision]);
   const moveRef = useRef<{
     hit: Hit;
     /** Dónde estaba DIBUJADO al cogerlo — el otro extremo de la línea, y el
@@ -998,7 +1018,7 @@ export default function Map2D({
    * contara como pincel, el gesto entraría por el camino del trazo y el mapa no
    * se podría ni desplazar con la herramienta puesta.
    */
-  const brushing = !!tool && tool.mode !== 'off' && tool.mode !== 'move' && !!onEdit;
+  const brushing = !!tool && tool.mode !== 'off' && tool.mode !== 'move' && tool.mode !== 'labels' && !!onEdit;
   // `onTool` rides along here rather than in the wheel effect's dependency
   // list: the parent hands it down as a fresh closure every render, so a
   // dependency would tear down and re-add the non-passive wheel listener on
@@ -1485,7 +1505,7 @@ export default function Map2D({
     const moves = world.painted?.moves;
     const movedAt = (key: string): Pt | undefined => moves?.[key];
     const mapLabels: Array<{
-      value: { text: string; color: string; size: number; weight: number; font: string };
+      value: { text: string; color: string; size: number; weight: number; font: string; glyphs?: LabelGlyph[] };
       x: number;
       y: number;
       width: number;
@@ -2326,6 +2346,7 @@ export default function Map2D({
     // `painted.labels` had exactly one consumer in the whole tree — the Carta.
     // The Rótulo tool is only usable in THIS view and in the 3D, so every label
     // anyone has ever placed was invisible at the moment of placing it.
+    let selectedGeom: LabelHandleGeom | null = null;
     if (world.painted?.labels?.length) {
       for (const copyOx of copies) {
         for (const pl of world.painted.labels) {
@@ -2333,7 +2354,7 @@ export default function Map2D({
           // (`label:x,y`, como todo lo demás) y el dibujo sigue a la mudanza.
           // Sin `mover`, el rótulo era lo único del mapa que respondía al
           // puntero pero no al gesto de mover.
-          const plKey = editKey('label', pl.x, pl.y);
+          const plKey = pl.key ?? editKey('label', pl.x, pl.y);
           const plAt = movedAt(plKey);
           const [sx, sy] = toScreen(
             ((plAt?.x ?? pl.x) + 0.5) / W, ((plAt?.y ?? pl.y) + 0.5) / H, copyOx,
@@ -2344,16 +2365,35 @@ export default function Map2D({
             note: `${pl.text} · ${t('worldgen.hover.yourLabel')}`,
             mover: { target: 'label', key: plKey, label: pl.text },
           });
-          queueLabel(
-            pl.style === 'region' || pl.style === 'range' ? pl.text.toUpperCase() : pl.text,
-            sx, sy,
-            pl.style === 'water' ? 'rgba(178,214,236,0.96)' : '#ffe9c2',
-            Math.max(9, Math.min(22, pl.size ?? 12)),
-            600,
+          // Laid out glyph by glyph — size, angle, spacing and bend are the
+          // reader's — and centred on the point, as the Carta draws it.
+          let preview = labelPreview.current?.key === plKey ? labelPreview.current.shape : undefined;
+          // The saved edit has come back: draw what is stored from now on.
+          if (preview && (Object.entries(preview) as [keyof typeof preview, number][]).every(([field, value]) => pl[field] === value)) {
+            labelPreview.current = null; preview = undefined;
+          }
+          const caps = pl.style === 'region' || pl.style === 'range';
+          const text = caps ? pl.text.toUpperCase() : pl.text;
+          const size = Math.max(LABEL_SIZE_RANGE.min, Math.min(LABEL_SIZE_RANGE.max, pl.size ?? 12));
+          const angle = preview?.angle ?? pl.angle ?? 0;
+          const spacing = preview?.spacing ?? pl.spacing ?? (caps ? 0.14 : 0.02);
+          const curve = preview?.curve ?? pl.curve ?? 0;
+          const font = '"Source Sans 3", sans-serif';
+          ctx.font = `600 ${size}px ${font}`;
+          const widths = [...text].map((ch) => ctx.measureText(ch).width);
+          const glyphs = labelGlyphs(widths, size * spacing, curve, angle, sx, sy);
+          const box = glyphBounds(glyphs, widths, size);
+          if (plKey === selectedLabelKey && !selectedGeom) {
+            const glyphSum = widths.reduce((a, b) => a + b, 0);
+            selectedGeom = { key: plKey, cx: sx, cy: sy, angle, spacing, curve, size, glyphSum, count: widths.length, widths, halfW: (glyphSum + size * spacing * Math.max(0, widths.length - 1)) / 2 };
+          }
+          mapLabels.push({
+            value: { text, color: pl.style === 'water' ? 'rgba(178,214,236,0.96)' : '#ffe9c2', size, weight: 600, font, glyphs },
+            x: box.x, y: box.y + box.h / 2, width: box.w, height: box.h,
             // Highest band there is: the reader wrote it, so it outranks
             // anything the generator came up with.
-            400,
-          );
+            priority: 400,
+          });
         }
       }
     }
@@ -2713,9 +2753,52 @@ export default function Map2D({
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
       ctx.strokeStyle = 'rgba(6,8,13,0.88)';
+      if (item.glyphs) {
+        const chars = [...item.text];
+        const align: CanvasTextAlign = ctx.textAlign, baseline: CanvasTextBaseline = ctx.textBaseline;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = item.color;
+        for (const pass of [true, false]) {
+          item.glyphs.forEach((g, i) => {
+            ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a);
+            if (pass) ctx.strokeText(chars[i], 0, 0); else ctx.fillText(chars[i], 0, 0);
+            ctx.restore();
+          });
+        }
+        ctx.textAlign = align; ctx.textBaseline = baseline;
+        continue;
+      }
       ctx.strokeText(item.text, candidate.x, candidate.y);
       ctx.fillStyle = item.color;
       ctx.fillText(item.text, candidate.x, candidate.y);
+    }
+
+    // The selected label's handles: turn, spread and bend it by hand.
+    labelHandles.current = null;
+    if (selectedGeom && tool?.mode === 'labels') {
+      const g = selectedGeom;
+      const cos = Math.cos(g.angle), sin = Math.sin(g.angle);
+      const at = (lx: number, ly: number) => ({ x: g.cx + lx * cos - ly * sin, y: g.cy + lx * sin + ly * cos });
+      // The frame hugs the laid-out glyphs in the label's own frame, bent or not.
+      const local = glyphBounds(labelGlyphs(g.widths, g.size * g.spacing, g.curve, 0, 0, 0), g.widths, g.size);
+      const knobs = {
+        rotate: at(g.halfW + 22, 0),
+        spacing: at(g.halfW + 10, local.y + local.h + 8),
+        curve: at(0, -(g.size + 16) - g.curve * CURVE_HANDLE_PX),
+      };
+      labelHandles.current = { ...g, knobs };
+      ctx.save();
+      ctx.translate(g.cx, g.cy); ctx.rotate(g.angle);
+      ctx.setLineDash([4, 3]); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,214,140,0.9)';
+      ctx.strokeRect(local.x - 4, local.y - 4, local.w + 8, local.h + 8);
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(g.halfW + 6, 0); ctx.lineTo(g.halfW + 16, 0); ctx.stroke();
+      ctx.restore();
+      for (const [name, knob] of Object.entries(knobs)) {
+        ctx.beginPath(); ctx.arc(knob.x, knob.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = name === 'rotate' ? '#ffd479' : name === 'spacing' ? '#9fd3ff' : '#c6f0b0';
+        ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(6,8,13,0.9)'; ctx.stroke();
+      }
     }
 
     // The stroke IN FLIGHT, before the ring. Nothing painted until release was
@@ -3258,6 +3341,8 @@ export default function Map2D({
     frameQueue.current ??= new CanvasFrameQueue(() => drawRef.current?.());
     frameQueue.current.request();
   }, []);
+  // The label handles follow the selection; nothing else would redraw for it.
+  useEffect(() => { scheduleDraw(); }, [selectedLabelKey, tool?.mode, scheduleDraw]);
 
   // ---- sizing / init ----------------------------------------------------------
   // Re-runs on projection change (dims and/or `projection` dep) and starts
@@ -3696,6 +3781,8 @@ export default function Map2D({
      * el mundo. Un gesto destructivo no puede ser el gesto por defecto de la
      * navegación: mover es ahora su propia herramienta.
      */
+    // The Labels tool picks up the reader's own labels and nothing else.
+    if (tool?.mode === 'labels') return onEdit ? hitAt(sx, sy, ['note'], (h) => h.mover?.target === 'label') : null;
     if (tool?.mode !== 'move') return null;
     // Sólo lo que el padre sabe guardar. Ofrecer el gesto — cursor de mover,
     // fantasma siguiendo la mano — y tragárselo al soltar es peor que no
@@ -4153,6 +4240,20 @@ export default function Map2D({
      * llevara un pueblo que el lector ni siquiera está tocando.
      */
     moveRef.current = null;
+    labelDrag.current = null;
+    if (tool?.mode === 'labels' && e.button === 0) {
+      // A knob of the selected label: turn, spread or bend it, not the map.
+      const handles = labelHandles.current;
+      const knob = handles && (Object.entries(handles.knobs) as [LabelHandleName, { x: number; y: number }][])
+        .find(([, k]) => Math.hypot(k.x - sx, k.y - sy) <= 10);
+      if (handles && knob) {
+        labelDrag.current = { handle: knob[0], geom: handles };
+        dragRef.current = null;
+        return;
+      }
+      const picked = movableAt(sx, sy);
+      onSelectLabel?.(picked?.mover?.key ?? null);
+    }
     if (!brushing && e.button === 0) {
       const grab = movableAt(sx, sy);
       if (grab) {
@@ -4266,6 +4367,28 @@ export default function Map2D({
      * umbral, no al presionar, porque hasta entonces el gesto todavía puede
      * resultar ser un clic.
      */
+    const knob = labelDrag.current;
+    if (knob) {
+      const g = knob.geom, dx = sx - g.cx, dy = sy - g.cy;
+      const cos = Math.cos(-g.angle), sin = Math.sin(-g.angle);
+      const lx = dx * cos - dy * sin, ly = dx * sin + dy * cos;
+      const shape: { angle?: number; spacing?: number; curve?: number } = {};
+      if (knob.handle === 'rotate') {
+        let angle = Math.atan2(dy, dx);
+        if (e.shiftKey) angle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
+        shape.angle = Math.round(Math.max(-Math.PI, Math.min(Math.PI, angle)) * 1000) / 1000;
+      } else if (knob.handle === 'spacing') {
+        const total = Math.max(g.glyphSum, 2 * (lx - 10));
+        const share = g.count > 1 ? (total - g.glyphSum) / (g.count - 1) / g.size : 0;
+        shape.spacing = Math.round(Math.max(LABEL_SPACING_RANGE.min, Math.min(LABEL_SPACING_RANGE.max, share)) * 100) / 100;
+      } else {
+        const bend = (-ly - g.size - 16) / CURVE_HANDLE_PX;
+        shape.curve = Math.round(Math.max(-1, Math.min(1, bend)) * 100) / 100;
+      }
+      labelPreview.current = { key: g.key, shape };
+      scheduleDraw();
+      return;
+    }
     const held = moveRef.current;
     if (held) {
       held.x = sx; held.y = sy;
@@ -4488,6 +4611,16 @@ export default function Map2D({
     // Si no llegó a ser mudanza, `dropMove` devuelve falso, limpia el agarre y
     // el clic sigue su camino de siempre.
     if (dropMove(sx, sy)) return;
+    // A label knob let go: the shape it reached is saved as one change.
+    const knob = labelDrag.current;
+    labelDrag.current = null;
+    if (knob) {
+      const shape = labelPreview.current?.key === knob.geom.key ? labelPreview.current.shape : null;
+      if (shape && Object.keys(shape).length) onEdit?.({ kind: 'relabel', key: knob.geom.key, ...shape });
+      else labelPreview.current = null;
+      scheduleDraw();
+      return;
+    }
 
     // A stroke becomes an edit on release, not per move: a terrain stroke costs
     // a few hundred milliseconds, which is fine once and unusable sixty times a
@@ -4836,7 +4969,7 @@ export default function Map2D({
           gesto); la chuleta de navegación vive detrás del botón «?» — a
           pantalla completa tapaba media esquina, incluido el HUD de
           depuración (Luis, 2026-08-12). */}
-      {(refusal || brushing || tool?.mode === 'move') && (
+      {(refusal || brushing || tool?.mode === 'move' || tool?.mode === 'labels') && (
         <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
           {refusal
             ? refusal
@@ -4844,6 +4977,8 @@ export default function Map2D({
             // justamente el modo en el que hace falta decir qué se puede coger.
             : tool?.mode === 'move'
               ? t('worldgen.map.moveToolHint')
+            : tool?.mode === 'labels'
+              ? t('worldgen.map.labelsToolHint')
             : (tool?.mode === 'road'
               ? `${roadFrom
                 ? t('worldgen.map.roadFrom').replace('{name}', roadFrom.name)
