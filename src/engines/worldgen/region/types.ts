@@ -131,6 +131,7 @@ export type PlaceKind =
   | 'landmark';
 
 export interface RegionPlace {
+  style?: import('../core/spatialEntities').WorldSpatialStyle;
   id: number;
   /**
    * Stable identity of the generated source object. User edits are stored

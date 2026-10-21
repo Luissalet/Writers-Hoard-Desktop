@@ -1,3 +1,4 @@
+import {decodeAnnotationData} from './portability';
 import { lazy } from 'react';
 
 // ============================================
@@ -73,10 +74,10 @@ registerBackupStrategy({
       JSON.stringify(references, null, 2),
     );
   },
-  async preflightImport({ zip, projectDir }) {
-    for (const table of ANNOTATION_TABLES) {
-      await readAnnotationRows(zip, `${projectDir}/annotations/${table}.json`);
-    }
+  async preflightImport({ zip, projectDir,projectId }) {
+    const annotations=await readAnnotationRows(zip,`${projectDir}/annotations/annotations.json`),annotationReferences=await readAnnotationRows(zip,`${projectDir}/annotations/annotationReferences.json`);
+    const project=await readBackupJson<{worldEras?:{id:string}[]}>(zip,`${projectDir}/project.json`);
+    decodeAnnotationData({annotations:annotations??[],annotationReferences:annotationReferences??[]},projectId,new Set(project?.worldEras?.map(row=>row.id)??[]));
   },
   async inspectImport({ zip, projectDir }) {
     return Promise.all(ANNOTATION_TABLES.map(async (table) => {

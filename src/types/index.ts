@@ -29,6 +29,8 @@ export interface Project {
   icon?: string; // Lucide icon name (e.g. 'BookOpen', 'Feather')
   coverImage?: string; // base64 data URL
   description: string;
+  /** Suggested or custom genres of this world, independent of engine presets. */
+  genres?: string[];
   parentId?: string; // For books within a saga
   children?: string[]; // IDs of sub-projects
   status: 'draft' | 'in-progress' | 'completed';
@@ -58,10 +60,17 @@ export interface Project {
   /** Independent local charts; no renderer or database code in this type leaf. */
   radarCharts?: import('@/engines/radar/types').RadarChartDocument[];
   codexTemplates?: import('@/engines/codex/templateTypes').CodexTemplate[];
+  /** Named option palettes shared by this project and its eras. */
+  codexOptionLists?: import('@/engines/codex/optionListTypes').CodexOptionList[];
+  entityDetectionPreferences?: import('@/services/entityDetection/types').EntityDetectionPreferences;
   /** Typed records and formula sheets, kept with portable project metadata. */
   dataTables?: import('@/engines/tables/types').WorldTable[];
   wikiOptions?: import('./worldWiki').WorldWikiOptions;
+  wikiProfiles?: import('@/services/wikiProfiles/types').WikiProfile[];
   readerPresentation?: import('@/engines/writings/readerPresentationTypes').ReaderPresentation;
+  /** Immutable local publication artifacts and the authored chapters delivered in each edition. */
+  publishedEditions?: import('@/services/publishedEditions/types').PublishedEdition[];
+  publishedEditionRevision?: number;
   /** Manual positions in the derived local Codex graph; card content remains canonical. */
   codexGraphLayout?: import('@/engines/codex/worldGraph/types').CodexGraphLayout;
   /** Mixed document library: organizational references; source records stay canonical. */
@@ -70,6 +79,17 @@ export interface Project {
   workspaceRevision?: number;
   /** Trusted source-extension JSON, scoped by developer namespace; no executable content. */
   localToolStates?: import('@/engines/local/stateTypes').LocalToolStates;
+  sourceToolDocuments?: import('@/engines/local/documents/types').SourceToolDocument[];
+  /** Default authoring sidecar; null resets to the inherited default. */
+  writingToolDock?: import('@/engines/writings/toolDock/types').ToolDockLayout | null;
+  /** Local mixed-file import provenance and declared destination references. */
+  worldFolderImports?: import('@/services/worldFolderImport/types').WorldFolderImportReceipt[];
+  /** Pinned projects precede other projects in the local project list. */
+  pinned?: boolean;
+  localToolContracts?: import('@/engines/local/stateCodec').LocalToolContracts;
+  localToolInstallations?: import('@/engines/local/installations').LocalToolInstallations;
+  worldEras?: import('@/services/worldEras/types').WorldEra[];
+  workspaceAppearance?: import('@/services/workspaceAppearance/types').WorkspaceAppearance;
   createdAt: number;
   updatedAt: number;
 }
@@ -104,6 +124,8 @@ export interface CodexEntry {
   type: CodexEntryType;
   /** A reusable author-defined type/template within the broad category. */
   templateId?: string;
+  /** Effective schema retained when its template is retired; calculations stay live. */
+  propertyDefinitions?: import('@/engines/codex/templateTypes').CodexPropertyDefinition[];
   /** Named properties that refer to other Codex entries by stable id. */
   referenceFields?: Record<string, string[]>;
   title: string;
@@ -390,6 +412,9 @@ export interface StorySessionSource {
 }
 
 export interface Writing {
+  /** Explicit chapter sidecar; missing/null inherits the project default. */
+  toolDock?: import('@/engines/writings/toolDock/types').ToolDockLayout | null;
+  manuscriptSource?: import('@/engines/writings/manuscriptReview/sourceTypes').ManuscriptWritingSource;
   id: string;
   projectId: string;
   title: string;

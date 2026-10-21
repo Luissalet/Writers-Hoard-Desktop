@@ -4,6 +4,31 @@ import { parseCodexFolder, previewCodexFolderImport, codexImportId, createCodexF
 import { createCodexFolderImportHandlers, CODEX_FOLDER_IMPORT_TOOLS } from '../src/services/aiBridge/tools/codexFolderImport.ts';
 
 const input = (text = '---\nid: original-17\ntitle: Ada\ntype: character\ntags: [one, two]\n---\n# Ada\n\nOriginal **body**.', format = 'obsidian') => ({ format, files: [{ path: 'characters/Ada.md', text }] });
+
+test('edited import plan changes destination title/category/template, skips sources and retains original provenance', async () => {
+  const memory = store(), template = { id: 'place', name: 'Harbor', category: 'location', fields: { berths: '2' }, content: '', propertyDefinitions: [{ id: 'berths', key: 'berths', label: 'Berths', kind: 'number' }], revision: 0, createdAt: 1, updatedAt: 1 };
+  memory.templates = async () => [template];
+  const importer = createCodexFolderImporter(memory, body => `<p>${body}</p>`), source = input();
+  source.files.push({ path: 'draft.md', text: 'An excluded unfinished source.' });
+  const preview = await importer.preview('project', source);
+  source.decisions = [{ id: preview.additions[0].id, title: 'The harbor', type: 'location', templateId: template.id }, { id: preview.additions[1].id, include: false }];
+  const applied = await importer.apply('project', source);
+  assert.equal(applied.createdIds.length, 1); assert.equal(applied.preview.skipped.length, 1);
+  const row = await memory.get(applied.createdIds[0]);
+  assert.equal(row.title, 'The harbor'); assert.equal(row.type, 'location'); assert.equal(row.templateId, template.id);
+  assert.equal(row.fields.berths, '2'); assert.equal(row.propertyDefinitions[0].id, 'berths');
+  assert.equal(row.fields.__importSourceContent, source.files[0].text); assert(row.content.includes('Original **body**.'));
+  assert.equal((await importer.preview('project', source)).duplicates.length, 1);
+  await importer.undo('project', applied.applyId); assert.equal(memory.rows.size, 0);
+});
+
+test('invalid or stale edited plans abort the whole batch and preserve existing documents', async () => {
+  const memory = store(), importer = createCodexFolderImporter(memory, text => text), source = input();
+  const id = (await importer.preview('project', source)).additions[0].id;
+  for (const decisions of [[{ id: 'foreign-id', title: 'Wrong' }], [{ id, title: '' }], [{ id, type: 'unsupported' }], [{ id, templateId: 'retired-template' }], [{ id }, { id }]]) {
+    await assert.rejects(() => importer.apply('project', { ...source, decisions })); assert.equal(memory.rows.size, 0);
+  }
+});
 function store() {
   const rows = new Map(); let fail = false;
   return {

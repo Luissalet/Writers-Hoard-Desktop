@@ -54,8 +54,8 @@ import {
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.WH_AIBRIDGE_PORT || 8766);
-/** Generous enough for a long chapter, small enough to bound abuse. */
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
+/** Carries 64 MiB manuscript imports with base64/JSON overhead. */
+const MAX_BODY_BYTES = 96 * 1024 * 1024;
 
 export const AI_BRIDGE_URL = `http://${HOST}:${PORT}`;
 export const AI_BRIDGE_PORT = PORT;

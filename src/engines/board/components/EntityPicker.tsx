@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import Modal from '@/components/common/Modal';
+import {useWorldEraScope} from '@/services/worldEras/hooks';
 import { searchEntities } from '@/engines/_shared';
 import type { EntityPreview } from '@/engines/_types';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -24,6 +25,7 @@ export interface EntityPickerProps {
  */
 export default function EntityPicker({ open, projectId, onPick, onClose }: EntityPickerProps) {
   const { t } = useTranslation();
+  const scope=useWorldEraScope(projectId);
   const [query, setQuery] = useState('');
   const [found, setFound] = useState<EntityPreview[]>([]);
   const [busy, setBusy] = useState(false);
@@ -48,7 +50,7 @@ export default function EntityPicker({ open, projectId, onPick, onClose }: Entit
     const current = ++seq.current;
     const timer = window.setTimeout(() => {
       setBusy(true);
-      void searchEntities(term, undefined, projectId)
+      void searchEntities(term, undefined, projectId,scope.eraId)
         .then((matches) => {
           if (current !== seq.current) return;
           setFound(matches);
@@ -62,7 +64,7 @@ export default function EntityPicker({ open, projectId, onPick, onClose }: Entit
         });
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [active, term, projectId]);
+  }, [active, term, projectId,scope.eraId]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, EntityPreview[]>();

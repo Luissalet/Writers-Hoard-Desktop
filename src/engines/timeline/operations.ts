@@ -1,3 +1,5 @@
+import { listEraRows, readEraRow } from '@/services/worldEras/store';
+import type { WorldEraScope } from '@/services/worldEras/types';
 import { archiveWithMutation } from '@/services/documentArchive/store';
 // ============================================
 // Timeline Engine — Database Operations
@@ -57,10 +59,11 @@ async function deleteTimelineRows(id: string): Promise<void> {
  * fallback anchor adapter emit either a timeline id or an event id; an event
  * selects its lane. Scoped to the project so a stale link is ignored.
  */
-export async function findTimelineIdForEntity(projectId: string, entityId: string): Promise<string | null> {
-  const timeline = await db.timelines.get(entityId);
+export async function findTimelineIdForEntity(projectId: string, entityId: string, eraId?: string): Promise<string | null> {
+  const scope = { projectId, eraId };
+  const timeline = eraId ? await readEraRow<Timeline>(scope, 'timelines', entityId) : await db.timelines.get(entityId);
   if (timeline) return timeline.projectId === projectId ? timeline.id : null;
-  const event = await db.timelineEvents.get(entityId);
+  const event = eraId ? await readEraRow<TimelineEvent>(scope, 'timelineEvents', entityId) : await db.timelineEvents.get(entityId);
   return event && event.projectId === projectId ? event.timelineId : null;
 }
 
@@ -95,7 +98,8 @@ export async function deleteTimelineEvent(id: string): Promise<void> {
 }
 
 /** How many connections would be lost if this event were deleted. */
-export async function countConnectionsForEvent(id: string): Promise<number> {
+export async function countConnectionsForEvent(id: string, scope?: WorldEraScope): Promise<number> {
+  if (scope?.eraId) return (await listEraRows<TimelineConnection>(scope, 'timelineConnections')).filter(row => row.sourceEventId === id || row.targetEventId === id).length;
   const [asSource, asTarget] = await Promise.all([
     db.timelineConnections.where('sourceEventId').equals(id).count(),
     db.timelineConnections.where('targetEventId').equals(id).count(),

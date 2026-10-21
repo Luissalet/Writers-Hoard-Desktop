@@ -1,33 +1,40 @@
+import {readSourceToolState,saveSourceToolState,readSourceToolDocument} from './documents/store';
+import {createLocalToolStateActions} from './stateRuntime';
+import {createLocalToolReferences} from './references';
+import Dexie,{type Transaction} from 'dexie';
 import {db} from '@/db';
 import {notifyProjectsChanged} from '@/db/operations';
-import {cloneLocalToolJson,localToolNamespace,localToolJsonText,validateLocalToolStates,LocalToolStateError,type LocalToolJson} from './stateTypes';
-import type {LocalToolClient,LocalToolCodexCard,LocalToolCodexQuery,LocalToolDefinition} from './sdk';
-const categories=new Set(['character','location','item','faction','concept','magic','custom']);
-export function createLocalToolClient<T extends LocalToolJson>(projectId:string,definition:LocalToolDefinition<T>):LocalToolClient<T>{
-  if(typeof projectId!=='string'||!projectId||projectId.length>500||Array.from(projectId).some(character=>character.charCodeAt(0)<32))throw new LocalToolStateError('missing-project');
-  if(!localToolNamespace(definition.namespace))throw new LocalToolStateError('invalid-namespace');
-  const namespace=definition.namespace,initial=cloneLocalToolJson(definition.initialState);
-  const parse=(value:LocalToolJson):T=>{const copy=cloneLocalToolJson(value);if(definition.validateState(copy)!==true)throw new LocalToolStateError('invalid-state');return copy;};
-  return Object.freeze({projectId,namespace,
-    async read(){const project=await db.projects.get(projectId);if(!project)throw new LocalToolStateError('missing-project');validateLocalToolStates(project.localToolStates);const current=project.localToolStates?.[namespace];return current?{revision:current.revision,updatedAt:current.updatedAt,data:parse(current.data)}:{revision:null,updatedAt:null,data:parse(initial)};},
-    async save(data:T,expectedRevision:number|null){
-      const safe=parse(data);if(expectedRevision!==null&&(!Number.isSafeInteger(expectedRevision)||expectedRevision<0))throw new LocalToolStateError('conflict');
-      const saved=await db.transaction('rw',db.projects,async()=>{
-        const project=await db.projects.get(projectId);if(!project)throw new LocalToolStateError('missing-project');validateLocalToolStates(project.localToolStates);
-        const current=project.localToolStates?.[namespace];if(expectedRevision===null?current!==undefined:current?.revision!==expectedRevision)throw new LocalToolStateError('conflict');
-        const revision=(current?.revision??0)+1;if(!Number.isSafeInteger(revision))throw new LocalToolStateError('conflict');
-        const record={revision,updatedAt:Math.max(Date.now(),(current?.updatedAt??0)+1),data:safe},states={...project.localToolStates,[namespace]:record};
-        validateLocalToolStates(states);await db.projects.update(projectId,{localToolStates:states,updatedAt:Math.max(record.updatedAt,project.updatedAt+1)});return record;
-      });notifyProjectsChanged();return {...saved,data:cloneLocalToolJson(saved.data)};
-    },
-    async queryCodex(query:LocalToolCodexQuery={}){
-      const {query:search='',type,ids,limit=20}=query;
-      if(typeof search!=='string'||search.length>200||type!==undefined&&!categories.has(type)||!Number.isInteger(limit)||limit<1||limit>50||ids!==undefined&&(!Array.isArray(ids)||ids.length>100||ids.some(id=>typeof id!=='string'||id.length>500)))throw new LocalToolStateError('invalid-query');
-      if(!await db.projects.get(projectId))throw new LocalToolStateError('missing-project');const wanted=ids?new Set(ids):null,needle=search.toLocaleLowerCase();
-      const cards:LocalToolCodexCard[]=[];
-      await db.codexEntries.where('projectId').equals(projectId).filter(row=>(!type||row.type===type)&&(!wanted||wanted.has(row.id))&&(!needle||row.title.toLocaleLowerCase().includes(needle))).limit(limit).each(row=>{
-        const safeFields=Object.entries(row.fields).filter(([key])=>!['constructor','prototype','__proto__'].includes(key)),fields=safeFields.slice(0,24),card:LocalToolCodexCard={id:row.id,title:row.title.slice(0,500),type:row.type,tags:row.tags.slice(0,20).map(tag=>tag.slice(0,80)),fields:Object.fromEntries(fields.map(([key,value])=>[key.slice(0,100),value.slice(0,256)])),truncated:row.title.length>500||row.tags.length>20||row.tags.some(tag=>tag.length>80)||safeFields.length!==Object.keys(row.fields).length||safeFields.length>24||fields.some(([key,value])=>key.length>100||value.length>256)};localToolJsonText(card as unknown as LocalToolJson);cards.push(card);
-      });return cards;
-    },
-  });
+import {onDataChanged,notifyDataChanged} from '@/engines/_shared/dataChanged';
+import {getEraProject,hideEraDocument,listEraRows,listWorldDocuments,readWorldDocument,saveEraDocument} from '@/services/worldEras/store';
+import {eraDocumentKinds,type EraDocument,type EraDocumentRead,type EraDocumentKind} from '@/services/worldEras/types';
+import {projectCodexEntry} from '@/engines/codex/properties';
+import type {CodexEntry} from '@/types';
+import {localToolNamespace,LocalToolStateError,type LocalToolJson} from './stateTypes';
+import {readLocalToolState,prepareLocalToolSave,projectLocalToolCodex} from './clientContract';
+import type {LocalToolClient,LocalToolCodexQuery,LocalToolDefinition} from './sdk';
+export interface LocalToolClientOptions{documentId?:string;eraId?:string;navigate?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
+function announce(projectId:string){const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});let transaction=Dexie.currentTransaction;if(!transaction){emit();return;}while(transaction.parent)transaction=transaction.parent;transaction.on('complete',emit);}
+export function createLocalToolClient<T extends LocalToolJson>(projectId:string,definition:LocalToolDefinition<T>,options:LocalToolClientOptions={}):LocalToolClient<T>{
+ if(typeof projectId!=='string'||!projectId||projectId.length>500||Array.from(projectId).some(character=>character.charCodeAt(0)<32))throw new LocalToolStateError('missing-project');
+ if(!localToolNamespace(definition.namespace))throw new LocalToolStateError('invalid-namespace');
+ const namespace=definition.namespace,scope={projectId,eraId:options.eraId};
+ const current=()=>{if(options.isCurrent&&!options.isCurrent())throw Error('local_tool_context_expired');};
+ const writable=()=>{current();if(options.readOnly)throw new Error('local_tool_query_is_read_only');};
+ const kind=(value:EraDocumentKind)=>{if(!eraDocumentKinds.includes(value))throw new Error('world_document_kind_invalid');return value;};
+ const project=async()=>{current();const row=await db.projects.get(projectId);current();if(!row)throw new LocalToolStateError('missing-project');if(scope.eraId&&!row.worldEras?.some(era=>era.id===scope.eraId))throw Error('world_era_missing');if(options.requireSelectedRelease&&(row.localToolInstallations?.[namespace]?.contentHash??null)!==(options.releaseHash??null))throw Error('local_tool_pin_conflict');return row;};
+ const projected=async(documentKind:EraDocumentKind,read:EraDocumentRead)=>documentKind==='codex'?{...read,projection:{fields:projectCodexEntry(read.document.root as unknown as CodexEntry,(await getEraProject(scope)).codexTemplates).fields}}:read;
+ const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,
+  subscribe:(changed:()=>void)=>onDataChanged(detail=>{if(!detail.projectId||detail.projectId===projectId)changed();}),
+  async read(){const row=await project();return options.documentId?readSourceToolState(scope,options.documentId,definition):readLocalToolState(row,definition,scope.eraId);},
+  async save(data:T,expectedRevision:number|null,expectedDocumentVersion?:string){writable();if(options.documentId)return db.transaction('rw',db.tables,async()=>{await project();writable();const saved=await saveSourceToolState(scope,options.documentId!,definition,data,expectedRevision,expectedDocumentVersion);writable();return saved;});const snapshot=await db.transaction('rw',db.projects,async()=>{const row=await project(),prepared=prepareLocalToolSave(row,definition,data,expectedRevision,scope.eraId);writable();await db.projects.update(projectId,prepared.changes);writable();return prepared.snapshot;});announce(projectId);return snapshot;},
+  async queryCodex(query:LocalToolCodexQuery={}){await project();const effective=await getEraProject(scope);return projectLocalToolCodex(await listEraRows<CodexEntry>(scope,'codexEntries'),effective.codexTemplates,query);},
+  world:Object.freeze({list:async(documentKind:EraDocumentKind)=>Promise.all((await listWorldDocuments(scope,kind(documentKind))).map(read=>projected(documentKind,read))),read:async(documentKind:EraDocumentKind,id:string)=>{const read=await readWorldDocument(scope,kind(documentKind),id);return read?projected(documentKind,read):undefined;},...(scope.eraId?{variants:Object.freeze({save:(documentKind:EraDocumentKind,document:EraDocument,expectedVersion:string|null)=>{writable();return saveEraDocument(scope,kind(documentKind),document,expectedVersion);},hide:(documentKind:EraDocumentKind,id:string,expectedVersion:string)=>{writable();return hideEraDocument(scope,kind(documentKind),id,expectedVersion);}})}:{})}),
+  media:Object.freeze({async list(){const {mediaRows}=await import('@/engines/media/scope');return mediaRows(projectId,scope.eraId);},async import(file:File){writable();const {importLocalMedia}=await import('@/engines/media/operations');writable();return importLocalMedia(projectId,file,scope.eraId);}}),
+  async search(query:string,limit?:number){await project();const {searchProjectContent}=await import('@/services/projectSearchIndex');return searchProjectContent(query,projectId,limit,scope.eraId);},
+  async tools(){const {BRIDGE_TOOLS}=await import('@/services/aiBridge/manifest');return structuredClone(BRIDGE_TOOLS);},
+  async callTool(name:string,args:Record<string,LocalToolJson>={}){const {getBridgeTool}=await import('@/services/aiBridge/manifest'),tool=getBridgeTool(name);if(!tool)throw new Error('unknown_tool');current();if(tool.writes)writable();if(scope.eraId&&tool.writes&&!Object.hasOwn(tool.schema.properties,'eraId')&&!['wh_enable_engine','wh_local_tool_pin'].includes(name))throw new Error('tool_does_not_support_era');const {applyProjectScope,validateToolArgs}=await import('@/services/aiRuntime/toolPolicy');const validated=validateToolArgs(tool.schema,{...args,projectId,eraId:scope.eraId});if(!validated.ok)throw new Error(validated.error);const pinned=applyProjectScope(tool,validated.args,{origin:'copilot',projectId});if(!pinned.ok)throw new Error(pinned.error);const {runBridgeTool}=await import('@/services/aiBridge/dispatch');current();if(tool.writes)writable();const reply=await runBridgeTool(name,{...pinned.args,...(scope.eraId?{eraId:scope.eraId}:{})});if(!reply.ok)throw new Error(reply.error);return JSON.parse(JSON.stringify(reply.result)??'null')as LocalToolJson;},
+  async openDocument(documentKind:EraDocumentKind,id:string){current();if(!await readWorldDocument(scope,kind(documentKind),id))throw new Error('world_document_missing');if(documentKind==='local-tool'){const read=await readSourceToolDocument(scope,id);if(!read)throw Error('source_tool_document_missing');const {navigateTo}=await import('@/engines/_shared/anchoring');const query=new URLSearchParams({document:id,...(scope.eraId?{era:scope.eraId}:{})});current();(options.navigate??navigateTo)(`/project/${encodeURIComponent(projectId)}/local-tool-${read.document.namespace}?${query}`);return;}const {navigateTo,getAnchorAdapter}=await import('@/engines/_shared/anchoring');const navigate=(path:string)=>{current();if(scope.eraId){const [pathname,search='']=path.split('?'),query=new URLSearchParams(search);query.set('era',scope.eraId);path=pathname+'?'+query;}(options.navigate??navigateTo)(path);};if(documentKind==='worldgen'){const {resolveWorldgenRoute}=await import('@/engines/worldgen/navigation');const route=await resolveWorldgenRoute(projectId,id,scope.eraId);if(!route)throw new Error('world_document_missing');navigate(route);return;}const adapter=getAnchorAdapter(documentKind);if(adapter){adapter.navigateToEntity(id,projectId,navigate);return;}const {toolDocumentPath,toolKind}=await import('@/components/editor/toolBlocks/model'),targetKind=toolKind(documentKind==='genealogy'?'relation-tree':documentKind);navigate(targetKind?toolDocumentPath({projectId,kind:targetKind,documentId:id,label:''}):`/project/${encodeURIComponent(projectId)}/${documentKind}?entity=${encodeURIComponent(id)}`);},
+ } satisfies Omit<LocalToolClient<T>,'refs'|'state'>;
+ const client:LocalToolClient<T>={...base,refs:createLocalToolReferences(base),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();const result=await run({client,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});writable();return result;});})}:{})};
+ return Object.freeze(client);
 }

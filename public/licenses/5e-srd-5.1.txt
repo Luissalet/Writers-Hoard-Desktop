@@ -1,0 +1,10 @@
+5e (2014) profile — SRD 5.1 attribution
+
+This work includes material taken from the System Reference Document 5.1 (“SRD 5.1”) by Wizards of the Coast LLC and available at https://dnd.wizards.com/resources/systems-reference-document. The SRD 5.1 is licensed under the Creative Commons Attribution 4.0 International License available at https://creativecommons.org/licenses/by/4.0/legalcode.
+
+Official source: https://media.dndbeyond.com/compendium-images/srd/5.1/SRD_CC_v5.1.pdf
+License: https://creativecommons.org/licenses/by/4.0/
+
+Adaptations: numeric class, hit-die and spell-slot facts are implemented as local calculations and editable authoring controls. The interface, vector paper and spell notes are original. Rulebook prose, official character-sheet artwork and logos are not included.
+
+The minimum one hit point on a level increase follows the official 2014 Basic Rules clarification: https://www.dndbeyond.com/sources/dnd/basic-rules-2014/step-by-step-characters#Beyond1stLevel . No Basic Rules prose is reproduced.

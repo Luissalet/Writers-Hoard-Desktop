@@ -22,6 +22,7 @@ import { DEEP_TILE_Z, type TilePlace } from '../region/deepTile';
 import { serveTile } from '../region/tileService';
 import { worldFamilyKey } from '../region/contentIdentity';
 import { declutterLabels } from '../core/semanticZoom';
+import { placeFont, labelScale } from '../core/placeStyle';
 
 /**
  * Pan/zoom viewer for the hand-drawn cartographic map.
@@ -197,7 +198,7 @@ export default function CartoMap({
    * because the pixels do not exist. A whole-world bitmap covers every possible
    * view by construction: there is no such thing as an uncovered edge.
    */
-  const globalMap = useRef<{ canvas: HTMLCanvasElement; rev: number; theme: string } | null>(null);
+  const globalMap = useRef<{ canvas: HTMLCanvasElement; key: string; world: WorldData; geography: HumanGeography | undefined } | null>(null);
   /**
    * The slippy layer: sharp ground tiles composed OVER the whole-world blit
    * during gestures. The blit guarantees coverage (its whole design point);
@@ -303,8 +304,8 @@ export default function CartoMap({
         if (sx < -60 || sy < -30 || sx > outW + 60 || sy > outH + 30) continue;
         const town = pl.kind === 'town';
         const village = pl.kind === 'village';
-        const size = (town ? 12.5 : village ? 11 : 9.5) * typeScale;
-        const font = `${town || village ? '' : 'italic '}${town ? 600 : village ? 500 : 400} ${size}px ${p.theme.type.body}`;
+        const size = (town ? 12.5 : village ? 11 : 9.5) * typeScale * labelScale(pl.style ?? {});
+        const font = `${town || village ? '' : 'italic '}${town ? 600 : village ? 500 : 400} ${size}px ${placeFont(pl.style ?? {}, p.theme.type.body)}`;
         ctx.font = font;
         const tw = ctx.measureText(pl.name).width;
         const ly = sy + size * 1.15; // beneath its buildings
@@ -329,7 +330,7 @@ export default function CartoMap({
       ctx.strokeStyle = p.theme.type.halo;
       ctx.lineWidth = p.theme.type.haloWidth * Math.max(0.6, d.size / 14);
       ctx.strokeText(d.pl.name, d.sx, d.sy);
-      ctx.fillStyle = p.theme.type.color;
+      ctx.fillStyle = d.pl.style?.color ?? p.theme.type.color;
       ctx.fillText(d.pl.name, d.sx, d.sy);
     }
     ctx.restore();
@@ -407,6 +408,7 @@ export default function CartoMap({
       // Principal settlements stay authoritative in screen space. Tile detail
       // may add buildings and hamlets, but loading state never removes a city.
       layers: { roads: false, borders: false, settlements: wantMarks, labels: wantNames },
+      territoryLabels: p.layers.borders === true,
       typeScale,
     });
     if (deep && wantNames) drawDeepNames(ctx, v, outW, outH, typeScale, z, space);
@@ -523,6 +525,8 @@ export default function CartoMap({
         shading: L.shading !== false,
         biomeTint: L.biomeTint !== false,
         coastRings: L.coastRings !== false,
+        relief: L.relief !== false,
+        reliefAmount: p.reliefAmount,
       }, 0);
       return gl.canvas as HTMLCanvasElement;
     } catch {
@@ -574,8 +578,8 @@ export default function CartoMap({
         // Refresh the whole-world bitmap when it is missing or out of date. Done
         // here, on the settle, so it never competes with the gesture.
         const gm = globalMap.current;
-        const rev = p.world.revision ?? 0;
-        if (full && (!gm || gm.rev !== rev || gm.theme !== p.theme.id)) {
+        const globalKey = `${p.world.revision ?? 0}:${p.theme.id}:${p.density}:${p.reliefAmount}:${JSON.stringify(p.layers)}`;
+        if (full && (!gm || gm.key !== globalKey || gm.world !== p.world || gm.geography !== p.geography)) {
           const gw = 2048, gh = 1024;
           const wholeView = { x: 0, y: 0, w: p.world.width, h: p.world.height };
           const whole = renderCartoCanvas(p.world, {
@@ -594,7 +598,7 @@ export default function CartoMap({
             typeScale: 1,
             drawBase,
           });
-          globalMap.current = { canvas: whole, rev, theme: p.theme.id };
+          globalMap.current = { canvas: whole, key: globalKey, world: p.world, geography: p.geography };
         }
         const canvas = canvasRef.current;
         if (canvas) {

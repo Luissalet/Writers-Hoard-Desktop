@@ -32,7 +32,7 @@ export async function testDictionaryScripts(): Promise<string[]> {
     const prototype = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     await act(async () => { Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(control, value); control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); await pause(); });
   };
-  const render = async () => act(async () => { root.render(<StrictMode><MemoryRouter><DictionaryEngine projectId={P} /></MemoryRouter></StrictMode>); await pause(180); });
+  const render = async () => { await act(async () => { root.render(<StrictMode><MemoryRouter><DictionaryEngine projectId={P} /></MemoryRouter></StrictMode>); }); await waitFor(() => !!document.querySelector('section[aria-label="Languages"]'), 'Dictionary engine project is loaded'); };
   const upload = async (file: File) => { const transfer = new DataTransfer(); transfer.items.add(file); await act(async () => { const control = node<HTMLInputElement>('dictionary-font-upload'); control.files = transfer.files; control.dispatchEvent(new Event('change', { bubbles: true })); await pause(180); }); };
   try {
     for (const preset of scriptPresets) {

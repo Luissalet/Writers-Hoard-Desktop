@@ -1,20 +1,22 @@
+import {validateSourceToolDocument} from '@/engines/local/documents/types';
 import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { parseDictionaryImport } from '@/engines/dictionary/types';
 import { validateRelationTree, type RelationTreeDocument } from '@/engines/genealogy/relationTrees';
 import { validateSheet, type CharacterSheet } from '@/engines/character-sheets/types';
-import { assetBytes, MAX_PROJECT_MODEL_BYTES, type ModelAsset } from '@/engines/model-viewer/model';
+import { assetBytes, modelStoredBytes, MAX_PROJECT_MODEL_BYTES, type ModelAsset } from '@/engines/model-viewer/model';
 import { validateCell, type WorldTable } from '@/engines/tables/types';
 import type { ArchivedDocumentKind, DocumentArchive } from './types';
 import { validateRadarChart } from '@/engines/radar/model';
 
-export const metadataFields:Partial<Record<ArchivedDocumentKind,string>>={dictionary:'dictionaries',tables:'dataTables','relation-tree':'relationTrees','model-viewer':'modelAssets','character-sheets':'characterSheets',radar:'radarCharts'};
+export const metadataFields:Partial<Record<ArchivedDocumentKind,string>>={'local-tool':'sourceToolDocuments',dictionary:'dictionaries',tables:'dataTables','relation-tree':'relationTrees','model-viewer':'modelAssets','character-sheets':'characterSheets',radar:'radarCharts'};
 type Row=Record<string,unknown>;
 export function validateArchivedMetadata(kind:ArchivedDocumentKind,item:Row):string[] {
   if(typeof item.id!=='string'||!item.id)throw new Error('Invalid metadata ID');
   const refs:string[]=[];
-  if(kind==='dictionary') {
+  if(kind==='local-tool'){validateSourceToolDocument(item);}
+  else if(kind==='dictionary') {
     parseDictionaryImport(JSON.stringify({format:'writers-dictionary-v1',dictionary:item}));
     const words=item.words as Array<{id:string;linkedEntryId?:string}>;
     if(words.some(word=>typeof word.id!=='string')||new Set(words.map(word=>word.id)).size!==words.length)throw new Error('Invalid word IDs');
@@ -33,7 +35,7 @@ export function validateArchivedMetadata(kind:ArchivedDocumentKind,item:Row):str
 }
 export async function archiveMetadataWithMutation<T>(kind:ArchivedDocumentKind,projectId:string,id:string,remove:()=>Promise<T>):Promise<T> {
   const field=metadataFields[kind];if(!field)throw new Error('Unsupported metadata document');
-  const result=await db.transaction('rw',[db.projects,db.documentArchives],async()=>{
+  const result=await db.transaction('rw',db.tables,async()=>{
     const project=await db.projects.get(projectId);if(!project)throw new Error('Project not found');
     const rows=(project as unknown as Row)[field] as Row[]|undefined;
     const index=rows?.findIndex(row=>row.id===id)??-1;if(index<0)return remove();
@@ -44,7 +46,7 @@ export async function archiveMetadataWithMutation<T>(kind:ArchivedDocumentKind,p
     if(JSON.stringify(archive).length>100*1024*1024)throw new Error('Archive exceeds document capacity');
     await db.documentArchives.add(archive);return value;
   });
-  notifyDataChanged({source:'other',projectId});return result;
+  if(kind!=='local-tool')notifyDataChanged({source:'other',projectId});return result;
 }
 export async function restoreArchivedMetadata(archive:DocumentArchive):Promise<void> {
   const {projectId,kind,metadata}=archive;
@@ -54,7 +56,7 @@ export async function restoreArchivedMetadata(archive:DocumentArchive):Promise<v
   for(const id of refs)if((await db.codexEntries.get(id))?.projectId!==projectId)throw new Error('Restore dependency unavailable');
   const rows=structuredClone(((project as unknown as Row)[metadata.field] as Row[]|undefined)??[]);
   if(rows.some(row=>row.id===metadata.item.id))throw new Error('Document ID already occupied');
-  if(kind==='model-viewer'&&rows.reduce((sum,row)=>sum+Number(row.size??0),Number(metadata.item.size))>MAX_PROJECT_MODEL_BYTES)throw new Error('Model capacity exceeded');
-  rows.splice(Math.min(metadata.index,rows.length),0,metadata.item);
+  if(kind==='model-viewer'&&rows.reduce((sum,row)=>sum+modelStoredBytes(row as unknown as ModelAsset),modelStoredBytes(metadata.item as unknown as ModelAsset))>MAX_PROJECT_MODEL_BYTES)throw new Error('Model capacity exceeded');
+  const restored=kind==='local-tool'?{...metadata.item,generation:crypto.randomUUID(),revision:Number(metadata.item.revision)+1,updatedAt:Math.max(Date.now(),Number(metadata.item.updatedAt)+1)}:metadata.item;rows.splice(Math.min(metadata.index,rows.length),0,restored);
   await db.projects.update(projectId,current=>{Object.assign(current,{[metadata.field]:rows,updatedAt:Math.max(Date.now(),current.updatedAt+1)});});
 }

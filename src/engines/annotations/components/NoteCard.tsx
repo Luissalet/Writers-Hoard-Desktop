@@ -1,156 +1,28 @@
-// ============================================
-// NoteCard — one annotation in the margin panel
-// ============================================
-//
-// Three flavors:
-//   - text       — markdown body, inline-edit on click
-//   - image      — preview thumbnail
-//   - reference  — engine chip with jump-to button
-//
-// Header carries: anchor snippet (truncated), orphan flag, delete menu.
-
-import { useState } from 'react';
-import { Trash2, AlertTriangle, FileText, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
-import { useTranslation } from '@/i18n/useTranslation';
-import { ConfirmDialog } from '@/engines/_shared';
+import {useState} from 'react';
+import {Check,MessageSquare,Pencil,RotateCcw,Trash2,AlertTriangle} from 'lucide-react';
+import {useTranslation} from '@/i18n/useTranslation';
+import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
+import type {WorldEraScope} from '@/services/worldEras/types';
+import type {AnnotationMention,AnnotationWithReference} from '../types';
+import type {AnnotationThreadAction} from '../threads';
+import ThreadTextEditor,{commentButton} from './ThreadTextEditor';
 import ReferenceChip from './ReferenceChip';
-import type { AnnotationWithReference } from '../types';
-
-export interface NoteCardProps {
-  annotation: AnnotationWithReference;
-  onUpdate: (id: string, body: string) => void;
-  onDelete: (id: string) => void;
-}
-
-export default function NoteCard({ annotation, onUpdate, onDelete }: NoteCardProps) {
-  const { t } = useTranslation();
-  const [editing, setEditing] = useState<boolean>(false);
-  const [draft, setDraft] = useState<string>(annotation.noteBody ?? '');
-  const [pendingDelete, setPendingDelete] = useState(false);
-
-  const snippet = annotation.anchor.selectedText;
-
-  return (
-    <article className="rounded-lg border border-border bg-bg-elevated/60 p-3 space-y-2 shadow-sm">
-      {/* Header */}
-      <header className="flex items-start gap-2">
-        <NoteTypeIcon type={annotation.noteType} />
-        <div className="flex-1 min-w-0">
-          {snippet && (
-            <div
-              className="text-[11px] text-text-secondary border-l-2 border-accent-gold/60 pl-2 italic truncate"
-              title={snippet}
-            >
-              "{snippet}"
-            </div>
-          )}
-        </div>
-        {annotation.isOrphaned && (
-          <span
-            className="text-[10px] uppercase tracking-wide text-amber-400 flex items-center gap-1 flex-shrink-0"
-            title={t('annotations.card.orphanHint')}
-          >
-            <AlertTriangle size={10} />
-            {t('annotations.card.orphan')}
-          </span>
-        )}
-        <button
-          // One stray click on a 12px icon used to erase the note outright —
-          // every sibling margin/list delete in the app asks first.
-          onClick={() => setPendingDelete(true)}
-          className="p-1 text-text-muted hover:text-red-400 transition flex-shrink-0"
-          aria-label={t('common.delete')}
-        >
-          <Trash2 size={12} />
-        </button>
-      </header>
-
-      {/* Body */}
-      {annotation.noteType === 'text' && (
-        editing ? (
-          <div>
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              className="w-full min-h-[60px] rounded-md border border-border bg-bg-base px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-gold"
-              autoFocus
-            />
-            <div className="flex justify-end gap-2 mt-1">
-              <button
-                onClick={() => {
-                  setDraft(annotation.noteBody ?? '');
-                  setEditing(false);
-                }}
-                className="text-[11px] text-text-secondary hover:text-text-primary"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={() => {
-                  onUpdate(annotation.id, draft);
-                  setEditing(false);
-                }}
-                className="text-[11px] text-accent-gold hover:underline"
-              >
-                {t('common.save')}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p
-            onClick={() => {
-              // Start from the stored body, not the one seen at mount: a note
-              // edited elsewhere since (another surface, the AI bridge) would
-              // otherwise be overwritten with the stale text on Save.
-              setDraft(annotation.noteBody ?? '');
-              setEditing(true);
-            }}
-            className="text-sm text-text-primary whitespace-pre-wrap cursor-text min-h-[20px]"
-          >
-            {annotation.noteBody || (
-              <span className="text-text-muted italic">{t('annotations.card.emptyText')}</span>
-            )}
-          </p>
-        )
-      )}
-
-      {annotation.noteType === 'image' && annotation.noteImageUrl && (
-        <img
-          src={annotation.noteImageUrl}
-          alt=""
-          className="max-h-48 w-full object-contain rounded-md border border-border"
-        />
-      )}
-
-      {annotation.noteType === 'reference' && annotation.reference && (
-        <ReferenceChip
-          targetEngineId={annotation.reference.targetEngineId}
-          targetEntityId={annotation.reference.targetEntityId}
-        />
-      )}
-
-      {annotation.noteType === 'reference' && !annotation.reference && (
-        <div className="text-xs text-text-muted italic">
-          {t('annotations.card.referenceMissing')}
-        </div>
-      )}
-
-      <ConfirmDialog
-        open={pendingDelete}
-        destructive
-        message={t('annotations.card.deleteConfirm')}
-        onConfirm={() => {
-          setPendingDelete(false);
-          onDelete(annotation.id);
-        }}
-        onCancel={() => setPendingDelete(false)}
-      />
-    </article>
-  );
-}
-
-function NoteTypeIcon({ type }: { type: AnnotationWithReference['noteType'] }) {
-  if (type === 'image') return <ImageIcon size={13} className="text-text-secondary mt-0.5" />;
-  if (type === 'reference') return <LinkIcon size={13} className="text-accent-gold mt-0.5" />;
-  return <FileText size={13} className="text-text-secondary mt-0.5" />;
+import CommentSourceLink from './CommentSourceLink';
+import {annotationDrafts,type AnnotationDraft} from '../drafts';
+export default function NoteCard({annotation,scope,onMutate,onDelete,onDraftState,busy}:{annotation:AnnotationWithReference;scope:WorldEraScope;onMutate:(action:AnnotationThreadAction,revision:number)=>Promise<boolean>;onDelete:(revision:number)=>Promise<void>;onDraftState:(editing:boolean)=>void;busy?:boolean}){
+ const {locale}=useTranslation(),es=locale==='es';const [journal]=useState(()=>annotationDrafts(scope)),[draft,setDraft]=useState<AnnotationDraft|undefined>(()=>journal.get(annotation.id)),[deleting,setDeleting]=useState(false);const revision=annotation.revision??0;
+ const edit=(next?:AnnotationDraft)=>{setDraft(next);if(next)journal.set(annotation.id,next);else journal.delete(annotation.id);onDraftState(!!next);};
+ const save=async()=>{if(!draft)return;const action:AnnotationThreadAction=draft.kind==='edit-reply'?{kind:'edit-reply',replyId:draft.replyId!,body:draft.body,mentions:draft.mentions}:{kind:draft.kind==='new'?'reply':draft.kind,body:draft.body,mentions:draft.mentions};if(await onMutate(action,draft.revision))edit(undefined);};
+ const links=(mentions:AnnotationMention[]|undefined)=>(mentions??[]).map(mention=><ReferenceChip key={JSON.stringify(mention)} targetEngineId={mention.engineId} targetEntityId={mention.entityId} projectId={scope.projectId} eraId={scope.eraId}/>);
+ return <article className="min-w-0 space-y-3 rounded-lg border border-border bg-surface p-3" data-comment-thread={annotation.id}><header className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-text-muted">{annotation.resolvedAt?(es?'Resuelto':'Resolved'):(es?'Abierto':'Open')} · {new Date(annotation.createdAt).toLocaleString(locale)}</span>{annotation.isOrphaned&&<span className="flex items-center gap-1 text-xs text-danger"><AlertTriangle size={13}/>{es?'Revisar ancla':'Review anchor'}</span>}</header>
+ {annotation.importedComment&&<p className="break-words text-xs text-text-muted">{es?'Comentario importado':'Imported comment'} · {annotation.importedComment.author} · {annotation.importedComment.date}</p>}
+ <CommentSourceLink scope={scope} engineId={annotation.sourceEngineId} entityId={annotation.sourceEntityId}/>
+ {annotation.anchor.selectedText&&<blockquote className="break-words border-l border-border pl-3 text-xs italic text-text-muted">{annotation.anchor.selectedText}</blockquote>}
+ {annotation.noteType==='text'&&<p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text-primary">{annotation.noteBody}</p>}{annotation.noteType==='image'&&annotation.noteImageUrl&&<img alt="" src={annotation.noteImageUrl} className="max-h-48 w-full rounded-lg object-contain"/>}{annotation.noteType==='reference'&&(annotation.reference?<ReferenceChip targetEngineId={annotation.reference.targetEngineId} targetEntityId={annotation.reference.targetEntityId} projectId={scope.projectId} eraId={scope.eraId}/>:<p className="text-xs text-text-muted">{es?'Referencia no disponible':'Reference unavailable'}</p>)}{links(annotation.mentions)}
+ <div className="flex flex-wrap gap-2">{annotation.noteType==='text'&&<button type="button" className={commentButton} disabled={busy} aria-label={es?'Editar comentario':'Edit comment'} onClick={()=>edit({kind:'body',body:annotation.noteBody??'',mentions:annotation.mentions??[],revision})}><Pencil size={13}/>{es?'Editar':'Edit'}</button>}<button type="button" className={commentButton} disabled={busy} data-comment-resolve onClick={()=>void onMutate({kind:'resolve',resolved:!annotation.resolvedAt},revision)}>{annotation.resolvedAt?<RotateCcw size={13}/>:<Check size={13}/>} {annotation.resolvedAt?(es?'Reabrir':'Reopen'):(es?'Resolver':'Resolve')}</button><button type="button" className={commentButton} disabled={busy} aria-label={es?'Eliminar hilo':'Delete thread'} onClick={()=>setDeleting(true)}><Trash2 size={13}/></button></div>
+ {!!annotation.replies?.length&&<ol aria-label={es?'Respuestas':'Replies'} className="space-y-3 border-t border-border pt-3">{annotation.replies.map(reply=><li key={reply.id} data-comment-reply={reply.id} className="space-y-2"><p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text-primary">{reply.body}</p>{reply.importedComment&&<p className="break-words text-xs text-text-muted">{es?'Respuesta importada':'Imported reply'} · {reply.importedComment.author} · {reply.importedComment.date}</p>}{links(reply.mentions)}<div className="flex flex-wrap items-center gap-2"><time className="text-xs text-text-muted">{new Date(reply.updatedAt).toLocaleString(locale)}</time><button type="button" className={commentButton} disabled={busy} aria-label={es?'Editar respuesta':'Edit reply'} onClick={()=>edit({kind:'edit-reply',replyId:reply.id,body:reply.body,mentions:reply.mentions??[],revision})}><Pencil size={13}/></button><button type="button" className={commentButton} disabled={busy} aria-label={es?'Quitar respuesta':'Remove reply'} onClick={()=>void onMutate({kind:'remove-reply',replyId:reply.id},revision)}><Trash2 size={13}/></button></div></li>)}</ol>}
+ {draft&&draft.revision!==revision&&<div className="space-y-2"><p className="text-xs text-text-muted">{es?'Tu borrador usa una versión anterior. Revisa las respuestas actuales.':'Your draft uses an earlier version. Review the current replies.'}</p><button type="button" className={commentButton} disabled={busy} onClick={()=>edit({...draft,revision})}>{es?'Conservar borrador sobre esta versión':'Keep draft on this version'}</button></div>}
+ {draft?<ThreadTextEditor scope={scope} label={draft.kind==='body'?(es?'Comentario':'Comment'):(es?'Respuesta':'Reply')} body={draft.body} mentions={draft.mentions} onBody={body=>edit({...draft,body})} onMentions={mentions=>edit({...draft,mentions})} onSave={()=>void save()} onCancel={()=>edit(undefined)} busy={busy}/>:<button type="button" className={commentButton} disabled={busy} data-comment-reply-add onClick={()=>edit({kind:'reply',body:'',mentions:[],revision})}><MessageSquare size={14}/>{es?'Responder':'Reply'}</button>}
+ <ConfirmDialog open={deleting} destructive title={es?'Eliminar hilo':'Delete thread'} message={es?'¿Eliminar este comentario y sus respuestas? Puedes deshacerlo desde este panel.':'Delete this comment and its replies? You can undo it from this panel.'} onCancel={()=>setDeleting(false)} onConfirm={async()=>{await onDelete(revision);setDeleting(false);}}/>
+ </article>;
 }

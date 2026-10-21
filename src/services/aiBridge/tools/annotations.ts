@@ -1,3 +1,5 @@
+import {annotationEntity} from '@/engines/annotations/scope';
+import type {WorldEraScope} from '@/services/worldEras/types';
 // ============================================================================
 // AI bridge tools — margin notes
 // ============================================================================
@@ -22,7 +24,6 @@ import {
   getAnchorAdapter,
   resolveTextRangeAnchor,
 } from '@/engines/_shared/anchoring';
-import { resolveEntityInEngine } from '@/engines/_shared/entityResolverRegistry';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertRowInScope,
@@ -46,7 +47,7 @@ function serialize(annotation: Annotation, freshOrphan?: boolean): Record<string
     noteType: annotation.noteType,
     anchoredTo: annotation.anchor.selectedText,
     isOrphaned: freshOrphan ?? annotation.isOrphaned,
-    createdAt: annotation.createdAt,
+    createdAt: annotation.createdAt,updatedAt:annotation.updatedAt,eraId:annotation.eraId,revision:annotation.revision??0,resolved:!!annotation.resolvedAt,resolvedAt:annotation.resolvedAt,replies:annotation.replies??[],mentions:annotation.mentions??[],
   };
 }
 
@@ -59,9 +60,10 @@ export async function whListAnnotations(args: ToolArgs): Promise<unknown> {
     throw new BridgeError('bad-args', 'entityId needs engineId too: ids are only unique within an engine.');
   }
 
+  const scope={projectId:resolveProjectId(args),eraId:optString(args,'eraId')};
   const rows = engineId && entityId
-    ? await getAnnotationsForEntity(engineId, entityId)
-    : await getAnnotationsForProject(resolveProjectId(args));
+    ? await getAnnotationsForEntity(engineId, entityId,scope)
+    : await getAnnotationsForProject(scope.projectId,scope.eraId);
   // The entity path is addressed by (engineId, entityId) alone, with no project
   // in the query: an id from another project would list that project's notes.
   for (const row of rows) assertRowInScope(args, row.projectId);
@@ -78,7 +80,7 @@ export async function whListAnnotations(args: ToolArgs): Promise<unknown> {
   //
   // Scoped to one entity, because re-checking reads the whole body: doing it
   // for a project-wide listing would load the manuscript to answer a listing.
-  const fresh = engineId && entityId ? await freshOrphanFlags(engineId, rows) : null;
+  const fresh = engineId && entityId ? await freshOrphanFlags(engineId, rows,scope) : null;
 
   const filtered = rows
     .filter((row) => (engineId && !entityId ? row.sourceEngineId === engineId : true))
@@ -102,13 +104,14 @@ export async function whListAnnotations(args: ToolArgs): Promise<unknown> {
 async function freshOrphanFlags(
   engineId: string,
   rows: Annotation[],
+  scope:WorldEraScope,
 ): Promise<Map<string, boolean> | null> {
   const adapter = getAnchorAdapter(engineId);
   if (!adapter?.supportsTextRange || !adapter.getEntityText) return null;
   const ranged = rows.filter((row) => row.anchor.type === 'text_range');
   if (!ranged.length) return new Map();
 
-  const body = await adapter.getEntityText(rows[0].sourceEntityId);
+  const body = (await annotationEntity(scope,engineId,rows[0].sourceEntityId))?.text;
   // A body that cannot be read means "unknown", not "the text is gone":
   // flagging every note as orphaned because a fetch failed would be worse
   // than admitting the flags are stale.
@@ -133,7 +136,7 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
       `"${engineId}" cannot be annotated. Try writings, codex, seeds, board, maps, biography, character-arc, notes or outline.`,
     );
   }
-  const title = await adapter.getEntityTitle(entityId);
+  const scope={projectId,eraId:optString(args,'eraId')},target=await annotationEntity(scope,engineId,entityId),title=target?.title;
   if (!title) throw new BridgeError('not-found', `No ${engineId} entity with id "${entityId}".`);
 
   // The note is filed under `projectId` but anchored to (engineId, entityId),
@@ -142,13 +145,6 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
   // project B, where nothing can ever show it. `projectId` is already the
   // caller's scope — this tool's schema takes it, so applyProjectScope pinned
   // it — which makes this the scope check as well as the sanity one.
-  const target = await resolveEntityInEngine(engineId, entityId);
-  if (target && target.projectId !== projectId) {
-    throw new BridgeError(
-      'bad-args',
-      `That ${engineId} entity belongs to another project, so a note filed here could never be shown beside it. Annotate something in this project instead.`,
-    );
-  }
 
   let anchor: Annotation['anchor'] = { type: 'entity' };
   if (quote) {
@@ -158,7 +154,7 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
         `"${engineId}" entities have no body text to anchor into. Drop the quote to attach the note to the whole entity.`,
       );
     }
-    const body = (await adapter.getEntityText(entityId)) ?? '';
+    const body = target?.text??'';
     const start = body.indexOf(quote);
     if (start === -1) {
       throw new BridgeError(
@@ -170,11 +166,11 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
     anchor = { type: 'text_range', start, end, selectedText: quote, ...captureContext(body, start, end) };
   }
 
-  const existing = await getAnnotationsForEntity(engineId, entityId);
+  const existing = await getAnnotationsForEntity(engineId, entityId,scope);
   const now = Date.now();
   const annotation: Annotation = {
     id: generateId('ann'),
-    projectId,
+    projectId,eraId:scope.eraId,
     sourceEngineId: engineId,
     sourceEntityId: entityId,
     anchor,

@@ -1,12 +1,16 @@
+import {getBoardCopy} from '../copy';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Handle, NodeResizer, Position, type Node, type NodeProps } from '@xyflow/react';
 import {
   HelpCircle, Lightbulb, Link2, Lock, MapPin, Package, Pencil, Search,
-  Sparkles, StickyNote, Trash2, Unlink, User, Users, Zap,
+  Sparkles, StickyNote, Trash2, User, Users, Zap,
 } from 'lucide-react';
 import { MIN_SIZE, getNodeRole } from '../catalog';
 import type { BoardNode } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import BoardEntityTile from './BoardEntityTile';
+import {boardShapePath} from '../shapes';
+import {strokeOutline} from '../freehand';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 
 // Explicit map instead of `import * as Lucide` — a namespace import pulls the
@@ -33,6 +37,8 @@ export interface BoardNodeData extends Record<string, unknown> {
   onStartLink: (id: string) => void;
   onOpenRef: (id: string) => void;
   onRename: (id: string, title: string) => void;
+  onToggleFrame?:(id:string)=>void;
+  memberCount?:number;
 }
 
 export type BoardFlowNode = Node<BoardNodeData, 'board'>;
@@ -62,14 +68,14 @@ function NodeChrome({ data, selected }: { data: BoardNodeData; selected: boolean
       {node.ref ? (
         <button
           type="button"
-          title={node.ref.missing ? t('board.node.refBroken') : t('board.node.refOpen')}
+          title={t('board.node.refOpen')}
           onClick={(event) => {
             stop(event);
             data.onOpenRef(node.id);
           }}
-          className={node.ref.missing ? 'p-1 text-danger' : 'p-1 text-accent-plum-light hover:text-accent-gold'}
+          className="p-1 text-accent-plum-light hover:text-accent-gold"
         >
-          {node.ref.missing ? <Unlink size={13} /> : <Link2 size={13} />}
+          <Link2 size={13} />
         </button>
       ) : null}
       <button
@@ -109,33 +115,10 @@ function NodeChrome({ data, selected }: { data: BoardNodeData; selected: boolean
   );
 }
 
-function shapeStyle(node: BoardNode): React.CSSProperties {
-  const shape = node.shape ?? 'rectangle';
-  const style: React.CSSProperties = {
-    width: '100%',
-    height: '100%',
-    background: hexToRgba(node.color, 0.18),
-    border: `2px solid ${node.color}`,
-  };
-  if (shape === 'circle') style.borderRadius = '50%';
-  else if (shape === 'pill') style.borderRadius = '999px';
-  else style.borderRadius = '10px';
-
-  // Clipped, not rotated. The old engine rotated the whole container for the
-  // diamond, which sent the handles and the delete button off on a diagonal.
-  if (shape === 'diamond' || shape === 'hexagon') {
-    style.border = 'none';
-    style.background = hexToRgba(node.color, 0.34);
-    style.clipPath =
-      shape === 'diamond'
-        ? 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)'
-        : 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
-  }
-  return style;
-}
 
 function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
-  const { t } = useTranslation();
+  const { t,locale } = useTranslation();
+  const copy=getBoardCopy(locale);
   const { node } = data;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(node.title);
@@ -165,8 +148,9 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
   const handleDoubleClick = useCallback(() => {
     if (node.locked || data.layerLocked) return;
     if (INLINE_EDITABLE.has(node.kind) && !node.freehand) setEditing(true);
+    else if(node.kind==='entity'&&node.ref)data.onOpenRef(id);
     else data.onEdit(id);
-  }, [node.locked, node.kind, node.freehand, data, id]);
+  }, [node.locked, node.kind, node.freehand, node.ref, data, id]);
 
   const roleDef = getNodeRole(node.role);
   const RoleIcon = roleDef ? ROLE_ICONS[roleDef.icon as keyof typeof ROLE_ICONS] : undefined;
@@ -223,6 +207,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
   const body = (() => {
     switch (node.kind) {
       case 'frame':
+        if(node.collapsed)return <div className="flex h-full min-w-0 flex-col justify-between rounded-lg border border-border bg-surface p-3 shadow-lg" data-board-pile={node.id}><div className="flex min-w-0 items-center gap-2 text-sm text-text-primary"><span className="rounded bg-elevated px-2 py-1 font-semibold tabular-nums">{data.memberCount??0}</span><span>{copy.items}</span><span className="min-w-0 flex-1 truncate text-xs text-text-muted" title={node.title}>{node.title}</span></div><button type="button" className="nodrag min-h-9 rounded border border-border px-2 text-left text-xs text-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40" aria-expanded="false" disabled={node.locked||data.layerLocked||!data.onToggleFrame} onClick={event=>{event.stopPropagation();data.onToggleFrame?.(id);}} onDoubleClick={event=>event.stopPropagation()}>{copy.openPile}</button></div>;
         return (
           <div
             className="flex h-full w-full flex-col rounded-xl border-2 border-dashed"
@@ -232,7 +217,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
               className="flex items-center gap-2 rounded-t-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
               style={{ background: node.color, color: '#07070d' }}
             >
-              <span>{node.collapsed ? '▸' : '▾'}</span>
+              <button type="button" className="nodrag flex min-h-9 min-w-9 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40" aria-label={copy.collapsePile} aria-expanded="true" disabled={node.locked||data.layerLocked||!data.onToggleFrame} onClick={event=>{event.stopPropagation();data.onToggleFrame?.(id);}}>▾</button>
               {titleNode ?? <span className="truncate">{node.title || t('board.node.frame')}</span>}
             </div>
           </div>
@@ -284,37 +269,10 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
         );
 
       case 'shape':
-        if (node.freehand) return <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full overflow-visible" data-testid={`board-stroke-${node.id}`}><title>{node.title}</title><polyline points={node.freehand.points.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke={node.color} strokeWidth={node.freehand.width} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></svg>;
-        return (
-          <div style={shapeStyle(node)} className="flex items-center justify-center p-3 text-center">
-            {titleNode ?? <span className="text-sm font-semibold text-text-primary">{node.title}</span>}
-          </div>
-        );
-
+        if (node.freehand) {const stroke=node.freehand;return <svg viewBox={`0 0 ${node.size.width} ${node.size.height}`} preserveAspectRatio="none" className="h-full w-full overflow-visible" data-testid={`board-stroke-${node.id}`}><title>{node.title}</title><path d={strokeOutline(stroke.points.map(p=>({...p,x:p.x*node.size.width/100,y:p.y*node.size.height/100})),stroke.width)} fill={node.color} opacity={stroke.opacity??(stroke.tool==='marker'?.32:1)} /></svg>;}
+        return <div className="relative flex h-full w-full items-center justify-center p-3 text-center"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full" aria-hidden="true"><path d={boardShapePath(node.shape??'rectangle')} fill={['line','arrow'].includes(node.shape??'')?'none':hexToRgba(node.color,.18)} stroke={node.color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/></svg><div className="relative">{titleNode??<span className="text-sm font-semibold text-text-primary">{node.title}</span>}</div></div>;
       case 'entity':
-        return (
-          <div
-            className="flex h-full w-full items-center gap-2 overflow-hidden rounded-xl border bg-elevated p-2 shadow-lg"
-            style={{ borderColor: node.ref?.missing ? '#c4463a' : node.color }}
-          >
-            {node.ref?.thumbnail ? (
-              <img src={node.ref.thumbnail} alt="" className="h-12 w-12 rounded-lg object-cover" draggable={false} />
-            ) : null}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-accent-gold">
-                {node.ref?.entityType ?? t('board.node.entity')}
-              </p>
-              <p className="truncate text-sm font-medium text-text-primary">
-                {node.ref?.title || node.title || '—'}
-              </p>
-              {node.ref?.missing ? (
-                <p className="truncate text-[11px] text-danger">{t('board.node.targetGone')}</p>
-              ) : node.ref?.subtitle ? (
-                <p className="truncate text-[11px] text-text-muted">{node.ref.subtitle}</p>
-              ) : null}
-            </div>
-          </div>
-        );
+        return <BoardEntityTile node={node}/>;
 
       case 'card':
       default:
@@ -337,9 +295,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
               {titleNode ?? (
                 <h4 className="truncate font-serif text-sm font-bold text-text-primary">{node.title || '—'}</h4>
               )}
-              {node.content ? (
-                <p className="overflow-hidden text-xs leading-snug text-text-muted">{node.content}</p>
-              ) : null}
+              {node.richContent?<div className="prose prose-invert max-w-none min-h-0 overflow-hidden text-xs leading-snug text-text-primary" dangerouslySetInnerHTML={sanitizedHtml(node.richContent)}/>:node.content?<p className="overflow-hidden text-xs leading-snug text-text-muted">{node.content}</p>:null}
               {node.tags.length > 0 ? (
                 <div className="mt-auto flex flex-wrap gap-1 pt-1">
                   {node.tags.slice(0, 3).map((tag) => (
@@ -359,7 +315,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
 
   return (
     <div className="group relative" style={wrapper} onDoubleClick={handleDoubleClick}>
-      {selected && !node.locked && !data.layerLocked ? (
+      {selected && !node.locked && !data.layerLocked && !(node.kind==='frame'&&node.collapsed) ? (
         <NodeResizer
           minWidth={min.width}
           minHeight={min.height}

@@ -1,3 +1,4 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { GeneratedWorld } from '../types';
@@ -26,6 +27,7 @@ export default function JourneyCreativeCapture({ world, route, stops, mode, seas
   world: GeneratedWorld; route: Route; stops: string[]; mode: TravelMode; season: Season; width: number; height: number; sourcePending?: boolean;
 }) {
   const { locale, t } = useTranslation();
+  const scope = useWorldEraScope(world.projectId);
   const copy = locale === 'en' ? en : es;
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(false);
   const [draft, setDraft] = useState<JourneyCreativeDraft | null>(null);
@@ -45,14 +47,14 @@ export default function JourneyCreativeCapture({ world, route, stops, mode, seas
   const save = async (target: 'note' | 'scene') => {
     if (!draft || gate.current) return;
     gate.current = true; setBusy(true); setError(false);
-    try { setSaved(await saveJourneyCreativeDraft(sourceWorld.current, { ...draft, target })); }
+    try { setSaved(await saveJourneyCreativeDraft(sourceWorld.current, { ...draft, target }, scope.eraId)); }
     catch { setError(true); }
     finally { gate.current = false; setBusy(false); }
   };
   return <section className="border-t border-border pt-3 text-xs text-text-primary">
     {!open ? <button type="button" disabled={sourcePending} onClick={() => begin()} className="rounded-lg border border-accent-gold/50 px-3 py-2 text-accent-gold hover:bg-elevated disabled:opacity-40">{copy.develop}</button> : saved ? <div className="space-y-2">
       <p role="status">{copy.saved}</p>
-      <a className="block text-accent-gold underline underline-offset-4" href={`/project/${encodeURIComponent(world.projectId)}/${saved.engine}`}>{saved.engine === 'notes' ? copy.openIdea : copy.openScene}</a>
+      <a className="block text-accent-gold underline underline-offset-4" href={`/project/${encodeURIComponent(world.projectId)}/${saved.engine}${scope.eraId ? `?era=${encodeURIComponent(scope.eraId)}` : ''}`}>{saved.engine === 'notes' ? copy.openIdea : copy.openScene}</a>
       <button type="button" disabled={sourcePending} className="text-text-secondary underline underline-offset-4 disabled:opacity-40" onClick={() => begin()}>{copy.again}</button>
     </div> : draft && <div className="space-y-3">
       <p className="text-text-secondary">{copy.hint}</p>

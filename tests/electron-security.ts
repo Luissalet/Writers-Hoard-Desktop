@@ -125,6 +125,11 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
     'media:detectDownloadPlatform',
     'media:downloadToFile',
     'media:cancelFileDownload',
+    'media:voiceStatus',
+    'media:setupVoice',
+    'media:startVoiceTranscript',
+    'media:voiceTranscriptStatus',
+    'media:cancelVoiceTranscript',
   ]) {
     assert(isIpcChannelAllowedForRole(channel, 'main'), `${channel} has no trusted renderer`);
     assert(!isIpcChannelAllowedForRole(channel, 'quick-note'), `${channel} leaked to quick-note`);

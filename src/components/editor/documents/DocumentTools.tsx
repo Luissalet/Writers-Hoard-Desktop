@@ -7,6 +7,7 @@ import { advancedHtmlForInterchange, normalizeAdvancedHtml } from '../advanced/i
 import { chapterBlocks, CHAPTER_HEADING_NAME } from '../chapterHeading/chapterBlocks';
 import { describeRevisionDocument } from '@/engines/writings/revisions';
 import { revisionDocumentHtml } from '@/engines/writings/revisionProjection';
+import { manuscriptFindingLabel } from '@/engines/writings/manuscriptReview/findings';
 
 const COPY = {
   es: {
@@ -51,7 +52,7 @@ interface NativeSession {
   sessionId: string;
   summary?: { pages?: number };
 }
-interface OpenedDocument extends NativeSession { fileName: string; html: string }
+interface OpenedDocument extends NativeSession { fileName: string; html: string; warnings: string[]; original: File }
 interface BytesExport { dataBase64: string; mimeType: string; fileName?: string }
 interface PageImage extends BytesExport { width: number; height: number }
 
@@ -131,12 +132,12 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
     const native = await requestDocument<NativeSession>('document.openBytes', { dataBase64, format: formatOf(file.name), fileName: file.name });
     let retained = false;
     try {
-      const projection = await requestDocument<{ html: string }>('document.exportHtml', { sessionId: native.sessionId, includeRevisions: true });
+      const projection = await requestDocument<{ html: string; warnings?: string[] }>('document.exportHtml', { sessionId: native.sessionId, includeRevisions: true });
       if (!active()) return;
       const previous = session.current;
       session.current = native.sessionId;
       retained = true;
-      setOpened({ ...native, fileName: file.name, html: normalizeAdvancedHtml(projection.html) });
+      setOpened({ ...native, fileName: file.name, html: normalizeAdvancedHtml(projection.html), warnings: projection.warnings ?? [], original: file });
       setSource('imported'); setImage(null); setPage(1); setFileName(file.name); setStatus(copy.ready);
       if (previous) void requestDocument('document.close', { sessionId: previous }).catch(() => {});
     } finally {
@@ -214,6 +215,7 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
         <button type="button" className={button} aria-label={copy.close} onClick={() => setOpen(false)}><X size={14} aria-hidden="true" /></button>
       </div>
       <p className="text-text-secondary">{copy.importNote}</p>
+      {opened && <div className="space-y-1 text-text-secondary"><button type="button" className={button} onClick={() => saveAs(opened.original, opened.fileName)}>{locale === 'es' ? 'Descargar original exacto' : 'Download exact original'}</button>{opened.warnings.map(warning => <p key={warning}>{manuscriptFindingLabel(warning, locale)}</p>)}</div>}
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex min-w-0 flex-col gap-1">{copy.printLanguage}<select className={control} aria-label={copy.printLanguage} value={printLanguage} disabled={!!busy} onChange={event => { setPrintLanguage(event.target.value as typeof printLanguage); setImage(null); setPage(1); }}><option value="document">{copy.inherit}</option><option value="es-ES">{copy.spanish}</option><option value="en-US">{copy.english}</option></select></label>
         <label className="flex min-w-0 flex-col gap-1">{copy.hyphenation}<select className={control} aria-label={copy.hyphenation} value={hyphenation} disabled={!!busy} onChange={event => { setHyphenation(event.target.value as typeof hyphenation); setImage(null); setPage(1); }}><option value="document">{copy.inherit}</option><option value="on">{copy.enabled}</option><option value="off">{copy.disabled}</option></select></label>

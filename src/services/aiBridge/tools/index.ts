@@ -1,3 +1,16 @@
+import {MANUSCRIPT_REVIEW_HANDLERS} from '@/engines/writings/manuscriptReview/bridge';
+import {PROJECT_GENRE_HANDLERS} from '@/services/projectGenres/bridge';
+import {WORLD_FOLDER_IMPORT_HANDLERS} from '@/services/worldFolderImport/bridge';
+import {PROJECT_PIN_HANDLERS} from '@/services/projectPin/bridge';
+import {PROJECT_DUPLICATE_HANDLERS} from '@/services/projectDuplicate/bridge';
+import {WRITING_TOOL_DOCK_HANDLERS} from '@/engines/writings/toolDock/bridge';
+import {readLibraryCreationContext} from '@/components/project/workspace/library/createCodex';
+import { WORLD_GRAPH_QUERY_HANDLERS } from '@/engines/codex/worldGraph/bridge';
+import { VISUAL_SEARCH_HANDLERS } from '@/services/visualSearch/bridge';
+import { WIKI_PROFILE_HANDLERS } from '@/services/wikiProfiles/bridge';
+import { ENTITY_DETECTION_HANDLERS } from '@/services/entityDetection/bridge';
+import { PARALLEL_DRAFT_HANDLERS } from '@/engines/writings/parallelDraftBridge';
+import { CODEX_OPTION_LIST_HANDLERS } from '@/engines/codex/optionListBridge';
 // ============================================================================
 // AI bridge — name → handler table
 // ============================================================================
@@ -14,12 +27,35 @@ import { PUBLISHING_HANDLERS } from './publishing';
 import { REVISION_HANDLERS } from './revisions';
 import { EDITORIAL_HANDLERS } from './editorialDocument';
 import { PROOFING_HANDLERS } from './proofing';
+import { MODEL_HANDLERS } from '@/engines/model-viewer/bridge';
+import { RADAR_HANDLERS } from '@/engines/radar/bridge';
+import { SHEET_HANDLERS } from '@/engines/character-sheets/bridge';
+import { whAppendConversationTurn } from './dialog';
+import { whStylePlace } from './worldgenStyle';
+import { WORLD_ERA_HANDLERS } from '@/services/worldEras/bridge';
+import { READER_HANDLERS } from './reader';
+import { VOICE_MEMO_HANDLERS } from '@/engines/media/voiceBridge';
+import { BOARD_CANVAS_HANDLERS } from '@/engines/board/canvasBridge';
+import { WORKSPACE_APPEARANCE_HANDLERS } from '@/services/workspaceAppearance/bridge';
+import { LOCAL_TOOL_HANDLERS } from '@/engines/local/bridge';
+import { RELATION_TREE_HANDLERS } from '@/engines/genealogy/treeBridge';
+import { DOCUMENT_HISTORY_HANDLERS } from '@/services/documentHistory/bridge';
+import { MODEL_READER_WIKI_HANDLERS } from './modelReaderWiki';
+import { TIMELINE_BATCH_HANDLERS } from '@/engines/timeline/batchBridge';
+import { ANNOTATION_THREAD_HANDLERS } from '@/engines/annotations/bridge';
+import { DOCUMENT_IMAGE_HANDLERS } from '@/services/documentImage/bridge';
+import { TABLE_HANDLERS } from '@/engines/tables/bridge';
+import { PUBLISHED_EDITION_HANDLERS } from '@/services/publishedEditions/bridge';
+import { DICTIONARY_HANDLERS } from '@/engines/dictionary/bridge';
 import { whGetWritingHeadings } from './navigation';
 import { db } from '@/db';
 import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import { createGenealogyBridgeHandlers } from './genealogy';
 import { createCodexFolderImporter } from '@/engines/genealogy/codexFolderImport';
 import { createCodexFolderImportHandlers } from './codexFolderImport';
+import { getEraProject, hideEraDocument, listEraRows, readEraRow, readWorldDocument, saveEraDocument } from '@/services/worldEras/store';
+import { effectiveCodexTemplate } from '@/engines/codex/templateHierarchy';
+import type { CodexEntry } from '@/types';
 import { htmlFromMarkdown, resolveProjectForEngine, resolveProjectId } from './shared';
 import { whBuildWorldBible, whExportWorldBible } from './worldBible';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
@@ -35,6 +71,7 @@ import {
   whUpdateWriting,
 } from './writings';
 import {
+  whCodexTemplates, whSaveCodexTemplate, whDeleteCodexTemplate, whPreviewCodexSync, whApplyCodexSync,
   whCreateCodexEntry,
   whGetCodexEntry,
   whListCodex,
@@ -117,6 +154,7 @@ import {
   whAddWaypoint,
   whFindPlace,
   whGetWorld,
+  whRenderWorldMap,
   whLinkPlace,
   whListPlaceLinks,
   whListPlaces,
@@ -228,15 +266,56 @@ for (const name of ['wh_genealogy_apply', 'wh_genealogy_undo'] as const) {
   };
 }
 
-const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImporter({
-  list: projectId => db.codexEntries.where('projectId').equals(projectId).toArray(),
-  get: id => db.codexEntries.get(id),
-  addAll: rows => db.codexEntries.bulkAdd(rows),
-  deleteAll: ids => db.codexEntries.bulkDelete(ids),
-  atomic: run => db.transaction('rw', db.codexEntries, run),
-}, htmlFromMarkdown), async (args, writes) => writes ? resolveProjectForEngine(args, 'codex') : resolveProjectId(args));
+const codexFolderImporters = new Map<string, ReturnType<typeof createCodexFolderImporter>>();
+const codexFolderHandlers = createCodexFolderImportHandlers(args => {
+  const scope = { projectId: resolveProjectId(args), eraId: typeof args.eraId === 'string' ? args.eraId : undefined }, key = JSON.stringify([scope.projectId, scope.eraId]);
+  let importer = codexFolderImporters.get(key);
+  if (!importer) {
+    importer = createCodexFolderImporter({
+      templates: async () => { const templates = (await getEraProject(scope)).codexTemplates ?? []; return templates.map(template => effectiveCodexTemplate(template, templates)); },
+      list: projectId => scope.eraId ? listEraRows<CodexEntry>(scope, 'codexEntries') : db.codexEntries.where('projectId').equals(projectId).toArray(),
+      get: id => scope.eraId ? readEraRow<CodexEntry>(scope, 'codexEntries', id) : db.codexEntries.get(id),
+      addAll: async rows => { if (!scope.eraId) return db.codexEntries.bulkAdd(rows); for (const row of rows) await saveEraDocument(scope, 'codex', { root: { ...row }, children: {} }, null); },
+      deleteAll: async ids => { if (!scope.eraId) return db.codexEntries.bulkDelete(ids); for (const id of ids) { const current = await readWorldDocument(scope, 'codex', id); if (current) await hideEraDocument(scope, 'codex', id, current.version); } },
+      atomic: run => db.transaction('rw', db.tables, run),
+    }, htmlFromMarkdown);
+    codexFolderImporters.set(key, importer);
+  }
+  return importer;
+}, async (args, writes) => writes ? resolveProjectForEngine(args, 'codex') : resolveProjectId(args));
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  wh_append_conversation_turn: whAppendConversationTurn,
+  ...MODEL_HANDLERS,
+  ...RADAR_HANDLERS,
+  ...SHEET_HANDLERS,
+  ...WORLD_ERA_HANDLERS,
+  ...READER_HANDLERS,
+  ...VOICE_MEMO_HANDLERS,
+  ...BOARD_CANVAS_HANDLERS,
+  ...WORKSPACE_APPEARANCE_HANDLERS,
+  ...LOCAL_TOOL_HANDLERS,
+  ...RELATION_TREE_HANDLERS,
+  ...DOCUMENT_HISTORY_HANDLERS,
+  ...MODEL_READER_WIKI_HANDLERS,
+  ...TIMELINE_BATCH_HANDLERS,
+  ...ANNOTATION_THREAD_HANDLERS,
+  ...DOCUMENT_IMAGE_HANDLERS,
+  ...TABLE_HANDLERS,
+  ...PUBLISHED_EDITION_HANDLERS,
+  ...DICTIONARY_HANDLERS,
+  ...CODEX_OPTION_LIST_HANDLERS,
+  ...VISUAL_SEARCH_HANDLERS,
+  ...WIKI_PROFILE_HANDLERS,
+  ...MANUSCRIPT_REVIEW_HANDLERS,
+  ...PROJECT_GENRE_HANDLERS,
+  ...WORLD_FOLDER_IMPORT_HANDLERS,
+  ...PROJECT_PIN_HANDLERS,
+  ...PROJECT_DUPLICATE_HANDLERS,
+  ...WRITING_TOOL_DOCK_HANDLERS,
+  ...WORLD_GRAPH_QUERY_HANDLERS,
+  ...ENTITY_DETECTION_HANDLERS,
+  ...PARALLEL_DRAFT_HANDLERS,
   ...FICTION_HANDLERS,
   ...PUBLISHING_HANDLERS,
   ...DOCUMENT_HANDLERS,
@@ -252,6 +331,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_get_editorial_context: whGetEditorialContext,
   // Orientation
   wh_get_context: whGetContext,
+  wh_workspace_library_get: args=>readLibraryCreationContext({projectId:resolveProjectId(args),eraId:typeof args.eraId==='string'?args.eraId:undefined}),
   wh_list_projects: whListProjects,
   wh_enable_engine: whEnableEngine,
   wh_search: whSearch,
@@ -273,6 +353,11 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   // Codex
   wh_list_codex: whListCodex,
   wh_get_codex_entry: whGetCodexEntry,
+  wh_codex_templates: whCodexTemplates,
+  wh_save_codex_template: whSaveCodexTemplate,
+  wh_delete_codex_template: whDeleteCodexTemplate,
+  wh_preview_codex_sync: whPreviewCodexSync,
+  wh_apply_codex_sync: whApplyCodexSync,
   wh_create_codex_entry: whCreateCodexEntry,
   wh_update_codex_entry: whUpdateCodexEntry,
   // Diary
@@ -362,6 +447,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   // World generator
   wh_list_worlds: whListWorlds,
   wh_get_world: whGetWorld,
+  wh_render_world_map: whRenderWorldMap,
+  wh_style_place: whStylePlace,
   wh_list_places: whListPlaces,
   wh_find_place: whFindPlace,
   wh_place_at: whPlaceAt,

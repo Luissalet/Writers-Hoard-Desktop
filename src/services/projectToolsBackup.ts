@@ -1,3 +1,4 @@
+import './worldEras/backup';
 import {
   makeSimpleBackupStrategy,
   registerBackupStrategy,

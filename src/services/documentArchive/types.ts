@@ -1,4 +1,4 @@
-export type ArchivedDocumentKind = 'codex' | 'maps' | 'board' | 'timeline' | 'writings' | 'dictionary' | 'tables' | 'relation-tree' | 'model-viewer' | 'character-sheets' | 'radar';
+export type ArchivedDocumentKind = 'local-tool' | 'codex' | 'maps' | 'board' | 'timeline' | 'writings' | 'dictionary' | 'tables' | 'relation-tree' | 'model-viewer' | 'character-sheets' | 'radar';
 export interface ArchiveMutation {
   table: string;
   key: string;

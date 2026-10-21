@@ -1,0 +1,11 @@
+# Editorial typography
+
+The existing Advanced formatting toolbar supports inline small caps, paragraph drop caps, a first-line indent in em, and five scene separators: line, asterism, dots, diamond and space. The older indent buttons still offset the whole paragraph. Applying a drop cap suppresses the visual first-line indent on that paragraph. Splitting it with Enter leaves the drop cap on the opening paragraph.
+
+These are ordinary Tiptap marks/paragraph attributes/horizontal rules. HTML and JSON retain them; named editorial styles can include the same fields. Normal Undo, snapshots, recovery and Base/era saves remain the storage path. `wh_format_writing` accepts `smallCaps`, `dropCap` and `firstLineIndent`; `wh_edit_writing_document` accepts `operation:"insertSceneBreak"` with `ornament:"line"|"asterism"|"dots"|"diamond"|"space"` (default asterism). Inspect `wh_get_writing_document` for ProseMirror ranges and current `updatedAt`; pass `projectId`, optional `eraId` and `expectedUpdatedAt` when editing.
+
+Editor, Reader, wiki and printable HTML share semantic styling. EPUB includes that styling and semantic XHTML. DOCX emits native `smallCaps`, first-line indentation and a three-line drop-cap frame on ordinary paragraphs; separators are typographic text. DOCX first-line em uses the adapter's12pt body scale (240twips per em). Drop caps on headings/pre blocks do not become Word frames. Existing image omission in portable DOCX/EPUB remains in effect. Markdown is a text fallback.
+
+Chromium can enlarge only the leading quote when an opening quote and initial are separated by an inline mark boundary. Keeping the opening quote and initial in the same inline span renders both as a drop cap; Word's native frame handles the Unicode initial separately. EPUB rendering also depends on its reader and fonts. Exported OOXML/XHTML and actual Chromium PDF/raster are tested; Word desktop and physical EPUB devices were not visually tested.
+
+Verification: `tests/editorial-style.runner.cjs` runs isolated real MCP stdio→HTTP→executor→IPC→renderer/IndexedDB and emits HTML/DOCX/EPUB/PDF; `tests/editorial-style-pdf.mjs <artifact-directory>` inspects/rasterizes its actual PDF. `testEditorialStyleLayout` in `tests/editorial-style.browser.tsx` exercises the incumbent editor at1440/640. These use synthetic data and private profiles.

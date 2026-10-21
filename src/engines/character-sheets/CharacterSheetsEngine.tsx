@@ -1,28 +1,32 @@
+import { bindEraOperation, useWorldEraScope, useEraProject, useEraRows } from '@/services/worldEras/hooks';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { saveAs } from 'file-saver';
 import { Dice5, Download, Plus, Save, Trash2, Upload } from 'lucide-react';
-import { db } from '@/db';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useTranslation } from '@/i18n/useTranslation';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import { useDeepLinkParam } from '@/engines/_shared';
 import { createSheet, exportSheet, parseSheetImport, presets, sourceLinks, type CharacterSheet, type SheetPreset } from './types';
-import { deleteSheet, saveSheet, SheetConflict } from './operations';
+import { deleteSheet as deleteSheetScoped, saveSheet as saveSheetScoped, SheetConflict } from './operations';
 import { sheetDraftStore, type SheetDraft } from './drafts';
 import { sheetCopy } from './copy';
 import { button, gold, input } from './uiStyles';
 import { Field } from './ui';
 import SheetEditor from './SheetEditor';
+import { reconcileCocSheet, resolveCocSheet } from './cocRules';
+import {FIVE_E_SOURCE,reconcileFiveESheet} from './fiveE';
 
 export default function CharacterSheetsEngine({ projectId }: EngineComponentProps) {
   return <Workspace key={projectId} projectId={projectId} />;
 }
 function Workspace({ projectId }: EngineComponentProps) {
   const { locale } = useTranslation(); const c = sheetCopy[locale];
-  const project = useLiveQuery(() => db.projects.get(projectId), [projectId]);
-  const entries = useLiveQuery(() => db.codexEntries.where('projectId').equals(projectId).toArray(), [projectId]) ?? [];
-  const [journal] = useState(() => sheetDraftStore(projectId));
+  const scope = useWorldEraScope(projectId);
+  const saveSheet = bindEraOperation(saveSheetScoped, scope.eraId, 3);
+  const deleteSheet = bindEraOperation(deleteSheetScoped, scope.eraId, 3);
+  const project = useEraProject(projectId);
+  const entries = useEraRows<import('@/types').CodexEntry>('codexEntries', projectId);
+  const [journal] = useState(() => sheetDraftStore(projectId, scope.eraId));
   const [, rerender] = useState(0);
   const drafts = Object.fromEntries(journal);
   const setDrafts = (change: (current: Record<string, SheetDraft>) => Record<string, SheetDraft>) => {
@@ -38,11 +42,12 @@ function Workspace({ projectId }: EngineComponentProps) {
   const deepLink = useDeepLinkParam('entity'); const [seenLink, setSeenLink] = useState('');
   const sheets = useMemo(() => project?.characterSheets ?? [], [project?.characterSheets]);
   const id = selected || sheets[0]?.id || Object.keys(drafts)[0] || '';
-  const active = drafts[id]; const sheet = active?.sheet ?? sheets.find(item => item.id === id);
+  const active = drafts[id]; const rawSheet = active?.sheet ?? sheets.find(item => item.id === id);
+  const sheet = useMemo(() => rawSheet ? resolveCocSheet(rawSheet) : undefined, [rawSheet]);
   useEffect(() => { if (deepLink && deepLink !== seenLink && sheets.some(item => item.id === deepLink)) { setSelected(deepLink); setSeenLink(deepLink); setConflict(false); } }, [deepLink, seenLink, sheets]);
   const update = (change: (sheet: CharacterSheet) => CharacterSheet) => {
     if (!sheet || busy) return;
-    setDrafts(current => ({ ...current, [sheet.id]: { sheet: change(structuredClone(current[sheet.id]?.sheet ?? sheet)), base: current[sheet.id] ? current[sheet.id].base : sheet.revision || null } })); setStatus('');
+    setDrafts(current => { const before=resolveCocSheet(current[sheet.id]?.sheet ?? sheet);return { ...current, [sheet.id]: { sheet: reconcileFiveESheet(reconcileCocSheet(change(structuredClone(before)),before),before), base: current[sheet.id] ? current[sheet.id].base : sheet.revision || null } }; }); setStatus('');
   };
   const perform = async (action: () => Promise<void>) => {
     if (pending.current) return; pending.current = true; setBusy(true); setError('');
@@ -75,7 +80,7 @@ function Workspace({ projectId }: EngineComponentProps) {
     <div className="flex min-h-0 flex-1 flex-col overflow-auto md:flex-row"><nav className="shrink-0 border-b border-border p-3 md:w-60 md:overflow-y-auto md:border-r md:border-b-0" aria-label={c.title}>
       <div className="md:hidden"><Field label={locale === 'es' ? 'Ficha activa' : 'Current sheet'}><select className={input} aria-label={locale === 'es' ? 'Ficha activa' : 'Current sheet'} value={id} disabled={busy} onChange={event => { setSelected(event.target.value); setConflict(false); setError(''); setStatus(''); }}>{!documents.length && <option value="">{c.none}</option>}{documents.map(item => <option key={item.id} value={item.id}>{drafts[item.id]?.sheet.title || item.title || c.new}{drafts[item.id] ? ' *' : ''}</option>)}</select></Field></div>
       <div className="hidden md:block"><input className={input} aria-label={locale === 'es' ? 'Buscar ficha' : 'Find sheet'} placeholder={locale === 'es' ? 'Buscar ficha…' : 'Find sheet…'} value={query} onChange={event => setQuery(event.target.value)} />
-      {visible.map(item => <button key={item.id} className={`mt-2 w-full rounded-lg p-3 text-left focus-visible:outline-2 focus-visible:outline-accent-gold ${id === item.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} disabled={busy} aria-current={id === item.id ? 'page' : undefined} onClick={() => { setSelected(item.id); setConflict(false); setError(''); setStatus(''); }}><span className="block break-words text-sm">{drafts[item.id]?.sheet.title || item.title || c.new}{drafts[item.id] ? ' *' : ''}</span><span className="mt-1 block text-xs text-text-muted">{c.categories[presets.indexOf(item.preset)]}</span></button>)}
+      {visible.map(item => <button key={item.id} className={`mt-2 w-full rounded-lg p-3 text-left focus-visible:outline-2 focus-visible:outline-accent-gold ${id === item.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} disabled={busy} aria-current={id === item.id ? 'page' : undefined} onClick={() => { setSelected(item.id); setConflict(false); setError(''); setStatus(''); }}><span className="block break-words text-sm">{drafts[item.id]?.sheet.title || item.title || c.new}{drafts[item.id] ? ' *' : ''}</span><span className="mt-1 block text-xs text-text-muted">{(drafts[item.id]?.sheet??item).fiveE?FIVE_E_SOURCE.title:c.categories[presets.indexOf(item.preset)]}</span></button>)}
     </div></nav><main className="min-w-0 flex-1 space-y-5 p-5 md:overflow-y-auto">{!sheet ? <p className="py-12 text-center text-text-muted">{c.empty}</p> : <>
       <div className="flex flex-wrap items-end gap-3"><div className="min-w-48 flex-1"><Field label={c.name}><input className={`${input} font-display text-lg`} maxLength={300} aria-label={c.name} value={sheet.title} onChange={event => update(current => ({ ...current, title: event.target.value }))} /></Field></div>
         <button className={gold} disabled={busy || !sheet.title.trim() || !active} onClick={() => save()}><Save size={16} />{c.save}</button>
@@ -87,7 +92,7 @@ function Workspace({ projectId }: EngineComponentProps) {
       {status && <p role="status" className="text-sm text-text-muted">{status}</p>}
       <Field label={c.codex}><select className={input} aria-label={c.codex} value={sheet.linkedEntryId ?? ''} onChange={event => update(current => ({ ...current, linkedEntryId: event.target.value || undefined }))}><option value="">{c.none}</option>{sheet.linkedEntryId && !entries.some(entry => entry.id === sheet.linkedEntryId) && <option value={sheet.linkedEntryId}>{locale === 'es' ? 'Entrada no disponible' : 'Entry unavailable'}</option>}{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></Field>
       <fieldset disabled={busy}><SheetEditor key={sheet.id} sheet={sheet} sheets={sheets} locale={locale} update={update} confirm={confirm} report={setError} status={setStatus} /></fieldset>
-      <footer className="border-t border-border pt-4"><p className="max-w-prose text-sm text-text-muted">{c.manual}</p>{sourceLinks[sheet.preset] && <p className="mt-3 flex flex-wrap gap-3 text-xs text-text-muted">{c.sources}: {sourceLinks[sheet.preset]!.map(source => <a key={source.url} className="text-accent-gold underline underline-offset-4" href={source.url} target="_blank" rel="noreferrer noopener">{source.title}</a>)}</p>}</footer>
+      <footer className="border-t border-border pt-4"><p className="max-w-prose text-sm text-text-muted">{sheet.preset==='coc7'?(locale==='es'?'Los máximos automáticos siguen las características; los ajustes manuales se conservan. Las acciones de Partida aplican heridas y cordura al borrador. Guarda para conservar los resultados.':'Automatic maxima follow characteristics; manual overrides persist. Play actions apply wounds and sanity to the draft. Save to keep the results.'):c.manual}</p>{sourceLinks[sheet.preset] && <p className="mt-3 flex flex-wrap gap-3 text-xs text-text-muted">{c.sources}: {(sheet.fiveE?[{title:FIVE_E_SOURCE.title,url:FIVE_E_SOURCE.url}]:sourceLinks[sheet.preset]!).map(source => <a key={source.url} className="text-accent-gold underline underline-offset-4" href={source.url} target="_blank" rel="noreferrer noopener">{source.title}</a>)}</p>}</footer>
     </>}</main></div>
     <ConfirmDialog open={!!confirmation} message={confirmation?.message ?? ''} destructive onCancel={() => setConfirmation(null)} onConfirm={async () => { const action = confirmation?.action; setConfirmation(null); await action?.(); }} />
   </section>;

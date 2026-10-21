@@ -1,3 +1,6 @@
+import {useWorldEraScope} from '@/services/worldEras/hooks';
+import {annotationEntity} from '../scope';
+import {workspaceRoute,workspaceRouteKey,routeInEra} from '@/components/project/workspace/routes';
 // ============================================
 // ReferenceChip — the "square" embedded in a reference note
 // ============================================
@@ -9,7 +12,7 @@
 // "(missing)" if the target was deleted — lets the user see the dangling
 // link rather than silently disappearing.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
@@ -18,16 +21,19 @@ import { useTranslation } from '@/i18n/useTranslation';
 export interface ReferenceChipProps {
   targetEngineId: string;
   targetEntityId: string;
+  projectId?:string;eraId?:string;
 }
 
 export default function ReferenceChip({
   targetEngineId,
-  targetEntityId,
+  targetEntityId,projectId,eraId,
 }: ReferenceChipProps) {
   const { t } = useTranslation();
-  const navigate = usePaneNavigate();
+  const navigate = usePaneNavigate(),pane=useWorldEraScope(projectId),scope=useMemo(()=>({...pane,eraId:eraId??pane.eraId}),[pane,eraId]);
+  const scopedNavigate=(path:string)=>navigate(workspaceRouteKey(routeInEra(workspaceRoute(path),scope.eraId)));
   const adapter = getAnchorAdapter(targetEngineId);
   const [title, setTitle] = useState<string | null>(null);
+  const [route,setRoute]=useState<string>();
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -38,16 +44,18 @@ export default function ReferenceChip({
         setLoading(false);
         return;
       }
-      const t = await adapter.getEntityTitle(targetEntityId);
+      const entity=scope.projectId?await annotationEntity(scope,targetEngineId,targetEntityId):undefined;
+      const t = scope.projectId?entity?.title??null:await adapter.getEntityTitle(targetEntityId);
       if (!cancelled) {
         setTitle(t);
+        setRoute(entity?.route);
         setLoading(false);
       }
-    })();
+    })().catch(()=>{if(!cancelled){setTitle(null);setLoading(false);}});
     return () => {
       cancelled = true;
     };
-  }, [adapter, targetEntityId]);
+  }, [adapter, targetEntityId,targetEngineId,scope]);
 
   if (!adapter) {
     return (
@@ -61,9 +69,9 @@ export default function ReferenceChip({
 
   return (
     <button
-      onClick={() => adapter.navigateToEntity(targetEntityId, undefined, navigate)}
-      disabled={loading}
-      className="w-full flex items-center gap-2 rounded-md border border-accent-gold/40 bg-accent-gold/5 hover:bg-accent-gold/10 transition px-2.5 py-1.5 text-left group"
+      onClick={() => route?scopedNavigate(route):adapter.navigateToEntity(targetEntityId, scope.projectId||undefined, scopedNavigate)}
+      disabled={loading||!title}
+      className="flex min-h-9 w-full items-center gap-2 rounded-md border border-accent-gold/40 bg-accent-gold/5 hover:bg-accent-gold/10 transition px-2.5 py-1.5 text-left group"
     >
       <span className="text-[10px] uppercase tracking-wide text-accent-gold flex-shrink-0">
         {engineLabel}

@@ -1,14 +1,17 @@
+import { useEraEntities } from '@/services/worldEras/hooks';
 import { useCallback, useEffect, useState } from 'react';
-import { makeEntityHook, onDataChanged } from '@/engines/_shared';
+import { onDataChanged } from '@/engines/_shared';
 import * as ops from './operations';
 import type { Note } from './types';
 
-const useNotesBase = makeEntityHook<Note>({
+const useNotesBaseOptions = {
   fetchFn: ops.getNotes,
   createFn: ops.createNote,
   updateFn: ops.updateNote,
   deleteFn: ops.deleteNote,
-});
+};
+const compareNotes = (a: Note, b: Note) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt;
+function useNotesBase(scopeId: string) { return useEraEntities<Note>(scopeId, 'notes', 'projectId', useNotesBaseOptions, undefined, compareNotes); }
 
 /**
  * Notes board for a scope, kept live against out-of-band captures.

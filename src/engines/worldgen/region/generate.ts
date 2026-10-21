@@ -201,7 +201,7 @@ export function generateRegion(
     biome: natural.biome,
     cover: farmed.cover,
     streams,
-    places: hab.places,
+    places: hab.places.map(place => ({ ...place, style: world.painted?.styles?.[place.sourceKey] })),
     tracks,
     fields,
     hedges,

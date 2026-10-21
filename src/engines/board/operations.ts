@@ -1,3 +1,4 @@
+import {mergeBoardRows,type BoardBaseline} from './graph/merge';
 import { archiveWithMutation } from '@/services/documentArchive/store';
 // ============================================
 // Board Engine — Database Operations
@@ -171,8 +172,9 @@ export interface BoardBatch {
  * saved without the edges that gave them meaning — and the queue had already
  * been emptied, so nothing would ever go back for the rest.
  */
-export async function commitBoardBatch(batch: BoardBatch): Promise<void> {
+export async function commitBoardBatch(batch: BoardBatch,baseline?:BoardBaseline): Promise<void> {
   await db.transaction('rw', [db.boardNodes, db.boardEdges], async () => {
+    if(baseline){const nodes=(await db.boardNodes.bulkGet([...new Set([...batch.nodePuts.map(row=>row.id),...batch.nodeDeletes])])).filter((row):row is BoardNode=>!!row),edges=(await db.boardEdges.bulkGet([...new Set([...batch.edgePuts.map(row=>row.id),...batch.edgeDeletes])])).filter((row):row is BoardEdge=>!!row);const mergedNodes=mergeBoardRows(nodes,batch.nodePuts,batch.nodeDeletes,baseline.nodes),mergedEdges=mergeBoardRows(edges,batch.edgePuts,batch.edgeDeletes,baseline.edges);batch={...batch,nodePuts:mergedNodes.filter(row=>batch.nodePuts.some(item=>item.id===row.id)),edgePuts:mergedEdges.filter(row=>batch.edgePuts.some(item=>item.id===row.id))};}
     // Deletes first: an edge row that references a node being removed must
     // not be re-inserted by a put queued earlier in the same batch.
     if (batch.edgeDeletes.length > 0) await db.boardEdges.bulkDelete(batch.edgeDeletes);

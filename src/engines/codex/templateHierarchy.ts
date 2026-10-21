@@ -1,6 +1,6 @@
 import type { CodexTemplate, ReferenceFieldDefinition } from './templates';
 import { foldAlias } from '@/services/codexReference/aliases';
-import { validateTemplatePresentation } from './templateTypes';
+import { validateTemplatePresentation, type CodexPropertyDefinition } from './templateTypes';
 
 /** Includes self. Malformed imported cycles/missing parents terminate safely. */
 export function templateLineage(template: CodexTemplate, templates: readonly CodexTemplate[]): CodexTemplate[] {
@@ -40,14 +40,15 @@ export function selectableCodexTemplates(templates:readonly CodexTemplate[],sele
 }
 /** One field identity per folded key; a child may override defaults or field kind. */
 export function effectiveCodexTemplate(template: CodexTemplate, templates: readonly CodexTemplate[]): CodexTemplate {
-  const fields = new Map<string, [string, string]>(), references = new Map<string, ReferenceFieldDefinition>(); let content = '';
+  const fields = new Map<string, [string, string]>(), references = new Map<string, ReferenceFieldDefinition>(), properties = new Map<string, CodexPropertyDefinition>(); let content = '';
   for (const item of templateLineage(template, templates)) {
     if (item.category !== template.category) continue;
     for (const [key, value] of Object.entries(item.fields)) { const canonical = foldAlias(key); references.delete(canonical); fields.set(canonical, [key, value]); }
-    for (const definition of item.referenceFieldDefinitions ?? []) { const canonical = foldAlias(definition.key); fields.delete(canonical); references.set(canonical, { ...definition }); }
+    for (const definition of item.propertyDefinitions ?? []) { const canonical = foldAlias(definition.key); references.delete(canonical); properties.set(canonical, { ...definition }); }
+    for (const definition of item.referenceFieldDefinitions ?? []) { const canonical = foldAlias(definition.key); fields.delete(canonical); properties.delete(canonical); references.set(canonical, { ...definition }); }
     if (item.contentMode === 'replace' || item.contentMode !== 'inherit' && item.content.trim()) content = item.content;
   }
-  return { ...template, ...effectiveTemplatePresentation(template,templates),fields: Object.fromEntries(fields.values()), referenceFieldDefinitions: [...references.values()], content };
+  return { ...template, ...effectiveTemplatePresentation(template,templates),fields: Object.fromEntries(fields.values()), propertyDefinitions: [...properties.values()], referenceFieldDefinitions: [...references.values()], content };
 }
 export function validateTemplateHierarchy(draft: CodexTemplate, templates: readonly CodexTemplate[]): void {
   validateTemplatePresentation(draft);

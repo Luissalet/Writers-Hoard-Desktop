@@ -4,6 +4,9 @@
 // ============================================
 
 import type { EntityPreview } from '@/engines/_types';
+import { eraDocumentKinds, type EraDocumentKind } from '@/services/worldEras/types';
+import { foldSearchText } from '@/services/searchQuery';
+import { readAliases } from '@/services/codexReference/aliases';
 
 /**
  * Configuration for how an engine resolves and searches its entities.
@@ -97,14 +100,26 @@ export async function searchEntities(
   query: string,
   engineIds?: string[],
   projectId?: string,
+  eraId?: string,
 ): Promise<EntityPreview[]> {
   if (!query.trim()) return [];
+  if (eraId && !projectId) throw new Error('world_era_project_required');
   const engines = engineIds ?? [...resolverRegistry.keys()];
   const results = await Promise.all(
     engines
       .map(eid => resolverRegistry.get(eid))
       .filter(Boolean)
-      .map(config => config!.searchEntities(query, projectId))
+      .map(async config => {
+        if (!eraId || !projectId || !(eraDocumentKinds as readonly string[]).includes(config!.engineId)) return config!.searchEntities(query, projectId);
+        const { listWorldDocuments } = await import('@/services/worldEras/store');
+        const documents = await listWorldDocuments({ projectId, eraId }, config!.engineId as EraDocumentKind);
+        const needle = foldSearchText(query);
+        return documents.flatMap(({ document: { root } }): EntityPreview[] => {
+          const title = String(root.title ?? root.name ?? root.text ?? root.id), aliases = root.fields && typeof root.fields === 'object' ? readAliases(root.fields as Record<string, string>) : [];
+          if (![title, ...aliases].some(value => foldSearchText(value).includes(needle))) return [];
+          return [{ id: root.id, projectId, engineId: config!.engineId, type: String(root.type ?? config!.entityTypes[0] ?? config!.engineId), title, subtitle: String(root.status ?? root.description ?? ''), searchTerms: aliases, thumbnail: typeof root.avatar === 'string' ? root.avatar : undefined }];
+        });
+      })
   );
   const flattened = results.flat();
   return projectId

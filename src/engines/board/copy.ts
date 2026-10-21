@@ -7,6 +7,7 @@ const es = {
   emptyHint: 'Doble clic en el lienzo para crear · Mayús + arrastrar para seleccionar',
   branchFrom: 'Conectada con', close: 'Cerrar panel', saveRetry: 'Reintentar guardado',
   loading: 'Abriendo tus ideas…', group: 'Agrupar', search: 'Buscar ideas y conexiones',
+  pile:'Grupo',collapsePile:'Colapsar en un grupo',openPile:'Abrir este grupo',items:'elementos',
   surface: 'Superficie', cork: 'Corcho', slate: 'Pizarra', grid: 'Papel', blueprint: 'Plano',
 };
 export type BoardCopy = typeof es;
@@ -18,6 +19,7 @@ const en: BoardCopy = {
   emptyHint: 'Double-click the canvas to create · Shift + drag to select',
   branchFrom: 'Connected to', close: 'Close panel', saveRetry: 'Retry saving',
   loading: 'Opening your ideas…', group: 'Group', search: 'Search ideas and connections',
+  pile:'Pile',collapsePile:'Collapse into a pile',openPile:'Open this pile',items:'items',
   surface: 'Surface', cork: 'Cork', slate: 'Slate', grid: 'Paper', blueprint: 'Blueprint',
 };
 export function getBoardCopy(locale: string): BoardCopy { return locale === 'es' ? es : en; }

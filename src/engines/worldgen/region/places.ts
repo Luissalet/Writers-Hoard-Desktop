@@ -307,7 +307,7 @@ export function buildHabitation(
       worldId: s.id,
       households: Math.round(s.population / 4.5),
       culture: s.culture,
-    }, g, WW, worldSettlementSourceKey(s.x, s.y)));
+    }, g, WW, s.sourceKey ?? worldSettlementSourceKey(s.x, s.y)));
   }
   for (const r of geo.ruins) {
     const p = toSheet(r.x, r.y);

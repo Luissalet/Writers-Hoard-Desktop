@@ -25,6 +25,8 @@ import { compatibleEditKeys, editKey, realmEditKey, zoneAllowsWorld } from './ed
 export type SettlementRank = 'capital' | 'city' | 'town' | 'village';
 
 export interface Settlement {
+  /** Stable generated identity, retained after moving the visual anchor. */
+  sourceKey?: string;
   id: number;
   /** Cell coordinates. */
   x: number;
@@ -61,6 +63,7 @@ export interface Road {
 }
 
 export interface Realm {
+  style?: import('./spatialEntities').WorldSpatialStyle;
   id: number;
   name: string;
   capital: number;
@@ -71,6 +74,7 @@ export interface Realm {
 }
 
 export interface NamedFeature {
+  sourceKey?: string;
   kind: FeatureKind;
   name: string;
   /** Label anchor in cell coordinates — the pole of inaccessibility. */
@@ -722,6 +726,10 @@ export function buildHumanGeography(
   // the same seed always puts the same city in the same place, but nothing
   // guarantees it keeps the same array slot once a parameter moves, and a rename
   // that survives only until a slider is touched is not a rename.
+  for (const s of settlements) s.sourceKey ??= editKey('settlement', s.x, s.y);
+  for (const r of ruins) r.sourceKey ??= editKey('ruin', r.x, r.y);
+  for (const f of features) f.sourceKey ??= editKey('feature', f.x, f.y, `${f.kind}:`);
+  for (const r of realms) r.style = world.painted?.styles?.[realmEditKey(r.id)];
   const painted2 = corrections ? world.painted : undefined;
   const pops = world.painted?.populations ?? {};
   const mvs = painted2?.moves ?? {};

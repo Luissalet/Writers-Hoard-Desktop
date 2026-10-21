@@ -98,3 +98,40 @@ Fallos conocidos, cosas sin verificar y deuda aceptada a propósito.
   error de tipos de `BoardCanvas.tsx` ya no existe (typecheck limpio).
 - Las opciones del Estudio (pose, referencias, máscara, hires, sampler…) se
   caían en la frontera IPC (`asImageRequest`); ahora llegan al servidor.
+
+---
+
+## Autoría local de mundos — estado 2026-10-21
+
+No hay una decisión o respuesta pendiente de Luis en este alcance. Este cierre
+no reclasifica los asuntos anteriores del archivo.
+
+Las comprobaciones compuestas del código del 21 de octubre pasan: 210 grupos
+en 44 suites con 0 fallos, 383 críticos, builds del renderizador/Electron, lint
+de entrega sin deuda y conformance (34 motores, 64 tablas, 5650 claves y 22
+archivos de idioma). La entrada de producción ocupa 1589.09 kB, por debajo del
+límite bloqueante de 1600 kB; siguen los avisos de tamaño lazy/total. El audit
+de dependencias de producción registra 0 vulnerabilidades. Pasan 14 pruebas del
+servicio nativo de documentos, sin omitidas, el empaquetado en directorio, el
+smoke empaquetado y las comprobaciones CPU de dependencias. D3, W01, el perfil
+5e acotado, las correcciones M1/M2/M3 de mapas, Archive y herramientas antiguas
+tienen dictámenes SHIP independientes dentro de sus contratos revisados.
+
+No es un resultado global de `verify:release`. El audit completo de desarrollo
+conserva 13 hallazgos heredados y sigue el aviso de empaquetado de
+`resources/bin` opcional. QA, manual y documentación están completos; queda
+pendiente la integración Git.
+No se certifican instalación, perfil real del usuario ni paridad total.
+
+El seguimiento de la integración Git sigue en la tarea de coordinación y en
+[OBJETIVOS](OBJETIVOS.md); es el paso pendiente de este cierre, no una decisión
+trasladada a Luis ni una integración ya realizada.
+
+Los límites de formatos JSON antiguos, publicación del dock, preparación de
+modelos y herramientas locales se conservan en
+[WORLD_AUTHORING](docs/WORLD_AUTHORING.md). Ninguno se amplía por extensión del
+dictamen de otro flujo.
+
+Pruebas del cierre: [verificación final](tasks/worldcraft1041-final-verification.md)
+y `tasks/evidence/worldcraft1041-manual-verification.json` (revisión requerida y
+lectura exacta del manual actualizado).

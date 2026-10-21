@@ -1,3 +1,7 @@
+import { readEraRow, mutateEraRows, listEraRows } from '@/services/worldEras/store';
+import { dialogSceneOperations } from '@/engines/dialog-scene/scopedOperations';
+import type { Scene } from '@/engines/dialog-scene/types';
+import { worldgenScopeOperations, listWorldLinks, saveWorldLink } from './era';
 import { db } from '@/db';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { journeyRecipeKey } from './journeyTypes';
@@ -13,9 +17,33 @@ export interface JourneyCreativeDraft {
 }
 
 /** One authored decision, its source and engine activation commit together. */
-export async function saveJourneyCreativeDraft(world: GeneratedWorld, draft: JourneyCreativeDraft): Promise<{ id: string; engine: 'notes' | 'dialog-scene' }> {
+export async function saveJourneyCreativeDraft(world: GeneratedWorld, draft: JourneyCreativeDraft, eraId?: string): Promise<{ id: string; engine: 'notes' | 'dialog-scene' }> {
   const title = draft.title.trim(), text = draft.text.trim();
   if (!title || !text || !draft.id) throw new Error('A title and content are required');
+  if (eraId) {
+    const scope = { projectId: world.projectId, eraId }, engine = draft.target === 'note' ? 'notes' : 'dialog-scene';
+    await db.transaction('rw', db.tables, async () => {
+      const current = await worldgenScopeOperations(scope).worlds.getOne(world.id);
+      if (!current || journeyRecipeKey(current) !== journeyRecipeKey(world)) throw new Error('World changed; reopen the journey');
+      const existing = await readEraRow(scope, draft.target === 'note' ? 'notes' : 'scenes', draft.id);
+      const linkId = `journey-source:${draft.id}`;
+      if (existing) {
+        if (!(await listWorldLinks(scope, world.id)).some(link => link.id === linkId && link.targetEntityId === draft.id && link.targetEngineId === engine)) throw new Error('Creative draft identity conflict');
+        return;
+      }
+      const now = Date.now();
+      if (draft.target === 'note') await mutateEraRows(scope, [{ table: 'notes', id: draft.id, row: { id: draft.id, projectId: world.projectId, kind: 'idea', text: `${title}\n\n${text}`, source: world.title, tags: ['worldgen'], pinned: false, createdAt: now, updatedAt: now } }]);
+      else {
+        const rows = await listEraRows<Scene>(scope, 'scenes');
+        await dialogSceneOperations(scope).createScene({ id: draft.id, projectId: world.projectId, title, description: text, setting: draft.location, order: rows.reduce((max, row) => Math.max(max, row.order + 1), 0), tags: ['worldgen'], createdAt: now, updatedAt: now });
+      }
+      await saveWorldLink(scope, world.id, { id: linkId, projectId: world.projectId, sourceEngineId: 'worldgen', sourceEntityType: 'generated-world', sourceEntityId: world.id, sourceTitle: world.title, targetEngineId: engine, targetEntityType: draft.target === 'note' ? 'note' : 'scene', targetEntityId: draft.id, targetTitle: title, relation: 'developed-into', provenance: 'manual', notes: JSON.stringify({ version: 1, origin: 'world-journey', recipeKey: journeyRecipeKey(world), ...draft.context }), createdAt: now, updatedAt: now });
+      const project = await db.projects.get(world.projectId); if (!project) throw new Error('Project missing');
+      if (!project.enabledEngines.includes(engine)) await db.projects.update(project.id, { enabledEngines: [...project.enabledEngines, engine], engineOrder: [...new Set([...(project.engineOrder ?? project.enabledEngines), engine])], updatedAt: now });
+    });
+    notifyDataChanged({ source: 'other', projectId: world.projectId, entityId: draft.id });
+    return { id: draft.id, engine };
+  }
   const engine = draft.target === 'note' ? 'notes' : 'dialog-scene';
   const table = draft.target === 'note' ? db.notes : db.scenes;
   const linkId = `journey-source:${draft.id}`;

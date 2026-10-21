@@ -1,3 +1,4 @@
+import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useMemo, useState } from 'react';
 import { Search, StickyNote, X } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -11,7 +12,6 @@ import { makeNote, moveNote } from '../operations';
 import { GLOBAL_NOTES_SCOPE, NOTE_KINDS, NOTE_KIND_META, type Note, type NoteKind } from '../types';
 import NoteCard from './NoteCard';
 import NoteComposer, { type NoteDraft } from './NoteComposer';
-import { useNavigate } from 'react-router-dom';
 import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import { creativeSourceKey } from '@/components/project/creative-lab';
 
@@ -25,7 +25,7 @@ type KindFilter = NoteKind | 'all';
  */
 export default function NotesEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const navigate = useEraNavigate();
   const isInbox = projectId === GLOBAL_NOTES_SCOPE;
   const { items: notes, loading, hasLoaded, error, refetching, addItem, editItem, removeItem, refresh } = useNotes(projectId);
   const { projects } = useProjects();

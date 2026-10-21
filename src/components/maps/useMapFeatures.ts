@@ -8,10 +8,10 @@ import { DEFAULT_MAP_LAYERS, EMPTY_MAP_FEATURES, EMPTY_MAP_NAMED_LAYERS, mapPoin
 export interface MapFeatureOptions {
   features?: MapFeature[];
   layerVisibility?: MapLayerVisibility;
-  onChangeFeatures?: (features: MapFeature[]) => void | Promise<void>;
-  onChangeLayers?: (layers: MapLayerVisibility) => void | Promise<void>;
+  onChangeFeatures?: (features: MapFeature[], baseline?:MapFeature[]) => void | MapFeature[] | Promise<void|MapFeature[]>;
+  onChangeLayers?: (layers: MapLayerVisibility, baseline?:MapLayerVisibility) => void | Promise<void>;
   namedLayers?: MapNamedLayer[];
-  onChangeNamedLayers?: (layers: MapNamedLayer[]) => void | Promise<void>;
+  onChangeNamedLayers?: (layers: MapNamedLayer[], baseline?:MapNamedLayer[]) => void | Promise<void>;
   readOnly?: boolean;
   featureDrafts?: Map<string, MapFeature>;
 }
@@ -34,6 +34,8 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
   const [query, setQuery] = useState('');
   const [activeLayerId, setActiveLayerId] = useState('');
   const lock = useRef(false);
+  const baseline = useRef<MapFeature[]|null>(null);
+  const savedFeatures=useRef<MapFeature[]>(features);
   const [preview, setPreview] = useState<MapPoint | null>(null);
   const selected = features.find(feature => feature.id === selectedId) ?? null;
   const layers = { ...DEFAULT_MAP_LAYERS, ...layerVisibility };
@@ -43,22 +45,25 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
 
   const select = (feature: MapFeature) => {
     if (busy || drawing) return;
+    const recovered=!readOnly?drafts.get(feature.id) as (MapFeature&{__editBaseline?:MapFeature[]})|undefined:undefined;
+    baseline.current=structuredClone(recovered?.__editBaseline??features);
     setSelectedId(feature.id);
-    setDraft((!readOnly && drafts.get(feature.id)) || { ...feature, points: feature.points.map(point => ({ ...point })) });
+    if(recovered){const {__editBaseline:ignored,...value}=recovered;void ignored;setDraft(value);}else setDraft({ ...feature, points: feature.points.map(point => ({ ...point })) });
   };
   const patch = (changes: Partial<MapFeature>) => {
     if (!draft || busy || readOnly) return;
     const next = { ...draft, ...changes };
-    drafts.set(next.id, next);
+    const retained={...next,__editBaseline:baseline.current??features};
+    drafts.set(next.id, retained);
     setDraft(next);
   };
-  const persist = async (next: MapFeature[], history: 'edit' | 'undo' | 'redo' = 'edit'): Promise<boolean> => {
+  const persist = async (next: MapFeature[], history: 'edit' | 'undo' | 'redo' = 'edit', before:MapFeature[]=features): Promise<boolean> => {
     if (!onChangeFeatures || lock.current || readOnly) return false;
     lock.current = true;
     setBusy(true);
     setFailed(false);
     try {
-      await onChangeFeatures(next);
+      savedFeatures.current=(await onChangeFeatures(next,before))??next;
       if (history === 'edit') {
         setPast(previous => [...previous.slice(-39), features]);
         setFuture([]);
@@ -80,6 +85,7 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
   };
   const changeTool = (next: typeof tool) => {
     if (busy) return;
+    baseline.current=structuredClone(features);
     setTool(next);
     setPoints([]);
     setPreview(null);
@@ -88,7 +94,8 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
   const finish = async (at = points) => {
     if (tool === 'select' || at.length < minimumMapPoints(tool)) return;
     const feature: MapFeature = { id: generateId('map-feature'), kind: tool, name: copy[tool], color: tool === 'path' ? '#e4a853' : '#d5b575', opacity: .22, points: at, layerId: activeLayerId || undefined };
-    if (await persist([...features, feature])) {
+    if (await persist([...(baseline.current??features), feature],'edit',baseline.current??features)) {
+      baseline.current = structuredClone(savedFeatures.current);
       setTool('select');
       setPoints([]);
       setPreview(null);
@@ -105,9 +112,10 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
   const save = async () => {
     if (!draft?.name.trim()) return;
     const submitted = { ...draft, name: draft.name.trim(), points: draft.points.map(point => mapPoint(point.x, point.y)) };
-    if (await persist(features.map(feature => feature.id === submitted.id ? submitted : feature))) {
+    if (await persist((baseline.current??features).map(feature => feature.id === submitted.id ? submitted : feature),'edit',baseline.current??features)) {
       drafts.delete(submitted.id);
-      setDraft(submitted);
+      baseline.current=structuredClone(savedFeatures.current);
+      setDraft(savedFeatures.current.find(feature=>feature.id===submitted.id)??submitted);
     }
   };
   const undo = async (redo = false) => {
@@ -132,20 +140,21 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     lock.current = true;
     setBusy(true);
     setFailed(false);
-    try { await onChangeLayers({ ...layers, [key]: !layers[key] }); }
+    try { await onChangeLayers({ ...layers, [key]: !layers[key] },layers); }
     catch { setFailed(true); }
     finally { lock.current = false; setBusy(false); }
   };
   const discard = () => {
     if (!selected || busy) return;
+    baseline.current=structuredClone(features);
     drafts.delete(selected.id);
     setDraft({ ...selected, points: selected.points.map(point => ({ ...point })) });
     setFailed(false);
   };
-  const changeNamedLayers = async (next: MapNamedLayer[]) => {
+  const changeNamedLayers = async (next: MapNamedLayer[], before:MapNamedLayer[]=namedLayers) => {
     if (!onChangeNamedLayers || lock.current) return false;
     lock.current = true; setBusy(true); setFailed(false);
-    try { await onChangeNamedLayers(next); return true; }
+    try { await onChangeNamedLayers(next,before); return true; }
     catch { setFailed(true); return false; }
     finally { lock.current = false; setBusy(false); }
   };

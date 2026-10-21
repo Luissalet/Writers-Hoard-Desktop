@@ -15,8 +15,8 @@ import { useCallback, useState } from 'react';
 import { Plus, MessageSquare } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAnnotationsForEntity } from '../hooks';
-import { deleteAnnotation, updateAnnotation } from '../operations';
-import NoteCard from './NoteCard';
+import {useWorldEraScope} from '@/services/worldEras/hooks';
+import CommentThreadList from './CommentThreadList';
 import NoteCreator from './NoteCreator';
 import type { AnnotationAnchor, NoteType } from '../types';
 
@@ -46,8 +46,9 @@ export default function MarginPanel({
   title,
   hideAddButton,
 }: MarginPanelProps) {
-  const { t } = useTranslation();
-  const { items, refresh } = useAnnotationsForEntity({ engineId, entityId });
+  const { t,locale } = useTranslation();
+  const scope=useWorldEraScope(projectId);
+  const { items, refresh } = useAnnotationsForEntity({ engineId, entityId,projectId });
   const [composing, setComposing] = useState<null | {
     anchor: AnnotationAnchor;
     defaultType: NoteType;
@@ -79,22 +80,6 @@ export default function MarginPanel({
     onPendingAnchorConsumed?.();
   }, [onPendingAnchorConsumed]);
 
-  const handleDelete = useCallback(
-    async (id: string) => {
-      await deleteAnnotation(id);
-      await refresh();
-    },
-    [refresh],
-  );
-
-  const handleUpdateBody = useCallback(
-    async (id: string, body: string) => {
-      await updateAnnotation(id, { noteBody: body });
-      await refresh();
-    },
-    [refresh],
-  );
-
   // One past the highest position, not the count: after a delete the count
   // can be lower than the last note's position, and the new note would sort
   // in among the existing ones instead of at the end.
@@ -111,7 +96,7 @@ export default function MarginPanel({
         {!hideAddButton && !composing && (
           <button
             onClick={handleAddEntityLevel}
-            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-border text-text-secondary hover:text-accent-gold hover:border-accent-gold/60 transition"
+            className="flex min-h-9 items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-border text-text-secondary hover:text-accent-gold hover:border-accent-gold/60 transition"
           >
             <Plus size={11} />
             {t('annotations.panel.addNote')}
@@ -119,9 +104,11 @@ export default function MarginPanel({
         )}
       </header>
 
+      <p className="text-xs text-text-muted">{scope.eraId?(locale==='es'?'Comentarios de esta era':'Comments in this era'):(locale==='es'?'Comentarios de Base compartida':'Shared base comments')}</p>
       {composing && (
         <NoteCreator
-          projectId={projectId}
+          key={JSON.stringify([scope.projectId,scope.eraId,engineId,entityId])}
+          projectId={projectId} eraId={scope.eraId}
           sourceEngineId={engineId}
           sourceEntityId={entityId}
           anchor={composing.anchor}
@@ -132,23 +119,7 @@ export default function MarginPanel({
         />
       )}
 
-      {items.length === 0 && !composing ? (
-        <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-text-secondary">
-          {t('annotations.panel.empty')}
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          {items.map((ann) => (
-            <li key={ann.id}>
-              <NoteCard
-                annotation={ann}
-                onUpdate={handleUpdateBody}
-                onDelete={handleDelete}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      <CommentThreadList key={JSON.stringify([scope.projectId,scope.eraId,engineId,entityId])} items={items} scope={scope}/>
     </aside>
   );
 }

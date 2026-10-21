@@ -1,3 +1,5 @@
+import {validateLocalToolBlockRichContent} from '@/engines/local/blocks/types';
+import {validateToolDockWritingMetadata} from '@/engines/writings/toolDock/types';
 import type { Table } from 'dexie';
 import { db } from '@/db/index';
 import type { BackupImportSection } from './backupRegistry';
@@ -544,6 +546,8 @@ export async function validateDocumentRestoreRows(projectId: string, planned: re
     return parent ? owner(child.parentTable, parent, seen) : null;
   };
   for (const item of planned) {
+    validateLocalToolBlockRichContent(item.record,projectId);
+    if(item.table==='writings')validateToolDockWritingMetadata({toolDock:item.record.toolDock});
     if (!tables.has(item.table) || await owner(item.table, item.record) !== projectId) throw new Error('Archive row belongs outside this project.');
     if (!references) continue;
     const specs = REFERENCE_SPECS[item.table] ?? [];
@@ -633,6 +637,8 @@ export async function validateBackupScopes(
           addIssue(sourceOf(project, section), `Table "${section.table}" row ${index + 1} is not an object.`);
           continue;
         }
+        try{validateLocalToolBlockRichContent(row,project.projectId);}catch{addIssue(sourceOf(project,section),`Table "${section.table}" row ${index+1} contains an invalid source block.`);continue;}
+        if(section.table==='writings')try{validateToolDockWritingMetadata({toolDock:row.toolDock});}catch{addIssue(sourceOf(project,section),`Table "${section.table}" row ${index+1} contains an invalid authoring sidecar.`);continue;}
         if (scopeField && row[scopeField] !== project.projectId) {
           addIssue(
             sourceOf(project, section),

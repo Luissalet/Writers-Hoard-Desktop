@@ -550,3 +550,78 @@ Electron process; refreshing the renderer is not enough.
 Always inspect `git status` first. The repository often contains deliberate
 uncommitted work, staged alternatives, and archived experiments that must not be
 overwritten or treated as disposable.
+
+## Local world authoring — scoped source update (2026-10-21)
+
+This section updates only the local authoring extension; the earlier verification
+date and native/factory boundaries retain their original scope. User-facing
+behavior, preparation requirements and format limits are in
+[WORLD_AUTHORING.md](WORLD_AUTHORING.md); source-tool development is in
+[local-tool-sdk.md](local-tool-sdk.md).
+
+- `services/worldEras/` owns effective Shared-base/named-era document reads,
+  variants, scoped metadata and portability. Pane context carries the selected
+  era. Named-era changes do not silently rewrite Base.
+- `components/project/workspace/library/createCodex.ts` creates a normal Codex
+  entry and its explicit Library placement in one transaction using the observed
+  library revision. The reused form retains input after stale/missing-folder
+  conflicts. Composite Undo checks its own card/placement and keeps unrelated
+  folder edits. Independent review passed for this bounded workflow.
+- `engines/writings/toolDock/` keeps project defaults, chapter inheritance or own
+  layouts, named-era context, document references and owned/world source blocks
+  outside prose. Layout edits compare versions; recovery/Undo renew generations
+  so stale editors cannot resume against restored identities. Order/height and
+  preview/editor controls reuse the incumbent shell. Reference/Judge/Footnote
+  and annotation tools remain available. The D3 author evidence and legacy-era
+  restore correction passed independent D3 review within that contract.
+- `services/projectDuplicate/` and `electron/projectDuplicate/` implement one
+  local copy through declared identity remappers, managed-file manifests and
+  shared native bindings. The source is recaptured before commit. A stable
+  operation ID resumes the same committed destination after native completion
+  failure; file/SQLite/IndexedDB completion is not one atomic transaction. Undo
+  rejects a changed destination. Copied books remain saga siblings; copied sagas
+  do not recursively copy child projects. This normal action is distinct from
+  the earlier disabled safe-clone import and partial legacy JSON formats.
+  Independent W01 review passed within this one-project contract.
+- `engines/character-sheets/` retains manual/legacy profiles. The optional
+  2014/SRD 5.1 profile applies explicit class/level previews without implicit
+  healing or resource resets. The corrected common paper path retains authored
+  spell sections in Reader/wiki/PNG. Its bounded independent re-review passed;
+  subclass/multiclass adjudication, a complete spell catalogue and automatic
+  combat remain outside scope.
+
+Supported archives preserve authoring sidecars and retained source-release
+metadata, not arbitrary compiled source code. Same-ID legacy restores preserve
+absent sidecars for matching identities; explicit null keeps reset/inheritance
+meaning. This correction is not a universal legacy-format guarantee. Local model
+caches must be prepared before offline recognition/search; text inference follows
+the global runtime. No installed executable, personal database, live account,
+complete feature parity or final integration is certified by this source update.
+The 21 October composed source checks pass: 210 groups across 44 suites with
+0 failures, 383 critical checks, renderer/Electron builds, shipping lint with
+0 debt and conformance (34 engines, 64 tables, 5650 keys, 22 locale files).
+The production entry is 1589.09 kB, below the blocking 1600 kB budget; lazy/total
+size advisories remain. Production dependency audit reports 0 vulnerabilities.
+Native document-service tests pass 14 with 0 skipped; directory packaging,
+packaged startup smoke and CPU dependency checks pass. D3, W01, the bounded 5e
+profile, map M1/M2/M3 corrections, Archive and legacy-tool corrections have
+independent SHIP verdicts within their reviewed contracts.
+
+These are composed checks, not a global `verify:release` result. The inherited
+full development audit still reports 13 findings, and the optional `resources/bin`
+packaging warning remains. QA, manual and repository documentation are complete;
+Git integration remains pending.
+Installation, the real user profile and total feature parity are not certified.
+
+The packaged CPU probe resolves Transformers, ONNX common/node 1.30.0 and sharp,
+creates a native 2x2 canvas, and finds both local classifier bundles and four
+native engines. This is dependency availability, not model-inference proof.
+Evidence lives under `D:/LocalAI/projectlesswork/`: `worldcraft1041-vvd-suite-corrected-final.log`,
+`worldcraft1041-critical-final-composed.log`, the final-composed build/budget/lint/
+conformance logs, production audit JSON, document-service native log, package-dir
+and packaged-smoke logs, and `worldcraft1041-packaged-dependencies.json`.
+Earlier failed runs and bounded independent reviews remain historical evidence.
+
+Manual update used the required document revision and exact content readback;
+see `../tasks/evidence/worldcraft1041-manual-verification.json`. The final
+composed limits are in [final verification](../tasks/worldcraft1041-final-verification.md).

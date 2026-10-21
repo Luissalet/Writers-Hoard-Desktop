@@ -1,3 +1,4 @@
+import { readEraRow, listEraRows, mutateEraRows, type EraRowMutation } from '@/services/worldEras/store';
 import { db } from '@/db';
 import { touchProject } from '@/db/operations';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
@@ -25,29 +26,30 @@ export function compactTimelineLabel(event: TimelineEvent, calendar: WorldCalend
 }
 
 /** Validate all existing dates before replacing calendar semantics. One atomic write. */
-export async function saveTimelineSettings(projectId: string, timelineId: string, changes: Pick<Partial<Timeline>, 'worldCalendar' | 'yearRange' | 'displayPrecision'>): Promise<void> {
+export async function saveTimelineSettings(projectId: string, timelineId: string, changes: Pick<Partial<Timeline>, 'worldCalendar' | 'yearRange' | 'displayPrecision'>, eraId?: string): Promise<void> {
   if (changes.worldCalendar) {
     const problems = validateWorldCalendar(changes.worldCalendar);
     if (problems.length) throw new Error(problems.join(' '));
   }
   const range = changes.yearRange;
   if (range && (!Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end) || Math.abs(range.start) > 1000000 || Math.abs(range.end) > 1000000 || range.start > range.end)) throw new Error('timeline.settings.invalidRange');
-  await db.transaction('rw', [db.timelines, db.timelineEvents, db.projects], async () => {
-    const timeline = await db.timelines.get(timelineId);
+  await db.transaction('rw', eraId ? db.tables : [db.timelines, db.timelineEvents, db.projects], async () => {
+    const scope = { projectId, eraId }, mutations: EraRowMutation[] = [];
+    const timeline = eraId ? await readEraRow<Timeline>(scope, 'timelines', timelineId) : await db.timelines.get(timelineId);
     if (!timeline || timeline.projectId !== projectId) throw new Error('timeline.settings.missing');
-    const effectiveCalendar = changes.worldCalendar ?? (('worldCalendar' in changes ? undefined : timeline.worldCalendar) ?? (await resolveWorldCalendar(projectId))?.calendar);
+    const effectiveCalendar = changes.worldCalendar ?? (('worldCalendar' in changes ? undefined : timeline.worldCalendar) ?? (await resolveWorldCalendar(projectId, undefined, eraId))?.calendar);
     if (range && effectiveCalendar?.allowNegativeYears === false && range.start < Math.min(...effectiveCalendar.eras.map(era => era.startYear))) throw new Error('timeline.settings.invalidRange');
     if ('worldCalendar' in changes) {
-      const calendar = changes.worldCalendar ?? (await resolveWorldCalendar(projectId))?.calendar;
-      const events = await db.timelineEvents.where('timelineId').equals(timelineId).toArray();
+      const calendar = changes.worldCalendar ?? (await resolveWorldCalendar(projectId, undefined, eraId))?.calendar;
+      const events = eraId ? (await listEraRows<TimelineEvent>(scope, 'timelineEvents')).filter(event => event.timelineId === timelineId) : await db.timelineEvents.where('timelineId').equals(timelineId).toArray();
       for (const event of events) {
         if (event.projectId !== projectId || event.dateMode !== 'world' || !event.worldDate) continue;
         if (!calendar || validateWorldRange(calendar, event.worldDate, event.worldDateEnd) || validateEventClock(event, calendar)) throw new Error(`timeline.settings.invalidExisting:${event.title}`);
-        await db.timelineEvents.update(event.id, { date: timelineEventLabel(event, calendar), updatedAt: Math.max(Date.now(), event.updatedAt + 1) });
+        if (eraId) mutations.push({ table: 'timelineEvents', id: event.id, changes: { date: timelineEventLabel(event, calendar), updatedAt: Math.max(Date.now(), event.updatedAt + 1) } }); else await db.timelineEvents.update(event.id, { date: timelineEventLabel(event, calendar), updatedAt: Math.max(Date.now(), event.updatedAt + 1) });
       }
     }
-    await db.timelines.update(timelineId, { ...changes, updatedAt: Math.max(Date.now(), timeline.updatedAt + 1) });
+    if (eraId) await mutateEraRows(scope, [...mutations, { table: 'timelines', id: timelineId, changes: { ...changes, updatedAt: Math.max(Date.now(), timeline.updatedAt + 1) } }]); else await db.timelines.update(timelineId, { ...changes, updatedAt: Math.max(Date.now(), timeline.updatedAt + 1) });
   });
-  void touchProject(projectId);
+  if (!eraId) void touchProject(projectId);
   notifyDataChanged({ source: 'other', table: 'timelines', entityId: timelineId, projectId });
 }

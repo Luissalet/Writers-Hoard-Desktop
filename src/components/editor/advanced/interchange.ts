@@ -1,5 +1,5 @@
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
-import { BLOCK_KEYS, INLINE_KEYS, formattingFromElement, formattingHtmlAttributes, normalizeAdvancedFormatting, normalizeColumnWidths, type AdvancedFormatting } from './model';
+import { BLOCK_KEYS, INLINE_KEYS,SCENE_BREAK_TEXT, formattingFromElement, formattingHtmlAttributes, normalizeAdvancedFormatting, normalizeColumnWidths, type AdvancedFormatting } from './model';
 
 function colorHex(value: string): string | undefined {
   if (/^#[\da-f]{6}$/i.test(value)) return value.toLowerCase();
@@ -14,12 +14,15 @@ function supportedCss(element: HTMLElement): AdvancedFormatting {
   const font = style.fontFamily.split(',')[0]?.trim().replace(/^["']|["']$/g, '');
   const fontSize = /^(\d+(?:\.\d+)?)(pt|px)$/.exec(style.fontSize);
   const indent = /^(\d+(?:\.\d+)?)em$/.exec(style.marginInlineStart || style.marginLeft);
+  const firstLineIndent=/^(\d+(?:\.\d+)?)em$/.exec(style.textIndent);
   return normalizeAdvancedFormatting({
     fontFamily: font === 'sans-serif' ? 'sans' : font === 'monospace' ? 'mono' : font || undefined,
     fontSize: fontSize ? Number(fontSize[1]) * (fontSize[2] === 'px' ? 0.75 : 1) : undefined,
     color: colorHex(style.color), highlight: colorHex(style.backgroundColor), alignment: style.textAlign || undefined,
     lineHeight: /^\d+(\.\d+)?$/.test(style.lineHeight) ? Number(style.lineHeight) : undefined,
     indent: indent ? Number(indent[1]) / 1.5 : undefined,
+    firstLineIndent:firstLineIndent?Number(firstLineIndent[1]):undefined,
+    smallCaps:style.fontVariantCaps==='small-caps'||style.fontVariant==='small-caps'?true:undefined,
   });
 }
 
@@ -27,6 +30,7 @@ function supportedCss(element: HTMLElement): AdvancedFormatting {
 export function normalizeAdvancedHtml(html: string): string {
   const host = document.createElement('div');
   host.innerHTML = html;
+  for(const paragraph of host.querySelectorAll('p[data-wh-ornament]')){const ornament=formattingFromElement(paragraph).ornament;if(ornament&&(paragraph.textContent??'').trim()===SCENE_BREAK_TEXT[ornament]){const rule=document.createElement('hr');rule.setAttribute('data-wh-ornament',ornament);paragraph.replaceWith(rule);}}
   for (const cell of host.querySelectorAll<HTMLElement>('td,th')) {
     let widths = normalizeColumnWidths(cell.getAttribute('data-wh-colwidth') ?? cell.getAttribute('colwidth'));
     if (!widths) {

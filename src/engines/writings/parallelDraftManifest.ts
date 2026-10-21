@@ -1,0 +1,12 @@
+import type { BridgeTool } from '@/services/aiBridge/schema';
+const scope = { projectId: { type: 'string' }, eraId: { type: 'string' }, writingId: { type: 'string' } }, target = { ...scope, draftId: { type: 'string' } }, version = { type: 'integer', minimum: 0 };
+const tool = (name: string, writes: boolean, description: string, properties: Record<string, unknown>, required: string[]): BridgeTool => ({ name, writes, engineId: 'writings', group: 'writing', description, schema: { type: 'object', properties, required, additionalProperties: false } });
+export const PARALLEL_DRAFT_TOOLS = [
+  tool('wh_parallel_draft_list', false, 'List the named parallel alternatives of one chapter in Base or an explicit era. Metadata only.', scope, ['writingId']),
+  tool('wh_parallel_draft_get', false, 'Read one parallel alternative in Markdown and its exact version. Does not promote it.', target, ['writingId','draftId']),
+  tool('wh_parallel_draft_create', true, 'Create a named alternative from canonical chapter prose or sourceDraftId. expectedVersion checks that source. Does not replace the chapter.', { ...scope, name: { type: 'string' }, sourceDraftId: { type: 'string' }, expectedVersion: version }, ['writingId','name','expectedVersion']),
+  tool('wh_parallel_draft_save', true, 'Replace only this alternative with supplied Markdown under exact version CAS. Explicit empty content clears this alternative. Previous prose enters its own immutable history atomically; canonical chapter and other alternatives remain intact.', { ...target, content: { type: 'string' }, expectedVersion: version }, ['writingId','draftId','content','expectedVersion']),
+  tool('wh_parallel_draft_history', false, 'List metadata for the immutable history belonging to this exact alternative, separate from canonical chapter history.', target, ['writingId','draftId']),
+  tool('wh_parallel_draft_history_read', false, 'Read one own-history version in Markdown; refuses another alternative’s history id.', { ...target, historyId: { type: 'string' } }, ['writingId','draftId','historyId']),
+  tool('wh_parallel_draft_history_restore', true, 'Restore one own-history version into this alternative under exact current-version CAS. Retains replaced prose in its own history. Does not promote or change another alternative.', { ...target, historyId: { type: 'string' }, expectedVersion: version }, ['writingId','draftId','historyId','expectedVersion']),
+];

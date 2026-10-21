@@ -1,3 +1,6 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { readEraRow } from '@/services/worldEras/store';
+import type { Timeline } from '@/types';
 import { useState } from 'react';
 import { Plus, Trash2, Clock, GripVertical, Calendar, Type, ArrowUpDown, Circle, Diamond, ArrowRight, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,7 +21,6 @@ import { timelineEventLabel, validateEventClock } from '../eventClock';
 import EventDetailsFields, { EventDetailsPreview, EventIcon } from './EventDetailsFields';
 import { useDeepLinkParam } from '@/engines/_shared';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/db';
 import { compactTimelineLabel, eventWithinYearRange, saveTimelineSettings } from '../timelineSettings';
 
 interface TimelineViewProps {
@@ -26,7 +28,7 @@ interface TimelineViewProps {
   timelineId: string;
   events: TimelineEvent[];
   onAddEvent: (event: TimelineEvent) => void | Promise<void>;
-  onEditEvent: (id: string, changes: Partial<TimelineEvent>) => void | Promise<void>;
+  onEditEvent: (id: string, changes: Partial<TimelineEvent>, baseline?:TimelineEvent) => void | Promise<void>;
   onDeleteEvent: (id: string) => void;
 }
 
@@ -59,7 +61,8 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
   });
   const calendarSource = useWorldCalendar(projectId, timelineId);
   const worldCalendar = calendarSource?.calendar ?? null;
-  const timeline = useLiveQuery(() => db.timelines.get(timelineId), [timelineId]);
+  const scope = useWorldEraScope(projectId);
+  const timeline = useLiveQuery(() => readEraRow<Timeline>(scope, 'timelines', timelineId), [scope, timelineId]);
   const events = storedEvents.filter(event => eventWithinYearRange(event, timeline?.yearRange));
   const { items: codexEntries } = useCodexEntries(projectId);
   // What the form held when it opened: Escape and the backdrop only close it
@@ -80,6 +83,10 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
   const dateError = (form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : world?.error ?? null)
     ?? validateEventClock({ ...form, ...world?.fields }, worldCalendar);
 
+  const editableFields=(value:typeof form):Partial<TimelineEvent>=>{
+    const world=value.dateMode==='world'?readWorldForm(worldCalendar,value.worldText,value.worldTextEnd):null;
+    return{title:value.title,description:value.description,date:timelineEventLabel({...value,...world?.fields},worldCalendar,locale),dateMode:value.dateMode,eventType:(value.dateMode!=='text'&&value.endTime)||(value.dateMode==='calendar'&&value.realDateEnd)||world?.fields.worldDateEnd?'range':value.eventType,realDate:value.dateMode==='calendar'?value.realDate:undefined,realDateEnd:value.dateMode==='calendar'?value.realDateEnd||undefined:undefined,...(world?world.fields:{worldDate:undefined,worldDateEnd:undefined}),...eventDetailFields(value,value.dateMode),lane:value.lane,color:value.color};
+  };
   const handleSave = async () => {
     if (!form.title.trim() || saving || dateError) return;
     setSaving(true);
@@ -94,19 +101,8 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
     const worldFields = world ? world.fields : { worldDate: undefined, worldDateEnd: undefined };
 
     if (editingEvent) {
-      await onEditEvent(editingEvent.id, {
-        title: form.title,
-        description: form.description,
-        date: dateValue,
-        dateMode: form.dateMode,
-        eventType: effectiveType,
-        realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
-        realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
-        ...worldFields,
-        ...eventDetailFields(form, form.dateMode),
-        lane: form.lane,
-        color: form.color,
-      });
+      const current=editableFields(form),initial=editableFields(formOpenedWith),changes=Object.fromEntries(Object.entries(current).filter(([key,value])=>JSON.stringify(value)!==JSON.stringify(initial[key as keyof TimelineEvent])));
+      await onEditEvent(editingEvent.id,changes,editingEvent);
     } else {
       const now = Date.now();
       await onAddEvent({

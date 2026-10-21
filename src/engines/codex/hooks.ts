@@ -1,4 +1,5 @@
-import { makeEntityHook, makeTableOps } from '@/engines/_shared';
+import { useEraEntities } from '@/services/worldEras/hooks';
+import { makeTableOps } from '@/engines/_shared';
 import { deleteCodexEntry, updateCodexEntry } from '@/db/operations';
 import type { CodexEntry } from '@/types';
 
@@ -7,7 +8,7 @@ const codexEntryOps = makeTableOps<CodexEntry>({
   scopeField: 'projectId',
 });
 
-export const useCodexEntries = makeEntityHook<CodexEntry>({
+const baseCodexOptions = {
   fetchFn: codexEntryOps.getAll,
   createFn: codexEntryOps.create,
   // Igual que el borrado: el renombrado tampoco puede ser un update plano. El
@@ -26,4 +27,5 @@ export const useCodexEntries = makeEntityHook<CodexEntry>({
   // DESVINCULAR lo que es texto del autor— pero no la llamaba nadie: era código
   // muerto. Ésta es la única puerta por la que se borra un personaje.
   deleteFn: deleteCodexEntry,
-});
+};
+export function useCodexEntries(projectId: string) { return useEraEntities(projectId, 'codexEntries', 'projectId', baseCodexOptions, projectId); }

@@ -4,17 +4,18 @@ import Image from '@tiptap/extension-image';
 import { CellSelection } from '@tiptap/pm/tables';
 import { TextSelection } from '@tiptap/pm/state';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
-import { applyAdvancedFormatting, createAdvancedExtensions, describeAdvancedDocument, normalizeAdvancedFormatting, normalizeAdvancedHtml, validEditorRange } from '@/components/editor/advanced';
-import { getWriting, updateWriting, WritingConflictError } from '@/engines/writings/operations';
-import { takeSnapshot } from '@/engines/writings/snapshots';
+import { applyAdvancedFormatting, createAdvancedExtensions, describeAdvancedDocument, normalizeAdvancedFormatting, normalizeAdvancedHtml, validEditorRange,insertSceneBreak,SCENE_BREAK_STYLES,type SceneBreakStyle } from '@/components/editor/advanced';
+import { WritingConflictError } from '@/engines/writings/operations';
+import {eraWritingOperations,eraSnapshotOperations} from '@/services/worldEras/writings';
 import { countWords } from '@/utils/text';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { callDocumentTool } from '@/services/documents/client';
 import { NATIVE_DOCUMENT_ACTIONS } from '../manifestDocuments';
-import { assertEngineEnabled, assertRowInScope, BridgeError, requireString, withAudit, type ToolArgs } from './shared';
+import { assertEngineEnabled, assertRowInScope, BridgeError, requireString, withAudit,optString,resolveProjectId, type ToolArgs } from './shared';
 import type { Writing } from '@/types';
 import { createRevisionExtensions } from '@/engines/writings/revisions';
 import { createEditorialExtensions } from '@/engines/writings/editorial';
+function writingOps(args:ToolArgs,projectId?:string){const eraId=optString(args,'eraId');return eraWritingOperations({projectId:projectId??(eraId?resolveProjectId(args):''),eraId});}
 
 function editorFor(html: string): Editor {
   return new Editor({
@@ -25,7 +26,7 @@ function editorFor(html: string): Editor {
 }
 
 async function writingFor(args: ToolArgs, editing: boolean): Promise<Writing> {
-  const writing = await getWriting(requireString(args, 'id'));
+  const writing = await writingOps(args).getWriting(requireString(args, 'id'));
   if (!writing) throw new BridgeError('not-found', 'No se encuentra ese capítulo.');
   assertRowInScope(args, writing.projectId);
   if (editing) {
@@ -48,19 +49,20 @@ function rangeFor(editor: Editor, args: ToolArgs, all: boolean) {
   return { from, to };
 }
 
-async function persistEdit(writing: Writing, editor: Editor) {
+async function persistEdit(writing: Writing, editor: Editor,args:ToolArgs) {
   const content = sanitizeRichHtml(editor.getHTML());
   if (content === writing.content) return { id: writing.id, changed: false, updatedAt: writing.updatedAt };
-  await takeSnapshot(writing, 'pre-ai');
+  const scope={projectId:writing.projectId,eraId:optString(args,'eraId')};
+  await eraSnapshotOperations(scope).takeSnapshot(writing, 'pre-ai');
   try {
-    await updateWriting(writing.id, { content, wordCount: countWords(content) }, writing.updatedAt);
+    await writingOps(args,writing.projectId).updateWriting(writing.id, { content, wordCount: countWords(content) }, writing.updatedAt);
   } catch (error) {
     if (error instanceof WritingConflictError) throw new BridgeError('conflict', 'El capítulo cambió durante la edición. La versión propuesta se ha conservado en su historial.');
     throw error;
   }
-  const saved = await getWriting(writing.id);
+  const saved = await writingOps(args,writing.projectId).getWriting(writing.id);
   return withAudit({ id: writing.id, changed: true, updatedAt: saved?.updatedAt, wordCount: saved?.wordCount }, {
-    projectId: writing.projectId, entityId: writing.id,
+    projectId: writing.projectId, entityId: writing.id, table:'writings',
     before: { content: writing.content, wordCount: writing.wordCount },
     summary: `edited rich document of "${writing.title}"`,
   });
@@ -89,7 +91,7 @@ export async function whFormatWriting(args: ToolArgs) {
   const editor = editorFor(writing.content);
   try {
     if (!applyAdvancedFormatting(editor, format, rangeFor(editor, args, true))) throw new BridgeError('bad-args', 'No se pudo aplicar el formato a ese rango.');
-    return await persistEdit(writing, editor);
+    return await persistEdit(writing, editor,args);
   } finally { editor.destroy(); }
 }
 
@@ -115,6 +117,10 @@ export async function whEditWritingDocument(args: ToolArgs) {
       if (typeof rows !== 'number' || typeof cols !== 'number' || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) throw new BridgeError('bad-args', 'rows y cols deben ser enteros positivos.');
       applied = editor.commands.insertTable({ rows, cols, withHeaderRow: true });
     } else if (operation === 'insertPageBreak') applied = editor.commands.insertPageBreak();
+    else if(operation==='insertSceneBreak'){
+      const ornament=args.ornament??'asterism';if(!SCENE_BREAK_STYLES.includes(ornament as SceneBreakStyle))throw new BridgeError('bad-args','Unknown scene-break ornament.');
+      applied=insertSceneBreak(editor,ornament as SceneBreakStyle);
+    }
     else if (operation === 'replaceSelection') {
       if (!range || typeof args.text !== 'string') throw new BridgeError('bad-args', 'replaceSelection necesita from/to y text, que puede ser vacío.');
       editor.view.dispatch(editor.state.tr.insertText(args.text, editor.state.selection.from, editor.state.selection.to));
@@ -123,7 +129,7 @@ export async function whEditWritingDocument(args: ToolArgs) {
       applied = editor.commands[operation as typeof TABLE_OPERATIONS[number]]();
     } else throw new BridgeError('bad-args', `Operación desconocida: ${operation}`);
     if (!applied) throw new BridgeError('bad-args', 'La operación no se puede aplicar a la selección actual.');
-    return await persistEdit(writing, editor);
+    return await persistEdit(writing, editor,args);
   } finally { editor.destroy(); }
 }
 

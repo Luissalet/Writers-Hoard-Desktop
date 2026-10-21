@@ -1,0 +1,16 @@
+import type {ComponentType} from 'react';
+import type {LocalToolClient,LocalToolProps} from '../sdk';
+import {cloneLocalToolJson,type LocalToolJson} from '../stateTypes';
+import {validateLocalToolCodecState,type LocalToolStateCodec} from '../stateCodec';
+import type {LocalToolPreviewSpec} from '../previewTypes';
+import {validateLocalToolBlockEnvelope,type LocalToolBlockEnvelope,type LocalToolWorldBlockQuery} from './types';
+interface Common {key:string;name:{en:string;es:string};preview?:LocalToolPreviewSpec}
+export interface LocalToolOwnedBlockDefinition<T extends LocalToolJson=LocalToolJson> extends Common {scope:'host';initialState:T;codec:LocalToolStateCodec;validateState:(data:LocalToolJson)=>data is T;component:ComponentType<LocalToolProps<T>>}
+export interface LocalToolWorldBlockProps {projectId:string;client:Pick<LocalToolClient<LocalToolJson>,'projectId'|'namespace'|'eraId'|'world'|'queryCodex'|'refs'|'search'|'openDocument'>}
+export interface LocalToolWorldBlockDefinition extends Common {scope:'world';world:LocalToolWorldBlockQuery;component:ComponentType<LocalToolWorldBlockProps>}
+export type LocalToolBlockDefinition=LocalToolOwnedBlockDefinition|LocalToolWorldBlockDefinition;
+/** Erase only the component's generic at the validated source-registration boundary. */
+export function defineLocalToolBlock<T extends LocalToolJson>(definition:LocalToolOwnedBlockDefinition<T>):LocalToolOwnedBlockDefinition {validateLocalToolCodecState(definition.initialState,definition.codec);if(!definition.validateState(cloneLocalToolJson(definition.initialState)))throw Error('local_tool_block_state_invalid');return definition as unknown as LocalToolOwnedBlockDefinition;}
+export function createLocalToolBlockEnvelope(namespace:string,definition:LocalToolBlockDefinition,id:string=crypto.randomUUID()):LocalToolBlockEnvelope {const base={version:1 as const,id,namespace,key:definition.key,name:structuredClone(definition.name),...(definition.preview?{preview:structuredClone(definition.preview)}:{})};const envelope:LocalToolBlockEnvelope=definition.scope==='host'?{...base,scope:'host',revision:0,data:cloneLocalToolJson(definition.initialState),codec:structuredClone(definition.codec)}:{...base,scope:'world',world:structuredClone(definition.world)};validateLocalToolBlockEnvelope(envelope);return envelope;}
+export function validateLocalToolBlockDefinition(namespace:string,definition:LocalToolBlockDefinition){createLocalToolBlockEnvelope(namespace,definition,'validate');if(typeof definition.component!=='function'&&typeof definition.component!=='object')throw Error('local_tool_block_component_invalid');}
+export function validateBlockForDefinition(envelope:LocalToolBlockEnvelope,definition:LocalToolBlockDefinition){validateLocalToolBlockEnvelope(envelope);if(envelope.key!==definition.key||envelope.scope!==definition.scope)throw Error('local_tool_block_definition_changed');if(envelope.scope==='host'&&definition.scope==='host'){if(JSON.stringify(envelope.codec)!==JSON.stringify(definition.codec)||!definition.validateState(envelope.data))throw Error('local_tool_block_state_invalid');}else if(envelope.scope==='world'&&definition.scope==='world'&&JSON.stringify(envelope.world)!==JSON.stringify(definition.world))throw Error('local_tool_block_definition_changed');}

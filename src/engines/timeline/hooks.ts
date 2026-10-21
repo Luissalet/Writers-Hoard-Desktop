@@ -1,5 +1,5 @@
+import { useEraEntities } from '@/services/worldEras/hooks';
 import type { Timeline, TimelineEvent, TimelineConnection } from '@/types';
-import { makeEntityHook } from '../_shared/makeEntityHook';
 import * as ops from './operations';
 
 /**
@@ -9,12 +9,13 @@ import * as ops from './operations';
  * refreshes that could resolve out of order).
  */
 
-const useTimelinesEntity = makeEntityHook<Timeline>({
+const useTimelinesEntityOptions = {
   fetchFn: ops.getTimelines,
   createFn: ops.createTimeline,
   updateFn: ops.updateTimeline,
   deleteFn: ops.deleteTimeline,
-});
+};
+function useTimelinesEntity(scopeId: string) { return useEraEntities<Timeline>(scopeId, 'timelines', 'projectId', useTimelinesEntityOptions); }
 
 export function useTimelines(projectId: string) {
   const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
@@ -30,12 +31,14 @@ export function useTimelines(projectId: string) {
   };
 }
 
-const useTimelineEventsEntity = makeEntityHook<TimelineEvent>({
+const useTimelineEventsEntityOptions = {
   fetchFn: ops.getTimelineEvents,
   createFn: ops.createTimelineEvent,
   updateFn: ops.updateTimelineEvent,
   deleteFn: ops.deleteTimelineEvent,
-});
+};
+const compareEvents = (a: TimelineEvent, b: TimelineEvent) => a.order - b.order;
+function useTimelineEventsEntity(scopeId: string) { return useEraEntities<TimelineEvent>(scopeId, 'timelineEvents', 'timelineId', useTimelineEventsEntityOptions, undefined, compareEvents); }
 
 export function useTimelineEvents(timelineId: string) {
   const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
@@ -52,12 +55,13 @@ export function useTimelineEvents(timelineId: string) {
 }
 
 /** Fetch ALL events across all timelines in a project (for swim-lane view) */
-const useAllProjectEventsEntity = makeEntityHook<TimelineEvent>({
+const useAllProjectEventsEntityOptions = {
   fetchFn: ops.getAllProjectEvents,
   createFn: ops.createTimelineEvent,
   updateFn: ops.updateTimelineEvent,
   deleteFn: ops.deleteTimelineEvent,
-});
+};
+function useAllProjectEventsEntity(scopeId: string) { return useEraEntities<TimelineEvent>(scopeId, 'timelineEvents', 'projectId', useAllProjectEventsEntityOptions, undefined, compareEvents); }
 
 export function useAllProjectEvents(projectId: string) {
   const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
@@ -74,12 +78,13 @@ export function useAllProjectEvents(projectId: string) {
 }
 
 /** Fetch connections for a project (cross-timeline links) */
-const useTimelineConnectionsEntity = makeEntityHook<TimelineConnection>({
+const useTimelineConnectionsEntityOptions = {
   fetchFn: ops.getConnectionsForProject,
   createFn: ops.createConnection,
   updateFn: ops.updateConnection,
   deleteFn: ops.deleteConnection,
-});
+};
+function useTimelineConnectionsEntity(scopeId: string) { return useEraEntities<TimelineConnection>(scopeId, 'timelineConnections', 'projectId', useTimelineConnectionsEntityOptions); }
 
 export function useTimelineConnections(projectId: string) {
   const { items, loading, refetching, refresh, addItem, editItem, removeItem } =

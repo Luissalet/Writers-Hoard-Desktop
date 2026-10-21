@@ -1,3 +1,6 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { scopedTableOps } from '@/services/worldEras/tableOps';
+import { worldRuntimeKey } from '../era';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { randomSeed } from '../randomSeed';
 import { createWorldEditWriter } from '../editWriter';
@@ -16,7 +19,7 @@ import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePane
 import { toast } from '@/components/common/toast';
 import { EngineSpinner } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
-import { worldMapOps, mapPinOps } from '@/engines/maps/operations';
+import { worldMapOps as baseWorldMapOps, mapPinOps as baseMapPinOps } from '@/engines/maps/operations';
 import type {
   GeneratedWorld,
   SavedWorldRegion,
@@ -167,6 +170,9 @@ export default function WorldView({
   focusRegion,
 }: WorldViewProps) {
   const { t, locale } = useTranslation();
+  const scope = useWorldEraScope(projectId), runtimeId = worldRuntimeKey(world.id, scope.eraId);
+  const worldMapOps = useMemo(() => scopedTableOps(scope, 'worldMaps', 'projectId', baseWorldMapOps), [scope]);
+  const mapPinOps = useMemo(() => scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps), [scope]);
   const pane = useEnginePane();
   const copy = worldWorkspaceCopy(locale);
   const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
@@ -299,7 +305,7 @@ export default function WorldView({
   const saveRegionsRef = useRef(onSaveRegions);
   const regionBase = useRef(world.regions ?? []);
   saveRegionsRef.current = onSaveRegions;
-  const regionWriter = useMemo(() => createWorldEditWriter(`regions:${world.id}`, async json => { const next: SavedWorldRegion[] = JSON.parse(json); await saveRegionsRef.current(next, regionBase.current); regionBase.current = next; }), [world.id]);
+  const regionWriter = useMemo(() => createWorldEditWriter(`regions:${runtimeId}`, async json => { const next: SavedWorldRegion[] = JSON.parse(json); await saveRegionsRef.current(next, regionBase.current); regionBase.current = next; }), [runtimeId]);
   useEffect(() => () => { void regionWriter.flush(); }, [regionWriter]);
 
   const handleDone = useCallback(async (data: WorldData) => {
@@ -336,7 +342,7 @@ export default function WorldView({
     }
   }, [onThumbnail, locale]);
 
-  const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(world.id, handleDone);
+  const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(runtimeId, handleDone);
   const generationBusyRef = useRef(false);
   generationBusyRef.current = gen.running;
   const globalSpatialEntities = useMemo(
@@ -455,7 +461,7 @@ export default function WorldView({
   const applyExternalRef = useRef<(edits: WorldEdit[]) => void>(() => {});
   const saveEditsRef = useRef(onSaveEdits);
   saveEditsRef.current = onSaveEdits;
-  const editWriter = useMemo(() => createWorldEditWriter(world.id, json => saveEditsRef.current(json)), [world.id]);
+  const editWriter = useMemo(() => createWorldEditWriter(runtimeId, json => saveEditsRef.current(json)), [runtimeId]);
   const environment = useWorldEnvironment({ data, record: world, session, sessionWorld, savedEdits, writer: editWriter, restorePristine,
     onReady: () => setPaintRev(value => value + 1),
   });
@@ -463,11 +469,11 @@ export default function WorldView({
   environmentBusyRef.current = environment.busy || (!!data && !environment.ready);
   useEffect(() => {
     if (!environment.ready) return;
-    return registerLiveWorld(world.id, {
+    return registerLiveWorld(runtimeId, {
       apply: edits => applyExternalRef.current(edits),
       snapshot: () => session.current?.serialize() ?? savedEdits.current ?? '',
     });
-  }, [world.id, environment.ready]);
+  }, [runtimeId, environment.ready]);
 
   // A new world object (regenerate, load, restore) makes every cached canon
   // tile and idle worker of the previous one dead weight — free it eagerly.
@@ -525,10 +531,10 @@ export default function WorldView({
      * prístino — y el respaldo por semilla dentro de `bindCanonWorld` — es
      * lo que enciende el bus entre sesiones de verdad.
      */
-    bindCanonWorld(value.world, world.id);
+    bindCanonWorld(value.world, runtimeId);
     canonPrev.current = { source: data, key, value };
     return value;
-  }, [data, paintRev, world.id]);
+  }, [data, paintRev, runtimeId]);
 
   /** La política de sembrado vigente (tick + zonas), deserializada UNA vez por
    *  cambio de ediciones — no en cada render — para la hoja libre y la de
@@ -1225,7 +1231,7 @@ export default function WorldView({
     setRecipeError(null);
     try {
       if (!await editWriter.flush() || !await regionWriter.flush()) throw new Error('Pending save failed');
-      requestedPlan.current = await prepareRegeneration(world.id, params, locations);
+      requestedPlan.current = await prepareRegeneration(world.id, params, locations, scope);
       generate(requestedPlan.current.params, { fresh: true });
     } catch {
       setRecipeError(copy.saveFailed);
@@ -1233,7 +1239,7 @@ export default function WorldView({
       preparingRef.current = false;
       setPreparing(false);
     }
-  }, [params, generate, gen.running, painting, editWriter, regionWriter, world.id, copy.saveFailed]);
+  }, [params, generate, gen.running, painting, editWriter, regionWriter, world.id, scope, copy.saveFailed]);
 
   // Replacing an existing landscape is deliberate; alternatives keep the source.
   const [confirmRegen, setConfirmRegen] = useState(false);
@@ -1562,7 +1568,7 @@ export default function WorldView({
       }
     }
     toast.success(existingMap ? t('worldgen.export.mapUpdated') : t('worldgen.export.sentToMaps'));
-  }, [data, projectId, world.id, world.title, waypoints, t]);
+  }, [data, projectId, world.id, world.title, waypoints, t, worldMapOps, mapPinOps]);
 
   // 'loading' is not a pipeline stage — it is the snapshot coming back off the
   // disk — so it does not go looking for a translation of a stage name.

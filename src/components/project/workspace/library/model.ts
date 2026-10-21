@@ -1,5 +1,5 @@
 import type { Project } from '@/types';
-import { workspaceDocumentKey, workspaceEngineIds, type WorkspaceDocument, type WorkspaceFolder, type WorkspaceLibrary, type WorkspacePlacement } from './types';
+import { workspaceDocumentKey, isWorkspaceEngineId, type WorkspaceDocument, type WorkspaceFolder, type WorkspaceLibrary, type WorkspacePlacement } from './types';
 
 export class WorkspaceLibraryConflict extends Error {}
 export class WorkspaceLibraryInvalidAction extends Error {}
@@ -17,7 +17,7 @@ export function readWorkspaceLibrary(project: Pick<Project, 'workspaceFolders' |
   }
   const placements = new Map<string, WorkspacePlacement>();
   for (const placement of Array.isArray(project.workspacePlacements) ? project.workspacePlacements : []) {
-    if (!placement || !workspaceEngineIds.includes(placement.engineId) || !validId(placement.entityId)) continue;
+    if (!placement || !isWorkspaceEngineId(placement.engineId) || !validId(placement.entityId)) continue;
     placements.set(workspaceDocumentKey(placement), { engineId: placement.engineId, entityId: placement.entityId, folderId: placement.folderId && byId.has(placement.folderId) ? placement.folderId : undefined, order: Number.isFinite(placement.order) ? placement.order : 0 });
   }
   return { folders, placements: [...placements.values()], revision: Number.isSafeInteger(project.workspaceRevision) && (project.workspaceRevision ?? 0) >= 0 ? project.workspaceRevision! : 0 };

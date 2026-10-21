@@ -1,0 +1,6 @@
+/** The same semantic operation boundary is used by native dispatch and author tests. */
+import {localOperationInput} from './operationSchema';
+import {cloneLocalToolJson,type LocalToolJson} from './stateTypes';
+import type {LocalToolClient,LocalToolDefinition} from './sdk';
+export class LocalToolOperationError extends Error{readonly code:'not-found'|'bad-args';constructor(code:'not-found'|'bad-args',message:string){super(message);this.code=code;}}
+export async function runLocalToolOperation<T extends LocalToolJson>(definition:LocalToolDefinition<T>,operationId:string,input:unknown,writes:boolean,client:LocalToolClient<T>,transaction:<R>(run:(scoped:LocalToolClient<T>)=>Promise<R>)=>Promise<R>):Promise<LocalToolJson>{const operation=definition.operations?.find(item=>item.id===operationId);if(!operation)throw new LocalToolOperationError('not-found','Operation is absent from this compiled tool.');if(operation.writes!==writes)throw new LocalToolOperationError('bad-args',writes?'Use wh_local_tool_query for this read-only operation.':'Use wh_local_tool_call for this writing operation.');const args=localOperationInput(operation.inputSchema,input??{}),run=async(scoped:LocalToolClient<T>)=>cloneLocalToolJson(await operation.run(args,scoped),Number.MAX_SAFE_INTEGER);return writes?transaction(run):run(client);}

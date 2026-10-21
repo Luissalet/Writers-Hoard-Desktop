@@ -14,14 +14,17 @@
 // browser: it takes a plain 2D context and returns what it actually drew.
 
 import type { Road } from '../core/settlements';
-import { chaikin, simplify, type Pt } from './contours';
+import { chaikin, polylineVisible, simplify, type Pt } from './contours';
 
 export interface RoadOverlayOptions {
   /** World grid, for un-flattening the cell indices. */
   worldWidth: number;
   worldHeight: number;
   /** Map coords (u east 0..1, v south 0..1) → screen pixels, for ONE copy. */
-  toScreen: (u: number, v: number) => [number, number];
+  toScreen: (u: number, v: number) => [number, number] | null;
+  /** Drawn sheets keep their own route ink; projection still owns screen width. */
+  ink?: { major: string; minor: string; casing: string };
+  cellView?: { x: number; y: number; w: number; h: number };
   /** Screen extent in CSS pixels, for culling. */
   width: number;
   height: number;
@@ -145,7 +148,9 @@ export function roadScreenPath(
     }
   } else {
     for (let k = 0; k < path.length; k++) {
-      const [sx, sy] = toScreen((path[k].x + 0.5) / W, (path[k].y + 0.5) / H);
+      const point = toScreen((path[k].x + 0.5) / W, (path[k].y + 0.5) / H);
+      if (!point) { out[k] = { x: NaN, y: NaN }; continue; }
+      const [sx, sy] = point;
       out[k] = { x: sx, y: sy };
       if (sx < minX) minX = sx;
       if (sx > maxX) maxX = sx;
@@ -169,8 +174,8 @@ export function roadScreenPath(
  * about the same thickness of line on every map ever drawn.
  */
 function roadWidth(major: boolean, pxPerCell: number, emphasised: boolean): number {
-  const lean = Math.max(0.55, Math.min(2.4, pxPerCell));
-  const base = (major ? 1.9 : 1.25) * lean;
+  const lean = Math.max(0.65, Math.min(1.2, pxPerCell));
+  const base = (major ? 1.15 : 0.8) * lean;
   return emphasised ? base * 1.6 + 1 : base;
 }
 
@@ -211,12 +216,20 @@ export function drawRoadNetwork(
   for (let i = 0; i < roads.length; i++) {
     const road = roads[i];
     if (road.cells.length < 2) { result.culled++; continue; }
-    const screen = roadScreenPath(unwrapRoadCached(road, opts.worldWidth), opts);
+    const cells = unwrapRoadCached(road, opts.worldWidth);
+    if (opts.cellView && !polylineVisible(cells, opts.cellView, opts.worldWidth, 2)) { result.culled++; continue; }
+    const screen = roadScreenPath(cells, opts);
     if (!screen) { result.culled++; continue; }
     // Simplify in SCREEN space, so the cost of a road falls with the zoom
     // instead of staying at one vertex per world cell forever; smooth after,
     // because a route solved on a grid is a staircase and reads as one.
-    let pts = simplify(screen, 0.9);
+    const paths: Pt[][] = [[]];
+    for (const p of screen) {
+      if (Number.isFinite(p.x) && Number.isFinite(p.y)) paths[paths.length - 1].push(p);
+      else if (paths[paths.length - 1].length) paths.push([]);
+    }
+    for (const path of paths) {
+    let pts = simplify(path, 0.9);
     if (pts.length > 2 && pts.length < 400) pts = chaikin(pts, false, 1);
     if (pts.length < 2) { result.culled++; continue; }
     const emphasised = opts.emphasis?.(road, i) === true;
@@ -231,18 +244,19 @@ export function drawRoadNetwork(
 
     ctx.globalAlpha = alpha * 0.85;
     ctx.setLineDash([]);
-    ctx.strokeStyle = CASING;
-    ctx.lineWidth = w * 2.1 + 0.8;
+    ctx.strokeStyle = opts.ink?.casing ?? CASING;
+    ctx.lineWidth = w + 1.2;
     trace();
 
     ctx.globalAlpha = alpha;
-    ctx.strokeStyle = emphasised ? EMPHASIS_INK : (road.major ? MAJOR_INK : MINOR_INK);
+    ctx.strokeStyle = emphasised ? EMPHASIS_INK : (road.major ? opts.ink?.major ?? MAJOR_INK : opts.ink?.minor ?? MINOR_INK);
     ctx.lineWidth = w;
     ctx.setLineDash(road.major ? [] : [dashUnit * 1.6, dashUnit]);
     trace();
 
     result.drawn++;
     result.vertices += pts.length;
+    }
   }
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;

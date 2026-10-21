@@ -8,6 +8,7 @@ import { PROJECT_MODES, getEnginesForMode } from '@/engines';
 import { groupEnginesForMode } from '@/config/projectPresets';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Project, ProjectMode } from '@/types';
+import GenrePicker from '@/services/projectGenres/GenrePicker';
 
 interface CreateProjectModalProps {
   open: boolean;
@@ -38,6 +39,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     icon: '',
   });
   const [creating, setCreating] = useState(false);
+  const [genres,setGenres]=useState<string[]>([]);
   // `creating` state cannot gate re-entry: holding Enter fires several keydowns
   // before React re-renders, and each one used to mint a fresh project id.
   const creatingRef = useRef(false);
@@ -64,6 +66,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     setSelectedMode(null);
     setEnabledEngines([]);
     setForm({ title: '', type: 'standalone', description: '', color: '#c4973b', icon: '' });
+    setGenres([]);
   };
 
   // The one gate both the submit button and the Enter key go through.
@@ -85,6 +88,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
         color: form.color,
         ...(form.icon ? { icon: form.icon } : {}),
         description: form.description,
+        genres,
         enabledEngines: enabledEngines,
         engineOrder: enabledEngines, // Initial order matches enabled order
         status: 'draft',
@@ -209,6 +213,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
             />
           </div>
 
+          <GenrePicker value={genres} onChange={setGenres} disabled={creating}/>
           <div className="flex gap-6">
             <div className="flex-1">
               <label className="block text-sm text-text-muted mb-1.5">{t('createProject.color')}</label>

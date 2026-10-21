@@ -143,11 +143,9 @@ function footnoteIdFor(label: string, state: FootnoteState): string {
   return id;
 }
 
-/** Sentinel brackets for lifted spans: U+E000/U+E001, which no keyboard and no model produces, and which the input is stripped of. */
+/** Brackets for temporary spans; authored private-use characters remain literal. */
 const LIFT_OPEN = '';
 const LIFT_CLOSE = '';
-const LIFT_CHARS_RE = /[]/g;
-const LIFT_RE = /(\d+)/g;
 
 /**
  * Inline formatting. Code spans are lifted out first so their contents are
@@ -158,15 +156,16 @@ const LIFT_RE = /(\d+)/g;
  */
 function inlineMarkdown(text: string, footnotes: FootnoteState | null): string {
   const lifted: string[] = [];
+  let generation = 0;
+  let prefix = `${LIFT_OPEN}wh-lift-${generation}:`;
+  while (text.includes(prefix)) prefix = `${LIFT_OPEN}wh-lift-${++generation}:`;
+  const liftPattern = new RegExp(`${prefix}(\\d+)${LIFT_CLOSE}`, 'g');
   const lift = (html: string): string => {
     lifted.push(html);
-    return LIFT_OPEN + String(lifted.length - 1) + LIFT_CLOSE;
+    return prefix + String(lifted.length - 1) + LIFT_CLOSE;
   };
-  // The sentinel's brackets are private-use characters, and any the input
-  // holds are dropped first: a sentinel typed into the prose would otherwise
-  // be replaced by whatever had been lifted under that number — a note, say,
-  // duplicated under an id the panel can only answer for once.
-  let work = text.replace(LIFT_CHARS_RE, '');
+  // An unused per-call prefix prevents prose from being interpreted as a lifted span.
+  let work = text;
   work = work.replace(/`([^`]+)`/g, (_match, code: string) => lift('<code>' + escapeHtml(code) + '</code>'));
   if (footnotes) {
     // `\[^` is the bridge's own escape for a bracket-caret that is prose, not
@@ -203,7 +202,7 @@ function inlineMarkdown(text: string, footnotes: FootnoteState | null): string {
     .replace(/(^|[^\w_])_([^_\n]+)_(?![\w_])/g, '$1<em>$2</em>')
     .replace(/~~([^~\n]+)~~/g, '<s>$1</s>');
 
-  return work.replace(LIFT_RE, (_match, index: string) => lifted[Number(index)] ?? '');
+  return work.replace(liftPattern, (_match, index: string) => lifted[Number(index)] ?? '');
 }
 
 /** Only http(s), mailto, in-document and data-image URLs survive. */

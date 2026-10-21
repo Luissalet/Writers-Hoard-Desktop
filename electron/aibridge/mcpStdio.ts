@@ -330,7 +330,8 @@ export async function handleRpc(message: Record<string, unknown>): Promise<void>
 }
 
 /** One JSON-RPC line is bounded; a client streaming without a newline must not grow the buffer without limit. */
-const MAX_RPC_LINE_BYTES = 8 * 1024 * 1024;
+// Match the HTTP bridge's 64 MiB manuscript envelope, including base64 expansion.
+const MAX_RPC_LINE_BYTES = 96 * 1024 * 1024;
 
 /** Read newline-delimited JSON-RPC from stdin until the client hangs up. */
 function main(): void {

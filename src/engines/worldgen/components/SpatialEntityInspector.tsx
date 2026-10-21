@@ -1,3 +1,7 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { listEraRows } from '@/services/worldEras/store';
+import type { CodexEntry, Writing, TimelineEvent } from '@/types';
+import { listWorldLinks, saveWorldLink, deleteWorldLink } from '../era';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Eye,
@@ -15,6 +19,7 @@ import type {
   WorldSpatialStyleOverride,
 } from '../core/spatialEntities';
 import { useTranslation } from '@/i18n/useTranslation';
+import { PLACE_MODELS, BUILDING_STYLES, PLACE_LABEL_FONTS, AREA_STYLES } from '../core/placeStyle';
 
 const ICONS = [
   ['volcano', 'worldgen.place.icon.volcano'],
@@ -65,6 +70,7 @@ export default function SpatialEntityInspector({
   onReveal3D,
 }: SpatialEntityInspectorProps) {
   const { t } = useTranslation();
+  const scope = useWorldEraScope(projectId);
   const [previousKey, setPreviousKey] = useState(entity.key);
   const [name, setName] = useState(entity.name);
   const [x, setX] = useState(String(Math.round(entity.x * 100) / 100));
@@ -82,15 +88,11 @@ export default function SpatialEntityInspector({
 
   const loadLinkState = useCallback(async () => {
     const [locations, scenes, writings, timelineEvents, currentLinks] = await Promise.all([
-      db.codexEntries
-        .where('projectId')
-        .equals(projectId)
-        .filter((entry) => entry.type === 'location')
-        .sortBy('title'),
+      listEraRows<CodexEntry>(scope, 'codexEntries').then(rows => rows.filter(entry => entry.type === 'location').sort((a, b) => a.title.localeCompare(b.title))),
       db.scenes.where('projectId').equals(projectId).sortBy('order'),
-      db.writings.where('projectId').equals(projectId).sortBy('title'),
-      db.timelineEvents.where('projectId').equals(projectId).sortBy('order'),
-      db.entityLinks.where('sourceEntityId').equals(sourceEntityId).toArray(),
+      listEraRows<Writing>(scope, 'writings').then(rows => rows.sort((a, b) => a.title.localeCompare(b.title))),
+      listEraRows<TimelineEvent>(scope, 'timelineEvents').then(rows => rows.sort((a, b) => a.order - b.order)),
+      listWorldLinks(scope, worldId).then(rows => rows.filter(row => row.sourceEntityId === sourceEntityId)),
     ]);
     const targets: SpatialLinkTarget[] = [
       ...locations.map((entry) => ({
@@ -130,7 +132,7 @@ export default function SpatialEntityInspector({
       targets,
       links: currentLinks.filter((link) => link.projectId === projectId),
     };
-  }, [projectId, sourceEntityId]);
+  }, [projectId, sourceEntityId, scope, worldId]);
 
   const refreshLinks = async () => {
     const state = await loadLinkState();
@@ -165,7 +167,7 @@ export default function SpatialEntityInspector({
       link.targetEntityType === target.entityType && link.targetEntityId === target.id
     ))) return;
     const now = Date.now();
-    await db.entityLinks.add({
+    await saveWorldLink(scope, worldId, {
       id: generateId('entity-link'),
       projectId,
       sourceEngineId: 'worldgen',
@@ -240,6 +242,50 @@ export default function SpatialEntityInspector({
           </select>
         </label>
       )}
+
+      {['settlement', 'region', 'ruin'].includes(entity.kind) && (
+        <fieldset className="grid grid-cols-2 gap-2 rounded-lg border border-border p-2">
+          <legend className="px-1 text-[10px] uppercase tracking-wide text-text-muted">{t('worldgen.place.appearance')}</legend>
+          <label className="text-[10px] text-text-muted">{t('worldgen.place.buildingModel')}
+            <select aria-label={t('worldgen.place.buildingModel')} value={entity.style.model ?? 'auto'} onChange={e => onStyle({ model: e.target.value as typeof PLACE_MODELS[number] })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary">
+              {PLACE_MODELS.map(id => <option value={id} key={id}>{t(`worldgen.place.model.${id}`)}</option>)}
+            </select>
+          </label>
+          <label className="text-[10px] text-text-muted">{t('worldgen.place.buildingStyle')}
+            <select aria-label={t('worldgen.place.buildingStyle')} value={entity.style.buildingStyle ?? 'auto'} onChange={e => onStyle({ buildingStyle: e.target.value as typeof BUILDING_STYLES[number] })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary">
+              {BUILDING_STYLES.map(id => <option value={id} key={id}>{t(`worldgen.place.building.${id}`)}</option>)}
+            </select>
+          </label>
+          <label className="col-span-2 text-[10px] text-text-muted">{t('worldgen.place.customSymbol')}
+            <input aria-label={t('worldgen.place.customSymbol')} value={entity.style.icon === 'auto' ? '' : entity.style.icon ?? ''} maxLength={16} placeholder="city · town · fort · place · ◆" onChange={e => onStyle({ icon: e.target.value || 'auto' })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary" />
+          </label>
+        </fieldset>
+      )}
+
+      {entity.kind === 'realm' && (
+        <fieldset className="grid grid-cols-2 gap-2 rounded-lg border border-border p-2">
+          <legend className="px-1 text-[10px] uppercase tracking-wide text-text-muted">{t('worldgen.place.territory')}</legend>
+          <label className="text-[10px] text-text-muted">{t('worldgen.place.areaStyle')}
+            <select aria-label={t('worldgen.place.areaStyle')} value={entity.style.areaStyle ?? 'wash'} onChange={e => onStyle({ areaStyle: e.target.value as typeof AREA_STYLES[number] })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary">
+              {AREA_STYLES.map(id => <option value={id} key={id}>{t(`worldgen.place.area.${id}`)}</option>)}
+            </select>
+          </label>
+          <label className="text-[10px] text-text-muted">{t('worldgen.place.areaOpacity')}
+            <input aria-label={t('worldgen.place.areaOpacity')} type="range" min={0} max={1} step={.05} value={entity.style.areaOpacity ?? 1} onChange={e => onStyle({ areaOpacity: Number(e.target.value) })} className="mt-2 w-full accent-amber-400" />
+          </label>
+        </fieldset>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-[10px] text-text-muted">{t('worldgen.place.labelFont')}
+          <select aria-label={t('worldgen.place.labelFont')} value={entity.style.labelFont ?? 'theme'} onChange={e => onStyle({ labelFont: e.target.value as typeof PLACE_LABEL_FONTS[number] })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary">
+            {PLACE_LABEL_FONTS.map(id => <option value={id} key={id}>{t(`worldgen.place.font.${id}`)}</option>)}
+          </select>
+        </label>
+        <label className="text-[10px] text-text-muted">{t('worldgen.place.labelSize')}
+          <input aria-label={t('worldgen.place.labelSize')} type="range" min={.6} max={2} step={.05} value={entity.style.labelSize ?? 1} onChange={e => onStyle({ labelSize: Number(e.target.value) })} className="mt-2 w-full accent-amber-400" />
+        </label>
+      </div>
 
       <label className="flex items-center gap-2 text-[10px] text-text-muted">
         {t('worldgen.place.color')}
@@ -348,7 +394,7 @@ export default function SpatialEntityInspector({
             <button
               type="button"
               onClick={async () => {
-                await db.entityLinks.delete(link.id);
+                await deleteWorldLink(scope, worldId, link.id);
                 await refreshLinks();
               }}
               className="text-text-muted hover:text-danger"

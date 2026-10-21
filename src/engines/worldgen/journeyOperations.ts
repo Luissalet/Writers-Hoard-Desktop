@@ -1,3 +1,4 @@
+import { worldgenScopeOperations } from './era';
 import { db } from '@/db';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import type { WorldJourney } from './journeyTypes';
@@ -11,10 +12,11 @@ function validJourney(journey: WorldJourney): boolean {
 }
 
 /** Atomic append, preserving concurrent recipes and other itineraries. Retrying the same ID is idempotent. */
-export async function saveWorldJourney(worldId: string, projectId: string, journey: WorldJourney): Promise<WorldJourney[]> {
+export async function saveWorldJourney(worldId: string, projectId: string, journey: WorldJourney, eraId?: string): Promise<WorldJourney[]> {
   if (!validJourney(journey)) throw new Error('Invalid itinerary');
-  const result = await db.transaction('rw', db.generatedWorlds, async () => {
-    const current = await db.generatedWorlds.get(worldId);
+  const { worlds } = worldgenScopeOperations({ projectId, eraId });
+  const result = await db.transaction('rw', eraId ? db.tables : [db.generatedWorlds], async () => {
+    const current = await worlds.getOne(worldId);
     if (!current || current.projectId !== projectId) throw new Error('World no longer belongs to this project');
     const journeys = [...(current.journeys ?? [])];
     const existing = journeys.find(row => row.id === journey.id);
@@ -23,7 +25,7 @@ export async function saveWorldJourney(worldId: string, projectId: string, journ
       return journeys;
     }
     journeys.push(structuredClone(journey));
-    await db.generatedWorlds.update(worldId, { journeys, updatedAt: Date.now() });
+    await worlds.update(worldId, { journeys, updatedAt: Date.now() });
     return journeys;
   });
   notifyDataChanged({ source: 'other', table: 'generatedWorlds', entityId: worldId, projectId });
@@ -31,14 +33,15 @@ export async function saveWorldJourney(worldId: string, projectId: string, journ
 }
 
 /** Delete only the version the reader confirmed, preserving concurrent changes and other plans. */
-export async function deleteWorldJourney(worldId: string, projectId: string, expected: WorldJourney): Promise<void> {
-  await db.transaction('rw', db.generatedWorlds, async () => {
-    const current = await db.generatedWorlds.get(worldId);
+export async function deleteWorldJourney(worldId: string, projectId: string, expected: WorldJourney, eraId?: string): Promise<void> {
+  const { worlds } = worldgenScopeOperations({ projectId, eraId });
+  await db.transaction('rw', eraId ? db.tables : [db.generatedWorlds], async () => {
+    const current = await worlds.getOne(worldId);
     if (!current || current.projectId !== projectId) throw new Error('World no longer belongs to this project');
     const target = current.journeys?.find(journey => journey.id === expected.id);
     if (!target) return;
     if (JSON.stringify(target) !== JSON.stringify(expected)) throw new Error('Itinerary changed since deletion was requested');
-    await db.generatedWorlds.update(worldId, { journeys: current.journeys!.filter(journey => journey.id !== expected.id), updatedAt: Date.now() });
+    await worlds.update(worldId, { journeys: current.journeys!.filter(journey => journey.id !== expected.id), updatedAt: Date.now() });
   });
   notifyDataChanged({ source: 'other', table: 'generatedWorlds', entityId: worldId, projectId });
 }

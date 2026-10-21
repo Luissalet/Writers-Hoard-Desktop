@@ -1,3 +1,5 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { mutateEraRows } from '@/services/worldEras/store';
 import { lazy, Suspense, useState, useMemo, useCallback, useRef } from 'react';
 import { Plus, Link2, MessageCircle, Volume2 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -20,7 +22,7 @@ import {
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Scene, DialogBlock, DialogBlockType, BlockFormatting, SceneCast } from '../types';
-import { useDialogBlocks, useSceneCast, useLinkedBeats } from '../hooks';
+import { useDialogBlocks, useSceneCast, useLinkedBeats, useSceneOperations } from '../hooks';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import CastBar from './CastBar';
 import DialogBlockComponent from './DialogBlockComponent';
@@ -40,6 +42,7 @@ import { toast } from '@/components/common/toast';
 import { db } from '@/db';
 import { flushPendingWrites } from '@/services/pendingWrites';
 import { conversationCopy } from '../conversation/copy';
+import ConversationComposer from '../conversation/ConversationComposer';
 
 const ConversationPreview = lazy(() => import('../conversation/ConversationPreview'));
 interface ConversationSnapshot { id: string; scene: Scene; blocks: DialogBlock[]; cast: SceneCast[] }
@@ -108,6 +111,7 @@ export default function SceneEditor({
   onBack,
 }: SceneEditorProps) {
   const { t, locale } = useTranslation();
+  const scope = useWorldEraScope(scene.projectId), operations = useSceneOperations();
   const conversationText = conversationCopy[locale];
   const editorRoot = useRef<HTMLDivElement>(null);
   void _scenes; // available for future scene-navigation features
@@ -170,9 +174,9 @@ export default function SceneEditor({
     setOpeningConversation(true);
     try {
       if (!(await flushPendingWrites()).ok) throw new Error('Pending scene edits could not be saved.');
-      const freshScene = await db.scenes.get(scene.id);
+      const freshScene = await operations.getScene(scene.id);
       if (!freshScene || freshScene.projectId !== scene.projectId) throw new Error('Scene unavailable.');
-      const [freshBlocks, freshCast] = await Promise.all([db.dialogBlocks.where('sceneId').equals(scene.id).toArray(), db.sceneCasts.where('sceneId').equals(scene.id).toArray()]);
+      const [freshBlocks, freshCast] = await Promise.all([operations.getDialogBlocks(scene.id), operations.getSceneCast(scene.id)]);
       setConversation({ id: crypto.randomUUID(), scene: freshScene, blocks: freshBlocks.filter(block => block.projectId === scene.projectId), cast: freshCast });
     } catch { toast.error(conversationText.failure); }
     finally { setOpeningConversation(false); }
@@ -191,7 +195,7 @@ export default function SceneEditor({
   const requestDeleteBlock = useCallback((id: string) => {
     setPendingBlockDeleteIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
   }, []);
-  const tableReadSettingKey = `${PROJECT_SETTING_PREFIXES.tableReadVoices}${scene.projectId}`;
+  const tableReadSettingKey = `${PROJECT_SETTING_PREFIXES.tableReadVoices}${scene.projectId}${scope.eraId ? `.era:${scope.eraId}` : ''}`;
   const tableReadVoicePreferences = useLiveQuery(
     async () => parseVoicePreferences(await getSetting(tableReadSettingKey)),
     [tableReadSettingKey],
@@ -209,6 +213,14 @@ export default function SceneEditor({
 
   const createTableReadNote = useCallback(async (anchor: ReadAloudNoteAnchor) => {
     const now = Date.now();
+    if (scope.eraId) {
+      const id = generateId('note');
+      await db.transaction('rw', db.tables, async () => {
+        await mutateEraRows(scope, [{ table: 'notes', id, row: { id, projectId: scene.projectId, kind: 'idea', text: `${t('dialogScene.tableRead.notePrefix')}${anchor.characterName ? ` · ${anchor.characterName}` : ''}\n“${anchor.quote}”`, source: scene.title, tags: ['conversation'], pinned: false, createdAt: now, updatedAt: now } }]);
+        const project = await db.projects.get(scene.projectId); if (project && !project.enabledEngines.includes('notes')) await db.projects.update(project.id, { enabledEngines: [...project.enabledEngines, 'notes'], engineOrder: [...new Set([...(project.engineOrder ?? project.enabledEngines), 'notes'])], updatedAt: now });
+      });
+      toast.success(`${t('dialogScene.tableRead.noteSaved')} · ${t('engines.notes.name')}`); return;
+    }
     // max+1, not count(): positions go sparse after a delete, and a
     // count-based position would slot this note among the existing ones.
     const position = (await db.annotations
@@ -229,7 +241,7 @@ export default function SceneEditor({
       updatedAt: now,
     });
     toast.success(t('dialogScene.tableRead.noteSaved'));
-  }, [scene.id, scene.projectId, t]);
+  }, [scene.id, scene.projectId, scene.title, scope, t]);
 
   const jumpFromTableRead = useCallback(async (anchor: ReadAloudNoteAnchor) => {
     setShowTableRead(false);
@@ -634,6 +646,7 @@ export default function SceneEditor({
           </div>
 
           {/* Add Block Menu */}
+          <ConversationComposer key={`${scene.id}:${scope.eraId ?? 'base'}`} scene={scene} cast={cast} entries={codexEntries} locale={locale} />
           <div className="relative mt-6 pt-4 border-t border-border/30">
             {showAddMenu ? (
               <motion.div

@@ -32,7 +32,7 @@ import type { GeoDepth, HumanGeography } from './core/settlements';
 import { getCachedWorld, paramsKey } from './useWorldGeneration';
 import { loadSnapshot, saveSnapshot } from './snapshots';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from './forge/bridge';
-import { generatedWorldOps } from './operations';
+import { worldgenScopeOperations, worldRuntimeKey } from './era';
 import { flushWorldEdits, hasPendingWorldEdits } from './editWriter';
 import type { WorkerReply } from './worldgen.worker';
 
@@ -111,12 +111,13 @@ export function isForging(worldId: string): boolean {
  * reading only. `depth: 'places'` is settlements, ruins and landmarks; `'full'`
  * adds realms, named seas/ranges and roads (slower to build the first time).
  */
-export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth = 'full'): Promise<OpenWorldResult> {
+export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth = 'full', eraId?: string): Promise<OpenWorldResult> {
+  const runtimeId = worldRuntimeKey(world.id, eraId);
   // 1. An open view: its object is the current state, and its geography is
   //    already built (or will be adopted by the view, a deeper answer being
   //    valid for shallower questions too).
-  if (liveWorld(world.id)) {
-    const data = getCachedWorld(world.id, world.params);
+  if (liveWorld(runtimeId)) {
+    const data = getCachedWorld(runtimeId, world.params);
     if (data) {
       const geo = getGeography(data, depth);
       return { ok: true, world: { data, geo, atlas: buildAtlas(data, geo), live: true } };
@@ -125,11 +126,11 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
 
   // 2. A recent private build for exactly this list.
   const key = buildKey(world, depth);
-  const hit = built.get(world.id);
+  const hit = built.get(runtimeId);
   if (hit && hit.key === key && Date.now() - hit.at < BUILT_TTL_MS) return { ok: true, world: hit.world };
 
   // 3. The snapshot, replayed privately.
-  const snap = await loadSnapshot(world.id, paramsKey(world.params));
+  const snap = await loadSnapshot(runtimeId, paramsKey(world.params));
   if (snap) {
     let edits: WorldEdit[] = [];
     if (world.edits) {
@@ -143,8 +144,8 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
     new PaintSession(snap, edits);
     const geo = getGeography(snap, depth);
     const readable: ReadableWorld = { data: snap, geo, atlas: buildAtlas(snap, geo), live: false };
-    built.delete(world.id);
-    built.set(world.id, { key, world: readable, at: Date.now() });
+    built.delete(runtimeId);
+    built.set(runtimeId, { key, world: readable, at: Date.now() });
     while (built.size > BUILT_MAX) {
       const oldest = built.keys().next().value;
       if (!oldest) break;
@@ -154,7 +155,7 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   }
 
   // 4. Never generated here: start it, say so.
-  startBackgroundForge(world.id, world.params);
+  startBackgroundForge(runtimeId, world.params);
   return {
     ok: false,
     code: 'generating',
@@ -172,9 +173,11 @@ const ROW_WRITE_ATTEMPTS = 4;
 export async function applyWorldEdits(
   world: GeneratedWorld,
   edits: WorldEdit[],
+  eraId?: string,
 ): Promise<{ before: string; delivered: 'view' | 'row' }> {
+  const runtimeId = worldRuntimeKey(world.id, eraId), { worlds } = worldgenScopeOperations({ projectId: world.projectId, eraId });
   for (let attempt = 0; attempt < ROW_WRITE_ATTEMPTS; attempt += 1) {
-    const handle = liveWorld(world.id);
+    const handle = liveWorld(runtimeId);
     if (handle) {
       const before = handle.snapshot();
       handle.apply(edits);
@@ -184,13 +187,13 @@ export async function applyWorldEdits(
     // prepara su sesión (tras regenerar, al reintentar) puede tener un guardado
     // en vuelo. Se deja llegar primero; si no, aterrizaría DESPUÉS con la lista
     // vieja y taparía esta edición.
-    if (!await flushWorldEdits(world.id)) break;
+    if (!await flushWorldEdits(runtimeId)) break;
     // Y la lista se lee de la FILA, no de `world`: el llamante la cargó antes de
     // abrir el mundo para leerlo (segundos, a veces), y añadir sobre esa copia
     // borraba lo que se hubiera guardado entretanto — trazos de la vista, una
     // regeneración entera.
-    const before = await db.transaction('rw', db.generatedWorlds, async () => {
-      const row = await db.generatedWorlds.get(world.id);
+    const before = await db.transaction('rw', eraId ? db.tables : [db.generatedWorlds], async () => {
+      const row = await worlds.getOne(world.id);
       // EL VACIADO ES UNA ESPERA, y en una espera el mundo se mueve: una vista
       // pudo registrarse (y ya es la dueña: la edición es suya, no de la fila)
       // o programar otro guardado (que aterrizaría detrás de éste con su lista
@@ -198,7 +201,7 @@ export async function applyWorldEdits(
       // guardado de una vista es otra transacción sobre esta tabla y no puede
       // colarse entre esta comprobación y la escritura. Si algo cambió, no se
       // escribe nada y se vuelve a empezar.
-      if (liveWorld(world.id) || hasPendingWorldEdits(world.id)) return null;
+      if (liveWorld(runtimeId) || hasPendingWorldEdits(runtimeId)) return null;
       const current = row ? row.edits ?? '' : world.edits ?? '';
       let list: WorldEdit[] = [];
       if (current) {
@@ -209,13 +212,13 @@ export async function applyWorldEdits(
         }
       }
       list.push(...edits);
-      await generatedWorldOps.update(world.id, { edits: serializeEdits(list) });
+      await worlds.update(world.id, { edits: serializeEdits(list) });
       return current;
     });
     if (before === null) continue;
     // The private build for the old list is stale now.
-    built.delete(world.id);
-    await reconcileRowWrite(world.id, edits);
+    built.delete(runtimeId);
+    await reconcileRowWrite(world.id, edits, world.projectId, eraId);
     return { before, delivered: 'row' };
   }
   throw new Error('The world has unsaved edits that could not be written yet; try again shortly.');
@@ -247,19 +250,20 @@ function holdsEdits(serialized: string | undefined, edits: WorldEdit[]): boolean
  * tiene la edición se le entrega; si un guardado rancio devolvió la fila a la
  * lista vieja, se vuelve a añadir. Acotado, como todo lo demás aquí.
  */
-async function reconcileRowWrite(worldId: string, edits: WorldEdit[]): Promise<void> {
+async function reconcileRowWrite(worldId: string, edits: WorldEdit[], projectId: string, eraId?: string): Promise<void> {
+  const runtimeId = worldRuntimeKey(worldId, eraId), { worlds } = worldgenScopeOperations({ projectId, eraId });
   for (let attempt = 0; attempt < ROW_WRITE_ATTEMPTS; attempt += 1) {
-    const handle = liveWorld(worldId);
+    const handle = liveWorld(runtimeId);
     if (handle) {
       if (!holdsEdits(handle.snapshot(), edits)) handle.apply(edits);
       return;
     }
-    if (!hasPendingWorldEdits(worldId)) return;
-    if (!await flushWorldEdits(worldId)) return;
-    const reappended = await db.transaction('rw', db.generatedWorlds, async () => {
-      const row = await db.generatedWorlds.get(worldId);
+    if (!hasPendingWorldEdits(runtimeId)) return;
+    if (!await flushWorldEdits(runtimeId)) return;
+    const reappended = await db.transaction('rw', eraId ? db.tables : [db.generatedWorlds], async () => {
+      const row = await worlds.getOne(worldId);
       if (!row || holdsEdits(row.edits, edits)) return false;
-      if (liveWorld(worldId) || hasPendingWorldEdits(worldId)) return null;
+      if (liveWorld(runtimeId) || hasPendingWorldEdits(runtimeId)) return null;
       let list: WorldEdit[] = [];
       try {
         list = row.edits ? deserializeEdits(row.edits) : [];
@@ -267,10 +271,10 @@ async function reconcileRowWrite(worldId: string, edits: WorldEdit[]): Promise<v
         list = [];
       }
       list.push(...edits);
-      await generatedWorldOps.update(worldId, { edits: serializeEdits(list) });
+      await worlds.update(worldId, { edits: serializeEdits(list) });
       return true;
     });
     if (reappended === false) return;
-    if (reappended) built.delete(worldId);
+    if (reappended) built.delete(runtimeId);
   }
 }

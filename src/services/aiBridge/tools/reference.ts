@@ -10,6 +10,9 @@
 
 import { db } from '@/db';
 import { getCodexEntries, getWriting } from '@/db/operations';
+import type { CodexEntry, Writing } from '@/types';
+import { getEraProject, listEraRows, readEraRow } from '@/services/worldEras/store';
+import { projectCodexEntry } from '@/engines/codex/properties';
 import {
   clampReferenceWidth,
   getReferenceUi,
@@ -41,6 +44,7 @@ import {
 
 interface Scope {
   projectId: string;
+  eraId?: string;
   /** Pin scope: the chapter id, or `book:<projectId>`. */
   scopeId: string;
   /** Plain text matching runs on. */
@@ -50,30 +54,34 @@ interface Scope {
 
 /** A chapter (`writingId`) or the whole book (`scope: "book"` with the project). */
 async function resolveScope(args: ToolArgs): Promise<Scope> {
+  const eraId = optString(args, 'eraId');
   if (optString(args, 'scope') === 'book') {
     const projectId = resolveProjectId(args);
     return {
       projectId,
+      eraId,
       scopeId: bookScopeId(projectId),
       text: async () => {
         // The manuscript only: the numbered chapters in reading order, the same set
         // the whole-book editor opens. Unnumbered ideas are not part of the book text.
-        const rows = numberedInOrder(await db.writings.where('projectId').equals(projectId).toArray());
+        const rows = numberedInOrder(eraId ? await listEraRows<Writing>({ projectId, eraId }, 'writings') : await db.writings.where('projectId').equals(projectId).toArray());
         return rows.map((row) => stripHtml(row.content)).join('\n');
       },
     };
   }
   const writingId = requireString(args, 'writingId');
-  const writing = await getWriting(writingId);
+  const writing = eraId ? await readEraRow<Writing>({ projectId: resolveProjectId(args), eraId }, 'writings', writingId) : await getWriting(writingId);
   if (!writing) throw new BridgeError('not-found', `No writing with id "${writingId}".`);
   assertRowInScope(args, writing.projectId);
   return {
     projectId: writing.projectId,
+    eraId,
     scopeId: writing.id,
     writingId: writing.id,
     text: async () => stripHtml(writing.content),
   };
 }
+const scopedEntries = (projectId: string, eraId?: string) => eraId ? listEraRows<CodexEntry>({ projectId, eraId }, 'codexEntries') : getCodexEntries(projectId);
 
 function uiState() {
   const ui = getReferenceUi();
@@ -86,7 +94,7 @@ function uiState() {
 
 export async function whChapterReferences(args: ToolArgs): Promise<unknown> {
   const scope = await resolveScope(args);
-  const entries = await getCodexEntries(scope.projectId);
+  const entries = await scopedEntries(scope.projectId, scope.eraId);
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
   const mentions = findMentions(await scope.text(), entries).map((match) => {
     const entry = byId.get(match.entryId)!;
@@ -118,7 +126,7 @@ export async function whChapterReferences(args: ToolArgs): Promise<unknown> {
 
 export async function whPinReference(args: ToolArgs): Promise<unknown> {
   const scope = await resolveScope(args);
-  const entries = await getCodexEntries(scope.projectId);
+  const entries = await scopedEntries(scope.projectId, scope.eraId);
   const entryId = requireString(args, 'entryId');
   if (typeof args.pinned !== 'boolean') {
     throw new BridgeError('bad-args', '"pinned" must be true or false.');
@@ -156,7 +164,7 @@ export async function whReferenceSearch(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const query = requireString(args, 'query');
   const limit = clampLimit(optNumber(args, 'limit'), 10, 30);
-  const entries = await getCodexEntries(projectId);
+  const entries = await scopedEntries(projectId, optString(args, 'eraId'));
   const codex = searchEntries(query, entries, limit).map((entry) => ({
     kind: 'codex',
     id: entry.id,
@@ -164,7 +172,7 @@ export async function whReferenceSearch(args: ToolArgs): Promise<unknown> {
     type: entry.type,
     summary: entrySummary(entry, 140),
   }));
-  const others = (await searchSources(projectId, query, limit)).map((item) => ({
+  const others = (await searchSources(projectId, query, limit, optString(args, 'eraId'))).map((item) => ({
     kind: item.kind,
     id: item.id,
     title: item.title,
@@ -179,7 +187,7 @@ export async function whReferencePreview(args: ToolArgs): Promise<unknown> {
   const kind = requireString(args, 'kind');
   const id = requireString(args, 'id');
   if (kind === 'codex') {
-    const entry = (await getCodexEntries(projectId)).find((row) => row.id === id);
+    const entry = await readEraRow<CodexEntry>({ projectId, eraId: optString(args, 'eraId') }, 'codexEntries', id);
     if (!entry) throw new BridgeError('not-found', `No codex entry with id "${id}" in this project.`);
     return {
       kind,
@@ -187,14 +195,14 @@ export async function whReferencePreview(args: ToolArgs): Promise<unknown> {
       title: entry.title,
       type: entry.type,
       tags: entry.tags,
-      fields: entry.fields,
+      fields: projectCodexEntry(entry, (await getEraProject({ projectId, eraId: optString(args, 'eraId') })).codexTemplates).fields,
       paragraphs: bodyParagraphs(entry.content),
     };
   }
   if (kind !== 'note' && kind !== 'citation') {
     throw new BridgeError('bad-args', '"kind" must be "codex", "note" or "citation".');
   }
-  const item = await getSource(projectId, kind as ReferenceSourceKind, id);
+  const item = await getSource(projectId, kind as ReferenceSourceKind, id, optString(args, 'eraId'));
   if (!item) throw new BridgeError('not-found', `No ${kind} with id "${id}" in this project.`);
   return { kind, id, title: item.title, subtitle: item.subtitle, tags: item.tags, paragraphs: item.body };
 }

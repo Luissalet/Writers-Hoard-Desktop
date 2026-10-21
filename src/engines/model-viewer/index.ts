@@ -13,7 +13,7 @@ const ModelViewerEngine = lazy(() => import('./ModelViewerEngine'));
 const modelViewerEngine: EngineDefinition = {
   id: 'model-viewer',
   name: '3D models',
-  description: 'Local GLB references with orbit, zoom, lighting and animations',
+  description: 'Local 3D models, materials, camera navigation and animations',
   icon: Box,
   category: 'creative',
   tables: {},
@@ -21,4 +21,4 @@ const modelViewerEngine: EngineDefinition = {
   countProjectItems: async projectId => (await db.projects.get(projectId))?.modelAssets?.length ?? 0,
 };
 registerEngine(modelViewerEngine);
-registerEntityResolver(metadataResolver('model-viewer', ['model-asset'], project => (project.modelAssets ?? []).map(asset => ({ id: asset.id, projectId: project.id, engineId: 'model-viewer', type: 'model-asset', title: asset.name, subtitle: 'GLB' }))));
+registerEntityResolver(metadataResolver('model-viewer', ['model-asset'], project => (project.modelAssets ?? []).map(asset => ({ id: asset.id, projectId: project.id, engineId: 'model-viewer', type: 'model-asset', title: asset.name, subtitle: asset.name.split('.').pop()?.toUpperCase() || '3D' }))));

@@ -33,10 +33,13 @@ export async function testWorkspaceLibrary(): Promise<string[]> {
   };
   try {
     const project = await seedWorkspaceLibrary(P); await seedWorkspaceLibrary(foreign);
+    const { DEFAULT_PARAMS } = await import('@/engines/worldgen/core/types');
+    await db.scenes.put({ id: `${P}-scene`, projectId: P, title: 'La carta del estuario', order: 0, tags: [], createdAt: 1, updatedAt: 1 });
+    await db.generatedWorlds.put({ id: `${P}-world`, projectId: P, title: 'Mundo del estuario', params: { ...DEFAULT_PARAMS }, createdAt: 1, updatedAt: 1 });
     const baseline = await snapshot(), documents = await listWorkspaceDocuments(P);
-    assert(documents.length === 12 && documents.every(document => document.route.includes(P) && document.entityId.startsWith(P)), 'Mixed source catalog is project scoped');
+    assert(documents.length === 14 && documents.every(document => document.route.includes(P) && document.entityId.startsWith(P)), 'Mixed source catalog is project scoped');
     const extra = await listWorkspaceDocuments(P, { ...project, modelAssets: [{ id: 'model', name: 'Ship', dataUrl: '', size: 0, createdAt: 1 }] });
-    assert(workspaceEngineIds.every(id => extra.some(document => document.engineId === id)), 'Catalog covers all thirteen supported core and metadata source classes');
+    assert(workspaceEngineIds.every(id => extra.some(document => document.engineId === id)), 'Catalog covers all fifteen supported core and metadata source classes');
     let library = readWorkspaceLibrary({ workspaceFolders: [{ id: 'a', name: 'A', parentId: 'b', order: 0 }, { id: 'b', name: 'B', parentId: 'a', order: 0 }, { id: 'missing-parent', name: 'C', parentId: 'gone', order: 1 }], workspacePlacements: [{ engineId: 'codex', entityId: 'entry', folderId: 'gone', order: 0 }] });
     assert(folderTree(library.folders).length === 3 && library.placements[0].folderId === undefined, 'Malformed missing parents and imported cycles normalize without hiding folders');
     library = { folders: [], placements: [], revision: 0 };
@@ -44,7 +47,7 @@ export async function testWorkspaceLibrary(): Promise<string[]> {
     library = applyWorkspaceLibraryAction(library, { kind: 'create-folder', id: 'b', name: 'Coast', parentId: 'a' }, documents);
     assert(folderPath(library.folders, 'b') === 'Research / Coast', 'Nested folder path preserves authored hierarchy');
     let invalid = false; try { applyWorkspaceLibraryAction(library, { kind: 'move-folder', id: 'a', parentId: 'b' }, documents); } catch (error) { invalid = error instanceof WorkspaceLibraryInvalidAction; } assert(invalid, 'Moving parent into descendant rejects cycles');
-    passed.push('Catalog covers thirteen mixed source types and project scope; folder hierarchy, imported malformed data and cycle guards');
+    passed.push('Catalog covers fifteen mixed source types and project scope; folder hierarchy, imported malformed data and cycle guards');
 
     await action({ kind: 'create-folder', id: 'a', name: 'Research' }); await action({ kind: 'create-folder', id: 'b', name: 'Coast', parentId: 'a' });
     const sources = documents.filter(document => ['codex', 'writings', 'maps', 'notes', 'dictionary', 'tables', 'media'].includes(document.engineId));

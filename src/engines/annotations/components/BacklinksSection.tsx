@@ -13,16 +13,17 @@ import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { useEntityBacklinks } from '../hooks';
 
 export interface BacklinksSectionProps {
+  projectId?:string;
   engineId: string;
   entityId: string;
   /** Compact mode hides the heading — useful inside dense cards. */
   compact?: boolean;
 }
 
-export default function BacklinksSection({ engineId, entityId, compact }: BacklinksSectionProps) {
+export default function BacklinksSection({ engineId, entityId, projectId,compact }: BacklinksSectionProps) {
   const { t } = useTranslation();
   const navigate = usePaneNavigate();
-  const { items, loading } = useEntityBacklinks({ engineId, entityId });
+  const { items, loading } = useEntityBacklinks({ engineId, entityId,projectId });
 
   if (loading) return null;
   if (items.length === 0) return null;
@@ -43,7 +44,7 @@ export default function BacklinksSection({ engineId, entityId, compact }: Backli
           return (
             <li key={b.annotationId}>
               <button
-                onClick={() => adapter?.navigateToEntity(b.sourceEntityId, undefined, navigate)}
+                onClick={() => adapter?.navigateToEntity(b.sourceEntityId, projectId, navigate)}
                 className="w-full flex items-start gap-2 rounded-md border border-border bg-bg-base/60 hover:bg-bg-elevated transition px-2.5 py-2 text-left group"
               >
                 <span className="text-[10px] uppercase tracking-wide text-accent-gold mt-0.5 flex-shrink-0">

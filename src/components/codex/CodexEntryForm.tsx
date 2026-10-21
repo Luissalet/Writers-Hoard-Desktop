@@ -1,3 +1,6 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
+import PropertyValueInput from './PropertyValueInput';
 import { useEffect, useId, useState, useRef } from 'react';
 import type { CodexEntry, CodexEntryType } from '@/types';
 import { getTemplateFields } from '@/types';
@@ -94,7 +97,8 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
   const { items: codexEntries } = useCodexEntries(projectId);
   const aliasesInputId = useId();
   const draftId = entry?.id ?? 'new';
-  const [drafts] = useState(() => codexDraftStore(projectId));
+  const scope = useWorldEraScope(projectId);
+  const [drafts] = useState(() => codexDraftStore(projectId, scope.eraId));
   const [initial] = useState(() => {
     const stored = drafts.get(draftId);
     const blank = codexFormValues(entry);
@@ -112,6 +116,8 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
   const [referenceFields, setReferenceFields] = useState<Record<string, string[]>>(initial.values.referenceFields ?? {});
   const rawTemplate = project?.codexTemplates?.find(item => item.id === templateId) ?? (template?.id === templateId ? template : undefined);
   const activeTemplate = rawTemplate ? effectiveCodexTemplate(rawTemplate, project?.codexTemplates ?? []) : undefined;
+  const valueDefinitions = activeTemplate ? propertyDefinitions(activeTemplate) : entry?.propertyDefinitions ?? [];
+  const projection = projectCodexEntry({ ...initial.values, ...entry, id: entry?.id ?? '', projectId, type, title, fields, content, tags, relations: [], createdAt: 0, updatedAt: 0, templateId }, project?.codexTemplates ?? (activeTemplate ? [activeTemplate] : []));
   const referenceDefinitions = activeTemplate?.referenceFieldDefinitions ?? [];
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
@@ -120,6 +126,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
   const savingRef = useRef(false);
   // The entry this edit started from, advanced field by field as conflicts are resolved.
   const [base, setBase] = useState(initial.base);
+  const [externalEntry,setExternalEntry]=useState<CodexEntry>();
   const [conflict, setConflict] = useState<CodexEditConflict | null>(null);
   const [recovered, setRecovered] = useState(initial.recovered);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -130,7 +137,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
 
   // Mirror unsaved input into the recovery store: closing the modal unmounts
   // this form, and what was typed has to survive it.
-  const dirty = recovered || !sameCodexFormValues({ type, title, avatar, avatarOriginal, fields, content, tags, templateId, referenceFields }, codexFormValues(entry));
+  const dirty = recovered || !sameCodexFormValues({ type, title, avatar, avatarOriginal, fields, content, tags, templateId, referenceFields }, codexFormValues(externalEntry??entry));
   useEffect(() => {
     if (dirty) drafts.set(draftId, toCodexDraft({ type, title, avatar, avatarOriginal, fields, content, tags, templateId, referenceFields }, base));
     else drafts.delete(draftId);
@@ -138,7 +145,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   const discardDraft = () => {
-    const saved = codexFormValues(entry);
+    const saved = codexFormValues(externalEntry??entry);
     drafts.delete(draftId);
     setType(saved.type);
     setTitle(saved.title);
@@ -263,6 +270,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
       avatarOriginal: avatarOriginal || avatar || undefined,
       fields,
       templateId,
+      propertyDefinitions: entry?.propertyDefinitions,
       referenceFields,
       content,
       tags,
@@ -313,7 +321,6 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
       ) : null}
 
       {/* Type selector */}
-      {!entry && (
         <div>
           <label className="block text-sm text-text-muted mb-2">{t('codex.entryType')}</label>
           <div className="flex flex-wrap gap-2">
@@ -323,6 +330,8 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
               return (
                 <button
                   key={entryType}
+                  type="button"
+                  aria-pressed={type === entryType}
                   onClick={() => handleTypeChange(entryType)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition ${
                     type === entryType
@@ -338,7 +347,6 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
             })}
           </div>
         </div>
-      )}
 
       {/* Title + Avatar */}
       <div className="flex gap-4 items-start">
@@ -417,15 +425,15 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
 
       {/* Template fields */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {Object.entries(fields).filter(([key]) => !isAliasField(key)).map(([key, value]) => (
+        {Object.entries({ ...Object.fromEntries(valueDefinitions.map(item => [item.key, ''])), ...fields }).filter(([key]) => !isAliasField(key)).map(([key, value]) => { const definition = valueDefinitions.find(item => item.key === key); const projected = projection.properties[key]; return (
           <div key={key}>
             <div className="flex items-start justify-between gap-2 mb-1.5">
-              <label htmlFor={`${aliasesInputId}-field-${encodeURIComponent(key)}`} className="text-sm text-text-muted break-words min-w-0">{t(FIELD_LABEL_KEYS[key] || key)}</label>
-              {!Object.hasOwn(getTemplateFields(type), key) && (
+              <label htmlFor={`${aliasesInputId}-field-${encodeURIComponent(key)}`} className="text-sm text-text-muted break-words min-w-0">{definition?.label ?? t(FIELD_LABEL_KEYS[key] || key)}</label>
+              {!definition?.formula && !Object.hasOwn(getTemplateFields(type), key) && (
                 <button type="button" onClick={() => value ? setPendingRemoveField(key) : removeField(key)} className="shrink-0 rounded p-1 text-text-muted hover:text-danger hover:bg-danger/10" aria-label={t('codex.fields.remove').replace('{name}', key)} title={t('codex.fields.remove').replace('{name}', key)}><X size={14} aria-hidden="true" /></button>
               )}
             </div>
-            {key === 'backstory' || key === 'history' || key === 'physicalDescription' || key === 'personality' ? (
+            {definition ? <PropertyValueInput id={`${aliasesInputId}-field-${encodeURIComponent(key)}`} definition={definition} value={value} projected={projected} onChange={value => setFields({ ...fields, [key]: value })} /> : key === 'backstory' || key === 'history' || key === 'physicalDescription' || key === 'personality' ? (
               <textarea
                 id={`${aliasesInputId}-field-${encodeURIComponent(key)}`}
                 value={value}
@@ -442,7 +450,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
               />
             )}
           </div>
-        ))}
+        ); })}
       </div>
 
       <div>
@@ -481,7 +489,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
           <BookOpen size={14} />
           {t('codex.extendedNotes')}
         </label>
-        <TiptapEditor content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
+        <TiptapEditor documentOwner={entry?{kind:'codex',documentId:entry.id}:undefined} prepareExternal={async()=>!dirty} canAcceptExternalBlock={()=>!dirty&&!saving} onExternalBlockCommit={(_owner,root)=>{const updated=root as unknown as CodexEntry;setExternalEntry(updated);setBase(updated);setContent(updated.content);}} content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
       </div>
 
       {/* Tags */}

@@ -8,7 +8,9 @@
 
 import type { Note, NoteKind } from '@/engines/notes/types';
 import { GLOBAL_NOTES_SCOPE, noteTitle } from '@/engines/notes/types';
-import { createNote, getNote, getNotes, updateNote } from '@/engines/notes/operations';
+import { createNote, getNote, getNotes, updateNote, deleteNote } from '@/engines/notes/operations';
+import { scopedTableOps } from '@/services/worldEras/tableOps';
+import { worldEraToolScope } from '@/services/worldEras/toolScope';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
@@ -31,14 +33,16 @@ const KINDS = ['note', 'quote', 'idea', 'word'] as const satisfies readonly Note
 
 /** The inbox is a scope, not a project — so it never needs an open project. */
 function noteScope(args: ToolArgs): string {
+  if (args.inbox === true && args.eraId !== undefined) throw new BridgeError('bad-args', 'The global inbox has no world eras. Omit eraId.');
   return optBoolean(args, 'inbox') === true ? GLOBAL_NOTES_SCOPE : resolveProjectId(args);
 }
+const noteOps = (args: ToolArgs) => scopedTableOps(worldEraToolScope(args), 'notes', 'projectId', { getAll: getNotes, getOne: getNote, create: createNote, update: updateNote, delete: deleteNote });
 
 export async function whListNotes(args: ToolArgs): Promise<unknown> {
   const scope = noteScope(args);
   const kind = optEnum(args, 'kind', KINDS);
   const limit = clampLimit(optNumber(args, 'limit'), 50, 300);
-  let notes = await getNotes(scope);
+  let notes = await noteOps(args).getAll(scope);
   if (kind) notes = notes.filter((note) => note.kind === kind);
   return {
     scope: scope === GLOBAL_NOTES_SCOPE ? 'inbox' : scope,
@@ -57,6 +61,7 @@ export async function whListNotes(args: ToolArgs): Promise<unknown> {
 }
 
 export async function whCreateNote(args: ToolArgs): Promise<unknown> {
+  noteScope(args);
   // The inbox belongs to no project, so no engine can be off in it. A note
   // aimed at a project goes through the same gate as everything else.
   const scope = optBoolean(args, 'inbox') === true
@@ -74,12 +79,13 @@ export async function whCreateNote(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
-  await createNote(note);
+  await noteOps(args).create(note);
   return withAudit(
     { id: note.id, title: noteTitle(note), created: true },
     {
       projectId: scope,
       entityId: note.id,
+      table: 'notes',
       summary: `captured ${note.kind} "${noteTitle(note, 40)}"`,
     },
   );
@@ -87,7 +93,8 @@ export async function whCreateNote(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateNote(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const existing = await getNote(id);
+  if (args.inbox === true && args.eraId !== undefined) noteScope(args);
+  const existing = await noteOps(args).getOne(id);
   if (!existing) throw new BridgeError('not-found', `No note with id "${id}".`);
   if (existing.projectId !== GLOBAL_NOTES_SCOPE) {
     await assertEngineEnabled(existing.projectId, 'notes');
@@ -109,14 +116,15 @@ export async function whUpdateNote(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
-  await updateNote(id, changes);
+  await noteOps(args).update(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
     {
       projectId: existing.projectId,
       entityId: id,
+      table: 'notes',
       summary: `updated note "${noteTitle(existing, 40)}"`,
-      before: { text: existing.text, kind: existing.kind, tags: existing.tags },
+      before: { text: existing.text, kind: existing.kind, tags: existing.tags, source: existing.source, pinned: existing.pinned, __absent: existing.source === undefined ? ['source'] : [] },
     },
   );
 }

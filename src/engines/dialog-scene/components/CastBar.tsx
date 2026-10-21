@@ -158,34 +158,36 @@ export default function CastBar({
       ) : (
         <div className="flex flex-wrap gap-2">
           {cast.map((member) => (
-            <motion.button
+            <motion.div
               key={member.id}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              onClick={() => onAddDialog(member.characterName, member.color, member.characterId)}
-              className="group relative flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-elevated hover:bg-elevated/70 transition text-sm font-medium"
+              className="group relative flex items-center gap-1 rounded-lg border border-border bg-elevated transition text-sm font-medium"
               style={{ borderColor: member.color + '40', backgroundColor: member.color + '08' }}
             >
-              <div
+              <button type="button" onClick={() => onAddDialog(member.characterName, member.color, member.characterId)} className="inline-flex min-h-9 items-center gap-2 rounded-lg px-3 py-1.5 text-text-primary hover:bg-elevated/70 focus-visible:outline-2 focus-visible:outline-accent-gold">
+              <span
                 className="w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: member.color }}
               />
-              <span style={{ color: member.color }}>
+              <span>
                 {member.characterName}
               </span>
+              </button>
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onRemoveCharacter(member.id);
                 }}
-                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-danger/20 transition"
+                className="mr-1 inline-flex min-h-8 min-w-8 items-center justify-center rounded opacity-0 transition hover:bg-danger/20 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent-gold"
                 title={t('common.remove')}
                 aria-label={t('common.remove')}
               >
                 <X size={12} className="text-text-dim hover:text-danger" aria-hidden="true" />
               </button>
-            </motion.button>
+            </motion.div>
           ))}
         </div>
       )}

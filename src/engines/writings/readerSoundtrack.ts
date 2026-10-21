@@ -48,13 +48,17 @@ export function installReaderSoundtrack(root: HTMLElement, toggle: HTMLButtonEle
     play(0, `${selected.chapter.id}:${JSON.stringify(selected.chapter.audio)}`, selected.chapter.audio);
     const paragraphs = [...selected.article.querySelectorAll<HTMLElement>('.ProseMirror p')].filter(node => !node.closest('[data-wh-media-block],[data-wh-tool-block],[data-wh-codex-block],[data-wh-wiki-hidden],.wh-tool-export,.wh-reader-codex-reference'));
     let active = -1, score = Infinity;
+    const revealed = selected.article.querySelector<HTMLElement>('[data-reader-active-block]');
     paragraphs.forEach((node, index) => { for (const box of node.getClientRects()) { if (box.bottom <= top || box.top >= bottom || box.right <= left || box.left >= right) continue; const distance = Math.abs(Math.max(box.top, Math.min(target, box.bottom)) - target); if (distance < score) { score = distance; active = index; } } });
+    if (revealed) active = paragraphs.findIndex(node => node === revealed || revealed.contains(node));
     const cue = selected.chapter.cues.find(cue => cue.paragraphIndex === active && paragraphs[active] && cue.fingerprint === fingerprint(paragraphs[active].textContent ?? ''));
     play(1, cue ? `${selected.chapter.id}:${active}:${JSON.stringify(cue.track)}` : '', cue?.track);
   };
   const schedule = () => { if (!frame && enabled && !disposed) frame = requestAnimationFrame(update); };
   const click = () => { enabled = !enabled; generation++; toggle.textContent = enabled ? copy.disable : copy.enable; toggle.setAttribute('aria-pressed', String(enabled)); status.textContent = ''; if (enabled) update(); else { stop(0); stop(1); } };
+  const playFromGesture = () => { if (!enabled) click(); else schedule(); };
   toggle.textContent = copy.enable; toggle.setAttribute('aria-pressed', 'false'); toggle.addEventListener('click', click);
   root.addEventListener('scroll', schedule, true); window.addEventListener('scroll', schedule, true); window.addEventListener('resize', schedule); const observer = new ResizeObserver(schedule); observer.observe(root);
-  return () => { disposed = true; generation++; cancelAnimationFrame(frame); toggle.removeEventListener('click', click); root.removeEventListener('scroll', schedule, true); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); observer.disconnect(); stop(0); stop(1); };
+  root.addEventListener('wh-reader-play', playFromGesture); root.addEventListener('wh-reader-reveal', schedule);
+  return () => { disposed = true; generation++; cancelAnimationFrame(frame); toggle.removeEventListener('click', click); root.removeEventListener('wh-reader-play', playFromGesture); root.removeEventListener('wh-reader-reveal', schedule); root.removeEventListener('scroll', schedule, true); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); observer.disconnect(); stop(0); stop(1); };
 }

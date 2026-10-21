@@ -56,11 +56,11 @@ export async function testLocalToolSdk():Promise<string[]>{
     await expectReject(()=>client.queryCodex({limit:51}),'invalid-query');await expectReject(()=>client.queryCodex({query:'x'.repeat(201)}),'invalid-query');
     passed.push('SDK Codex: bounded typed local projection, explicit truncation, private bodies/images omitted and foreign IDs refused');
 
-    const Component=engine.component;await render(<Component projectId={P}/>);let field=host.querySelector<HTMLTextAreaElement>('textarea');assert(field,'actual registered component reads state');
+    const Component=engine.component;await render(<Component projectId={P}/>);for(let i=0;i<100&&host.querySelector<HTMLButtonElement>('button')?.disabled;i++)await act(async()=>{await pause();});let field=host.querySelector<HTMLTextAreaElement>('textarea');assert(field,'actual registered component reads state');
     await act(async()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(field,'Draft survives conflict');field!.dispatchEvent(new Event('input',{bubbles:true}));await pause();});
     const current=await client.read();await client.save({version:1,notes:'External latest'},current.revision);
     await act(async()=>{host.querySelector<HTMLButtonElement>('button')!.click();await pause();});assert(host.textContent?.includes('Conflict: draft retained')&&field.value==='Draft survives conflict'&&(await client.read()).data.notes==='External latest','real component retains failed draft and canonical data');
-    await render(<Component key="other" projectId={Q}/>);field=host.querySelector('textarea');assert(field?.value===''&&!host.textContent?.includes('External latest'),'changing project yields independent component/client');
+    await render(<Component key="other" projectId={Q}/>);for(let i=0;i<100&&host.querySelector<HTMLButtonElement>('button')?.disabled;i++)await act(async()=>{await pause();});field=host.querySelector('textarea');assert(field?.value===''&&!host.textContent?.includes('External latest'),'changing project yields independent component/client');
     passed.push('SDK actual engine component: persisted reads, conflict-visible draft retention and independent project instances');
 
     await render(<div/>);const archive=await createProjectZipArchive(P),zip=await JSZip.loadAsync(await archive.blob.arrayBuffer()),projectPath=Object.keys(zip.files).find(path=>path.endsWith('/project.json'))!;

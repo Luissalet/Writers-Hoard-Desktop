@@ -1,3 +1,9 @@
+import { validateCodexOptionLists } from '@/engines/codex/optionListTypes';
+import { preserveLegacyProjectMetadata, preserveLegacyWritingToolDock, preserveLegacyEraWritingToolDock, validateProjectArchiveMetadata } from '@/services/projectArchiveMetadata';
+import type {WorldEraVariant} from '@/services/worldEras/types';
+import type {Writing} from '@/types';
+import '@/services/documentHistory/backup';
+import { suppressDocumentHistoryForTransaction } from '@/services/documentHistory/context';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { db } from '@/db/index';
@@ -15,7 +21,9 @@ import {
 import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
 import { lexicalTerms, sha256Hex } from '@/services/judge/text';
 import type { ReferenceDocument, ReferenceLens, ReferenceSection } from '@/services/judge/types';
-import {validateLocalToolStates,type LocalToolStates} from '@/engines/local/stateTypes';
+import {validateWorkspaceAppearanceProject} from '@/services/workspaceAppearance/validation';
+import { validatePublishedEditionsProject } from '@/services/publishedEditions/validation';
+import {validateLocalToolProjectStates,type LocalToolStates} from '@/engines/local/stateTypes';
 // Engine initialization is part of the backup contract: every strategy must
 // be registered before an archive is inspected, exported, or restored.
 import '@/engines';
@@ -87,10 +95,22 @@ interface BackupManifest {
 }
 
 interface ProjectRecord {
+  writingToolDock?: import('@/engines/writings/toolDock/types').ToolDockLayout|null;
+  genres?: string[];
   id: string;
   title: string;
   coverImage?: string;
   localToolStates?: LocalToolStates;
+  sourceToolDocuments?: import('@/engines/local/documents/types').SourceToolDocument[];
+  worldFolderImports?: import('@/services/worldFolderImport/types').WorldFolderImportReceipt[];
+  pinned?: boolean;
+  workspaceAppearance?: unknown;
+  codexOptionLists?: import('@/engines/codex/optionListTypes').CodexOptionList[];
+  entityDetectionPreferences?: import('@/services/entityDetection/types').EntityDetectionPreferences;
+  wikiProfiles?: import('@/services/wikiProfiles/types').WikiProfile[];
+  localToolContracts?: import('@/engines/local/stateCodec').LocalToolContracts;
+  localToolInstallations?: import('@/engines/local/installations').LocalToolInstallations;
+  worldEras?: import('@/services/worldEras/types').WorldEra[];
 }
 
 interface PreparedProject {
@@ -278,7 +298,7 @@ async function writeProjectToZip(
 ): Promise<void> {
   const projectDir = `projects/${sanitize(project.title)}__${project.id}`;
   const metadata: ProjectRecord = { ...project };
-  try{validateLocalToolStates(metadata.localToolStates);}catch(error){failures.push(failure('export',error,{projectId:project.id,projectDir,path:`${projectDir}/project.json`}));return;}
+  try{validateLocalToolProjectStates(metadata);validateWorkspaceAppearanceProject(metadata);validatePublishedEditionsProject(metadata);validateCodexOptionLists(metadata.codexOptionLists);validateProjectArchiveMetadata(metadata);}catch(error){failures.push(failure('export',error,{projectId:project.id,projectDir,path:`${projectDir}/project.json`}));return;}
   if (metadata.coverImage) {
     const { blob, ext } = dataUrlToBlob(metadata.coverImage);
     if (blob.byteLength === 0) {
@@ -840,7 +860,7 @@ async function preflightArchive(
       continue;
     }
     const project = { ...(raw as ProjectRecord) };
-    try{validateLocalToolStates(project.localToolStates);}catch(error){failures.push(failure('preflight',error,{projectDir,path}));continue;}
+    try{validateLocalToolProjectStates(project);validateWorkspaceAppearanceProject(project);validatePublishedEditionsProject(project);validateCodexOptionLists(project.codexOptionLists);validateProjectArchiveMetadata(project);}catch(error){failures.push(failure('preflight',error,{projectDir,path}));continue;}
     if (typeof project.id !== 'string' || !project.id.trim()) {
       failures.push(failure('preflight', `Project in "${path}" has no valid id.`, { path }));
       continue;
@@ -946,6 +966,7 @@ async function importStrategy(
     // strategies can otherwise exhaust its zone-echo budget before the next
     // IndexedDB request, taking later engines outside the atomic restore.
     await db.transaction('rw', db.tables, async () => {
+      suppressDocumentHistoryForTransaction();
       await strategy.importProject({
         zip,
         projectId: project.projectId,
@@ -1068,6 +1089,7 @@ export async function importProjectZip(
   await preloadArchive(zip);
   try {
     await db.transaction('rw', db.tables, async () => {
+      suppressDocumentHistoryForTransaction();
       const existingProjects = await db.projects.bulkGet(
         prepared.projects.map((project) => project.projectId),
       );
@@ -1089,17 +1111,37 @@ export async function importProjectZip(
 
       for (const [index, project] of prepared.projects.entries()) {
         const existingProject = existingProjects[index];
+        const keptWritingSidecars = new Map((await db.writings.where('projectId').equals(project.projectId).toArray())
+          .filter(writing => writing.toolDock !== undefined)
+          .map(writing => [writing.id, { projectId: writing.projectId, toolDock: writing.toolDock }]));
+        const keptEraSidecars=new Map((await db.worldEraVariants.where('projectId').equals(project.projectId).toArray()).map(row=>[row.id,row]));
         if (existingProject) {
           await clearProjectForRestore(project.projectId);
         }
-        await db.projects.add(project.project as never);
+        await db.projects.add(preserveLegacyProjectMetadata(project.project, existingProject) as never);
         await importProjectStrategies(zip, project);
+        await restoreLegacyWritingSidecars(project.projectId, keptWritingSidecars);
+        await restoreLegacyEraWritingSidecars(project.projectId,keptEraSidecars);
       }
     });
     return prepared.projects.map((project) => project.projectId);
   } catch (error) {
     throw wrapFailure('import', error);
   }
+}
+
+async function restoreLegacyWritingSidecars(projectId:string,previous:ReadonlyMap<string,Pick<Writing,'projectId'|'toolDock'>>):Promise<void>{
+  for(const writing of await db.writings.where('projectId').equals(projectId).toArray()){
+    const old=previous.get(writing.id),next=preserveLegacyWritingToolDock(writing,old?.projectId===projectId?old:undefined);
+    if(next!==writing)await db.writings.update(writing.id,{toolDock:next.toolDock});
+  }
+}
+
+async function restoreLegacyEraWritingSidecars(projectId:string,previous:ReadonlyMap<string,WorldEraVariant>):Promise<void>{
+ for(const row of await db.worldEraVariants.where('projectId').equals(projectId).toArray()){
+  const next=preserveLegacyEraWritingToolDock(row,previous.get(row.id));
+  if(next!==row)await db.worldEraVariants.put(next);
+ }
 }
 
 export async function importFullZip(file: File): Promise<void> {
@@ -1125,11 +1167,15 @@ export async function importFullZip(file: File): Promise<void> {
       (table) => carriesLibrary || !REFERENCE_LIBRARY_TABLES.has(table.name),
     );
     await db.transaction('rw', db.tables, async () => {
+      suppressDocumentHistoryForTransaction();
       // Clear and restore are one transaction. If any strategy fails, Dexie
       // rolls the entire database back to its pre-import state.
       const keptInbox = carriesInbox
         ? []
         : await db.notes.where('projectId').equals(GLOBAL_NOTES_SCOPE).toArray();
+      const keptProjectMetadata = new Map((await db.projects.toArray()).map(project => [project.id, project]));
+      const keptWritingSidecars=new Map((await db.writings.toArray()).filter(writing=>writing.toolDock!==undefined).map(writing=>[writing.id,{projectId:writing.projectId,toolDock:writing.toolDock}]));
+      const keptEraSidecars=new Map((await db.worldEraVariants.toArray()).map(row=>[row.id,row]));
       await Promise.all(toClear.map((table) => table.clear()));
       if (settings.length) await db.settings.bulkAdd(settings as never[]);
       if (tags.length) await db.tags.bulkAdd(tags as never[]);
@@ -1146,8 +1192,10 @@ export async function importFullZip(file: File): Promise<void> {
       }
 
       for (const project of prepared.projects) {
-        await db.projects.add(project.project as never);
+        await db.projects.add(preserveLegacyProjectMetadata(project.project, keptProjectMetadata.get(project.projectId)) as never);
         await importProjectStrategies(zip, project);
+        await restoreLegacyWritingSidecars(project.projectId,keptWritingSidecars);
+        await restoreLegacyEraWritingSidecars(project.projectId,keptEraSidecars);
       }
     });
   } catch (error) {

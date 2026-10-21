@@ -11,7 +11,8 @@ const { pathToFileURL } = require('node:url');
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
-const temporaryDirectory = fsSync.mkdtempSync(path.join(os.tmpdir(), 'writers-hoard-critical-'));
+const temporaryRoot = fsSync.realpathSync(os.tmpdir());
+const temporaryDirectory = fsSync.mkdtempSync(path.join(temporaryRoot, 'writers-hoard-critical-'));
 const isolatedUserData = path.join(temporaryDirectory, 'user-data');
 fsSync.mkdirSync(isolatedUserData, { recursive: true });
 // Must happen before app ready: no test may ever open the user's real profile.
@@ -293,6 +294,11 @@ app.whenReady()
   })
   .finally(async () => {
     if (temporaryDirectory) {
-      await fs.rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+      const resolvedDirectory = await fs.realpath(temporaryDirectory);
+      const relative = path.relative(temporaryRoot, resolvedDirectory);
+      if (resolvedDirectory !== path.resolve(temporaryDirectory) || !relative || relative.startsWith('..') || path.isAbsolute(relative) || !path.basename(relative).startsWith('writers-hoard-critical-')) {
+        throw new Error('Critical test cleanup is outside its temporary directory.');
+      }
+      await fs.rm(resolvedDirectory, { recursive: true, force: true }).catch(() => undefined);
     }
   });

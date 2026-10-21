@@ -1,3 +1,4 @@
+import LocalToolReleaseManager from '@/engines/local/LocalToolReleaseManager';
 import { useEffect, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, GripVertical, Search, X } from 'lucide-react';
 import {
@@ -595,6 +596,8 @@ export default function EngineManager({
               </div>
             )}
           </section>
+
+          <LocalToolReleaseManager projectId={project.id}/>
 
           {/* ── Actions ── */}
           <div className="flex justify-end gap-2 border-t border-border pt-4">

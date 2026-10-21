@@ -128,6 +128,7 @@ export interface AuditEntry {
   /** Copilot thread the change belongs to, so its card can find this line. */
   conversationId?: string;
   projectId?: string;
+  eraId?: string;
   entityId?: string;
   summary?: string;
   /** Previous state, base64 fields stripped, so a bad edit can be undone. */

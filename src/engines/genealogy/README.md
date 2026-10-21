@@ -1,0 +1,17 @@
+# Relationship trees
+
+Independent trees retain their own nodes, routes, annotations, artwork and revision. They do not change canonical genealogy or Codex cards. The normal editor uses recoverable local drafts and Save/Discard/variant operations; `saveRelationTree` remains the CAS storage path for Base and named eras.
+
+Select a node to show four Add neighbor arrows. A contextual form accepts a free name or an effective Codex card, a relationship or unnamed line, and an explicit direction. Create adds the neighbor and its connection as one Undo operation. The existing global Add controls and handle-to-handle connection gesture remain available.
+
+Drag an existing connection's outer source/target circle to another node or side. Routed connections keep their logical ID, label, icon, style and ordered junctions. Intermediate route segments are projections; move their junction nodes using the existing controls. Dropping outside a valid handle leaves the connection intact. Inspector selectors offer the same endpoint edits with the keyboard. Invalid parent cycles or references do not modify the draft.
+
+Saved relationship types are optional portable vocabulary within a tree: `relationVocabulary` stores local IDs, picker names and snapshots of kind/label/icon/style. Save/apply/edit/remove a type through the inspector. Types from another effective tree in this project can be applied or explicitly copied into the current tree. Applied edges keep their own values; editing or deleting a definition does not rewrite them. There is no shared global vocabulary store or new reference identity to remap. An explicit empty edge label means an unnamed line; legacy absent labels retain their former semantic fallback.
+
+`wh_relation_tree_action` exposes neighbor, reconnect and vocabulary actions with `expectedRevision`, project and optional era. It uses the same pure helpers and storage operation as the editor. Its opaque session audit receipt restores complete prior content through normal API Undo, refuses other scopes or later writes, and expires with the renderer. Undo of a first era variant restores inheritance from Base. Existing full-document get/save and SVG/archive APIs remain available, and JSON/clone/full JSON/ZIP carry the optional vocabulary.
+
+The related Codex world graph keeps its category selector and adds category checks plus optional template filtering, including descendants. The selected categories intersect with template, name/alias, tag, neighborhood and connection sources. An empty category set matches nothing. `wh_world_graph_query` uses the same model against explicit effective cards; templates, relationships and positions retain their existing project scope. Graph filters remain view state. No authored tree link is added to the Codex mention graph.
+
+The vocabulary library and descendant template filter are Writer authoring improvements. Current reference documentation does not establish saved reusable vocabulary or subtype filtering as executed reference capabilities.
+
+Verification: `tests/graph-tree-affordances.browser.tsx`, the actual native1440/640 UI suite, and `tests/graph-tree-affordances-transport.cjs` cover helpers, CAS/era, artwork/rollback, external MCP/audit Undo, Worker identity, SVG/PNG and portability. Existing world-graph, relation-trees and tree-presets suites remain regressions. The task contract and final evidence are in `tasks/graph-tree-affordances1041.md` and its referenced report.

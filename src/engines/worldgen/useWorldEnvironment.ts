@@ -1,3 +1,4 @@
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react';
 import type { WorldData } from './core/types';
 import type { GeneratedWorld } from './types';
@@ -16,6 +17,7 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
   savedEdits: RefObject<string | undefined>; writer: ReturnType<typeof createWorldEditWriter>;
   restorePristine: (world: WorldData) => void; onReady: () => void;
 }) {
+  const scope = useWorldEraScope(record.projectId);
   const [job, setJob] = useState<EnvironmentJob | null>(null);
   const [error, setError] = useState<'work' | 'save' | 'conflict' | null>(null);
   const [ready, setReady] = useState(false);
@@ -94,13 +96,13 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
     const options = start('recalculate');
     try {
       if (!await writer.flush()) { setError('save'); return false; }
-      const base = await prepareWorldRecalculation(record.id, record.projectId);
+      const base = await prepareWorldRecalculation(record.id, record.projectId, scope.eraId);
       if (serializeEdits(base.edits ? deserializeEdits(base.edits) : []) !== current.serialize() || JSON.stringify(base.params) !== JSON.stringify(record.params)) throw new WorldRecipeConflict();
       const fields = await requestWorldRecalculation(data, options);
       if (options.signal.aborted || session.current !== current || (data.revision ?? 0) !== revision) return false;
       const json = serializeEdits([...current.edits, { kind: 'recalculate', version: 1 }]);
       options.task.committing = true; setJob({ kind: 'recalculate', stage: 'saving', progress: 1, committing: true });
-      await commitWorldRecalculation(base, json);
+      await commitWorldRecalculation(base, json, scope.eraId);
       savedEdits.current = json;
       if (options.signal.aborted || session.current !== current) return false;
       if (!current.pushRecalculation(fields, revision, true)) throw new WorldRecipeConflict();

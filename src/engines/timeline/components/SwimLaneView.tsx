@@ -529,11 +529,17 @@ export default function SwimLaneView({
   const handleZoomOut = () => setZoom(z => Math.max(z - 0.15, 0.3));
 
   // Mouse wheel zoom
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      setZoom(z => Math.min(Math.max(z - e.deltaY * 0.002, 0.3), 2.5));
-    }
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setZoom(z => Math.min(Math.max(z - event.deltaY * 0.002, 0.3), 2.5));
+    };
+    // React's delegated wheel listener is passive and cannot cancel browser zoom.
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
   }, []);
 
   // ── Tooltip ──
@@ -860,7 +866,7 @@ export default function SwimLaneView({
 
       {/* Canvas container (for tooltip positioning) */}
       <div ref={containerRef} className="relative overflow-auto border border-border rounded-xl bg-deep"
-        style={{ maxHeight: '70vh' }} onWheel={handleWheel}
+        style={{ maxHeight: '70vh' }}
       >
         <svg
           width={svgWidth * zoom} height={svgHeight * zoom}

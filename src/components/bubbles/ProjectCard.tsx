@@ -1,5 +1,5 @@
-import { useRef } from 'react';
-import { BookOpen, Clock, Library, Lightbulb, Layers, PenLine, PlayCircle, Trash2, Palette } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { BookOpen, Clock, Library, Lightbulb, Layers, PenLine, PlayCircle, Trash2, Palette, Pin, Copy } from 'lucide-react';
 import { InlineIconPicker } from '@/components/common/IconPicker';
 import { ProjectIcon } from '@/components/common/ProjectIcon';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -22,8 +22,10 @@ interface ProjectCardProps {
   project: Project;
   onClick: () => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onColorChange?: (color: string) => void;
   onIconChange?: (icon: string) => void;
+  onPin?: () => Promise<void>;
   index: number;
   /** Words across every writing in the project. */
   totalWords?: number;
@@ -39,8 +41,10 @@ export default function ProjectCard({
   project,
   onClick,
   onDelete,
+  onDuplicate,
   onColorChange,
   onIconChange,
+  onPin,
   totalWords = 0,
   daysSinceEdit = null,
   resumeLabel,
@@ -48,6 +52,8 @@ export default function ProjectCard({
 }: ProjectCardProps) {
   const { t, locale } = useTranslation();
   const colorInputRef = useRef<HTMLInputElement>(null);
+  const [pinBusy,setPinBusy]=useState(false),[pinError,setPinError]=useState(false);
+  const pinLabel=locale==='es'?(project.pinned?'Desfijar proyecto':'Fijar al principio'):(project.pinned?'Unpin project':'Pin to front');
 
   // Calendar days, already counted locally by the caller — so a chapter saved
   // last night reads as "yesterday", not "0 days ago".
@@ -138,6 +144,7 @@ export default function ProjectCard({
               {t(`project.type.${project.type}`)}
             </span>
             <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 transition">
+              {onPin&&<button type="button" aria-label={pinLabel} title={pinLabel} aria-pressed={project.pinned??false} disabled={pinBusy} onClick={event=>{event.stopPropagation();if(pinBusy)return;setPinBusy(true);setPinError(false);void onPin().catch(()=>setPinError(true)).finally(()=>setPinBusy(false));}} className="min-h-9 min-w-9 rounded-lg p-1.5 text-text-muted hover:bg-accent-gold/20 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent-gold"><Pin size={15} aria-hidden="true" className={project.pinned?'fill-accent-gold text-accent-gold':''}/></button>}
               {onIconChange && (
                 <InlineIconPicker
                   value={project.icon}
@@ -165,6 +172,7 @@ export default function ProjectCard({
                   />
                 </div>
               )}
+              {onDuplicate&&<button type="button" onClick={event=>{event.stopPropagation();onDuplicate();}} aria-label={locale==='es'?'Duplicar proyecto':'Duplicate project'} title={locale==='es'?'Duplicar proyecto':'Duplicate project'} className="min-h-9 min-w-9 rounded-lg p-1.5 text-text-muted hover:bg-accent-gold/20 focus-visible:outline-2 focus-visible:outline-accent-gold"><Copy size={15} aria-hidden="true"/></button>}
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
                 className="p-1.5 rounded-lg hover:bg-danger/20 transition"
@@ -175,6 +183,7 @@ export default function ProjectCard({
               </button>
             </div>
           </div>
+          {pinError&&<p role="alert" className="mt-2 text-xs text-danger">{locale==='es'?'No se ha cambiado la chincheta. Actualiza el proyecto e inténtalo de nuevo.':'The pin was not changed. Refresh the project and try again.'}</p>}
         </div>
       </div>
     </article>

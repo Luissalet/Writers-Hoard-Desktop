@@ -20,7 +20,7 @@ export function cocOutcome(result: number,target: number,required=target): strin
 export function cocDerived(sheet: CharacterSheet) {
   const get=(id:string)=>sheet.traits.find(item=>item.id===id)?.value??0;const sum=get('str')+get('siz');
   const band=sum<=64?[-2,'−2']:sum<=84?[-1,'−1']:sum<=124?[0,'0']:sum<=164?[1,'+1d4']:sum<=204?[2,'+1d6']:null;
-  return {hp:Math.max(0,Math.floor((get('con')+get('siz'))/10)),mp:Math.max(0,Math.floor(get('pow')/5)),sanity:get('pow'),dodge:Math.floor(get('dex')/2),ownLanguage:get('edu'),build:band?.[0] as number|undefined,damageBonus:band?.[1] as string|undefined};
+  return {hp:Math.max(0,Math.floor((get('con')+get('siz'))/(sheet.coc?.pulp?5:10))),mp:Math.max(0,Math.floor(get('pow')/5)),sanity:get('pow'),dodge:Math.floor(get('dex')/2),ownLanguage:get('edu'),build:band?.[0] as number|undefined,damageBonus:band?.[1] as string|undefined};
 }
 export function damageMarks(damage:number,major:number,severe:number,armor=false,massive=false):number {
   if(major<1||severe<major)throw new Error('invalid_thresholds');

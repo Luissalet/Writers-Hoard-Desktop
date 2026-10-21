@@ -21,6 +21,13 @@ export type WorldSpatialEntityKind =
 
 /** Presentation overrides deliberately contain no semantic type information. */
 export interface WorldSpatialStyle {
+  model?: import('./placeStyle').PlaceModel;
+  buildingStyle?: import('./placeStyle').BuildingStyle;
+  labelFont?: import('./placeStyle').PlaceLabelFont;
+  /** Relative lettering scale, independent of the symbol. */
+  labelSize?: number;
+  areaStyle?: 'outline' | 'wash' | 'hatch';
+  areaOpacity?: number;
   /** Symbol identifier understood by the active renderer. */
   icon?: string;
   /** CSS colour used by renderers which support recolouring. */

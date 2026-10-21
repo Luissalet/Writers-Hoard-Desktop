@@ -1,3 +1,4 @@
+import type { VoiceMemoClip } from './voiceTypes';
 export interface LocalMediaAsset {
   id: string;
   projectId: string;
@@ -11,6 +12,7 @@ export interface LocalMediaAsset {
   linkedEntryIds: string[];
   createdAt: number;
   updatedAt: number;
+  voiceMemo?: VoiceMemoClip;
 }
 export const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
 export const MAX_PROJECT_MEDIA_BYTES = 500 * 1024 * 1024;

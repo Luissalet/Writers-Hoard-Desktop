@@ -1,3 +1,7 @@
+import {useWorldEraScope} from '@/services/worldEras/hooks';
+import {annotationReferenceCandidates} from '../scope';
+import {annotationDrafts} from '../drafts';
+import ThreadTextEditor from './ThreadTextEditor';
 // ============================================
 // NoteCreator — picks note type + collects body, then persists
 // ============================================
@@ -9,11 +13,10 @@
 //
 // Persists via the operations module so the parent only handles refresh.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileText, Image as ImageIcon, Link as LinkIcon, Plus } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { generateId } from '@/utils/idGenerator';
-import { searchEntities } from '@/engines/_shared';
 import type { EntityPreview } from '@/engines/_types';
 import {
   getAllAnchorAdapters,
@@ -22,17 +25,16 @@ import {
 } from '@/engines/_shared/anchoring';
 import {
   createAnnotation,
-  createReference,
 } from '../operations';
 import type {
   Annotation,
   AnnotationAnchor,
-  AnnotationReference,
   NoteType,
 } from '../types';
 
 export interface NoteCreatorProps {
   projectId: string;
+  eraId?:string;
   sourceEngineId: string;
   sourceEntityId: string;
   /** Pre-built anchor (entity-level or text-range with offsets + context). */
@@ -51,7 +53,11 @@ export default function NoteCreator(props: NoteCreatorProps) {
   // The bodies are rendered conditionally, so a draft living inside one of them
   // died the moment the reader pressed another type button. The drafts live
   // here instead and survive every switch.
-  const [textDraft, setTextDraft] = useState<string>('');
+  const pane=useWorldEraScope(props.projectId),scope={...pane,eraId:props.eraId??pane.eraId},[journal]=useState(()=>annotationDrafts(scope)),journalId=`new:${props.sourceEngineId}:${props.sourceEntityId}`;
+  const [textDraft, setTextDraft] = useState<string>(()=>journal.get(journalId)?.body??'');
+  const [mentions,setMentions]=useState<import('../types').AnnotationMention[]>(()=>journal.get(journalId)?.mentions??[]);
+  const remember=(body:string,links=mentions)=>{setTextDraft(body);setMentions(links);journal.set(journalId,{kind:'new',body,mentions:links,revision:0});};
+  const cancel=()=>{journal.delete(journalId);props.onCancel();};
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
 
   return (
@@ -61,14 +67,14 @@ export default function NoteCreator(props: NoteCreatorProps) {
         <TypeButton active={type === 'image'} onClick={() => setType('image')} icon={<ImageIcon size={12} />} label={t('annotations.create.image')} />
         <TypeButton active={type === 'reference'} onClick={() => setType('reference')} icon={<LinkIcon size={12} />} label={t('annotations.create.reference')} />
         <div className="flex-1" />
-        <button onClick={props.onCancel} className="text-[11px] text-text-secondary hover:text-text-primary px-1.5">
+        <button onClick={cancel} className="min-h-9 px-2 text-xs text-text-muted hover:text-text-primary">
           {t('common.cancel')}
         </button>
       </div>
 
-      {type === 'text' && <TextBody {...props} draft={textDraft} onDraftChange={setTextDraft} />}
-      {type === 'image' && <ImageBody {...props} dataUrl={imageDataUrl} onDataUrlChange={setImageDataUrl} />}
-      {type === 'reference' && <ReferenceBody {...props} />}
+      {type === 'text' && <TextBody {...props} eraId={scope.eraId} draft={textDraft} mentions={mentions} onDraftChange={remember} onMentionsChange={links=>remember(textDraft,links)} onCreated={()=>{journal.delete(journalId);props.onCreated();}} onCancel={cancel}/>}
+      {type === 'image' && <ImageBody {...props} eraId={scope.eraId} dataUrl={imageDataUrl} onDataUrlChange={setImageDataUrl} />}
+      {type === 'reference' && <ReferenceBody {...props} eraId={scope.eraId} />}
     </div>
   );
 }
@@ -91,7 +97,7 @@ function TypeButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition border ${
+      className={`flex min-h-9 items-center gap-1 px-2 py-1 rounded-md text-[11px] transition border ${
         active
           ? 'border-accent-gold text-accent-gold bg-accent-gold/10'
           : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-base/60'
@@ -106,13 +112,14 @@ function TypeButton({
 async function persistShell(
   props: NoteCreatorProps,
   noteType: NoteType,
-  body: { noteBody?: string; noteImageUrl?: string },
+  body: { noteBody?: string; noteImageUrl?: string; mentions?:import('../types').AnnotationMention[] },
+  referenceTarget?:{engineId:string;entityId:string},
 ): Promise<string> {
   const id = generateId('ann');
   const now = Date.now();
   const annotation: Annotation = {
     id,
-    projectId: props.projectId,
+    projectId: props.projectId,eraId:props.eraId,
     sourceEngineId: props.sourceEngineId,
     sourceEntityId: props.sourceEntityId,
     anchor: props.anchor,
@@ -123,7 +130,7 @@ async function persistShell(
     updatedAt: now,
     ...body,
   };
-  await createAnnotation(annotation);
+  await createAnnotation(annotation,referenceTarget?{id:generateId('annref'),annotationId:id,targetEngineId:referenceTarget.engineId,targetEntityId:referenceTarget.entityId,createdAt:now}:undefined);
   return id;
 }
 
@@ -131,43 +138,10 @@ async function persistShell(
 // Text body
 // ---------------------------------------------------------------------------
 
-function TextBody(
-  props: NoteCreatorProps & { draft: string; onDraftChange: (value: string) => void },
-) {
-  const { t } = useTranslation();
-  const { draft, onDraftChange } = props;
-  const [saving, setSaving] = useState<boolean>(false);
-
-  async function save() {
-    setSaving(true);
-    try {
-      await persistShell(props, 'text', { noteBody: draft });
-      props.onCreated();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div>
-      <textarea
-        value={draft}
-        onChange={(e) => onDraftChange(e.target.value)}
-        placeholder={t('annotations.create.textPlaceholder')}
-        className="w-full min-h-[70px] rounded-md border border-border bg-bg-base px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-gold"
-        autoFocus
-      />
-      <div className="flex justify-end mt-2">
-        <button
-          onClick={save}
-          disabled={!draft.trim() || saving}
-          className="px-3 py-1 text-xs rounded-md bg-accent-gold text-black hover:bg-accent-gold/90 disabled:opacity-40 transition"
-        >
-          {t('common.save')}
-        </button>
-      </div>
-    </div>
-  );
+function TextBody(props:NoteCreatorProps & {draft:string;mentions:import('../types').AnnotationMention[];onDraftChange:(value:string)=>void;onMentionsChange:(mentions:import('../types').AnnotationMention[])=>void}){
+ const {locale}=useTranslation(),es=locale==='es';const [saving,setSaving]=useState(false),[error,setError]=useState(''),scope=useMemo(()=>({projectId:props.projectId,eraId:props.eraId}),[props.projectId,props.eraId]);
+ const save=async()=>{if(saving)return;setSaving(true);setError('');try{await persistShell(props,'text',{noteBody:props.draft,mentions:props.mentions});props.onCreated();}catch{setError(es?'No se pudo guardar. Conservamos el comentario y sus menciones.':'Could not save. Your comment and mentions are preserved.');}finally{setSaving(false);}};
+ return <div className="space-y-2">{error&&<p role="alert" className="text-sm text-danger">{error}</p>}<ThreadTextEditor scope={scope} label={es?'Comentario':'Comment'} body={props.draft} mentions={props.mentions} onBody={props.onDraftChange} onMentions={props.onMentionsChange} onSave={()=>void save()} onCancel={props.onCancel} busy={saving}/></div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,8 +236,8 @@ function ReferenceBody(props: NoteCreatorProps) {
         // entities from every project in the database, and picking one created
         // a cross-project reference whose backlink then navigated to a dead
         // URL (the fallback composes the path from the *current* project id).
-        const items = await searchEntities(query, [pickedEngine], props.projectId);
-        if (!cancelled) setResults(items.slice(0, 10));
+        const items = await annotationReferenceCandidates({projectId:props.projectId,eraId:props.eraId},pickedEngine,query);
+        if (!cancelled) setResults(items);
       } finally {
         if (!cancelled) setSearching(false);
       }
@@ -271,21 +245,13 @@ function ReferenceBody(props: NoteCreatorProps) {
     return () => {
       cancelled = true;
     };
-  }, [pickedEngine, query, props.projectId]);
+  }, [pickedEngine, query, props.projectId,props.eraId]);
 
   async function attachReference(entityId: string) {
     if (saving) return;
     setSaving(true);
     try {
-      const annotationId = await persistShell(props, 'reference', {});
-      const reference: AnnotationReference = {
-        id: generateId('annref'),
-        annotationId,
-        targetEngineId: pickedEngine,
-        targetEntityId: entityId,
-        createdAt: Date.now(),
-      };
-      await createReference(reference);
+      await persistShell(props, 'reference', {},{engineId:pickedEngine,entityId});
       props.onCreated();
     } finally {
       setSaving(false);
@@ -295,7 +261,7 @@ function ReferenceBody(props: NoteCreatorProps) {
   const adapter: AnchorAdapter | undefined = pickedEngine
     ? getAnchorAdapter(pickedEngine)
     : undefined;
-  const InlineCreate = adapter?.CreateInlineForm;
+  const InlineCreate = props.eraId?undefined:adapter?.CreateInlineForm;
 
   return (
     <div className="space-y-2">

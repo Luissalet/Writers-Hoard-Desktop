@@ -1,10 +1,12 @@
+import { useEraNavigate } from '@/services/worldEras/navigation';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { readEraRow, listEraRows } from '@/services/worldEras/store';
+import type { MapPin, WorldMap } from '@/types';
 import { useState, useEffect } from 'react';
 import { ExternalLink, Link2, Map } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, useDeepLinkParam } from '@/engines/_shared';
-import { db } from '@/db';
 import { useWorldMaps, useMapPins } from './hooks';
 import MapView, { type PinDraft } from '@/components/maps/MapView';
 import { generateId } from '@/utils/idGenerator';
@@ -13,21 +15,22 @@ import { useCodexEntries } from '@/engines/codex/hooks';
 import { createLocalDraftStore, deleteWithDraftCleanup } from '@/hooks/localDraftStore';
 import type { MapFeature } from '@/types';
 import MapVersionHistory from '@/components/maps/MapVersionHistory';
-import { captureMapVersion, updateMapVersion, deleteMapVersion, restoreMapVersion } from './operations';
+import { worldMapOps, mapPinOps, captureMapVersion, updateMapVersion, deleteMapVersion, restoreMapVersion } from './operations';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const scope = useWorldEraScope(projectId);
+  const navigate = useEraNavigate();
   const { items: maps, loading: mapsLoading, addItem: addMap, editItem: editMap, removeItem: removeMap, refresh: refreshMaps } = useWorldMaps(projectId);
   const [activeMapId, setActiveMapId] = useState<string>('');
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
   const [restoreEpoch, setRestoreEpoch] = useState(0);
-  const [featureDrafts] = useState(() => createLocalDraftStore<MapFeature>(`wh.map-features-drafts.v1.${projectId}`, (value): value is MapFeature => {
+  const [featureDrafts] = useState(() => createLocalDraftStore<MapFeature>(`wh.map-features-drafts.v1.${projectId}${scope.eraId ? `.era:${scope.eraId}` : ''}`, (value): value is MapFeature => {
     if (!value || typeof value !== 'object') return false;
     const draft = value as Partial<MapFeature>;
     return typeof draft.id === 'string' && typeof draft.name === 'string' && typeof draft.color === 'string' && ['region', 'path', 'label'].includes(draft.kind ?? '') && Array.isArray(draft.points) && draft.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y));
   }));
-  const [pinDrafts] = useState(() => createLocalDraftStore<PinDraft>(`wh.maps-drafts.v1.${projectId}`, (value): value is PinDraft => {
+  const [pinDrafts] = useState(() => createLocalDraftStore<PinDraft>(`wh.maps-drafts.v1.${projectId}${scope.eraId ? `.era:${scope.eraId}` : ''}`, (value): value is PinDraft => {
     if (!value || typeof value !== 'object') return false;
     const draft = value as Partial<PinDraft>;
     return typeof draft.name === 'string' && typeof draft.description === 'string' && typeof draft.icon === 'string';
@@ -43,11 +46,11 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   useEffect(() => {
     if (!deepLinkedPinId) return;
     let cancelled = false;
-    void db.mapPins.get(deepLinkedPinId).then((pin) => {
+    void (scope.eraId ? readEraRow<MapPin>(scope, 'mapPins', deepLinkedPinId) : mapPinOps.getOne(deepLinkedPinId)).then((pin) => {
       if (!cancelled && pin?.mapId && pin.projectId === projectId) setActiveMapId(pin.mapId);
     });
     return () => { cancelled = true; };
-  }, [deepLinkedPinId, projectId]);
+  }, [deepLinkedPinId, projectId, scope]);
 
   // Deep link: `/project/:id/maps?map=<id>` — what the anchor adapter emits for
   // a note anchored on the map itself (`AnnotationSurface` uses the map id).
@@ -57,11 +60,11 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   useEffect(() => {
     if (!deepLinkedMapId) return;
     let cancelled = false;
-    void db.worldMaps.get(deepLinkedMapId).then((map) => {
+    void (scope.eraId ? readEraRow<WorldMap>(scope, 'worldMaps', deepLinkedMapId) : worldMapOps.getOne(deepLinkedMapId)).then((map) => {
       if (!cancelled && map?.projectId === projectId) setActiveMapId(map.id);
     });
     return () => { cancelled = true; };
-  }, [deepLinkedMapId, projectId]);
+  }, [deepLinkedMapId, projectId, scope]);
 
   useEnsureDefault({
     items: maps,
@@ -95,7 +98,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
 
   const handleDeleteMap = async (id: string) => {
     const featureIds = maps.find(map => map.id === id)?.features?.map(feature => feature.id) ?? [];
-    const pinIds = await db.mapPins.where('mapId').equals(id).primaryKeys();
+    const pinIds = (await listEraRows<MapPin>(scope, 'mapPins')).filter(pin => pin.mapId === id).map(pin => pin.id);
     await deleteWithDraftCleanup(pinDrafts, pinIds, () => removeMap(id));
     featureIds.forEach(featureId => featureDrafts.delete(featureId));
     if (activeMapId === id) {
@@ -117,11 +120,11 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             versions={activeMap.versions ?? []}
             selectedId={previewVersion?.id ?? null}
             onSelect={setPreviewVersionId}
-            onCapture={async metadata => { await captureMapVersion(activeMapId, metadata); await refreshMaps(); }}
-            onUpdate={async (id, metadata) => { await updateMapVersion(activeMapId, id, metadata); await refreshMaps(); }}
-            onDelete={async id => { await deleteMapVersion(activeMapId, id); await refreshMaps(); }}
+            onCapture={async metadata => { await captureMapVersion(activeMapId, metadata, scope); await refreshMaps(); }}
+            onUpdate={async (id, metadata) => { await updateMapVersion(activeMapId, id, metadata, scope); await refreshMaps(); }}
+            onDelete={async id => { await deleteMapVersion(activeMapId, id, scope); await refreshMaps(); }}
             onRestore={async (id, recoveryName) => {
-              await restoreMapVersion(activeMapId, id, recoveryName);
+              await restoreMapVersion(activeMapId, id, recoveryName, scope);
               await Promise.all([refreshMaps(), refreshPins()]);
               pins.forEach(pin => pinDrafts.delete(pin.id));
               (activeMap.features ?? []).forEach(feature => featureDrafts.delete(feature.id));

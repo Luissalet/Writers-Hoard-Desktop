@@ -12,10 +12,12 @@ import { db } from '@/db';
 export async function deleteEntityAnnotations(
   sourceEngineId: string,
   sourceEntityId: string,
+  eraId?:string,
 ): Promise<void> {
   const annotationIds = await db.annotations
     .where('[sourceEngineId+sourceEntityId]')
     .equals([sourceEngineId, sourceEntityId])
+    .and(row=>row.eraId===eraId)
     .primaryKeys();
   if (!annotationIds.length) return;
 

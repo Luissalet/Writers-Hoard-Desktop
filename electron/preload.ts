@@ -9,6 +9,7 @@
 // The matching renderer-side type declaration lives in src/electron-env.d.ts.
 
 import { contextBridge, ipcRenderer } from 'electron';
+import type { VoiceTranscriptRequest } from '../src/engines/media/voiceTypes';
 import type { DesktopUpdateState } from '../src/types/updates';
 import type {
   AiChatRequest,
@@ -280,6 +281,7 @@ interface AiBridgeAuditEntry {
   tool: string;
   client?: string;
   projectId?: string;
+  eraId?: string;
   entityId?: string;
   summary?: string;
   kind?: 'create' | 'update' | 'delete' | 'undo';
@@ -308,6 +310,26 @@ interface ShutdownWarning {
 }
 
 const api = {
+  entityDetection: {
+    status: () => ipcRenderer.invoke('entity-detection:status'),
+    prepare: () => ipcRenderer.invoke('entity-detection:prepare'),
+    detect: (text: string) => ipcRenderer.invoke('entity-detection:detect', text),
+  },
+  visualSearch: {
+    status: () => ipcRenderer.invoke('visual-search:status'),
+    prepare: () => ipcRenderer.invoke('visual-search:prepare'),
+    image: (dataUrl: string) => ipcRenderer.invoke('visual-search:image', dataUrl),
+    text: (query: string) => ipcRenderer.invoke('visual-search:text', query),
+  },
+  documentImages: {
+    capture: (request: import('../src/services/documentImage/types').DocumentImageCaptureRequest): Promise<import('../src/services/documentImage/types').DocumentImageCaptureResult> => ipcRenderer.invoke('document-image:capture', request),
+  },
+  projectDuplicate: {
+    inspect: (input: Parameters<import('../src/services/projectDuplicate/types').ProjectDuplicateNative['inspect']>[0]) => ipcRenderer.invoke('projectDuplicate:inspect', input),
+    stage: (input: Parameters<import('../src/services/projectDuplicate/types').ProjectDuplicateNative['stage']>[0]) => ipcRenderer.invoke('projectDuplicate:stage', input),
+    finalize: (input: Parameters<import('../src/services/projectDuplicate/types').ProjectDuplicateNative['finalize']>[0]) => ipcRenderer.invoke('projectDuplicate:finalize', input),
+    discard: (input: Parameters<import('../src/services/projectDuplicate/types').ProjectDuplicateNative['discard']>[0]) => ipcRenderer.invoke('projectDuplicate:discard', input),
+  },
   publishing: {
     status: () => ipcRenderer.invoke('publishing:status'),
     setModule: (module: string, enabled: boolean, automatic?: boolean) => ipcRenderer.invoke('publishing:setModule', module, enabled, automatic),
@@ -325,6 +347,11 @@ const api = {
 
   // Export pipelines that need native muscle (ffmpeg, PDF printing, save dialog).
   media: {
+    voiceStatus: () => ipcRenderer.invoke('media:voiceStatus'),
+    setupVoice: () => ipcRenderer.invoke('media:setupVoice'),
+    startVoiceTranscript: (request: VoiceTranscriptRequest) => ipcRenderer.invoke('media:startVoiceTranscript', request),
+    voiceTranscriptStatus: (requestId: string) => ipcRenderer.invoke('media:voiceTranscriptStatus', requestId),
+    cancelVoiceTranscript: (requestId: string) => ipcRenderer.invoke('media:cancelVoiceTranscript', requestId),
     /** Transcode a WebM capture to MP4 and prompt the user to save it. */
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> =>
       ipcRenderer.invoke('media:saveTeleprompterMp4', webm, suggestedName),

@@ -2,6 +2,7 @@ import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 import type { CodexEntry } from '@/types';
 import { CodexEditConflict, saveCodexDraft } from '@/engines/codex/operations';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
@@ -34,6 +35,7 @@ export async function testCodexConcurrentEditing(): Promise<string[]> {
   const button = (name: string) => [...document.querySelectorAll('button')].find(row => row.textContent?.trim() === name);
   const rejectPropagation = () => { throw new Error('Injected relationship write failure'); };
   try {
+    await db.projects.bulkPut([fixture.projectId, 'foreign-owner'].map(id => ({ id, title: id, mode: 'custom' as const, type: 'standalone' as const, description: '', status: 'draft' as const, color: '#c4973b', enabledEngines: ['codex', 'relationships'], engineOrder: ['codex', 'relationships'], createdAt: 1, updatedAt: 1 })));
     await db.codexEntries.put(fixture);
     await db.relationships.put({ id: 'codex-concurrent-link', projectId: fixture.projectId, entityAId: fixture.id, entityAType: 'codex-entry', entityAName: fixture.title, entityBId: 'other', entityBType: 'codex-entry', entityBName: 'Other', kind: 'ally', intensity: 1, label: '', notes: '', state: 'current', directional: false, createdAt: 1, updatedAt: 1 });
     const remote: CodexEntry = { ...fixture, fields: { ...fixture.fields, goal: 'Remote goal', newField: 'Remote addition' }, content: '<p>Remote prose</p>', tags: ['remote'], relations: [{ targetId: 'other', targetTitle: 'Other', type: 'ally' }], updatedAt: 2 };
@@ -117,7 +119,7 @@ export async function testCodexConcurrentEditing(): Promise<string[]> {
     db.relationships.hook('updating').unsubscribe(rejectPropagation);
     await unmount();
     codexDraftStore(fixture.projectId).clear();
-    await db.codexEntries.delete(fixture.id);
-    await db.relationships.delete('codex-concurrent-link');
+    await deleteProject(fixture.projectId);
+    await deleteProject('foreign-owner');
   }
 }
