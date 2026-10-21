@@ -28,7 +28,7 @@ export function applyWorldPreset(params: WorldParams, preset: WorldPreset): Worl
 
 export function matchesWorldPreset(params: WorldParams, preset: WorldPreset): boolean {
   const expected = applyWorldPreset(params, preset);
-  return (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[])
+  return params.starter === expected.starter && (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[])
     .every((key) => params[key] === expected[key]);
 }
 
@@ -56,6 +56,15 @@ export const WORLD_PRESETS: WorldPreset[] = [
   {
     id: 'desertWorld',
     overrides: { plates: 9, landRatio: 0.42, continentClustering: 0.5, worldScale: 1.3, temperature: 4, moisture: 0.55, erosion: 0.35, riverDensity: 0.3 },
+  },
+  {
+    // Empty canvases: paint the coast with the Land brush, then recalculate climate and rivers.
+    id: 'blankSea',
+    overrides: { starter: 'sea', glaciation: 0, erosion: 0, mountainousness: 0, ruggedness: 0 },
+  },
+  {
+    id: 'blankLand',
+    overrides: { starter: 'land', glaciation: 0, erosion: 0, mountainousness: 0, ruggedness: 0, moisture: 1.1 },
   },
   {
     id: 'lushWorld',

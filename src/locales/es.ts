@@ -148,6 +148,8 @@ const es = {
   'worldgen.preset.iceAge.hint': "Un mundo frío: supervivencia, deshielo y territorios en disputa.",
   'worldgen.preset.desertWorld.hint': "Un mundo seco: oasis, caravanas y el valor del agua.",
   'worldgen.preset.lushWorld.hint': "Un mundo húmedo y fértil: selvas, ríos y abundancia.",
+  'worldgen.preset.blankSea.hint': "Mar abierto y nada más. Pinta tu propia costa con el pincel Costa (Tierra) y recalcula clima y ríos.",
+  'worldgen.preset.blankLand.hint': "Una llanura baja y suave, sin costa. Pinta mares, lagos y montañas encima.",
   // ── AI Service ──
   'ai.disabled': 'Las funciones de IA están desactivadas',
   'ai.proxyNotRunning': 'CLIProxyAPI no está corriendo. Inícialo con: cliproxyapi',
@@ -2013,6 +2015,8 @@ const es = {
   'worldgen.preset.iceAge': 'Edad de Hielo',
   'worldgen.preset.desertWorld': 'Mundo Desértico',
   'worldgen.preset.lushWorld': 'Mundo Frondoso',
+  'worldgen.preset.blankSea': 'Mar en blanco',
+  'worldgen.preset.blankLand': 'Tierra en blanco',
   'worldgen.export.button': 'Exportar',
   'worldgen.export.png': 'Mapa como PNG',
   'worldgen.export.heightmap': 'Mapa de alturas PNG',
