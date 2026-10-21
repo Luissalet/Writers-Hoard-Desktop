@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
-import { routeFogEdit } from '../core/readerFog';
+import { routeFogEdits } from '../core/readerFog';
 import type { WorldEdit } from '../core/edits';
 
 /**
@@ -10,7 +10,7 @@ import type { WorldEdit } from '../core/edits';
 export default function RouteReveal({ cells, worldWidth, onReveal }: {
   cells: readonly number[];
   worldWidth: number;
-  onReveal: (edit: WorldEdit) => void;
+  onReveal: (edits: WorldEdit[]) => void;
 }) {
   const { t } = useTranslation();
   const [km, setKm] = useState(30);
@@ -19,9 +19,9 @@ export default function RouteReveal({ cells, worldWidth, onReveal }: {
   const kmPerCell = 40075 / Math.max(1, worldWidth);
   const reveal = () => {
     const n = chapter.trim() === '' ? null : Math.max(0, Math.floor(Number(chapter)));
-    const edit = routeFogEdit(cells, worldWidth, Math.max(0.5, km / kmPerCell), n !== null && Number.isFinite(n) ? n : null);
-    if (!edit) return;
-    onReveal(edit);
+    const edits = routeFogEdits(cells, worldWidth, Math.max(0.5, km / kmPerCell), n !== null && Number.isFinite(n) ? n : null);
+    if (!edits.length) return;
+    onReveal(edits);
     setDone(true);
   };
   return (

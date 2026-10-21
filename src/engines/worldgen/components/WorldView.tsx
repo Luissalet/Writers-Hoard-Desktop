@@ -1,6 +1,8 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
 import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
 import type { ReaderFogLayer } from '../cartography/readerFogLayer';
+import { newStoryId, normalizeStoryEvent, storyEventsFrom, storyKnownBy, type StoryEvent } from '../core/storyEvents';
+import type { StoryMark } from '../cartography/storyMarks';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldRuntimeKey } from '../era';
@@ -834,7 +836,19 @@ export default function WorldView({
     return (session.current?.edits ?? []).filter((edit) => edit.kind === 'fog');
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
   }, [paintRev, data]);
-  const readerChapters = useMemo(() => fogChapters(fogEdits), [fogEdits]);
+  /** Story events on the map, from the same edit list. */
+  const storyEvents = useMemo(() => {
+    void paintRev;
+    return storyEventsFrom(session.current?.edits ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
+  }, [paintRev, data]);
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  const readerChapters = useMemo(() => [...new Set([...fogChapters(fogEdits), ...storyEvents.flatMap((event) => event.chapter === undefined ? [] : [event.chapter])])].sort((a, b) => a - b), [fogEdits, storyEvents]);
+  // The author sees every event while the Story tool is out; the reader, what has happened by the chosen chapter.
+  const storyMarks = useMemo<StoryMark[] | undefined>(() => {
+    const shown = readerView ? storyKnownBy(storyEvents, readerChapter) : tool.mode === 'story' ? storyEvents : [];
+    return shown.length ? shown.map((event) => ({ ...event, selected: !readerView && event.id === selectedStoryId })) : undefined;
+  }, [readerView, readerChapter, storyEvents, tool.mode, selectedStoryId]);
   const fogMode: ReaderFogLayer['mode'] | null = readerView ? 'reader' : tool.mode === 'fog' ? 'author' : null;
   const fogLayer = useMemo<ReaderFogLayer | undefined>(() => {
     if (!fogMode || !data) return undefined;
@@ -843,6 +857,10 @@ export default function WorldView({
   }, [fogMode, data, fogEdits, readerStart, readerChapter]);
 
   const annotations: CartoAnnotations | undefined = useMemo(() => {
+    // The reader's view shows only what the reader knows: no planned route,
+    // journey pins, banner, manuscript links, saved regions or ancient sea
+    // drawn over the blank paper to give away the land under it.
+    if (readerView) return { fog: fogLayer, story: storyMarks, grid: mapGrid ?? undefined };
     const pins: NonNullable<CartoAnnotations['pins']> = [];
     if (journeyFrom) pins.push({ x: journeyFrom.x, y: journeyFrom.y, label: journeyFrom.name, kind: 'from' });
     for (const v of journeyVia) pins.push({ x: v.x, y: v.y, label: v.name, kind: 'mark' });
@@ -857,9 +875,10 @@ export default function WorldView({
       title: rg.title,
       active: rg.id === regionAt?.savedId,
     }));
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks) return undefined;
     return {
       fog: fogLayer,
+      story: storyMarks,
       pins,
       linked,
       regions: regions.length ? regions : undefined,
@@ -875,7 +894,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1092,6 +1111,37 @@ export default function WorldView({
       }
     }, 0);
   }, [afterEdit]);
+  /** Story events: place the next one, move, change or remove one. Each is one undoable edit. */
+  const placeStory = useCallback((x: number, y: number) => {
+    const title = tool.storyTitle.trim();
+    if (!title) { toast.error(t('worldgen.story.needsTitle')); return; }
+    const event = normalizeStoryEvent({
+      id: newStoryId(), x, y, type: tool.storyType, title, status: tool.storyStatus,
+      ...(tool.storyChapter !== null ? { chapter: tool.storyChapter } : {}),
+    });
+    applyEdit({ kind: 'story', ...event });
+    setTool((current) => ({ ...current, storyTitle: '' }));
+    setSelectedStoryId(event.id);
+  }, [tool.storyTitle, tool.storyType, tool.storyStatus, tool.storyChapter, applyEdit, t]);
+  /**
+   * The record each event was last written as, until the list catches up: a
+   * title committed on blur and a chip clicked right after must not each start
+   * from the same stale record, or the second would put the old title back.
+   */
+  const storyWritten = useRef(new Map<string, StoryEvent>());
+  useEffect(() => { storyWritten.current.clear(); }, [storyEvents]);
+  const updateStory = useCallback((id: string, patch: Partial<Omit<StoryEvent, 'id'>>) => {
+    const current = storyWritten.current.get(id) ?? storyEvents.find((event) => event.id === id);
+    if (!current) return;
+    const merged: Record<string, unknown> = { ...current, ...patch };
+    if ('chapter' in patch && patch.chapter === undefined) delete merged.chapter;
+    try {
+      const event = normalizeStoryEvent(merged);
+      storyWritten.current.set(id, event);
+      applyEdit({ kind: 'story', ...event });
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+  }, [storyEvents, applyEdit]);
+  const removeStory = useCallback((id: string) => { applyEdit({ kind: 'storyRemove', id }); }, [applyEdit]);
   applyExternalRef.current = edits => {
     if (generationBusyRef.current || preparingRef.current || environmentBusyRef.current) throw new Error(copy.preparing);
     applyEditGroup(edits);
@@ -1596,6 +1646,7 @@ export default function WorldView({
         // grid, and the reader's-eye fog while that view is open.
         grid: mapGrid,
         fog: fogLayer?.mode === 'reader' ? fogLayer : null,
+        story: storyMarks?.map((mark) => ({ ...mark, selected: false })) ?? null,
       });
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
       // A 4K canvas is where `toBlob` runs out of memory. Returning quietly
@@ -1605,7 +1656,7 @@ export default function WorldView({
     } finally {
       setExporting(false);
     }
-  }, [data, theme, cartoLayers, reliefSettled, geography, world.title, t, mapGrid, fogLayer]);
+  }, [data, theme, cartoLayers, reliefSettled, geography, world.title, t, mapGrid, fogLayer, storyMarks]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -2054,6 +2105,9 @@ export default function WorldView({
               onEdit={paintable ? applyEdit : undefined}
               selectedLabelKey={tool.mode === 'labels' ? selectedLabelKey : null}
               onSelectLabel={setSelectedLabelKey}
+              onSelectStory={setSelectedStoryId}
+              onPlaceStory={paintable ? placeStory : undefined}
+              onMoveStory={paintable ? (id, x, y) => updateStory(id, { x, y }) : undefined}
               measuring={measuring}
               scaleReference={scaleReference || null}
               travelProfile={world.travelProfile}
@@ -2141,7 +2195,8 @@ export default function WorldView({
                 shape={shape3D}
                 onShape={setShape3D}
                 exaggeration={exaggeration}
-                tool={brush}
+                // The reader's-eye tools draw on flat maps only; the globe gets the hand.
+                tool={brush.mode === 'fog' || brush.mode === 'story' ? DEFAULT_PAINT_TOOL : brush}
                 onTool={(p) => setTool((prev) => ({ ...prev, ...p }))}
                 onEdit={applyEdit}
                 onEdits={applyEditGroup}
@@ -2448,7 +2503,7 @@ export default function WorldView({
                   onClearVia={() => setJourneyVia([])}
                   onRoute={(route, color) => setJourneyRoute({ route, color })}
                   onTraveller={setTraveller}
-                  onRevealRoute={applyEdit}
+                  onRevealRoute={applyEditGroup}
                   paleo={paleoState}
                   onPaleo={setPaleoState}
                 />
@@ -2487,6 +2542,13 @@ export default function WorldView({
                 selectedLabel={selectedLabel}
                 onRelabel={(change, key) => applyEdit({ kind: 'relabel', key, ...change })}
                 onRemoveLabel={() => { if (selectedLabelKey) { applyEdit({ kind: 'remove', target: 'label', key: selectedLabelKey }); setSelectedLabelKey(null); } }}
+                flatOnlyNote={view === '3d' && (tool.mode === 'fog' || tool.mode === 'story')}
+                storyEvents={storyEvents}
+                selectedStoryId={selectedStoryId}
+                onSelectStory={setSelectedStoryId}
+                onUpdateStory={updateStory}
+                onRemoveStory={removeStory}
+                onFocusStory={(event) => zoomToPoint(event.x, event.y)}
               />
             ) : panelTab === 'params' ? (
               <ParamsPanel

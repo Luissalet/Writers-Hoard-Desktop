@@ -9,6 +9,7 @@
 
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
+import { drawStoryMark, type StoryMark } from './storyMarks';
 import type { WorldData } from '../core/types';
 import type { PaleoMap } from '../core/paleo';
 import { marchingSquares, chaikin } from './contours';
@@ -20,6 +21,8 @@ export interface CartoAnnotations {
   fog?: ReaderFogLayer;
   /** A square or hex play grid in km, under everything else on this layer. */
   grid?: MapGrid;
+  /** Story events to show, already filtered for the view (drawn last, over the fog). */
+  story?: StoryMark[];
   /** The party on its way along the route, when the journey is being played. */
   traveller?: { x: number; y: number; label: string; resting: boolean };
   /** Journey ends. */
@@ -305,5 +308,18 @@ export function drawAnnotations(
       ctx.fillText(ann.traveller.label, x + 22, y - 17);
     }
     ctx.restore();
+  }
+  // ---- what happens where, in which chapter: over everything, fog included --
+  if (ann.story?.length) {
+    const x0 = sx(0);
+    for (const mark of ann.story) {
+      const baseX = x0 + mark.x * k, y = sy(mark.y);
+      const span = W * k;
+      for (const off of [-span, 0, span]) {
+        const x = baseX + off;
+        if (x < -40 || x > ctx.canvas.width + 200 || y < -20 || y > ctx.canvas.height + 20) continue;
+        drawStoryMark(ctx, mark, x, y);
+      }
+    }
   }
 }

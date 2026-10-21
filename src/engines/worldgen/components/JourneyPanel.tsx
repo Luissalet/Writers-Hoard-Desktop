@@ -50,7 +50,7 @@ interface JourneyPanelProps {
   /** The party's banner while the journey is played, or null. */
   onTraveller?: (traveller: { x: number; y: number; label: string; resting: boolean } | null) => void;
   /** Mark the route as seen on the reader's-eye map (absent where the world cannot be painted). */
-  onRevealRoute?: (edit: WorldEdit) => void;
+  onRevealRoute?: (edits: WorldEdit[]) => void;
   paleo: PaleoState | null;
   onPaleo: (state: PaleoState | null) => void;
 }

@@ -283,11 +283,11 @@ function worldDigest(world: GeneratedWorld, waypoints: WorldWaypoint[]): Record<
 async function appendEdit<T extends object>(
   args: ToolArgs,
   world: GeneratedWorld,
-  edit: WorldEdit,
+  edit: WorldEdit | WorldEdit[],
   result: T,
   summary: string,
 ): Promise<unknown> {
-  const { before, delivered } = await applyWorldEdits(world, [edit], worldEraToolScope(args)?.eraId);
+  const { before, delivered } = await applyWorldEdits(world, Array.isArray(edit) ? edit : [edit], worldEraToolScope(args)?.eraId);
   return withAudit(
     { ...result, delivered },
     {
@@ -353,7 +353,9 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   const { DEFAULT_LAYERS } = await import('@/engines/worldgen/cartography/render');
   // The reader's-eye map: blank paper where the story has not been yet (up to a chapter, if given).
   let fog: import('@/engines/worldgen/cartography/readerFogLayer').ReaderFogLayer | null = null;
-  const readerView = args.readerView === true || (args.readerChapter !== undefined && args.readerChapter !== null);
+  let story: import('@/engines/worldgen/core/storyEvents').StoryEvent[] | null = null;
+  // readerChapter implies the reader's view unless readerView is explicitly false.
+  const readerView = args.readerView === true || (args.readerView === undefined && args.readerChapter !== undefined && args.readerChapter !== null);
   if (args.readerView !== undefined && typeof args.readerView !== 'boolean') throw new BridgeError('bad-args', 'readerView must be true or false.');
   if (readerView) {
     let chapter: number | null = null;
@@ -364,8 +366,14 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
     const { fogMask } = await import('@/engines/worldgen/core/readerFog');
     const data = opened.world.data;
     fog = { mask: fogMask(deserializeEdits(world.edits ?? '[]'), data.width, data.height, look.readerStart, chapter), width: data.width, height: data.height, mode: 'reader' };
+    const { storyEventsFrom, storyKnownBy } = await import('@/engines/worldgen/core/storyEvents');
+    story = storyKnownBy(storyEventsFrom(deserializeEdits(world.edits ?? '[]')), chapter);
+  } else if (args.storyEvents === true) {
+    const { storyEventsFrom } = await import('@/engines/worldgen/core/storyEvents');
+    story = storyEventsFrom(deserializeEdits(world.edits ?? '[]'));
   }
-  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
+  if (args.storyEvents !== undefined && typeof args.storyEvents !== 'boolean') throw new BridgeError('bad-args', 'storyEvents must be true or false.');
+  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, story, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
   return { worldId: world.id, theme: themeId, ...(readerView ? { readerView: true } : {}), view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
 }
 
@@ -1118,11 +1126,13 @@ export async function whPaintReaderFog(args: ToolArgs): Promise<unknown> {
     if (typeof args.chapter !== 'number' || !Number.isInteger(args.chapter) || args.chapter < 0) throw new BridgeError('bad-args', 'chapter must be a whole number from 0 up, or omitted for "from the start".');
     chapter = args.chapter;
   }
-  const stroke = { pts, radius, strength: 1, softness: 0.35 };
+  // A line longer than a quarter of the world is stored as several strokes, or it would fold across the sheet.
+  const { fogStrokeEdits } = await import('@/engines/worldgen/core/readerFog');
+  const edits = fogStrokeEdits(pts, size.width, op, radius, chapter ?? null);
   return appendEdit(
     args, world,
-    chapter === undefined ? { kind: 'fog', op, stroke } : { kind: 'fog', op, stroke, chapter },
-    { op, points: pts.length, radiusCells: radius, chapter: chapter ?? null },
+    edits,
+    { op, points: pts.length, strokes: edits.length, radiusCells: radius, chapter: chapter ?? null },
     `marked the reader's map ${op} in world "${world.title}"`,
   );
 }
@@ -1158,4 +1168,85 @@ export async function whReaderView(args: ToolArgs): Promise<unknown> {
     shares: { seen: round(shares.seen), heard: round(shares.heard), hidden: round(shares.hidden) },
     ...(cells ? { cells } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Story events on the map
+// ---------------------------------------------------------------------------
+
+async function storyModule() { return import('@/engines/worldgen/core/storyEvents'); }
+
+/** Where an event goes: a place key or world cells (cell centre). */
+async function storyPosition(args: ToolArgs, world: GeneratedWorld): Promise<{ x: number; y: number } | null> {
+  if (typeof args.place === 'string') {
+    const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+    if (!opened.ok) throw new BridgeError('generating', 'The world is still being generated; wait about 30 seconds and call again.');
+    const place = opened.world.atlas.byKey.get(args.place);
+    if (!place) throw new BridgeError('not-found', `No place "${args.place}"; use wh_find_place for keys.`);
+    return { x: place.x + 0.5, y: place.y + 0.5 };
+  }
+  if (args.x === undefined && args.y === undefined) return null;
+  const { x, y } = cellCoords(args, worldSize(world));
+  return { x: x + 0.5, y: y + 0.5 };
+}
+
+function storyFields(args: ToolArgs): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of ['type', 'title', 'note', 'chapter', 'status'] as const) if (args[key] !== undefined) out[key] = args[key];
+  if (args.chapter === null) out.chapter = undefined;
+  return out;
+}
+
+/** Put a story event on the map: what happens, where, in which chapter, planned or happened. */
+export async function whAddStoryEvent(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { normalizeStoryEvent, newStoryId } = await storyModule();
+  const at = await storyPosition(args, world);
+  if (!at) throw new BridgeError('bad-args', 'Give place (a key from wh_find_place) or x and y world cells.');
+  let event;
+  try { event = normalizeStoryEvent({ id: newStoryId(), ...at, type: 'custom', ...storyFields(args) }); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+  return appendEdit(args, world, { kind: 'story', ...event }, { event }, `added story event "${event.title}" to world "${world.title}"`);
+}
+
+/** Change a story event: only the fields given, position included. */
+export async function whUpdateStoryEvent(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { normalizeStoryEvent, storyEventsFrom } = await storyModule();
+  const id = requireString(args, 'id');
+  const current = storyEventsFrom(deserializeEdits(world.edits ?? '[]')).find((event) => event.id === id);
+  if (!current) throw new BridgeError('not-found', `No story event "${id}" on this world; use wh_list_story_events.`);
+  const at = await storyPosition(args, world);
+  const merged: Record<string, unknown> = { ...current, ...(at ?? {}), ...storyFields(args) };
+  if (args.chapter === null) delete merged.chapter;
+  let event;
+  try { event = normalizeStoryEvent(merged); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+  return appendEdit(args, world, { kind: 'story', ...event }, { event }, `changed story event "${event.title}" in world "${world.title}"`);
+}
+
+/** Take a story event off the map. */
+export async function whRemoveStoryEvent(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { storyEventsFrom } = await storyModule();
+  const id = requireString(args, 'id');
+  const current = storyEventsFrom(deserializeEdits(world.edits ?? '[]')).find((event) => event.id === id);
+  if (!current) throw new BridgeError('not-found', `No story event "${id}" on this world; use wh_list_story_events.`);
+  return appendEdit(args, world, { kind: 'storyRemove', id }, { id, removed: true }, `removed story event "${current.title}" from world "${world.title}"`);
+}
+
+/** The story events on a world, by chapter; optionally only what the reader knows by a chapter. */
+export async function whListStoryEvents(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { storyEventsFrom, storyKnownBy, STORY_STATUSES } = await storyModule();
+  let events = storyEventsFrom(deserializeEdits(world.edits ?? '[]'));
+  const status = optEnum(args, 'status', STORY_STATUSES);
+  if (args.status !== undefined && !status) throw new BridgeError('bad-args', 'status must be planned or happened.');
+  if (args.knownByChapter !== undefined) {
+    if (typeof args.knownByChapter !== 'number' || !Number.isInteger(args.knownByChapter) || args.knownByChapter < 0) throw new BridgeError('bad-args', 'knownByChapter must be a whole number from 0 up.');
+    events = storyKnownBy(events, args.knownByChapter);
+  }
+  if (status) events = events.filter((event) => event.status === status);
+  return { worldId: world.id, events: events.map((event) => ({ ...event, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10 })) };
 }

@@ -107,3 +107,59 @@ export function fogHides(layer: ReaderFogLayer | null | undefined, wx: number, w
   if (y < 0 || y >= H) return false;
   return layer.mask[y * W + x] === FOG_HIDDEN;
 }
+
+let projectedCache: { key: string; mask: Uint8Array; canvas: HTMLCanvasElement | OffscreenCanvas } | null = null;
+
+/**
+ * The fog for a projection that is not a simple grid of rows and columns
+ * (Robinson, Mollweide, azimuthal): sampled through the projection's inverse
+ * every few screen pixels and laid over the view. In the reader's view the
+ * paper also covers what lies outside the projected world. `key` names the
+ * camera, so an unchanged view reuses its sheet.
+ */
+export function drawReaderFogProjected(
+  ctx: CanvasRenderingContext2D,
+  layer: ReaderFogLayer,
+  width: number,
+  height: number,
+  inverse: (sx: number, sy: number) => [number, number] | null,
+  key: string,
+  step = 3,
+): void {
+  const w = Math.max(1, Math.ceil(width / step)), h = Math.max(1, Math.ceil(height / step));
+  const fullKey = `${key}|${layer.mode}|${layer.paper ?? ''}|${w}x${h}`;
+  let sheet = projectedCache && projectedCache.key === fullKey && projectedCache.mask === layer.mask ? projectedCache.canvas : null;
+  if (!sheet) {
+    const canvas: HTMLCanvasElement | OffscreenCanvas = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(w, h)
+      : Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const sctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!sctx) return;
+    const img = sctx.createImageData(w, h);
+    const [pr, pg, pb] = layer.mode === 'reader' ? hexRgb(layer.paper ?? DEFAULT_PAPER) : [24, 26, 38];
+    const hiddenA = layer.mode === 'reader' ? 255 : 120, heardA = layer.mode === 'reader' ? 165 : 52;
+    const W = layer.width, H = layer.height;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const uv = inverse((x + 0.5) * step, (y + 0.5) * step);
+        let alpha: number;
+        if (!uv) alpha = layer.mode === 'reader' ? 255 : 0;
+        else {
+          const cx = ((Math.floor(uv[0] * W) % W) + W) % W, cy = Math.min(H - 1, Math.max(0, Math.floor(uv[1] * H)));
+          const v = layer.mask[cy * W + cx];
+          alpha = v === FOG_HIDDEN ? hiddenA : v === FOG_HEARD ? heardA : 0;
+        }
+        if (!alpha) continue;
+        const o = (y * w + x) * 4;
+        img.data[o] = pr; img.data[o + 1] = pg; img.data[o + 2] = pb; img.data[o + 3] = alpha;
+      }
+    }
+    sctx.putImageData(img, 0, 0);
+    projectedCache = { key: fullKey, mask: layer.mask, canvas };
+    sheet = canvas;
+  }
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(sheet, 0, 0, w, h, 0, 0, w * step, h * step);
+  ctx.restore();
+}

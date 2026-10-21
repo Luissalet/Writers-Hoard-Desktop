@@ -61,6 +61,7 @@ const suites = [
   ['world-journey-playback.browser.ts', 'testWorldJourneyPlayback'],
   ['world-grid.browser.ts', 'testWorldGrid'],
   ['world-reader-fog.browser.ts', 'testReaderFog'],
+  ['world-story-events.browser.ts', 'testStoryEvents'],
 ];
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });
 let checks = 0; const failed = [];
