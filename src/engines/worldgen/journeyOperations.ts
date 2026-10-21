@@ -22,7 +22,11 @@ function validProfile(profile: unknown): boolean {
   try { normalizeTravelProfile(profile); return true; } catch { return false; }
 }
 
-export interface TravelSettingsReceipt { from: { profile?: TravelProfile; pace?: TravelPace }; to: { profile?: TravelProfile; pace?: TravelPace }; revision: number }
+export interface TravelSettingsReceipt {
+  from: { profile?: TravelProfile; pace?: TravelPace }; to: { profile?: TravelProfile; pace?: TravelPace }; revision: number;
+  /** Where the change was written (Base for a world an era inherits), so undo reverts that row. */
+  scope?: { projectId: string; eraId?: string };
+}
 
 /**
  * Save the world's travel physics and default pace in its own era. Itineraries
@@ -57,9 +61,9 @@ export async function saveWorldTravelSettings(requested: { projectId: string; er
     }
     const from = { profile: current.travelProfile, pace: current.travelPace };
     const to = { profile: 'profile' in next ? (Object.keys(next.profile ?? {}).length ? next.profile : undefined) : current.travelProfile, pace: 'pace' in next ? next.pace : current.travelPace };
-    if (JSON.stringify(from) === JSON.stringify(to)) return { from, to, revision };
+    if (JSON.stringify(from) === JSON.stringify(to)) return { from, to, revision, scope };
     await worlds.update(worldId, { travelProfile: to.profile, travelPace: to.pace, travelRevision: revision + 1, updatedAt: Date.now() });
-    return { from, to, revision: revision + 1 };
+    return { from, to, revision: revision + 1, scope };
   });
   notifyDataChanged({ source: 'other', table: 'generatedWorlds', entityId: worldId, projectId: scope.projectId });
   return receipt;
@@ -67,7 +71,7 @@ export async function saveWorldTravelSettings(requested: { projectId: string; er
 
 /** Undo one recorded change, keeping fields changed again since. */
 export async function revertWorldTravelSettings(requested: { projectId: string; eraId?: string }, worldId: string, receipt: TravelSettingsReceipt): Promise<{ reverted: string[]; kept: string[] }> {
-  const scope = await worldSettingsScope(requested, worldId);
+  const scope = receipt.scope ?? await worldSettingsScope(requested, worldId);
   const { worlds } = worldgenScopeOperations(scope);
   const result = await db.transaction('rw', scope.eraId ? db.tables : [db.generatedWorlds], async () => {
     const current = await worlds.getOne(worldId);

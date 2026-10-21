@@ -79,7 +79,9 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     ...(eraAdapters[kind].table?snapshot.tables[eraAdapters[kind].table!]??[]:sourceProject[eraAdapters[kind].metadata!] as unknown as Row[]??[]),
     ...[...snapshot.tables.worldEraVariants??[],...snapshot.tables.documentHistory??[]].filter(row=>row.kind===kind).flatMap(row=>[row,...row.history as Row[]??[]]).flatMap(row=>object(row.document)&&object(row.document.root)?[row.document.root]:[]),
   ];
-  const codexIds=new Set(roots('codex').map(row=>String(row.id))),mediaIds=new Set(roots('media').map(row=>String(row.id))),writingIds=new Set(roots('writings').map(row=>String(row.id))),eventIds=new Set([...(snapshot.tables.timelineEvents??[])].map(row=>String(row.id)));
+  const codexIds=new Set(roots('codex').map(row=>String(row.id))),mediaIds=new Set(roots('media').map(row=>String(row.id))),writingIds=new Set(roots('writings').map(row=>String(row.id))),eventIds=new Set([...(snapshot.tables.timelineEvents??[]),
+    // Events that exist only in a world era live inside its documents (and their history).
+    ...[...snapshot.tables.worldEraVariants??[],...snapshot.tables.documentHistory??[]].flatMap(row=>[row,...row.history as Row[]??[]]).flatMap(row=>object(row.document)&&object(row.document.children)&&Array.isArray(row.document.children.timelineEvents)?row.document.children.timelineEvents as Row[]:[])].map(row=>String(row.id)));
   // Missing local references remain missing in the copy; absence must not silently erase an authored link.
   const collect=(target:Set<string>)=>(id:unknown)=>{if(typeof id==='string'&&id)target.add(id);return id;};
   const metadataReferences:Record<string,string[]>={dictionaries:['words.*.linkedEntryId'],characterSheets:['linkedEntryId'],radarCharts:['series.*.linkedEntryId'],relationTrees:['nodes.*.codexEntryId']};

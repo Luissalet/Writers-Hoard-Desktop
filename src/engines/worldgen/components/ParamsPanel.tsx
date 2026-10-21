@@ -1,3 +1,4 @@
+import { DEFAULT_PARAMS } from '../core/types';
 import { useId } from 'react';
 import { Check, Dices, Sparkles } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -109,7 +110,11 @@ export default function ParamsPanel({
       {params.starter && <div className="rounded-lg border border-border bg-surface/50 p-2.5 text-xs leading-relaxed text-text-muted" data-testid="worldgen-starter-note">
         <p>{t('worldgen.params.starterNote')}</p>
         <button type="button" className="mt-1.5 text-accent-gold underline" data-testid="worldgen-starter-leave"
-          onClick={() => { const next = { ...params }; delete next.starter; onChange(next); }}>{t('worldgen.params.starterLeave')}</button>
+          onClick={() => {
+            // The blank starters flattened the relief controls; continents need them back.
+            const next = { ...params, mountainousness: DEFAULT_PARAMS.mountainousness, ruggedness: DEFAULT_PARAMS.ruggedness, erosion: DEFAULT_PARAMS.erosion, glaciation: DEFAULT_PARAMS.glaciation };
+            delete next.starter; onChange(next);
+          }}>{t('worldgen.params.starterLeave')}</button>
       </div>}
       <Slider label={t('worldgen.params.plates')} value={params.plates} min={4} max={20} step={1}
         display={String(params.plates)} onChange={(v) => set('plates', v)} />
