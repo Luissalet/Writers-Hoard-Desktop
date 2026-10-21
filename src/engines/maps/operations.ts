@@ -63,8 +63,15 @@ export function updateMapVersion(mapId: string, versionId: string, metadata: Map
   }, scope);
 }
 
-export function deleteMapVersion(mapId: string, versionId: string, scope?: WorldEraScope): Promise<void> {
+/** What an era says about itself; undo of a capture refuses once any of it was changed. */
+export function mapVersionFingerprint(version: Pick<MapVersion, 'name' | 'date' | 'description' | 'timelineEventId'>): string {
+  return JSON.stringify([version.name, version.date, version.description ?? '', version.timelineEventId ?? null]);
+}
+
+export function deleteMapVersion(mapId: string, versionId: string, scope?: WorldEraScope, expectedFingerprint?: string): Promise<void> {
   return runMapVersionWrite(mapId, async map => {
+    const version = map.versions?.find(item => item.id === versionId);
+    if (expectedFingerprint !== undefined && version && mapVersionFingerprint(version) !== expectedFingerprint) throw new Error('Map version changed since it was saved');
     await scopedMapUpdate(mapId, scope, { versions: (map.versions ?? []).filter(version => version.id !== versionId), updatedAt: Date.now() });
   }, scope);
 }
@@ -104,16 +111,25 @@ async function scopedMapUpdate(mapId: string, scope: WorldEraScope | undefined, 
  * happens while the era still has that link — an undo cannot overwrite a newer
  * choice. Returns the link it replaced.
  */
-export function linkMapVersion(mapId: string, versionId: string, eventId: string | null, scope?: WorldEraScope, expected?: string | null): Promise<string | null> {
+/**
+ * Link an era to an event (or unlink with null) and return the previous link.
+ * `stampDate` gives an undated era the moment's date, so it still reads right
+ * if the event is deleted; `clearDate` takes that stamp back on undo.
+ */
+export function linkMapVersion(mapId: string, versionId: string, eventId: string | null, scope?: WorldEraScope, expected?: string | null, dates: { stampDate?: string; clearDate?: string } = {}): Promise<string | null> {
   return runMapVersionWrite(mapId, async map => {
     const version = map.versions?.find(item => item.id === versionId);
     if (!version) throw new Error('Map version no longer exists');
     const previous = version.timelineEventId ?? null;
     if (expected !== undefined && previous !== expected) throw new Error('Map version link changed since');
-    if (previous === eventId) return previous;
+    const stamp = !!dates.stampDate && !version.date.trim();
+    const clear = !!dates.clearDate && version.date === dates.clearDate;
+    if (previous === eventId && !stamp && !clear) return previous;
     await scopedMapUpdate(mapId, scope, { versions: map.versions!.map(item => {
       if (item.id !== versionId) return item;
       const next: MapVersion = { ...item };
+      if (stamp) next.date = dates.stampDate!;
+      if (clear) next.date = '';
       if (eventId) next.timelineEventId = eventId; else delete next.timelineEventId;
       return next;
     }), updatedAt: Date.now() });

@@ -51,7 +51,7 @@ export async function testWorldPresentationCore(): Promise<string[]> {
 
     // Era scope: while the era inherits the world, a look change is shared with
     // Base and never copies the world into the era (later Base edits still show).
-    await saveWorldPresentation(ERA, world.id, { skin3D: 'arcilla' });
+    const shared = await saveWorldPresentation(ERA, world.id, { skin3D: 'arcilla' });
     row = (await db.generatedWorlds.get(world.id))!;
     const variants = () => db.worldEraVariants.where('[projectId+eraId+kind+entityId]').equals([P, ERA.eraId, 'worldgen', world.id]).count();
     assert(row.presentation?.skin3D === 'arcilla' && await variants() === 0, `Look change forked the world into the era: ${JSON.stringify(row.presentation)}`);
@@ -64,6 +64,10 @@ export async function testWorldPresentationCore(): Promise<string[]> {
     const past = (await worldgenScopeOperations(ERA).worlds.getOne(world.id))!;
     row = (await db.generatedWorlds.get(world.id))!;
     assert(await variants() === 1 && past.presentation?.theme === 'survey' && past.presentation.layers?.roads === false && row.presentation?.theme === 'antique', `Era look leaked: ${JSON.stringify({ past: past.presentation, base: row.presentation })}`);
+    // Undo of the shared change still reverts Base after the era made its own copy.
+    await revertWorldPresentation(ERA, world.id, shared);
+    row = (await db.generatedWorlds.get(world.id))!;
+    assert(!row.presentation?.skin3D && row.presentation?.theme === 'antique', `Undo after the era forked missed Base: ${JSON.stringify(row.presentation)}`);
     // One damaged stored field falls back alone.
     const partial = resolvePresentation({ theme: 'neon', skin3D: 'arcilla', layers: { roads: false, lava: true } } as never);
     assert(partial.theme === 'wonder' && partial.skin3D === 'arcilla' && partial.layers.roads === false, `A bad field reset the whole look: ${JSON.stringify(partial)}`);

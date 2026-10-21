@@ -1,11 +1,11 @@
 import { db } from '@/db';
 import { exportProjectData, importProjectData, deleteProject } from '@/db/operations';
 import type { MapVersion, Project, TimelineEvent } from '@/types';
-import { captureMapVersion, linkMapVersion } from '@/engines/maps/operations';
+import { captureMapVersion, linkMapVersion, updateMapVersion } from '@/engines/maps/operations';
 import { orderMapVersions } from '@/engines/maps/versionTimeline';
 import { defaultWorldCalendar } from '@/engines/timeline/worldCalendar';
 import { saveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
-import { saveWorldEra } from '@/services/worldEras/store';
+import { listEraRows, mutateEraRows, saveWorldEra } from '@/services/worldEras/store';
 import { duplicateProject, previewProjectDuplicate } from '@/services/projectDuplicate/service';
 import { runBridgeTool } from '@/services/aiBridge/dispatch';
 
@@ -76,7 +76,30 @@ export async function testWorldMapEras(): Promise<string[]> {
     assert(!staleUndo.ok && (await saved()).versions!.find(v => v.id === free)?.timelineEventId === flood.id, `Stale link undo overwrote a later edit: ${JSON.stringify(staleUndo)}`);
     const undoCapture = await runBridgeTool('__undo', { entry: { tool: 'wh_capture_map_version', kind: 'create', entityId: captured.__audit.entityId, projectId: captured.__audit.projectId, before: captured.__audit.before, summary: 'capture' } });
     assert(undoCapture.ok && !(await saved()).versions!.some(v => v.id === captured.versionId), `Capture undo: ${JSON.stringify(undoCapture)}`);
-    passed.push('Bridge lists eras in order, captures linked eras with their moment dates, rejects bad links, and undo reverts link and capture but never a later edit');
+    // Linking an undated era through the bridge stamps the moment's date; undo takes both back.
+    const blank = await captureMapVersion(M, { name: 'Undated', date: '' });
+    const stampLink = await runBridgeTool('wh_link_map_version', { mapId: M, versionId: blank, eventId: flood.id });
+    let blankRow = (await saved()).versions!.find(v => v.id === blank)!;
+    assert(stampLink.ok && blankRow.timelineEventId === flood.id && blankRow.date.includes('220'), `Bridge link did not stamp the date: ${JSON.stringify(blankRow)}`);
+    const stampAudit = (stampLink.result as { __audit: { before: unknown; entityId: string; projectId: string } }).__audit;
+    const unstamp = await runBridgeTool('__undo', { entry: { tool: 'wh_link_map_version', kind: 'update', entityId: stampAudit.entityId, projectId: stampAudit.projectId, before: stampAudit.before, summary: 'link' } });
+    blankRow = (await saved()).versions!.find(v => v.id === blank)!;
+    assert(unstamp.ok && !blankRow.timelineEventId && blankRow.date === '', `Undo kept the stamp: ${JSON.stringify(blankRow)}`);
+    // Undo of a capture refuses once the era was renamed since.
+    const kept = await runBridgeTool('wh_capture_map_version', { mapId: M, name: 'Kept era', date: 'Year 1' });
+    const keptAudit = (kept.result as { versionId: string; __audit: { before: unknown; entityId: string; projectId: string } });
+    await updateMapVersion(M, keptAudit.versionId, { name: 'Kept era, renamed', date: 'Year 1' });
+    const keptUndo = await runBridgeTool('__undo', { entry: { tool: 'wh_capture_map_version', kind: 'create', entityId: keptAudit.__audit.entityId, projectId: keptAudit.__audit.projectId, before: keptAudit.__audit.before, summary: 'capture' } });
+    assert(!keptUndo.ok && (await saved()).versions!.some(v => v.id === keptAudit.versionId), `Capture undo deleted a renamed era: ${JSON.stringify(keptUndo)}`);
+    // Each event is dated in its own timeline's calendar.
+    const own = { ...defaultWorldCalendar('Old reckoning'), eras: [{ name: 'Old Age', abbr: 'OA', startYear: 1 }] };
+    await db.timelines.put({ id: `${P}-old`, projectId: P, title: 'Old chronicle', color: '#777777', worldCalendar: own, createdAt: 1, updatedAt: 1 } as never);
+    const omen = { ...event('omen', 'The omen', 0, 150), timelineId: `${P}-old` } as TimelineEvent;
+    await db.timelineEvents.put(omen);
+    const omenEra = await runBridgeTool('wh_capture_map_version', { mapId: M, name: 'Omen era', eventId: omen.id });
+    const omenRow = (await saved()).versions!.find(v => v.id === (omenEra.result as { versionId: string }).versionId)!;
+    assert(omenEra.ok && /OA/.test(omenRow.date), `Event not dated in its own timeline calendar: ${omenRow.date}`);
+    passed.push('Bridge lists eras in order, captures linked eras with their moment dates (each in its own timeline calendar), rejects bad links; undo reverts link, stamp and capture but refuses an era changed since');
 
     // A world era keeps its own map history; the base map is untouched.
     await saveWorldEra(P, { id: 'past', name: 'Past', description: '', revision: 0, createdAt: 1, updatedAt: 1 } as never, null);
@@ -91,6 +114,11 @@ export async function testWorldMapEras(): Promise<string[]> {
     const eraAfter = ((await runBridgeTool('wh_list_map_versions', { mapId: M, projectId: P, eraId: 'past' })).result as { eras: { name: string }[] }).eras;
     assert(eraUndo.ok && !eraAfter.some(row => row.name === 'Era-only') && JSON.stringify((await saved()).versions) === before, `Era undo: ${JSON.stringify(eraUndo)}`);
     passed.push('Era-scoped capture, listing and undo stay inside the world era');
+    // An event that exists only in the era, linked from the era's map, survives duplication.
+    const eraOnly = { ...event('council', 'Era council', 9, 300), id: `${P}-era-council` } as TimelineEvent;
+    await mutateEraRows({ projectId: P, eraId: 'past' }, [{ table: 'timelineEvents', id: eraOnly.id, row: eraOnly as never }]);
+    const eraLinked = await runBridgeTool('wh_capture_map_version', { mapId: M, projectId: P, eraId: 'past', name: 'Council borders', eventId: eraOnly.id });
+    assert(eraLinked.ok, `Era-only event link: ${JSON.stringify(eraLinked)}`);
 
     // JSON export/import and full duplication carry links to the copied events.
     const check = async (projectId: string, how: string) => {
@@ -107,7 +135,13 @@ export async function testWorldMapEras(): Promise<string[]> {
     const preview = await previewProjectDuplicate({ projectId: P });
     const copy = await duplicateProject({ projectId: P, title: 'Copy', operationId: crypto.randomUUID(), expectedSourceVersion: preview.sourceVersion });
     await check(copy.projectId, 'Duplicate');
-    passed.push('JSON import and project duplication relink eras to the copied events and keep orphans visible');
+    const copyEra = (await db.projects.get(copy.projectId))!.worldEras![0].id;
+    const copyEraMap = (await listEraRows<{ id: string; versions?: MapVersion[] }>({ projectId: copy.projectId, eraId: copyEra }, 'worldMaps'))[0];
+    const copyEraEvents = await listEraRows<TimelineEvent>({ projectId: copy.projectId, eraId: copyEra }, 'timelineEvents');
+    const council = copyEraMap?.versions?.find(v => v.name === 'Council borders');
+    const councilEvent = copyEraEvents.find(item => item.title === 'Era council');
+    assert(council && councilEvent && council.timelineEventId === councilEvent.id && councilEvent.id !== eraOnly.id, `Era-only link lost in duplication: ${JSON.stringify({ link: council?.timelineEventId, event: councilEvent?.id })}`);
+    passed.push('JSON import and project duplication relink eras to the copied events (era-only events included) and keep orphans visible');
     return passed;
   } finally {
     for (const id of created) await deleteProject(id).catch(() => undefined);

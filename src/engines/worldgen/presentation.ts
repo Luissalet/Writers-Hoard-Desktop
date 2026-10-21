@@ -83,7 +83,11 @@ function merge(current: WorldPresentation | undefined, patch: WorldPresentation)
   return next;
 }
 
-export interface PresentationReceipt { from?: WorldPresentation; to: WorldPresentation; revision: number }
+export interface PresentationReceipt {
+  from?: WorldPresentation; to: WorldPresentation; revision: number;
+  /** Where the change was written (Base for a world an era inherits), so undo reverts that row. */
+  scope?: { projectId: string; eraId?: string };
+}
 
 /**
  * Field-merge a presentation change into the current row, in the world's own
@@ -100,9 +104,9 @@ export async function saveWorldPresentation(requested: { projectId: string; eraI
     const revision = current.presentationRevision ?? 0;
     if (expectedRevision !== undefined && expectedRevision !== revision) throw new WorldPresentationError('conflict', `Presentation changed (revision ${revision}); read it again before saving.`);
     const next = merge(current.presentation, patch);
-    if (JSON.stringify(next) === JSON.stringify(current.presentation ?? {})) return { from: current.presentation, to: next, revision };
+    if (JSON.stringify(next) === JSON.stringify(current.presentation ?? {})) return { from: current.presentation, to: next, revision, scope };
     await worlds.update(worldId, { presentation: next, presentationRevision: revision + 1, updatedAt: Date.now() });
-    return { from: current.presentation, to: next, revision: revision + 1 };
+    return { from: current.presentation, to: next, revision: revision + 1, scope };
   });
   notifyDataChanged({ source: 'other', table: 'generatedWorlds', entityId: worldId, projectId: scope.projectId });
   return receipt;
@@ -113,7 +117,7 @@ export async function saveWorldPresentation(requested: { projectId: string; eraI
  * back only where it still holds the value this change wrote.
  */
 export async function revertWorldPresentation(requested: { projectId: string; eraId?: string }, worldId: string, receipt: PresentationReceipt): Promise<{ reverted: string[]; kept: string[] }> {
-  const scope = await worldSettingsScope(requested, worldId);
+  const scope = receipt.scope ?? await worldSettingsScope(requested, worldId);
   const { worlds } = worldgenScopeOperations(scope);
   const result = await db.transaction('rw', scope.eraId ? db.tables : [db.generatedWorlds], async () => {
     const current = await worlds.getOne(worldId) as GeneratedWorld | undefined;

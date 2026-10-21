@@ -3,8 +3,7 @@ import { Clock3, History, Pause, Play, Plus, RotateCcw, Trash2 } from 'lucide-re
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { MapVersion, TimelineEvent } from '@/types';
-import type { WorldCalendar } from '@/engines/timeline/worldCalendar';
-import { chronologicalEvents, eventDate, orderMapVersions, withMomentDate } from '@/engines/maps/versionTimeline';
+import { chronologicalEvents, eventDate, orderMapVersions, withMomentDate, type CalendarSource } from '@/engines/maps/versionTimeline';
 import type { MapVersionMetadata } from '@/engines/maps/operations';
 import { mapHistoryCopy } from './mapHistoryCopy';
 
@@ -19,18 +18,18 @@ interface Props {
   onRestore: (id: string, recoveryName: string) => Promise<unknown>;
   /** Timeline events an era can stand for; the project's own, in this pane's era. */
   events?: TimelineEvent[];
-  calendar?: WorldCalendar | null;
+  calendar?: CalendarSource;
 }
 
 /** A picker of timeline events, labelled with their dates. */
-function EventPicker({ events, calendar, calendarLabel, value, onChange, disabled, label, none }: { events: TimelineEvent[]; calendar?: WorldCalendar | null; calendarLabel: (event: TimelineEvent) => string; value: string; onChange: (id: string) => void; disabled: boolean; label: string; none: string }) {
+function EventPicker({ events, calendar, calendarLabel, value, onChange, disabled, label, none }: { events: TimelineEvent[]; calendar?: CalendarSource; calendarLabel: (event: TimelineEvent) => string; value: string; onChange: (id: string) => void; disabled: boolean; label: string; none: string }) {
   return <label className="text-xs text-text-muted space-y-1.5">{label}<select className={`${control} block w-full`} value={value} disabled={disabled} onChange={event => onChange(event.target.value)} data-testid="map-version-event">
     <option value="">{none}</option>
     {chronologicalEvents(events, calendar).map(event => <option key={event.id} value={event.id}>{calendarLabel(event) ? `${calendarLabel(event)} · ` : ''}{event.title}</option>)}
   </select></label>;
 }
 
-function VersionMetadata({ version, busy, onSave, events, calendar, eventLabel }: { version: MapVersion; busy: boolean; onSave: (metadata: MapVersionMetadata) => Promise<void>; events: TimelineEvent[]; calendar?: WorldCalendar | null; eventLabel: (event: TimelineEvent) => string }) {
+function VersionMetadata({ version, busy, onSave, events, calendar, eventLabel }: { version: MapVersion; busy: boolean; onSave: (metadata: MapVersionMetadata) => Promise<void>; events: TimelineEvent[]; calendar?: CalendarSource; eventLabel: (event: TimelineEvent) => string }) {
   const { locale } = useTranslation(); const copy = mapHistoryCopy[locale];
   const [metadata, setMetadata] = useState<MapVersionMetadata>({ name: version.name, date: version.date, description: version.description, eventId: version.timelineEventId ?? null });
   return <details className="text-xs text-text-muted"><summary className="cursor-pointer">{copy.save}</summary><form className="mt-3 flex flex-wrap items-end gap-3" onSubmit={event => { event.preventDefault(); const moment = !metadata.date.trim() && metadata.eventId ? events.find(item => item.id === metadata.eventId) : undefined; void onSave(moment && eventLabel(moment) ? { ...metadata, date: eventLabel(moment) } : metadata); }}>

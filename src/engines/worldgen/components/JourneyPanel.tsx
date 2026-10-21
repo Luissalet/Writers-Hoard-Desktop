@@ -89,8 +89,8 @@ function JourneyPanelContent({
   const [deletedJourneys, setDeletedJourneys] = useState<WorldJourney[]>([]);
   const legCount = via.length + 1;
   /** Per-leg modes are positional: when a stop goes, they would slide onto other legs, so they start again. */
-  const previousLegCount = useRef(legCount);
-  useEffect(() => { if (legCount < previousLegCount.current) setLegModes([]); previousLegCount.current = legCount; }, [legCount]);
+  // Only when the stored modes outnumber the legs: an opened trip brings its own, matching count.
+  useEffect(() => { setLegModes((current) => (current.length > legCount ? [] : current)); }, [legCount]);
   const activeLegModes = legModes.slice(0, legCount);
   const mixedModes = activeLegModes.some(value => value && value !== mode);
   const planOptions: WorldJourney['options'] = {
@@ -107,14 +107,13 @@ function JourneyPanelContent({
    * what is stored, so opening an old trip never rewrites the world and an
    * agent's change to another factor survives.
    */
-  const pending = useRef<{ pace?: TravelPace; factors: Map<string, TravelFactorEdit>; reset?: boolean }>({ factors: new Map() });
+  const pending = useRef<{ pace?: TravelPace; factors: Map<string, TravelFactorEdit> }>({ factors: new Map() });
   const flushTimer = useRef(0);
   const flushSettings = () => {
     if (!worldRecord) return;
     const edits = pending.current; pending.current = { factors: new Map() };
     const change: Parameters<typeof saveWorldTravelSettings>[2] = {};
     if (edits.pace) change.pace = edits.pace === 'steady' ? null : edits.pace;
-    if (edits.reset) change.profile = {};
     if (edits.factors.size) change.factors = [...edits.factors.values()];
     if (!Object.keys(change).length) return;
     void saveWorldTravelSettings({ projectId: worldRecord.projectId, eraId: scope.eraId }, worldRecord.id, change)
@@ -129,12 +128,16 @@ function JourneyPanelContent({
   /** Adopt the world's settings when they change elsewhere, unless a trip is open or an edit is on its way. */
   useEffect(() => {
     if (!worldRecord || openedJourney) return;
-    if (pending.current.pace || pending.current.reset || pending.current.factors.size) return;
+    if (pending.current.pace || pending.current.factors.size) return;
     setPace(worldRecord.travelPace ?? 'steady');
     setProfile(worldRecord.travelProfile ?? {});
   }, [worldRecord?.travelRevision, worldRecord?.id, openedJourney]); // eslint-disable-line react-hooks/exhaustive-deps
   const choosePace = (next: TravelPace) => { setPace(next); pending.current.pace = next; scheduleSave(); };
-  const resetProfile = () => { setProfile({}); pending.current.reset = true; pending.current.factors.clear(); scheduleSave(); };
+  /** Back to the built-in physics for the factors shown here; others the world has stay. */
+  const resetProfile = () => {
+    for (const table of ['speed', 'ground'] as const) for (const key of Object.keys(profile[table] ?? {})) pending.current.factors.set(`${table}:${key}`, { table, key, value: 1 });
+    setProfile({}); scheduleSave();
+  };
   const setFactor = (table: 'speed' | 'ground', key: TravelMode | GroundClass, value: number) => {
     pending.current.factors.set(`${table}:${key}`, { table, key, value });
     scheduleSave();
