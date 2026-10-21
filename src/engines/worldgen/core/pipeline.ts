@@ -38,6 +38,27 @@ function polarBandlimit(elev: Float32Array, W: number, H: number): void {
   }
 }
 import { erode } from './erosion';
+
+/**
+ * An empty sheet to paint on. Sea is a uniform shelf deep enough that the land
+ * brush decides the coast; land is a low plain with a faint, seeded swell so
+ * rivers have somewhere to run and shading is not a flat card. Values in km.
+ */
+export function blankTerrain(elevation: Float32Array, W: number, H: number, starter: 'sea' | 'land', seed: string): void {
+  if (starter === 'sea') { elevation.fill(-1.6); return; }
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
+  const phaseA = ((hash >>> 0) % 6283) / 1000, phaseB = (((hash >>> 12) >>> 0) % 6283) / 1000;
+  for (let y = 0; y < H; y++) {
+    const lat = (y + 0.5) / H * Math.PI;
+    for (let x = 0; x < W; x++) {
+      const lon = (x + 0.5) / W * Math.PI * 2;
+      // Periodic in longitude so the seam does not show.
+      const swell = Math.sin(lon * 3 + phaseA) * Math.sin(lat * 2) + 0.6 * Math.sin(lon * 7 + phaseB) * Math.sin(lat * 5 + phaseA);
+      elevation[y * W + x] = 0.18 + 0.05 * swell;
+    }
+  }
+}
 import { computeClimate } from './climate';
 import { computeCurrents, nearshoreSst } from './currents';
 import { applyGlaciers } from './glaciers';
@@ -88,6 +109,12 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
   // 2. Raw terrain ---------------------------------------------------------
   report('terrain', 0);
   const elevation = assembleTerrain(params, plates);
+  // A blank starter keeps the plates (climate and biomes read them) but not
+  // their relief: the author paints the coast and the mountains.
+  if (params.starter) {
+    blankTerrain(elevation, W, H, params.starter, params.seed);
+    plates.uplift.fill(0);
+  }
   report('terrain', 1);
 
   // 3. Erosion -------------------------------------------------------------

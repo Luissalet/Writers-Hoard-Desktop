@@ -1,6 +1,8 @@
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldRuntimeKey } from '../era';
+import { PRESENTATION_LAYERS, resolvePresentation, saveWorldPresentation } from '../presentation';
+import type { WorldPresentation } from '../types';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { randomSeed } from '../randomSeed';
 import { createWorldEditWriter } from '../editWriter';
@@ -192,8 +194,10 @@ export default function WorldView({
    */
   const lastPaintableView = useRef<'3d' | 'map'>('map');
   if (view !== 'carta') lastPaintableView.current = view;
-  const [themeId, setThemeId] = useState<string>('wonder');
-  const [skin3D, setSkin3D] = useState<Skin3D>('satelite');
+  /** The saved look: everyone who opens this world sees it the way the author last left it. */
+  const savedLook = useMemo(() => resolvePresentation(world.presentation), [world.presentation]);
+  const [themeId, setThemeId] = useState<string>(savedLook.theme);
+  const [skin3D, setSkin3D] = useState<Skin3D>(savedLook.skin3D);
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
   const [regionAt, setRegionAt] = useState<{ x: number; y: number; savedId?: string } | null>(null);
   const [savedRegions, setSavedRegions] = useState<SavedWorldRegion[]>(() => world.regions ?? []);
@@ -203,10 +207,7 @@ export default function WorldView({
     v: 0.5,
     spanKm: 40075,
   });
-  const [cartoLayers, setCartoLayers] = useState<Partial<CartoLayers>>({
-    relief: true, forests: true, labels: true, settlements: true,
-    roads: true, borders: false, frame: true, compass: true, scaleBar: true,
-  });
+  const [cartoLayers, setCartoLayers] = useState<Partial<CartoLayers>>(() => ({ ...savedLook.layers }));
   /**
    * Relief symbol density: what the reader drags, and what the Carta is
    * actually rebuilt from.
@@ -220,8 +221,8 @@ export default function WorldView({
    * "recalcularse a lo loco" the reader reported. The dragged value moves the
    * handle; the settled one, 240 ms after the hand stops, moves the map.
    */
-  const [reliefAmount, setReliefAmount] = useState(1);
-  const [reliefSettled, setReliefSettled] = useState(1);
+  const [reliefAmount, setReliefAmount] = useState(savedLook.reliefAmount);
+  const [reliefSettled, setReliefSettled] = useState(savedLook.reliefAmount);
   const reliefTimer = useRef(0);
   useEffect(() => () => window.clearTimeout(reliefTimer.current), []);
   const bumpRelief = useCallback((v: number) => {
@@ -229,6 +230,48 @@ export default function WorldView({
     window.clearTimeout(reliefTimer.current);
     reliefTimer.current = window.setTimeout(() => setReliefSettled(v), 240);
   }, []);
+  /**
+   * Persist the look with the world, not with this window.
+   *
+   * The style, layers, relief density and 3D skin used to be component state:
+   * reopening the world, another pane or an export started again from the
+   * defaults. Changes are written after the hand stops (field-merged, in this
+   * world's era) and a change saved elsewhere — another pane, an agent — is
+   * adopted here unless this view has an unsaved choice of its own.
+   */
+  const lookToSave = useMemo<WorldPresentation>(() => ({
+    theme: themeId as WorldPresentation['theme'],
+    skin3D,
+    reliefAmount: reliefSettled,
+    layers: Object.fromEntries(PRESENTATION_LAYERS.map((key) => [key, cartoLayers[key] !== false && (key !== 'borders' || cartoLayers.borders === true)])),
+  }), [themeId, skin3D, reliefSettled, cartoLayers]);
+  const lookBaseline = useRef(JSON.stringify(lookToSave));
+  const lookRevision = useRef(world.presentationRevision ?? 0);
+  useEffect(() => {
+    const revision = world.presentationRevision ?? 0;
+    if (revision <= lookRevision.current) return;
+    lookRevision.current = revision;
+    const next = resolvePresentation(world.presentation);
+    const serialized = JSON.stringify({ theme: next.theme, skin3D: next.skin3D, reliefAmount: next.reliefAmount, layers: next.layers });
+    if (serialized === lookBaseline.current) return;
+    lookBaseline.current = serialized;
+    setThemeId(next.theme); setSkin3D(next.skin3D); setReliefAmount(next.reliefAmount); setReliefSettled(next.reliefAmount);
+    setCartoLayers((current) => ({ ...current, ...next.layers }));
+  }, [world.presentation, world.presentationRevision]);
+  useEffect(() => {
+    const serialized = JSON.stringify(lookToSave);
+    if (serialized === lookBaseline.current) return;
+    const timer = window.setTimeout(() => {
+      lookBaseline.current = serialized;
+      void saveWorldPresentation({ projectId, eraId: scope.eraId }, world.id, lookToSave)
+        .then((receipt) => { lookRevision.current = Math.max(lookRevision.current, receipt.revision); })
+        .catch((error: unknown) => {
+          lookBaseline.current = '';
+          toast.error(error instanceof Error ? error.message : String(error));
+        });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [lookToSave, projectId, scope.eraId, world.id]);
   const [viewMode, setViewMode] = useState<ViewMode>('atlas');
   const [projection, setProjection] = useState<Projection>('equirect');
   const [shape3D, setShape3D] = useState<Shape3D>('plane');

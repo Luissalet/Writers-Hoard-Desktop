@@ -148,6 +148,8 @@ const en = {
   'worldgen.preset.iceAge.hint': "A cold world: survival, thawing ice and disputed territory.",
   'worldgen.preset.desertWorld.hint': "A dry world: oases, caravans and the value of water.",
   'worldgen.preset.lushWorld.hint': "A wet, fertile world: jungles, rivers and abundance.",
+  'worldgen.preset.blankSea.hint': "Open sea, nothing else. Paint your own coast with the Coast brush (Land), then recalculate climate and rivers.",
+  'worldgen.preset.blankLand.hint': "A low, gently rolling plain with no coast. Paint seas, lakes and mountains on it.",
   // ── AI Service ──
   'ai.disabled': 'AI features are disabled',
   'ai.proxyNotRunning': 'CLIProxyAPI is not running. Start it with: cliproxyapi',
@@ -2013,6 +2015,8 @@ const en = {
   'worldgen.preset.iceAge': 'Ice Age',
   'worldgen.preset.desertWorld': 'Desert World',
   'worldgen.preset.lushWorld': 'Lush World',
+  'worldgen.preset.blankSea': 'Blank sea',
+  'worldgen.preset.blankLand': 'Blank land',
   'worldgen.export.button': 'Export',
   'worldgen.export.png': 'Map as PNG',
   'worldgen.export.heightmap': 'Heightmap PNG',

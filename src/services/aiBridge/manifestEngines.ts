@@ -774,8 +774,36 @@ const PENDING_NOTE =
 export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_render_world_map', writes: false,
-    description: `Render a generated world as a portable PNG using the same cartographic materials as the app. Styles: wonder (illustrated parchment), antique (engraving), relief (continuous painted terrain) and survey (night contour chart). Does not change the geography or saved world. ${PENDING_NOTE}`,
+    description: `Render a generated world as a portable PNG using the same cartographic materials as the app. Styles: wonder (illustrated parchment), antique (engraving), relief (continuous painted terrain) and survey (night contour chart). Without theme it uses the world's saved look (wh_get_world_presentation), including its layers and relief density. Does not change the geography or saved world. ${PENDING_NOTE}`,
     schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_get_world_presentation', writes: false,
+    description: 'Read the saved look of a generated world: cartographic style (wonder, antique, relief, survey), which layers are drawn, relief density and 3D skin. Everyone who opens the world, and wh_render_world_map without an explicit theme, uses this look. Returns the saved fields, the effective values with defaults filled in, and the revision for compare-and-swap.',
+    schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_set_world_presentation', writes: true,
+    description: 'Change the saved look of a generated world. Only the fields you pass change; layers merge key by key. Pass expectedRevision from wh_get_world_presentation to refuse the write if someone changed the look meanwhile. Undo reverts only the fields this call changed and still hold its value.',
+    schema: { type: 'object', properties: {
+      worldId: WORLD_ID,
+      theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }),
+      skin3D: s('3D surface.', { enum: ['satelite', 'dibujado', 'arcilla'] }),
+      reliefAmount: n('Relief symbol density, 0.3 to 2. Default 1.'),
+      layers: { type: 'object', description: 'Layers to show (true) or hide (false).', properties: Object.fromEntries(['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'].map((key) => [key, { type: 'boolean' }])), additionalProperties: false },
+      expectedRevision: n('Revision read before changing; a different current revision refuses the write.'),
+    }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_create_world', writes: true,
+    description: 'Create a generated world from a starting point, as the engine form does. Presets: continents, pangaea, archipelago, shattered, iceAge, desertWorld, blankSea (open sea to paint a coast on with the Coast brush), blankLand (a low plain with no coast), lushWorld. Returns the worldId; the terrain is forged the first time it is opened or read.',
+    schema: { type: 'object', properties: {
+      projectId: PROJECT_ID,
+      title: s('World title. Default "World".'),
+      preset: s('Starting point.', { enum: ['continents', 'pangaea', 'archipelago', 'shattered', 'iceAge', 'desertWorld', 'blankSea', 'blankLand', 'lushWorld'] }),
+      seed: s('Seed text; omit for a random one. Same seed and preset give the same world.'),
+      width: n('Grid width: 1024 fast, 2048 standard (default), 3072 high.'),
+    }, additionalProperties: false },
   },
   {
     name: 'wh_list_worlds',
