@@ -48,8 +48,9 @@ de juego y niebla del lector por capítulos, todo con interfaz, MCP, deshacer y
 ámbito de época.
 
 Siguiente, en este orden:
-- Lente de comercio y sucesos de campaña sobre el mapa (A2); la niebla del
-  lector ya existe y los sucesos pueden apoyarse en sus capítulos.
+- Lente de comercio sobre el mapa (A2 #43–47).
+- Sucesos: reproducción de la historia por capítulos en el mapa (A2 #25) y
+  enlace de un suceso a su escena del manuscrito.
 - Pulido del mapa clásico y una herramienta MCP genérica para elementos del mapa.
 - Niebla del lector también en la vista 3D (hoy: Mapa, Carta y exportaciones);
   en la Carta en vivo, dejar a la vista el marco y la cartela (la exportación PNG

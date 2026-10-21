@@ -15,6 +15,7 @@
 
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
+import { drawStoryMark, type StoryMark } from './storyMarks';
 import { scaleCount } from '@/utils/capacity';
 import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
@@ -77,6 +78,8 @@ export interface CartoOptions {
   grid?: MapGrid | null;
   /** The reader's-eye fog, drawn over the lettering (an unseen place has no name yet). */
   fog?: ReaderFogLayer | null;
+  /** Story events to mark, drawn over the fog. */
+  story?: StoryMark[] | null;
   theme: CartoTheme;
   /** Output size in pixels. */
   width: number;
@@ -509,6 +512,16 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   // ---- stage 3b: what the reader has not seen yet --------------------------
   if (opts.fog) {
     drawReaderFog(ctx, opts.fog, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, true);
+  }
+  if (opts.story?.length) {
+    const markScale = Math.max(1, Math.min(3, OW / 1600));
+    for (const mark of opts.story) {
+      for (const off of [-world.width, 0, world.width]) {
+        const x = (mark.x + off - view.x) * scale, y = (mark.y - view.y) * scale;
+        if (x < -40 || x > OW + 40 || y < -20 || y > OH + 20) continue;
+        drawStoryMark(ctx, mark, x, y, markScale);
+      }
+    }
   }
 
   drawFurniture(

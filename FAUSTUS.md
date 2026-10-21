@@ -29,7 +29,10 @@ first placed (`label:x,y`, `stamp:x,y`, with `#n` for a second one in the same
 cell), never its current position. The reader's-eye fog is separate from the
 world: paint it with `wh_paint_reader_fog` (seen/heard/hide, optional chapter),
 check what the reader knows with `wh_reader_view` before describing a place as
-known, and render it with `wh_render_world_map` `readerView`/`readerChapter`.
+known, and render it with `wh_render_world_map` `readerView`/`readerChapter`. Story
+events (`wh_list_story_events`, `knownByChapter`) say what happened where and
+when; read them before describing what a character could know, and keep
+planned events apart from happened ones.
 
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means

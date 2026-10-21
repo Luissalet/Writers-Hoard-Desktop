@@ -84,6 +84,19 @@ async function main() {
   pb = await pixel(B);
   assert(!isPaper(pb), `Up to chapter 3 the rumour should show: ${pb}`);
   tests.push('Up to chapter 3 the Heard-of ground appears under its wash');
+  // Curved projections draw it too, through the projection.
+  const projectionSelect = `[...document.querySelectorAll('select')].find(e=>[...e.options].some(o=>o.value==='mollweide'))`;
+  const paperShare = () => js(`(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const c=[...document.querySelectorAll('canvas')].sort((a,b)=>b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight)[0];const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=0;i<d.length;i+=16)if(Math.abs(d[i]-236)<8&&Math.abs(d[i+1]-227)<8&&Math.abs(d[i+2]-200)<8)n++;return n/(d.length/16);})()`);
+  const shares = {};
+  for (const projection of ['robinson', 'mollweide', 'azimuthal', 'equirect']) {
+    await js(`(()=>{const s=${projectionSelect};Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'${projection}');s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    let share = 0; for (let i = 0; i < 20; i++) { await pause(250); share = await paperShare(); if (share > 0.5) break; }
+    shares[projection] = Math.round(share * 100);
+    if (projection === 'mollweide') fs.writeFileSync(path.join(evidence, 'fog-reader-mollweide-1440.png'), (await win.webContents.capturePage()).toPNG());
+  }
+  assert(Object.values(shares).every(v => v > 50), `Reader's view in curved projections: ${JSON.stringify(shares)}`);
+  tests.push(`The reader's view covers the atlas in every projection (blank paper %: ${JSON.stringify(shares)})`);
+  await settle();
   // How the reader's map starts, saved with the look.
   await setValue('[data-testid="worldgen-reader-start"]', 'ink', 'HTMLSelectElement', 'change');
   let start; for (let i = 0; i < 60; i++) { start = await look(); if (start === 'ink') break; await pause(150); }

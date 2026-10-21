@@ -79,7 +79,8 @@ import { legendFor } from '../cartography/legend';
 import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
 import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
 import { drawStamp, isStampGlyph, STAMP_SIZES } from '../cartography/stampGlyphs';
-import { drawReaderFog, fogHides, READER_PAPER } from '../cartography/readerFogLayer';
+import { drawReaderFog, drawReaderFogProjected, fogHides, READER_PAPER } from '../cartography/readerFogLayer';
+import { drawStoryMark } from '../cartography/storyMarks';
 
 /** Where the selected painted label sits on screen, for its handles. */
 interface LabelHandleGeom { key: string; cx: number; cy: number; angle: number; spacing: number; curve: number; size: number; glyphSum: number; count: number; halfW: number; widths: number[] }
@@ -190,6 +191,10 @@ interface Map2DProps {
   /** The painted label being edited with the Labels tool, by its key. */
   selectedLabelKey?: string | null;
   onSelectLabel?: (key: string | null) => void;
+  /** Story events (drawn from `annotations.story`): pick, place and drag them with the Story tool. */
+  onSelectStory?: (id: string | null) => void;
+  onPlaceStory?: (x: number, y: number) => void;
+  onMoveStory?: (id: string, x: number, y: number) => void;
   onPickSettlement?: (s: Settlement) => void;
   /** Double-click: descend a league toward that ground (the parent flies). */
   onZoomTo?: (x: number, y: number) => void;
@@ -305,6 +310,8 @@ interface Hit {
   regionId?: string;
   /** Ties are broken toward the more important thing, not the nearer one. */
   bias?: number;
+  /** A story event, by id. */
+  storyId?: string;
   /**
    * QUÉ SE PUEDE COGER Y ARRASTRAR, y bajo qué llave se guarda el traslado.
    *
@@ -805,7 +812,7 @@ export default function Map2D({
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
-  selectedLabelKey = null, onSelectLabel,
+  selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory,
 }: Map2DProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
@@ -974,6 +981,8 @@ export default function Map2D({
    */
   const labelHandles = useRef<(LabelHandleGeom & { knobs: Record<LabelHandleName, { x: number; y: number }> }) | null>(null);
   const labelDrag = useRef<{ handle: LabelHandleName; geom: LabelHandleGeom } | null>(null);
+  /** A story event in the hand: where it was pressed, and where it is now. */
+  const storyDrag = useRef<{ id: string; pressX: number; pressY: number; x: number; y: number; live: boolean } | null>(null);
   const labelPreview = useRef<{ key: string; shape: { angle?: number; spacing?: number; curve?: number } } | null>(null);
   useEffect(() => { labelPreview.current = null; }, [world, revision]);
   const moveRef = useRef<{
@@ -1020,7 +1029,7 @@ export default function Map2D({
    * contara como pincel, el gesto entraría por el camino del trazo y el mapa no
    * se podría ni desplazar con la herramienta puesta.
    */
-  const brushing = !!tool && tool.mode !== 'off' && tool.mode !== 'move' && tool.mode !== 'labels' && !!onEdit;
+  const brushing = !!tool && tool.mode !== 'off' && tool.mode !== 'move' && tool.mode !== 'labels' && tool.mode !== 'story' && !!onEdit;
   // `onTool` rides along here rather than in the wheel effect's dependency
   // list: the parent hands it down as a fresh closure every render, so a
   // dependency would tear down and re-add the non-passive wheel listener on
@@ -2815,6 +2824,16 @@ export default function Map2D({
 
     // ---- what the reader has not seen yet ------------------------------------
     // Over the names too: a place the story has not reached has no name yet.
+    // Curved projections (Robinson, Mollweide, azimuthal) are sampled through
+    // their inverse: rows and columns of the world are not lines on screen there.
+    if (annotations?.fog && !wraps) {
+      drawReaderFogProjected(ctx, annotations.fog, cw, ch, (px, py) => {
+        const X = (px - view.ox) / mapW, Y = (py - view.oy) / mapH;
+        if (X < 0 || X > 1 || Y < 0 || Y > 1) return null;
+        const uv = spec.inverse(X, Y);
+        return uv ? [uv[0], uv[1]] : null;
+      }, `${projection}|${view.ox.toFixed(1)}|${view.oy.toFixed(1)}|${scale.toFixed(4)}|${cw}x${ch}`);
+    }
     if (annotations?.fog && wraps) {
       for (const copyOx of copies) {
         drawReaderFog(ctx, annotations.fog,
@@ -2828,6 +2847,20 @@ export default function Map2D({
         if (top > 0) ctx.fillRect(0, 0, cw, top);
         if (bottom < ch) ctx.fillRect(0, bottom, cw, ch - bottom);
         ctx.restore();
+      }
+    }
+
+    // ---- story events: over the fog, they are what the reader knows ---------
+    if (annotations?.story?.length) {
+      const held = storyDrag.current?.live ? storyDrag.current : null;
+      for (const copyOx of copies) {
+        for (const mark of annotations.story) {
+          let [mx, my] = toScreen(mark.x / W, mark.y / H, copyOx);
+          if (held && held.id === mark.id && copyOx === copies[0]) { mx = held.x; my = held.y; }
+          if (mx < -40 || mx > cw + 220 || my < -20 || my > ch + 20) continue;
+          drawStoryMark(ctx, mark, mx, my);
+          hits.push({ kind: 'note', x: mx, y: my, reach: 12, bias: 2, storyId: mark.id, note: mark.title });
+        }
       }
     }
 
@@ -3152,10 +3185,12 @@ export default function Map2D({
     // the labels and is the only thing in this frame that a click can close.
     // Under blank paper nothing answers the pointer: the reader cannot point at what is not there.
     const fogLayer = annotations?.fog;
-    painted.current = fogLayer?.mode === 'reader' && wraps
+    painted.current = fogLayer?.mode === 'reader'
       ? hits.filter((h) => {
-        const X = (((h.x - view.ox) / mapW) % 1 + 1) % 1, Y = (h.y - view.oy) / mapH;
-        const uv = Y >= 0 && Y <= 1 ? spec.inverse(X, Y) : null;
+        if (h.storyId) return true;
+        const raw = (h.x - view.ox) / mapW;
+        const X = wraps ? ((raw % 1) + 1) % 1 : raw, Y = (h.y - view.oy) / mapH;
+        const uv = X >= 0 && X <= 1 && Y >= 0 && Y <= 1 ? spec.inverse(X, Y) : null;
         return !uv || !fogHides(fogLayer, uv[0] * W, uv[1] * H);
       })
       : hits;
@@ -4309,6 +4344,16 @@ export default function Map2D({
      */
     moveRef.current = null;
     labelDrag.current = null;
+    storyDrag.current = null;
+    if (tool?.mode === 'story' && e.button === 0) {
+      // An event under the pointer is picked (and can be dragged); empty ground waits for the click.
+      const picked = hitAt(sx, sy, ['note'], (h) => !!h.storyId);
+      if (picked?.storyId) {
+        onSelectStory?.(picked.storyId);
+        storyDrag.current = { id: picked.storyId, pressX: sx, pressY: sy, x: sx, y: sy, live: false };
+        return;
+      }
+    }
     if (tool?.mode === 'labels' && e.button === 0) {
       // A knob of the selected label: turn, spread or bend it, not the map.
       const handles = labelHandles.current;
@@ -4435,6 +4480,13 @@ export default function Map2D({
      * umbral, no al presionar, porque hasta entonces el gesto todavía puede
      * resultar ser un clic.
      */
+    const story = storyDrag.current;
+    if (story) {
+      story.x = sx; story.y = sy;
+      if (!story.live && Math.abs(sx - story.pressX) + Math.abs(sy - story.pressY) > 4) story.live = true;
+      if (story.live) { e.currentTarget.style.cursor = 'grabbing'; scheduleDraw(); }
+      return;
+    }
     const knob = labelDrag.current;
     if (knob) {
       const g = knob.geom, dx = sx - g.cx, dy = sy - g.cy;
@@ -4679,6 +4731,17 @@ export default function Map2D({
     // Si no llegó a ser mudanza, `dropMove` devuelve falso, limpia el agarre y
     // el clic sigue su camino de siempre.
     if (dropMove(sx, sy)) return;
+    // A story event let go: moved if it was dragged, only picked if not.
+    const story = storyDrag.current;
+    storyDrag.current = null;
+    if (story) {
+      if (story.live) {
+        const m = screenToMap(sx, sy);
+        if (m) onMoveStory?.(story.id, m.u * W, m.v * H);
+      }
+      scheduleDraw();
+      return;
+    }
     // A label knob let go: the shape it reached is saved as one change.
     const knob = labelDrag.current;
     labelDrag.current = null;
@@ -4867,6 +4930,12 @@ export default function Map2D({
     }
     // The Labels tool's click only picks labels (done at the press): it opens no town and selects nothing else.
     if (tool?.mode === 'labels') return;
+    // The Story tool's click on empty ground places the next event there.
+    if (tool?.mode === 'story') {
+      const m = screenToMap(sx, sy);
+      if (m) onPlaceStory?.(m.u * W, m.v * H);
+      return;
+    }
     const wp = waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
     // El nombre de una comarca guardada la abre — antes que el pueblo que
@@ -5041,7 +5110,7 @@ export default function Map2D({
           gesto); la chuleta de navegación vive detrás del botón «?» — a
           pantalla completa tapaba media esquina, incluido el HUD de
           depuración (Luis, 2026-08-12). */}
-      {(refusal || brushing || tool?.mode === 'move' || tool?.mode === 'labels') && (
+      {(refusal || brushing || tool?.mode === 'move' || tool?.mode === 'labels' || tool?.mode === 'story') && (
         <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
           {refusal
             ? refusal
@@ -5051,6 +5120,8 @@ export default function Map2D({
               ? t('worldgen.map.moveToolHint')
             : tool?.mode === 'labels'
               ? t('worldgen.map.labelsToolHint')
+            : tool?.mode === 'story'
+              ? t('worldgen.map.storyToolHint')
             : (tool?.mode === 'road'
               ? `${roadFrom
                 ? t('worldgen.map.roadFrom').replace('{name}', roadFrom.name)

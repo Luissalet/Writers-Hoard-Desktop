@@ -22,6 +22,7 @@
 // the biome classifier and erased every biome the reader had painted, and any
 // river in the list got its channel carved again on every subsequent apply.
 
+import { isViewOnlyEdit } from './storyEvents';
 import type { WorldData } from './types';
 import { applyEdits, serializeEdits, deserializeEdits, type WorldEdit } from './edits';
 import { captureEnvironment, restoreEnvironment, getRecalculationCheckpoint, installRecalculationCheckpoints, type EnvironmentFields } from './recalculate';
@@ -31,9 +32,9 @@ interface Snapshot {
   environment: EnvironmentFields;
 }
 
-/** True when every edit is reader's-eye fog, which the world itself ignores. */
+/** True when every edit is for the reader's-eye views only (fog, story events), which the world itself ignores. */
 function onlyFog(edits: readonly WorldEdit[]): boolean {
-  return edits.length > 0 && edits.every((edit) => edit.kind === 'fog');
+  return edits.length > 0 && edits.every(isViewOnlyEdit);
 }
 
 export class PaintSession {

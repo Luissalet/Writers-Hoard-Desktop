@@ -790,7 +790,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_render_world_map', writes: false,
     description: `Render a generated world as a portable PNG using the same cartographic materials as the app. Styles: wonder (illustrated parchment), antique (engraving), relief (continuous painted terrain) and survey (night contour chart). Without theme it uses the world's saved look (wh_get_world_presentation), including its layers, relief density and play grid. readerView renders the reader's-eye map (blank paper where the story has not been, a wash over what is only heard of), optionally only up to readerChapter. Does not change the geography or saved world. ${PENDING_NOTE}`,
-    schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), readerView: { type: 'boolean', description: "Render the reader's-eye map (fog painted with wh_paint_reader_fog)." }, readerChapter: { type: 'integer', minimum: 0, description: "Only the fog strokes revealed up to this chapter (implies readerView)." }, width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
+    schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), readerView: { type: 'boolean', description: "Render the reader's-eye map (fog painted with wh_paint_reader_fog)." }, readerChapter: { type: 'integer', minimum: 0, description: "Only the fog strokes revealed up to this chapter (implies readerView); story events that happened by then are marked." }, storyEvents: { type: 'boolean', description: 'Mark every story event (wh_list_story_events) on the map; the reader view marks only those known by its chapter.' }, width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
   },
   {
     name: 'wh_get_world_presentation', writes: false,
@@ -1090,6 +1090,74 @@ Returns the share of the map seen, heard of and hidden, the chapters that reveal
         worldId: WORLD_ID,
         chapter: { type: 'integer', minimum: 0, description: 'Count only the strokes revealed up to this chapter; omit for all.' },
         cells: { type: 'array', maxItems: 200, items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+      },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_add_story_event',
+    description:
+      `Put a story event on a world's map: what happens, where, in which chapter.
+Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, custom. status planned or happened (default). Place it at a place key (wh_find_place) or world cells. Shown with the Story tool, in the Reader's view (happened events up to its chapter) and in wh_render_world_map. Changes nothing in the world. Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        place: PLACE_KEY,
+        x: CELL_X,
+        y: CELL_Y,
+        type: s('Kind of event.', { enum: ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'custom'] }),
+        title: s('What happens, in a few words.'),
+        note: s('Optional note: who was there, what changed.'),
+        chapter: { type: 'integer', minimum: 0, description: 'Chapter in which it happens.' },
+        status: s('planned or happened (default).', { enum: ['planned', 'happened'] }),
+      },
+      required: ['worldId', 'title'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_update_story_event',
+    description:
+      `Change a story event by id: only the fields given change; place or x/y moves it; chapter null unties it from a chapter. Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        id: s('Event id from wh_list_story_events.'),
+        place: PLACE_KEY,
+        x: CELL_X,
+        y: CELL_Y,
+        type: s('Kind of event.', { enum: ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'custom'] }),
+        title: s('What happens.'),
+        note: s('Note.'),
+        chapter: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }], description: 'Chapter, or null for none.' },
+        status: s('planned or happened.', { enum: ['planned', 'happened'] }),
+      },
+      required: ['worldId', 'id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_remove_story_event',
+    description: `Take a story event off a world's map by id. Not a deletion: it appends an undoable edit to the world's list (Ctrl+Z or the bridge undo puts the event back).`,
+    writes: true,
+    schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Event id from wh_list_story_events.') }, required: ['worldId', 'id'], additionalProperties: false },
+  },
+  {
+    name: 'wh_list_story_events',
+    description:
+      `List a world's story events in chapter order: id, kind, title, note, chapter, planned/happened and position in world cells. knownByChapter keeps only what the reader knows by then (happened, in or before it).`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        knownByChapter: { type: 'integer', minimum: 0, description: 'Only events that happened in or before this chapter (and unchaptered ones).' },
+        status: s('Only planned or only happened events.', { enum: ['planned', 'happened'] }),
       },
       required: ['worldId'],
       additionalProperties: false,

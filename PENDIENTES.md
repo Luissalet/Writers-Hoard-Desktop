@@ -151,3 +151,7 @@ lectura exacta del manual actualizado).
 - La rejilla de juego se dibuja una sola vez desde la copia del mundo que hay
   bajo el centro de la pantalla; si el tamaño en km no divide la circunferencia,
   las celdas no casan al cruzar la costura (revisión r5, comportamiento aceptado).
+- La niebla y los sucesos viven en la lista de ediciones del mundo: no
+  rehacen el mundo ni su geografía, pero las cachés que se indexan por la lista
+  entera de ediciones (por ejemplo, la clave guardada de la receta) cambian con
+  ellos. Sólo coste de rendimiento, sin efecto en el resultado (revisión r6).

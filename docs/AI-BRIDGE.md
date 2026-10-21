@@ -1839,10 +1839,20 @@ deshecho.
   revelan algo y el estado de las celdas pedidas. `wh_render_world_map` con
   `readerView` (y `readerChapter`) pinta el mapa del lector, y
   `wh_set_world_presentation` guarda `readerStart` (`blank`, `sketch`, `ink`):
-  cómo empieza antes de la primera pincelada.
+  cómo empieza antes de la primera pincelada. Una línea de más de un cuarto del
+  mundo se guarda como varias pinceladas. `wh_plan_journey` devuelve `path`
+  (celdas de la ruta) para pasarlo como `points`.
+- **Sucesos de la historia.** `wh_add_story_event` (lugar o celda, `type`:
+  fight, find, meeting, rest, change, journey, camp, inn, custom; `title`,
+  `note`, `chapter`, `status` planned/happened), `wh_update_story_event` (sólo
+  los campos dados; `chapter: null` lo desata), `wh_remove_story_event` y
+  `wh_list_story_events` (orden por capítulo; `knownByChapter` deja lo que el
+  lector sabe). `wh_render_world_map` los marca con `storyEvents: true`, y con
+  `readerView` marca los ocurridos hasta su capítulo.
 
 Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
 nativo stdio + HTTP), `world-labels`, `world-stamps`, `world-grid`,
-`world-journey-playback`, `world-reader-fog`, y los recorridos de interfaz
-`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog}-qa.cjs`.
+`world-journey-playback`, `world-reader-fog`, `world-story-events`, y los
+recorridos de interfaz
+`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story}-qa.cjs`.

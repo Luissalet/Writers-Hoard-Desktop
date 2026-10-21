@@ -52,7 +52,7 @@ export where relevant, then independently reviewed.
 
 Each item was shown through the normal UI with trusted input, through MCP
 (focused tests, and the native stdio transport where noted), across reopen, and
-reviewed independently (rounds r1–r5, stamps from r4, grid and playback from r5; reports in
+reviewed independently (rounds r1–r6: stamps from r4, grid and playback from r5, reader's fog from r6, story events pending r7; reports in
 `D:/LocalAI/_claude_tmp/vvd1095-review`). Evidence screenshots:
 `D:/LocalAI/artifacts/writer-vvd1095`.
 
@@ -68,7 +68,8 @@ reviewed independently (rounds r1–r5, stamps from r4, grid and playback from r
 | A2 travel rows | World pace, speeds, ground costs, per-leg modes, rest days, MCP planner, day-by-day playback | see A2 table; trade lens still ABSENT |
 | A2 #20, #21 reader's view and fog brushes | Fog brush Seen/Heard/Hide with chapter; Reader's view per chapter in atlas, Carta and PNG; MCP paint/view/render | PRESENT (not in 3D) |
 | A2 #28 reader's map settings | Start state saved with the look; route marked as seen with sight radius and chapter | PARTIAL (no "land in ink", towns as dots or trail) |
-| A1 play grid | Square/hex grid in km over atlas, Carta, PNG export and MCP render | PRESENT |
+| A1 play grid | Square/hex grid in km over atlas, Carta, PNG export and MCP render | PRESENT (atlas: equirect and Mercator) |
+| A2 #22, #24, #26 story events and party marks | Events by kind (incl. travelling, camp, inn), chapter, planned/happened, note; place, edit, drag, remove; story so far by chapter; reader's view by chapter; exports; MCP | PRESENT (no per-session numbering or "who was there" list; no playback, row 25) |
 
 Commits: 22cdf7d, dd8f6a5, 4849ac8 (look, blank starters, measure, travel),
 6b3a3e6 (review r1), 3258e65 (map eras), 59e7ad9 (review r2), 07f14f6 (labels),
