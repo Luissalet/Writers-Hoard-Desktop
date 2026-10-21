@@ -1829,8 +1829,20 @@ deshecho.
   del mago, túmulo, faro, monte…) en tamaño S, M o L con nombre opcional;
   `wh_list_stamps` los devuelve con su clave `stamp:x,y`, que también vale para
   mover, renombrar o quitar.
+- **Rejilla de juego.** `wh_set_world_presentation` acepta `grid`
+  (`{kind:'square'|'hex', km}` o `null`); se dibuja en el Mapa, la Carta, la
+  exportación PNG y `wh_render_world_map`.
+- **Mapa del lector (niebla).** `wh_paint_reader_fog` pinta una pincelada
+  (`op`: `seen`, `heard` o `hide`; `points` en celdas; `radiusCells`; `chapter`
+  opcional desde el que se revela). No cambia el mundo. `wh_reader_view` da la
+  proporción vista, de oídas y oculta hasta un capítulo, los capítulos que
+  revelan algo y el estado de las celdas pedidas. `wh_render_world_map` con
+  `readerView` (y `readerChapter`) pinta el mapa del lector, y
+  `wh_set_world_presentation` guarda `readerStart` (`blank`, `sketch`, `ink`):
+  cómo empieza antes de la primera pincelada.
 
 Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
-nativo stdio + HTTP), `world-labels`, `world-stamps`, y los recorridos de interfaz
-`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps}-qa.cjs`.
+nativo stdio + HTTP), `world-labels`, `world-stamps`, `world-grid`,
+`world-journey-playback`, `world-reader-fog`, y los recorridos de interfaz
+`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog}-qa.cjs`.

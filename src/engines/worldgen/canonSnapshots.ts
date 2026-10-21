@@ -113,6 +113,8 @@ export function relevantEditsForSheets(
     // A distant ridge can change this sheet's rainfall after recalculation.
     // The checkpoint therefore depends on its entire prefix, not only local strokes.
     if (index <= environmentPrefix) return true;
+    // The reader's-eye fog is a view of the map, not ground: it never reaches a sheet.
+    if (e.kind === 'fog') return false;
     if ('stroke' in e) return touches(e.stroke);
     if (e.kind === 'river') return touches(asStroke(e.pts, Math.max(1, e.width)));
     if (e.kind === 'road' || e.kind === 'realmArea') {

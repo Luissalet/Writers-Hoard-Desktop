@@ -1223,7 +1223,9 @@ Wave 1, maps:
 - [x] Hand-placeable stamp library: 32 stamps in four categories, sizes S/M/L, names; all views; MCP add/list.
 - [x] Journey playback day by day (banner, nights, rest days, arrival); MCP `atDay`.
 - [x] Square/hex play grid in km, saved with the look, in atlas, Carta and exports.
-- [ ] Trade lens and reader's-eye fog / story events on the map (A2).
+- [x] Reader's-eye fog: Fog brush (seen/heard/hide, chapter), Reader's view with chapter and start state, atlas + Carta + PNG export; MCP paint/view/render.
+- [x] Review r5: grid and travelling banner drawn on the atlas too; Carta PNG export carries the grid; banner publishes at most ~12/s.
+- [ ] Trade lens and story events on the map (A2).
 - [ ] Classic-map polish and a generic `wh_add_map_feature`.
 
 Later waves follow the ranked lists in C-writing, D1-tools, D2-platform and B-campaign.

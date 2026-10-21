@@ -93,6 +93,21 @@ async function main() {
   await js(`(()=>{const i=document.querySelector('[data-testid="journey-play-day"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,i.max);i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await wait(`/Llegada/.test(${caption})`, 'arrival caption');
   tests.push(`Playing the journey moves the banner day by day and halts for the nights (${[...seen].join(' / ')}); the slider's end reads "${await js(caption)}"`);
+  // The banner on the atlas (Mapa) itself, not only on the Carta: count its red on the map canvas.
+  await click('Mapa'); await pause(1500);
+  await js(`(()=>{const i=document.querySelector('[data-testid="journey-play-day"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,String(Number(i.max)*0.3));i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await pause(1200);
+  const red = await js(`(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const c=[...document.querySelectorAll('canvas')].sort((a,b)=>b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight)[0];const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=0;i<d.length;i+=4)if((Math.abs(d[i]-192)<8&&Math.abs(d[i+1]-57)<8&&Math.abs(d[i+2]-43)<8)||(Math.abs(d[i]-217)<8&&Math.abs(d[i+1]-164)<8&&Math.abs(d[i+2]-65)<8))n++;return n;})()`);
+  assert(red > 10, `No travelling banner on the atlas (${red} banner pixels)`);
+  tests.push(`The travelling banner is drawn on the atlas (Mapa) too (${red} banner pixels at 30% of the way)`);
+  fs.writeFileSync(path.join(evidence, 'journey-atlas-banner-1440.png'), (await win.webContents.capturePage()).toPNG());
+  // Paint in as they travel: the route, seen within 40 km, from chapter 2.
+  await wait(`document.querySelector('[data-testid="journey-reveal-go"]')`, 'route reveal');
+  await js(`(()=>{const set=(sel,v)=>{const i=document.querySelector(sel);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,v);i.dispatchEvent(new Event('input',{bubbles:true}));};set('[data-testid="journey-reveal-km"]','40');set('[data-testid="journey-reveal-chapter"]','2');})()`);
+  await pause(200); await js(`document.querySelector('[data-testid="journey-reveal-go"]').click()`);
+  let fogged; for (let i = 0; i < 80; i++) { fogged = await js(`(async()=>{const {db}=await import('/src/db/index.ts');const {deserializeEdits}=await import('/src/engines/worldgen/core/edits.ts');const r=await db.generatedWorlds.toArray();return r.flatMap(w=>deserializeEdits(w.edits||'[]')).filter(e=>e.kind==='fog');})()`); if (fogged.length) break; await pause(150); }
+  assert(fogged.length === 1 && fogged[0].op === 'seen' && fogged[0].chapter === 2 && fogged[0].stroke.pts.length > 2, `Route not marked: ${JSON.stringify(fogged)}`);
+  tests.push(`"Mark the route as seen" paints the reader's map along the route (${fogged[0].stroke.pts.length} points, ${Math.round(fogged[0].stroke.radius * 10) / 10} cells of sight) from chapter 2`);
   win.setContentSize(640, 900); await pause(1000);
   fs.writeFileSync(path.join(evidence, 'travel-settings-640.png'), (await win.webContents.capturePage()).toPNG());
   if (errors.length) console.log('CONSOLE ERRORS\n' + errors.slice(0, 8).join('\n'));

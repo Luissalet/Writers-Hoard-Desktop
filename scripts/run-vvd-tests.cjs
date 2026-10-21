@@ -50,6 +50,17 @@ const suites = [
   ['vvd-world-portability.browser.ts', 'testVvdWorldPortability'],
   ['world-documents-search.browser.tsx', 'testWorldDocumentsSearch'],
   ['local-tool-sdk.browser.tsx', 'testLocalToolSdk'],
+  // Map wave (Ágora 1095).
+  ['world-presentation.browser.tsx', 'testWorldPresentationCore'],
+  ['world-blank-starters.browser.ts', 'testWorldBlankStarters'],
+  ['world-measure-area.browser.ts', 'testWorldMeasureArea'],
+  ['world-travel-profile.browser.ts', 'testWorldTravelProfile'],
+  ['world-map-eras.browser.ts', 'testWorldMapEras'],
+  ['world-labels.browser.ts', 'testWorldLabels'],
+  ['world-stamps.browser.ts', 'testWorldStamps'],
+  ['world-journey-playback.browser.ts', 'testWorldJourneyPlayback'],
+  ['world-grid.browser.ts', 'testWorldGrid'],
+  ['world-reader-fog.browser.ts', 'testReaderFog'],
 ];
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });
 let checks = 0; const failed = [];

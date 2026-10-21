@@ -7,6 +7,7 @@ import { Biome, type BiomeId, type RuinKind } from '../core/types';
 import type { SettlementRank } from '../core/settlements';
 import type { BrushTip, Falloff, LandOp, PaintFilter, TerrainOp } from '../core/edits';
 import type { PointKind } from '../core/paintCommit';
+import { FOG_OPS, type FogOp } from '../core/readerFog';
 export type { PointKind };
 import { biomeName } from '../core/gazetteer';
 import { biomeLocaleKey } from '../core/biomeKeys';
@@ -64,7 +65,10 @@ export type PaintMode =
   | 'move'
   // RÓTULOS: elegir un rótulo pintado y cambiarle texto, estilo, tamaño,
   // ángulo, espaciado y curva, con tiradores en el mapa.
-  | 'labels';
+  | 'labels'
+  // NIEBLA DEL LECTOR: qué ha visto ya el lector, de qué ha oído hablar y qué
+  // sigue siendo papel en blanco. No cambia el mundo; sólo la vista del lector.
+  | 'fog';
 
 export interface PaintTool {
   mode: PaintMode;
@@ -103,6 +107,10 @@ export interface PaintTool {
   roadMajor: boolean;
   /** What the point tool puts down. */
   point: PointKind;
+  /** The fog brush: mark ground as seen, heard of or hidden again. */
+  fogOp: FogOp;
+  /** The chapter in which the stroke is revealed; null = from the start. */
+  fogChapter: number | null;
   /** Which country the frontier brush hands ground to. -1 is unclaimed. */
   realm: number;
   /** How the frontier is drawn: freehand, bucket, straight-edged lasso, curved lasso. */
@@ -141,6 +149,8 @@ export const DEFAULT_PAINT_TOOL: PaintTool = {
   stampGlyph: 'inn',
   stampSize: 'M',
   point: 'town',
+  fogOp: 'seen',
+  fogChapter: null,
   /** The first country, not −1. −1 is what Ctrl already does, so a tool whose
    *  resting state is its own negative unclaims the first province the reader
    *  paints — before they have chosen anybody at all. */
@@ -181,6 +191,13 @@ const GROUPS: { title: string; note: string; modes: ModeSpec[] }[] = [
       { id: 'frontera', label: 'worldgen.paint.mode.frontera', hint: 'worldgen.paint.mode.frontera.hint', negative: 'worldgen.paint.mode.frontera.negative' },
       { id: 'move', label: 'worldgen.paint.mode.move', hint: 'worldgen.paint.mode.move.hint', negative: '' },
       { id: 'labels', label: 'worldgen.paint.mode.labels', hint: 'worldgen.paint.mode.labels.hint', negative: '' },
+    ],
+  },
+  {
+    title: 'worldgen.paint.group.reader',
+    note: 'worldgen.paint.group.reader.note',
+    modes: [
+      { id: 'fog', label: 'worldgen.paint.mode.fog', hint: 'worldgen.paint.mode.fog.hint', negative: 'worldgen.paint.mode.fog.negative' },
     ],
   },
 ];
@@ -410,6 +427,7 @@ export default function PaintPanel({
   // frontier tool that has a size would be the only brush in the panel with no
   // way to set it.
   const isBrush = tool.mode === 'terrain' || tool.mode === 'land' || tool.mode === 'biome'
+    || tool.mode === 'fog'
     || (tool.mode === 'frontera' && tool.realmTool === 'brush');
   const byElev = tool.only.minElev !== undefined || tool.only.maxElev !== undefined;
   const bySlope = tool.only.minSlope !== undefined || tool.only.maxSlope !== undefined;
@@ -527,6 +545,40 @@ export default function PaintPanel({
               ))}
             </div>
           </Row>
+        </div>
+      )}
+
+      {tool.mode === 'fog' && (
+        <div className="flex flex-col gap-2" data-testid="paint-fog">
+          <Row label={t('worldgen.paint.fog.row')}>
+            <div className="grid grid-cols-3 gap-1">
+              {FOG_OPS.map((op) => (
+                <span key={op} data-testid={`paint-fog-${op}`} className="contents">
+                  <Chip on={tool.fogOp === op} onClick={() => set('fogOp', op)} title={t(`worldgen.paint.fog.${op}.hint`)}>
+                    {t(`worldgen.paint.fog.${op}`)}
+                  </Chip>
+                </span>
+              ))}
+            </div>
+          </Row>
+          <label className="flex items-center justify-between gap-2 text-[10px] text-white/55">
+            <span>{t('worldgen.paint.fog.chapter')}</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              data-testid="paint-fog-chapter"
+              placeholder={t('worldgen.paint.fog.chapterAlways')}
+              value={tool.fogChapter ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                const n = raw === '' ? null : Math.max(0, Math.floor(Number(raw)));
+                set('fogChapter', n === null || Number.isFinite(n) ? n : null);
+              }}
+              className="w-20 rounded bg-white/10 px-1.5 py-1 text-right text-[11px] text-white tabular-nums"
+            />
+          </label>
+          <p className="text-[10px] leading-snug text-white/45">{t('worldgen.paint.fog.note')}</p>
         </div>
       )}
 
