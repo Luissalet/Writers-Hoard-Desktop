@@ -1027,8 +1027,42 @@ Write a free-standing label on the map at a cell — the name of a region, a bod
         y: CELL_Y,
         text: s('What the label says.'),
         style: s('Type style. Default "note".', { enum: ['region', 'water', 'range', 'settlement', 'note'] }),
+        size: { type: 'number', minimum: 8, maximum: 48, description: 'Type size in pixels at the default zoom.' },
+        angleDegrees: { type: 'number', minimum: -180, maximum: 180, description: 'Rotation, clockwise on the map.' },
+        spacing: { type: 'number', minimum: 0, maximum: 1, description: 'Extra space between letters as a share of the type size.' },
+        curve: { type: 'number', minimum: -1, maximum: 1, description: 'Bend: positive arches up, negative bows down, 0 straight.' },
       },
       required: ['worldId', 'x', 'y', 'text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_labels',
+    description:
+      `List the reader's painted labels on a world with keys, place and shape.
+Each label's key (label:x,y, where it was first painted), text, style, current cell and any size, angleDegrees, spacing and curve. Use the key with wh_update_label, wh_move_place, wh_rename_place or wh_remove_place.`,
+    writes: false,
+    schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_update_label',
+    description:
+      `Change a painted label's text, style, size, angle, letter spacing or curve.
+Only the fields given change; the label keeps its place (use wh_move_place to move it). Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: s('Painted label key from wh_list_labels (label:x,y).'),
+        text: s('New wording.'),
+        style: s('Type style.', { enum: ['region', 'water', 'range', 'settlement', 'note'] }),
+        size: { type: 'number', minimum: 8, maximum: 48, description: 'Type size in pixels at the default zoom.' },
+        angleDegrees: { type: 'number', minimum: -180, maximum: 180, description: 'Rotation, clockwise on the map.' },
+        spacing: { type: 'number', minimum: 0, maximum: 1, description: 'Extra space between letters as a share of the type size.' },
+        curve: { type: 'number', minimum: -1, maximum: 1, description: 'Bend: positive arches up, negative bows down, 0 straight.' },
+      },
+      required: ['worldId', 'key'],
       additionalProperties: false,
     },
   },

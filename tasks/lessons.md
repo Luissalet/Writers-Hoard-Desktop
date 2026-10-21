@@ -1,5 +1,25 @@
 # Lessons Learned
 
+## 99. Settings on an inherited era row fork the whole world
+**Date:** 2026-10-21
+**Context:** Saving a world's look or travel settings in a named era went through the era's copy-on-write, so a style toggle copied the entire world into the era and detached it from later Base edits.
+**Rule:** View or physics settings of a world the era still inherits are written to Base; only an era that already holds its own copy keeps its own. Record the resolved scope in the undo receipt so a later fork cannot redirect the undo.
+
+## 98. Effects keyed on a mutated object never fire
+**Date:** 2026-10-21
+**Context:** `applyEdits` replaces `world.painted` in place and bumps `revision`; a preview cleared on `[world]` stayed forever, so the map kept drawing a label's pre-edit angle.
+**Rule:** Key effects on the revision the producer bumps, and drop an optimistic preview as soon as the stored value matches it.
+
+## 97. Hidden Electron screenshots can lag a canvas
+**Date:** 2026-10-21
+**Context:** `capturePage` of a hidden window returned an earlier frame of the 2D map; a pixel search for a handle failed and a screenshot showed a state the DOM had already left.
+**Rule:** Assert on DOM, IndexedDB or the canvas's own `getImageData`; keep screenshots as evidence taken after a settle, never as the oracle.
+
+## 96. Text rewrites must keep a file's line endings
+**Date:** 2026-10-21
+**Context:** Python text-mode rewrites turn CRLF into LF. Most files are normalised by `.gitattributes`, but `cartography/overlay.ts` holds a NUL byte, so Git treats it as binary and the whole file showed as changed.
+**Rule:** Edit with byte-preserving tools or restore the original endings, and check `git diff --stat` for `Bin` before committing.
+
 ## 84. Token boundaries follow the tokenizer, not whitespace assumptions
 **Date:** 2026-10-20
 **Context:** A Unicode-letter adjacency check rejected valid Chinese names because neighboring Han characters are normal BERT basic units. Removing the check altogether would instead admit partial Latin WordPieces.

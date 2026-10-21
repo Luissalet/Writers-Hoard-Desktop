@@ -1202,3 +1202,26 @@ No further feature pass or automatic continuation is scheduled.
 
 Final QA and limits: [composed verification](worldcraft1041-final-verification.md).
 Manual CAS/readback proof: `evidence/worldcraft1041-manual-verification.json`.
+
+---
+
+# VVD catalogue continuation 1095 — 2026-10-21
+
+Linked to Agora 1041 (closed). Source: VVD's own interface catalogue plus the
+authenticated session and Luis's video; six read-only cross-reference tables in
+[vvd1095/](vvd1095/README.md). Nothing here claims parity: each row keeps its
+status until a flow is shown working.
+
+Wave 1, maps:
+- [x] Saved look per world (style, layers, relief, 3D skin) for views, exports and MCP.
+- [x] Blank sea / blank land starters painted with the Coast brush.
+- [x] Ruler area and perimeter; real outlines laid at true scale.
+- [x] World travel settings: pace with rest days, speeds per mode, ground costs, per-leg modes; MCP planner.
+- [x] Map eras linked to timeline events, ordered by calendar, with playback and portability.
+- [x] Painted labels: Labels tool with rotate/spacing/curve handles and exact values; 2D, Carta and 3D; MCP list/update.
+- [x] Independent review r1 (9 findings) and r2 (A–D) fixed with regression tests.
+- [ ] Hand-placeable stamp library with categories and sizes (A1 #59).
+- [ ] Trade lens and campaign fog/story events (A2).
+- [ ] Classic-map polish and a generic `wh_add_map_feature`.
+
+Later waves follow the ranked lists in C-writing, D1-tools, D2-platform and B-campaign.
