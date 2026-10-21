@@ -6,13 +6,13 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..'), temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-world-labels-qa-'));
 const evidence = process.env.WH_QA_EVIDENCE || path.join(temp, 'evidence');
 fs.mkdirSync(evidence, { recursive: true });
-app.setPath('userData', path.join(temp, 'profile')); let server;
+app.setPath('userData', path.join(temp, 'profile')); let server, win;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function main() {
   const { createServer } = await import('vite');
   server = await createServer({ root, cacheDir: path.join(temp, 'vite-cache'), server: { port: 0, host: '127.0.0.1', hmr: false, watch: null }, plugins: [{ name: 'world-labels-qa', configureServer(instance) { instance.middlewares.use('/__world_labels_qa', async (_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end(await instance.transformIndexHtml('/__world_labels_qa', '<!doctype html><html><meta charset="utf-8"><body><div id="root"></div><script type="module" src="/tests/world-presentation-preview.tsx"></script></body></html>')); }); } }] });
   await server.listen(); await app.whenReady();
-  const win = new BrowserWindow({ width: 1440, height: 960, show: false, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
+  win = new BrowserWindow({ width: 1440, height: 960, show: false, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
   await win.loadURL(`${server.resolvedUrls.local[0]}__world_labels_qa`);
   const js = expression => win.webContents.executeJavaScript(expression);
   const wait = async (expression, what, tries = 1500) => { for (let i = 0; i < tries; i++) { const state = await js(`({ok:!!(${expression}),error:window.__lookError})`); if (state.error) throw Error(state.error); if (state.ok) return; await pause(100); } throw Error(`Timed out: ${what}`); };
@@ -45,12 +45,13 @@ async function main() {
   assert.equal(await js(`document.querySelector('[data-testid="label-text"]').value`), 'Mar de las Brumas');
   tests.push('The Labels tool selects the painted label on the map and opens its inspector');
   // Drag the amber handle a quarter turn: a relabel with the new angle.
-  await pause(500);
   // The rotate knob (amber #ffd479) sits right of the label on its axis: read it from the canvas itself.
-  const best = await js(`(()=>{const c=[...document.querySelectorAll('canvas')].sort((a,b)=>b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight)[0];const r=c.getBoundingClientRect(),k=c.width/r.width;
+  const findKnob = () => js(`(()=>{const c=[...document.querySelectorAll('canvas')].sort((a,b)=>b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight)[0];const r=c.getBoundingClientRect(),k=c.width/r.width;
     const x0=Math.round((${at.x}-r.x)*k),y0=Math.round((${at.y}-40-r.y)*k),w=Math.round(300*k),h=Math.round(80*k);const d=c.getContext('2d').getImageData(x0,y0,w,h).data;let sx=0,sy=0,n=0;
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){const o=(y*w+x)*4,R=d[o],G=d[o+1],B=d[o+2];if(R>245&&G>200&&G<222&&B>105&&B<135){sx+=x;sy+=y;n++;}}
     return n?{x:r.x+(x0+sx/n)/k,y:r.y+(y0+sy/n)/k,n}:null;})()`);
+  let best = null;
+  for (let i = 0; i < 50 && !best; i++) { best = await findKnob(); if (!best) await pause(100); }
   const shot = await win.webContents.capturePage();
   fs.writeFileSync(path.join(evidence, 'labels-selected-1440.png'), shot.toPNG());
   assert(best, 'Rotate handle not drawn');
@@ -74,10 +75,18 @@ async function main() {
   assert(merged.curve === 0.6 && merged.spacing === 0.4 && merged.size === 26 && merged.angle === 0, `Inspector values not saved: ${JSON.stringify(last)}`);
   await pause(1200); fs.writeFileSync(path.join(evidence, 'labels-curved-1440.png'), (await win.webContents.capturePage()).toPNG());
   tests.push('The inspector straightens it, then sets curve 60%, spacing 40% and size 26 px as saved edits');
+  // Words typed without Enter are kept when the reader clicks away on the map.
+  await js(`(()=>{const i=document.querySelector('[data-testid="label-text"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'Mar de las Nieblas');i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await pause(200);
+  await tap(Math.round(rect.x + rect.w * 0.25), Math.round(rect.y + rect.h * 0.55));
+  let retitled; for (let i = 0; i < 60; i++) { edits = await row(); retitled = edits.find(e => e.kind === 'relabel' && e.text === 'Mar de las Nieblas'); if (retitled) break; await pause(150); }
+  assert(retitled, `Typed words lost on clicking the map: ${JSON.stringify(edits.filter(e => e.kind === 'relabel'))}`);
+  tests.push('Words typed in the inspector are saved when the reader clicks away on the map');
   // Reopen: the label keeps its shape and the inspector reads it back.
   await js('window.__lookUnmount()'); await pause(200); await js('window.__lookMount()'); await wait(forged, 'reopened');
   await click('Pincel'); await click('Rótulos'); await pause(600);
-  await tap(at.x, at.y);
+  // The reopened map draws (and so registers) its labels a moment after it appears: click again until picked.
+  for (let i = 0; i < 20 && !(await js(`!!document.querySelector('[data-testid="label-editor"]')`)); i++) { await tap(at.x, at.y); await pause(400); }
   await wait(`document.querySelector('[data-testid="label-editor"]')`, 'label editor after reopening');
   const values = await js(`['curve','spacing','size'].map(id=>document.querySelector('[data-testid="label-'+id+'"]').value)`);
   assert.deepEqual(values, ['60', '40', '26']);
@@ -91,4 +100,4 @@ async function main() {
   for (const test of tests) console.log(`PASS ${test}`);
   console.log(`EVIDENCE ${evidence}`);
 }
-main().then(async () => { await server?.close(); app.exit(0); }).catch(async error => { console.error(error.stack || error); await server?.close(); app.exit(1); });
+main().then(async () => { await server?.close(); app.exit(0); }).catch(async error => { console.error(error.stack || error); try { if (win) fs.writeFileSync(path.join(evidence, 'failure.png'), (await win.webContents.capturePage()).toPNG()); console.log('DOM ' + await win.webContents.executeJavaScript(`JSON.stringify({editor:!!document.querySelector('[data-testid="label-editor"]'),empty:!!document.querySelector('[data-testid="label-editor-empty"]'),mode:[...document.querySelectorAll('button')].filter(b=>b.className.includes('amber')).map(b=>b.textContent.trim()).slice(0,6)})`)); } catch { /* evidence only */ } await server?.close(); app.exit(1); });

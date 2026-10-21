@@ -1017,6 +1017,9 @@ const PARENT_PROBE_TOOLS = [
   'wh_timeline_batch_apply', 'wh_timeline_batch_undo',
   'wh_wiki_profile_save', 'wh_wiki_profile_delete',
   'wh_wiki_profile_publish', 'wh_wiki_profile_restore_config',
+  'wh_capture_map_version', 'wh_link_map_version',
+  'wh_set_world_presentation', 'wh_set_world_travel_settings',
+  'wh_update_label', 'wh_add_stamp',
 ];
 
 // Receipt-based recovery, like audit Undo, stays usable after switching a tab off.
@@ -1212,6 +1215,12 @@ async function buildGuardProbes(
       ['wh_remove_place', { worldId, key: 'settlement:1,1' }],
       ['wh_restore_place', { worldId, key: 'settlement:1,1' }],
       ['wh_add_label', { worldId, x: 1, y: 1, text: 'x' }],
+      ['wh_update_label', { worldId, key: 'label:1,1', curve: 0.2 }],
+      ['wh_add_stamp', { worldId, x: 1, y: 1, glyph: 'inn' }],
+      ['wh_set_world_presentation', { worldId, theme: 'antique' }],
+      ['wh_set_world_travel_settings', { worldId, pace: 'hard' }],
+      ['wh_capture_map_version', { mapId, name: 'x' }],
+      ['wh_link_map_version', { mapId, versionId: 'x', eventId: null }],
       ['wh_add_waypoint', { worldId, name: 'x', u: 0.5, v: 0.5 }],
       ['wh_update_waypoint', { id: waypointId, name: 'x' }],
       ['wh_link_place', {

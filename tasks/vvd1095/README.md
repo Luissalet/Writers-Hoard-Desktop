@@ -47,3 +47,26 @@ handles; map versions linked to timeline events with playback.
 Later waves follow the ranked lists of the other areas. Every delivery keeps
 existing capabilities and is proved through UI, MCP, persistence/reopen and
 export where relevant, then independently reviewed.
+
+## Delivered so far (worktree writer-vvd1095, not yet integrated)
+
+Each item was shown through the normal UI with trusted input, through MCP
+(focused tests, and the native stdio transport where noted), across reopen, and
+reviewed independently (rounds r1–r3; reports in
+`D:/LocalAI/_claude_tmp/vvd1095-review`). Evidence screenshots:
+`D:/LocalAI/artifacts/writer-vvd1095`.
+
+| A1/A2 row | What changed | Status now |
+|---|---|---|
+| A1 #1, #2 blank sea / land | Presets, Coast brush, shape controls off with a way back | PRESENT |
+| A1 #35–36 look saved with the map | Per-world look for views, exports and MCP; Base shared while an era inherits | PRESENT (the look set is still Writer's four) |
+| A1 #39 scale compare | Ten real outlines laid at true scale | PARTIAL (no "set map width" control) |
+| A1 #43 measure area | Ruler loop area and perimeter, polar caps | PARTIAL (no hover-a-zone area) |
+| A1 #52 label handles | Rotate, spacing, curve handles; exact size/angle/spacing/curve | PARTIAL (size by slider, not four resize handles; no rank "Title") |
+| A1 #59 stamps | 32 stamps in four categories, S/M/L, names, all views | PARTIAL (no per-glyph colour schemes, row 61) |
+| A1 #71–72 versions on the timeline | Era ↔ event links, calendar order, play, orphans, portability | PARTIAL (no snapshot strip, no "open in Timeline") |
+| A2 travel rows | World pace, speeds, ground costs, per-leg modes, rest days, MCP planner | see A2 table; trade lens and campaign fog still ABSENT |
+
+Commits: 22cdf7d, dd8f6a5, 4849ac8 (look, blank starters, measure, travel),
+6b3a3e6 (review r1), 3258e65 (map eras), 59e7ad9 (review r2), 07f14f6 (labels),
+and the stamps and review-r3 commit that follows.

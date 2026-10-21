@@ -151,6 +151,8 @@ import { whAddMapPin, whCaptureMapVersion, whLinkMapVersion, whListMaps, whListM
 import {
   whAddLabel,
   whListLabels,
+  whAddStamp,
+  whListStamps,
   whUpdateLabel,
   whAddPlace,
   whAddWaypoint,
@@ -479,6 +481,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_restore_place: whRestorePlace,
   wh_add_label: whAddLabel,
   wh_list_labels: whListLabels,
+  wh_add_stamp: whAddStamp,
+  wh_list_stamps: whListStamps,
   wh_update_label: whUpdateLabel,
   wh_list_waypoints: whListWaypoints,
   wh_add_waypoint: whAddWaypoint,

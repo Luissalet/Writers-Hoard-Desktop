@@ -1,4 +1,5 @@
 import LabelEditor from './LabelEditor';
+import StampPicker from './StampPicker';
 import type { PaintedLabel } from '../core/edits';
 import type { LabelChange } from '../core/labelShape';
 import { useMemo, useState } from 'react';
@@ -95,6 +96,8 @@ export interface PaintTool {
   rank: SettlementRank;
   labelStyle: 'region' | 'water' | 'range' | 'settlement' | 'note';
   labelText: string;
+  stampGlyph: string;
+  stampSize: 'S' | 'M' | 'L';
   /** Road tool: a trade artery or a local track. */
   roadMajor: boolean;
   /** What the point tool puts down. */
@@ -134,6 +137,8 @@ export const DEFAULT_PAINT_TOOL: PaintTool = {
   roadMajor: false,
   labelStyle: 'region',
   labelText: '',
+  stampGlyph: 'inn',
+  stampSize: 'M',
   point: 'town',
   /** The first country, not −1. −1 is what Ctrl already does, so a tool whose
    *  resting state is its own negative unclaims the first province the reader
@@ -197,6 +202,7 @@ const POINTS: { id: PointKind; label: string; hint: string }[] = [
   { id: 'gorge', label: 'worldgen.paint.point.gorge', hint: 'worldgen.paint.point.gorge.hint' },
   { id: 'hotspring', label: 'worldgen.paint.point.hotspring', hint: 'worldgen.paint.point.hotspring.hint' },
   { id: 'label', label: 'worldgen.paint.point.label', hint: 'worldgen.paint.point.label.hint' },
+  { id: 'stamp', label: 'worldgen.paint.point.stamp', hint: 'worldgen.paint.point.stamp.hint' },
   { id: 'waypoint', label: 'worldgen.paint.point.waypoint', hint: 'worldgen.paint.point.waypoint.hint' },
 ];
 
@@ -321,7 +327,7 @@ interface PaintPanelProps {
   busy?: boolean;
   /** The Labels tool: the painted label selected on the map, and its writers. */
   selectedLabel?: PaintedLabel | null;
-  onRelabel?: (change: LabelChange) => void;
+  onRelabel?: (change: LabelChange, key: string) => void;
   onRemoveLabel?: () => void;
 }
 
@@ -524,7 +530,7 @@ export default function PaintPanel({
       )}
 
       {tool.mode === 'labels' && (
-        <LabelEditor label={selectedLabel} onChange={(change) => onRelabel?.(change)} onRemove={() => onRemoveLabel?.()} />
+        <LabelEditor label={selectedLabel} onChange={(change, key) => onRelabel?.(change, key)} onRemove={() => onRemoveLabel?.()} />
       )}
 
       {tool.mode === 'point' && (
@@ -547,6 +553,11 @@ export default function PaintPanel({
                 ))}
               </div>
             </Row>
+          )}
+
+          {tool.point === 'stamp' && (
+            <StampPicker glyph={tool.stampGlyph} size={tool.stampSize ?? 'M'} name={tool.labelText}
+              onGlyph={(glyph) => set('stampGlyph', glyph)} onSize={(size) => set('stampSize', size)} onName={(name) => set('labelText', name)} />
           )}
 
           {tool.point === 'label' && (

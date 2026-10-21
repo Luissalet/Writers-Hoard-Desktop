@@ -49,7 +49,11 @@ export interface PaintSpec {
   ruin: RuinKind;
   rank: SettlementRank;
   labelStyle: 'region' | 'water' | 'range' | 'settlement' | 'note';
+  /** A label's words; for a stamp, its optional name. */
   labelText: string;
+  /** Which map stamp the point tool puts down, and how big. */
+  stampGlyph: string;
+  stampSize: 'S' | 'M' | 'L';
   roadMajor: boolean;
   /** What the point tool puts down. */
   point: PointKind;
@@ -67,7 +71,7 @@ export interface PaintSpec {
 export type PointKind =
   | 'capital' | 'city' | 'town' | 'village' | 'ruin'
   | LandmarkType
-  | 'label' | 'waypoint';
+  | 'label' | 'waypoint' | 'stamp';
 
 const LANDMARK_POINTS = new Set<PointKind>([
   'volcano', 'cave', 'waterfall', 'gorge', 'hotspring',
@@ -291,6 +295,10 @@ export function commitPaintStroke(
         // the reader that, because a click that vanishes is indistinguishable
         // from a broken map.
         return text ? { kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle } : null;
+      }
+      if (p.point === 'stamp') {
+        const name = p.labelText.trim();
+        return { kind: 'stamp', x: at.x, y: at.y, glyph: p.stampGlyph || 'inn', ...(p.stampSize && p.stampSize !== 'M' ? { size: p.stampSize } : {}), ...(name ? { name } : {}) };
       }
       if (p.point === 'ruin') {
         return { kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin };
