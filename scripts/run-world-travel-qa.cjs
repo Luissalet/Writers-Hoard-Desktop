@@ -50,7 +50,9 @@ async function main() {
   let saved; for (let i = 0; i < 60; i++) { saved = await row(); if (saved.pace === 'hard') break; await pause(150); }
   assert.equal(saved.pace, 'hard', 'The world did not remember the pace');
   const rest = await js(`document.querySelector('[data-testid="journey-rest-days"]')?.textContent ?? ''`);
-  tests.push(`Choosing Forzado changes the duration to "${hardText}"${rest ? ` (${rest})` : ''} and is saved as the world's usual pace`);
+  const daysOf = text => Number((text.match(/(\d+)\s*jornada/) || [0, 0])[1]) + (/(\d+)\s*h\b/.test(text) ? Number(text.match(/(\d+)\s*h\b/)[1]) / 24 : 0);
+  assert(daysOf(hardText) < daysOf(steadyText), `Hard pace (rest included) reads slower than steady: ${hardText} vs ${steadyText}`);
+  tests.push(`Choosing Forzado shortens the whole journey, rest included, to "${hardText}"${rest ? ` (${rest})` : ''} and is saved as the world's usual pace`);
   // World physics: walking twice as fast.
   await click('Ajustes de viaje de este mundo');
   await wait(`document.querySelector('[data-testid="journey-travel-settings"]')`, 'settings');
@@ -64,12 +66,22 @@ async function main() {
   // Reopen: the world's pace and physics come back.
   await js('window.__lookUnmount()'); await pause(200); await js('window.__lookMount()'); await wait(button('Carta'), 'reopened'); await click('Viaje');
   await wait(savedSelect, 'select again');
+  const footSlider = `[...document.querySelectorAll('[data-testid="journey-travel-settings"] input[type=range]')].find(e=>e.getAttribute('aria-label')==='a pie').value`;
+  // Opening the old itinerary plans it with its own snapshot and leaves the world alone.
   await js(`(()=>{const s=${savedSelect};const set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;set.call(s,'qa-trip');s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await wait(duration, 'recomputed after reopen');
   await click('Ajustes de viaje de este mundo');
-  const footValue = await js(`[...document.querySelectorAll('[data-testid="journey-travel-settings"] input[type=range]')].find(e=>e.getAttribute('aria-label')==='a pie').value`);
-  assert.equal(footValue, '200');
-  tests.push('Reopening restores the world\'s travel physics in the same panel');
+  await wait(`document.querySelector('[data-testid="journey-trip-settings"]')`, 'trip settings note');
+  await wait(`${footSlider}==='100'`, 'trip snapshot shown');
+  await pause(1200);
+  saved = await row();
+  assert(saved.pace === 'hard' && saved.profile?.speed?.foot === 2, `Opening an itinerary rewrote the world: ${JSON.stringify(saved)}`);
+  const tripText = await js(duration);
+  assert.equal(tripText, steadyText, 'The old itinerary was not planned with the settings it was saved with');
+  tests.push(`Opening the saved itinerary plans it with its own settings ("${tripText}") and leaves the world's pace and physics untouched`);
+  await js(`document.querySelector('[data-testid="journey-close"]').click()`);
+  await wait(`${footSlider}==='200'`, 'world settings after closing the trip');
+  tests.push('Closing the itinerary goes back to the world\'s settings, restored after reopening the engine');
   win.setContentSize(640, 900); await pause(1000);
   fs.writeFileSync(path.join(evidence, 'travel-settings-640.png'), (await win.webContents.capturePage()).toPNG());
   if (errors.length) console.log('CONSOLE ERRORS\n' + errors.slice(0, 8).join('\n'));

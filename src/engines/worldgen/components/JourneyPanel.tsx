@@ -11,7 +11,7 @@ import { useJourneyComputation, useJourneyPaleo } from '../useJourneyComputation
 import { useTranslation } from '@/i18n/useTranslation';
 import type { GeneratedWorld } from '../types';
 import { journeyNormalizedStops, journeyRecipeKey, type WorldJourney } from '../journeyTypes';
-import { deleteWorldJourney, saveWorldJourney, saveWorldTravelSettings } from '../journeyOperations';
+import { deleteWorldJourney, saveWorldJourney, saveWorldTravelSettings, type TravelFactorEdit } from '../journeyOperations';
 import { ConfirmDialog } from '@/engines/_shared';
 import JourneyCreativeCapture from './JourneyCreativeCapture';
 
@@ -78,7 +78,6 @@ function JourneyPanelContent({
   const [profile, setProfile] = useState<TravelProfile>(worldRecord?.travelProfile ?? {});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsError, setSettingsError] = useState(false);
-  const profileBaseline = useRef(JSON.stringify({ profile: worldRecord?.travelProfile ?? {}, pace: worldRecord?.travelPace ?? 'steady' }));
   const [journeyName, setJourneyName] = useState('');
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -89,6 +88,9 @@ function JourneyPanelContent({
   const [deleteError, setDeleteError] = useState(false);
   const [deletedJourneys, setDeletedJourneys] = useState<WorldJourney[]>([]);
   const legCount = via.length + 1;
+  /** Per-leg modes are positional: when a stop goes, they would slide onto other legs, so they start again. */
+  const previousLegCount = useRef(legCount);
+  useEffect(() => { if (legCount < previousLegCount.current) setLegModes([]); previousLegCount.current = legCount; }, [legCount]);
   const activeLegModes = legModes.slice(0, legCount);
   const mixedModes = activeLegModes.some(value => value && value !== mode);
   const planOptions: WorldJourney['options'] = {
@@ -98,26 +100,52 @@ function JourneyPanelContent({
     ...(Object.keys(profile).length ? { profile } : {}),
   };
   const hoursPerDay = effectiveHoursPerDay(planOptions);
-  /** Persist travel physics and pace with the world, after the hand stops. */
-  useEffect(() => {
+  /**
+   * Travel settings belong to the world; an opened itinerary is planned with
+   * the settings it was saved with. Only the author's own edits of the pace or
+   * the factors are written to the world, one field at a time and merged with
+   * what is stored, so opening an old trip never rewrites the world and an
+   * agent's change to another factor survives.
+   */
+  const pending = useRef<{ pace?: TravelPace; factors: Map<string, TravelFactorEdit>; reset?: boolean }>({ factors: new Map() });
+  const flushTimer = useRef(0);
+  const flushSettings = () => {
     if (!worldRecord) return;
-    const serialized = JSON.stringify({ profile, pace });
-    if (serialized === profileBaseline.current) return;
-    const timer = window.setTimeout(() => {
-      profileBaseline.current = serialized;
-      void saveWorldTravelSettings({ projectId: worldRecord.projectId, eraId: scope.eraId }, worldRecord.id, { profile, pace: pace === 'steady' ? undefined : pace })
-        .then(() => setSettingsError(false))
-        .catch(() => { profileBaseline.current = ''; setSettingsError(true); });
-    }, 450);
-    return () => window.clearTimeout(timer);
-  }, [profile, pace, worldRecord, scope.eraId]);
-  const setFactor = (table: 'speed' | 'ground', key: TravelMode | GroundClass, value: number) => setProfile(current => {
-    const next = { ...(current[table] ?? {}) } as Record<string, number>;
-    if (Math.abs(value - 1) < 0.001) delete next[key]; else next[key] = Math.round(value * 100) / 100;
-    const out: TravelProfile = { ...current };
-    if (Object.keys(next).length) (out as Record<string, unknown>)[table] = next; else delete out[table];
-    return out;
-  });
+    const edits = pending.current; pending.current = { factors: new Map() };
+    const change: Parameters<typeof saveWorldTravelSettings>[2] = {};
+    if (edits.pace) change.pace = edits.pace === 'steady' ? null : edits.pace;
+    if (edits.reset) change.profile = {};
+    if (edits.factors.size) change.factors = [...edits.factors.values()];
+    if (!Object.keys(change).length) return;
+    void saveWorldTravelSettings({ projectId: worldRecord.projectId, eraId: scope.eraId }, worldRecord.id, change)
+      .then(() => setSettingsError(false))
+      .catch(() => setSettingsError(true));
+  };
+  /** The latest flush, for the timer and for leaving the panel with an edit still on its way. */
+  const flushRef = useRef(flushSettings);
+  useEffect(() => { flushRef.current = flushSettings; });
+  const scheduleSave = () => { window.clearTimeout(flushTimer.current); flushTimer.current = window.setTimeout(() => flushRef.current(), 450); };
+  useEffect(() => () => { window.clearTimeout(flushTimer.current); flushRef.current(); }, []);
+  /** Adopt the world's settings when they change elsewhere, unless a trip is open or an edit is on its way. */
+  useEffect(() => {
+    if (!worldRecord || openedJourney) return;
+    if (pending.current.pace || pending.current.reset || pending.current.factors.size) return;
+    setPace(worldRecord.travelPace ?? 'steady');
+    setProfile(worldRecord.travelProfile ?? {});
+  }, [worldRecord?.travelRevision, worldRecord?.id, openedJourney]); // eslint-disable-line react-hooks/exhaustive-deps
+  const choosePace = (next: TravelPace) => { setPace(next); pending.current.pace = next; scheduleSave(); };
+  const resetProfile = () => { setProfile({}); pending.current.reset = true; pending.current.factors.clear(); scheduleSave(); };
+  const setFactor = (table: 'speed' | 'ground', key: TravelMode | GroundClass, value: number) => {
+    pending.current.factors.set(`${table}:${key}`, { table, key, value });
+    scheduleSave();
+    setProfile(current => {
+      const next = { ...(current[table] ?? {}) } as Record<string, number>;
+      if (Math.abs(value - 1) < 0.001) delete next[key]; else next[key] = Math.round(value * 100) / 100;
+      const out: TravelProfile = { ...current };
+      if (Object.keys(next).length) (out as Record<string, unknown>)[table] = next; else delete out[table];
+      return out;
+    });
+  };
   const savedJourneys = [...new Map([...savedLocally, ...(worldRecord?.journeys ?? [])].map(journey => [journey.id, journey])).values()]
     .filter(journey => !deletedJourneys.some(deleted => deleted.id === journey.id && JSON.stringify(deleted) === JSON.stringify(journey)));
   const currentRecipeKey = worldRecord ? journeyRecipeKey({ ...worldRecord, params: world.params }) : '';
@@ -177,8 +205,9 @@ function JourneyPanelContent({
                 if (!journey) return;
                 setMode(journey.options.mode); setSeason(journey.options.season);
                 setCustomOptions({ hoursPerDay: journey.options.hoursPerDay, planetRadiusKm: journey.options.planetRadiusKm });
+                // The trip's own snapshot, shown and planned with; the world is not touched.
                 setPace(journey.options.pace ?? 'steady'); setLegModes(journey.options.legModes ?? []);
-                if (journey.options.profile) setProfile(journey.options.profile);
+                setProfile(journey.options.profile ?? {});
                 setOpenedJourney(journey); onPick(null); onOpenJourney?.(journey);
               }}>
               <option value="">{t('worldgen.journey.openSaved')}</option>
@@ -188,9 +217,12 @@ function JourneyPanelContent({
           {!savedJourneys.length && <p className="text-white/45">{t('worldgen.journey.savedEmpty')}</p>}
           {openedJourney && <div className="flex items-center justify-between gap-2">
             <p className="min-w-0 truncate text-white/65">{openedJourney.name}</p>
+            <button type="button" disabled={saving} className="shrink-0 rounded px-2 py-1 text-white/70 hover:bg-white/10 disabled:opacity-40" data-testid="journey-close"
+              onClick={() => setOpenedJourney(null)}>{t('worldgen.journey.close')}</button>
             <button type="button" disabled={saving} className="shrink-0 rounded px-2 py-1 text-red-200/80 hover:bg-red-400/10 disabled:opacity-40"
               onClick={() => { setDeletingJourney(openedJourney); setDeleteError(false); }}>{t('worldgen.journey.delete')}</button>
           </div>}
+          {openedJourney && <p className="text-[10px] leading-snug text-white/45" data-testid="journey-trip-settings">{t('worldgen.journey.tripSettings')}</p>}
           {openedJourney && openedJourney.recipeKey !== currentRecipeKey && <p role="status" className="text-amber-200/85">{t('worldgen.journey.recipeChanged')}</p>}
           {from && to && <form onSubmit={event => { event.preventDefault(); void saveJourney(); }} className="flex flex-col gap-1.5">
             <input aria-label={t('worldgen.journey.name')} placeholder={t('worldgen.journey.name')} value={journeyName} disabled={saving}
@@ -271,7 +303,7 @@ function JourneyPanelContent({
             <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.pace')}</span>
             <div className="flex flex-wrap gap-1">
               {TRAVEL_PACES.map((p) => (
-                <Chip key={p} on={pace === p} onClick={() => setPace(p)}>{t(`worldgen.journey.pace.${p}`)}</Chip>
+                <Chip key={p} on={pace === p} onClick={() => choosePace(p)}>{t(`worldgen.journey.pace.${p}`)}</Chip>
               ))}
             </div>
             <p className="text-[10px] leading-snug text-white/40">{t(`worldgen.journey.pace.${pace}.hint`)}</p>
@@ -316,7 +348,7 @@ function JourneyPanelContent({
                 <Factor key={g} label={t(`worldgen.journey.ground.${g}`)} value={profile.ground?.[g] ?? 1} onChange={(value) => setFactor('ground', g, value)} />
               ))}
               <p className="text-[10px] leading-snug text-white/40">{t('worldgen.journey.settingsNote')}</p>
-              {(profile.speed || profile.ground) && <button type="button" onClick={() => setProfile({})} className="self-start text-[10px] text-white/55 underline">{t('worldgen.journey.settingsReset')}</button>}
+              {(profile.speed || profile.ground) && <button type="button" onClick={resetProfile} className="self-start text-[10px] text-white/55 underline">{t('worldgen.journey.settingsReset')}</button>}
               {settingsError && <p role="alert" className="text-red-300">{t('worldgen.journey.settingsError')}</p>}
             </div>
           )}
@@ -331,7 +363,8 @@ function JourneyPanelContent({
           ) : route ? (
             <div className="flex flex-col gap-1.5 border-t border-white/10 pt-2">
               <div className="text-lg text-white/90 leading-none">
-                {describeDuration(route.hours, hoursPerDay, t)}
+                {/* The whole journey, rest days included, so a hard pace never reads faster than it is. */}
+                {describeDuration(route.hours + (route.restDays ?? 0) * hoursPerDay, hoursPerDay, t)}
               </div>
               {(route.restDays ?? 0) > 0 && (
                 <div className="text-[10px] text-amber-200/80" data-testid="journey-rest-days">

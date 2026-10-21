@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { worldgenScopeOperations } from './era';
+import { worldSettingsScope } from './settingsScope';
 import type { GeneratedWorld, WorldPresentation, WorldPresentationLayer } from './types';
 
 /**
@@ -57,8 +58,17 @@ export function normalizePresentationPatch(input: unknown): WorldPresentation {
 
 /** The presentation with every default filled in; what views and exports draw. */
 export function resolvePresentation(presentation: WorldPresentation | undefined): Required<Omit<WorldPresentation, 'layers'>> & { layers: Record<WorldPresentationLayer, boolean> } {
-  let saved: WorldPresentation = {};
-  try { saved = presentation ? normalizePresentationPatch(presentation) : {}; } catch { saved = {}; }
+  // Field by field: one damaged stored value falls back alone, never the whole look.
+  const saved: WorldPresentation = {};
+  const raw = presentation && typeof presentation === 'object' ? presentation as Record<string, unknown> : {};
+  for (const key of ['theme', 'skin3D', 'reliefAmount'] as const) {
+    try { Object.assign(saved, normalizePresentationPatch({ [key]: raw[key] })); } catch { /* default for this field */ }
+  }
+  if (raw.layers && typeof raw.layers === 'object') {
+    const layers: Partial<Record<WorldPresentationLayer, boolean>> = {};
+    for (const [key, value] of Object.entries(raw.layers as Record<string, unknown>)) if (PRESENTATION_LAYERS.includes(key as WorldPresentationLayer) && typeof value === 'boolean') layers[key as WorldPresentationLayer] = value;
+    saved.layers = layers;
+  }
   return {
     theme: saved.theme ?? PRESENTATION_DEFAULTS.theme,
     skin3D: saved.skin3D ?? PRESENTATION_DEFAULTS.skin3D,
@@ -80,8 +90,9 @@ export interface PresentationReceipt { from?: WorldPresentation; to: WorldPresen
  * era scope. Concurrent edits to other fields survive; an optional expected
  * revision refuses a stale writer instead of overwriting a newer choice.
  */
-export async function saveWorldPresentation(scope: { projectId: string; eraId?: string }, worldId: string, patchInput: unknown, expectedRevision?: number): Promise<PresentationReceipt> {
+export async function saveWorldPresentation(requested: { projectId: string; eraId?: string }, worldId: string, patchInput: unknown, expectedRevision?: number): Promise<PresentationReceipt> {
   const patch = normalizePresentationPatch(patchInput);
+  const scope = await worldSettingsScope(requested, worldId);
   const { worlds } = worldgenScopeOperations(scope);
   const receipt = await db.transaction('rw', scope.eraId ? db.tables : [db.generatedWorlds], async () => {
     const current = await worlds.getOne(worldId) as GeneratedWorld | undefined;
@@ -101,7 +112,8 @@ export async function saveWorldPresentation(scope: { projectId: string; eraId?: 
  * Undo one recorded change without discarding later ones: each field is put
  * back only where it still holds the value this change wrote.
  */
-export async function revertWorldPresentation(scope: { projectId: string; eraId?: string }, worldId: string, receipt: PresentationReceipt): Promise<{ reverted: string[]; kept: string[] }> {
+export async function revertWorldPresentation(requested: { projectId: string; eraId?: string }, worldId: string, receipt: PresentationReceipt): Promise<{ reverted: string[]; kept: string[] }> {
+  const scope = await worldSettingsScope(requested, worldId);
   const { worlds } = worldgenScopeOperations(scope);
   const result = await db.transaction('rw', scope.eraId ? db.tables : [db.generatedWorlds], async () => {
     const current = await worlds.getOne(worldId) as GeneratedWorld | undefined;

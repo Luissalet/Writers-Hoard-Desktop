@@ -77,8 +77,12 @@ export type TravelPace = 'easy' | 'steady' | 'hard';
 export const TRAVEL_PACES: TravelPace[] = ['easy', 'steady', 'hard'];
 /** Share of the day's usable hours actually spent moving. */
 export const PACE_HOURS: Record<TravelPace, number> = { easy: 0.75, steady: 1, hard: 1.3 };
-/** A hard pace spends a full day resting after this many days on the move. */
-export const HARD_PACE_REST_EVERY = 3;
+/**
+ * A hard pace spends a full day resting after this many days on the move.
+ * Six keeps a forced march honest: 1.3 × 6/7 ≈ 1.11, about a tenth faster
+ * than steady over a long journey, never slower.
+ */
+export const HARD_PACE_REST_EVERY = 6;
 
 /** Kinds of open country, as the author thinks of them, each with its own cost. */
 export type GroundClass = 'open' | 'dry' | 'forest' | 'jungle' | 'marsh' | 'mountains' | 'ice';
@@ -256,11 +260,14 @@ export interface StraightLineEstimate {
  * ship's straight line over land is not a crossing. The order is the order of
  * the planner's mode list, so the two readouts stack the same way.
  */
-export function straightLineEstimates(km: number, season: Season = 'summer'): StraightLineEstimate[] {
+export function straightLineEstimates(km: number, season: Season = 'summer', profile?: TravelProfile): StraightLineEstimate[] {
   const d = Math.max(0, km);
   const hoursPerDay = SEASON_HOURS[season];
+  // The world's own speeds apply here as in the planner, so the two still agree.
+  let speed: TravelProfile['speed'] = {};
+  try { speed = normalizeTravelProfile(profile ?? {}).speed ?? {}; } catch { /* a damaged profile reads as the built-in physics */ }
   return (['foot', 'horse', 'cart', 'ship'] as const).map((mode) => ({
-    mode, hours: d / BASE_KMH[mode].road, hoursPerDay,
+    mode, hours: d / (BASE_KMH[mode].road * (speed[mode] ?? 1)), hoursPerDay,
   }));
 }
 
@@ -621,7 +628,13 @@ function solveRoute(
   // permanently close a cell before its quickest approach was considered.
   const boost = opts.mode === 'ship' ? 1.5 : opts.mode === 'boat' ? 1.45 : opts.season === 'winter' ? 1 / 0.42 : 1;
   const minGround = Math.min(1, ...Object.values(opts.profile?.ground ?? {}));
-  const fastest = Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off / minGround) * speedFactor(opts, opts.mode) * boost;
+  const modeFastest = Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off / minGround) * speedFactor(opts, opts.mode) * boost;
+  // Water modes walk their embark/disembark steps; with a very fast walker those
+  // steps can beat the boat, and the bound must cover them to stay admissible.
+  const accessFastest = opts.mode === 'ship' || opts.mode === 'boat'
+    ? Math.max(BASE_KMH.foot.road, BASE_KMH.foot.off / minGround) * speedFactor(opts, 'foot') * (opts.season === 'winter' ? 1 / 0.42 : 1)
+    : 0;
+  const fastest = Math.max(modeFastest, accessFastest);
   const heur = (i: number) => greatCircleKm(world, i, goal, metric.radius) / fastest;
 
   const dist = new Float64Array(N).fill(Infinity);
@@ -873,7 +886,7 @@ function weldRoutes(
   // solved in pieces there.
   const metric = travelMetric(world, opts.planetRadiusKm ?? 6371);
   const terminals = new Set(parts.flatMap(part => [part.cells[0], part.cells[part.cells.length - 1]]));
-  const stages = findStages(world, geo, roadMask(world, geo), cells, metric, hpd, opts, terminals, modes && new Set(modes).size > 1 ? stepModes : undefined);
+  const stages = findStages(world, geo, roadMask(world, geo), cells, metric, hpd, opts, terminals, modes?.some(mode => mode !== opts.mode) ? stepModes : undefined);
   const profile = elevationProfile(world, cells);
   const realms: string[] = [];
   for (const p of parts) for (const n of p.realms) if (realms[realms.length - 1] !== n) realms.push(n);

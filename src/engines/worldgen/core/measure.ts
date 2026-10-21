@@ -153,7 +153,8 @@ export function wrappedDx(a: CellPoint, b: CellPoint, width: number): number {
  * Spherical-excess approximation (Chamberlain & Duquette), the same form web
  * maps use: exact for the planet's own sphere to well under a percent for any
  * shape the ruler can draw. Longitudes are unwrapped along the ring so a shape
- * that crosses the east-west seam is measured as one piece.
+ * that crosses the east-west seam is measured as one piece, and a ring round a
+ * pole measures the polar cap it encloses.
  */
 export function polygonAreaKm2(points: CellPoint[], width: number, height: number, radiusKm = PLANET_RADIUS_KM): number {
   if (points.length < 3) return 0;
@@ -165,14 +166,20 @@ export function polygonAreaKm2(points: CellPoint[], width: number, height: numbe
     while (d < -180) d += 360;
     lon.push(lon[i - 1] + d);
   }
-  let sum = 0;
+  let sum = 0, winding = 0;
   for (let i = 0; i < ll.length; i++) {
     const j = (i + 1) % ll.length;
     let dLon = lon[j] - lon[i];
     if (j === 0) { while (dLon > 180) dLon -= 360; while (dLon < -180) dLon += 360; }
+    winding += dLon;
     sum += dLon * DEG * (2 + Math.sin(ll[i].lat * DEG) + Math.sin(ll[j].lat * DEG));
   }
-  return Math.abs(sum * radiusKm * radiusKm / 2);
+  const area = Math.abs(sum * radiusKm * radiusKm / 2);
+  // A ring that goes all the way round (winding ±360°) encircles a pole and
+  // splits the sphere in two; the shape meant is the smaller side, the cap,
+  // not the rest of the planet.
+  if (Math.abs(winding) > 180) return Math.min(area, 4 * Math.PI * radiusKm * radiusKm - area);
+  return area;
 }
 
 /** Perimeter of the ring closed back to its first point, in km. */

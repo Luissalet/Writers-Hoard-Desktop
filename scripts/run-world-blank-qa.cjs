@@ -24,6 +24,12 @@ async function main() {
   await wait('window.__lookReady', 'preview'); await wait(forged, 'first forge');
   await click('Mar en blanco');
   await wait(`document.body.textContent.includes('Mar abierto y nada más')`, 'preset hint');
+  // The continent-shaping controls cannot change a blank world: they say so and are off.
+  await js(`(()=>{const d=[...document.querySelectorAll('details')].find(e=>e.querySelector('summary')?.textContent.includes('Ajustar terreno y clima'));if(d)d.open=true;})()`);
+  await wait(`document.querySelector('[data-testid="worldgen-starter-note"]')`, 'starter note');
+  const shapeOff = await js(`(()=>{const label=[...document.querySelectorAll('label')].find(l=>l.textContent.trim().startsWith('Superficie de tierra'));const input=label&&document.getElementById(label.htmlFor);return {found:!!input,disabled:!!input?.disabled,erosion:[...document.querySelectorAll('input[type=range]')].filter(i=>!i.disabled).length};})()`);
+  assert(shapeOff.found && shapeOff.disabled && shapeOff.erosion > 0, `Shape controls not disabled on a blank starter: ${JSON.stringify(shapeOff)}`);
+  tests.push('Choosing Blank sea explains that continent-shaping controls cannot change it and turns them off; climate and erosion stay available');
   await click('Regenerar'); await click('Sustituir terreno');
   let recipe;
   for (let i = 0; i < 150; i++) { recipe = await js(`(async()=>{const r=await (await import('/src/db/index.ts')).db.generatedWorlds.get('world-presentation-preview-world');return {starter:r.params.starter??null,edits:r.edits};})()`); if (recipe.starter === 'sea') break; await pause(200); }

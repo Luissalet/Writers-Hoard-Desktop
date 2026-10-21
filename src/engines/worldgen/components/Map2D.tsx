@@ -73,7 +73,7 @@ import {
 } from '../core/measure';
 import { placeReference, referenceRings, SCALE_REFERENCES } from '../core/scaleReference';
 import { loadBasemap, type Basemap } from '@/engines/real-atlas/basemap';
-import { describeDuration, MODE_KEY, straightLineEstimates } from '../core/travel';
+import { describeDuration, MODE_KEY, straightLineEstimates, type TravelProfile } from '../core/travel';
 import { keyboardNudge } from '../core/keyNav';
 import { legendFor } from '../cartography/legend';
 import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
@@ -255,6 +255,8 @@ interface Map2DProps {
    * judge how big the drawn land is. An id from `SCALE_REFERENCES`; null hides it.
    */
   scaleReference?: string | null;
+  /** The world's own travel speeds, so the ruler's estimates match the planner. */
+  travelProfile?: TravelProfile;
   /** Its name in the reader's language, for the label on the outline. */
   scaleReferenceLabel?: string;
 }
@@ -790,7 +792,7 @@ export default function Map2D({
   tool, onEdit, onTool, onPickSettlement, onZoomTo,
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
-  measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '',
+  measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
 }: Map2DProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
@@ -4771,7 +4773,7 @@ export default function Map2D({
   const lastLeg = rulerReading.legs[rulerReading.legs.length - 1];
   const lastPt = rulerPts[rulerPts.length - 1];
   const paces = lastLeg
-    ? straightLineEstimates(rulerReading.totalKm)
+    ? straightLineEstimates(rulerReading.totalKm, 'summer', travelProfile)
       .map((p) => `${t(MODE_KEY[p.mode])} ${describeDuration(p.hours, p.hoursPerDay, t)}`)
       .join(' · ')
     : '';
