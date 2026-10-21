@@ -854,3 +854,27 @@ export async function whCreateWorld(args: ToolArgs): Promise<unknown> {
     { projectId, entityId: world.id, summary: `created world "${title}" (${presetId})` },
   );
 }
+
+/** Distance along clicked points and, for three or more, the enclosed area — the map's own ruler. */
+export async function whMeasureWorld(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { measurePolyline, polygonAreaKm2, closedPerimeterKm } = await import('@/engines/worldgen/core/measure');
+  const { normalizeParams } = await import('@/engines/worldgen/core/types');
+  const width = normalizeParams(world.params).width, height = width >> 1;
+  const raw = args.points;
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > 500) throw new BridgeError('bad-args', 'points must be an array of 2 to 500 {x,y} world cells.');
+  const points = raw.map((point, index) => {
+    const p = point as Record<string, unknown>;
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new BridgeError('bad-args', `points[${index}] must be {x,y} numbers.`);
+    if (p.y < 0 || p.y > height) throw new BridgeError('bad-args', `points[${index}].y must be within 0..${height}.`);
+    return { x: ((p.x % width) + width) % width, y: p.y };
+  });
+  const reading = measurePolyline(points, width, height);
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return {
+    worldId: world.id,
+    totalKm: round(reading.totalKm),
+    legs: reading.legs.map(leg => ({ km: round(leg.km), bearing: Math.round(leg.bearing) })),
+    ...(points.length >= 3 ? { areaKm2: Math.round(polygonAreaKm2(points, width, height)), closedPerimeterKm: round(closedPerimeterKm(points, width, height)) } : {}),
+  };
+}

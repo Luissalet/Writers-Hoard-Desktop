@@ -146,3 +146,37 @@ export function wrappedDx(a: CellPoint, b: CellPoint, width: number): number {
   while (dx < -width / 2) dx += width;
   return dx;
 }
+
+/**
+ * The area a closed ring of cells encloses on the sphere, in km².
+ *
+ * Spherical-excess approximation (Chamberlain & Duquette), the same form web
+ * maps use: exact for the planet's own sphere to well under a percent for any
+ * shape the ruler can draw. Longitudes are unwrapped along the ring so a shape
+ * that crosses the east-west seam is measured as one piece.
+ */
+export function polygonAreaKm2(points: CellPoint[], width: number, height: number, radiusKm = PLANET_RADIUS_KM): number {
+  if (points.length < 3) return 0;
+  const ll = points.map((p) => cellToLonLat(p, width, height));
+  const lon: number[] = [ll[0].lon];
+  for (let i = 1; i < ll.length; i++) {
+    let d = ll[i].lon - ll[i - 1].lon;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    lon.push(lon[i - 1] + d);
+  }
+  let sum = 0;
+  for (let i = 0; i < ll.length; i++) {
+    const j = (i + 1) % ll.length;
+    let dLon = lon[j] - lon[i];
+    if (j === 0) { while (dLon > 180) dLon -= 360; while (dLon < -180) dLon += 360; }
+    sum += dLon * DEG * (2 + Math.sin(ll[i].lat * DEG) + Math.sin(ll[j].lat * DEG));
+  }
+  return Math.abs(sum * radiusKm * radiusKm / 2);
+}
+
+/** Perimeter of the ring closed back to its first point, in km. */
+export function closedPerimeterKm(points: CellPoint[], width: number, height: number): number {
+  if (points.length < 3) return 0;
+  return measurePolyline([...points, points[0]], width, height).totalKm;
+}
