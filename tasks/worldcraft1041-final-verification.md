@@ -45,7 +45,7 @@ inventory E41–E49. Product evidence images are retained separately from source
 | Entry budget | PASS at unchanged1600kB limit | worldcraft1041-bundle-budget-final-composed.log |
 | Electron TypeScript | exit0 | worldcraft1041-electron-typecheck-final-composed.log |
 | Electron bundle | exit0 | worldcraft1041-electron-build-final-composed.log |
-| Shipping lint | zero debt; late QA leaves also lint clean | worldcraft1041-lint-shipping-final-composed.log; worldcraft1041-late-qa-lint.log |
+| Shipping lint | zero debt; late document-service script clean; modal fixture excluded by ESLint configuration, covered by5 runtime PASS | worldcraft1041-lint-shipping-final-composed.log; worldcraft1041-late-qa-lint.log |
 | Conformance |34 engines,64 engine tables,5650 keys,22 locales,0 warnings | worldcraft1041-conformance-final-composed.log |
 | Production dependency audit |0 vulnerabilities | worldcraft1041-production-audit-final.json |
 | Native document service |14 PASS,0 skips | worldcraft1041-document-service-native-final.log |
@@ -91,3 +91,28 @@ manual received a scoped Writer-only append with revision CAS; readback proves
 the rest of the text unchanged and inherited NORMAL_TEXT table-cell styles.
 See `evidence/worldcraft1041-manual-verification.json`. Git integration and exact
 approved hashes are recorded by the task's final Agora submission/result.
+
+## Integration and pause
+
+Independent aggregate approval r1 covers exact commits
+`eccee47b6fd1098566f5ecc406e9c809eab7c574` and
+`216c11f77ffa1dc58bd1067f55a0f5e9d177d9d2`. The report is
+`D:/LocalAI/projectlesswork/worldcraft1041-final-aggregate-independent-review.md`,
+SHA256 `d60ad2fe8900adca845816109222cb28e4f6b322504fa15233500d99983e4234`.
+Its source freeze found zero unexpected changes; the declared26 whitespace
+normalizations were verified independently against their current hashes.
+
+Shared main fast-forwarded fromd709621 through the adopted442-path baseline to
+216c11f under `merge:Writers`. Fresh checks proved all442 initial working files
+matched their adopted blobs. All110 unrelated QA artifacts retained their SHA256;
+tracked working tree and index were clean after integration. No push occurred.
+Proof: `D:/LocalAI/projectlesswork/worldcraft1041-integration-final-proof.json`.
+
+517 image/log/document evidence files and the tested desktop package were moved
+outside the task worktree to `D:/LocalAI/artifacts/writer-worldcraft1041` with
+hash-checked preservation. Original→preserved paths and the package hash are in
+`D:/LocalAI/projectlesswork/worldcraft1041-preserved-artifacts.json`. The ordinary
+project source is retained in Git, not in a backup code copy. This final closure
+changes documentation only; worktree retirement and its final commit are
+recorded by Agora1041. At Luis's request, work pauses after this current delivery,
+without a new investigation, feature pass or scheduled continuation.
