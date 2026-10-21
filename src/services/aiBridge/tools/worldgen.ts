@@ -938,7 +938,7 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
       return { x: place.x, y: place.y, name: place.name };
     }
     if (typeof s?.x === 'number' && typeof s?.y === 'number' && Number.isFinite(s.x) && Number.isFinite(s.y)) {
-      if (s.y < 0 || s.y >= data.height) throw new BridgeError('bad-args', `stops[${index}].y must be within the world grid.`);
+      if (Math.round(s.y) < 0 || Math.round(s.y) >= data.height) throw new BridgeError('bad-args', `stops[${index}].y must be within the world grid.`);
       return { x: ((Math.round(s.x) % data.width) + data.width) % data.width, y: Math.round(s.y), name: `${Math.round(s.x)},${Math.round(s.y)}` };
     }
     throw new BridgeError('bad-args', `stops[${index}] must be {place} or {x, y}.`);

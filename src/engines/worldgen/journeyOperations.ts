@@ -4,6 +4,7 @@ import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import type { WorldJourney } from './journeyTypes';
 import type { GeneratedWorld } from './types';
 import { normalizeTravelProfile, TRAVEL_PACES, type TravelPace, type TravelProfile } from './core/travel';
+import { worldSettingsScope } from './settingsScope';
 
 function validJourney(journey: WorldJourney): boolean {
   return !!journey.id && !!journey.name.trim() && journey.stops.length >= 2
@@ -28,7 +29,11 @@ export interface TravelSettingsReceipt { from: { profile?: TravelProfile; pace?:
  * snapshot what they were planned with, so changing this never rewrites a
  * saved journey; it applies to the next plan.
  */
-export async function saveWorldTravelSettings(scope: { projectId: string; eraId?: string }, worldId: string, change: { profile?: unknown; pace?: unknown }, expectedRevision?: number): Promise<TravelSettingsReceipt> {
+/** One factor set by hand; 1 removes it. Applied to the stored profile, so other factors changed elsewhere survive. */
+export interface TravelFactorEdit { table: 'speed' | 'ground'; key: string; value: number }
+
+export async function saveWorldTravelSettings(requested: { projectId: string; eraId?: string }, worldId: string, change: { profile?: unknown; pace?: unknown; factors?: TravelFactorEdit[] }, expectedRevision?: number): Promise<TravelSettingsReceipt> {
+  const scope = await worldSettingsScope(requested, worldId);
   const next: { profile?: TravelProfile; pace?: TravelPace } = {};
   if ('profile' in change) next.profile = normalizeTravelProfile(change.profile);
   if ('pace' in change) {
@@ -41,6 +46,15 @@ export async function saveWorldTravelSettings(scope: { projectId: string; eraId?
     if (!current || current.projectId !== scope.projectId) throw new Error('World no longer belongs to this project');
     const revision = current.travelRevision ?? 0;
     if (expectedRevision !== undefined && expectedRevision !== revision) throw new Error(`Travel settings changed (revision ${revision}); read them again before saving.`);
+    if (change.factors?.length) {
+      const merged = structuredClone(next.profile ?? current.travelProfile ?? {}) as Record<string, Record<string, number>>;
+      for (const edit of change.factors) {
+        const table = { ...(merged[edit.table] ?? {}) };
+        if (Math.abs(edit.value - 1) < 0.001) delete table[edit.key]; else table[edit.key] = Math.round(edit.value * 100) / 100;
+        if (Object.keys(table).length) merged[edit.table] = table; else delete merged[edit.table];
+      }
+      next.profile = normalizeTravelProfile(merged);
+    }
     const from = { profile: current.travelProfile, pace: current.travelPace };
     const to = { profile: 'profile' in next ? (Object.keys(next.profile ?? {}).length ? next.profile : undefined) : current.travelProfile, pace: 'pace' in next ? next.pace : current.travelPace };
     if (JSON.stringify(from) === JSON.stringify(to)) return { from, to, revision };
@@ -52,7 +66,8 @@ export async function saveWorldTravelSettings(scope: { projectId: string; eraId?
 }
 
 /** Undo one recorded change, keeping fields changed again since. */
-export async function revertWorldTravelSettings(scope: { projectId: string; eraId?: string }, worldId: string, receipt: TravelSettingsReceipt): Promise<{ reverted: string[]; kept: string[] }> {
+export async function revertWorldTravelSettings(requested: { projectId: string; eraId?: string }, worldId: string, receipt: TravelSettingsReceipt): Promise<{ reverted: string[]; kept: string[] }> {
+  const scope = await worldSettingsScope(requested, worldId);
   const { worlds } = worldgenScopeOperations(scope);
   const result = await db.transaction('rw', scope.eraId ? db.tables : [db.generatedWorlds], async () => {
     const current = await worlds.getOne(worldId);

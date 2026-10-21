@@ -40,11 +40,14 @@ export async function testWorldTravelProfile(): Promise<string[]> {
     // Pace scales the day, and only hard adds rest days.
     const easy = planRoute(w, g, from, to, { ...base, pace: 'easy' }, 'en');
     assert(close(easy.hours, plain.hours) && close(easy.days, plain.hours / (11 * 0.75)) && !easy.restDays, `Easy pace: ${easy.days} vs ${plain.hours / 8.25}`);
-    assert(paceRestDays('hard', 3) === 0 && paceRestDays('hard', 3.2) === 1 && paceRestDays('hard', 7) === 2 && paceRestDays('easy', 9) === 0, 'Rest-day rule');
+    assert(paceRestDays('hard', 6) === 0 && paceRestDays('hard', 6.2) === 1 && paceRestDays('hard', 13) === 2 && paceRestDays('easy', 9) === 0, 'Rest-day rule');
     const longWorld = flat(256), longGeo = geo(longWorld);
     const hard = planRoute(longWorld, longGeo, { x: 10, y: 64 }, { x: 120, y: 64 }, { ...base, pace: 'hard' }, 'en');
     const travelDays = hard.hours / (11 * 1.3);
     assert(close(hard.days, travelDays + paceRestDays('hard', travelDays)) && (hard.restDays ?? 0) > 0, `Hard pace days ${hard.days} for ${travelDays} on the move`);
+    // Rest days included, a forced march is still faster than steady, never slower.
+    const steadyLong = planRoute(longWorld, longGeo, { x: 10, y: 64 }, { x: 120, y: 64 }, base, 'en');
+    assert(hard.days < steadyLong.days, `Hard pace slower than steady: ${hard.days} vs ${steadyLong.days}`);
     assert(close(effectiveHoursPerDay({ season: 'winter', pace: 'hard' }), 7 * 1.3) && close(effectiveHoursPerDay({ season: 'winter', hoursPerDay: 12, pace: 'easy' }), 9), 'Effective hours per day');
     // Speed factors scale the whole least-time route.
     const quick = planRoute(w, g, from, to, { ...base, profile: { speed: { foot: 2 } } }, 'en');
@@ -59,6 +62,9 @@ export async function testWorldTravelProfile(): Promise<string[]> {
     const foot = planRoute(w, g, from, to, { ...base, via: [via] }, 'en');
     const mixed = planRoute(w, g, from, to, { ...base, via: [via], legModes: ['horse', 'foot'] }, 'en');
     assert(mixed.hours > horse.hours && mixed.hours < foot.hours, `Mixed legs ${mixed.hours} not between ${horse.hours} and ${foot.hours}`);
+    // Every leg on horseback, main mode on foot: the nights follow the horse, not the walker.
+    const uniform = planRoute(w, g, from, to, { ...base, via: [via], legModes: ['horse', 'horse'] }, 'en');
+    assert(close(uniform.hours, horse.hours, 1e-6) && uniform.stages.length === horse.stages.length, `Uniform legs used the main mode for nights: ${uniform.stages.length} vs ${horse.stages.length}`);
     const nights = mixed.stages.length, expectedNights = Math.min(399, Math.floor(mixed.hours / 11 + 1e-9));
     assert(Math.abs(nights - expectedNights) <= 1, `Mixed nights ${nights} vs ${expectedNights}`);
     // Profile validation.
@@ -81,6 +87,13 @@ export async function testWorldTravelProfile(): Promise<string[]> {
     const reverted = await revertWorldTravelSettings(scope, 'travel-world', set);
     let row = (await db.generatedWorlds.get('travel-world'))!;
     assert(row.travelProfile === undefined && row.travelPace === 'easy' && reverted.kept.includes('pace'), `Travel undo wrong: ${JSON.stringify({ row: [row.travelProfile, row.travelPace], reverted })}`);
+    // Hand edits merge one factor at a time into what is stored.
+    await saveWorldTravelSettings(scope, 'travel-world', { profile: { speed: { horse: 1.5 } } });
+    await saveWorldTravelSettings(scope, 'travel-world', { factors: [{ table: 'ground', key: 'marsh', value: 2 }] });
+    row = (await db.generatedWorlds.get('travel-world'))!;
+    assert(JSON.stringify(row.travelProfile) === JSON.stringify({ speed: { horse: 1.5 }, ground: { marsh: 2 } }), `Factor edit did not merge: ${JSON.stringify(row.travelProfile)}`);
+    await saveWorldTravelSettings(scope, 'travel-world', { factors: [{ table: 'speed', key: 'horse', value: 1 }, { table: 'ground', key: 'marsh', value: 1 }] });
+    assert((await db.generatedWorlds.get('travel-world'))!.travelProfile === undefined, 'Neutral factor edits should clear the profile');
     const journey = { id: 'trip', name: 'Hard ride', stops: [{ name: 'A', u: 0.1, v: 0.5 }, { name: 'B', u: 0.2, v: 0.5 }, { name: 'C', u: 0.3, v: 0.5 }], options: { mode: 'foot' as const, season: 'summer' as const, pace: 'hard' as const, legModes: ['horse' as const, 'foot' as const], profile: { ground: { forest: 2 } } }, recipeKey: 'x', createdAt: 1, updatedAt: 1 };
     await saveWorldJourney('travel-world', P, journey);
     let badLegs = false; try { await saveWorldJourney('travel-world', P, { ...journey, id: 'bad', options: { ...journey.options, legModes: ['horse'] } }); } catch { badLegs = true; }
@@ -89,7 +102,8 @@ export async function testWorldTravelProfile(): Promise<string[]> {
     assert(JSON.stringify(row.journeys?.[0].options) === JSON.stringify(journey.options), 'Journey lost its pace/legs/profile snapshot');
 
     // MCP: settings round trip, CAS, undo, and planning with them.
-    await saveSnapshot(worldRuntimeKey('travel-world'), paramsKey(params), generateWorld(params));
+    const generated = generateWorld(params);
+    await saveSnapshot(worldRuntimeKey('travel-world'), paramsKey(params), generated);
     const read = await runBridgeTool('wh_get_world_travel_settings', { worldId: 'travel-world' });
     assert(read.ok && (read.result as { pace: string }).pace === 'easy', JSON.stringify(read));
     const revision = (read.result as { revision: number }).revision;
@@ -97,15 +111,23 @@ export async function testWorldTravelProfile(): Promise<string[]> {
     assert(!badSet.ok && badSet.code === 'bad-args', 'Bridge accepted an out-of-range factor');
     const conflict = await runBridgeTool('wh_set_world_travel_settings', { worldId: 'travel-world', pace: 'steady', expectedRevision: revision - 1 });
     assert(!conflict.ok && conflict.code === 'conflict', `Bridge stale write: ${JSON.stringify(conflict)}`);
-    const stops = [{ x: 30, y: 30 }, { x: 60, y: 34 }];
+    // Two land cells a walk apart, so planning really runs.
+    const land = (x: number, y: number) => generated.elevation[y * generated.width + x] > 0.05;
+    let stops: { x: number; y: number }[] = [];
     let planned: { ok: boolean; result?: unknown } | null = null;
-    for (let i = 0; i < 40; i++) { planned = await runBridgeTool('wh_plan_journey', { worldId: 'travel-world', stops, pace: 'steady' }); if (planned.ok && !(planned.result as { pending?: boolean }).pending) break; await new Promise(r => setTimeout(r, 250)); }
+    search: for (let y = 12; y < generated.height - 12; y += 3) for (let x = 0; x < generated.width - 20; x += 4) {
+      if (!land(x, y) || !land(x + 12, y)) continue;
+      stops = [{ x, y }, { x: x + 12, y }];
+      for (let i = 0; i < 40; i++) { planned = await runBridgeTool('wh_plan_journey', { worldId: 'travel-world', stops, pace: 'steady' }); if (planned.ok && !(planned.result as { pending?: boolean }).pending) break; await new Promise(r => setTimeout(r, 250)); }
+      if (planned?.ok && !(planned.result as { impossible?: string }).impossible) break search;
+    }
     assert(planned?.ok, JSON.stringify(planned));
     const before = planned!.result as { hours: number; impossible?: string; days: number; nights: unknown[] };
+    assert(!before.impossible && before.hours > 0, `No land route found to test planning: ${JSON.stringify(before).slice(0, 200)}`);
     const fast = await runBridgeTool('wh_set_world_travel_settings', { worldId: 'travel-world', profile: { speed: { foot: 2 } }, expectedRevision: revision });
     assert(fast.ok, JSON.stringify(fast));
     const after = (await runBridgeTool('wh_plan_journey', { worldId: 'travel-world', stops, pace: 'steady' })).result as { hours: number; impossible?: string };
-    if (!before.impossible) assert(close(after.hours, before.hours / 2, 0.02), `Plan ignored the world profile: ${after.hours} vs ${before.hours}`);
+    assert(!after.impossible && close(after.hours, before.hours / 2, 0.02), `Plan ignored the world profile: ${after.hours} vs ${before.hours}`);
     const audit = (fast.result as { __audit: { entityId: string; projectId: string; before: unknown } }).__audit;
     const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_set_world_travel_settings', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'travel' } });
     row = (await db.generatedWorlds.get('travel-world'))!;
@@ -114,11 +136,11 @@ export async function testWorldTravelProfile(): Promise<string[]> {
     assert(!wrongLegs.ok && wrongLegs.code === 'bad-args', 'Plan accepted legModes of the wrong length');
     return [
       'Steady pace and an empty profile reproduce the built-in route exactly',
-      'Easy pace uses 75% of the day; hard uses 130% and adds a rest day after every three days on the move',
+      'Easy pace uses 75% of the day; hard uses 130% and adds a rest day after every six days on the move, staying faster than steady',
       'Speed factors scale the least-time route exactly; ground factors make marsh cheaper or dearer and the route follows',
-      'Mixed per-leg modes land between all-horse and all-foot, with nights consistent with the mixed hours',
+      'Mixed per-leg modes land between all-horse and all-foot, with nights consistent with the mixed hours; uniform legs in another mode use that mode for nights',
       'Profiles refuse unknown classes, bad values and out-of-range factors; neutral factors are dropped',
-      'World travel settings save with CAS and undo field-wise; itineraries keep their pace, legs and profile snapshot and refuse a wrong leg count',
+      'World travel settings save with CAS, merge single-factor edits and undo field-wise; itineraries keep their pace, legs and profile snapshot and refuse a wrong leg count',
       'MCP get/set/plan: validation, stale revision refused, planning follows the world profile, undo restores it',
     ];
   } finally {

@@ -27,6 +27,12 @@ export async function testWorldMeasureArea(): Promise<string[]> {
     const seam = box(175, 185, 0, 10).map(p => ({ x: p.x % W, y: p.y }));
     assert(near(polygonAreaKm2(seam, W, H), exact(0, 10, 0, 10), 0.01), `Seam ring ${polygonAreaKm2(seam, W, H)} vs ${exact(0, 10, 0, 10)}`);
     assert(polygonAreaKm2(box(0, 10, 0, 10).slice(0, 2), W, H) === 0, 'Two points enclose nothing');
+    // A ring round the pole measures the polar cap, not the rest of the planet.
+    const cap = PLANET_RADIUS_KM ** 2 * 2 * Math.PI * (1 - Math.sin(60 * DEG));
+    const round = polygonAreaKm2([cell(-180, 60), cell(-60, 60), cell(60, 60)], W, H);
+    assert(near(round, cap, 0.01), `Polar ring ${round} vs cap ${cap}`);
+    const wide = polygonAreaKm2([cell(-170, 50), cell(-50, 70), cell(70, 55)], W, H);
+    assert(wide < 2 * Math.PI * PLANET_RADIUS_KM ** 2, `A ring round the pole reported more than a hemisphere: ${wide}`);
     const square = box(0, 10, 0, 10), perimeter = closedPerimeterKm(square, W, H);
     const expectedPerimeter = cellDistanceKm(square[0], square[1], W, H) + cellDistanceKm(square[1], square[2], W, H) + cellDistanceKm(square[2], square[3], W, H) + cellDistanceKm(square[3], square[0], W, H);
     assert(Math.abs(perimeter - expectedPerimeter) < 1e-6, 'Closed perimeter omitted the closing side');
@@ -57,7 +63,7 @@ export async function testWorldMeasureArea(): Promise<string[]> {
     assert(!bad.ok && bad.code === 'bad-args', 'Accepted a point off the sheet');
     return [
       'Enclosed area matches the exact spherical rectangle within 1% at the equator, high latitude and across 70° of longitude; orientation and the seam do not change it',
-      'Closed perimeter includes the closing side; two points enclose nothing',
+      'Closed perimeter includes the closing side; two points enclose nothing; a ring round a pole measures the polar cap',
       'Every bundled real outline loads; Iberia keeps its ~582,000 km² wherever it is laid, including across the seam; Europe drops overseas territories',
       'wh_measure_world returns legs, distance, area and closed perimeter, and refuses points off the sheet',
     ];

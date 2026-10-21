@@ -158,6 +158,20 @@ interface WorldViewProps {
   focusRegion?: RegionFocus | null;
 }
 
+
+/** A look as flat fields, so changes are compared and saved one field at a time. */
+function flattenLook(look: WorldPresentation): Record<string, unknown> {
+  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount };
+  for (const [key, value] of Object.entries(look.layers ?? {})) out[`layers.${key}`] = value;
+  return out;
+}
+function unflattenLook(fields: Record<string, unknown>): WorldPresentation {
+  const out: Record<string, unknown> = {}, layers: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) { if (key.startsWith('layers.')) layers[key.slice(7)] = value; else if (value !== undefined) out[key] = value; }
+  if (Object.keys(layers).length) out.layers = layers;
+  return out as WorldPresentation;
+}
+
 export default function WorldView({
   projectId,
   world,
@@ -246,28 +260,38 @@ export default function WorldView({
     reliefAmount: reliefSettled,
     layers: Object.fromEntries(PRESENTATION_LAYERS.map((key) => [key, cartoLayers[key] !== false && (key !== 'borders' || cartoLayers.borders === true)])),
   }), [themeId, skin3D, reliefSettled, cartoLayers]);
-  const lookBaseline = useRef(JSON.stringify(lookToSave));
+  /** The stored look this view last knew, field by field (layers as "layers.x"). */
+  const lookBaseline = useRef(flattenLook(lookToSave));
   const lookRevision = useRef(world.presentationRevision ?? 0);
+  const lookLocal = useRef(lookToSave);
+  lookLocal.current = lookToSave;
   useEffect(() => {
     const revision = world.presentationRevision ?? 0;
     if (revision <= lookRevision.current) return;
     lookRevision.current = revision;
-    const next = resolvePresentation(world.presentation);
-    const serialized = JSON.stringify({ theme: next.theme, skin3D: next.skin3D, reliefAmount: next.reliefAmount, layers: next.layers });
-    if (serialized === lookBaseline.current) return;
-    lookBaseline.current = serialized;
-    setThemeId(next.theme); setSkin3D(next.skin3D); setReliefAmount(next.reliefAmount); setReliefSettled(next.reliefAmount);
-    setCartoLayers((current) => ({ ...current, ...next.layers }));
+    const resolved = resolvePresentation(world.presentation);
+    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers });
+    // Adopt what changed elsewhere, but only for fields this view has not
+    // changed itself and not yet saved: that choice is still on its way.
+    const local = flattenLook(lookLocal.current), base = lookBaseline.current, next: Record<string, unknown> = {};
+    for (const key of Object.keys(incoming)) next[key] = local[key] !== base[key] ? local[key] : incoming[key];
+    lookBaseline.current = incoming;
+    const look = unflattenLook(next);
+    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!);
+    setCartoLayers((current) => ({ ...current, ...look.layers }));
   }, [world.presentation, world.presentationRevision]);
   useEffect(() => {
-    const serialized = JSON.stringify(lookToSave);
-    if (serialized === lookBaseline.current) return;
+    const local = flattenLook(lookToSave), base = lookBaseline.current;
+    const changed = Object.keys(local).filter((key) => local[key] !== base[key]);
+    if (!changed.length) return;
     const timer = window.setTimeout(() => {
-      lookBaseline.current = serialized;
-      void saveWorldPresentation({ projectId, eraId: scope.eraId }, world.id, lookToSave)
+      // Only the fields chosen here: a concurrent change to another field survives.
+      const patch = unflattenLook(Object.fromEntries(changed.map((key) => [key, local[key]])));
+      lookBaseline.current = { ...base, ...Object.fromEntries(changed.map((key) => [key, local[key]])) };
+      void saveWorldPresentation({ projectId, eraId: scope.eraId }, world.id, patch)
         .then((receipt) => { lookRevision.current = Math.max(lookRevision.current, receipt.revision); })
         .catch((error: unknown) => {
-          lookBaseline.current = '';
+          lookBaseline.current = base;
           toast.error(error instanceof Error ? error.message : String(error));
         });
     }, 450);
@@ -1935,6 +1959,7 @@ export default function WorldView({
               onEdit={paintable ? applyEdit : undefined}
               measuring={measuring}
               scaleReference={scaleReference || null}
+              travelProfile={world.travelProfile}
               scaleReferenceLabel={scaleReference ? t(`worldgen.scaleRef.${scaleReference}`) : ''}
               onEndMeasure={() => setMeasuring(false)}
               onPickSettlement={pickSettlement}
