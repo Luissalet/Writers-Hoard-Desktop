@@ -1221,7 +1221,9 @@ Wave 1, maps:
 - [x] Painted labels: Labels tool with rotate/spacing/curve handles and exact values; 2D, Carta and 3D; MCP list/update.
 - [x] Independent review r1 (9 findings) and r2 (A–D) fixed with regression tests.
 - [x] Hand-placeable stamp library: 32 stamps in four categories, sizes S/M/L, names; all views; MCP add/list.
-- [ ] Trade lens and campaign fog/story events (A2).
+- [x] Journey playback day by day (banner, nights, rest days, arrival); MCP `atDay`.
+- [x] Square/hex play grid in km, saved with the look, in atlas, Carta and exports.
+- [ ] Trade lens and reader's-eye fog / story events on the map (A2).
 - [ ] Classic-map polish and a generic `wh_add_map_feature`.
 
 Later waves follow the ranked lists in C-writing, D1-tools, D2-platform and B-campaign.

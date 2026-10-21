@@ -11,6 +11,7 @@
 // to "a WorldEdit" lives here, once, and every view calls it. The views keep
 // only what is genuinely theirs: how a screen point becomes a world cell.
 
+import { isStampGlyph } from '../cartography/stampGlyphs';
 import {
   editKey, type BrushTip, type EditTarget, type Falloff, type LandOp, type PaintFilter,
   type Pt, type Stroke, type TerrainOp, type WorldEdit,
@@ -54,6 +55,8 @@ export interface PaintSpec {
   /** Which map stamp the point tool puts down, and how big. */
   stampGlyph: string;
   stampSize: 'S' | 'M' | 'L';
+  /** The next stamp's optional name; cleared once it is placed. */
+  stampName?: string;
   roadMajor: boolean;
   /** What the point tool puts down. */
   point: PointKind;
@@ -297,8 +300,8 @@ export function commitPaintStroke(
         return text ? { kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle } : null;
       }
       if (p.point === 'stamp') {
-        const name = p.labelText.trim();
-        return { kind: 'stamp', x: at.x, y: at.y, glyph: p.stampGlyph || 'inn', ...(p.stampSize && p.stampSize !== 'M' ? { size: p.stampSize } : {}), ...(name ? { name } : {}) };
+        const name = (p.stampName ?? '').trim();
+        return { kind: 'stamp', x: at.x, y: at.y, glyph: isStampGlyph(p.stampGlyph) ? p.stampGlyph : 'inn', ...(p.stampSize && p.stampSize !== 'M' ? { size: p.stampSize } : {}), ...(name ? { name } : {}) };
       }
       if (p.point === 'ruin') {
         return { kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin };

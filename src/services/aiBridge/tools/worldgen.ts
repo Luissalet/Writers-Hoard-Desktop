@@ -40,6 +40,7 @@ import {
 import {
   deserializeEdits,
   editKey,
+  nextPaintedKey,
   targetFromKey,
   type EditTarget,
   type WorldEdit,
@@ -350,7 +351,7 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   const { renderCartoCanvas } = await import('@/engines/worldgen/cartography/texture');
   const { themeById } = await import('@/engines/worldgen/cartography/theme');
   const { DEFAULT_LAYERS } = await import('@/engines/worldgen/cartography/render');
-  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
+  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
   return { worldId: world.id, theme: themeId, view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
 }
 
@@ -568,7 +569,7 @@ export async function whAddLabel(args: ToolArgs): Promise<unknown> {
   return appendEdit(
     args, world,
     edit,
-    { key: editKey('label', x, y), text, style, x, y, ...labelShapeShown(shape) },
+    { key: nextPaintedKey(deserializeEdits(world.edits ?? '[]'), 'label', x, y), text, style, x, y, ...labelShapeShown(shape) },
     `labelled ${x},${y} "${text}" in world "${world.title}"`,
   );
 }
@@ -606,7 +607,7 @@ export async function whAddStamp(args: ToolArgs): Promise<unknown> {
   return appendEdit(
     args, world,
     { kind: 'stamp', x, y, glyph, ...(size !== 'M' ? { size } : {}), ...(name ? { name } : {}) },
-    { key: editKey('stamp', x, y), glyph, size, x, y, ...(name ? { name } : {}) },
+    { key: nextPaintedKey(deserializeEdits(world.edits ?? '[]'), 'stamp', x, y), glyph, size, x, y, ...(name ? { name } : {}) },
     `stamped ${glyph} at ${x},${y} in world "${world.title}"`,
   );
 }
@@ -912,8 +913,8 @@ export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
   const patch: Record<string, unknown> = {};
-  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers']) if (args[key] !== undefined) patch[key] = args[key];
-  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount or layers.');
+  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers', 'grid']) if (args[key] !== undefined) patch[key] = args[key];
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount, layers or grid.');
   const expected = optNumber(args, 'expectedRevision');
   const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
   try {
@@ -1049,10 +1050,15 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const hoursPerDay = optNumber(args, 'hoursPerDay');
   if (hoursPerDay !== undefined && (hoursPerDay <= 0 || hoursPerDay > 24)) throw new BridgeError('bad-args', 'hoursPerDay must be more than 0 and at most 24.');
   const options = { mode, season, ...(pace && pace !== 'steady' ? { pace } : {}), ...(legModes ? { legModes } : {}), ...(Object.keys(profile).length ? { profile } : {}), ...(hoursPerDay ? { hoursPerDay } : {}), via: stops.slice(1, -1).map(({ x, y }) => ({ x, y })) };
+  // Where the party is on a given day, as the journey player shows it.
+  const atDay = optNumber(args, 'atDay');
+  if (atDay !== undefined && (atDay < 0 || !Number.isFinite(atDay))) throw new BridgeError('bad-args', 'atDay must be 0 or more.');
   const locale = optEnum(args, 'locale', ['es', 'en'] as const) ?? 'en';
   const route = planRoute(data, geo, stops[0], stops[stops.length - 1], options, locale);
   if (route.impossible) return { worldId: world.id, impossible: route.impossible, stops: stops.map(stop => stop.name) };
   const r = (value: number, places = 1) => Math.round(value * 10 ** places) / 10 ** places;
+  const { travellerAt } = await import('@/engines/worldgen/core/journeyPlayback');
+  const at = atDay !== undefined ? travellerAt(route, data.width, atDay) : null;
   return {
     worldId: world.id,
     stops: stops.map(stop => stop.name),
@@ -1061,6 +1067,7 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
     km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0,
     roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
     crossings: route.crossings.length, realms: route.realms,
+    ...(at ? { atDay: { day: r(at.day, 2), x: r(at.x), y: r(at.y), phase: at.phase, night: at.stage?.night ?? null, nearest: at.stage?.nearest?.name ?? null } } : {}),
     terrain: route.legs.slice(0, 8).map(leg => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad })),
     nights: route.stages.slice(0, 60).map(stage => ({ night: stage.night, x: Math.round(stage.x), y: Math.round(stage.y), rough: stage.rough, terrain: stage.terrain, nearest: stage.nearest ? { name: stage.nearest.name, km: r(stage.nearest.km) } : null })),
   };

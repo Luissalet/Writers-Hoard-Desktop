@@ -1,3 +1,4 @@
+import JourneyPlayback from './JourneyPlayback';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
@@ -44,6 +45,8 @@ interface JourneyPanelProps {
   onClear: () => void;
   /** The route to draw on the map, or null to draw none. */
   onRoute: (route: Route | null, color: string) => void;
+  /** The party's banner while the journey is played, or null. */
+  onTraveller?: (traveller: { x: number; y: number; label: string; resting: boolean } | null) => void;
   paleo: PaleoState | null;
   onPaleo: (state: PaleoState | null) => void;
 }
@@ -60,7 +63,7 @@ export default function JourneyPanel(props: JourneyPanelProps) {
 }
 
 function JourneyPanelContent({
-  world, geography, from, to, picking, onPick, onSwap, onClear, onRoute,
+  world, geography, from, to, picking, onPick, onSwap, onClear, onRoute, onTraveller,
   via, onClearVia, paleo, onPaleo, worldRecord, onOpenJourney, onJourneysChanged,
 }: JourneyPanelProps) {
   const { t, locale } = useTranslation();
@@ -401,6 +404,10 @@ function JourneyPanelContent({
                   {route.realms.join(' → ')}
                 </div>
               )}
+              <JourneyPlayback route={route} worldWidth={world.width}
+                fromName={from?.name ?? openedJourney?.stops[0]?.name ?? ''}
+                toName={to?.name ?? openedJourney?.stops.at(-1)?.name ?? ''}
+                onTraveller={(traveller) => onTraveller?.(traveller)} />
               {route.stages.length > 0 && (
                 <>
                   <button

@@ -80,6 +80,9 @@ export async function testWorldLabels(): Promise<string[]> {
     await saveSnapshot(worldRuntimeKey(W), paramsKey(params), generateWorld(params));
     const added = await runBridgeTool('wh_add_label', { worldId: W, x: 40, y: 30, text: 'Sierra Gris', style: 'range', size: 18, angleDegrees: -20, spacing: 0.25 });
     assert(added.ok && (added.result as { angleDegrees: number }).angleDegrees === -20, JSON.stringify(added));
+    const twin = await runBridgeTool('wh_add_label', { worldId: W, x: 40, y: 30, text: 'Otra' });
+    assert(twin.ok && (twin.result as { key: string }).key === 'label:40,30#2', `Twin label key: ${JSON.stringify(twin.result)}`);
+    await runBridgeTool('wh_remove_place', { worldId: W, key: 'label:40,30#2' });
     let listed: { ok: boolean; result?: unknown } | null = null;
     for (let i = 0; i < 60; i++) { listed = await runBridgeTool('wh_list_labels', { worldId: W }); if (listed.ok && !(listed.result as { pending?: boolean }).pending) break; await new Promise((r) => setTimeout(r, 250)); }
     const first = (listed!.result as { labels: { key: string; size: number; angleDegrees: number; spacing: number; text: string }[] }).labels;

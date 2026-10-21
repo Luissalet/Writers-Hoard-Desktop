@@ -98,6 +98,7 @@ export interface PaintTool {
   labelText: string;
   stampGlyph: string;
   stampSize: 'S' | 'M' | 'L';
+  stampName?: string;
   /** Road tool: a trade artery or a local track. */
   roadMajor: boolean;
   /** What the point tool puts down. */
@@ -556,8 +557,8 @@ export default function PaintPanel({
           )}
 
           {tool.point === 'stamp' && (
-            <StampPicker glyph={tool.stampGlyph} size={tool.stampSize ?? 'M'} name={tool.labelText}
-              onGlyph={(glyph) => set('stampGlyph', glyph)} onSize={(size) => set('stampSize', size)} onName={(name) => set('labelText', name)} />
+            <StampPicker glyph={tool.stampGlyph} size={tool.stampSize ?? 'M'} name={tool.stampName ?? ''}
+              onGlyph={(glyph) => set('stampGlyph', glyph)} onSize={(size) => set('stampSize', size)} onName={(name) => set('stampName', name)} />
           )}
 
           {tool.point === 'label' && (
