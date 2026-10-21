@@ -162,13 +162,22 @@ async function eventsFor(projectId: string, eraId?: string) {
   return eraId ? (await listEraRows<import('@/types').TimelineEvent>({ projectId, eraId }, 'timelineEvents')) : db.timelineEvents.where('projectId').equals(projectId).toArray();
 }
 
+/** Each event's own timeline calendar, falling back to the project's. */
+async function timelineCalendars(projectId: string, events: import('@/types').TimelineEvent[], eraId?: string) {
+  const { resolveWorldCalendar } = await import('@/engines/timeline/worldCalendarStore');
+  const project = (await resolveWorldCalendar(projectId, undefined, eraId).catch(() => null))?.calendar ?? null;
+  const byTimeline = new Map<string, import('@/engines/timeline/worldCalendar').WorldCalendar | null>();
+  for (const id of new Set(events.map((event) => event.timelineId))) byTimeline.set(id, (await resolveWorldCalendar(projectId, id, eraId).catch(() => null))?.calendar ?? null);
+  return (event: import('@/types').TimelineEvent) => byTimeline.get(event.timelineId) ?? project;
+}
+
 /** The map's eras in the order a reader travels them, with the events they stand for. */
 export async function whListMapVersions(args: ToolArgs): Promise<unknown> {
   const { map, scope } = await loadMapForEras(args);
   const { orderMapVersions } = await import('@/engines/maps/versionTimeline');
-  const { resolveWorldCalendar } = await import('@/engines/timeline/worldCalendarStore');
-  const calendar = await resolveWorldCalendar(map.projectId, undefined, scope?.eraId).catch(() => null);
-  const rows = orderMapVersions(map.versions ?? [], await eventsFor(map.projectId, scope?.eraId), calendar?.calendar ?? null);
+  const events = await eventsFor(map.projectId, scope?.eraId);
+  const calendarFor = await timelineCalendars(map.projectId, events, scope?.eraId);
+  const rows = orderMapVersions(map.versions ?? [], events, calendarFor);
   return { mapId: map.id, eras: rows.map(row => ({ id: row.version.id, name: row.version.name, date: row.dateLabel, typedDate: row.version.date, description: row.version.description ?? null, eventId: row.version.timelineEventId ?? null, eventTitle: row.event?.title ?? null, orphan: row.orphan, features: row.version.features.length, pins: row.version.pins.length, createdAt: row.version.createdAt })) };
 }
 
@@ -180,11 +189,13 @@ export async function whCaptureMapVersion(args: ToolArgs): Promise<unknown> {
   await checkEraLinkedRow(args, db.timelineEvents, eventId, map.projectId, 'timeline event');
   const { captureMapVersion } = await import('@/engines/maps/operations');
   const { withMomentDate } = await import('@/engines/maps/versionTimeline');
-  const { resolveWorldCalendar } = await import('@/engines/timeline/worldCalendarStore');
-  const calendar = eventId ? (await resolveWorldCalendar(map.projectId, undefined, scope?.eraId).catch(() => null))?.calendar ?? null : null;
-  const metadata = withMomentDate({ name: requireString(args, 'name'), date: optString(args, 'date') ?? '', description: optString(args, 'description'), eventId }, eventId ? await eventsFor(map.projectId, scope?.eraId) : [], calendar);
+  const events = eventId ? await eventsFor(map.projectId, scope?.eraId) : [];
+  const metadata = withMomentDate({ name: requireString(args, 'name'), date: optString(args, 'date') ?? '', description: optString(args, 'description'), eventId }, events, await timelineCalendars(map.projectId, events, scope?.eraId));
   const id = await captureMapVersion(map.id, metadata, scope);
-  return withAudit({ mapId: map.id, versionId: id, created: true }, { projectId: map.projectId, entityId: map.id, summary: `saved an era of map "${map.title}"`, before: { __mapVersionCapture: { mapId: map.id, versionId: id } } });
+  const { mapVersionFingerprint } = await import('@/engines/maps/operations');
+  const fingerprint = mapVersionFingerprint({ name: metadata.name.trim(), date: metadata.date, description: metadata.description, timelineEventId: metadata.eventId ?? undefined });
+  const saved = (await loadMapForEras(args)).map.versions?.find(version => version.id === id);
+  return withAudit({ mapId: map.id, versionId: id, created: true, date: saved?.date ?? metadata.date }, { projectId: map.projectId, entityId: map.id, summary: `saved an era of map "${map.title}"`, before: { __mapVersionCapture: { mapId: map.id, versionId: id, fingerprint: saved ? mapVersionFingerprint(saved) : fingerprint } } });
 }
 
 /** Link an era to a timeline event, or unlink it with eventId null. */
@@ -195,8 +206,16 @@ export async function whLinkMapVersion(args: ToolArgs): Promise<unknown> {
   if (!('eventId' in args)) throw new BridgeError('bad-args', 'eventId is required: an event id, or null to unlink.');
   const eventId = args.eventId === null ? null : requireString(args, 'eventId');
   if (eventId) await checkEraLinkedRow(args, db.timelineEvents, eventId, map.projectId, 'timeline event');
-  if (!map.versions?.some(version => version.id === versionId)) throw new BridgeError('not-found', `No era "${versionId}" on this map.`);
+  const version = map.versions?.find(item => item.id === versionId);
+  if (!version) throw new BridgeError('not-found', `No era "${versionId}" on this map.`);
+  // An undated era takes the moment's date, as the history panel does.
+  let stamped = '';
+  if (eventId && !version.date.trim()) {
+    const events = await eventsFor(map.projectId, scope?.eraId), event = events.find(item => item.id === eventId);
+    const { eventDate } = await import('@/engines/maps/versionTimeline');
+    stamped = event ? eventDate(event, await timelineCalendars(map.projectId, events, scope?.eraId)) : '';
+  }
   const { linkMapVersion } = await import('@/engines/maps/operations');
-  const previous = await linkMapVersion(map.id, versionId, eventId, scope);
-  return withAudit({ mapId: map.id, versionId, eventId, previousEventId: previous }, { projectId: map.projectId, entityId: map.id, summary: `${eventId ? 'linked' : 'unlinked'} an era of map "${map.title}"`, before: { __mapVersionLink: { mapId: map.id, versionId, from: previous, to: eventId } } });
+  const previous = await linkMapVersion(map.id, versionId, eventId, scope, undefined, { stampDate: stamped || undefined });
+  return withAudit({ mapId: map.id, versionId, eventId, previousEventId: previous, ...(stamped ? { date: stamped } : {}) }, { projectId: map.projectId, entityId: map.id, summary: `${eventId ? 'linked' : 'unlinked'} an era of map "${map.title}"`, before: { __mapVersionLink: { mapId: map.id, versionId, from: previous, to: eventId, stamped } } });
 }

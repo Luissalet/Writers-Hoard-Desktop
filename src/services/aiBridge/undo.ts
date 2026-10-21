@@ -98,18 +98,20 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
   }
 
   if (entry.tool === 'wh_capture_map_version' && entry.before && typeof entry.before === 'object' && '__mapVersionCapture' in entry.before) {
-    const receipt = (entry.before as { __mapVersionCapture: { mapId: string; versionId: string } }).__mapVersionCapture;
+    const receipt = (entry.before as { __mapVersionCapture: { mapId: string; versionId: string; fingerprint?: string } }).__mapVersionCapture;
     const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
     const { deleteMapVersion } = await import('@/engines/maps/operations');
-    await deleteMapVersion(receipt.mapId, receipt.versionId, scope);
+    // An era renamed, redated or relinked since it was saved is someone's later work: refuse.
+    try { await deleteMapVersion(receipt.mapId, receipt.versionId, scope, receipt.fingerprint); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
     return { undone: true, kind, entityId: receipt.mapId, what: summary };
   }
 
   if (entry.tool === 'wh_link_map_version' && entry.before && typeof entry.before === 'object' && '__mapVersionLink' in entry.before) {
-    const receipt = (entry.before as { __mapVersionLink: { mapId: string; versionId: string; from: string | null; to: string | null } }).__mapVersionLink;
+    const receipt = (entry.before as { __mapVersionLink: { mapId: string; versionId: string; from: string | null; to: string | null; stamped?: string } }).__mapVersionLink;
     const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
     const { linkMapVersion } = await import('@/engines/maps/operations');
-    try { await linkMapVersion(receipt.mapId, receipt.versionId, receipt.from, scope, receipt.to); }
+    try { await linkMapVersion(receipt.mapId, receipt.versionId, receipt.from, scope, receipt.to, { clearDate: receipt.stamped || undefined }); }
     catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
     return { undone: true, kind, entityId: receipt.mapId, what: summary };
   }
