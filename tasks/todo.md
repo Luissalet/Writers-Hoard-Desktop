@@ -1190,8 +1190,15 @@ integration remains pending; QA, the family manual and repository docs are compl
   No global verify:release claim: full development
   audit retains 13 inherited findings and optional resources/bin warning remains.
   Installation, real-profile validation and total parity are not certified.
-- [ ] Submit exact reviewed commits, integrate with fresh merge lock and preserve
-  unrelated shared work, without push; preserve evidence and clean task worktree.
+- [x] Submit exact reviewed commits and integrate after independent approve r1,
+  with a fresh merge lock, preserving442 adopted paths and110 unrelated QA
+  artifacts. Shared main reached216c11f without push. Preserve517 evidence files
+  and the tested package at D:/LocalAI/artifacts/writer-worldcraft1041.
+
+The final documentation-only closure commit follows the approved source commit;
+worktree retirement is recorded in the Agora1041 final result after that commit.
+Luis requested a temporary pause on21October to prioritize remaining usage.
+No further feature pass or automatic continuation is scheduled.
 
 Final QA and limits: [composed verification](worldcraft1041-final-verification.md).
 Manual CAS/readback proof: `evidence/worldcraft1041-manual-verification.json`.
