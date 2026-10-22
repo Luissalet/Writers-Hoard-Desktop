@@ -18,6 +18,11 @@ function assert(value: unknown, message: string): asserts value { if (!value) th
 export async function testWorldRouteWords(): Promise<string[]> {
   const P = 'synthetic-route-words', Wid = 'route-words-world';
   try {
+    // Near a pole a column is narrow: a town fourteen columns off a route there is still within reach and is listed.
+    const polar = { width: 256, height: 128 } as unknown as Parameters<typeof placesPassed>[0];
+    const polarCells = Array.from({ length: 20 }, (_, k) => (1 + k) * 256 + 10);
+    const polarPasses = placesPassed(polar, { settlements: [{ x: 24, y: 3, name: 'Norte', rank: 'village' }] }, { cells: polarCells, km: 3000 });
+    assert(polarPasses.length === 1 && polarPasses[0].name === 'Norte', `A town near a polar route: ${JSON.stringify(polarPasses)}`);
     // The clock.
     assert(dayPart(6) === 'dawn' && dayPart(9) === 'morning' && dayPart(13) === 'noon' && dayPart(16) === 'afternoon' && dayPart(19.5) === 'dusk' && dayPart(23) === 'night' && dayPart(2) === 'night', 'Parts of the day');
     const c = clockAt(25, 10, 7);
@@ -114,6 +119,7 @@ export async function testWorldRouteWords(): Promise<string[]> {
     assert(plan.stretches.every((st, i) => i === 0 || st.day >= plan.stretches[i - 1].day) && plan.stretches.length === Math.min(30, stretches.length), `Bridge stretches in order: ${JSON.stringify(plan.stretches.slice(0, 5))}`);
     assert(plan.roads.length > 0 && Array.isArray(plan.passes) && plan.nights.filter((n) => n.shelter).length === inns, `Bridge words ${JSON.stringify({ roads: plan.roads, passes: plan.passes.length, inns })}`);
     return [
+      'Near a pole, a town fourteen columns off the route (narrow columns) is listed as passed',
       'Clock: parts of the day, the day and hour after N hours on the move (a moment on a day\'s end belongs to that evening), 07:30-style text',
       `From ${picked.a.name} to ${picked.b.name}: ${stretches.length} stretches in travel order adding up to the route, with clocks from day 1 at the set-off hour running forward (a hard pace's arrival counts its ${hard.restDays ?? 0} rest days); a journey of ${variedStretches.length} stretches gives its grounds in the order first met (${realGrounds.join(', ')}) with clocks running forward`,
       `Towns and roads: ${passes.length} towns passed in order (ends left out; a stop on the way is listed), ${roads.length} roads named after their towns (${roads.map((r) => `${r.from}–${r.to}`).join(', ')}), a mixed list of legs gives the land grounds off the road (${grounds.join(', ')}); ${inns} of ${route.stages.length} nights at an inn or ruin, each one the nearest place within reach; a village where the first night falls makes it a night at its inn`,

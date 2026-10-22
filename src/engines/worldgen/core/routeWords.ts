@@ -112,13 +112,21 @@ export function placesPassed(
   const first = cells[0], last = cells[cells.length - 1];
   const out: PassedPlace[] = [];
   // A cheap box first: only towns within the route's reach in cells are measured against every cell.
+  // Rows are a fixed height; a column narrows towards the poles, so the reach in columns is taken
+  // at the most poleward row the town or the route touches (no column test at all near a pole).
+  const H = world.height;
   let minY = Infinity, maxY = -Infinity;
   for (const cell of cells) { const y = Math.floor(cell / W); if (y < minY) minY = y; if (y > maxY) maxY = y; }
-  const reachCells = Math.ceil(near / Math.max(1e-6, cellKm * 0.2)) + 1;
+  const rowKm = (Math.PI * radius) / H;
+  const reachRows = Math.ceil(near / rowKm) + 1;
+  const cosAt = (y: number) => Math.cos((0.5 - (y + 0.5) / H) * Math.PI);
   const xs = cells.map((cell) => cell % W);
-  const nearX = (x: number) => { for (let k = 0; k < xs.length; k += 4) { let d = Math.abs(xs[k] - x); if (d > W / 2) d = W - d; if (d <= reachCells + 4) return true; } return false; };
+  const nearX = (x: number, reach: number) => { for (let k = 0; k < xs.length; k += 4) { let d = Math.abs(xs[k] - x); if (d > W / 2) d = W - d; if (d <= reach + 4) return true; } return false; };
   for (const s of geo.settlements) {
-    if (s.y < minY - reachCells || s.y > maxY + reachCells || !nearX(s.x)) continue;
+    if (s.y < minY - reachRows || s.y > maxY + reachRows) continue;
+    const narrowest = Math.min(cosAt(s.y), cosAt(minY), cosAt(maxY));
+    const reachCols = narrowest > 0.05 ? Math.ceil(near / (cellKm * narrowest)) + 1 : W;
+    if (reachCols < W / 2 && !nearX(s.x, reachCols)) continue;
     const sx = s.x + 0.5, sy = s.y + 0.5;
     let best = Infinity, bestK = -1;
     for (let k = 0; k < cells.length; k++) {

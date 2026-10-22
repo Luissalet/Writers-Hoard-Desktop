@@ -32,6 +32,14 @@ export async function testWorldContours(): Promise<string[]> {
     const levels500 = contourLevels(world, 500), levels200 = contourLevels(world, 200);
     assert(levels500.length >= 1 && levels500.length <= Math.ceil(max / 0.5), `Levels every 500 m up to ${max} km: ${levels500.length}`);
     assert(levels200.length > levels500.length && levels200.every((level) => Array.isArray(level)), 'A smaller interval gives more levels');
+    // A small sculpt stroke (heights changed in place, revision bumped) gives new lines; a revision bump alone keeps them.
+    const sculpted = generateWorld(params);
+    const linesBefore = contourLevels(sculpted, 500);
+    sculpted.revision = (sculpted.revision ?? 0) + 1;
+    assert(contourLevels(sculpted, 500) === linesBefore, 'A revision bump without new heights recomputed the lines');
+    let peak = 0; for (let i = 1; i < sculpted.elevation.length; i++) if (sculpted.elevation[i] > 0.05 && sculpted.elevation[i] < 0.4) { peak = i; break; }
+    sculpted.elevation[peak] += 0.6; sculpted.revision += 1;
+    assert(contourLevels(sculpted, 500) !== linesBefore, 'A one-cell change of height kept the old lines');
     const canvas = new OffscreenCanvas(512, 256);
     const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
     const drawn = drawContourLines(ctx, world, 500, (x) => x * 4, (y) => y * 4, 4, { color: '#000000', alpha: 1 });
@@ -72,6 +80,7 @@ export async function testWorldContours(): Promise<string[]> {
       assert(undone.ok && after.effective.contours === null, `Undo ${JSON.stringify(after).slice(0, 200)}`);
     }
     return [
+      'Cache: a revision bump with the same heights keeps the lines; a one-cell change of height redraws them',
       'Storage: contours take null (as the look), "off" or whole metres 50–2000; other values are refused, a damaged one reads as the look',
       `Levels every 500 m (${levels500.length}) and 200 m (${levels200.length}) over a ${Math.round(max * 1000)} m world; drawn on a canvas (${drawn} lines)`,
       `Export: on the relief look the author's lines every 200 m replace the look's own (${differ(pLined, pNone)} pixels against none)`,
