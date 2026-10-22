@@ -42,12 +42,15 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     const mark: WorldEdit = { kind: 'marker', marker: 'settlement', x: 3, y: 3, rank: 'town', name: 'Mark' };
     const markLock: WorldEdit = { kind: 'lock', target: 'settlement', key: 'settlement:3,3', locked: true };
     const rub: WorldEdit = { kind: 'eraseMarkers', x: 3.2, y: 3.1, radius: 1 };
-    assert(lockViolation([mark, markLock], [rub]) === 'settlement:3,3' && lockViolation([mark], [rub]) === null, 'Eraser over a locked mark');
+    // The eraser is not refused (it still takes the marks around); the replay keeps the locked one.
+    assert(lockViolation([mark, markLock], [rub]) === null, 'Eraser over a locked mark is not refused outright');
     const kept = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' });
     applyEdits(kept, [mark, markLock, rub]);
     const gone = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' });
     applyEdits(gone, [mark, rub]);
-    assert(kept.painted?.markers.length === 1 && gone.painted?.markers.length === 0, 'Replay keeps a locked mark under the eraser');
+    const lockedLater = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' });
+    applyEdits(lockedLater, [mark, rub, markLock]);
+    assert(kept.painted?.markers.length === 1 && gone.painted?.markers.length === 0 && lockedLater.painted?.markers.length === 0, 'Replay keeps a mark locked before the eraser, not one locked after');
     // Where a copy goes: dry, not a lake, a key nothing uses; names count up.
     const tiny = { width: 10, height: 6, elevation: new Float32Array(60).fill(1), lake: new Uint8Array(60) };
     tiny.elevation[2 * 10 + 6] = -1; // sea two cells east of (4,2)
@@ -106,7 +109,7 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_duplicate_place', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'copy' } });
     assert(undone.ok && !(await places('settlement')).some((p) => p.name === `${from.name} 2`), 'Undo takes the copy away');
     return [
-      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; one rule refuses moving, removing or rubbing out a locked key (landmark aliases count; a lock earlier in the same batch counts; renames pass; replay keeps a locked mark under the eraser); copies keep the kind and type (a capital becomes a city), go to dry free cells and count their names up; realms and seas are not copied',
+      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; one rule refuses moving, removing or rubbing out a locked key (landmark aliases count; a lock earlier in the same batch counts; renames pass; the eraser leaves a mark locked at that point of the list); copies keep the kind and type (a capital becomes a city), go to dry free cells and count their names up; realms and seas are not copied',
       `Bridge: wh_lock_place locks ${first.name} (listed and found as locked; move and remove refused) and unlocks it; wh_duplicate_place copies ${from.name} as "${made.name}" on free dry land (a second copy is "${second.name}"), refuses a used cell, the sea, a realm and an unknown key, and undoes`,
     ];
   } finally {

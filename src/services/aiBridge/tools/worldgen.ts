@@ -211,7 +211,7 @@ function currentEdits(world: GeneratedWorld, args: ToolArgs): WorldEdit[] {
 async function refuseLocked(world: GeneratedWorld, args: ToolArgs, edit: WorldEdit): Promise<void> {
   const { lockViolation } = await import('@/engines/worldgen/core/edits');
   const key = lockViolation(currentEdits(world, args), [edit]);
-  if (key) throw new BridgeError('bad-args', `Place ${key} is locked; unlock it with wh_lock_place (locked: false) before you move or remove it, and only if the author wants that.`);
+  if (key) throw new BridgeError('locked', `Place ${key} is locked; unlock it with wh_lock_place (locked: false) before you move or remove it, and only if the author wants that.`);
 }
 
 /** The keys of the world's locked places, from its current edits. */
@@ -1338,6 +1338,7 @@ export async function whSetWorldLevels(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   await assertEngineEnabled(world.projectId, ENGINE);
   const { SEA_LEVEL_MAX_M, SNOWLINE_MAX_M, worldLevels } = await import('@/engines/worldgen/core/edits');
+  for (const key of ['seaLevelM', 'snowlineM'] as const) if (args[key] !== undefined && (typeof args[key] !== 'number' || !Number.isFinite(args[key]))) throw new BridgeError('bad-args', `${key} must be a number of metres.`);
   const sea = optNumber(args, 'seaLevelM'), snow = optNumber(args, 'snowlineM');
   if (sea === undefined && snow === undefined) throw new BridgeError('bad-args', 'Give seaLevelM and/or snowlineM.');
   if (sea !== undefined && !(Math.abs(sea) <= SEA_LEVEL_MAX_M)) throw new BridgeError('bad-args', `seaLevelM must be between -${SEA_LEVEL_MAX_M} and ${SEA_LEVEL_MAX_M}.`);
@@ -1371,7 +1372,7 @@ export async function whAddLake(args: ToolArgs): Promise<unknown> {
   const { fillLake } = await import('@/engines/worldgen/core/lake');
   // The cap is never below the size asked for.
   const run = fillLake(opened.world.data, at.x, at.y, { ...(maxCells ? { maxCells } : {}), ...(minCells ? { minCells } : {}) });
-  if (!run.cells.length) throw new BridgeError('bad-args', run.end === 'nowhere' ? 'That spot is sea or already a lake.' : `The water runs straight into the ${run.end === 'sea' ? 'sea' : 'lake beside it'}; pick a spot further inland.`);
+  if (!run.cells.length) throw new BridgeError('bad-args', run.end === 'nowhere' ? 'That spot is sea or already a lake.' : 'That lake would touch another one; pick a spot away from it.');
   const x = Math.floor(at.x), y = Math.floor(at.y);
   const summary = { x, y, cells: run.cells.length, end: run.end, dammed: run.dammed };
   if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary };

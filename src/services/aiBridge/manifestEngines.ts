@@ -1301,7 +1301,7 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     name: 'wh_add_lake',
     description:
       `Fill a lake at a place or cell, like the River tool's Lake mode.
-From the spot the water takes in the lowest ground around it until the hollow spills, it meets the sea or another lake, or it reaches maxCells; size makes it at least that many cells (the water rises through the lowest ground, as behind a dam), otherwise on a slope with no hollow it stays a pond of a few cells. The cells become lake (biome, shore, travel, trade). It is re-derived from the ground on every replay, so later terrain edits reshape it. Refused on sea or an existing lake, and where the water runs straight into the sea. dryRun only says how big it would be. Undoable; wh_drain_lake removes a lake.`,
+From the spot the water runs a few cells down to the bottom of its hollow and fills it until it spills (over land, or into the sea as a lagoon) or reaches maxCells; with no hollow that close it is dammed at the spot (dammed: true) and rises up the valley, a pond of a few cells or at least size cells. The cells become lake (biome, shore, travel, trade). It is re-derived from the ground on every replay, so later terrain edits reshape it. Refused on sea or an existing lake, and when it would touch another lake. dryRun only says how big it would be. Undoable; wh_drain_lake removes a lake.`,
     writes: true,
     schema: {
       type: 'object',
