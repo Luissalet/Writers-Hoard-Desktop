@@ -2326,6 +2326,8 @@ const es = {
   'worldgen.view.skin.satellite.title': 'El mundo visto desde arriba: biomas, ríos, hielo',
   'worldgen.view.skin.drawn': 'Dibujado',
   'worldgen.view.skin.drawn.title': 'La carta dibujada, drapeada sobre el relieve',
+  'worldgen.view.skin.painted': 'Pintado',
+  'worldgen.view.skin.painted.title': 'Un mapa pintado a mano sobre el relieve: colores que se funden, mar con bajíos y orillas, bosques de árboles pintados y dunas',
   'worldgen.view.skin.clay': 'Arcilla',
   'worldgen.view.skin.clay.title': 'Sin color: sólo la forma, para esculpir',
   'worldgen.overlay.forests': 'Bosques',

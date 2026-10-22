@@ -56,8 +56,8 @@ editables en los viajes y nombres tirados en las lenguas del mundo para los
 rótulos; y después el viaje contado en palabras (pueblos, caminos, día y hora,
 posadas), terrenos fantásticos, pincel de meseta, banda de vista y curvas de
 nivel cada N metros; y la maqueta 3D (bloque con su corte, mesa y sombra; o
-paisaje), iconos de accidentes en 3D y marcadores con el retrato de su ficha en
-los mapas de imagen; todo con interfaz, MCP, deshacer y ámbito de época.
+paisaje), la piel «Pintado» con rótulos de mapa, iconos de accidentes en 3D y
+marcadores con el retrato de su ficha en los mapas de imagen; todo con interfaz, MCP, deshacer y ámbito de época.
 
 Siguiente, en este orden:
 - Huecos restantes del catálogo A1/A2 (filas PARTIAL y ABSENT en
@@ -65,8 +65,10 @@ Siguiente, en este orden:
   puntos del río y flujo invertido, nubes, iluminación por hora en 2D, marcas
   de grupo, vías propias, mercancías por puerto, sin vado/restaurar vado,
   operación volcán y altura en metros.
-- 3D: nubes que se funden con el relieve, los árboles del mapa dibujado de pie
-  en la maqueta y aspectos de bloque (papel apilado, grabado) además de la roca.
+- 3D: nubes que se funden con el relieve, los árboles pintados de pie en la
+  maqueta (hoy están pintados en el suelo) y aspectos de bloque (papel apilado,
+  grabado) además de la roca; mapas de arranque más pequeños (isla, país) para
+  que la maqueta se vea de cerca como un continente.
 - Comercio: rutas de envío que rodeen bahías por tierra y usen los ríos; la
   lente también en proyecciones curvas.
 - Sucesos: enlace de un suceso a su escena del manuscrito; arrastrar para

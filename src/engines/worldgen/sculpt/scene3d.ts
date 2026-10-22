@@ -268,6 +268,8 @@ uniform vec2  uUVMin;        // the window of the world this grid covers
 uniform vec2  uUVSize;
 uniform vec3  uPivot;        // dónde vive la malla en la escena (ver «setWindow»)
 uniform float uAmpDetail;    // km of invented sub-cell relief, at full roughness
+uniform float uPainted;      // 1 = the painted skin: the sea is a flat painted surface at sea level
+uniform float uSea;
 
 out vec2 vUV;
 out vec2 vLocal;
@@ -320,9 +322,12 @@ void main() {
    * esfera no tiene un marco local barato — el centro de la ventana sobre una
    * esfera exige restar dos puntos grandes, que es justo lo que se evita aquí.
    */
+  // The painted skin carries its own sea (shelf, rings, depth): the surface is
+  // laid flat at sea level and the picture says how deep it is.
+  float eShown = uPainted > 0.5 ? max(e, uSea) : e;
   vec3 p = uShape < 0.5
-    ? vec3(d.x * uSizeX, e * uYMul, d.y * uSizeZ)
-    : placeAt(w, e);
+    ? vec3(d.x * uSizeX, eShown * uYMul, d.y * uSizeZ)
+    : placeAt(w, eShown);
   // «vWorld» sigue siendo ABSOLUTO. El ruido procedimental del fragmento está
   // clavado a la posición del mundo a propósito (para que no nade cuando la
   // cámara se mueve), así que no puede pasar a local; y la luz y la niebla
@@ -414,6 +419,7 @@ uniform vec2  uZoomSize;     // su extensión, en las mismas unidades
 uniform vec2  uZoomRel;
 uniform float uZoomFade;     // ancho del borde suave, en fracción de la ventana
 uniform float uFlatLight;    // 1 = the skin already carries its own shading
+uniform float uPainted;      // 1 = the painted skin: its trees and shading are in the picture
 uniform float uDetail;       // 0–1 how much invented close-range relief
 uniform float uCavity;       // strength of the crease darkening
 uniform vec3  uCam;          // camera position, for the headlight
@@ -681,6 +687,7 @@ void main() {
   // era el realce de hondonadas aplicado a una batimetría de veinte kilómetros
   // por muestra. La misma rampa de profundidad que endereza la normal lo apaga.
   if (underwater) cav *= 1.0 - smoothstep(0.0, 0.08, uSea - e) * 0.97;
+  cav *= 1.0 - 0.6 * uPainted;
 
   // ---- invented relief, only once you are close ---------------------------
   //
@@ -886,7 +893,7 @@ void main() {
 
   // A map-scale canopy is a continuous physical biome footprint. Its crown
   // light follows this 3D sun and normal; trees remain the near-scale layer.
-  float canopy = underwater || uClay > 0.5 ? 0.0 : smoothstep(0.18, 0.85, forestCoverAt(vUV));
+  float canopy = underwater || uClay > 0.5 || uPainted > 0.5 ? 0.0 : smoothstep(0.18, 0.85, forestCoverAt(vUV));
   if (canopy > 0.001) {
     vec2 q = vUV * uGrid;
     float crowns = ampNoise(q * 7.5) * 0.65 + ampNoise(q * 17.0) * 0.35;
@@ -896,6 +903,7 @@ void main() {
     n = normalize(n + vec3(-dx,0.0,-dz) * canopy * 0.3);
   }
 
+  vec3 paintedCol = col;
   // ---- light --------------------------------------------------------------
   vec3 L = mix(normalize(uSun), normalize(uCam - surfaceWorld), uHeadlight);
   float lam = clamp(dot(n, L), 0.0, 1.0);
@@ -943,6 +951,14 @@ void main() {
   // puro de noche es un collar fosforescente sobre una montaña negra.
   col += ambCol * max(0.0, -cav) * uCavity * 0.35;   // ridges catch the light
   col += sunCol * spec * sh + ambCol * rim * vec3(0.55, 0.65, 0.8);
+  // The painted skin is a picture with its light already in it: it keeps its
+  // own colours, with only a breath of the scene's sun on the slopes and the
+  // hour's tint, so the paint reads as paint and not as a satellite in shadow.
+  if (uPainted > 0.5) {
+    float breath = 0.88 + 0.2 * lam * sh;
+    vec3 tint = sunCol / max(1e-3, max(sunCol.r, max(sunCol.g, sunCol.b)));
+    col = paintedCol * breath * mix(vec3(1.0), tint, 0.12) * mix(1.0, dayAmt, 0.35);
+  }
 
   if (!underwater && uContour > 0.0) {
     float f = e / uContour;
@@ -1189,6 +1205,7 @@ export class SculptSurface {
         uZoomRel: { value: new THREE.Vector2(0, 0) },
         uZoomFade: { value: 0.06 },
         uFlatLight: { value: 0 },
+        uPainted: { value: 0 },
         uDetail: { value: 0.6 },
         uCavity: { value: 0.55 },
         uCam: { value: new THREE.Vector3(0, 100, 100) },
@@ -1273,6 +1290,11 @@ export class SculptSurface {
    *   de veinte kilometros en la plataforma); para la carta dibujada seria un
    *   destrozo, porque alli el mar es un dibujo con su propia trama.
    */
+  /** The painted skin: a flat sea at sea level, no procedural canopy, softer hollows. */
+  setPainted(on: boolean): void {
+    this.material.uniforms.uPainted.value = on ? 1 : 0;
+  }
+
   setAlbedo(tex: THREE.Texture | null, flatLight = true, smoothSea = false): void {
     this.albedoTex = tex;
     this.material.uniforms.uAlbedo.value = tex ?? this.blankTex;

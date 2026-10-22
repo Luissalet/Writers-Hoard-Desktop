@@ -141,7 +141,14 @@ world is a tabletop model by default (Maqueta): a block whose walls show the cut
 strata and a darker plinth — on a lit table with a soft shadow, in a quiet room,
 with the sea ending at the block. Paisaje gives the landscape reaching to the
 horizon instead; the choice is saved with the look. Closer in, the view is a
-landscape either way. Volcanoes, caves, waterfalls, gorges and hot springs keep
+landscape either way. The Pintado skin paints the whole world as a relief map
+(grounds blended and grained, rock and snow on the heights, a pale shelf and
+light rings along the coasts, crowds of small broadleaf, conifer, jungle or
+fungal trees in the forests, dunes in the sand seas) and lays its sea flat at
+sea level; closer than a region the satellite tiles take over to bring the
+towns and streets. Over the Pintado and Dibujado skins the names are lettered
+like a map (dark serif ink on a paper halo), and both show the colours they
+have in 2D. Volcanoes, caves, waterfalls, gorges and hot springs keep
 the 2D map's marks in 3D, and a road across the date line is cut there rather
 than drawn back across the sheet. On classic image maps, a pin linked to an
 entry with a picture shows that picture framed in the pin's colour with its name

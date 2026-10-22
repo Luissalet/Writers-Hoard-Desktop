@@ -13,7 +13,7 @@ import type { GeneratedWorld, WorldPresentation, WorldPresentationLayer } from '
  * defaults, so worlds saved before this existed open exactly as they did.
  */
 export const PRESENTATION_THEMES = ['wonder', 'antique', 'relief', 'survey'] as const;
-export const PRESENTATION_SKINS = ['satelite', 'dibujado', 'arcilla'] as const;
+export const PRESENTATION_SKINS = ['satelite', 'dibujado', 'arcilla', 'pintado'] as const;
 /** On the 3D plane: the world as a tabletop model with its cut showing, or as a landscape to the horizon. */
 export const PRESENTATION_STAGES = ['maqueta', 'paisaje'] as const;
 export const PRESENTATION_LAYERS: readonly WorldPresentationLayer[] = ['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'];

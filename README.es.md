@@ -40,7 +40,7 @@ revela el mapa capítulo a capítulo, sucesos de la historia por capítulo que s
 reproducen capítulo a capítulo o se recorren con una barra (con su orden dentro
 del capítulo, quién estaba y lo siguiente previsto), un menú de clic derecho (pueblo, nota, suceso y
 un manantial cuyo río baja solo), terrenos fantásticos, un pincel de meseta, curvas de nivel cada N metros, una herramienta de lagos que llena la
-hondonada hasta que rebosa, nivel del mar y línea de nieve de todo el mundo, una vista 3D del mundo entero como maqueta (con el corte de roca y mar a la vista, sobre una mesa con su sombra) o como paisaje hasta el horizonte, con los mismos iconos de accidentes que el 2D, y una
+hondonada hasta que rebosa, nivel del mar y línea de nieve de todo el mundo, una vista 3D del mundo entero como maqueta (con el corte de roca y mar a la vista, sobre una mesa con su sombra) o como paisaje hasta el horizonte, una piel «Pintado» (terrenos que se funden, mar con bajíos y orillas, bosques y dunas pintados, nombres rotulados como en un mapa), con los mismos iconos de accidentes que el 2D, y una
 lente de comercio mes a mes (explotaciones, escasez, precios, envíos); los mapas
 de imagen tienen figuras con estilo (contorno, trama, rotulación, orden, varias
 capas), marcadores de tres tamaños, marcadores que muestran la imagen de su ficha enmarcada en su color con el nombre debajo (y todos los nombres a la vista si se pide), un enlace al Códex con buscador que también

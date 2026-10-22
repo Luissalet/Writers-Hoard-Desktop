@@ -88,6 +88,8 @@ export interface Water {
     sky?: WaterSkyInput;
     /** The tabletop model: the plane's sea stops at the edge of the world and has no haze. */
     clip?: boolean;
+    /** The painted skin paints its own sea: only the lakes keep their water surface. */
+    lakesOnly?: boolean;
   }): void;
   dispose(): void;
 }
@@ -617,7 +619,7 @@ export function createWater(o: WaterOptions): Water {
     },
 
     update(u) {
-      lakePlane.visible = plane.visible;
+      lakePlane.visible = plane.visible || !!u.lakesOnly;
       lakeGlobe.visible = globe.visible;
       const seaY = u.seaLevel * u.yMul;
       const cam = u.camera;
