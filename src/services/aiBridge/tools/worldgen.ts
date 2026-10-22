@@ -1030,8 +1030,8 @@ export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
   const patch: Record<string, unknown> = {};
-  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours']) if (args[key] !== undefined) patch[key] = args[key];
-  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount, layers, grid, readerStart or contours.');
+  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours']) if (args[key] !== undefined) patch[key] = args[key];
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, stage3D, reliefAmount, layers, grid, readerStart or contours.');
   const expected = optNumber(args, 'expectedRevision');
   const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
   try {
@@ -1472,9 +1472,10 @@ export async function whPaintBiome(args: ToolArgs): Promise<unknown> {
   mask?.each((i, cover) => {
     const hsh = Math.sin(i * 45.164 + 11.71) * 27183.13;
     const jitter = (hsh - Math.floor(hsh)) * 0.45;
-    if (cover * stroke.strength > 0.35 + jitter * 0.4 && opened.world.data.elevation[i] > 0) cells++;
+    // Painting keeps to land; erasing clears whatever it covers, as the replay does.
+    if (cover * stroke.strength > 0.35 + jitter * 0.4 && (erase || opened.world.data.elevation[i] > 0)) cells++;
   });
-  if (!cells) throw new BridgeError('bad-args', 'The stroke covers no land cell (it is over the sea, or too thin): use a larger radius or another place.');
+  if (!cells) throw new BridgeError('bad-args', erase ? 'The stroke covers no cell (too thin): use a larger radius.' : 'The stroke covers no land cell (it is over the sea, or too thin): use a larger radius or another place.');
   const edit = erase ? { kind: 'eraseBiome' as const, stroke } : { kind: 'biome' as const, biome: biome as import('@/engines/worldgen/core/types').BiomeId, stroke };
   const summary = { erase, ...(erase ? {} : { biome: BIOME_KEY[biome] }), points: pts.length, radius, cells };
   return appendEdit(args, world, edit, summary, erase ? `rubbed out painted ground on world "${world.title}"` : `painted ${BIOME_KEY[biome]} ground on world "${world.title}"`);

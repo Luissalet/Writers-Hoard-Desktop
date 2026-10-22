@@ -135,7 +135,17 @@ view is in (world, continent, region, local) and how many km across it is. The
 toolbar's contour choice draws lines of equal height every 100, 200, 500 or
 1000 m (an index line every fifth) on the atlas, the Carta and the PNG export,
 in place of the look's own, or takes all contour lines away; it is saved with
-the look.
+the look. In the World 3D tab, on the plane with the whole world in view, the
+world is a tabletop model by default (Maqueta): a block whose walls show the cut
+— the water column where an edge falls in the sea, a band of soil, wavering rock
+strata and a darker plinth — on a lit table with a soft shadow, in a quiet room,
+with the sea ending at the block. Paisaje gives the landscape reaching to the
+horizon instead; the choice is saved with the look. Closer in, the view is a
+landscape either way. Volcanoes, caves, waterfalls, gorges and hot springs keep
+the 2D map's marks in 3D, and a road across the date line is cut there rather
+than drawn back across the sheet. On classic image maps, a pin linked to an
+entry with a picture shows that picture framed in the pin's colour with its name
+under it; the Portraits and Names layers turn that off and every pin name on.
 Point → Label
 has a Roll button beside the text: it coins a name for a Region, Water, Range or
 Place label in one of the world's own languages (each roll walks through them),

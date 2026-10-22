@@ -1,4 +1,5 @@
 import Dexie from 'dexie';
+import { DEFAULT_MAP_LAYERS } from '@/components/maps/mapGeometry';
 import {db} from '@/db';
 import type {MapPin,TimelineEvent,WorldMap,MapLayerVisibility} from '@/types';
 import {readWorldDocument,saveEraDocument,announceEraChange} from '@/services/worldEras/store';
@@ -27,7 +28,7 @@ export function saveFocusedMapFields(scope:WorldEraScope,mapId:string,baseline:P
   if(!read)throw Error('focused_document_missing');const aggregate=scope.eraId?read as Awaited<ReturnType<typeof readWorldDocument>>:undefined,current=(aggregate?aggregate.document.root:read) as unknown as WorldMap;if(current.projectId!==scope.projectId)throw Error('focused_document_scope_changed');const patch:Partial<WorldMap>={};
   if(changes.features)patch.features=mergeRows(baseline.features??[],current.features??[],changes.features);
   if(changes.layers)patch.layers=mergeRows(baseline.layers??[],current.layers??[],changes.layers);
-  if(changes.layerVisibility){const defaults={pins:true,region:true,path:true,label:true},before={visibility:{...defaults,...baseline.layerVisibility}},now={visibility:{...defaults,...current.layerVisibility}},desired={...defaults,...changes.layerVisibility},actions:LocalToolStateAction[]=Object.entries(desired).filter(([key,value])=>value!==before.visibility[key as keyof MapLayerVisibility]).map(([key,value])=>({type:'map-set',field:'visibility',key,value}));if(actions.length)patch.layerVisibility=mergeLocalToolActions({version:1,fields:{visibility:{kind:'map'}}},before,now,actions).data.visibility;}
+  if(changes.layerVisibility){const defaults=DEFAULT_MAP_LAYERS,before={visibility:{...defaults,...baseline.layerVisibility}},now={visibility:{...defaults,...current.layerVisibility}},desired={...defaults,...changes.layerVisibility},actions:LocalToolStateAction[]=Object.entries(desired).filter(([key,value])=>value!==before.visibility[key as keyof MapLayerVisibility]).map(([key,value])=>({type:'map-set',field:'visibility',key,value}));if(actions.length)patch.layerVisibility=mergeLocalToolActions({version:1,fields:{visibility:{kind:'map'}}},before,now,actions).data.visibility;}
   const next={...current,...patch,updatedAt:Math.max(Date.now(),current.updatedAt+1)},ids=(next.features??[]).flatMap(feature=>feature.linkedEntryId?[feature.linkedEntryId]:[]);
   return Dexie.Promise.all(ids.map(id=>scope.eraId?readWorldDocument(scope,'codex',id).then(value=>value?.document.root):tx.table('codexEntries').get(id))).then(targets=>{if(targets.some(value=>!value||value.projectId!==scope.projectId))throw Error('focused_document_reference_missing');return aggregate?Dexie.Promise.resolve(saveEraDocument(scope,'maps',{...aggregate.document,root:next as unknown as EraRow},aggregate.version)).then(()=>next):tx.table('worldMaps').put(next).then(()=>next);});
  })).then(result=>{announceEraChange(scope.projectId);return result;});

@@ -531,6 +531,32 @@ export async function whSetMapScale(args: ToolArgs): Promise<unknown> {
   );
 }
 
+/** Show or hide what a classic map draws: pins, regions, routes, labels, pins as their entries' portraits, and pin names always in view. */
+export async function whSetMapLayers(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const keys = ['pins', 'region', 'path', 'label', 'portraits', 'names'] as const;
+  const patch: Partial<Record<typeof keys[number], boolean>> = {};
+  for (const key of keys) {
+    if (args[key] === undefined) continue;
+    if (typeof args[key] !== 'boolean') throw new BridgeError('bad-args', `${key} must be true or false.`);
+    patch[key] = args[key] as boolean;
+  }
+  // projectId and eraId choose an era (the era wrapper of the manifest adds them).
+  const unknown = Object.keys(args).filter((key) => !['mapId', 'projectId', 'eraId', ...keys].includes(key) && !key.startsWith('__'));
+  if (unknown.length) throw new BridgeError('bad-args', `Unknown field ${unknown.join(', ')}. Pass any of ${keys.join(', ')}.`);
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', `Nothing to change: pass any of ${keys.join(', ')} as true or false.`);
+  const { DEFAULT_MAP_LAYERS } = await import('@/components/maps/mapGeometry');
+  const current = { ...DEFAULT_MAP_LAYERS, ...(map.layerVisibility ?? {}) };
+  if (Object.entries(patch).every(([key, value]) => current[key as typeof keys[number]] === value)) throw new BridgeError('bad-args', `Nothing to change: the map already shows ${Object.entries(patch).map(([k, v]) => `${k} ${v ? 'on' : 'off'}`).join(', ')}.`);
+  const { setMapLayers } = await import('@/engines/maps/operations');
+  const receipt = await setMapLayers(map.id, patch, scope);
+  return withAudit(
+    { mapId: map.id, layers: receipt.to, updated: true },
+    { projectId: map.projectId, entityId: map.id, summary: `changed what map "${map.title}" shows (${Object.entries(patch).map(([k, v]) => `${k} ${v ? 'on' : 'off'}`).join(', ')})`, before: { __mapLayers: receipt } },
+  );
+}
+
 /** Read-only: the length of a line, a route or a region's outline in kilometres, its area for a region, and how long a journey of that length takes. */
 export async function whMeasureMap(args: ToolArgs): Promise<unknown> {
   const { map } = await loadMapForEras(args);

@@ -71,6 +71,8 @@ const suites = [
   ['world-route-words.browser.ts', 'testWorldRouteWords'],
   ['world-paint-biome.browser.ts', 'testWorldPaintBiome'],
   ['world-contours.browser.ts', 'testWorldContours'],
+  ['world-3d-look.browser.ts', 'testWorld3DLook'],
+  ['map-portraits.browser.ts', 'testMapPortraits'],
   ['world-economy.browser.ts', 'testWorldEconomy'],
   ['world-trade.browser.ts', 'testWorldTrade'],
   ['map-style.browser.ts', 'testMapStyle'],

@@ -91,6 +91,8 @@ export type WorldPresentationLayer = 'relief' | 'forests' | 'labels' | 'settleme
 export interface WorldPresentation {
   theme?: 'wonder' | 'antique' | 'relief' | 'survey';
   skin3D?: 'satelite' | 'dibujado' | 'arcilla';
+  /** On the 3D plane with the whole world in view: a tabletop model (default) or a landscape to the horizon. */
+  stage3D?: 'maqueta' | 'paisaje';
   reliefAmount?: number;
   layers?: Partial<Record<WorldPresentationLayer, boolean>>;
   /** A square or hex play grid over the map, in km; null or absent = none. */

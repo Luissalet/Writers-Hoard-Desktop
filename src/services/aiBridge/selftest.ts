@@ -1019,7 +1019,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_wiki_profile_publish', 'wh_wiki_profile_restore_config',
   'wh_capture_map_version', 'wh_link_map_version',
   'wh_set_world_presentation', 'wh_set_world_travel_settings',
-  'wh_update_label', 'wh_add_stamp', 'wh_paint_reader_fog', 'wh_add_story_event', 'wh_add_spring_river', 'wh_add_world_road', 'wh_paint_biome', 'wh_add_lake', 'wh_drain_lake', 'wh_set_world_levels', 'wh_lock_place', 'wh_duplicate_place', 'wh_update_story_event', 'wh_remove_story_event', 'wh_add_trade_site', 'wh_remove_trade_site', 'wh_restore_trade_site', 'wh_add_map_feature', 'wh_update_map_feature', 'wh_change_map_ground', 'wh_set_map_scale', 'wh_name_map_pins_from_key',
+  'wh_update_label', 'wh_add_stamp', 'wh_paint_reader_fog', 'wh_add_story_event', 'wh_add_spring_river', 'wh_add_world_road', 'wh_paint_biome', 'wh_add_lake', 'wh_drain_lake', 'wh_set_world_levels', 'wh_lock_place', 'wh_duplicate_place', 'wh_update_story_event', 'wh_remove_story_event', 'wh_add_trade_site', 'wh_remove_trade_site', 'wh_restore_trade_site', 'wh_add_map_feature', 'wh_update_map_feature', 'wh_change_map_ground', 'wh_set_map_scale', 'wh_set_map_layers', 'wh_name_map_pins_from_key',
 ];
 
 // Receipt-based recovery, like audit Undo, stays usable after switching a tab off.
@@ -1234,6 +1234,7 @@ async function buildGuardProbes(
       ['wh_update_map_feature', { mapId, id: 'x', name: 'y' }],
       ['wh_change_map_ground', { mapId, imageDataUrl: 'data:image/png;base64,AAAA', fit: 'keep' }],
       ['wh_set_map_scale', { mapId, widthKm: 100 }],
+      ['wh_set_map_layers', { mapId, names: true }],
       ['wh_name_map_pins_from_key', { mapId, key: 'A. x', dryRun: true }],
       ['wh_remove_trade_site', { worldId, id: 'x' }],
       ['wh_restore_trade_site', { worldId, id: 'x' }],
