@@ -200,6 +200,8 @@ interface Map2DProps {
   /** Right-click on the map: the world cell under the pointer and where the menu goes on screen. */
   onMapMenu?: (at: { x: number; y: number; clientX: number; clientY: number }) => void;
   onPickSettlement?: (s: Settlement) => void;
+  /** A click on open ground (no town under it) while a panel asks for a point: the journey's ends and stops. */
+  onPickGround?: ((x: number, y: number) => void) | null;
   /** Places locked against accidents: the Move tool does not pick them up. */
   lockedKeys?: ReadonlySet<string>;
   /** Pressing a locked place with the Move tool: the parent says why nothing moves. */
@@ -816,7 +818,7 @@ export default function Map2D({
   selectedSpatialKey, regionalEntities = [], regionDetail, onSelectSpatialEntity,
   geography, showSettlements, showRoads = true, showBorders = false,
   showFeatures = true, roadFrom = null,
-  tool, onEdit, onTool, onPickSettlement, lockedKeys, onLockedPress, onZoomTo,
+  tool, onEdit, onTool, onPickSettlement, onPickGround, lockedKeys, onLockedPress, onZoomTo,
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
@@ -4984,7 +4986,9 @@ export default function Map2D({
       const rg = hitAt(sx, sy, ['note'], (h) => !!h.regionId);
       if (rg?.regionId) { onOpenSavedRegion(rg.regionId); return; }
     }
-    const landmark = landmarkAt(sx, sy);
+    // While a panel asks for a point (a journey's stops), a landmark is ground like
+    // any other: selecting it would switch the panel away from the journey.
+    const landmark = onPickGround ? null : landmarkAt(sx, sy);
     if (landmark) {
       onSelectWaypoint(null);
       onSelectSpatialEntity?.(landmark);
@@ -4995,6 +4999,10 @@ export default function Map2D({
     if (onPickSettlement) {
       const s = settlementAt(sx, sy);
       if (s) { onPickSettlement(s); return; }
+    }
+    if (onPickGround) {
+      const m = screenToMap(sx, sy);
+      if (m) { onPickGround(m.u * W, m.v * H); return; }
     }
     onSelectWaypoint(null);
     onSelectSpatialEntity?.(null);

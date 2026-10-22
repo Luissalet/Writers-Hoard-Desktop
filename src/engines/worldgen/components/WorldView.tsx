@@ -21,7 +21,7 @@ import RegenerateWorldDialog from './RegenerateWorldDialog';
 import WorldMapMenu from './WorldMapMenu';
 import { traceSpring } from '../core/spring';
 import { useCodexEntries } from '@/engines/codex/hooks';
-import { journeyStopsForWorld } from '../journeyTypes';
+import { journeyStopsForWorld, journeyPoint } from '../journeyTypes';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
@@ -1413,6 +1413,18 @@ export default function WorldView({
     descendToTown(s);
   }, [brushIsOut, brush.mode, brush.roadMajor, brush.roadWidth, brush.roadPattern, roadFrom, data, geography, journeyPick, applyEdit, descendToTown, t]);
 
+  /** A journey end or stop on open ground: a point of the map, named by its cell. */
+  const journeyPointSeq = useRef(0);
+  const pickJourneyPoint = useCallback((x: number, y: number) => {
+    if (!data) return;
+    const cell = { x: ((Math.floor(x) % data.width) + data.width) % data.width, y: Math.min(data.height - 1, Math.max(0, Math.floor(y))) };
+    if (data.elevation[cell.y * data.width + cell.x] <= 0 && journeyPick !== 'via') { toast.info(t('worldgen.journey.pointAtSea')); return; }
+    const point = journeyPoint(cell.x, cell.y, t('worldgen.journey.point').replace('{x}', String(cell.x)).replace('{y}', String(cell.y)), journeyPointSeq.current++);
+    if (journeyPick === 'from') { setJourneyFrom(point); setJourneyPick('to'); return; }
+    if (journeyPick === 'to') { setJourneyTo(point); setJourneyPick(null); return; }
+    if (journeyPick === 'via') setJourneyVia((v) => [...v, point]);
+  }, [data, journeyPick, t]);
+
   /**
    * Putting the TOOL away abandons a half-drawn road. Changing panel does not.
    *
@@ -2289,6 +2301,7 @@ export default function WorldView({
               onSelectLabel={setSelectedLabelKey}
               onSelectStory={setSelectedStoryId}
               onPlaceStory={paintable ? placeStory : undefined}
+              onPickGround={journeyPick && panelTab === 'journey' ? pickJourneyPoint : null}
               onPickCell={tradePlacing ? (x, y) => {
                 const site = normalizeTradeSite({ id: `site-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`, kind: tradePlacing.kind, x: Math.floor(x), y: Math.floor(y), size: tradePlacing.size, placeId: null });
                 if (!applyEdit(tradeSiteEdit(site))) toast.error(t('worldgen.story.busy'));
@@ -2698,6 +2711,7 @@ export default function WorldView({
                   onClear={() => { setJourneyFrom(null); setJourneyTo(null); setJourneyVia([]); setJourneyPick(null); }}
                   via={journeyVia}
                   onClearVia={() => setJourneyVia([])}
+                  onViaChange={setJourneyVia}
                   onRoute={(route, color) => setJourneyRoute({ route, color })}
                   onTraveller={setTraveller}
                   onRevealRoute={applyEditGroup}
