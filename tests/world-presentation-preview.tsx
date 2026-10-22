@@ -15,6 +15,8 @@ async function preview() {
   useLocaleStore.setState({ locale: 'es' });
   await db.projects.put({ id: P, title: 'Las Tierras del Estuario', type: 'standalone', mode: 'custom', color: '#d5b575', description: '', status: 'draft', enabledEngines: ['worldgen'], engineOrder: ['worldgen'], createdAt: 1, updatedAt: 1 });
   await db.generatedWorlds.put({ id: W, projectId: P, title: 'Las Tierras del Estuario', params: { ...DEFAULT_PARAMS, seed: 'estuario-look', width: 256 }, edits: '[]', createdAt: 1, updatedAt: 1 });
+  // Someone the story can say was there.
+  await db.codexEntries.put({ id: 'story-ana', projectId: P, type: 'character', title: 'Ana', fields: {}, content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1 });
   host.__lookMount = () => {
     root = createRoot(document.getElementById('root')!);
     root.render(<MemoryRouter><div className="h-screen bg-deep text-text-primary"><WorldgenEngine projectId={P} /></div></MemoryRouter>);

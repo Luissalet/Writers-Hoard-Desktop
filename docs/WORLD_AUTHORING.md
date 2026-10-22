@@ -150,7 +150,10 @@ The Events tool (Paint → Reader) puts story events on the map: a kind (fight,
 find, meeting, rest, change, travelling, camp, inn, other), a title, a chapter
 and planned or happened; a click places the next one, picking one edits it in
 the inspector (title and note are saved when the field is left), dragging moves
-it, and the list shows the story so far by chapter. The Reader's view marks the
+it, and the list shows the story so far by chapter. Inside a chapter the ↑/↓
+arrows put an event earlier or later; "Who was there" adds characters and
+factions from the Codex as chips (the list shows how many, the playback caption
+names them). The Reader's view marks the
 events that have happened by its chapter and hides the planned route, journey
 pins, banner and other author marks. Its Previous, Play and Next buttons step
 through the chapters that have events or fog: the map follows what happens in

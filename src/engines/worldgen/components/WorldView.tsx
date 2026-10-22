@@ -1,7 +1,7 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
 import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
 import type { ReaderFogLayer } from '../cartography/readerFogLayer';
-import { newStoryId, nextStoryChapter, normalizeStoryEvent, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy, STORY_COLORS, type StoryEvent } from '../core/storyEvents';
+import { newStoryId, nextStoryChapter, normalizeStoryEvent, reorderInChapter, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy, STORY_COLORS, type StoryEvent } from '../core/storyEvents';
 import type { StoryMark } from '../cartography/storyMarks';
 import { autoSites, normalizeTradeSite, placesFromSettlements, simulateEconomy, tradeSiteEdit, tradeSiteRemoveEdit, tradeSiteRestoreEdit, tradeSitesFrom, type SiteKind, type SiteSize } from '../core/economy';
 import type { TradeLayer } from '../cartography/tradeMarks';
@@ -20,6 +20,7 @@ import { forgeCrashText, worldWorkspaceCopy } from '../workspaceCopy';
 import RegenerateWorldDialog from './RegenerateWorldDialog';
 import WorldMapMenu from './WorldMapMenu';
 import { traceSpring } from '../core/spring';
+import { useCodexEntries } from '@/engines/codex/hooks';
 import { journeyStopsForWorld } from '../journeyTypes';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
@@ -1179,6 +1180,14 @@ export default function WorldView({
     } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }, [storyEvents, applyEdit]);
   const removeStory = useCallback((id: string) => { applyEdit({ kind: 'storyRemove', id }); }, [applyEdit]);
+  /** Up or down within its chapter: the chapter's events take their new places in one undo step. */
+  const reorderStory = useCallback((id: string, by: -1 | 1) => {
+    const changed = reorderInChapter(storyEvents, id, by);
+    if (changed.length) applyEditGroup(changed.map((event) => ({ kind: 'story' as const, ...normalizeStoryEvent(event) })));
+  }, [storyEvents, applyEditGroup]);
+  // Who can be marked as there: the Codex's characters and factions.
+  const { items: codexEntries } = useCodexEntries(projectId);
+  const storyPeople = useMemo(() => codexEntries.filter((entry) => entry.type === 'character' || entry.type === 'faction').map((entry) => ({ id: entry.id, title: entry.title })).sort((a, b) => a.title.localeCompare(b.title)), [codexEntries]);
   applyExternalRef.current = edits => {
     if (generationBusyRef.current || preparingRef.current || environmentBusyRef.current) throw new Error(copy.preparing);
     applyEditGroup(edits);
@@ -2174,7 +2183,7 @@ export default function WorldView({
             const frame = storyFrames.find((item) => item.chapter === readerChapter);
             return <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 max-w-[min(36rem,90%)] -translate-x-1/2 rounded-lg border border-border bg-surface/90 px-3 py-2 text-center shadow-lg" data-testid="worldgen-reader-caption" data-chapter={readerChapter} aria-live="polite">
               <p className="font-serif text-sm text-accent-gold">{t('worldgen.reader.chapterTitle').replace('{n}', String(readerChapter))}</p>
-              {frame?.happened.length ? <ul className="mt-1 space-y-0.5 text-xs text-text-primary">{frame.happened.map((event) => <li key={event.id} className="flex items-center justify-center gap-1.5"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STORY_COLORS[event.type] }} />{event.title}</li>)}</ul>
+              {frame?.happened.length ? <ul className="mt-1 space-y-0.5 text-xs text-text-primary">{frame.happened.map((event) => <li key={event.id} className="flex items-center justify-center gap-1.5"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STORY_COLORS[event.type] }} />{event.title}{event.who?.length ? <span className="text-text-muted">· {event.who.map((id) => storyPeople.find((person) => person.id === id)?.title).filter(Boolean).join(', ')}</span> : null}</li>)}</ul>
                 : <p className="mt-0.5 text-xs text-text-muted">{t('worldgen.reader.quietChapter')}</p>}
             </div>;
           })()}
@@ -2691,6 +2700,8 @@ export default function WorldView({
                 onUpdateStory={updateStory}
                 onRemoveStory={removeStory}
                 onFocusStory={(event) => zoomToPoint(event.x, event.y)}
+                storyPeople={storyPeople}
+                onReorderStory={reorderStory}
               />
             ) : panelTab === 'params' ? (
               <ParamsPanel
