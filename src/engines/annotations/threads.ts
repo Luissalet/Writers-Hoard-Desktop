@@ -4,8 +4,8 @@ import type { WorldEraScope } from '@/services/worldEras/types';
 import { assertWorldEra, announceEraChange } from '@/services/worldEras/store';
 import { readScopedAnnotation, validateAnnotationMentions, validateAnnotationSource } from './scope';
 import { AnnotationConflict, type Annotation, type AnnotationMention, type AnnotationThreadFields, type AnnotationUndo } from './types';
-export type AnnotationThreadAction={kind:'body';body:string;mentions?:AnnotationMention[]}|{kind:'reply';body:string;mentions?:AnnotationMention[];replyId?:string}|{kind:'edit-reply';replyId:string;body:string;mentions?:AnnotationMention[]}|{kind:'remove-reply';replyId:string}|{kind:'resolve';resolved:boolean};
-const fields=(row:Annotation):AnnotationThreadFields=>structuredClone({noteBody:row.noteBody,mentions:row.mentions,replies:row.replies,resolvedAt:row.resolvedAt});
+export type AnnotationThreadAction={kind:'move';x:number;y:number}|{kind:'body';body:string;mentions?:AnnotationMention[]}|{kind:'reply';body:string;mentions?:AnnotationMention[];replyId?:string}|{kind:'edit-reply';replyId:string;body:string;mentions?:AnnotationMention[]}|{kind:'remove-reply';replyId:string}|{kind:'resolve';resolved:boolean};
+const fields=(row:Annotation):AnnotationThreadFields=>structuredClone({noteBody:row.noteBody,mentions:row.mentions,replies:row.replies,resolvedAt:row.resolvedAt,...(row.anchor?.type==='map_point'?{anchor:row.anchor}:{})});
 function expect(row:Annotation,revision:number){if(!Number.isSafeInteger(revision)||revision<0||(row.revision??0)!==revision)throw new AnnotationConflict();}
 function body(value:string):string{if(typeof value!=='string'||!value.trim())throw Error('annotation_body_required');return value;}
 const notify=(scope:WorldEraScope)=>announceEraChange(scope.projectId);
@@ -27,7 +27,8 @@ function claim(tx:Transaction,receipt:AnnotationUndo){
 export async function mutateAnnotationThread(scope:WorldEraScope,id:string,expectedRevision:number,action:AnnotationThreadAction):Promise<{annotation:Annotation;undo:AnnotationUndo}>{
  const result=await db.transaction('rw',db.tables,async tx=>{
   const current=await readScopedAnnotation(scope,id);expect(current,expectedRevision);const before=fields(current),next=structuredClone(current),now=Math.max(Date.now(),current.updatedAt+1);
-  if(action.kind==='body'){if(current.noteType!=='text')throw Error('annotation_text_required');next.noteBody=body(action.body);next.mentions=await validateAnnotationMentions(scope,action.mentions??current.mentions);}
+  if(action.kind==='move'){if(current.anchor.type!=='map_point')throw Error('annotation_not_on_map');const inRange=(value:number)=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=100;if(!inRange(action.x)||!inRange(action.y))throw Error('annotation_spot_invalid');next.anchor={...current.anchor,x:action.x,y:action.y};}
+  else if(action.kind==='body'){if(current.noteType!=='text')throw Error('annotation_text_required');next.noteBody=body(action.body);next.mentions=await validateAnnotationMentions(scope,action.mentions??current.mentions);}
   else if(action.kind==='resolve'){if(typeof action.resolved!=='boolean')throw Error('annotation_status_invalid');next.resolvedAt=action.resolved?now:undefined;}
   else{const replies=[...current.replies??[]];if(action.kind==='reply'){const replyId=action.replyId??crypto.randomUUID();if(replies.some(reply=>reply.id===replyId))throw Error('annotation_reply_exists');replies.push({id:replyId,body:body(action.body),mentions:await validateAnnotationMentions(scope,action.mentions),createdAt:now,updatedAt:now});}
    else{const index=replies.findIndex(reply=>reply.id===action.replyId);if(index<0)throw Error('annotation_reply_missing');if(action.kind==='remove-reply')replies.splice(index,1);else replies[index]={...replies[index],body:body(action.body),mentions:await validateAnnotationMentions(scope,action.mentions??replies[index].mentions),updatedAt:now};}next.replies=replies;}

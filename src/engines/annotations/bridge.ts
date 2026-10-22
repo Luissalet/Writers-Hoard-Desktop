@@ -12,6 +12,7 @@ export const ANNOTATION_THREAD_HANDLERS={
  async wh_annotation_reply(args:ToolArgs){return mutate(args,{kind:'reply',body:requireString(args,'body'),mentions:mentions(args)});},
  async wh_annotation_edit_reply(args:ToolArgs){return mutate(args,{kind:'edit-reply',replyId:requireString(args,'replyId'),body:requireString(args,'body'),mentions:mentions(args)});},
  async wh_annotation_remove_reply(args:ToolArgs){return mutate(args,{kind:'remove-reply',replyId:requireString(args,'replyId')});},
+ async wh_annotation_move(args:ToolArgs){if(typeof args.x!=='number'||typeof args.y!=='number')throw new BridgeError('bad-args','x and y are percent of the map picture.');try{return await mutate(args,{kind:'move',x:args.x,y:args.y});}catch(error){if(error instanceof Error&&error.message==='annotation_not_on_map')throw new BridgeError('bad-args','Only comments left at a spot on a classic map can be moved.');if(error instanceof Error&&error.message==='annotation_spot_invalid')throw new BridgeError('bad-args','x and y must be between 0 and 100.');throw error;}},
  async wh_annotation_update(args:ToolArgs){return mutate(args,{kind:'body',body:requireString(args,'body'),mentions:mentions(args)});},
  async wh_annotation_set_resolved(args:ToolArgs){if(typeof args.resolved!=='boolean')throw new BridgeError('bad-args','resolved must be true or false.');return mutate(args,{kind:'resolve',resolved:args.resolved});},
  async wh_annotation_delete(args:ToolArgs){return deleteAnnotationThread(scope(args),requireString(args,'id'),revision(args));},

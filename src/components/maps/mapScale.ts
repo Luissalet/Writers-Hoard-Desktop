@@ -69,15 +69,15 @@ export function formatKm2(km2: number, locale: string): string {
 
 export interface MapKeyLine { key: string; name: string }
 
-const KEY_LINE = /^\s*\(?([A-Za-z]{1,2}|\d{1,3})\s*[.):\-–—]\s*(.+?)\s*$/;
+const KEY_LINE = /^\s*\(?([A-Za-z]|([A-Za-z])\2|\d{1,3})\s*[.):\-–—]\s*(.+?)\s*$/;
 
-/** Lines of a map key, split on new lines, " / " or ";". The key is a letter or two, or a number, followed by ".", ")", ":" or a dash. */
+/** Lines of a map key, split on new lines, " / " or ";". The key is a letter, a doubled letter ("AA" after "Z") or a number, followed by ".", ")", ":" or a dash. */
 export function parseMapKey(text: string): MapKeyLine[] {
   const lines: MapKeyLine[] = [], seen = new Set<string>();
   for (const part of text.split(/\r?\n|\s\/\s|;/)) {
     const match = KEY_LINE.exec(part);
     if (!match) continue;
-    const key = match[1].toUpperCase(), name = match[2].replace(/[.\s]+$/, '').trim();
+    const key = match[1].toUpperCase(), name = match[3].replace(/[.\s]+$/, '').trim();
     if (!name || seen.has(key)) continue;
     seen.add(key);
     lines.push({ key, name });
@@ -85,9 +85,9 @@ export function parseMapKey(text: string): MapKeyLine[] {
   return lines;
 }
 
-/** A pin still named by its letter or number alone ("A", "b.", "(3)"), the way a key refers to it. */
+/** A pin still named by its letter or number alone ("A", "b.", "(3)", "AA"), the way a key refers to it; a short real name such as "Ur" is not a key. */
 export function pinKey(name: string): string | null {
-  const match = /^\s*\(?([A-Za-z]{1,2}|\d{1,3})\)?[.:]?\s*$/.exec(name);
+  const match = /^\s*\(?([A-Za-z]|([A-Za-z])\2|\d{1,3})\)?[.:]?\s*$/.exec(name);
   return match ? match[1].toUpperCase() : null;
 }
 

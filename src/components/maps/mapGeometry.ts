@@ -72,6 +72,27 @@ function scaleBarSvg(widthKm: number, w: number, h: number): string {
   return `<g data-scale-km="${bar.km}"><path d="M${x} ${y - 6}V${y}H${x + length}V${y - 6}" fill="none" stroke="#17191a" stroke-width="5"/><path d="M${x} ${y - 6}V${y}H${x + length}V${y - 6}" fill="none" stroke="#f3eedf" stroke-width="2"/><text x="${x + length / 2}" y="${y + 16}" text-anchor="middle" fill="#f3eedf" stroke="#17191a" stroke-width="3" paint-order="stroke" font-family="Georgia,serif" font-size="13">${label}</text></g>`;
 }
 
+/**
+ * Undo or redo one step (`left` is what the step left, `target` what it should
+ * become) on the list as it is now, touching only shapes nobody changed since:
+ * a shape changed, added or removed elsewhere after the step stays as it is and
+ * is reported in `skipped`.
+ */
+export function stepMapFeatures(current: MapFeature[], left: MapFeature[], target: MapFeature[]): { features: MapFeature[]; skipped: string[] } {
+  const now = new Map(current.map(feature => [feature.id, JSON.stringify(feature)]));
+  const was = new Map(left.map(feature => [feature.id, JSON.stringify(feature)]));
+  const goal = new Map(target.map(feature => [feature.id, JSON.stringify(feature)]));
+  const skipped = new Set<string>();
+  for (const id of new Set([...was.keys(), ...goal.keys()])) {
+    if (was.get(id) === goal.get(id)) continue;
+    // Untouched since the step: present exactly as the step left it, or still absent if it removed it.
+    if (now.get(id) !== was.get(id)) skipped.add(id);
+  }
+  const keep = (list: MapFeature[]) => list.map(feature => skipped.has(feature.id) ? current.find(item => item.id === feature.id) : feature).filter((feature): feature is MapFeature => !!feature);
+  const guardedLeft = keep(left), guardedTarget = keep(target);
+  return { features: rebaseMapFeatures(current, guardedLeft, guardedTarget), skipped: [...skipped] };
+}
+
 const escapeXml = (value: string): string => value.replace(/[<>&"']/g, char => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[char]!);
 
 /** Self-contained vector export: no services, script, foreignObject, or linked resources. */
