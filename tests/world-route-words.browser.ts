@@ -6,7 +6,8 @@ import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
 import { buildHumanGeography } from '@/engines/worldgen/core/settlements';
-import { planRoute } from '@/engines/worldgen/core/travel';
+import { planRoute, coordinateDistance } from '@/engines/worldgen/core/travel';
+import type { WorldData } from '@/engines/worldgen/core/types';
 import { clockAt, clockText, dayPart, legClocks, placesPassed, roadsTaken, groundsCrossed, routeStretches } from '@/engines/worldgen/core/routeWords';
 import { effectiveHoursPerDay, HARD_PACE_REST_EVERY } from '@/engines/worldgen/core/travel';
 import { saveWorldJourney } from '@/engines/worldgen/journeyOperations';
@@ -23,6 +24,26 @@ export async function testWorldRouteWords(): Promise<string[]> {
     const polarCells = Array.from({ length: 20 }, (_, k) => (1 + k) * 256 + 10);
     const polarPasses = placesPassed(polar, { settlements: [{ x: 24, y: 3, name: 'Norte', rank: 'village' }] }, { cells: polarCells, km: 3000 });
     assert(polarPasses.length === 1 && polarPasses[0].name === 'Norte', `A town near a polar route: ${JSON.stringify(polarPasses)}`);
+    // Every town a route passes is listed, wherever it is: a sweep of towns beside short north-south routes in
+    // both polar bands and at mid latitudes, against the exact distance (the quick box must never drop one).
+    let swept = 0;
+    for (const [W, H, nearKm] of [[256, 128, undefined], [256, 128, 600], [1024, 512, 300]] as const) {
+      const grid = { width: W, height: H } as unknown as WorldData;
+      const cellKm = (2 * Math.PI * 6371) / W, near = nearKm ?? Math.max(10, cellKm * 1.5);
+      for (const top of [1, 4, Math.floor(H / 3), H - 16, H - 9]) {
+        const cells = Array.from({ length: 8 }, (_, k) => (top + k) * W + 10);
+        const towns = [] as { x: number; y: number; name: string; rank: string }[];
+        for (let dy = -3; dy <= 10; dy++) for (let dx = 0; dx <= 160 && 10 + dx < W; dx++) { const y = top + dy; if (y >= 0 && y < H) towns.push({ x: 10 + dx, y, name: `t${dx}_${y}`, rank: 'village' }); }
+        const got = new Set(placesPassed(grid as never, { settlements: towns as never }, { cells, km: 1000 }, { nearKm }).map((p) => p.name));
+        const dist = (cell: number, t: { x: number; y: number }) => coordinateDistance(grid, (cell % W) + 0.5, Math.floor(cell / W) + 0.5, t.x + 0.5, t.y + 0.5, 6371);
+        for (const t of towns) {
+          const best = Math.min(...cells.map((c) => dist(c, t)));
+          const want = best <= near && dist(cells[0], t) > cellKm * 1.5 && dist(cells[cells.length - 1], t) > cellKm * 1.5;
+          assert(want === got.has(t.name), `${W}x${H} near ${near.toFixed(0)} km, route rows ${top}-${top + 7}: ${t.name} ${want ? 'missing' : 'extra'} (${best.toFixed(1)} km)`);
+          if (want) swept++;
+        }
+      }
+    }
     // The clock.
     assert(dayPart(6) === 'dawn' && dayPart(9) === 'morning' && dayPart(13) === 'noon' && dayPart(16) === 'afternoon' && dayPart(19.5) === 'dusk' && dayPart(23) === 'night' && dayPart(2) === 'night', 'Parts of the day');
     const c = clockAt(25, 10, 7);
@@ -119,6 +140,7 @@ export async function testWorldRouteWords(): Promise<string[]> {
     assert(plan.stretches.every((st, i) => i === 0 || st.day >= plan.stretches[i - 1].day) && plan.stretches.length === Math.min(30, stretches.length), `Bridge stretches in order: ${JSON.stringify(plan.stretches.slice(0, 5))}`);
     assert(plan.roads.length > 0 && Array.isArray(plan.passes) && plan.nights.filter((n) => n.shelter).length === inns, `Bridge words ${JSON.stringify({ roads: plan.roads, passes: plan.passes.length, inns })}`);
     return [
+      `Places passed: a sweep of ${swept} towns beside north-south routes in both polar bands and mid latitudes on three grids matches the exact distance, town by town`,
       'Near a pole, a town fourteen columns off the route (narrow columns) is listed as passed',
       'Clock: parts of the day, the day and hour after N hours on the move (a moment on a day\'s end belongs to that evening), 07:30-style text',
       `From ${picked.a.name} to ${picked.b.name}: ${stretches.length} stretches in travel order adding up to the route, with clocks from day 1 at the set-off hour running forward (a hard pace's arrival counts its ${hard.restDays ?? 0} rest days); a journey of ${variedStretches.length} stretches gives its grounds in the order first met (${realGrounds.join(', ')}) with clocks running forward`,

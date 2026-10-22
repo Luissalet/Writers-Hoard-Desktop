@@ -808,6 +808,16 @@ Optional: pathStyle for a route (road, trail or river; not for regions or labels
     }, required: ['mapId', 'id'], additionalProperties: false },
   },
   {
+    name: 'wh_set_map_layers', writes: true,
+    description: 'Show or hide what a classic map draws: pins, region, path and label; portraits (a pin linked to an entry with a picture shows that picture framed in the pin colour, its name under it; on unless set false); names (every pin name always in view, off unless set true). Pass any of them as true or false; undoable.',
+    schema: { type: 'object', properties: {
+      mapId: s('Map id.'),
+      pins: { type: 'boolean' }, region: { type: 'boolean' }, path: { type: 'boolean' }, label: { type: 'boolean' },
+      portraits: { type: 'boolean', description: 'Pins linked to an entry with a picture show the picture.' },
+      names: { type: 'boolean', description: 'Every pin name always in view.' },
+    }, required: ['mapId'], additionalProperties: false },
+  },
+  {
     name: 'wh_set_map_scale', writes: true,
     description: 'Give a classic map a scale: how many kilometres the picture spans from left to right. Pass exactly one of widthKm (0.01 to 40000), knownDistance ({from:{x,y}, to:{x,y}, km}: two points in percent of the picture that are km apart; needs the picture proportions, read from its image or given as aspect) or clear: true to remove the scale. Returns the widthKm saved. Undo restores the previous scale only while this one is still in place.',
     schema: { type: 'object', properties: {
@@ -898,6 +908,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       worldId: WORLD_ID,
       theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }),
       skin3D: s('3D surface.', { enum: ['satelite', 'dibujado', 'arcilla'] }),
+      stage3D: s('3D stage on the plane with the whole world in view: maqueta = a tabletop model with its cut walls, table and shadow (default); paisaje = a landscape reaching to the horizon.', { enum: ['maqueta', 'paisaje'] }),
       reliefAmount: n('Relief symbol density, 0.3 to 2. Default 1.'),
       layers: { type: 'object', description: 'Layers to show (true) or hide (false).', properties: Object.fromEntries(['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'].map((key) => [key, { type: 'boolean' }])), additionalProperties: false },
       readerStart: s("How the reader's-eye map starts before any fog stroke: blank (default), sketch (all heard of) or ink (all seen).", { enum: ['blank', 'sketch', 'ink'] }),

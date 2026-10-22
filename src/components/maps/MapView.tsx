@@ -191,6 +191,12 @@ export default function MapView({
   const linkedEntry = selectedPin?.linkedEntryId
     ? codexEntries.find((entry) => entry.id === selectedPin.linkedEntryId)
     : null;
+  /** The picture each pin shows, when the portraits layer is on and its entry has one. */
+  const pinPortraits: Record<string, string> = {};
+  if (featureEditor.layers.portraits !== false) {
+    const avatars = new Map(codexEntries.filter((entry) => entry.avatar).map((entry) => [entry.id, entry.avatar!]));
+    for (const pin of pins) { const avatar = pin.linkedEntryId ? avatars.get(pin.linkedEntryId) : undefined; if (avatar) pinPortraits[pin.id] = avatar; }
+  }
   const sortedCodexEntries = [...codexEntries].sort((a, b) => {
     if (a.type === 'location' && b.type !== 'location') return -1;
     if (a.type !== 'location' && b.type === 'location') return 1;
@@ -456,7 +462,7 @@ export default function MapView({
       {backgroundImage && <MapFeatureToolbar editor={featureEditor} onToolChange={() => { setPlacingPin(false); setMeasure(null); }} />}
       {backgroundImage && <MapScalePanel widthKm={widthKm} aspect={aspect} readOnly={readOnly} onSetScale={onChangeScale} measure={measure} onMeasure={points => { setMeasure(points); if (points) { setPlacingPin(false); if (featureEditor.drawing) featureEditor.changeTool('select'); } }} realId={realId} onRealId={id => { setRealId(id); setRealCenter({ x: 50, y: 50 }); }} realSize={realOutline ? { widthKm: realOutline.widthKm, heightKm: realOutline.heightKm } : null} pins={pins}
         onRenamePins={readOnly ? undefined : async matches => { for (const match of matches) { const pin = pins.find(item => item.id === match.pinId); if (pin) await onEditPin(pin.id, { name: match.to }, pin); } }} />}
-      {backgroundImage && featureEditor.enabled && <button type="button" className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold" onClick={() => saveAs(new Blob([exportMapSvg(backgroundImage, imageSize.width, imageSize.height, featureEditor.features, pins, featureEditor.layers, featureEditor.namedLayers, widthKm)], { type: 'image/svg+xml;charset=utf-8' }), `map-${mapId}.svg`)}><Download size={14} />{featureEditor.copy.export}</button>}
+      {backgroundImage && featureEditor.enabled && <button type="button" className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold" onClick={() => saveAs(new Blob([exportMapSvg(backgroundImage, imageSize.width, imageSize.height, featureEditor.features, pins, featureEditor.layers, featureEditor.namedLayers, widthKm, pinPortraits)], { type: 'image/svg+xml;charset=utf-8' }), `map-${mapId}.svg`)}><Download size={14} />{featureEditor.copy.export}</button>}
 
       {/* Map Canvas */}
       <div className={featureEditor.selected ? 'grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]' : 'space-y-4'}>
@@ -486,6 +492,8 @@ export default function MapView({
                 {featureEditor.layers.pins && pins.filter(pin => mapItemVisible(pin, featureEditor.namedLayers)).map(pin => {
                   const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
                   const Icon = config.icon;
+                  const portrait = pinPortraits[pin.id];
+                  const showName = featureEditor.layers.names === true || !!portrait;
                   const isSelected = selectedPinId === pin.id;
                   const position = dragState?.id === pin.id ? dragState.position : pin.position;
                   return (
@@ -509,7 +517,16 @@ export default function MapView({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="relative">
-                        <div
+                        {portrait ? <div
+                          data-testid={`map-pin-marker-${pin.id}`}
+                          data-size={pin.size ?? 'M'}
+                          data-portrait="true"
+                          className={`relative mb-[7px] ${pin.size === 'S' ? 'w-7 h-7' : pin.size === 'L' ? 'w-14 h-14' : 'w-10 h-10'} rounded-md shadow-lg shadow-black/50 ${readOnly ? 'cursor-pointer' : 'cursor-move'} transition-transform hover:scale-110 ${isSelected ? 'ring-2 ring-accent-gold ring-offset-2 ring-offset-deep' : ''}`}
+                          style={{ border: `2.5px solid ${pin.color ?? config.color}`, background: pin.color ?? config.color }}
+                        >
+                          <img src={portrait} alt="" draggable={false} className="w-full h-full rounded-[3px] object-cover pointer-events-none select-none" />
+                          <span aria-hidden className="absolute left-1/2 -bottom-[7px] -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[6px]" style={{ borderTopColor: pin.color ?? config.color }} />
+                        </div> : <div
                           data-testid={`map-pin-marker-${pin.id}`}
                           data-size={pin.size ?? 'M'}
                           className={`${pin.size === 'S' ? 'w-5 h-5' : pin.size === 'L' ? 'w-11 h-11' : 'w-8 h-8'} rounded-full flex items-center justify-center shadow-lg ${readOnly ? 'cursor-pointer' : 'cursor-move'} border-2 transition-transform hover:scale-125 ${
@@ -520,7 +537,12 @@ export default function MapView({
                           style={{ backgroundColor: pin.color ?? config.color }}
                         >
                           {!pin.hideIcon && <Icon size={pin.size === 'S' ? 11 : pin.size === 'L' ? 22 : 16} className="text-white" />}
-                        </div>
+                        </div>}
+                        {showName && hoveredPin !== pin.id && (
+                          <div data-testid={`map-pin-name-${pin.id}`} className={`absolute left-1/2 -translate-x-1/2 top-full ${portrait ? 'mt-[9px]' : 'mt-0.5'} pointer-events-none whitespace-nowrap rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-white shadow`}>
+                            {pin.name}
+                          </div>
+                        )}
 
                         {/* Tooltip */}
                         {hoveredPin === pin.id && (

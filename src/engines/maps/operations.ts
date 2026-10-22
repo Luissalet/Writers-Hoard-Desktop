@@ -7,6 +7,7 @@ import { generateId } from '@/utils/idGenerator';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { trackPendingWrite } from '@/services/pendingWrites';
 import { remapMapContent, remapPoint, type GroundFitMode, type GroundSize } from '@/components/maps/mapGround';
+import { DEFAULT_MAP_LAYERS } from '@/components/maps/mapGeometry';
 
 export const worldMapOps = makeTableOps<WorldMap>({
   tableName: 'worldMaps',
@@ -284,6 +285,27 @@ export function undoMapScale(receipt: MapScaleReceipt, scope?: WorldEraScope): P
   return runMapVersionWrite(receipt.mapId, async map => {
     if ((map.widthKm ?? null) !== receipt.to) throw new Error('The scale of this map changed after this edit');
     await scopedMapUpdate(receipt.mapId, scope, { widthKm: receipt.from ?? undefined, updatedAt: Date.now() });
+  }, scope);
+}
+
+export interface MapLayersReceipt { mapId: string; from: import('@/types').MapLayerVisibility | null; to: import('@/types').MapLayerVisibility }
+
+/** Show or hide the kinds of thing drawn on a map (pins, regions, routes, labels, portraits, names); returns the visibility it replaced. */
+export function setMapLayers(mapId: string, patch: Partial<import('@/types').MapLayerVisibility>, scope?: WorldEraScope): Promise<MapLayersReceipt> {
+  return runMapVersionWrite(mapId, async map => {
+    const from = map.layerVisibility ? structuredClone(map.layerVisibility) : null;
+    const to = { ...DEFAULT_MAP_LAYERS, ...(map.layerVisibility ?? {}), ...patch };
+    await scopedMapUpdate(mapId, scope, { layerVisibility: to, updatedAt: Date.now() });
+    return { mapId, from, to };
+  }, scope);
+}
+
+/** Put the previous visibility back; refuses when it was changed again since. */
+export function undoMapLayers(receipt: MapLayersReceipt, scope?: WorldEraScope): Promise<void> {
+  return runMapVersionWrite(receipt.mapId, async map => {
+    const now = { ...DEFAULT_MAP_LAYERS, ...(map.layerVisibility ?? {}) };
+    if ((Object.keys(receipt.to) as (keyof typeof receipt.to)[]).some((key) => now[key] !== receipt.to[key])) throw new Error('What this map shows was changed after this edit');
+    await scopedMapUpdate(receipt.mapId, scope, { layerVisibility: receipt.from ?? undefined, updatedAt: Date.now() });
   }, scope);
 }
 

@@ -177,7 +177,7 @@ interface WorldViewProps {
 /** A look as flat fields, so changes are compared and saved one field at a time. */
 function flattenLook(look: WorldPresentation): Record<string, unknown> {
   // The grid is compared and saved whole, as one field.
-  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null, readerStart: look.readerStart, contours: look.contours ?? null };
+  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, stage3D: look.stage3D ?? 'maqueta', reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null, readerStart: look.readerStart, contours: look.contours ?? null };
   for (const [key, value] of Object.entries(look.layers ?? {})) out[`layers.${key}`] = value;
   return out;
 }
@@ -233,6 +233,8 @@ export default function WorldView({
   const savedLook = useMemo(() => resolvePresentation(world.presentation), [world.presentation]);
   const [themeId, setThemeId] = useState<string>(savedLook.theme);
   const [skin3D, setSkin3D] = useState<Skin3D>(savedLook.skin3D);
+  /** On the 3D plane: tabletop model or landscape, saved with the look. */
+  const [stage3D, setStage3D] = useState<'maqueta' | 'paisaje'>(savedLook.stage3D);
   /** The play grid over the map (squares or hexes, in km), saved with the look. */
   const [mapGrid, setMapGrid] = useState<MapGrid | null>(savedLook.grid ?? null);
   /** Contour lines: as the look draws them (null), none, or every N metres; saved with the look. */
@@ -288,12 +290,13 @@ export default function WorldView({
   const lookToSave = useMemo<WorldPresentation>(() => ({
     theme: themeId as WorldPresentation['theme'],
     skin3D,
+    stage3D,
     reliefAmount: reliefSettled,
     layers: Object.fromEntries(PRESENTATION_LAYERS.map((key) => [key, cartoLayers[key] !== false && (key !== 'borders' || cartoLayers.borders === true)])),
     grid: mapGrid,
     readerStart,
     contours: contourLines,
-  }), [themeId, skin3D, reliefSettled, cartoLayers, mapGrid, readerStart, contourLines]);
+  }), [themeId, skin3D, stage3D, reliefSettled, cartoLayers, mapGrid, readerStart, contourLines]);
   /** The stored look this view last knew, field by field (layers as "layers.x"). */
   const lookBaseline = useRef(flattenLook(lookToSave));
   const lookRevision = useRef(world.presentationRevision ?? 0);
@@ -304,14 +307,14 @@ export default function WorldView({
     if (revision <= lookRevision.current) return;
     lookRevision.current = revision;
     const resolved = resolvePresentation(world.presentation);
-    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid, readerStart: resolved.readerStart, contours: resolved.contours });
+    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, stage3D: resolved.stage3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid, readerStart: resolved.readerStart, contours: resolved.contours });
     // Adopt what changed elsewhere, but only for fields this view has not
     // changed itself and not yet saved: that choice is still on its way.
     const local = flattenLook(lookLocal.current), base = lookBaseline.current, next: Record<string, unknown> = {};
     for (const key of Object.keys(incoming)) next[key] = local[key] !== base[key] ? local[key] : incoming[key];
     lookBaseline.current = incoming;
     const look = unflattenLook(next);
-    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null); setReaderStart(look.readerStart ?? 'blank'); setContourLines(look.contours ?? null);
+    setThemeId(look.theme!); setSkin3D(look.skin3D!); setStage3D(look.stage3D ?? 'maqueta'); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null); setReaderStart(look.readerStart ?? 'blank'); setContourLines(look.contours ?? null);
     setCartoLayers((current) => ({ ...current, ...look.layers }));
   }, [world.presentation, world.presentationRevision]);
   useEffect(() => {
@@ -376,7 +379,9 @@ export default function WorldView({
   const [flyMark, setFlyMark] = useState<FlyMark | null>(null);
   /** First end of a road being laid, waiting for its second click. */
   const [roadFrom, setRoadFrom] = useState<Settlement | null>(null);
-  const [exaggeration, setExaggeration] = useState(30);
+  // 18, not 30: at 30 the whole-world view was a field of spikes — the ranges
+  // read better, and the model looks like land, at a little over half that.
+  const [exaggeration, setExaggeration] = useState(18);
   const [exportOpen, setExportOpen] = useState(false);
   /** El localizador: Ctrl+F o la lupa, en las tres vistas. */
   const [locatorOpen, setLocatorOpen] = useState(false);
@@ -2055,6 +2060,28 @@ export default function WorldView({
             ))}
           </div>
         )}
+        {/* 3D stage switch: tabletop model or landscape (the plane only) */}
+        {view === '3d' && shape3D === 'plane' && (
+          <div className="flex rounded-lg border border-border overflow-hidden" role="group" aria-label={t('worldgen.threeD.stage.label')}>
+            {(['maqueta', 'paisaje'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                data-testid={`worldgen-stage-${s}`}
+                aria-pressed={stage3D === s}
+                onClick={() => setStage3D(s)}
+                title={t(`worldgen.threeD.stage.${s}.title`)}
+                className={`px-3 py-1.5 text-xs transition ${
+                  stage3D === s
+                    ? 'bg-accent-gold/15 text-accent-gold'
+                    : 'bg-elevated text-text-muted hover:text-text-primary'
+                }`}
+              >
+                {t(`worldgen.threeD.stage.${s}`)}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Overlay toggles */}
         <div className="flex items-center gap-1">
@@ -2443,6 +2470,7 @@ export default function WorldView({
                 onViewportChange={setViewport}
                 skin={skin3D}
                 shape={shape3D}
+                stage={stage3D}
                 onShape={setShape3D}
                 exaggeration={exaggeration}
                 // The reader's-eye tools draw on flat maps only; the globe gets the hand.

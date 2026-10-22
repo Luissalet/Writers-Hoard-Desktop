@@ -141,6 +141,15 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId: receipt.mapId, what: summary };
   }
 
+  if (entry.tool === 'wh_set_map_layers' && entry.before && typeof entry.before === 'object' && '__mapLayers' in entry.before) {
+    const receipt = (entry.before as { __mapLayers: import('@/engines/maps/operations').MapLayersReceipt }).__mapLayers;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { undoMapLayers } = await import('@/engines/maps/operations');
+    try { await undoMapLayers(receipt, scope); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
   if (entry.tool === 'wh_name_map_pins_from_key' && entry.before && typeof entry.before === 'object' && '__mapPinNames' in entry.before) {
     const receipt = (entry.before as { __mapPinNames: { mapId: string; renames: import('@/engines/maps/operations').MapPinRename[] } }).__mapPinNames;
     const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;

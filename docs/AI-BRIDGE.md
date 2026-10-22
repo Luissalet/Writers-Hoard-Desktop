@@ -1864,6 +1864,15 @@ deshecho.
   hito como «<nombre> 2» en la tierra libre más cercana o en `x`,`y`; mar,
   lago o una celda con lugar o historial se rechazan; reinos y mares no; se
   deshace),
+  `wh_set_world_presentation` acepta `stage3D` (`maqueta`, por defecto: el mundo
+  entero en el plano 3D como un bloque sobre una mesa, con el corte de roca y mar,
+  su sombra y el mar recortado al bloque; `paisaje`: hasta el horizonte; se
+  guarda con el aspecto y se deshace), y `wh_set_map_layers` (mapa clásico:
+  `pins`, `region`, `path`, `label`, `portraits` —un marcador enlazado a una
+  ficha con imagen la muestra enmarcada en su color, con el nombre debajo; activo
+  si no se apaga— y `names` —todos los nombres a la vista—; booleanos, rechaza
+  campos desconocidos y nada que cambiar; se deshace y el deshacer se niega si
+  alguien cambió las capas después; la exportación SVG lleva los retratos),
   `wh_set_world_presentation` acepta `contours` (cada N metros, 50–2000, sobre
   cualquier estilo; `"off"` sin curvas; `null` las del estilo), que dibujan el
   atlas, la Carta, las exportaciones y `wh_render_world_map`;

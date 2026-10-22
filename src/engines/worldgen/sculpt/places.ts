@@ -4,7 +4,7 @@ import { buildingPalette, placeParts, settlementStyle, symbolScale, hasPlaceMode
 import type { WorldData } from '../core/types';
 import type { HumanGeography } from '../core/settlements';
 import { EARTH_KM } from '../core/camera';
-import { SIZE_X, R_GLOBE, type SculptSurface } from './scene3d';
+import { SIZE_X, R_GLOBE, GLOBE_RELIEF, type SculptSurface } from './scene3d';
 import type { WorldSpatialEntity } from '../core/spatialEntities';
 import type { WorldSpatialStyle } from '../core/spatialEntities';
 import type { CultureId } from '../core/naming';
@@ -81,7 +81,7 @@ export function createPlaceModels() {
       else {
         const lon = (u - .5) * Math.PI * 2, lat = (.5 - v) * Math.PI;
         normal.set(Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon));
-        object.position.copy(normal).multiplyScalar(R_GLOBE + elevation * surface.yMul * .55 + scale * .015);
+        object.position.copy(normal).multiplyScalar(R_GLOBE + elevation * surface.yMul * GLOBE_RELIEF + scale * .015);
         object.quaternion.setFromUnitVectors(up, normal);
       }
       if (keep.size >= 128) break;

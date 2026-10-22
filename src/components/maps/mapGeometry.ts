@@ -2,7 +2,7 @@ import type { MapFeature, MapLayerVisibility, MapPoint, MapPin, MapNamedLayer } 
 import { pathLook, patternSvg, patternTile, resolvedLabel, resolvedStroke } from './mapStyle';
 import { scaleBar } from './mapScale';
 
-export const DEFAULT_MAP_LAYERS: MapLayerVisibility = { pins: true, region: true, path: true, label: true };
+export const DEFAULT_MAP_LAYERS: MapLayerVisibility = { pins: true, region: true, path: true, label: true, portraits: true, names: false };
 export const EMPTY_MAP_FEATURES: MapFeature[] = [];
 export const EMPTY_MAP_NAMED_LAYERS: MapNamedLayer[] = [];
 /** The named layers an item belongs to: all of `layerIds`, or the single older `layerId`. */
@@ -97,7 +97,7 @@ export function stepMapFeatures(current: MapFeature[], left: MapFeature[], targe
 const escapeXml = (value: string): string => value.replace(/[<>&"']/g, char => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[char]!);
 
 /** Self-contained vector export: no services, script, foreignObject, or linked resources. */
-export function exportMapSvg(background: string, width: number, height: number, features: MapFeature[], pins: MapPin[], layers: MapLayerVisibility, namedLayers: MapNamedLayer[] = [], widthKm?: number): string {
+export function exportMapSvg(background: string, width: number, height: number, features: MapFeature[], pins: MapPin[], layers: MapLayerVisibility, namedLayers: MapNamedLayer[] = [], widthKm?: number, portraits: Record<string, string> = {}): string {
   const w = Math.max(1, width), h = Math.max(1, height);
   const position = (point: MapPoint) => `${point.x * w / 100},${point.y * h / 100}`;
   const label = (name: string, point: MapPoint, color: string) => `<text x="${point.x * w / 100}" y="${point.y * h / 100}" text-anchor="middle" fill="${escapeXml(color)}" stroke="#17191a" stroke-width="3" paint-order="stroke" font-family="Georgia,serif" font-size="${Math.max(14, w / 65)}">${escapeXml(name)}</text>`;
@@ -119,7 +119,18 @@ export function exportMapSvg(background: string, width: number, height: number, 
     return `<g><title>${escapeXml(feature.description || feature.name)}</title>${shape}${shapeLabel(feature, mapFeatureCenter(feature.points))}</g>`;
   }).join('');
   const pinRadius = { S: 5, M: 7, L: 10 } as const;
-  const markers = layers.pins ? pins.filter(pin => mapItemVisible(pin, namedLayers)).map(pin => `<g><circle cx="${pin.position.x * w / 100}" cy="${pin.position.y * h / 100}" r="${pinRadius[pin.size ?? 'M']}" fill="${escapeXml(pin.color ?? '#d5b575')}"/>${label(pin.name, { x: pin.position.x, y: pin.position.y - 2 }, '#eeeae2')}</g>`).join('') : '';
+  // A pin with a portrait is drawn as the screen draws it: the picture in a frame of the pin's colour, standing on its point, the name under it.
+  const portraitSide = { S: 28, M: 40, L: 56 } as const;
+  const portraitOn = layers.portraits !== false;
+  const markers = layers.pins ? pins.filter(pin => mapItemVisible(pin, namedLayers)).map((pin, index) => {
+    const x = pin.position.x * w / 100, y = pin.position.y * h / 100, color = escapeXml(pin.color ?? '#d5b575');
+    const picture = portraitOn ? portraits[pin.id] : undefined;
+    if (picture && /^data:image\/(png|jpeg|gif|webp|avif|bmp);base64,/i.test(picture)) {
+      const side = portraitSide[pin.size ?? 'M'], left = x - side / 2, top = y - side - 6;
+      return `<g><title>${escapeXml(pin.name)}</title><clipPath id="pp${index}"><rect x="${left}" y="${top}" width="${side}" height="${side}" rx="5"/></clipPath><image href="${escapeXml(picture)}" x="${left}" y="${top}" width="${side}" height="${side}" preserveAspectRatio="xMidYMid slice" clip-path="url(#pp${index})"/><rect x="${left}" y="${top}" width="${side}" height="${side}" rx="5" fill="none" stroke="${color}" stroke-width="2.5"/><path d="M${x - 5},${y - 6} L${x + 5},${y - 6} L${x},${y} Z" fill="${color}"/>${label(pin.name, { x: pin.position.x, y: pin.position.y + 1800 / h }, '#eeeae2')}</g>`;
+    }
+    return `<g><circle cx="${x}" cy="${y}" r="${pinRadius[pin.size ?? 'M']}" fill="${color}"/>${label(pin.name, { x: pin.position.x, y: pin.position.y - 2 }, '#eeeae2')}</g>`;
+  }).join('') : '';
   // Uploaded/Gallery backgrounds are data images. Do not turn a remote reference into a network request on export.
   const image = /^data:image\/(png|jpeg|gif|webp|avif|bmp);base64,/i.test(background) ? `<image href="${escapeXml(background)}" width="${w}" height="${h}"/>` : '';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}<rect width="100%" height="100%" fill="#17191a"/>${image}${shapes}${markers}${widthKm ? scaleBarSvg(widthKm, w, h) : ''}</svg>`;

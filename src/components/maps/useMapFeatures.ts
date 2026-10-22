@@ -165,7 +165,7 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     lock.current = true;
     setBusy(true);
     setFailed(false);
-    try { await onChangeLayers({ ...layers, [key]: !layers[key] },layers); }
+    try { await onChangeLayers({ ...layers, [key]: !(layers[key] ?? DEFAULT_MAP_LAYERS[key]) },layers); }
     catch { setFailed(true); }
     finally { lock.current = false; setBusy(false); }
   };
