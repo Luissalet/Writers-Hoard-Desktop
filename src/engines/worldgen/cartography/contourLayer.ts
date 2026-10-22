@@ -20,15 +20,15 @@ const MAX_LEVELS = 60;
 export interface ContourLine { pts: Pt[]; closed: boolean; minX: number; maxX: number; minY: number; maxY: number }
 
 /**
- * A cheap fingerprint of the heights: a label, a marker or a story event bumps
- * the world's revision without moving the ground, and must not cost sixty
- * marching-squares passes.
+ * A fingerprint of the heights, every cell of them: a label, a marker or a
+ * story event bumps the world's revision without moving the ground and must
+ * not cost sixty marching-squares passes, while the smallest sculpt stroke
+ * must. Only worked out when the revision has changed.
  */
 function groundPrint(world: WorldData): number {
   const e = world.elevation;
-  let h = e.length;
-  const step = Math.max(1, Math.floor(e.length / 4096));
-  for (let i = 0; i < e.length; i += step) h = (h * 31 + Math.round(e[i] * 1e4)) | 0;
+  let h = e.length | 0;
+  for (let i = 0; i < e.length; i++) h = (Math.imul(h, 31) + ((e[i] * 1e5) | 0)) | 0;
   return h;
 }
 
