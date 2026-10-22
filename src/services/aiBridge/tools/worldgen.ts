@@ -1342,3 +1342,14 @@ export async function whRemoveTradeSite(args: ToolArgs): Promise<unknown> {
   if (!state.sites.some((site) => site.id === id)) throw new BridgeError('not-found', `No trade site "${id}" on this world; use wh_list_trade_sites.`);
   return appendEdit(args, world, state.economy.tradeSiteRemoveEdit(id), { id, removed: true }, `removed trade site ${id} from world "${world.title}"`);
 }
+
+/** Switch a generated site back on after it was switched off. Undoable. */
+export async function whRestoreTradeSite(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const id = requireString(args, 'id');
+  const economy = await import('@/engines/worldgen/core/economy');
+  const { removed } = economy.tradeSitesFrom(deserializeEdits(world.edits ?? '[]'));
+  if (!removed.includes(id)) throw new BridgeError('not-found', `"${id}" is not a switched-off generated site on this world.`);
+  return appendEdit(args, world, economy.tradeSiteRestoreEdit(id), { id, restored: true }, `switched trade site ${id} back on in world "${world.title}"`);
+}

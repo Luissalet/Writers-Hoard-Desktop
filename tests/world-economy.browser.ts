@@ -28,7 +28,7 @@ function makeWorld(): EconomyWorld {
   };
   fill(30, 65, 0, H - 1, Biome.Ocean, -1, 10);          // sea: 36 cells wide
   fill(0, 4, 5, 11, Biome.Desert, 0.2, 28);             // desert on the seam (x = 0..4)
-  fill(4, 12, 24, 30, Biome.Desert, 0.2, 28);           // desert pocket, no farmland
+  fill(4, 12, 17, 23, Biome.Desert, 0.2, 28);           // desert pocket, no farmland
   fill(8, 12, 2, 6, Biome.Alpine, 2.2, 2);              // high ground
   fill(14, 20, 18, 26, Biome.TemperateForest, 0.3, 12); // forest, far from every place
   fill(24, 26, 12, 13, Biome.SaltFlat, 0.1, 20);        // salt on the west shore
@@ -48,7 +48,7 @@ function makeInput(extra: Partial<EconomyInput> = {}): EconomyInput {
       place(2, 'Highholt', 10, 8, 'town', 2500),
       place(3, 'Portwest', 29, 16, 'city', 2000, true),
       place(4, 'Eastport', 66, 16, 'town', 3000, true),
-      place(5, 'Dune', 8, 27, 'village', 400),
+      place(5, 'Dune', 8, 20, 'village', 400),
     ],
   };
 }
@@ -78,7 +78,7 @@ export async function testWorldEconomy(): Promise<string[]> {
   for (const p of input.places) {
     const own = first.filter((s) => s.placeId === p.id);
     assert(own.length <= SITE_CAP[p.rank], `${p.name} opened ${own.length} sites`);
-    assert(own.every((s) => /^auto:\d+:[a-z]+:\d+$/.test(s.id) && s.id.startsWith(`auto:${p.id}:`)), `Odd ids at ${p.name}`);
+    assert(own.every((s) => /^auto:\d+,\d+:[a-z]+:\d+$/.test(s.id) && s.id.startsWith(`auto:${Math.floor(p.x)},${Math.floor(p.y)}:`)), `Odd ids at ${p.name}`);
   }
   assert(new Set(first.map((s) => s.id)).size === first.length && new Set(first.map((s) => `${s.x},${s.y}`)).size === first.length, 'Ids or cells collide');
   assert(first.some((s) => s.placeId === 0 && s.kind === 'farm') && !first.some((s) => s.placeId === 5 && s.kind === 'farm'), 'Wheatby farms, Dune cannot');
@@ -87,7 +87,7 @@ export async function testWorldEconomy(): Promise<string[]> {
   const seamFarms = first.filter((s) => s.placeId === 1 && s.kind === 'farm');
   assert(seamFarms.length > 0 && seamFarms.every((s) => s.x >= W - 4), `Seamside should farm across the seam: ${JSON.stringify(seamFarms.map((s) => s.x))}`);
   const dropped = first[0].id;
-  const manual: TradeSite = { id: 'm1', kind: 'camp', x: 16, y: 20, size: 'L', placeId: null, auto: true };
+  const manual: TradeSite = { id: 'm1', kind: 'camp', x: 16, y: 18, size: 'L', placeId: null, auto: true };
   const edited = autoSites(makeInput({ removedSites: [dropped], manualSites: [manual] }));
   assert(!edited.some((s) => s.id === dropped) && first.filter((s) => s.id !== dropped).every((s) => edited.some((e) => e.id === s.id && e.x === s.x && e.y === s.y)), 'Removing a site disturbed the others');
   const m1 = edited.find((s) => s.id === 'm1');
@@ -108,7 +108,7 @@ export async function testWorldEconomy(): Promise<string[]> {
     for (const snap of run) {
       const atSea = sum(snap.movements.filter((m) => m.bySea && m.good === g).map((m) => m.amount));
       const now = sum(snap.places.map((p) => p.stock[g])) + atSea;
-      const expected = before + sum(snap.places.map((p) => p.production[g] - p.consumed[g]));
+      const expected = before + sum(snap.places.map((p) => p.production[g] - p.consumed[g] - (p.eatenInstead[g] ?? 0)));
       assert(Math.abs(now - expected) < 1e-6 * Math.max(1, expected), `${g} not conserved in month ${snap.month}: ${now} vs ${expected}`);
       before = now;
     }

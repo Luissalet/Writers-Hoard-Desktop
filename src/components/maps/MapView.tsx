@@ -28,7 +28,7 @@ import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
 import { ConfirmDialog } from '@/engines/_shared';
 import { useMapFeatures, type MapFeatureOptions } from './useMapFeatures';
 import { MapFeatureCanvas, MapFeatureInspector, MapFeatureToolbar } from './MapFeatureEditor';
-import { exportMapSvg, mapItemVisible } from './mapGeometry';
+import { exportMapSvg, mapItemLayers, mapItemVisible, withMapLayers } from './mapGeometry';
 import MapViewportControls from './MapViewportControls';
 
 const PIN_ICONS: Record<string, { icon: typeof MapPinIcon; color: string }> = {
@@ -75,6 +75,9 @@ export interface PinDraft {
   color?: string;
   linkedEntryId?: string;
   layerId?: string;
+  size?: MapPin['size'];
+  hideIcon?: boolean;
+  layerIds?: string[];
 }
 
 interface PinDragState {
@@ -141,9 +144,9 @@ export default function MapView({
   useEmbeddedToolCloseGuard(()=>{
     if(readOnly)return true;
     if(savingPin||creatingPin||featureEditor.busy||showPinForm||featureEditor.dirty||featureEditor.drawing&&featureEditor.points.length>0)return false;
-    return !pinDraft||!selectedPin||JSON.stringify({...pinDraft,baseline:undefined})===JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId});
+    return !pinDraft||!selectedPin||JSON.stringify({...pinDraft,baseline:undefined})===JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId,layerIds:selectedPin.layerIds,size:selectedPin.size,hideIcon:selectedPin.hideIcon});
   });
-  useLocalToolAtomPending(!readOnly&&(savingPin||creatingPin||featureEditor.busy||showPinForm||featureEditor.dirty||featureEditor.drawing&&featureEditor.points.length>0||!!pinDraft&&!!selectedPin&&JSON.stringify({...pinDraft,baseline:undefined})!==JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId})));
+  useLocalToolAtomPending(!readOnly&&(savingPin||creatingPin||featureEditor.busy||showPinForm||featureEditor.dirty||featureEditor.drawing&&featureEditor.points.length>0||!!pinDraft&&!!selectedPin&&JSON.stringify({...pinDraft,baseline:undefined})!==JSON.stringify({name:selectedPin.name,description:selectedPin.description??'',icon:selectedPin.icon,color:selectedPin.color,linkedEntryId:selectedPin.linkedEntryId,layerId:selectedPin.layerId,layerIds:selectedPin.layerIds,size:selectedPin.size,hideIcon:selectedPin.hideIcon})));
   const linkedEntry = selectedPin?.linkedEntryId
     ? codexEntries.find((entry) => entry.id === selectedPin.linkedEntryId)
     : null;
@@ -172,6 +175,9 @@ export default function MapView({
       color: pin.color,
       linkedEntryId: pin.linkedEntryId,
       layerId: pin.layerId,
+      layerIds: pin.layerIds,
+      size: pin.size,
+      hideIcon: pin.hideIcon,
     });
   }, [drafts]);
 
@@ -260,12 +266,15 @@ export default function MapView({
         color: pinDraft.color,
         linkedEntryId: pinDraft.linkedEntryId || undefined,
         layerId: pinDraft.layerId || undefined,
+        layerIds: pinDraft.layerIds,
+        size: pinDraft.size,
+        hideIcon: pinDraft.hideIcon || undefined,
         ...(pinDraft.position?{position:pinDraft.position}:{}),
       };
-      const before=submitted.baseline??selectedPin,initial={name:before.name,description:before.description??'',icon:before.icon,color:before.color,linkedEntryId:before.linkedEntryId||undefined,layerId:before.layerId||undefined,position:before.position},changed=Object.fromEntries(Object.entries(changes).filter(([key,value])=>JSON.stringify(value)!==JSON.stringify(initial[key as keyof typeof initial])));
+      const before=submitted.baseline??selectedPin,initial={name:before.name,description:before.description??'',icon:before.icon,color:before.color,linkedEntryId:before.linkedEntryId||undefined,layerId:before.layerId||undefined,layerIds:before.layerIds,size:before.size,hideIcon:before.hideIcon||undefined,position:before.position},changed=Object.fromEntries(Object.entries(changes).filter(([key,value])=>JSON.stringify(value)!==JSON.stringify(initial[key as keyof typeof initial])));
       const saved=await onEditPin(id,changed,submitted.baseline),confirmed=saved??{...selectedPin,...changes};
       if (drafts.get(id) === submitted) drafts.delete(id);
-      setPinDraft(current=>current===submitted?{name:confirmed.name,description:confirmed.description??'',icon:confirmed.icon,color:confirmed.color,linkedEntryId:confirmed.linkedEntryId,layerId:confirmed.layerId,baseline:confirmed}:current);
+      setPinDraft(current=>current===submitted?{name:confirmed.name,description:confirmed.description??'',icon:confirmed.icon,color:confirmed.color,linkedEntryId:confirmed.linkedEntryId,layerId:confirmed.layerId,layerIds:confirmed.layerIds,size:confirmed.size,hideIcon:confirmed.hideIcon,baseline:confirmed}:current);
     } catch {
       setEditPinFailedId(id);
     } finally {
@@ -453,14 +462,16 @@ export default function MapView({
                     >
                       <div className="relative">
                         <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center shadow-lg ${readOnly ? 'cursor-pointer' : 'cursor-move'} border-2 transition-transform hover:scale-125 ${
+                          data-testid={`map-pin-marker-${pin.id}`}
+                          data-size={pin.size ?? 'M'}
+                          className={`${pin.size === 'S' ? 'w-5 h-5' : pin.size === 'L' ? 'w-11 h-11' : 'w-8 h-8'} rounded-full flex items-center justify-center shadow-lg ${readOnly ? 'cursor-pointer' : 'cursor-move'} border-2 transition-transform hover:scale-125 ${
                             isSelected
                               ? 'border-white ring-2 ring-accent-gold ring-offset-2 ring-offset-deep'
                               : 'border-white/20'
                           }`}
                           style={{ backgroundColor: pin.color ?? config.color }}
                         >
-                          <Icon size={16} className="text-white" />
+                          {!pin.hideIcon && <Icon size={pin.size === 'S' ? 11 : pin.size === 'L' ? 22 : 16} className="text-white" />}
                         </div>
 
                         {/* Tooltip */}
@@ -587,7 +598,7 @@ export default function MapView({
                 />
               </div>
 
-              {!!featureEditor.namedLayers.length && <label className="mt-4 block text-xs text-text-muted">{featureEditor.copy.layer}<select value={pinDraft.layerId ?? ''} onChange={event => patchPinDraft({ ...pinDraft, layerId: event.target.value || undefined })} className="mt-1.5 w-full rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary" data-testid="map-pin-layer"><option value="">{featureEditor.copy.ungrouped}</option>{featureEditor.namedLayers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}</select></label>}
+              {!!featureEditor.namedLayers.length && <fieldset className="mt-4 text-xs text-text-muted" data-testid="map-pin-layers"><legend>{featureEditor.copy.layersOf}</legend><div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">{featureEditor.namedLayers.map(layer => { const ids = mapItemLayers(pinDraft); return <label key={layer.id} className="flex items-center gap-1.5"><input type="checkbox" className="accent-accent-gold" checked={ids.includes(layer.id)} onChange={event => patchPinDraft({ ...pinDraft, ...withMapLayers(event.target.checked ? [...ids, layer.id] : ids.filter(id => id !== layer.id)) })} data-testid={`map-pin-layer-${layer.id}`} />{layer.name}</label>; })}</div></fieldset>}
               {linkedEntry && onOpenEntry && <button type="button" onClick={() => onOpenEntry(linkedEntry.id)} className="mt-3 inline-flex items-center gap-1.5 text-sm text-accent-gold hover:underline"><Link2 size={14} />{featureEditor.copy.openEntry}: {linkedEntry.title}</button>}
 
               <div className="mt-4">
@@ -614,6 +625,12 @@ export default function MapView({
                     );
                   })}
                 </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3" data-testid="map-pin-look">
+                <span className="text-xs text-text-muted">{t('maps.pinSize')}</span>
+                {(['S', 'M', 'L'] as const).map(size => <button key={size} type="button" data-testid={`map-pin-size-${size}`} onClick={() => patchPinDraft({ ...pinDraft, size: size === 'M' ? undefined : size })} className={`px-2.5 py-1 rounded-lg border text-xs ${(pinDraft.size ?? 'M') === size ? 'bg-accent-gold/10 border-accent-gold text-accent-gold' : 'bg-elevated border-border'}`}>{size}</button>)}
+                <label className="flex items-center gap-1.5 text-xs text-text-muted"><input type="checkbox" checked={!!pinDraft.hideIcon} onChange={event => patchPinDraft({ ...pinDraft, hideIcon: event.target.checked || undefined })} className="accent-accent-gold" data-testid="map-pin-hide-icon" />{t('maps.hideIcon')}</label>
               </div>
 
               {drafts.has(selectedPin.id) && <p className="mt-3 text-xs text-text-muted">{t('maps.draftKept')}</p>}

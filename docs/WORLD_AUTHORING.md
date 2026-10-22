@@ -81,6 +81,14 @@ painted relief and survey looks. Terrain, coastline, rivers, named places, paths
 zones, layers, time versions, journeys and3D views remain editable locally.
 Imported map images support the document's own overlays. Map exports use the
 same cartographic materials; generated3D terrain is actual geometry.
+On a classic (image) map, each region, route or label can have its own outline
+colour and width, a hatch over a region's fill (horizontal, vertical or
+diagonal stripes, dots, crosshatch, with a scale), and lettering (font, size,
+colour, halo and its width, bold, italic, rotation); shapes move to the front
+or back of the drawing order, a vertex is added by pulling the handle halfway
+along an edge and removed with a double-click, and a shape or pin can belong to
+several named layers (shown while any of them is visible). Pins come in three
+sizes and can hide their icon. The SVG export draws all of it.
 
 A generated world remembers its look (style, layers, relief density, 3D skin)
 for every view and export; an era that still inherits the world shares Base's
@@ -133,8 +141,13 @@ months and lists who is fed and who goes short of a staple (grain, meat,
 salt) and in how many months, read off the simulation itself with trade
 included; prices against the usual, goods nobody makes (with the kind of site
 that would make them), and the sites of a settlement. Farms, pastures and
-fisheries feed their own town; logging camps, quarries, mines and saltworks
-are few and supply a region (towns and cities look further afield for them). The author can place sites on the map
+fisheries feed their own town (villages and towns grow a surplus for the
+cities, which also draw on farms and herds in a hinterland); where grain will
+not grow, people live on fish and herds instead, and the lens says so. Logging
+camps, quarries, mines and saltworks are few and supply a region. Distances
+(working radius, hinterland, regional reach, road range) are in km, so a world
+of any size behaves alike. A generated site switched off can be switched back
+on from its settlement's sites. The author can place sites on the map
 or switch generated ones off; both are undoable world edits that change
 nothing in the terrain. The atlas (equirectangular and Mercator) and the Carta
 draw the sites and that month's shipments.

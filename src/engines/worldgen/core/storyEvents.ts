@@ -92,5 +92,5 @@ export function newStoryId(): string {
 /** True for edits the world itself ignores: the reader's fog, story events and trade sites. */
 export function isViewOnlyEdit(edit: WorldEdit): boolean {
   return edit.kind === 'fog' || edit.kind === 'story' || edit.kind === 'storyRemove'
-    || edit.kind === 'tradeSite' || edit.kind === 'tradeSiteRemove';
+    || edit.kind === 'tradeSite' || edit.kind === 'tradeSiteRemove' || edit.kind === 'tradeSiteRestore';
 }

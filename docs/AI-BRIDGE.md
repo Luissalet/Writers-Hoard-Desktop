@@ -1854,7 +1854,17 @@ deshecho.
   que nadie produce; `place` para el detalle de una población; determinista),
   `wh_list_trade_sites`, `wh_add_trade_site` (granja, pesquería, pastos,
   aserradero, cantera, mina, salinas; S/M/L; lugar o celda) y
-  `wh_remove_trade_site` (quita una del autor o apaga una generada; deshacible).
+  `wh_remove_trade_site` (quita una del autor o apaga una generada; deshacible)
+  y `wh_restore_trade_site` (vuelve a abrir una generada). Las generadas se
+  identifican por la celda de su población (`auto:x,y:tipo:n`), estable aunque
+  se rehaga el poblamiento.
+- **Mapas clásicos: figuras con estilo.** `wh_list_map_features`,
+  `wh_add_map_feature` (región, ruta o rótulo en % de la imagen; contorno,
+  trama, rotulación —letra, tamaño, color, halo, negrita, cursiva, giro—, capas
+  propias) y `wh_update_map_feature` (sólo los campos dados; `order`
+  front/forward/backward/back; la rotulación se mezcla campo a campo). El
+  deshacer devuelve las figuras anteriores sólo si nadie las cambió después.
+  `wh_add_map_pin`/`wh_update_map_pin` aceptan `size` (S/M/L) y `hideIcon`.
 
 Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte

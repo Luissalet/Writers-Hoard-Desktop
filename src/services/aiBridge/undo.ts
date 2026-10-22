@@ -107,6 +107,20 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId: receipt.mapId, what: summary };
   }
 
+  if ((entry.tool === 'wh_add_map_feature' || entry.tool === 'wh_update_map_feature') && entry.before && typeof entry.before === 'object' && '__mapFeatures' in entry.before) {
+    const receipt = (entry.before as { __mapFeatures: { mapId: string; before: import('@/types').MapFeature[]; after: import('@/types').MapFeature[] } }).__mapFeatures;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { scopedTableOps } = await import('@/services/worldEras/tableOps');
+    const { worldMapOps } = await import('@/engines/maps/operations');
+    const ops = scopedTableOps(scope, 'worldMaps', 'projectId', worldMapOps);
+    const map = await ops.getOne(receipt.mapId);
+    if (!map) throw new BridgeError('not-found', 'That map no longer exists.');
+    // Shapes changed since by hand or by another call are someone's later work: refuse rather than lose them.
+    if (JSON.stringify(map.features ?? []) !== JSON.stringify(receipt.after)) throw new BridgeError('cannot-undo', 'The shapes on this map changed after this edit; undo them in the map editor instead.');
+    await ops.update(receipt.mapId, { features: receipt.before, updatedAt: Date.now() });
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
   if (entry.tool === 'wh_link_map_version' && entry.before && typeof entry.before === 'object' && '__mapVersionLink' in entry.before) {
     const receipt = (entry.before as { __mapVersionLink: { mapId: string; versionId: string; from: string | null; to: string | null; stamped?: string } }).__mapVersionLink;
     const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
