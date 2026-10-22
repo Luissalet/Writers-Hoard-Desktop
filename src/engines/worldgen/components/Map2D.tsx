@@ -1041,6 +1041,7 @@ export default function Map2D({
   const brushRef = useRef({ tool, onEdit, onTool, geography, brushing });
   brushRef.current = { tool, onEdit, onTool, geography, brushing };
 
+  const menuAfterPan = useRef(false);
   const W = world.width, H = world.height;
   const spec = PROJECTIONS[projection];
   const wraps = spec.wraps;
@@ -4897,6 +4898,9 @@ export default function Map2D({
 
     const drag = dragRef.current;
     dragRef.current = null;
+    // A right-button drag that moved the map was a pan: the context menu that
+    // Windows fires on release must not open on top of it.
+    menuAfterPan.current = !!drag?.moved && e.button !== 0;
     // Read and cleared together: the gesture is over either way, and a `panRef`
     // left standing would make the NEXT plain click a pan and swallow it.
     const panned = panRef.current;
@@ -5112,6 +5116,7 @@ export default function Map2D({
         onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => {
           e.preventDefault();
+          if (menuAfterPan.current) { menuAfterPan.current = false; return; }
           if (!onMapMenu) return;
           const rect = e.currentTarget.getBoundingClientRect();
           const m = screenToMap(e.clientX - rect.left, e.clientY - rect.top);

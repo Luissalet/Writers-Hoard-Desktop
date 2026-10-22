@@ -5,7 +5,7 @@ import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
-import { deserializeEdits } from '@/engines/worldgen/core/edits';
+import { deserializeEdits, riverCellsAfterEdits } from '@/engines/worldgen/core/edits';
 import { traceSpring } from '@/engines/worldgen/core/spring';
 import { runBridgeTool } from '@/services/aiBridge/dispatch';
 
@@ -24,18 +24,37 @@ export async function testSpringRiver(): Promise<string[]> {
     const run = traceSpring(world, tx + 0.5, ty + 0.5);
     assert(run.end !== 'nowhere' && run.pts.length >= 2, `From the summit: ${JSON.stringify(run).slice(0, 200)}`);
     // Each kept point is lower than or level with the one before it (straight runs are thinned, never reversed).
-    const at = (p: { x: number; y: number }) => elev[Math.min(H - 1, Math.floor(p.y)) * W + ((Math.floor(p.x) % W) + W) % W];
+    const at = (p: { x: number; y: number }) => elev[Math.min(H - 1, Math.round(p.y)) * W + ((Math.round(p.x) % W) + W) % W];
     for (let k = 1; k < run.pts.length; k++) assert(at(run.pts[k]) <= at(run.pts[k - 1]) + 1e-9, `Uphill at ${k}`);
     const last = run.pts[run.pts.length - 1];
     if (run.end === 'sea') assert(at(last) <= 0, 'Ends in the sea but on land');
     // Sea: nowhere to run.
     let sea = 0; while (elev[sea] > 0) sea++;
     assert(traceSpring(world, (sea % W) + 0.5, ((sea / W) | 0) + 0.5).end === 'nowhere', 'A spring in the sea ran');
+    // A second spring beside the first stops at its river; an erased river no longer stops anything.
+    const drawnEdit = { kind: 'river' as const, pts: run.pts, width: 2 };
+    const withDrawn = riverCellsAfterEdits(world, [drawnEdit]);
+    const second = run.pts.length > 1 ? traceSpring(world, run.pts[1].x, run.pts[1].y, { riverCells: withDrawn }) : null;
+    assert(!second || second.end === 'river' || second.end === 'nowhere', `Second spring ${second?.end}`);
+    const firstCell = Math.round(run.pts[0].y) * W + ((Math.round(run.pts[0].x) % W) + W) % W;
+    const erased = riverCellsAfterEdits(world, [drawnEdit, { kind: 'eraseRivers', x: Math.floor(run.pts[0].x), y: Math.floor(run.pts[0].y), radius: 2 }]);
+    assert(withDrawn.has(firstCell) && !erased.has(firstCell), 'Drawn river cells, and erasing them');
+    // Lakes take the water in, and a spring on a lake goes nowhere.
+    const lakeAt = world.lake.findIndex((v) => v === 1);
+    if (lakeAt >= 0) assert(traceSpring(world, (lakeAt % W) + 0.5, ((lakeAt / W) | 0) + 0.5).end === 'nowhere', 'A spring on a lake ran');
+    let intoLake = 0;
+    for (let i = 0; i < elev.length && intoLake < 3; i += 7) {
+      if (elev[i] <= 0 || world.lake[i]) continue;
+      const r = traceSpring(world, (i % W) + 0.5, ((i / W) | 0) + 0.5);
+      if (r.end === 'lake') { intoLake++; const end = r.pts[r.pts.length - 1]; assert(world.lake[Math.round(end.y) * W + ((Math.round(end.x) % W) + W) % W] === 1, 'A lake end that is not on the lake'); }
+    }
     // The bridge: dry run, add, undo.
     await db.projects.put({ id: P, title: 'Spring', description: '', mode: 'custom', type: 'standalone', color: '#888888', status: 'draft', enabledEngines: ['worldgen'], createdAt: 1, updatedAt: 1 } satisfies Project);
     await db.generatedWorlds.put({ id: Wid, projectId: P, title: 'Spring planet', params, edits: '[]', createdAt: 1, updatedAt: 1 });
     await saveSnapshot(worldRuntimeKey(Wid), paramsKey(params), world);
     const dry = await runBridgeTool('wh_add_spring_river', { worldId: Wid, x: tx, y: ty, dryRun: true });
+    const dryTo = (dry.result as { to: { x: number } }).to;
+    assert(dryTo.x >= 0 && dryTo.x < W, `End x wrapped into the world: ${dryTo.x}`);
     assert(dry.ok && (dry.result as { dryRun: boolean; cells: number }).cells === run.cells && deserializeEdits((await db.generatedWorlds.get(Wid))!.edits ?? '[]').length === 0, `Dry run ${JSON.stringify(dry).slice(0, 300)}`);
     const wet = await runBridgeTool('wh_add_spring_river', { worldId: Wid, x: (sea % W), y: (sea / W) | 0 });
     const wide = await runBridgeTool('wh_add_spring_river', { worldId: Wid, x: tx, y: ty, width: 40 });
@@ -47,7 +66,7 @@ export async function testSpringRiver(): Promise<string[]> {
     const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_add_spring_river', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'river' } });
     assert(undone.ok && deserializeEdits((await db.generatedWorlds.get(Wid))!.edits ?? '[]').length === 0, `Undo ${JSON.stringify(undone)}`);
     return [
-      `A spring on the highest ground runs downhill all the way (${run.cells} cells, to the ${run.end}); one in the sea goes nowhere`,
+      `A spring on the highest ground runs downhill all the way (${run.cells} cells, to the ${run.end}); one in the sea or on a lake goes nowhere; ${intoLake} springs end at a lake's edge; drawn rivers stop a second spring and erased ones do not`,
       'Bridge: wh_add_spring_river traces with dryRun without writing, refuses the sea and a silly width, adds an ordinary drawn river and undoes it',
     ];
   } finally {

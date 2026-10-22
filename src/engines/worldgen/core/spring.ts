@@ -9,19 +9,27 @@
 
 import type { WorldData } from './types';
 
-export type SpringEnd = 'sea' | 'river' | 'hollow' | 'nowhere';
+export type SpringEnd = 'sea' | 'lake' | 'river' | 'hollow' | 'nowhere';
 export interface SpringRun { pts: { x: number; y: number }[]; end: SpringEnd; cells: number }
 
-/** The way water runs downhill from (x, y), in world cells. `nowhere` when the spring is in the sea or a hollow already. */
-export function traceSpring(world: Pick<WorldData, 'width' | 'height' | 'elevation' | 'rivers'>, x: number, y: number, maxSteps = world.width * 2): SpringRun {
-  const W = world.width, H = world.height, elev = world.elevation;
+/**
+ * The way water runs downhill from (x, y), in world cells. `nowhere` when the
+ * spring is in the sea, on a lake or in a hollow already. `riverCells` are the
+ * rivers to stop at — pass `riverCellsAfterEdits` so drawn rivers count and
+ * erased ones do not; without it the generated rivers are used.
+ */
+export function traceSpring(world: Pick<WorldData, 'width' | 'height' | 'elevation' | 'rivers'> & { lake?: Uint8Array }, x: number, y: number, options: { riverCells?: Set<number>; maxSteps?: number } = {}): SpringRun {
+  const W = world.width, H = world.height, elev = world.elevation, lake = world.lake;
+  const maxSteps = options.maxSteps ?? W * 2;
   let cx = ((Math.floor(x) % W) + W) % W, cy = Math.min(H - 1, Math.max(0, Math.floor(y)));
-  if (elev[cy * W + cx] <= 0) return { pts: [], end: 'nowhere', cells: 0 };
-  const river = new Set<number>();
-  for (const path of world.rivers) for (const cell of path.cells) river.add(cell);
+  if (elev[cy * W + cx] <= 0 || lake?.[cy * W + cx]) return { pts: [], end: 'nowhere', cells: 0 };
+  let river = options.riverCells;
+  if (!river) { river = new Set<number>(); for (const path of world.rivers) for (const cell of path.cells) river.add(cell); }
   // Keep x continuous across the seam so the drawn line takes the short way round.
   let ux = cx;
-  const pts = [{ x: ux + 0.5, y: cy + 0.5 }];
+  // Points sit on whole cell numbers: drawn rivers turn points into cells by rounding,
+  // so these land exactly on the cells the water ran through.
+  const pts = [{ x: ux, y: cy }];
   const seen = new Set<number>([cy * W + cx]);
   let end: SpringEnd = 'hollow';
   for (let step = 0; step < maxSteps; step++) {
@@ -38,8 +46,10 @@ export function traceSpring(world: Pick<WorldData, 'width' | 'height' | 'elevati
     if (best < 0) break;
     cx = best % W; cy = (best / W) | 0; ux += bdx;
     seen.add(best);
-    pts.push({ x: ux + 0.5, y: cy + 0.5 });
+    pts.push({ x: ux, y: cy });
     if (elev[best] <= 0) { end = 'sea'; break; }
+    // A lake takes the water in: the river ends on its shore line, not across its bed.
+    if (lake?.[best]) { end = 'lake'; break; }
     if (river.has(best)) { end = 'river'; break; }
   }
   if (pts.length < 2) return { pts: [], end: 'nowhere', cells: 0 };
