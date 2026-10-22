@@ -31,6 +31,8 @@ export interface CartoAnnotations {
   story?: StoryMark[];
   /** The party on its way along the route, when the journey is being played. */
   traveller?: { x: number; y: number; label: string; resting: boolean };
+  /** Where the author closed a river crossing: a small cross on the water. */
+  closedCrossings?: { x: number; y: number }[];
   /** Journey ends. */
   pins?: { x: number; y: number; label: string; kind: 'from' | 'to' | 'mark' }[];
   /** The world at another sea level: shelf, drowned coast, ice. */
@@ -47,6 +49,25 @@ export interface CartoAnnotations {
 }
 
 type Ctx2D = CanvasRenderingContext2D;
+
+/** Where the author closed a river crossing: a red cross on a white halo, at the river cell. */
+export function drawClosedCrossings(
+  ctx: Ctx2D,
+  crossings: { x: number; y: number }[],
+  sx: (wx: number) => number,
+  sy: (wy: number) => number,
+): void {
+  for (const c of crossings) {
+    const x = sx(c.x + 0.5), y = sy(c.y + 0.5), r = 5;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke();
+    ctx.strokeStyle = '#b3261e'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke();
+    ctx.restore();
+  }
+}
 
 /**
  * Draw the annotation layer.
@@ -275,6 +296,9 @@ export function drawAnnotations(
     }
     ctx.restore();
   }
+
+  // ---- closed crossings ----------------------------------------------------
+  if (ann.closedCrossings?.length) drawClosedCrossings(ctx, ann.closedCrossings, sx, sy);
 
   // ---- pins ----------------------------------------------------------------
   for (const pin of ann.pins ?? []) {

@@ -1314,6 +1314,19 @@ A stroke through world cells with a radius: the cells take that ground (its colo
     },
   },
   {
+    name: 'wh_set_river_crossing',
+    description:
+      `Close the way across a river at a cell (a ford washed out, a bridge down), or open it again, like the map's right-click "No crossing here".
+The river cell nearest x,y (within a cell and a half) and the river cells round it become impassable for travellers on land, road included; journeys then look for another ford or bridge, or report no route (a stop placed on the closed stretch itself, a town or a via point, can still be reached and left). blocked: false clears every closed spot within a cell of there, and reports unchanged when there is none. Fords elsewhere cost a party time (an hour and a half on foot, an hour on horseback, about four with a cart; none over a river frozen in winter); laying out a road (wh_add_world_road) bridges what it meets. wh_plan_journey reports fords, bridges and frozenRivers. Refused where no river runs within reach. Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: { worldId: WORLD_ID, x: CELL_X, y: CELL_Y, blocked: { type: 'boolean', description: 'true: no way across here; false: open again.' } },
+      required: ['worldId', 'x', 'y', 'blocked'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'wh_set_world_levels',
     description:
       `Move the whole world's sea level and/or snowline, in metres against the generated ones (absolute; 0 puts it back). The sea moves every height, so coasts drown or shelves come up and the biomes follow (rivers keep their courses until the author recalculates climate and rivers); the snowline only changes where snow is drawn (higher = less snow). wh_get_world reports both. Undoable. Change them only when the author asks.`,

@@ -1864,6 +1864,10 @@ deshecho.
   hito como «<nombre> 2» en la tierra libre más cercana o en `x`,`y`; mar,
   lago o una celda con lugar o historial se rechazan; reinos y mares no; se
   deshace),
+  `wh_plan_journey` cuenta aparte `fords` (vados fuera del camino: hora y media
+  a pie, una a caballo, unas cuatro con carro), `bridges` (el camino cruza por un
+  puente, sin coste) y `frozenRivers` (en pleno invierno, ríos helados que se
+  cruzan a pie sin coste).
   `wh_set_world_presentation` acepta `skin3D: "pintado"` (el mundo pintado como
   mapa de relieve: terrenos fundidos, bajíos y orillas, bosques y dunas pintados,
   rótulos de mapa) además de satelite, dibujado y arcilla, y `stage3D` (`maqueta`, por defecto: el mundo
@@ -1899,7 +1903,14 @@ deshecho.
   calcula; se deshace),
   `wh_add_spring_river` (un río que baja solo desde un manantial en `place` o
   `x`,`y` hasta el mar, otro río o una hondonada; `dryRun` sólo traza; se
-  deshace) y
+  deshace), `wh_set_river_crossing` (`blocked: true` cierra el paso por el río
+  en la celda de río más cercana a `x`,`y`, hasta celda y media, y en las celdas
+  de río de alrededor: ningún viaje por tierra lo cruza ahí, camino incluido, ni
+  se cuela en diagonal; `blocked: false` abre todos los pasos cerrados a una
+  celda de ahí y devuelve `unchanged` si no había ninguno; se niega donde no hay
+  río; se deshace; una parada puesta sobre el propio tramo cerrado —un pueblo o
+  un punto de paso— sigue siendo alcanzable y se puede salir de ella, y
+  trazar un camino con `wh_add_world_road` tiende puentes) y
   `wh_list_story_events` (orden por capítulo y dentro de él, con `whoNames`; `knownByChapter` deja lo que el
   lector sabe). `wh_story_chapters` da la historia capítulo a capítulo (lo que
   ocurre, lo planeado y cuánto del mapa ha visto u oído el lector al final de

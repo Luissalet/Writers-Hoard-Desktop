@@ -112,7 +112,7 @@ export function relevantEditsForSheets(
   // Edits a sheet never draws: the reader's view, the story, trade sites, locks and
   // the snowline (region sheets keep their own snow cover).
   const blind = (e: WorldEdit) => e.kind === 'fog' || e.kind === 'story' || e.kind === 'storyRemove' || e.kind === 'tradeSite'
-    || e.kind === 'tradeSiteRemove' || e.kind === 'tradeSiteRestore' || e.kind === 'lock' || e.kind === 'snowline';
+    || e.kind === 'tradeSiteRemove' || e.kind === 'tradeSiteRestore' || e.kind === 'lock' || e.kind === 'snowline' || e.kind === 'crossing';
   if (edits.some((e) => e.kind === 'lake')) return edits.filter((e) => !blind(e));
   let environmentPrefix = edits.length - 1;
   while (environmentPrefix >= 0 && edits[environmentPrefix].kind !== 'recalculate') environmentPrefix--;

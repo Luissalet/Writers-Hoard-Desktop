@@ -155,3 +155,14 @@ lectura exacta del manual actualizado).
   rehacen el mundo ni su geografía, pero las cachés que se indexan por la lista
   entera de ediciones (por ejemplo, la clave guardada de la receta) cambian con
   ellos. Sólo coste de rendimiento, sin efecto en el resultado (revisión r6).
+- El recorrido `run-world-graph-qa` (grafo del Códex, no de mapas) falla de forma
+  intermitente en «Ajustar a la vista» con la ventana estrecha: unas veces pasa
+  y otras el encuadre se queda en el del ancho anterior, siempre con los mismos
+  números. El DOM ya mide 662 px, así que es el ajuste encolado de React Flow
+  12.10 (`fitViewQueued`, que espera a `nodesInitialized` y a un fotograma) el
+  que no se aplica en la ventana oculta. Probado sin éxito: forzar fotogramas
+  con `capturePage`, el evento `resize`, sustituir `requestAnimationFrame`, una
+  ventana visible transparente y el renderizado `offscreen`. En una ventana
+  visible el botón funciona. Siguiente paso: exponer en la vista de prueba el
+  estado del store (`width`, `fitViewQueued`, `nodesInitialized`) para ver qué
+  condición falta.

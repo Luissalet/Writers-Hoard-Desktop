@@ -1192,7 +1192,7 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
     hoursPerDay: r(effectiveHoursPerDay(options), 2),
     km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0,
     roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
-    crossings: route.crossings.length, realms: route.realms,
+    crossings: route.crossings.length, fords: route.crossings.filter(c => c.kind === 'river' && !c.bridge && !c.frozen).length, frozenRivers: route.crossings.filter(c => c.kind === 'river' && c.frozen).length, bridges: route.crossings.filter(c => c.kind === 'river' && c.bridge).length, realms: route.realms,
     ...(at ? { atDay: { day: r(at.day, 2), x: r(at.x), y: r(at.y), phase: at.phase, night: at.stage?.night ?? null, nearest: at.stage?.nearest?.name ?? null } } : {}),
     terrain: route.legs.slice(0, 8).map(leg => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad })),
     // The same ground in travel order, each stretch with the day and hour it begins.
@@ -1481,6 +1481,29 @@ export async function whPaintBiome(args: ToolArgs): Promise<unknown> {
   return appendEdit(args, world, edit, summary, erase ? `rubbed out painted ground on world "${world.title}"` : `painted ${BIOME_KEY[biome]} ground on world "${world.title}"`);
 }
 
+export async function whSetRiverCrossing(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { x, y } = cellCoords(args, worldSize(world));
+  if (typeof args.blocked !== 'boolean') throw new BridgeError('bad-args', 'blocked must be true (no way across here) or false (open again).');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { data } = opened.world;
+  const { riverCellNear } = await import('@/engines/worldgen/core/travel');
+  const cell = riverCellNear(data, x + 0.5, y + 0.5);
+  if (cell < 0) throw new BridgeError('bad-args', `No river within a cell of ${x},${y}; wh_place_at and the map show where rivers run.`);
+  const at = { x: cell % data.width, y: Math.floor(cell / data.width) };
+  if (!args.blocked) {
+    // Opening clears the closed spots within a cell; with none there, nothing to record.
+    const near = (data.painted?.blockedCrossingMarks ?? []).filter((m) => {
+      const dx = Math.abs(m.x - at.x);
+      return Math.min(dx, data.width - dx) <= 1 && Math.abs(m.y - at.y) <= 1;
+    });
+    if (!near.length) return { unchanged: true, x: at.x, y: at.y, blocked: false, note: 'No closed crossing within a cell of here.' };
+  }
+  return appendEdit(args, world, { kind: 'crossing', x: at.x, y: at.y, blocked: args.blocked }, { ...at, blocked: args.blocked }, `${args.blocked ? 'closed' : 'opened'} the river crossing at ${at.x},${at.y} on world "${world.title}"`);
+}
+
 export async function whAddWorldRoad(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   await assertEngineEnabled(world.projectId, ENGINE);
@@ -1510,7 +1533,7 @@ export async function whAddWorldRoad(args: ToolArgs): Promise<unknown> {
   };
   const from = end(args.from, 'from'), to = end(args.to, 'to');
   const { planRoute } = await import('@/engines/worldgen/core/travel');
-  const route = planRoute(data, geo, from, to, { mode: 'cart', season: 'summer' }, 'en');
+  const route = planRoute(data, geo, from, to, { mode: 'cart', season: 'summer', building: true }, 'en');
   if (route.impossible || route.cells.length < 2) throw new BridgeError('bad-args', `No land route between ${from.name} and ${to.name} for a road${route.impossible ? ` (${route.impossible})` : ''}.`);
   const W = data.width;
   const look = roadLook({ roadWidth: width, roadPattern: pattern });

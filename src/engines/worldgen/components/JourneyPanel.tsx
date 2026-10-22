@@ -237,8 +237,12 @@ function JourneyPanelContent({
     if (road) parts.push(road.from === road.to ? t('worldgen.journey.words.roadSame').replace('{name}', road.from) : t('worldgen.journey.words.road').replace('{from}', road.from).replace('{to}', road.to));
     else if (route.roadFraction > 0.05) parts.push(t('worldgen.journey.words.roadShare').replace('{n}', String(Math.round(route.roadFraction * 100))));
     if (words.waterKm >= 1) parts.push(t('worldgen.journey.words.sea').replace('{n}', String(Math.round(words.waterKm))));
-    const count = (kind: 'river' | 'strait' | 'pass') => route.crossings.filter((c) => c.kind === kind).length;
+    const count = (kind: 'river' | 'strait' | 'pass') => route.crossings.filter((c) => c.kind === kind && !c.bridge && !c.frozen).length;
     if (count('river')) parts.push(countWord('worldgen.journey.words.fords', count('river')));
+    const bridges = route.crossings.filter((c) => c.kind === 'river' && c.bridge).length;
+    if (bridges) parts.push(countWord('worldgen.journey.words.bridges', bridges));
+    const frozen = route.crossings.filter((c) => c.kind === 'river' && c.frozen).length;
+    if (frozen) parts.push(countWord('worldgen.journey.words.frozenRivers', frozen));
     if (count('strait')) parts.push(countWord('worldgen.journey.words.straits', count('strait')));
     if (count('pass')) parts.push(countWord('worldgen.journey.words.climbs', count('pass')));
     if (!parts.length) return '';

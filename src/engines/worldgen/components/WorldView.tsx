@@ -27,7 +27,7 @@ import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
   Signpost, Compass, Flag, Search, Home, Ruler, PanelRightClose, PanelRightOpen,
-  Play, Pause, SkipBack, SkipForward, Type, Droplets, BookMarked,
+  Play, Pause, SkipBack, SkipForward, Type, Droplets, BookMarked, Ban,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -72,7 +72,7 @@ import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { registerLiveWorld } from '../core/liveWorlds';
 import { deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, editKey, keysInEdits, lockedPlaceKeys, lockViolation, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey, worldLevels } from '../core/edits';
-import { planRoute } from '../core/travel';
+import { planRoute , riverCellNear } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import { fillLake, lakeAt } from '../core/lake';
 import type { WorldEdit } from '../core/edits';
@@ -904,6 +904,8 @@ export default function WorldView({
     return { mask, width: data.width, height: data.height, mode: fogMode };
   }, [fogMode, data, fogEdits, readerStart, readerChapter]);
 
+  // The closed river crossings are replaced as a whole when one changes, so this reference tells when to redraw.
+  const closedCrossingMarks = data?.painted?.blockedCrossingMarks;
   const annotations: CartoAnnotations | undefined = useMemo(() => {
     // The reader's view shows only what the reader knows: no planned route,
     // journey pins, banner, manuscript links, saved regions or ancient sea
@@ -926,9 +928,11 @@ export default function WorldView({
       title: rg.title,
       active: rg.id === regionAt?.savedId,
     }));
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours) return undefined;
+    const closedCrossings = closedCrossingMarks;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours && !closedCrossings?.length) return undefined;
     return {
       contours,
+      closedCrossings,
       fog: fogLayer,
       story: storyMarks,
       trade: tradeLayer,
@@ -947,7 +951,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId, closedCrossingMarks]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1407,7 +1411,7 @@ export default function WorldView({
       if (roadFrom.id === s.id || !data || !geography) return;
       // A* over the real ground, the same search the journey planner runs, so a
       // road laid by hand goes through the pass instead of over the mountain.
-      const r = planRoute(data, geography, roadFrom, s, { mode: 'cart', season: 'summer' });
+      const r = planRoute(data, geography, roadFrom, s, { mode: 'cart', season: 'summer', building: true });
       if (r.impossible || r.cells.length < 2) {
         toast.error(t('worldgen.status.noLandRoute'));
         return;
@@ -2300,6 +2304,22 @@ export default function WorldView({
             if (!applyEdit({ kind: 'river', pts: run.pts, width: 2 })) { toast.error(t('worldgen.story.busy')); return false; }
             toast.success(t(`worldgen.menu.springTo.${run.end}`).replace('{n}', String(run.cells)));
           } },
+        // A river within a cell: close the way across it here, or open it again.
+        ...(() => {
+          const cell = riverCellNear(data, worldMenu.x, worldMenu.y);
+          if (cell < 0) return [];
+          const at = { x: cell % data.width, y: Math.floor(cell / data.width) };
+          // Within a cell, across the date line too: opening here clears every such mark.
+          const closed = !!data.painted?.blockedCrossingMarks?.some((m) => {
+            const dx = Math.abs(m.x - at.x);
+            return Math.min(dx, data.width - dx) <= 1 && Math.abs(m.y - at.y) <= 1;
+          });
+          return [{ id: closed ? 'crossing-open' : 'crossing-block', label: t(closed ? 'worldgen.menu.crossingOpen' : 'worldgen.menu.crossingBlock'), icon: closed ? <Waves size={14} /> : <Ban size={14} />,
+            run: () => {
+              if (!applyEdit({ kind: 'crossing', x: at.x, y: at.y, blocked: !closed })) { toast.error(t('worldgen.story.busy')); return false; }
+              toast.success(t(closed ? 'worldgen.menu.crossingOpened' : 'worldgen.menu.crossingBlocked'));
+            } }];
+        })(),
         { id: 'story', label: t('worldgen.menu.story'), icon: <BookMarked size={14} />, ask: t('worldgen.menu.storyTitle'),
           run: (title) => {
             const chapter = readerView && readerChapter !== null ? readerChapter : undefined;

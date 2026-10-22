@@ -28,7 +28,7 @@ import { strokeMask } from '../sculpt/ops';
 import { Biome } from '../core/types';
 import { settlementCellCenter, type HumanGeography, type Road, type Settlement } from '../core/settlements';
 import type { SavedWorldRegion, WorldViewport, WorldWaypoint } from '../types';
-import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
+import { drawAnnotations, drawClosedCrossings, type CartoAnnotations } from '../cartography/annotations';
 import { tipOf, tipOutline } from '../sculpt/ops';
 import type { PaintTool } from './PaintPanel';
 import {
@@ -2836,6 +2836,13 @@ export default function Map2D({
       ctx.strokeText(item.text, candidate.x, candidate.y);
       ctx.fillStyle = item.color;
       ctx.fillText(item.text, candidate.x, candidate.y);
+    }
+
+    // ---- closed river crossings, over the names: the author's mark is never hidden under a label ----
+    if (annotations?.closedCrossings?.length && wraps) {
+      for (const copyOx of copies) {
+        drawClosedCrossings(ctx, annotations.closedCrossings, (wx) => toScreen(wx / W, 0, copyOx)[0], (wy) => toScreen(0, wy / H, copyOx)[1]);
+      }
     }
 
     // ---- what the reader has not seen yet ------------------------------------
