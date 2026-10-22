@@ -26,7 +26,13 @@ export interface StoryEvent {
   /** The chapter in which it happens; absent = not tied to a chapter. */
   chapter?: number;
   status: StoryStatus;
+  /** Where it falls within its chapter, from 0; absent = in the order it was placed. */
+  order?: number;
+  /** Who was there: Codex entry ids (characters, factions), at most `STORY_WHO_MAX`. */
+  who?: string[];
 }
+
+export const STORY_WHO_MAX = 20;
 
 /** Colour of each kind of event, for every view. */
 export const STORY_COLORS: Record<StoryType, string> = {
@@ -45,7 +51,10 @@ export function normalizeStoryEvent(input: unknown): StoryEvent {
   if (raw.note !== undefined && typeof raw.note !== 'string') throw new Error('note must be text.');
   if (raw.chapter !== undefined && !(typeof raw.chapter === 'number' && Number.isInteger(raw.chapter) && raw.chapter >= 0)) throw new Error('chapter must be a whole number from 0 up.');
   if (raw.status !== undefined && !STORY_STATUSES.includes(raw.status as StoryStatus)) throw new Error('status must be planned or happened.');
+  if (raw.order !== undefined && !(typeof raw.order === 'number' && Number.isInteger(raw.order) && raw.order >= 0 && raw.order < 10000)) throw new Error('order must be a whole number from 0 up.');
+  if (raw.who !== undefined && !(Array.isArray(raw.who) && raw.who.length <= STORY_WHO_MAX && raw.who.every((id) => typeof id === 'string' && id.trim() && id.length <= 80))) throw new Error(`who must be a list of up to ${STORY_WHO_MAX} Codex entry ids.`);
   const note = typeof raw.note === 'string' ? raw.note.trim().slice(0, STORY_NOTE_MAX) : '';
+  const who = Array.isArray(raw.who) ? [...new Set((raw.who as string[]).map((id) => id.trim()))] : [];
   return {
     id: raw.id.trim(),
     x: Math.round(raw.x * 256) / 256,
@@ -55,6 +64,8 @@ export function normalizeStoryEvent(input: unknown): StoryEvent {
     ...(note ? { note } : {}),
     ...(typeof raw.chapter === 'number' ? { chapter: raw.chapter } : {}),
     status: (raw.status as StoryStatus | undefined) ?? 'happened',
+    ...(typeof raw.order === 'number' ? { order: raw.order } : {}),
+    ...(who.length ? { who } : {}),
   };
 }
 
@@ -72,8 +83,11 @@ export function storyEventsFrom(edits: readonly WorldEdit[]): StoryEvent[] {
       byId.delete(edit.id);
     }
   }
+  // Within a chapter, an event the author placed in order comes first by that
+  // order; the rest follow in the order they were placed.
+  const rank = (entry: { event: StoryEvent; order: number }) => entry.event.order ?? 1e6 + entry.order;
   return [...byId.values()]
-    .sort((a, b) => (a.event.chapter ?? Infinity) - (b.event.chapter ?? Infinity) || a.order - b.order)
+    .sort((a, b) => (a.event.chapter ?? Infinity) - (b.event.chapter ?? Infinity) || rank(a) - rank(b) || a.order - b.order)
     .map((entry) => entry.event);
 }
 
@@ -98,6 +112,22 @@ export function storyChapterFrames(events: readonly StoryEvent[], fogChapters: r
     happened: events.filter((event) => event.chapter === chapter && event.status === 'happened'),
     planned: events.filter((event) => event.chapter === chapter && event.status === 'planned'),
   }));
+}
+
+/**
+ * Move an event up or down within its chapter: the chapter's events in their
+ * current order with this one shifted, as the new `order` of each.
+ */
+export function reorderInChapter(events: readonly StoryEvent[], id: string, by: -1 | 1): StoryEvent[] {
+  const moving = events.find((event) => event.id === id);
+  if (!moving) return [];
+  const group = events.filter((event) => (event.chapter ?? null) === (moving.chapter ?? null));
+  const from = group.indexOf(moving), to = from + by;
+  if (to < 0 || to >= group.length) return [];
+  const next = [...group];
+  [next[from], next[to]] = [next[to], next[from]];
+  // Every event of the chapter takes its place number, so the order holds whatever was placed later.
+  return next.map((event, order) => ({ ...event, order }));
 }
 
 /** The chapter after `current` in the playback order (the first one from the start), or null at the end. */

@@ -3742,6 +3742,8 @@ export default function Map2D({
     if (!from) return;
     // De aquí es de donde el lector querrá volver.
     pushHistory(from);
+    // What the pointer was over is somewhere else once the map flies.
+    setHover(null);
     flyLocal({ u: flyTarget.u, v: flyTarget.v, spanKm: flyTarget.spanKm ?? from.spanKm });
     return cancelFlight;
     // The token IS the request; everything else is read fresh when it fires.
@@ -5129,6 +5131,7 @@ export default function Map2D({
         <div
           className="absolute z-10 pointer-events-none px-2 py-1 rounded-md bg-surface/95 border border-border text-[11px] text-text-primary whitespace-nowrap shadow-lg"
           style={{ left: hover.x, top: hover.y }}
+          data-testid="worldgen-hover-tip"
         >
           {hover.text}
         </div>

@@ -6,7 +6,7 @@ import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
 import { deserializeEdits, serializeEdits, type WorldEdit } from '@/engines/worldgen/core/edits';
-import { nextStoryChapter, normalizeStoryEvent, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy } from '@/engines/worldgen/core/storyEvents';
+import { nextStoryChapter, normalizeStoryEvent, reorderInChapter, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy } from '@/engines/worldgen/core/storyEvents';
 import { PaintSession } from '@/engines/worldgen/core/paintSession';
 import { drawAnnotations } from '@/engines/worldgen/cartography/annotations';
 import { runBridgeTool } from '@/services/aiBridge/dispatch';
@@ -42,6 +42,22 @@ export async function testStoryEvents(): Promise<string[]> {
     assert(frames.map((f) => f.chapter).join() === '1,2,3,4' && frames[0].happened.map((e) => e.id).join() === 'b' && frames[1].planned.map((e) => e.id).join() === 'c' && !frames[1].happened.length && !frames[3].happened.length, `Frames ${JSON.stringify(frames)}`);
     const order = frames.map((f) => f.chapter);
     assert(nextStoryChapter(order, null) === 1 && nextStoryChapter(order, 2) === 3 && nextStoryChapter(order, 4) === null && nextStoryChapter([], null) === null && previousStoryChapter(order, 3) === 2 && previousStoryChapter(order, 1) === null && nextStoryChapter(order, 2.5) === 3, 'Chapter stepping');
+    // Order within a chapter and who was there.
+    for (const bad of [{ order: -1 }, { order: 1.5 }, { who: 'ana' }, { who: Array.from({ length: 21 }, (_, i) => `p${i}`) }, { who: [' '] }]) {
+      let refused = false; try { normalizeStoryEvent({ id: 'w', x: 1, y: 1, type: 'custom', title: 'x', ...bad }); } catch { refused = true; }
+      assert(refused, `Accepted ${JSON.stringify(bad)}`);
+    }
+    const tidyWho = normalizeStoryEvent({ id: 'w', x: 1, y: 1, type: 'custom', title: 'x', who: [' ana ', 'ana', 'bruno'], order: 2 });
+    assert(tidyWho.who?.join() === 'ana,bruno' && tidyWho.order === 2, `Who ${JSON.stringify(tidyWho)}`);
+    const chapterOne: WorldEdit[] = [
+      { kind: 'story', ...normalizeStoryEvent({ id: 'p', x: 1, y: 1, type: 'custom', title: 'P', chapter: 1 }) },
+      { kind: 'story', ...normalizeStoryEvent({ id: 'q', x: 1, y: 1, type: 'custom', title: 'Q', chapter: 1 }) },
+      { kind: 'story', ...normalizeStoryEvent({ id: 'r', x: 1, y: 1, type: 'custom', title: 'R', chapter: 1 }) },
+    ];
+    const unordered = storyEventsFrom(chapterOne);
+    const shifted = reorderInChapter(unordered, 'r', -1);
+    const reordered = storyEventsFrom([...chapterOne, ...shifted.map((e) => ({ kind: 'story' as const, ...e })), { kind: 'story', ...normalizeStoryEvent({ id: 's', x: 1, y: 1, type: 'custom', title: 'S', chapter: 1 }) }]);
+    assert(reordered.map((e) => e.id).join() === 'p,r,q,s' && reorderInChapter(unordered, 'p', -1).length === 0, `Reorder ${reordered.map((e) => e.id)}`);
     // Storage: round-trip; a malformed record costs only itself.
     const back = deserializeEdits(serializeEdits(edits));
     assert(storyEventsFrom(back).length === 4, 'Round trip');
@@ -84,12 +100,22 @@ export async function testStoryEvents(): Promise<string[]> {
     assert(moved.ok && ev.x === 50.5 && ev.note === 'Two dead' && ev.chapter === undefined, `Update ${JSON.stringify(ev)}`);
     const known = (await runBridgeTool('wh_list_story_events', { worldId: Wid, knownByChapter: 9 })).result as { events: unknown[] };
     assert(known.events.length === 1, 'knownByChapter should leave out the planned council');
+    // Who was there: real Codex entries only, listed by name.
+    await db.codexEntries.put({ id: 'story-ana', projectId: P, type: 'character', title: 'Ana', fields: {}, content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1 });
+    const stranger = await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: ['nobody'] });
+    const withWho = await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: ['story-ana'], order: 0 });
+    const named = ((await runBridgeTool('wh_list_story_events', { worldId: Wid })).result as { events: { id: string; who?: string[]; whoNames?: string[]; order?: number }[] }).events.find((e) => e.id === id)!;
+    assert(!stranger.ok && withWho.ok && named.who?.join() === 'story-ana' && named.whoNames?.join() === 'Ana' && named.order === 0, `Who ${JSON.stringify(named)}`);
+    const cleared = await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: [], order: null });
+    const clearedEvent = ((await runBridgeTool('wh_list_story_events', { worldId: Wid })).result as { events: { id: string; who?: string[]; order?: number }[] }).events.find((e) => e.id === id)!;
+    assert(cleared.ok && clearedEvent.who === undefined && clearedEvent.order === undefined, `Cleared ${JSON.stringify(clearedEvent)}`);
+    await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: ['story-ana'], chapter: 2 });
     // The story chapter by chapter, with how much of the map the reader knows by each.
     const painted = await runBridgeTool('wh_paint_reader_fog', { worldId: Wid, op: 'seen', chapter: 2, points: [{ x: 40, y: 20 }], radiusCells: 6 });
     assert(painted.ok, `Fog ${JSON.stringify(painted)}`);
     const chapters = await runBridgeTool('wh_story_chapters', { worldId: Wid });
-    const frameList = (chapters.result as { chapters: { chapter: number; happened: { id: string }[]; planned: { title: string }[]; map: { seen: number; hidden: number } }[] }).chapters;
-    assert(chapters.ok && frameList.map((f) => f.chapter).join() === '2,5' && frameList[1].planned[0].title === 'The council' && frameList[0].map.seen > 0 && frameList[0].map.hidden < 1, `Chapters ${JSON.stringify(chapters)}`);
+    const frameList = (chapters.result as { chapters: { chapter: number; happened: { id: string; who?: string[] }[]; planned: { title: string }[]; map: { seen: number; hidden: number } }[] }).chapters;
+    assert(chapters.ok && frameList.map((f) => f.chapter).join() === '2,5' && frameList[1].planned[0].title === 'The council' && frameList[0].map.seen > 0 && frameList[0].map.hidden < 1 && frameList[0].happened.find((e) => e.id === id)?.who?.join() === 'Ana', `Chapters ${JSON.stringify(chapters)}`);
     const marked = await runBridgeTool('wh_render_world_map', { worldId: Wid, width: 256, storyEvents: true });
     assert(marked.ok && (marked.result as { dataUrl: string }).dataUrl !== (plain.result as { dataUrl: string }).dataUrl, 'Render ignored the story events');
     const missing = await runBridgeTool('wh_remove_story_event', { worldId: Wid, id: 'nope' });
@@ -101,7 +127,8 @@ export async function testStoryEvents(): Promise<string[]> {
       'A later record replaces an earlier one by id, removal takes it off, order is by chapter; the reader knows what happened by a chapter',
       'They round-trip, cost only themselves when malformed, never replay the world in a painting session, and draw across the seam',
       'Playback steps through the chapters with events or fog, each with what happens and what is planned',
-      'Bridge: wh_add/update/remove/list_story_events with validation and knownByChapter; wh_story_chapters gives each chapter with the map the reader knows; wh_render_world_map marks them',
+      'Events take a place within their chapter (later ones follow) and who was there (validated, tidied)',
+      'Bridge: wh_add/update/remove/list_story_events with validation and knownByChapter, who (real Codex entries, listed by name) and order; wh_story_chapters gives each chapter with the map the reader knows; wh_render_world_map marks them',
     ];
   } finally {
     await db.worldSnapshots.delete(worldRuntimeKey(Wid));
