@@ -1850,9 +1850,12 @@ deshecho.
   `order: null` y `who: []` los quitan), `wh_remove_story_event` y
   `wh_lock_place` (bloquea un lugar contra mover y ocultar, `locked: false`
   lo desbloquea; `wh_list_places`/`wh_find_place` lo marcan `locked: true` y
-  `wh_move_place`/`wh_remove_place` lo rechazan mientras esté bloqueado),
-  `wh_duplicate_place` (copia un pueblo, ruina o hito como «<nombre> 2» dos
-  celdas al este o en `x`,`y`; reinos y mares no; se deshace),
+  `wh_place_at` también; mover u ocultar un lugar bloqueado se rechaza, también
+  con la vista abierta; la clave debe existir),
+  `wh_duplicate_place` (copia un pueblo —una capital como ciudad—, ruina o
+  hito como «<nombre> 2» en la tierra libre más cercana o en `x`,`y`; mar,
+  lago o una celda con lugar o historial se rechazan; reinos y mares no; se
+  deshace),
   `wh_add_world_road` (un camino trazado a mano entre dos lugares o celdas
   por la ruta de carro, como la herramienta Camino; `major` calzada real o
   camino, `width` 0,5–3 y `pattern` solid/dashed/dotted; `dryRun` sólo la

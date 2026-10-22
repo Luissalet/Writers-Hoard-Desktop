@@ -2818,6 +2818,8 @@ const en = {
   'worldgen.place.lockHint': 'Lock it so it is not moved or hidden by accident',
   'worldgen.place.unlockHint': 'Unlock it to move or hide it',
   'worldgen.place.lockedHide': 'It is locked: unlock it to hide it',
+  'worldgen.place.lockedMove': 'It is locked: unlock it to move it',
+  'worldgen.place.noRoomForCopy': 'There is no free land nearby for the copy',
   'worldgen.place.lockedToast': '{name} is locked: unlock it in its card (Index or Place) to move it',
   'worldgen.place.links': 'Links',
   'worldgen.place.linkPlaceholder': 'Link to a Codex entry, scene, writing or event…',

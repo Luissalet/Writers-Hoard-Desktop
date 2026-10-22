@@ -5,7 +5,7 @@ import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
-import { deserializeEdits, duplicatePlaceEdit, lockedPlaceKeys, type WorldEdit } from '@/engines/worldgen/core/edits';
+import { deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, lockViolation, lockedPlaceKeys, type WorldEdit } from '@/engines/worldgen/core/edits';
 import { isViewOnlyEdit } from '@/engines/worldgen/core/storyEvents';
 import { runBridgeTool, type BridgeReply } from '@/services/aiBridge/dispatch';
 
@@ -26,8 +26,22 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     const town = duplicatePlaceEdit({ kind: 'settlement', type: 'city', name: 'Vado' }, { x: 3, y: 4 }, 'Vado 2');
     const ruin = duplicatePlaceEdit({ kind: 'ruin', type: 'tower', name: 'Torre' }, { x: 3, y: 4 }, 'Torre 2');
     const peak = duplicatePlaceEdit({ kind: 'landmark', type: 'volcano', name: 'Fuego' }, { x: 3, y: 4 }, '');
+    const capitalCopy = duplicatePlaceEdit({ kind: 'settlement', type: 'capital', name: 'Corte' }, { x: 3, y: 4 }, 'Corte 2');
+    assert(capitalCopy?.rank === 'city', 'A copied capital should be a city');
     assert(town?.marker === 'settlement' && town.rank === 'city' && town.name === 'Vado 2' && ruin?.ruin === 'tower' && peak?.landmark === 'volcano' && peak.name === undefined, `Copies ${JSON.stringify([town, ruin, peak])}`);
     assert(duplicatePlaceEdit({ kind: 'realm', type: 'realm', name: 'Reino' }, { x: 1, y: 1 }, 'x') === null && duplicatePlaceEdit({ kind: 'feature', type: 'sea', name: 'Mar' }, { x: 1, y: 1 }, 'x') === null, 'Realms and seas are not copied');
+
+    // One rule for every way in: a locked key is neither moved nor removed; a lock in the same batch counts.
+    assert(lockViolation([lock('settlement:2,2', true)], [{ kind: 'remove', target: 'settlement', key: 'settlement:2,2' }]) === 'settlement:2,2', 'Remove of a locked key');
+    assert(lockViolation([], [lock('settlement:3,3', true), { kind: 'move', target: 'settlement', key: 'settlement:3,3', x: 1, y: 1 }]) === 'settlement:3,3', 'Lock then move in one batch');
+    assert(lockViolation([lock('settlement:2,2', true)], [{ kind: 'rename', target: 'settlement', key: 'settlement:2,2', name: 'x' }]) === null, 'Renaming a locked place is allowed');
+    // Where a copy goes: dry, not a lake, a key nothing uses; names count up.
+    const tiny = { width: 10, height: 6, elevation: new Float32Array(60).fill(1), lake: new Uint8Array(60) };
+    tiny.elevation[2 * 10 + 6] = -1; // sea two cells east of (4,2)
+    tiny.lake[2 * 10 + 2] = 1;       // a lake two cells west
+    const spot = duplicateSpot(tiny, { kind: 'settlement', type: 'town', x: 4, y: 2 }, new Set(['settlement:4,4']));
+    assert(spot && spot.x === 4 && spot.y === 0, `Spot skips sea, lake and a used key: ${JSON.stringify(spot)}`);
+    assert(duplicateName('Vado', new Set()) === 'Vado 2' && duplicateName('Vado', new Set(['Vado 2'])) === 'Vado 3' && duplicateName('Vado 2', new Set(['Vado 3'])) === 'Vado 4', 'Copy names');
 
     // The bridge.
     const params = { ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' };
@@ -48,28 +62,39 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     bad(await runBridgeTool('wh_move_place', { worldId: Wid, key: first.key, x: Math.floor(first.x), y: Math.floor(first.y) }), /locked/, 'move while locked');
     bad(await runBridgeTool('wh_remove_place', { worldId: Wid, key: first.key }), /locked/, 'remove while locked');
     bad(await runBridgeTool('wh_lock_place', { worldId: Wid, key: first.key, locked: 'no' }), /true or false/, 'locked not a boolean');
+    bad(await runBridgeTool('wh_lock_place', { worldId: Wid, key: 'settlement:9999,9999' }), /No place/, 'lock of nothing');
+    const at = (await runBridgeTool('wh_place_at', { worldId: Wid, x: Math.floor(first.x), y: Math.floor(first.y) })).result as { place?: { key: string }; locked?: boolean };
+    assert(at.place?.key !== first.key || at.locked === true, `wh_place_at marks it locked ${JSON.stringify(at).slice(0, 200)}`);
     const unlocked = await runBridgeTool('wh_lock_place', { worldId: Wid, key: first.key, locked: false });
     const moved = await runBridgeTool('wh_move_place', { worldId: Wid, key: first.key, x: Math.floor(first.x), y: Math.floor(first.y) });
     assert(unlocked.ok && moved.ok && (await places('settlement')).find((p) => p.key === first.key)?.locked === undefined, 'Unlocked, then moved');
-    // Duplicate: a town two cells east (or on land given), named "<name> 2"; a realm is refused.
-    let copy: BridgeReply | null = null, from: Place | null = null;
-    for (const t of towns.slice(0, 20)) { const r = await runBridgeTool('wh_duplicate_place', { worldId: Wid, key: t.key }); if (r.ok) { copy = r; from = t; break; } }
-    assert(copy && from, 'No town could be copied two cells east');
-    const made = copy.result as { key: string; name: string; marker: string; x: number };
+    // Duplicate: a town on the nearest free dry land, named "<name> 2" (a capital's copy is a city); a realm is refused.
+    const from = towns[0];
+    const copy = await runBridgeTool('wh_duplicate_place', { worldId: Wid, key: from.key });
+    assert(copy.ok, `Copy ${JSON.stringify(copy).slice(0, 300)}`);
+    const made = copy.result as { key: string; name: string; marker: string; x: number; y: number };
     const edits = deserializeEdits((await db.generatedWorlds.get(Wid))!.edits ?? '[]');
     const marker = edits[edits.length - 1] as Extract<WorldEdit, { kind: 'marker' }>;
-    assert(made.name === `${from.name} 2` && marker.kind === 'marker' && marker.marker === 'settlement' && marker.rank === from.type && marker.x === (Math.floor(from.x) + 2) % world.width, `Copy ${JSON.stringify([made, marker, from])}`);
-    const listedCopy = (await places('settlement')).find((p) => p.name === `${from!.name} 2`);
+    const cell = made.y * world.width + made.x;
+    assert(made.name === `${from.name} 2` && marker.kind === 'marker' && marker.marker === 'settlement' && marker.rank === (from.type === 'capital' ? 'city' : from.type) && world.elevation[cell] > 0 && !world.lake[cell] && made.key !== from.key, `Copy ${JSON.stringify([made, marker, from])}`);
+    const again = await runBridgeTool('wh_duplicate_place', { worldId: Wid, key: from.key });
+    const second = again.result as { key: string; name: string };
+    assert(again.ok && second.name === `${from.name} 3` && second.key !== made.key, `A second copy ${JSON.stringify(again).slice(0, 300)}`);
+    bad(await runBridgeTool('wh_duplicate_place', { worldId: Wid, key: from.key, x: made.x, y: made.y }), /already has a place/, 'copy onto the first copy');
+    const seaCell = world.elevation.findIndex((e) => e <= 0);
+    bad(await runBridgeTool('wh_duplicate_place', { worldId: Wid, key: from.key, x: seaCell % world.width, y: Math.floor(seaCell / world.width) }), /sea or a lake/, 'copy onto the sea');
+    await runBridgeTool('wh_remove_place', { worldId: Wid, key: second.key });
+    const listedCopy = (await places('settlement')).find((p) => p.name === `${from.name} 2`);
     assert(listedCopy, 'The copy is a place of the world');
     const realm = (await places('realm'))[0];
     if (realm) bad(await runBridgeTool('wh_duplicate_place', { worldId: Wid, key: realm.key }), /cannot be duplicated/, 'copy of a realm');
     bad(await runBridgeTool('wh_duplicate_place', { worldId: Wid, key: 'settlement:999,999' }), /No place/, 'copy of nothing');
     const audit = (copy.result as { __audit: { entityId: string; projectId: string; before: unknown } }).__audit;
     const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_duplicate_place', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'copy' } });
-    assert(undone.ok && !(await places('settlement')).some((p) => p.name === `${from!.name} 2`), 'Undo takes the copy away');
+    assert(undone.ok && !(await places('settlement')).some((p) => p.name === `${from.name} 2`), 'Undo takes the copy away');
     return [
-      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; copies keep the kind and type of a town, ruin or landmark; realms and seas are not copied',
-      `Bridge: wh_lock_place locks ${first.name} (listed and found as locked; move and remove refused) and unlocks it; wh_duplicate_place copies ${from.name} as "${made.name}" two cells east, refuses a realm and an unknown key, and undoes`,
+      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; one rule refuses moving or removing a locked key (a lock earlier in the same batch counts, renames pass); copies keep the kind and type (a capital becomes a city), go to dry free cells and count their names up; realms and seas are not copied',
+      `Bridge: wh_lock_place locks ${first.name} (listed and found as locked; move and remove refused) and unlocks it; wh_duplicate_place copies ${from.name} as "${made.name}" on free dry land (a second copy is "${second.name}"), refuses a used cell, the sea, a realm and an unknown key, and undoes`,
     ];
   } finally {
     await db.worldSnapshots.delete(worldRuntimeKey(Wid));

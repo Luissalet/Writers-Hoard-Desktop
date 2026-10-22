@@ -23,7 +23,7 @@ import { db } from '@/db';
 import type { GeneratedWorld } from './types';
 import type { WorldData, WorldParams } from './core/types';
 import { unpackWorld } from './core/types';
-import { deserializeEdits, serializeEdits, type WorldEdit } from './core/edits';
+import { deserializeEdits, lockViolation, serializeEdits, type WorldEdit } from './core/edits';
 import { PaintSession } from './core/paintSession';
 import { liveWorld } from './core/liveWorlds';
 import { buildAtlas, type Atlas } from './core/atlas';
@@ -170,6 +170,15 @@ const ROW_WRITE_ATTEMPTS = 4;
  * Append edits to a world through whichever writer currently owns it.
  * Returns the serialised list as it stood immediately before the change.
  */
+/** A locked place is neither moved nor hidden by an agent either: checked against the list the edits land on. */
+function refuseLockedEdits(existing: string | WorldEdit[], edits: WorldEdit[]): void {
+  let list: WorldEdit[] = [];
+  if (Array.isArray(existing)) list = existing;
+  else if (existing) { try { list = deserializeEdits(existing); } catch { list = []; } }
+  const key = lockViolation(list, edits);
+  if (key) throw new Error(`Place ${key} is locked; unlock it with wh_lock_place (locked: false) before you move or remove it, and only if the author wants that.`);
+}
+
 export async function applyWorldEdits(
   world: GeneratedWorld,
   edits: WorldEdit[],
@@ -180,6 +189,7 @@ export async function applyWorldEdits(
     const handle = liveWorld(runtimeId);
     if (handle) {
       const before = handle.snapshot();
+      refuseLockedEdits(before, edits);
       handle.apply(edits);
       return { before, delivered: 'view' };
     }
@@ -211,6 +221,7 @@ export async function applyWorldEdits(
           list = [];
         }
       }
+      refuseLockedEdits(list, edits);
       list.push(...edits);
       await worlds.update(world.id, { edits: serializeEdits(list) });
       return current;
