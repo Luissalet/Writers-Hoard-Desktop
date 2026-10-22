@@ -65,6 +65,7 @@ const suites = [
   ['world-spring.browser.ts', 'testSpringRiver'],
   ['world-roads.browser.ts', 'testWorldRoads'],
   ['world-place-lock.browser.ts', 'testWorldPlaceLock'],
+  ['world-lake.browser.ts', 'testWorldLake'],
   ['world-economy.browser.ts', 'testWorldEconomy'],
   ['world-trade.browser.ts', 'testWorldTrade'],
   ['map-style.browser.ts', 'testMapStyle'],

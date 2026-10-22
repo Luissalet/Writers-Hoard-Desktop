@@ -155,6 +155,14 @@ copy is a city) and Lock it: a locked place is not picked up by the Move tool
 (a note says why) and no card, sheet or eraser click hides it until it is
 unlocked; an agent is refused the same way.
 
+The River tool (Paint → Stroke → River) has a Water row: Draw a river, or
+Lake. In Lake mode a click fills the hollow there from the lowest ground until
+it spills (the Least size slider makes the water rise until the lake is at
+least that big, as behind a dam); Ctrl+click drains the lake you click,
+painted or generated. The lake is re-derived from the ground on every replay,
+so it follows later terrain edits and survives "Recalculate climate and
+rivers".
+
 The Road tool (Paint → Point → Road) lays a road between two towns along the
 cart route, or by hand with a drag; a track is dashed and a royal road solid,
 unless the Line row picks solid, dashed or dotted, and Thickness scales its
