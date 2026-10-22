@@ -35,7 +35,9 @@ when, and `wh_story_chapters` gives the story chapter by chapter with how much
 of the map the reader knows by each; read them before describing what a character could know, and keep
 planned events apart from happened ones. For trade, famine or prices in a
 scene, ask `wh_world_economy` for that month and settlement instead of
-inventing figures; it is deterministic for the world. On a classic (image) map,
+inventing figures; it is deterministic for the world. To add a river that
+follows the ground, use `wh_add_spring_river` from its source (`dryRun` first
+to see where it ends) instead of drawing one by hand. On a classic (image) map,
 positions are percent of the picture: list shapes with `wh_list_map_features`
 before changing one, leave a comment about a spot with `wh_annotate` `at`, and
 before replacing the picture call `wh_preview_map_ground`; only use `fit:

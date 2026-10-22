@@ -18,12 +18,14 @@ import { createWorldEditWriter } from '../editWriter';
 import { commitRegeneration, prepareRegeneration, WorldRecipeConflict, type LocationPolicy, type RegenerationPlan } from '../recipe';
 import { forgeCrashText, worldWorkspaceCopy } from '../workspaceCopy';
 import RegenerateWorldDialog from './RegenerateWorldDialog';
+import WorldMapMenu from './WorldMapMenu';
+import { traceSpring } from '../core/spring';
 import { journeyStopsForWorld } from '../journeyTypes';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
   Signpost, Compass, Flag, Search, Home, Ruler, PanelRightClose, PanelRightOpen,
-  Play, Pause, SkipBack, SkipForward,
+  Play, Pause, SkipBack, SkipForward, Type, Droplets, BookMarked,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -1221,6 +1223,9 @@ export default function WorldView({
    * happens in each one. Read through refs so the timer keeps one identity.
    */
   const [storyPlaying, setStoryPlaying] = useState(false);
+  // The map's right-click menu: where it was opened, in world cells and on screen.
+  const [worldMenu, setWorldMenu] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+  const closeWorldMenu = useCallback(() => setWorldMenu(null), []);
   const storyFrames = useMemo(() => storyChapterFrames(storyEvents, fogChapters(fogEdits)), [storyEvents, fogEdits]);
   const playbackRef = useRef({ chapter: readerChapter, chapters: readerChapters });
   playbackRef.current = { chapter: readerChapter, chapters: readerChapters };
@@ -2141,6 +2146,26 @@ export default function WorldView({
         <button type="button" onClick={environment.retry} className="text-accent-gold underline underline-offset-4">{copy.environmentRetry}</button>
       </div>}
       {recipeError && <p role="alert" className="text-sm text-danger">{recipeError}</p>}
+      {worldMenu && data && <WorldMapMenu at={worldMenu} onClose={closeWorldMenu} title={t('worldgen.menu.title')} cancel={t('common.cancel')} create={t('worldgen.menu.create')} items={[
+        { id: 'place', label: t('worldgen.menu.place'), icon: <MapPin size={14} />, ask: t('worldgen.menu.placeName'),
+          run: (name) => { const cell = Math.floor(worldMenu.y) * data.width + ((Math.floor(worldMenu.x) % data.width) + data.width) % data.width; if (!(data.elevation[cell] > 0)) { toast.error(t('worldgen.menu.placeInSea')); return; } if (!applyEdit({ kind: 'marker', marker: 'settlement', x: Math.floor(worldMenu.x), y: Math.floor(worldMenu.y), rank: 'village', name })) { toast.error(t('worldgen.story.busy')); return false; } } },
+        { id: 'label', label: t('worldgen.menu.label'), icon: <Type size={14} />, ask: t('worldgen.menu.labelText'),
+          run: (text) => { if (!applyEdit({ kind: 'label', x: worldMenu.x, y: worldMenu.y, text, style: 'note' })) { toast.error(t('worldgen.story.busy')); return false; } } },
+        { id: 'spring', label: t('worldgen.menu.spring'), icon: <Droplets size={14} />,
+          run: () => {
+            // The water finds its own way down from the spring; a spring in the sea or a hollow goes nowhere.
+            const run = traceSpring(data, worldMenu.x, worldMenu.y);
+            if (run.end === 'nowhere') { toast.error(t('worldgen.menu.springDry')); return; }
+            if (!applyEdit({ kind: 'river', pts: run.pts, width: 2 })) { toast.error(t('worldgen.story.busy')); return false; }
+            toast.success(t(`worldgen.menu.springTo.${run.end}`).replace('{n}', String(run.cells)));
+          } },
+        { id: 'story', label: t('worldgen.menu.story'), icon: <BookMarked size={14} />, ask: t('worldgen.menu.storyTitle'),
+          run: (title) => {
+            const chapter = readerView && readerChapter !== null ? readerChapter : undefined;
+            const event = normalizeStoryEvent({ id: newStoryId(), x: worldMenu.x, y: worldMenu.y, type: 'custom', title, ...(chapter === undefined ? {} : { chapter }) });
+            if (!applyEdit({ kind: 'story', ...event })) { toast.error(t('worldgen.story.busy')); return false; }
+          } },
+      ]} />}
       {/* Stack tools below the map when the actual workspace is narrow. */}
       <div className={`grid gap-3 items-stretch ${toolsOpen ? '@min-[960px]:grid-cols-[minmax(0,1fr)_21rem]' : ''}`}>
         <div className="relative rounded-xl overflow-hidden border border-border bg-deep min-w-0 h-[max(420px,calc(100dvh-260px))]">
@@ -2205,6 +2230,7 @@ export default function WorldView({
                 if (!applyEdit(tradeSiteEdit(site))) toast.error(t('worldgen.story.busy'));
               } : null}
               onMoveStory={paintable ? (id, x, y) => updateStory(id, { x, y }) : undefined}
+              onMapMenu={paintable && !measuring && !tradePlacing ? setWorldMenu : undefined}
               measuring={measuring}
               scaleReference={scaleReference || null}
               travelProfile={world.travelProfile}

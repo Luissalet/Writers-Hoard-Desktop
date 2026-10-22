@@ -1213,6 +1213,27 @@ async function storyPosition(args: ToolArgs, world: GeneratedWorld): Promise<{ x
   return { x: x + 0.5, y: y + 0.5 };
 }
 
+/**
+ * A river from a spring: from the given spot the water steps downhill until the
+ * sea, another river or a hollow, and the path is drawn as an ordinary river.
+ */
+export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const at = await storyPosition(args, world);
+  if (!at) throw new BridgeError('bad-args', 'Give place (a key from wh_find_place) or x and y world cells for the spring.');
+  const width = optNumber(args, 'width') ?? 2;
+  if (!(width >= 0.5 && width <= 12)) throw new BridgeError('bad-args', 'width must be between 0.5 and 12 cells.');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { traceSpring } = await import('@/engines/worldgen/core/spring');
+  const run = traceSpring(opened.world.data, at.x, at.y);
+  if (run.end === 'nowhere') throw new BridgeError('bad-args', 'From there the water has nowhere to run (it is sea, or a hollow already); pick higher ground.');
+  const summary = { end: run.end, cells: run.cells, from: { x: Math.floor(at.x), y: Math.floor(at.y) }, to: { x: Math.floor(run.pts[run.pts.length - 1].x) % opened.world.data.width, y: Math.floor(run.pts[run.pts.length - 1].y) } };
+  if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary, points: run.pts };
+  return appendEdit(args, world, { kind: 'river', pts: run.pts, width }, summary, `added a river from a spring (${run.cells} cells to the ${run.end}) to world "${world.title}"`);
+}
+
 function storyFields(args: ToolArgs): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of ['type', 'title', 'note', 'chapter', 'status'] as const) if (args[key] !== undefined) out[key] = args[key];

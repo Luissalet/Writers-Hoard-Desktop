@@ -141,6 +141,11 @@ PNG export carries the reader's view while it is open. In the Travel panel,
 sight radius in km, from a chapter on; a long route is stored as several
 strokes so it never folds across the sheet. The fog changes nothing in the
 world; the 3D view does not draw it (the fog and event tools say so there).
+Right-clicking a generated world's map offers, at that spot: a village (on dry
+land only), a note, a story event (in the Reader's view, in its chapter) and a
+spring whose river runs downhill on its own until the sea, another river or a
+hollow; Escape closes the menu.
+
 The Events tool (Paint → Reader) puts story events on the map: a kind (fight,
 find, meeting, rest, change, travelling, camp, inn, other), a title, a chapter
 and planned or happened; a click places the next one, picking one edits it in
