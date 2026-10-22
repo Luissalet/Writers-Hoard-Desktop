@@ -6,7 +6,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
-  describeDuration, effectiveHoursPerDay, GROUND_CLASSES, MODE_KEY, SEASON_KEY, TRAVEL_PACES,
+  describeDuration, effectiveHoursPerDay, GROUND_CLASSES, HARD_PACE_REST_EVERY, MODE_KEY, SEASON_KEY, TRAVEL_PACES,
   type GroundClass, type Route, type Season, type TravelMode, type TravelPace, type TravelProfile,
 } from '../core/travel';
 import { seaLevelForIce, type PaleoState } from '../core/paleo';
@@ -17,7 +17,7 @@ import { journeyNormalizedStops, journeyRecipeKey, type WorldJourney } from '../
 import { deleteWorldJourney, saveWorldJourney, saveWorldTravelSettings, type TravelFactorEdit } from '../journeyOperations';
 import { ConfirmDialog } from '@/engines/_shared';
 import JourneyCreativeCapture from './JourneyCreativeCapture';
-import { clockAt, clockText, DEFAULT_SET_OFF_HOUR, groundsCrossed, kmOnWater, legClocks, placesPassed, roadsTaken, type JourneyClock } from '../core/routeWords';
+import { clockAt, clockText, DEFAULT_SET_OFF_HOUR, groundsCrossed, kmOnWater, legClocks, placesPassed, roadsTaken, routeStretches, type JourneyClock } from '../core/routeWords';
 
 /**
  * Two questions the reader asks a map and no map generator answers.
@@ -125,6 +125,8 @@ function JourneyPanelContent({
     ...(Object.keys(profile).length ? { profile } : {}),
   };
   const hoursPerDay = effectiveHoursPerDay(planOptions);
+  /** A hard pace rests a day after every few on the move: the clock's calendar counts them. */
+  const restEvery = planOptions.pace === 'hard' ? HARD_PACE_REST_EVERY : 0;
   /**
    * Travel settings belong to the world; an opened itinerary is planned with
    * the settings it was saved with. Only the author's own edits of the pace or
@@ -473,7 +475,7 @@ function JourneyPanelContent({
                 </p>
               )}
               <div className="flex flex-col gap-0.5 mt-1">
-                {(() => { const clocks = legClocks(route, hoursPerDay, setOffHour); return route.legs.slice(0, 6).map((l, i) => (
+                {(() => { const clocks = legClocks(route, hoursPerDay, setOffHour, restEvery); return routeStretches(route).slice(0, 8).map((l, i) => (
                   <div key={i} className="flex justify-between gap-2 text-[10px] text-white/45" data-testid={`journey-leg-${i}`}>
                     <span><span className="text-white/30">{t('worldgen.journey.legDay').replace('{day}', String(clocks[i].day)).replace('{part}', partText(clocks[i]))}</span> · {l.terrain}</span>
                     <span className="tabular-nums">{Math.round(l.km)} km</span>
@@ -481,7 +483,7 @@ function JourneyPanelContent({
                 )); })()}
               </div>
               {(() => {
-                const arrive = clockAt(route.hours, hoursPerDay, setOffHour, true);
+                const arrive = clockAt(route.hours, hoursPerDay, setOffHour, true, restEvery);
                 const camp = setOffHour + hoursPerDay;
                 return <p className="text-[10px] leading-snug text-white/55" data-testid="journey-clock">
                   {(arrive.day === 1 ? t('worldgen.journey.clockOneDay') : t('worldgen.journey.clock'))

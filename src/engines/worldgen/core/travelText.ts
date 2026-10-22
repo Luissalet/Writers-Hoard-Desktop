@@ -20,6 +20,7 @@ const EN: Record<string, string> = {
 export function englishRoute(route: Route): Route {
   return { ...route, impossible: route.impossible ? EN[route.impossible] ?? route.impossible : undefined,
     legs: route.legs.map(leg => ({ ...leg, terrain: EN[leg.terrain] ?? leg.terrain })),
+    ...(route.stretches ? { stretches: route.stretches.map(leg => ({ ...leg, terrain: EN[leg.terrain] ?? leg.terrain })) } : {}),
     stages: route.stages.map(stage => ({ ...stage, terrain: EN[stage.terrain] ?? stage.terrain,
       nearest: stage.nearest ? { ...stage.nearest, kind: stage.nearest.kind === 'ruina' ? 'ruin' : stage.nearest.kind } : undefined,
       ...(stage.shelter ? { shelter: { ...stage.shelter, kind: stage.shelter.kind === 'ruina' ? 'ruin' : stage.shelter.kind } } : {}) })) };

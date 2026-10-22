@@ -1813,8 +1813,9 @@ deshecho.
   medio por tramo; con `atDay`, dónde está el grupo ese día y si viaja, pasa la
   noche, descansa o ha llegado; además `passes` —pueblos por los que pasa, en
   orden, con km recorridos y a cuánto quedan—, `roads` —caminos que sigue,
-  nombrados por los pueblos de sus extremos—, `grounds`, `kmOnWater`, cada tramo
-  con su día y parte del día, `clock` —sale, acampa y llega— según `setOffHour`
+  nombrados por los pueblos de sus extremos—, `grounds`, `kmOnWater`,
+  `stretches` —los tramos en el orden del viaje, cada uno con su día (contando
+  los días de descanso del ritmo forzado) y parte del día—, `clock` —sale, acampa y llega— según `setOffHour`
   (hora entera, 7 por defecto) y la posada o ruina de cada noche). Los itinerarios guardados conservan los ajustes
   con los que se planificaron.
 - **Épocas del mapa enlazadas a la cronología.** `wh_list_map_versions` (en el
@@ -1869,6 +1870,7 @@ deshecho.
   `wh_paint_biome` (pinta un terreno por clave sobre un trazo de celdas con
   radio, también los fantásticos —volcanic, ashPlain, petrifiedForest,
   fungalForest, crystalFlats, glowMarsh—, o lo borra con `erase`; mar y lago no;
+  devuelve las celdas de tierra pintadas y rechaza un trazo que no toca tierra;
   `wh_place_at` devuelve `ground`; se deshace),
   `wh_set_world_levels` (`seaLevelM` ±1000 y/o `snowlineM` ±3000, absolutos;
   el mar mueve todas las alturas —también las de las hojas de comarca— y los

@@ -1031,7 +1031,7 @@ export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
   const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
   const patch: Record<string, unknown> = {};
   for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours']) if (args[key] !== undefined) patch[key] = args[key];
-  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount, layers, grid or readerStart.');
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount, layers, grid, readerStart or contours.');
   const expected = optNumber(args, 'expectedRevision');
   const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
   try {
@@ -1181,8 +1181,10 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const words = await import('@/engines/worldgen/core/routeWords');
   const setOffHour = setOffArg ?? words.DEFAULT_SET_OFF_HOUR;
   const perDay = effectiveHoursPerDay(options);
-  const clocks = words.legClocks(route, perDay, setOffHour);
-  const arrival = words.clockAt(route.hours, perDay, setOffHour, true);
+  const { HARD_PACE_REST_EVERY } = await import('@/engines/worldgen/core/travel');
+  const restEvery = options.pace === 'hard' ? HARD_PACE_REST_EVERY : 0;
+  const clocks = words.legClocks(route, perDay, setOffHour, restEvery);
+  const arrival = words.clockAt(route.hours, perDay, setOffHour, true, restEvery);
   return {
     worldId: world.id,
     stops: stops.map(stop => stop.name),
@@ -1192,7 +1194,9 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
     roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
     crossings: route.crossings.length, realms: route.realms,
     ...(at ? { atDay: { day: r(at.day, 2), x: r(at.x), y: r(at.y), phase: at.phase, night: at.stage?.night ?? null, nearest: at.stage?.nearest?.name ?? null } } : {}),
-    terrain: route.legs.slice(0, 8).map((leg, index) => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad, day: clocks[index].day, partOfDay: clocks[index].part, startsAt: words.clockText(clocks[index].hour) })),
+    terrain: route.legs.slice(0, 8).map(leg => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad })),
+    // The same ground in travel order, each stretch with the day and hour it begins.
+    stretches: words.routeStretches(route).slice(0, 30).map((leg, index) => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad, day: clocks[index].day, partOfDay: clocks[index].part, startsAt: words.clockText(clocks[index].hour) })),
     passes: words.placesPassed(data, geo, route, { limit: 20, ends: [stops[0].name, stops[stops.length - 1].name] }).map(place => ({ name: place.name, rank: place.rank, atKm: r(place.atKm), offKm: r(place.offKm) })),
     roads: words.roadsTaken(data, geo, route).map(road => ({ from: road.from, to: road.to, km: r(road.km) })),
     grounds: words.groundsCrossed(route, 6),
@@ -1458,8 +1462,16 @@ export async function whPaintBiome(args: ToolArgs): Promise<unknown> {
   const radius = optNumber(args, 'radius') ?? 3;
   if (!(radius >= 0.5 && radius <= 60)) throw new BridgeError('bad-args', 'radius must be between 0.5 and 60 cells.');
   const stroke = { pts, radius, strength: 1, softness: 0.4 };
+  // How much land the stroke really takes: the brush leaves the sea alone and a thin stroke's edge is dithered away.
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { strokeMask } = await import('@/engines/worldgen/sculpt/ops');
+  const mask = strokeMask(stroke, size.width, size.height);
+  let cells = 0;
+  mask?.each((i, cover) => { if (cover > 0.55 && opened.world.data.elevation[i] > 0) cells++; });
+  if (!cells) throw new BridgeError('bad-args', 'The stroke covers no land cell (it is over the sea, or too thin): use a larger radius or another place.');
   const edit = erase ? { kind: 'eraseBiome' as const, stroke } : { kind: 'biome' as const, biome: biome as import('@/engines/worldgen/core/types').BiomeId, stroke };
-  const summary = { erase, ...(erase ? {} : { biome: BIOME_KEY[biome] }), points: pts.length, radius };
+  const summary = { erase, ...(erase ? {} : { biome: BIOME_KEY[biome] }), points: pts.length, radius, cells };
   return appendEdit(args, world, edit, summary, erase ? `rubbed out painted ground on world "${world.title}"` : `painted ${BIOME_KEY[biome]} ground on world "${world.title}"`);
 }
 
