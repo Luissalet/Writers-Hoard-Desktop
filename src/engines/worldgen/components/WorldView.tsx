@@ -70,7 +70,7 @@ import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { registerLiveWorld } from '../core/liveWorlds';
-import { deserializeEdits, editKey, riverCellsAfterEdits, sitesPolicyFrom, targetFromKey } from '../core/edits';
+import { deserializeEdits, duplicatePlaceEdit, editKey, lockedPlaceKeys, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
@@ -1215,10 +1215,29 @@ export default function WorldView({
     applyEdit({ kind: 'rename', target, key, name });
   }, [applyEdit]);
 
+  /** Places locked against accidents (the Move tool skips them; hiding waits for an unlock). */
+  const lockedKeys = useMemo(() => {
+    void paintRev;
+    return lockedPlaceKeys(session.current?.edits ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
+  }, [paintRev, data]);
   const removeByKey = useCallback((key: string) => {
     const target = targetFromKey(key);
+    if (lockedKeys.has(key)) { toast.info(t('worldgen.place.lockedHide')); return; }
     if (target) applyEdit({ kind: 'remove', target, key });
+  }, [applyEdit, lockedKeys, t]);
+  const lockByKey = useCallback((key: string, locked: boolean) => {
+    const target = targetFromKey(key);
+    if (target) applyEdit({ kind: 'lock', target, key, locked });
   }, [applyEdit]);
+  /** A copy of a town, ruin or landmark two cells east, named "<name> 2". */
+  const duplicateByKey = useCallback((entity: { key: string; kind: string; type: string; name: string; x: number; y: number }) => {
+    if (!data) return;
+    const at = { x: ((Math.floor(entity.x) + 2) % data.width + data.width) % data.width, y: Math.floor(entity.y) };
+    const edit = duplicatePlaceEdit(entity, at, `${entity.name} 2`);
+    if (!edit) return;
+    if (applyEdit(edit)) toast.success(t('worldgen.place.duplicated').replace('{name}', `${entity.name} 2`));
+  }, [applyEdit, data, t]);
 
   /**
    * What a click on a town means, which depends on what is in the reader's hand.
@@ -1353,6 +1372,7 @@ export default function WorldView({
         kind: 'road',
         pts: r.cells.map((c) => ({ x: c % W, y: Math.floor(c / W) })),
         major: brush.roadMajor,
+        ...roadLook({ roadWidth: brush.roadWidth, roadPattern: brush.roadPattern }),
       });
       return;
     }
@@ -1363,7 +1383,7 @@ export default function WorldView({
       return;
     }
     descendToTown(s);
-  }, [brushIsOut, brush.mode, brush.roadMajor, roadFrom, data, geography, journeyPick, applyEdit, descendToTown, t]);
+  }, [brushIsOut, brush.mode, brush.roadMajor, brush.roadWidth, brush.roadPattern, roadFrom, data, geography, journeyPick, applyEdit, descendToTown, t]);
 
   /**
    * Putting the TOOL away abandons a half-drawn road. Changing panel does not.
@@ -2253,6 +2273,8 @@ export default function WorldView({
               scaleReferenceLabel={scaleReference ? t(`worldgen.scaleRef.${scaleReference}`) : ''}
               onEndMeasure={() => setMeasuring(false)}
               onPickSettlement={pickSettlement}
+              lockedKeys={lockedKeys}
+              onLockedPress={(label) => toast.info(t('worldgen.place.lockedToast').replace('{name}', label))}
               onZoomTo={zoomToPoint}
               viewport={viewport}
               onViewportChange={setViewport}
@@ -2534,6 +2556,9 @@ export default function WorldView({
                   entity={selectedSpatialEntity}
                   onRename={(name) => renameByKey(selectedSpatialEntity.key, name)}
                   onRemove={() => removeByKey(selectedSpatialEntity.key)}
+                  locked={lockedKeys.has(selectedSpatialEntity.key)}
+                  onLock={(locked) => lockByKey(selectedSpatialEntity.key, locked)}
+                  onDuplicate={['settlement', 'ruin', 'landmark'].includes(selectedSpatialEntity.kind) ? () => duplicateByKey(selectedSpatialEntity) : undefined}
                   onRestore={() => {
                     const target = targetFromKey(selectedSpatialEntity.key);
                     if (target) applyEdit({
@@ -2543,6 +2568,7 @@ export default function WorldView({
                     });
                   }}
                   onMove={(x, y) => {
+                    if (lockedKeys.has(selectedSpatialEntity.key)) return;
                     const target = targetFromKey(selectedSpatialEntity.key);
                     if (target) applyEdit({
                       kind: 'move',
@@ -2596,6 +2622,9 @@ export default function WorldView({
                   onSelect={setAtlasKey}
                   onRename={renameByKey}
                   onDelete={removeByKey}
+                  lockedKeys={lockedKeys}
+                  onLock={lockByKey}
+                  onDuplicate={duplicateByKey}
                   onFlyTo={(x, y) => flyTo(x / data.width, y / data.height)}
                   onEditPlan={(place) => {
                     // La ficha del Índice se casa con su asentamiento por la

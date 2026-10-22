@@ -179,6 +179,17 @@ function roadWidth(major: boolean, pxPerCell: number, emphasised: boolean): numb
   return emphasised ? base * 1.6 + 1 : base;
 }
 
+/**
+ * The dash of a road: its class's own (artery solid, track dashed) unless a
+ * hand-drawn road chose a pattern. Dots are zero-length dashes on round caps.
+ */
+export function roadDash(road: Pick<Road, 'major' | 'pattern'>, dashUnit: number, width: number): number[] {
+  const pattern = road.pattern ?? (road.major ? 'solid' : 'dashed');
+  if (pattern === 'solid') return [];
+  if (pattern === 'dotted') return [0.001, Math.max(dashUnit * 0.9, width * 2.4)];
+  return [dashUnit * 1.6, dashUnit];
+}
+
 /** Pale casing under, warm track over: what keeps a road legible where it
  *  crosses forest, mountain shadow and the dark of an ocean shelf alike. */
 const CASING = 'rgba(28,24,18,0.45)';
@@ -233,7 +244,8 @@ export function drawRoadNetwork(
     if (pts.length > 2 && pts.length < 400) pts = chaikin(pts, false, 1);
     if (pts.length < 2) { result.culled++; continue; }
     const emphasised = opts.emphasis?.(road, i) === true;
-    const w = roadWidth(road.major, opts.pxPerCell, emphasised);
+    const w = roadWidth(road.major, opts.pxPerCell, emphasised) * (road.width ?? 1);
+    const dash = roadDash(road, dashUnit, w);
 
     const trace = () => {
       ctx.beginPath();
@@ -243,7 +255,8 @@ export function drawRoadNetwork(
     };
 
     ctx.globalAlpha = alpha * 0.85;
-    ctx.setLineDash([]);
+    // A dotted road keeps its casing under each dot, not as a continuous line.
+    ctx.setLineDash(road.pattern === 'dotted' ? dash : []);
     ctx.strokeStyle = opts.ink?.casing ?? CASING;
     ctx.lineWidth = w + 1.2;
     trace();
@@ -251,7 +264,7 @@ export function drawRoadNetwork(
     ctx.globalAlpha = alpha;
     ctx.strokeStyle = emphasised ? EMPHASIS_INK : (road.major ? opts.ink?.major ?? MAJOR_INK : opts.ink?.minor ?? MINOR_INK);
     ctx.lineWidth = w;
-    ctx.setLineDash(road.major ? [] : [dashUnit * 1.6, dashUnit]);
+    ctx.setLineDash(dash);
     trace();
 
     result.drawn++;

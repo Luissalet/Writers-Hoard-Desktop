@@ -201,8 +201,20 @@ function pendingResult(
   return { worldId: world.id, pending: true, code: result.code, message: result.message };
 }
 
-function placeShape(place: AtlasPlace, data: WorldData): Record<string, unknown> {
+/** The keys of the world's locked places, from its edits. */
+async function lockedKeysOf(world: GeneratedWorld): Promise<Set<string>> {
+  const { lockedPlaceKeys } = await import('@/engines/worldgen/core/edits');
+  return lockedPlaceKeys(deserializeEdits(world.edits ?? '[]'));
+}
+
+/** A locked place is not moved or hidden until it is unlocked. */
+async function refuseLocked(world: GeneratedWorld, key: string, action: string): Promise<void> {
+  if ((await lockedKeysOf(world)).has(key)) throw new BridgeError('bad-args', `Place ${key} is locked; unlock it with wh_lock_place (locked: false) before you ${action} it, and only if the author wants that.`);
+}
+
+function placeShape(place: AtlasPlace, data: WorldData, locked?: ReadonlySet<string>): Record<string, unknown> {
   return {
+    ...(locked?.has(place.key) ? { locked: true } : {}),
     key: place.key,
     kind: place.kind,
     type: place.type,
@@ -390,13 +402,14 @@ export async function whListPlaces(args: ToolArgs): Promise<unknown> {
   const matching = atlas.places
     .filter((place) => !kind || place.kind === kind)
     .sort((a, b) => b.importance - a.importance);
+  const locked = await lockedKeysOf(world);
   return {
     worldId: world.id,
     scope,
     total: matching.length,
     returned: Math.min(limit, matching.length),
     live,
-    places: matching.slice(0, limit).map((place) => placeShape(place, data)),
+    places: matching.slice(0, limit).map((place) => placeShape(place, data, locked)),
   };
 }
 
@@ -416,13 +429,14 @@ export async function whFindPlace(args: ToolArgs): Promise<unknown> {
     .map((place) => ({ place, rank: matchRank(foldForSearch(place.name), folded) }))
     .filter((hit) => hit.rank >= 0)
     .sort((a, b) => a.rank - b.rank || b.place.importance - a.place.importance);
+  const locked = await lockedKeysOf(world);
   return {
     worldId: world.id,
     query,
     total: ranked.length,
     returned: Math.min(limit, ranked.length),
     live,
-    places: ranked.slice(0, limit).map((hit) => placeShape(hit.place, data)),
+    places: ranked.slice(0, limit).map((hit) => placeShape(hit.place, data, locked)),
   };
 }
 
@@ -544,6 +558,7 @@ export async function whMovePlace(args: ToolArgs): Promise<unknown> {
   const key = requireString(args, 'key');
   const target = placeTarget(key);
   const { x, y } = cellCoords(args, worldSize(world));
+  await refuseLocked(world, key, 'move');
   return appendEdit(
     args, world,
     { kind: 'move', target, key, x, y },
@@ -557,6 +572,7 @@ export async function whRemovePlace(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const key = requireString(args, 'key');
   const target = placeTarget(key);
+  await refuseLocked(world, key, 'remove');
   // `removed`, never `deleted`: the place is hidden by an edit that
   // wh_restore_place (or an undo) reverses, and no row goes anywhere.
   return appendEdit(
@@ -564,6 +580,52 @@ export async function whRemovePlace(args: ToolArgs): Promise<unknown> {
     { kind: 'remove', target, key },
     { key, removed: true },
     `removed place ${key} from world "${world.title}"`,
+  );
+}
+
+/** Lock a place against moving and hiding, or unlock it. */
+export async function whLockPlace(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const key = requireString(args, 'key');
+  const target = placeTarget(key);
+  const locked = args.locked === undefined ? true : args.locked;
+  if (typeof locked !== 'boolean') throw new BridgeError('bad-args', 'locked must be true or false.');
+  return appendEdit(
+    args, world,
+    { kind: 'lock', target, key, locked },
+    { key, locked },
+    `${locked ? 'locked' : 'unlocked'} place ${key} in world "${world.title}"`,
+  );
+}
+
+/** A copy of a settlement, ruin or landmark as a new hand-placed mark. */
+export async function whDuplicatePlace(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const key = requireString(args, 'key');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { data, atlas } = opened.world;
+  const place = atlas.byKey.get(key);
+  if (!place) throw new BridgeError('not-found', `No place "${key}"; use wh_find_place for keys.`);
+  const at = args.x === undefined && args.y === undefined
+    ? { x: ((Math.floor(place.x) + 2) % data.width + data.width) % data.width, y: Math.floor(place.y) }
+    : cellCoords(args, worldSize(world));
+  const name = optString(args, 'name') ?? `${place.name} 2`;
+  const { duplicatePlaceEdit } = await import('@/engines/worldgen/core/edits');
+  const edit = duplicatePlaceEdit(place, at, name);
+  if (!edit) throw new BridgeError('bad-args', `A ${place.kind} cannot be duplicated; only settlements, ruins and landmarks can.`);
+  if (edit.marker === 'settlement') {
+    const elevation = elevationAt(data, at.x, at.y);
+    if (elevation !== undefined && elevation <= 0) throw new BridgeError('bad-args', 'That cell is sea; give x and y on land for the copy.');
+  }
+  const newKey = edit.marker === 'landmark' ? landmarkKey({ type: edit.landmark as NonNullable<typeof edit.landmark>, x: at.x, y: at.y }) : editKey(edit.marker === 'ruin' ? 'ruin' : 'settlement', at.x, at.y);
+  return appendEdit(
+    args, world,
+    edit,
+    { key: newKey, from: key, marker: edit.marker, x: at.x, y: at.y, name: edit.name },
+    `duplicated place ${key} as "${edit.name ?? newKey}" in world "${world.title}"`,
   );
 }
 
@@ -1235,6 +1297,49 @@ export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
   const summary = { end: run.end, cells: run.cells, from: { x: Math.floor(at.x), y: Math.floor(at.y) }, to: { x: ((Math.floor(run.pts[run.pts.length - 1].x) % opened.world.data.width) + opened.world.data.width) % opened.world.data.width, y: Math.floor(run.pts[run.pts.length - 1].y) } };
   if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary, points: run.pts };
   return appendEdit(args, world, { kind: 'river', pts: run.pts, width }, summary, `added a river from a spring (${run.cells} cells to the ${run.end}) to world "${world.title}"`);
+}
+
+/**
+ * Lay a road by hand between two places (or cells), routed like the Road tool:
+ * the cart route over the real ground, through passes and around marshes. Its
+ * line may be thicker or thinner than its class's and solid, dashed or dotted.
+ */
+export async function whAddWorldRoad(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { ROAD_PATTERNS, ROAD_WIDTH, roadLook } = await import('@/engines/worldgen/core/edits');
+  const major = args.major === undefined ? false : args.major;
+  if (typeof major !== 'boolean') throw new BridgeError('bad-args', 'major must be true (a royal road) or false (a track).');
+  const width = optNumber(args, 'width');
+  if (width !== undefined && !(width >= ROAD_WIDTH.min && width <= ROAD_WIDTH.max)) throw new BridgeError('bad-args', `width must be between ${ROAD_WIDTH.min} and ${ROAD_WIDTH.max} (a multiple of the class's line).`);
+  const pattern = optEnum(args, 'pattern', ROAD_PATTERNS);
+  if (args.pattern !== undefined && !pattern) throw new BridgeError('bad-args', 'pattern must be solid, dashed or dotted.');
+  if (args.dryRun !== undefined && typeof args.dryRun !== 'boolean') throw new BridgeError('bad-args', 'dryRun must be true or false.');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { data, atlas, geo } = opened.world;
+  const end = (value: unknown, label: 'from' | 'to') => {
+    const s = value as Record<string, unknown> | undefined;
+    if (typeof s?.place === 'string') {
+      const place = atlas.byKey.get(s.place);
+      if (!place) throw new BridgeError('not-found', `${label}: no place "${s.place}"; use wh_find_place for keys.`);
+      return { x: place.x, y: place.y, name: place.name };
+    }
+    if (typeof s?.x === 'number' && typeof s?.y === 'number' && Number.isFinite(s.x) && Number.isFinite(s.y)) {
+      if (Math.round(s.y) < 0 || Math.round(s.y) >= data.height) throw new BridgeError('bad-args', `${label}.y must be within the world grid.`);
+      return { x: ((Math.round(s.x) % data.width) + data.width) % data.width, y: Math.round(s.y), name: `${Math.round(s.x)},${Math.round(s.y)}` };
+    }
+    throw new BridgeError('bad-args', `${label} must be {place} or {x, y}.`);
+  };
+  const from = end(args.from, 'from'), to = end(args.to, 'to');
+  const { planRoute } = await import('@/engines/worldgen/core/travel');
+  const route = planRoute(data, geo, from, to, { mode: 'cart', season: 'summer' }, 'en');
+  if (route.impossible || route.cells.length < 2) throw new BridgeError('bad-args', `No land route between ${from.name} and ${to.name} for a road${route.impossible ? ` (${route.impossible})` : ''}.`);
+  const W = data.width;
+  const look = roadLook({ roadWidth: width, roadPattern: pattern });
+  const summary = { from: from.name, to: to.name, cells: route.cells.length, km: Math.round(route.km), major, ...look };
+  if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary };
+  return appendEdit(args, world, { kind: 'road', pts: route.cells.map((c) => ({ x: c % W, y: Math.floor(c / W) })), major, ...look }, summary, `laid a ${major ? 'royal road' : 'track'} from ${from.name} to ${to.name} on world "${world.title}"`);
 }
 
 function storyFields(args: ToolArgs): Record<string, unknown> {

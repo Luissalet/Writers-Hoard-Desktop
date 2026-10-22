@@ -1019,7 +1019,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_wiki_profile_publish', 'wh_wiki_profile_restore_config',
   'wh_capture_map_version', 'wh_link_map_version',
   'wh_set_world_presentation', 'wh_set_world_travel_settings',
-  'wh_update_label', 'wh_add_stamp', 'wh_paint_reader_fog', 'wh_add_story_event', 'wh_add_spring_river', 'wh_update_story_event', 'wh_remove_story_event', 'wh_add_trade_site', 'wh_remove_trade_site', 'wh_restore_trade_site', 'wh_add_map_feature', 'wh_update_map_feature', 'wh_change_map_ground', 'wh_set_map_scale', 'wh_name_map_pins_from_key',
+  'wh_update_label', 'wh_add_stamp', 'wh_paint_reader_fog', 'wh_add_story_event', 'wh_add_spring_river', 'wh_add_world_road', 'wh_lock_place', 'wh_duplicate_place', 'wh_update_story_event', 'wh_remove_story_event', 'wh_add_trade_site', 'wh_remove_trade_site', 'wh_restore_trade_site', 'wh_add_map_feature', 'wh_update_map_feature', 'wh_change_map_ground', 'wh_set_map_scale', 'wh_name_map_pins_from_key',
 ];
 
 // Receipt-based recovery, like audit Undo, stays usable after switching a tab off.
@@ -1220,6 +1220,9 @@ async function buildGuardProbes(
       ['wh_paint_reader_fog', { worldId, op: 'seen', points: [{ x: 1, y: 1 }] }],
       ['wh_add_story_event', { worldId, x: 1, y: 1, title: 'x' }],
       ['wh_add_spring_river', { worldId, x: 1, y: 1 }],
+      ['wh_add_world_road', { worldId, from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }],
+      ['wh_lock_place', { worldId, key: 'settlement:1,1', locked: true }],
+      ['wh_duplicate_place', { worldId, key: 'settlement:1,1' }],
       ['wh_update_story_event', { worldId, id: 'x', title: 'y' }],
       ['wh_remove_story_event', { worldId, id: 'x' }],
       ['wh_add_trade_site', { worldId, kind: 'mine', x: 1, y: 1 }],

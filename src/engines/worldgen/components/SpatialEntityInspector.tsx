@@ -7,7 +7,10 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Copy,
   Link2,
+  Lock,
+  LockOpen,
   MapPinned,
   RotateCcw,
 } from 'lucide-react';
@@ -47,6 +50,11 @@ interface SpatialEntityInspectorProps {
   onRestore: () => void;
   onMove: (x: number, y: number) => void;
   onStyle: (style: WorldSpatialStyleOverride) => void;
+  /** Locked against accidents: no moving or hiding until unlocked. */
+  locked?: boolean;
+  onLock?: (locked: boolean) => void;
+  /** A copy beside it; absent for what cannot be copied (realms, seas, regions). */
+  onDuplicate?: () => void;
   onOpenRegion: () => void;
   onReveal2D: () => void;
   onReveal3D: () => void;
@@ -65,6 +73,9 @@ export default function SpatialEntityInspector({
   onRestore,
   onMove,
   onStyle,
+  locked = false,
+  onLock,
+  onDuplicate,
   onOpenRegion,
   onReveal2D,
   onReveal3D,
@@ -155,7 +166,7 @@ export default function SpatialEntityInspector({
   const commitPosition = () => {
     const nextX = Number(x);
     const nextY = Number(y);
-    if (Number.isFinite(nextX) && Number.isFinite(nextY)
+    if (!locked && Number.isFinite(nextX) && Number.isFinite(nextY)
         && (nextX !== entity.x || nextY !== entity.y)) {
       onMove(nextX, nextY);
     }
@@ -215,6 +226,7 @@ export default function SpatialEntityInspector({
             value={x}
             onChange={(event) => setX(event.target.value)}
             onBlur={commitPosition}
+            disabled={locked}
             className="mt-0.5 w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
           />
         </label>
@@ -225,6 +237,7 @@ export default function SpatialEntityInspector({
             value={y}
             onChange={(event) => setY(event.target.value)}
             onBlur={commitPosition}
+            disabled={locked}
             className="mt-0.5 w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
           />
         </label>
@@ -339,6 +352,28 @@ export default function SpatialEntityInspector({
         >
           <MapPinned size={12} /> {t('worldgen.place.region')}
         </button>
+        {onDuplicate && (
+          <button
+            type="button"
+            onClick={onDuplicate}
+            data-testid="place-duplicate"
+            className="col-span-2 flex items-center justify-center gap-1.5 rounded border border-border bg-elevated px-2 py-1.5 text-[11px] text-text-primary hover:border-accent-gold/40"
+          >
+            <Copy size={12} /> {t('worldgen.place.duplicate')}
+          </button>
+        )}
+        {onLock && (
+          <button
+            type="button"
+            onClick={() => onLock(!locked)}
+            aria-pressed={locked}
+            data-testid="place-lock"
+            title={locked ? t('worldgen.place.unlockHint') : t('worldgen.place.lockHint')}
+            className={`${onDuplicate ? '' : 'col-span-3 '}flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] ${locked ? 'border-accent-gold/60 bg-accent-gold/15 text-accent-gold' : 'border-border bg-elevated text-text-primary hover:border-accent-gold/40'}`}
+          >
+            {locked ? <LockOpen size={12} /> : <Lock size={12} />} {locked ? t('worldgen.place.unlock') : t('worldgen.place.lock')}
+          </button>
+        )}
         {entity.hidden ? (
           <button
             type="button"
@@ -351,7 +386,10 @@ export default function SpatialEntityInspector({
           <button
             type="button"
             onClick={onRemove}
-            className="col-span-3 flex items-center justify-center gap-1.5 rounded border border-danger/30 bg-danger/10 px-2 py-1.5 text-[11px] text-danger hover:bg-danger/15"
+            disabled={locked}
+            title={locked ? t('worldgen.place.lockedHide') : undefined}
+            data-testid="place-hide"
+            className="col-span-3 flex disabled:opacity-40 items-center justify-center gap-1.5 rounded border border-danger/30 bg-danger/10 px-2 py-1.5 text-[11px] text-danger hover:bg-danger/15"
           >
             <EyeOff size={12} /> {t('worldgen.place.hide')}
           </button>
