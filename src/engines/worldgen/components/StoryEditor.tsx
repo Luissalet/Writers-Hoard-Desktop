@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
-import { STORY_COLORS, STORY_NOTE_MAX, STORY_STATUSES, STORY_TITLE_MAX, STORY_TYPES, type StoryEvent, type StoryStatus, type StoryType } from '../core/storyEvents';
+import { STORY_COLORS, STORY_NOTE_MAX, STORY_STATUSES, STORY_TITLE_MAX, STORY_TYPES, STORY_WHO_MAX, type StoryEvent, type StoryStatus, type StoryType } from '../core/storyEvents';
 
 export interface StoryDraft {
   storyType: StoryType;
@@ -147,7 +147,7 @@ export default function StoryEditor({ draft, onDraft, events, selectedId, onSele
               </span>)}
               {!(selected.who ?? []).length && <span className="text-[10px] text-white/35">{t('worldgen.story.whoNobody')}</span>}
             </div>
-            {people.some((person) => !(selected.who ?? []).includes(person.id)) && <select value="" onChange={(e) => { if (e.target.value) onUpdate(selected.id, { who: [...(selected.who ?? []), e.target.value] }); }} aria-label={t('worldgen.story.whoAdd')}
+            {(selected.who ?? []).length < STORY_WHO_MAX && people.some((person) => !(selected.who ?? []).includes(person.id)) && <select value="" onChange={(e) => { if (e.target.value) onUpdate(selected.id, { who: [...(selected.who ?? []), e.target.value] }); }} aria-label={t('worldgen.story.whoAdd')}
               className="rounded bg-white/10 px-1.5 py-1 text-[11px] text-white" data-testid="story-who-add">
               <option value="">{t('worldgen.story.whoAdd')}</option>
               {people.filter((person) => !(selected.who ?? []).includes(person.id)).map((person) => <option key={person.id} value={person.id}>{person.title}</option>)}

@@ -2995,7 +2995,7 @@ const en = {
   'worldgen.story.placeHint': "Click on the map to put it there.",
   'worldgen.story.selected': "Selected event",
   'worldgen.story.newOne': "Place another",
-  'worldgen.story.notePlaceholder': "Note (who was there, what changed…)",
+  'worldgen.story.notePlaceholder': "Note (what changed, what was said…)",
   'worldgen.story.moveHint': "Drag it on the map to move it.",
   'worldgen.story.who': "Who was there",
   'worldgen.story.whoNobody': "Nobody marked",

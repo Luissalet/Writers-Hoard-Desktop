@@ -60,7 +60,7 @@ export const mapFeatureCenter = (points: MapPoint[]): MapPoint => points.length
 
 /** A path's line by kind (road casing, dashed trail, river bank), as on screen. */
 function pathSvg(points: string, feature: MapFeature, stroke: { color: string; width: number }): string {
-  const look = pathLook(feature.pathStyle, stroke.color, stroke.width);
+  const look = pathLook(feature.pathStyle, stroke.color, stroke.width, feature.linePattern);
   const under = look.under ? `<polyline points="${points}" fill="none" stroke="${escapeXml(look.under.color)}" stroke-opacity="${look.under.opacity}" stroke-width="${look.under.width}" stroke-linecap="round" stroke-linejoin="round"/>` : '';
   return `${under}<polyline points="${points}" fill="none" stroke="${escapeXml(stroke.color)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${look.dash ? ` stroke-dasharray="${look.dash}"` : ''}/>`;
 }
