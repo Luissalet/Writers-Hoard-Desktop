@@ -1865,10 +1865,31 @@ deshecho.
   front/forward/backward/back; la rotulación se mezcla campo a campo). El
   deshacer devuelve las figuras anteriores sólo si nadie las cambió después.
   `wh_add_map_pin`/`wh_update_map_pin` aceptan `size` (S/M/L) y `hideIcon`.
+- **Mapas clásicos: cambiar la imagen.** `wh_preview_map_ground` (sólo lectura:
+  tamaños, si la forma es la misma —proporciones a menos de un 2 %— y cuántos
+  lugares, zonas, rutas y nombres se mueven con el mapa) y `wh_change_map_ground`
+  (`galleryAssetId` o `imageDataUrl`; `fit` `keep` por defecto conserva las
+  proporciones de figuras y marcadores colocando el dibujo antiguo centrado en la
+  nueva imagen, `stretch` deja las coordenadas). Antes guarda el mapa como época
+  «Before changing the ground image». El deshacer devuelve imagen, figuras y
+  marcadores y retira esa época, salvo que alguno haya cambiado después. La
+  interfaz hace lo mismo tras un diálogo de confirmación (`ChangeGroundDialog`).
+  Los comentarios dejados en un punto del mapa se mueven con él y vuelven al
+  deshacer.
+- **Mapas clásicos: comentarios en un punto.** `wh_annotate` con
+  `engineId: "maps"` acepta `at: {x, y}` (en % de la imagen, como marcadores y
+  figuras; no junto a `quote`): el comentario se dibuja como marca en ese punto
+  del mapa y aparece en las notas con «En el mapa». `wh_list_annotations`
+  devuelve `at`. En la interfaz: clic derecho → «Comentar aquí».
+- **Mapas clásicos: enlazar y crear fichas.** El enlace al Códex de figuras y
+  marcadores es un buscador (sin acentos, por palabras) que también crea una
+  ficha nueva del tipo elegido; clic derecho → «Nueva ficha aquí» crea la ficha y
+  un marcador enlazado en ese punto. Por el puente: `wh_create_codex_entry` y
+  después `wh_add_map_pin` con `linkedEntryId`.
 
 Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
 nativo stdio + HTTP), `world-labels`, `world-stamps`, `world-grid`,
 `world-journey-playback`, `world-reader-fog`, `world-story-events`,
-`world-economy`, `world-trade`, y los recorridos de interfaz
-`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story,trade}-qa.cjs`.
+`world-economy`, `world-trade`, `map-style`, `map-ground`, `map-picker`, y los recorridos de interfaz
+`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story,trade}-qa.cjs` y `scripts/run-map-{style,ground,picker}-qa.cjs`.

@@ -3,7 +3,7 @@ import type { MapFeature, MapLayerVisibility, MapPoint, MapNamedLayer } from '@/
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import { mapFeatureCopy } from './mapFeatureCopy';
-import { DEFAULT_MAP_LAYERS, EMPTY_MAP_FEATURES, EMPTY_MAP_NAMED_LAYERS, mapPoint, minimumMapPoints } from './mapGeometry';
+import { DEFAULT_MAP_LAYERS, EMPTY_MAP_FEATURES, EMPTY_MAP_NAMED_LAYERS, mapPoint, minimumMapPoints, rebaseMapFeatures } from './mapGeometry';
 
 export interface MapFeatureOptions {
   features?: MapFeature[];
@@ -57,8 +57,12 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     drafts.set(next.id, retained);
     setDraft(next);
   };
-  const persist = async (next: MapFeature[], history: 'edit' | 'undo' | 'redo' = 'edit', before:MapFeature[]=features): Promise<boolean> => {
+  const persist = async (proposed: MapFeature[], history: 'edit' | 'undo' | 'redo' = 'edit', proposedBefore:MapFeature[]=features): Promise<boolean> => {
     if (!onChangeFeatures || lock.current || readOnly) return false;
+    // An edit built from the snapshot taken when the shape was picked lands on the
+    // list as it is now, so shapes added elsewhere meanwhile are kept.
+    const rebased = history === 'edit' && proposedBefore !== features;
+    const next = rebased ? rebaseMapFeatures(features, proposedBefore, proposed) : proposed, before = rebased ? features : proposedBefore;
     lock.current = true;
     setBusy(true);
     setFailed(false);
@@ -91,9 +95,9 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     setPreview(null);
     setFailed(false);
   };
-  const finish = async (at = points) => {
-    if (tool === 'select' || at.length < minimumMapPoints(tool)) return;
-    const feature: MapFeature = { id: generateId('map-feature'), kind: tool, name: copy[tool], color: tool === 'path' ? '#e4a853' : '#d5b575', opacity: .22, points: at, layerId: activeLayerId || undefined };
+  const finishAs = async (kind: MapFeature['kind'], at: MapPoint[]) => {
+    if (at.length < minimumMapPoints(kind)) return;
+    const feature: MapFeature = { id: generateId('map-feature'), kind, name: copy[kind], color: kind === 'path' ? '#e4a853' : '#d5b575', opacity: .22, points: at, layerId: activeLayerId || undefined };
     if (await persist([...(baseline.current??features), feature],'edit',baseline.current??features)) {
       baseline.current = structuredClone(savedFeatures.current);
       setTool('select');
@@ -102,6 +106,18 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
       setSelectedId(feature.id);
       setDraft(feature);
     }
+  };
+  const finish = async (at = points) => { if (tool !== 'select') await finishAs(tool, at); };
+  /** Starts a shape from a point picked elsewhere (the map's right-click menu). A label is placed at once. */
+  const beginAt = (kind: MapFeature['kind'], point: MapPoint) => {
+    if (busy || readOnly) return;
+    baseline.current = structuredClone(features);
+    const at = [mapPoint(point.x, point.y)];
+    setFailed(false);
+    setPreview(null);
+    if (kind === 'label') { setTool('label'); setPoints(at); void finishAs('label', at); return; }
+    setTool(kind);
+    setPoints(at);
   };
   const addPoint = (point: MapPoint) => {
     if (!drawing || busy) return;
@@ -158,7 +174,7 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     catch { setFailed(true); return false; }
     finally { lock.current = false; setBusy(false); }
   };
-  return { enabled, readOnly, copy, features, layers, namedLayers, changeNamedLayers, activeLayerId, setActiveLayerId, tool, drawing, points, preview, setPreview, selected, draft, dirty, busy, failed, past, future, pendingDelete, setPendingDelete, query, setQuery, select, patch, persist, changeTool, finish, addPoint, save, undo, remove, toggleLayer, discard, back: () => setPoints(previous => previous.slice(0, -1)) };
+  return { enabled, readOnly, copy, features, layers, namedLayers, changeNamedLayers, activeLayerId, setActiveLayerId, tool, drawing, points, preview, setPreview, selected, draft, dirty, busy, failed, past, future, pendingDelete, setPendingDelete, query, setQuery, select, patch, persist, changeTool, beginAt, finish, addPoint, save, undo, remove, toggleLayer, discard, back: () => setPoints(previous => previous.slice(0, -1)) };
 }
 
 export type MapFeatureEditor = ReturnType<typeof useMapFeatures>;

@@ -121,6 +121,16 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId: receipt.mapId, what: summary };
   }
 
+  if (entry.tool === 'wh_change_map_ground' && entry.before && typeof entry.before === 'object' && '__mapGround' in entry.before) {
+    const receipt = (entry.before as { __mapGround: import('@/engines/maps/operations').GroundChangeReceipt }).__mapGround;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { undoMapGround } = await import('@/engines/maps/operations');
+    // The image, shapes or pins edited since are someone's later work: refuse.
+    try { await undoMapGround(receipt, scope); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
   if (entry.tool === 'wh_link_map_version' && entry.before && typeof entry.before === 'object' && '__mapVersionLink' in entry.before) {
     const receipt = (entry.before as { __mapVersionLink: { mapId: string; versionId: string; from: string | null; to: string | null; stamped?: string } }).__mapVersionLink;
     const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;

@@ -1,5 +1,7 @@
 export const mapFeatureCopy = {
   es: {
+    menuTitle: 'Acciones en este punto', menuNewEntry: 'Nueva ficha aquí', menuAddPin: 'Añadir marcador aquí', menuRegion: 'Empezar región aquí', menuPath: 'Empezar ruta aquí', menuLabel: 'Rótulo aquí', menuComment: 'Comentar aquí', menuEntryName: 'Nombre de la ficha', menuCreate: 'Crear y marcar', cancelShort: 'Cancelar', commentHere: 'Comentario en el mapa', onMap: 'En el mapa',
+    searchEntries: 'Buscar en el Códex', noMatches: 'Ninguna ficha coincide', createAs: 'Crear «{name}» como', untitled: 'Sin título', creating: 'Creando…', createFailed: 'No se pudo crear la ficha.', prevType: 'Tipo anterior', nextType: 'Tipo siguiente', unlink: 'Quitar enlace',
     select: 'Seleccionar', region: 'Región', path: 'Ruta', label: 'Rótulo', pins: 'Marcadores',
     layers: 'Capas', features: 'Regiones, rutas y rótulos', finish: 'Terminar dibujo', back: 'Quitar último punto',
     cancel: 'Cancelar dibujo', undo: 'Deshacer dibujo', redo: 'Rehacer dibujo',
@@ -30,6 +32,8 @@ export const mapFeatureCopy = {
     order: 'Orden', order_back: 'Al fondo', order_backward: 'Hacia atrás', order_forward: 'Hacia delante', order_front: 'Al frente', orderSaveFirst: 'Guarda los cambios para reordenar.',
   },
   en: {
+    menuTitle: 'Actions at this spot', menuNewEntry: 'New entry here', menuAddPin: 'Add a pin here', menuRegion: 'Start a region here', menuPath: 'Start a route here', menuLabel: 'Label here', menuComment: 'Comment here', menuEntryName: 'Entry name', menuCreate: 'Create and mark', cancelShort: 'Cancel', commentHere: 'Comment on the map', onMap: 'On the map',
+    searchEntries: 'Search the Codex', noMatches: 'No entry matches', createAs: 'Create “{name}” as', untitled: 'Untitled', creating: 'Creating…', createFailed: 'The entry could not be created.', prevType: 'Previous type', nextType: 'Next type', unlink: 'Remove link',
     select: 'Select', region: 'Region', path: 'Route', label: 'Label', pins: 'Markers',
     layers: 'Layers', features: 'Regions, routes and labels', finish: 'Finish drawing', back: 'Remove last point',
     cancel: 'Cancel drawing', undo: 'Undo drawing', redo: 'Redo drawing',
