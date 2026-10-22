@@ -31,7 +31,7 @@ world: paint it with `wh_paint_reader_fog` (seen/heard/hide, optional chapter),
 check what the reader knows with `wh_reader_view` before describing a place as
 known, and render it with `wh_render_world_map` `readerView`/`readerChapter`. Story
 events (`wh_list_story_events`, `knownByChapter`) say what happened where and
-when, and `wh_story_chapters` gives the story chapter by chapter with how much
+when, in which order inside a chapter and who was there (`who` Codex ids, `whoNames`), and `wh_story_chapters` gives the story chapter by chapter with how much
 of the map the reader knows by each; read them before describing what a character could know, and keep
 planned events apart from happened ones. For trade, famine or prices in a
 scene, ask `wh_world_economy` for that month and settlement instead of

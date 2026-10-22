@@ -370,6 +370,8 @@ interface PaintPanelProps {
   onUpdateStory?: (id: string, patch: Partial<Omit<StoryEvent, 'id'>>) => void;
   onRemoveStory?: (id: string) => void;
   onFocusStory?: (event: StoryEvent) => void;
+  storyPeople?: { id: string; title: string }[];
+  onReorderStory?: (id: string, by: -1 | 1) => void;
 }
 
 /**
@@ -431,7 +433,7 @@ function groundLabel(km: number, t: (key: string) => string): string {
 export default function PaintPanel({
   tool, onChange, strokeCount, canUndo, canRedo, onUndo, onRedo, onClear, onExport,
   cellKm, realms, busy, selectedLabel = null, onRelabel, onRemoveLabel,
-  flatOnlyNote = false, storyEvents = [], selectedStoryId = null, onSelectStory, onUpdateStory, onRemoveStory, onFocusStory,
+  flatOnlyNote = false, storyEvents = [], selectedStoryId = null, onSelectStory, onUpdateStory, onRemoveStory, onFocusStory, storyPeople, onReorderStory,
 }: PaintPanelProps) {
   const { t } = useTranslation();
   const riverKm = groundScale(RIVER_CELLS_MIN * (cellKm ?? 1), RIVER_CELLS_MAX * (cellKm ?? 1));
@@ -620,6 +622,8 @@ export default function PaintPanel({
           onUpdate={(id, patch) => onUpdateStory?.(id, patch)}
           onRemove={(id) => onRemoveStory?.(id)}
           onFocus={(event) => onFocusStory?.(event)}
+          people={storyPeople}
+          onReorder={onReorderStory}
         />
       )}
 

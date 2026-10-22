@@ -1844,12 +1844,14 @@ deshecho.
   (celdas de la ruta) para pasarlo como `points`.
 - **Sucesos de la historia.** `wh_add_story_event` (lugar o celda, `type`:
   fight, find, meeting, rest, change, journey, camp, inn, custom; `title`,
-  `note`, `chapter`, `status` planned/happened), `wh_update_story_event` (sólo
-  los campos dados; `chapter: null` lo desata), `wh_remove_story_event` y
+  `note`, `chapter`, `status` planned/happened, `order` dentro del capítulo,
+  `who` ids de fichas del Códice que estaban; ids que no existen se rechazan),
+  `wh_update_story_event` (sólo los campos dados; `chapter: null` lo desata,
+  `order: null` y `who: []` los quitan), `wh_remove_story_event` y
   `wh_add_spring_river` (un río que baja solo desde un manantial en `place` o
   `x`,`y` hasta el mar, otro río o una hondonada; `dryRun` sólo traza; se
   deshace) y
-  `wh_list_story_events` (orden por capítulo; `knownByChapter` deja lo que el
+  `wh_list_story_events` (orden por capítulo y dentro de él, con `whoNames`; `knownByChapter` deja lo que el
   lector sabe). `wh_story_chapters` da la historia capítulo a capítulo (lo que
   ocurre, lo planeado y cuánto del mapa ha visto u oído el lector al final de
   cada uno), como la reproduce la vista del lector. `wh_render_world_map` los

@@ -1189,8 +1189,10 @@ export async function whStoryChapters(args: ToolArgs): Promise<unknown> {
   const fog = edits.filter((edit) => edit.kind === 'fog');
   const start = resolvePresentation(world.presentation).readerStart;
   const round = (v: number) => Math.round(v * 1000) / 1000;
-  const brief = (event: { id: string; type: string; title: string; x: number; y: number }) => ({ id: event.id, type: event.type, title: event.title, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10 });
-  const frames = storyChapterFrames(storyEventsFrom(edits), fogChapters(fog)).map((frame) => {
+  const events = storyEventsFrom(edits);
+  const names = await codexNames(args, world, events.flatMap((event) => event.who ?? []));
+  const brief = (event: { id: string; type: string; title: string; x: number; y: number; who?: string[] }) => ({ id: event.id, type: event.type, title: event.title, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10, ...(event.who?.length ? { who: event.who.map((id) => names.get(id) ?? id) } : {}) });
+  const frames = storyChapterFrames(events, fogChapters(fog)).map((frame) => {
     const shares = fogShares(fogMask(fog, size.width, size.height, start, frame.chapter));
     return { chapter: frame.chapter, happened: frame.happened.map(brief), planned: frame.planned.map(brief), map: { seen: round(shares.seen), heard: round(shares.heard), hidden: round(shares.hidden) } };
   });
@@ -1237,9 +1239,32 @@ export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
 
 function storyFields(args: ToolArgs): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of ['type', 'title', 'note', 'chapter', 'status'] as const) if (args[key] !== undefined) out[key] = args[key];
+  for (const key of ['type', 'title', 'note', 'chapter', 'status', 'order', 'who'] as const) if (args[key] !== undefined) out[key] = args[key];
   if (args.chapter === null) out.chapter = undefined;
+  if (args.order === null) out.order = undefined;
   return out;
+}
+
+/** Names of the Codex entries marked as there, by id (deleted ones are left out). */
+async function codexNames(args: ToolArgs, world: GeneratedWorld, ids: Iterable<string>): Promise<Map<string, string>> {
+  const eraId = worldEraToolScope(args)?.eraId, names = new Map<string, string>();
+  for (const id of new Set(ids)) {
+    const entry = eraId ? await readEraRow<{ projectId: string; title: string }>({ projectId: world.projectId, eraId }, 'codexEntries', id).catch(() => undefined) : await db.codexEntries.get(id);
+    if (entry && entry.projectId === world.projectId) names.set(id, entry.title);
+  }
+  return names;
+}
+
+/** Who was there must name real Codex entries of this project (and era). */
+async function checkStoryWho(args: ToolArgs, world: GeneratedWorld): Promise<void> {
+  if (args.who === undefined) return;
+  if (!Array.isArray(args.who)) throw new BridgeError('bad-args', 'who must be a list of Codex entry ids.');
+  const eraId = worldEraToolScope(args)?.eraId;
+  for (const id of args.who) {
+    if (typeof id !== 'string') throw new BridgeError('bad-args', 'who must be a list of Codex entry ids.');
+    const entry = eraId ? await readEraRow<{ projectId: string }>({ projectId: world.projectId, eraId }, 'codexEntries', id).catch(() => undefined) : await db.codexEntries.get(id);
+    if (!entry || entry.projectId !== world.projectId) throw new BridgeError('not-found', `No Codex entry "${id}" in this project; use wh_list_codex.`);
+  }
 }
 
 /** Put a story event on the map: what happens, where, in which chapter, planned or happened. */
@@ -1249,6 +1274,7 @@ export async function whAddStoryEvent(args: ToolArgs): Promise<unknown> {
   const { normalizeStoryEvent, newStoryId } = await storyModule();
   const at = await storyPosition(args, world);
   if (!at) throw new BridgeError('bad-args', 'Give place (a key from wh_find_place) or x and y world cells.');
+  await checkStoryWho(args, world);
   let event;
   try { event = normalizeStoryEvent({ id: newStoryId(), ...at, type: 'custom', ...storyFields(args) }); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
   return appendEdit(args, world, { kind: 'story', ...event }, { event }, `added story event "${event.title}" to world "${world.title}"`);
@@ -1263,8 +1289,11 @@ export async function whUpdateStoryEvent(args: ToolArgs): Promise<unknown> {
   const current = storyEventsFrom(deserializeEdits(world.edits ?? '[]')).find((event) => event.id === id);
   if (!current) throw new BridgeError('not-found', `No story event "${id}" on this world; use wh_list_story_events.`);
   const at = await storyPosition(args, world);
+  await checkStoryWho(args, world);
   const merged: Record<string, unknown> = { ...current, ...(at ?? {}), ...storyFields(args) };
   if (args.chapter === null) delete merged.chapter;
+  if (args.order === null) delete merged.order;
+  if (Array.isArray(args.who) && !args.who.length) delete merged.who;
   let event;
   try { event = normalizeStoryEvent(merged); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
   return appendEdit(args, world, { kind: 'story', ...event }, { event }, `changed story event "${event.title}" in world "${world.title}"`);
@@ -1293,7 +1322,8 @@ export async function whListStoryEvents(args: ToolArgs): Promise<unknown> {
     events = storyKnownBy(events, args.knownByChapter);
   }
   if (status) events = events.filter((event) => event.status === status);
-  return { worldId: world.id, events: events.map((event) => ({ ...event, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10 })) };
+  const names = await codexNames(args, world, events.flatMap((event) => event.who ?? []));
+  return { worldId: world.id, events: events.map((event) => ({ ...event, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10, ...(event.who?.length ? { whoNames: event.who.map((id) => names.get(id) ?? null) } : {}) })) };
 }
 
 // ---------------------------------------------------------------------------

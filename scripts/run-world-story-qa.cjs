@@ -115,6 +115,15 @@ async function main() {
   await settle();
   assert((await colourNear(A2, FIGHT)) > 20, 'The ambush is not drawn where it was dropped');
   tests.push(`Dragging the ambush with the Story tool moves it (${ambush.x.toFixed(1)} → ${movedAmbush.x.toFixed(1)}) and keeps its id and fields`);
+  // Who was there: Ana, from the Codex, joins the ambush.
+  // The ambush is still picked after the drag (picking it from the list would fly the map there).
+  await wait(`document.querySelector('[data-testid="story-edit-title"]')?.value==='Emboscada en el vado' && document.querySelector('[data-testid="story-who-add"]')`, 'who picker on the ambush');
+  await setValue('[data-testid="story-who-add"]', 'story-ana', 'HTMLSelectElement', 'change');
+  for (let i = 0; i < 60; i++) { state = await storyEdits(); if (state.events.find(e => e.id === ambush.id)?.who?.length) break; await pause(150); }
+  assert.deepEqual(state.events.find(e => e.id === ambush.id).who, ['story-ana'], 'Ana was not marked at the ambush');
+  await wait(`document.querySelector('[data-testid="story-who-story-ana"]')?.textContent.includes('Ana') && document.querySelector('[data-testid="story-item-${ambush.id}"]').textContent.includes('· 1')`, 'Ana chip and count');
+  assert(!(await js(`!!document.querySelector('[data-testid="story-who-add"]')`)), 'The picker should hide once everyone is there');
+  tests.push('Marking who was there: picking Ana from the Codex adds her chip to the ambush, the list shows "· 1" and the picker hides once nobody is left');
   // The reader's view, chapter by chapter.
   await js(`[...document.querySelectorAll('button')].find(e=>e.textContent.trim().startsWith('Mano'))?.click()`); await pause(300);
   await js(`document.querySelector('[data-testid="worldgen-reader-toggle"]').click()`);
@@ -138,21 +147,38 @@ async function main() {
   await byId('worldgen-reader-prev'); await settle();
   const at2 = await caption();
   // Stepping follows the story, so the map moves: check the chapter through the caption.
-  assert(at2 && at2.chapter === 2 && /Emboscada/.test(at2.text) && !/consejo/i.test(at2.text), `Previous to 2 ${JSON.stringify(at2)}`);
+  assert(at2 && at2.chapter === 2 && /Emboscada/.test(at2.text) && /Ana/.test(at2.text) && !/consejo/i.test(at2.text), `Previous to 2 ${JSON.stringify(at2)}`);
   await byId('worldgen-reader-play');
   assert(await js(`document.querySelector('[data-testid="worldgen-reader-play"]').getAttribute('aria-pressed')==='true'`), 'Play pressed');
   await wait(`document.querySelector('[data-testid="worldgen-reader-caption"]')?.dataset.chapter==='5'`, 'playback reaches chapter 5', 120);
   await wait(`document.querySelector('[data-testid="worldgen-reader-play"]').getAttribute('aria-pressed')==='false'`, 'playback stops at the end', 120);
   await settle();
-  tests.push(`Playing the story: the caption reads "${at5.text.trim()}" at chapter 5; Previous goes to chapter 2 (ambush only); Play advances to 5 on its own and stops at the end`);
+  assert(!(await js(`!!document.querySelector('[data-testid="worldgen-hover-tip"]')`)), 'A hover box from before the map flew is still showing');
+  tests.push(`Playing the story: the caption reads "${at5.text.trim()}" at chapter 5; Previous goes to chapter 2 (ambush only, naming Ana as there); Play advances to 5 on its own and stops at the end, with no stale hover box left where the map was`);
   fs.writeFileSync(path.join(evidence, 'story-reader-play-1440.png'), (await win.webContents.capturePage()).toPNG());
   await click('Carta'); await pause(3500);
   fs.writeFileSync(path.join(evidence, 'story-reader-carta-1440.png'), (await win.webContents.capturePage()).toPNG());
   await js(`document.querySelector('[data-testid="worldgen-reader-toggle"]').click()`); await pause(300);
   await click('Mapa'); await pause(800);
-  // Remove the council from the list.
+  // Order within a chapter: move the council to chapter 2, then bring it before the ambush.
   await click('Pincel'); await click('Sucesos');
   await wait(`document.querySelector('[data-testid="story-item-${council.id}"]')`, 'council in list');
+  await byId(`story-item-${council.id}`);
+  await wait(`document.querySelector('[data-testid="story-edit-chapter"]')`, 'chapter field');
+  await js(`(()=>{const i=document.querySelector('[data-testid="story-edit-chapter"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'2');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));})()`);
+  for (let i = 0; i < 60; i++) { state = await storyEdits(); if (state.events.find(e => e.id === council.id)?.chapter === 2) break; await pause(150); }
+  assert.deepEqual(state.events.map(e => e.id), [ambush.id, council.id], 'Same chapter should keep placing order');
+  await wait(`document.querySelector('[data-testid="story-up-${council.id}"]:not([disabled])') && document.querySelector('[data-testid="story-up-${ambush.id}"]').disabled`, 'reorder arrows');
+  await byId(`story-up-${council.id}`);
+  for (let i = 0; i < 60; i++) { state = await storyEdits(); if (state.events[0].id === council.id) break; await pause(150); }
+  assert.deepEqual(state.events.map(e => e.id), [council.id, ambush.id], 'Earlier did not move the council first');
+  await wait(`(()=>{const ids=[...document.querySelectorAll('[data-testid="story-list"] [data-testid^="story-item-"]')].map(b=>b.dataset.testid);return ids[0]==='story-item-${council.id}'&&ids[1]==='story-item-${ambush.id}';})()`, 'list reordered');
+  tests.push('Order within a chapter: with the council moved to chapter 2, ↑ puts it before the ambush, in the saved story and in the list');
+  await js(`document.querySelector('[data-testid="story-list"]').scrollIntoView({block:'center'})`); await pause(400);
+  // A hidden window can hand back its previous frame: repaint, then capture twice.
+  win.webContents.invalidate(); await pause(300); await win.webContents.capturePage();
+  fs.writeFileSync(path.join(evidence, 'story-order-who-1440.png'), (await win.webContents.capturePage()).toPNG());
+  // Remove the council from the list.
   await byId(`story-item-${council.id}`);
   await wait(`document.querySelector('[data-testid="story-remove"]')`, 'remove button');
   await byId('story-remove');
@@ -162,10 +188,12 @@ async function main() {
   await pause(1500);
   await js('window.__lookUnmount()'); await pause(200); await js('window.__lookMount()'); await wait(forged, 'reopened');
   state = await storyEdits();
-  assert(state.events.length === 1 && state.events[0].x === movedAmbush.x, 'Reopen lost the story');
+  assert(state.events.length === 1 && state.events[0].x === movedAmbush.x && state.events[0].who?.join() === 'story-ana', 'Reopen lost the story');
   await click('Pincel'); await click('Sucesos');
   await wait(`document.querySelector('[data-testid="story-item-${ambush.id}"]')`, 'ambush after reopen');
-  tests.push('Reopening keeps the moved ambush and the removal; the story list shows it again');
+  await byId(`story-item-${ambush.id}`);
+  await wait(`document.querySelector('[data-testid="story-who-story-ana"]')`, 'Ana after reopen');
+  tests.push('Reopening keeps the moved ambush, Ana at it and the removal; the story list shows it again');
   win.setContentSize(640, 900); await pause(1200);
   fs.writeFileSync(path.join(evidence, 'story-panel-640.png'), (await win.webContents.capturePage()).toPNG());
   for (const test of tests) console.log(`PASS ${test}`);
