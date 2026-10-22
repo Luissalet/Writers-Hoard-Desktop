@@ -90,7 +90,7 @@ export type WorldPresentationLayer = 'relief' | 'forests' | 'labels' | 'settleme
 /** How a world is shown to everyone who opens it, flat and in 3D, and in its exports. */
 export interface WorldPresentation {
   theme?: 'wonder' | 'antique' | 'relief' | 'survey';
-  skin3D?: 'satelite' | 'dibujado' | 'arcilla';
+  skin3D?: 'satelite' | 'dibujado' | 'arcilla' | 'pintado';
   /** On the 3D plane with the whole world in view: a tabletop model (default) or a landscape to the horizon. */
   stage3D?: 'maqueta' | 'paisaje';
   reliefAmount?: number;

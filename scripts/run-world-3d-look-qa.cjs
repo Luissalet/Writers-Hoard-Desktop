@@ -27,7 +27,7 @@ async function main() {
   const extra = (process.env.WH_3D_LOOK_EXTRA || '').split(',').filter(Boolean);
   for (const shape of ['Plano', 'Globo']) {
     await click(shape);
-    for (const skin of ['Satélite', 'Dibujado', 'Arcilla']) {
+    for (const skin of ['Satélite', 'Dibujado', 'Arcilla', 'Pintado']) {
       await click(skin);
       const name = `3d-${shape.toLowerCase()}-${skin.normalize('NFD').replace(/[^a-z]/gi, '').toLowerCase()}.png`;
       await shot(name);

@@ -1864,7 +1864,9 @@ deshecho.
   hito como «<nombre> 2» en la tierra libre más cercana o en `x`,`y`; mar,
   lago o una celda con lugar o historial se rechazan; reinos y mares no; se
   deshace),
-  `wh_set_world_presentation` acepta `stage3D` (`maqueta`, por defecto: el mundo
+  `wh_set_world_presentation` acepta `skin3D: "pintado"` (el mundo pintado como
+  mapa de relieve: terrenos fundidos, bajíos y orillas, bosques y dunas pintados,
+  rótulos de mapa) además de satelite, dibujado y arcilla, y `stage3D` (`maqueta`, por defecto: el mundo
   entero en el plano 3D como un bloque sobre una mesa, con el corte de roca y mar,
   su sombra y el mar recortado al bloque; `paisaje`: hasta el horizonte; se
   guarda con el aspecto y se deshace), y `wh_set_map_layers` (mapa clásico:

@@ -2326,6 +2326,8 @@ const en = {
   'worldgen.view.skin.satellite.title': 'The world seen from above: biomes, rivers, ice',
   'worldgen.view.skin.drawn': 'Drawn',
   'worldgen.view.skin.drawn.title': 'The drawn chart, draped over the relief',
+  'worldgen.view.skin.painted': 'Painted',
+  'worldgen.view.skin.painted.title': 'A hand-painted map over the relief: grounds that melt into each other, a sea with shallows and coast rings, painted forests and dunes',
   'worldgen.view.skin.clay': 'Clay',
   'worldgen.view.skin.clay.title': 'No colour: just the shape, for sculpting',
   'worldgen.overlay.forests': 'Forests',

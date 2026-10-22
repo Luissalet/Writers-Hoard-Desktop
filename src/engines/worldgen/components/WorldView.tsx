@@ -122,6 +122,7 @@ const SKINS_3D: { id: Skin3D; label: string; title: string }[] = [
   { id: 'satelite', label: 'worldgen.view.skin.satellite', title: 'worldgen.view.skin.satellite.title' },
   { id: 'dibujado', label: 'worldgen.view.skin.drawn', title: 'worldgen.view.skin.drawn.title' },
   { id: 'arcilla', label: 'worldgen.view.skin.clay', title: 'worldgen.view.skin.clay.title' },
+  { id: 'pintado', label: 'worldgen.view.skin.painted', title: 'worldgen.view.skin.painted.title' },
 ];
 
 export interface WaypointFocus {
@@ -750,7 +751,7 @@ export default function WorldView({
    * PASSES (see the effect below), because eighteen seconds of empty map is not
    * an improvement on no roads.
    */
-  const needsFullGeo = view === 'carta' || view === 'map' || skin3D === 'dibujado'
+  const needsFullGeo = view === 'carta' || view === 'map' || skin3D === 'dibujado' || skin3D === 'pintado'
     || panelTab === 'atlas' || panelTab === 'journey';
   /**
    * The 2D and the 3D need the geography for their GROUND, not only for dots:
