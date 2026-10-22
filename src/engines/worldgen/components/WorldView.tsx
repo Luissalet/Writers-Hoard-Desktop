@@ -1,7 +1,7 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
 import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
 import type { ReaderFogLayer } from '../cartography/readerFogLayer';
-import { newStoryId, normalizeStoryEvent, storyEventsFrom, storyKnownBy, type StoryEvent } from '../core/storyEvents';
+import { newStoryId, nextStoryChapter, normalizeStoryEvent, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy, STORY_COLORS, type StoryEvent } from '../core/storyEvents';
 import type { StoryMark } from '../cartography/storyMarks';
 import { autoSites, normalizeTradeSite, placesFromSettlements, simulateEconomy, tradeSiteEdit, tradeSiteRemoveEdit, tradeSiteRestoreEdit, tradeSitesFrom, type SiteKind, type SiteSize } from '../core/economy';
 import type { TradeLayer } from '../cartography/tradeMarks';
@@ -23,6 +23,7 @@ import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
   Signpost, Compass, Flag, Search, Home, Ruler, PanelRightClose, PanelRightOpen,
+  Play, Pause, SkipBack, SkipForward,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -1215,6 +1216,42 @@ export default function WorldView({
   }, []);
 
   /**
+   * Playing the story (A2 #25): the reader's view steps through the chapters
+   * that have events or fog, a few seconds each, and the map follows what
+   * happens in each one. Read through refs so the timer keeps one identity.
+   */
+  const [storyPlaying, setStoryPlaying] = useState(false);
+  const storyFrames = useMemo(() => storyChapterFrames(storyEvents, fogChapters(fogEdits)), [storyEvents, fogEdits]);
+  const playbackRef = useRef({ chapter: readerChapter, chapters: readerChapters });
+  playbackRef.current = { chapter: readerChapter, chapters: readerChapters };
+  const showChapter = useCallback((chapter: number | null) => {
+    setReaderChapter(chapter);
+    const frame = chapter === null ? undefined : storyFrames.find((item) => item.chapter === chapter);
+    if (!data || !frame?.happened.length) return;
+    // Follow the story: centre on what happens in this chapter (the short way round the seam).
+    const first = frame.happened[0].x;
+    const xs = frame.happened.map((event) => first + ((event.x - first + data.width * 1.5) % data.width) - data.width / 2);
+    const x = xs.reduce((sum, value) => sum + value, 0) / xs.length, y = frame.happened.reduce((sum, event) => sum + event.y, 0) / frame.happened.length;
+    flyCamera((((x / data.width) % 1) + 1) % 1, Math.min(1, Math.max(0, y / data.height)));
+  }, [data, flyCamera, storyFrames]);
+  useEffect(() => {
+    if (!storyPlaying || !readerView) return;
+    const timer = window.setInterval(() => {
+      const next = nextStoryChapter(playbackRef.current.chapters, playbackRef.current.chapter);
+      if (next === null) setStoryPlaying(false);
+      else showChapter(next);
+    }, 2600);
+    return () => window.clearInterval(timer);
+  }, [storyPlaying, readerView, showChapter]);
+  const toggleStoryPlay = () => {
+    if (storyPlaying) { setStoryPlaying(false); return; }
+    // From the start when nothing is chosen or the last chapter is showing.
+    const { chapter, chapters } = playbackRef.current;
+    if (chapter === null || nextStoryChapter(chapters, chapter) === null) showChapter(chapters[0] ?? null);
+    setStoryPlaying(true);
+  };
+
+  /**
    * BAJAR A UNA CIUDAD, que desde el 2026-08-15 es lo que hace pinchar en una.
    *
    * Luis, textualmente: «el modal de la ciudad no lo veo necesariamente pero
@@ -2020,7 +2057,7 @@ export default function WorldView({
             <div className="flex items-center gap-1" data-testid="worldgen-reader">
               <button type="button" data-testid="worldgen-reader-toggle" aria-pressed={readerView}
                 title={t('worldgen.reader.hint')}
-                onClick={() => setReaderView((on) => !on)}
+                onClick={() => { setStoryPlaying(false); setReaderView((on) => !on); }}
                 className={`border rounded-lg px-2 py-1.5 text-xs transition ${readerView ? 'border-accent-gold/60 text-accent-gold bg-accent-gold/10' : 'border-border text-text-primary bg-elevated hover:border-accent-gold/40'}`}>
                 {t('worldgen.reader.title')}
               </button>
@@ -2028,13 +2065,22 @@ export default function WorldView({
                   it must not reflow the toolbar and move the map under the pointer. */}
                   <select data-testid="worldgen-reader-chapter" disabled={!readerView} aria-label={t('worldgen.reader.chapter')} title={t('worldgen.reader.chapter')}
                     value={readerChapter === null ? '' : String(readerChapter)}
-                    onChange={(e) => setReaderChapter(e.target.value === '' ? null : Number(e.target.value))}
+                    onChange={(e) => { setStoryPlaying(false); setReaderChapter(e.target.value === '' ? null : Number(e.target.value)); }}
                     className="bg-elevated border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60 disabled:opacity-40">
                     <option value="">{t('worldgen.reader.allChapters')}</option>
                     {[...new Set([...readerChapters, ...(readerChapter === null ? [] : [readerChapter])])].sort((a, b) => a - b).map((n) => (
                       <option key={n} value={n}>{t('worldgen.reader.upTo').replace('{n}', String(n))}</option>
                     ))}
                   </select>
+                  <button type="button" data-testid="worldgen-reader-prev" disabled={!readerView || previousStoryChapter(readerChapters, readerChapter) === null} aria-label={t('worldgen.reader.previous')} title={t('worldgen.reader.previous')}
+                    onClick={() => { setStoryPlaying(false); showChapter(previousStoryChapter(readerChapters, readerChapter)); }}
+                    className="border border-border rounded-lg p-1.5 text-text-primary bg-elevated hover:border-accent-gold/40 disabled:opacity-40"><SkipBack size={13} /></button>
+                  <button type="button" data-testid="worldgen-reader-play" disabled={!readerView || !readerChapters.length} aria-pressed={storyPlaying} aria-label={t(storyPlaying ? 'worldgen.reader.pause' : 'worldgen.reader.play')} title={t(storyPlaying ? 'worldgen.reader.pause' : 'worldgen.reader.play')}
+                    onClick={toggleStoryPlay}
+                    className={`border rounded-lg p-1.5 disabled:opacity-40 ${storyPlaying ? 'border-accent-gold/60 text-accent-gold bg-accent-gold/10' : 'border-border text-text-primary bg-elevated hover:border-accent-gold/40'}`}>{storyPlaying ? <Pause size={13} /> : <Play size={13} />}</button>
+                  <button type="button" data-testid="worldgen-reader-next" disabled={!readerView || nextStoryChapter(readerChapters, readerChapter) === null} aria-label={t('worldgen.reader.next')} title={t('worldgen.reader.next')}
+                    onClick={() => { setStoryPlaying(false); showChapter(nextStoryChapter(readerChapters, readerChapter)); }}
+                    className="border border-border rounded-lg p-1.5 text-text-primary bg-elevated hover:border-accent-gold/40 disabled:opacity-40"><SkipForward size={13} /></button>
                   <select data-testid="worldgen-reader-start" disabled={!readerView} aria-label={t('worldgen.reader.start')} title={t('worldgen.reader.start')}
                     value={readerStart}
                     onChange={(e) => setReaderStart(e.target.value as ReaderStart)}
@@ -2098,6 +2144,15 @@ export default function WorldView({
       {/* Stack tools below the map when the actual workspace is narrow. */}
       <div className={`grid gap-3 items-stretch ${toolsOpen ? '@min-[960px]:grid-cols-[minmax(0,1fr)_21rem]' : ''}`}>
         <div className="relative rounded-xl overflow-hidden border border-border bg-deep min-w-0 h-[max(420px,calc(100dvh-260px))]">
+          {readerView && readerChapter !== null && (view === 'map' || view === 'carta') && (() => {
+            // What happens in the chapter being shown: the caption of the story's playback.
+            const frame = storyFrames.find((item) => item.chapter === readerChapter);
+            return <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 max-w-[min(36rem,90%)] -translate-x-1/2 rounded-lg border border-border bg-surface/90 px-3 py-2 text-center shadow-lg" data-testid="worldgen-reader-caption" data-chapter={readerChapter} aria-live="polite">
+              <p className="font-serif text-sm text-accent-gold">{t('worldgen.reader.chapterTitle').replace('{n}', String(readerChapter))}</p>
+              {frame?.happened.length ? <ul className="mt-1 space-y-0.5 text-xs text-text-primary">{frame.happened.map((event) => <li key={event.id} className="flex items-center justify-center gap-1.5"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STORY_COLORS[event.type] }} />{event.title}</li>)}</ul>
+                : <p className="mt-0.5 text-xs text-text-muted">{t('worldgen.reader.quietChapter')}</p>}
+            </div>;
+          })()}
           {data && view === 'map' && (
               <Map2D
               world={data}

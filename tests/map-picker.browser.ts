@@ -56,6 +56,12 @@ export async function testMapPicker(): Promise<string[]> {
     const restyled = [{ ...shape('old', 'New border'), strokeColor: '#ff0000' }, shape('road'), current[2]];
     const guarded = stepMapFeatures(restyled, renamed, before);
     assert(guarded.skipped.join() === 'old' && guarded.features[0].strokeColor === '#ff0000' && guarded.features[0].name === 'New border', `Guarded undo ${JSON.stringify(guarded)}`);
+    // Undo of an add / redo of a removal leave alone a shape the agent restyled meanwhile.
+    const drawn = [...before, shape('n', 'Nueva')];
+    const undoAdd = stepMapFeatures([...before, { ...shape('n', 'Nueva'), strokeColor: '#00ff00' }], drawn, before);
+    assert(undoAdd.skipped.join() === 'n' && undoAdd.features.some((f) => f.id === 'n' && f.strokeColor === '#00ff00'), `Undo add ${JSON.stringify(undoAdd)}`);
+    const redoRemove = stepMapFeatures([{ ...shape('old', 'Old border'), strokeColor: '#0000ff' }, shape('road')], before, [shape('road')]);
+    assert(redoRemove.skipped.join() === 'old' && redoRemove.features.some((f) => f.id === 'old' && f.strokeColor === '#0000ff'), `Redo remove ${JSON.stringify(redoRemove)}`);
     const clean = stepMapFeatures([...renamed, current[2]], renamed, before);
     assert(!clean.skipped.length && clean.features[0].name === 'Old border' && clean.features.some((f) => f.id === 'agent'), 'Clean undo');
     const front = rebaseMapFeatures(current, before, [shape('road'), shape('old', 'Old border')]);

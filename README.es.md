@@ -33,7 +33,8 @@ Los mundos generados guardan su aspecto, pueden empezar en blanco, miden áreas
 frente a contornos reales, planifican viajes con el ritmo y la física de viaje
 del propio mundo y llevan rótulos editables (ángulo, espaciado, curva), 32
 sellos, una rejilla de juego cuadrada o hexagonal, una niebla del lector que
-revela el mapa capítulo a capítulo, sucesos de la historia por capítulo y una
+revela el mapa capítulo a capítulo, sucesos de la historia por capítulo que se
+reproducen capítulo a capítulo, y una
 lente de comercio mes a mes (explotaciones, escasez, precios, envíos); los mapas
 de imagen tienen figuras con estilo (contorno, trama, rotulación, orden, varias
 capas), marcadores de tres tamaños, un enlace al Códex con buscador que también

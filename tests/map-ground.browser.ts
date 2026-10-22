@@ -123,7 +123,8 @@ export async function testMapGround(): Promise<string[]> {
     assert(state.map.versions[0].pins.find(pin => pin.id === 'g-pin-b')!.position.y === 60 && state.map.versions[0].features.find(f => f.id === 'p')!.points[1].y === 60, 'The era keeps the old coordinates');
     const pinB = state.pins.find(pin => pin.id === 'g-pin-b')!, road = state.map.features!.find(f => f.id === 'p')!;
     assert(pinB.position.x === 70 && near(pinB.position.y, 55) && near(road.points[1].y, 55) && near(road.points[0].y, 35), `Remapped after reopening: ${JSON.stringify([pinB.position, road.points])}`);
-    const movedNote = (await db.annotations.get('g-note'))!.anchor;
+    const movedRow = (await db.annotations.get('g-note'))!, movedNote = movedRow.anchor;
+    assert((movedRow.revision ?? 0) === 1, `A moved comment takes a new revision (${movedRow.revision})`);
     assert(movedNote.x === pinB.position.x && movedNote.y === pinB.position.y, `Comment moved with the picture: ${JSON.stringify(movedNote)}`);
     assert(state.map.features!.find(f => f.id === 'l')!.labelStyle!.size === 2, 'Lettering size (percent of width) is kept when the picture keeps the full width');
 
