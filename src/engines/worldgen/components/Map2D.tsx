@@ -197,6 +197,8 @@ interface Map2DProps {
   onMoveStory?: (id: string, x: number, y: number) => void;
   /** While set, a click on the map is a point for this (a trade site being placed) and nothing else. */
   onPickCell?: ((x: number, y: number) => void) | null;
+  /** Right-click on the map: the world cell under the pointer and where the menu goes on screen. */
+  onMapMenu?: (at: { x: number; y: number; clientX: number; clientY: number }) => void;
   onPickSettlement?: (s: Settlement) => void;
   /** Double-click: descend a league toward that ground (the parent flies). */
   onZoomTo?: (x: number, y: number) => void;
@@ -814,7 +816,7 @@ export default function Map2D({
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
-  selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory, onPickCell,
+  selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory, onPickCell, onMapMenu,
 }: Map2DProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
@@ -5108,7 +5110,13 @@ export default function Map2D({
           if (rulerCursor.current) { rulerCursor.current = null; scheduleDraw(); }
         }}
         onDoubleClick={handleDoubleClick}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (!onMapMenu) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const m = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+          if (m) onMapMenu({ x: m.u * W, y: m.v * H, clientX: e.clientX, clientY: e.clientY });
+        }}
       />
       {hover && showReadout && (
         <div
