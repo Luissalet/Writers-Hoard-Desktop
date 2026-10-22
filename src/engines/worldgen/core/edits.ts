@@ -872,7 +872,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       drownedLakes ??= new Uint8Array(N);
       for (let i = 0; i < N; i++) {
         if (world.lake[i] && elev[i] <= 0) { world.lake[i] = 0; drownedLakes[i] = 1; }
-        else if (drownedLakes[i] && elev[i] > 0) { world.lake[i] = 1; drownedLakes[i] = 0; }
+        else if (d < 0 && drownedLakes[i] && elev[i] > 0) { world.lake[i] = 1; drownedLakes[i] = 0; }
       }
       // The whole world's biomes follow the new shore. Worked out once per list
       // prefix and kept, so a later stroke does not pay for the whole world again.

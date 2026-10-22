@@ -140,6 +140,9 @@ lectura exacta del manual actualizado).
 
 ## Mapas 1095 — cosas a revisar (no requieren decisión de Luis)
 
+- `test:critical`: la prueba de notas al pie («a new note did not open its
+  popover focused») falló una vez (22-10, h86) y pasó al repetirla sin cambios;
+  depende del foco de la ventana mientras se usa el equipo. Vigilar.
 - Al reabrir el mundo, los rótulos responden al puntero a partir del primer
   dibujo completo (una fracción de segundo).
 - En QA, `capturePage` de una ventana oculta puede devolver un fotograma
