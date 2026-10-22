@@ -60,7 +60,11 @@ export async function testWorldContours(): Promise<string[]> {
     assert(set.ok && got.effective.contours === 250, `Set ${JSON.stringify(set).slice(0, 200)} / ${JSON.stringify(got).slice(0, 200)}`);
     let rendered: BridgeReply | undefined;
     for (let i = 0; i < 60; i++) { rendered = await runBridgeTool('wh_render_world_map', { worldId: Wid, width: 400 }); if (rendered.ok && !(rendered.result as { pending?: boolean }).pending) break; await new Promise((r) => setTimeout(r, 500)); }
-    assert(rendered!.ok, `Render ${JSON.stringify(rendered).slice(0, 200)}`);
+    const withLines = (rendered!.result as { dataUrl: string }).dataUrl;
+    await runBridgeTool('wh_set_world_presentation', { worldId: Wid, contours: 'off' });
+    const without = ((await runBridgeTool('wh_render_world_map', { worldId: Wid, width: 400 })).result as { dataUrl: string }).dataUrl;
+    await runBridgeTool('wh_set_world_presentation', { worldId: Wid, contours: 250 });
+    assert(rendered!.ok && withLines && without && withLines !== without, 'wh_render_world_map draws the lines (the image differs from one without contours)');
     const audit = (set.result as { __audit?: { entityId: string; projectId: string; before: unknown } }).__audit;
     if (audit) {
       const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_set_world_presentation', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'contours' } });
