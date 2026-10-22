@@ -38,6 +38,9 @@ Counts are grep counts over each table (a row may mention two statuses). They
 are a work list, not a parity score. Each file ends with ranked offline gaps,
 implementation sketches, risks and UNKNOWN items.
 
+The counts above are from the first pass. The status cells in each file are the
+current ones, updated in place with "(1095: …) — was X" where a wave delivered the row.
+
 ## Delivery waves
 
 Wave 1, maps (Luis's priority): saved look per world; blank sea/land starters;
@@ -48,11 +51,11 @@ Later waves follow the ranked lists of the other areas. Every delivery keeps
 existing capabilities and is proved through UI, MCP, persistence/reopen and
 export where relevant, then independently reviewed.
 
-## Delivered so far (worktree writer-vvd1095, not yet integrated)
+## Delivered so far (worktree writer-vvd1095, integrated into main at commit deeeba9 on 22-10-2026, without push)
 
 Each item was shown through the normal UI with trusted input, through MCP
 (focused tests, and the native stdio transport where noted), across reopen, and
-reviewed independently (rounds r1–r6: stamps from r4, grid and playback from r5, reader's fog from r6, story events from r7, trade lens from r8, classic map styling pending r9; reports in
+reviewed independently (rounds r1–r13, r13 approving: stamps from r4, grid and playback from r5, reader's fog from r6, story events from r7, trade lens from r8; classic map styling and the later waves were reviewed in r9–r13; reports in
 `D:/LocalAI/_claude_tmp/vvd1095-review`). Evidence screenshots:
 `D:/LocalAI/artifacts/writer-vvd1095`.
 
@@ -65,8 +68,9 @@ reviewed independently (rounds r1–r6: stamps from r4, grid and playback from r
 | A1 #52 label handles | Rotate, spacing, curve handles; exact size/angle/spacing/curve | PARTIAL (size by slider, not four resize handles; no rank "Title") |
 | A1 #59 stamps | 32 stamps in four categories, S/M/L, names, all views | PARTIAL (no per-glyph colour schemes, row 61) |
 | A1 #71–72 versions on the timeline | Era ↔ event links, calendar order, play, orphans, portability | PARTIAL (no snapshot strip, no "open in Timeline") |
-| A2 travel rows | World pace, speeds, ground costs, per-leg modes, rest days, MCP planner, day-by-day playback | see A2 table; trade lens still ABSENT |
+| A2 travel rows | World pace, speeds, ground costs, per-leg modes, rest days, MCP planner, day-by-day playback | see A2 rows #29–#37 (trade lens is in its own row below) |
 | A2 #20, #21 reader's view and fog brushes | Fog brush Seen/Heard/Hide with chapter; Reader's view per chapter in atlas, Carta and PNG; MCP paint/view/render | PRESENT (not in 3D) |
+| A2 #25 story playback | Previous / Play / Next through the chapters in the Reader's view; the map follows each chapter's events and a caption names them; MCP wh_story_chapters | PARTIAL (no scrub bar or "next planned") |
 | A2 #28 reader's map settings | Start state saved with the look; route marked as seen with sight radius and chapter | PARTIAL (no "land in ink", towns as dots or trail) |
 | A1 play grid | Square/hex grid in km over atlas, Carta, PNG export and MCP render | PRESENT (atlas: equirect and Mercator) |
 | A2 #43–47 trade lens | Deterministic economy: sites by ground, needs, granaries, shortages, prices, road and sea shipments, month playback; Trade tab; sites and shipments on the map; MCP | PRESENT except #46 PARTIAL (no per-port goods list); no population growth |

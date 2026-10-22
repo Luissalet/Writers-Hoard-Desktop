@@ -1240,6 +1240,26 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Event id from wh_list_story_events.') }, required: ['worldId', 'id'], additionalProperties: false },
   },
   {
+    name: 'wh_add_spring_river',
+    description:
+      `Add a river that runs downhill from a spring at a place or cell, until the sea, another river or a hollow.
+From the given spot the water steps to the lowest neighbouring cell while there is one lower, round the east/west seam, and the path is added as a drawn river (it carves a channel like one drawn by hand). Refused when the spot is sea or a hollow already. dryRun returns the path without adding it. Undo removes the river.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        place: PLACE_KEY,
+        x: CELL_X,
+        y: CELL_Y,
+        width: { type: 'number', minimum: 0.5, maximum: 12, description: 'River width in cells, default 2.' },
+        dryRun: { type: 'boolean', description: 'Only trace the path and say where it ends.' },
+      },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'wh_story_chapters',
     description:
       `A world's story chapter by chapter: what happens, what is planned and how much of the map the reader knows.

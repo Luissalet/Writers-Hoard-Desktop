@@ -62,6 +62,7 @@ const suites = [
   ['world-grid.browser.ts', 'testWorldGrid'],
   ['world-reader-fog.browser.ts', 'testReaderFog'],
   ['world-story-events.browser.ts', 'testStoryEvents'],
+  ['world-spring.browser.ts', 'testSpringRiver'],
   ['world-economy.browser.ts', 'testWorldEconomy'],
   ['world-trade.browser.ts', 'testWorldTrade'],
   ['map-style.browser.ts', 'testMapStyle'],
