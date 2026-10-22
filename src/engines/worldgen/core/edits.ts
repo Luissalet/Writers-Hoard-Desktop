@@ -333,7 +333,7 @@ export type EditTarget =
  */
 export function riverCellsAfterEdits(world: Pick<WorldData, 'width' | 'height' | 'rivers'>, edits: readonly WorldEdit[]): Set<number> {
   const W = world.width, H = world.height;
-  let drawn = edits.filter((e): e is Extract<WorldEdit, { kind: 'river' }> => e.kind === 'river' && e.pts.length >= 2).map((e) => polylineCells(e.pts, W, H));
+  let drawn = edits.filter((e): e is Extract<WorldEdit, { kind: 'river' }> => e.kind === 'river' && e.pts.length >= 2).map((e) => polylineCells(e.pts, W, H)).filter((cells) => cells.length >= 2);
   const removed = new Set<string>();
   for (const e of edits) {
     if (e.kind !== 'eraseRivers') continue;

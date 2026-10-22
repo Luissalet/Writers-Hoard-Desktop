@@ -4245,6 +4245,8 @@ export default function Map2D({
      * never be left over from the last one.
      */
     panRef.current = brushing && (spaceRef.current || e.shiftKey || e.button !== 0);
+    // A new press starts a new gesture: no left-over pan flag may swallow its menu.
+    menuAfterPan.current = false;
     const rect = e.currentTarget.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
 
@@ -4900,7 +4902,7 @@ export default function Map2D({
     dragRef.current = null;
     // A right-button drag that moved the map was a pan: the context menu that
     // Windows fires on release must not open on top of it.
-    menuAfterPan.current = !!drag?.moved && e.button !== 0;
+    menuAfterPan.current = !!drag?.moved && e.button === 2;
     // Read and cleared together: the gesture is over either way, and a `panRef`
     // left standing would make the NEXT plain click a pan and swallow it.
     const panned = panRef.current;
