@@ -12,6 +12,8 @@ import { drawLandmarkGlyph, isNaturalLandmark, NATURAL_LANDMARKS } from '@/engin
 import { createDiorama } from '@/engines/worldgen/sculpt/diorama';
 import { createWater } from '@/engines/worldgen/sculpt/water';
 import { GLOBE_RELIEF } from '@/engines/worldgen/sculpt/scene3d';
+import { renderPaintedGround } from '@/engines/worldgen/cartography/paintedGround';
+import { Biome } from '@/engines/worldgen/core/types';
 import { runBridgeTool, type BridgeReply } from '@/services/aiBridge/dispatch';
 
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
@@ -19,6 +21,7 @@ function assert(value: unknown, message: string): asserts value { if (!value) th
 /** The 3D look: the tabletop model, landmark marks instead of key words, the globe's relief, the stage in the saved look and the bridge. */
 export async function testWorld3DLook(): Promise<string[]> {
   const P = 'synthetic-3d-look', Wid = '3d-look-world';
+  let paintedLine = '';
   try {
     // A kind word is never printed as a mark; a real symbol still is.
     const texts: string[] = [];
@@ -67,8 +70,35 @@ export async function testWorld3DLook(): Promise<string[]> {
     water.dispose();
     assert(GLOBE_RELIEF <= 0.35, `Globe relief ${GLOBE_RELIEF}`);
 
+    // The painted ground: a picture at whole pixels per cell, trees in the forests, a shelf paler than the deep sea, the same picture twice.
+    {
+      const world = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'painted-planet' });
+      const t0 = performance.now();
+      const painted = renderPaintedGround(world, { maxWidth: 1536 });
+      const ms = performance.now() - t0;
+      assert(painted.pxPerCell === 12 && painted.canvas.width === 1536 && painted.canvas.height === world.height * 12, `Size ${painted.canvas.width}x${painted.canvas.height} at ${painted.pxPerCell}`);
+      const forests = [...world.biome].filter((b, i) => world.elevation[i] > 0 && [Biome.BorealForest, Biome.TemperateForest, Biome.TropicalRainforest, Biome.TropicalForest, Biome.MontaneForest, Biome.TemperateRainforest].includes(b as never)).length;
+      assert(forests === 0 || painted.trees > forests, `Trees ${painted.trees} for ${forests} forest cells`);
+      assert(renderPaintedGround(world, { maxWidth: 1536 }) === painted, 'Cached for the same world and revision');
+      const px = painted.canvas.getContext('2d')!.getImageData(0, 0, painted.canvas.width, painted.canvas.height).data;
+      let shelf = 0, shelfN = 0, deep = 0, deepN = 0;
+      for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) {
+        const e = world.elevation[y * world.width + x];
+        if (e > -0.02) continue;
+        const o = (((y * 12 + 6) * painted.canvas.width) + x * 12 + 6) * 4, lum = px[o] + px[o + 1] + px[o + 2];
+        if (e > -0.15) { shelf += lum; shelfN++; } else if (e < -2) { deep += lum; deepN++; }
+      }
+      assert(shelfN && deepN && shelf / shelfN > deep / deepN + 40, `Shelf ${shelf / shelfN} vs deep ${deep / deepN}`);
+      // A fresh world object of the same seed paints the same picture.
+      const again = renderPaintedGround(generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'painted-planet' }), { maxWidth: 1536 });
+      const px2 = again.canvas.getContext('2d')!.getImageData(0, 0, again.canvas.width, again.canvas.height).data;
+      let same = true; for (let i = 0; i < px.length; i += 997) if (px[i] !== px2[i]) { same = false; break; }
+      assert(same, 'The same world paints the same picture');
+      paintedLine = `Painted ground: ${painted.canvas.width}x${painted.canvas.height} (${painted.pxPerCell} px a cell) in ${Math.round(ms)} ms with ${painted.trees} trees over ${forests} forest cells; the shelf is paler than the deep sea (${Math.round(shelf / shelfN)} vs ${Math.round(deep / deepN)}); cached; the same world paints the same picture`;
+    }
+
     // The stage is part of the saved look.
-    assert(resolvePresentation(undefined).stage3D === 'maqueta' && normalizePresentationPatch({ stage3D: 'paisaje' }).stage3D === 'paisaje', 'Stage values');
+    assert(resolvePresentation(undefined).stage3D === 'maqueta' && normalizePresentationPatch({ stage3D: 'paisaje' }).stage3D === 'paisaje' && normalizePresentationPatch({ skin3D: 'pintado' }).skin3D === 'pintado', 'Stage and painted skin values');
     let refused = false; try { normalizePresentationPatch({ stage3D: 'mesa' }); } catch { refused = true; }
     assert(refused, 'A bad stage accepted');
     assert(resolvePresentation({ stage3D: 'mesa' } as never).stage3D === 'maqueta', 'A damaged stored stage falls back alone');
@@ -94,6 +124,7 @@ export async function testWorld3DLook(): Promise<string[]> {
       'Marks: a kind word ("volcano", "cave", "gorge", "waterfall", "hotspring", "tower") is never printed as a glyph, a symbol, a named shape or a short code the author typed (X, HQ, Inn) still is; the five natural landmarks each draw their own mark, shared by the 2D map and the 3D view',
       `Tabletop model: ${stats.samples} columns a side, walls carry the ground in km from ${lo.toFixed(1)} to ${hi.toFixed(1)}, base at ${stats.baseY.toFixed(1)} (below the deepest edge and the sea), hidden off the whole-world plane; its sea is clipped to the block`,
       `Globe relief ${GLOBE_RELIEF} of the plane's`,
+      paintedLine,
       'Saved look: stage3D maqueta by default, paisaje accepted, "mesa" refused, a damaged stored stage falls back alone',
       'Bridge: wh_set_world_presentation refuses a bad stage3D, saves paisaje (wh_get_world_presentation reports it), undo puts maqueta back',
     ];

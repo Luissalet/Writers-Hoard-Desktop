@@ -907,7 +907,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
     schema: { type: 'object', properties: {
       worldId: WORLD_ID,
       theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }),
-      skin3D: s('3D surface.', { enum: ['satelite', 'dibujado', 'arcilla'] }),
+      skin3D: s('3D surface: satelite, dibujado (the Carta draped), arcilla (bare relief) or pintado (a painted relief map: blended grounds, shelf and coast rings, painted forests and dunes).', { enum: ['satelite', 'dibujado', 'arcilla', 'pintado'] }),
       stage3D: s('3D stage on the plane with the whole world in view: maqueta = a tabletop model with its cut walls, table and shadow (default); paisaje = a landscape reaching to the horizon.', { enum: ['maqueta', 'paisaje'] }),
       reliefAmount: n('Relief symbol density, 0.3 to 2. Default 1.'),
       layers: { type: 'object', description: 'Layers to show (true) or hide (false).', properties: Object.fromEntries(['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'].map((key) => [key, { type: 'boolean' }])), additionalProperties: false },

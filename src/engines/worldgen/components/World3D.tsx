@@ -42,6 +42,7 @@ import {
 } from '../core/paintCommit';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import { getCartoTexture } from '../cartography/texture';
+import { renderPaintedGround } from '../cartography/paintedGround';
 import type { CartoTheme } from '../cartography/theme';
 import { DisplayTileStore } from '../cartography/tileStore';
 import { flightProgress } from '../cartography/frameClock';
@@ -110,7 +111,7 @@ import { anchoredDolly, anchoredGlobeDolly } from '../core/zoomAnchor';
  */
 
 /** What is painted on the ground. */
-export type Skin3D = 'satelite' | 'dibujado' | 'arcilla';
+export type Skin3D = 'satelite' | 'dibujado' | 'arcilla' | 'pintado';
 export type Shape3D = SculptShape;
 
 interface World3DProps {
@@ -379,6 +380,24 @@ function sunAt(hour: number): { az: number; el: number } {
   return { az: 90 + H, el: Math.asin(s) / DEG };
 }
 
+/**
+ * How a skin's picture is read by the terrain shader. The shader writes its
+ * colours as they are, with no sRGB step at the end, so a picture decoded as
+ * sRGB came out darker and more saturated than the same picture on the 2D map
+ * — the drawn Carta in 3D was navy where the 2D sea is pale. A drawn or
+ * painted map is a finished picture: it is read as it is, so it shows its 2D
+ * colours. The satellite raster stays as it was tuned against the sky.
+ */
+function pictureSpace(skin: Skin3D): THREE.ColorSpace {
+  return skin === 'dibujado' || skin === 'pintado' ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+}
+
+/** How long the strokes must stop before the painted skin is repainted. */
+const PAINT_SETTLE_MS = 700;
+
+/** How much of the world the window may span before the painted skin hands over to the satellite tiles. */
+const PAINTED_TILE_SPAN = 0.05;
+
 /** La hora, como la lee un reloj. */
 function hourLabel(hour: number): string {
   const h = Math.floor(hour) % 24;
@@ -601,6 +620,11 @@ export default function World3D({
     zoomTimer: number;
     zoomArriveTimer: number;
     zoomRefineTimer: number;
+    /** The painted skin waits for the strokes to settle before repainting (see the skin effect). */
+    paintTimer: number;
+    paintDue: boolean;
+    paintedWorld: WorldData | null;
+    paintedLook: string;
     zoomWant: SkinWindow | null;
     zoomStore: DisplayTileStore;
     zoomInputs: {
@@ -636,6 +660,8 @@ export default function World3D({
   const cursor = useRef<Pt | null>(null);
   const press = useRef<{ x: number; y: number; moved: boolean; button: number } | null>(null);
   const altRef = useRef(false);
+  /** Bumped when a deferred repaint of the painted skin is due. */
+  const [paintTick, setPaintTick] = useState(0);
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
   const stageRef = useRef(stage);
@@ -951,6 +977,7 @@ export default function World3D({
       zoomPlan: null as ZoomSkinPlan | null,
       zoomGen: '', zoomCanvas: null as HTMLCanvasElement | null,
       zoomTex: null as THREE.CanvasTexture | null, zoomTimer: 0, zoomArriveTimer: 0, zoomRefineTimer: 0,
+      paintTimer: 0, paintDue: false, paintedWorld: null as WorldData | null, paintedLook: '',
       zoomWant: null as SkinWindow | null,
       zoomStore,
       zoomInputs: {
@@ -981,6 +1008,7 @@ export default function World3D({
       window.clearTimeout(st.zoomTimer);
       window.clearTimeout(st.zoomArriveTimer);
       window.clearTimeout(st.zoomRefineTimer);
+      window.clearTimeout(st.paintTimer);
       if (st.raf) cancelAnimationFrame(st.raf);
       controls.dispose();
       surface.dispose();
@@ -1310,6 +1338,7 @@ export default function World3D({
   }, [scenePos, world]);
 
   const drawOverlay = useCallback((marks: ScreenMark[]) => {
+    LETTERING = skin === 'pintado' || skin === 'dibujado' ? 'map' : 'hud';
     const oc = overlayRef.current;
     const host = hostRef.current;
     if (!oc || !host) return;
@@ -1331,7 +1360,7 @@ export default function World3D({
     // Sheet routes are lettering-scale ink, not an albedo feature that may
     // magnify into a pale motorway. Exactly one projected road pass owns them.
     const roadScene = R.current;
-    if (roadScene && skin === 'dibujado' && showRoads && geography) {
+    if (roadScene && (skin === 'dibujado' || skin === 'pintado') && showRoads && geography) {
       const p = new THREE.Vector3(), toward = new THREE.Vector3();
       let seamShift: number | null = null, seamU = 0;
       drawRoadNetwork(ctx, geography.roads, {
@@ -1381,7 +1410,7 @@ export default function World3D({
         if (!fits(m.x - half, m.y - half, m.x + half, m.y + half)) continue;
         drawStamp(ctx, m.stamp.glyph, m.x, m.y, { size: m.stamp.size, halo: true });
         if (m.label) {
-          ctx.font = '600 12px "Source Sans 3", system-ui, sans-serif';
+          ctx.font = letterFont(600, 12);
           const tw = ctx.measureText(m.label).width;
           if (fits(m.x + half + 2, m.y - 8, m.x + half + tw + 6, m.y + 8)) label(ctx, m.label, m.x + half + 4, m.y, 12, m.color);
         }
@@ -1389,14 +1418,14 @@ export default function World3D({
       }
       if (m.kind === 'text' && m.shape) {
         const { size, angle, spacing, curve } = m.shape;
-        ctx.font = `600 ${size}px "Source Sans 3", system-ui, sans-serif`;
+        ctx.font = letterFont(600, size);
         const chars = [...m.label], widths = chars.map((ch) => ctx.measureText(ch).width);
         const glyphs = labelGlyphs(widths, size * spacing, curve, angle, m.x, m.y);
         const box = glyphBounds(glyphs, widths, size);
         if (!fits(box.x, box.y, box.x + box.w, box.y + box.h)) continue;
         const align: CanvasTextAlign = ctx.textAlign, baseline: CanvasTextBaseline = ctx.textBaseline;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(6,8,13,0.88)'; ctx.fillStyle = m.color;
+        ctx.strokeStyle = LETTERING === 'map' ? MAP_HALO : 'rgba(6,8,13,0.88)'; ctx.fillStyle = LETTERING === 'map' ? MAP_INK : m.color;
         for (const pass of [true, false]) glyphs.forEach((g, i) => {
           ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a);
           if (pass) ctx.strokeText(chars[i], 0, 0); else ctx.fillText(chars[i], 0, 0);
@@ -1409,7 +1438,7 @@ export default function World3D({
         const r1 = drawArrivalMark(ctx, m.x, m.y, m.color);
         // El nombre RESERVA su hueco (`fits`) pero se dibuja pase lo que pase:
         // es lo que el lector tecleó para llegar aquí.
-        ctx.font = '600 12px "Source Sans 3", system-ui, sans-serif';
+        ctx.font = letterFont(600, 12);
         const tw = ctx.measureText(m.label).width;
         const lx = Math.max(5, Math.min(w - tw - 5, m.x + r1 + 6));
         fits(lx - 2, m.y - 9, lx + tw + 2, m.y + 9);
@@ -1429,7 +1458,7 @@ export default function World3D({
         ctx.strokeStyle = 'rgba(6,8,13,0.9)';
         ctx.stroke();
         // A pin the reader placed always keeps its name: they put it there.
-        ctx.font = '500 11px "Source Sans 3", system-ui, sans-serif';
+        ctx.font = letterFont(500, 11);
         const pw = ctx.measureText(m.label).width;
         const lx = Math.max(5, Math.min(w - pw - 5, m.x - pw / 2));
         for (const ly of [m.y - 22, m.y + 18]) {
@@ -1444,7 +1473,7 @@ export default function World3D({
         const entity = m.spatial;
         if (entity.kind === 'realm') {
           const size = 14 * labelScale(entity.style), font = placeFont(entity.style, 'Georgia, serif');
-          ctx.font = `600 ${size}px ${font}`; const tw = ctx.measureText(m.label).width, x = m.x - tw / 2;
+          ctx.font = letterFont(size >= 12 ? 600 : 500, size, font); const tw = ctx.measureText(m.label).width, x = m.x - tw / 2;
           if (fits(x - 2, m.y - size * .7, x + tw + 2, m.y + size * .7)) { label(ctx, m.label, x, m.y, size, m.color, font); m.hit = { x0: x, y0: m.y - size, x1: x + tw, y1: m.y + size }; }
           continue;
         }
@@ -1502,7 +1531,7 @@ export default function World3D({
         };
         if (alwaysLabel) {
           const size = 11 * labelScale(entity.style), font = placeFont(entity.style, '"Source Sans 3", system-ui, sans-serif');
-          ctx.font = `600 ${size}px ${font}`;
+          ctx.font = letterFont(size >= 12 ? 600 : 500, size, font);
           const tw = ctx.measureText(m.label).width;
           const lx = m.x + 8 * symbolScale + tw + 3 < w ? m.x + 8 * symbolScale : m.x - 8 * symbolScale - tw;
           if (fits(lx - 2, m.y - size * .7, lx + tw + 2, m.y + size * .7)) {
@@ -1536,7 +1565,7 @@ export default function World3D({
       }
       const size = (big ? 12 : 11) * labelScale(style);
       const font = placeFont(style, '"Source Sans 3", system-ui, sans-serif');
-      ctx.font = `${size >= 12 ? 600 : 500} ${size}px ${font}`;
+      ctx.font = letterFont(size >= 12 ? 600 : 500, size, font);
       const tw = ctx.measureText(m.label).width;
       const lx = m.x + r + 5 + tw + 3 < w ? m.x + r + 5 : m.x - r - 5 - tw;
       m.hit = undefined;
@@ -1800,7 +1829,7 @@ export default function World3D({
     //     rutina que usan las teselas someras, así el relleno y las teselas
     //     que van llegando encima hablan un único idioma y el ancho del río no
     //     depende de a qué distancia esté la cámara.
-    if (st.albedoBase && st.zoomInputs.skin !== 'dibujado' && st.zoomInputs.showRivers) {
+    if (st.albedoBase && st.zoomInputs.skin !== 'dibujado' && st.zoomInputs.skin !== 'pintado' && st.zoomInputs.showRivers) {
       drawWorldRivers(w, ctx, plan.view, plan.width);
     }
 
@@ -1844,6 +1873,7 @@ export default function World3D({
     //     pincel, no una aparición.
     const geo = st.zoomInputs.geography;
     if (geo && st.zoomInputs.skin !== 'dibujado') {
+      const painted = st.zoomInputs.skin === 'pintado';
       const inked = done && plan.z >= SAT_DEEP_Z && satelliteDeepSupported(w, plan.z);
       if (!(inked && mPerPx <= 160)) {
         drawTownStains(ctx, geo.settlements, {
@@ -1860,7 +1890,7 @@ export default function World3D({
       //     este–oeste, como toda capa lineal: la ventana puede cruzar la
       //     costura y `unwrapRoad` deja cada camino en la copia [0, W).
       const roadAlpha = roadOverlayAlpha(inked ? satPxPerCanonCell(w, plan.z) : 0);
-      if (st.zoomInputs.showRoads && roadAlpha > 0.01 && geo.roads.length) {
+      if (!painted && st.zoomInputs.showRoads && roadAlpha > 0.01 && geo.roads.length) {
         const s = plan.width / plan.view.w;
         const k0 = Math.floor(plan.view.x / w.width);
         const k1 = Math.floor((plan.view.x + plan.view.w) / w.width);
@@ -1898,7 +1928,7 @@ export default function World3D({
     let tex = st.zoomTex;
     if (!tex) {
       tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.colorSpace = pictureSpace(st.zoomInputs.skin);
       // v = 0 es la fila norte, igual que en la piel de mundo entero.
       tex.flipY = false;
       // La ventana NO se envuelve: el shader ya la recorta y no muestrea fuera.
@@ -1910,6 +1940,7 @@ export default function World3D({
       tex.anisotropy = Math.min(8, st.renderer.capabilities.getMaxAnisotropy());
       st.zoomTex = tex;
     } else {
+      tex.colorSpace = pictureSpace(st.zoomInputs.skin);
       tex.needsUpdate = true;
     }
     st.zoomPlan = plan;
@@ -1994,7 +2025,10 @@ export default function World3D({
     };
     // A vista de planeta la piel de mundo entero YA es más fina que la
     // pantalla: pedir teselas ahí es gastar por nada.
-    if (!q.geography || q.skin === 'arcilla' || !(mesh.uSize <= MAX_ZOOM_SKIN_SPAN)) {
+    // The painted skin is one picture down to a region; closer than that its
+    // pixels are kilometres wide, and the satellite tiles bring the towns and
+    // their streets.
+    if (!q.geography || q.skin === 'arcilla' || !(mesh.uSize <= (q.skin === 'pintado' ? PAINTED_TILE_SPAN : MAX_ZOOM_SKIN_SPAN))) {
       off();
       return;
     }
@@ -2296,6 +2330,7 @@ export default function World3D({
       seaLevel: 0,
       sky: skyForWater,
       clip: maqueta,
+      lakesOnly: st.zoomInputs.skin === 'pintado' && shapeRef.current === 'plane',
     });
 
     /**
@@ -2488,8 +2523,8 @@ export default function World3D({
     // Exactamente el mismo interruptor que había: el plano lleva la lámina que
     // sigue a la cámara hasta el far, el globo lleva la esfera. El cielo no se
     // conmuta — él mismo mira `shape` y pinta horizonte o espacio.
-    st.water.plane.visible = shape === 'plane';
-    st.water.globe.visible = shape === 'globe';
+    st.water.plane.visible = shape === 'plane' && st.zoomInputs.skin !== 'pintado';
+    st.water.globe.visible = shape === 'globe' && st.zoomInputs.skin !== 'pintado';
     // How far back the whole thing fits. The bounding extent and the NARROWER of
     // the two field angles give the distance that cannot crop, whatever the
     // shape of the panel.
@@ -2617,10 +2652,25 @@ export default function World3D({
     const rev = revision;
     const key = `${worldContentKey(world)}:${skin}:${theme.id}:${geography ? geographyContentKey(geography) : 'bare'}:${showRivers}:${showRoads}:${showBorders}`;
     if (st.skinnedKey === key && st.skinnedRev === rev) return;
+    // The painted skin is a whole picture: repainting it on every committed
+    // stroke would stall the hand. The same world under the same look waits
+    // until the strokes stop; the old picture stays meanwhile.
+    const look = `${skin}:${theme.id}:${showRivers}:${showRoads}:${showBorders}`;
+    if (skin === 'pintado' && st.paintedWorld === world && st.paintedLook === look && !st.paintDue) {
+      window.clearTimeout(st.paintTimer);
+      st.paintTimer = window.setTimeout(() => { st.paintDue = true; setPaintTick((n) => n + 1); }, PAINT_SETTLE_MS);
+      return;
+    }
+    st.paintDue = false;
+    st.paintedWorld = skin === 'pintado' ? world : null;
+    st.paintedLook = skin === 'pintado' ? look : '';
     st.skinnedKey = key;
     st.skinnedRev = rev;
 
     if (skin === 'arcilla') {
+      st.surface.setPainted(false);
+      st.water.plane.visible = shapeRef.current === 'plane';
+      st.water.globe.visible = shapeRef.current === 'globe';
       st.surface.setAlbedo(null);
       st.surface.setShading(true, cavity, headlight, shadow);
       st.albedo?.dispose();
@@ -2639,6 +2689,32 @@ export default function World3D({
       // La carta trae sus ríos dibujados en su propia lámina: el relleno de la
       // piel de cerca usa la misma imagen y no necesita base aparte.
       st.albedoBase = null;
+    } else if (skin === 'pintado') {
+      // The painted ground: blended colours, shelf and coast rings, shaded
+      // relief, painted forests and dunes, rivers in the same picture.
+      const painted = renderPaintedGround(world, {
+        rivers: showRivers,
+        drawRivers: (ctx, width) => drawWorldRivers(world, ctx, { x: 0, y: 0, w: world.width, h: world.height }, width, false),
+      });
+      // Borders and the realm wash go on a copy; the painting itself stays clean
+      // as the base the close-range canvas stretches under its tiles.
+      const overlay = showBorders && !!geography;
+      canvas = overlay ? document.createElement('canvas') : painted.canvas;
+      if (overlay) { canvas.width = painted.canvas.width; canvas.height = painted.canvas.height; }
+      const pctx = overlay ? canvas.getContext('2d') : null;
+      if (pctx) {
+        pctx.drawImage(painted.canvas, 0, 0);
+        const s = painted.pxPerCell;
+        if (showBorders && geography) drawRealmWash(pctx, world, geography, { x: 0, y: 0, w: world.width, h: world.height }, canvas.width, canvas.height);
+        if (showBorders && geography) drawRealmBorders(pctx, realmBorders(world, geography), {
+          worldWidth: world.width, worldHeight: world.height,
+          toScreen: (u, v) => [u * canvas.width, v * canvas.height],
+          width: canvas.width, height: canvas.height, pxPerCell: s,
+          view: { x: 0, y: 0, w: world.width, h: world.height },
+          linear: { ox: 0, oy: 0, scale: s },
+        });
+      }
+      st.albedoBase = painted.canvas;
     } else {
       // Unshaded on purpose: the scene supplies the form, and a second NW
       // hillshade baked into the raster would shade every slope twice.
@@ -2675,7 +2751,7 @@ export default function World3D({
       }
     }
     const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.colorSpace = pictureSpace(skin);
     // v = 0 is the north row of the raster, which is only true if three.js does
     // not flip it on upload.
     tex.flipY = false;
@@ -2690,11 +2766,14 @@ export default function World3D({
     st.albedoCanvas = canvas;
     // La piel de satélite deja que el shader pinte el mar; la carta dibujada
     // conserva el suyo, que es parte del dibujo.
-    st.surface.setAlbedo(tex, true, skin !== 'dibujado');
+    st.surface.setAlbedo(tex, true, skin !== 'dibujado' && skin !== 'pintado');
+    st.surface.setPainted(skin === 'pintado');
+    st.water.plane.visible = shapeRef.current === 'plane' && skin !== 'pintado';
+    st.water.globe.visible = shapeRef.current === 'globe' && skin !== 'pintado';
     st.surface.setShading(false, cavity, headlight, shadow);
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders]);
+  }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders, paintTick]);
 
   // ---- the stage: a frame is enough, the draw reads `stageRef` ---------------
   useEffect(() => {
@@ -3620,13 +3699,29 @@ export default function World3D({
 // ---------------------------------------------------------------------------
 
 /** A label with a dark halo, so it reads over ice and over ocean alike. */
+/**
+ * How names are lettered over the 3D: 'hud' is light type on a dark halo (the
+ * satellite and the clay); 'map' is a map's own lettering — dark serif ink on a
+ * paper halo — over the painted and drawn skins, so a name reads as written on
+ * the map and not as a label stuck on the screen. Set by the overlay per frame.
+ */
+let LETTERING: 'hud' | 'map' = 'hud';
+const MAP_INK = '#2b2117', MAP_HALO = 'rgba(246,238,218,0.88)', MAP_FONT = 'Georgia, "Times New Roman", serif';
+
+/** The font names are measured and drawn with: map lettering swaps the sans for a serif a size up. */
+function letterFont(weight: number, size: number, font = '"Source Sans 3", system-ui, sans-serif'): string {
+  const map = LETTERING === 'map';
+  return `${weight} ${map ? size + 1 : size}px ${map && font.includes('Source Sans') ? MAP_FONT : font}`;
+}
+
 function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color: string, font = '"Source Sans 3", system-ui, sans-serif'): void {
-  ctx.font = `${size >= 12 ? 600 : 500} ${size}px ${font}`;
-  ctx.lineWidth = 3;
+  const map = LETTERING === 'map';
+  ctx.font = letterFont(size >= 12 ? 600 : 500, size, font);
+  ctx.lineWidth = map ? 3.2 : 3;
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(6,8,13,0.85)';
+  ctx.strokeStyle = map ? MAP_HALO : 'rgba(6,8,13,0.85)';
   ctx.strokeText(text, x, y);
-  ctx.fillStyle = color;
+  ctx.fillStyle = map ? MAP_INK : color;
   ctx.fillText(text, x, y);
 }
 
