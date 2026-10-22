@@ -32,6 +32,18 @@ export function journeyNormalizedStops(stops: Pick<Settlement, 'name' | 'x' | 'y
 }
 
 /** Resolve geographic positions in the current grid, even if old settlements no longer exist. */
+/**
+ * A stop that is a point on the map rather than a town: picked on open ground
+ * while choosing a journey's ends or stops. Negative ids, like the anchors of a
+ * saved journey, so it never selects a generated settlement.
+ */
+export function journeyPoint(x: number, y: number, name: string, seq: number): Settlement {
+  return {
+    id: -2_000_000 - seq, name, x: Math.floor(x), y: Math.floor(y),
+    culture: 'latin', rank: 'village', population: 0, port: false, river: false, realm: -1, score: 0,
+  };
+}
+
 export function journeyStopsForWorld(journey: WorldJourney, world: Pick<WorldData, 'width' | 'height'>): Settlement[] {
   return journey.stops.map((stop, index) => ({
     // Generated settlements use non-negative IDs. These anchors must never select one by accident.

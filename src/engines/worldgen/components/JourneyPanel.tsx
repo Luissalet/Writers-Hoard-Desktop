@@ -43,6 +43,8 @@ interface JourneyPanelProps {
   onPick: (which: 'from' | 'to' | 'via' | null) => void;
   via: Settlement[];
   onClearVia: () => void;
+  /** The stops in between, reordered or with one taken out. */
+  onViaChange?: (next: Settlement[]) => void;
   onSwap: () => void;
   onClear: () => void;
   /** The route to draw on the map, or null to draw none. */
@@ -68,7 +70,7 @@ export default function JourneyPanel(props: JourneyPanelProps) {
 
 function JourneyPanelContent({
   world, geography, from, to, picking, onPick, onSwap, onClear, onRoute, onTraveller, onRevealRoute,
-  via, onClearVia, paleo, onPaleo, worldRecord, onOpenJourney, onJourneysChanged,
+  via, onClearVia, onViaChange, paleo, onPaleo, worldRecord, onOpenJourney, onJourneysChanged,
 }: JourneyPanelProps) {
   const { t, locale } = useTranslation();
   const scope = useWorldEraScope(worldRecord?.projectId);
@@ -276,6 +278,25 @@ function JourneyPanelContent({
             {via.length ? via.map((v) => v.name).join(' · ') : t('worldgen.journey.direct')}
           </span>
         </button>
+        {via.length > 0 && onViaChange && (
+          <ol className="flex flex-col gap-0.5" aria-label={t('worldgen.journey.via')} data-testid="journey-via-list">
+            {via.map((stop, index) => (
+              <li key={`${stop.id}:${index}`} className="flex items-center gap-1 text-[11px]" data-testid={`journey-via-${index}`}>
+                <span className="w-4 shrink-0 text-right tabular-nums text-white/35">{index + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-white/80">{stop.name}</span>
+                <button type="button" disabled={index === 0} onClick={() => { const next = [...via]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onViaChange(next); }}
+                  aria-label={t('worldgen.journey.viaEarlier')} title={t('worldgen.journey.viaEarlier')} data-testid={`journey-via-up-${index}`}
+                  className="rounded px-1 text-[10px] text-white/55 hover:bg-white/10 disabled:opacity-25">↑</button>
+                <button type="button" disabled={index === via.length - 1} onClick={() => { const next = [...via]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; onViaChange(next); }}
+                  aria-label={t('worldgen.journey.viaLater')} title={t('worldgen.journey.viaLater')} data-testid={`journey-via-down-${index}`}
+                  className="rounded px-1 text-[10px] text-white/55 hover:bg-white/10 disabled:opacity-25">↓</button>
+                <button type="button" onClick={() => onViaChange(via.filter((_, k) => k !== index))}
+                  aria-label={t('worldgen.journey.viaRemove').replace('{name}', stop.name)} title={t('worldgen.journey.viaRemove').replace('{name}', stop.name)} data-testid={`journey-via-remove-${index}`}
+                  className="rounded px-1 text-[10px] text-white/55 hover:bg-red-500/20 hover:text-red-200">×</button>
+              </li>
+            ))}
+          </ol>
+        )}
         {picking && (
           <p className="text-[10px] text-amber-300/80">
             {t('worldgen.journey.pickHint')}
