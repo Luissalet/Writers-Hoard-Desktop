@@ -55,6 +55,10 @@ export async function testWorldLevels(): Promise<string[]> {
     const lifted = generateWorld(params); lifted.lake[lowLake] = 1;
     applyEdits(lifted, [{ kind: 'seaLevel', m: coverM }, lift, lift, lift, lift, lift, lift]);
     assert(lifted.elevation[lowLake] > 0 && lifted.lake[lowLake] === 0, `A lifted cell under the risen sea: height ${lifted.elevation[lowLake]}, lake ${lifted.lake[lowLake]}`);
+    // ...and stays land when the sea then rises a little more: only a lower sea gives a lake back.
+    const nudged = generateWorld(params); nudged.lake[lowLake] = 1;
+    applyEdits(nudged, [{ kind: 'seaLevel', m: coverM }, lift, lift, lift, lift, lift, lift, { kind: 'seaLevel', m: coverM + 1 }]);
+    assert(nudged.elevation[lowLake] > 0 && nudged.lake[lowLake] === 0, `A lifted cell after a further rise: lake ${nudged.lake[lowLake]}`);
     assert(covered.lake[lowLake] === 0 && covered.biome[lowLake] !== Biome.Lake && uncovered.lake[lowLake] === 1 && uncovered.biome[lowLake] === Biome.Lake, `Lake at ${lowLake}: covered ${covered.lake[lowLake]}/${covered.biome[lowLake]}, back ${uncovered.lake[lowLake]}/${uncovered.biome[lowLake]}`);
     // A replay of the same list takes the whole-world biomes worked out the first time, one per sea change.
     const again = generateWorld(params);

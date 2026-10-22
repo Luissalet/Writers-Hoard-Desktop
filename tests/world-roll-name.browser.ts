@@ -47,7 +47,7 @@ export async function testWorldRollName(): Promise<string[]> {
 
     // Across the seam: a spot just west of the map's east edge is next to a town just east of its west edge.
     const westmost = geo.settlements.reduce((a, b) => (b.x < a.x ? b : a));
-    const seamSpot = { x: world.width - 0.4 + westmost.x - Math.floor(westmost.x), y: westmost.y + 0.5 };
+    const seamSpot = { x: world.width - 0.5, y: westmost.y + 0.5 };
     const nearest = geo.settlements.reduce((best, s) => { const d = (v: typeof s) => { let dx = Math.abs(v.x - seamSpot.x); if (dx > world.width / 2) dx = world.width - dx; return dx * dx + (v.y - seamSpot.y) ** 2; }; return d(s) < d(best) ? s : best; });
     const seamName = rollLabelName(geo, seed, 'range', 0, seamSpot, { width: world.width });
     assert(seamName.languageId === geo.languageOf[nearest.culture], `Across the seam the name should be in ${nearest.name}'s language`);
