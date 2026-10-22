@@ -34,7 +34,11 @@ events (`wh_list_story_events`, `knownByChapter`) say what happened where and
 when; read them before describing what a character could know, and keep
 planned events apart from happened ones. For trade, famine or prices in a
 scene, ask `wh_world_economy` for that month and settlement instead of
-inventing figures; it is deterministic for the world.
+inventing figures; it is deterministic for the world. On a classic (image) map,
+positions are percent of the picture: list shapes with `wh_list_map_features`
+before changing one, leave a comment about a spot with `wh_annotate` `at`, and
+before replacing the picture call `wh_preview_map_ground`; only use `fit:
+"stretch"` in `wh_change_map_ground` when the author wants shapes stretched.
 
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means

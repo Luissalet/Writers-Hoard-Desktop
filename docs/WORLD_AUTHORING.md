@@ -87,8 +87,17 @@ diagonal stripes, dots, crosshatch, with a scale), and lettering (font, size,
 colour, halo and its width, bold, italic, rotation); shapes move to the front
 or back of the drawing order, a vertex is added by pulling the handle halfway
 along an edge and removed with a double-click, and a shape or pin can belong to
-several named layers (shown while any of them is visible). Pins come in three
-sizes and can hide their icon. The SVG export draws all of it.
+several named layers (shown while any of them that still exists is visible).
+Pins come in three sizes and can hide their icon. The SVG export draws all of it.
+The Codex link of a shape or pin is a search box (accent-free, by words) that
+can also create a new entry of a chosen type. Right-clicking the map offers,
+at that spot: a new entry (and a pin linked to it), a pin, a region or route
+that starts there, a label, and a comment, which shows as a marker on the map
+and in the notes below. Replacing the map's picture opens a dialog with both
+images, their sizes, what moves with the map and, when the shape differs,
+"keep the shapes" (the old drawing is fitted, centred, into the new picture)
+or "stretch"; the map is saved as an era first. Saving a shape keeps shapes
+added meanwhile elsewhere (by the agent, for instance).
 
 A generated world remembers its look (style, layers, relief density, 3D skin)
 for every view and export; an era that still inherits the world shares Base's

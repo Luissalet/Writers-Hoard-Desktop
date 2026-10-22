@@ -46,6 +46,7 @@ function serialize(annotation: Annotation, freshOrphan?: boolean): Record<string
     note: annotation.noteBody,
     noteType: annotation.noteType,
     anchoredTo: annotation.anchor.selectedText,
+    ...(annotation.anchor.type === 'map_point' ? { at: { x: annotation.anchor.x, y: annotation.anchor.y } } : {}),
     isOrphaned: freshOrphan ?? annotation.isOrphaned,
     createdAt: annotation.createdAt,updatedAt:annotation.updatedAt,eraId:annotation.eraId,revision:annotation.revision??0,resolved:!!annotation.resolvedAt,resolvedAt:annotation.resolvedAt,replies:annotation.replies??[],mentions:annotation.mentions??[],
   };
@@ -166,6 +167,16 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
     anchor = { type: 'text_range', start, end, selectedText: quote, ...captureContext(body, start, end) };
   }
 
+  if (args.at !== undefined) {
+    // A spot on a classic map, in percent of the image, like pins and shapes.
+    if (engineId !== 'maps') throw new BridgeError('bad-args', '`at` only applies to classic maps (engineId "maps").');
+    if (quote) throw new BridgeError('bad-args', 'Pass either `quote` or `at`, not both.');
+    const point = args.at as { x?: unknown; y?: unknown } | null;
+    const inRange = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+    if (!point || typeof point !== 'object' || !inRange(point.x) || !inRange(point.y)) throw new BridgeError('bad-args', '`at` needs x and y between 0 and 100 (percent of the map image).');
+    anchor = { type: 'map_point', x: point.x, y: point.y };
+  }
+
   const existing = await getAnnotationsForEntity(engineId, entityId,scope);
   const now = Date.now();
   const annotation: Annotation = {
@@ -186,13 +197,14 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
     {
       id: annotation.id,
       anchoredTo: quote ?? null,
+      ...(anchor.type === 'map_point' ? { at: { x: anchor.x, y: anchor.y } } : {}),
       on: { engineId, entityId, title },
       created: true,
     },
     {
       projectId,
       entityId: annotation.id,
-      summary: `left a note on ${engineId} "${title}"${quote ? ` at "${quote.slice(0, 60)}"` : ''}`,
+      summary: `left a note on ${engineId} "${title}"${quote ? ` at "${quote.slice(0, 60)}"` : anchor.type === 'map_point' ? ` at ${Math.round(anchor.x ?? 0)}%, ${Math.round(anchor.y ?? 0)}%` : ''}`,
     },
   );
 }

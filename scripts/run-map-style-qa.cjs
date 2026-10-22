@@ -49,7 +49,7 @@ async function main() {
   await byId('map-order-front');
   let order; for (let i = 0; i < 50; i++) { order = (await map()).features.map(f => f.id); if (order[order.length - 1] === 'north') break; await pause(100); }
   assert(order[order.length - 1] === 'north', `Order ${before} → ${order}`);
-  const domOrder = await js(`[...document.querySelectorAll('[data-feature-id]')].map(g=>g.getAttribute('data-feature-id'))`);
+  let domOrder; for (let i = 0; i < 50; i++) { domOrder = await js(`[...document.querySelectorAll('[data-feature-id]')].map(g=>g.getAttribute('data-feature-id'))`); if (domOrder[domOrder.length - 1] === 'north') break; await pause(100); }
   assert(domOrder[domOrder.length - 1] === 'north', `DOM order ${domOrder}`);
   tests.push(`"Bring to front" saves the new order (${before} → ${order.join()}) and the map draws it on top`);
   // Reselect after picking another shape: the inspector re-reads the saved style.

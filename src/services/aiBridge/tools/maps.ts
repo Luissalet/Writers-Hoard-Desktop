@@ -342,3 +342,73 @@ export async function whUpdateMapFeature(args: ToolArgs): Promise<unknown> {
   if (JSON.stringify(list) === JSON.stringify(features)) throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides mapId and id.');
   return saveFeatures(args, map, list, { id, updated: true, order: list.findIndex((feature) => feature.id === id) }, `changed ${current.kind} "${next.name}" on map "${map.title}"`);
 }
+
+// ---------------------------------------------------------------------------
+// Map ground: replacing the image of a classic map
+// ---------------------------------------------------------------------------
+
+const GROUND_FITS = ['keep', 'stretch'] as const;
+const MAX_GROUND_IMAGE_CHARS = 40_000_000;
+
+/** The candidate image from `galleryAssetId` or `imageDataUrl` (exactly one), with its decoded pixel size. */
+async function candidateGround(args: ToolArgs, projectId: string): Promise<{ image: string; size: import('@/components/maps/mapGround').GroundSize }> {
+  const assetId = optString(args, 'galleryAssetId')?.trim(), dataUrl = optString(args, 'imageDataUrl');
+  if ((assetId ? 1 : 0) + (dataUrl ? 1 : 0) !== 1) throw new BridgeError('bad-args', 'Pass exactly one of galleryAssetId or imageDataUrl.');
+  let image: string;
+  if (assetId) {
+    const asset = await db.inspirationImages.get(assetId);
+    if (!asset || asset.projectId !== projectId) throw new BridgeError('not-found', `No gallery image "${assetId}" in this project; use wh_list_images.`);
+    image = asset.imageData;
+  } else {
+    image = dataUrl!;
+    if (!/^data:image\/(png|jpe?g|webp|gif|bmp|avif);base64,/i.test(image)) throw new BridgeError('bad-args', 'imageDataUrl must be a base64 data:image/... URL (png, jpeg, webp, gif, bmp or avif).');
+    if (image.length > MAX_GROUND_IMAGE_CHARS) throw new BridgeError('bad-args', 'imageDataUrl is too large.');
+  }
+  const { loadImageSize } = await import('@/components/maps/mapGround');
+  try { return { image, size: await loadImageSize(image) }; }
+  catch { throw new BridgeError('bad-args', 'That image cannot be read or decoded.'); }
+}
+
+/** What replacing the ground would do to a map: shape comparison and what moves with it. */
+async function groundPlan(args: ToolArgs) {
+  const { map, scope } = await loadMapForEras(args);
+  const mapPinOps = scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps);
+  const candidate = await candidateGround(args, map.projectId);
+  const { groundFit, groundCounts, loadImageSize } = await import('@/components/maps/mapGround');
+  const oldSize = map.backgroundImage ? await loadImageSize(map.backgroundImage).catch(() => null) : null;
+  const fit = oldSize ? groundFit(oldSize, candidate.size) : null;
+  const counts = groundCounts(map.features ?? [], await mapPinOps.getAll(map.id));
+  return { map, scope, candidate, oldSize, fit, counts };
+}
+
+/** Read-only: would this image fit the map's shape, and what moves with the ground. */
+export async function whPreviewMapGround(args: ToolArgs): Promise<unknown> {
+  const { map, candidate, oldSize, fit, counts } = await groundPlan(args);
+  return {
+    mapId: map.id, hasImage: Boolean(map.backgroundImage), oldSize, newSize: candidate.size,
+    sameShape: fit ? fit.sameShape : null, oldRatio: fit?.oldRatio ?? null, newRatio: fit?.newRatio ?? null,
+    counts, suggestedFit: fit && !fit.sameShape ? 'keep' : null,
+  };
+}
+
+/**
+ * Replace a classic map's ground image. Shapes and pins are percentages of the
+ * image, so `fit: keep` (default) moves them to stay in proportion and `stretch`
+ * leaves them. The map is saved as an era first. Undo restores all of it.
+ */
+export async function whChangeMapGround(args: ToolArgs): Promise<unknown> {
+  const { map } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  if (args.fit !== undefined && !optEnum(args, 'fit', GROUND_FITS)) throw new BridgeError('bad-args', 'fit must be keep or stretch.');
+  const fit = optEnum(args, 'fit', GROUND_FITS) ?? 'keep';
+  const { map: current, scope, candidate, oldSize, fit: shape, counts } = await groundPlan(args);
+  const remap = !!oldSize && !!shape && !shape.sameShape && fit === 'keep';
+  const { changeMapGround } = await import('@/engines/maps/operations');
+  const { mapGroundCopy } = await import('@/components/maps/mapGroundCopy');
+  const { useLocaleStore } = await import('@/stores/localeStore');
+  const receipt = await changeMapGround(current.id, { image: candidate.image, oldSize, newSize: candidate.size, mode: remap ? 'keep' : 'stretch', versionName: mapGroundCopy[useLocaleStore.getState().locale === 'es' ? 'es' : 'en'].versionName }, scope);
+  return withAudit(
+    { mapId: current.id, changed: true, newSize: candidate.size, oldSize, sameShape: shape ? shape.sameShape : null, fit, remapped: remap, moved: remap ? counts : null, versionId: receipt.versionId || null },
+    { projectId: current.projectId, entityId: current.id, summary: `changed the ground image of map "${current.title}"`, before: { __mapGround: receipt } },
+  );
+}

@@ -6,11 +6,41 @@ export const EMPTY_MAP_FEATURES: MapFeature[] = [];
 export const EMPTY_MAP_NAMED_LAYERS: MapNamedLayer[] = [];
 /** The named layers an item belongs to: all of `layerIds`, or the single older `layerId`. */
 export const mapItemLayers = (item: { layerId?: string; layerIds?: string[] }): string[] => item.layerIds?.length ? item.layerIds : item.layerId ? [item.layerId] : [];
-/** Shown when it belongs to no named layer, or while any of its layers is visible (a deleted layer counts as visible). */
+/**
+ * Shown while any of its layers that still exist is visible. Layers that were
+ * deleted no longer count, and an item whose layers are all gone (or that never
+ * had one) is always shown, so deleting a layer never hides anything.
+ */
 export const mapItemVisible = (item: { layerId?: string; layerIds?: string[] }, layers: MapNamedLayer[]): boolean => {
-  const ids = mapItemLayers(item);
-  return !ids.length || ids.some(id => layers.find(layer => layer.id === id)?.visible !== false);
+  const known = mapItemLayers(item).map(id => layers.find(layer => layer.id === id)).filter((layer): layer is MapNamedLayer => !!layer);
+  return !known.length || known.some(layer => layer.visible !== false);
 };
+
+/**
+ * Re-applies an edit made from a snapshot onto the list as it is now: shapes
+ * added, changed or removed between `before` and `next` are applied to
+ * `current`, so a shape someone else added meanwhile (the agent, another
+ * window) survives. A changed drawing order is carried over for the shapes
+ * the edit knew about.
+ */
+export function rebaseMapFeatures(current: MapFeature[], before: MapFeature[], next: MapFeature[]): MapFeature[] {
+  const was = new Map(before.map(feature => [feature.id, JSON.stringify(feature)]));
+  const now = new Map(next.map(feature => [feature.id, feature]));
+  const removed = new Set(before.filter(feature => !now.has(feature.id)).map(feature => feature.id));
+  const changed = next.filter(feature => was.get(feature.id) !== JSON.stringify(feature));
+  let result = current.filter(feature => !removed.has(feature.id)).map(feature => changed.find(edit => edit.id === feature.id) ?? feature);
+  result = [...result, ...changed.filter(edit => !result.some(feature => feature.id === edit.id))];
+  const beforeOrder = before.filter(feature => now.has(feature.id)).map(feature => feature.id).join();
+  const nextOrder = next.filter(feature => was.has(feature.id)).map(feature => feature.id).join();
+  if (beforeOrder !== nextOrder) {
+    // Shapes the edit knew about take its order; the others keep their place relative to them.
+    const rank = new Map(next.map((feature, index) => [feature.id, index]));
+    const known = result.filter(feature => rank.has(feature.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+    let k = 0;
+    result = result.map(feature => rank.has(feature.id) ? known[k++] : feature);
+  }
+  return result;
+}
 /** The fields that record a new set of layers. */
 export const withMapLayers = (ids: string[]): { layerId?: string; layerIds?: string[] } => ({ layerId: ids[0], layerIds: ids.length > 1 ? ids : undefined });
 export const clampMapCoordinate = (value: number): number => Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));

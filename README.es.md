@@ -36,7 +36,10 @@ sellos, una rejilla de juego cuadrada o hexagonal, una niebla del lector que
 revela el mapa capítulo a capítulo, sucesos de la historia por capítulo y una
 lente de comercio mes a mes (explotaciones, escasez, precios, envíos); los mapas
 de imagen tienen figuras con estilo (contorno, trama, rotulación, orden, varias
-capas) y marcadores de tres tamaños; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
+capas), marcadores de tres tamaños, un enlace al Códex con buscador que también
+crea la ficha, un menú de clic derecho (ficha, marcador, región, ruta, rótulo o
+comentario en ese punto) y un cambio de imagen confirmado que conserva las
+proporciones; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
 y reproducirse en orden. Cada capacidad tiene herramientas del puente
 (docs/AI-BRIDGE.md, sección 28).
 El perfil opcional 5e (2014), SRD 5.1 conserva valores manuales y contadores

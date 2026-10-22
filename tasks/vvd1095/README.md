@@ -72,6 +72,7 @@ reviewed independently (rounds r1–r6: stamps from r4, grid and playback from r
 | A2 #43–47 trade lens | Deterministic economy: sites by ground, needs, granaries, shortages, prices, road and sea shipments, month playback; Trade tab; sites and shipments on the map; MCP | PRESENT except #46 PARTIAL (no per-port goods list); no population growth |
 | A2 #5–10, #12–13 classic map styling | Several layers per item, drawing order, add/remove vertex, outline, hatch, lettering, pin size and icon; SVG export; MCP map features | PRESENT except #12 PARTIAL |
 | A2 #22, #24, #26 story events and party marks | Events by kind (incl. travelling, camp, inn), chapter, planned/happened, note; place, edit, drag, remove; story so far by chapter; reader's view by chapter; exports; MCP | PRESENT (no per-session numbering or "who was there" list; no playback, row 25) |
+| A2 #14, #15, #18 classic map picker, right-click menu, ground change | Searchable Codex link that creates entries by type; right-click new entry / pin / region / route / label / comment at the spot (map_point notes drawn on the map); change-picture dialog with keep/stretch, era saved first, comments move too; MCP wh_annotate `at`, wh_preview/change_map_ground | PRESENT |
 
 Commits: 22cdf7d, dd8f6a5, 4849ac8 (look, blank starters, measure, travel),
 6b3a3e6 (review r1), 3258e65 (map eras), 59e7ad9 (review r2), 07f14f6 (labels),
