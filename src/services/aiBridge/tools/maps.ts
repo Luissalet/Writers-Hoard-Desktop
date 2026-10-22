@@ -7,8 +7,10 @@ import { worldEraToolScope, checkEraLinkedRow } from '@/services/worldEras/toolS
 // Pins are scoped by mapId. `MapPin` carries no timestamps of its own, and
 // `WorldMap.backgroundImage` is base64 that never leaves the app through here.
 
-import type { MapPin } from '@/types';
+import type { MapPathStyle, MapPin, MapPoint, WorldMap } from '@/types';
 import { mapPinOps as baseMapPinOps, worldMapOps as baseWorldMapOps } from '@/engines/maps/operations';
+import { areaKm2, lineLengthKm, matchMapKey, parseMapKey, pictureAspect, validWidthKm, widthFromKnownDistance, MAP_WIDTH_KM_RANGE } from '@/components/maps/mapScale';
+import { travelEstimates } from '@/engines/real-atlas/geo';
 import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
 import {
@@ -60,6 +62,7 @@ export async function whListMaps(args: ToolArgs): Promise<unknown> {
         title: map.title,
         source: map.source,
         hasImage: Boolean(map.backgroundImage),
+        ...(validWidthKm(map.widthKm) ? { widthKm: map.widthKm } : {}),
         pins: (await mapPinOps.getAll(map.id)).map((pin) => ({
           id: pin.id,
           name: pin.name,
@@ -264,6 +267,18 @@ function featureLayers(args: ToolArgs, map: import('@/types').WorldMap): { layer
   return { layerId: ids[0], layerIds: ids.length > 1 ? ids : undefined };
 }
 
+const PATH_STYLES = ['road', 'trail', 'river'] as const satisfies readonly MapPathStyle[];
+
+/** pathStyle from the arguments: a style, null (update only: remove it) or undefined when absent. Only paths have one. */
+function pathStyleArg(args: ToolArgs, kind: (typeof FEATURE_KINDS)[number], allowNull: boolean): MapPathStyle | null | undefined {
+  if (!('pathStyle' in args) || args.pathStyle === undefined) return undefined;
+  if (kind !== 'path') throw new BridgeError('bad-args', `pathStyle only applies to paths (roads, trails, rivers), not to a ${kind}.`);
+  if (args.pathStyle === null && allowNull) return null;
+  const style = optEnum(args, 'pathStyle', PATH_STYLES);
+  if (!style) throw new BridgeError('bad-args', `pathStyle must be road, trail or river${allowNull ? ' (or null to remove it)' : ''}.`);
+  return style;
+}
+
 /** Style fields from the arguments, validated by the same rules as the editor. */
 async function featureStyle(args: ToolArgs) {
   const { normalizeMapFeatureStyle, MapStyleError } = await import('@/components/maps/mapStyle');
@@ -282,7 +297,19 @@ async function saveFeatures(args: ToolArgs, map: import('@/types').WorldMap, nex
 /** The shapes on a map, in drawing order (last on top). */
 export async function whListMapFeatures(args: ToolArgs): Promise<unknown> {
   const { map } = await loadMapForEras(args);
-  return { mapId: map.id, features: (map.features ?? []).map((feature, order) => ({ ...feature, order })) };
+  // With a scale, every route says how long it is and every region how big; the picture's proportions are read once.
+  const frame = await scaleFrame(map, args);
+  const widthKm = validWidthKm(map.widthKm) ? map.widthKm : undefined;
+  return {
+    mapId: map.id,
+    ...(widthKm !== undefined ? { widthKm } : {}),
+    ...(widthKm !== undefined && !frame ? { scaleNote: 'The picture proportions are unknown (no readable image), so lengths and areas are left out; pass aspect (height over width).' } : {}),
+    features: (map.features ?? []).map((feature, order) => ({
+      ...feature, order,
+      ...(frame && feature.kind === 'path' ? { lengthKm: km6(lineLengthKm(feature.points, frame.widthKm, frame.aspect)) } : {}),
+      ...(frame && feature.kind === 'region' ? { areaKm2: km6(areaKm2(feature.points, frame.widthKm, frame.aspect)) } : {}),
+    })),
+  };
 }
 
 /** Draw a region, route or label on a map, styled if asked. */
@@ -297,6 +324,7 @@ export async function whAddMapFeature(args: ToolArgs): Promise<unknown> {
   await checkEraLinkedRow(args, db.codexEntries, linkedEntryId, map.projectId, 'codex entry');
   const layers = featureLayers(args, map);
   const style = await featureStyle(args);
+  const pathStyle = pathStyleArg(args, kind, false);
   const feature: import('@/types').MapFeature = {
     id: generateId('map-feature'), kind, name, points,
     color: style.color ?? (kind === 'path' ? '#e4a853' : '#d5b575'), opacity: style.opacity ?? 0.22,
@@ -305,6 +333,7 @@ export async function whAddMapFeature(args: ToolArgs): Promise<unknown> {
     ...(style.strokeColor ? { strokeColor: style.strokeColor } : {}), ...(style.strokeWidth !== undefined ? { strokeWidth: style.strokeWidth } : {}),
     ...(style.pattern ? { pattern: style.pattern } : {}), ...(style.patternScale !== undefined ? { patternScale: style.patternScale } : {}),
     ...(style.labelStyle ? { labelStyle: style.labelStyle } : {}),
+    ...(pathStyle ? { pathStyle } : {}),
   };
   return saveFeatures(args, map, [...(map.features ?? []), feature], { id: feature.id, created: true }, `drew ${kind} "${name}" on map "${map.title}"`);
 }
@@ -318,7 +347,9 @@ export async function whUpdateMapFeature(args: ToolArgs): Promise<unknown> {
   const current = features.find((feature) => feature.id === id);
   if (!current) throw new BridgeError('not-found', `No shape "${id}" on this map; use wh_list_map_features.`);
   const style = await featureStyle(args);
+  const pathStyle = pathStyleArg(args, current.kind, true);
   const next: import('@/types').MapFeature = { ...current, ...style };
+  if (pathStyle === null) delete next.pathStyle; else if (pathStyle) next.pathStyle = pathStyle;
   // Lettering merges field by field, like the rest: setting the size keeps the italic.
   if (style.labelStyle) next.labelStyle = { ...current.labelStyle, ...style.labelStyle };
   if (args.pattern === 'none' || args.pattern === null) delete next.pattern;
@@ -410,5 +441,128 @@ export async function whChangeMapGround(args: ToolArgs): Promise<unknown> {
   return withAudit(
     { mapId: current.id, changed: true, newSize: candidate.size, oldSize, sameShape: shape ? shape.sameShape : null, fit, remapped: remap, moved: remap ? counts : null, versionId: receipt.versionId || null },
     { projectId: current.projectId, entityId: current.id, summary: `changed the ground image of map "${current.title}"`, before: { __mapGround: receipt } },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Map scale: how many kilometres the picture spans, measuring and a pasted key
+// ---------------------------------------------------------------------------
+
+const km6 = (value: number): number => Math.round(value * 1e6) / 1e6;
+
+/** The picture's height over width: read from the image, or the `aspect` argument when the map has no readable image. */
+async function pictureAspectFor(map: WorldMap, args: ToolArgs): Promise<{ aspect: number; source: 'image' | 'argument' }> {
+  const given = args.aspect;
+  if (given !== undefined && (typeof given !== 'number' || !Number.isFinite(given) || given < 0.01 || given > 100)) throw new BridgeError('bad-args', 'aspect must be a number from 0.01 to 100: the picture height divided by its width (0.5 for a picture twice as wide as tall).');
+  if (map.backgroundImage) {
+    const { loadImageSize } = await import('@/components/maps/mapGround');
+    try { const size = await loadImageSize(map.backgroundImage); return { aspect: pictureAspect(size.width, size.height), source: 'image' }; }
+    catch { /* an unreadable image falls back to the argument, if any */ }
+  }
+  if (typeof given === 'number') return { aspect: given, source: 'argument' };
+  throw new BridgeError('bad-args', map.backgroundImage
+    ? 'The map image cannot be decoded, so the picture proportions are unknown. Pass aspect (height divided by width).'
+    : 'This map has no image, so the picture proportions are unknown. Pass aspect (height divided by width, 0.5 for a picture twice as wide as tall).');
+}
+
+/** The scale and proportions to measure with, or null when the map has no scale or no known proportions. */
+async function scaleFrame(map: WorldMap, args: ToolArgs): Promise<{ widthKm: number; aspect: number } | null> {
+  if (!validWidthKm(map.widthKm)) return null;
+  try { return { widthKm: map.widthKm, aspect: (await pictureAspectFor(map, args)).aspect }; }
+  catch (error) { if (args.aspect !== undefined && error instanceof BridgeError && /aspect must be/.test(error.message)) throw error; return null; }
+}
+
+function unitPoint(raw: unknown, label: string): MapPoint {
+  const p = raw as { x?: unknown; y?: unknown } | null;
+  if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.x > 100 || p.y < 0 || p.y > 100) throw new BridgeError('bad-args', `${label} must be {x,y} numbers from 0 to 100 (percent of the picture).`);
+  return { x: p.x, y: p.y };
+}
+
+function rangeText(): string { return `${MAP_WIDTH_KM_RANGE.min} to ${MAP_WIDTH_KM_RANGE.max} km`; }
+
+/** Set, derive from a known distance, or clear the scale of a classic map. Undo restores the previous scale while this one stands. */
+export async function whSetMapScale(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const given = (['widthKm', 'knownDistance', 'clear'] as const).filter((key) => args[key] !== undefined);
+  if (given.length !== 1) throw new BridgeError('bad-args', 'Pass exactly one of widthKm, knownDistance or clear.');
+  let next: number | null;
+  let aspect: number | undefined;
+  if (given[0] === 'clear') {
+    if (args.clear !== true) throw new BridgeError('bad-args', 'clear must be true.');
+    if (map.widthKm === undefined) throw new BridgeError('bad-args', 'This map has no scale to clear.');
+    next = null;
+  } else if (given[0] === 'widthKm') {
+    if (!validWidthKm(args.widthKm)) throw new BridgeError('bad-args', `widthKm must be a number from ${rangeText()}: the distance the picture spans from left to right.`);
+    next = args.widthKm;
+  } else {
+    const known = args.knownDistance as { from?: unknown; to?: unknown; km?: unknown } | null;
+    if (!known || typeof known !== 'object' || Array.isArray(known)) throw new BridgeError('bad-args', 'knownDistance must be {from:{x,y}, to:{x,y}, km}.');
+    const from = unitPoint(known.from, 'knownDistance.from'), to = unitPoint(known.to, 'knownDistance.to');
+    if (typeof known.km !== 'number' || !Number.isFinite(known.km) || known.km <= 0) throw new BridgeError('bad-args', 'knownDistance.km must be a positive number of kilometres.');
+    if (from.x === to.x && from.y === to.y) throw new BridgeError('bad-args', 'knownDistance.from and knownDistance.to are the same point, so they say nothing about the scale.');
+    aspect = (await pictureAspectFor(map, args)).aspect;
+    const width = Math.round(widthFromKnownDistance(from, to, known.km, aspect) * 1e4) / 1e4;
+    if (!validWidthKm(width)) throw new BridgeError('bad-args', `That distance puts the picture at ${width} km wide, outside ${rangeText()}.`);
+    next = width;
+  }
+  if (next === (map.widthKm ?? null)) throw new BridgeError('bad-args', next === null ? 'This map has no scale to clear.' : `Nothing to change: the map is already ${next} km wide.`);
+  const { setMapScale } = await import('@/engines/maps/operations');
+  const previous = await setMapScale(map.id, next, scope);
+  return withAudit(
+    { mapId: map.id, widthKm: next, previousWidthKm: previous, ...(aspect !== undefined ? { aspect } : {}), updated: true },
+    { projectId: map.projectId, entityId: map.id, summary: next === null ? `removed the scale of map "${map.title}"` : `set the scale of map "${map.title}" to ${next} km across`, before: { __mapScale: { mapId: map.id, from: previous, to: next } } },
+  );
+}
+
+/** Read-only: the length of a line, a route or a region's outline in kilometres, its area for a region, and how long a journey of that length takes. */
+export async function whMeasureMap(args: ToolArgs): Promise<unknown> {
+  const { map } = await loadMapForEras(args);
+  const hasPoints = args.points !== undefined, featureId = optString(args, 'featureId');
+  if ((hasPoints ? 1 : 0) + (featureId !== undefined ? 1 : 0) !== 1) throw new BridgeError('bad-args', 'Pass exactly one of points or featureId.');
+  let points: MapPoint[], kind: 'line' | 'path' | 'region', feature: import('@/types').MapFeature | undefined;
+  if (hasPoints) {
+    if (!Array.isArray(args.points) || args.points.length < 2 || args.points.length > 500) throw new BridgeError('bad-args', 'points must list 2 to 500 {x,y} positions (0-100).');
+    points = args.points.map((point, index) => unitPoint(point, `points[${index}]`));
+    kind = 'line';
+  } else {
+    feature = (map.features ?? []).find((item) => item.id === featureId);
+    if (!feature) throw new BridgeError('not-found', `No shape "${featureId}" on this map; use wh_list_map_features.`);
+    if (feature.kind === 'label') throw new BridgeError('bad-args', `"${feature.name}" is a label, which has no length or area. Measure a path or a region.`);
+    points = feature.points;
+    kind = feature.kind;
+  }
+  if (!validWidthKm(map.widthKm)) throw new BridgeError('bad-args', 'This map has no scale, so nothing can be measured. Set one with wh_set_map_scale (widthKm, or knownDistance from two points).');
+  const { aspect, source } = await pictureAspectFor(map, args);
+  const km = km6(lineLengthKm(points, map.widthKm, aspect));
+  const region = kind === 'region';
+  const travelKm = region ? km6(lineLengthKm(points, map.widthKm, aspect, true)) : km;
+  return {
+    mapId: map.id, kind, ...(feature ? { featureId: feature.id, name: feature.name } : {}),
+    km, ...(region ? { perimeterKm: travelKm, areaKm2: km6(areaKm2(points, map.widthKm, aspect)) } : {}),
+    widthKm: map.widthKm, aspect, aspectSource: source,
+    travel: travelEstimates(travelKm).map((estimate) => ({ mode: estimate.mode, hours: Math.round(estimate.hours * 100) / 100, ...(estimate.days !== undefined ? { days: estimate.days } : {}) })),
+    travelFor: region ? 'perimeter' : 'length',
+  };
+}
+
+/** Name the pins still called by a letter or number from a pasted map key ("A. The Old Mill"). dryRun only reports. Undo restores each old name where it still carries the new one. */
+export async function whNameMapPinsFromKey(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const key = requireString(args, 'key');
+  if (args.dryRun !== undefined && typeof args.dryRun !== 'boolean') throw new BridgeError('bad-args', 'dryRun must be true or false.');
+  const dryRun = args.dryRun === true;
+  const lines = parseMapKey(key);
+  if (!lines.length) throw new BridgeError('bad-args', 'No key lines found. Write one per line (or split by " / " or ";"): a letter or number, then ".", ")", ":" or a dash, then the name, e.g. "A. The Old Mill".');
+  const mapPinOps = scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps);
+  const { matches, unmatched } = matchMapKey(await mapPinOps.getAll(map.id), lines);
+  const result = { mapId: map.id, dryRun, matches, unmatched: unmatched.map((line) => ({ key: line.key, name: line.name })) };
+  if (dryRun || !matches.length) return { ...result, renamed: 0 };
+  const { renameMapPins } = await import('@/engines/maps/operations');
+  const applied = await renameMapPins(map.id, matches.map((match) => ({ pinId: match.pinId, from: match.from, to: match.to })), scope);
+  return withAudit(
+    { ...result, renamed: applied.length },
+    { projectId: map.projectId, entityId: map.id, summary: `named ${applied.length} pin${applied.length === 1 ? '' : 's'} on map "${map.title}" from its key`, before: { __mapPinNames: { mapId: map.id, renames: applied } } },
   );
 }

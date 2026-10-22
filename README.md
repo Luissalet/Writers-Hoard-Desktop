@@ -39,8 +39,11 @@ reveals the map chapter by chapter, story events placed by chapter and a
 month-by-month trade lens (sites, shortages, prices, shipments); classic image
 maps carry styled shapes (outline, hatch, lettering, drawing order, several
 layers), pin sizes, a searchable Codex link that can create the entry, a
-right-click menu (new entry, pin, region, route, label or comment at that spot)
-and a confirmed picture change that keeps shapes in proportion; hand-drawn map eras can follow timeline
+right-click menu (new entry, pin, region, route, label or comment at that spot),
+a confirmed picture change that keeps shapes in proportion, a scale with a
+measuring tool, lengths, areas, travel times and real places at the same
+scale, road/trail/river paths and a pasted key that names lettered pins;
+hand-drawn map eras can follow timeline
 events and play in sequence. Each has bridge tools (see docs/AI-BRIDGE.md, section 28). The optional 5e (2014), SRD 5.1
 character profile preserves manual values and played counters; it is not a
 complete rules or spell-catalogue engine.

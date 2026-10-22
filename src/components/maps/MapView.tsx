@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useEmbeddedToolCloseGuard } from '@/components/editor/toolBlocks/EmbeddedToolCloseContext';
-import type { CodexEntry, CodexEntryType, MapPin } from '@/types';
+import type { CodexEntry, CodexEntryType, MapPin, MapPoint } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
@@ -33,6 +33,11 @@ import MapViewportControls from './MapViewportControls';
 import CodexEntryPicker from './CodexEntryPicker';
 import MapContextMenu, { type MapMenuAt } from './MapContextMenu';
 import MapCommentMarks from './MapCommentMarks';
+import MapScalePanel from './MapScalePanel';
+import MapScaleOverlay from './MapScaleOverlay';
+import { outlineOnPicture, pictureAspect } from './mapScale';
+import { loadBasemap } from '@/engines/real-atlas/basemap';
+import { referenceRings, SCALE_REFERENCES } from '@/engines/worldgen/core/scaleReference';
 
 const PIN_ICONS: Record<string, { icon: typeof MapPinIcon; color: string }> = {
   city: { icon: MapPinIcon, color: '#c4973b' },
@@ -70,6 +75,9 @@ interface MapViewProps extends MapFeatureOptions {
   onCreateEntry?: (title: string, type: CodexEntryType) => Promise<string>;
   /** Opens a comment anchored at a spot on the map (right-click "comment here"). */
   onCommentAt?: (at: { x: number; y: number }) => void;
+  /** Kilometres the picture spans from left to right; unset means no scale. */
+  widthKm?: number;
+  onChangeScale?: (widthKm: number | undefined) => void | Promise<void>;
 }
 
 /** Pin icon for an entry created from the map, by the kind of entry. */
@@ -127,6 +135,8 @@ export default function MapView({
   featureDrafts,
   onCreateEntry,
   onCommentAt,
+  widthKm,
+  onChangeScale,
 }: MapViewProps) {
   const { t } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
@@ -152,6 +162,23 @@ export default function MapView({
   const [imageSize, setImageSize] = useState({ width: 1000, height: 600 });
   const [menu, setMenu] = useState<MapMenuAt | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const madeEntry = useRef<{ key: string; id: string } | null>(null);
+  // Measuring: null when off, the points marked so far when on.
+  const [measure, setMeasure] = useState<MapPoint[] | null>(null);
+  // A real place's outline laid on the map at its scale.
+  const [realId, setRealId] = useState('');
+  const [realCenter, setRealCenter] = useState<MapPoint>({ x: 50, y: 50 });
+  const [realRings, setRealRings] = useState<{ id: string; rings: number[][][] } | null>(null);
+  const [outlineDragging, setOutlineDragging] = useState(false);
+  const aspect = pictureAspect(imageSize.width, imageSize.height);
+  useEffect(() => {
+    const ref = SCALE_REFERENCES.find(item => item.id === realId);
+    if (!ref) return;
+    let live = true;
+    void loadBasemap().then(basemap => { if (live) setRealRings({ id: ref.id, rings: referenceRings(basemap, ref) }); });
+    return () => { live = false; };
+  }, [realId]);
+  const realOutline = widthKm && realRings && realRings.id === realId ? outlineOnPicture(realRings.rings, realCenter, widthKm, aspect) : null;
   const featureEditor = useMapFeatures({ features, layerVisibility, onChangeFeatures, onChangeLayers, namedLayers, onChangeNamedLayers, readOnly, featureDrafts });
 
   const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null;
@@ -230,6 +257,11 @@ export default function MapView({
   };
 
   const handleMapClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (measure && backgroundImage) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setMeasure([...measure, { x: clampPercentage(((e.clientX - rect.left) / rect.width) * 100), y: clampPercentage(((e.clientY - rect.top) / rect.height) * 100) }]);
+      return;
+    }
     if (!placingPin || !backgroundImage) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -237,7 +269,7 @@ export default function MapView({
     setPendingPosition({ x, y });
     setCreatePinFailed(false);
     setShowPinForm(true);
-  }, [placingPin, backgroundImage]);
+  }, [placingPin, backgroundImage, measure]);
 
   const handleSavePin = async () => {
     if (!pendingPosition || !pinName.trim() || creatingPin) return;
@@ -421,8 +453,10 @@ export default function MapView({
         )}
       </div>}
 
-      {backgroundImage && <MapFeatureToolbar editor={featureEditor} onToolChange={() => setPlacingPin(false)} />}
-      {backgroundImage && featureEditor.enabled && <button type="button" className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold" onClick={() => saveAs(new Blob([exportMapSvg(backgroundImage, imageSize.width, imageSize.height, featureEditor.features, pins, featureEditor.layers, featureEditor.namedLayers)], { type: 'image/svg+xml;charset=utf-8' }), `map-${mapId}.svg`)}><Download size={14} />{featureEditor.copy.export}</button>}
+      {backgroundImage && <MapFeatureToolbar editor={featureEditor} onToolChange={() => { setPlacingPin(false); setMeasure(null); }} />}
+      {backgroundImage && <MapScalePanel widthKm={widthKm} aspect={aspect} readOnly={readOnly} onSetScale={onChangeScale} measure={measure} onMeasure={points => { setMeasure(points); if (points) { setPlacingPin(false); if (featureEditor.drawing) featureEditor.changeTool('select'); } }} realId={realId} onRealId={id => { setRealId(id); setRealCenter({ x: 50, y: 50 }); }} realSize={realOutline ? { widthKm: realOutline.widthKm, heightKm: realOutline.heightKm } : null} pins={pins}
+        onRenamePins={readOnly ? undefined : async matches => { for (const match of matches) { const pin = pins.find(item => item.id === match.pinId); if (pin) await onEditPin(pin.id, { name: match.to }, pin); } }} />}
+      {backgroundImage && featureEditor.enabled && <button type="button" className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold" onClick={() => saveAs(new Blob([exportMapSvg(backgroundImage, imageSize.width, imageSize.height, featureEditor.features, pins, featureEditor.layers, featureEditor.namedLayers, widthKm)], { type: 'image/svg+xml;charset=utf-8' }), `map-${mapId}.svg`)}><Download size={14} />{featureEditor.copy.export}</button>}
 
       {/* Map Canvas */}
       <div className={featureEditor.selected ? 'grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]' : 'space-y-4'}>
@@ -439,7 +473,7 @@ export default function MapView({
             initialScale={1}
             minScale={0.05}
             maxScale={5}
-            panning={{ disabled: placingPin || featureEditor.drawing || dragState !== null }}
+            panning={{ disabled: placingPin || featureEditor.drawing || dragState !== null || outlineDragging }}
             doubleClick={{ disabled: placingPin || featureEditor.drawing }}
           >
             <MapViewportControls mapRef={mapRef} imageWidth={imageSize.width} imageHeight={imageSize.height} />
@@ -505,7 +539,9 @@ export default function MapView({
                     </div>
                   );
                 })}
-                <MapCommentMarks projectId={projectId} mapId={mapId} />
+                {/* Comments sit on the current picture; an old era being previewed may not match it. */}
+                {!readOnly && <MapCommentMarks projectId={projectId} mapId={mapId} />}
+                <MapScaleOverlay aspect={aspect} widthKm={widthKm} measure={measure} outline={realOutline ? { rings: realOutline.rings, center: realCenter } : null} toPicture={getMapPosition} onMoveOutline={setRealCenter} onDragOutline={setOutlineDragging} />
               </div>
 
             </TransformComponent>
@@ -513,7 +549,7 @@ export default function MapView({
         </div>
       )}
 
-      {backgroundImage && <MapFeatureInspector editor={featureEditor} entries={sortedCodexEntries} onOpenEntry={onOpenEntry} onCreateEntry={onCreateEntry} />}
+      {backgroundImage && <MapFeatureInspector editor={featureEditor} entries={sortedCodexEntries} onOpenEntry={onOpenEntry} onCreateEntry={onCreateEntry} scale={widthKm ? { widthKm, aspect } : undefined} />}
       </div>
 
       {/* Pin sidebar */}
@@ -730,9 +766,13 @@ export default function MapView({
       />
       {menu && <MapContextMenu at={menu} onClose={closeMenu}
         onNewEntry={onCreateEntry ? async (title, type) => {
-          const entryId = await onCreateEntry(title, type);
+          // If the entry was made but its pin failed, a retry reuses it instead of making a second one.
+          const key = JSON.stringify([title, type, menu.x, menu.y]);
+          const entryId = madeEntry.current?.key === key ? madeEntry.current.id : await onCreateEntry(title, type);
+          madeEntry.current = { key, id: entryId };
           const pin: MapPin = { id: generateId('pin'), projectId, mapId, name: title, icon: ENTRY_PIN_ICON[type] ?? 'custom', position: { x: menu.x, y: menu.y }, description: '', linkedEntryId: entryId, layerId: featureEditor.activeLayerId || undefined };
           await onAddPin(pin);
+          madeEntry.current = null;
           setPlacingPin(false);
           selectPin(pin);
         } : undefined}

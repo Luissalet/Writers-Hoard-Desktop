@@ -131,6 +131,29 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId: receipt.mapId, what: summary };
   }
 
+  if (entry.tool === 'wh_set_map_scale' && entry.before && typeof entry.before === 'object' && '__mapScale' in entry.before) {
+    const receipt = (entry.before as { __mapScale: import('@/engines/maps/operations').MapScaleReceipt }).__mapScale;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { undoMapScale } = await import('@/engines/maps/operations');
+    // A scale set again since is someone's later choice: refuse.
+    try { await undoMapScale(receipt, scope); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
+  if (entry.tool === 'wh_name_map_pins_from_key' && entry.before && typeof entry.before === 'object' && '__mapPinNames' in entry.before) {
+    const receipt = (entry.before as { __mapPinNames: { mapId: string; renames: import('@/engines/maps/operations').MapPinRename[] } }).__mapPinNames;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { undoRenameMapPins } = await import('@/engines/maps/operations');
+    let restored: import('@/engines/maps/operations').MapPinRename[];
+    try { restored = await undoRenameMapPins(receipt.mapId, receipt.renames, scope); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    // Pins renamed again (or gone) since keep their newer name; none left to restore means nothing was undone.
+    if (!restored.length) throw new BridgeError('cannot-undo', 'Every pin named by this call has been renamed or removed since; nothing was changed.');
+    const kept = receipt.renames.length - restored.length;
+    return { undone: true, kind, entityId: receipt.mapId, what: summary, caveat: kept ? `${kept} pin${kept === 1 ? '' : 's'} renamed again or removed since, left as they are.` : undefined };
+  }
+
   if (entry.tool === 'wh_link_map_version' && entry.before && typeof entry.before === 'object' && '__mapVersionLink' in entry.before) {
     const receipt = (entry.before as { __mapVersionLink: { mapId: string; versionId: string; from: string | null; to: string | null; stamped?: string } }).__mapVersionLink;
     const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;

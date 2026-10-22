@@ -96,8 +96,17 @@ that starts there, a label, and a comment, which shows as a marker on the map
 and in the notes below. Replacing the map's picture opens a dialog with both
 images, their sizes, what moves with the map and, when the shape differs,
 "keep the shapes" (the old drawing is fitted, centred, into the new picture)
-or "stretch"; the map is saved as an era first. Saving a shape keeps shapes
-added meanwhile elsewhere (by the agent, for instance).
+or "stretch"; the map is saved as an era first. Saving a shape, or undoing and redoing
+it, keeps shapes added meanwhile elsewhere (by the agent, for instance).
+A classic map can have a scale: type how many kilometres the picture spans,
+or measure a line you know and say how long it is. With a scale the map shows
+a scale bar (also in the SVG export), paths read their length and travel time
+on foot, horseback and by carriage, regions their area and perimeter, the
+Measure tool adds up legs as you click, and a real place (Iceland, Iberia,
+Britain and Ireland, Japan, Europe…) can be laid over the map at the same
+scale and dragged around. Paths can be drawn as a road (cased), a trail
+(dashed) or a river. A pasted map key ("A. The Old Mill", "B) Crossroads Inn")
+names the pins still called by their letter or number, after a preview.
 
 A generated world remembers its look (style, layers, relief density, 3D skin)
 for every view and export; an era that still inherits the world shares Base's

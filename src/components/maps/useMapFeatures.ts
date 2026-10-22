@@ -16,6 +16,8 @@ export interface MapFeatureOptions {
   featureDrafts?: Map<string, MapFeature>;
 }
 
+interface HistoryStep { before: MapFeature[]; after: MapFeature[] }
+
 /** History holds only lightweight vector annotations; background images never enter it. */
 export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility = DEFAULT_MAP_LAYERS, onChangeFeatures, onChangeLayers, namedLayers = EMPTY_MAP_NAMED_LAYERS, onChangeNamedLayers, readOnly = false, featureDrafts }: MapFeatureOptions) {
   const { locale } = useTranslation();
@@ -26,8 +28,10 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
   const [draft, setDraft] = useState<MapFeature | null>(null);
   const [localDrafts] = useState(() => new Map<string, MapFeature>());
   const drafts = featureDrafts ?? localDrafts;
-  const [past, setPast] = useState<MapFeature[][]>([]);
-  const [future, setFuture] = useState<MapFeature[][]>([]);
+  // Each step keeps the list before and after it, so undo and redo take back only that step
+  // and keep shapes added elsewhere since.
+  const [past, setPast] = useState<HistoryStep[]>([]);
+  const [future, setFuture] = useState<HistoryStep[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<MapFeature | null>(null);
@@ -69,15 +73,11 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     try {
       savedFeatures.current=(await onChangeFeatures(next,before))??next;
       if (history === 'edit') {
-        setPast(previous => [...previous.slice(-39), features]);
+        const step = { before, after: savedFeatures.current };
+        setPast(previous => [...previous.slice(-39), step]);
         setFuture([]);
-      } else if (history === 'undo') {
-        setPast(previous => previous.slice(0, -1));
-        setFuture(previous => [...previous, features]);
-      } else {
-        setFuture(previous => previous.slice(0, -1));
-        setPast(previous => [...previous.slice(-39), features]);
       }
+      // Undo and redo move their step between the stacks themselves (see `undo`).
       return true;
     } catch {
       setFailed(true);
@@ -137,7 +137,11 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
   const undo = async (redo = false) => {
     const stack = redo ? future : past;
     if (!stack.length || busy) return;
-    if (await persist(stack[stack.length - 1], redo ? 'redo' : 'undo')) {
+    const step = stack[stack.length - 1];
+    const target = redo ? rebaseMapFeatures(features, step.before, step.after) : rebaseMapFeatures(features, step.after, step.before);
+    if (await persist(target, redo ? 'redo' : 'undo')) {
+      if (redo) { setFuture(previous => previous.slice(0, -1)); setPast(previous => [...previous.slice(-39), step]); }
+      else { setPast(previous => previous.slice(0, -1)); setFuture(previous => [...previous, step]); }
       setSelectedId(null);
       setDraft(null);
     }

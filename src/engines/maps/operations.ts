@@ -32,7 +32,7 @@ function makeVersion(map: WorldMap, pins: MapPin[], metadata: MapVersionMetadata
 }
 
 async function runMapVersionWrite<T>(mapId: string, action: (map: WorldMap) => Promise<T>, scope?: WorldEraScope): Promise<T> {
-  const write = db.transaction('rw', scope?.eraId ? db.tables : [db.worldMaps, db.mapPins, db.annotations], async () => {
+  const write = db.transaction('rw', db.tables, async () => {
     const map = scope?.eraId ? await readEraRow<WorldMap>(scope, 'worldMaps', mapId) : await db.worldMaps.get(mapId);
     if (!map) throw new Error('Map no longer exists');
     return { result: await action(map), projectId: map.projectId };
@@ -72,12 +72,31 @@ export interface GroundChangeReceipt {
   afterPins: { id: string; x: number; y: number }[];
   /** Comments left at a spot on the map, where they were and where they went. */
   notes?: { id: string; before: { x: number; y: number }; after: { x: number; y: number } }[];
+  /** When the change was made: comments placed on the new picture after it stop an undo. */
+  at?: number;
+  /** The safety era's name; renamed by the author, it is kept on undo. */
+  versionName?: string;
 }
 
-/** Comments pinned to a spot on this map in the context being edited (Shared base or one era). */
+/**
+ * Comments pinned to a spot on this map that see the picture being changed:
+ * those of the context being edited, and, when Shared base changes, those of
+ * eras that still inherit this map from it (they get the new picture too).
+ */
 async function mapPointNotes(mapId: string, scope?: WorldEraScope) {
-  const rows = await db.annotations.where('[sourceEngineId+sourceEntityId]').equals(['maps', mapId]).toArray();
-  return rows.filter(row => row.anchor.type === 'map_point' && (row.eraId ?? undefined) === (scope?.eraId ?? undefined) && Number.isFinite(row.anchor.x) && Number.isFinite(row.anchor.y));
+  const rows = (await db.annotations.where('[sourceEngineId+sourceEntityId]').equals(['maps', mapId]).toArray())
+    .filter(row => row.anchor.type === 'map_point' && Number.isFinite(row.anchor.x) && Number.isFinite(row.anchor.y));
+  const inherits = new Map<string, boolean>();
+  const result = [];
+  for (const row of rows) {
+    const era = row.eraId ?? undefined;
+    if (era === (scope?.eraId ?? undefined)) { result.push(row); continue; }
+    if (scope?.eraId || !era) continue;
+    // An era inherits the map while it has no live variant of its own.
+    if (!inherits.has(era)) inherits.set(era, !(await db.worldEraVariants.where('[projectId+eraId+kind+entityId]').equals([row.projectId, era, 'maps', mapId]).toArray()).some(variant => !variant.archived));
+    if (inherits.get(era)) result.push(row);
+  }
+  return result;
 }
 
 /** Cheap fingerprint of a (large) image string; with its length it tells "still the image we set". */
@@ -119,7 +138,7 @@ export function changeMapGround(mapId: string, input: ChangeGroundInput, scope?:
     return {
       mapId, versionId: version?.id ?? '', imageLength: input.image.length, imageHash: hashImage(input.image),
       afterFeatures: moved.features, afterPins: moved.pins.map(pin => ({ id: pin.id, x: pin.position.x, y: pin.position.y })),
-      ...(notes.length ? { notes } : {}),
+      ...(notes.length ? { notes } : {}), at: Date.now(), versionName: version?.name,
     };
   }, scope);
 }
@@ -138,6 +157,8 @@ export function undoMapGround(receipt: GroundChangeReceipt, scope?: WorldEraScop
     const pins = await scopedPins(receipt.mapId, scope);
     const expected = new Map(receipt.afterPins.map(pin => [pin.id, pin]));
     if (pins.some(pin => { const was = expected.get(pin.id); return !was || was.x !== pin.position.x || was.y !== pin.position.y; }) || pins.length !== expected.size) throw new Error('The pins on this map changed after this edit');
+    // A comment placed on the new picture after the change would land in the wrong spot on the old one.
+    if (receipt.at !== undefined && (await db.annotations.where('[sourceEngineId+sourceEntityId]').equals(['maps', receipt.mapId]).toArray()).some(row => row.anchor.type === 'map_point' && row.createdAt > receipt.at! && !receipt.notes?.some(note => note.id === row.id))) throw new Error('A comment was placed on the new picture after this edit');
     // Comments go back only where nobody has moved them since; one deleted meanwhile is simply gone.
     for (const note of receipt.notes ?? []) {
       const row = await db.annotations.get(note.id);
@@ -149,7 +170,7 @@ export function undoMapGround(receipt: GroundChangeReceipt, scope?: WorldEraScop
     else for (const pin of restore) await db.mapPins.update(pin.id, { position: before.get(pin.id)! });
     await scopedMapUpdate(receipt.mapId, scope, {
       backgroundImage: version?.backgroundImage, ...(version ? { features: version.features } : {}), source: version?.source, sourceWorldId: version?.sourceWorldId, sourceRevision: version?.sourceRevision,
-      versions: (map.versions ?? []).filter(item => item.id !== receipt.versionId), updatedAt: Date.now(),
+      versions: (map.versions ?? []).filter(item => item.id !== receipt.versionId || (receipt.versionName !== undefined && item.name !== receipt.versionName)), updatedAt: Date.now(),
     });
   }, scope);
 }
@@ -239,4 +260,50 @@ export function linkMapVersion(mapId: string, versionId: string, eventId: string
     }), updatedAt: Date.now() });
     return previous;
   }, scope);
+}
+
+// ---------------------------------------------------------------------------
+// Scale and pin names (bridge): every change keeps enough to be taken back only while it still stands
+// ---------------------------------------------------------------------------
+
+/** A map's scale before and after; `null` is "no scale". */
+export interface MapScaleReceipt { mapId: string; from: number | null; to: number | null }
+
+/** Set (or with null remove) the kilometres the picture spans left to right; returns the scale it replaced. */
+export function setMapScale(mapId: string, widthKm: number | null, scope?: WorldEraScope): Promise<number | null> {
+  return runMapVersionWrite(mapId, async map => {
+    const previous = map.widthKm ?? null;
+    await scopedMapUpdate(mapId, scope, { widthKm: widthKm ?? undefined, updatedAt: Date.now() });
+    return previous;
+  }, scope);
+}
+
+/** Put the previous scale back; refuses when the scale is no longer the one the change set. */
+export function undoMapScale(receipt: MapScaleReceipt, scope?: WorldEraScope): Promise<void> {
+  return runMapVersionWrite(receipt.mapId, async map => {
+    if ((map.widthKm ?? null) !== receipt.to) throw new Error('The scale of this map changed after this edit');
+    await scopedMapUpdate(receipt.mapId, scope, { widthKm: receipt.from ?? undefined, updatedAt: Date.now() });
+  }, scope);
+}
+
+export interface MapPinRename { pinId: string; from: string; to: string }
+
+async function applyPinNames(mapId: string, changes: MapPinRename[], scope?: WorldEraScope): Promise<MapPinRename[]> {
+  return runMapVersionWrite(mapId, async () => {
+    const pins = new Map((await scopedPins(mapId, scope)).map(pin => [pin.id, pin]));
+    const applied = changes.filter(change => pins.get(change.pinId)?.name === change.from);
+    if (scope?.eraId) await mutateEraRows(scope, applied.map(change => ({ table: 'mapPins', id: change.pinId, changes: { name: change.to } })));
+    else for (const change of applied) await db.mapPins.update(change.pinId, { name: change.to });
+    return applied;
+  }, scope);
+}
+
+/** Rename pins, each only while it still has the name it was read with; returns the renames that happened. */
+export function renameMapPins(mapId: string, renames: MapPinRename[], scope?: WorldEraScope): Promise<MapPinRename[]> {
+  return applyPinNames(mapId, renames, scope);
+}
+
+/** Give each pin its old name back, only where it still has the name the rename gave it; returns those restored. */
+export function undoRenameMapPins(mapId: string, renames: MapPinRename[], scope?: WorldEraScope): Promise<MapPinRename[]> {
+  return applyPinNames(mapId, renames.map(rename => ({ pinId: rename.pinId, from: rename.to, to: rename.from })), scope);
 }

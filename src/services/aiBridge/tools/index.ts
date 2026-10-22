@@ -147,7 +147,7 @@ import {
 } from './board';
 import { whListImages, whTagImage, whViewImage } from './gallery';
 import { whGenerateImage } from './imageStudio';
-import { whAddMapFeature, whAddMapPin, whCaptureMapVersion, whChangeMapGround, whLinkMapVersion, whListMapFeatures, whListMaps, whListMapVersions, whPreviewMapGround, whUpdateMapFeature, whUpdateMapPin } from './maps';
+import { whAddMapFeature, whAddMapPin, whCaptureMapVersion, whChangeMapGround, whLinkMapVersion, whListMapFeatures, whListMaps, whListMapVersions, whMeasureMap, whNameMapPinsFromKey, whPreviewMapGround, whSetMapScale, whUpdateMapFeature, whUpdateMapPin } from './maps';
 import {
   whAddLabel,
   whListLabels,
@@ -507,6 +507,9 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_update_map_feature: whUpdateMapFeature,
   wh_change_map_ground: whChangeMapGround,
   wh_preview_map_ground: whPreviewMapGround,
+  wh_set_map_scale: whSetMapScale,
+  wh_measure_map: whMeasureMap,
+  wh_name_map_pins_from_key: whNameMapPinsFromKey,
   wh_remove_trade_site: whRemoveTradeSite,
   wh_restore_trade_site: whRestoreTradeSite,
   wh_list_stamps: whListStamps,

@@ -39,6 +39,10 @@ positions are percent of the picture: list shapes with `wh_list_map_features`
 before changing one, leave a comment about a spot with `wh_annotate` `at`, and
 before replacing the picture call `wh_preview_map_ground`; only use `fit:
 "stretch"` in `wh_change_map_ground` when the author wants shapes stretched.
+For distances or travel times on a classic map use `wh_measure_map` (it needs
+the map's scale; set one with `wh_set_map_scale` only when the author gives
+it), and name lettered pins from a key with `wh_name_map_pins_from_key`
+(`dryRun` first).
 
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means

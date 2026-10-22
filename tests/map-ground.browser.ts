@@ -144,6 +144,20 @@ export async function testMapGround(): Promise<string[]> {
     state = await readBack();
     assert(!stale.ok && state.map.backgroundImage === squareImage && state.pins.find(pin => pin.id === 'g-pin-a')!.position.x === 12 && state.map.versions?.length === 1, 'A stale undo overwrote later work');
 
+    // A comment placed on the new picture after the change stops the undo; a renamed safety era survives one.
+    await reset();
+    const third = await runBridgeTool('wh_change_map_ground', { mapId: M, imageDataUrl: squareImage, fit: 'keep' });
+    const thirdAudit = (third.result as { __audit: { entityId: string; projectId: string; before: unknown } }).__audit;
+    await db.annotations.put({ id: 'g-note-late', projectId: P, sourceEngineId: 'maps', sourceEntityId: M, anchor: { type: 'map_point', x: 50, y: 50 }, noteType: 'text', noteBody: 'Nuevo', isOrphaned: false, position: 1, createdAt: Date.now() + 1, updatedAt: Date.now() + 1 });
+    const blocked = await runBridgeTool('__undo', { entry: { tool: 'wh_change_map_ground', kind: 'update', entityId: thirdAudit.entityId, projectId: thirdAudit.projectId, before: thirdAudit.before, summary: 'ground' } });
+    assert(!blocked.ok && (await db.worldMaps.get(M))!.backgroundImage === squareImage, 'Undo moved the picture under a comment placed after the change');
+    await db.annotations.delete('g-note-late');
+    const kept = (await db.worldMaps.get(M))!;
+    await db.worldMaps.update(M, { versions: kept.versions!.map((version) => ({ ...version, name: 'Mi copia' })) });
+    const renamedUndo = await runBridgeTool('__undo', { entry: { tool: 'wh_change_map_ground', kind: 'update', entityId: thirdAudit.entityId, projectId: thirdAudit.projectId, before: thirdAudit.before, summary: 'ground' } });
+    const afterRenamed = (await db.worldMaps.get(M))!;
+    assert(renamedUndo.ok && afterRenamed.backgroundImage === oldImage && afterRenamed.versions?.some((version) => version.name === 'Mi copia'), `Renamed era on undo ${JSON.stringify(renamedUndo)}`);
+
     // Stretch: coordinates untouched, era still saved. A nearly identical shape never moves anything.
     await reset();
     const stretched = await runBridgeTool('wh_change_map_ground', { mapId: M, imageDataUrl: squareImage, fit: 'stretch' });
@@ -178,11 +192,11 @@ export async function testMapGround(): Promise<string[]> {
       'Keep 2:1 → 1:1 maps (0,0)→(0,25) and (100,100)→(100,75); distances between places shrink by the same factor on both axes and segment angles are preserved',
       'Bridge: wh_preview_map_ground reports sizes, shape and counts without writing; wh_change_map_ground refuses missing/duplicate/undecodable images, bad fit and maps switched off',
       'wh_change_map_ground (keep) saves the era "Before changing the ground image" with the old image and coordinates, then moves shapes, pins and comments left at a spot; re-read after reopening the database',
-      'Undo restores image, source, shapes and pin positions and removes the era; refuses when a pin changed after the edit',
+      'Undo restores image, source, shapes and pin positions and removes the era (kept if the author renamed it); refuses when a pin changed or a comment was placed on the new picture after the edit',
       'Stretch and a nearly identical shape leave coordinates alone; gallery images work for their own project only; a map without image is set directly and undone cleanly',
     ];
   } finally {
-    await db.annotations.delete('g-note');
+    await db.annotations.bulkDelete(['g-note', 'g-note-late']);
     await db.mapPins.where('mapId').anyOf([M, E]).delete();
     await db.worldMaps.bulkDelete([M, E, 'map-ground-off']);
     await db.inspirationImages.bulkDelete([G, OTHER]);

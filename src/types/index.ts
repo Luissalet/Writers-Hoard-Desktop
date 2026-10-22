@@ -267,7 +267,11 @@ export interface MapFeature {
   /** Spacing of the hatch, 0.5–4 (1 = default). */
   patternScale?: number;
   labelStyle?: MapLabelStyle;
+  /** Paths only: how the line is drawn. Unset is the plain route line. */
+  pathStyle?: MapPathStyle;
 }
+
+export type MapPathStyle = 'road' | 'trail' | 'river';
 
 export interface MapNamedLayer { id: string; name: string; visible: boolean }
 
@@ -311,6 +315,8 @@ export interface WorldMap {
   source?: 'uploaded' | 'gallery' | 'worldgen';
   sourceWorldId?: string;
   sourceRevision?: number;
+  /** How many kilometres the picture spans from left to right; unset means the map has no scale. */
+  widthKm?: number;
   createdAt: number;
   updatedAt: number;
 }
