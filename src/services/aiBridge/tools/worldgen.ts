@@ -1468,7 +1468,12 @@ export async function whPaintBiome(args: ToolArgs): Promise<unknown> {
   const { strokeMask } = await import('@/engines/worldgen/sculpt/ops');
   const mask = strokeMask(stroke, size.width, size.height);
   let cells = 0;
-  mask?.each((i, cover) => { if (cover > 0.55 && opened.world.data.elevation[i] > 0) cells++; });
+  // The same rule the replay uses: coverage against a threshold dithered by cell, so the count is the cells painted.
+  mask?.each((i, cover) => {
+    const hsh = Math.sin(i * 45.164 + 11.71) * 27183.13;
+    const jitter = (hsh - Math.floor(hsh)) * 0.45;
+    if (cover * stroke.strength > 0.35 + jitter * 0.4 && opened.world.data.elevation[i] > 0) cells++;
+  });
   if (!cells) throw new BridgeError('bad-args', 'The stroke covers no land cell (it is over the sea, or too thin): use a larger radius or another place.');
   const edit = erase ? { kind: 'eraseBiome' as const, stroke } : { kind: 'biome' as const, biome: biome as import('@/engines/worldgen/core/types').BiomeId, stroke };
   const summary = { erase, ...(erase ? {} : { biome: BIOME_KEY[biome] }), points: pts.length, radius, cells };
