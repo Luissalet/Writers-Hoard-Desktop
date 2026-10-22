@@ -207,6 +207,13 @@ function currentEdits(world: GeneratedWorld, args: ToolArgs): WorldEdit[] {
   try { return deserializeEdits(live ? live.snapshot() : world.edits ?? '[]'); } catch { return []; }
 }
 
+/** Refused with the bridge's own code when the edit would move or hide a locked place (the engine refuses too). */
+async function refuseLocked(world: GeneratedWorld, args: ToolArgs, edit: WorldEdit): Promise<void> {
+  const { lockViolation } = await import('@/engines/worldgen/core/edits');
+  const key = lockViolation(currentEdits(world, args), [edit]);
+  if (key) throw new BridgeError('bad-args', `Place ${key} is locked; unlock it with wh_lock_place (locked: false) before you move or remove it, and only if the author wants that.`);
+}
+
 /** The keys of the world's locked places, from its current edits. */
 async function lockedKeysOf(world: GeneratedWorld, args: ToolArgs): Promise<Set<string>> {
   const { lockedPlaceKeys } = await import('@/engines/worldgen/core/edits');
@@ -339,6 +346,8 @@ export async function whGetWorld(args: ToolArgs): Promise<unknown> {
     // A forge in progress means a place read will answer pending until it ends.
     forging: isForging(worldRuntimeKey(world.id, worldEraToolScope(args)?.eraId)),
     waypoints: waypoints.map(waypointShape),
+    // Where the author moved the sea and the snowline (metres; 0 = as generated).
+    ...(await import('@/engines/worldgen/core/edits')).worldLevels(currentEdits(world, args)),
   };
 }
 
@@ -561,6 +570,7 @@ export async function whMovePlace(args: ToolArgs): Promise<unknown> {
   const key = requireString(args, 'key');
   const target = placeTarget(key);
   const { x, y } = cellCoords(args, worldSize(world));
+  await refuseLocked(world, args, { kind: 'move', target, key, x, y });
   return appendEdit(
     args, world,
     { kind: 'move', target, key, x, y },
@@ -574,6 +584,7 @@ export async function whRemovePlace(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const key = requireString(args, 'key');
   const target = placeTarget(key);
+  await refuseLocked(world, args, { kind: 'remove', target, key });
   // `removed`, never `deleted`: the place is hidden by an edit that
   // wh_restore_place (or an undo) reverses, and no row goes anywhere.
   return appendEdit(
@@ -619,7 +630,12 @@ export async function whDuplicatePlace(args: ToolArgs): Promise<unknown> {
   // A copy's key is its cell: one already used (a place there, or a rename, move,
   // removal or lock filed under it) would hand the copy that place's history.
   const used = keysInEdits(currentEdits(world, args));
-  for (const p of atlas.places) used.add(p.key);
+  for (const p of atlas.places) {
+    used.add(p.key);
+    // A moved place keeps its old key but holds its new cell.
+    if (p.kind === 'settlement' || p.kind === 'ruin') used.add(editKey(p.kind, p.x, p.y));
+    if (p.kind === 'landmark') used.add(`landmark:${p.type}:${Math.round(p.x)},${Math.round(p.y)}`);
+  }
   let at: { x: number; y: number } | null;
   if (args.x === undefined && args.y === undefined) {
     at = duplicateSpot(data, place, used);
@@ -631,7 +647,8 @@ export async function whDuplicatePlace(args: ToolArgs): Promise<unknown> {
     const k = place.kind === 'landmark' ? landmarkKey({ type: place.type as never, x: at.x, y: at.y }) : editKey(place.kind === 'ruin' ? 'ruin' : 'settlement', at.x, at.y);
     if (used.has(k)) throw new BridgeError('bad-args', `Cell ${at.x},${at.y} already has a place (or its history); pick another.`);
   }
-  const name = optString(args, 'name')?.trim() || duplicateName(place.name, new Set(atlas.places.map((p) => p.name)));
+  // Hand-placed landmarks carry their kind's name; towns and ruins get a numbered one.
+  const name = optString(args, 'name')?.trim() || (place.kind === 'landmark' ? '' : duplicateName(place.name, new Set(atlas.places.map((p) => p.name))));
   const edit = duplicatePlaceEdit(place, at, name);
   if (!edit) throw new BridgeError('bad-args', `A ${place.kind} cannot be duplicated; only settlements, ruins and landmarks can.`);
   const newKey = edit.marker === 'landmark' ? landmarkKey({ type: edit.landmark as NonNullable<typeof edit.landmark>, x: at.x, y: at.y }) : editKey(edit.marker === 'ruin' ? 'ruin' : 'settlement', at.x, at.y);
@@ -1314,6 +1331,27 @@ export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
 }
 
 /**
+ * Move the whole world's sea level and/or snowline, in metres against the
+ * generated ones (absolute: 0 puts it back). One undoable edit each.
+ */
+export async function whSetWorldLevels(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { SEA_LEVEL_MAX_M, SNOWLINE_MAX_M, worldLevels } = await import('@/engines/worldgen/core/edits');
+  const sea = optNumber(args, 'seaLevelM'), snow = optNumber(args, 'snowlineM');
+  if (sea === undefined && snow === undefined) throw new BridgeError('bad-args', 'Give seaLevelM and/or snowlineM.');
+  if (sea !== undefined && !(Math.abs(sea) <= SEA_LEVEL_MAX_M)) throw new BridgeError('bad-args', `seaLevelM must be between -${SEA_LEVEL_MAX_M} and ${SEA_LEVEL_MAX_M}.`);
+  if (snow !== undefined && !(Math.abs(snow) <= SNOWLINE_MAX_M)) throw new BridgeError('bad-args', `snowlineM must be between -${SNOWLINE_MAX_M} and ${SNOWLINE_MAX_M}.`);
+  const before = worldLevels(currentEdits(world, args));
+  const edits: WorldEdit[] = [];
+  if (sea !== undefined && Math.round(sea) !== before.seaLevelM) edits.push({ kind: 'seaLevel', m: Math.round(sea) });
+  if (snow !== undefined && Math.round(snow) !== before.snowlineM) edits.push({ kind: 'snowline', m: Math.round(snow) });
+  const after = { seaLevelM: sea !== undefined ? Math.round(sea) : before.seaLevelM, snowlineM: snow !== undefined ? Math.round(snow) : before.snowlineM };
+  if (!edits.length) return { worldId: world.id, ...after, unchanged: true };
+  return appendEdit(args, world, edits, { ...after, before }, `set sea level ${after.seaLevelM} m and snowline ${after.snowlineM} m in world "${world.title}"`);
+}
+
+/**
  * A lake that fills its hollow from a place or cell, like the River tool's Lake
  * mode; `dryRun` only says how big it would be. Re-derived from the ground on
  * every replay, so it follows later terrain edits.
@@ -1330,12 +1368,12 @@ export async function whAddLake(args: ToolArgs): Promise<unknown> {
   if (args.dryRun !== undefined && typeof args.dryRun !== 'boolean') throw new BridgeError('bad-args', 'dryRun must be true or false.');
   const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
-  const { fillLake, defaultLakeMaxCells } = await import('@/engines/worldgen/core/lake');
-  const cap = maxCells ?? (minCells ? Math.max(minCells, defaultLakeMaxCells(opened.world.data)) : undefined);
-  const run = fillLake(opened.world.data, at.x, at.y, { ...(cap ? { maxCells: cap } : {}), ...(minCells ? { minCells } : {}) });
+  const { fillLake } = await import('@/engines/worldgen/core/lake');
+  // The cap is never below the size asked for.
+  const run = fillLake(opened.world.data, at.x, at.y, { ...(maxCells ? { maxCells } : {}), ...(minCells ? { minCells } : {}) });
   if (!run.cells.length) throw new BridgeError('bad-args', run.end === 'nowhere' ? 'That spot is sea or already a lake.' : `The water runs straight into the ${run.end === 'sea' ? 'sea' : 'lake beside it'}; pick a spot further inland.`);
   const x = Math.floor(at.x), y = Math.floor(at.y);
-  const summary = { x, y, cells: run.cells.length, end: run.end };
+  const summary = { x, y, cells: run.cells.length, end: run.end, dammed: run.dammed };
   if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary };
   return appendEdit(args, world, { kind: 'lake', op: 'fill', x: x + 0.5, y: y + 0.5, ...(maxCells ? { maxCells } : {}), ...(minCells ? { minCells } : {}) }, summary, `filled a lake of ${run.cells.length} cells at ${x},${y} in world "${world.title}"`);
 }

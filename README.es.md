@@ -39,7 +39,7 @@ revela el mapa capítulo a capítulo, sucesos de la historia por capítulo que s
 reproducen capítulo a capítulo (con su orden dentro del capítulo y quién
 estaba), un menú de clic derecho (pueblo, nota, suceso y
 un manantial cuyo río baja solo), una herramienta de lagos que llena la
-hondonada hasta que rebosa, y una
+hondonada hasta que rebosa, nivel del mar y línea de nieve de todo el mundo, y una
 lente de comercio mes a mes (explotaciones, escasez, precios, envíos); los mapas
 de imagen tienen figuras con estilo (contorno, trama, rotulación, orden, varias
 capas), marcadores de tres tamaños, un enlace al Códex con buscador que también

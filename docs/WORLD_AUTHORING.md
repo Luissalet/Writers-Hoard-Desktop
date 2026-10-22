@@ -155,10 +155,17 @@ copy is a city) and Lock it: a locked place is not picked up by the Move tool
 (a note says why) and no card, sheet or eraser click hides it until it is
 unlocked; an agent is refused the same way.
 
+Paint → Whole world moves the sea level (±1000 m: every height shifts, so coasts
+drown or shelves come up and the biomes follow; rivers keep their courses until
+Recalculate climate and rivers) and the snowline (±3000 m: higher means less
+snow; only where snow is drawn changes). Each move is one undoable edit,
+written when the slider is let go.
+
 The River tool (Paint → Stroke → River) has a Water row: Draw a river, or
-Lake. In Lake mode a click fills the hollow there from the lowest ground until
-it spills (the Least size slider makes the water rise until the lake is at
-least that big, as behind a dam); Ctrl+click drains the lake you click,
+Lake. In Lake mode a click runs down to the bottom of the hollow it is in and fills
+it until it spills; on a slope that runs to the sea the lake is dammed where
+you clicked (the Least size slider makes the water rise until it is at least
+that big); a lake that would touch another is refused; Ctrl+click drains the lake you click,
 painted or generated. The lake is re-derived from the ground on every replay,
 so it follows later terrain edits and survives "Recalculate climate and
 rivers".

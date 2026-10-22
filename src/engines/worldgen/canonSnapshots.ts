@@ -107,6 +107,9 @@ export function relevantEditsForSheets(
   const touches = (stroke: Stroke): boolean =>
     sheets.some((g) => strokeTouchesSheet(stroke, g, world.width));
   const edits = deserializeEdits(editsJson);
+  // A lake is worked out from the ground as a whole: a stroke far from a sheet can
+  // move its spill point or its dam, so with lakes in the list every edit counts.
+  if (edits.some((e) => e.kind === 'lake')) return edits;
   let environmentPrefix = edits.length - 1;
   while (environmentPrefix >= 0 && edits[environmentPrefix].kind !== 'recalculate') environmentPrefix--;
   return edits.filter((e, index) => {

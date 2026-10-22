@@ -1856,8 +1856,12 @@ deshecho.
   hito como «<nombre> 2» en la tierra libre más cercana o en `x`,`y`; mar,
   lago o una celda con lugar o historial se rechazan; reinos y mares no; se
   deshace),
-  `wh_add_lake` (un lago que llena la hondonada desde un lugar o celda hasta
-  que rebosa; `size` lo hace de al menos esas celdas, `maxCells` lo limita,
+  `wh_set_world_levels` (`seaLevelM` ±1000 y/o `snowlineM` ±3000, absolutos;
+  el mar mueve todas las alturas y los biomas lo siguen, la nieve sólo cambia
+  dónde se pinta; `wh_get_world` los devuelve; se deshace),
+  `wh_add_lake` (un lago: el agua baja al fondo de su hondonada y la llena hasta
+  que rebosa; en una ladera hacia el mar se embalsa donde se pide (`dammed`);
+  junto a otro lago se rechaza; `size` lo hace de al menos esas celdas, `maxCells` lo limita,
   `dryRun` sólo lo mide; se rechaza en el mar o un lago), `wh_drain_lake`
   (seca el lago de ese punto; `wh_place_at` dice `lake`),
   `wh_add_world_road` (un camino trazado a mano entre dos lugares o celdas

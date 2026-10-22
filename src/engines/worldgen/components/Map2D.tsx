@@ -2926,7 +2926,8 @@ export default function Map2D({
             // Ámbar de asentamiento: la zona que la pincelada abre (o vacía,
             // con Ctrl) para el sembrado de lugares.
             ? (negRef.current ? 'rgba(120,72,52,0.4)' : 'rgba(214,168,90,0.4)')
-            : bt0.mode === 'river'
+            // A lake is a click, not a stroke: no trail under a drag.
+            : bt0.mode === 'river' && bt0.riverMode !== 'lake'
             ? 'rgba(64,124,196,0.55)'
             : bt0.mode === 'land'
               ? (bt0.landOp === 'sea' ? 'rgba(38,74,128,0.45)' : 'rgba(196,176,128,0.5)')
