@@ -100,6 +100,10 @@ export interface PaintTool {
   only: PaintFilter;
   /** River width in cells. */
   riverWidth: number;
+  /** Draw a river, or click to fill a lake (Ctrl drains one). */
+  riverMode?: 'draw' | 'lake';
+  /** Lake mode: the least size in cells. */
+  lakeSize?: number;
   marker: 'settlement' | 'ruin';
   ruin: RuinKind;
   rank: SettlementRank;
@@ -692,6 +696,30 @@ export default function PaintPanel({
       )}
 
       {tool.mode === 'river' && (
+        <div className="flex flex-col gap-1.5">
+          <Row label={t('worldgen.paint.row.riverMode')}>
+            <div className="flex gap-1" data-testid="river-mode">
+              <Chip on={tool.riverMode !== 'lake'} onClick={() => set('riverMode', 'draw')}>{t('worldgen.paint.river.draw')}</Chip>
+              <Chip on={tool.riverMode === 'lake'} onClick={() => set('riverMode', 'lake')}>{t('worldgen.paint.river.lake')}</Chip>
+            </div>
+          </Row>
+          {tool.riverMode === 'lake' && <p className="text-[10px] leading-snug text-white/55" data-testid="lake-hint">{t('worldgen.paint.river.lakeHint')}</p>}
+          {tool.riverMode === 'lake' && (
+            <div data-testid="lake-size">
+              <Slider
+                label={t('worldgen.paint.river.lakeSize')}
+                value={tool.lakeSize ?? 4}
+                min={4}
+                max={400}
+                step={4}
+                format={(v) => cellKm ? `≈ ${Math.round(v * cellKm * cellKm).toLocaleString()} km²` : t('worldgen.paint.units.cells').replace('{n}', String(v))}
+                onChange={(v) => set('lakeSize', v)}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {tool.mode === 'river' && tool.riverMode !== 'lake' && (
         /*
           A RIVER IS A WIDTH ON THE GROUND, not a count of world cells. The
           track ran 1–6 cells and said so: on a 1024-wide world the narrowest

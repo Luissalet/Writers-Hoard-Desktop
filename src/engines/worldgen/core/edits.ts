@@ -26,6 +26,7 @@ import { Biome, type BiomeId, type WorldData } from './types';
 import { classifyBiomes } from './biomes';
 import { getRecalculationCheckpoint, installRecalculationCheckpoints, recalculateEnvironment, restoreEnvironment } from './recalculate';
 import { distanceTo, localRelief } from './fields';
+import { defaultLakeMaxCells, fillLake, lakeAt } from './lake';
 import type { LandmarkType, MarkerKind, RuinKind } from './types';
 // The brushes live in one place and both callers go through it: this replay and
 // the live preview in the sculpt view. See sculpt/ops.ts for why.
@@ -411,6 +412,12 @@ export type WorldEdit =
    * in the world; the last lock edit for a key wins.
    */
   | { kind: 'lock'; target: EditTarget; key: string; locked: boolean }
+  /**
+   * A lake that fills its hollow from a clicked cell (`fill`), or the drained
+   * lake under a cell (`drain`). Re-derived on every replay from the ground as
+   * it stands, after the terrain and any recalculation, so it follows the land.
+   */
+  | { kind: 'lake'; op: 'fill' | 'drain'; x: number; y: number; maxCells?: number; minCells?: number }
   /** Erase generated roads passing within a radius. */
   | { kind: 'eraseRoads'; x: number; y: number; radius: number }
   /**
@@ -628,7 +635,7 @@ export interface AppliedEdits {
  * Expressed with a possibly-negative x0 and a width, so a stroke across the seam
  * stays one rectangle instead of two.
  */
-function touchedRect(edits: WorldEdit[], W: number, H: number, pad: number) {
+function touchedRect(edits: WorldEdit[], W: number, H: number, pad: number, extraCells: readonly number[] = []) {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   let anchor: number | null = null;
   const note = (x: number, y: number, r: number) => {
@@ -652,6 +659,8 @@ function touchedRect(edits: WorldEdit[], W: number, H: number, pad: number) {
       for (const p of e.pts) note(p.x, p.y, Math.max(1, e.width));
     }
   }
+  // Cells a painted or drained lake changed: their extent is only known once filled.
+  for (const i of extraCells) note(i % W, Math.floor(i / W), 1);
   if (anchor === null) return undefined;
   const x0 = Math.floor(minX) - pad;
   const w = Math.ceil(maxX) + pad - x0 + 1;
@@ -834,6 +843,22 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     }
   }
 
+  // ---- 1b. lakes: filled from the ground as it now stands ------------------
+  //
+  // After the terrain and any recalculation (which rebuilds the hydrology's own
+  // lakes), so a painted lake is never washed away by a later "recalculate".
+  const lakeCells: number[] = [];
+  for (const e of edits) {
+    if (e.kind !== 'lake') continue;
+    const changed = e.op === 'fill' ? fillLake(world, e.x, e.y, { maxCells: e.maxCells ?? (e.minCells ? Math.max(e.minCells, defaultLakeMaxCells(world)) : undefined), minCells: e.minCells }) : { cells: lakeAt(world, e.x, e.y), level: 0 };
+    for (const i of changed.cells) {
+      world.lake[i] = e.op === 'fill' ? 1 : 0;
+      if (world.lakeSurface?.length === N) world.lakeSurface[i] = e.op === 'fill' ? changed.level : 0;
+      lakeCells.push(i);
+    }
+    if (changed.cells.length) { needsClassification = true; out.terrainChanged = true; }
+  }
+
   // ---- 2. re-derive what the terrain decides -----------------------------
   if (needsClassification) {
     const seaDist = seaDistanceFor(world, elev, W, H);
@@ -859,7 +884,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       sst: world.sst,
       boundary: world.boundary,
       filters: world.params.filters,
-    }, touchedRect(edits, W, H, reliefR + 3), world.biome);
+    }, touchedRect(edits, W, H, reliefR + 3, lakeCells), world.biome);
   }
 
   // ---- 3. explicit biome paint, which wins over the classifier -----------
@@ -1378,6 +1403,12 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     try { normalizeStoryEvent(record); return true; } catch { return false; }
   }
   if ((e as { kind: string }).kind === 'storyRemove') return typeof (e as { id?: unknown }).id === 'string';
+  if ((e as { kind: string }).kind === 'lake') {
+    const l = e as { op?: unknown; x?: unknown; y?: unknown; maxCells?: unknown; minCells?: unknown };
+    return (l.op === 'fill' || l.op === 'drain') && typeof l.x === 'number' && Number.isFinite(l.x) && typeof l.y === 'number' && Number.isFinite(l.y)
+      && (l.maxCells === undefined || (typeof l.maxCells === 'number' && l.maxCells >= 1 && l.maxCells <= 20000))
+      && (l.minCells === undefined || (typeof l.minCells === 'number' && l.minCells >= 1 && l.minCells <= 20000));
+  }
   if ((e as { kind: string }).kind === 'lock') return typeof (e as { key?: unknown }).key === 'string' && typeof (e as { locked?: unknown }).locked === 'boolean';
   if ((e as { kind: string }).kind === 'tradeSite') {
     const r = e as Record<string, unknown>;

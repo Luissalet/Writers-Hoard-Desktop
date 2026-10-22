@@ -458,6 +458,7 @@ export async function whPlaceAt(args: ToolArgs): Promise<unknown> {
     y,
     elevation: elevation === undefined ? undefined : round(elevation, 3),
     sea: elevation === undefined ? undefined : elevation <= 0,
+    lake: data.lake[y * data.width + x] === 1,
     ...(place && (await lockedKeysOf(world, args)).has(place.key) ? { locked: true } : {}),
     live,
     found: place !== null,
@@ -1310,6 +1311,48 @@ export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
   const summary = { end: run.end, cells: run.cells, from: { x: Math.floor(at.x), y: Math.floor(at.y) }, to: { x: ((Math.floor(run.pts[run.pts.length - 1].x) % opened.world.data.width) + opened.world.data.width) % opened.world.data.width, y: Math.floor(run.pts[run.pts.length - 1].y) } };
   if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary, points: run.pts };
   return appendEdit(args, world, { kind: 'river', pts: run.pts, width }, summary, `added a river from a spring (${run.cells} cells to the ${run.end}) to world "${world.title}"`);
+}
+
+/**
+ * A lake that fills its hollow from a place or cell, like the River tool's Lake
+ * mode; `dryRun` only says how big it would be. Re-derived from the ground on
+ * every replay, so it follows later terrain edits.
+ */
+export async function whAddLake(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const at = await storyPosition(args, world);
+  if (!at) throw new BridgeError('bad-args', 'Give place (a key from wh_find_place) or x and y world cells for the lake.');
+  const maxCells = optNumber(args, 'maxCells');
+  if (maxCells !== undefined && !(Number.isInteger(maxCells) && maxCells >= 1 && maxCells <= 20000)) throw new BridgeError('bad-args', 'maxCells must be a whole number from 1 to 20000.');
+  const minCells = optNumber(args, 'size');
+  if (minCells !== undefined && !(Number.isInteger(minCells) && minCells >= 1 && minCells <= 20000)) throw new BridgeError('bad-args', 'size must be a whole number of cells from 1 to 20000.');
+  if (args.dryRun !== undefined && typeof args.dryRun !== 'boolean') throw new BridgeError('bad-args', 'dryRun must be true or false.');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { fillLake, defaultLakeMaxCells } = await import('@/engines/worldgen/core/lake');
+  const cap = maxCells ?? (minCells ? Math.max(minCells, defaultLakeMaxCells(opened.world.data)) : undefined);
+  const run = fillLake(opened.world.data, at.x, at.y, { ...(cap ? { maxCells: cap } : {}), ...(minCells ? { minCells } : {}) });
+  if (!run.cells.length) throw new BridgeError('bad-args', run.end === 'nowhere' ? 'That spot is sea or already a lake.' : `The water runs straight into the ${run.end === 'sea' ? 'sea' : 'lake beside it'}; pick a spot further inland.`);
+  const x = Math.floor(at.x), y = Math.floor(at.y);
+  const summary = { x, y, cells: run.cells.length, end: run.end };
+  if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary };
+  return appendEdit(args, world, { kind: 'lake', op: 'fill', x: x + 0.5, y: y + 0.5, ...(maxCells ? { maxCells } : {}), ...(minCells ? { minCells } : {}) }, summary, `filled a lake of ${run.cells.length} cells at ${x},${y} in world "${world.title}"`);
+}
+
+/** Drain the lake under a place or cell (a painted one or the world's own). */
+export async function whDrainLake(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const at = await storyPosition(args, world);
+  if (!at) throw new BridgeError('bad-args', 'Give place or x and y world cells on the lake.');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { lakeAt } = await import('@/engines/worldgen/core/lake');
+  const cells = lakeAt(opened.world.data, at.x, at.y);
+  if (!cells.length) throw new BridgeError('bad-args', 'There is no lake at that spot.');
+  const x = Math.floor(at.x), y = Math.floor(at.y);
+  return appendEdit(args, world, { kind: 'lake', op: 'drain', x: x + 0.5, y: y + 0.5 }, { x, y, cells: cells.length, drained: true }, `drained a lake of ${cells.length} cells at ${x},${y} in world "${world.title}"`);
 }
 
 /**

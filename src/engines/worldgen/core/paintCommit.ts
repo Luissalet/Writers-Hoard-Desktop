@@ -46,6 +46,10 @@ export interface PaintSpec {
   /** Where the stroke is allowed to land. Only the biome brush obeys it. */
   only: PaintFilter;
   riverWidth: number;
+  /** River tool: draw a river, or click to fill a lake (Ctrl drains one). */
+  riverMode?: 'draw' | 'lake';
+  /** Lake mode: the least size in cells (the water rises until the lake is at least this big). */
+  lakeSize?: number;
   marker: 'settlement' | 'ruin';
   ruin: RuinKind;
   rank: SettlementRank;
@@ -284,6 +288,10 @@ export function commitPaintStroke(
         radius: Math.max(0.5, p.radius),
       };
     case 'river':
+      if (p.riverMode === 'lake') {
+        // A lake is a click: it fills the hollow there; Ctrl drains the one under the pointer.
+        return ctx.negative ? { kind: 'lake', op: 'drain', x: at.x, y: at.y } : { kind: 'lake', op: 'fill', x: at.x, y: at.y, ...(p.lakeSize && p.lakeSize > 4 ? { minCells: Math.round(p.lakeSize) } : {}) };
+      }
       if (ctx.negative) {
         // Alcance de PUNTERÍA, no de anchura: `riverWidth · 3` con el ancho en
         // celdas barría un disco de ~235 km con el mando por defecto (12

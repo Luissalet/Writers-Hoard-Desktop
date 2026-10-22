@@ -1006,7 +1006,7 @@ Find places by name, accent- and case-insensitively, best match first: a name th
     name: 'wh_place_at',
     description:
       `Check what is at a world cell: elevation, sea or land, and the nearest important place.
-What is at a cell: the elevation in km (negative is sea floor), whether it is sea, and the most important place within reach, if any — a click between a capital and a hamlet resolves to the capital. Use it to check ground before placing a settlement. ${PENDING_NOTE}`,
+What is at a cell: the elevation in km (negative is sea floor), whether it is sea or a lake, and the most important place within reach (locked: true when the author locked it), if any — a click between a capital and a hamlet resolves to the capital. Use it to check ground before placing a settlement. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -1280,6 +1280,38 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     description: `Take a story event off a world's map by id. Not a deletion: it appends an undoable edit to the world's list (Ctrl+Z or the bridge undo puts the event back).`,
     writes: true,
     schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Event id from wh_list_story_events.') }, required: ['worldId', 'id'], additionalProperties: false },
+  },
+  {
+    name: 'wh_add_lake',
+    description:
+      `Fill a lake at a place or cell, like the River tool's Lake mode.
+From the spot the water takes in the lowest ground around it until the hollow spills, it meets the sea or another lake, or it reaches maxCells; size makes it at least that many cells (the water rises through the lowest ground, as behind a dam), otherwise on a slope with no hollow it stays a pond of a few cells. The cells become lake (biome, shore, travel, trade). It is re-derived from the ground on every replay, so later terrain edits reshape it. Refused on sea or an existing lake, and where the water runs straight into the sea. dryRun only says how big it would be. Undoable; wh_drain_lake removes a lake.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        place: PLACE_KEY,
+        x: CELL_X,
+        y: CELL_Y,
+        size: { type: 'integer', minimum: 1, maximum: 20000, description: 'Least lake size in cells (the River tool\'s Least size).' },
+        maxCells: { type: 'integer', minimum: 1, maximum: 20000, description: 'Largest lake in cells (default scaled to the world grid, and never below size).' },
+        dryRun: { type: 'boolean', description: 'Only measure it.' },
+      },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_drain_lake',
+    description: 'Drain the lake under a place or cell, painted or generated: its cells become land again (biomes re-derived). Undoable.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: { worldId: WORLD_ID, place: PLACE_KEY, x: CELL_X, y: CELL_Y },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'wh_add_world_road',

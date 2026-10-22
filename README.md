@@ -39,7 +39,7 @@ own thickness and pattern, places that can be duplicated or locked, a reader's-e
 reveals the map chapter by chapter, story events placed by chapter and played
 back chapter by chapter (with their order inside a chapter and who was there),
 a right-click menu (village, note, story event, a
-spring whose river finds its way downhill), and a
+spring whose river finds its way downhill), a lake tool that fills a hollow to its spill, and a
 month-by-month trade lens (sites, shortages, prices, shipments); classic image
 maps carry styled shapes (outline, hatch, lettering, drawing order, several
 layers), pin sizes, a searchable Codex link that can create the entry, a
