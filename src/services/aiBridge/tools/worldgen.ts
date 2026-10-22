@@ -1227,9 +1227,10 @@ export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
   const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
   if (!opened.ok) return pendingResult(world, opened);
   const { traceSpring } = await import('@/engines/worldgen/core/spring');
-  const run = traceSpring(opened.world.data, at.x, at.y);
-  if (run.end === 'nowhere') throw new BridgeError('bad-args', 'From there the water has nowhere to run (it is sea, or a hollow already); pick higher ground.');
-  const summary = { end: run.end, cells: run.cells, from: { x: Math.floor(at.x), y: Math.floor(at.y) }, to: { x: Math.floor(run.pts[run.pts.length - 1].x) % opened.world.data.width, y: Math.floor(run.pts[run.pts.length - 1].y) } };
+  const { riverCellsAfterEdits } = await import('@/engines/worldgen/core/edits');
+  const run = traceSpring(opened.world.data, at.x, at.y, { riverCells: riverCellsAfterEdits(opened.world.data, deserializeEdits(world.edits ?? '[]')) });
+  if (run.end === 'nowhere') throw new BridgeError('bad-args', 'From there the water has nowhere to run (it is sea, a lake, or a hollow already); pick higher ground.');
+  const summary = { end: run.end, cells: run.cells, from: { x: Math.floor(at.x), y: Math.floor(at.y) }, to: { x: ((Math.floor(run.pts[run.pts.length - 1].x) % opened.world.data.width) + opened.world.data.width) % opened.world.data.width, y: Math.floor(run.pts[run.pts.length - 1].y) } };
   if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary, points: run.pts };
   return appendEdit(args, world, { kind: 'river', pts: run.pts, width }, summary, `added a river from a spring (${run.cells} cells to the ${run.end}) to world "${world.title}"`);
 }

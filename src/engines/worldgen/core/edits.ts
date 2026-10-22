@@ -326,6 +326,33 @@ export type EditTarget =
  * no id worth storing. Its mouth is the one cell that does not move while the
  * river exists, which makes it the natural name for "this river".
  */
+/**
+ * Every cell a river runs through once the edits are applied: the generated
+ * rivers not erased, plus the drawn ones not erased — the same rules as
+ * `applyEdits` (all drawn rivers first, then every eraser over both kinds).
+ */
+export function riverCellsAfterEdits(world: Pick<WorldData, 'width' | 'height' | 'rivers'>, edits: readonly WorldEdit[]): Set<number> {
+  const W = world.width, H = world.height;
+  let drawn = edits.filter((e): e is Extract<WorldEdit, { kind: 'river' }> => e.kind === 'river' && e.pts.length >= 2).map((e) => polylineCells(e.pts, W, H));
+  const removed = new Set<string>();
+  for (const e of edits) {
+    if (e.kind !== 'eraseRivers') continue;
+    const r2 = Math.max(1, e.radius) ** 2;
+    const near = (cell: number): boolean => {
+      const x = cell % W, y = (cell / W) | 0;
+      let dx = Math.abs(x - e.x);
+      if (dx > W / 2) dx = W - dx;
+      return dx * dx + (y - e.y) ** 2 <= r2;
+    };
+    drawn = drawn.filter((cells) => !cells.some(near));
+    for (const r of world.rivers) if (r.cells.length && r.cells.some(near)) removed.add(riverKey(r.cells));
+  }
+  const out = new Set<number>();
+  for (const r of world.rivers) if (!removed.has(riverKey(r.cells))) for (const cell of r.cells) out.add(cell);
+  for (const cells of drawn) for (const cell of cells) out.add(cell);
+  return out;
+}
+
 export function riverKey(cells: ArrayLike<number>): string {
   return `river:${cells[cells.length - 1]}`;
 }
