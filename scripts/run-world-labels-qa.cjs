@@ -91,6 +91,35 @@ async function main() {
   const values = await js(`['curve','spacing','size'].map(id=>document.querySelector('[data-testid="label-'+id+'"]').value)`);
   assert.deepEqual(values, ['60', '40', '26']);
   tests.push('Reopening keeps the shape; picking the label again shows curve 60, spacing 40, size 26');
+  // Roll a name: the dice beside the text, off for notes, a range name in the world's languages, placed with a click.
+  await click('Colocar'); await click('Rótulo'); await wait(nameInput, 'label text again');
+  await click('Nota');
+  assert(await js(`document.querySelector('[data-testid="label-roll"]').disabled`), 'The dice should be off for a note');
+  await click('Sierra');
+  await js(`document.querySelector('[data-testid="label-roll"]').click()`);
+  await wait(`/^(Montes|Sierra de|Picos de) \\S/.test(${nameInput}.value) && document.querySelector('[data-testid="label-roll-etym"]')`, 'rolled range name');
+  const first = await js(`${nameInput}.value`), etym = await js(`document.querySelector('[data-testid="label-roll-etym"]').textContent`);
+  await js(`document.querySelector('[data-testid="label-roll"]').click()`);
+  await wait(`${nameInput}.value !== ${JSON.stringify(first)} && /^(Montes|Sierra de|Picos de) \\S/.test(${nameInput}.value)`, 'a second roll');
+  const second = await js(`${nameInput}.value`);
+  const spot = { x: Math.round(rect.x + rect.w * 0.3), y: Math.round(rect.y + rect.h * 0.62) };
+  const area = { x: spot.x - 140, y: spot.y - 30, width: 280, height: 60 };
+  const grab = async () => { win.webContents.invalidate(); await pause(300); await win.webContents.capturePage(area); return (await win.webContents.capturePage(area)).toBitmap(); };
+  send({ type: 'mouseMove', x: spot.x, y: spot.y }); await pause(400);
+  const before = await grab();
+  await tap(spot.x, spot.y);
+  let rolledLabel; for (let i = 0; i < 60; i++) { rolledLabel = (await row()).find(e => e.kind === 'label' && e.text === second); if (rolledLabel) break; await pause(150); }
+  assert(rolledLabel && rolledLabel.style === 'range', `Rolled label not placed: ${JSON.stringify(await row()).slice(-300)}`);
+  await pause(1200);
+  const drawn = await grab();
+  fs.writeFileSync(path.join(evidence, 'labels-roll-area-before.png'), require('electron').nativeImage.createFromBitmap(before, { width: area.width, height: area.height }).toPNG());
+  fs.writeFileSync(path.join(evidence, 'labels-roll-area-after.png'), require('electron').nativeImage.createFromBitmap(drawn, { width: area.width, height: area.height }).toPNG());
+  let changed = 0; for (let i = 0; i < Math.min(before.length, drawn.length); i += 4) if (Math.abs(before[i] - drawn[i]) + Math.abs(before[i + 1] - drawn[i + 1]) + Math.abs(before[i + 2] - drawn[i + 2]) > 60) changed++;
+  assert(changed > 300, `The rolled label is not drawn on the atlas (${changed} pixels changed)`);
+  await js(`document.querySelector('[data-testid="label-roll"]').scrollIntoView({block:'center'})`);
+  await pause(1500); win.webContents.invalidate(); await pause(300); await win.webContents.capturePage();
+  fs.writeFileSync(path.join(evidence, 'labels-roll-1440.png'), (await win.webContents.capturePage()).toPNG());
+  tests.push(`Roll a name: off for a note; for a range it rolls "${first}" (${etym.trim()}), then "${second}", which a click places as a range label, drawn on the atlas (${changed} pixels changed)`);
   // The Carta draws the curved label too.
   await click('Carta'); await pause(3500);
   fs.writeFileSync(path.join(evidence, 'labels-carta-1440.png'), (await win.webContents.capturePage()).toPNG());

@@ -1533,6 +1533,7 @@ export default function Map2D({
       width: number;
       height: number;
       priority: number;
+      keep?: boolean;
     }> = [];
     const queueLabel = (
       text: string,
@@ -2444,8 +2445,9 @@ export default function Map2D({
             value: { text, color: pl.style === 'water' ? 'rgba(178,214,236,0.96)' : '#ffe9c2', size, weight: 600, font, glyphs },
             x: box.x, y: box.y + box.h / 2, width: box.w, height: box.h,
             // Highest band there is: the reader wrote it, so it outranks
-            // anything the generator came up with.
-            priority: 400,
+            // anything the generator came up with, and it is drawn even where
+            // it overlaps another of theirs (a long curved name's box covers a lot).
+            priority: 400, keep: true,
           });
         }
       }
@@ -4977,12 +4979,14 @@ export default function Map2D({
       if (m) onPlaceStory?.(m.u * W, m.v * H);
       return;
     }
-    const wp = waypointAt(sx, sy);
+    // While a panel asks for a point (a journey's stops), a waypoint or a saved
+    // region's name is ground like any other: opening it would leave the journey.
+    const wp = onPickGround ? null : waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
     // El nombre de una comarca guardada la abre — antes que el pueblo que
     // pueda haber debajo, porque el rótulo está fuera del marco y sólo puede
     // haberse pinchado a propósito.
-    if (onOpenSavedRegion) {
+    if (onOpenSavedRegion && !onPickGround) {
       const rg = hitAt(sx, sy, ['note'], (h) => !!h.regionId);
       if (rg?.regionId) { onOpenSavedRegion(rg.regionId); return; }
     }

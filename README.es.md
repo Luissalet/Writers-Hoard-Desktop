@@ -31,7 +31,8 @@ no pasa a ser prosa del lector. Mapas, árboles, calendarios, tablas tipadas,
 medios locales, Lector y wiki estática conservan sus editores y exportaciones.
 Los mundos generados guardan su aspecto, pueden empezar en blanco, miden áreas
 frente a contornos reales, planifican viajes con el ritmo y la física de viaje
-del propio mundo y llevan rótulos editables (ángulo, espaciado, curva), 32
+del propio mundo y llevan rótulos editables (ángulo, espaciado, curva, nombres tirados en las
+lenguas del mundo), 32
 sellos, una rejilla de juego cuadrada o hexagonal, caminos trazados a mano con
 su grosor y su línea (continua, discontinua o punteada), lugares que se pueden
 duplicar o bloquear, una niebla del lector que

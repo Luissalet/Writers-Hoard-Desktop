@@ -100,6 +100,19 @@ function JourneyPanelContent({
   /** Per-leg modes are positional: when a stop goes, they would slide onto other legs, so they start again. */
   // Only when the stored modes outnumber the legs: an opened trip brings its own, matching count.
   useEffect(() => { setLegModes((current) => (current.length > legCount ? [] : current)); }, [legCount]);
+  // The same stops in another order are other legs: their modes start again too.
+  const viaOrder = via.map((stop) => `${stop.x},${stop.y}`).join('|');
+  const lastViaOrder = useRef(viaOrder);
+  // When a saved trip was last opened: its stops and modes arrive together, in the next render or two.
+  const openingTrip = useRef(-Infinity);
+  useEffect(() => {
+    const before = lastViaOrder.current;
+    lastViaOrder.current = viaOrder;
+    if (before === viaOrder) return;
+    if (performance.now() - openingTrip.current < 1000) return;
+    const sorted = (keys: string) => keys.split('|').sort().join('|');
+    if (sorted(before) === sorted(viaOrder)) setLegModes([]);
+  }, [viaOrder]);
   const activeLegModes = legModes.slice(0, legCount);
   const mixedModes = activeLegModes.some(value => value && value !== mode);
   const planOptions: WorldJourney['options'] = {
@@ -219,6 +232,7 @@ function JourneyPanelContent({
                 setCustomOptions({ hoursPerDay: journey.options.hoursPerDay, planetRadiusKm: journey.options.planetRadiusKm });
                 // The trip's own snapshot, shown and planned with; the world is not touched.
                 setPace(journey.options.pace ?? 'steady'); setLegModes(journey.options.legModes ?? []);
+                openingTrip.current = performance.now();
                 setProfile(journey.options.profile ?? {});
                 setOpenedJourney(journey); onPick(null); onOpenJourney?.(journey);
               }}>

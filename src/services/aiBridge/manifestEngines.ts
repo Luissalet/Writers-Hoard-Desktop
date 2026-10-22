@@ -1378,6 +1378,25 @@ The story of a world chapter by chapter, the way the reader's view plays it: for
     schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
   },
   {
+    name: 'wh_roll_name',
+    description:
+      `Roll fresh names for a map label in the world's own languages, like the dice on the Label tool.
+Coins names with roots that suit the label: region (lands, realms), water (seas, lakes, bays), range (mountains) or settlement (a town). With x and y the names are in the language spoken at the nearest town; without them the rolls walk through the world's languages. Never a name the world already uses. Each name comes with its language and etymology. Writes nothing: put the one the author likes on the map with wh_add_label.`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        style: s('Kind of label.', { enum: ['region', 'water', 'range', 'settlement'] }),
+        count: { type: 'integer', minimum: 1, maximum: 10, description: 'How many names, default 5.' },
+        x: CELL_X,
+        y: CELL_Y,
+      },
+      required: ['worldId', 'style'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'wh_list_story_events',
     description:
       `List a world's story events in chapter order: id, kind, title, note, chapter, planned/happened and position in world cells. knownByChapter keeps only what the reader knows by then (happened, in or before it).`,

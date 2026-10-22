@@ -2,7 +2,7 @@ import LabelEditor from './LabelEditor';
 import StampPicker from './StampPicker';
 import type { PaintedLabel } from '../core/edits';
 import type { LabelChange } from '../core/labelShape';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Biome, type BiomeId, type RuinKind } from '../core/types';
 import type { SettlementRank } from '../core/settlements';
 import type { BrushTip, Falloff, LandOp, PaintFilter, RoadPattern, TerrainOp } from '../core/edits';
@@ -10,6 +10,7 @@ import { ROAD_PATTERNS, ROAD_WIDTH, SEA_LEVEL_MAX_M, SNOWLINE_MAX_M } from '../c
 import type { PointKind } from '../core/paintCommit';
 import { FOG_OPS, type FogOp } from '../core/readerFog';
 import StoryEditor from './StoryEditor';
+import type { RolledName, RollStyle } from '../core/rollName';
 import type { StoryEvent, StoryStatus, StoryType } from '../core/storyEvents';
 export type { PointKind };
 import { biomeName } from '../core/gazetteer';
@@ -385,6 +386,8 @@ interface PaintPanelProps {
   worldLevels?: { seaLevelM: number; snowlineM: number };
   /** False when the change could not be taken (the world is busy). */
   onWorldLevel?: (kind: 'seaLevel' | 'snowline', m: number) => boolean;
+  /** Roll number `roll` of a name for a label of this style, in the world's languages; null while the world is not ready. */
+  onRollName?: (style: RollStyle, roll: number) => RolledName | null;
 }
 
 /**
@@ -447,9 +450,12 @@ export default function PaintPanel({
   tool, onChange, strokeCount, canUndo, canRedo, onUndo, onRedo, onClear, onExport,
   cellKm, realms, busy, selectedLabel = null, onRelabel, onRemoveLabel,
   flatOnlyNote = false, storyEvents = [], selectedStoryId = null, onSelectStory, onUpdateStory, onRemoveStory, onFocusStory, storyPeople, onReorderStory,
-  worldLevels, onWorldLevel,
+  worldLevels, onWorldLevel, onRollName,
 }: PaintPanelProps) {
   const { t } = useTranslation();
+  // The label dice: how many names have been rolled, and the last one (its language and etymology are shown while it is the text).
+  const [rolls, setRolls] = useState(0);
+  const [rolled, setRolled] = useState<RolledName | null>(null);
   const riverKm = groundScale(RIVER_CELLS_MIN * (cellKm ?? 1), RIVER_CELLS_MAX * (cellKm ?? 1));
   const set = <K extends keyof PaintTool>(k: K, v: PaintTool[K]) => onChange({ ...tool, [k]: v });
   const setOnly = (patch: Partial<PaintFilter>) => {
@@ -676,12 +682,33 @@ export default function PaintPanel({
           {tool.point === 'label' && (
             <>
               <Row label={t('worldgen.paint.row.text')}>
-                <input
-                  value={tool.labelText}
-                  onChange={(e) => set('labelText', e.target.value)}
-                  placeholder={t('worldgen.paint.namePlaceholder')}
-                  className="w-full px-2 py-1 rounded bg-black/40 border border-white/15 text-[11px] text-white/90 outline-none focus:border-amber-400/60"
-                />
+                <div className="flex gap-1">
+                  <input
+                    value={tool.labelText}
+                    onChange={(e) => set('labelText', e.target.value)}
+                    placeholder={t('worldgen.paint.namePlaceholder')}
+                    className="min-w-0 flex-1 px-2 py-1 rounded bg-black/40 border border-white/15 text-[11px] text-white/90 outline-none focus:border-amber-400/60"
+                  />
+                  {onRollName && (
+                    <button type="button" data-testid="label-roll"
+                      disabled={tool.labelStyle === 'note'}
+                      title={tool.labelStyle === 'note' ? t('worldgen.paint.labelRollNote') : t('worldgen.paint.labelRollHint')}
+                      onClick={() => {
+                        if (tool.labelStyle === 'note') return;
+                        const name = onRollName(tool.labelStyle, rolls);
+                        if (!name) return;
+                        setRolls((n) => n + 1);
+                        setRolled(name);
+                        set('labelText', name.text);
+                      }}
+                      className="shrink-0 px-2 py-1 rounded border border-white/15 bg-black/30 text-[11px] text-white/80 hover:border-amber-400/60 disabled:opacity-40">
+                      {t('worldgen.paint.labelRoll')}
+                    </button>
+                  )}
+                </div>
+                {rolled && rolled.text === tool.labelText && (
+                  <p className="mt-1 text-[10px] text-white/50" data-testid="label-roll-etym">{t('worldgen.paint.labelRollFrom').replace('{language}', rolled.language).replace('{word}', rolled.word).replace('{etymology}', rolled.etymology)}</p>
+                )}
               </Row>
               <Row label={t('worldgen.paint.row.style')}>
                 <div className="grid grid-cols-5 gap-1">
@@ -1191,13 +1218,20 @@ function LevelSlider({ testId, label, value, max, step, onCommit, disabled }: {
   testId: string; label: string; value: number; max: number; step: number; onCommit: (m: number) => boolean; disabled?: boolean;
 }) {
   const [draft, setDraft] = useState<number | null>(null);
-  // What was let go of, shown until the world catches up with it (the replay runs after a frame).
-  const [sent, setSent] = useState<number | null>(null);
-  if (sent !== null && value === sent) setSent(null);
-  const shown = draft ?? sent ?? value;
+  // What was let go of, shown until the world's level moves (the replay runs after
+  // a frame): to it, or anywhere else when another writer or a failed replay got
+  // there first. If the world never moves, it gives up after a few seconds.
+  const [sent, setSent] = useState<{ m: number; from: number } | null>(null);
+  if (sent !== null && value !== sent.from) setSent(null);
+  useEffect(() => {
+    if (!sent) return;
+    const timer = window.setTimeout(() => setSent(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [sent]);
+  const shown = draft ?? sent?.m ?? value;
   const commit = () => {
     if (draft === null) return;
-    if (draft !== value && onCommit(draft)) setSent(draft);
+    if (draft !== value && onCommit(draft)) setSent({ m: draft, from: value });
     setDraft(null);
   };
   return (

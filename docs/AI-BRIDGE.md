@@ -1824,7 +1824,10 @@ deshecho.
   actual y forma; `wh_update_label` cambia sólo los campos dados. Las claves
   `label:x,y` sirven también para `wh_move_place`, `wh_rename_place` y
   `wh_remove_place`. Un segundo rótulo en la misma celda tiene clave propia
-  (`label:x,y#2`).
+  (`label:x,y#2`). `wh_roll_name` (sólo lectura) tira nombres para un rótulo
+  `region`, `water`, `range` o `settlement` en las lenguas del mundo, con su
+  lengua y etimología; con `x`,`y` en la lengua del pueblo más cercano; nunca
+  uno que el mundo ya usa.
 - **Sellos.** `wh_add_stamp` pone uno de 32 dibujos (posada, santuario, torre
   del mago, túmulo, faro, monte…) en tamaño S, M o L con nombre opcional;
   `wh_list_stamps` los devuelve con su clave `stamp:x,y`, que también vale para
@@ -1857,8 +1860,9 @@ deshecho.
   lago o una celda con lugar o historial se rechazan; reinos y mares no; se
   deshace),
   `wh_set_world_levels` (`seaLevelM` ±1000 y/o `snowlineM` ±3000, absolutos;
-  el mar mueve todas las alturas y los biomas lo siguen, la nieve sólo cambia
-  dónde se pinta; `wh_get_world` los devuelve; se deshace),
+  el mar mueve todas las alturas —también las de las hojas de comarca— y los
+  biomas lo siguen; un lago que el mar cubre vuelve cuando baja; la nieve sólo
+  cambia dónde se pinta; `wh_get_world` los devuelve; se deshace),
   `wh_add_lake` (un lago: el agua baja unas celdas al fondo de su hondonada y la
   llena hasta que rebosa —al mar, una albufera—; sin hondonada cerca se embalsa
   donde se pide (`dammed`);
