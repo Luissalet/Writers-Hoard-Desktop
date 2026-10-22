@@ -170,6 +170,10 @@ painted or generated. The lake is re-derived from the ground on every replay,
 so it follows later terrain edits and survives "Recalculate climate and
 rivers".
 
+In the Travel tab the ends and the stops of a journey can be towns or points of
+open ground (click the land while choosing); the stops are listed in order with
+earlier/later arrows and a remove button, and the legs follow.
+
 The Road tool (Paint → Point → Road) lays a road between two towns along the
 cart route, or by hand with a drag; a track is dashed and a royal road solid,
 unless the Line row picks solid, dashed or dotted, and Thickness scales its
