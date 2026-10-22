@@ -1,4 +1,5 @@
 import { DEFAULT_PARAMS } from '../core/types';
+import { LANDMASS_KM } from '../core/landmass';
 import { useId } from 'react';
 import { Check, Dices, Sparkles } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -107,7 +108,15 @@ export default function ParamsPanel({
       <details className="border-y border-border py-3">
         <summary className="cursor-pointer text-sm font-medium text-text-primary">{t('worldgen.params.advanced')}</summary>
         <fieldset disabled={generating} className="mt-4 space-y-4 disabled:opacity-50">
-      {params.starter && <div className="rounded-lg border border-border bg-surface/50 p-2.5 text-xs leading-relaxed text-text-muted" data-testid="worldgen-starter-note">
+      {params.starter === 'landmass' && <div className="space-y-2 rounded-lg border border-border bg-surface/50 p-2.5 text-xs leading-relaxed text-text-muted" data-testid="worldgen-landmass-note">
+        <p>{t('worldgen.params.landmassNote')}</p>
+        <Slider label={t('worldgen.params.landmassKm')} value={params.landmassKm ?? LANDMASS_KM.default} min={LANDMASS_KM.min} max={LANDMASS_KM.max} step={100}
+          display={`${(params.landmassKm ?? LANDMASS_KM.default).toLocaleString(locale)} km`} onChange={(v) => set('landmassKm', v)} />
+        <p data-testid="worldgen-landmass-cell">{t('worldgen.params.landmassCell')
+          .replace('{km}', String(Math.round(40075 / params.width)))
+          .replace('{cells}', String(Math.round((params.landmassKm ?? LANDMASS_KM.default) / (40075 / params.width))))}</p>
+      </div>}
+      {params.starter && params.starter !== 'landmass' && <div className="rounded-lg border border-border bg-surface/50 p-2.5 text-xs leading-relaxed text-text-muted" data-testid="worldgen-starter-note">
         <p>{t('worldgen.params.starterNote')}</p>
         <button type="button" className="mt-1.5 text-accent-gold underline" data-testid="worldgen-starter-leave"
           onClick={() => {
@@ -125,9 +134,9 @@ export default function ParamsPanel({
       <Slider label={t('worldgen.params.worldScale')} value={params.worldScale} min={0.75} max={2.5} step={0.05}
         display={`×${params.worldScale.toFixed(2)}`} onChange={(v) => set('worldScale', v)} />
       <Slider label={t('worldgen.params.mountainousness')} value={params.mountainousness} min={0} max={1} step={0.05}
-        display={pct(params.mountainousness)} disabled={!!params.starter} onChange={(v) => set('mountainousness', v)} />
+        display={pct(params.mountainousness)} disabled={!!params.starter && params.starter !== 'landmass'} onChange={(v) => set('mountainousness', v)} />
       <Slider label={t('worldgen.params.ruggedness')} value={params.ruggedness} min={0} max={1} step={0.05}
-        display={pct(params.ruggedness)} disabled={!!params.starter} onChange={(v) => set('ruggedness', v)} />
+        display={pct(params.ruggedness)} disabled={!!params.starter && params.starter !== 'landmass'} onChange={(v) => set('ruggedness', v)} />
       <Slider label={t('worldgen.params.erosion')} value={params.erosion} min={0} max={1} step={0.05}
         display={pct(params.erosion)} onChange={(v) => set('erosion', v)} />
       <Slider label={t('worldgen.params.temperature')} value={params.temperature} min={-10} max={10} step={0.5}
@@ -137,7 +146,7 @@ export default function ParamsPanel({
       <Slider label={t('worldgen.params.riverDensity')} value={params.riverDensity} min={0} max={1} step={0.05}
         display={pct(params.riverDensity)} onChange={(v) => set('riverDensity', v)} />
       <Slider label={t('worldgen.params.coastalComplexity')} value={params.coastalComplexity} min={0} max={1} step={0.05}
-        display={pct(params.coastalComplexity)} disabled={!!params.starter} onChange={(v) => set('coastalComplexity', v)} />
+        display={pct(params.coastalComplexity)} disabled={!!params.starter && params.starter !== 'landmass'} onChange={(v) => set('coastalComplexity', v)} />
       <Slider label={t('worldgen.params.glaciation')} value={params.glaciation} min={0} max={1} step={0.05}
         display={pct(params.glaciation)} onChange={(v) => set('glaciation', v)} />
 

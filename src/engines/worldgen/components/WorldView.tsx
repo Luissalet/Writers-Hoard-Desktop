@@ -1,4 +1,5 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
+import { landmassWindow } from '../core/landmass';
 import { CONTOUR_INTERVALS_M } from '../cartography/contourLayer';
 import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
 import type { ReaderFogLayer } from '../cartography/readerFogLayer';
@@ -548,6 +549,8 @@ export default function WorldView({
   // render would freeze the toolbar mid-click, so it is kicked off in an effect
   // the first time a view that needs it is opened, and cached on the world.
   const [geography, setGeography] = useState<HumanGeography | null>(null);
+  /** The world the geography above was built for (it lags a regeneration by a moment). */
+  const [geoWorld, setGeoWorld] = useState<WorldData | null>(null);
   const semanticProfile = useMemo(
     () => semanticZoomProfile(viewport.spanKm),
     [viewport.spanKm],
@@ -715,6 +718,26 @@ export default function WorldView({
         token: focusSpatial.token,
       });
     }
+  }
+  // A single landmass opens framed on its land (the shared viewport, so 2D and 3D
+  // agree), once per world that arrives: a regeneration passes through worlds that
+  // are not the final one, and strokes change the world in place, so after that the
+  // reader's own panning is kept.
+  // The map caps its zoom until the geography is built, so the framing is sent
+  // again, once, when it is: a small island would otherwise stay framed too wide.
+  const [framedWorld, setFramedWorld] = useState<WorldData | null>(null);
+  const [reframedWorld, setReframedWorld] = useState<WorldData | null>(null);
+  const frameLand = (world: WorldData) => {
+    const frame = landmassWindow(world);
+    // The view's width in km: the land's width, or its height at the map's usual shape.
+    if (frame) setViewport({ u: frame.u, v: frame.v, spanKm: Math.round(Math.max(frame.su, frame.sv * 0.5 * 1.7) * 40075) });
+  };
+  if (data && data.params?.starter === 'landmass' && data !== framedWorld) {
+    setFramedWorld(data);
+    frameLand(data);
+  } else if (data && data === framedWorld && geography && geoWorld === data && reframedWorld !== data) {
+    setReframedWorld(data);
+    frameLand(data);
   }
   if (focusRegion && focusRegion.token !== consumedRegionToken) {
     const region = savedRegions.find((candidate) => candidate.id === focusRegion.id);
@@ -1032,7 +1055,7 @@ export default function WorldView({
         if (cancelled || (data.revision ?? 0) !== rev) return;
         geoRev.current = rev;
         stagedDepth.current = backgroundDepth;
-        setGeography(adoptGeographyBase(data, base));
+        setGeography(adoptGeographyBase(data, base)); setGeoWorld(data);
         setGeoBusy(false);
       }).catch((error: unknown) => {
         if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return;
@@ -1048,7 +1071,7 @@ export default function WorldView({
         stagedDepth.current = step;
         // A base may have arrived since the timer was scheduled. Reuse it;
         // only a genuinely cold places pass may construct data on this path.
-        setGeography(patchCachedGeography(data) ?? getGeography(data, 'places'));
+        setGeography(patchCachedGeography(data) ?? getGeography(data, 'places')); setGeoWorld(data);
       } finally {
         setGeoBusy(more);
       }

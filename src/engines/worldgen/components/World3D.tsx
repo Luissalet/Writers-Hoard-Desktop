@@ -43,6 +43,28 @@ import {
 import type { HumanGeography, Settlement } from '../core/settlements';
 import { getCartoTexture } from '../cartography/texture';
 import { renderPaintedGround } from '../cartography/paintedGround';
+import { landmassWindow, type LandWindow } from '../core/landmass';
+
+/**
+ * The window a single-landmass world puts on the table: the land and a margin of
+ * sea, never outside the world, with the land's highest ground for the camera.
+ * Worked out again when the world changes, so land painted beyond the window
+ * widens the block instead of vanishing outside it.
+ */
+type LandFrame = LandWindow & { topKm: number };
+const LAND_FRAMES = new WeakMap<WorldData, { revision: number; frame: LandFrame | null }>();
+function landFrameOf(world: WorldData): LandFrame | null {
+  if (world.params?.starter !== 'landmass') return null;
+  const revision = world.revision ?? 0;
+  const cached = LAND_FRAMES.get(world);
+  if (cached && cached.revision === revision) return cached.frame;
+  const win = landmassWindow(world);
+  let topKm = 0;
+  if (win) for (let i = 0; i < world.elevation.length; i++) if (world.elevation[i] > topKm) topKm = world.elevation[i];
+  const frame = win ? { ...win, topKm } : null;
+  LAND_FRAMES.set(world, { revision, frame });
+  return frame;
+}
 import type { CartoTheme } from '../cartography/theme';
 import { DisplayTileStore } from '../cartography/tileStore';
 import { flightProgress } from '../cartography/frameClock';
@@ -852,7 +874,7 @@ export default function World3D({
       const sf = st ? st.surface : surface;
       const sc = st ? st.scatter : scatter;
       // The cut of the tabletop model follows the same ground.
-      (st ? st.diorama : diorama).setGround({ heightAt: (u: number, v: number) => sf.heightAtUV(u, v), width: world.width, height: world.height });
+      (st ? st.diorama : diorama).setGround({ heightAt: (u: number, v: number) => sf.heightAtUV(u, v), width: world.width, height: world.height }, landFrameOf(world) ?? undefined);
       sc.setWorld({
         elevation: world.elevation, biome: world.biome,
         width: world.width, height: world.height,
@@ -2262,8 +2284,13 @@ export default function World3D({
     // model: the block, its cut walls, the table and the shadow, in a quiet room.
     // Closer in, the mesh is a window of the world and the landscape takes over:
     // the walls would stand at the window's edge, which is not a place.
+    // A single landmass is the exception: its block is the land and its sea, a
+    // window of the world, so the model stays a model however close you come.
     const win = st.surface.uvWindow;
-    const maqueta = shapeRef.current === 'plane' && stageRef.current === 'maqueta' && win.size >= 0.999 && Math.abs(win.u - 0.5) < 1e-3 && Math.abs(win.v - 0.5) < 1e-3;
+    const landFrame = landFrameOf(st.zoomInputs.world);
+    const maqueta = shapeRef.current === 'plane' && stageRef.current === 'maqueta'
+      && ((landFrame !== null && !walkRef.current) || (win.size >= 0.999 && Math.abs(win.u - 0.5) < 1e-3 && Math.abs(win.v - 0.5) < 1e-3));
+    st.surface.setClip(maqueta && landFrame ? landFrame : null);
     st.sky.mesh.visible = !maqueta;
     st.scene.background = maqueta ? st.diorama.backdrop : null;
     // ¿Hay oleaje que animar en este encuadre? El shader del agua lo apaga entre
@@ -2330,6 +2357,7 @@ export default function World3D({
       seaLevel: 0,
       sky: skyForWater,
       clip: maqueta,
+      clipRect: maqueta && landFrame ? [landFrame.u - landFrame.su / 2, landFrame.v - landFrame.sv / 2, landFrame.u + landFrame.su / 2, landFrame.v + landFrame.sv / 2] : undefined,
       lakesOnly: st.zoomInputs.skin === 'pintado' && shapeRef.current === 'plane',
     });
 
@@ -2640,6 +2668,37 @@ export default function World3D({
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, ready, world.height, world.width, request, stabilizeCamera]);
+
+  // ---- a single landmass on the table ------------------------------------------
+  // The model is the land and its sea, not the planet: the camera frames that
+  // window once per visit to 3D (the view is built anew each time and starts from the
+  // planet) and once per new world; turning to the globe and back, or to the landscape
+  // and back, keeps the reader's camera, and strokes change the world in place.
+  const landFramedRef = useRef<WorldData | null>(null);
+  useEffect(() => {
+    const st = R.current;
+    if (!st || !ready || shape !== 'plane' || stage !== 'maqueta' || walkRef.current || world.params?.starter !== 'landmass' || landFramedRef.current === world) return;
+    const fr = landFrameOf(world);
+    if (!fr) return;
+    landFramedRef.current = world;
+    const sizeZ = SIZE_X * (world.height / world.width);
+    const halfV = (st.camera.fov * Math.PI) / 360;
+    const halfH = Math.atan(Math.tan(halfV) * Math.max(0.2, st.camera.aspect));
+    const a = (52 * Math.PI) / 180;
+    // The land's own highest ground, as the view raises it: not the planet's allowance.
+    const relief = fr.topKm * st.surface.yMul;
+    const spanX = SIZE_X * fr.su, spanZ = sizeZ * fr.sv;
+    const d = Math.max((spanZ * Math.sin(a) * 0.5 + relief) / Math.tan(halfV), (spanX * 0.5) / Math.tan(halfH)) * 1.1;
+    const cx = (fr.u - 0.5) * SIZE_X, cz = (fr.v - 0.5) * sizeZ;
+    st.controls.target.set(cx, 0, cz);
+    st.camera.position.set(cx, Math.sin(a) * d, cz + Math.cos(a) * d);
+    st.controls.maxDistance = Math.max(st.controls.maxDistance, d * 2.2);
+    st.fly.active = false;
+    st.controls.update();
+    stabilizeCamera();
+    st.poseKey = '';
+    request();
+  }, [shape, stage, ready, world, request, stabilizeCamera]);
 
   // ---- the skin ------------------------------------------------------------
   //

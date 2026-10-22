@@ -919,11 +919,12 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_create_world', writes: true,
-    description: 'Create a generated world from a starting point, as the engine form does. Presets: continents, pangaea, archipelago, shattered, iceAge, desertWorld, blankSea (open sea to paint a coast on with the Coast brush), blankLand (a low plain with no coast), lushWorld. Returns the worldId; the terrain is forged the first time it is opened or read.',
+    description: 'Create a generated world from a starting point, as the engine form does. Presets: continents, pangaea, archipelago, shattered, iceAge, desertWorld, island / country / continent (one landmass of about 900 / 2200 / 5000 km with the sea round it; landmassKm sets another size, 300-9000), blankSea (open sea to paint a coast on with the Coast brush), blankLand (a low plain with no coast), lushWorld. Returns the worldId; the terrain is forged the first time it is opened or read.',
     schema: { type: 'object', properties: {
       projectId: PROJECT_ID,
       title: s('World title. Default "World".'),
-      preset: s('Starting point.', { enum: ['continents', 'pangaea', 'archipelago', 'shattered', 'iceAge', 'desertWorld', 'blankSea', 'blankLand', 'lushWorld'] }),
+      preset: s('Starting point.', { enum: ['continents', 'pangaea', 'archipelago', 'shattered', 'iceAge', 'desertWorld', 'island', 'country', 'continent', 'blankSea', 'blankLand', 'lushWorld'] }),
+      landmassKm: n('Only with island, country or continent: km across the land, 300-9000.'),
       seed: s('Seed text; omit for a random one. Same seed and preset give the same world.'),
       width: n('Grid width: 1024 fast, 2048 standard (default), 3072 high.'),
     }, additionalProperties: false },

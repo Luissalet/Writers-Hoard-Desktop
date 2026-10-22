@@ -41,8 +41,12 @@ export interface DioramaGround {
 
 export interface Diorama {
   group: THREE.Group;
-  /** Re-read the ground along the four edges. */
-  setGround(ground: DioramaGround): void;
+  /**
+   * Re-read the ground along the four edges. With a frame (centre u, v and a
+   * size in uv) the block is that window of the world: a single island on the
+   * table rather than the whole planet.
+   */
+  setGround(ground: DioramaGround, frame?: { u: number; v: number; su: number; sv: number }): void;
   update(o: {
     visible: boolean;
     yMul: number;
@@ -75,13 +79,14 @@ in float aAlong;   // distance along the cut, scene units
 in float aFace;    // 0 north, 1 east, 2 south, 3 west
 uniform float uYMul;
 uniform float uBase;
+uniform float uDeep;   // the deepest the cut shows the sea floor, scene units (negative)
 out float vY;
 out float vGround;
 out float vTop;
 out float vAlong;
 out float vFace;
 void main() {
-  float ground = aKm * uYMul;
+  float ground = max(aKm * uYMul, uDeep);
   float top = max(ground, 0.0);
   float y = mix(top, uBase, aBottom);
   vY = y; vGround = ground; vTop = top; vAlong = aAlong; vFace = aFace;
@@ -175,6 +180,7 @@ const TABLE_FRAG = /* glsl */`
 precision highp float;
 in vec2 vXZ;
 uniform vec2 uHalf;      // half size of the block
+uniform vec2 uCenter;    // where the block stands on the table
 uniform vec2 uShadowOff; // shadow offset, away from the sun
 uniform float uSoft;     // shadow softness, scene units
 uniform float uShadow;   // shadow strength
@@ -189,12 +195,13 @@ float sdBox(vec2 p, vec2 b) {
 
 void main() {
   // The table: a pool of light under the model, fading into the room.
-  float r = length(vXZ / (uHalf * 2.6));
+  vec2 p = vXZ - uCenter;
+  float r = length(p / (uHalf * 2.6));
   vec3 col = mix(uTable, uBackdrop, smoothstep(0.35, 1.0, r));
   // Contact shadow, tight under the block, and a wide soft one cast off the sun.
-  float dContact = sdBox(vXZ, uHalf);
+  float dContact = sdBox(p, uHalf);
   float contact = 1.0 - smoothstep(0.0, uSoft * 0.35, dContact);
-  float dCast = sdBox(vXZ - uShadowOff, uHalf);
+  float dCast = sdBox(p - uShadowOff, uHalf);
   float thrown = 1.0 - smoothstep(-uSoft * 0.2, uSoft, dCast);
   float dark = max(contact * 0.55, thrown * uShadow);
   col *= 1.0 - dark;
@@ -206,10 +213,14 @@ export function createDiorama(o: DioramaOptions): Diorama {
   const group = new THREE.Group();
   group.name = 'diorama';
   group.visible = false;
+  // The part of the world the block stands for (uv); the whole world unless framed.
+  let rect = { u0: 0, v0: 0, u1: 1, v1: 1 };
+  let framed = false;
 
   const wallUniforms = {
     uYMul: { value: 1 },
     uBase: { value: -5 },
+    uDeep: { value: -1e6 },
     uScale: { value: 1 },
     uSun: { value: new THREE.Vector3(-0.55, 0.72, 0.42) },
     uLight: { value: 1 },
@@ -236,6 +247,7 @@ export function createDiorama(o: DioramaOptions): Diorama {
 
   const tableUniforms = {
     uHalf: { value: new THREE.Vector2(o.sizeX / 2, o.sizeZ / 2) },
+    uCenter: { value: new THREE.Vector2(0, 0) },
     uShadowOff: { value: new THREE.Vector2(0, 0) },
     uSoft: { value: o.sizeX * 0.08 },
     uShadow: { value: 0.45 },
@@ -262,11 +274,17 @@ export function createDiorama(o: DioramaOptions): Diorama {
   const ret: Diorama = {
     group,
     backdrop: BACKDROP,
-    setGround(ground) {
+    setGround(ground, frame) {
+      framed = !!frame;
+      rect = frame
+        ? { u0: frame.u - frame.su / 2, v0: frame.v - frame.sv / 2, u1: frame.u + frame.su / 2, v1: frame.v + frame.sv / 2 }
+        : { u0: 0, v0: 0, u1: 1, v1: 1 };
+      const { u0, v0, u1, v1 } = rect;
+      const fu = u1 - u0, fv = v1 - v0;
+      const X = (u: number) => (u - 0.5) * o.sizeX, Z = (v: number) => (v - 0.5) * o.sizeZ;
       // One column per cell along each side, capped so a huge world stays cheap.
-      const nx = Math.max(32, Math.min(1024, ground.width));
-      const nz = Math.max(16, Math.min(1024, ground.height));
-      const hx = o.sizeX / 2, hz = o.sizeZ / 2;
+      const nx = Math.max(32, Math.min(1024, Math.round(ground.width * fu)));
+      const nz = Math.max(16, Math.min(1024, Math.round(ground.height * fv)));
       const pos: number[] = [], km: number[] = [], bottomFlag: number[] = [], along: number[] = [], face: number[] = [];
       const index: number[] = [];
       let low = Infinity;
@@ -291,14 +309,14 @@ export function createDiorama(o: DioramaOptions): Diorama {
           index.push(a, a + 1, c, c, a + 1, c + 1);
         }
       };
-      // North wall (z = -hz), seen from -z: walk east to west.
-      side(0, nx, (t) => ({ x: hx - t * o.sizeX, z: -hz, u: 1 - t, v: 0 }));
-      // East wall (x = +hx), seen from +x: walk north to south... outward +x, walk from south to north.
-      side(1, nz, (t) => ({ x: hx, z: hz - t * o.sizeZ, u: 1, v: 1 - t }));
-      // South wall (z = +hz), seen from +z: walk west to east.
-      side(2, nx, (t) => ({ x: -hx + t * o.sizeX, z: hz, u: t, v: 1 }));
-      // West wall (x = -hx), seen from -x: walk north to south.
-      side(3, nz, (t) => ({ x: -hx, z: -hz + t * o.sizeZ, u: 0, v: t }));
+      // North wall, seen from the north: walk east to west.
+      side(0, nx, (t) => { const u = u1 - t * fu; return { x: X(u), z: Z(v0), u, v: v0 }; });
+      // East wall, outward east: walk from south to north.
+      side(1, nz, (t) => { const v = v1 - t * fv; return { x: X(u1), z: Z(v), u: u1, v }; });
+      // South wall, seen from the south: walk west to east.
+      side(2, nx, (t) => { const u = u0 + t * fu; return { x: X(u), z: Z(v1), u, v: v1 }; });
+      // West wall, seen from the west: walk north to south.
+      side(3, nz, (t) => { const v = v0 + t * fv; return { x: X(u0), z: Z(v), u: u0, v }; });
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       geo.setAttribute('aKm', new THREE.Float32BufferAttribute(km, 1));
@@ -311,13 +329,26 @@ export function createDiorama(o: DioramaOptions): Diorama {
       walls.geometry = geo;
       samples = nx;
       minKm = Number.isFinite(low) ? low : 0;
+      // The underside and the table's light and shadow follow the block.
+      const cx = X((u0 + u1) / 2), cz = Z((v0 + v1) / 2);
+      bottom.scale.set(fu, fv, 1);
+      bottom.position.x = cx; bottom.position.z = cz;
+      tableUniforms.uHalf.value.set(o.sizeX * fu / 2, o.sizeZ * fv / 2);
+      tableUniforms.uCenter.value.set(cx, cz);
+      tableUniforms.uSoft.value = o.sizeX * fu * 0.08;
     },
     update(u) {
       group.visible = u.visible;
       if (!u.visible) return;
       // The base sits a fixed share of the block's width below the lowest point
       // the cut shows, or below the sea when the edges are all land.
-      baseY = Math.min(0, minKm * u.yMul) - o.sizeX * BASE_DEPTH;
+      const widthX = o.sizeX * (rect.u1 - rect.u0);
+      // The water column is cut at a share of the block's width: an island's block is narrow, and
+      // the open ocean round it, exaggerated with the land, would stand as a tall blue tower.
+      // (Only for a window of the world: the whole world's block is as it always was.)
+      const deep = framed ? -widthX * 0.06 : -1e6;
+      wallUniforms.uDeep.value = deep;
+      baseY = Math.min(0, Math.max(minKm * u.yMul, deep)) - widthX * BASE_DEPTH;
       wallUniforms.uYMul.value = u.yMul;
       wallUniforms.uBase.value = baseY;
       wallUniforms.uSun.value.copy(u.sun);
@@ -326,7 +357,7 @@ export function createDiorama(o: DioramaOptions): Diorama {
       table.position.y = baseY - 0.02;
       // The shadow falls away from the sun, further the lower it is.
       const s = u.sun;
-      const reach = Math.min(o.sizeX * 0.06, (Math.abs(baseY) + o.sizeX * 0.01) * 1.2 / Math.max(0.25, s.y));
+      const reach = Math.min(widthX * 0.06, (Math.abs(baseY) + widthX * 0.01) * 1.2 / Math.max(0.25, s.y));
       const flat = Math.hypot(s.x, s.z) || 1;
       tableUniforms.uShadowOff.value.set(-s.x / flat * reach, -s.z / flat * reach);
       tableUniforms.uShadow.value = 0.18 + 0.32 * u.light;

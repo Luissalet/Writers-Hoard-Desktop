@@ -61,14 +61,16 @@ marcadores con el retrato de su ficha en los mapas de imagen; todo con interfaz,
 
 Siguiente, en este orden:
 - Huecos restantes del catálogo A1/A2 (filas PARTIAL y ABSENT en
-  tasks/vvd1095): plantillas y tamaños de arranque, zona de inicio, modo de
+  tasks/vvd1095): una hoja plana acotada (ancho × alto en km), zona de inicio, modo de
   puntos del río y flujo invertido, nubes, iluminación por hora en 2D, marcas
   de grupo, vías propias, mercancías por puerto, operación volcán y altura en
   metros.
 - 3D: nubes que se funden con el relieve, los árboles pintados de pie en la
   maqueta (hoy están pintados en el suelo) y aspectos de bloque (papel apilado,
-  grabado) además de la roca; mapas de arranque más pequeños (isla, país) para
-  que la maqueta se vea de cerca como un continente.
+  grabado) además de la roca.
+- Mundos de una sola tierra: una isla pequeña con poco detalle (400 km con
+  «Rápido» son unas 10 × 10 celdas) sale sin ríos ni pueblos; subir el detalle
+  al elegir una tierra pequeña o sembrar ríos y pueblos a su escala.
 - Comercio: rutas de envío que rodeen bahías por tierra y usen los ríos; la
   lente también en proyecciones curvas.
 - Sucesos: enlace de un suceso a su escena del manuscrito; arrastrar para
