@@ -165,21 +165,9 @@ export function duplicatePlaceEdit(
  */
 export function lockViolation(existing: readonly WorldEdit[], edits: readonly WorldEdit[]): string | null {
   const locked = lockedPlaceKeys(existing);
-  const marks = [...existing];
   for (const e of edits) {
     if (e.kind === 'lock') { for (const k of lockAliases(e.key)) { if (e.locked) locked.add(k); else locked.delete(k); } continue; }
     if ((e.kind === 'remove' || e.kind === 'move') && lockAliases(e.key).some((k) => locked.has(k))) return e.key;
-    // The eraser takes hand-placed marks inside its circle: not a locked one.
-    if (e.kind === 'eraseMarkers') {
-      for (const m of marks) {
-        if (m.kind !== 'marker') continue;
-        const key = markerKey(m);
-        if (!locked.has(key)) continue;
-        const dx = Math.abs(m.x - e.x), dy = m.y - e.y;
-        if (dx * dx + dy * dy <= e.radius * e.radius) return key;
-      }
-    }
-    marks.push(e);
   }
   return null;
 }
@@ -820,6 +808,9 @@ function seaDistanceFor(world: WorldData, elev: Float32Array, W: number, H: numb
   return dist;
 }
 
+/** The biomes right after the newest sea-level change, per world, keyed by the list up to it. */
+const seaBiomes = new WeakMap<WorldData, { key: string; biome: Uint8Array }>();
+
 export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const W = world.width, H = world.height, N = W * H;
   const out: AppliedEdits = {
@@ -854,16 +845,35 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   // The sea level already in the heights: what the prefix a checkpoint restored had set.
   let seaM = 0;
   for (let index = 0; index < start; index++) { const e = edits[index]; if (e.kind === 'seaLevel') seaM = e.m; }
-  let classifyEverywhere = false;
   for (let index = start; index < edits.length; index++) {
     const e = edits[index];
     if (e.kind === 'seaLevel') {
       // Every height moves by the change, in the list's order: what was painted
       // before keeps its shape, and strokes after it are made on the new shore.
       const d = (e.m - seaM) / 1000;
-      if (d) for (let i = 0; i < N; i++) elev[i] -= d;
       seaM = e.m;
-      if (d) { out.terrainChanged = true; needsClassification = true; classifyEverywhere = true; }
+      if (!d) continue;
+      for (let i = 0; i < N; i++) elev[i] -= d;
+      // Lake surfaces are heights too: they move with the ground they sit on.
+      const surface = world.lakeSurface;
+      if (surface?.length === N) for (let i = 0; i < N; i++) if (surface[i]) surface[i] -= d;
+      for (let i = 0; i < N; i++) if (elev[i] <= 0) world.lake[i] = 0;
+      // The whole world's biomes follow the new shore. Worked out once per list
+      // prefix and kept, so a later stroke does not pay for the whole world again.
+      const key = serializeEdits(edits.slice(0, index + 1));
+      const kept = seaBiomes.get(world);
+      const cached = kept?.key === key ? kept.biome : null;
+      if (cached) world.biome.set(cached);
+      else {
+        const reliefR = Math.max(3, Math.round(W / 150));
+        classifyBiomes(world.params, {
+          elevation: elev, temperature: world.temperature, precipitation: world.precipitation, lake: world.lake,
+          flow: world.flow, relief: localRelief(elev, W, H, reliefR), seaDist: seaDistanceFor(world, elev, W, H),
+          sst: world.sst, boundary: world.boundary, filters: world.params.filters,
+        }, undefined, world.biome);
+        seaBiomes.set(world, { key, biome: world.biome.slice() });
+      }
+      out.terrainChanged = true;
       continue;
     }
     if (e.kind === 'recalculate') {
@@ -958,7 +968,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       sst: world.sst,
       boundary: world.boundary,
       filters: world.params.filters,
-    }, classifyEverywhere ? undefined : touchedRect(edits, W, H, reliefR + 3, lakeCells), world.biome);
+    }, touchedRect(edits, W, H, reliefR + 3, lakeCells), world.biome);
   }
 
   // ---- 3. explicit biome paint, which wins over the classifier -----------
@@ -1134,8 +1144,10 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   }
   // Erasers apply to everything painted before them, in order — but a locked
   // place stays where it is (the same rule the tools and the bridge refuse by).
-  const lockedNow = lockedPlaceKeys(edits);
+  // Locked as the list stood at that eraser, not as it ends.
+  const lockedNow = new Set<string>();
   for (const e of edits) {
+    if (e.kind === 'lock') { for (const k of lockAliases(e.key)) { if (e.locked) lockedNow.add(k); else lockedNow.delete(k); } continue; }
     if (e.kind !== 'eraseMarkers') continue;
     const hit = (p: { x: number; y: number }) => {
       let dx = Math.abs(p.x - e.x);

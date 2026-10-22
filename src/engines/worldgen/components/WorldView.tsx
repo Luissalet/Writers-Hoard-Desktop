@@ -2767,7 +2767,11 @@ export default function WorldView({
                 storyPeople={storyPeople}
                 onReorderStory={reorderStory}
                 worldLevels={levels}
-                onWorldLevel={(kind, m) => { applyEdit(kind === 'seaLevel' ? { kind: 'seaLevel', m } : { kind: 'snowline', m }); }}
+                onWorldLevel={(kind, m) => {
+                  const taken = applyEdit(kind === 'seaLevel' ? { kind: 'seaLevel', m } : { kind: 'snowline', m });
+                  if (!taken) toast.info(t('worldgen.story.busy'));
+                  return taken;
+                }}
               />
             ) : panelTab === 'params' ? (
               <ParamsPanel

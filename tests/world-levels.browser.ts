@@ -27,6 +27,22 @@ export async function testWorldLevels(): Promise<string[]> {
     const drowned: number[] = [];
     for (let i = 0; i < N; i++) if (base.elevation[i] > 0 && risen.elevation[i] <= 0) drowned.push(i);
     assert(landOf(risen) < land0 && drowned.length > 0 && Math.abs((base.elevation[0] - risen.elevation[0]) - 0.15) < 1e-6, `Sea +150 m: land ${land0} → ${landOf(risen)}`);
+    // Lake surfaces are heights too: a surviving lake's surface comes down with its ground.
+    if (base.lakeSurface && risen.lakeSurface) {
+      const lakeCell = Array.from(risen.lake).findIndex((v, i) => v === 1 && base.lake[i] === 1 && base.lakeSurface![i] > 0);
+      if (lakeCell >= 0) assert(Math.abs(base.lakeSurface[lakeCell] - risen.lakeSurface[lakeCell] - 0.15) < 1e-5, 'A lake surface did not follow the sea');
+    }
+    // The second replay of the same list takes the whole-world biomes from the first.
+    const again = generateWorld(params);
+    const pristineAgain = Float32Array.from(again.elevation), envAgain = captureEnvironment(again);
+    const withStroke: WorldEdit[] = [{ kind: 'seaLevel', m: 150 }, { kind: 'marker', marker: 'settlement', x: 3, y: 3, rank: 'town' }];
+    applyEdits(again, withStroke);
+    const firstBiomes = again.biome.slice();
+    again.elevation.set(pristineAgain); restoreEnvironment(again, envAgain); again.painted = undefined;
+    const t0 = performance.now();
+    applyEdits(again, withStroke);
+    const secondMs = performance.now() - t0;
+    assert(firstBiomes.every((b, i) => again.biome[i] === b), 'The cached biomes differ from the first replay');
     const nowSea = drowned.filter((i) => risen.biome[i] === Biome.Ocean).length;
     assert(nowSea >= drowned.length * 0.9, `The drowned coast reads as ocean (${nowSea}/${drowned.length})`);
     // Levels are absolute and in order: up then back to 0 is the generated world's heights; a checkpoint keeps it.
@@ -76,7 +92,7 @@ export async function testWorldLevels(): Promise<string[]> {
     const after = (await runBridgeTool('wh_get_world', { worldId: Wid })).result as { seaLevelM: number; snowlineM: number };
     assert(undone.ok && after.seaLevelM === 0 && after.snowlineM === 0, `Undo ${JSON.stringify(after).slice(0, 200)}`);
     return [
-      `Sea level +150 m drowns ${drowned.length} coastal cells (land ${land0} → ${landOf(risen)}) and their biomes follow; levels are absolute and in order (up and back is the generated world, also across a recalculation checkpoint); out-of-range levels are dropped on read`,
+      `Sea level +150 m drowns ${drowned.length} coastal cells (land ${land0} → ${landOf(risen)}) and their biomes follow (a replay reuses them, ${secondMs.toFixed(0)} ms), lake surfaces come down with the ground; levels are absolute and in order (up and back is the generated world, also across a recalculation checkpoint); out-of-range levels are dropped on read`,
       'Snowline: the last one wins, it only changes the snow (a lower one whitens a highland), never the ground',
       'Bridge: wh_set_world_levels sets sea level and snowline (refuses nothing given and out-of-range values; an unchanged level writes nothing), wh_get_world reports them, undo puts both back',
     ];

@@ -1859,8 +1859,9 @@ deshecho.
   `wh_set_world_levels` (`seaLevelM` ±1000 y/o `snowlineM` ±3000, absolutos;
   el mar mueve todas las alturas y los biomas lo siguen, la nieve sólo cambia
   dónde se pinta; `wh_get_world` los devuelve; se deshace),
-  `wh_add_lake` (un lago: el agua baja al fondo de su hondonada y la llena hasta
-  que rebosa; en una ladera hacia el mar se embalsa donde se pide (`dammed`);
+  `wh_add_lake` (un lago: el agua baja unas celdas al fondo de su hondonada y la
+  llena hasta que rebosa —al mar, una albufera—; sin hondonada cerca se embalsa
+  donde se pide (`dammed`);
   junto a otro lago se rechaza; `size` lo hace de al menos esas celdas, `maxCells` lo limita,
   `dryRun` sólo lo mide; se rechaza en el mar o un lago), `wh_drain_lake`
   (seca el lago de ese punto; `wh_place_at` dice `lake`),
