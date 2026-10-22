@@ -97,6 +97,8 @@ export interface WorldPresentation {
   grid?: import('./cartography/mapGrid').MapGrid | null;
   /** How the reader's-eye map starts before any fog stroke: blank paper (default), all sketched, or all in ink. */
   readerStart?: 'blank' | 'sketch' | 'ink';
+  /** Contour lines: absent/null = as the look draws them, 'off' = none, a number = every N metres on any look. */
+  contours?: number | 'off' | null;
 }
 
 /**

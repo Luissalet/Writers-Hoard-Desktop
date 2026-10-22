@@ -345,6 +345,8 @@ const BIOME_GROUPS: { title: string; ids: BiomeId[] }[] = [
   { title: 'worldgen.paint.biomeGroup.open', ids: [Biome.Grassland, Biome.Savanna, Biome.Steppe, Biome.Shrubland, Biome.Chaparral, Biome.Tundra, Biome.AlpineMeadow] },
   { title: 'worldgen.paint.biomeGroup.arid', ids: [Biome.Desert, Biome.Erg, Biome.Reg, Biome.Badlands, Biome.ColdDesert, Biome.SaltFlat] },
   { title: 'worldgen.paint.biomeGroup.waterIce', ids: [Biome.Marsh, Biome.PeatBog, Biome.SaltMarsh, Biome.Mangrove, Biome.Beach, Biome.Glacier, Biome.IceCap, Biome.Alpine] },
+  // The grounds no climate makes on its own (or only rarely): lava, ash, stone trees, fungi, crystal, glowing marsh.
+  { title: 'worldgen.paint.biomeGroup.fantasy', ids: [Biome.Volcanic, Biome.AshPlain, Biome.PetrifiedForest, Biome.FungalForest, Biome.CrystalFlats, Biome.GlowMarsh] },
 ];
 
 interface PaintPanelProps {
@@ -553,6 +555,13 @@ export default function PaintPanel({
               </Chip>
             ))}
           </div>
+          {/* One click to the plateau brush: a square head with a flat edge lifts ground evenly; Ctrl cuts it back. */}
+          <button type="button" data-testid="paint-plateau" title={t('worldgen.paint.plateau.hint')}
+            aria-pressed={tool.terrainOp === 'raise' && tool.tip === 'square' && tool.curve === 'flat'}
+            onClick={() => onChange({ ...tool, terrainOp: 'raise', tip: 'square', curve: 'flat', softness: Math.min(tool.softness, 0.15) })}
+            className={`mt-1 w-full rounded border px-2 py-1 text-[11px] ${tool.terrainOp === 'raise' && tool.tip === 'square' && tool.curve === 'flat' ? 'border-amber-400/70 bg-amber-400/15 text-amber-100' : 'border-white/15 bg-black/30 text-white/80 hover:border-amber-400/60'}`}>
+            {t('worldgen.paint.plateau')}
+          </button>
         </Row>
       )}
 

@@ -2,7 +2,7 @@ import RouteReveal from './RouteReveal';
 import type { WorldEdit } from '../core/edits';
 import JourneyPlayback from './JourneyPlayback';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
@@ -17,6 +17,7 @@ import { journeyNormalizedStops, journeyRecipeKey, type WorldJourney } from '../
 import { deleteWorldJourney, saveWorldJourney, saveWorldTravelSettings, type TravelFactorEdit } from '../journeyOperations';
 import { ConfirmDialog } from '@/engines/_shared';
 import JourneyCreativeCapture from './JourneyCreativeCapture';
+import { clockAt, clockText, DEFAULT_SET_OFF_HOUR, groundsCrossed, kmOnWater, legClocks, placesPassed, roadsTaken, type JourneyClock } from '../core/routeWords';
 
 /**
  * Two questions the reader asks a map and no map generator answers.
@@ -78,6 +79,8 @@ function JourneyPanelContent({
   const [season, setSeason] = useState<Season>('summer');
   const [showAll, setShowAll] = useState(false);
   const [showStages, setShowStages] = useState(false);
+  /** When the party sets off each day: only how the journey is told, never the route. */
+  const [setOffHour, setSetOffHour] = useState(DEFAULT_SET_OFF_HOUR);
   const [customOptions, setCustomOptions] = useState<Pick<WorldJourney['options'], 'hoursPerDay' | 'planetRadiusKm'>>({});
   /** How hard the party pushes; the world remembers the author's usual pace. */
   const [pace, setPace] = useState<TravelPace>(worldRecord?.travelPace ?? 'steady');
@@ -182,7 +185,7 @@ function JourneyPanelContent({
     const journey: WorldJourney = {
       id: crypto.randomUUID(), name: journeyName.trim(),
       stops: journeyNormalizedStops([from, ...via, to], world),
-      options: planOptions, recipeKey: currentRecipeKey, createdAt: now, updatedAt: now,
+      options: { ...planOptions, ...(setOffHour !== DEFAULT_SET_OFF_HOUR ? { setOffHour } : {}) }, recipeKey: currentRecipeKey, createdAt: now, updatedAt: now,
     };
     try {
       await saveWorldJourney(worldRecord.id, worldRecord.projectId, journey, scope.eraId);
@@ -209,6 +212,37 @@ function JourneyPanelContent({
 
   const calculation = useJourneyComputation(world, geography, from, to, via, planOptions, showAll, locale);
   const { route, table } = calculation;
+  // The journey in words: towns passed, roads followed, grounds, water and the clock.
+  const words = useMemo(() => {
+    if (!route || route.impossible || route.cells.length < 2) return null;
+    const radiusKm = planOptions.planetRadiusKm;
+    return {
+      passes: placesPassed(world, geography, route, { radiusKm, limit: 12, ends: [from?.name ?? openedJourney?.stops[0]?.name ?? '', to?.name ?? openedJourney?.stops.at(-1)?.name ?? ''] }),
+      roads: roadsTaken(world, geography, route, { radiusKm }),
+      grounds: groundsCrossed(route),
+      waterKm: kmOnWater(route),
+    };
+    // planetRadiusKm is the only option the words read.
+  }, [route, world, geography, planOptions.planetRadiusKm, from?.name, to?.name, openedJourney]);
+  const partText = (clock: JourneyClock) => t(`worldgen.journey.part.${clock.part}`);
+  const andList = (items: string[]) => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')}${t('worldgen.journey.words.and')}${items[items.length - 1]}`;
+  const countWord = (key: string, n: number) => t(`${key}${n === 1 ? 'One' : ''}`).replace('{n}', String(n));
+  const summary = (() => {
+    if (!route || !words) return '';
+    const parts: string[] = [];
+    if (words.grounds.length) parts.push(t('worldgen.journey.words.across').replace('{grounds}', andList(words.grounds)));
+    const road = words.roads[0];
+    if (road) parts.push(road.from === road.to ? t('worldgen.journey.words.roadSame').replace('{name}', road.from) : t('worldgen.journey.words.road').replace('{from}', road.from).replace('{to}', road.to));
+    else if (route.roadFraction > 0.05) parts.push(t('worldgen.journey.words.roadShare').replace('{n}', String(Math.round(route.roadFraction * 100))));
+    if (words.waterKm >= 1) parts.push(t('worldgen.journey.words.sea').replace('{n}', String(Math.round(words.waterKm))));
+    const count = (kind: 'river' | 'strait' | 'pass') => route.crossings.filter((c) => c.kind === kind).length;
+    if (count('river')) parts.push(countWord('worldgen.journey.words.fords', count('river')));
+    if (count('strait')) parts.push(countWord('worldgen.journey.words.straits', count('strait')));
+    if (count('pass')) parts.push(countWord('worldgen.journey.words.climbs', count('pass')));
+    if (!parts.length) return '';
+    const text = parts.join('; ');
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+  })();
   const paleoCalculation = useJourneyPaleo(world, paleo, locale);
 
   // The map's copy of the route is a side effect of this panel's state, so it is
@@ -233,7 +267,7 @@ function JourneyPanelContent({
                 // The trip's own snapshot, shown and planned with; the world is not touched.
                 setPace(journey.options.pace ?? 'steady'); setLegModes(journey.options.legModes ?? []);
                 openingTrip.current = performance.now();
-                setProfile(journey.options.profile ?? {});
+                setProfile(journey.options.profile ?? {}); setSetOffHour(journey.options.setOffHour ?? DEFAULT_SET_OFF_HOUR);
                 setOpenedJourney(journey); onPick(null); onOpenJourney?.(journey);
               }}>
               <option value="">{t('worldgen.journey.openSaved')}</option>
@@ -384,6 +418,13 @@ function JourneyPanelContent({
                   onChange={(event) => { const value = Number(event.target.value); setCustomOptions(current => ({ ...current, hoursPerDay: Number.isFinite(value) && value > 0 && value <= 24 && value !== HPD[season] ? value : undefined })); }}
                   className="w-16 rounded border border-white/20 bg-white/5 px-1.5 py-0.5 text-right text-white/90" />
               </label>
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-white/60">{t('worldgen.journey.setOff')}</span>
+                <input type="number" min={0} max={23} step={1} aria-label={t('worldgen.journey.setOff')} data-testid="journey-set-off"
+                  value={setOffHour}
+                  onChange={(event) => { const value = Math.round(Number(event.target.value)); if (Number.isFinite(value) && value >= 0 && value <= 23) setSetOffHour(value); }}
+                  className="w-16 rounded border border-white/20 bg-white/5 px-1.5 py-0.5 text-right text-white/90" />
+              </label>
               <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.speeds')}</span>
               {MODES.map((m) => (
                 <Factor key={m} label={t(MODE_KEY[m])} value={profile.speed?.[m] ?? 1} onChange={(value) => setFactor('speed', m, value)} />
@@ -425,14 +466,29 @@ function JourneyPanelContent({
                 {t('worldgen.journey.perDay').replace('{n}', (route.hours > 0 ? route.km / (route.hours / hoursPerDay) : 0).toFixed(0))}
                 {route.crossings.length > 0 && ` · ${t('worldgen.journey.riverCrossings').replace('{n}', String(route.crossings.length))}`}
               </div>
+              {summary && <p className="text-[11px] leading-snug text-white/75" data-testid="journey-summary">{summary}</p>}
+              {words && words.passes.length > 0 && (
+                <p className="text-[10px] leading-snug text-white/55" data-testid="journey-passes">
+                  {t('worldgen.journey.passes').replace('{places}', words.passes.map((p) => t('worldgen.journey.passAt').replace('{name}', p.name).replace('{km}', String(Math.round(p.atKm)))).join(', '))}
+                </p>
+              )}
               <div className="flex flex-col gap-0.5 mt-1">
-                {route.legs.slice(0, 6).map((l, i) => (
-                  <div key={i} className="flex justify-between text-[10px] text-white/45">
-                    <span>{l.terrain}</span>
+                {(() => { const clocks = legClocks(route, hoursPerDay, setOffHour); return route.legs.slice(0, 6).map((l, i) => (
+                  <div key={i} className="flex justify-between gap-2 text-[10px] text-white/45" data-testid={`journey-leg-${i}`}>
+                    <span><span className="text-white/30">{t('worldgen.journey.legDay').replace('{day}', String(clocks[i].day)).replace('{part}', partText(clocks[i]))}</span> · {l.terrain}</span>
                     <span className="tabular-nums">{Math.round(l.km)} km</span>
                   </div>
-                ))}
+                )); })()}
               </div>
+              {(() => {
+                const arrive = clockAt(route.hours, hoursPerDay, setOffHour, true);
+                const camp = setOffHour + hoursPerDay;
+                return <p className="text-[10px] leading-snug text-white/55" data-testid="journey-clock">
+                  {(arrive.day === 1 ? t('worldgen.journey.clockOneDay') : t('worldgen.journey.clock'))
+                    .replace('{start}', clockText(setOffHour)).replace('{camp}', clockText(camp))
+                    .replace('{day}', String(arrive.day)).replace('{part}', partText(arrive)).replace('{hour}', clockText(arrive.hour))}
+                </p>;
+              })()}
               <div className="text-[10px] text-white/45 leading-snug mt-1">
                 {Math.round(route.lowestM)} – {Math.round(route.highestM)} m ·
                 {' '}{t('worldgen.journey.ascent').replace('{n}', (route.ascentM / 1000).toFixed(1))}
@@ -465,8 +521,10 @@ function JourneyPanelContent({
                       {route.stages.map((st) => (
                         <div key={st.night} className="text-[10px] leading-snug">
                           <span className="text-white/35 tabular-nums">{st.night}.</span>{' '}
-                          <span className={st.rough ? 'text-amber-200/70' : 'text-white/65'}>
-                            {st.rough ? t('worldgen.journey.roughIn') : t('worldgen.journey.stayIn')}{st.terrain}
+                          <span className={st.rough ? 'text-amber-200/70' : 'text-white/65'} data-testid={`journey-night-${st.night}`}>
+                            {st.shelter
+                              ? t(st.shelter.kind === 'ruina' || st.shelter.kind === 'ruin' ? 'worldgen.journey.ruinShelter' : 'worldgen.journey.innAt').replace('{name}', st.shelter.name)
+                              : `${st.rough ? t('worldgen.journey.roughIn') : t('worldgen.journey.stayIn')}${st.terrain}`}
                           </span>
                           {st.nearest && st.nearest.km < 60 && (
                             <span className="text-white/35">

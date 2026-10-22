@@ -127,7 +127,16 @@ a hard pace's rest days and arrives, with a caption of what the party is doing.
 A square or hex play grid of any size in km can be laid over the atlas, the
 Carta and exports, and is saved with the world's look. Hand-drawn map eras can stand for timeline
 events: they order by the world calendar (each event in its own timeline's
-calendar), play in sequence and keep their date if the event is deleted. Point → Label
+calendar), play in sequence and keep their date if the event is deleted. The Biome brush has a row of fantasy grounds (volcanic badland, ash plain,
+petrified forest, fungal forest, crystal flats, glow marsh) that travel like
+dry ground, forest or marsh. The Relief tool's "Plateau" sets a square, flat-edged
+head in one click (Ctrl cuts back). A readout on the atlas names the band the
+view is in (world, continent, region, local) and how many km across it is. The
+toolbar's contour choice draws lines of equal height every 100, 200, 500 or
+1000 m (an index line every fifth) on the atlas, the Carta and the PNG export,
+in place of the look's own, or takes all contour lines away; it is saved with
+the look.
+Point → Label
 has a Roll button beside the text: it coins a name for a Region, Water, Range or
 Place label in one of the world's own languages (each roll walks through them),
 never one the map already uses, and shows its language and etymology. A label
@@ -144,7 +153,13 @@ shows the atlas and the Carta as the reader knows them up to a chosen chapter:
 blank paper where the story has not been, a wash over what is only heard of,
 with names and pointer hits hidden under the paper. How the reader's map starts
 (blank, all heard of, all seen) is saved with the world's look, and the Carta
-PNG export carries the reader's view while it is open. In the Travel panel,
+PNG export carries the reader's view while it is open. The Travel panel tells
+the planned journey in words: one sentence (across which grounds, along the
+road from which town to which, how far by water, how many rivers forded), the
+towns it passes with how far along, each stretch with its day and part of day,
+and when the party sets off, makes camp and arrives (the set-off hour is in the
+travel settings and is saved with an itinerary); a night near a town is at its
+inn, near a ruin in its shelter. In the Travel panel,
 "Mark the route as seen" paints the planned route into the reader's map with a
 sight radius in km, from a chapter on; a long route is stored as several
 strokes so it never folds across the sheet. The fog changes nothing in the

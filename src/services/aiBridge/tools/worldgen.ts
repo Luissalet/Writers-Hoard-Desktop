@@ -395,7 +395,7 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
     story = storyEventsFrom(deserializeEdits(world.edits ?? '[]'));
   }
   if (args.storyEvents !== undefined && typeof args.storyEvents !== 'boolean') throw new BridgeError('bad-args', 'storyEvents must be true or false.');
-  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, story, layers: { ...DEFAULT_LAYERS, ...look.layers }, reliefAmount: look.reliefAmount });
+  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, story, layers: { ...DEFAULT_LAYERS, ...look.layers, ...(look.contours === null ? {} : { contours: false }) }, contourIntervalM: typeof look.contours === 'number' ? look.contours : null, reliefAmount: look.reliefAmount });
   return { worldId: world.id, theme: themeId, ...(readerView ? { readerView: true } : {}), view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
 }
 
@@ -468,6 +468,8 @@ export async function whPlaceAt(args: ToolArgs): Promise<unknown> {
     elevation: elevation === undefined ? undefined : round(elevation, 3),
     sea: elevation === undefined ? undefined : elevation <= 0,
     lake: data.lake[y * data.width + x] === 1,
+    // The ground there by key (what wh_paint_biome paints), as the classifier or the author left it.
+    ground: (await import('@/engines/worldgen/core/biomeKeys')).BIOME_KEY[data.biome[y * data.width + x]] ?? null,
     ...(place && (await lockedKeysOf(world, args)).has(place.key) ? { locked: true } : {}),
     live,
     found: place !== null,
@@ -1028,7 +1030,7 @@ export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
   const patch: Record<string, unknown> = {};
-  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers', 'grid', 'readerStart']) if (args[key] !== undefined) patch[key] = args[key];
+  for (const key of ['theme', 'skin3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours']) if (args[key] !== undefined) patch[key] = args[key];
   if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, reliefAmount, layers, grid or readerStart.');
   const expected = optNumber(args, 'expectedRevision');
   const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
@@ -1166,6 +1168,8 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   if (hoursPerDay !== undefined && (hoursPerDay <= 0 || hoursPerDay > 24)) throw new BridgeError('bad-args', 'hoursPerDay must be more than 0 and at most 24.');
   const options = { mode, season, ...(pace && pace !== 'steady' ? { pace } : {}), ...(legModes ? { legModes } : {}), ...(Object.keys(profile).length ? { profile } : {}), ...(hoursPerDay ? { hoursPerDay } : {}), via: stops.slice(1, -1).map(({ x, y }) => ({ x, y })) };
   // Where the party is on a given day, as the journey player shows it.
+  const setOffArg = optNumber(args, 'setOffHour');
+  if (setOffArg !== undefined && !(Number.isInteger(setOffArg) && setOffArg >= 0 && setOffArg <= 23)) throw new BridgeError('bad-args', 'setOffHour must be a whole hour from 0 to 23.');
   const atDay = optNumber(args, 'atDay');
   if (atDay !== undefined && (atDay < 0 || !Number.isFinite(atDay))) throw new BridgeError('bad-args', 'atDay must be 0 or more.');
   const locale = optEnum(args, 'locale', ['es', 'en'] as const) ?? 'en';
@@ -1174,6 +1178,11 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const r = (value: number, places = 1) => Math.round(value * 10 ** places) / 10 ** places;
   const { travellerAt } = await import('@/engines/worldgen/core/journeyPlayback');
   const at = atDay !== undefined ? travellerAt(route, data.width, atDay) : null;
+  const words = await import('@/engines/worldgen/core/routeWords');
+  const setOffHour = setOffArg ?? words.DEFAULT_SET_OFF_HOUR;
+  const perDay = effectiveHoursPerDay(options);
+  const clocks = words.legClocks(route, perDay, setOffHour);
+  const arrival = words.clockAt(route.hours, perDay, setOffHour, true);
   return {
     worldId: world.id,
     stops: stops.map(stop => stop.name),
@@ -1183,8 +1192,13 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
     roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
     crossings: route.crossings.length, realms: route.realms,
     ...(at ? { atDay: { day: r(at.day, 2), x: r(at.x), y: r(at.y), phase: at.phase, night: at.stage?.night ?? null, nearest: at.stage?.nearest?.name ?? null } } : {}),
-    terrain: route.legs.slice(0, 8).map(leg => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad })),
-    nights: route.stages.slice(0, 60).map(stage => ({ night: stage.night, x: Math.round(stage.x), y: Math.round(stage.y), rough: stage.rough, terrain: stage.terrain, nearest: stage.nearest ? { name: stage.nearest.name, km: r(stage.nearest.km) } : null })),
+    terrain: route.legs.slice(0, 8).map((leg, index) => ({ terrain: leg.terrain, km: r(leg.km), onRoad: leg.onRoad, day: clocks[index].day, partOfDay: clocks[index].part, startsAt: words.clockText(clocks[index].hour) })),
+    passes: words.placesPassed(data, geo, route, { limit: 20, ends: [stops[0].name, stops[stops.length - 1].name] }).map(place => ({ name: place.name, rank: place.rank, atKm: r(place.atKm), offKm: r(place.offKm) })),
+    roads: words.roadsTaken(data, geo, route).map(road => ({ from: road.from, to: road.to, km: r(road.km) })),
+    grounds: words.groundsCrossed(route, 6),
+    kmOnWater: r(words.kmOnWater(route)),
+    clock: { setsOff: words.clockText(setOffHour), makesCamp: words.clockText(setOffHour + perDay), arrives: { day: arrival.day, at: words.clockText(arrival.hour), partOfDay: arrival.part } },
+    nights: route.stages.slice(0, 60).map(stage => ({ night: stage.night, x: Math.round(stage.x), y: Math.round(stage.y), rough: stage.rough, terrain: stage.terrain, nearest: stage.nearest ? { name: stage.nearest.name, km: r(stage.nearest.km) } : null, ...(stage.shelter ? { shelter: { name: stage.shelter.name, kind: stage.shelter.kind === 'ruina' || stage.shelter.kind === 'ruin' ? 'ruin' : 'inn' } } : {}) })),
     // The route's cells, at most 400 of them evenly spaced (ends kept): ready to
     // pass as `points` to wh_paint_reader_fog to mark the way as seen.
     path: (() => {
@@ -1421,6 +1435,34 @@ export async function whDrainLake(args: ToolArgs): Promise<unknown> {
  * the cart route over the real ground, through passes and around marshes. Its
  * line may be thicker or thinner than its class's and solid, dashed or dotted.
  */
+export async function whPaintBiome(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { BIOME_KEY } = await import('@/engines/worldgen/core/biomeKeys');
+  const erase = args.erase === undefined ? false : args.erase;
+  if (typeof erase !== 'boolean') throw new BridgeError('bad-args', 'erase must be true or false.');
+  let biome = -1;
+  if (!erase) {
+    biome = typeof args.biome === 'string' ? BIOME_KEY.indexOf(args.biome) : -1;
+    // Sea and lake are not painted: the coast and lake tools make water.
+    if (biome < 2) throw new BridgeError('bad-args', `biome must be one of ${BIOME_KEY.slice(2).join(', ')} (or erase: true).`);
+  }
+  const raw = args.points;
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 400) throw new BridgeError('bad-args', 'points must be 1 to 400 {x, y} world cells.');
+  const size = worldSize(world);
+  const pts = raw.map((point, index) => {
+    const p = point as Record<string, unknown>;
+    if (typeof p?.x !== 'number' || typeof p?.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.y < 0 || p.y >= size.height) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
+    return { x: ((p.x % size.width) + size.width) % size.width, y: p.y };
+  });
+  const radius = optNumber(args, 'radius') ?? 3;
+  if (!(radius >= 0.5 && radius <= 60)) throw new BridgeError('bad-args', 'radius must be between 0.5 and 60 cells.');
+  const stroke = { pts, radius, strength: 1, softness: 0.4 };
+  const edit = erase ? { kind: 'eraseBiome' as const, stroke } : { kind: 'biome' as const, biome: biome as import('@/engines/worldgen/core/types').BiomeId, stroke };
+  const summary = { erase, ...(erase ? {} : { biome: BIOME_KEY[biome] }), points: pts.length, radius };
+  return appendEdit(args, world, edit, summary, erase ? `rubbed out painted ground on world "${world.title}"` : `painted ${BIOME_KEY[biome]} ground on world "${world.title}"`);
+}
+
 export async function whAddWorldRoad(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   await assertEngineEnabled(world.projectId, ENGINE);
