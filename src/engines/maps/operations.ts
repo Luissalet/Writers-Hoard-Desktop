@@ -158,7 +158,7 @@ export function undoMapGround(receipt: GroundChangeReceipt, scope?: WorldEraScop
     const expected = new Map(receipt.afterPins.map(pin => [pin.id, pin]));
     if (pins.some(pin => { const was = expected.get(pin.id); return !was || was.x !== pin.position.x || was.y !== pin.position.y; }) || pins.length !== expected.size) throw new Error('The pins on this map changed after this edit');
     // A comment placed on the new picture after the change would land in the wrong spot on the old one.
-    if (receipt.at !== undefined && (await db.annotations.where('[sourceEngineId+sourceEntityId]').equals(['maps', receipt.mapId]).toArray()).some(row => row.anchor.type === 'map_point' && row.createdAt > receipt.at! && !receipt.notes?.some(note => note.id === row.id))) throw new Error('A comment was placed on the new picture after this edit');
+    if (receipt.at !== undefined && (await mapPointNotes(receipt.mapId, scope)).some(row => row.createdAt > receipt.at! && !receipt.notes?.some(note => note.id === row.id))) throw new Error('A comment was placed on the new picture after this edit');
     // Comments go back only where nobody has moved them since; one deleted meanwhile is simply gone.
     for (const note of receipt.notes ?? []) {
       const row = await db.annotations.get(note.id);

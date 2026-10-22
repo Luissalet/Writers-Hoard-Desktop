@@ -93,11 +93,13 @@ The Codex link of a shape or pin is a search box (accent-free, by words) that
 can also create a new entry of a chosen type. Right-clicking the map offers,
 at that spot: a new entry (and a pin linked to it), a pin, a region or route
 that starts there, a label, and a comment, which shows as a marker on the map
-and in the notes below. Replacing the map's picture opens a dialog with both
+(drag it to move the comment) and in the notes below. Replacing the map's picture opens a dialog with both
 images, their sizes, what moves with the map and, when the shape differs,
 "keep the shapes" (the old drawing is fitted, centred, into the new picture)
 or "stretch"; the map is saved as an era first. Saving a shape, or undoing and redoing
-it, keeps shapes added meanwhile elsewhere (by the agent, for instance).
+it, keeps shapes added meanwhile elsewhere (by the agent, for instance); an
+undo leaves alone, and names, a shape that was changed elsewhere after the step
+it would take back.
 A classic map can have a scale: type how many kilometres the picture spans,
 or measure a line you know and say how long it is. With a scale the map shows
 a scale bar (also in the SVG export), paths read their length and travel time

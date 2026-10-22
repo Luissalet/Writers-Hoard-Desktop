@@ -106,10 +106,44 @@ async function main() {
   const markerLeft = await js(`document.querySelector('[data-testid="map-comment-${note.id}"]').style.left`);
   assert(near(parseFloat(markerLeft), 50), `Marker left ${markerLeft}`);
   await wait(`document.querySelector('[data-comment-map-point]')`, 'notes panel says "En el mapa"');
+  // 6b. Dragging the marker moves the comment.
+  // Saving the comment scrolled the page; let it settle before pressing.
+  { let last = -1; for (let i = 0; i < 40; i++) { const y = await js('window.scrollY'); if (y === last) break; last = y; await pause(150); } }
+  const goal = await spot(30, 60);
+  { let last = -1; for (let i = 0; i < 40; i++) { const y = await js('window.scrollY'); if (y === last) break; last = y; await pause(150); } }
+  const mark = await js(`(()=>{const r=document.querySelector('[data-testid="map-comment-${note.id}"]').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()`);
+  const pre = await js(`(()=>{const t=document.elementFromPoint(${mark.x},${mark.y});return t&&(t.closest('[data-testid]')?.getAttribute('data-testid')||t.tagName);})()`);
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: mark.x, y: mark.y }); await pause(40);
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: mark.x, y: mark.y, button: 'left', clickCount: 1 }); await pause(40);
+  for (let k = 1; k <= 8; k++) { win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(mark.x + (goal.x - mark.x) * k / 8), y: Math.round(mark.y + (goal.y - mark.y) * k / 8), button: 'left', modifiers: ['leftButtonDown'] }); await pause(30); }
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: goal.x, y: goal.y, button: 'left', clickCount: 1 }); await pause(300);
+  const diag = await js(`(()=>{const m=document.querySelector('[data-testid="map-comment-${note.id}"]');const t=document.elementFromPoint(${mark.x},${mark.y});return {left:m.style.left,cls:m.className.includes('border-danger'),top:t&&(t.getAttribute('data-testid')||t.tagName+'.'+String(t.className).slice(0,40)),inner:window.innerHeight};})()`);
+  const movedNote = await until(() => db(`return db.annotations.get(${JSON.stringify(note.id)});`), a => !near(a.anchor.x, 50, 2), `Comment moved (pre ${pre}, mark ${JSON.stringify(mark)}, goal ${JSON.stringify(goal)}, ${JSON.stringify(diag)})`);
+  // The marker's tip sits at the spot, the press was a few pixels above it: compare loosely.
+  assert(near(movedNote.anchor.x, 30, 3) && near(movedNote.anchor.y, 60, 4) && movedNote.revision === (note.revision ?? 0) + 1, `Moved ${JSON.stringify(movedNote.anchor)}`);
+  tests.push(`Dragging the comment marker moves the comment to ${movedNote.anchor.x.toFixed(1)}%, ${movedNote.anchor.y.toFixed(1)}% (dropped near 30%, 60%), saved as a new revision of the thread`);
+
+
   await byId(`map-comment-${note.id}`); await pause(200);
   const ring = await js(`document.querySelector('[data-comment-thread="${note.id}"]').classList.contains('ring-2')`);
   assert(ring, 'Clicking the marker highlights its thread');
   tests.push(`Right-click → "Comentar aquí": the notes composer opens for that spot; the comment is saved at ${note.anchor.x.toFixed(1)}%, ${note.anchor.y.toFixed(1)}%, drawn as a marker there, and the marker brings its thread into view`);
+
+  // 6c. The agent restyles a shape after the author renamed it: the author's undo leaves it alone and says so.
+  await byId('map-feature-select-road'); await wait(`document.querySelector('[data-testid="map-feature-name"]')`, 'road inspector');
+  await set('map-feature-name', 'Camino Real'); await pause(100); await byId('map-feature-save');
+  await until(async () => (await map()).features.find(f => f.id === 'road'), f => f.name === 'Camino Real', 'Rename saved');
+  // The selected shape shows its draft; pick another so the road shows what is stored.
+  await byId('map-feature-select-north'); await pause(150);
+  const agent = await js(`(async()=>{const {runBridgeTool}=await import('/src/services/aiBridge/dispatch.ts');return runBridgeTool('wh_update_map_feature',{mapId:'vvd-map-preview-atlas',id:'road',strokeColor:'#ff0000'});})()`);
+  assert(agent.ok, `Agent restyle ${JSON.stringify(agent)}`);
+  await wait(`document.querySelector('[data-feature-id="road"] polyline[stroke="#ff0000"]')`, 'agent stroke on the open map');
+  await byId('map-feature-undo');
+  await wait(`document.querySelector('[data-testid="map-undo-kept"]')`, 'undo names the shape it left alone');
+  const keptText = await js(`document.querySelector('[data-testid="map-undo-kept"]').textContent`);
+  const road2 = (await map()).features.find(f => f.id === 'road');
+  assert(road2.strokeColor === '#ff0000' && road2.name === 'Camino Real' && /Camino Real/.test(keptText), `Guarded undo ${JSON.stringify({ road2, keptText })}`);
+  tests.push(`Author renames the road, the agent restyles it, the author's Undo leaves it alone and says "${keptText.trim()}"`);
 
   // 7. Escape closes the menu without doing anything.
   const before = (await map()).features.length;
