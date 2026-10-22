@@ -1135,9 +1135,9 @@ export default function WorldView({
    * has no notion of a mirrored stroke and should not grow one — but it is a single
    * movement of the reader's hand, so it is a single Ctrl+Z and a single replay.
    */
-  const applyEditGroup = useCallback((edits: WorldEdit[]) => {
+  const applyEditGroup = useCallback((edits: WorldEdit[]): boolean => {
     const s = session.current;
-    if (!s || !edits.length || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return;
+    if (!s || !edits.length || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return false;
     setPainting(true);
     window.setTimeout(() => {
       try {
@@ -1147,6 +1147,7 @@ export default function WorldView({
         afterEdit();
       }
     }, 0);
+    return true;
   }, [afterEdit]);
   /** Story events: place the next one, move, change or remove one. Each is one undoable edit. */
   const placeStory = useCallback((x: number, y: number) => {
@@ -1173,6 +1174,8 @@ export default function WorldView({
     if (!current) return;
     const merged: Record<string, unknown> = { ...current, ...patch };
     if ('chapter' in patch && patch.chapter === undefined) delete merged.chapter;
+    // Moved to another chapter: it goes to the end there, not to its old place number.
+    if ('chapter' in patch && (patch.chapter ?? null) !== (current.chapter ?? null) && !('order' in patch)) delete merged.order;
     try {
       const event = normalizeStoryEvent(merged);
       storyWritten.current.set(id, event);
@@ -1182,8 +1185,12 @@ export default function WorldView({
   const removeStory = useCallback((id: string) => { applyEdit({ kind: 'storyRemove', id }); }, [applyEdit]);
   /** Up or down within its chapter: the chapter's events take their new places in one undo step. */
   const reorderStory = useCallback((id: string, by: -1 | 1) => {
-    const changed = reorderInChapter(storyEvents, id, by);
-    if (changed.length) applyEditGroup(changed.map((event) => ({ kind: 'story' as const, ...normalizeStoryEvent(event) })));
+    // From the records as last written: a title committed or a move made a moment ago is not undone.
+    const current = storyEvents.map((event) => storyWritten.current.get(event.id) ?? event);
+    const changed = reorderInChapter(current, id, by).map((event) => normalizeStoryEvent(event));
+    if (!changed.length) return;
+    if (!applyEditGroup(changed.map((event) => ({ kind: 'story' as const, ...event })))) return;
+    for (const event of changed) storyWritten.current.set(event.id, event);
   }, [storyEvents, applyEditGroup]);
   // Who can be marked as there: the Codex's characters and factions.
   const { items: codexEntries } = useCodexEntries(projectId);
@@ -2183,7 +2190,7 @@ export default function WorldView({
             const frame = storyFrames.find((item) => item.chapter === readerChapter);
             return <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 max-w-[min(36rem,90%)] -translate-x-1/2 rounded-lg border border-border bg-surface/90 px-3 py-2 text-center shadow-lg" data-testid="worldgen-reader-caption" data-chapter={readerChapter} aria-live="polite">
               <p className="font-serif text-sm text-accent-gold">{t('worldgen.reader.chapterTitle').replace('{n}', String(readerChapter))}</p>
-              {frame?.happened.length ? <ul className="mt-1 space-y-0.5 text-xs text-text-primary">{frame.happened.map((event) => <li key={event.id} className="flex items-center justify-center gap-1.5"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STORY_COLORS[event.type] }} />{event.title}{event.who?.length ? <span className="text-text-muted">· {event.who.map((id) => storyPeople.find((person) => person.id === id)?.title).filter(Boolean).join(', ')}</span> : null}</li>)}</ul>
+              {frame?.happened.length ? <ul className="mt-1 space-y-0.5 text-xs text-text-primary">{frame.happened.map((event) => <li key={event.id} className="flex items-center justify-center gap-1.5"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STORY_COLORS[event.type] }} />{event.title}{(() => { const names = (event.who ?? []).map((id) => storyPeople.find((person) => person.id === id)?.title).filter(Boolean); return names.length ? <span className="text-text-muted">· {names.join(', ')}</span> : null; })()}</li>)}</ul>
                 : <p className="mt-0.5 text-xs text-text-muted">{t('worldgen.reader.quietChapter')}</p>}
             </div>;
           })()}

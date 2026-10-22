@@ -6,7 +6,7 @@ import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
 import { deserializeEdits, serializeEdits, type WorldEdit } from '@/engines/worldgen/core/edits';
-import { nextStoryChapter, normalizeStoryEvent, reorderInChapter, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy } from '@/engines/worldgen/core/storyEvents';
+import { nextStoryChapter, normalizeStoryEvent, placeInChapter, reorderInChapter, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy } from '@/engines/worldgen/core/storyEvents';
 import { PaintSession } from '@/engines/worldgen/core/paintSession';
 import { drawAnnotations } from '@/engines/worldgen/cartography/annotations';
 import { runBridgeTool } from '@/services/aiBridge/dispatch';
@@ -58,6 +58,13 @@ export async function testStoryEvents(): Promise<string[]> {
     const shifted = reorderInChapter(unordered, 'r', -1);
     const reordered = storyEventsFrom([...chapterOne, ...shifted.map((e) => ({ kind: 'story' as const, ...e })), { kind: 'story', ...normalizeStoryEvent({ id: 's', x: 1, y: 1, type: 'custom', title: 'S', chapter: 1 }) }]);
     assert(reordered.map((e) => e.id).join() === 'p,r,q,s' && reorderInChapter(unordered, 'p', -1).length === 0, `Reorder ${reordered.map((e) => e.id)}`);
+    const ids = (list: { id: string }[]) => list.map((e) => e.id).join();
+    assert(ids(placeInChapter(unordered, 'r', 0)) === 'r,p,q' && ids(placeInChapter(unordered, 'p', 99)) === 'q,r,p' && placeInChapter(unordered, 'r', 0).map((e) => e.order).join() === '0,1,2', 'placeInChapter');
+    // Records written since the list was sorted (a move just made) are re-read by their order, not their place in the array.
+    const stale = [{ ...unordered[0], order: 1 }, { ...unordered[1], order: 0 }, { ...unordered[2], order: 2 }];
+    assert(ids(reorderInChapter(stale, 'q', 1)) === 'p,q,r', `Reorder from fresh records ${ids(reorderInChapter(stale, 'q', 1))}`);
+    let tooFar = false; try { normalizeStoryEvent({ id: 'w', x: 1, y: 1, type: 'custom', title: 'x', order: 10000 }); } catch (error) { tooFar = /0 to 9999/.test(String(error)); }
+    assert(tooFar, 'order 10000 should be refused with its range');
     // Storage: round-trip; a malformed record costs only itself.
     const back = deserializeEdits(serializeEdits(edits));
     assert(storyEventsFrom(back).length === 4, 'Round trip');
@@ -109,7 +116,26 @@ export async function testStoryEvents(): Promise<string[]> {
     const cleared = await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: [], order: null });
     const clearedEvent = ((await runBridgeTool('wh_list_story_events', { worldId: Wid })).result as { events: { id: string; who?: string[]; order?: number }[] }).events.find((e) => e.id === id)!;
     assert(cleared.ok && clearedEvent.who === undefined && clearedEvent.order === undefined, `Cleared ${JSON.stringify(clearedEvent)}`);
+    // Only characters and factions; ids are tidied; the list is capped before any lookup.
+    await db.codexEntries.put({ id: 'story-ford', projectId: P, type: 'location', title: 'The ford', fields: {}, content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1 });
+    const aPlace = await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: ['story-ford'] });
+    const tooMany = await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: Array.from({ length: 21 }, (_, i) => `nobody-${i}`) });
+    const padded = await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: [' story-ana ', 'story-ana'] });
+    assert(!aPlace.ok && /characters and factions/.test(aPlace.error ?? '') && !tooMany.ok && /up to 20/.test(tooMany.error ?? '') && padded.ok && (padded.result as { event: { who: string[] } }).event.who.join() === 'story-ana', `Who checks ${JSON.stringify([aPlace, tooMany, padded]).slice(0, 400)}`);
     await runBridgeTool('wh_update_story_event', { worldId: Wid, id, who: ['story-ana'], chapter: 2 });
+    // An order is a position: the chapter's other events move along. Changing chapter without one goes to the end there.
+    const second = await runBridgeTool('wh_add_story_event', { worldId: Wid, x: 60, y: 20, title: 'Second', chapter: 2 });
+    const first = await runBridgeTool('wh_add_story_event', { worldId: Wid, x: 61, y: 20, title: 'First', chapter: 2, order: 0 });
+    const chapterTwo = async () => ((await runBridgeTool('wh_list_story_events', { worldId: Wid })).result as { events: { id: string; title: string; chapter?: number; order?: number }[] }).events.filter((e) => e.chapter === 2);
+    assert(first.ok && second.ok && (await chapterTwo()).map((e) => e.title).join() === 'First,Ambush at the ford,Second', `Placed first ${JSON.stringify(await chapterTwo())}`);
+    const secondId = (second.result as { event: { id: string } }).event.id, firstId = (first.result as { event: { id: string } }).event.id;
+    const toMiddle = await runBridgeTool('wh_update_story_event', { worldId: Wid, id: secondId, order: 1 });
+    assert(toMiddle.ok && (await chapterTwo()).map((e) => e.title).join() === 'First,Second,Ambush at the ford', `Moved to the middle ${JSON.stringify(await chapterTwo())}`);
+    await runBridgeTool('wh_update_story_event', { worldId: Wid, id: firstId, chapter: 7 });
+    const sevenFirst = ((await runBridgeTool('wh_list_story_events', { worldId: Wid })).result as { events: { id: string; order?: number }[] }).events.find((e) => e.id === firstId)!;
+    assert(sevenFirst.order === undefined, `A chapter change without order drops the old place ${JSON.stringify(sevenFirst)}`);
+    await runBridgeTool('wh_remove_story_event', { worldId: Wid, id: firstId });
+    await runBridgeTool('wh_remove_story_event', { worldId: Wid, id: secondId });
     // The story chapter by chapter, with how much of the map the reader knows by each.
     const painted = await runBridgeTool('wh_paint_reader_fog', { worldId: Wid, op: 'seen', chapter: 2, points: [{ x: 40, y: 20 }], radiusCells: 6 });
     assert(painted.ok, `Fog ${JSON.stringify(painted)}`);
@@ -127,8 +153,8 @@ export async function testStoryEvents(): Promise<string[]> {
       'A later record replaces an earlier one by id, removal takes it off, order is by chapter; the reader knows what happened by a chapter',
       'They round-trip, cost only themselves when malformed, never replay the world in a painting session, and draw across the seam',
       'Playback steps through the chapters with events or fog, each with what happens and what is planned',
-      'Events take a place within their chapter (later ones follow) and who was there (validated, tidied)',
-      'Bridge: wh_add/update/remove/list_story_events with validation and knownByChapter, who (real Codex entries, listed by name) and order; wh_story_chapters gives each chapter with the map the reader knows; wh_render_world_map marks them',
+      'Events take a place within their chapter (later ones follow; placing one moves the others along; fresh records re-read) and who was there (validated, tidied)',
+      'Bridge: wh_add/update/remove/list_story_events with validation and knownByChapter, who (real Codex characters and factions, tidied, capped, listed by name) and order as a position (others move along; a chapter change without it goes last); wh_story_chapters gives each chapter with the map the reader knows; wh_render_world_map marks them',
     ];
   } finally {
     await db.worldSnapshots.delete(worldRuntimeKey(Wid));

@@ -269,9 +269,12 @@ export interface MapFeature {
   labelStyle?: MapLabelStyle;
   /** Paths only: how the line is drawn. Unset is the plain route line. */
   pathStyle?: MapPathStyle;
+  /** Paths only: solid, dashed or dotted line; unset follows the path style (a trail is dashed). */
+  linePattern?: MapLinePattern;
 }
 
 export type MapPathStyle = 'road' | 'trail' | 'river';
+export type MapLinePattern = 'solid' | 'dashed' | 'dotted';
 
 export interface MapNamedLayer { id: string; name: string; visible: boolean }
 

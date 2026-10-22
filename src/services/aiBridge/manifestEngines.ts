@@ -764,13 +764,13 @@ Drop a pin on a map. Coordinates are percentages of the image, so x:50 y:50 is d
   },
   {
     name: 'wh_list_map_features', writes: false,
-    description: 'List the regions, routes and labels drawn on a classic map, in drawing order (order 0 is at the back), with points (0-100), colours, outline, pattern, lettering style and, for routes, pathStyle (road, trail or river). When the map has a scale (wh_set_map_scale) each route also gives lengthKm and each region areaKm2, and the result gives widthKm.',
+    description: 'List the regions, routes and labels drawn on a classic map, in drawing order (order 0 is at the back), with points (0-100), colours, outline, pattern, lettering style and, for routes, pathStyle (road, trail or river) and linePattern (solid, dashed, dotted). When the map has a scale (wh_set_map_scale) each route also gives lengthKm and each region areaKm2, and the result gives widthKm.',
     schema: { type: 'object', properties: { mapId: s('Map id.'), aspect: n('Picture height divided by width; only used to measure when the map has no readable image.') }, required: ['mapId'], additionalProperties: false },
   },
   {
     name: 'wh_add_map_feature', writes: true,
     description: `Draw a region (3+ points), route (2+ points) or label (1 point) on a classic map, points in percent of the image (x:50 y:50 is the centre).
-Optional: pathStyle for a route (road, trail or river; not for regions or labels), description, codex link, named layer, fill colour and opacity, outline colour and width, hatch pattern (stripes, stripes-v, stripes-d, dots, crosshatch) and its scale, and lettering (font serif/sans/mono/script, size in % of width, colour, outline and width, bold, italic, rotation). Undo removes it if the shapes have not changed since.`,
+Optional: pathStyle for a route (road, trail or river; not for regions or labels), linePattern for a route (solid, dashed or dotted; thickness is strokeWidth), description, codex link, named layer, fill colour and opacity, outline colour and width, hatch pattern (stripes, stripes-v, stripes-d, dots, crosshatch) and its scale, and lettering (font serif/sans/mono/script, size in % of width, colour, outline and width, bold, italic, rotation). Undo removes it if the shapes have not changed since.`,
     schema: { type: 'object', properties: {
       mapId: s('Map id.'),
       kind: s('Shape kind.', { enum: ['region', 'path', 'label'] }),
@@ -781,6 +781,7 @@ Optional: pathStyle for a route (road, trail or river; not for regions or labels
       layerId: s('Named layer id.'),
       layerIds: { type: 'array', items: { type: 'string' }, description: 'Several named layers; the shape shows while any is visible.' },
       pathStyle: s('Routes only: how the line is drawn.', { enum: ['road', 'trail', 'river'] }),
+      linePattern: s('Routes only: solid, dashed or dotted line (default: as the pathStyle draws it; a trail is dashed). Thickness is strokeWidth.', { enum: ['solid', 'dashed', 'dotted'] }),
       color: s('#rrggbb.'), opacity: n('Fill opacity 0-1.'),
       strokeColor: s('Outline #rrggbb.'), strokeWidth: n('Outline width 0.5-12 px.'),
       pattern: s('Hatch over the fill.', { enum: ['none', 'stripes', 'stripes-v', 'stripes-d', 'dots', 'crosshatch'] }), patternScale: n('Hatch spacing 0.5-4.'),
@@ -789,7 +790,7 @@ Optional: pathStyle for a route (road, trail or river; not for regions or labels
   },
   {
     name: 'wh_update_map_feature', writes: true,
-    description: 'Change a shape on a classic map: only the fields given (name, description, points, link, colours, outline, pattern ("none" removes it), lettering (null resets it), pathStyle of a route (road, trail, river; null removes it; refused on regions and labels)); order front/forward/backward/back moves it in the drawing order. Undo puts the previous shapes back if they have not changed since.',
+    description: 'Change a shape on a classic map: only the fields given (name, description, points, link, colours, outline, pattern ("none" removes it), lettering (null resets it), pathStyle of a route (road, trail, river; null removes it; refused on regions and labels), linePattern of a route (solid, dashed, dotted; null follows the style)); order front/forward/backward/back moves it in the drawing order. Undo puts the previous shapes back if they have not changed since.',
     schema: { type: 'object', properties: {
       mapId: s('Map id.'), id: s('Shape id from wh_list_map_features.'),
       name: s('Name.'), description: s('Notes.'),
@@ -798,6 +799,7 @@ Optional: pathStyle for a route (road, trail or river; not for regions or labels
       layerId: s('Named layer id, or "" for none.'),
       layerIds: { type: 'array', items: { type: 'string' }, description: 'Named layers; the shape shows while any is visible.' },
       pathStyle: { anyOf: [{ type: 'string', enum: ['road', 'trail', 'river'] }, { type: 'null' }], description: 'Routes only: road, trail or river; null removes it.' },
+      linePattern: { anyOf: [{ type: 'string', enum: ['solid', 'dashed', 'dotted'] }, { type: 'null' }], description: 'Routes only: solid, dashed or dotted; null goes back to the pathStyle\'s own.' },
       color: s('#rrggbb.'), opacity: n('Fill opacity 0-1.'),
       strokeColor: s('Outline #rrggbb.'), strokeWidth: n('Outline width 0.5-12 px.'),
       pattern: s('Hatch.', { enum: ['none', 'stripes', 'stripes-v', 'stripes-d', 'dots', 'crosshatch'] }), patternScale: n('Hatch spacing 0.5-4.'),
@@ -1206,7 +1208,7 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
         chapter: { type: 'integer', minimum: 0, description: 'Chapter in which it happens.' },
         status: s('planned or happened (default).', { enum: ['planned', 'happened'] }),
         who: { type: 'array', maxItems: 20, items: { type: 'string' }, description: 'Who was there: Codex entry ids (characters, factions) from wh_list_codex.' },
-        order: { type: 'integer', minimum: 0, description: 'Place within its chapter, from 0; events without it follow in the order they were placed.' },
+        order: { type: 'integer', minimum: 0, maximum: 9999, description: 'Position within its chapter, from 0 (first); the chapter\'s other events move along, past the end puts it last. Without it the event follows in the order it was placed.' },
       },
       required: ['worldId', 'title'],
       additionalProperties: false,
@@ -1230,8 +1232,8 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
         note: s('Note.'),
         chapter: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }], description: 'Chapter, or null for none.' },
         status: s('planned or happened.', { enum: ['planned', 'happened'] }),
-        who: { type: 'array', maxItems: 20, items: { type: 'string' }, description: 'Who was there: the whole list of Codex entry ids (an empty list clears it).' },
-        order: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }], description: 'Place within its chapter, from 0; null goes back to placement order.' },
+        who: { type: 'array', maxItems: 20, items: { type: 'string' }, description: 'Who was there: the whole list of Codex character or faction ids (an empty list clears it).' },
+        order: { anyOf: [{ type: 'integer', minimum: 0, maximum: 9999 }, { type: 'null' }], description: 'Position within its chapter, from 0 (first); the others move along. null goes back to placement order. Changing chapter without it puts the event last in the new chapter.' },
       },
       required: ['worldId', 'id'],
       additionalProperties: false,

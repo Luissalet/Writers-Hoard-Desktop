@@ -51,7 +51,7 @@ export function normalizeStoryEvent(input: unknown): StoryEvent {
   if (raw.note !== undefined && typeof raw.note !== 'string') throw new Error('note must be text.');
   if (raw.chapter !== undefined && !(typeof raw.chapter === 'number' && Number.isInteger(raw.chapter) && raw.chapter >= 0)) throw new Error('chapter must be a whole number from 0 up.');
   if (raw.status !== undefined && !STORY_STATUSES.includes(raw.status as StoryStatus)) throw new Error('status must be planned or happened.');
-  if (raw.order !== undefined && !(typeof raw.order === 'number' && Number.isInteger(raw.order) && raw.order >= 0 && raw.order < 10000)) throw new Error('order must be a whole number from 0 up.');
+  if (raw.order !== undefined && !(typeof raw.order === 'number' && Number.isInteger(raw.order) && raw.order >= 0 && raw.order < 10000)) throw new Error('order must be a whole number from 0 to 9999.');
   if (raw.who !== undefined && !(Array.isArray(raw.who) && raw.who.length <= STORY_WHO_MAX && raw.who.every((id) => typeof id === 'string' && id.trim() && id.length <= 80))) throw new Error(`who must be a list of up to ${STORY_WHO_MAX} Codex entry ids.`);
   const note = typeof raw.note === 'string' ? raw.note.trim().slice(0, STORY_NOTE_MAX) : '';
   const who = Array.isArray(raw.who) ? [...new Set((raw.who as string[]).map((id) => id.trim()))] : [];
@@ -121,13 +121,38 @@ export function storyChapterFrames(events: readonly StoryEvent[], fogChapters: r
 export function reorderInChapter(events: readonly StoryEvent[], id: string, by: -1 | 1): StoryEvent[] {
   const moving = events.find((event) => event.id === id);
   if (!moving) return [];
-  const group = events.filter((event) => (event.chapter ?? null) === (moving.chapter ?? null));
+  const group = chapterGroup(events, moving.chapter);
   const from = group.indexOf(moving), to = from + by;
   if (to < 0 || to >= group.length) return [];
   const next = [...group];
   [next[from], next[to]] = [next[to], next[from]];
   // Every event of the chapter takes its place number, so the order holds whatever was placed later.
   return next.map((event, order) => ({ ...event, order }));
+}
+
+/**
+ * The events of a chapter in their story order. `events` may carry records
+ * written since it was sorted (a move just made), so the order is re-read:
+ * placed in order first, by that order, then the rest as they stand.
+ */
+function chapterGroup(events: readonly StoryEvent[], chapter: number | undefined): StoryEvent[] {
+  return events.map((event, index) => ({ event, index }))
+    .filter(({ event }) => (event.chapter ?? null) === (chapter ?? null))
+    .sort((a, b) => (a.event.order ?? 1e6 + a.index) - (b.event.order ?? 1e6 + b.index) || a.index - b.index)
+    .map(({ event }) => event);
+}
+
+/**
+ * Put an event at a position within its chapter (0 = first; past the end =
+ * last): the others move along, and every event of the chapter is returned
+ * with its new `order`. `events` must include the event as it should be.
+ */
+export function placeInChapter(events: readonly StoryEvent[], id: string, index: number): StoryEvent[] {
+  const moving = events.find((event) => event.id === id);
+  if (!moving) return [];
+  const group = chapterGroup(events, moving.chapter).filter((event) => event.id !== id);
+  group.splice(Math.max(0, Math.min(group.length, Math.floor(index))), 0, moving);
+  return group.map((event, order) => ({ ...event, order }));
 }
 
 /** The chapter after `current` in the playback order (the first one from the start), or null at the end. */

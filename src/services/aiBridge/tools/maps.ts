@@ -269,6 +269,18 @@ function featureLayers(args: ToolArgs, map: import('@/types').WorldMap): { layer
 
 const PATH_STYLES = ['road', 'trail', 'river'] as const satisfies readonly MapPathStyle[];
 
+const LINE_PATTERNS = ['solid', 'dashed', 'dotted'] as const satisfies readonly import('@/types').MapLinePattern[];
+
+/** linePattern from the arguments, like pathStyle: a pattern, null (update only: back to the style's own) or undefined. */
+function linePatternArg(args: ToolArgs, kind: (typeof FEATURE_KINDS)[number], allowNull: boolean): import('@/types').MapLinePattern | null | undefined {
+  if (!('linePattern' in args) || args.linePattern === undefined) return undefined;
+  if (kind !== 'path') throw new BridgeError('bad-args', `linePattern only applies to paths, not to a ${kind}.`);
+  if (args.linePattern === null && allowNull) return null;
+  const pattern = optEnum(args, 'linePattern', LINE_PATTERNS);
+  if (!pattern) throw new BridgeError('bad-args', `linePattern must be solid, dashed or dotted${allowNull ? ' (or null to follow the path style)' : ''}.`);
+  return pattern;
+}
+
 /** pathStyle from the arguments: a style, null (update only: remove it) or undefined when absent. Only paths have one. */
 function pathStyleArg(args: ToolArgs, kind: (typeof FEATURE_KINDS)[number], allowNull: boolean): MapPathStyle | null | undefined {
   if (!('pathStyle' in args) || args.pathStyle === undefined) return undefined;
@@ -325,6 +337,7 @@ export async function whAddMapFeature(args: ToolArgs): Promise<unknown> {
   const layers = featureLayers(args, map);
   const style = await featureStyle(args);
   const pathStyle = pathStyleArg(args, kind, false);
+  const linePattern = linePatternArg(args, kind, false);
   const feature: import('@/types').MapFeature = {
     id: generateId('map-feature'), kind, name, points,
     color: style.color ?? (kind === 'path' ? '#e4a853' : '#d5b575'), opacity: style.opacity ?? 0.22,
@@ -334,6 +347,7 @@ export async function whAddMapFeature(args: ToolArgs): Promise<unknown> {
     ...(style.pattern ? { pattern: style.pattern } : {}), ...(style.patternScale !== undefined ? { patternScale: style.patternScale } : {}),
     ...(style.labelStyle ? { labelStyle: style.labelStyle } : {}),
     ...(pathStyle ? { pathStyle } : {}),
+    ...(linePattern ? { linePattern } : {}),
   };
   return saveFeatures(args, map, [...(map.features ?? []), feature], { id: feature.id, created: true }, `drew ${kind} "${name}" on map "${map.title}"`);
 }
@@ -348,8 +362,10 @@ export async function whUpdateMapFeature(args: ToolArgs): Promise<unknown> {
   if (!current) throw new BridgeError('not-found', `No shape "${id}" on this map; use wh_list_map_features.`);
   const style = await featureStyle(args);
   const pathStyle = pathStyleArg(args, current.kind, true);
+  const linePattern = linePatternArg(args, current.kind, true);
   const next: import('@/types').MapFeature = { ...current, ...style };
   if (pathStyle === null) delete next.pathStyle; else if (pathStyle) next.pathStyle = pathStyle;
+  if (linePattern === null) delete next.linePattern; else if (linePattern) next.linePattern = linePattern;
   // Lettering merges field by field, like the rest: setting the size keeps the italic.
   if (style.labelStyle) next.labelStyle = { ...current.labelStyle, ...style.labelStyle };
   if (args.pattern === 'none' || args.pattern === null) delete next.pattern;

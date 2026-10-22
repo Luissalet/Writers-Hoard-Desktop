@@ -132,9 +132,22 @@ export const MAP_PATH_STYLES = ['road', 'trail', 'river'] as const;
  * trail is dashed, a river has a soft bank of its own colour under it. A plain
  * route (no style) is drawn as before.
  */
-export function pathLook(style: MapFeature['pathStyle'], color: string, width: number): { under?: { color: string; width: number; opacity: number }; dash?: string } {
-  if (style === 'road') return { under: { color: '#2b2620', width: width + 2.5, opacity: .85 } };
-  if (style === 'trail') return { dash: `${Math.max(3, width * 2)} ${Math.max(3, width * 1.6)}` };
-  if (style === 'river') return { under: { color, width: width + 4, opacity: .28 } };
-  return {};
+export const MAP_LINE_PATTERNS = ['solid', 'dashed', 'dotted'] as const;
+
+/** The dash for a line pattern at a width (dots are zero-length dashes with round caps). */
+export function lineDash(pattern: MapFeature['linePattern'], width: number): string | undefined {
+  if (pattern === 'dashed') return `${Math.max(3, width * 2)} ${Math.max(3, width * 1.6)}`;
+  if (pattern === 'dotted') return `0 ${Math.max(3, width * 2)}`;
+  return undefined;
+}
+
+export function pathLook(style: MapFeature['pathStyle'], color: string, width: number, pattern?: MapFeature['linePattern']): { under?: { color: string; width: number; opacity: number }; dash?: string } {
+  const look: { under?: { color: string; width: number; opacity: number }; dash?: string } =
+    style === 'road' ? { under: { color: '#2b2620', width: width + 2.5, opacity: .85 } }
+      : style === 'trail' ? { dash: lineDash('dashed', width) }
+        : style === 'river' ? { under: { color, width: width + 4, opacity: .28 } }
+          : {};
+  // A chosen pattern wins over the style's own (a solid trail, a dotted road).
+  if (pattern) look.dash = lineDash(pattern, width);
+  return look;
 }

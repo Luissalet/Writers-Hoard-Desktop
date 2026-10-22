@@ -2,6 +2,8 @@ import { db } from '@/db';
 import type { MapFeature, MapPin, Project } from '@/types';
 import { areaKm2, distanceKm, lineLengthKm, matchMapKey, parseMapKey, pinKey, pictureAspect, validWidthKm, widthFromKnownDistance } from '@/components/maps/mapScale';
 import { runBridgeTool, type BridgeReply } from '@/services/aiBridge/dispatch';
+import { exportMapSvg } from '@/components/maps/mapGeometry';
+import { lineDash, pathLook } from '@/components/maps/mapStyle';
 
 function assert(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps;
@@ -167,6 +169,26 @@ export async function testMapScale(): Promise<string[]> {
     const removeStyle = await runBridgeTool('wh_update_map_feature', { mapId: M, id: idOf(road), pathStyle: null });
     assert(removeStyle.ok && (await db.worldMaps.get(M))!.features!.find(f => f.id === idOf(road))!.pathStyle === undefined, 'pathStyle null removes it');
 
+    // --- linePattern: solid / dashed / dotted, over the style's own dash.
+    assert(lineDash('dotted', 2) === '0 4' && lineDash('dashed', 2) === '4 3.2' && lineDash('solid', 2) === undefined && lineDash(undefined, 2) === undefined, 'Line dashes');
+    assert(pathLook('trail', '#fff', 2).dash === '4 3.2' && pathLook('trail', '#fff', 2, 'solid').dash === undefined && pathLook('road', '#fff', 2, 'dotted').dash === '0 4' && !!pathLook('road', '#fff', 2, 'dotted').under, 'A pattern wins over the style and keeps its casing');
+    bad(await runBridgeTool('wh_add_map_feature', { mapId: M, kind: 'region', name: 'Mal', points: square, linePattern: 'dotted' }), /only applies to paths/, 'linePattern on a region');
+    bad(await runBridgeTool('wh_add_map_feature', { mapId: M, kind: 'path', name: 'Mal', points: [{ x: 1, y: 1 }, { x: 2, y: 2 }], linePattern: 'wavy' }), /solid, dashed or dotted/, 'unknown linePattern');
+    bad(await runBridgeTool('wh_add_map_feature', { mapId: M, kind: 'path', name: 'Mal', points: [{ x: 1, y: 1 }, { x: 2, y: 2 }], linePattern: null }), /solid, dashed or dotted/, 'null linePattern on add');
+    bad(await runBridgeTool('wh_update_map_feature', { mapId: M, id: idOf(label), linePattern: 'dashed' }), /only applies to paths/, 'update linePattern on a label');
+    const dotted = await runBridgeTool('wh_add_map_feature', { mapId: M, kind: 'path', name: 'Vereda', points: [{ x: 5, y: 5 }, { x: 25, y: 5 }], pathStyle: 'road', linePattern: 'dotted', strokeWidth: 4 });
+    const dottedRow = () => db.worldMaps.get(M).then(row => row!.features!.find(f => f.id === idOf(dotted))!);
+    assert(dotted.ok && (await dottedRow()).linePattern === 'dotted' && (await dottedRow()).strokeWidth === 4, 'Add with linePattern and width');
+    const listedPattern = ((await runBridgeTool('wh_list_map_features', { mapId: M })).result as { features: MapFeature[] }).features.find(f => f.id === idOf(dotted))!;
+    assert(listedPattern.linePattern === 'dotted', 'Listed linePattern');
+    const svg = exportMapSvg('', 400, 200, [await dottedRow()], [], { pins: true, region: true, path: true, label: true });
+    assert(svg.includes('stroke-dasharray="0 8"') && svg.includes('stroke-width="4"'), `SVG export draws the dots: ${svg.slice(0, 400)}`);
+    const toDashed = await runBridgeTool('wh_update_map_feature', { mapId: M, id: idOf(dotted), linePattern: 'dashed' });
+    assert(toDashed.ok && (await dottedRow()).linePattern === 'dashed', 'Update linePattern');
+    assert((await undo('wh_update_map_feature', toDashed)).ok && (await dottedRow()).linePattern === 'dotted', 'Undo restores the previous linePattern');
+    const followStyle = await runBridgeTool('wh_update_map_feature', { mapId: M, id: idOf(dotted), linePattern: null });
+    assert(followStyle.ok && (await dottedRow()).linePattern === undefined && (await dottedRow()).pathStyle === 'road', 'linePattern null follows the style again');
+
     // --- wh_name_map_pins_from_key.
     const pin = (id: string, name: string): MapPin => ({ id, projectId: P, mapId: M, name, icon: 'city', position: { x: 10, y: 10 } });
     await db.mapPins.bulkPut([pin('k-a', 'A'), pin('k-b', 'b.'), pin('k-3', '(3)'), pin('k-faro', 'Faro')]);
@@ -214,6 +236,7 @@ export async function testMapScale(): Promise<string[]> {
       'wh_set_map_scale: widthKm, knownDistance (aspect read from a real 400x200 PNG, or given when there is no image) and clear; refuses out-of-range, both arguments, equal points, no image without aspect, maps switched off; undo restores and refuses after a later change',
       'wh_measure_map: lines, routes and regions with km, perimeter, area and travel estimates; refuses an unscaled map, an unknown featureId, a label, bad points',
       'wh_list_map_features gives lengthKm, areaKm2 and pathStyle; wh_list_maps gives widthKm; pathStyle road/trail/river on add and update (null removes), refused on regions and labels, undone with the shapes',
+      'linePattern solid/dashed/dotted over the path style (casing kept): add, list, update, undo, null back to the style, refused on regions/labels and unknown values; the SVG export draws the dots',
       'wh_name_map_pins_from_key: dry run, rename, unmatched lines, nothing to do writes nothing; undo restores each name only where it still carries the new one',
     ];
   } finally {

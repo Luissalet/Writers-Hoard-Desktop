@@ -98,6 +98,44 @@ async function main() {
   let marker; for (let i = 0; i < 50; i++) { marker = await js(`(()=>{const m=document.querySelector('[data-testid="map-pin-marker-harbour"]');const r=m.getBoundingClientRect();return {size:m.dataset.size,w:r.width,icon:!!m.querySelector('svg')};})()`); if (marker.size === 'L' && !marker.icon) break; await pause(100); }
   assert(marker.size === 'L' && marker.w >= at.w * 1.3 && !marker.icon, `Marker ${JSON.stringify(marker)} (M was ${at.w})`);
   tests.push(`Puerto del Viento: size L and no icon, saved and drawn (dot ${Math.round(marker.w)} px against ${Math.round(at.w)} px at M on the zoomed map)`);
+  // Drawing a route from the keyboard: clicks add points, Backspace takes the last back, Enter finishes; Escape cancels.
+  const key = async code => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: code }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: code }); await pause(150); };
+  const featureCount = async () => (await map()).features.length;
+  const canvasAt = (fx, fy) => js(`(()=>{const c=document.querySelector('[data-testid="map-feature-canvas"]');c.scrollIntoView({block:'center'});const r=c.getBoundingClientRect();return {x:Math.round(r.x+r.width*${fx}),y:Math.round(r.y+r.height*${fy})};})()`);
+  const clickAt = async p => { win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y }); await pause(30); win.webContents.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1 }); await pause(30); win.webContents.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'left', clickCount: 1 }); await pause(120); };
+  const shapes0 = await featureCount();
+  await byId('map-tool-path'); await pause(200);
+  await canvasAt(.5, .5); await pause(300);
+  for (const [fx, fy] of [[.2, .7], [.45, .62], [.7, .66]]) await clickAt(await canvasAt(fx, fy));
+  await wait(`/\(3\)/.test(document.querySelector('[data-testid="map-feature-finish"]')?.textContent)`, 'three points down');
+  await js(`document.activeElement?.blur?.()`);
+  await key('Backspace');
+  await wait(`/\(2\)/.test(document.querySelector('[data-testid="map-feature-finish"]')?.textContent)`, 'Backspace took a point back');
+  await key('Enter');
+  let shapes; for (let i = 0; i < 50; i++) { shapes = (await map()).features; if (shapes.length === shapes0 + 1) break; await pause(100); }
+  const route = shapes[shapes.length - 1];
+  assert(shapes.length === shapes0 + 1 && route.kind === 'path' && route.points.length === 2, `Enter finished the route: ${JSON.stringify(route)}`);
+  tests.push('Drawing a route: three clicks, Backspace takes the last point back, Enter finishes it with two points and saves it');
+  // Its line: dotted and 6 px thick, saved and drawn as dots.
+  await wait(`document.querySelector('[data-testid="map-feature-line-pattern"]')`, 'line pattern control');
+  await set('map-feature-line-pattern', 'dotted', 'HTMLSelectElement', 'change');
+  await set('map-feature-stroke-width', 6);
+  await pause(150); await byId('map-feature-save');
+  let dotted; for (let i = 0; i < 50; i++) { dotted = (await map()).features.find(f => f.id === route.id); if (dotted.linePattern === 'dotted' && dotted.strokeWidth === 6) break; await pause(100); }
+  assert(dotted.linePattern === 'dotted' && dotted.strokeWidth === 6, `Saved pattern ${JSON.stringify(dotted)}`);
+  const dash = await js(`document.querySelector('[data-feature-id="${route.id}"] [data-line-pattern="dotted"]')?.getAttribute('stroke-dasharray')`);
+  assert(/^0 \d/.test(dash || ''), `Drawn as dots: ${dash}`);
+  tests.push(`The new route set to a dotted line 6 px thick is saved and drawn as dots (dash "${dash}")`);
+  await js(`document.querySelector('[data-feature-id="${route.id}"]').scrollIntoView({block:'center'})`); await pause(300);
+  win.webContents.invalidate(); await pause(200); await win.webContents.capturePage();
+  fs.writeFileSync(path.join(evidence, 'map-style-dotted-route-1520.png'), (await win.webContents.capturePage()).toPNG());
+  await byId('map-tool-path'); await pause(200);
+  await clickAt(await canvasAt(.3, .3));
+  await wait(`/\(1\)/.test(document.querySelector('[data-testid="map-feature-finish"]')?.textContent)`, 'one point');
+  await key('Escape');
+  await wait(`!document.querySelector('[data-testid="map-feature-finish"]')`, 'Escape ended the drawing');
+  assert(await featureCount() === shapes0 + 1, 'Escape should not have saved a shape');
+  tests.push('Escape cancels a route being drawn and saves nothing');
   await js('window.scrollTo(0,0)'); await pause(300);
   fs.writeFileSync(path.join(evidence, 'map-style-map-1520.png'), (await win.webContents.capturePage()).toPNG());
   for (const test of tests) console.log(`PASS ${test}`);
