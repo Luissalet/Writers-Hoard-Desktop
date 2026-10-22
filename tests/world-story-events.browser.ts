@@ -6,7 +6,7 @@ import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
 import { deserializeEdits, serializeEdits, type WorldEdit } from '@/engines/worldgen/core/edits';
-import { normalizeStoryEvent, storyEventsFrom, storyKnownBy } from '@/engines/worldgen/core/storyEvents';
+import { nextStoryChapter, normalizeStoryEvent, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy } from '@/engines/worldgen/core/storyEvents';
 import { PaintSession } from '@/engines/worldgen/core/paintSession';
 import { drawAnnotations } from '@/engines/worldgen/cartography/annotations';
 import { runBridgeTool } from '@/services/aiBridge/dispatch';
@@ -37,6 +37,11 @@ export async function testStoryEvents(): Promise<string[]> {
     const events = storyEventsFrom(edits);
     assert(events.map((e) => e.id).join() === 'b,c,a,d' && events[2].title === 'Meet again' && events[2].x === 9, `Events ${JSON.stringify(events.map((e) => [e.id, e.title]))}`);
     assert(storyKnownBy(events, 2).map((e) => e.id).join() === 'b,d' && storyKnownBy(events, null).map((e) => e.id).join() === 'b,a,d', 'Known by chapter');
+    // Playback frames: chapters with events or fog, in order, with what happens and what is planned.
+    const frames = storyChapterFrames(events, [4, 1]);
+    assert(frames.map((f) => f.chapter).join() === '1,2,3,4' && frames[0].happened.map((e) => e.id).join() === 'b' && frames[1].planned.map((e) => e.id).join() === 'c' && !frames[1].happened.length && !frames[3].happened.length, `Frames ${JSON.stringify(frames)}`);
+    const order = frames.map((f) => f.chapter);
+    assert(nextStoryChapter(order, null) === 1 && nextStoryChapter(order, 2) === 3 && nextStoryChapter(order, 4) === null && nextStoryChapter([], null) === null && previousStoryChapter(order, 3) === 2 && previousStoryChapter(order, 1) === null && nextStoryChapter(order, 2.5) === 3, 'Chapter stepping');
     // Storage: round-trip; a malformed record costs only itself.
     const back = deserializeEdits(serializeEdits(edits));
     assert(storyEventsFrom(back).length === 4, 'Round trip');
@@ -79,6 +84,12 @@ export async function testStoryEvents(): Promise<string[]> {
     assert(moved.ok && ev.x === 50.5 && ev.note === 'Two dead' && ev.chapter === undefined, `Update ${JSON.stringify(ev)}`);
     const known = (await runBridgeTool('wh_list_story_events', { worldId: Wid, knownByChapter: 9 })).result as { events: unknown[] };
     assert(known.events.length === 1, 'knownByChapter should leave out the planned council');
+    // The story chapter by chapter, with how much of the map the reader knows by each.
+    const painted = await runBridgeTool('wh_paint_reader_fog', { worldId: Wid, op: 'seen', chapter: 2, points: [{ x: 40, y: 20 }], radiusCells: 6 });
+    assert(painted.ok, `Fog ${JSON.stringify(painted)}`);
+    const chapters = await runBridgeTool('wh_story_chapters', { worldId: Wid });
+    const frameList = (chapters.result as { chapters: { chapter: number; happened: { id: string }[]; planned: { title: string }[]; map: { seen: number; hidden: number } }[] }).chapters;
+    assert(chapters.ok && frameList.map((f) => f.chapter).join() === '2,5' && frameList[1].planned[0].title === 'The council' && frameList[0].map.seen > 0 && frameList[0].map.hidden < 1, `Chapters ${JSON.stringify(chapters)}`);
     const marked = await runBridgeTool('wh_render_world_map', { worldId: Wid, width: 256, storyEvents: true });
     assert(marked.ok && (marked.result as { dataUrl: string }).dataUrl !== (plain.result as { dataUrl: string }).dataUrl, 'Render ignored the story events');
     const missing = await runBridgeTool('wh_remove_story_event', { worldId: Wid, id: 'nope' });
@@ -89,7 +100,8 @@ export async function testStoryEvents(): Promise<string[]> {
       'Story events validate kind, title, chapter and position; bad ones are refused',
       'A later record replaces an earlier one by id, removal takes it off, order is by chapter; the reader knows what happened by a chapter',
       'They round-trip, cost only themselves when malformed, never replay the world in a painting session, and draw across the seam',
-      'Bridge: wh_add/update/remove/list_story_events with validation and knownByChapter; wh_render_world_map marks them',
+      'Playback steps through the chapters with events or fog, each with what happens and what is planned',
+      'Bridge: wh_add/update/remove/list_story_events with validation and knownByChapter; wh_story_chapters gives each chapter with the map the reader knows; wh_render_world_map marks them',
     ];
   } finally {
     await db.worldSnapshots.delete(worldRuntimeKey(Wid));

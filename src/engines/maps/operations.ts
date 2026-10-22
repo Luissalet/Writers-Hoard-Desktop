@@ -126,7 +126,8 @@ export function changeMapGround(mapId: string, input: ChangeGroundInput, scope?:
       // Comments at a spot move with the picture like pins do.
       for (const note of await mapPointNotes(mapId, scope)) {
         const before = { x: note.anchor.x!, y: note.anchor.y! }, after = remapPoint(before, input.oldSize!, input.newSize, 'keep');
-        await db.annotations.update(note.id, { anchor: { ...note.anchor, ...after } });
+        // A new revision, so an older move's undo receipt no longer applies to the new picture.
+        await db.annotations.update(note.id, { anchor: { ...note.anchor, ...after }, revision: (note.revision ?? 0) + 1, updatedAt: Math.max(Date.now(), note.updatedAt + 1) });
         notes.push({ id: note.id, before, after });
       }
     }
@@ -162,7 +163,7 @@ export function undoMapGround(receipt: GroundChangeReceipt, scope?: WorldEraScop
     // Comments go back only where nobody has moved them since; one deleted meanwhile is simply gone.
     for (const note of receipt.notes ?? []) {
       const row = await db.annotations.get(note.id);
-      if (row?.anchor.type === 'map_point' && row.anchor.x === note.after.x && row.anchor.y === note.after.y) await db.annotations.update(note.id, { anchor: { ...row.anchor, ...note.before } });
+      if (row?.anchor.type === 'map_point' && row.anchor.x === note.after.x && row.anchor.y === note.after.y) await db.annotations.update(note.id, { anchor: { ...row.anchor, ...note.before }, revision: (row.revision ?? 0) + 1, updatedAt: Math.max(Date.now(), row.updatedAt + 1) });
     }
     const before = new Map((version?.pins ?? []).map(pin => [pin.id, pin.position]));
     const restore = pins.filter(pin => before.has(pin.id));

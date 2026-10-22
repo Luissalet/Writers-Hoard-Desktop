@@ -83,6 +83,37 @@ export function storyKnownBy(events: readonly StoryEvent[], chapter: number | nu
     && (chapter === null || event.chapter === undefined || event.chapter <= chapter));
 }
 
+/** One step of the story's playback: what happens in that chapter, and what is still only planned for it. */
+export interface StoryChapterFrame { chapter: number; happened: StoryEvent[]; planned: StoryEvent[] }
+
+/**
+ * The chapters the story can be played through, in order: those with events
+ * and those the reader's fog was painted for (`fogChapters`), each with its
+ * events.
+ */
+export function storyChapterFrames(events: readonly StoryEvent[], fogChapters: readonly number[] = []): StoryChapterFrame[] {
+  const chapters = [...new Set([...fogChapters, ...events.flatMap((event) => event.chapter === undefined ? [] : [event.chapter])])].sort((a, b) => a - b);
+  return chapters.map((chapter) => ({
+    chapter,
+    happened: events.filter((event) => event.chapter === chapter && event.status === 'happened'),
+    planned: events.filter((event) => event.chapter === chapter && event.status === 'planned'),
+  }));
+}
+
+/** The chapter after `current` in the playback order (the first one from the start), or null at the end. */
+export function nextStoryChapter(chapters: readonly number[], current: number | null): number | null {
+  if (!chapters.length) return null;
+  if (current === null) return chapters[0];
+  return chapters.find((chapter) => chapter > current) ?? null;
+}
+
+/** The chapter before `current`, or null before the first. */
+export function previousStoryChapter(chapters: readonly number[], current: number | null): number | null {
+  if (current === null) return null;
+  const earlier = chapters.filter((chapter) => chapter < current);
+  return earlier.length ? earlier[earlier.length - 1] : null;
+}
+
 /** A fresh id for a new event. */
 export function newStoryId(): string {
   const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);

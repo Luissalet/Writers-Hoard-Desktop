@@ -35,7 +35,8 @@ their document-specific editors and exports. Generated worlds keep their look, s
 blank if wanted, measure areas against real outlines, plan journeys with the
 world's own pace and travel physics, and carry editable labels (angle, spacing,
 curve), 32 map stamps, a square or hex play grid, a reader's-eye fog that
-reveals the map chapter by chapter, story events placed by chapter and a
+reveals the map chapter by chapter, story events placed by chapter and played
+back chapter by chapter, and a
 month-by-month trade lens (sites, shortages, prices, shipments); classic image
 maps carry styled shapes (outline, hatch, lettering, drawing order, several
 layers), pin sizes, a searchable Codex link that can create the entry, a

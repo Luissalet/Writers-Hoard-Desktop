@@ -1847,8 +1847,11 @@ deshecho.
   `note`, `chapter`, `status` planned/happened), `wh_update_story_event` (sólo
   los campos dados; `chapter: null` lo desata), `wh_remove_story_event` y
   `wh_list_story_events` (orden por capítulo; `knownByChapter` deja lo que el
-  lector sabe). `wh_render_world_map` los marca con `storyEvents: true`, y con
-  `readerView` marca los ocurridos hasta su capítulo.
+  lector sabe). `wh_story_chapters` da la historia capítulo a capítulo (lo que
+  ocurre, lo planeado y cuánto del mapa ha visto u oído el lector al final de
+  cada uno), como la reproduce la vista del lector. `wh_render_world_map` los
+  marca con `storyEvents: true`, y con `readerView` marca los ocurridos hasta su
+  capítulo.
 - **Comercio.** `wh_world_economy` (mes 1..240: quién come, quién se queda sin
   qué y cuándo, precios frente a lo normal, envíos por tierra y mar, mercancías
   que nadie produce; `place` para el detalle de una población; determinista),

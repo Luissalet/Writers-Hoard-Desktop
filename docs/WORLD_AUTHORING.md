@@ -147,7 +147,10 @@ and planned or happened; a click places the next one, picking one edits it in
 the inspector (title and note are saved when the field is left), dragging moves
 it, and the list shows the story so far by chapter. The Reader's view marks the
 events that have happened by its chapter and hides the planned route, journey
-pins, banner and other author marks. The Carta PNG export carries the events
+pins, banner and other author marks. Its Previous, Play and Next buttons step
+through the chapters that have events or fog: the map follows what happens in
+each and a caption names it; playing advances a chapter every few seconds and
+stops at the last. The Carta PNG export carries the events
 shown on screen: those known by the chapter in the Reader's view, all of them
 while the Events tool is out, none otherwise. In the curved projections (Robinson,
 Mollweide, azimuthal) the atlas draws the fog and events through the

@@ -1240,6 +1240,14 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Event id from wh_list_story_events.') }, required: ['worldId', 'id'], additionalProperties: false },
   },
   {
+    name: 'wh_story_chapters',
+    description:
+      `A world's story chapter by chapter: what happens, what is planned and how much of the map the reader knows.
+The story of a world chapter by chapter, the way the reader's view plays it: for each chapter with events or fog strokes, what happens there, what is only planned, and how much of the map the reader has seen, heard of or not reached by its end. Use it to tell what changes from one chapter to the next before describing a place or a journey.`,
+    writes: false,
+    schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_story_events',
     description:
       `List a world's story events in chapter order: id, kind, title, note, chapter, planned/happened and position in world cells. knownByChapter keeps only what the reader knows by then (happened, in or before it).`,

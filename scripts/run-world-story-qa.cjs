@@ -130,6 +130,22 @@ async function main() {
   assert(councilCh5 > 20, `Up to chapter 5 the council should show (${councilCh5})`);
   tests.push(`Reader's view: chapters 2 and 5 are offered; up to chapter 2 the reader sees the ambush and not the council, up to 5 both (over the blank paper)`);
   fs.writeFileSync(path.join(evidence, 'story-reader-ch5-1440.png'), (await win.webContents.capturePage()).toPNG());
+  // Playing the story: the caption names what happens in each chapter; previous/next step, play advances and stops at the end.
+  const caption = () => js(`(()=>{const c=document.querySelector('[data-testid="worldgen-reader-caption"]');return c?{chapter:+c.dataset.chapter,text:c.textContent}:null;})()`);
+  const at5 = await caption();
+  assert(at5 && at5.chapter === 5 && /Cap[ií]tulo 5/.test(at5.text) && /consejo/i.test(at5.text), `Caption at 5 ${JSON.stringify(at5)}`);
+  assert(await js(`document.querySelector('[data-testid="worldgen-reader-next"]').disabled`), 'Next should be off at the last chapter');
+  await byId('worldgen-reader-prev'); await settle();
+  const at2 = await caption();
+  // Stepping follows the story, so the map moves: check the chapter through the caption.
+  assert(at2 && at2.chapter === 2 && /Emboscada/.test(at2.text) && !/consejo/i.test(at2.text), `Previous to 2 ${JSON.stringify(at2)}`);
+  await byId('worldgen-reader-play');
+  assert(await js(`document.querySelector('[data-testid="worldgen-reader-play"]').getAttribute('aria-pressed')==='true'`), 'Play pressed');
+  await wait(`document.querySelector('[data-testid="worldgen-reader-caption"]')?.dataset.chapter==='5'`, 'playback reaches chapter 5', 120);
+  await wait(`document.querySelector('[data-testid="worldgen-reader-play"]').getAttribute('aria-pressed')==='false'`, 'playback stops at the end', 120);
+  await settle();
+  tests.push(`Playing the story: the caption reads "${at5.text.trim()}" at chapter 5; Previous goes to chapter 2 (ambush only); Play advances to 5 on its own and stops at the end`);
+  fs.writeFileSync(path.join(evidence, 'story-reader-play-1440.png'), (await win.webContents.capturePage()).toPNG());
   await click('Carta'); await pause(3500);
   fs.writeFileSync(path.join(evidence, 'story-reader-carta-1440.png'), (await win.webContents.capturePage()).toPNG());
   await js(`document.querySelector('[data-testid="worldgen-reader-toggle"]').click()`); await pause(300);

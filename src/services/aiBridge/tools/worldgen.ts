@@ -1174,6 +1174,29 @@ export async function whReaderView(args: ToolArgs): Promise<unknown> {
 // Story events on the map
 // ---------------------------------------------------------------------------
 
+/**
+ * The story chapter by chapter, as the reader's-view playback steps through
+ * it: what happens and what is planned in each chapter, and how much of the
+ * map the reader has seen or heard of by its end.
+ */
+export async function whStoryChapters(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const size = worldSize(world);
+  const { storyEventsFrom, storyChapterFrames } = await import('@/engines/worldgen/core/storyEvents');
+  const { fogMask, fogShares, fogChapters } = await import('@/engines/worldgen/core/readerFog');
+  const { resolvePresentation } = await import('@/engines/worldgen/presentation');
+  const edits = deserializeEdits(world.edits ?? '[]');
+  const fog = edits.filter((edit) => edit.kind === 'fog');
+  const start = resolvePresentation(world.presentation).readerStart;
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  const brief = (event: { id: string; type: string; title: string; x: number; y: number }) => ({ id: event.id, type: event.type, title: event.title, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10 });
+  const frames = storyChapterFrames(storyEventsFrom(edits), fogChapters(fog)).map((frame) => {
+    const shares = fogShares(fogMask(fog, size.width, size.height, start, frame.chapter));
+    return { chapter: frame.chapter, happened: frame.happened.map(brief), planned: frame.planned.map(brief), map: { seen: round(shares.seen), heard: round(shares.heard), hidden: round(shares.hidden) } };
+  });
+  return { worldId: world.id, readerStart: start, chapters: frames };
+}
+
 async function storyModule() { return import('@/engines/worldgen/core/storyEvents'); }
 
 /** Where an event goes: a place key or world cells (cell centre). */
