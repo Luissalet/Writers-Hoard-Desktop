@@ -9,7 +9,7 @@ const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString();
  * The trade lens: month by month, who is fed and who will go short, what goods
  * cost against the usual, what is on the move, and where goods are made.
  */
-export default function TradePanel({ places, sites, snapshots, month, onMonth, placing, onPlacing, onRemoveSite, onFocus }: {
+export default function TradePanel({ places, sites, snapshots, month, onMonth, placing, onPlacing, onRemoveSite, onFocus, removedSites = [], onRestoreSite }: {
   places: EconomyPlace[];
   sites: TradeSite[];
   snapshots: EconomySnapshot[];
@@ -19,6 +19,9 @@ export default function TradePanel({ places, sites, snapshots, month, onMonth, p
   onPlacing: (placing: { kind: SiteKind; size: SiteSize } | null) => void;
   onRemoveSite: (id: string) => void;
   onFocus: (x: number, y: number) => void;
+  /** Ids of generated sites switched off, and a way to switch one back on. */
+  removedSites?: string[];
+  onRestoreSite?: (id: string) => void;
 }) {
   const { t } = useTranslation();
   const [view, setView] = useState<'places' | 'goods' | 'sites'>('places');
@@ -87,6 +90,7 @@ export default function TradePanel({ places, sites, snapshots, month, onMonth, p
                 {(short.length > 0 || dear.length > 0 || !p.fed) && (
                   <span className="text-[10px] text-white/55">
                     {!p.fed && <span className="text-red-300">{t('worldgen.trade.hungry')} · </span>}
+                    {p.fed && Object.keys(p.eatenInstead).length > 0 && <span className="text-amber-200">{t('worldgen.trade.eatsInstead').replace('{goods}', (Object.keys(p.eatenInstead) as Good[]).map(goodName).join(', '))} · </span>}
                     {short.map(([good, months]) => (months < 1 ? t('worldgen.trade.outOf').replace('{good}', goodName(good)) : t('worldgen.trade.shortIn').replace('{good}', goodName(good)).replace('{n}', fmt(months)))).join(' · ')}
                     {short.length > 0 && dear.length > 0 ? ' · ' : ''}
                     {dear.map((good) => t('worldgen.trade.dear').replace('{good}', goodName(good)).replace('{x}', fmt(p.price[good]))).join(' · ')}
@@ -140,6 +144,21 @@ export default function TradePanel({ places, sites, snapshots, month, onMonth, p
               : t('worldgen.trade.sitesOf').replace('{place}', byId.get(placeId)?.name ?? '')}
             {placeId !== null && <button type="button" onClick={() => setPlaceId(null)} className="ml-1 underline">{t('worldgen.trade.showYours')}</button>}
           </span>
+          {placeId !== null && (() => {
+            const place = byId.get(placeId);
+            const prefix = place ? `auto:${Math.floor(place.x)},${Math.floor(place.y)}:` : null;
+            const off = prefix ? removedSites.filter((id) => id.startsWith(prefix)) : [];
+            return off.length > 0 && (
+              <div className="rounded bg-white/[0.04] px-1.5 py-1 text-[10px] text-white/55" data-testid="trade-removed">
+                {t('worldgen.trade.switchedOff').replace('{n}', String(off.length))}
+                {off.map((id) => (
+                  <button key={id} type="button" data-testid={`trade-restore-${id}`} onClick={() => onRestoreSite?.(id)} className="ml-2 underline">
+                    {t(`worldgen.trade.site.${id.split(':')[2]}`)} · {t('worldgen.trade.restore')}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {shownSites.map((site) => (
             <div key={site.id} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-white/10" data-testid={`trade-site-${site.id}`}>
               <span className="inline-block h-2 w-2 rotate-45" style={{ background: SITE_COLORS[site.kind] }} />

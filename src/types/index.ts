@@ -232,6 +232,21 @@ export interface TimelineConnection {
 export interface MapPoint { x: number; y: number }
 
 /** Coordinates are percentages of the source image, independent of zoom. */
+/** How a map shape's name is lettered (components/maps/mapStyle.ts). Absent fields keep the old look. */
+export interface MapLabelStyle {
+  font?: 'serif' | 'sans' | 'mono' | 'script';
+  /** In map units: 1 = 1% of the map's width. Default 1.8. */
+  size?: number;
+  color?: string;
+  outline?: string;
+  /** Outline width in screen pixels. Default 3. */
+  outlineWidth?: number;
+  bold?: boolean;
+  italic?: boolean;
+  /** Degrees, clockwise. */
+  rotation?: number;
+}
+
 export interface MapFeature {
   id: string;
   kind: 'region' | 'path' | 'label';
@@ -242,6 +257,16 @@ export interface MapFeature {
   opacity?: number;
   linkedEntryId?: string;
   layerId?: string;
+  /** Every named layer the shape belongs to (it shows while any is visible); `layerId` stays the first, for older readers. */
+  layerIds?: string[];
+  /** Outline colour and width (screen pixels); absent = the shape's colour, 2 px (3 for routes). */
+  strokeColor?: string;
+  strokeWidth?: number;
+  /** A hatch over a region's fill. */
+  pattern?: 'stripes' | 'stripes-v' | 'stripes-d' | 'dots' | 'crosshatch';
+  /** Spacing of the hatch, 0.5–4 (1 = default). */
+  patternScale?: number;
+  labelStyle?: MapLabelStyle;
 }
 
 export interface MapNamedLayer { id: string; name: string; visible: boolean }
@@ -300,9 +325,15 @@ export interface MapPin {
   position: { x: number; y: number };
   linkedEntryId?: string;
   layerId?: string;
+  /** Every named layer the pin belongs to; see MapFeature.layerIds. */
+  layerIds?: string[];
   /** Present when this pin mirrors a Worldgen waypoint. */
   sourceWaypointId?: string;
   description?: string;
+  /** Marker size; absent = M. */
+  size?: 'S' | 'M' | 'L';
+  /** Show only a dot, without the icon. */
+  hideIcon?: boolean;
 }
 
 // Gallery

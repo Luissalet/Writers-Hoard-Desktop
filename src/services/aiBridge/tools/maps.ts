@@ -29,6 +29,20 @@ const ICONS = [
   'ruins', 'temple', 'village', 'cave', 'custom',
 ] as const satisfies readonly MapPin['icon'][];
 
+/** Marker size and icon visibility from the arguments, validated. */
+function pinLook(args: ToolArgs): Pick<MapPin, 'size' | 'hideIcon'> {
+  const out: Pick<MapPin, 'size' | 'hideIcon'> = {};
+  if (args.size !== undefined) {
+    if (args.size !== 'S' && args.size !== 'M' && args.size !== 'L') throw new BridgeError('bad-args', 'size must be S, M or L.');
+    out.size = args.size;
+  }
+  if (args.hideIcon !== undefined) {
+    if (typeof args.hideIcon !== 'boolean') throw new BridgeError('bad-args', 'hideIcon must be true or false.');
+    out.hideIcon = args.hideIcon;
+  }
+  return out;
+}
+
 function clampPercent(value: number | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   return Math.max(0, Math.min(100, value));
@@ -81,6 +95,7 @@ export async function whAddMapPin(args: ToolArgs): Promise<unknown> {
     },
     linkedEntryId,
     description: optString(args, 'description'),
+    ...pinLook(args),
   };
   await mapPinOps.create(pin);
   return withAudit(
@@ -113,6 +128,7 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
     await checkEraLinkedRow(args, db.codexEntries, linkedEntryId, pin.projectId, 'codex entry');
     changes.linkedEntryId = linkedEntryId;
   }
+  Object.assign(changes, pinLook(args));
   const x = optNumber(args, 'x');
   const y = optNumber(args, 'y');
   if (x !== undefined || y !== undefined) {
@@ -218,4 +234,111 @@ export async function whLinkMapVersion(args: ToolArgs): Promise<unknown> {
   const { linkMapVersion } = await import('@/engines/maps/operations');
   const previous = await linkMapVersion(map.id, versionId, eventId, scope, undefined, { stampDate: stamped || undefined });
   return withAudit({ mapId: map.id, versionId, eventId, previousEventId: previous, ...(stamped ? { date: stamped } : {}) }, { projectId: map.projectId, entityId: map.id, summary: `${eventId ? 'linked' : 'unlinked'} an era of map "${map.title}"`, before: { __mapVersionLink: { mapId: map.id, versionId, from: previous, to: eventId, stamped } } });
+}
+
+// ---------------------------------------------------------------------------
+// Map shapes: regions, routes and lettering on a classic map
+// ---------------------------------------------------------------------------
+
+const FEATURE_KINDS = ['region', 'path', 'label'] as const;
+const MIN_POINTS: Record<(typeof FEATURE_KINDS)[number], number> = { region: 3, path: 2, label: 1 };
+
+function featurePoints(raw: unknown, kind: (typeof FEATURE_KINDS)[number]): import('@/types').MapPoint[] {
+  if (!Array.isArray(raw) || raw.length < MIN_POINTS[kind] || raw.length > 500) throw new BridgeError('bad-args', `points must list ${MIN_POINTS[kind]} to 500 {x,y} positions (0-100) for a ${kind}.`);
+  return raw.map((point, index) => {
+    const p = point as { x?: unknown; y?: unknown };
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new BridgeError('bad-args', `points[${index}] must be {x,y} numbers.`);
+    return { x: clampPercent(p.x, 0), y: clampPercent(p.y, 0) };
+  });
+}
+
+/** layerId / layerIds from the arguments, each a named layer of this map; undefined when neither is given. */
+function featureLayers(args: ToolArgs, map: import('@/types').WorldMap): { layerId?: string; layerIds?: string[] } | undefined {
+  let ids: string[] | undefined;
+  if (args.layerIds !== undefined) {
+    if (!Array.isArray(args.layerIds) || !args.layerIds.every((id) => typeof id === 'string')) throw new BridgeError('bad-args', 'layerIds must be a list of layer ids.');
+    ids = [...new Set(args.layerIds as string[])];
+  } else if (typeof args.layerId === 'string') ids = args.layerId ? [args.layerId] : [];
+  if (!ids) return undefined;
+  for (const id of ids) if (!(map.layers ?? []).some((layer) => layer.id === id)) throw new BridgeError('not-found', `No layer "${id}" on this map.`);
+  return { layerId: ids[0], layerIds: ids.length > 1 ? ids : undefined };
+}
+
+/** Style fields from the arguments, validated by the same rules as the editor. */
+async function featureStyle(args: ToolArgs) {
+  const { normalizeMapFeatureStyle, MapStyleError } = await import('@/components/maps/mapStyle');
+  const raw: Record<string, unknown> = {};
+  for (const key of ['color', 'opacity', 'strokeColor', 'strokeWidth', 'pattern', 'patternScale', 'labelStyle']) if (args[key] !== undefined) raw[key] = args[key];
+  try { return normalizeMapFeatureStyle(raw); } catch (error) { throw new BridgeError('bad-args', error instanceof MapStyleError ? error.message : String(error)); }
+}
+
+/** Write the shapes, keeping the previous list for an undo that refuses if they changed since. */
+async function saveFeatures(args: ToolArgs, map: import('@/types').WorldMap, next: import('@/types').MapFeature[], result: Record<string, unknown>, summary: string) {
+  const scope = worldEraToolScope(args), worldMapOps = scopedTableOps(scope, 'worldMaps', 'projectId', baseWorldMapOps);
+  await worldMapOps.update(map.id, { features: next, updatedAt: Date.now() });
+  return withAudit({ mapId: map.id, ...result }, { projectId: map.projectId, entityId: map.id, summary, before: { __mapFeatures: { mapId: map.id, before: map.features ?? [], after: next } } });
+}
+
+/** The shapes on a map, in drawing order (last on top). */
+export async function whListMapFeatures(args: ToolArgs): Promise<unknown> {
+  const { map } = await loadMapForEras(args);
+  return { mapId: map.id, features: (map.features ?? []).map((feature, order) => ({ ...feature, order })) };
+}
+
+/** Draw a region, route or label on a map, styled if asked. */
+export async function whAddMapFeature(args: ToolArgs): Promise<unknown> {
+  const { map } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const kind = optEnum(args, 'kind', FEATURE_KINDS);
+  if (!kind) throw new BridgeError('bad-args', 'kind must be region, path or label.');
+  const name = requireString(args, 'name').trim().slice(0, 200);
+  const points = featurePoints(args.points, kind);
+  const linkedEntryId = optString(args, 'linkedEntryId') || undefined;
+  await checkEraLinkedRow(args, db.codexEntries, linkedEntryId, map.projectId, 'codex entry');
+  const layers = featureLayers(args, map);
+  const style = await featureStyle(args);
+  const feature: import('@/types').MapFeature = {
+    id: generateId('map-feature'), kind, name, points,
+    color: style.color ?? (kind === 'path' ? '#e4a853' : '#d5b575'), opacity: style.opacity ?? 0.22,
+    ...(optString(args, 'description') ? { description: optString(args, 'description') } : {}),
+    ...(linkedEntryId ? { linkedEntryId } : {}), ...(layers ?? {}),
+    ...(style.strokeColor ? { strokeColor: style.strokeColor } : {}), ...(style.strokeWidth !== undefined ? { strokeWidth: style.strokeWidth } : {}),
+    ...(style.pattern ? { pattern: style.pattern } : {}), ...(style.patternScale !== undefined ? { patternScale: style.patternScale } : {}),
+    ...(style.labelStyle ? { labelStyle: style.labelStyle } : {}),
+  };
+  return saveFeatures(args, map, [...(map.features ?? []), feature], { id: feature.id, created: true }, `drew ${kind} "${name}" on map "${map.title}"`);
+}
+
+/** Change a shape: only the fields given; order moves it in the drawing order. */
+export async function whUpdateMapFeature(args: ToolArgs): Promise<unknown> {
+  const { map } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const id = requireString(args, 'id');
+  const features = map.features ?? [];
+  const current = features.find((feature) => feature.id === id);
+  if (!current) throw new BridgeError('not-found', `No shape "${id}" on this map; use wh_list_map_features.`);
+  const style = await featureStyle(args);
+  const next: import('@/types').MapFeature = { ...current, ...style };
+  // Lettering merges field by field, like the rest: setting the size keeps the italic.
+  if (style.labelStyle) next.labelStyle = { ...current.labelStyle, ...style.labelStyle };
+  if (args.pattern === 'none' || args.pattern === null) delete next.pattern;
+  if (args.labelStyle === null) delete next.labelStyle;
+  const name = optString(args, 'name');
+  if (name !== undefined) { if (!name.trim()) throw new BridgeError('bad-args', 'name must not be empty.'); next.name = name.trim().slice(0, 200); }
+  const description = optString(args, 'description');
+  if (description !== undefined) next.description = description;
+  if (args.points !== undefined) next.points = featurePoints(args.points, current.kind);
+  const linkedEntryId = optString(args, 'linkedEntryId');
+  if (linkedEntryId !== undefined) {
+    await checkEraLinkedRow(args, db.codexEntries, linkedEntryId || undefined, map.projectId, 'codex entry');
+    if (linkedEntryId) next.linkedEntryId = linkedEntryId; else delete next.linkedEntryId;
+  }
+  const layers = featureLayers(args, map);
+  if (layers) { delete next.layerId; delete next.layerIds; Object.assign(next, layers); }
+  let list = features.map((feature) => (feature.id === id ? next : feature));
+  const order = optEnum(args, 'order', ['front', 'forward', 'backward', 'back'] as const);
+  if (args.order !== undefined && !order) throw new BridgeError('bad-args', 'order must be front, forward, backward or back.');
+  if (order) { const { reorderFeature } = await import('@/components/maps/mapStyle'); list = reorderFeature(list, id, order); }
+  if (JSON.stringify(list) === JSON.stringify(features)) throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides mapId and id.');
+  return saveFeatures(args, map, list, { id, updated: true, order: list.findIndex((feature) => feature.id === id) }, `changed ${current.kind} "${next.name}" on map "${map.title}"`);
 }

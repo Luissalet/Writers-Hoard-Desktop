@@ -147,7 +147,7 @@ import {
 } from './board';
 import { whListImages, whTagImage, whViewImage } from './gallery';
 import { whGenerateImage } from './imageStudio';
-import { whAddMapPin, whCaptureMapVersion, whLinkMapVersion, whListMaps, whListMapVersions, whUpdateMapPin } from './maps';
+import { whAddMapFeature, whAddMapPin, whCaptureMapVersion, whLinkMapVersion, whListMapFeatures, whListMaps, whListMapVersions, whUpdateMapFeature, whUpdateMapPin } from './maps';
 import {
   whAddLabel,
   whListLabels,
@@ -162,6 +162,7 @@ import {
   whListTradeSites,
   whAddTradeSite,
   whRemoveTradeSite,
+  whRestoreTradeSite,
   whListStamps,
   whUpdateLabel,
   whAddPlace,
@@ -501,7 +502,11 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_world_economy: whWorldEconomy,
   wh_list_trade_sites: whListTradeSites,
   wh_add_trade_site: whAddTradeSite,
+  wh_list_map_features: whListMapFeatures,
+  wh_add_map_feature: whAddMapFeature,
+  wh_update_map_feature: whUpdateMapFeature,
   wh_remove_trade_site: whRemoveTradeSite,
+  wh_restore_trade_site: whRestoreTradeSite,
   wh_list_stamps: whListStamps,
   wh_update_label: whUpdateLabel,
   wh_list_waypoints: whListWaypoints,

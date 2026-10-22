@@ -3,7 +3,7 @@ import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/r
 import type { ReaderFogLayer } from '../cartography/readerFogLayer';
 import { newStoryId, normalizeStoryEvent, storyEventsFrom, storyKnownBy, type StoryEvent } from '../core/storyEvents';
 import type { StoryMark } from '../cartography/storyMarks';
-import { autoSites, normalizeTradeSite, placesFromSettlements, simulateEconomy, tradeSiteEdit, tradeSiteRemoveEdit, tradeSitesFrom, type SiteKind, type SiteSize } from '../core/economy';
+import { autoSites, normalizeTradeSite, placesFromSettlements, simulateEconomy, tradeSiteEdit, tradeSiteRemoveEdit, tradeSiteRestoreEdit, tradeSitesFrom, type SiteKind, type SiteSize } from '../core/economy';
 import type { TradeLayer } from '../cartography/tradeMarks';
 import TradePanel from './TradePanel';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
@@ -859,7 +859,7 @@ export default function WorldView({
     const { manual, removed } = tradeSitesFrom(session.current?.edits ?? []);
     const input = { world: data, places: placesFromSettlements(geography.settlements), seed: String(data.params.seed), manualSites: manual, removedSites: removed };
     const sites = autoSites(input);
-    return { places: input.places, sites, snapshots: simulateEconomy(input, 24, 0, sites) };
+    return { places: input.places, sites, removed, snapshots: simulateEconomy(input, 24, 0, sites) };
   }, [panelTab, data, geography, paintRev]);
   const tradeLayer = useMemo<TradeLayer | undefined>(() => {
     if (!trade) return undefined;
@@ -2143,7 +2143,7 @@ export default function WorldView({
               onPlaceStory={paintable ? placeStory : undefined}
               onPickCell={tradePlacing ? (x, y) => {
                 const site = normalizeTradeSite({ id: `site-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`, kind: tradePlacing.kind, x: Math.floor(x), y: Math.floor(y), size: tradePlacing.size, placeId: null });
-                applyEdit(tradeSiteEdit(site));
+                if (!applyEdit(tradeSiteEdit(site))) toast.error(t('worldgen.story.busy'));
               } : null}
               onMoveStory={paintable ? (id, x, y) => updateStory(id, { x, y }) : undefined}
               measuring={measuring}
@@ -2561,7 +2561,9 @@ export default function WorldView({
                   onMonth={setTradeMonth}
                   placing={tradePlacing}
                   onPlacing={setTradePlacing}
-                  onRemoveSite={(id) => applyEdit(tradeSiteRemoveEdit(id))}
+                  onRemoveSite={(id) => { if (!applyEdit(tradeSiteRemoveEdit(id))) toast.error(t('worldgen.story.busy')); }}
+                  removedSites={trade.removed}
+                  onRestoreSite={(id) => { if (!applyEdit(tradeSiteRestoreEdit(id))) toast.error(t('worldgen.story.busy')); }}
                   onFocus={zoomToPoint}
                 />
               ) : (
