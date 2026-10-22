@@ -73,6 +73,11 @@ export interface TravelOptions {
   planetRadiusKm?: number;
   /** Clock hour the party sets off each day (0–23); presentation only, the route does not change. */
   setOffHour?: number;
+  /**
+   * Laying out a road rather than travelling: the builders bridge the rivers
+   * they meet, so no time is lost at fords and a closed crossing does not stop them.
+   */
+  building?: boolean;
 }
 
 export type TravelPace = 'easy' | 'steady' | 'hard';
@@ -205,7 +210,7 @@ export interface Route {
    */
   stretches?: RouteLeg[];
   /** Rivers and straits the route has to get across. */
-  crossings: { x: number; y: number; kind: 'river' | 'strait' | 'pass'; name?: string }[];
+  crossings: { x: number; y: number; kind: 'river' | 'strait' | 'pass'; name?: string; bridge?: boolean; frozen?: boolean }[];
   /** Fraction of the distance travelled on a made road. */
   roadFraction: number;
   /** Where each night falls. */
@@ -468,7 +473,23 @@ function cellCost(
     return { hours: km / kmh, onRoad: false };
   }
 
+  // Getting across a river: closed where the author said so (a bridge down closes the road too),
+  // and off the road it costs the time of a ford. A stop placed on a river is where the party
+  // halts, not a river it crosses (it leaves from the river cell, which crosses nothing); a stop
+  // beside a river is not exempt. A road being laid out bridges what it meets.
+  const rivers = landRivers(world);
+  const haltsOnRiver = rivers[to] === 1 && terminals.has(to);
+  const blocked = opts.building ? undefined : world.painted?.blockedCrossings;
+  if (blocked && !haltsOnRiver) {
+    // Any step onto a closed river cell, so a party cannot ford upstream and wade down through it
+    // either, and any diagonal step that slips between two closed river cells.
+    if (rivers[to] === 1 && blocked.has(to)) return { hours: Infinity, onRoad: false };
+    const corner = cornerCut(world, rivers, from, to);
+    if (corner && (blocked.has(corner[0]) || blocked.has(corner[1]))) return { hours: Infinity, onRoad: false };
+  }
+  const crossed = opts.building || haltsOnRiver ? -1 : riverCrossed(world, rivers, from, to);
   const road = roads[to] > 0 && roads[from] > 0;
+  const ford = crossed >= 0 && !road && !frozenRiver(world, crossed, opts) ? (FORD_HOURS[mode] ?? 0) : 0;
   if (mode === 'cart' && !road) {
     // Not forbidden — just very slow, so a cart will go a long way round to stay
     // on a road, which is the correct behaviour and produces the correct answer.
@@ -476,14 +497,14 @@ function cellCost(
     const grade = gradePenalty(world, from, to, km);
     if (grade > 4) return { hours: Infinity, onRoad: false };
     const kmh = BASE_KMH.cart.off * speedFactor(opts, 'cart') / (drag * grade * seasonFactor(world, to, opts.season, b));
-    return { hours: km / kmh, onRoad: false };
+    return { hours: km / kmh + ford, onRoad: false };
   }
 
   const drag = road ? (roads[to] === 2 ? 1 : 1.12) : (BIOME_DRAG[b] ?? 1.4) * groundFactor(opts, b);
   const grade = gradePenalty(world, from, to, km);
   const base = (road ? BASE_KMH[mode].road : BASE_KMH[mode].off) * speedFactor(opts, mode);
   const kmh = base / (drag * grade * seasonFactor(world, to, opts.season, b));
-  return { hours: km / kmh, onRoad: road };
+  return { hours: km / kmh + ford, onRoad: road };
 }
 
 interface TravelMetric { radius: number; horizontal: Float64Array; diagonal: Float64Array; vertical: number }
@@ -549,6 +570,65 @@ function navigableWater(world: WorldData, i: number, opts: TravelOptions): boole
   if (riverEdit === 1) return true;
   return world.biome[i] !== Biome.SaltFlat && riverEdit !== 2 && world.flow[i] > 0.62;
 }
+
+/**
+ * Rivers as a traveller on land meets them: a generated channel (unless the
+ * author removed it) or one the author drew. Worked out once per state of the
+ * world and kept in one slot, because the route search asks for every step.
+ */
+const LAND_RIVERS = new WeakMap<WorldData, { revision: number | undefined; painted: WorldData['painted']; mask: Uint8Array }>();
+function landRivers(world: WorldData): Uint8Array {
+  const cached = LAND_RIVERS.get(world);
+  if (cached && cached.revision === world.revision && cached.painted === world.painted) return cached.mask;
+  const N = world.width * world.height, edits = riverEditsMask(world), mask = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    const m = edits?.[i] ?? 0;
+    // Water already stops a party on land, so a river cell under a lake or the sea is not one to cross.
+    mask[i] = isSea(world, i) || isLake(world, i) ? 0 : m === 1 ? 1 : m === 2 ? 0 : world.flow[i] > 0.7 ? 1 : 0;
+  }
+  LAND_RIVERS.set(world, { revision: world.revision, painted: world.painted, mask });
+  return mask;
+}
+/** True where a river runs that a party on land has to get across. */
+export function isRiverCell(world: WorldData, i: number): boolean { return landRivers(world)[i] === 1; }
+/** The river cell whose centre lies nearest (x, y), no further than a cell and a half; -1 when there is none. */
+export function riverCellNear(world: WorldData, x: number, y: number): number {
+  const W = world.width, H = world.height, rivers = landRivers(world);
+  const cx = Math.floor(x), cy = Math.floor(y);
+  let best = -1, bestD = 1.5 * 1.5 + 1e-9;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const ny = cy + dy;
+    if (ny < 0 || ny >= H) continue;
+    const i = ny * W + (((cx + dx) % W) + W) % W;
+    if (!rivers[i]) continue;
+    const d = (cx + dx + 0.5 - x) ** 2 + (ny + 0.5 - y) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+/**
+ * The two river cells a diagonal step slips between, when it does: rivers join
+ * on the diagonal, so a step from one dry cell to another can cut across a river
+ * at the corner of two of its cells. Null for a straight step or no such corner.
+ */
+function cornerCut(world: WorldData, rivers: Uint8Array, from: number, to: number): [number, number] | null {
+  if (rivers[from] === 1 || rivers[to] === 1) return null;
+  const W = world.width, fx = from % W, fy = (from / W) | 0, tx = to % W, ty = (to / W) | 0;
+  if (fx === tx || fy === ty) return null;
+  const a = fy * W + tx, b = ty * W + fx;
+  return rivers[a] === 1 && rivers[b] === 1 ? [a, b] : null;
+}
+/** The river cell a step gets across (onto it from the bank, or past it at a corner); -1 when none. */
+function riverCrossed(world: WorldData, rivers: Uint8Array, from: number, to: number): number {
+  if (rivers[to] === 1) return rivers[from] === 1 ? -1 : to;
+  return cornerCut(world, rivers, from, to)?.[0] ?? -1;
+}
+/** A river frozen hard enough to walk over: the same cold that stops a boat on it in winter. */
+function frozenRiver(world: WorldData, i: number, opts: TravelOptions): boolean {
+  return opts.season === 'winter' && world.temperature[i] - 9 < -6;
+}
+/** Hours a party loses getting across a river off the road: finding the ford, unloading, drying out. */
+const FORD_HOURS: Partial<Record<TravelMode, number>> = { foot: 1.5, horse: 1, cart: 4 };
 
 const RIVER_EDIT_CACHE = new WeakMap<WorldData, { revision: number; painted: WorldData['painted']; mask: Uint8Array | null }>();
 function riverEditsMask(world: WorldData): Uint8Array | null {
@@ -724,8 +804,11 @@ function solveRoute(
     }
     // A river crossed off-road is a ford or a ferry, and it is the kind of thing
     // that turns up in a chapter.
-    if (opts.mode !== 'boat' && opts.mode !== 'ship' && world.flow[b] > 0.7 && world.flow[a] <= 0.7) {
-      crossings.push({ x: b % W, y: (b / W) | 0, kind: 'river' });
+    if (opts.mode !== 'boat' && opts.mode !== 'ship' && !opts.building && !(terminals.has(b) && isRiverCell(world, b))) {
+      const crossed = riverCrossed(world, landRivers(world), a, b);
+      if (crossed >= 0) {
+        crossings.push({ x: crossed % W, y: (crossed / W) | 0, kind: 'river', ...(c.onRoad ? { bridge: true } : frozenRiver(world, crossed, opts) ? { frozen: true } : {}) });
+      }
     }
   }
 

@@ -63,8 +63,8 @@ Siguiente, en este orden:
 - Huecos restantes del catálogo A1/A2 (filas PARTIAL y ABSENT en
   tasks/vvd1095): plantillas y tamaños de arranque, zona de inicio, modo de
   puntos del río y flujo invertido, nubes, iluminación por hora en 2D, marcas
-  de grupo, vías propias, mercancías por puerto, sin vado/restaurar vado,
-  operación volcán y altura en metros.
+  de grupo, vías propias, mercancías por puerto, operación volcán y altura en
+  metros.
 - 3D: nubes que se funden con el relieve, los árboles pintados de pie en la
   maqueta (hoy están pintados en el suelo) y aspectos de bloque (papel apilado,
   grabado) además de la roca; mapas de arranque más pequeños (isla, país) para
