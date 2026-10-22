@@ -1058,12 +1058,16 @@ export async function whCreateWorld(args: ToolArgs): Promise<unknown> {
   const presetId = optEnum(args, 'preset', WORLD_PRESETS.map(preset => preset.id) as [string, ...string[]]) ?? 'continents';
   if (args.preset !== undefined && presetId !== args.preset) throw new BridgeError('bad-args', `preset must be one of ${WORLD_PRESETS.map(preset => preset.id).join(', ')}.`);
   const preset = WORLD_PRESETS.find(candidate => candidate.id === presetId)!;
+  if (args.landmassKm !== undefined) {
+    if (preset.overrides.starter !== 'landmass') throw new BridgeError('bad-args', 'landmassKm goes with the island, country or continent preset.');
+    if (typeof args.landmassKm !== 'number' || !Number.isFinite(args.landmassKm) || args.landmassKm < 300 || args.landmassKm > 9000) throw new BridgeError('bad-args', 'landmassKm must be a number of km between 300 and 9000.');
+  }
   const width = optNumber(args, 'width') ?? DEFAULT_PARAMS.width;
   if (![1024, 2048, 3072].includes(width)) throw new BridgeError('bad-args', 'width must be 1024 (fast), 2048 (standard) or 3072 (high).');
   const title = optString(args, 'title')?.trim() || 'World';
   const seed = optString(args, 'seed')?.trim() || generateId('seed').slice(-8);
   const now = Date.now();
-  const world: GeneratedWorld = { id: generateId('world'), projectId, title, params: applyWorldPreset({ ...DEFAULT_PARAMS, seed, width }, preset), edits: freshWorldEdits(), createdAt: now, updatedAt: now };
+  const world: GeneratedWorld = { id: generateId('world'), projectId, title, params: { ...applyWorldPreset({ ...DEFAULT_PARAMS, seed, width }, preset), ...(typeof args.landmassKm === 'number' ? { landmassKm: Math.round(args.landmassKm) } : {}) }, edits: freshWorldEdits(), createdAt: now, updatedAt: now };
   await worldgenScopeOperations(worldEraToolScope(args)).worlds.create(world);
   return withAudit(
     { id: world.id, worldId: world.id, title, preset: presetId, seed, width, starter: world.params.starter ?? null, created: true },

@@ -117,7 +117,12 @@ A generated world remembers its look (style, layers, relief density, 3D skin)
 for every view and export; an era that still inherits the world shares Base's
 look. Worlds can start as a blank sea or blank land and be painted with the
 Coast brush; continent-shaping controls are off until continents are generated
-again. The ruler encloses areas (a ring round a pole measures the cap) and can
+again. A world can also start as a single island, country or continent (about
+900, 2,200 or 5,000 km across; any size from 300 to 9,000 km under Advanced,
+with a readout of how many km a cell is): the plates' relief gathered into one
+land with the sea round it, laid in the temperate band. The map opens framed on
+that land, and in 3D the tabletop model is the land and its sea, its block cut
+at the edges of that window however close you come. The ruler encloses areas (a ring round a pole measures the cap) and can
 lay a real outline such as Iberia or Japan over the map at true scale. Each
 world keeps its own travel settings (usual pace, speeds per mode, ground costs);
 journeys take a pace, a mode per leg and rest days, and saved itineraries keep

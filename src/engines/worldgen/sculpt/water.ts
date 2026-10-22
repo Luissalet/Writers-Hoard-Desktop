@@ -88,6 +88,8 @@ export interface Water {
     sky?: WaterSkyInput;
     /** The tabletop model: the plane's sea stops at the edge of the world and has no haze. */
     clip?: boolean;
+    /** With clip: the window of the world the block stands for (u0, v0, u1, v1); the whole world when absent. */
+    clipRect?: [number, number, number, number];
     /** The painted skin paints its own sea: only the lakes keep their water surface. */
     lakesOnly?: boolean;
   }): void;
@@ -165,6 +167,7 @@ uniform float uSunPower;
 uniform float uFogDist;
 uniform float uKmPerUnit;  // km de suelo por unidad de escena
 uniform float uClip;       // 1 = the tabletop model: no sea outside the block, no haze
+uniform vec4 uClipRect;    // the block's window of the world, uv (u0, v0, u1, v1)
 uniform float uSteep;      // pendiente máxima del oleaje
 
 in vec3 vWorld;
@@ -357,7 +360,7 @@ void main() {
   float dw = fwidth(dKm);
   if (uLake > 0.5 && dKm <= 0.0) discard;
   // The tabletop model: the sea is the block's, and ends at its walls (after every derivative above).
-  if (uClip > 0.5 && outside > 0.0) discard;
+  if (uClip > 0.5 && (outside > 0.0 || uv.x < uClipRect.x || uv.x > uClipRect.z || uv.y < uClipRect.y || uv.y > uClipRect.w)) discard;
 
   // ---- la bruma, y la salida temprana ------------------------------------
   // El plano llega hasta el far, así que junto al horizonte un solo píxel cubre
@@ -525,6 +528,7 @@ function makeUniforms(o: WaterOptions, shape: number, phase: number): WaterUnifo
     uFogDist: { value: o.sizeX },
     uKmPerUnit: { value: EARTH_KM / o.sizeX },
     uClip: { value: 0 },
+    uClipRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     // Pendiente máxima del oleaje. 0,55 (unos 29 grados) era demasiado: en una
     // vista rasante bastaba una cara de ola para que el Fresnel saltara a uno y
     // el mar se llenaba de manchas blancas del tamaño de una nube. 0,34 deja el
@@ -695,6 +699,7 @@ export function createWater(o: WaterOptions): Water {
         }
         un.uFogDist.value = fogDist;
         un.uClip.value = u.clip ? 1 : 0;
+        (un.uClipRect.value as THREE.Vector4).set(...(u.clip && u.clipRect ? u.clipRect : [0, 0, 1, 1] as [number, number, number, number]));
       }
     },
 

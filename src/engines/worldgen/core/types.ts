@@ -62,8 +62,12 @@ export interface WorldParams {
    * An empty canvas instead of tectonic terrain: open sea to paint a coast on,
    * or gently rolling land with no coast. Climate, rivers and biomes still run
    * over whatever is painted. Absent = the generated planet, as before.
+   * 'landmass' keeps the plates' relief but gathers the land into one island,
+   * country or continent of `landmassKm` across, with the sea all round it.
    */
-  starter?: 'sea' | 'land';
+  starter?: 'sea' | 'land' | 'landmass';
+  /** Across the single landmass, in km (300–9000); only with starter 'landmass'. */
+  landmassKm?: number;
 }
 
 export const DEFAULT_PARAMS: WorldParams = {
@@ -86,10 +90,17 @@ export const DEFAULT_PARAMS: WorldParams = {
   landmarks: true,
 };
 
+/** The span a single landmass can be given, in km across (`landmassKm`). */
+export const LANDMASS_KM = { min: 300, max: 9000, default: 1500 } as const;
+
 /** Fill any missing fields (worlds saved by older versions of the engine). */
 export function normalizeParams(params: Partial<WorldParams>): WorldParams {
   const normalized: WorldParams = { ...DEFAULT_PARAMS, ...params, drainageVersion: params.drainageVersion === 2 ? 2 : 1, hydrologyVersion: params.hydrologyVersion === 2 ? 2 : 1 };
-  if (normalized.starter !== 'sea' && normalized.starter !== 'land') delete normalized.starter;
+  if (normalized.starter !== 'sea' && normalized.starter !== 'land' && normalized.starter !== 'landmass') delete normalized.starter;
+  if (normalized.starter === 'landmass') {
+    const km = typeof normalized.landmassKm === 'number' && Number.isFinite(normalized.landmassKm) ? normalized.landmassKm : LANDMASS_KM.default;
+    normalized.landmassKm = Math.round(Math.min(LANDMASS_KM.max, Math.max(LANDMASS_KM.min, km)));
+  } else delete normalized.landmassKm;
   return normalized;
 }
 

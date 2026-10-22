@@ -66,6 +66,7 @@ import { computeHydrology } from './hydrology';
 import { classifyBiomes } from './biomes';
 import { distanceTo, localRelief } from './fields';
 import { detectLandmarks } from './landmarks';
+import { shapeLandmass } from './landmass';
 
 // Stage weights for the progress bar (sums to 1).
 const STAGES: [string, number][] = [
@@ -111,7 +112,10 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
   const elevation = assembleTerrain(params, plates);
   // A blank starter keeps the plates (climate and biomes read them) but not
   // their relief: the author paints the coast and the mountains.
-  if (params.starter) {
+  // A single landmass keeps them, gathered into one island, country or continent.
+  if (params.starter === 'landmass') {
+    shapeLandmass(elevation, plates.uplift, W, H, params);
+  } else if (params.starter) {
     blankTerrain(elevation, W, H, params.starter, params.seed);
     plates.uplift.fill(0);
   }
