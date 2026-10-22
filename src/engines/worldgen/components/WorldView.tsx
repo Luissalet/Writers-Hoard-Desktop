@@ -2162,6 +2162,13 @@ export default function WorldView({
                   <button type="button" data-testid="worldgen-reader-next" disabled={!readerView || nextStoryChapter(readerChapters, readerChapter) === null} aria-label={t('worldgen.reader.next')} title={t('worldgen.reader.next')}
                     onClick={() => { setStoryPlaying(false); showChapter(nextStoryChapter(readerChapters, readerChapter)); }}
                     className="border border-border rounded-lg p-1.5 text-text-primary bg-elevated hover:border-accent-gold/40 disabled:opacity-40"><SkipForward size={13} /></button>
+                  {/* Scrub through the story: one notch per chapter with events or fog. */}
+                  <input type="range" data-testid="worldgen-reader-scrub" disabled={!readerView || readerChapters.length < 2}
+                    min={0} max={Math.max(0, readerChapters.length - 1)} step={1}
+                    value={readerChapter === null ? 0 : (() => { const i = readerChapters.findIndex((c) => c >= readerChapter); return i < 0 ? Math.max(0, readerChapters.length - 1) : i; })()}
+                    onChange={(e) => { setStoryPlaying(false); showChapter(readerChapters[Number(e.target.value)] ?? null); }}
+                    aria-label={t('worldgen.reader.scrub')} title={t('worldgen.reader.scrub')}
+                    className="w-24 accent-amber-400 disabled:opacity-40" />
                   <select data-testid="worldgen-reader-start" disabled={!readerView} aria-label={t('worldgen.reader.start')} title={t('worldgen.reader.start')}
                     value={readerStart}
                     onChange={(e) => setReaderStart(e.target.value as ReaderStart)}
@@ -2252,6 +2259,11 @@ export default function WorldView({
               <p className="font-serif text-sm text-accent-gold">{t('worldgen.reader.chapterTitle').replace('{n}', String(readerChapter))}</p>
               {frame?.happened.length ? <ul className="mt-1 space-y-0.5 text-xs text-text-primary">{frame.happened.map((event) => <li key={event.id} className="flex items-center justify-center gap-1.5"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STORY_COLORS[event.type] }} />{event.title}{(() => { const names = (event.who ?? []).map((id) => storyPeople.find((person) => person.id === id)?.title).filter(Boolean); return names.length ? <span className="text-text-muted">· {names.join(', ')}</span> : null; })()}</li>)}</ul>
                 : <p className="mt-0.5 text-xs text-text-muted">{t('worldgen.reader.quietChapter')}</p>}
+              {(() => {
+                // What the story has planned next: in this chapter, or the first chapter after it.
+                const next = storyFrames.filter((item) => item.chapter >= readerChapter).flatMap((item) => item.planned.map((event) => ({ event, chapter: item.chapter })))[0];
+                return next ? <p className="mt-1 text-[11px] text-text-muted" data-testid="worldgen-reader-next-planned">{t('worldgen.reader.nextPlanned').replace('{title}', next.event.title).replace('{n}', String(next.chapter))}</p> : null;
+              })()}
             </div>;
           })()}
           {data && view === 'map' && (

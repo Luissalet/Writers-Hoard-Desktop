@@ -3089,6 +3089,8 @@ const es = {
   'worldgen.reader.pause': "Pausar",
   'worldgen.reader.chapterTitle': "Capítulo {n}",
   'worldgen.reader.quietChapter': "Sin sucesos en este capítulo",
+  'worldgen.reader.scrub': 'Recorrer la historia por capítulos',
+  'worldgen.reader.nextPlanned': 'Previsto: {title} (cap. {n})',
   'worldgen.reader.start': "Antes de la primera pincelada",
   'worldgen.reader.start.blank': "Papel en blanco",
   'worldgen.reader.start.sketch': "Todo de oídas",

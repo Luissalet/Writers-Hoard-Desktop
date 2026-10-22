@@ -3089,6 +3089,8 @@ const en = {
   'worldgen.reader.pause': "Pause",
   'worldgen.reader.chapterTitle': "Chapter {n}",
   'worldgen.reader.quietChapter': "Nothing happens in this chapter",
+  'worldgen.reader.scrub': 'Scrub through the story by chapter',
+  'worldgen.reader.nextPlanned': 'Planned next: {title} (ch. {n})',
   'worldgen.reader.start': "Before the first stroke",
   'worldgen.reader.start.blank': "Blank paper",
   'worldgen.reader.start.sketch': "All heard of",
