@@ -108,6 +108,25 @@ async function main() {
   let fogged; for (let i = 0; i < 80; i++) { fogged = await js(`(async()=>{const {db}=await import('/src/db/index.ts');const {deserializeEdits}=await import('/src/engines/worldgen/core/edits.ts');const r=await db.generatedWorlds.toArray();return r.flatMap(w=>deserializeEdits(w.edits||'[]')).filter(e=>e.kind==='fog');})()`); if (fogged.length) break; await pause(150); }
   assert(fogged.length === 1 && fogged[0].op === 'seen' && fogged[0].chapter === 2 && fogged[0].stroke.pts.length > 2, `Route not marked: ${JSON.stringify(fogged)}`);
   tests.push(`"Mark the route as seen" paints the reader's map along the route (${fogged[0].stroke.pts.length} points, ${Math.round(fogged[0].stroke.radius * 10) / 10} cells of sight) from chapter 2`);
+  // The journey in words: a sentence, the towns passed, each stretch's day and part of day, and the clock.
+  await wait(`document.querySelector('[data-testid="journey-summary"]')?.textContent.trim().endsWith('.') && document.querySelector('[data-testid="journey-clock"]') && document.querySelector('[data-testid="journey-leg-0"]')`, 'journey in words');
+  const summaryText = await js(`document.querySelector('[data-testid="journey-summary"]').textContent.trim()`);
+  const clock7 = await js(`document.querySelector('[data-testid="journey-clock"]').textContent.trim()`);
+  const leg0 = await js(`document.querySelector('[data-testid="journey-leg-0"]').textContent.trim()`);
+  assert(/^Sale a las 07:00 y (acampa a las \d\d:\d\d; llega el día \d+,|llega) /.test(clock7) && /^día 1, (al alba|por la mañana)/.test(leg0), `Clock "${clock7}", first stretch "${leg0}"`);
+  const passesText = await js(`document.querySelector('[data-testid="journey-passes"]')?.textContent.trim() ?? ''`);
+  if (!(await js(`!!document.querySelector('[data-testid="journey-set-off"]')`))) await click('Ajustes de viaje de este mundo');
+  await wait(`document.querySelector('[data-testid="journey-set-off"]')`, 'set-off hour');
+  await js(`(()=>{const i=document.querySelector('[data-testid="journey-set-off"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'5');i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await wait(`document.querySelector('[data-testid="journey-clock"]')?.textContent.includes('Sale a las 05:00')`, 'set-off at five');
+  const clock5 = await js(`document.querySelector('[data-testid="journey-clock"]').textContent.trim()`);
+  assert.equal(await js(`document.querySelector('[data-testid="journey-summary"]').textContent.trim()`), summaryText, 'Changing the set-off hour changed the route');
+  const nightsButton = `[...document.querySelectorAll('button')].find(b=>/\\d+ noches/.test(b.textContent))`;
+  let nightText = '';
+  if (await js(`!!${nightsButton}`)) { await js(`${nightsButton}.click()`); await wait(`document.querySelector('[data-testid="journey-night-1"]')`, 'first night'); nightText = await js(`document.querySelector('[data-testid="journey-night-1"]').textContent.trim()`); }
+  win.webContents.invalidate(); await pause(300); await win.webContents.capturePage();
+  fs.writeFileSync(path.join(evidence, 'travel-words-1440.png'), (await win.webContents.capturePage()).toPNG());
+  tests.push(`The journey in words: "${summaryText}"${passesText ? `; "${passesText}"` : ''}; "${clock7}", the first stretch "${leg0}"; setting off at 5 gives "${clock5}" without changing the route${nightText ? `; first night "${nightText}"` : ''}`);
   win.setContentSize(640, 900); await pause(1000);
   fs.writeFileSync(path.join(evidence, 'travel-settings-640.png'), (await win.webContents.capturePage()).toPNG());
   if (errors.length) console.log('CONSOLE ERRORS\n' + errors.slice(0, 8).join('\n'));

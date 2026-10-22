@@ -13,6 +13,7 @@ function validJourney(journey: WorldJourney): boolean {
     && ['spring', 'summer', 'autumn', 'winter'].includes(journey.options.season)
     && [journey.options.hoursPerDay, journey.options.planetRadiusKm].every(value => value === undefined || (Number.isFinite(value) && value > 0))
     && (journey.options.pace === undefined || TRAVEL_PACES.includes(journey.options.pace))
+    && (journey.options.setOffHour === undefined || (Number.isInteger(journey.options.setOffHour) && journey.options.setOffHour >= 0 && journey.options.setOffHour <= 23))
     && (journey.options.legModes === undefined || (Array.isArray(journey.options.legModes) && journey.options.legModes.length === journey.stops.length - 1
       && journey.options.legModes.every(mode => ['foot', 'horse', 'cart', 'boat', 'ship'].includes(mode))))
     && validProfile(journey.options.profile);

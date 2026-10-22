@@ -8,6 +8,7 @@
 // it is annotation, not cartography. A route drawn INTO the map would be a road.
 
 import { drawMapGrid, type MapGrid } from './mapGrid';
+import { drawContourLines } from './contourLayer';
 import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
 import { drawStoryMark, type StoryMark } from './storyMarks';
 import { drawTradeLayer, type TradeLayer } from './tradeMarks';
@@ -22,6 +23,8 @@ export interface CartoAnnotations {
   fog?: ReaderFogLayer;
   /** A square or hex play grid in km, under everything else on this layer. */
   grid?: MapGrid;
+  /** The author's contour lines, every N metres, drawn first: they are ground. */
+  contours?: { intervalM: number; color?: string };
   /** The trade lens: sites and this month's shipments. */
   trade?: TradeLayer;
   /** Story events to show, already filtered for the view (drawn last, over the fog). */
@@ -62,6 +65,9 @@ export function drawAnnotations(
 ): void {
   if (!ann) return;
   const W = world.width;
+
+  // ---- the ground's own lines, under the reader's fog and everything else ---
+  if (ann.contours) drawContourLines(ctx, world, ann.contours.intervalM, sx, sy, k, { color: ann.contours.color });
 
   // ---- what the reader has not seen yet -------------------------------------
   // `sx` may wrap round the seam (the Carta's does), which would fold the

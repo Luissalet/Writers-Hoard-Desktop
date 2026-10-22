@@ -461,6 +461,8 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
 export interface CartoCanvasOptions {
   /** A square or hex play grid in km. */
   grid?: import('./mapGrid').MapGrid | null;
+  /** The author's contour lines every N metres, in place of the look's own. */
+  contourIntervalM?: number | null;
   /** The reader's-eye fog, over the lettering. */
   fog?: import('./readerFogLayer').ReaderFogLayer | null;
   /** Story events to mark, over the fog. */
@@ -494,6 +496,7 @@ export function renderCartoCanvas(world: WorldData, opts: CartoCanvasOptions): H
     view: opts.view,
     layers: opts.layers,
     grid: opts.grid,
+    contourIntervalM: opts.contourIntervalM,
     fog: opts.fog,
     story: opts.story,
     density: opts.density,

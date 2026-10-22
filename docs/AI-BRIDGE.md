@@ -1811,7 +1811,11 @@ deshecho.
   (ritmo habitual y factores de velocidad por medio y de coste por tipo de
   terreno, con revisión) y `wh_plan_journey` (paradas por lugar o celda, ritmo,
   medio por tramo; con `atDay`, dónde está el grupo ese día y si viaja, pasa la
-  noche, descansa o ha llegado). Los itinerarios guardados conservan los ajustes
+  noche, descansa o ha llegado; además `passes` —pueblos por los que pasa, en
+  orden, con km recorridos y a cuánto quedan—, `roads` —caminos que sigue,
+  nombrados por los pueblos de sus extremos—, `grounds`, `kmOnWater`, cada tramo
+  con su día y parte del día, `clock` —sale, acampa y llega— según `setOffHour`
+  (hora entera, 7 por defecto) y la posada o ruina de cada noche). Los itinerarios guardados conservan los ajustes
   con los que se planificaron.
 - **Épocas del mapa enlazadas a la cronología.** `wh_list_map_versions` (en el
   orden del calendario del mundo, cada evento en el calendario de su propia
@@ -1859,6 +1863,13 @@ deshecho.
   hito como «<nombre> 2» en la tierra libre más cercana o en `x`,`y`; mar,
   lago o una celda con lugar o historial se rechazan; reinos y mares no; se
   deshace),
+  `wh_set_world_presentation` acepta `contours` (cada N metros, 50–2000, sobre
+  cualquier estilo; `"off"` sin curvas; `null` las del estilo), que dibujan el
+  atlas, la Carta, las exportaciones y `wh_render_world_map`;
+  `wh_paint_biome` (pinta un terreno por clave sobre un trazo de celdas con
+  radio, también los fantásticos —volcanic, ashPlain, petrifiedForest,
+  fungalForest, crystalFlats, glowMarsh—, o lo borra con `erase`; mar y lago no;
+  `wh_place_at` devuelve `ground`; se deshace),
   `wh_set_world_levels` (`seaLevelM` ±1000 y/o `snowlineM` ±3000, absolutos;
   el mar mueve todas las alturas —también las de las hojas de comarca— y los
   biomas lo siguen; un lago que el mar cubre vuelve cuando baja; la nieve sólo

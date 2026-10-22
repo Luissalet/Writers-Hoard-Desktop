@@ -4,6 +4,7 @@ import { worldgenScopeOperations } from './era';
 import { worldSettingsScope } from './settingsScope';
 import { normalizeMapGrid } from './cartography/mapGrid';
 import { READER_STARTS } from './core/readerFog';
+import { CONTOUR_INTERVAL_RANGE_M } from './cartography/contourLayer';
 import type { GeneratedWorld, WorldPresentation, WorldPresentationLayer } from './types';
 
 /**
@@ -21,6 +22,7 @@ export const PRESENTATION_DEFAULTS = {
   layers: { relief: true, forests: true, labels: true, settlements: true, roads: true, borders: false, frame: true, compass: true, scaleBar: true },
   grid: null,
   readerStart: 'blank',
+  contours: null,
 } as const satisfies Required<Omit<WorldPresentation, 'layers'>> & { layers: Record<WorldPresentationLayer, boolean> };
 export const RELIEF_AMOUNT_RANGE = { min: 0.3, max: 2 } as const;
 
@@ -33,7 +35,7 @@ export class WorldPresentationError extends Error {
 export function normalizePresentationPatch(input: unknown): WorldPresentation {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new WorldPresentationError('bad-value', 'Presentation must be an object.');
   const raw = input as Record<string, unknown>, out: WorldPresentation = {};
-  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'reliefAmount', 'layers', 'grid', 'readerStart'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
+  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
   if (raw.theme !== undefined) {
     if (!PRESENTATION_THEMES.includes(raw.theme as never)) throw new WorldPresentationError('bad-value', `theme must be one of ${PRESENTATION_THEMES.join(', ')}.`);
     out.theme = raw.theme as WorldPresentation['theme'];
@@ -50,6 +52,11 @@ export function normalizePresentationPatch(input: unknown): WorldPresentation {
   if (raw.readerStart !== undefined) {
     if (!READER_STARTS.includes(raw.readerStart as never)) throw new WorldPresentationError('bad-value', `readerStart must be one of ${READER_STARTS.join(', ')}.`);
     out.readerStart = raw.readerStart as WorldPresentation['readerStart'];
+  }
+  if (raw.contours !== undefined) {
+    const value = raw.contours;
+    if (value !== null && value !== 'off' && !(typeof value === 'number' && Number.isInteger(value) && value >= CONTOUR_INTERVAL_RANGE_M.min && value <= CONTOUR_INTERVAL_RANGE_M.max)) throw new WorldPresentationError('bad-value', `contours must be null (as the look draws them), "off" or whole metres from ${CONTOUR_INTERVAL_RANGE_M.min} to ${CONTOUR_INTERVAL_RANGE_M.max}.`);
+    out.contours = value as WorldPresentation['contours'];
   }
   if (raw.grid !== undefined) {
     try { out.grid = normalizeMapGrid(raw.grid); } catch (error) { throw new WorldPresentationError('bad-value', error instanceof Error ? error.message : String(error)); }
@@ -72,7 +79,7 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
   // Field by field: one damaged stored value falls back alone, never the whole look.
   const saved: WorldPresentation = {};
   const raw = presentation && typeof presentation === 'object' ? presentation as Record<string, unknown> : {};
-  for (const key of ['theme', 'skin3D', 'reliefAmount', 'grid', 'readerStart'] as const) {
+  for (const key of ['theme', 'skin3D', 'reliefAmount', 'grid', 'readerStart', 'contours'] as const) {
     try { Object.assign(saved, normalizePresentationPatch({ [key]: raw[key] })); } catch { /* default for this field */ }
   }
   if (raw.layers && typeof raw.layers === 'object') {
@@ -86,6 +93,7 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
     reliefAmount: saved.reliefAmount ?? PRESENTATION_DEFAULTS.reliefAmount,
     grid: saved.grid ?? null,
     readerStart: saved.readerStart ?? PRESENTATION_DEFAULTS.readerStart,
+    contours: saved.contours ?? null,
     layers: { ...PRESENTATION_DEFAULTS.layers, ...(saved.layers ?? {}) },
   };
 }
@@ -137,7 +145,7 @@ export async function revertWorldPresentation(requested: { projectId: string; er
     if (!current || current.projectId !== scope.projectId) throw new WorldPresentationError('not-found', 'World no longer belongs to this project.');
     const now: WorldPresentation = structuredClone(current.presentation ?? {}), reverted: string[] = [], kept: string[] = [];
     const from = receipt.from ?? {};
-    for (const key of ['theme', 'skin3D', 'reliefAmount', 'readerStart'] as const) {
+    for (const key of ['theme', 'skin3D', 'reliefAmount', 'readerStart', 'contours'] as const) {
       if (receipt.to[key] === from[key]) continue;
       if (now[key] !== receipt.to[key]) { kept.push(key); continue; }
       if (from[key] === undefined) delete now[key]; else (now as Record<string, unknown>)[key] = from[key];

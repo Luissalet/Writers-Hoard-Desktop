@@ -2649,10 +2649,10 @@ export default function Map2D({
       // interleave at the seam.
       // The trade lens repeats itself either side of the copy it is given, so
       // it rides on the same single copy.
-      const gridCopy = annotations.grid || annotations.trade
+      const gridCopy = annotations.grid || annotations.trade || annotations.contours
         ? (copies.find((ox) => ox <= cw / 2 && cw / 2 < ox + mapW) ?? copies[0])
         : undefined;
-      if (marks.pins?.length || marks.route || marks.linked?.length || marks.traveller || annotations.grid || annotations.trade) {
+      if (marks.pins?.length || marks.route || marks.linked?.length || marks.traveller || annotations.grid || annotations.trade || annotations.contours) {
         for (const copyOx of copies) {
           // Un límite conocido: el salto de la costura se compara dentro de
           // `drawAnnotations` contra `ctx.canvas.width`, que es el búfer y no
@@ -2662,7 +2662,7 @@ export default function Map2D({
           // entre dos poblaciones casi nunca lo cruza; arreglarlo de verdad es
           // un parámetro más en esa función, que no es de esta vista.
           drawAnnotations(
-            ctx, copyOx === gridCopy ? { ...marks, grid: annotations.grid, trade: annotations.trade } : marks, world,
+            ctx, copyOx === gridCopy ? { ...marks, grid: annotations.grid, trade: annotations.trade, contours: annotations.contours } : marks, world,
             (wx) => toScreen(wx / W, 0, copyOx)[0],
             (wy) => toScreen(0, wy / H, copyOx)[1],
             (PW * scale) / W,
