@@ -902,9 +902,10 @@ export default function WorldView({
     // The reader's view shows only what the reader knows: no planned route,
     // journey pins, banner, manuscript links, saved regions or ancient sea
     // drawn over the blank paper to give away the land under it.
-    if (readerView) return { fog: fogLayer, story: storyMarks, grid: mapGrid ?? undefined };
     const look = themeById(themeId);
     const contours = typeof contourLines === 'number' ? { intervalM: contourLines, color: look.terrain?.contours.color ?? look.furniture.ink } : undefined;
+    // The contour lines are ground: under the reader's fog they stay, so the screen and the export agree.
+    if (readerView) return { fog: fogLayer, story: storyMarks, grid: mapGrid ?? undefined, contours };
     const pins: NonNullable<CartoAnnotations['pins']> = [];
     if (journeyFrom) pins.push({ x: journeyFrom.x, y: journeyFrom.y, label: journeyFrom.name, kind: 'from' });
     for (const v of journeyVia) pins.push({ x: v.x, y: v.y, label: v.name, kind: 'mark' });
@@ -2003,6 +2004,19 @@ export default function WorldView({
           </>
         )}
 
+        {/* Contour lines: in the first row, where there is room, so the second row does not wrap when the reader's controls wake up. */}
+        {(view === 'map' || view === 'carta') && (
+          <select data-testid="worldgen-contours" aria-label={t('worldgen.contours.title')} title={t('worldgen.contours.title')}
+            value={contourLines === null ? '' : String(contourLines)}
+            onChange={(e) => { const v = e.target.value; setContourLines(v === '' ? null : v === 'off' ? 'off' : Number(v)); }}
+            className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${typeof contourLines === 'number' ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
+            <option value="">{t('worldgen.contours.theme')}</option>
+            <option value="off">{t('worldgen.contours.off')}</option>
+            {[...new Set([...CONTOUR_INTERVALS_M, ...(typeof contourLines === 'number' ? [contourLines] : [])])].sort((a, b) => a - b).map((m) => (
+              <option key={m} value={m}>{t('worldgen.contours.every').replace('{n}', String(m))}</option>
+            ))}
+          </select>
+        )}
         {/* 3D skin switch */}
         {view === '3d' && (
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -2144,18 +2158,6 @@ export default function WorldView({
                 </label>
               )}
             </div>
-          )}
-          {(view === 'map' || view === 'carta') && (
-            <select data-testid="worldgen-contours" aria-label={t('worldgen.contours.title')} title={t('worldgen.contours.title')}
-              value={contourLines === null ? '' : String(contourLines)}
-              onChange={(e) => { const v = e.target.value; setContourLines(v === '' ? null : v === 'off' ? 'off' : Number(v)); }}
-              className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${typeof contourLines === 'number' ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
-              <option value="">{t('worldgen.contours.theme')}</option>
-              <option value="off">{t('worldgen.contours.off')}</option>
-              {[...new Set([...CONTOUR_INTERVALS_M, ...(typeof contourLines === 'number' ? [contourLines] : [])])].sort((a, b) => a - b).map((m) => (
-                <option key={m} value={m}>{t('worldgen.contours.every').replace('{n}', String(m))}</option>
-              ))}
-            </select>
           )}
           {(view === 'map' || view === 'carta') && (
             <div className="flex items-center gap-1" data-testid="worldgen-reader">

@@ -41,13 +41,15 @@ export interface JourneyClock {
  * `setOffHour` and lasting `hoursPerDay`. `ending` puts a moment that falls
  * exactly on a day's end at the end of that day rather than the start of the next.
  */
-export function clockAt(travelHours: number, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR, ending = false): JourneyClock {
+export function clockAt(travelHours: number, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR, ending = false, restEvery = 0): JourneyClock {
   const perDay = hoursPerDay > 0 ? hoursPerDay : 1;
   const h = Math.max(0, travelHours);
   let index = Math.floor(h / perDay + 1e-9);
   if (ending && index > 0 && Math.abs(h - index * perDay) < 1e-6) index -= 1;
   const hour = setOffHour + (h - index * perDay);
-  return { day: index + 1, hour, part: dayPart(hour) };
+  // A hard pace rests a whole day after every `restEvery` on the move: the calendar runs on.
+  const rested = restEvery > 0 ? Math.floor(index / restEvery) : 0;
+  return { day: index + 1 + rested, hour, part: dayPart(hour) };
 }
 
 /** "07:30" for 7.5. */
@@ -56,10 +58,15 @@ export function clockText(hour: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/** The clock at the start of each terrain leg of the route. */
-export function legClocks(route: Pick<Route, 'legs'>, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR): JourneyClock[] {
+/** The stretches of the route in travel order (the terrain summary when a route predates them). */
+export function routeStretches(route: Pick<Route, 'legs' | 'stretches'>): Route['legs'] {
+  return route.stretches ?? route.legs;
+}
+
+/** The clock at the start of each stretch of the route, in travel order. */
+export function legClocks(route: Pick<Route, 'legs' | 'stretches'>, hoursPerDay: number, setOffHour = DEFAULT_SET_OFF_HOUR, restEvery = 0): JourneyClock[] {
   let acc = 0;
-  return route.legs.map((leg) => { const at = clockAt(acc, hoursPerDay, setOffHour); acc += leg.hours; return at; });
+  return routeStretches(route).map((leg) => { const at = clockAt(acc, hoursPerDay, setOffHour, false, restEvery); acc += leg.hours; return at; });
 }
 
 export interface PassedPlace {
@@ -104,7 +111,14 @@ export function placesPassed(
   const near = options.nearKm ?? Math.max(10, cellKm * 1.5);
   const first = cells[0], last = cells[cells.length - 1];
   const out: PassedPlace[] = [];
+  // A cheap box first: only towns within the route's reach in cells are measured against every cell.
+  let minY = Infinity, maxY = -Infinity;
+  for (const cell of cells) { const y = Math.floor(cell / W); if (y < minY) minY = y; if (y > maxY) maxY = y; }
+  const reachCells = Math.ceil(near / Math.max(1e-6, cellKm * 0.2)) + 1;
+  const xs = cells.map((cell) => cell % W);
+  const nearX = (x: number) => { for (let k = 0; k < xs.length; k += 4) { let d = Math.abs(xs[k] - x); if (d > W / 2) d = W - d; if (d <= reachCells + 4) return true; } return false; };
   for (const s of geo.settlements) {
+    if (s.y < minY - reachCells || s.y > maxY + reachCells || !nearX(s.x)) continue;
     const sx = s.x + 0.5, sy = s.y + 0.5;
     let best = Infinity, bestK = -1;
     for (let k = 0; k < cells.length; k++) {
@@ -188,9 +202,9 @@ export function kmOnWater(route: Pick<Route, 'legs'>): number {
 }
 
 /** The different grounds crossed off-road and on land, in order of first meeting, at most `limit`. */
-export function groundsCrossed(route: Pick<Route, 'legs'>, limit = 3): string[] {
+export function groundsCrossed(route: Pick<Route, 'legs' | 'stretches'>, limit = 3): string[] {
   const out: string[] = [];
-  for (const leg of route.legs) {
+  for (const leg of routeStretches(route)) {
     if (leg.onRoad || isWaterLeg(leg) || out.includes(leg.terrain)) continue;
     out.push(leg.terrain);
     if (out.length >= limit) break;

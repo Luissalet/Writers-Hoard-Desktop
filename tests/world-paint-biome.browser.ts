@@ -36,6 +36,8 @@ export async function testWorldPaintBiome(): Promise<string[]> {
     bad(await runBridgeTool('wh_paint_biome', { worldId: Wid, biome: 'fungalForest', points: [] }), /points/, 'no points');
     bad(await runBridgeTool('wh_paint_biome', { worldId: Wid, biome: 'fungalForest', points: [{ x, y: 9999 }] }), /inside the world/, 'off the grid');
     bad(await runBridgeTool('wh_paint_biome', { worldId: Wid, biome: 'fungalForest', points: [{ x, y }], radius: 200 }), /radius/, 'radius');
+    const sea = world.elevation.findIndex((e) => e <= -0.5);
+    bad(await runBridgeTool('wh_paint_biome', { worldId: Wid, biome: 'fungalForest', points: [{ x: sea % world.width, y: Math.floor(sea / world.width) }], radius: 0.5 }), /no land cell/, 'a stroke over open sea');
     const before = (await runBridgeTool('wh_place_at', { worldId: Wid, x, y })).result as { ground: string };
     const painted = await runBridgeTool('wh_paint_biome', { worldId: Wid, biome: 'fungalForest', points: [{ x, y }, { x: x + 1, y }], radius: 2 });
     assert(painted.ok, `Paint ${JSON.stringify(painted).slice(0, 300)}`);
@@ -44,20 +46,23 @@ export async function testWorldPaintBiome(): Promise<string[]> {
     let after: { ground: string } | undefined;
     for (let i = 0; i < 60; i++) { const r = await runBridgeTool('wh_place_at', { worldId: Wid, x, y }); if (r.ok && !(r.result as { pending?: boolean }).pending) { after = r.result as { ground: string }; if (after.ground === 'fungalForest') break; } await new Promise((z) => setTimeout(z, 300)); }
     assert(after?.ground === 'fungalForest' && before.ground !== 'fungalForest', `Ground ${before.ground} → ${after?.ground}`);
-    // Replayed on a fresh world the cells are fungal forest; rubbing off gives the climate's ground back.
+    // Replayed on a fresh world the cells are fungal forest.
     const replay = generateWorld(params);
     applyEdits(replay, stored);
-    assert(replay.biome[spot] === Biome.FungalForest, 'Replay');
+    assert(replay.biome[spot] === Biome.FungalForest && (painted.result as { cells: number }).cells > 0, 'Replay');
+    // Undo takes the stroke back off the world.
+    const audit = (painted.result as { __audit: { entityId: string; projectId: string; before: unknown } }).__audit;
+    const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_paint_biome', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'paint' } });
+    assert(undone.ok && deserializeEdits((await db.generatedWorlds.get(Wid))!.edits ?? '[]').length === 0, `Undo ${JSON.stringify(undone).slice(0, 200)}`);
+    // Painted again and rubbed off: the climate's ground comes back.
+    assert((await runBridgeTool('wh_paint_biome', { worldId: Wid, biome: 'fungalForest', points: [{ x, y }, { x: x + 1, y }], radius: 2 })).ok, 'Repaint');
     const erased = await runBridgeTool('wh_paint_biome', { worldId: Wid, erase: true, points: [{ x, y }, { x: x + 1, y }], radius: 3 });
     const back = generateWorld(params);
     applyEdits(back, deserializeEdits((await db.generatedWorlds.get(Wid))!.edits ?? '[]'));
     assert(erased.ok && back.biome[spot] === world.biome[spot], `Erase gives back ${world.biome[spot]}, got ${back.biome[spot]}`);
-    const audit = (painted.result as { __audit: { entityId: string; projectId: string; before: unknown } }).__audit;
-    const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_paint_biome', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'paint' } });
-    assert(undone.ok, `Undo ${JSON.stringify(undone).slice(0, 200)}`);
     return [
       'Fantasy grounds travel as forest, marsh or dry ground and have English leg names',
-      `Bridge: wh_paint_biome refuses ocean, an unknown ground, no points, off-grid points and a huge radius; paints fungal forest (wh_place_at reads "${before.ground}" → "fungalForest"), the stroke replays on a fresh world, erase gives the climate's ground back; undo`,
+      `Bridge: wh_paint_biome refuses ocean, an unknown ground, no points, off-grid points, a huge radius and a stroke over open sea; paints fungal forest over ${(painted.result as { cells: number }).cells} land cells (wh_place_at reads "${before.ground}" → "fungalForest"), the stroke replays on a fresh world, undo takes it off the stored edits, and erase gives the climate's ground back`,
     ];
   } finally {
     await db.worldSnapshots.delete(worldRuntimeKey(Wid));

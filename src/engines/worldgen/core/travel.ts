@@ -198,6 +198,12 @@ export interface Route {
   /** Straight-line distance, for the "and the crow flies X" line. */
   directKm: number;
   legs: RouteLeg[];
+  /**
+   * The same ground in TRAVEL ORDER: one entry per stretch of a terrain as the
+   * party meets it (very short stretches folded into the one before). `legs`
+   * is the summary by terrain, largest first; this is what a clock can follow.
+   */
+  stretches?: RouteLeg[];
   /** Rivers and straits the route has to get across. */
   crossings: { x: number; y: number; kind: 'river' | 'strait' | 'pass'; name?: string }[];
   /** Fraction of the distance travelled on a made road. */
@@ -735,6 +741,7 @@ function solveRoute(
     // Legs shorter than a couple of kilometres are noise in a summary the reader
     // is going to read aloud; fold them into their neighbours.
     legs: mergeSmallLegs(legs, km * 0.04),
+    stretches: orderedStretches(legs, km * 0.02),
     crossings,
     roadFraction: km > 0 ? roadKm / km : 0,
     stages: findStages(world, geo, roads, cells, metric, hpd, opts, terminals),
@@ -891,6 +898,7 @@ function weldRoutes(
   const hours = parts.reduce((a, p) => a + p.hours, 0);
   const roadKm = parts.reduce((a, p) => a + p.km * p.roadFraction, 0);
   const legs = mergeSmallLegs(parts.flatMap((p) => p.legs), km * 0.04);
+  const stretches = orderedStretches(parts.flatMap((p) => p.stretches ?? []), km * 0.02);
   // The stages are recomputed over the WHOLE journey rather than concatenated:
   // a night does not fall at a waypoint just because the route happened to be
   // solved in pieces there.
@@ -904,12 +912,24 @@ function weldRoutes(
     cells, km, hours, days: hours / hpd,
     directKm: cells.length ? greatCircleKm(world, cells[0], cells[cells.length - 1], metric.radius) : 0,
     legs,
+    stretches,
     crossings: parts.flatMap((p) => p.crossings),
     roadFraction: km > 0 ? roadKm / km : 0,
     stages,
     realms,
     ...profile,
   };
+}
+
+/** The legs in the order they are travelled: short ones folded into the one before, then neighbours of the same ground joined. */
+function orderedStretches(legs: RouteLeg[], minKm: number): RouteLeg[] {
+  const out: RouteLeg[] = [];
+  for (const l of legs) {
+    const last = out[out.length - 1];
+    if (last && (l.km < minKm || (last.terrain === l.terrain && last.onRoad === l.onRoad))) { last.km += l.km; last.hours += l.hours; continue; }
+    out.push({ ...l });
+  }
+  return out;
 }
 
 function mergeSmallLegs(legs: RouteLeg[], minKm: number): RouteLeg[] {
