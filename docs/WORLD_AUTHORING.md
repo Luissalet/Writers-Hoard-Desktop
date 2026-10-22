@@ -172,7 +172,7 @@ with names and pointer hits hidden under the paper. How the reader's map starts
 (blank, all heard of, all seen) is saved with the world's look, and the Carta
 PNG export carries the reader's view while it is open. The Travel panel tells
 the planned journey in words: one sentence (across which grounds, along the
-road from which town to which, how far by water, how many rivers forded), the
+road from which town to which, how far by water, how many rivers forded, bridged or crossed frozen), the
 towns it passes with how far along, each stretch with its day and part of day,
 and when the party sets off, makes camp and arrives (the set-off hour is in the
 travel settings and is saved with an itinerary); a night near a town is at its
@@ -185,6 +185,16 @@ Right-clicking a generated world's map offers, at that spot: a village (on dry
 land only), a note, a story event (in the Reader's view, in its chapter) and a
 spring whose river runs downhill on its own until the sea, another river or a
 hollow; Escape closes the menu.
+
+A river crossed off the road is a ford and costs the party time (an hour and a
+half on foot, an hour on horseback, about four with a cart); on a road it is a
+bridge and costs nothing, and in a hard winter a frozen river is walked over. A
+diagonal step between two river cells is a crossing too. Right-click near a
+river: "No crossing here" closes the river there (a ford washed out, a bridge
+down) and marks it with a red cross; journeys then find another ford or bridge,
+or report there is no way, while a stop placed on the closed stretch itself (a
+town or a via point) can still be reached and left. Right-clicking it again opens it. Laying out a road bridges what it
+meets, closed or not.
 
 A place's card (Index, or the Place tab) can Duplicate a town, ruin or
 landmark (a copy named "<name> 2" on the nearest free dry land; a capital's

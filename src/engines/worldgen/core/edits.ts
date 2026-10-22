@@ -451,6 +451,8 @@ export type WorldEdit =
    * snow). A look of the ground only: the last one wins.
    */
   | { kind: 'snowline'; m: number }
+  /** No way across the river here (a ford washed out, a bridge down), or the way open again. Read by travel only. */
+  | { kind: 'crossing'; x: number; y: number; blocked: boolean }
   /** Erase generated roads passing within a radius. */
   | { kind: 'eraseRoads'; x: number; y: number; radius: number }
   /**
@@ -632,6 +634,10 @@ export interface AppliedEdits {
    * Absent or 0 = the climate's own snowline. Read by every renderer that draws snow.
    */
   snowShiftC?: number;
+  /** River cells no traveller can cross (the author closed the way there); absent = none. */
+  blockedCrossings?: Set<number>;
+  /** Where the author closed a crossing, one mark per closed spot, for the map. */
+  blockedCrossingMarks?: { x: number; y: number }[];
   markers: PaintedMarker[];
   labels: PaintedLabel[];
   stamps: PaintedStamp[];
@@ -940,6 +946,32 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   // The snowline is a reading of the ground, not the ground: the last one wins.
   const { snowlineM } = worldLevels(edits);
   if (snowlineM) out.snowShiftC = snowlineM * 0.0065;
+
+  // Closed crossings, in order: closing marks a spot, which closes the river cells in it and the eight
+  // round it (travel also refuses a diagonal step between two closed cells); opening clears every
+  // closed spot within a cell of where it is opened, across the date line too.
+  const closed = new Map<string, { x: number; y: number }>();
+  for (const e of edits) {
+    if (e.kind !== 'crossing') continue;
+    const x = ((Math.floor(e.x) % W) + W) % W, y = Math.min(H - 1, Math.max(0, Math.floor(e.y)));
+    if (e.blocked) { closed.set(`${x},${y}`, { x, y }); continue; }
+    for (const [key, m] of closed) {
+      const dx = Math.abs(m.x - x);
+      if (Math.min(dx, W - dx) <= 1 && Math.abs(m.y - y) <= 1) closed.delete(key);
+    }
+  }
+  if (closed.size) {
+    const cells = new Set<number>();
+    for (const { x, y } of closed.values()) {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= H) continue;
+        cells.add(ny * W + (((x + dx) % W) + W) % W);
+      }
+    }
+    out.blockedCrossings = cells;
+    out.blockedCrossingMarks = [...closed.values()];
+  }
 
   // ---- 1b. lakes: filled from the ground as it now stands ------------------
   //
@@ -1525,6 +1557,10 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     try { normalizeStoryEvent(record); return true; } catch { return false; }
   }
   if ((e as { kind: string }).kind === 'storyRemove') return typeof (e as { id?: unknown }).id === 'string';
+  if ((e as { kind: string }).kind === 'crossing') {
+    const c = e as { x?: unknown; y?: unknown; blocked?: unknown };
+    return typeof c.x === 'number' && Number.isFinite(c.x) && typeof c.y === 'number' && Number.isFinite(c.y) && typeof c.blocked === 'boolean';
+  }
   if ((e as { kind: string }).kind === 'seaLevel' || (e as { kind: string }).kind === 'snowline') {
     const m = (e as { m?: unknown }).m, max = (e as { kind: string }).kind === 'seaLevel' ? SEA_LEVEL_MAX_M : SNOWLINE_MAX_M;
     return typeof m === 'number' && Number.isFinite(m) && Math.abs(m) <= max;
