@@ -3038,6 +3038,7 @@ const en = {
   'worldgen.menu.spring': "Spring here: the river finds its way",
   'worldgen.menu.springDry': "From here the water has nowhere to run.",
   'worldgen.menu.springTo.sea': "A river of {n} cells down to the sea.",
+  'worldgen.menu.springTo.lake': "A river of {n} cells down to a lake.",
   'worldgen.menu.springTo.river': "A river of {n} cells down to another river.",
   'worldgen.menu.springTo.hollow': "A river of {n} cells down to a hollow.",
   'worldgen.menu.story': "Story event here",

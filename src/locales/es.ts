@@ -3038,6 +3038,7 @@ const es = {
   'worldgen.menu.spring': "Manantial aquí: el río baja solo",
   'worldgen.menu.springDry': "Desde aquí el agua no tiene adónde correr.",
   'worldgen.menu.springTo.sea': "Río de {n} celdas hasta el mar.",
+  'worldgen.menu.springTo.lake': "Río de {n} celdas hasta un lago.",
   'worldgen.menu.springTo.river': "Río de {n} celdas hasta otro río.",
   'worldgen.menu.springTo.hollow': "Río de {n} celdas hasta una hondonada.",
   'worldgen.menu.story': "Suceso aquí",

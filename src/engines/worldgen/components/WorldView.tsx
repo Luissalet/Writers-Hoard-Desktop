@@ -69,7 +69,7 @@ import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { registerLiveWorld } from '../core/liveWorlds';
-import { deserializeEdits, editKey, sitesPolicyFrom, targetFromKey } from '../core/edits';
+import { deserializeEdits, editKey, riverCellsAfterEdits, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
@@ -2148,13 +2148,13 @@ export default function WorldView({
       {recipeError && <p role="alert" className="text-sm text-danger">{recipeError}</p>}
       {worldMenu && data && <WorldMapMenu at={worldMenu} onClose={closeWorldMenu} title={t('worldgen.menu.title')} cancel={t('common.cancel')} create={t('worldgen.menu.create')} items={[
         { id: 'place', label: t('worldgen.menu.place'), icon: <MapPin size={14} />, ask: t('worldgen.menu.placeName'),
-          run: (name) => { const cell = Math.floor(worldMenu.y) * data.width + ((Math.floor(worldMenu.x) % data.width) + data.width) % data.width; if (!(data.elevation[cell] > 0)) { toast.error(t('worldgen.menu.placeInSea')); return; } if (!applyEdit({ kind: 'marker', marker: 'settlement', x: Math.floor(worldMenu.x), y: Math.floor(worldMenu.y), rank: 'village', name })) { toast.error(t('worldgen.story.busy')); return false; } } },
+          run: (name) => { const cell = Math.floor(worldMenu.y) * data.width + ((Math.floor(worldMenu.x) % data.width) + data.width) % data.width; if (!(data.elevation[cell] > 0) || data.lake?.[cell]) { toast.error(t('worldgen.menu.placeInSea')); return; } if (!applyEdit({ kind: 'marker', marker: 'settlement', x: Math.floor(worldMenu.x), y: Math.floor(worldMenu.y), rank: 'village', name })) { toast.error(t('worldgen.story.busy')); return false; } } },
         { id: 'label', label: t('worldgen.menu.label'), icon: <Type size={14} />, ask: t('worldgen.menu.labelText'),
           run: (text) => { if (!applyEdit({ kind: 'label', x: worldMenu.x, y: worldMenu.y, text, style: 'note' })) { toast.error(t('worldgen.story.busy')); return false; } } },
         { id: 'spring', label: t('worldgen.menu.spring'), icon: <Droplets size={14} />,
           run: () => {
             // The water finds its own way down from the spring; a spring in the sea or a hollow goes nowhere.
-            const run = traceSpring(data, worldMenu.x, worldMenu.y);
+            const run = traceSpring(data, worldMenu.x, worldMenu.y, { riverCells: riverCellsAfterEdits(data, session.current?.edits ?? []) });
             if (run.end === 'nowhere') { toast.error(t('worldgen.menu.springDry')); return; }
             if (!applyEdit({ kind: 'river', pts: run.pts, width: 2 })) { toast.error(t('worldgen.story.busy')); return false; }
             toast.success(t(`worldgen.menu.springTo.${run.end}`).replace('{n}', String(run.cells)));

@@ -1242,8 +1242,8 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
   {
     name: 'wh_add_spring_river',
     description:
-      `Add a river that runs downhill from a spring at a place or cell, until the sea, another river or a hollow.
-From the given spot the water steps to the lowest neighbouring cell while there is one lower, round the east/west seam, and the path is added as a drawn river (it carves a channel like one drawn by hand). Refused when the spot is sea or a hollow already. dryRun returns the path without adding it. Undo removes the river.`,
+      `Add a river that runs downhill from a spring at a place or cell, until the sea, a lake, another river or a hollow.
+From the given spot the water steps to the lowest neighbouring cell while there is one lower, round the east/west seam, and the path is added as a drawn river (it carves a channel like one drawn by hand). It stops at rivers drawn earlier too, and not at ones that were erased. Refused when the spot is sea, a lake or a hollow already. dryRun returns the path without adding it. Undo removes the river.`,
     writes: true,
     schema: {
       type: 'object',

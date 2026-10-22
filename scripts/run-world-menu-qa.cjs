@@ -80,6 +80,14 @@ async function main() {
   await wait(`!document.querySelector('[data-testid="worldgen-map-menu"]')`, 'menu closed');
   assert.equal((await edits()).length, count, 'Escape changed the world');
   tests.push('Escape closes the menu and changes nothing');
+  // 6b. A right-button drag that pans the map opens no menu on release.
+  send({ type: 'mouseMove', x: A.x, y: A.y }); await pause(60);
+  send({ type: 'mouseDown', x: A.x, y: A.y, button: 'right', clickCount: 1 }); await pause(40);
+  for (let k = 1; k <= 8; k++) { send({ type: 'mouseMove', x: A.x + k * 12, y: A.y + k * 4, button: 'right', modifiers: ['rightButtonDown'] }); await pause(30); }
+  send({ type: 'mouseUp', x: A.x + 96, y: A.y + 32, button: 'right', clickCount: 1 }); await pause(400);
+  assert(!(await js(`!!document.querySelector('[data-testid="worldgen-map-menu"]')`)), 'A right-drag opened the menu');
+  await menuAt(A.x, A.y); send({ type: 'keyDown', keyCode: 'Escape' }); send({ type: 'keyUp', keyCode: 'Escape' }); await pause(300);
+  tests.push('A right-button drag opens no menu on release; a plain right-click still does');
   // 7. Reopen: all of it is still there.
   await js('window.__lookUnmount()'); await pause(200); await js('window.__lookMount()'); await wait(forged, 'reopened');
   list = await edits();
