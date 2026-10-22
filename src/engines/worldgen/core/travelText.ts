@@ -8,7 +8,8 @@ const EN: Record<string, string> = {
   'páramo': 'moorland', 'tundra': 'tundra', 'desierto': 'desert', 'mar de arena': 'sand sea', 'pedregal': 'stony desert', 'cárcavas': 'badlands',
   'desierto frío': 'cold desert', 'salar': 'salt flat', 'desierto de niebla': 'fog desert', 'roquedo': 'alpine rock', 'pastos de altura': 'alpine meadow',
   'glaciar': 'glacier', 'casquete': 'ice cap', 'playa': 'beach', 'puna': 'puna', 'malpaís': 'volcanic terrain', 'llano de ceniza': 'ash plain',
-  'karst': 'karst', 'bambú': 'bamboo', 'calzada': 'road', 'la calzada': 'the road', 'campo abierto': 'open country',
+  'karst': 'karst', 'bambú': 'bamboo', 'bosque petrificado': 'petrified forest', 'bosque fúngico': 'fungal forest',
+  'llanos de cristal': 'crystal flats', 'marisma luminosa': 'glow marsh', 'calzada': 'road', 'la calzada': 'the road', 'campo abierto': 'open country',
   'no hay ruta de mar entre esos dos puntos': 'there is no sea route between these points',
   'no hay vía de agua continua entre esos dos puntos': 'there is no continuous waterway between these points',
   'un carro no puede llegar hasta allí': 'a cart cannot reach that place',
@@ -20,5 +21,6 @@ export function englishRoute(route: Route): Route {
   return { ...route, impossible: route.impossible ? EN[route.impossible] ?? route.impossible : undefined,
     legs: route.legs.map(leg => ({ ...leg, terrain: EN[leg.terrain] ?? leg.terrain })),
     stages: route.stages.map(stage => ({ ...stage, terrain: EN[stage.terrain] ?? stage.terrain,
-      nearest: stage.nearest ? { ...stage.nearest, kind: stage.nearest.kind === 'ruina' ? 'ruin' : stage.nearest.kind } : undefined })) };
+      nearest: stage.nearest ? { ...stage.nearest, kind: stage.nearest.kind === 'ruina' ? 'ruin' : stage.nearest.kind } : undefined,
+      ...(stage.shelter ? { shelter: { ...stage.shelter, kind: stage.shelter.kind === 'ruina' ? 'ruin' : stage.shelter.kind } } : {}) })) };
 }

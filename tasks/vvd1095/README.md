@@ -71,6 +71,11 @@ reviewed independently (rounds r1–r13, r13 approving: stamps from r4, grid and
 | A2 travel rows | World pace, speeds, ground costs, per-leg modes, rest days, MCP planner, day-by-day playback | see A2 rows #29–#37 (trade lens is in its own row below) |
 | A2 #20, #21 reader's view and fog brushes | Fog brush Seen/Heard/Hide with chapter; Reader's view per chapter in atlas, Carta and PNG; MCP paint/view/render | PRESENT (not in 3D) |
 | A2 #25 story playback | Previous / Play / Next and a scrub bar through the chapters in the Reader's view; the map follows each chapter's events, a caption names them and what is planned next; MCP wh_story_chapters | PARTIAL (no session replay, "Now" or "As you saw it") |
+| A1 #14 view band | "Mundo / Continente / Región / Comarca · N km de ancho" on the atlas, following the zoom | PRESENT |
+| A1 #20 fantasy grounds | Fantasy row in the Biome brush; travel classes and leg names; MCP wh_paint_biome, wh_place_at ground | PRESENT |
+| A1 #24 plateau | Relieve → Meseta: square, flat-edged head in one click | PRESENT (lifts evenly, does not level the top) |
+| A1 #30 contour lines | Toolbar: as the look, none or every 100/200/500/1000 m on atlas, Carta and export; saved with the look; MCP presentation contours | PRESENT (not in 3D) |
+| A2 #34, #36, #41 journey in words | Sentence, towns passed with km, roads named by their towns, day and part of day per stretch, set-off / camp / arrival clock, inns and ruins for the nights; MCP wh_plan_journey | PRESENT (no travel by air) |
 | A2 #59 roll a name | Roll button on Point → Label: names for region, water, range and place labels in the world's languages, with etymology; MCP wh_roll_name | PRESENT |
 | A2 #61 play grid and map settings | Grid Off / Square / Hex with km size in the toolbar (see A1 play grid), themes and paper | PRESENT |
 | A2 #28 reader's map settings | Start state saved with the look; route marked as seen with sight radius and chapter | PARTIAL (no "land in ink", towns as dots or trail) |

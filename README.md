@@ -33,14 +33,14 @@ dock with project/chapter inheritance; its layout does not become reader prose.
 Maps, trees, calendars, typed tables, local media, Reader and static wiki retain
 their document-specific editors and exports. Generated worlds keep their look, start
 blank if wanted, measure areas against real outlines, plan journeys with the
-world's own pace and travel physics, and carry editable labels (angle, spacing,
+world's own pace and travel physics (told in words: towns passed, roads followed, day and hour of each stretch, inns), and carry editable labels (angle, spacing,
 curve, names rolled in the world's own languages), 32 map stamps, a square or hex play grid, hand-drawn roads with their
 own thickness and pattern, places that can be duplicated or locked, a reader's-eye fog that
 reveals the map chapter by chapter, story events placed by chapter and played
 back chapter by chapter or scrubbed to any chapter (with their order inside a chapter, who was there
 and what is planned next),
 a right-click menu (village, note, story event, a
-spring whose river finds its way downhill), a lake tool that fills a hollow to its spill, a whole-world sea level and snowline, and a
+spring whose river finds its way downhill), a lake tool that fills a hollow to its spill, fantasy grounds and a one-click plateau brush, contour lines at a chosen interval, a whole-world sea level and snowline, and a
 month-by-month trade lens (sites, shortages, prices, shipments); classic image
 maps carry styled shapes (outline, hatch, lettering, drawing order, several
 layers), pin sizes, a searchable Codex link that can create the entry, a

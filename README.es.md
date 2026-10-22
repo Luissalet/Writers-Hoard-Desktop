@@ -31,7 +31,7 @@ no pasa a ser prosa del lector. Mapas, árboles, calendarios, tablas tipadas,
 medios locales, Lector y wiki estática conservan sus editores y exportaciones.
 Los mundos generados guardan su aspecto, pueden empezar en blanco, miden áreas
 frente a contornos reales, planifican viajes con el ritmo y la física de viaje
-del propio mundo y llevan rótulos editables (ángulo, espaciado, curva, nombres tirados en las
+del propio mundo (contados en palabras: pueblos por los que pasan, caminos, día y hora de cada tramo, posadas) y llevan rótulos editables (ángulo, espaciado, curva, nombres tirados en las
 lenguas del mundo), 32
 sellos, una rejilla de juego cuadrada o hexagonal, caminos trazados a mano con
 su grosor y su línea (continua, discontinua o punteada), lugares que se pueden
@@ -39,7 +39,7 @@ duplicar o bloquear, una niebla del lector que
 revela el mapa capítulo a capítulo, sucesos de la historia por capítulo que se
 reproducen capítulo a capítulo o se recorren con una barra (con su orden dentro
 del capítulo, quién estaba y lo siguiente previsto), un menú de clic derecho (pueblo, nota, suceso y
-un manantial cuyo río baja solo), una herramienta de lagos que llena la
+un manantial cuyo río baja solo), terrenos fantásticos, un pincel de meseta, curvas de nivel cada N metros, una herramienta de lagos que llena la
 hondonada hasta que rebosa, nivel del mar y línea de nieve de todo el mundo, y una
 lente de comercio mes a mes (explotaciones, escasez, precios, envíos); los mapas
 de imagen tienen figuras con estilo (contorno, trama, rotulación, orden, varias

@@ -1,4 +1,5 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
+import { CONTOUR_INTERVALS_M } from '../cartography/contourLayer';
 import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
 import type { ReaderFogLayer } from '../cartography/readerFogLayer';
 import { newStoryId, nextStoryChapter, normalizeStoryEvent, reorderInChapter, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy, STORY_COLORS, type StoryEvent } from '../core/storyEvents';
@@ -176,7 +177,7 @@ interface WorldViewProps {
 /** A look as flat fields, so changes are compared and saved one field at a time. */
 function flattenLook(look: WorldPresentation): Record<string, unknown> {
   // The grid is compared and saved whole, as one field.
-  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null, readerStart: look.readerStart };
+  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null, readerStart: look.readerStart, contours: look.contours ?? null };
   for (const [key, value] of Object.entries(look.layers ?? {})) out[`layers.${key}`] = value;
   return out;
 }
@@ -234,6 +235,8 @@ export default function WorldView({
   const [skin3D, setSkin3D] = useState<Skin3D>(savedLook.skin3D);
   /** The play grid over the map (squares or hexes, in km), saved with the look. */
   const [mapGrid, setMapGrid] = useState<MapGrid | null>(savedLook.grid ?? null);
+  /** Contour lines: as the look draws them (null), none, or every N metres; saved with the look. */
+  const [contourLines, setContourLines] = useState<number | 'off' | null>(savedLook.contours ?? null);
   /** How the reader's-eye map starts before any fog stroke, saved with the look. */
   const [readerStart, setReaderStart] = useState<ReaderStart>(savedLook.readerStart);
   /** The reader's-eye view: on/off, and up to which chapter (null = everything painted). */
@@ -249,6 +252,8 @@ export default function WorldView({
     spanKm: 40075,
   });
   const [cartoLayers, setCartoLayers] = useState<Partial<CartoLayers>>(() => ({ ...savedLook.layers }));
+  /** The layers the views draw: the look's own contour lines step aside when the author chose an interval or none. */
+  const drawnLayers = useMemo<Partial<CartoLayers>>(() => (contourLines === null ? cartoLayers : { ...cartoLayers, contours: false }), [cartoLayers, contourLines]);
   /**
    * Relief symbol density: what the reader drags, and what the Carta is
    * actually rebuilt from.
@@ -287,7 +292,8 @@ export default function WorldView({
     layers: Object.fromEntries(PRESENTATION_LAYERS.map((key) => [key, cartoLayers[key] !== false && (key !== 'borders' || cartoLayers.borders === true)])),
     grid: mapGrid,
     readerStart,
-  }), [themeId, skin3D, reliefSettled, cartoLayers, mapGrid, readerStart]);
+    contours: contourLines,
+  }), [themeId, skin3D, reliefSettled, cartoLayers, mapGrid, readerStart, contourLines]);
   /** The stored look this view last knew, field by field (layers as "layers.x"). */
   const lookBaseline = useRef(flattenLook(lookToSave));
   const lookRevision = useRef(world.presentationRevision ?? 0);
@@ -298,14 +304,14 @@ export default function WorldView({
     if (revision <= lookRevision.current) return;
     lookRevision.current = revision;
     const resolved = resolvePresentation(world.presentation);
-    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid, readerStart: resolved.readerStart });
+    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid, readerStart: resolved.readerStart, contours: resolved.contours });
     // Adopt what changed elsewhere, but only for fields this view has not
     // changed itself and not yet saved: that choice is still on its way.
     const local = flattenLook(lookLocal.current), base = lookBaseline.current, next: Record<string, unknown> = {};
     for (const key of Object.keys(incoming)) next[key] = local[key] !== base[key] ? local[key] : incoming[key];
     lookBaseline.current = incoming;
     const look = unflattenLook(next);
-    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null); setReaderStart(look.readerStart ?? 'blank');
+    setThemeId(look.theme!); setSkin3D(look.skin3D!); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null); setReaderStart(look.readerStart ?? 'blank'); setContourLines(look.contours ?? null);
     setCartoLayers((current) => ({ ...current, ...look.layers }));
   }, [world.presentation, world.presentationRevision]);
   useEffect(() => {
@@ -897,6 +903,8 @@ export default function WorldView({
     // journey pins, banner, manuscript links, saved regions or ancient sea
     // drawn over the blank paper to give away the land under it.
     if (readerView) return { fog: fogLayer, story: storyMarks, grid: mapGrid ?? undefined };
+    const look = themeById(themeId);
+    const contours = typeof contourLines === 'number' ? { intervalM: contourLines, color: look.terrain?.contours.color ?? look.furniture.ink } : undefined;
     const pins: NonNullable<CartoAnnotations['pins']> = [];
     if (journeyFrom) pins.push({ x: journeyFrom.x, y: journeyFrom.y, label: journeyFrom.name, kind: 'from' });
     for (const v of journeyVia) pins.push({ x: v.x, y: v.y, label: v.name, kind: 'mark' });
@@ -911,8 +919,9 @@ export default function WorldView({
       title: rg.title,
       active: rg.id === regionAt?.savedId,
     }));
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours) return undefined;
     return {
+      contours,
       fog: fogLayer,
       story: storyMarks,
       trade: tradeLayer,
@@ -931,7 +940,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1789,12 +1798,13 @@ export default function WorldView({
         theme,
         width: 4096,
         height: 2048,
-        layers: cartoLayers,
+        layers: drawnLayers,
         reliefAmount: reliefSettled,
         geography: geography ?? undefined,
         title: world.title,
         subtitle: t('worldgen.export.atlasSuffix'),
         typeScale: 1.5,
+        contourIntervalM: typeof contourLines === 'number' ? contourLines : null,
         // What the reader sees on screen is what the export carries: the play
         // grid, and the reader's-eye fog while that view is open.
         grid: mapGrid,
@@ -1809,7 +1819,7 @@ export default function WorldView({
     } finally {
       setExporting(false);
     }
-  }, [data, theme, cartoLayers, reliefSettled, geography, world.title, t, mapGrid, fogLayer, storyMarks]);
+  }, [data, theme, drawnLayers, contourLines, reliefSettled, geography, world.title, t, mapGrid, fogLayer, storyMarks]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -2136,6 +2146,18 @@ export default function WorldView({
             </div>
           )}
           {(view === 'map' || view === 'carta') && (
+            <select data-testid="worldgen-contours" aria-label={t('worldgen.contours.title')} title={t('worldgen.contours.title')}
+              value={contourLines === null ? '' : String(contourLines)}
+              onChange={(e) => { const v = e.target.value; setContourLines(v === '' ? null : v === 'off' ? 'off' : Number(v)); }}
+              className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${typeof contourLines === 'number' ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
+              <option value="">{t('worldgen.contours.theme')}</option>
+              <option value="off">{t('worldgen.contours.off')}</option>
+              {[...new Set([...CONTOUR_INTERVALS_M, ...(typeof contourLines === 'number' ? [contourLines] : [])])].sort((a, b) => a - b).map((m) => (
+                <option key={m} value={m}>{t('worldgen.contours.every').replace('{n}', String(m))}</option>
+              ))}
+            </select>
+          )}
+          {(view === 'map' || view === 'carta') && (
             <div className="flex items-center gap-1" data-testid="worldgen-reader">
               <button type="button" data-testid="worldgen-reader-toggle" aria-pressed={readerView}
                 title={t('worldgen.reader.hint')}
@@ -2258,6 +2280,12 @@ export default function WorldView({
       {/* Stack tools below the map when the actual workspace is narrow. */}
       <div className={`grid gap-3 items-stretch ${toolsOpen ? '@min-[960px]:grid-cols-[minmax(0,1fr)_21rem]' : ''}`}>
         <div className="relative rounded-xl overflow-hidden border border-border bg-deep min-w-0 h-[max(420px,calc(100dvh-260px))]">
+          {data && view === 'map' && (
+            // How much of the world the view takes in: the band (world, continent, region, local) and its width on the ground.
+            <div className="pointer-events-none absolute left-2 top-2 z-10 rounded bg-surface/80 px-2 py-0.5 text-[10px] text-text-muted" data-testid="worldgen-view-band" data-tier={semanticProfile.tier}>
+              {t(`worldgen.band.${semanticProfile.tier}`)} · {t('worldgen.band.across').replace('{n}', Math.round(viewport.spanKm).toLocaleString(locale === 'en' ? 'en-GB' : 'es-ES'))}
+            </div>
+          )}
           {readerView && readerChapter !== null && (view === 'map' || view === 'carta') && (() => {
             // What happens in the chapter being shown: the caption of the story's playback.
             const frame = storyFrames.find((item) => item.chapter === readerChapter);
@@ -2364,7 +2392,7 @@ export default function WorldView({
                 geography={geography}
                 canonWorld={canonSource?.world}
                 canonEdits={canonSource?.edits}
-                layers={cartoLayers}
+                layers={drawnLayers}
                 density={1}
                 reliefAmount={reliefSettled}
                 title={world.title}

@@ -71,6 +71,8 @@ export interface TravelOptions {
   profile?: TravelProfile;
   /** Planet radius, for honest distances. */
   planetRadiusKm?: number;
+  /** Clock hour the party sets off each day (0–23); presentation only, the route does not change. */
+  setOffHour?: number;
 }
 
 export type TravelPace = 'easy' | 'steady' | 'hard';
@@ -136,6 +138,7 @@ const GROUND_OF: Partial<Record<number, GroundClass>> = {
   [Biome.Marsh]: 'marsh', [Biome.PeatBog]: 'marsh', [Biome.SaltMarsh]: 'marsh',
   [Biome.Alpine]: 'mountains', [Biome.Karst]: 'mountains', [Biome.Volcanic]: 'mountains',
   [Biome.Glacier]: 'ice', [Biome.IceCap]: 'ice',
+  [Biome.PetrifiedForest]: 'dry', [Biome.CrystalFlats]: 'dry', [Biome.FungalForest]: 'forest', [Biome.GlowMarsh]: 'marsh',
 };
 /** Which ground class a biome belongs to, for the author's cost table. */
 export function groundClassOf(biome: number): GroundClass | undefined { return GROUND_OF[biome]; }
@@ -180,6 +183,8 @@ export interface RouteStage {
   nearest?: { name: string; kind: string; km: number };
   /** True when the nearest shelter is too far to reach — camping out. */
   rough: boolean;
+  /** The town (an inn there) or ruin close enough to sleep in, when there is one. */
+  shelter?: { name: string; kind: string };
   /** What the ground is here. */
   terrain: string;
 }
@@ -289,6 +294,7 @@ const BIOME_DRAG: Partial<Record<number, number>> = {
   [Biome.Chaparral]: 1.8, [Biome.Shrubland]: 1.4, [Biome.Moor]: 1.9, [Biome.Tundra]: 1.7, [Biome.Puna]: 1.8,
   [Biome.Alpine]: 3.2, [Biome.Glacier]: 4.5, [Biome.IceCap]: 4.0,
   [Biome.Volcanic]: 3.0, [Biome.AshPlain]: 1.8,
+  [Biome.PetrifiedForest]: 1.7, [Biome.FungalForest]: 2.4, [Biome.CrystalFlats]: 1.6, [Biome.GlowMarsh]: 3.4,
   [Biome.Grassland]: 1.0, [Biome.Savanna]: 1.1, [Biome.Steppe]: 1.05,
   [Biome.AlpineMeadow]: 1.3, [Biome.Beach]: 1.3, [Biome.ColdDesert]: 1.4,
 };
@@ -311,6 +317,8 @@ const TERRAIN_ES: Partial<Record<number, string>> = {
   [Biome.Glacier]: 'glaciar', [Biome.IceCap]: 'casquete', [Biome.Beach]: 'playa',
   [Biome.Puna]: 'puna', [Biome.Volcanic]: 'malpaís', [Biome.AshPlain]: 'llano de ceniza',
   [Biome.Karst]: 'karst', [Biome.Bamboo]: 'bambú',
+  [Biome.PetrifiedForest]: 'bosque petrificado', [Biome.FungalForest]: 'bosque fúngico',
+  [Biome.CrystalFlats]: 'llanos de cristal', [Biome.GlowMarsh]: 'marisma luminosa',
 };
 
 const DX8 = [1, 1, 0, -1, -1, -1, 0, 1];
@@ -798,7 +806,8 @@ function findStages(
       const onRoad = roads[ci] > 0;
       const inRealm = geo.realmOf[ci] >= 0;
       const roofKm = (stepModes?.[k] ?? opts.mode) === 'horse' ? 8 : 5;
-      const rough = !(best && best.km <= roofKm) && !(onRoad && inRealm);
+      const reached = !!best && best.km <= roofKm;
+      const rough = !reached && !(onRoad && inRealm);
 
       out.push({
         night: night++,
@@ -807,6 +816,7 @@ function findStages(
         hours: hoursPerDay,
         nearest: best,
         rough,
+        ...(reached && best ? { shelter: { name: best.name, kind: best.kind } } : {}),
         terrain: onRoad ? 'la calzada' : (TERRAIN_ES[world.biome[ci]] ?? 'campo abierto'),
       });
       acc = 0;
@@ -922,7 +932,7 @@ function greatCircleKm(world: WorldData, a: number, b: number, radiusKm: number)
   return coordinateDistance(world, a % world.width, Math.floor(a / world.width), b % world.width, Math.floor(b / world.width), radiusKm);
 }
 
-function coordinateDistance(world: WorldData, ax: number, ay: number, bx: number, by: number, radiusKm: number): number {
+export function coordinateDistance(world: WorldData, ax: number, ay: number, bx: number, by: number, radiusKm: number): number {
   const W = world.width, H = world.height;
   const toRad = (x: number, y: number) => ({
     lon: (x / W) * Math.PI * 2,

@@ -902,6 +902,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       layers: { type: 'object', description: 'Layers to show (true) or hide (false).', properties: Object.fromEntries(['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'].map((key) => [key, { type: 'boolean' }])), additionalProperties: false },
       readerStart: s("How the reader's-eye map starts before any fog stroke: blank (default), sketch (all heard of) or ink (all seen).", { enum: ['blank', 'sketch', 'ink'] }),
       grid: { anyOf: [{ type: 'object', properties: { kind: { type: 'string', enum: ['square', 'hex'] }, km: { type: 'number', minimum: 1, maximum: 2000 } }, required: ['kind', 'km'], additionalProperties: false }, { type: 'null' }], description: 'A square or hex play grid over the map, cell size in km; null removes it.' },
+      contours: { anyOf: [{ type: 'integer', minimum: 50, maximum: 2000 }, { type: 'string', enum: ['off'] }, { type: 'null' }], description: 'Contour lines every N metres on any look (atlas, Carta, exports, wh_render_world_map); "off" for none; null for the look\'s own (relief and survey draw some).' },
       expectedRevision: n('Revision read before changing; a different current revision refuses the write.'),
     }, required: ['worldId'], additionalProperties: false },
   },
@@ -941,7 +942,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_plan_journey', writes: false,
-    description: `Plan a journey on a generated world with the least-time model of the Travel panel: real gradient, ground, roads, rivers, ice and season. Stops are place keys (wh_find_place) or world cells; routes leg by leg through intermediate stops, each leg optionally with its own mode. Pace easy uses 75% of the day, hard 130% plus a rest day after every six on the move. Returns distance, hours, days (rest days included), road share, crossings, realms, climb, where each night falls and the route's path in cells (pass it as points to wh_paint_reader_fog to mark the way as seen on the reader's map). Uses the world's travel settings unless profile/pace are given. ${PENDING_NOTE}`,
+    description: `Plan a journey on a generated world with the least-time model of the Travel panel: real gradient, ground, roads, rivers, ice and season. Stops are place keys (wh_find_place) or world cells; routes leg by leg through intermediate stops, each leg optionally with its own mode. Pace easy uses 75% of the day, hard 130% plus a rest day after every six on the move. Returns distance, hours, days (rest days included), road share, crossings, realms, climb, the towns it passes (in order, km along and off the way), the made roads it follows (named by the towns at their ends), the grounds and water crossed, each terrain stretch with its day and part of day, when the party sets off, makes camp and arrives, where each night falls (with the inn or ruin slept in) and the route's path in cells (pass it as points to wh_paint_reader_fog to mark the way as seen on the reader's map). Uses the world's travel settings unless profile/pace are given. ${PENDING_NOTE}`,
     schema: { type: 'object', properties: {
       worldId: WORLD_ID,
       stops: { type: 'array', minItems: 2, maxItems: 12, description: 'Ordered stops: {place: key} or {x, y} world cells.', items: { type: 'object', properties: { place: PLACE_KEY, x: CELL_X, y: CELL_Y }, additionalProperties: false } },
@@ -950,6 +951,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       season: s('Season.', { enum: ['spring', 'summer', 'autumn', 'winter'] }),
       pace: s('Pace; default the world\'s usual pace.', { enum: ['easy', 'steady', 'hard'] }),
       hoursPerDay: n('Hours of usable daylight per day before pace; default by season.'),
+      setOffHour: { type: 'integer', minimum: 0, maximum: 23, description: 'Clock hour the party sets off each day (default 7); only the times reported change.' },
       atDay: { type: 'number', minimum: 0, description: 'Optional: also report where the party is on this day of the journey (0 = setting off), and whether it is travelling, spending a night, resting or has arrived.' },
       profile: { type: 'object', description: 'Override the world\'s travel physics for this plan only (same shape as wh_set_world_travel_settings).' },
       locale: s('Language of terrain words.', { enum: ['en', 'es'] }),
@@ -1006,7 +1008,7 @@ Find places by name, accent- and case-insensitively, best match first: a name th
     name: 'wh_place_at',
     description:
       `Check what is at a world cell: elevation, sea or land, and the nearest important place.
-What is at a cell: the elevation in km (negative is sea floor), whether it is sea or a lake, and the most important place within reach (locked: true when the author locked it), if any — a click between a capital and a hamlet resolves to the capital. Use it to check ground before placing a settlement. ${PENDING_NOTE}`,
+What is at a cell: the elevation in km (negative is sea floor), whether it is sea or a lake, its ground (ground: the biome key wh_paint_biome paints), and the most important place within reach (locked: true when the author locked it), if any — a click between a capital and a hamlet resolves to the capital. Use it to check ground before placing a settlement. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -1280,6 +1282,25 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     description: `Take a story event off a world's map by id. Not a deletion: it appends an undoable edit to the world's list (Ctrl+Z or the bridge undo puts the event back).`,
     writes: true,
     schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Event id from wh_list_story_events.') }, required: ['worldId', 'id'], additionalProperties: false },
+  },
+  {
+    name: 'wh_paint_biome',
+    description:
+      `Paint ground (a biome) over a generated world, like the Brush's Biome tool, or rub painted ground off.
+A stroke through world cells with a radius: the cells take that ground (its colour, its travel cost, what grows and lives there) over whatever the climate made, until rubbed off with erase: true, which gives back the climate's ground. Besides the climate's grounds there are the fantasy ones: volcanic, ashPlain, petrifiedForest, fungalForest, crystalFlats, glowMarsh. Sea and lake are not painted (use the coast and lake tools). Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        biome: s('Ground to paint, by key.', { enum: ['iceCap', 'tundra', 'boreal', 'tempForest', 'tempRain', 'grassland', 'shrubland', 'savanna', 'tropForest', 'tropRain', 'desert', 'coldDesert', 'alpine', 'glacier', 'beach', 'saltFlat', 'mangrove', 'saltMarsh', 'marsh', 'peatBog', 'steppe', 'chaparral', 'monsoonForest', 'cloudForest', 'montaneForest', 'alpineMeadow', 'erg', 'reg', 'badlands', 'riparianForest', 'karst', 'bamboo', 'fogDesert', 'thornScrub', 'moor', 'puna', 'volcanic', 'ashPlain', 'petrifiedForest', 'fungalForest', 'crystalFlats', 'glowMarsh'] }),
+        points: { type: 'array', minItems: 1, maxItems: 400, description: 'The stroke, in world cells.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+        radius: { type: 'number', minimum: 0.5, maximum: 60, description: 'Brush radius in cells (default 3).' },
+        erase: { type: 'boolean', description: 'Rub painted ground off instead (no biome needed).' },
+      },
+      required: ['worldId', 'points'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'wh_set_world_levels',

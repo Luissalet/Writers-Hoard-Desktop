@@ -14,6 +14,7 @@
 // geodesic distance instead of a blurred alpha mask.
 
 import { drawMapGrid, type MapGrid } from './mapGrid';
+import { drawContourLines } from './contourLayer';
 import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
 import { drawStoryMark, type StoryMark } from './storyMarks';
 import { scaleCount } from '@/utils/capacity';
@@ -54,6 +55,8 @@ export interface CartoLayers {
   frame: boolean;
   compass: boolean;
   scaleBar: boolean;
+  /** The look's own contour lines (relief and survey draw them); off when the author picks an interval or none. */
+  contours?: boolean;
 }
 
 export const DEFAULT_LAYERS: CartoLayers = {
@@ -76,6 +79,8 @@ export const DEFAULT_LAYERS: CartoLayers = {
 export interface CartoOptions {
   /** A square or hex play grid in km, drawn under the lettering. */
   grid?: MapGrid | null;
+  /** The author's contour lines, every N metres, in place of the look's own. */
+  contourIntervalM?: number | null;
   /** The reader's-eye fog, drawn over the lettering (an unseen place has no name yet). */
   fog?: ReaderFogLayer | null;
   /** Story events to mark, drawn over the fog. */
@@ -475,7 +480,8 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   drawCoastlines(ctx, coast, theme, inkNoise, scale, world.width, view, toScreenX, toScreenY);
 
   if (L.shading) drawHachure(ctx, world, fields, theme, view, scale, OW, OH);
-  if (L.relief && theme.terrain) drawTerrainContours(ctx, world, theme, view, scale, toScreenX, toScreenY, reliefAmount);
+  if (L.relief && theme.terrain && L.contours !== false && !opts.contourIntervalM) drawTerrainContours(ctx, world, theme, view, scale, toScreenX, toScreenY, reliefAmount);
+  if (opts.contourIntervalM) drawContourLines(ctx as CanvasRenderingContext2D, world, opts.contourIntervalM, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, scale, { color: theme.terrain?.contours.color ?? theme.furniture.ink, alpha: 0.5 });
   if (L.rivers) drawRivers(ctx, world, theme, view, scale, toScreenX, toScreenY);
   drawLakes(ctx, world, theme, view, inkNoise, scale, toScreenX, toScreenY);
 
