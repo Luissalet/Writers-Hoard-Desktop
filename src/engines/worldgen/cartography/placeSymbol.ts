@@ -5,7 +5,9 @@ import { buildingPalette, placeParts } from '../core/placeStyle';
 
 /** Own construction vocabulary shared by maps and sculpt/places; no image assets. */
 export function drawPlaceBuilding(ctx: Ctx, style: WorldSpatialStyle, culture: CultureId | undefined, radius: number, rank = 'town'): boolean {
-  if (style.icon && style.icon !== 'auto' && (!style.model || style.model === 'auto')) {
+  // An icon that is a lower-case kind word ("volcano", "tower") is a kind, not a glyph: the caller draws its own mark for it.
+  // A short code or a capitalised word the author typed ("X", "HQ", "Inn") is still lettered.
+  if (style.icon && style.icon !== 'auto' && (!style.model || style.model === 'auto') && !(/^[a-z][a-z0-9_-]{2,}$/.test(style.icon) && !['fort', 'city', 'town', 'place'].includes(style.icon))) {
     ctx.save(); ctx.strokeStyle = style.color ?? '#493e30'; ctx.fillStyle = style.color ?? '#eee1c6'; ctx.lineWidth = Math.max(.7, radius * .2);
     ctx.beginPath();
     if (style.icon === 'fort') ctx.rect(-radius, -radius, radius * 2, radius * 2);

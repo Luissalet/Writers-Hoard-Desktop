@@ -86,6 +86,8 @@ export interface Water {
     seaLevel: number;
     /** OPCIONAL. Ver `WaterSkyInput`. */
     sky?: WaterSkyInput;
+    /** The tabletop model: the plane's sea stops at the edge of the world and has no haze. */
+    clip?: boolean;
   }): void;
   dispose(): void;
 }
@@ -160,6 +162,7 @@ uniform vec3  uSunColor;
 uniform float uSunPower;
 uniform float uFogDist;
 uniform float uKmPerUnit;  // km de suelo por unidad de escena
+uniform float uClip;       // 1 = the tabletop model: no sea outside the block, no haze
 uniform float uSteep;      // pendiente máxima del oleaje
 
 in vec3 vWorld;
@@ -351,6 +354,8 @@ void main() {
   if (outside > 0.0) dKm = max(dKm, mix(0.0, 0.4, edgeMix));
   float dw = fwidth(dKm);
   if (uLake > 0.5 && dKm <= 0.0) discard;
+  // The tabletop model: the sea is the block's, and ends at its walls (after every derivative above).
+  if (uClip > 0.5 && outside > 0.0) discard;
 
   // ---- la bruma, y la salida temprana ------------------------------------
   // El plano llega hasta el far, así que junto al horizonte un solo píxel cubre
@@ -364,7 +369,7 @@ void main() {
     // el mapa tiene que quedar limpio; mirando al horizonte es infinito. Con la
     // distancia recta, una vista cenital del planeta entero saldría lavada.
     float dxz = length(vWorld.xz - uCam.xz);
-    haze = 1.0 - exp(-pow(dxz / max(1e-3, uFogDist), 1.3));
+    haze = (1.0 - exp(-pow(dxz / max(1e-3, uFogDist), 1.3))) * (1.0 - uClip);
   } else {
     // En el globo no hay horizonte: la bruma es el limbo, donde la mirada
     // atraviesa la atmósfera de canto. Y sólo del lado del día: un halo
@@ -517,6 +522,7 @@ function makeUniforms(o: WaterOptions, shape: number, phase: number): WaterUnifo
     uSunPower: { value: 1 },
     uFogDist: { value: o.sizeX },
     uKmPerUnit: { value: EARTH_KM / o.sizeX },
+    uClip: { value: 0 },
     // Pendiente máxima del oleaje. 0,55 (unos 29 grados) era demasiado: en una
     // vista rasante bastaba una cara de ola para que el Fresnel saltara a uno y
     // el mar se llenaba de manchas blancas del tamaño de una nube. 0,34 deja el
@@ -686,6 +692,7 @@ export function createWater(o: WaterOptions): Water {
           un.uSunPower.value = 1;
         }
         un.uFogDist.value = fogDist;
+        un.uClip.value = u.clip ? 1 : 0;
       }
     },
 

@@ -40,10 +40,10 @@ reveals the map chapter by chapter, story events placed by chapter and played
 back chapter by chapter or scrubbed to any chapter (with their order inside a chapter, who was there
 and what is planned next),
 a right-click menu (village, note, story event, a
-spring whose river finds its way downhill), a lake tool that fills a hollow to its spill, fantasy grounds and a one-click plateau brush, contour lines at a chosen interval, a whole-world sea level and snowline, and a
+spring whose river finds its way downhill), a lake tool that fills a hollow to its spill, fantasy grounds and a one-click plateau brush, contour lines at a chosen interval, a whole-world sea level and snowline, a 3D view of the whole world as a tabletop model (its cut through rock and sea showing, on a table with its shadow) or as a landscape to the horizon, with the 2D map's own landmark marks, and a
 month-by-month trade lens (sites, shortages, prices, shipments); classic image
 maps carry styled shapes (outline, hatch, lettering, drawing order, several
-layers), pin sizes, a searchable Codex link that can create the entry, a
+layers), pin sizes, pins that show their entry's picture framed in their colour with the name under it (and every name in view on request), a searchable Codex link that can create the entry, a
 right-click menu (new entry, pin, region, route, label or comment at that spot),
 a confirmed picture change that keeps shapes in proportion, a scale with a
 measuring tool, lengths, areas, travel times and real places at the same

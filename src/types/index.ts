@@ -302,6 +302,10 @@ export interface MapLayerVisibility {
   region: boolean;
   path: boolean;
   label: boolean;
+  /** A pin linked to an entry with a picture shows that picture, framed in the pin's colour (absent = on). */
+  portraits?: boolean;
+  /** Every pin's name always shown under it, not only on hover (absent = off). */
+  names?: boolean;
 }
 
 export interface WorldMap {

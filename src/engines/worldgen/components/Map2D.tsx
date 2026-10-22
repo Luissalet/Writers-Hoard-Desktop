@@ -81,6 +81,7 @@ import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABE
 import { drawStamp, isStampGlyph, STAMP_SIZES } from '../cartography/stampGlyphs';
 import { drawReaderFog, drawReaderFogProjected, fogHides, READER_PAPER } from '../cartography/readerFogLayer';
 import { drawStoryMark } from '../cartography/storyMarks';
+import { drawLandmarkGlyph } from '../cartography/landmarkGlyph';
 
 /** Where the selected painted label sits on screen, for its handles. */
 interface LabelHandleGeom { key: string; cx: number; cy: number; angle: number; spacing: number; curve: number; size: number; glyphSum: number; count: number; halfW: number; widths: number[] }
@@ -5382,80 +5383,7 @@ function drawLandmark(
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
-  x = 0;
-  y = 0;
-  ctx.lineWidth = 1.2;
-  switch (lm.type) {
-    case 'volcano': {
-      ctx.beginPath();
-      ctx.moveTo(x, y - 5.5);
-      ctx.lineTo(x + 5, y + 4);
-      ctx.lineTo(x - 5, y + 4);
-      ctx.closePath();
-      ctx.fillStyle = '#8a3a30';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(7,7,13,0.8)';
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(x, y - 5, 1.6, 0, Math.PI * 2);
-      ctx.fillStyle = '#e4a853';
-      ctx.fill();
-      break;
-    }
-    case 'cave': {
-      ctx.beginPath();
-      ctx.arc(x, y + 2, 5, Math.PI, 0);
-      ctx.closePath();
-      ctx.fillStyle = '#2a2a3a';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(232,229,224,0.7)';
-      ctx.stroke();
-      break;
-    }
-    case 'waterfall': {
-      ctx.strokeStyle = '#7fc0dd';
-      ctx.lineWidth = 1.6;
-      for (let k = -1; k <= 1; k++) {
-        ctx.beginPath();
-        ctx.moveTo(x + k * 2.4, y - 4);
-        ctx.lineTo(x + k * 2.4, y + 3);
-        ctx.stroke();
-      }
-      ctx.beginPath();
-      ctx.moveTo(x - 4.5, y + 4.5);
-      ctx.quadraticCurveTo(x, y + 6.5, x + 4.5, y + 4.5);
-      ctx.stroke();
-      break;
-    }
-    case 'gorge': {
-      ctx.strokeStyle = '#a06a3c';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.moveTo(x - 5, y - 3.5);
-      ctx.lineTo(x - 1.5, y + 3.5);
-      ctx.moveTo(x + 5, y - 3.5);
-      ctx.lineTo(x + 1.5, y + 3.5);
-      ctx.stroke();
-      break;
-    }
-    case 'hotspring': {
-      ctx.beginPath();
-      ctx.arc(x, y + 1.5, 3.4, 0, Math.PI * 2);
-      ctx.fillStyle = '#d585a8';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(7,7,13,0.8)';
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(232,229,224,0.85)';
-      ctx.lineWidth = 1.1;
-      for (let k = -1; k <= 1; k++) {
-        ctx.beginPath();
-        ctx.moveTo(x + k * 2.2, y - 1.5);
-        ctx.quadraticCurveTo(x + k * 2.2 + 1, y - 3.5, x + k * 2.2, y - 5.5);
-        ctx.stroke();
-      }
-      break;
-    }
-  }
+  drawLandmarkGlyph(ctx, lm.type);
   ctx.restore();
   if (entity.style.color) {
     ctx.beginPath();

@@ -24,11 +24,14 @@ import {
   visibleWindow,
   SIZE_X,
   R_GLOBE,
+  GLOBE_RELIEF,
   type SculptShape,
 } from '../sculpt/scene3d';
 import { createSky, type Sky } from '../sculpt/sky';
 import { lakeHeightAtUV } from '../core/lakeSurface';
 import { createWater, type Water } from '../sculpt/water';
+import { createDiorama, type Diorama, type StageStyle } from '../sculpt/diorama';
+import { drawLandmarkGlyph, isNaturalLandmark } from '../cartography/landmarkGlyph';
 import { createScatter, type Scatter } from '../sculpt/scatter';
 import { createPlaceModels } from '../sculpt/places';
 import { settlementStyle, placeFont, labelScale, symbolScale, hasPlaceModel } from '../core/placeStyle';
@@ -139,6 +142,8 @@ interface World3DProps {
   onViewportChange?: (viewport: WorldViewport) => void;
   skin: Skin3D;
   shape: Shape3D;
+  /** On the plane, with the whole world in view: a tabletop model (default) or a landscape out to the horizon. */
+  stage?: StageStyle;
   onShape: (s: Shape3D) => void;
   exaggeration: number;
   tool: PaintTool;
@@ -451,7 +456,7 @@ export default function World3D({
   showLandmarks, showRivers = true, showRoads = true, showBorders = false,
   selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
   viewport, onViewportChange,
-  skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
+  skin, shape, stage = 'maqueta', onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
   flyTarget, flyMark = null, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
   onZoomTo,
 }: World3DProps) {
@@ -537,6 +542,7 @@ export default function World3D({
     surface: SculptSurface;
     sky: Sky;
     water: Water;
+    diorama: Diorama;
     scatter: Scatter;
     placeModels: ReturnType<typeof createPlaceModels>;
     /** La dirección AL sol, la misma que `surface.setSun` construye. */
@@ -632,6 +638,8 @@ export default function World3D({
   const altRef = useRef(false);
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
+  const stageRef = useRef(stage);
+  stageRef.current = stage;
   const qualityRef = useRef(quality);
   qualityRef.current = quality;
   const viewportRef = useRef(viewport);
@@ -817,6 +825,8 @@ export default function World3D({
       const st = R.current;
       const sf = st ? st.surface : surface;
       const sc = st ? st.scatter : scatter;
+      // The cut of the tabletop model follows the same ground.
+      (st ? st.diorama : diorama).setGround({ heightAt: (u: number, v: number) => sf.heightAtUV(u, v), width: world.width, height: world.height });
       sc.setWorld({
         elevation: world.elevation, biome: world.biome,
         width: world.width, height: world.height,
@@ -856,6 +866,12 @@ export default function World3D({
     scene.add(water.globe);
     scene.add(water.lakePlane, water.lakeGlobe);
     water.setWorld(world);
+
+    // The tabletop model: the cut walls, the table and its shadow. Shown only on
+    // the plane with the whole world in view (see the draw); built here so a
+    // switch of stage costs nothing.
+    const diorama = createDiorama({ sizeX: SIZE_X, sizeZ });
+    scene.add(diorama.group);
 
     /**
      * Y LO QUE CRECE ENCIMA.
@@ -920,7 +936,7 @@ export default function World3D({
     );
 
     const st = {
-      renderer, scene, camera, controls, surface, sky, water, scatter, placeModels,
+      renderer, scene, camera, controls, surface, sky, water, diorama, scatter, placeModels,
       // La misma que `setSun(az, el)` arma; el efecto de la hora la rellena
       // antes del primer dibujo. Aquí, mediodía largo, por si acaso.
       sun: new THREE.Vector3(0, 1, 0),
@@ -973,6 +989,7 @@ export default function World3D({
       st.zoomTex?.dispose();
       sky.dispose();
       water.dispose();
+      diorama.dispose();
       scatter.dispose();
       placeModels.dispose();
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
@@ -1042,7 +1059,7 @@ export default function World3D({
     }
     const lon = (cx / world.width - 0.5) * Math.PI * 2;
     const lat = (0.5 - cy / world.height) * Math.PI;
-    const r = R_GLOBE + e * yMul * 0.55;
+    const r = R_GLOBE + e * yMul * GLOBE_RELIEF;
     return out.set(r * Math.cos(lat) * Math.cos(lon), r * Math.sin(lat), r * Math.cos(lat) * Math.sin(lon));
   }, [world.width, world.height, sizeZ]);
 
@@ -1316,12 +1333,21 @@ export default function World3D({
     const roadScene = R.current;
     if (roadScene && skin === 'dibujado' && showRoads && geography) {
       const p = new THREE.Vector3(), toward = new THREE.Vector3();
+      let seamShift: number | null = null, seamU = 0;
       drawRoadNetwork(ctx, geography.roads, {
         worldWidth: world.width, worldHeight: world.height, width: w, height: h,
         cellView: { x: (roadScene.surface.uvWindow.u-roadScene.surface.uvWindow.size/2)*world.width, y: (roadScene.surface.uvWindow.v-roadScene.surface.uvWindow.size/2)*world.height, w: roadScene.surface.uvWindow.size*world.width, h: roadScene.surface.uvWindow.size*world.height },
         pxPerCell: 1, ink: { major: theme.roads.major, minor: theme.roads.minor, casing: theme.paper.base },
         toScreen: (u, v) => {
-          u -= Math.round(u - roadScene.surface.uvWindow.u);
+          // A road that crosses the date line on the plane is cut there, not
+          // drawn straight back across the whole sheet: the period it is folded
+          // into changed between two points of the same road.
+          // Points of one road are a cell or two apart before folding; a new road starts anywhere.
+          const shift = Math.round(u - roadScene.surface.uvWindow.u);
+          const jumped = seamShift !== null && shift !== seamShift && Math.abs(u - seamU) < 3 / world.width;
+          seamShift = shift; seamU = u;
+          u -= shift;
+          if (jumped && shapeRef.current === 'plane') return null;
           scenePos(u * world.width, v * world.height, p);
           if (shapeRef.current === 'globe' && p.dot(toward.copy(roadScene.camera.position).sub(p)) <= 0) return null;
           p.project(roadScene.camera);
@@ -1428,7 +1454,9 @@ export default function World3D({
         ctx.translate(m.x, m.y);
         ctx.scale(symbolScale, symbolScale);
         const modeled = R.current?.placeModels.group.visible && hasPlaceModel(entity.style);
-        const custom = modeled || drawPlaceBuilding(ctx, entity.style, undefined, 5, entity.type);
+        // A volcano, a cave, a waterfall, a gorge and a hot spring keep the 2D map's own marks.
+        const glyph = entity.style.icon && entity.style.icon !== 'auto' ? entity.style.icon : entity.type;
+        const custom = modeled || (isNaturalLandmark(glyph) ? drawLandmarkGlyph(ctx, glyph) : drawPlaceBuilding(ctx, entity.style, undefined, 5, entity.type));
         if (!custom) {
         ctx.beginPath();
         if ((entity.style.icon ?? entity.type) === 'volcano') {
@@ -2196,6 +2224,14 @@ export default function World3D({
     // que se alcanza a ver.
     const spanKm = st.surface.uvWindow.size * EARTH_KM;
     st.sky.update({ camera: c, sun: st.sun, shape: shapeRef.current, spanKm });
+    // THE STAGE. With the whole world on the plane the default is the tabletop
+    // model: the block, its cut walls, the table and the shadow, in a quiet room.
+    // Closer in, the mesh is a window of the world and the landscape takes over:
+    // the walls would stand at the window's edge, which is not a place.
+    const win = st.surface.uvWindow;
+    const maqueta = shapeRef.current === 'plane' && stageRef.current === 'maqueta' && win.size >= 0.999 && Math.abs(win.u - 0.5) < 1e-3 && Math.abs(win.v - 0.5) < 1e-3;
+    st.sky.mesh.visible = !maqueta;
+    st.scene.background = maqueta ? st.diorama.backdrop : null;
     // ¿Hay oleaje que animar en este encuadre? El shader del agua lo apaga entre
     // 3 y 18 km por píxel; por encima de eso el mar es una lámina lisa y pedir
     // fotogramas para moverla es gastar batería en no cambiar nada. En el globo,
@@ -2228,6 +2264,7 @@ export default function World3D({
     // La luz del terreno, del mismo cielo que se está pintando.
     const light = st.sky.sunLight();
     st.surface.setSunLight(light.color, light.intensity, light.ambient);
+    st.diorama.update({ visible: maqueta, yMul: st.surface.yMul, sun: st.sun, light: Math.max(0, Math.min(1, light.intensity)) });
 
     // La distancia de la niebla. ES LA MISMA CUENTA QUE EL AGUA SE HACE POR
     // DENTRO (ver `update` en water.ts): escala con la ALTURA sobre el agua y no
@@ -2240,7 +2277,7 @@ export default function World3D({
     const camH = Math.max(0.05, Math.abs(c.position.y - seaY));
     const fogDist = Math.min(6 * Math.max(camH, SIZE_X * 0.06), SIZE_X * 8);
     st.surface.setFog(
-      horizon, skyForWater.horizonWarm, fogDist, shapeRef.current === 'plane',
+      horizon, skyForWater.horizonWarm, fogDist, shapeRef.current === 'plane' && !maqueta,
     );
 
     st.water.setWorld(st.zoomInputs.world);
@@ -2258,6 +2295,7 @@ export default function World3D({
       yMul: st.surface.yMul,
       seaLevel: 0,
       sky: skyForWater,
+      clip: maqueta,
     });
 
     /**
@@ -2657,6 +2695,15 @@ export default function World3D({
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders]);
+
+  // ---- the stage: a frame is enough, the draw reads `stageRef` ---------------
+  useEffect(() => {
+    const st = R.current;
+    if (!st) return;
+    st.need = true;
+    st.poseKey = '';
+    request();
+  }, [stage, ready, request]);
 
   // ---- everything else the look depends on ---------------------------------
   useEffect(() => {

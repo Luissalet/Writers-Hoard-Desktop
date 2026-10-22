@@ -119,7 +119,8 @@ export function placesPassed(
   for (const cell of cells) { const y = Math.floor(cell / W); if (y < minY) minY = y; if (y > maxY) maxY = y; }
   const rowKm = (Math.PI * radius) / H;
   const reachRows = Math.ceil(near / rowKm) + 1;
-  const cosAt = (y: number) => Math.cos((0.5 - (y + 0.5) / H) * Math.PI);
+  // Distances are measured a half row further south than the cell's centre (see the calls below), so take the narrower of the two.
+  const cosAt = (y: number) => Math.min(Math.cos((0.5 - (y + 0.5) / H) * Math.PI), Math.cos((0.5 - (y + 1.5) / H) * Math.PI));
   const xs = cells.map((cell) => cell % W);
   const nearX = (x: number, reach: number) => { for (let k = 0; k < xs.length; k += 4) { let d = Math.abs(xs[k] - x); if (d > W / 2) d = W - d; if (d <= reach + 4) return true; } return false; };
   for (const s of geo.settlements) {

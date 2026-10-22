@@ -35,7 +35,13 @@ export type SculptShape = 'plane' | 'globe';
 export const SIZE_X = 240;
 export const R_GLOBE = SIZE_X / (2 * Math.PI);
 const Y_PER_KM = 0.24;
-export const GLOBE_RELIEF = 0.55;
+/**
+ * How much of the plane's relief the globe carries. Was 0.55: at the default
+ * exaggeration a high range stood out half a radius from the sphere and the
+ * planet read as a spiked ball. A third keeps the ranges legible and the
+ * outline round.
+ */
+export const GLOBE_RELIEF = 0.3;
 /**
  * LO MÁS PEQUEÑA QUE PUEDE SER LA VENTANA DEL MUNDO. Y era lo que impedía
  * que el 3D enseñara una calle.

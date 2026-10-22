@@ -58,7 +58,7 @@ export function MapFeatureToolbar({ editor, onToolChange }: { editor: MapFeature
     </div>
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-muted" role="group" aria-label={copy.layers}>
       <span className="font-semibold">{copy.layers}</span>
-      {(['pins', 'region', 'path', 'label'] as const).map(key => <label key={key} className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={editor.layers[key]} disabled={editor.busy} onChange={() => void editor.toggleLayer(key)} data-testid={`map-layer-${key}`} className="accent-accent-gold" />{copy[key]}</label>)}
+      {(['pins', 'region', 'path', 'label', 'portraits', 'names'] as const).map(key => <label key={key} className="flex items-center gap-1.5 cursor-pointer" title={key === 'portraits' ? copy.portraitsHint : key === 'names' ? copy.namesHint : undefined}><input type="checkbox" checked={editor.layers[key] !== false && (key !== 'names' || editor.layers.names === true)} disabled={editor.busy} onChange={() => void editor.toggleLayer(key)} data-testid={`map-layer-${key}`} className="accent-accent-gold" />{copy[key]}</label>)}
     </div>
     <MapNamedLayers editor={editor} />
     <p className="text-xs text-text-muted" role="status">{editor.drawing ? copy[`${editor.tool as MapFeature['kind']}Help`] : copy.editHelp}</p>
