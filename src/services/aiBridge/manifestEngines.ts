@@ -1098,7 +1098,7 @@ Hide a place from the world: a town that should not exist, a ruin, a named sea, 
     name: 'wh_lock_place',
     description:
       `Lock a world place against moving and hiding, or unlock it (locked: false).
-The author's guard against accidents: a locked place is not picked up by the Move tool, its card will not hide it, and wh_move_place / wh_remove_place refuse it. wh_list_places and wh_find_place mark it locked: true. Unlock only when the author asks. Changes nothing in the world; undoable.`,
+The author's guard against accidents: a locked place is not picked up by the Move tool, no card, sheet or eraser hides it, and wh_move_place / wh_remove_place refuse it. wh_list_places, wh_find_place and wh_place_at mark it locked: true. The key must name a place. Unlock only when the author asks. Changes nothing in the world; undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1115,7 +1115,7 @@ The author's guard against accidents: a locked place is not picked up by the Mov
     name: 'wh_duplicate_place',
     description:
       `Copy a settlement, ruin or landmark as a new hand-placed one, beside it or at x, y.
-The copy keeps the kind (a town's rank, a ruin's or landmark's type) and is named "<name> 2" unless name is given; without x and y it goes two cells east. Realms, seas, ranges and regions cannot be copied. A settlement copy on sea is refused. Returns the new key; undoable.`,
+The copy keeps the kind (a town's rank, except that a capital's copy is a city; a ruin's or landmark's type) and is named "<name> 2" (or the next free number) unless name is given; without x and y it goes to the nearest free dry land around the place (two cells east first). Realms, seas, ranges and regions cannot be copied. A cell that is sea, a lake, or already has a place or its history is refused. Returns the new key; undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1284,7 +1284,7 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
   {
     name: 'wh_add_world_road',
     description:
-      `Lay a road by hand between two places (keys from wh_find_place) or world cells, routed like the Road tool: the cart route over the real ground, through passes and around marshes, then drawn with the world's roads (map, 3D, Carta, travel). major true is a royal road (solid by default), false a track (dashed). width scales its line (0.5–3, default 1) and pattern draws it solid, dashed or dotted over its class's own. dryRun only routes it and says how long it is. Undone like any world edit; the Road tool's eraser removes it.`,
+      `Lay a road by hand between two places (keys from wh_find_place) or world cells, routed like the Road tool: the cart route over the real ground, through passes and around marshes, then drawn with the world's roads (map, 3D, Carta, travel). major true is a royal road (solid on the map and in 3D; the Carta draws every road in its theme's dashes unless a pattern is chosen), false a track (dashed). width scales its line (0.5–3, default 1) and pattern draws it solid, dashed or dotted over its class's own. dryRun only routes it and says how long it is. Undone like any world edit; the Road tool's eraser removes it.`,
     writes: true,
     schema: {
       type: 'object',

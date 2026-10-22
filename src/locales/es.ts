@@ -2818,6 +2818,8 @@ const es = {
   'worldgen.place.lockHint': 'Bloquéalo para no moverlo ni ocultarlo sin querer',
   'worldgen.place.unlockHint': 'Desbloquéalo para poder moverlo u ocultarlo',
   'worldgen.place.lockedHide': 'Está bloqueado: desbloquéalo para ocultarlo',
+  'worldgen.place.lockedMove': 'Está bloqueado: desbloquéalo para moverlo',
+  'worldgen.place.noRoomForCopy': 'No hay tierra libre cerca para la copia',
   'worldgen.place.lockedToast': '{name} está bloqueado: desbloquéalo en su ficha (Índice o Lugar) para moverlo',
   'worldgen.place.links': 'Vinculaciones',
   'worldgen.place.linkPlaceholder': 'Vincular con Códice, escena, escrito o evento…',

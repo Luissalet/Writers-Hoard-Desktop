@@ -201,15 +201,16 @@ function pendingResult(
   return { worldId: world.id, pending: true, code: result.code, message: result.message };
 }
 
-/** The keys of the world's locked places, from its edits. */
-async function lockedKeysOf(world: GeneratedWorld): Promise<Set<string>> {
-  const { lockedPlaceKeys } = await import('@/engines/worldgen/core/edits');
-  return lockedPlaceKeys(deserializeEdits(world.edits ?? '[]'));
+/** The world's edit list as it stands: the open view's (saves are debounced) or the row's. */
+function currentEdits(world: GeneratedWorld, args: ToolArgs): WorldEdit[] {
+  const live = liveWorld(worldRuntimeKey(world.id, worldEraToolScope(args)?.eraId));
+  try { return deserializeEdits(live ? live.snapshot() : world.edits ?? '[]'); } catch { return []; }
 }
 
-/** A locked place is not moved or hidden until it is unlocked. */
-async function refuseLocked(world: GeneratedWorld, key: string, action: string): Promise<void> {
-  if ((await lockedKeysOf(world)).has(key)) throw new BridgeError('bad-args', `Place ${key} is locked; unlock it with wh_lock_place (locked: false) before you ${action} it, and only if the author wants that.`);
+/** The keys of the world's locked places, from its current edits. */
+async function lockedKeysOf(world: GeneratedWorld, args: ToolArgs): Promise<Set<string>> {
+  const { lockedPlaceKeys } = await import('@/engines/worldgen/core/edits');
+  return lockedPlaceKeys(currentEdits(world, args));
 }
 
 function placeShape(place: AtlasPlace, data: WorldData, locked?: ReadonlySet<string>): Record<string, unknown> {
@@ -402,7 +403,7 @@ export async function whListPlaces(args: ToolArgs): Promise<unknown> {
   const matching = atlas.places
     .filter((place) => !kind || place.kind === kind)
     .sort((a, b) => b.importance - a.importance);
-  const locked = await lockedKeysOf(world);
+  const locked = await lockedKeysOf(world, args);
   return {
     worldId: world.id,
     scope,
@@ -429,7 +430,7 @@ export async function whFindPlace(args: ToolArgs): Promise<unknown> {
     .map((place) => ({ place, rank: matchRank(foldForSearch(place.name), folded) }))
     .filter((hit) => hit.rank >= 0)
     .sort((a, b) => a.rank - b.rank || b.place.importance - a.place.importance);
-  const locked = await lockedKeysOf(world);
+  const locked = await lockedKeysOf(world, args);
   return {
     worldId: world.id,
     query,
@@ -457,6 +458,7 @@ export async function whPlaceAt(args: ToolArgs): Promise<unknown> {
     y,
     elevation: elevation === undefined ? undefined : round(elevation, 3),
     sea: elevation === undefined ? undefined : elevation <= 0,
+    ...(place && (await lockedKeysOf(world, args)).has(place.key) ? { locked: true } : {}),
     live,
     found: place !== null,
     place: place ? placeShape(place, data) : undefined,
@@ -558,7 +560,6 @@ export async function whMovePlace(args: ToolArgs): Promise<unknown> {
   const key = requireString(args, 'key');
   const target = placeTarget(key);
   const { x, y } = cellCoords(args, worldSize(world));
-  await refuseLocked(world, key, 'move');
   return appendEdit(
     args, world,
     { kind: 'move', target, key, x, y },
@@ -572,7 +573,6 @@ export async function whRemovePlace(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const key = requireString(args, 'key');
   const target = placeTarget(key);
-  await refuseLocked(world, key, 'remove');
   // `removed`, never `deleted`: the place is hidden by an edit that
   // wh_restore_place (or an undo) reverses, and no row goes anywhere.
   return appendEdit(
@@ -591,6 +591,10 @@ export async function whLockPlace(args: ToolArgs): Promise<unknown> {
   const target = placeTarget(key);
   const locked = args.locked === undefined ? true : args.locked;
   if (typeof locked !== 'boolean') throw new BridgeError('bad-args', 'locked must be true or false.');
+  // A lock on a key that names nothing would guard nothing: the place must exist.
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  if (!opened.world.atlas.byKey.has(key)) throw new BridgeError('not-found', `No place "${key}"; use wh_find_place for keys.`);
   return appendEdit(
     args, world,
     { kind: 'lock', target, key, locked },
@@ -609,17 +613,26 @@ export async function whDuplicatePlace(args: ToolArgs): Promise<unknown> {
   const { data, atlas } = opened.world;
   const place = atlas.byKey.get(key);
   if (!place) throw new BridgeError('not-found', `No place "${key}"; use wh_find_place for keys.`);
-  const at = args.x === undefined && args.y === undefined
-    ? { x: ((Math.floor(place.x) + 2) % data.width + data.width) % data.width, y: Math.floor(place.y) }
-    : cellCoords(args, worldSize(world));
-  const name = optString(args, 'name') ?? `${place.name} 2`;
-  const { duplicatePlaceEdit } = await import('@/engines/worldgen/core/edits');
+  const { duplicatePlaceEdit, duplicateSpot, duplicateName, keysInEdits } = await import('@/engines/worldgen/core/edits');
+  if (!['settlement', 'ruin', 'landmark'].includes(place.kind)) throw new BridgeError('bad-args', `A ${place.kind} cannot be duplicated; only settlements, ruins and landmarks can.`);
+  // A copy's key is its cell: one already used (a place there, or a rename, move,
+  // removal or lock filed under it) would hand the copy that place's history.
+  const used = keysInEdits(currentEdits(world, args));
+  for (const p of atlas.places) used.add(p.key);
+  let at: { x: number; y: number } | null;
+  if (args.x === undefined && args.y === undefined) {
+    at = duplicateSpot(data, place, used);
+    if (!at) throw new BridgeError('bad-args', 'No free land within five cells for the copy; give x and y.');
+  } else {
+    at = cellCoords(args, worldSize(world));
+    const i = at.y * data.width + at.x;
+    if (!(data.elevation[i] > 0) || data.lake[i]) throw new BridgeError('bad-args', 'That cell is sea or a lake; give x and y on dry land for the copy.');
+    const k = place.kind === 'landmark' ? landmarkKey({ type: place.type as never, x: at.x, y: at.y }) : editKey(place.kind === 'ruin' ? 'ruin' : 'settlement', at.x, at.y);
+    if (used.has(k)) throw new BridgeError('bad-args', `Cell ${at.x},${at.y} already has a place (or its history); pick another.`);
+  }
+  const name = optString(args, 'name')?.trim() || duplicateName(place.name, new Set(atlas.places.map((p) => p.name)));
   const edit = duplicatePlaceEdit(place, at, name);
   if (!edit) throw new BridgeError('bad-args', `A ${place.kind} cannot be duplicated; only settlements, ruins and landmarks can.`);
-  if (edit.marker === 'settlement') {
-    const elevation = elevationAt(data, at.x, at.y);
-    if (elevation !== undefined && elevation <= 0) throw new BridgeError('bad-args', 'That cell is sea; give x and y on land for the copy.');
-  }
   const newKey = edit.marker === 'landmark' ? landmarkKey({ type: edit.landmark as NonNullable<typeof edit.landmark>, x: at.x, y: at.y }) : editKey(edit.marker === 'ruin' ? 'ruin' : 'settlement', at.x, at.y);
   return appendEdit(
     args, world,
