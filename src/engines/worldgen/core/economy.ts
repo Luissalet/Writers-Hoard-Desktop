@@ -71,11 +71,11 @@ export const SITE_FOR_GOOD: Record<Good, SiteKind> = {
 };
 
 /** Most sites a place opens by itself: farms, pastures, other trades and (towns up) the regional ones. */
-export const SITE_CAP: Record<SettlementRank, number> = { village: 4, town: 10, city: 14, capital: 17 };
+export const SITE_CAP: Record<SettlementRank, number> = { village: 7, town: 16, city: 28, capital: 36 };
 
 export const MAX_MONTHS = 240;
-/** Road trade only reaches this far (cells, wrapped straight line). */
-export const LAND_RANGE = 40;
+/** How far goods go by road (km, wrapped straight line; converted to cells for the world's grid). */
+export const LAND_RANGE_KM = 800;
 /** Trade partners kept per place; keeps the monthly loop linear in places. */
 export const NEIGHBOUR_CAP = 12;
 
@@ -120,6 +120,8 @@ export interface PlaceEconomy {
   need: Record<Good, number>;
   /** Actually eaten/used this month (never more than was held). */
   consumed: Record<Good, number>;
+  /** Fish and meat eaten in place of missing bread (same units as grain), beyond their own need. */
+  eatenInstead: Partial<Record<Good, number>>;
   /** Index, 1.0 = usual. */
   price: Record<Good, number>;
   /** Months until the place first cannot get all it needs, trade included (0 = this month); absent when that is 24+ months away. */
@@ -289,7 +291,8 @@ export function siteFitness(world: EconomyWorld, kind: SiteKind, x: number, y: n
     case 'farm': {
       const base = pick(FARM_BIOME, biome);
       if (base === 0 || temp <= -4) return 0;
-      const warmth = clamp(temp / 10, 0.15, 1);       // frost-bound ground yields little
+      // Cool ground still grows oats and barley; only frost-bound ground yields little.
+      const warmth = clamp((temp + 5) / 15, 0.2, 1);
       const heat = temp > 34 ? 0.8 : 1;
       const height = elev > 1 ? Math.max(0.1, 1 - (elev - 1) / 1.5) : 1; // thin air, short seasons
       return base * warmth * heat * height;
@@ -330,7 +333,21 @@ export function siteFitness(world: EconomyWorld, kind: SiteKind, x: number, y: n
 // ----------------------------------------------------------------- auto sites
 
 /** How far from its own cell a place looks for ground to work (cells). */
-const SEARCH_RADIUS: Record<SettlementRank, number> = { village: 3, town: 4, city: 6, capital: 8 };
+/**
+ * How far from its own cell a place works the ground, in km (a village its
+ * own valley, a capital a province), converted to cells for the world's grid,
+ * never fewer than a couple of cells on a coarse one.
+ */
+const SEARCH_RADIUS_KM: Record<SettlementRank, number> = { village: 60, town: 80, city: 120, capital: 160 };
+const SEARCH_RADIUS_MIN: Record<SettlementRank, number> = { village: 2, town: 2, city: 3, capital: 3 };
+function searchRadius(rank: SettlementRank, kmPerCell: number): number {
+  return Math.max(SEARCH_RADIUS_MIN[rank], Math.round(SEARCH_RADIUS_KM[rank] / kmPerCell));
+}
+/** Farms and herds a place may open further out to feed itself (see autoSites step 3). */
+const HINTERLAND_FARMS: Record<SettlementRank, number> = { village: 1, town: 2, city: 6, capital: 9 };
+const HINTERLAND_PASTURES: Record<SettlementRank, number> = { village: 0, town: 1, city: 3, capital: 4 };
+/** Fisheries and herds a place opens in place of the fields it cannot have (step 3b). */
+const STAPLE_SUBSTITUTE_SLOTS: Record<SettlementRank, number> = { village: 2, town: 3, city: 5, capital: 6 };
 /** Slots for farms, then (with PASTURE_SLOTS below) for everything else; together they sum to SITE_CAP. */
 const FARM_SLOTS: Record<SettlementRank, number> = { village: 2, town: 3, city: 5, capital: 6 };
 const EXTRA_SLOTS: Record<SettlementRank, number> = { village: 1, town: 2, city: 3, capital: 4 };
@@ -343,7 +360,7 @@ const EXTRA_SLOTS: Record<SettlementRank, number> = { village: 1, town: 2, city:
  */
 const PASTURE_SLOTS: Record<SettlementRank, number> = { village: 1, town: 1, city: 2, capital: 3 };
 const PASTURE_MIN_FIT = 0.2;
-const MEAT_COVER = 0.9;
+const MEAT_COVER: Record<SettlementRank, number> = { village: 1.3, town: 1.1, city: 0.9, capital: 0.9 };
 const RANK_ORDER: Record<SettlementRank, number> = { village: 0, town: 1, city: 2, capital: 3 };
 /**
  * Timber, stone, iron and salt come from a few places and supply a region.
@@ -353,11 +370,18 @@ const RANK_ORDER: Record<SettlementRank, number> = { village: 0, town: 1, city: 
  */
 const REGIONAL_KINDS: readonly SiteKind[] = ['camp', 'quarry', 'mine', 'saltworks'];
 const REGIONAL_MIN_FIT = 0.3;
-const REGIONAL_REACH: Record<SettlementRank, number> = { village: 0, town: 2, city: 3, capital: 3 };
-const FARM_MIN_FIT = 0.2;
+/** How far (km) towns and cities look for their regional trades, and for hinterland farms and herds beyond their own radius. */
+const REGIONAL_REACH_KM: Record<SettlementRank, number> = { village: 0, town: 300, city: 500, capital: 500 };
+const HINTERLAND_REACH_KM: Record<SettlementRank, number> = { village: 40, town: 120, city: 200, capital: 250 };
+/** Poor fields are still fields: a village farms what it has rather than none. */
+const FARM_MIN_FIT = 0.12;
 const EXTRA_MIN_FIT = 0.3;
 /** Aim a little above own grain need, so a normal year leaves something to sell. */
-const GRAIN_COVER = 1.1;
+/** How much of its own bread (and meat, below) a place grows: villages and towns
+ *  grow a surplus for the cities, which never feed themselves. Without it the
+ *  world as a whole grew a fifth too little grain and two in five markets
+ *  went short every winter. */
+const GRAIN_COVER: Record<SettlementRank, number> = { village: 1.5, town: 1.25, city: 1.05, capital: 1.05 };
 const EXTRA_KINDS: readonly SiteKind[] = ['fishery', 'pasture', 'camp', 'quarry', 'mine', 'saltworks'];
 
 function grainNeedOf(place: EconomyPlace): number {
@@ -371,7 +395,7 @@ function siteYield(kind: SiteKind, size: SiteSize, fit: number, good: Good): num
 /**
  * Sites that exist now: generated ones (deterministic from `seed` and the
  * place), minus `removedSites`, plus `manualSites`. Generated ids are stable
- * (`auto:<placeId>:<kind>:<n>`): removing one never renumbers the rest, because
+ * (`auto:<x>,<y>:<kind>:<n>`, from the settlement's cell): removing one never renumbers the rest, because
  * everything is generated first and the removals filter afterwards.
  */
 export function autoSites(input: EconomyInput): TradeSite[] {
@@ -379,6 +403,7 @@ export function autoSites(input: EconomyInput): TradeSite[] {
   checkWorld(world);
   indexPlaces(places);
   const w = world.width, h = world.height;
+  const kmPerCell = 40075 / w;
   const occupied = new Set<number>();
   for (const p of places) occupied.add(clamp(Math.floor(p.y), 0, h - 1) * w + wrap(Math.floor(p.x), w));
 
@@ -388,8 +413,13 @@ export function autoSites(input: EconomyInput): TradeSite[] {
   const made = new Map<number, TradeSite[]>();
 
   for (const place of order) {
-    const R = SEARCH_RADIUS[place.rank];
-    const rng = createRng(input.seed, `economy:${place.id}`);
+    const R = searchRadius(place.rank, kmPerCell);
+    // Keyed by the settlement's CELL, not its id: ids are founding order and
+    // shift when a terrain edit re-runs the founding, which would hand one
+    // town's switched-off farm to another. The cell is how every other edit
+    // names a settlement (`settlement:x,y`).
+    const cellKey = `${Math.floor(place.x)},${Math.floor(place.y)}`;
+    const rng = createRng(input.seed, `economy:${cellKey}`);
     const px = Math.floor(place.x), py = Math.floor(place.y);
     // The window around the place, scored once for every kind. A jitter per
     // cell (drawn for every cell so the stream never depends on the terrain)
@@ -425,11 +455,11 @@ export function autoSites(input: EconomyInput): TradeSite[] {
       const n = counts.get(kind) ?? 0;
       counts.set(kind, n + 1);
       occupied.add(cy[c] * w + cx[c]);
-      list.push({ id: `auto:${place.id}:${kind}:${n}`, kind, x: cx[c], y: cy[c], size, placeId: place.id, auto: true });
+      list.push({ id: `auto:${cellKey}:${kind}:${n}`, kind, x: cx[c], y: cy[c], size, placeId: place.id, auto: true });
     };
 
     // 1. Feed yourself: open farms until the local grain covers the need.
-    const target = grainNeedOf(place) * GRAIN_COVER;
+    const target = grainNeedOf(place) * GRAIN_COVER[place.rank];
     let grain = 0;
     for (let n = 0; n < FARM_SLOTS[place.rank] && grain < target; n++) {
       const hit = best('farm', FARM_MIN_FIT);
@@ -442,7 +472,7 @@ export function autoSites(input: EconomyInput): TradeSite[] {
     }
 
     // 1b. Keep herds: pastures until local meat covers most of the need.
-    const meatTarget = (Math.max(0, place.population) / 1000) * NEED_PER_1000.meat * MEAT_COVER;
+    const meatTarget = (Math.max(0, place.population) / 1000) * NEED_PER_1000.meat * MEAT_COVER[place.rank];
     let meat = 0;
     for (let n = 0; n < PASTURE_SLOTS[place.rank] && meat < meatTarget; n++) {
       const hit = best('pasture', PASTURE_MIN_FIT);
@@ -469,31 +499,69 @@ export function autoSites(input: EconomyInput): TradeSite[] {
       open(hit.kind, big, hit.c);
     }
 
-    // 3. The regional trades this place does not already work, from further afield.
-    const reach = REGIONAL_REACH[place.rank] * R;
-    if (reach > 0) {
+    // Further afield than the working radius: the best free cell for a kind within `reach` cells.
+    const hinterReach = R + Math.max(1, Math.round(HINTERLAND_REACH_KM[place.rank] / kmPerCell));
+    const regionalReach = REGIONAL_REACH_KM[place.rank] > 0 ? Math.max(R + 1, Math.round(REGIONAL_REACH_KM[place.rank] / kmPerCell)) : 0;
+    const afield = (kind: SiteKind, minFit: number, reach: number): { x: number; y: number; fit: number } | null => {
+      let found: { x: number; y: number; fit: number; score: number } | null = null;
+      for (let dy = -reach; dy <= reach; dy++) {
+        const y = py + dy;
+        if (y < 0 || y >= h) continue;
+        for (let dx = -reach; dx <= reach; dx++) {
+          const d = Math.hypot(dx, dy);
+          if (d > reach) continue;
+          const x = wrap(px + dx, w);
+          if (occupied.has(y * w + x)) continue;
+          const fit = siteFitness(world, kind, x, y);
+          if (fit < minFit) continue;
+          const score = fit * (1 - 0.3 * d / reach);
+          if (!found || score > found.score) found = { x, y, fit, score };
+        }
+      }
+      return found;
+    };
+    const openAt = (kind: SiteKind, size: SiteSize, at: { x: number; y: number }) => {
+      const n = counts.get(kind) ?? 0;
+      counts.set(kind, n + 1);
+      occupied.add(at.y * w + at.x);
+      list.push({ id: `auto:${cellKey}:${kind}:${n}`, kind, x: at.x, y: at.y, size, placeId: place.id, auto: true });
+    };
+
+    // 3. The hinterland: a town or city that cannot feed itself from its own
+    //    fields draws on farms and herds further out (a city's bread has always
+    //    come from far beyond its walls).
+    for (let n = 0; n < HINTERLAND_FARMS[place.rank] && grain < target; n++) {
+      const at = afield('farm', FARM_MIN_FIT, hinterReach);
+      if (!at) break;
+      openAt('farm', 'L', at);
+      grain += siteYield('farm', 'L', at.fit, 'grain');
+    }
+    for (let n = 0; n < HINTERLAND_PASTURES[place.rank] && meat < meatTarget; n++) {
+      const at = afield('pasture', PASTURE_MIN_FIT, hinterReach);
+      if (!at) break;
+      openAt('pasture', 'L', at);
+      meat += siteYield('pasture', 'L', at.fit, 'meat');
+    }
+
+    // 3b. Where bread will not grow (frost, salt marsh, bog), people live on
+    //     fish and herds instead: more fisheries, then pastures, until they
+    //     cover what the fields cannot. The simulation eats them in bread's place.
+    let gap = target - grain;
+    for (let n = 0; n < STAPLE_SUBSTITUTE_SLOTS[place.rank] && gap > target * 0.2; n++) {
+      const fish = afield('fishery', 0.3, hinterReach);
+      const kind: SiteKind = fish ? 'fishery' : 'pasture';
+      const at = fish ?? afield('pasture', PASTURE_MIN_FIT, hinterReach);
+      if (!at) break;
+      openAt(kind, 'L', at);
+      gap -= siteYield(kind, 'L', at.fit, kind === 'fishery' ? 'fish' : 'meat');
+    }
+
+    // 4. The regional trades this place does not already work, from further afield.
+    if (regionalReach > 0) {
       for (const kind of REGIONAL_KINDS) {
         if (counts.get(kind)) continue;
-        let found: { x: number; y: number; fit: number; score: number } | null = null;
-        for (let dy = -reach; dy <= reach; dy++) {
-          const y = py + dy;
-          if (y < 0 || y >= h) continue;
-          for (let dx = -reach; dx <= reach; dx++) {
-            const d = Math.hypot(dx, dy);
-            if (d > reach) continue;
-            const x = wrap(px + dx, w);
-            if (occupied.has(y * w + x)) continue;
-            const fit = siteFitness(world, kind, x, y);
-            if (fit < REGIONAL_MIN_FIT) continue;
-            const score = fit * (1 - 0.3 * d / reach);
-            if (!found || score > found.score) found = { x, y, fit, score };
-          }
-        }
-        if (!found) continue;
-        const n = counts.get(kind) ?? 0;
-        counts.set(kind, n + 1);
-        occupied.add(found.y * w + found.x);
-        list.push({ id: `auto:${place.id}:${kind}:${n}`, kind, x: found.x, y: found.y, size: found.fit >= 0.8 ? 'L' : 'M', placeId: place.id, auto: true });
+        const at = afield(kind, REGIONAL_MIN_FIT, regionalReach);
+        if (at) openAt(kind, at.fit >= 0.8 ? 'L' : 'M', at);
       }
     }
     made.set(place.id, list);
@@ -569,12 +637,13 @@ function overLand(world: EconomyWorld, a: EconomyPlace, b: EconomyPlace): boolea
 
 /**
  * Each place's trade partners, nearest first, computed once: road partners
- * within LAND_RANGE over land, and (for ports) the nearest other ports by sea.
+ * within LAND_RANGE_KM over land, and (for ports) the nearest other ports by sea.
  * Capping both keeps the monthly loop linear in the number of places.
  */
 function buildLinks(world: EconomyWorld, places: readonly EconomyPlace[]): Links {
   const w = world.width;
-  const range2 = LAND_RANGE * LAND_RANGE;
+  const range = Math.max(12, Math.round(LAND_RANGE_KM / (40075 / w)));
+  const range2 = range * range;
   const ports: number[] = [];
   places.forEach((p, i) => { if (p.port) ports.push(i); });
   // Hot (places squared): wrapped |dx| without the generic modulo helper.
@@ -634,6 +703,9 @@ export function simulateEconomy(
   const total = clamp(Math.floor(months), 0, MAX_MONTHS);
   const P = places.length, G = GOODS.length;
   const grainAt = GOODS.indexOf('grain');
+  /** What stands in for bread when it runs out, in order. */
+  const SUBSTITUTES = [GOODS.indexOf('fish'), GOODS.indexOf('meat')];
+  const fedGap = new Float64Array(P);
 
   const need = new Float64Array(P * G);
   const stock = new Float64Array(P * G);
@@ -725,16 +797,32 @@ export function simulateEconomy(
       consumed[k] = eaten;
       stock[k] -= eaten;
     }
+    // Where bread runs short, people eat the fish and meat left in the larder
+    // instead, unit for unit. A fishing or herding village that grows no grain
+    // is fed, not starving with a full smokehouse; it still shows short of bread.
+    const instead = new Float64Array(P * G);
+    for (let p = 0; p < P; p++) {
+      let gap = need[p * G + grainAt] - consumed[p * G + grainAt];
+      for (const g of SUBSTITUTES) {
+        if (gap <= 1e-9) break;
+        const k = p * G + g;
+        const take = Math.min(gap, stock[k]);
+        if (take <= 0) continue;
+        stock[k] -= take; instead[k] = take; gap -= take;
+      }
+      fedGap[p] = gap;
+    }
 
     const rows: PlaceEconomy[] = places.map((place, p) => {
       const row: PlaceEconomy = {
         id: place.id, name: place.name, stock: emptyGoods(), production: emptyGoods(), need: emptyGoods(),
-        consumed: emptyGoods(), price: emptyGoods(), shortIn: {}, fed: need[p * G + grainAt] - consumed[p * G + grainAt] <= 1e-9,
+        consumed: emptyGoods(), price: emptyGoods(), shortIn: {}, eatenInstead: {}, fed: fedGap[p] <= 1e-9,
       };
       GOODS.forEach((good, g) => {
         const k = p * G + g;
         row.stock[good] = stock[k]; row.production[good] = produced[k];
         row.need[good] = need[k]; row.consumed[good] = consumed[k];
+        if (instead[k] > 0) row.eatenInstead[good] = instead[k];
         row.price[good] = need[k] > 0
           ? Math.round(clamp(Math.sqrt((USUAL_COVER * need[k]) / Math.max(stock[k] + produced[k], 1e-9)), PRICE_MIN, PRICE_MAX) * 1000) / 1000
           : 1;
@@ -811,12 +899,17 @@ export interface TradeSiteEdit {
   kind: 'tradeSite'; id: string; siteKind: SiteKind; x: number; y: number; size: SiteSize; placeId: number | null;
 }
 export interface TradeSiteRemoveEdit { kind: 'tradeSiteRemove'; id: string }
+/** Switch a generated site back on after it was removed. */
+export interface TradeSiteRestoreEdit { kind: 'tradeSiteRestore'; id: string }
 
 export function tradeSiteEdit(site: TradeSite): TradeSiteEdit {
   return { kind: 'tradeSite', id: site.id, siteKind: site.kind, x: site.x, y: site.y, size: site.size, placeId: site.placeId };
 }
 export function tradeSiteRemoveEdit(id: string): TradeSiteRemoveEdit {
   return { kind: 'tradeSiteRemove', id };
+}
+export function tradeSiteRestoreEdit(id: string): TradeSiteRestoreEdit {
+  return { kind: 'tradeSiteRestore', id };
 }
 
 /**
@@ -837,6 +930,8 @@ export function tradeSitesFrom(edits: readonly { kind: string }[]): { manual: Tr
       } catch { /* a broken record costs only itself */ }
     } else if (edit.kind === 'tradeSiteRemove' && typeof raw.id === 'string') {
       if (!manual.delete(raw.id)) removed.add(raw.id);
+    } else if (edit.kind === 'tradeSiteRestore' && typeof raw.id === 'string') {
+      removed.delete(raw.id);
     }
   }
   return { manual: [...manual.values()], removed: [...removed] };

@@ -44,10 +44,10 @@ export async function testVvdMapVersions(): Promise<string[]> {
     await click('map-new-layer-create');
     let layer = (await saved()).layers![0]; assert(layer.name === 'Political borders', 'Custom layer created');
     await click(`map-feature-select-${F}`);
-    await act(async () => { typeInto(node<HTMLSelectElement>('map-feature-layer'), layer.id); }); await click('map-feature-save');
+    await click(`map-feature-layer-${layer.id}`); await click('map-feature-save');
     const pinButton = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Old city'); assert(pinButton, 'Pin selection');
     await act(async () => { pinButton.click(); await pause(); });
-    await act(async () => { typeInto(node<HTMLSelectElement>('map-pin-layer'), layer.id); });
+    await click(`map-pin-layer-${layer.id}`);
     await click('map-pin-save');
     assert((await mapPins())[0].layerId === layer.id && (await saved()).features![0].layerId === layer.id, 'Both pin and polygon assigned to named layer');
     await click(`map-named-layer-${layer.id}`);

@@ -20,7 +20,7 @@
 
 import { normalizeLabelChange } from './labelShape';
 import { normalizeStoryEvent, type StoryEvent } from './storyEvents';
-import { normalizeTradeSite, type TradeSiteEdit, type TradeSiteRemoveEdit } from './economy';
+import { normalizeTradeSite, type TradeSiteEdit, type TradeSiteRemoveEdit, type TradeSiteRestoreEdit } from './economy';
 import { isStampGlyph } from '../cartography/stampGlyphs';
 import { Biome, type BiomeId, type WorldData } from './types';
 import { classifyBiomes } from './biomes';
@@ -190,6 +190,8 @@ export type WorldEdit =
   | TradeSiteEdit
   /** Remove an author's trade site, or switch off a generated one by its id. */
   | TradeSiteRemoveEdit
+  /** Switch a generated trade site back on. */
+  | TradeSiteRestoreEdit
   /** Remove painted markers and labels within a radius. */
   | { kind: 'eraseMarkers'; x: number; y: number; radius: number }
   /**
@@ -1242,7 +1244,7 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     const r = e as Record<string, unknown>;
     try { normalizeTradeSite({ id: r.id, kind: r.siteKind, x: r.x, y: r.y, size: r.size, placeId: r.placeId }); return true; } catch { return false; }
   }
-  if ((e as { kind: string }).kind === 'tradeSiteRemove') return typeof (e as { id?: unknown }).id === 'string';
+  if ((e as { kind: string }).kind === 'tradeSiteRemove' || (e as { kind: string }).kind === 'tradeSiteRestore') return typeof (e as { id?: unknown }).id === 'string';
   if ('stroke' in e) {
     const stroke = (e as { stroke?: unknown }).stroke;
     return !!stroke && typeof stroke === 'object' && points((stroke as { pts?: unknown }).pts);

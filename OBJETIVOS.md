@@ -52,7 +52,7 @@ Siguiente, en este orden:
   lente también en proyecciones curvas.
 - Sucesos: reproducción de la historia por capítulos en el mapa (A2 #25) y
   enlace de un suceso a su escena del manuscrito.
-- Pulido del mapa clásico y una herramienta MCP genérica para elementos del mapa.
+- Mapa clásico, segunda parte: selector de fichas con «crear aquí», menú contextual con comentario en el punto y diálogo de cambio de imagen con comprobación de proporción (A2 #14, #15, #18).
 - Niebla del lector también en la vista 3D (hoy: Mapa, Carta y exportaciones);
   en la Carta en vivo, dejar a la vista el marco y la cartela (la exportación PNG
   ya los conserva); arranque «tierra a tinta», poblaciones como puntos y rastro.

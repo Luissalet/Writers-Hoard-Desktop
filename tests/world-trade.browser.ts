@@ -59,10 +59,14 @@ export async function testWorldTrade(): Promise<string[]> {
     const missing = await runBridgeTool('wh_remove_trade_site', { worldId: Wid, id: 'nope' });
     const after = (await runBridgeTool('wh_list_trade_sites', { worldId: Wid })).result as { sites: { id: string }[] };
     assert(off.ok && gone.ok && !missing.ok && !after.sites.some((s) => s.id === autoOne.id || s.id === yours.sites[0].id), 'Remove');
+    const reopened = await runBridgeTool('wh_restore_trade_site', { worldId: Wid, id: autoOne.id });
+    const notOff = await runBridgeTool('wh_restore_trade_site', { worldId: Wid, id: autoOne.id });
+    const restored = (await runBridgeTool('wh_list_trade_sites', { worldId: Wid })).result as { sites: { id: string }[] };
+    assert(reopened.ok && !notOff.ok && restored.sites.some((s) => s.id === autoOne.id) && /^auto:\d+,\d+:/.test(autoOne.id), 'Restore');
     return [
       'Trade site edits round-trip, cost only themselves when malformed and are kept by the painting session',
       'Sites and shipments draw on both sides of the seam, shipments the short way round',
-      'Bridge: wh_world_economy is deterministic per month with place detail; wh_add/list/remove_trade_site place, list and switch off sites with validation',
+      'Bridge: wh_world_economy is deterministic per month with place detail; wh_add/list/remove/restore_trade_site place, list, switch off and back on sites (ids by settlement cell) with validation',
     ];
   } finally {
     await db.worldSnapshots.delete(worldRuntimeKey(Wid));

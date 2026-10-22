@@ -1,10 +1,14 @@
-import { useRef, useState } from 'react';
-import { Check, CircleX, ExternalLink, MousePointer2, Pentagon, Redo2, Route, Trash2, Type, Undo2 } from 'lucide-react';
+import { createElement, useRef, useState } from 'react';
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Check, CircleX, ExternalLink, MousePointer2, Pentagon, Redo2, Route, Trash2, Type, Undo2 } from 'lucide-react';
 import type { CodexEntry, MapFeature, MapPoint } from '@/types';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { MapFeatureEditor } from './useMapFeatures';
-import { mapFeatureCenter, mapItemVisible, mapPoint, minimumMapPoints } from './mapGeometry';
+import { mapFeatureCenter, mapItemLayers, mapItemVisible, mapPoint, minimumMapPoints, withMapLayers } from './mapGeometry';
 import MapNamedLayers from './MapNamedLayers';
+import { MAP_LABEL_FONTS, MAP_LABEL_OUTLINE, MAP_LABEL_SIZE, MAP_PATTERNS, MAP_PATTERN_SCALE, MAP_STROKE_WIDTH, DEFAULT_LABEL_SIZE, patternTile, reorderFeature, resolvedLabel, resolvedStroke } from './mapStyle';
+
+/** SVG attribute names in the tile spec are kebab-case; React wants camelCase. */
+const reactAttrs = (attrs: Record<string, string | number>) => Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase()), v]));
 
 const button = 'inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary hover:border-accent-gold disabled:opacity-50';
 const field = 'w-full rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary focus:border-accent-gold outline-none';
@@ -58,19 +62,43 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
       const center = mapFeatureCenter(feature.points);
       const selected = editor.selected?.id === feature.id;
       const activate = () => editor.select(saved);
-      const attributes = { stroke: feature.color, strokeWidth: selected ? 3 : 2, vectorEffect: 'non-scaling-stroke', style: { pointerEvents: editor.drawing ? 'none' as const : 'auto' as const, cursor: 'pointer' }, onClick: (event: React.MouseEvent) => { event.stopPropagation(); activate(); }, onPointerDown: (event: React.PointerEvent) => event.stopPropagation(), tabIndex: editor.drawing ? -1 : 0, role: 'button', 'aria-label': `${editor.copy[feature.kind]}: ${feature.name}`, onKeyDown: (event: React.KeyboardEvent) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } } };
+      const stroke = resolvedStroke(feature);
+      const lettering = resolvedLabel(feature);
+      const tile = feature.kind === 'region' ? patternTile(feature, 1) : null;
+      const attributes = { stroke: stroke.color, strokeWidth: stroke.width + (selected ? 1 : 0), vectorEffect: 'non-scaling-stroke', style: { pointerEvents: editor.drawing ? 'none' as const : 'auto' as const, cursor: 'pointer' }, onClick: (event: React.MouseEvent) => { event.stopPropagation(); activate(); }, onPointerDown: (event: React.PointerEvent) => event.stopPropagation(), tabIndex: editor.drawing ? -1 : 0, role: 'button', 'aria-label': `${editor.copy[feature.kind]}: ${feature.name}`, onKeyDown: (event: React.KeyboardEvent) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } } };
       return <g key={feature.id} data-feature-id={feature.id}>
         <title>{feature.description || feature.name}</title>
+        {tile && <defs><pattern id={`mp-${feature.id}`} patternUnits="userSpaceOnUse" width={tile.size} height={tile.size} patternTransform={tile.rotate ? `rotate(${tile.rotate})` : undefined}>{tile.marks.map((mark, i) => createElement(mark.tag, { key: i, ...reactAttrs(mark.attrs) }))}</pattern></defs>}
         {feature.kind === 'region' && <polygon {...attributes} points={points} fill={feature.color} fillOpacity={feature.opacity ?? .22} />}
+        {tile && <polygon points={points} fill={`url(#mp-${feature.id})`} stroke="none" style={{ pointerEvents: 'none' }} data-testid={`map-pattern-${feature.id}`} />}
         {feature.kind === 'path' && <><polyline points={points} fill="none" stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.drawing ? 'none' : 'stroke', cursor: 'pointer' }} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); activate(); }} /><polyline {...attributes} points={points} fill="none" strokeLinecap="round" strokeLinejoin="round" /></>}
-        <text {...attributes} x={center.x} y={center.y / ratio} stroke="#17191a" strokeWidth={3} fill={feature.color} fontSize={1.8} textAnchor="middle" paintOrder="stroke" fontFamily="Georgia,serif">{feature.name}</text>
+        <text {...attributes} x={center.x} y={center.y / ratio} stroke={lettering.outline} strokeWidth={lettering.outlineWidth} fill={lettering.fill} fontSize={lettering.size} fontWeight={lettering.weight} fontStyle={lettering.style} textAnchor="middle" paintOrder="stroke" fontFamily={lettering.family} transform={lettering.rotation ? `rotate(${lettering.rotation} ${center.x} ${center.y / ratio})` : undefined} data-testid={`map-label-${feature.id}`}>{feature.name}</text>
         {selected && !editor.drawing && !editor.readOnly && feature.points.map((point, index) => <circle key={index} cx={point.x} cy={point.y / ratio} r={.5} fill="#eeeae2" stroke={feature.color} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.busy ? 'none' : 'auto', cursor: 'move', touchAction: 'none' }} data-testid={`map-vertex-${index}`}
           onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
           onPointerDown={event => { event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setDrag({ pointer: event.pointerId, index, points: feature.points }); }}
           onPointerMove={event => { if (!drag || drag.pointer !== event.pointerId || drag.index !== index) return; event.stopPropagation(); editor.patch({ points: feature.points.map((at, i) => i === index ? fromEvent(event) : at) }); }}
           onPointerUp={event => { if (!drag || drag.pointer !== event.pointerId) return; event.stopPropagation(); event.currentTarget.releasePointerCapture(event.pointerId); setDrag(null); }}
           onPointerCancel={() => { if (drag) editor.patch({ points: drag.points }); setDrag(null); }}
-          onClick={event => event.stopPropagation()} />)}
+          onClick={event => event.stopPropagation()}
+          onDoubleClick={event => { event.stopPropagation(); if (feature.points.length > minimumMapPoints(feature.kind)) editor.patch({ points: feature.points.filter((_, i) => i !== index) }); }} />)}
+        {/* "Add a point": a handle halfway along each edge; pressing it inserts a vertex there and drags it. */}
+        {selected && !editor.drawing && !editor.readOnly && feature.kind !== 'label' && feature.points.map((point, index) => {
+          const nextIndex = index + 1 < feature.points.length ? index + 1 : (feature.kind === 'region' ? 0 : -1);
+          if (nextIndex < 0) return null;
+          const other = feature.points[nextIndex];
+          const mid = mapPoint((point.x + other.x) / 2, (point.y + other.y) / 2);
+          // The visible dot is small; a wider transparent ring around it takes the press.
+          return <g key={`mid-${index}`} style={{ pointerEvents: editor.busy ? 'none' : 'auto', cursor: 'copy', touchAction: 'none' }} data-testid={`map-midpoint-${index}`}
+            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+            onPointerDown={event => { event.preventDefault(); event.stopPropagation(); const inserted = [...feature.points.slice(0, index + 1), mid, ...feature.points.slice(index + 1)]; editor.patch({ points: inserted }); event.currentTarget.setPointerCapture(event.pointerId); setDrag({ pointer: event.pointerId, index: index + 1, points: feature.points }); }}
+            onPointerMove={event => { if (!drag || drag.pointer !== event.pointerId) return; event.stopPropagation(); editor.patch({ points: (editor.draft?.points ?? feature.points).map((at, i) => i === drag.index ? fromEvent(event) : at) }); }}
+            onPointerUp={event => { if (!drag || drag.pointer !== event.pointerId) return; event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDrag(null); }}
+            onPointerCancel={() => { if (drag) editor.patch({ points: drag.points }); setDrag(null); }}
+            onClick={event => event.stopPropagation()}>
+            <circle cx={mid.x} cy={mid.y / ratio} r={1.1} fill="transparent" stroke="none" />
+            <circle cx={mid.x} cy={mid.y / ratio} r={.35} fill={feature.color} fillOpacity={.55} stroke="#eeeae2" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
+          </g>;
+        })}
       </g>;
     })}
     {editor.drawing && <g pointerEvents="none">
@@ -96,13 +124,38 @@ export function MapFeatureInspector({ editor, entries, onOpenEntry }: { editor: 
         <label className="text-xs text-text-muted space-y-1.5 block">{copy.name}<input value={draft.name} onChange={event => editor.patch({ name: event.target.value })} className={field} data-testid="map-feature-name" /></label>
         <label className="text-xs text-text-muted space-y-1.5 block">{copy.linkedEntry}<select className={field} value={draft.linkedEntryId ?? ''} onChange={event => editor.patch({ linkedEntryId: event.target.value || undefined })} data-testid="map-feature-link"><option value="">{copy.noLink}</option>{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>
       </div>
-      {!!editor.namedLayers.length && <label className="text-xs text-text-muted space-y-1.5 block">{copy.layer}<select className={field} value={editor.namedLayers.some(layer => layer.id === draft.layerId) ? draft.layerId : ''} onChange={event => editor.patch({ layerId: event.target.value || undefined })} data-testid="map-feature-layer"><option value="">{copy.ungrouped}</option>{editor.namedLayers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}</select></label>}
+      {!!editor.namedLayers.length && <fieldset className="text-xs text-text-muted space-y-1.5" data-testid="map-feature-layers"><legend>{copy.layersOf}</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{editor.namedLayers.map(layer => { const ids = mapItemLayers(draft); return <label key={layer.id} className="flex items-center gap-1.5"><input type="checkbox" className="accent-accent-gold" checked={ids.includes(layer.id)} onChange={event => editor.patch(withMapLayers(event.target.checked ? [...ids, layer.id] : ids.filter(id => id !== layer.id)))} data-testid={`map-feature-layer-${layer.id}`} />{layer.name}</label>; })}</div><p className="text-[11px]">{copy.layersHelp}</p></fieldset>}
       <label className="text-xs text-text-muted space-y-1.5 block">{copy.description}<textarea rows={2} value={draft.description ?? ''} onChange={event => editor.patch({ description: event.target.value })} className={field} /></label>
       <div className="flex items-end flex-wrap gap-4">
         <label className="text-xs text-text-muted space-y-1.5 block">{copy.color}<input type="color" value={draft.color} onChange={event => editor.patch({ color: event.target.value })} className="block h-9 w-16 rounded border border-border bg-elevated p-1" /></label>
         {draft.kind === 'region' && <label className="text-xs text-text-muted space-y-1.5 block">{copy.opacity} ({Math.round((draft.opacity ?? .22) * 100)}%)<input type="range" min="0" max="100" value={(draft.opacity ?? .22) * 100} onChange={event => editor.patch({ opacity: Number(event.target.value) / 100 })} className="block h-9 accent-accent-gold" /></label>}
         {linked && onOpenEntry && <button type="button" className={button} onClick={() => onOpenEntry(linked.id)}><ExternalLink size={14} />{copy.openEntry}: {linked.title}</button>}
-        {(!editor.layers[draft.kind] || !mapItemVisible(draft, editor.namedLayers)) && <button type="button" className={button} onClick={() => { if (!editor.layers[draft.kind]) void editor.toggleLayer(draft.kind); else void editor.changeNamedLayers(editor.namedLayers.map(layer => layer.id === draft.layerId ? { ...layer, visible: true } : layer)); }}>{copy.show}</button>}
+        {(!editor.layers[draft.kind] || !mapItemVisible(draft, editor.namedLayers)) && <button type="button" className={button} onClick={() => { if (!editor.layers[draft.kind]) void editor.toggleLayer(draft.kind); else void editor.changeNamedLayers(editor.namedLayers.map(layer => layer.id === mapItemLayers(draft)[0] ? { ...layer, visible: true } : layer)); }}>{copy.show}</button>}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2" data-testid="map-feature-style">
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.strokeColor}<input type="color" value={resolvedStroke(draft).color} onChange={event => editor.patch({ strokeColor: event.target.value })} className="block h-9 w-16 rounded border border-border bg-elevated p-1" data-testid="map-feature-stroke-color" /></label>
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.strokeWidth} ({resolvedStroke(draft).width})<input type="range" min={MAP_STROKE_WIDTH.min} max={MAP_STROKE_WIDTH.max} step="0.5" value={resolvedStroke(draft).width} onChange={event => editor.patch({ strokeWidth: Number(event.target.value) })} className="block w-full accent-accent-gold" data-testid="map-feature-stroke-width" /></label>
+        {draft.kind === 'region' && <label className="text-xs text-text-muted space-y-1.5 block">{copy.pattern}<select className={field} value={draft.pattern ?? ''} onChange={event => editor.patch({ pattern: (event.target.value || undefined) as typeof draft.pattern })} data-testid="map-feature-pattern"><option value="">{copy.patternNone}</option>{MAP_PATTERNS.map(p => <option key={p} value={p}>{copy[`pattern_${p}`]}</option>)}</select></label>}
+        {draft.kind === 'region' && draft.pattern && <label className="text-xs text-text-muted space-y-1.5 block">{copy.patternScale} ({draft.patternScale ?? 1})<input type="range" min={MAP_PATTERN_SCALE.min} max={MAP_PATTERN_SCALE.max} step="0.25" value={draft.patternScale ?? 1} onChange={event => editor.patch({ patternScale: Number(event.target.value) })} className="block w-full accent-accent-gold" data-testid="map-feature-pattern-scale" /></label>}
+      </div>
+      <fieldset className="grid gap-3 sm:grid-cols-3 rounded-lg border border-border p-3" data-testid="map-feature-label-style">
+        <legend className="px-1 text-xs text-text-muted">{copy.lettering}</legend>
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.font}<select className={field} value={draft.labelStyle?.font ?? 'serif'} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, font: event.target.value as NonNullable<typeof draft.labelStyle>['font'] } })} data-testid="map-label-font">{MAP_LABEL_FONTS.map(f => <option key={f} value={f}>{copy[`font_${f}`]}</option>)}</select></label>
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.fontSize} ({draft.labelStyle?.size ?? DEFAULT_LABEL_SIZE})<input type="range" min={MAP_LABEL_SIZE.min} max={MAP_LABEL_SIZE.max} step="0.1" value={draft.labelStyle?.size ?? DEFAULT_LABEL_SIZE} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, size: Number(event.target.value) } })} className="block w-full accent-accent-gold" data-testid="map-label-size" /></label>
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.rotation} ({draft.labelStyle?.rotation ?? 0}°)<input type="range" min="-180" max="180" step="1" value={draft.labelStyle?.rotation ?? 0} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, rotation: Number(event.target.value) } })} className="block w-full accent-accent-gold" data-testid="map-label-rotation" /></label>
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.textColor}<input type="color" value={resolvedLabel(draft).fill} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, color: event.target.value } })} className="block h-9 w-16 rounded border border-border bg-elevated p-1" data-testid="map-label-color" /></label>
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.outline}<input type="color" value={resolvedLabel(draft).outline} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, outline: event.target.value } })} className="block h-9 w-16 rounded border border-border bg-elevated p-1" data-testid="map-label-outline" /></label>
+        <label className="text-xs text-text-muted space-y-1.5 block">{copy.outlineWidth} ({resolvedLabel(draft).outlineWidth})<input type="range" min={MAP_LABEL_OUTLINE.min} max={MAP_LABEL_OUTLINE.max} step="0.5" value={resolvedLabel(draft).outlineWidth} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, outlineWidth: Number(event.target.value) } })} className="block w-full accent-accent-gold" data-testid="map-label-outline-width" /></label>
+        <div className="flex items-center gap-3 text-xs text-text-muted sm:col-span-3">
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!draft.labelStyle?.bold} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, bold: event.target.checked } })} className="accent-accent-gold" data-testid="map-label-bold" /><b>{copy.bold}</b></label>
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!draft.labelStyle?.italic} onChange={event => editor.patch({ labelStyle: { ...draft.labelStyle, italic: event.target.checked } })} className="accent-accent-gold" data-testid="map-label-italic" /><i>{copy.italic}</i></label>
+          {draft.labelStyle && <button type="button" className="ml-auto underline" onClick={() => editor.patch({ labelStyle: undefined })}>{copy.resetLettering}</button>}
+        </div>
+      </fieldset>
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={copy.order} data-testid="map-feature-order">
+        <span className="text-xs text-text-muted">{copy.order}</span>
+        {([['back', ArrowDownToLine], ['backward', ArrowDown], ['forward', ArrowUp], ['front', ArrowUpToLine]] as const).map(([how, Icon]) => <button key={how} type="button" className={button} title={copy[`order_${how}`]} aria-label={copy[`order_${how}`]} disabled={editor.busy || editor.dirty} onClick={() => void editor.persist(reorderFeature(editor.features, draft.id, how))} data-testid={`map-order-${how}`}><Icon size={14} /></button>)}
+        {editor.dirty && <span className="text-[11px] text-text-muted">{copy.orderSaveFirst}</span>}
       </div>
       <details><summary className="cursor-pointer text-xs text-text-muted">{copy.vertices} ({draft.points.length})</summary><div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{draft.points.map((point, index) => <div key={index} className="flex items-center gap-2"><span className="text-xs text-text-muted">{index + 1}</span>{(['x', 'y'] as const).map(axis => <label key={axis} className="flex items-center gap-1 text-xs text-text-muted">{axis.toUpperCase()}<input aria-label={`${copy[axis]} · ${index + 1}`} type="number" min="0" max="100" step="0.1" className={`${field} min-w-0`} value={Number(point[axis].toFixed(3))} onChange={event => editor.patch({ points: draft.points.map((at, i) => i === index ? mapPoint(axis === 'x' ? Number(event.target.value) : at.x, axis === 'y' ? Number(event.target.value) : at.y) : at) })} /></label>)}</div>)}</div></details>
       <div className="flex flex-wrap items-center gap-3"><span className="text-xs text-text-muted flex-1" role="status">{editor.dirty ? copy.draft : copy.saved}</span><button type="button" className={`${button} text-danger`} onClick={() => editor.setPendingDelete(selected)}><Trash2 size={14} />{copy.remove}</button>{editor.dirty && <button type="button" className={button} onClick={editor.discard}>{copy.discard}</button>}<button type="button" disabled={!draft.name.trim() || !editor.dirty} onClick={() => void editor.save()} className="rounded-lg bg-accent-gold px-4 py-2 text-sm font-semibold text-deep disabled:opacity-50" data-testid="map-feature-save">{editor.busy ? copy.saving : copy.save}</button></div>

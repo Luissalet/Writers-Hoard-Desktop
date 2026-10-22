@@ -1228,6 +1228,8 @@ Wave 1, maps:
 - [x] Story events on the map: Events tool, inspector, story so far by chapter, reader's view by chapter, exports; MCP add/update/remove/list.
 - [x] Review r6: fog and events through curved projections; long fog lines split; reader's view hides author marks; flat-only tools say so in 3D.
 - [x] Trade lens: deterministic settlement economy, Trade tab with months, places, goods and sites; sites and shipments on the atlas and Carta; MCP economy and sites.
-- [ ] Classic-map polish and a generic `wh_add_map_feature` (A2 #6).
+- [x] Review r8: trade site ids by settlement cell; distances in km; hinterland farms and herds; fish and meat for bread where grain will not grow; switch generated sites back on.
+- [x] Classic-map polish, part 1: outline, hatch, lettering, drawing order, add/remove vertex, several layers, pin size and icon; SVG export; MCP list/add/update map features.
+- [ ] Classic-map polish, part 2: card picker with "create entry here", right-click menu with positional comment, change-ground dialog (A2 #14, #15, #18).
 
 Later waves follow the ranked lists in C-writing, D1-tools, D2-platform and B-campaign.

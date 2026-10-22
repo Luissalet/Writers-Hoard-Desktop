@@ -36,7 +36,9 @@ blank if wanted, measure areas against real outlines, plan journeys with the
 world's own pace and travel physics, and carry editable labels (angle, spacing,
 curve), 32 map stamps, a square or hex play grid, a reader's-eye fog that
 reveals the map chapter by chapter, story events placed by chapter and a
-month-by-month trade lens (sites, shortages, prices, shipments); hand-drawn map eras can follow timeline
+month-by-month trade lens (sites, shortages, prices, shipments); classic image
+maps carry styled shapes (outline, hatch, lettering, drawing order, several
+layers) and pin sizes; hand-drawn map eras can follow timeline
 events and play in sequence. Each has bridge tools (see docs/AI-BRIDGE.md, section 28). The optional 5e (2014), SRD 5.1
 character profile preserves manual values and played counters; it is not a
 complete rules or spell-catalogue engine.
