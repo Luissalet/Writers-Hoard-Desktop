@@ -420,6 +420,8 @@ uniform vec2  uZoomRel;
 uniform float uZoomFade;     // ancho del borde suave, en fracción de la ventana
 uniform float uFlatLight;    // 1 = the skin already carries its own shading
 uniform float uPainted;      // 1 = the painted skin: its trees and shading are in the picture
+uniform float uClipOn;       // 1 = the tabletop model stands on a window of the world: nothing outside it
+uniform vec4 uClipRect;      // that window, uv (u0, v0, u1, v1)
 uniform float uDetail;       // 0–1 how much invented close-range relief
 uniform float uCavity;       // strength of the crease darkening
 uniform vec3  uCam;          // camera position, for the headlight
@@ -588,6 +590,8 @@ float tipDist(vec2 d, vec2 cell, float r) {
 }
 
 void main() {
+  // Outside the tabletop block's window: decided here, discarded at the end, after every derivative.
+  bool clippedOut = uClipOn > 0.5 && (vUV.x < uClipRect.x || vUV.x > uClipRect.z || vUV.y < uClipRect.y || vUV.y > uClipRect.w);
   // Interpolating vertex height shades each triangle's planar approximation,
   // especially under exaggeration. Lighting addresses the same reconstructed
   // surface as displacement/picking, including its mesh-limited canon patch.
@@ -1037,6 +1041,7 @@ void main() {
     col = mix(col, vec3(0.95, 0.55, 0.35), (1.0 - smoothstep(0.0012, 0.0036, dy)) * 0.7);
   }
 
+  if (clippedOut) discard;
   outColor = vec4(col, 1.0);
 }
 `;
@@ -1206,6 +1211,8 @@ export class SculptSurface {
         uZoomFade: { value: 0.06 },
         uFlatLight: { value: 0 },
         uPainted: { value: 0 },
+        uClipOn: { value: 0 },
+        uClipRect: { value: new THREE.Vector4(0, 0, 1, 1) },
         uDetail: { value: 0.6 },
         uCavity: { value: 0.55 },
         uCam: { value: new THREE.Vector3(0, 100, 100) },
@@ -1291,6 +1298,12 @@ export class SculptSurface {
    *   destrozo, porque alli el mar es un dibujo con su propia trama.
    */
   /** The painted skin: a flat sea at sea level, no procedural canopy, softer hollows. */
+  /** The tabletop model on a window of the world: the ground outside it is not drawn. Null = the whole world. */
+  setClip(frame: { u: number; v: number; su: number; sv: number } | null): void {
+    this.material.uniforms.uClipOn.value = frame ? 1 : 0;
+    if (frame) (this.material.uniforms.uClipRect.value as THREE.Vector4).set(frame.u - frame.su / 2, frame.v - frame.sv / 2, frame.u + frame.su / 2, frame.v + frame.sv / 2);
+  }
+
   setPainted(on: boolean): void {
     this.material.uniforms.uPainted.value = on ? 1 : 0;
   }

@@ -1803,8 +1803,10 @@ deshecho.
   no se le pasa un tema. En una época que hereda el mundo, el aspecto se guarda
   en Base y no copia el mundo a la época; si la época ya tiene su copia, se
   guarda en ella. El recibo de deshacer recuerda dónde se escribió.
-- **Mundos en blanco.** `wh_create_world` con `preset` (`blankSea`,
-  `blankLand` u otro), semilla, anchura (1024/2048/3072) y título.
+- **Mundos en blanco o de una sola tierra.** `wh_create_world` con `preset`
+  (`blankSea`, `blankLand`, `island`, `country`, `continent` u otro; con una
+  sola tierra, `landmassKm` de 300 a 9000 km, que se niega con un planeta),
+  semilla, anchura (1024/2048/3072) y título.
 - **Medir.** `wh_measure_world`: tramos, distancia, área encerrada y perímetro
   cerrado con tres o más puntos; un anillo que rodea un polo mide el casquete.
 - **Viaje.** `wh_get_world_travel_settings` / `wh_set_world_travel_settings`

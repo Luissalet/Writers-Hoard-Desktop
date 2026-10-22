@@ -3747,6 +3747,12 @@ export default function Map2D({
     const canvas = canvasRef.current;
     if (!view || !canvas || view.scale <= maxScale) return;
     const rect = canvas.getBoundingClientRect();
+    // About the middle of the view, as the wheel would: setting the scale alone zooms about the
+    // canvas corner, and a cap that drops while the geography rebuilds then threw the view away
+    // from what it was showing.
+    const k = maxScale / view.scale, cx = rect.width / 2, cy = rect.height / 2;
+    view.ox = cx - (cx - view.ox) * k;
+    view.oy = cy - (cy - view.oy) * k;
     view.scale = maxScale;
     clampView(view, rect.width, rect.height, PW, PH, wraps);
     reportViewport();
