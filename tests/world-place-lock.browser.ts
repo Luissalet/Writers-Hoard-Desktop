@@ -38,7 +38,7 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     // A landmark answers to its older feature: key too, both ways.
     const peakLock: WorldEdit = { kind: 'lock', target: 'landmark', key: 'landmark:volcano:5,5', locked: true };
     assert(lockViolation([peakLock], [{ kind: 'remove', target: 'feature', key: 'feature:volcano:5,5' }]) === 'feature:volcano:5,5' && lockedPlaceKeys([{ kind: 'lock', target: 'feature', key: 'feature:volcano:5,5', locked: true }]).has('landmark:volcano:5,5'), 'Landmark key aliases');
-    // The eraser does not take a locked hand-placed mark (refused up front, and kept on replay).
+    // The eraser does not take a locked hand-placed mark (it is not refused; the replay keeps the mark).
     const mark: WorldEdit = { kind: 'marker', marker: 'settlement', x: 3, y: 3, rank: 'town', name: 'Mark' };
     const markLock: WorldEdit = { kind: 'lock', target: 'settlement', key: 'settlement:3,3', locked: true };
     const rub: WorldEdit = { kind: 'eraseMarkers', x: 3.2, y: 3.1, radius: 1 };
@@ -51,6 +51,10 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     const lockedLater = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' });
     applyEdits(lockedLater, [mark, rub, markLock]);
     assert(kept.painted?.markers.length === 1 && gone.painted?.markers.length === 0 && lockedLater.painted?.markers.length === 0, 'Replay keeps a mark locked before the eraser, not one locked after');
+    // An eraser takes only what was put down before it: a mark, label or stamp placed after it on the same spot stays.
+    const after = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' });
+    applyEdits(after, [mark, rub, { ...mark, name: 'Later' } as WorldEdit, { kind: 'label', x: 3, y: 3, text: 'Later label', style: 'note' }, { kind: 'stamp', x: 3, y: 3, glyph: 'tree', size: 'M' } as WorldEdit]);
+    assert(after.painted?.markers.length === 1 && after.painted.markers[0].name === 'Later' && after.painted.labels.length === 1 && after.painted.stamps.length === 1, `An eraser took marks placed after it: ${JSON.stringify({ m: after.painted?.markers, l: after.painted?.labels.length, s: after.painted?.stamps.length })}`);
     // Where a copy goes: dry, not a lake, a key nothing uses; names count up.
     const tiny = { width: 10, height: 6, elevation: new Float32Array(60).fill(1), lake: new Uint8Array(60) };
     tiny.elevation[2 * 10 + 6] = -1; // sea two cells east of (4,2)
@@ -109,7 +113,7 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_duplicate_place', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'copy' } });
     assert(undone.ok && !(await places('settlement')).some((p) => p.name === `${from.name} 2`), 'Undo takes the copy away');
     return [
-      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; one rule refuses moving, removing or rubbing out a locked key (landmark aliases count; a lock earlier in the same batch counts; renames pass; the eraser leaves a mark locked at that point of the list); copies keep the kind and type (a capital becomes a city), go to dry free cells and count their names up; realms and seas are not copied',
+      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; one rule refuses moving or removing a locked key (landmark aliases count; a lock earlier in the same batch counts; renames pass); the eraser is not refused but leaves a mark locked at that point of the list, and takes only what was put down before it; copies keep the kind and type (a capital becomes a city), go to dry free cells and count their names up; realms and seas are not copied',
       `Bridge: wh_lock_place locks ${first.name} (listed and found as locked; move and remove refused) and unlocks it; wh_duplicate_place copies ${from.name} as "${made.name}" on free dry land (a second copy is "${second.name}"), refuses a used cell, the sea, a realm and an unknown key, and undoes`,
     ];
   } finally {

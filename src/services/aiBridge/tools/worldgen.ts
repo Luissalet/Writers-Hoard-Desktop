@@ -1272,6 +1272,28 @@ export async function whReaderView(args: ToolArgs): Promise<unknown> {
  * it: what happens and what is planned in each chapter, and how much of the
  * map the reader has seen or heard of by its end.
  */
+export async function whRollName(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { ROLL_STYLES, rollLabelName, paintedNames } = await import('@/engines/worldgen/core/rollName');
+  const style = optEnum(args, 'style', ROLL_STYLES);
+  if (!style) throw new BridgeError('bad-args', `style must be one of ${ROLL_STYLES.join(', ')}.`);
+  const count = Math.max(1, Math.min(10, Math.floor(optNumber(args, 'count') ?? 5)));
+  const x = optNumber(args, 'x'), y = optNumber(args, 'y');
+  if ((x === undefined) !== (y === undefined)) throw new BridgeError('bad-args', 'Give both x and y, or neither.');
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { data, geo } = opened.world;
+  const at = x === undefined || y === undefined ? undefined : { x, y };
+  const seen = new Set<string>(), names: { text: string; language: string; etymology: string }[] = [];
+  for (let roll = 0; names.length < count && roll < count * 4; roll++) {
+    const rolled = rollLabelName(geo, String(data.params.seed), style, roll, at, { painted: paintedNames(data.painted), width: data.width });
+    if (seen.has(rolled.text)) continue;
+    seen.add(rolled.text);
+    names.push({ text: rolled.text, language: rolled.language, etymology: rolled.etymology });
+  }
+  return { worldId: world.id, style, ...(at ? { at } : {}), names };
+}
+
 export async function whStoryChapters(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const size = worldSize(world);

@@ -143,6 +143,8 @@ export interface LabelCandidate<T> {
   width: number;
   height?: number;
   priority: number;
+  /** Always drawn, overlap or not, and outside the budget: what the reader wrote on the map. */
+  keep?: boolean;
 }
 
 /**
@@ -159,8 +161,9 @@ export function declutterLabels<T>(
     .sort((a, b) => b.candidate.priority - a.candidate.priority || a.index - b.index);
   const accepted: LabelCandidate<T>[] = [];
   const boxes: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+  let budgeted = 0;
   for (const { candidate } of ranked) {
-    if (accepted.length >= budget) break;
+    if (!candidate.keep && budgeted >= budget) continue;
     const height = candidate.height ?? 14;
     const box = {
       x0: candidate.x - padding,
@@ -168,12 +171,13 @@ export function declutterLabels<T>(
       x1: candidate.x + candidate.width + padding,
       y1: candidate.y + height * 0.5 + padding,
     };
-    if (boxes.some((other) =>
+    if (!candidate.keep && boxes.some((other) =>
       box.x0 < other.x1 && box.x1 > other.x0 && box.y0 < other.y1 && box.y1 > other.y0)) {
       continue;
     }
     accepted.push(candidate);
     boxes.push(box);
+    if (!candidate.keep) budgeted++;
   }
   return accepted;
 }

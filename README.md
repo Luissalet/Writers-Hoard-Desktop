@@ -34,7 +34,7 @@ Maps, trees, calendars, typed tables, local media, Reader and static wiki retain
 their document-specific editors and exports. Generated worlds keep their look, start
 blank if wanted, measure areas against real outlines, plan journeys with the
 world's own pace and travel physics, and carry editable labels (angle, spacing,
-curve), 32 map stamps, a square or hex play grid, hand-drawn roads with their
+curve, names rolled in the world's own languages), 32 map stamps, a square or hex play grid, hand-drawn roads with their
 own thickness and pattern, places that can be duplicated or locked, a reader's-eye fog that
 reveals the map chapter by chapter, story events placed by chapter and played
 back chapter by chapter or scrubbed to any chapter (with their order inside a chapter, who was there

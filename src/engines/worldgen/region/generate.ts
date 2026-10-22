@@ -28,7 +28,7 @@ import {
 import { DEFAULT_REGION_PARAMS, type RegionData, type RegionParams, type RegionWindow } from './types';
 import { canonParams, tileGeometry, tileKey, tileWindow, type TileId } from './tiles';
 import { hashEditsString } from './workerProtocol';
-import { applyCanonElevationEdits, applyCanonCoverEdits } from './canonEdits';
+import { applyCanonElevationEdits, applyCanonCoverEdits, canonSeaShift } from './canonEdits';
 import { sitesPolicyFrom, type SitesPolicy, type WorldEdit } from '../core/edits';
 import { createWorldCoastField } from './coastField';
 
@@ -134,7 +134,7 @@ export function generateRegion(
   erodeSheet(elevation, g.width, g.height, g.metresPerCell, 3, 0.0055 * params.detail);
   // Erosion is allowed to reshape relief, never to move the map's coastline.
   // Re-pin after it, except exactly where the reader authored elevation/land.
-  anchorCoastline(world, g, patch, elevation, authoredElevation);
+  anchorCoastline(world, g, patch, elevation, authoredElevation, canonSeaShift(opts.edits));
 
   p('cauces', 0.42);
   const t = buildHydrology(world, g, patch, elevation);
@@ -348,6 +348,8 @@ function sheetTitle(
 function anchorCoastline(
   world: WorldData, g: RegionGeometry, patch: WorldPatch, elevation: Float32Array,
   authored?: Uint8Array,
+  /** The world's sea level moved by the edits (km): the coast is where the moved sea meets the land. */
+  seaShift = 0,
 ): void {
   const W = g.width, H = g.height;
   const boundary = createWorldCoastField(world, patch);
@@ -358,7 +360,7 @@ function anchorCoastline(
       if (authored?.[i]) continue;
       const e = elevation[i];
       const wx = g.originX + (x + 0.5) * g.worldPerCellX;
-      const h = boundary.sample(wx, wy).elevation;
+      const h = boundary.sample(wx, wy).elevation - seaShift;
       // Same sign: nothing to decide.
       if ((h > 0) === (e > 0)) continue;
       elevation[i] = h > 0 ? 0.0006 : -0.0006;

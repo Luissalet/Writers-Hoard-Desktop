@@ -55,6 +55,13 @@ function toSheetStroke(stroke: Stroke, g: RegionGeometry, worldWidth: number): S
   return { ...stroke, pts, radius };
 }
 
+/** The sea level the edit list ends at, in the elevation's units (km): what the sheet's coast is pinned against. */
+export function canonSeaShift(edits: readonly WorldEdit[] | undefined): number {
+  let m = 0;
+  for (const e of edits ?? []) if (e.kind === 'seaLevel') m = e.m;
+  return m / 1000;
+}
+
 /**
  * Terrain, coastline and the rivers' channels, applied to the amplified sheet
  * BEFORE erosion and hydrology — the same order the world pipeline keeps, so
@@ -71,8 +78,17 @@ export function applyCanonElevationEdits(
 ): boolean {
   const W = g.width, H = g.height;
   let touched = false;
+  let seaM = 0;
   for (const e of edits) {
-    if (e.kind === 'terrain') {
+    if (e.kind === 'seaLevel') {
+      // The whole world's sea level moves every height of the sheet too, in the
+      // list's order, as it does on the world (strokes after it are made on the new shore).
+      const d = (e.m - seaM) / 1000;
+      seaM = e.m;
+      if (!d) continue;
+      for (let i = 0; i < elev.length; i++) elev[i] -= d;
+      touched = true;
+    } else if (e.kind === 'terrain') {
       const stroke = toSheetStroke(e.stroke, g, world.width);
       if (!stroke) continue;
       const s = maskForOp(e.op, stroke, W, H, /* sheets do not wrap */ false);

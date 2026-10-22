@@ -5,7 +5,10 @@ import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
-import { applyEdits, deserializeEdits, worldLevels, type WorldEdit } from '@/engines/worldgen/core/edits';
+import { applyEdits, deserializeEdits, worldLevels, SEA_BIOME_STATS, type WorldEdit } from '@/engines/worldgen/core/edits';
+import { buildHumanGeography } from '@/engines/worldgen/core/settlements';
+import { fillLake } from '@/engines/worldgen/core/lake';
+import { clearRegionCache, generateRegion } from '@/engines/worldgen/region/generate';
 import { atlasCellColor } from '@/engines/worldgen/core/render';
 import { captureEnvironment, restoreEnvironment } from '@/engines/worldgen/core/recalculate';
 import { runBridgeTool, type BridgeReply } from '@/services/aiBridge/dispatch';
@@ -27,22 +30,51 @@ export async function testWorldLevels(): Promise<string[]> {
     const drowned: number[] = [];
     for (let i = 0; i < N; i++) if (base.elevation[i] > 0 && risen.elevation[i] <= 0) drowned.push(i);
     assert(landOf(risen) < land0 && drowned.length > 0 && Math.abs((base.elevation[0] - risen.elevation[0]) - 0.15) < 1e-6, `Sea +150 m: land ${land0} → ${landOf(risen)}`);
-    // Lake surfaces are heights too: a surviving lake's surface comes down with its ground.
-    if (base.lakeSurface && risen.lakeSurface) {
-      const lakeCell = Array.from(risen.lake).findIndex((v, i) => v === 1 && base.lake[i] === 1 && base.lakeSurface![i] > 0);
-      if (lakeCell >= 0) assert(Math.abs(base.lakeSurface[lakeCell] - risen.lakeSurface[lakeCell] - 0.15) < 1e-5, 'A lake surface did not follow the sea');
-    }
-    // The second replay of the same list takes the whole-world biomes from the first.
+    // Lake surfaces are heights too: a filled lake's surface comes down with its
+    // ground, for a sea that stays below it.
+    let spot = -1;
+    for (let i = 0; i < N && spot < 0; i += 3) if (base.elevation[i] > 0.05 && !base.lake[i] && fillLake(base, (i % base.width) + 0.5, Math.floor(i / base.width) + 0.5).cells.length >= 4) spot = i;
+    assert(spot >= 0, 'No land for a lake');
+    const fill: WorldEdit = { kind: 'lake', op: 'fill', x: (spot % base.width) + 0.5, y: Math.floor(spot / base.width) + 0.5 };
+    const filled = generateWorld(params);
+    applyEdits(filled, [fill]);
+    const underM = Math.max(1, Math.floor(filled.elevation[spot] * 500));
+    const lapped = generateWorld(params);
+    applyEdits(lapped, [fill, { kind: 'seaLevel', m: underM }]);
+    assert(filled.lake[spot] === 1 && lapped.lake[spot] === 1 && Math.abs(filled.lakeSurface![spot] - lapped.lakeSurface![spot] - underM / 1000) < 1e-5, `A lake surface did not follow a sea of +${underM} m`);
+    // A lake of the world's own (here one low cell marked lake, as hydrology does) that the sea covers comes back when it goes down again.
+    let lowLake = -1; for (let i = 0; i < N; i++) if (base.elevation[i] > 0.02 && !base.lake[i] && (lowLake < 0 || base.elevation[i] < base.elevation[lowLake])) lowLake = i;
+    assert(lowLake >= 0, 'No low land');
+    const coverM = Math.min(1000, Math.ceil(base.elevation[lowLake] * 1000) + 20);
+    const covered = generateWorld(params); covered.lake[lowLake] = 1;
+    applyEdits(covered, [{ kind: 'seaLevel', m: coverM }]);
+    const uncovered = generateWorld(params); uncovered.lake[lowLake] = 1;
+    applyEdits(uncovered, [{ kind: 'seaLevel', m: coverM }, { kind: 'seaLevel', m: 0 }]);
+    // Ground lifted back above that sea by a stroke is land, not the old lake.
+    const lift: WorldEdit = { kind: 'terrain', op: 'raise', stroke: { pts: [{ x: (lowLake % base.width) + 0.5, y: Math.floor(lowLake / base.width) + 0.5 }], radius: 3, strength: 1, softness: 0.2 } };
+    const lifted = generateWorld(params); lifted.lake[lowLake] = 1;
+    applyEdits(lifted, [{ kind: 'seaLevel', m: coverM }, lift, lift, lift, lift, lift, lift]);
+    assert(lifted.elevation[lowLake] > 0 && lifted.lake[lowLake] === 0, `A lifted cell under the risen sea: height ${lifted.elevation[lowLake]}, lake ${lifted.lake[lowLake]}`);
+    assert(covered.lake[lowLake] === 0 && covered.biome[lowLake] !== Biome.Lake && uncovered.lake[lowLake] === 1 && uncovered.biome[lowLake] === Biome.Lake, `Lake at ${lowLake}: covered ${covered.lake[lowLake]}/${covered.biome[lowLake]}, back ${uncovered.lake[lowLake]}/${uncovered.biome[lowLake]}`);
+    // A replay of the same list takes the whole-world biomes worked out the first time, one per sea change.
     const again = generateWorld(params);
     const pristineAgain = Float32Array.from(again.elevation), envAgain = captureEnvironment(again);
-    const withStroke: WorldEdit[] = [{ kind: 'seaLevel', m: 150 }, { kind: 'marker', marker: 'settlement', x: 3, y: 3, rank: 'town' }];
+    const withStroke: WorldEdit[] = [{ kind: 'seaLevel', m: 150 }, { kind: 'marker', marker: 'settlement', x: 3, y: 3, rank: 'town' }, { kind: 'seaLevel', m: 80 }, { kind: 'marker', marker: 'settlement', x: 9, y: 9, rank: 'village' }];
+    SEA_BIOME_STATS.hits = 0; SEA_BIOME_STATS.misses = 0;
     applyEdits(again, withStroke);
     const firstBiomes = again.biome.slice();
+    assert(SEA_BIOME_STATS.misses === 2 && SEA_BIOME_STATS.hits === 0, `First replay ${JSON.stringify(SEA_BIOME_STATS)}`);
     again.elevation.set(pristineAgain); restoreEnvironment(again, envAgain); again.painted = undefined;
-    const t0 = performance.now();
     applyEdits(again, withStroke);
-    const secondMs = performance.now() - t0;
+    assert(SEA_BIOME_STATS.misses === 2 && SEA_BIOME_STATS.hits === 2, `Second replay should reuse both: ${JSON.stringify(SEA_BIOME_STATS)}`);
     assert(firstBiomes.every((b, i) => again.biome[i] === b), 'The cached biomes differ from the first replay');
+    // A region sheet's coast follows the sea too.
+    const sheetWorld = generateWorld(params);
+    const geo = buildHumanGeography(sheetWorld);
+    const port = geo.settlements.find((s) => s.port) ?? geo.settlements[0];
+    const sheetLand = (edits: WorldEdit[]) => { clearRegionCache(sheetWorld); const r = generateRegion(sheetWorld, geo, { cx: port.x + 0.5, cy: port.y + 0.5, spanKm: 160 }, { params: { res: 192, aspect: 1 }, edits }); let n = 0; for (const e of r.elevation) if (e > 0) n++; return { n, total: r.elevation.length }; };
+    const sheet0 = sheetLand([]), sheetUp = sheetLand([{ kind: 'seaLevel', m: 150 }]);
+    assert(sheetUp.n < sheet0.n, `A region sheet by ${port.name}: land ${sheet0.n} → ${sheetUp.n} of ${sheet0.total}`);
     const nowSea = drowned.filter((i) => risen.biome[i] === Biome.Ocean).length;
     assert(nowSea >= drowned.length * 0.9, `The drowned coast reads as ocean (${nowSea}/${drowned.length})`);
     // Levels are absolute and in order: up then back to 0 is the generated world's heights; a checkpoint keeps it.
@@ -92,7 +124,7 @@ export async function testWorldLevels(): Promise<string[]> {
     const after = (await runBridgeTool('wh_get_world', { worldId: Wid })).result as { seaLevelM: number; snowlineM: number };
     assert(undone.ok && after.seaLevelM === 0 && after.snowlineM === 0, `Undo ${JSON.stringify(after).slice(0, 200)}`);
     return [
-      `Sea level +150 m drowns ${drowned.length} coastal cells (land ${land0} → ${landOf(risen)}) and their biomes follow (a replay reuses them, ${secondMs.toFixed(0)} ms), lake surfaces come down with the ground; levels are absolute and in order (up and back is the generated world, also across a recalculation checkpoint); out-of-range levels are dropped on read`,
+      `Sea level +150 m drowns ${drowned.length} coastal cells (land ${land0} → ${landOf(risen)}) and their biomes follow (a replay reuses the whole-world biomes of each of two sea changes), a filled lake's surface comes down with the ground (+${underM} m), a lake the sea covered at +${coverM} m is back when it goes down (ground lifted by strokes instead is land), and a region sheet by ${port.name} loses land too (${sheet0.n} → ${sheetUp.n} cells); levels are absolute and in order (up and back is the generated world, also across a recalculation checkpoint); out-of-range levels are dropped on read`,
       'Snowline: the last one wins, it only changes the snow (a lower one whitens a highland), never the ground',
       'Bridge: wh_set_world_levels sets sea level and snowline (refuses nothing given and out-of-range values; an unchanged level writes nothing), wh_get_world reports them, undo puts both back',
     ];
