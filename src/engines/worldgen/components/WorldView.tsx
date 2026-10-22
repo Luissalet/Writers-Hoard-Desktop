@@ -30,7 +30,7 @@ import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePane
 import { toast } from '@/components/common/toast';
 import { EngineSpinner } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
-import { worldMapOps as baseWorldMapOps, mapPinOps as baseMapPinOps } from '@/engines/maps/operations';
+import { worldMapOps as baseWorldMapOps, mapPinOps as baseMapPinOps, captureMapVersion } from '@/engines/maps/operations';
 import type {
   GeneratedWorld,
   SavedWorldRegion,
@@ -1725,6 +1725,10 @@ export default function WorldView({
     const mapId = existingMap?.id ?? generateId('map');
     const now = Date.now();
     if (existingMap) {
+      // Shapes or the author's own pins drawn on the previous picture: keep it as an era first.
+      if (existingMap.backgroundImage && existingMap.backgroundImage !== bg && (existingMap.features?.length || (await mapPinOps.getAll(mapId)).some(pin => !pin.sourceWaypointId))) {
+        await captureMapVersion(mapId, { name: t('worldgen.export.beforeResend'), date: '' }, scope);
+      }
       await worldMapOps.update(mapId, {
         title: `${world.title} — ${t('worldgen.export.atlasSuffix')}`,
         backgroundImage: bg,
@@ -1772,7 +1776,7 @@ export default function WorldView({
       }
     }
     toast.success(existingMap ? t('worldgen.export.mapUpdated') : t('worldgen.export.sentToMaps'));
-  }, [data, projectId, world.id, world.title, waypoints, t, worldMapOps, mapPinOps]);
+  }, [data, projectId, world.id, world.title, waypoints, t, worldMapOps, mapPinOps, scope]);
 
   // 'loading' is not a pipeline stage — it is the snapshot coming back off the
   // disk — so it does not go looking for a translation of a stage name.

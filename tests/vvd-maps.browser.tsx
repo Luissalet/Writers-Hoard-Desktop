@@ -71,7 +71,7 @@ export async function testVvdMaps(): Promise<string[]> {
     region = (await saved()).features![0];
     assert(region.name === 'Northern <province>' && region.linkedEntryId === E, 'Metadata and Codex link persisted');
     await act(async () => {
-      const coordinate = [...host.querySelectorAll<HTMLInputElement>('input[type="number"]')][0];
+      const coordinate = [...node('map-feature-inspector').querySelectorAll<HTMLInputElement>('input[type="number"]')][0];
       typeInto(coordinate, '120');
     });
     await click('map-feature-save');

@@ -2027,6 +2027,7 @@ const en = {
   'worldgen.export.sendToMaps': 'Send to Maps engine',
   'worldgen.export.sentToMaps': 'Map created in the Maps engine, waypoints included',
   'worldgen.export.atlasSuffix': 'atlas',
+  'worldgen.export.beforeResend': 'Before sending the world again',
   'worldgen.waypoints.title': 'Waypoints',
   'worldgen.waypoints.add': 'Place waypoint on map',
   'worldgen.waypoints.cancelPlacing': 'Cancel placing',

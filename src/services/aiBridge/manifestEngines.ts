@@ -764,13 +764,13 @@ Drop a pin on a map. Coordinates are percentages of the image, so x:50 y:50 is d
   },
   {
     name: 'wh_list_map_features', writes: false,
-    description: 'List the regions, routes and labels drawn on a classic map, in drawing order (order 0 is at the back), with points (0-100), colours, outline, pattern and lettering style.',
-    schema: { type: 'object', properties: { mapId: s('Map id.') }, required: ['mapId'], additionalProperties: false },
+    description: 'List the regions, routes and labels drawn on a classic map, in drawing order (order 0 is at the back), with points (0-100), colours, outline, pattern, lettering style and, for routes, pathStyle (road, trail or river). When the map has a scale (wh_set_map_scale) each route also gives lengthKm and each region areaKm2, and the result gives widthKm.',
+    schema: { type: 'object', properties: { mapId: s('Map id.'), aspect: n('Picture height divided by width; only used to measure when the map has no readable image.') }, required: ['mapId'], additionalProperties: false },
   },
   {
     name: 'wh_add_map_feature', writes: true,
     description: `Draw a region (3+ points), route (2+ points) or label (1 point) on a classic map, points in percent of the image (x:50 y:50 is the centre).
-Optional: description, codex link, named layer, fill colour and opacity, outline colour and width, hatch pattern (stripes, stripes-v, stripes-d, dots, crosshatch) and its scale, and lettering (font serif/sans/mono/script, size in % of width, colour, outline and width, bold, italic, rotation). Undo removes it if the shapes have not changed since.`,
+Optional: pathStyle for a route (road, trail or river; not for regions or labels), description, codex link, named layer, fill colour and opacity, outline colour and width, hatch pattern (stripes, stripes-v, stripes-d, dots, crosshatch) and its scale, and lettering (font serif/sans/mono/script, size in % of width, colour, outline and width, bold, italic, rotation). Undo removes it if the shapes have not changed since.`,
     schema: { type: 'object', properties: {
       mapId: s('Map id.'),
       kind: s('Shape kind.', { enum: ['region', 'path', 'label'] }),
@@ -780,6 +780,7 @@ Optional: description, codex link, named layer, fill colour and opacity, outline
       linkedEntryId: s('Codex entry id.'),
       layerId: s('Named layer id.'),
       layerIds: { type: 'array', items: { type: 'string' }, description: 'Several named layers; the shape shows while any is visible.' },
+      pathStyle: s('Routes only: how the line is drawn.', { enum: ['road', 'trail', 'river'] }),
       color: s('#rrggbb.'), opacity: n('Fill opacity 0-1.'),
       strokeColor: s('Outline #rrggbb.'), strokeWidth: n('Outline width 0.5-12 px.'),
       pattern: s('Hatch over the fill.', { enum: ['none', 'stripes', 'stripes-v', 'stripes-d', 'dots', 'crosshatch'] }), patternScale: n('Hatch spacing 0.5-4.'),
@@ -788,7 +789,7 @@ Optional: description, codex link, named layer, fill colour and opacity, outline
   },
   {
     name: 'wh_update_map_feature', writes: true,
-    description: 'Change a shape on a classic map: only the fields given (name, description, points, link, colours, outline, pattern ("none" removes it), lettering (null resets it)); order front/forward/backward/back moves it in the drawing order. Undo puts the previous shapes back if they have not changed since.',
+    description: 'Change a shape on a classic map: only the fields given (name, description, points, link, colours, outline, pattern ("none" removes it), lettering (null resets it), pathStyle of a route (road, trail, river; null removes it; refused on regions and labels)); order front/forward/backward/back moves it in the drawing order. Undo puts the previous shapes back if they have not changed since.',
     schema: { type: 'object', properties: {
       mapId: s('Map id.'), id: s('Shape id from wh_list_map_features.'),
       name: s('Name.'), description: s('Notes.'),
@@ -796,12 +797,43 @@ Optional: description, codex link, named layer, fill colour and opacity, outline
       linkedEntryId: s('Codex entry id, or "" to unlink.'),
       layerId: s('Named layer id, or "" for none.'),
       layerIds: { type: 'array', items: { type: 'string' }, description: 'Named layers; the shape shows while any is visible.' },
+      pathStyle: { anyOf: [{ type: 'string', enum: ['road', 'trail', 'river'] }, { type: 'null' }], description: 'Routes only: road, trail or river; null removes it.' },
       color: s('#rrggbb.'), opacity: n('Fill opacity 0-1.'),
       strokeColor: s('Outline #rrggbb.'), strokeWidth: n('Outline width 0.5-12 px.'),
       pattern: s('Hatch.', { enum: ['none', 'stripes', 'stripes-v', 'stripes-d', 'dots', 'crosshatch'] }), patternScale: n('Hatch spacing 0.5-4.'),
       labelStyle: { anyOf: [{ type: 'object', properties: { font: s('Font.', { enum: ['serif', 'sans', 'mono', 'script'] }), size: n('0.6-8.'), color: s('#rrggbb.'), outline: s('#rrggbb.'), outlineWidth: n('0-10.'), bold: { type: 'boolean' }, italic: { type: 'boolean' }, rotation: n('-180 to 180.') }, additionalProperties: false }, { type: 'null' }] },
       order: s('Drawing order move.', { enum: ['front', 'forward', 'backward', 'back'] }),
     }, required: ['mapId', 'id'], additionalProperties: false },
+  },
+  {
+    name: 'wh_set_map_scale', writes: true,
+    description: 'Give a classic map a scale: how many kilometres the picture spans from left to right. Pass exactly one of widthKm (0.01 to 40000), knownDistance ({from:{x,y}, to:{x,y}, km}: two points in percent of the picture that are km apart; needs the picture proportions, read from its image or given as aspect) or clear: true to remove the scale. Returns the widthKm saved. Undo restores the previous scale only while this one is still in place.',
+    schema: { type: 'object', properties: {
+      mapId: s('Map id.'),
+      widthKm: n('Kilometres from the left edge to the right edge of the picture, 0.01 to 40000.'),
+      knownDistance: { type: 'object', properties: { from: { type: 'object', properties: { x: n('0-100'), y: n('0-100') }, required: ['x', 'y'], additionalProperties: false }, to: { type: 'object', properties: { x: n('0-100'), y: n('0-100') }, required: ['x', 'y'], additionalProperties: false }, km: n('Real distance between the two points, in kilometres.') }, required: ['from', 'to', 'km'], additionalProperties: false },
+      clear: { type: 'boolean', description: 'true removes the map\'s scale.' },
+      aspect: n('Picture height divided by width; only used when the map has no readable image.'),
+    }, required: ['mapId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_measure_map', writes: false,
+    description: 'Measure on a classic map that has a scale: pass points (2+ positions in percent of the picture) for a line, or featureId of a route or region. Returns km along the points, the widthKm used and travel estimates (walk, horse, carriage, rail, car, plane) for the length; for a region also perimeterKm (closed outline, used for the travel estimates) and areaKm2. Fails when the map has no scale (set one with wh_set_map_scale).',
+    schema: { type: 'object', properties: {
+      mapId: s('Map id.'),
+      points: { type: 'array', minItems: 2, maxItems: 500, items: { type: 'object', properties: { x: n('0-100'), y: n('0-100') }, required: ['x', 'y'], additionalProperties: false } },
+      featureId: s('Route or region id from wh_list_map_features.'),
+      aspect: n('Picture height divided by width; only used when the map has no readable image.'),
+    }, required: ['mapId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_name_map_pins_from_key', writes: true,
+    description: 'Name the pins of a classic map that are still called by a letter or number ("A", "b.", "(3)") from a pasted key: lines such as "A. The Old Mill", "B) Crossroads Inn", "3 - Watchtower" (separated by new lines, " / " or ";"). Returns matches ({pinId, key, from, to}) and unmatched key lines. With dryRun true nothing is renamed. Undo gives each pin its old name back where it still has the name this call gave it.',
+    schema: { type: 'object', properties: {
+      mapId: s('Map id.'),
+      key: s('The pasted key, one entry per line.'),
+      dryRun: { type: 'boolean', description: 'Only report the matches; rename nothing.' },
+    }, required: ['mapId', 'key'], additionalProperties: false },
   },
   {
     name: 'wh_preview_map_ground', writes: false,

@@ -1,5 +1,6 @@
 import type { MapFeature, MapLayerVisibility, MapPoint, MapPin, MapNamedLayer } from '@/types';
-import { patternSvg, patternTile, resolvedLabel, resolvedStroke } from './mapStyle';
+import { pathLook, patternSvg, patternTile, resolvedLabel, resolvedStroke } from './mapStyle';
+import { scaleBar } from './mapScale';
 
 export const DEFAULT_MAP_LAYERS: MapLayerVisibility = { pins: true, region: true, path: true, label: true };
 export const EMPTY_MAP_FEATURES: MapFeature[] = [];
@@ -29,7 +30,14 @@ export function rebaseMapFeatures(current: MapFeature[], before: MapFeature[], n
   const removed = new Set(before.filter(feature => !now.has(feature.id)).map(feature => feature.id));
   const changed = next.filter(feature => was.get(feature.id) !== JSON.stringify(feature));
   let result = current.filter(feature => !removed.has(feature.id)).map(feature => changed.find(edit => edit.id === feature.id) ?? feature);
-  result = [...result, ...changed.filter(edit => !result.some(feature => feature.id === edit.id))];
+  // Shapes the edit brings back or adds go next to their neighbour in the edit's list
+  // (an undone deletion returns to its place); one added at the very end stays on top.
+  next.forEach((edit, index) => {
+    if (result.some(feature => feature.id === edit.id) || !changed.includes(edit)) return;
+    let at = index === next.length - 1 ? result.length : 0;
+    if (index < next.length - 1) for (let k = index - 1; k >= 0; k--) { const pos = result.findIndex(feature => feature.id === next[k].id); if (pos >= 0) { at = pos + 1; break; } }
+    result = [...result.slice(0, at), edit, ...result.slice(at)];
+  });
   const beforeOrder = before.filter(feature => now.has(feature.id)).map(feature => feature.id).join();
   const nextOrder = next.filter(feature => was.has(feature.id)).map(feature => feature.id).join();
   if (beforeOrder !== nextOrder) {
@@ -50,10 +58,24 @@ export const mapFeatureCenter = (points: MapPoint[]): MapPoint => points.length
   ? { x: points.reduce((sum, point) => sum + point.x, 0) / points.length, y: points.reduce((sum, point) => sum + point.y, 0) / points.length }
   : { x: 50, y: 50 };
 
+/** A path's line by kind (road casing, dashed trail, river bank), as on screen. */
+function pathSvg(points: string, feature: MapFeature, stroke: { color: string; width: number }): string {
+  const look = pathLook(feature.pathStyle, stroke.color, stroke.width);
+  const under = look.under ? `<polyline points="${points}" fill="none" stroke="${escapeXml(look.under.color)}" stroke-opacity="${look.under.opacity}" stroke-width="${look.under.width}" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+  return `${under}<polyline points="${points}" fill="none" stroke="${escapeXml(stroke.color)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${look.dash ? ` stroke-dasharray="${look.dash}"` : ''}/>`;
+}
+
+/** The scale bar of the exported picture, bottom left, a round length about a fifth of the width. */
+function scaleBarSvg(widthKm: number, w: number, h: number): string {
+  const bar = scaleBar(widthKm), x = w * .03, y = h * .95, length = bar.fraction * w;
+  const label = bar.km < 1 ? `${Math.round(bar.km * 1000)} m` : `${bar.km} km`;
+  return `<g data-scale-km="${bar.km}"><path d="M${x} ${y - 6}V${y}H${x + length}V${y - 6}" fill="none" stroke="#17191a" stroke-width="5"/><path d="M${x} ${y - 6}V${y}H${x + length}V${y - 6}" fill="none" stroke="#f3eedf" stroke-width="2"/><text x="${x + length / 2}" y="${y + 16}" text-anchor="middle" fill="#f3eedf" stroke="#17191a" stroke-width="3" paint-order="stroke" font-family="Georgia,serif" font-size="13">${label}</text></g>`;
+}
+
 const escapeXml = (value: string): string => value.replace(/[<>&"']/g, char => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[char]!);
 
 /** Self-contained vector export: no services, script, foreignObject, or linked resources. */
-export function exportMapSvg(background: string, width: number, height: number, features: MapFeature[], pins: MapPin[], layers: MapLayerVisibility, namedLayers: MapNamedLayer[] = []): string {
+export function exportMapSvg(background: string, width: number, height: number, features: MapFeature[], pins: MapPin[], layers: MapLayerVisibility, namedLayers: MapNamedLayer[] = [], widthKm?: number): string {
   const w = Math.max(1, width), h = Math.max(1, height);
   const position = (point: MapPoint) => `${point.x * w / 100},${point.y * h / 100}`;
   const label = (name: string, point: MapPoint, color: string) => `<text x="${point.x * w / 100}" y="${point.y * h / 100}" text-anchor="middle" fill="${escapeXml(color)}" stroke="#17191a" stroke-width="3" paint-order="stroke" font-family="Georgia,serif" font-size="${Math.max(14, w / 65)}">${escapeXml(name)}</text>`;
@@ -71,12 +93,12 @@ export function exportMapSvg(background: string, width: number, height: number, 
     const tile = feature.kind === 'region' ? patternTile(feature, w / 100) : null;
     if (tile) defs.push(patternSvg(`p${index}`, tile));
     const shape = feature.kind === 'region' ? `<polygon points="${points}" fill="${color}" fill-opacity="${feature.opacity ?? .22}" stroke="${escapeXml(stroke.color)}" stroke-width="${stroke.width}"/>${tile ? `<polygon points="${points}" fill="url(#p${index})" stroke="none"/>` : ''}`
-      : feature.kind === 'path' ? `<polyline points="${points}" fill="none" stroke="${escapeXml(stroke.color)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+      : feature.kind === 'path' ? pathSvg(points, feature, stroke) : '';
     return `<g><title>${escapeXml(feature.description || feature.name)}</title>${shape}${shapeLabel(feature, mapFeatureCenter(feature.points))}</g>`;
   }).join('');
   const pinRadius = { S: 5, M: 7, L: 10 } as const;
   const markers = layers.pins ? pins.filter(pin => mapItemVisible(pin, namedLayers)).map(pin => `<g><circle cx="${pin.position.x * w / 100}" cy="${pin.position.y * h / 100}" r="${pinRadius[pin.size ?? 'M']}" fill="${escapeXml(pin.color ?? '#d5b575')}"/>${label(pin.name, { x: pin.position.x, y: pin.position.y - 2 }, '#eeeae2')}</g>`).join('') : '';
   // Uploaded/Gallery backgrounds are data images. Do not turn a remote reference into a network request on export.
   const image = /^data:image\/(png|jpeg|gif|webp|avif|bmp);base64,/i.test(background) ? `<image href="${escapeXml(background)}" width="${w}" height="${h}"/>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}<rect width="100%" height="100%" fill="#17191a"/>${image}${shapes}${markers}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}<rect width="100%" height="100%" fill="#17191a"/>${image}${shapes}${markers}${widthKm ? scaleBarSvg(widthKm, w, h) : ''}</svg>`;
 }

@@ -40,6 +40,15 @@ export async function testMapPicker(): Promise<string[]> {
     assert(added.map((f) => f.id).join() === 'old,road,agent,mine', `Add ${added.map((f) => f.id)}`);
     const removed = rebaseMapFeatures(current, before, [shape('road')]);
     assert(removed.map((f) => f.id).join() === 'road,agent', `Remove ${removed.map((f) => f.id)}`);
+    // Undo of a deletion puts the shape back in its place; undo/redo of a rename keep a label added between them.
+    const afterDelete = [shape('road')];
+    const undoDelete = rebaseMapFeatures([shape('road'), current[2]], afterDelete, before);
+    assert(undoDelete.map((f) => f.id).join() === 'old,road,agent', `Undo delete ${undoDelete.map((f) => f.id)}`);
+    const renamed = [shape('old', 'New border'), shape('road')];
+    const undone = rebaseMapFeatures([...renamed, current[2]], renamed, before);
+    const late = { ...shape('late', 'Agent label 2'), kind: 'label' as const, points: [{ x: 60, y: 60 }] };
+    const redone = rebaseMapFeatures([...undone, late], before, renamed);
+    assert(undone[0].name === 'Old border' && undone.some((f) => f.id === 'agent') && redone[0].name === 'New border' && redone.map((f) => f.id).join() === 'old,road,agent,late', `Undo/redo ${JSON.stringify(redone.map((f) => f.name))}`);
     const front = rebaseMapFeatures(current, before, [shape('road'), shape('old', 'Old border')]);
     assert(front.map((f) => f.id).join() === 'road,old,agent', `Order ${front.map((f) => f.id)}`);
 
@@ -70,7 +79,7 @@ export async function testMapPicker(): Promise<string[]> {
     assert(broken, 'Archive accepted a spot off the map');
     return [
       'Link picker search is accent-free and word-based; entries created from a map get the chosen type, need a title and the Codex turned on',
-      'A shape saved from an older snapshot keeps shapes added elsewhere since (the agent\'s label), with its own additions, removals and order applied',
+      'A shape saved, undone or redone from an older snapshot keeps shapes added elsewhere since (the agent\'s labels), with its own additions, removals and order applied; an undone deletion returns to its place',
       'A deleted layer no longer keeps a shape visible: hiding its remaining layer hides it',
       'Bridge: wh_annotate takes `at` on maps (refused out of range, with a quote or on other engines); wh_list_annotations returns it; archives keep it and refuse a spot off the map',
     ];

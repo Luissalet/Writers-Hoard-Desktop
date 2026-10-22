@@ -38,8 +38,10 @@ lente de comercio mes a mes (explotaciones, escasez, precios, envíos); los mapa
 de imagen tienen figuras con estilo (contorno, trama, rotulación, orden, varias
 capas), marcadores de tres tamaños, un enlace al Códex con buscador que también
 crea la ficha, un menú de clic derecho (ficha, marcador, región, ruta, rótulo o
-comentario en ese punto) y un cambio de imagen confirmado que conserva las
-proporciones; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
+comentario en ese punto), un cambio de imagen confirmado que conserva las
+proporciones, una escala con herramienta de medir, longitudes, superficies,
+tiempos de viaje y lugares reales a la misma escala, rutas como camino, senda o
+río y una leyenda pegada que nombra los marcadores con letra; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
 y reproducirse en orden. Cada capacidad tiene herramientas del puente
 (docs/AI-BRIDGE.md, sección 28).
 El perfil opcional 5e (2014), SRD 5.1 conserva valores manuales y contadores
