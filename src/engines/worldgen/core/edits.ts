@@ -148,12 +148,73 @@ export function duplicatePlaceEdit(
 ): Extract<WorldEdit, { kind: 'marker' }> | null {
   const base = { kind: 'marker' as const, x: at.x, y: at.y, ...(name.trim() ? { name: name.trim() } : {}) };
   if (place.kind === 'settlement') {
-    const rank = (['capital', 'city', 'town', 'village'] as const).find((r) => r === place.type) ?? 'village';
+    // A copied capital is a city: a second painted capital can found a new realm and redraw borders.
+    const rank = place.type === 'capital' ? 'city' : (['city', 'town', 'village'] as const).find((r) => r === place.type) ?? 'village';
     return { ...base, marker: 'settlement', rank };
   }
   if (place.kind === 'ruin' && (Object.keys(RUIN_LABEL) as string[]).includes(place.type)) return { ...base, marker: 'ruin', ruin: place.type as RuinKind };
   if (place.kind === 'landmark') return { ...base, marker: 'landmark', landmark: place.type as LandmarkType };
   return null;
+}
+
+/**
+ * The first locked place a list of new edits would move or hide, given the
+ * edits already there; null when none would. One rule for every way in: the
+ * map, the cards, the regional sheet, the Point tool's eraser and the bridge.
+ */
+export function lockViolation(existing: readonly WorldEdit[], edits: readonly WorldEdit[]): string | null {
+  const locked = lockedPlaceKeys(existing);
+  for (const e of edits) {
+    if (e.kind === 'lock') { if (e.locked) locked.add(e.key); else locked.delete(e.key); continue; }
+    if ((e.kind === 'remove' || e.kind === 'move') && locked.has(e.key)) return e.key;
+  }
+  return null;
+}
+
+/**
+ * Where a copy of a place goes: the nearest free cell around it (two cells
+ * east first) that is land, not a lake, and whose key nothing already uses.
+ * A copy's key is its position, so a used key would hand it another place's
+ * rename, move, removal or lock. Null when no cell nearby will do.
+ */
+export function duplicateSpot(
+  world: { width: number; height: number; elevation: ArrayLike<number>; lake?: ArrayLike<number> },
+  place: { kind: string; type: string; x: number; y: number },
+  usedKeys: ReadonlySet<string>,
+): { x: number; y: number } | null {
+  const W = world.width, H = world.height;
+  const cx = Math.floor(place.x), cy = Math.floor(place.y);
+  const offsets: [number, number][] = [];
+  for (let r = 2; r <= 5; r++) for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, r], [r, -r], [-r, -r]] as [number, number][]) offsets.push([dx, dy]);
+  for (const [dx, dy] of offsets) {
+    const x = ((cx + dx) % W + W) % W, y = cy + dy;
+    if (y < 0 || y >= H) continue;
+    const i = y * W + x;
+    if (!(world.elevation[i] > 0) || (world.lake && world.lake[i])) continue;
+    const key = place.kind === 'landmark' ? `landmark:${place.type}:${x},${y}` : editKey(place.kind === 'ruin' ? 'ruin' : 'settlement', x, y);
+    if (usedKeys.has(key)) continue;
+    return { x, y };
+  }
+  return null;
+}
+
+/** The name for a copy: "<name> 2", or the next number free among `names` ("X 2" → "X 3"). */
+export function duplicateName(name: string, names: ReadonlySet<string>): string {
+  const m = /^(.*?)\s+(\d+)$/.exec(name.trim());
+  const base = m ? m[1] : name.trim();
+  let n = m ? Number(m[2]) + 1 : 2;
+  while (names.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}
+
+/** Every place key an edit list mentions (renames, moves, removals, locks, painted marks). */
+export function keysInEdits(edits: readonly WorldEdit[]): Set<string> {
+  const keys = new Set<string>();
+  for (const e of edits) {
+    if ('key' in e && typeof (e as { key?: unknown }).key === 'string') keys.add((e as { key: string }).key);
+    if (e.kind === 'marker') keys.add(e.marker === 'landmark' && e.landmark ? `landmark:${e.landmark}:${Math.round(e.x)},${Math.round(e.y)}` : editKey(e.marker === 'ruin' ? 'ruin' : 'settlement', e.x, e.y));
+  }
+  return keys;
 }
 
 /** The keys of the places locked now: the last lock edit for each key wins. */

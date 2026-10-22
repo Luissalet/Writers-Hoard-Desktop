@@ -150,9 +150,10 @@ spring whose river runs downhill on its own until the sea, another river or a
 hollow; Escape closes the menu.
 
 A place's card (Index, or the Place tab) can Duplicate a town, ruin or
-landmark (a copy named "<name> 2" two cells east) and Lock it: a locked place
-is not picked up by the Move tool (a note says why) and cannot be hidden until
-it is unlocked.
+landmark (a copy named "<name> 2" on the nearest free dry land; a capital's
+copy is a city) and Lock it: a locked place is not picked up by the Move tool
+(a note says why) and no card, sheet or eraser click hides it until it is
+unlocked; an agent is refused the same way.
 
 The Road tool (Paint → Point → Road) lays a road between two towns along the
 cart route, or by hand with a drag; a track is dashed and a royal road solid,

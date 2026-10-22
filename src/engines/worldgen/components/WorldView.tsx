@@ -70,7 +70,7 @@ import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { registerLiveWorld } from '../core/liveWorlds';
-import { deserializeEdits, duplicatePlaceEdit, editKey, lockedPlaceKeys, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey } from '../core/edits';
+import { deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, editKey, keysInEdits, lockedPlaceKeys, lockViolation, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
@@ -1112,6 +1112,8 @@ export default function WorldView({
   const applyEdit = useCallback((edit: WorldEdit): boolean => {
     const s = session.current;
     if (!s || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return false;
+    // A locked place is neither moved nor hidden, whichever tool or card asked.
+    if (lockViolation(s.edits, [edit])) { toast.info(t(edit.kind === 'move' ? 'worldgen.place.lockedMove' : 'worldgen.place.lockedHide')); return false; }
     // A stamp's name belongs to that stamp: the next one starts unnamed.
     if (edit.kind === 'stamp' && edit.name) setTool((current) => (current.stampName ? { ...current, stampName: '' } : current));
     setPainting(true);
@@ -1126,7 +1128,7 @@ export default function WorldView({
       }
     }, 0);
     return true;
-  }, [afterEdit]);
+  }, [afterEdit, t]);
 
   /**
    * Several edits as ONE step.
@@ -1138,6 +1140,7 @@ export default function WorldView({
   const applyEditGroup = useCallback((edits: WorldEdit[]): boolean => {
     const s = session.current;
     if (!s || !edits.length || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return false;
+    if (lockViolation(s.edits, edits)) { toast.info(t('worldgen.place.lockedHide')); return false; }
     setPainting(true);
     window.setTimeout(() => {
       try {
@@ -1148,7 +1151,7 @@ export default function WorldView({
       }
     }, 0);
     return true;
-  }, [afterEdit]);
+  }, [afterEdit, t]);
   /** Story events: place the next one, move, change or remove one. Each is one undoable edit. */
   const placeStory = useCallback((x: number, y: number) => {
     const title = tool.storyTitle.trim();
@@ -1197,6 +1200,8 @@ export default function WorldView({
   const storyPeople = useMemo(() => codexEntries.filter((entry) => entry.type === 'character' || entry.type === 'faction').map((entry) => ({ id: entry.id, title: entry.title })).sort((a, b) => a.title.localeCompare(b.title)), [codexEntries]);
   applyExternalRef.current = edits => {
     if (generationBusyRef.current || preparingRef.current || environmentBusyRef.current) throw new Error(copy.preparing);
+    const lockedKey = lockViolation(session.current?.edits ?? [], edits);
+    if (lockedKey) throw new Error(`Place ${lockedKey} is locked; unlock it with wh_lock_place (locked: false) before you move or remove it, and only if the author wants that.`);
     applyEditGroup(edits);
   };
 
@@ -1223,21 +1228,26 @@ export default function WorldView({
   }, [paintRev, data]);
   const removeByKey = useCallback((key: string) => {
     const target = targetFromKey(key);
-    if (lockedKeys.has(key)) { toast.info(t('worldgen.place.lockedHide')); return; }
     if (target) applyEdit({ kind: 'remove', target, key });
-  }, [applyEdit, lockedKeys, t]);
+  }, [applyEdit]);
   const lockByKey = useCallback((key: string, locked: boolean) => {
     const target = targetFromKey(key);
     if (target) applyEdit({ kind: 'lock', target, key, locked });
   }, [applyEdit]);
-  /** A copy of a town, ruin or landmark two cells east, named "<name> 2". */
+  /** A copy of a town, ruin or landmark on the nearest free land around it, named "<name> 2". */
   const duplicateByKey = useCallback((entity: { key: string; kind: string; type: string; name: string; x: number; y: number }) => {
     if (!data) return;
-    const at = { x: ((Math.floor(entity.x) + 2) % data.width + data.width) % data.width, y: Math.floor(entity.y) };
-    const edit = duplicatePlaceEdit(entity, at, `${entity.name} 2`);
+    const used = keysInEdits(session.current?.edits ?? []);
+    for (const s of geography?.settlements ?? []) used.add(s.sourceKey ?? editKey('settlement', s.x, s.y));
+    for (const r of geography?.ruins ?? []) used.add(r.sourceKey ?? editKey('ruin', r.x, r.y));
+    const at = duplicateSpot(data, entity, used);
+    if (!at) { toast.info(t('worldgen.place.noRoomForCopy')); return; }
+    const names = new Set([...(geography?.settlements ?? []).map((s) => s.name), ...(geography?.ruins ?? []).map((r) => r.name)]);
+    const name = duplicateName(entity.name, names);
+    const edit = duplicatePlaceEdit(entity, at, name);
     if (!edit) return;
-    if (applyEdit(edit)) toast.success(t('worldgen.place.duplicated').replace('{name}', `${entity.name} 2`));
-  }, [applyEdit, data, t]);
+    if (applyEdit(edit)) toast.success(t('worldgen.place.duplicated').replace('{name}', name));
+  }, [applyEdit, data, geography, t]);
 
   /**
    * What a click on a town means, which depends on what is in the reader's hand.
@@ -2895,13 +2905,13 @@ export default function WorldView({
           settlement={cityFor}
           theme={theme}
           onClose={() => setCityFor(null)}
-          onDelete={() => removeByKey(editKey('settlement', cityFor.x, cityFor.y))}
+          onDelete={() => removeByKey(cityFor.sourceKey ?? editKey('settlement', cityFor.x, cityFor.y))}
           onDescend={() => descendToTown(cityFor)}
           onPopulation={(population) => {
             applyEdit({
               kind: 'populate',
               target: 'settlement',
-              key: editKey('settlement', cityFor.x, cityFor.y),
+              key: cityFor.sourceKey ?? editKey('settlement', cityFor.x, cityFor.y),
               population,
             });
             // Same reason as the rename below: the open modal holds the
@@ -2911,7 +2921,7 @@ export default function WorldView({
             setCityFor((c) => (c ? { ...c, population } : c));
           }}
           onRename={(name) => {
-            renameByKey(editKey('settlement', cityFor.x, cityFor.y), name);
+            renameByKey(cityFor.sourceKey ?? editKey('settlement', cityFor.x, cityFor.y), name);
             // The open modal holds the settlement it was given, and the patched
             // geography hands back new objects — so the name in front of the
             // reader is updated here rather than waiting for a round trip.

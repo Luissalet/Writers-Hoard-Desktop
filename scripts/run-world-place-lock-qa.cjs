@@ -86,11 +86,15 @@ async function main() {
   const withCopy = await editsWhere(l => l.filter(e => e.kind === 'marker').length > markers0, 'Copy saved');
   const copy = withCopy.filter(e => e.kind === 'marker').pop();
   assert(copy.marker === 'settlement' && copy.name === `${town.name} 2`, `Copy ${JSON.stringify(copy)}`);
-  tests.push(`Duplicate makes "${copy.name}", a ${copy.rank} two cells east of where ${town.name} stands now`);
+  tests.push(`Duplicate makes "${copy.name}", a ${copy.rank} (a capital's copy is a city) on free land beside ${town.name}`);
   // Lock again and reopen: the card still says it is locked.
   await wait(`document.querySelector('[data-testid="atlas-lock"]')`, 'card');
   await byId('atlas-lock');
   await editsWhere(l => { const last = l.filter(e => e.kind === 'lock' && e.key === town.key).pop(); return last && last.locked === true; }, 'Locked again');
+  // An agent cannot hide it either while the view is open (the edit would land on the live list).
+  const agent = await js(`(async()=>{const {runBridgeTool}=await import('/src/services/aiBridge/dispatch.ts');const r=await runBridgeTool('wh_remove_place',{worldId:'${W}',key:${JSON.stringify(town.key)}});return {ok:r.ok,error:r.error??''};})()`);
+  assert(!agent.ok && /locked/.test(agent.error), `The bridge hid a locked town: ${JSON.stringify(agent)}`);
+  tests.push(`With the view open, wh_remove_place on the locked town is refused ("${agent.error.slice(0, 60)}…")`);
   await pause(1200);
   await js('window.__lookUnmount()'); await pause(200); await js('window.__lookMount()'); await wait(forged, 'reopened');
   await click('Índice');
