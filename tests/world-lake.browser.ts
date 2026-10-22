@@ -27,11 +27,14 @@ export async function testWorldLake(): Promise<string[]> {
     const inside = bowl.cells.every((i) => Math.hypot((i % W) - 8, Math.floor(i / W) - 8) < 4.6);
     assert(bowl.end === 'full' || bowl.end === 'spill', `Bowl end ${bowl.end}`);
     assert(bowl.cells.length >= 25 && inside, `The bowl fills to its rim: ${bowl.cells.length} cells, inside ${inside}`);
-    // A slope with no hollow keeps a pond of a few cells; the sea and an existing lake are refused.
+    // A click up the side of the bowl: the water runs down to the floor first and fills the same hollow.
+    const side = fillLake({ width: W, height: H, elevation }, 8, 6, { maxCells: 500 });
+    assert(side.cells.length === bowl.cells.length && side.cells.includes(8 * W + 8) && !side.dammed, `Off-centre click ${side.cells.length} vs ${bowl.cells.length}`);
+    // A slope running to the sea has no hollow: the lake is dammed where clicked, a pond of a few cells; the sea and an existing lake are refused.
     const slope = new Float32Array(W * H);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) slope[y * W + x] = 1 - x * 0.03;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) slope[y * W + x] = x >= 20 ? -0.1 : 1 - x * 0.03;
     const pond = fillLake({ width: W, height: H, elevation: slope }, 5, 8);
-    assert(pond.cells.length === 4 && pond.end === 'spill', `Pond ${pond.cells.length} ${pond.end}`);
+    assert(pond.cells.length === 4 && pond.end === 'spill' && pond.dammed, `Pond ${pond.cells.length} ${pond.end} ${pond.dammed}`);
     const dammed = fillLake({ width: W, height: H, elevation: slope }, 5, 8, { minCells: 12, maxCells: 40 });
     assert(dammed.cells.length >= 12 && dammed.cells.length <= 16 && dammed.cells.every((i) => (i % W) <= 5), `A least size dams a lake of 12 cells that rises up the slope, never below the dam: ${dammed.cells.length}`);
     assert(fillLake({ width: W, height: H, elevation }, 20, 3).end === 'nowhere', 'A lake in the sea');
@@ -41,6 +44,10 @@ export async function testWorldLake(): Promise<string[]> {
     assert(capped.cells.length === 6 && capped.end === 'full', 'The cap');
     // Draining finds the whole connected lake.
     const lakeMask = new Uint8Array(W * H); for (const i of bowl.cells) lakeMask[i] = 1;
+    // A lake that would touch another is refused (one lake, two levels).
+    const beside = new Uint8Array(W * H); beside[8 * W + 12] = 1;
+    const bowlBeside = new Float32Array(elevation); for (let x = 9; x <= 12; x++) bowlBeside[8 * W + x] = 0.21;
+    assert(fillLake({ width: W, height: H, elevation: bowlBeside, lake: beside }, 8, 8, { maxCells: 500 }).cells.length === 0, 'A lake touching another was kept');
     assert(lakeAt({ width: W, height: H, lake: lakeMask }, 8, 8).length === bowl.cells.length && lakeAt({ width: W, height: H, lake: lakeMask }, 0, 0).length === 0, 'lakeAt');
     // Storage: good lake edits kept, bad ones dropped.
     const kept = deserializeEdits(JSON.stringify([{ kind: 'lake', op: 'fill', x: 1, y: 1 }, { kind: 'lake', op: 'flood', x: 1, y: 1 }, { kind: 'lake', op: 'drain', x: 'a', y: 1 }, { kind: 'lake', op: 'fill', x: 1, y: 1, maxCells: 0 }]));
@@ -92,7 +99,7 @@ export async function testWorldLake(): Promise<string[]> {
     const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_add_lake', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'lake' } });
     assert(undone.ok && deserializeEdits((await db.generatedWorlds.get(Wid))!.edits ?? '[]').length === 0, `Undo ${JSON.stringify(undone)}`);
     return [
-      `Fill: a bowl fills to its rim (${bowl.cells.length} cells), a slope keeps a 4-cell pond (at least 12 cells, up the slope, with a least size of 12), the sea and a lake are refused, the cap holds; lakeAt finds the whole lake; bad lake edits are dropped on read`,
+      `Fill: a bowl fills to its rim (${bowl.cells.length} cells, also from a click up its side), a lake that would touch another is refused, a slope keeps a 4-cell pond (at least 12 cells, up the slope, with a least size of 12), the sea and a lake are refused, the cap holds; lakeAt finds the whole lake; bad lake edits are dropped on read`,
       `On a real world a lake of ${wetCells.length} cells turns their biome to lake, survives a later recalculation and drains back to land`,
       'Bridge: wh_add_lake measures with dryRun (size makes it at least that big), refuses the sea, a bad cap and a bad size, fills (wh_place_at says lake), wh_drain_lake drains and refuses where there is none; undo',
     ];

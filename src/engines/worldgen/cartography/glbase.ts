@@ -131,7 +131,9 @@ export class CartoBaseGL {
     const gl = this.gl, n = this.gridW * this.gridH, revision = world.revision ?? 0;
     if (revision !== this.uploadedRev) {
       const ground = new Float32Array(n * 4);
-      for (let i = 0; i < n; i++) { ground[i * 4] = world.elevation[i]; ground[i * 4 + 1] = fields.seaDist[i]; ground[i * 4 + 2] = fields.shade[i]; ground[i * 4 + 3] = world.temperature[i]; }
+      // The fourth channel only draws snow, so it carries the author's snowline shift.
+      const snowShift = world.painted?.snowShiftC ?? 0;
+      for (let i = 0; i < n; i++) { ground[i * 4] = world.elevation[i]; ground[i * 4 + 1] = fields.seaDist[i]; ground[i * 4 + 2] = fields.shade[i]; ground[i * 4 + 3] = world.temperature[i] + snowShift; }
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.textures[0]);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.gridW, this.gridH, 0, gl.RGBA, gl.FLOAT, ground);
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.textures[2]); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);

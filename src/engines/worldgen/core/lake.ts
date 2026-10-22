@@ -21,6 +21,8 @@ export interface LakeFill {
   level: number;
   /** Why it stopped growing. */
   end: LakeEnd;
+  /** Held behind a dam on a slope (no hollow): its surface follows the ground, not one level. */
+  dammed: boolean;
 }
 
 /** The smallest pond a click makes on ground with no hollow. */
@@ -31,20 +33,61 @@ export function defaultLakeMaxCells(world: Pick<WorldData, 'width' | 'height'>):
 }
 
 /**
- * The lake that forms at (x, y), in world cells. `nowhere` when the spot is
- * sea or already a lake. `maxCells` caps it (default scaled to the grid).
+ * Visit marks shared by the fills of one replay: one buffer for the whole edit
+ * list instead of a world-sized array per lake, and nothing to clear between
+ * lakes (each fill takes a new stamp).
+ */
+export interface LakeScratch { mark: Uint32Array; stamp: number }
+export function lakeScratch(world: Pick<WorldData, 'width' | 'height'>): LakeScratch {
+  return { mark: new Uint32Array(world.width * world.height), stamp: 0 };
+}
+function nextStamp(world: Pick<WorldData, 'width' | 'height'>, scratch?: LakeScratch): { mark: Uint32Array; stamp: number } {
+  const s = scratch ?? lakeScratch(world);
+  s.stamp += 1;
+  if (s.stamp >= 0xffffffff) { s.mark.fill(0); s.stamp = 1; }
+  return s;
+}
+
+/**
+ * The lake that forms at (x, y), in world cells. The water first runs down to
+ * the bottom of the hollow it is in; from there it fills until it spills, meets
+ * the sea or another lake (then there is no lake: the water just runs on), or
+ * reaches the cap. Where it runs off to the sea or a lake without finding a
+ * hollow, the lake is dammed at the clicked spot instead (`dammed`): the ground
+ * below the dam stays dry and the water rises up the valley until the lake has
+ * `minCells`. `nowhere` when the spot is sea or already a lake.
  */
 export function fillLake(
   world: Pick<WorldData, 'width' | 'height' | 'elevation'> & { lake?: Uint8Array },
   x: number, y: number,
-  options: { maxCells?: number; minCells?: number } = {},
+  options: { maxCells?: number; minCells?: number; scratch?: LakeScratch } = {},
 ): LakeFill {
   const W = world.width, H = world.height, elev = world.elevation, lake = world.lake;
-  const maxCells = Math.max(1, Math.floor(options.maxCells ?? defaultLakeMaxCells(world)));
-  const minCells = Math.max(1, Math.min(maxCells, Math.floor(options.minCells ?? LAKE_MIN_CELLS)));
+  const minCells0 = Math.max(1, Math.floor(options.minCells ?? LAKE_MIN_CELLS));
+  const maxCells = Math.max(minCells0, Math.floor(options.maxCells ?? defaultLakeMaxCells(world)));
+  const minCells = Math.min(maxCells, minCells0);
   const sx = ((Math.floor(x) % W) + W) % W, sy = Math.min(H - 1, Math.max(0, Math.floor(y)));
-  const start = sy * W + sx;
-  if (elev[start] <= 0 || lake?.[start]) return { cells: [], level: 0, end: 'nowhere' };
+  const clicked = sy * W + sx;
+  if (elev[clicked] <= 0 || lake?.[clicked]) return { cells: [], level: 0, end: 'nowhere', dammed: false };
+  // Down to the bottom of the hollow: steepest descent over dry land. Reaching the
+  // sea or a lake means there is no hollow on this slope, so the lake is dammed
+  // where the author clicked.
+  let start = clicked, dammed = false;
+  for (let step = 0; step < W * 2; step++) {
+    const cx = start % W, cy = (start / W) | 0;
+    let best = -1, bestE = elev[start];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const ny = cy + dy;
+      if (ny < 0 || ny >= H) continue;
+      const j = ny * W + ((cx + dx + W) % W);
+      if (elev[j] < bestE) { bestE = elev[j]; best = j; }
+    }
+    if (best < 0) break;
+    if (elev[best] <= 0 || lake?.[best]) { dammed = true; start = clicked; break; }
+    start = best;
+  }
+  const { mark, stamp } = nextStamp(world, options.scratch);
   // A min-heap of the shore: the next cell the water reaches is always the lowest one.
   const heap: number[] = [];
   const push = (i: number) => {
@@ -68,21 +111,22 @@ export function fillLake(
     }
     return top;
   };
-  const queued = new Uint8Array(W * H);
   const cells: number[] = [];
   let level = -Infinity, end: LakeEnd = 'full';
-  queued[start] = 1; push(start);
+  mark[start] = stamp; push(start);
   while (heap.length && cells.length < maxCells) {
     const i = heap[0];
     const e = elev[i];
-    if (e <= 0) { end = 'sea'; break; }
-    if (lake?.[i]) { end = 'lake'; break; }
-    // Lower than the water already held: the hollow spills here once the lake is
-    // as big as asked; before that the lower ground is behind a dam and stays dry,
-    // so the water rises up the valley (and along the contour) instead of
-    // running down it.
+    // The sea and other lakes never become this lake's water: below the water they
+    // are where it spills (or what the dam holds back); otherwise the shore stops there.
+    const wet = e <= 0 || !!lake?.[i];
+    if (wet && e >= level) { end = e <= 0 ? 'sea' : 'lake'; break; }
     if (e < level) {
+      // Lower than the water held: the hollow spills here once the lake is as big
+      // as asked. Before that, the lower ground is behind a dam and stays dry, so
+      // the water rises up the valley instead of running down it.
       if (cells.length >= minCells) { end = 'spill'; break; }
+      dammed = true;
       pop();
       continue;
     }
@@ -95,23 +139,33 @@ export function fillLake(
       const ny = cy + dy;
       if (ny < 0 || ny >= H) continue;
       const j = ny * W + ((cx + dx + W) % W);
-      if (!queued[j]) { queued[j] = 1; push(j); }
+      if (mark[j] !== stamp) { mark[j] = stamp; push(j); }
     }
   }
   if (!heap.length && cells.length < maxCells) end = 'full';
-  // A lake that met the sea or another lake before it was a pond would only be a wet shore.
-  if ((end === 'sea' || end === 'lake') && cells.length < minCells) return { cells: [], level: 0, end };
-  return { cells, level: Math.max(level, 0.001), end };
+  // Water that reaches the sea or another lake before it stands does not stand: it runs on.
+  if (end === 'sea' || end === 'lake') return { cells: [], level: 0, end, dammed };
+  // Two lakes touching are one lake with two levels: refused, the water joins the other.
+  if (lake) for (const i of cells) {
+    const cx = i % W, cy = (i / W) | 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const ny = cy + dy;
+      if ((!dx && !dy) || ny < 0 || ny >= H) continue;
+      if (lake[ny * W + ((cx + dx + W) % W)]) return { cells: [], level: 0, end: 'lake', dammed };
+    }
+  }
+  return { cells, level: Math.max(level, 0.001), end, dammed };
 }
 
 /** The connected lake under (x, y), flat indices, for draining it; empty when there is none. */
-export function lakeAt(world: Pick<WorldData, 'width' | 'height'> & { lake: Uint8Array }, x: number, y: number): number[] {
+export function lakeAt(world: Pick<WorldData, 'width' | 'height'> & { lake: Uint8Array }, x: number, y: number, scratch?: LakeScratch): number[] {
   const W = world.width, H = world.height, lake = world.lake;
   const sx = ((Math.floor(x) % W) + W) % W, sy = Math.min(H - 1, Math.max(0, Math.floor(y)));
-  const start = sy * W + sx;
-  if (!lake[start]) return [];
-  const seen = new Uint8Array(W * H), out = [start];
-  seen[start] = 1;
+  const first = sy * W + sx;
+  if (!lake[first]) return [];
+  const { mark, stamp } = nextStamp(world, scratch);
+  const out = [first];
+  mark[first] = stamp;
   for (let q = 0; q < out.length; q++) {
     const i = out[q], cx = i % W, cy = (i / W) | 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -119,7 +173,7 @@ export function lakeAt(world: Pick<WorldData, 'width' | 'height'> & { lake: Uint
       const ny = cy + dy;
       if (ny < 0 || ny >= H) continue;
       const j = ny * W + ((cx + dx + W) % W);
-      if (lake[j] && !seen[j]) { seen[j] = 1; out.push(j); }
+      if (lake[j] && mark[j] !== stamp) { mark[j] = stamp; out.push(j); }
     }
   }
   return out;

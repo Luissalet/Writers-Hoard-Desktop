@@ -1282,6 +1282,22 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Event id from wh_list_story_events.') }, required: ['worldId', 'id'], additionalProperties: false },
   },
   {
+    name: 'wh_set_world_levels',
+    description:
+      `Move the whole world's sea level and/or snowline, in metres against the generated ones (absolute; 0 puts it back). The sea moves every height, so coasts drown or shelves come up and the biomes follow (rivers keep their courses until the author recalculates climate and rivers); the snowline only changes where snow is drawn (higher = less snow). wh_get_world reports both. Undoable. Change them only when the author asks.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        seaLevelM: { type: 'number', minimum: -1000, maximum: 1000, description: 'Sea level in metres against the generated one.' },
+        snowlineM: { type: 'number', minimum: -3000, maximum: 3000, description: 'Snowline in metres against the climate\'s own.' },
+      },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'wh_add_lake',
     description:
       `Fill a lake at a place or cell, like the River tool's Lake mode.
