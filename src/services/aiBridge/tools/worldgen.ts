@@ -1255,16 +1255,33 @@ async function codexNames(args: ToolArgs, world: GeneratedWorld, ids: Iterable<s
   return names;
 }
 
-/** Who was there must name real Codex entries of this project (and era). */
+/**
+ * Who was there must name real characters or factions of this project (and
+ * era), as the editor offers them. The ids are tidied (trimmed, once each) and
+ * the list capped before any is looked up.
+ */
 async function checkStoryWho(args: ToolArgs, world: GeneratedWorld): Promise<void> {
   if (args.who === undefined) return;
-  if (!Array.isArray(args.who)) throw new BridgeError('bad-args', 'who must be a list of Codex entry ids.');
+  const { STORY_WHO_MAX } = await storyModule();
+  if (!Array.isArray(args.who) || !args.who.every((id) => typeof id === 'string')) throw new BridgeError('bad-args', 'who must be a list of Codex entry ids.');
+  const ids = [...new Set((args.who as string[]).map((id) => id.trim()))];
+  if (ids.length > STORY_WHO_MAX) throw new BridgeError('bad-args', `who takes up to ${STORY_WHO_MAX} Codex entries.`);
   const eraId = worldEraToolScope(args)?.eraId;
-  for (const id of args.who) {
-    if (typeof id !== 'string') throw new BridgeError('bad-args', 'who must be a list of Codex entry ids.');
-    const entry = eraId ? await readEraRow<{ projectId: string }>({ projectId: world.projectId, eraId }, 'codexEntries', id).catch(() => undefined) : await db.codexEntries.get(id);
+  for (const id of ids) {
+    if (!id) throw new BridgeError('bad-args', 'who must not hold empty ids.');
+    const entry = eraId ? await readEraRow<{ projectId: string; type: string }>({ projectId: world.projectId, eraId }, 'codexEntries', id).catch(() => undefined) : await db.codexEntries.get(id);
     if (!entry || entry.projectId !== world.projectId) throw new BridgeError('not-found', `No Codex entry "${id}" in this project; use wh_list_codex.`);
+    if (entry.type !== 'character' && entry.type !== 'faction') throw new BridgeError('bad-args', `"${id}" is a ${entry.type}; who was there takes characters and factions.`);
   }
+  args.who = ids;
+}
+
+/** An event with an `order` takes that place in its chapter and the others move along: every changed record. */
+async function placedStory(world: GeneratedWorld, event: import('@/engines/worldgen/core/storyEvents').StoryEvent): Promise<WorldEdit[]> {
+  const { storyEventsFrom, placeInChapter } = await storyModule();
+  if (event.order === undefined) return [{ kind: 'story', ...event }];
+  const events = storyEventsFrom([...deserializeEdits(world.edits ?? '[]'), { kind: 'story', ...event }]);
+  return placeInChapter(events, event.id, event.order).map((record) => ({ kind: 'story' as const, ...record }));
 }
 
 /** Put a story event on the map: what happens, where, in which chapter, planned or happened. */
@@ -1275,9 +1292,11 @@ export async function whAddStoryEvent(args: ToolArgs): Promise<unknown> {
   const at = await storyPosition(args, world);
   if (!at) throw new BridgeError('bad-args', 'Give place (a key from wh_find_place) or x and y world cells.');
   await checkStoryWho(args, world);
-  let event;
+  let event: import('@/engines/worldgen/core/storyEvents').StoryEvent;
   try { event = normalizeStoryEvent({ id: newStoryId(), ...at, type: 'custom', ...storyFields(args) }); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
-  return appendEdit(args, world, { kind: 'story', ...event }, { event }, `added story event "${event.title}" to world "${world.title}"`);
+  const written = await placedStory(world, event);
+  event = (written.find((edit) => edit.kind === 'story' && edit.id === event.id) as typeof event | undefined) ?? event;
+  return appendEdit(args, world, written, { event }, `added story event "${event.title}" to world "${world.title}"`);
 }
 
 /** Change a story event: only the fields given, position included. */
@@ -1293,10 +1312,14 @@ export async function whUpdateStoryEvent(args: ToolArgs): Promise<unknown> {
   const merged: Record<string, unknown> = { ...current, ...(at ?? {}), ...storyFields(args) };
   if (args.chapter === null) delete merged.chapter;
   if (args.order === null) delete merged.order;
+  // Moved to another chapter without a place in it: it goes to the end there, not to its old place number.
+  if (args.chapter !== undefined && (merged.chapter ?? null) !== (current.chapter ?? null) && args.order === undefined) delete merged.order;
   if (Array.isArray(args.who) && !args.who.length) delete merged.who;
-  let event;
+  let event: import('@/engines/worldgen/core/storyEvents').StoryEvent;
   try { event = normalizeStoryEvent(merged); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
-  return appendEdit(args, world, { kind: 'story', ...event }, { event }, `changed story event "${event.title}" in world "${world.title}"`);
+  const written = typeof args.order === 'number' ? await placedStory(world, event) : [{ kind: 'story' as const, ...event }];
+  event = (written.find((edit) => edit.kind === 'story' && edit.id === event.id) as typeof event | undefined) ?? event;
+  return appendEdit(args, world, written, { event }, `changed story event "${event.title}" in world "${world.title}"`);
 }
 
 /** Take a story event off the map. */

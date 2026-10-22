@@ -1,4 +1,4 @@
-import { createElement, useRef, useState } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Check, CircleX, ExternalLink, MousePointer2, Pentagon, Redo2, Route, Trash2, Type, Undo2 } from 'lucide-react';
 import type { CodexEntry, CodexEntryType, MapFeature, MapPoint } from '@/types';
 import { ConfirmDialog } from '@/engines/_shared';
@@ -7,7 +7,7 @@ import type { MapFeatureEditor } from './useMapFeatures';
 import { mapFeatureCenter, mapItemLayers, mapItemVisible, mapPoint, minimumMapPoints, withMapLayers } from './mapGeometry';
 import MapNamedLayers from './MapNamedLayers';
 import CodexEntryPicker from './CodexEntryPicker';
-import { MAP_LABEL_FONTS, MAP_LABEL_OUTLINE, MAP_LABEL_SIZE, MAP_PATTERNS, MAP_PATTERN_SCALE, MAP_STROKE_WIDTH, DEFAULT_LABEL_SIZE, patternTile, pathLook, MAP_PATH_STYLES, reorderFeature, resolvedLabel, resolvedStroke } from './mapStyle';
+import { MAP_LABEL_FONTS, MAP_LABEL_OUTLINE, MAP_LABEL_SIZE, MAP_PATTERNS, MAP_PATTERN_SCALE, MAP_STROKE_WIDTH, DEFAULT_LABEL_SIZE, patternTile, pathLook, MAP_PATH_STYLES, MAP_LINE_PATTERNS, reorderFeature, resolvedLabel, resolvedStroke } from './mapStyle';
 import { areaKm2, formatKm, formatKm2, lineLengthKm } from './mapScale';
 import { mapScaleCopy } from './mapScaleCopy';
 import MapTravelReadout from './MapTravelReadout';
@@ -20,6 +20,28 @@ const field = 'w-full rounded-lg border border-border bg-elevated px-3 py-2 text
 const tools = [{ key: 'select', icon: MousePointer2 }, { key: 'region', icon: Pentagon }, { key: 'path', icon: Route }, { key: 'label', icon: Type }] as const;
 
 export function MapFeatureToolbar({ editor, onToolChange }: { editor: MapFeatureEditor; onToolChange: () => void }) {
+  // While a region or route is being drawn: Enter finishes it, Backspace takes the last point back, Escape cancels.
+  const drawingShape = editor.drawing && editor.tool !== 'label' && !editor.readOnly;
+  useEffect(() => {
+    if (!drawingShape) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const current = editor;
+      if (current.busy) return;
+      if (event.key === 'Enter') {
+        if (current.points.length < minimumMapPoints(current.tool as MapFeature['kind'])) return;
+        event.preventDefault(); void current.finish();
+      } else if (event.key === 'Backspace') {
+        if (!current.points.length) return;
+        event.preventDefault(); current.back();
+      } else if (event.key === 'Escape') {
+        event.preventDefault(); current.changeTool('select');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawingShape, editor]);
   if (!editor.enabled || editor.readOnly) return null;
   const { copy } = editor;
   return <div className="space-y-2">
@@ -69,7 +91,7 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
       const selected = editor.selected?.id === feature.id;
       const activate = () => editor.select(saved);
       const stroke = resolvedStroke(feature);
-      const look = feature.kind === 'path' ? pathLook(feature.pathStyle, stroke.color, stroke.width) : {};
+      const look = feature.kind === 'path' ? pathLook(feature.pathStyle, stroke.color, stroke.width, feature.linePattern) : {};
       const lettering = resolvedLabel(feature);
       const tile = feature.kind === 'region' ? patternTile(feature, 1) : null;
       const attributes = { stroke: stroke.color, strokeWidth: stroke.width + (selected ? 1 : 0), vectorEffect: 'non-scaling-stroke', style: { pointerEvents: editor.drawing ? 'none' as const : 'auto' as const, cursor: 'pointer' }, onClick: (event: React.MouseEvent) => { event.stopPropagation(); activate(); }, onPointerDown: (event: React.PointerEvent) => event.stopPropagation(), tabIndex: editor.drawing ? -1 : 0, role: 'button', 'aria-label': `${editor.copy[feature.kind]}: ${feature.name}`, onKeyDown: (event: React.KeyboardEvent) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } } };
@@ -78,7 +100,7 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
         {tile && <defs><pattern id={`mp-${feature.id}`} patternUnits="userSpaceOnUse" width={tile.size} height={tile.size} patternTransform={tile.rotate ? `rotate(${tile.rotate})` : undefined}>{tile.marks.map((mark, i) => createElement(mark.tag, { key: i, ...reactAttrs(mark.attrs) }))}</pattern></defs>}
         {feature.kind === 'region' && <polygon {...attributes} points={points} fill={feature.color} fillOpacity={feature.opacity ?? .22} />}
         {tile && <polygon points={points} fill={`url(#mp-${feature.id})`} stroke="none" style={{ pointerEvents: 'none' }} data-testid={`map-pattern-${feature.id}`} />}
-        {feature.kind === 'path' && <><polyline points={points} fill="none" stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.drawing ? 'none' : 'stroke', cursor: 'pointer' }} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); activate(); }} />{look.under && <polyline points={points} fill="none" stroke={look.under.color} strokeOpacity={look.under.opacity} strokeWidth={look.under.width + (selected ? 1 : 0)} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />}<polyline {...attributes} points={points} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={look.dash} data-path-style={feature.pathStyle ?? 'plain'} /></>}
+        {feature.kind === 'path' && <><polyline points={points} fill="none" stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.drawing ? 'none' : 'stroke', cursor: 'pointer' }} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); activate(); }} />{look.under && <polyline points={points} fill="none" stroke={look.under.color} strokeOpacity={look.under.opacity} strokeWidth={look.under.width + (selected ? 1 : 0)} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />}<polyline {...attributes} points={points} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={look.dash} data-path-style={feature.pathStyle ?? 'plain'} data-line-pattern={feature.linePattern ?? 'style'} /></>}
         <text {...attributes} x={center.x} y={center.y / ratio} stroke={lettering.outline} strokeWidth={lettering.outlineWidth} fill={lettering.fill} fontSize={lettering.size} fontWeight={lettering.weight} fontStyle={lettering.style} textAnchor="middle" paintOrder="stroke" fontFamily={lettering.family} transform={lettering.rotation ? `rotate(${lettering.rotation} ${center.x} ${center.y / ratio})` : undefined} data-testid={`map-label-${feature.id}`}>{feature.name}</text>
         {/* "Add a point": a handle halfway along each edge; pressing it inserts a vertex there and drags it. Drawn under the vertices, and its ring never reaches them, so a vertex is always the one pressed. */}
         {selected && !editor.drawing && !editor.readOnly && feature.kind !== 'label' && feature.points.map((point, index) => {
@@ -144,6 +166,7 @@ export function MapFeatureInspector({ editor, entries, onOpenEntry, onCreateEntr
       {!!editor.namedLayers.length && <fieldset className="text-xs text-text-muted space-y-1.5" data-testid="map-feature-layers"><legend>{copy.layersOf}</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{editor.namedLayers.map(layer => { const ids = mapItemLayers(draft); return <label key={layer.id} className="flex items-center gap-1.5"><input type="checkbox" className="accent-accent-gold" checked={ids.includes(layer.id)} onChange={event => editor.patch(withMapLayers(event.target.checked ? [...ids, layer.id] : ids.filter(id => id !== layer.id)))} data-testid={`map-feature-layer-${layer.id}`} />{layer.name}</label>; })}</div><p className="text-[11px]">{copy.layersHelp}</p></fieldset>}
       <label className="text-xs text-text-muted space-y-1.5 block">{copy.description}<textarea rows={2} value={draft.description ?? ''} onChange={event => editor.patch({ description: event.target.value })} className={field} /></label>
       {draft.kind === 'path' && <label className="text-xs text-text-muted space-y-1.5 block">{sc.pathStyle}<select className={field} value={draft.pathStyle ?? ''} onChange={event => editor.patch({ pathStyle: (event.target.value || undefined) as MapFeature['pathStyle'] })} data-testid="map-feature-path-style"><option value="">{sc.pathPlain}</option>{MAP_PATH_STYLES.map(style => <option key={style} value={style}>{sc[style === 'road' ? 'pathRoad' : style === 'trail' ? 'pathTrail' : 'pathRiver']}</option>)}</select></label>}
+      {draft.kind === 'path' && <label className="text-xs text-text-muted space-y-1.5 block">{sc.linePattern}<select className={field} value={draft.linePattern ?? ''} onChange={event => editor.patch({ linePattern: (event.target.value || undefined) as MapFeature['linePattern'] })} data-testid="map-feature-line-pattern"><option value="">{sc.lineByStyle}</option>{MAP_LINE_PATTERNS.map(pattern => <option key={pattern} value={pattern}>{sc[pattern === 'solid' ? 'lineSolid' : pattern === 'dashed' ? 'lineDashed' : 'lineDotted']}</option>)}</select></label>}
       {measured}
       <div className="flex items-end flex-wrap gap-4">
         <label className="text-xs text-text-muted space-y-1.5 block">{copy.color}<input type="color" value={draft.color} onChange={event => editor.patch({ color: event.target.value })} className="block h-9 w-16 rounded border border-border bg-elevated p-1" /></label>
