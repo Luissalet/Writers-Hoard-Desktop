@@ -26,7 +26,7 @@ import { Biome, type BiomeId, type WorldData } from './types';
 import { classifyBiomes } from './biomes';
 import { getRecalculationCheckpoint, installRecalculationCheckpoints, recalculateEnvironment, restoreEnvironment } from './recalculate';
 import { distanceTo, localRelief } from './fields';
-import { defaultLakeMaxCells, fillLake, lakeAt } from './lake';
+import { fillLake, lakeAt, lakeScratch, type LakeScratch } from './lake';
 import type { LandmarkType, MarkerKind, RuinKind } from './types';
 // The brushes live in one place and both callers go through it: this replay and
 // the live preview in the sculpt view. See sculpt/ops.ts for why.
@@ -165,11 +165,35 @@ export function duplicatePlaceEdit(
  */
 export function lockViolation(existing: readonly WorldEdit[], edits: readonly WorldEdit[]): string | null {
   const locked = lockedPlaceKeys(existing);
+  const marks = [...existing];
   for (const e of edits) {
-    if (e.kind === 'lock') { if (e.locked) locked.add(e.key); else locked.delete(e.key); continue; }
-    if ((e.kind === 'remove' || e.kind === 'move') && locked.has(e.key)) return e.key;
+    if (e.kind === 'lock') { for (const k of lockAliases(e.key)) { if (e.locked) locked.add(k); else locked.delete(k); } continue; }
+    if ((e.kind === 'remove' || e.kind === 'move') && lockAliases(e.key).some((k) => locked.has(k))) return e.key;
+    // The eraser takes hand-placed marks inside its circle: not a locked one.
+    if (e.kind === 'eraseMarkers') {
+      for (const m of marks) {
+        if (m.kind !== 'marker') continue;
+        const key = markerKey(m);
+        if (!locked.has(key)) continue;
+        const dx = Math.abs(m.x - e.x), dy = m.y - e.y;
+        if (dx * dx + dy * dy <= e.radius * e.radius) return key;
+      }
+    }
+    marks.push(e);
   }
   return null;
+}
+
+/** Every key a place answers to: a landmark keeps its older `feature:` key, a realm its older forms. */
+export function lockAliases(key: string): string[] {
+  if (key.startsWith('landmark:') || key.startsWith('feature:')) return compatibleEditKeys('landmark', key);
+  if (key.startsWith('realm')) return compatibleEditKeys('realm', key);
+  return [key];
+}
+
+/** The key of a hand-placed mark, as the place lists give it. */
+function markerKey(m: { marker: MarkerKind; x: number; y: number; landmark?: LandmarkType }): string {
+  return m.marker === 'landmark' && m.landmark ? `landmark:${m.landmark}:${Math.round(m.x)},${Math.round(m.y)}` : editKey(m.marker === 'ruin' ? 'ruin' : 'settlement', m.x, m.y);
 }
 
 /**
@@ -221,8 +245,18 @@ export function keysInEdits(edits: readonly WorldEdit[]): Set<string> {
 /** The keys of the places locked now: the last lock edit for each key wins. */
 export function lockedPlaceKeys(edits: readonly WorldEdit[]): Set<string> {
   const locked = new Set<string>();
-  for (const e of edits) if (e.kind === 'lock') { if (e.locked) locked.add(e.key); else locked.delete(e.key); }
+  for (const e of edits) if (e.kind === 'lock') for (const k of lockAliases(e.key)) { if (e.locked) locked.add(k); else locked.delete(k); }
   return locked;
+}
+
+/** How far the sea and the snowline may be moved, in metres. */
+export const SEA_LEVEL_MAX_M = 1000;
+export const SNOWLINE_MAX_M = 3000;
+/** The sea level and snowline the list sets now (metres; 0 = the generated world's). */
+export function worldLevels(edits: readonly WorldEdit[]): { seaLevelM: number; snowlineM: number } {
+  let seaLevelM = 0, snowlineM = 0;
+  for (const e of edits) { if (e.kind === 'seaLevel') seaLevelM = e.m; else if (e.kind === 'snowline') snowlineM = e.m; }
+  return { seaLevelM, snowlineM };
 }
 
 export type WorldEdit =
@@ -418,6 +452,17 @@ export type WorldEdit =
    * it stands, after the terrain and any recalculation, so it follows the land.
    */
   | { kind: 'lake'; op: 'fill' | 'drain'; x: number; y: number; maxCells?: number; minCells?: number }
+  /**
+   * Where the sea stands, in metres against the generated world's own (the
+   * last one wins, in list order): every height shifts by the difference, so
+   * land drowns or the shelf comes up, and the biomes follow.
+   */
+  | { kind: 'seaLevel'; m: number }
+  /**
+   * The snowline, in metres against the climate's own (positive is higher: less
+   * snow). A look of the ground only: the last one wins.
+   */
+  | { kind: 'snowline'; m: number }
   /** Erase generated roads passing within a radius. */
   | { kind: 'eraseRoads'; x: number; y: number; radius: number }
   /**
@@ -593,6 +638,12 @@ export interface AppliedEdits {
   sitesPolicy: SitesPolicy;
   /** True when any edit touched elevation, so callers know the coastline moved. */
   terrainChanged: boolean;
+  /**
+   * The snowline's shift as degrees of warmth added to the temperature the snow
+   * is drawn from (a higher snowline is a warmer reading: about 6.5 °C per km).
+   * Absent or 0 = the climate's own snowline. Read by every renderer that draws snow.
+   */
+  snowShiftC?: number;
   markers: PaintedMarker[];
   labels: PaintedLabel[];
   stamps: PaintedStamp[];
@@ -800,8 +851,21 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     elev.set(cached.elevation); restoreEnvironment(world, cached.environment);
     start = index + 1; out.terrainChanged = true; break;
   }
+  // The sea level already in the heights: what the prefix a checkpoint restored had set.
+  let seaM = 0;
+  for (let index = 0; index < start; index++) { const e = edits[index]; if (e.kind === 'seaLevel') seaM = e.m; }
+  let classifyEverywhere = false;
   for (let index = start; index < edits.length; index++) {
     const e = edits[index];
+    if (e.kind === 'seaLevel') {
+      // Every height moves by the change, in the list's order: what was painted
+      // before keeps its shape, and strokes after it are made on the new shore.
+      const d = (e.m - seaM) / 1000;
+      if (d) for (let i = 0; i < N; i++) elev[i] -= d;
+      seaM = e.m;
+      if (d) { out.terrainChanged = true; needsClassification = true; classifyEverywhere = true; }
+      continue;
+    }
     if (e.kind === 'recalculate') {
       const environment = recalculateEnvironment(world);
       installRecalculationCheckpoints(world, [{ key: serializeEdits(edits.slice(0, index + 1)), elevation: elev.slice(), environment }]);
@@ -843,17 +907,27 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     }
   }
 
+  // The snowline is a reading of the ground, not the ground: the last one wins.
+  const { snowlineM } = worldLevels(edits);
+  if (snowlineM) out.snowShiftC = snowlineM * 0.0065;
+
   // ---- 1b. lakes: filled from the ground as it now stands ------------------
   //
   // After the terrain and any recalculation (which rebuilds the hydrology's own
   // lakes), so a painted lake is never washed away by a later "recalculate".
   const lakeCells: number[] = [];
+  let scratch: LakeScratch | undefined;
   for (const e of edits) {
     if (e.kind !== 'lake') continue;
-    const changed = e.op === 'fill' ? fillLake(world, e.x, e.y, { maxCells: e.maxCells ?? (e.minCells ? Math.max(e.minCells, defaultLakeMaxCells(world)) : undefined), minCells: e.minCells }) : { cells: lakeAt(world, e.x, e.y), level: 0 };
+    scratch ??= lakeScratch(world);
+    const changed = e.op === 'fill'
+      ? fillLake(world, e.x, e.y, { maxCells: e.maxCells, minCells: e.minCells, scratch })
+      : { cells: lakeAt(world, e.x, e.y, scratch), level: 0, dammed: false };
     for (const i of changed.cells) {
       world.lake[i] = e.op === 'fill' ? 1 : 0;
-      if (world.lakeSurface?.length === N) world.lakeSurface[i] = e.op === 'fill' ? changed.level : 0;
+      // A hollow holds one level; water behind a dam on a slope follows the
+      // ground, so the 3D surface does not stand as a wall over the dry cells below.
+      if (world.lakeSurface?.length === N) world.lakeSurface[i] = e.op !== 'fill' ? 0 : changed.dammed ? Math.max(0.001, elev[i] + 0.001) : changed.level;
       lakeCells.push(i);
     }
     if (changed.cells.length) { needsClassification = true; out.terrainChanged = true; }
@@ -884,7 +958,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       sst: world.sst,
       boundary: world.boundary,
       filters: world.params.filters,
-    }, touchedRect(edits, W, H, reliefR + 3, lakeCells), world.biome);
+    }, classifyEverywhere ? undefined : touchedRect(edits, W, H, reliefR + 3, lakeCells), world.biome);
   }
 
   // ---- 3. explicit biome paint, which wins over the classifier -----------
@@ -1058,7 +1132,9 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       out.roadErasers.push({ x: e.x, y: e.y, radius: e.radius });
     }
   }
-  // Erasers apply to everything painted before them, in order.
+  // Erasers apply to everything painted before them, in order — but a locked
+  // place stays where it is (the same rule the tools and the bridge refuse by).
+  const lockedNow = lockedPlaceKeys(edits);
   for (const e of edits) {
     if (e.kind !== 'eraseMarkers') continue;
     const hit = (p: { x: number; y: number }) => {
@@ -1066,7 +1142,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       if (dx > W / 2) dx = W - dx;
       return dx * dx + (p.y - e.y) ** 2 <= e.radius * e.radius;
     };
-    out.markers = out.markers.filter((m) => !hit(m));
+    out.markers = out.markers.filter((m) => !hit(m) || (lockedNow.size > 0 && lockedNow.has(markerKey(m))));
     out.labels = out.labels.filter((l) => !hit(l));
     out.stamps = out.stamps.filter((st) => !hit(st));
   }
@@ -1403,6 +1479,10 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     try { normalizeStoryEvent(record); return true; } catch { return false; }
   }
   if ((e as { kind: string }).kind === 'storyRemove') return typeof (e as { id?: unknown }).id === 'string';
+  if ((e as { kind: string }).kind === 'seaLevel' || (e as { kind: string }).kind === 'snowline') {
+    const m = (e as { m?: unknown }).m, max = (e as { kind: string }).kind === 'seaLevel' ? SEA_LEVEL_MAX_M : SNOWLINE_MAX_M;
+    return typeof m === 'number' && Number.isFinite(m) && Math.abs(m) <= max;
+  }
   if ((e as { kind: string }).kind === 'lake') {
     const l = e as { op?: unknown; x?: unknown; y?: unknown; maxCells?: unknown; minCells?: unknown };
     return (l.op === 'fill' || l.op === 'drain') && typeof l.x === 'number' && Number.isFinite(l.x) && typeof l.y === 'number' && Number.isFinite(l.y)

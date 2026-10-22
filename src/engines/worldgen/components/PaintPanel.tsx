@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { Biome, type BiomeId, type RuinKind } from '../core/types';
 import type { SettlementRank } from '../core/settlements';
 import type { BrushTip, Falloff, LandOp, PaintFilter, RoadPattern, TerrainOp } from '../core/edits';
-import { ROAD_PATTERNS, ROAD_WIDTH } from '../core/edits';
+import { ROAD_PATTERNS, ROAD_WIDTH, SEA_LEVEL_MAX_M, SNOWLINE_MAX_M } from '../core/edits';
 import type { PointKind } from '../core/paintCommit';
 import { FOG_OPS, type FogOp } from '../core/readerFog';
 import StoryEditor from './StoryEditor';
@@ -381,6 +381,9 @@ interface PaintPanelProps {
   onFocusStory?: (event: StoryEvent) => void;
   storyPeople?: { id: string; title: string }[];
   onReorderStory?: (id: string, by: -1 | 1) => void;
+  /** The whole world's sea level and snowline (metres against the generated ones), and their writer. */
+  worldLevels?: { seaLevelM: number; snowlineM: number };
+  onWorldLevel?: (kind: 'seaLevel' | 'snowline', m: number) => void;
 }
 
 /**
@@ -443,6 +446,7 @@ export default function PaintPanel({
   tool, onChange, strokeCount, canUndo, canRedo, onUndo, onRedo, onClear, onExport,
   cellKm, realms, busy, selectedLabel = null, onRelabel, onRemoveLabel,
   flatOnlyNote = false, storyEvents = [], selectedStoryId = null, onSelectStory, onUpdateStory, onRemoveStory, onFocusStory, storyPeople, onReorderStory,
+  worldLevels, onWorldLevel,
 }: PaintPanelProps) {
   const { t } = useTranslation();
   const riverKm = groundScale(RIVER_CELLS_MIN * (cellKm ?? 1), RIVER_CELLS_MAX * (cellKm ?? 1));
@@ -468,6 +472,7 @@ export default function PaintPanel({
   const bySlope = tool.only.minSlope !== undefined || tool.only.maxSlope !== undefined;
   const [openHead, setOpenHead] = useState(false);
   const [openWhere, setOpenWhere] = useState(false);
+  const [openWorld, setOpenWorld] = useState(false);
   const spec = useMemo(() => MODES.find((m) => m.id === tool.mode), [tool.mode]);
   const hint = spec?.hint ?? '';
   const negative = spec?.negative ?? '';
@@ -1092,6 +1097,21 @@ export default function PaintPanel({
         </Fold>
       )}
 
+      {onWorldLevel && worldLevels && (
+        <Fold
+          title={t('worldgen.paint.world.title')}
+          summary={worldLevels.seaLevelM || worldLevels.snowlineM
+            ? [worldLevels.seaLevelM ? `${t('worldgen.paint.world.sea')} ${signedM(worldLevels.seaLevelM)}` : '', worldLevels.snowlineM ? `${t('worldgen.paint.world.snow')} ${signedM(worldLevels.snowlineM)}` : ''].filter(Boolean).join(' · ')
+            : t('worldgen.paint.world.asGenerated')}
+          open={openWorld}
+          onToggle={() => setOpenWorld(!openWorld)}
+        >
+          <LevelSlider testId="world-sea-level" label={t('worldgen.paint.world.sea')} value={worldLevels.seaLevelM} max={SEA_LEVEL_MAX_M} step={10} onCommit={(m) => onWorldLevel('seaLevel', m)} disabled={busy} />
+          <LevelSlider testId="world-snowline" label={t('worldgen.paint.world.snow')} value={worldLevels.snowlineM} max={SNOWLINE_MAX_M} step={50} onCommit={(m) => onWorldLevel('snowline', m)} disabled={busy} />
+          <p className="text-[10px] leading-snug text-white/45">{t('worldgen.paint.world.note')}</p>
+        </Fold>
+      )}
+
       <div className="h-px bg-white/10" />
 
       <div className="flex items-center gap-1">
@@ -1158,6 +1178,36 @@ function filterSummary(f: PaintFilter, t: (key: string) => string): string {
  * is a wall. Folded, each section still shows what it is currently doing — a
  * closed panel that hides an active rule is worse than no panel.
  */
+function signedM(m: number): string {
+  return `${m > 0 ? '+' : m < 0 ? '−' : ''}${Math.abs(m).toLocaleString()} m`;
+}
+
+/**
+ * A whole-world level in metres: the slider moves freely and the change is one
+ * edit, written when the hand lets go (or a key is released), not one per pixel.
+ */
+function LevelSlider({ testId, label, value, max, step, onCommit, disabled }: {
+  testId: string; label: string; value: number; max: number; step: number; onCommit: (m: number) => void; disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const shown = draft ?? value;
+  const commit = () => { if (draft !== null && draft !== value) onCommit(draft); setDraft(null); };
+  return (
+    <label className="flex flex-col gap-0.5" data-testid={testId}>
+      <span className="flex justify-between text-[10px] text-white/45">
+        <span>{label}</span>
+        <span className="tabular-nums text-white/65">{signedM(shown)}</span>
+      </span>
+      <input
+        type="range" min={-max} max={max} step={step} value={shown} disabled={disabled}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit} onKeyUp={commit} onBlur={commit}
+        className="w-full accent-amber-400"
+      />
+    </label>
+  );
+}
+
 function Fold({ title, summary, open, onToggle, children }: {
   title: string; summary: string; open: boolean; onToggle: () => void; children: React.ReactNode;
 }) {

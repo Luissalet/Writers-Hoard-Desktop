@@ -150,7 +150,7 @@ export function atlasCellColor(world: WorldData, i: number): [number, number, nu
     g += (HIGHLAND[1] - g) * t;
     b += (HIGHLAND[2] - b) * t;
     // Snow above the local snowline — gradual, only on real highlands.
-    const snowT = Math.min(1, Math.max(0, (-temperature[i] - 6) / 9 + Math.max(0, e - 3.1) * 0.3));
+    const snowT = Math.min(1, Math.max(0, (-(temperature[i] + (world.painted?.snowShiftC ?? 0)) - 6) / 9 + Math.max(0, e - 3.1) * 0.3));
     if (snowT > 0 && e > 1.9) {
       const sT = snowT * snowT * (3 - 2 * snowT);
       r += (SNOW[0] - r) * sT;

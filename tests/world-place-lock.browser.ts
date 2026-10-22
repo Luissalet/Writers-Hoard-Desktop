@@ -5,7 +5,7 @@ import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
 import { worldRuntimeKey } from '@/engines/worldgen/era';
-import { deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, lockViolation, lockedPlaceKeys, type WorldEdit } from '@/engines/worldgen/core/edits';
+import { applyEdits, deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, lockViolation, lockedPlaceKeys, type WorldEdit } from '@/engines/worldgen/core/edits';
 import { isViewOnlyEdit } from '@/engines/worldgen/core/storyEvents';
 import { runBridgeTool, type BridgeReply } from '@/services/aiBridge/dispatch';
 
@@ -35,6 +35,19 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     assert(lockViolation([lock('settlement:2,2', true)], [{ kind: 'remove', target: 'settlement', key: 'settlement:2,2' }]) === 'settlement:2,2', 'Remove of a locked key');
     assert(lockViolation([], [lock('settlement:3,3', true), { kind: 'move', target: 'settlement', key: 'settlement:3,3', x: 1, y: 1 }]) === 'settlement:3,3', 'Lock then move in one batch');
     assert(lockViolation([lock('settlement:2,2', true)], [{ kind: 'rename', target: 'settlement', key: 'settlement:2,2', name: 'x' }]) === null, 'Renaming a locked place is allowed');
+    // A landmark answers to its older feature: key too, both ways.
+    const peakLock: WorldEdit = { kind: 'lock', target: 'landmark', key: 'landmark:volcano:5,5', locked: true };
+    assert(lockViolation([peakLock], [{ kind: 'remove', target: 'feature', key: 'feature:volcano:5,5' }]) === 'feature:volcano:5,5' && lockedPlaceKeys([{ kind: 'lock', target: 'feature', key: 'feature:volcano:5,5', locked: true }]).has('landmark:volcano:5,5'), 'Landmark key aliases');
+    // The eraser does not take a locked hand-placed mark (refused up front, and kept on replay).
+    const mark: WorldEdit = { kind: 'marker', marker: 'settlement', x: 3, y: 3, rank: 'town', name: 'Mark' };
+    const markLock: WorldEdit = { kind: 'lock', target: 'settlement', key: 'settlement:3,3', locked: true };
+    const rub: WorldEdit = { kind: 'eraseMarkers', x: 3.2, y: 3.1, radius: 1 };
+    assert(lockViolation([mark, markLock], [rub]) === 'settlement:3,3' && lockViolation([mark], [rub]) === null, 'Eraser over a locked mark');
+    const kept = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' });
+    applyEdits(kept, [mark, markLock, rub]);
+    const gone = generateWorld({ ...DEFAULT_PARAMS, width: 128, seed: 'lock-planet' });
+    applyEdits(gone, [mark, rub]);
+    assert(kept.painted?.markers.length === 1 && gone.painted?.markers.length === 0, 'Replay keeps a locked mark under the eraser');
     // Where a copy goes: dry, not a lake, a key nothing uses; names count up.
     const tiny = { width: 10, height: 6, elevation: new Float32Array(60).fill(1), lake: new Uint8Array(60) };
     tiny.elevation[2 * 10 + 6] = -1; // sea two cells east of (4,2)
@@ -93,7 +106,7 @@ export async function testWorldPlaceLock(): Promise<string[]> {
     const undone = await runBridgeTool('__undo', { entry: { tool: 'wh_duplicate_place', kind: 'update', entityId: audit.entityId, projectId: audit.projectId, before: audit.before, summary: 'copy' } });
     assert(undone.ok && !(await places('settlement')).some((p) => p.name === `${from.name} 2`), 'Undo takes the copy away');
     return [
-      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; one rule refuses moving or removing a locked key (a lock earlier in the same batch counts, renames pass); copies keep the kind and type (a capital becomes a city), go to dry free cells and count their names up; realms and seas are not copied',
+      'Locks: the last lock edit for a key wins, they are view-only, stored, and a malformed one is dropped; one rule refuses moving, removing or rubbing out a locked key (landmark aliases count; a lock earlier in the same batch counts; renames pass; replay keeps a locked mark under the eraser); copies keep the kind and type (a capital becomes a city), go to dry free cells and count their names up; realms and seas are not copied',
       `Bridge: wh_lock_place locks ${first.name} (listed and found as locked; move and remove refused) and unlocks it; wh_duplicate_place copies ${from.name} as "${made.name}" on free dry land (a second copy is "${second.name}"), refuses a used cell, the sea, a realm and an unknown key, and undoes`,
     ];
   } finally {

@@ -557,6 +557,8 @@ function renderBaseRaster(
   const theme = opts.theme;
   const OW = opts.width, OH = opts.height;
   const { width: W, height: H, elevation, temperature, lake } = world;
+  // The author's snowline, as warmth added to the temperature the snow is drawn from.
+  const snowShift = world.painted?.snowShiftC ?? 0;
 
   const paper = getPaper(`${world.params.seed}::paper`, theme, OW, OH, opts.paperAnchor);
 
@@ -680,7 +682,7 @@ function renderBaseRaster(
         }
 
         // Snow above the local snow line.
-        const T = temperature[ci];
+        const T = temperature[ci] + snowShift;
         const snowT = Math.min(1, Math.max(0, (-T - 5) / 10 + Math.max(0, e - 3) * 0.3));
         if (snowT > 0 && e > 1.6) {
           const s = snowT * snowT * (3 - 2 * snowT) * 0.9;
@@ -1559,7 +1561,7 @@ function drawRelief(
 
     const xi = ((Math.round(wx) % W) + W) % W;
     const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
-    const T = temperature[yi * W + xi];
+    const T = temperature[yi * W + xi] + (world.painted?.snowShiftC ?? 0);
     const e = elevation[yi * W + xi];
     const snow = Math.min(1, Math.max(0, (-T - 2) / 12 + Math.max(0, e - 2.6) * 0.25));
 

@@ -66,19 +66,35 @@ async function main() {
   send({ type: 'mouseUp', x: spot.x, y: spot.y, button: 'left', clickCount: 1 }); await pause(600);
   let lake = null; for (let i = 0; i < 80; i++) { const list = (await edits()).filter(e => e.kind === 'lake'); if (list.length > lakes0) { lake = list[list.length - 1]; break; } await pause(150); }
   assert(lake && lake.op === 'fill' && lake.minCells === 12, `Lake saved: ${JSON.stringify(lake)}`);
-  let here = null; for (let i = 0; i < 40; i++) { here = await placeAt(Math.floor(spot.cell.x), Math.floor(spot.cell.y)); if (here?.lake) break; await pause(200); }
-  assert(here?.lake === true, `The clicked cell is not lake: ${JSON.stringify(here).slice(0, 200)}`);
-  tests.push(`River tool, Lake mode with a least size of 12 cells (${sizeLabel.replace(/\s+/g, ' ').trim()}): a click on Naintosin fills a lake there (${spot.cells} cells by the same fill), saved as a lake edit; the cell now reads as lake`);
+  // The water runs down to the bottom of its hollow (or is dammed at the click): find a lake cell near the click.
+  const cx0 = Math.floor(spot.cell.x), cy0 = Math.floor(spot.cell.y);
+  let wetCell = null;
+  for (let i = 0; i < 20 && !wetCell; i++) {
+    for (let r = 0; r <= 8 && !wetCell; r++) for (let dy = -r; dy <= r && !wetCell; dy++) for (let dx = -r; dx <= r && !wetCell; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const here = await placeAt(cx0 + dx, cy0 + dy);
+      if (here?.lake) wetCell = { x: cx0 + dx, y: cy0 + dy };
+    }
+    if (!wetCell) await pause(300);
+  }
+  assert(wetCell, 'No lake cell within 8 cells of the click');
+  let here = null;
+  tests.push(`River tool, Lake mode with a least size of 12 cells (${sizeLabel.replace(/\s+/g, ' ').trim()}): a click on Naintosin fills a lake there (${spot.cells} cells by the same fill), saved as a lake edit; cell ${wetCell.x},${wetCell.y} near the click now reads as lake`);
   await pause(2500);
   win.webContents.invalidate(); await pause(300); await win.webContents.capturePage();
   fs.writeFileSync(path.join(evidence, 'lake-filled-1440.png'), (await win.webContents.capturePage()).toPNG());
-  // Ctrl+click drains it.
-  send({ type: 'mouseMove', x: spot.x, y: spot.y, modifiers: ['control'] }); await pause(80);
-  send({ type: 'mouseDown', x: spot.x, y: spot.y, button: 'left', clickCount: 1, modifiers: ['control'] }); await pause(60);
-  send({ type: 'mouseUp', x: spot.x, y: spot.y, button: 'left', clickCount: 1, modifiers: ['control'] }); await pause(600);
+  // Ctrl+click on a lake cell drains it: where that cell is on screen, from a second probe of the scale.
+  const probe = { x: spot.x + 60, y: spot.y + 40 };
+  const pc = await cellAt(probe.x, probe.y);
+  const sx = 60 / (pc.x - spot.cell.x), sy = 40 / (pc.y - spot.cell.y);
+  const wet = { x: Math.round(spot.x + (wetCell.x + 0.5 - spot.cell.x) * sx), y: Math.round(spot.y + (wetCell.y + 0.5 - spot.cell.y) * sy) };
+  await wait(`document.querySelector('[data-testid="lake-hint"]')`, 'lake mode still out');
+  send({ type: 'mouseMove', x: wet.x, y: wet.y, modifiers: ['control'] }); await pause(80);
+  send({ type: 'mouseDown', x: wet.x, y: wet.y, button: 'left', clickCount: 1, modifiers: ['control'] }); await pause(60);
+  send({ type: 'mouseUp', x: wet.x, y: wet.y, button: 'left', clickCount: 1, modifiers: ['control'] }); await pause(600);
   let drain = null; for (let i = 0; i < 80; i++) { const list = (await edits()).filter(e => e.kind === 'lake'); if (list.length > lakes0 + 1) { drain = list[list.length - 1]; break; } await pause(150); }
   assert(drain && drain.op === 'drain', `Drain saved: ${JSON.stringify(drain)}`);
-  for (let i = 0; i < 40; i++) { here = await placeAt(Math.floor(spot.cell.x), Math.floor(spot.cell.y)); if (here && here.lake === false) break; await pause(200); }
+  for (let i = 0; i < 40; i++) { here = await placeAt(wetCell.x, wetCell.y); if (here && here.lake === false) break; await pause(200); }
   assert(here?.lake === false, 'Ctrl+click did not drain the lake');
   tests.push('Ctrl+click on the lake drains it (a drain edit; the cell is land again)');
   // Reopen: the list keeps both and the cell is still land.

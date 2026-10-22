@@ -70,9 +70,10 @@ import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { registerLiveWorld } from '../core/liveWorlds';
-import { deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, editKey, keysInEdits, lockedPlaceKeys, lockViolation, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey } from '../core/edits';
+import { deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, editKey, keysInEdits, lockedPlaceKeys, lockViolation, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey, worldLevels } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
+import { fillLake, lakeAt } from '../core/lake';
 import type { WorldEdit } from '../core/edits';
 import { THEMES, themeById } from '../cartography/theme';
 import {
@@ -1114,6 +1115,11 @@ export default function WorldView({
     if (!s || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return false;
     // A locked place is neither moved nor hidden, whichever tool or card asked.
     if (lockViolation(s.edits, [edit])) { toast.info(t(edit.kind === 'move' ? 'worldgen.place.lockedMove' : 'worldgen.place.lockedHide')); return false; }
+    // A lake click that would make or drain nothing is not an edit (no empty undo step).
+    if (edit.kind === 'lake' && data) {
+      const none = edit.op === 'fill' ? fillLake(data, edit.x, edit.y, { maxCells: edit.maxCells, minCells: edit.minCells }).cells.length === 0 : lakeAt(data, edit.x, edit.y).length === 0;
+      if (none) { toast.info(t(edit.op === 'fill' ? 'worldgen.paint.river.lakeNone' : 'worldgen.paint.river.drainNone')); return false; }
+    }
     // A stamp's name belongs to that stamp: the next one starts unnamed.
     if (edit.kind === 'stamp' && edit.name) setTool((current) => (current.stampName ? { ...current, stampName: '' } : current));
     setPainting(true);
@@ -1128,7 +1134,7 @@ export default function WorldView({
       }
     }, 0);
     return true;
-  }, [afterEdit, t]);
+  }, [afterEdit, data, t]);
 
   /**
    * Several edits as ONE step.
@@ -1140,7 +1146,8 @@ export default function WorldView({
   const applyEditGroup = useCallback((edits: WorldEdit[]): boolean => {
     const s = session.current;
     if (!s || !edits.length || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return false;
-    if (lockViolation(s.edits, edits)) { toast.info(t('worldgen.place.lockedHide')); return false; }
+    const lockedKey = lockViolation(s.edits, edits);
+    if (lockedKey) { toast.info(t(edits.some((e) => e.kind === 'move' && e.key === lockedKey) ? 'worldgen.place.lockedMove' : 'worldgen.place.lockedHide')); return false; }
     setPainting(true);
     window.setTimeout(() => {
       try {
@@ -1220,6 +1227,12 @@ export default function WorldView({
     applyEdit({ kind: 'rename', target, key, name });
   }, [applyEdit]);
 
+  /** The whole world's sea level and snowline, as the edit list sets them. */
+  const levels = useMemo(() => {
+    void paintRev;
+    return worldLevels(session.current?.edits ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
+  }, [paintRev, data]);
   /** Places locked against accidents (the Move tool skips them; hiding waits for an unlock). */
   const lockedKeys = useMemo(() => {
     void paintRev;
@@ -1237,17 +1250,22 @@ export default function WorldView({
   /** A copy of a town, ruin or landmark on the nearest free land around it, named "<name> 2". */
   const duplicateByKey = useCallback((entity: { key: string; kind: string; type: string; name: string; x: number; y: number }) => {
     if (!data) return;
+    // Every key already in use — in the edits, of every place, and of the cell each
+    // place stands on now (a moved town keeps its old key but holds its new cell).
     const used = keysInEdits(session.current?.edits ?? []);
-    for (const s of geography?.settlements ?? []) used.add(s.sourceKey ?? editKey('settlement', s.x, s.y));
-    for (const r of geography?.ruins ?? []) used.add(r.sourceKey ?? editKey('ruin', r.x, r.y));
+    for (const place of spatialEntities) {
+      used.add(place.key);
+      if (place.kind === 'settlement' || place.kind === 'ruin') used.add(editKey(place.kind, place.x, place.y));
+      if (place.kind === 'landmark') used.add(`landmark:${place.type}:${Math.round(place.x)},${Math.round(place.y)}`);
+    }
     const at = duplicateSpot(data, entity, used);
     if (!at) { toast.info(t('worldgen.place.noRoomForCopy')); return; }
-    const names = new Set([...(geography?.settlements ?? []).map((s) => s.name), ...(geography?.ruins ?? []).map((r) => r.name)]);
-    const name = duplicateName(entity.name, names);
+    // Hand-placed landmarks carry their kind's name, so only towns and ruins get a numbered one.
+    const name = entity.kind === 'landmark' ? '' : duplicateName(entity.name, new Set(spatialEntities.map((place) => place.name)));
     const edit = duplicatePlaceEdit(entity, at, name);
     if (!edit) return;
-    if (applyEdit(edit)) toast.success(t('worldgen.place.duplicated').replace('{name}', name));
-  }, [applyEdit, data, geography, t]);
+    if (applyEdit(edit)) toast.success(t('worldgen.place.duplicated').replace('{name}', name || entity.name));
+  }, [applyEdit, data, spatialEntities, t]);
 
   /**
    * What a click on a town means, which depends on what is in the reader's hand.
@@ -2748,6 +2766,8 @@ export default function WorldView({
                 onFocusStory={(event) => zoomToPoint(event.x, event.y)}
                 storyPeople={storyPeople}
                 onReorderStory={reorderStory}
+                worldLevels={levels}
+                onWorldLevel={(kind, m) => { applyEdit(kind === 'seaLevel' ? { kind: 'seaLevel', m } : { kind: 'snowline', m }); }}
               />
             ) : panelTab === 'params' ? (
               <ParamsPanel
