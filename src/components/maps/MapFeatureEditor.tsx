@@ -41,6 +41,7 @@ export function MapFeatureToolbar({ editor, onToolChange }: { editor: MapFeature
     <MapNamedLayers editor={editor} />
     <p className="text-xs text-text-muted" role="status">{editor.drawing ? copy[`${editor.tool as MapFeature['kind']}Help`] : copy.editHelp}</p>
     {editor.failed && <p role="alert" className="text-sm text-danger">{copy.failed}</p>}
+    {!!editor.kept.length && <p role="status" className="text-sm text-accent-amber" data-testid="map-undo-kept">{copy.undoKept.replace('{names}', editor.kept.join(', '))}</p>}
   </div>;
 }
 

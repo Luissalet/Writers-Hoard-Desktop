@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import type { CodexEntry, MapFeature, Project } from '@/types';
-import { mapItemVisible, rebaseMapFeatures } from '@/components/maps/mapGeometry';
+import { mapItemVisible, rebaseMapFeatures, stepMapFeatures } from '@/components/maps/mapGeometry';
+import { parseMapKey, pinKey } from '@/components/maps/mapScale';
 import { matchEntries, searchKey } from '@/components/maps/codexSearch';
 import { createEntryFromMap } from '@/engines/maps/codexLink';
 import { decodeAnnotationData } from '@/engines/annotations/portability';
@@ -18,6 +19,8 @@ export async function testMapPicker(): Promise<string[]> {
     const entry = (id: string, title: string): CodexEntry => ({ id, projectId: P, type: 'location', title, fields: {}, content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1 });
     const entries = [entry('a', 'Puerto de Ávila'), entry('b', 'Ávila del Estuario'), entry('c', 'Orden de la Sal')];
     assert(searchKey(' ÁVILA ') === 'avila', 'searchKey');
+    // Map keys: a letter, a doubled letter or a number; a short real name is not a key.
+    assert(pinKey('Ur') === null && pinKey('AA') === 'AA' && pinKey('b.') === 'B' && parseMapKey('AA. Puerta norte\nUr - ciudad').map((l) => l.key).join() === 'AA', 'Key letters');
     assert(matchEntries(entries, 'avila').map((e) => e.id).join() === 'b,a' && matchEntries(entries, 'sal orden').map((e) => e.id).join() === 'c' && matchEntries(entries, 'zzz').length === 0, 'matchEntries');
 
     // Creating from the map: a plain entry of the chosen type; refused when the Codex is off.
@@ -49,6 +52,12 @@ export async function testMapPicker(): Promise<string[]> {
     const late = { ...shape('late', 'Agent label 2'), kind: 'label' as const, points: [{ x: 60, y: 60 }] };
     const redone = rebaseMapFeatures([...undone, late], before, renamed);
     assert(undone[0].name === 'Old border' && undone.some((f) => f.id === 'agent') && redone[0].name === 'New border' && redone.map((f) => f.id).join() === 'old,road,agent,late', `Undo/redo ${JSON.stringify(redone.map((f) => f.name))}`);
+    // Undo only reverts shapes left as the step left them: the agent restyled "old" after the rename, so undo keeps it and says so.
+    const restyled = [{ ...shape('old', 'New border'), strokeColor: '#ff0000' }, shape('road'), current[2]];
+    const guarded = stepMapFeatures(restyled, renamed, before);
+    assert(guarded.skipped.join() === 'old' && guarded.features[0].strokeColor === '#ff0000' && guarded.features[0].name === 'New border', `Guarded undo ${JSON.stringify(guarded)}`);
+    const clean = stepMapFeatures([...renamed, current[2]], renamed, before);
+    assert(!clean.skipped.length && clean.features[0].name === 'Old border' && clean.features.some((f) => f.id === 'agent'), 'Clean undo');
     const front = rebaseMapFeatures(current, before, [shape('road'), shape('old', 'Old border')]);
     assert(front.map((f) => f.id).join() === 'road,old,agent', `Order ${front.map((f) => f.id)}`);
 
@@ -65,6 +74,17 @@ export async function testMapPicker(): Promise<string[]> {
     assert(row?.anchor.type === 'map_point' && row.anchor.x === 42.5 && row.anchor.y === 61, `Stored ${JSON.stringify(row?.anchor)}`);
     const listed = (await runBridgeTool('wh_list_annotations', { projectId: P, engineId: 'maps', entityId: M })).result as { annotations: { id: string; at?: { x: number; y: number } }[] };
     assert(listed.annotations.some((r) => r.id === noteId && r.at?.x === 42.5 && r.at.y === 61), `List ${JSON.stringify(listed)}`);
+    // Moving it: CAS on the thread revision, undone by its receipt.
+    const moved = await runBridgeTool('wh_annotation_move', { projectId: P, id: noteId, expectedRevision: row.revision ?? 0, x: 10, y: 20 });
+    const movedRow = await db.annotations.get(noteId);
+    assert(moved.ok && movedRow?.anchor.x === 10 && movedRow.anchor.y === 20, `Move ${JSON.stringify(moved)}`);
+    const staleMove = await runBridgeTool('wh_annotation_move', { projectId: P, id: noteId, expectedRevision: row.revision ?? 0, x: 30, y: 30 });
+    const offMap = await runBridgeTool('wh_annotation_move', { projectId: P, id: noteId, expectedRevision: movedRow!.revision ?? 0, x: 130, y: 30 });
+    assert(!staleMove.ok && !offMap.ok, 'A stale or off-map move was accepted');
+    const receipt = (moved.result as { undo: unknown }).undo;
+    const back = await runBridgeTool('wh_annotation_undo', { projectId: P, receipt });
+    const backRow = await db.annotations.get(noteId);
+    assert(back.ok && backRow?.anchor.x === 42.5 && backRow.anchor.y === 61, `Move undo ${JSON.stringify(back)}`);
     for (const bad of [{ at: { x: 120, y: 3 } }, { at: { x: 'a', y: 3 } }, { at: { x: 1, y: 2 }, quote: 'x' }]) {
       const result = await runBridgeTool('wh_annotate', { projectId: P, engineId: 'maps', entityId: M, note: 'x', ...bad });
       assert(!result.ok, `Accepted ${JSON.stringify(bad)}`);
@@ -79,9 +99,9 @@ export async function testMapPicker(): Promise<string[]> {
     assert(broken, 'Archive accepted a spot off the map');
     return [
       'Link picker search is accent-free and word-based; entries created from a map get the chosen type, need a title and the Codex turned on',
-      'A shape saved, undone or redone from an older snapshot keeps shapes added elsewhere since (the agent\'s labels), with its own additions, removals and order applied; an undone deletion returns to its place',
+      'A shape saved, undone or redone from an older snapshot keeps shapes added elsewhere since (the agent\'s labels), with its own additions, removals and order applied; an undone deletion returns to its place; undo leaves alone a shape changed after its step and names it; "Ur" is a name, not a key letter',
       'A deleted layer no longer keeps a shape visible: hiding its remaining layer hides it',
-      'Bridge: wh_annotate takes `at` on maps (refused out of range, with a quote or on other engines); wh_list_annotations returns it; archives keep it and refuse a spot off the map',
+      'Bridge: wh_annotate takes `at` on maps (refused out of range, with a quote or on other engines); wh_list_annotations returns it; wh_annotation_move moves it with revision CAS and its receipt puts it back; archives keep it and refuse a spot off the map',
     ];
   } finally {
     await db.annotations.where('projectId').equals(P).delete();

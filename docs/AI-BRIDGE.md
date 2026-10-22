@@ -1904,7 +1904,9 @@ deshecho.
   `engineId: "maps"` acepta `at: {x, y}` (en % de la imagen, como marcadores y
   figuras; no junto a `quote`): el comentario se dibuja como marca en ese punto
   del mapa y aparece en las notas con «En el mapa». `wh_list_annotations`
-  devuelve `at`. En la interfaz: clic derecho → «Comentar aquí».
+  devuelve `at`. `wh_annotation_move` (con `expectedRevision`) lo lleva a otro
+  punto y devuelve un recibo que `wh_annotation_undo` deshace. En la interfaz:
+  clic derecho → «Comentar aquí»; la marca se arrastra para moverlo.
 - **Mapas clásicos: enlazar y crear fichas.** El enlace al Códex de figuras y
   marcadores es un buscador (sin acentos, por palabras) que también crea una
   ficha nueva del tipo elegido; clic derecho → «Nueva ficha aquí» crea la ficha y

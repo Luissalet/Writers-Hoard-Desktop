@@ -540,7 +540,7 @@ export default function MapView({
                   );
                 })}
                 {/* Comments sit on the current picture; an old era being previewed may not match it. */}
-                {!readOnly && <MapCommentMarks projectId={projectId} mapId={mapId} />}
+                {!readOnly && <MapCommentMarks projectId={projectId} mapId={mapId} toPicture={getMapPosition} onDragging={setOutlineDragging} />}
                 <MapScaleOverlay aspect={aspect} widthKm={widthKm} measure={measure} outline={realOutline ? { rings: realOutline.rings, center: realCenter } : null} toPicture={getMapPosition} onMoveOutline={setRealCenter} onDragOutline={setOutlineDragging} />
               </div>
 

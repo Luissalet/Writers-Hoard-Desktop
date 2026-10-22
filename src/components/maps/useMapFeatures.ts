@@ -3,7 +3,7 @@ import type { MapFeature, MapLayerVisibility, MapPoint, MapNamedLayer } from '@/
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import { mapFeatureCopy } from './mapFeatureCopy';
-import { DEFAULT_MAP_LAYERS, EMPTY_MAP_FEATURES, EMPTY_MAP_NAMED_LAYERS, mapPoint, minimumMapPoints, rebaseMapFeatures } from './mapGeometry';
+import { DEFAULT_MAP_LAYERS, EMPTY_MAP_FEATURES, EMPTY_MAP_NAMED_LAYERS, mapPoint, minimumMapPoints, rebaseMapFeatures, stepMapFeatures } from './mapGeometry';
 
 export interface MapFeatureOptions {
   features?: MapFeature[];
@@ -34,6 +34,8 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
   const [future, setFuture] = useState<HistoryStep[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Shapes an undo or redo left alone because they changed elsewhere after that step.
+  const [kept, setKept] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<MapFeature | null>(null);
   const [query, setQuery] = useState('');
   const [activeLayerId, setActiveLayerId] = useState('');
@@ -73,6 +75,7 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     try {
       savedFeatures.current=(await onChangeFeatures(next,before))??next;
       if (history === 'edit') {
+        setKept([]);
         const step = { before, after: savedFeatures.current };
         setPast(previous => [...previous.slice(-39), step]);
         setFuture([]);
@@ -138,7 +141,9 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     const stack = redo ? future : past;
     if (!stack.length || busy) return;
     const step = stack[stack.length - 1];
-    const target = redo ? rebaseMapFeatures(features, step.before, step.after) : rebaseMapFeatures(features, step.after, step.before);
+    // Only shapes nobody changed since the step go back; the others are left as they are and named.
+    const { features: target, skipped } = redo ? stepMapFeatures(features, step.before, step.after) : stepMapFeatures(features, step.after, step.before);
+    setKept(skipped.map(id => features.find(feature => feature.id === id)?.name ?? step.before.find(feature => feature.id === id)?.name ?? step.after.find(feature => feature.id === id)?.name ?? id));
     if (await persist(target, redo ? 'redo' : 'undo')) {
       if (redo) { setFuture(previous => previous.slice(0, -1)); setPast(previous => [...previous.slice(-39), step]); }
       else { setPast(previous => previous.slice(0, -1)); setFuture(previous => [...previous, step]); }
@@ -178,7 +183,7 @@ export function useMapFeatures({ features = EMPTY_MAP_FEATURES, layerVisibility 
     catch { setFailed(true); return false; }
     finally { lock.current = false; setBusy(false); }
   };
-  return { enabled, readOnly, copy, features, layers, namedLayers, changeNamedLayers, activeLayerId, setActiveLayerId, tool, drawing, points, preview, setPreview, selected, draft, dirty, busy, failed, past, future, pendingDelete, setPendingDelete, query, setQuery, select, patch, persist, changeTool, beginAt, finish, addPoint, save, undo, remove, toggleLayer, discard, back: () => setPoints(previous => previous.slice(0, -1)) };
+  return { enabled, readOnly, copy, features, layers, namedLayers, changeNamedLayers, activeLayerId, setActiveLayerId, tool, drawing, points, preview, setPreview, selected, draft, dirty, busy, failed, past, future, pendingDelete, setPendingDelete, query, setQuery, select, patch, persist, changeTool, beginAt, kept, clearKept: () => setKept([]), finish, addPoint, save, undo, remove, toggleLayer, discard, back: () => setPoints(previous => previous.slice(0, -1)) };
 }
 
 export type MapFeatureEditor = ReturnType<typeof useMapFeatures>;

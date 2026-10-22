@@ -119,6 +119,6 @@ export interface BacklinkPreview {
 
 export interface AnnotationMention { engineId: string; entityId: string }
 export interface AnnotationReply { id: string; body: string; mentions?: AnnotationMention[]; createdAt: number; updatedAt: number; importedComment?: import('@/engines/writings/manuscriptReview/sourceTypes').ImportedCommentOrigin }
-export interface AnnotationThreadFields { noteBody?: string; mentions?: AnnotationMention[]; replies?: AnnotationReply[]; resolvedAt?: number }
+export interface AnnotationThreadFields { noteBody?: string; mentions?: AnnotationMention[]; replies?: AnnotationReply[]; resolvedAt?: number; /** map_point comments only: where it sat, so moving it can be undone. */ anchor?: AnnotationAnchor }
 export type AnnotationUndo = { receiptId:string;projectId:string;eraId?:string;annotationId:string;expectedRevision:number;kind:'edit';before:AnnotationThreadFields } | { receiptId:string;projectId:string;eraId?:string;annotationId:string;kind:'delete';before:Annotation;reference?:AnnotationReference };
 export class AnnotationConflict extends Error { constructor(){super('annotation_thread_conflict');this.name='AnnotationConflict';} }
