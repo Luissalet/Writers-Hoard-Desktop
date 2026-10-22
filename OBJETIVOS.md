@@ -46,15 +46,15 @@ mapa enlazadas a la cronología con reproducción, edición de rótulos con
 tiradores, biblioteca de 32 sellos, reproducción del viaje día a día, rejilla
 de juego y niebla del lector por capítulos, sucesos de la historia, lente de
 comercio, figuras con estilo en los mapas clásicos, selector de fichas que las
-crea, menú de clic derecho con comentarios en el punto y cambio de imagen con
-proporciones, todo con interfaz, MCP, deshacer y ámbito de época.
+crea, menú de clic derecho con comentarios en el punto, cambio de imagen con
+proporciones, escala con medidas, lugares reales y leyenda pegada, todo con interfaz, MCP, deshacer y ámbito de época.
 
 Siguiente, en este orden:
 - Comercio: rutas de envío que rodeen bahías por tierra y usen los ríos; la
   lente también en proyecciones curvas.
 - Sucesos: reproducción de la historia por capítulos en el mapa (A2 #25) y
   enlace de un suceso a su escena del manuscrito.
-- Mapa clásico: calibrar una imagen propia (anchura en km y clave pegada, A2 #7) y reordenar los comentarios en el mapa arrastrándolos.
+- Mapa clásico: mover los comentarios del mapa arrastrándolos y medir a lo largo de una ruta dibujada con tiradores de curva (A2 #53, «bend handles»).
 - Niebla del lector también en la vista 3D (hoy: Mapa, Carta y exportaciones);
   en la Carta en vivo, dejar a la vista el marco y la cartela (la exportación PNG
   ya los conserva); arranque «tierra a tinta», poblaciones como puntos y rastro.

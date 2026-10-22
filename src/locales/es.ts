@@ -2027,6 +2027,7 @@ const es = {
   'worldgen.export.sendToMaps': 'Enviar al motor de Mapas',
   'worldgen.export.sentToMaps': 'Mapa creado en el motor de Mapas, con sus puntos de interés',
   'worldgen.export.atlasSuffix': 'atlas',
+  'worldgen.export.beforeResend': 'Antes de volver a enviar el mundo',
   'worldgen.waypoints.title': 'Puntos',
   'worldgen.waypoints.add': 'Colocar punto en el mapa',
   'worldgen.waypoints.cancelPlacing': 'Cancelar colocación',

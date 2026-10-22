@@ -220,6 +220,8 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             onEditPin={editPin}
             onDeletePin={removePin}
             focusPinId={deepLinkedPinId}
+            widthKm={activeMap?.widthKm}
+            onChangeScale={previewVersion ? undefined : async widthKm => { await editMap(activeMapId, { widthKm }); }}
             onCreateEntry={previewVersion || !codexOn ? undefined : (title, type) => createEntryFromMap(scope, title, type)}
             onCommentAt={previewVersion ? undefined : at => { setMapCommentAnchor({ mapId: activeMapId, anchor: { type: 'map_point', x: at.x, y: at.y } }); requestAnimationFrame(() => notesRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }}
           />

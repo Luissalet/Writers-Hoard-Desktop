@@ -66,6 +66,7 @@ const suites = [
   ['world-trade.browser.ts', 'testWorldTrade'],
   ['map-style.browser.ts', 'testMapStyle'],
   ['map-picker.browser.ts', 'testMapPicker'],
+  ['map-scale.browser.ts', 'testMapScale'],
   ['map-ground.browser.ts', 'testMapGround'],
 ];
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });

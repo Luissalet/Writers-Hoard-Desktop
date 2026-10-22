@@ -1876,6 +1876,30 @@ deshecho.
   interfaz hace lo mismo tras un diálogo de confirmación (`ChangeGroundDialog`).
   Los comentarios dejados en un punto del mapa se mueven con él y vuelven al
   deshacer.
+- **Mapas clásicos: escala y medidas.** `wh_set_map_scale` fija cuántos
+  kilómetros abarca la imagen de izquierda a derecha (`widthKm`, de 0,01 a
+  40000), o lo calcula con `knownDistance: {from:{x,y}, to:{x,y}, km}` (dos
+  puntos en % de la imagen que distan `km`; las proporciones se leen de la
+  imagen del mapa, o se pasan como `aspect` = alto/ancho si no hay imagen), o
+  lo quita con `clear: true`; exactamente uno de los tres. El deshacer devuelve
+  la escala anterior sólo mientras siga siendo la que puso la llamada.
+  `wh_measure_map` (sólo lectura; `points` o `featureId`) devuelve los km de la
+  línea o ruta, y en una región también `perimeterKm` (contorno cerrado) y
+  `areaKm2`, junto con el `widthKm` usado y los tiempos de viaje (a pie, a
+  caballo, en carruaje, tren, coche, avión); falla con un mensaje claro si el
+  mapa no tiene escala. `wh_list_maps` devuelve `widthKm` cuando existe, y
+  `wh_list_map_features` devuelve `lengthKm` por ruta y `areaKm2` por región
+  cuando hay escala.
+- **Mapas clásicos: rutas con estilo y claves.** `wh_add_map_feature` y
+  `wh_update_map_feature` aceptan `pathStyle` (`road`, `trail` o `river`;
+  `null` al actualizar lo quita) sólo en rutas; en regiones y rótulos se
+  rechaza. `wh_list_map_features` lo devuelve. `wh_name_map_pins_from_key`
+  toma una clave pegada («A. El molino / B) La posada / 3 - La atalaya») y
+  renombra los marcadores que aún se llaman sólo por su letra o número («A»,
+  «b.», «(3)»); `dryRun: true` sólo informa de `matches` (`pinId`, `key`,
+  `from`, `to`) y de las líneas sin marcador (`unmatched`). El deshacer
+  devuelve cada nombre antiguo sólo donde el marcador conserva el nombre que
+  puso la llamada.
 - **Mapas clásicos: comentarios en un punto.** `wh_annotate` con
   `engineId: "maps"` acepta `at: {x, y}` (en % de la imagen, como marcadores y
   figuras; no junto a `quote`): el comentario se dibuja como marca en ese punto
@@ -1891,5 +1915,5 @@ Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
 nativo stdio + HTTP), `world-labels`, `world-stamps`, `world-grid`,
 `world-journey-playback`, `world-reader-fog`, `world-story-events`,
-`world-economy`, `world-trade`, `map-style`, `map-ground`, `map-picker`, y los recorridos de interfaz
-`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story,trade}-qa.cjs` y `scripts/run-map-{style,ground,picker}-qa.cjs`.
+`world-economy`, `world-trade`, `map-style`, `map-ground`, `map-picker`, `map-scale`, y los recorridos de interfaz
+`scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story,trade}-qa.cjs` y `scripts/run-map-{style,ground,picker,scale}-qa.cjs`.

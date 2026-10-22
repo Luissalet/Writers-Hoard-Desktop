@@ -2,11 +2,15 @@ import { createElement, useRef, useState } from 'react';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Check, CircleX, ExternalLink, MousePointer2, Pentagon, Redo2, Route, Trash2, Type, Undo2 } from 'lucide-react';
 import type { CodexEntry, CodexEntryType, MapFeature, MapPoint } from '@/types';
 import { ConfirmDialog } from '@/engines/_shared';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { MapFeatureEditor } from './useMapFeatures';
 import { mapFeatureCenter, mapItemLayers, mapItemVisible, mapPoint, minimumMapPoints, withMapLayers } from './mapGeometry';
 import MapNamedLayers from './MapNamedLayers';
 import CodexEntryPicker from './CodexEntryPicker';
-import { MAP_LABEL_FONTS, MAP_LABEL_OUTLINE, MAP_LABEL_SIZE, MAP_PATTERNS, MAP_PATTERN_SCALE, MAP_STROKE_WIDTH, DEFAULT_LABEL_SIZE, patternTile, reorderFeature, resolvedLabel, resolvedStroke } from './mapStyle';
+import { MAP_LABEL_FONTS, MAP_LABEL_OUTLINE, MAP_LABEL_SIZE, MAP_PATTERNS, MAP_PATTERN_SCALE, MAP_STROKE_WIDTH, DEFAULT_LABEL_SIZE, patternTile, pathLook, MAP_PATH_STYLES, reorderFeature, resolvedLabel, resolvedStroke } from './mapStyle';
+import { areaKm2, formatKm, formatKm2, lineLengthKm } from './mapScale';
+import { mapScaleCopy } from './mapScaleCopy';
+import MapTravelReadout from './MapTravelReadout';
 
 /** SVG attribute names in the tile spec are kebab-case; React wants camelCase. */
 const reactAttrs = (attrs: Record<string, string | number>) => Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase()), v]));
@@ -64,6 +68,7 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
       const selected = editor.selected?.id === feature.id;
       const activate = () => editor.select(saved);
       const stroke = resolvedStroke(feature);
+      const look = feature.kind === 'path' ? pathLook(feature.pathStyle, stroke.color, stroke.width) : {};
       const lettering = resolvedLabel(feature);
       const tile = feature.kind === 'region' ? patternTile(feature, 1) : null;
       const attributes = { stroke: stroke.color, strokeWidth: stroke.width + (selected ? 1 : 0), vectorEffect: 'non-scaling-stroke', style: { pointerEvents: editor.drawing ? 'none' as const : 'auto' as const, cursor: 'pointer' }, onClick: (event: React.MouseEvent) => { event.stopPropagation(); activate(); }, onPointerDown: (event: React.PointerEvent) => event.stopPropagation(), tabIndex: editor.drawing ? -1 : 0, role: 'button', 'aria-label': `${editor.copy[feature.kind]}: ${feature.name}`, onKeyDown: (event: React.KeyboardEvent) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } } };
@@ -72,7 +77,7 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
         {tile && <defs><pattern id={`mp-${feature.id}`} patternUnits="userSpaceOnUse" width={tile.size} height={tile.size} patternTransform={tile.rotate ? `rotate(${tile.rotate})` : undefined}>{tile.marks.map((mark, i) => createElement(mark.tag, { key: i, ...reactAttrs(mark.attrs) }))}</pattern></defs>}
         {feature.kind === 'region' && <polygon {...attributes} points={points} fill={feature.color} fillOpacity={feature.opacity ?? .22} />}
         {tile && <polygon points={points} fill={`url(#mp-${feature.id})`} stroke="none" style={{ pointerEvents: 'none' }} data-testid={`map-pattern-${feature.id}`} />}
-        {feature.kind === 'path' && <><polyline points={points} fill="none" stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.drawing ? 'none' : 'stroke', cursor: 'pointer' }} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); activate(); }} /><polyline {...attributes} points={points} fill="none" strokeLinecap="round" strokeLinejoin="round" /></>}
+        {feature.kind === 'path' && <><polyline points={points} fill="none" stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.drawing ? 'none' : 'stroke', cursor: 'pointer' }} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); activate(); }} />{look.under && <polyline points={points} fill="none" stroke={look.under.color} strokeOpacity={look.under.opacity} strokeWidth={look.under.width + (selected ? 1 : 0)} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />}<polyline {...attributes} points={points} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={look.dash} data-path-style={feature.pathStyle ?? 'plain'} /></>}
         <text {...attributes} x={center.x} y={center.y / ratio} stroke={lettering.outline} strokeWidth={lettering.outlineWidth} fill={lettering.fill} fontSize={lettering.size} fontWeight={lettering.weight} fontStyle={lettering.style} textAnchor="middle" paintOrder="stroke" fontFamily={lettering.family} transform={lettering.rotation ? `rotate(${lettering.rotation} ${center.x} ${center.y / ratio})` : undefined} data-testid={`map-label-${feature.id}`}>{feature.name}</text>
         {/* "Add a point": a handle halfway along each edge; pressing it inserts a vertex there and drags it. Drawn under the vertices, and its ring never reaches them, so a vertex is always the one pressed. */}
         {selected && !editor.drawing && !editor.readOnly && feature.kind !== 'label' && feature.points.map((point, index) => {
@@ -110,9 +115,18 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
   </svg>;
 }
 
-export function MapFeatureInspector({ editor, entries, onOpenEntry, onCreateEntry }: { editor: MapFeatureEditor; entries: CodexEntry[]; onOpenEntry?: (entryId: string) => void; onCreateEntry?: (title: string, type: CodexEntryType) => Promise<string> }) {
+export function MapFeatureInspector({ editor, entries, onOpenEntry, onCreateEntry, scale }: { editor: MapFeatureEditor; entries: CodexEntry[]; onOpenEntry?: (entryId: string) => void; onCreateEntry?: (title: string, type: CodexEntryType) => Promise<string>; scale?: { widthKm: number; aspect: number } }) {
+  const { locale } = useTranslation();
   if (!editor.enabled) return null;
   const { copy, draft, selected } = editor;
+  const sc = mapScaleCopy[locale === 'en' ? 'en' : 'es'];
+  // Length, area and travel time once the map has a scale.
+  const measured = scale && draft && draft.kind !== 'label' ? <div className="space-y-1 rounded-lg border border-border/70 px-3 py-2 text-xs text-text-muted" data-testid="map-feature-measure">
+    {draft.kind === 'path' ? <>
+      <p>{sc.length}: <strong className="text-text-primary" data-km={lineLengthKm(draft.points, scale.widthKm, scale.aspect).toFixed(3)}>{formatKm(lineLengthKm(draft.points, scale.widthKm, scale.aspect), locale)}</strong></p>
+      <MapTravelReadout km={lineLengthKm(draft.points, scale.widthKm, scale.aspect)} />
+    </> : <p>{sc.area}: <strong className="text-text-primary" data-km2={areaKm2(draft.points, scale.widthKm, scale.aspect).toFixed(3)}>{formatKm2(areaKm2(draft.points, scale.widthKm, scale.aspect), locale)}</strong> · {sc.perimeter}: {formatKm(lineLengthKm(draft.points, scale.widthKm, scale.aspect, true), locale)}</p>}
+  </div> : null;
   const filtered = editor.features.filter(feature => `${feature.name} ${feature.description ?? ''}`.toLocaleLowerCase().includes(editor.query.toLocaleLowerCase()));
   const linked = entries.find(entry => entry.id === draft?.linkedEntryId);
   return <section className="rounded-xl border border-border bg-surface p-4 space-y-4" aria-label={copy.features}>
@@ -120,7 +134,7 @@ export function MapFeatureInspector({ editor, entries, onOpenEntry, onCreateEntr
     {!editor.features.length && <p className="text-sm text-text-muted">{copy.empty}</p>}
     {!!editor.features.length && !filtered.length && <p className="text-sm text-text-muted">{copy.noResults}</p>}
     <div className="flex flex-wrap gap-2">{filtered.map(feature => <button key={feature.id} type="button" className={`${button} ${selected?.id === feature.id ? 'border-accent-gold' : ''}`} disabled={editor.busy || editor.drawing} onClick={() => editor.select(feature)} data-testid={`map-feature-select-${feature.id}`}><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: feature.color }} /><span>{feature.name}</span><span className="text-xs text-text-muted">{copy[feature.kind]}{(!editor.layers[feature.kind] || !mapItemVisible(feature, editor.namedLayers)) && ` · ${copy.hidden}`}</span></button>)}</div>
-    {selected && draft && editor.readOnly && <div className="space-y-2 border-t border-border pt-3"><h5 className="font-semibold text-text-primary">{draft.name}</h5>{draft.description && <p className="text-sm text-text-muted whitespace-pre-wrap">{draft.description}</p>}{linked && onOpenEntry && <button type="button" className={button} onClick={() => onOpenEntry(linked.id)}><ExternalLink size={14} />{copy.openEntry}: {linked.title}</button>}</div>}
+    {selected && draft && editor.readOnly && <div className="space-y-2 border-t border-border pt-3"><h5 className="font-semibold text-text-primary">{draft.name}</h5>{measured}{draft.description && <p className="text-sm text-text-muted whitespace-pre-wrap">{draft.description}</p>}{linked && onOpenEntry && <button type="button" className={button} onClick={() => onOpenEntry(linked.id)}><ExternalLink size={14} />{copy.openEntry}: {linked.title}</button>}</div>}
     {selected && draft && !editor.readOnly && <fieldset disabled={editor.busy} className="space-y-4 border-t border-border pt-4" data-testid="map-feature-inspector">
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-xs text-text-muted space-y-1.5 block">{copy.name}<input value={draft.name} onChange={event => editor.patch({ name: event.target.value })} className={field} data-testid="map-feature-name" /></label>
@@ -128,6 +142,8 @@ export function MapFeatureInspector({ editor, entries, onOpenEntry, onCreateEntr
       </div>
       {!!editor.namedLayers.length && <fieldset className="text-xs text-text-muted space-y-1.5" data-testid="map-feature-layers"><legend>{copy.layersOf}</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{editor.namedLayers.map(layer => { const ids = mapItemLayers(draft); return <label key={layer.id} className="flex items-center gap-1.5"><input type="checkbox" className="accent-accent-gold" checked={ids.includes(layer.id)} onChange={event => editor.patch(withMapLayers(event.target.checked ? [...ids, layer.id] : ids.filter(id => id !== layer.id)))} data-testid={`map-feature-layer-${layer.id}`} />{layer.name}</label>; })}</div><p className="text-[11px]">{copy.layersHelp}</p></fieldset>}
       <label className="text-xs text-text-muted space-y-1.5 block">{copy.description}<textarea rows={2} value={draft.description ?? ''} onChange={event => editor.patch({ description: event.target.value })} className={field} /></label>
+      {draft.kind === 'path' && <label className="text-xs text-text-muted space-y-1.5 block">{sc.pathStyle}<select className={field} value={draft.pathStyle ?? ''} onChange={event => editor.patch({ pathStyle: (event.target.value || undefined) as MapFeature['pathStyle'] })} data-testid="map-feature-path-style"><option value="">{sc.pathPlain}</option>{MAP_PATH_STYLES.map(style => <option key={style} value={style}>{sc[style === 'road' ? 'pathRoad' : style === 'trail' ? 'pathTrail' : 'pathRiver']}</option>)}</select></label>}
+      {measured}
       <div className="flex items-end flex-wrap gap-4">
         <label className="text-xs text-text-muted space-y-1.5 block">{copy.color}<input type="color" value={draft.color} onChange={event => editor.patch({ color: event.target.value })} className="block h-9 w-16 rounded border border-border bg-elevated p-1" /></label>
         {draft.kind === 'region' && <label className="text-xs text-text-muted space-y-1.5 block">{copy.opacity} ({Math.round((draft.opacity ?? .22) * 100)}%)<input type="range" min="0" max="100" value={(draft.opacity ?? .22) * 100} onChange={event => editor.patch({ opacity: Number(event.target.value) / 100 })} className="block h-9 accent-accent-gold" /></label>}

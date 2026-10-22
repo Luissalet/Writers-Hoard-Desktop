@@ -124,3 +124,17 @@ export function reorderFeature(features: MapFeature[], id: string, how: 'front' 
   next.splice(target, 0, item);
   return next;
 }
+
+export const MAP_PATH_STYLES = ['road', 'trail', 'river'] as const;
+
+/**
+ * How a path's line is drawn by kind: a road gets a dark casing under it, a
+ * trail is dashed, a river has a soft bank of its own colour under it. A plain
+ * route (no style) is drawn as before.
+ */
+export function pathLook(style: MapFeature['pathStyle'], color: string, width: number): { under?: { color: string; width: number; opacity: number }; dash?: string } {
+  if (style === 'road') return { under: { color: '#2b2620', width: width + 2.5, opacity: .85 } };
+  if (style === 'trail') return { dash: `${Math.max(3, width * 2)} ${Math.max(3, width * 1.6)}` };
+  if (style === 'river') return { under: { color, width: width + 4, opacity: .28 } };
+  return {};
+}
