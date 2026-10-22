@@ -34,7 +34,8 @@ Maps, trees, calendars, typed tables, local media, Reader and static wiki retain
 their document-specific editors and exports. Generated worlds keep their look, start
 blank if wanted, measure areas against real outlines, plan journeys with the
 world's own pace and travel physics, and carry editable labels (angle, spacing,
-curve), 32 map stamps, a square or hex play grid, a reader's-eye fog that
+curve), 32 map stamps, a square or hex play grid, hand-drawn roads with their
+own thickness and pattern, places that can be duplicated or locked, a reader's-eye fog that
 reveals the map chapter by chapter, story events placed by chapter and played
 back chapter by chapter (with their order inside a chapter and who was there),
 a right-click menu (village, note, story event, a
@@ -45,7 +46,8 @@ layers), pin sizes, a searchable Codex link that can create the entry, a
 right-click menu (new entry, pin, region, route, label or comment at that spot),
 a confirmed picture change that keeps shapes in proportion, a scale with a
 measuring tool, lengths, areas, travel times and real places at the same
-scale, road/trail/river paths and a pasted key that names lettered pins;
+scale, road/trail/river paths with their own thickness and solid, dashed or
+dotted line (drawn with Enter to finish) and a pasted key that names lettered pins;
 hand-drawn map eras can follow timeline
 events and play in sequence. Each has bridge tools (see docs/AI-BRIDGE.md, section 28). The optional 5e (2014), SRD 5.1
 character profile preserves manual values and played counters; it is not a

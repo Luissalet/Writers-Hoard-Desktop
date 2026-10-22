@@ -37,7 +37,11 @@ planned events apart from happened ones. For trade, famine or prices in a
 scene, ask `wh_world_economy` for that month and settlement instead of
 inventing figures; it is deterministic for the world. To add a river that
 follows the ground, use `wh_add_spring_river` from its source (`dryRun` first
-to see where it ends) instead of drawing one by hand. On a classic (image) map,
+to see where it ends) instead of drawing one by hand; a place marked `locked: true` is
+the author's to move: do not unlock it with `wh_lock_place` unless asked; copy a
+town with `wh_duplicate_place`; to lay a road between two
+places use `wh_add_world_road` (`dryRun` first; `width`, `pattern` only when
+the author asks for a look). On a classic (image) map,
 positions are percent of the picture: list shapes with `wh_list_map_features`
 before changing one, leave a comment about a spot with `wh_annotate` `at`, and
 before replacing the picture call `wh_preview_map_ground`; only use `fit:

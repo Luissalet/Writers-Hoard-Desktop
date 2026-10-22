@@ -123,6 +123,46 @@ export const RUIN_LABEL: Record<RuinKind, string> = {
   wall: 'muralla sin dueño',
 };
 
+/** How a hand-drawn road's line is drawn, over its class's own (artery solid, track dashed). */
+export const ROAD_PATTERNS = ['solid', 'dashed', 'dotted'] as const;
+export type RoadPattern = (typeof ROAD_PATTERNS)[number];
+/** A hand-drawn road's line, as a multiple of its class's width. */
+export const ROAD_WIDTH = { min: 0.5, max: 3 } as const;
+/** The road tool's width and pattern as edit fields, only when they differ from the class's own. */
+export function roadLook(p: { roadWidth?: number; roadPattern?: RoadPattern }): { width?: number; pattern?: RoadPattern } {
+  return {
+    ...(p.roadWidth !== undefined && p.roadWidth !== 1 ? { width: p.roadWidth } : {}),
+    ...(p.roadPattern ? { pattern: p.roadPattern } : {}),
+  };
+}
+
+/**
+ * A copy of a settlement, ruin or landmark as a hand-placed mark at `at`, with
+ * the same kind and the given name; null for what cannot be copied (realms,
+ * seas, ranges, regions).
+ */
+export function duplicatePlaceEdit(
+  place: { kind: string; type: string; name: string },
+  at: { x: number; y: number },
+  name: string,
+): Extract<WorldEdit, { kind: 'marker' }> | null {
+  const base = { kind: 'marker' as const, x: at.x, y: at.y, ...(name.trim() ? { name: name.trim() } : {}) };
+  if (place.kind === 'settlement') {
+    const rank = (['capital', 'city', 'town', 'village'] as const).find((r) => r === place.type) ?? 'village';
+    return { ...base, marker: 'settlement', rank };
+  }
+  if (place.kind === 'ruin' && (Object.keys(RUIN_LABEL) as string[]).includes(place.type)) return { ...base, marker: 'ruin', ruin: place.type as RuinKind };
+  if (place.kind === 'landmark') return { ...base, marker: 'landmark', landmark: place.type as LandmarkType };
+  return null;
+}
+
+/** The keys of the places locked now: the last lock edit for each key wins. */
+export function lockedPlaceKeys(edits: readonly WorldEdit[]): Set<string> {
+  const locked = new Set<string>();
+  for (const e of edits) if (e.kind === 'lock') { if (e.locked) locked.add(e.key); else locked.delete(e.key); }
+  return locked;
+}
+
 export type WorldEdit =
   | { kind: 'recalculate'; version: 1 }
   | { kind: 'terrain'; op: TerrainOp; stroke: Stroke }
@@ -277,8 +317,12 @@ export type WorldEdit =
     key: string;
     style: import('./spatialEntities').WorldSpatialStyleOverride;
   }
-  /** A road drawn by hand between two places. */
-  | { kind: 'road'; pts: Pt[]; major: boolean }
+  /**
+   * A road drawn by hand between two places. `width` scales its line (0.5–3,
+   * absent = 1) and `pattern` overrides the class's own (an artery is solid, a
+   * track dashed).
+   */
+  | { kind: 'road'; pts: Pt[]; major: boolean; width?: number; pattern?: RoadPattern }
   /**
    * EL GRIFO DE LOS LUGARES ALEATORIOS (Luis, 2026-08-12: «no he pedido
    * abadías, casas, monasterios»). El sembrado regional — granjas, aldeas,
@@ -300,6 +344,12 @@ export type WorldEdit =
    * superteselas que la pincelada pisa se vuelven a fraguar.
    */
   | { kind: 'placesZone'; mode: 'add' | 'remove'; pts: Pt[]; radius: number }
+  /**
+   * Lock a place against accidents, or unlock it: a locked place is not picked
+   * up by the Move tool and cannot be hidden until unlocked. It changes nothing
+   * in the world; the last lock edit for a key wins.
+   */
+  | { kind: 'lock'; target: EditTarget; key: string; locked: boolean }
   /** Erase generated roads passing within a radius. */
   | { kind: 'eraseRoads'; x: number; y: number; radius: number }
   /**
@@ -491,7 +541,7 @@ export interface AppliedEdits {
   /** Generated-object key → sparse presentation overrides. */
   styles: Record<string, import('./spatialEntities').WorldSpatialStyleOverride>;
   /** Roads drawn by hand. */
-  roads: { cells: number[]; major: boolean }[];
+  roads: { cells: number[]; major: boolean; width?: number; pattern?: RoadPattern }[];
   /** Circles inside which generated roads are erased. */
   roadErasers: { x: number; y: number; radius: number }[];
   /**
@@ -884,7 +934,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       // Rasterised to cells so it draws through exactly the same road layer the
       // generated ones use — a hand-drawn road must not be distinguishable.
       const cells = polylineCells(e.pts, W, H);
-      if (cells.length >= 2) out.roads.push({ cells, major: e.major });
+      if (cells.length >= 2) out.roads.push({ cells, major: e.major, ...(e.width !== undefined ? { width: e.width } : {}), ...(e.pattern ? { pattern: e.pattern } : {}) });
     } else if (e.kind === 'realm' || e.kind === 'realmFill' || e.kind === 'realmArea') {
       // In LIST ORDER with each other, like the biome overlay: paint a province,
       // hand a corner of it back, paint over it again. Ordering is the only thing
@@ -1267,6 +1317,7 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     try { normalizeStoryEvent(record); return true; } catch { return false; }
   }
   if ((e as { kind: string }).kind === 'storyRemove') return typeof (e as { id?: unknown }).id === 'string';
+  if ((e as { kind: string }).kind === 'lock') return typeof (e as { key?: unknown }).key === 'string' && typeof (e as { locked?: unknown }).locked === 'boolean';
   if ((e as { kind: string }).kind === 'tradeSite') {
     const r = e as Record<string, unknown>;
     try { normalizeTradeSite({ id: r.id, kind: r.siteKind, x: r.x, y: r.y, size: r.size, placeId: r.placeId }); return true; } catch { return false; }
@@ -1289,6 +1340,12 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     return isStampGlyph(st.glyph) && typeof st.x === 'number' && typeof st.y === 'number'
       && (st.size === undefined || st.size === 'S' || st.size === 'M' || st.size === 'L')
       && (st.name === undefined || typeof st.name === 'string');
+  }
+  if (kind === 'road') {
+    const r = e as { pts?: unknown; major?: unknown; width?: unknown; pattern?: unknown };
+    return points(r.pts)
+      && (r.width === undefined || (typeof r.width === 'number' && r.width >= ROAD_WIDTH.min && r.width <= ROAD_WIDTH.max))
+      && (r.pattern === undefined || (ROAD_PATTERNS as readonly unknown[]).includes(r.pattern));
   }
   if (kind === 'river' || kind === 'realmArea' || kind === 'placesZone') {
     return points((e as { pts?: unknown }).pts);

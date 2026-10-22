@@ -200,6 +200,10 @@ interface Map2DProps {
   /** Right-click on the map: the world cell under the pointer and where the menu goes on screen. */
   onMapMenu?: (at: { x: number; y: number; clientX: number; clientY: number }) => void;
   onPickSettlement?: (s: Settlement) => void;
+  /** Places locked against accidents: the Move tool does not pick them up. */
+  lockedKeys?: ReadonlySet<string>;
+  /** Pressing a locked place with the Move tool: the parent says why nothing moves. */
+  onLockedPress?: (label: string) => void;
   /** Double-click: descend a league toward that ground (the parent flies). */
   onZoomTo?: (x: number, y: number) => void;
   /** Shared camera state, used when switching between 2D, 3D, and regions. */
@@ -812,7 +816,7 @@ export default function Map2D({
   selectedSpatialKey, regionalEntities = [], regionDetail, onSelectSpatialEntity,
   geography, showSettlements, showRoads = true, showBorders = false,
   showFeatures = true, roadFrom = null,
-  tool, onEdit, onTool, onPickSettlement, onZoomTo,
+  tool, onEdit, onTool, onPickSettlement, lockedKeys, onLockedPress, onZoomTo,
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
@@ -3904,7 +3908,16 @@ export default function Map2D({
     if (onEdit) kinds.push('settlement', 'entity', 'note');
     if (onMoveWaypoint) kinds.push('waypoint');
     if (!kinds.length) return null;
-    return hitAt(sx, sy, kinds, (h) => (h.kind === 'waypoint' ? !!h.waypointId : !!h.mover));
+    const hit = hitAt(sx, sy, kinds, (h) => (h.kind === 'waypoint' ? !!h.waypointId : !!h.mover));
+    // A locked place is held down where it is: what lies under it is not picked up instead.
+    if (hit?.mover && lockedKeys?.has(hit.mover.key)) return null;
+    return hit;
+  };
+  /** The locked place the Move tool is pressing on, if any. */
+  const lockedAt = (sx: number, sy: number): string | null => {
+    if (tool?.mode !== 'move' || !onEdit || !lockedKeys?.size) return null;
+    const hit = hitAt(sx, sy, ['settlement', 'entity', 'note'], (h) => !!h.mover);
+    return hit?.mover && lockedKeys.has(hit.mover.key) ? hit.mover.label : null;
   };
 
   /**
@@ -4381,6 +4394,10 @@ export default function Map2D({
     }
     if (!brushing && e.button === 0) {
       const grab = movableAt(sx, sy);
+      if (!grab) {
+        const locked = lockedAt(sx, sy);
+        if (locked !== null) onLockedPress?.(locked);
+      }
       if (grab) {
         moveRef.current = {
           hit: grab, fromX: grab.x, fromY: grab.y,

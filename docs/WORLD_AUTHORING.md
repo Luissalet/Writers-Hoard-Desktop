@@ -107,7 +107,10 @@ on foot, horseback and by carriage, regions their area and perimeter, the
 Measure tool adds up legs as you click, and a real place (Iceland, Iberia,
 Britain and Ireland, Japan, Europe…) can be laid over the map at the same
 scale and dragged around. Paths can be drawn as a road (cased), a trail
-(dashed) or a river. A pasted map key ("A. The Old Mill", "B) Crossroads Inn")
+(dashed) or a river, with their own thickness and a solid, dashed or dotted
+line. A route or region is drawn click by click: Enter finishes it, Backspace
+takes the last point back and Escape cancels; once drawn, pulling a halfway
+handle bends it with a new point and a double-click removes one. A pasted map key ("A. The Old Mill", "B) Crossroads Inn")
 names the pins still called by their letter or number, after a preview.
 
 A generated world remembers its look (style, layers, relief density, 3D skin)
@@ -145,6 +148,16 @@ Right-clicking a generated world's map offers, at that spot: a village (on dry
 land only), a note, a story event (in the Reader's view, in its chapter) and a
 spring whose river runs downhill on its own until the sea, another river or a
 hollow; Escape closes the menu.
+
+A place's card (Index, or the Place tab) can Duplicate a town, ruin or
+landmark (a copy named "<name> 2" two cells east) and Lock it: a locked place
+is not picked up by the Move tool (a note says why) and cannot be hidden until
+it is unlocked.
+
+The Road tool (Paint → Point → Road) lays a road between two towns along the
+cart route, or by hand with a drag; a track is dashed and a royal road solid,
+unless the Line row picks solid, dashed or dotted, and Thickness scales its
+line (×0.5 to ×3). The road keeps that look on the map, in 3D and on the Carta.
 
 The Events tool (Paint → Reader) puts story events on the map: a kind (fight,
 find, meeting, rest, change, travelling, camp, inn, other), a title, a chapter

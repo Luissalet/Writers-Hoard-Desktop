@@ -5,6 +5,7 @@ import WorldgenEngine from '@/engines/worldgen/components/WorldgenEngine';
 import { DEFAULT_PARAMS } from '@/engines/worldgen/core/types';
 import { saveWorldPresentation } from '@/engines/worldgen/presentation';
 import { useLocaleStore } from '@/stores/localeStore';
+import { ToastHost } from '@/components/common/toast';
 import '@/index.css';
 
 const P = 'world-presentation-preview', W = 'world-presentation-preview-world';
@@ -19,7 +20,7 @@ async function preview() {
   await db.codexEntries.put({ id: 'story-ana', projectId: P, type: 'character', title: 'Ana', fields: {}, content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1 });
   host.__lookMount = () => {
     root = createRoot(document.getElementById('root')!);
-    root.render(<MemoryRouter><div className="h-screen bg-deep text-text-primary"><WorldgenEngine projectId={P} /></div></MemoryRouter>);
+    root.render(<MemoryRouter><div className="h-screen bg-deep text-text-primary"><WorldgenEngine projectId={P} /><ToastHost /></div></MemoryRouter>);
   };
   host.__lookUnmount = () => { root?.unmount(); root = null; };
   host.__lookRow = async () => { const row = await db.generatedWorlds.get(W); return { presentation: row?.presentation ?? null, revision: row?.presentationRevision ?? 0, seed: row?.params.seed, edits: row?.edits }; };

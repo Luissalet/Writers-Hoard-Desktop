@@ -32,7 +32,9 @@ medios locales, Lector y wiki estática conservan sus editores y exportaciones.
 Los mundos generados guardan su aspecto, pueden empezar en blanco, miden áreas
 frente a contornos reales, planifican viajes con el ritmo y la física de viaje
 del propio mundo y llevan rótulos editables (ángulo, espaciado, curva), 32
-sellos, una rejilla de juego cuadrada o hexagonal, una niebla del lector que
+sellos, una rejilla de juego cuadrada o hexagonal, caminos trazados a mano con
+su grosor y su línea (continua, discontinua o punteada), lugares que se pueden
+duplicar o bloquear, una niebla del lector que
 revela el mapa capítulo a capítulo, sucesos de la historia por capítulo que se
 reproducen capítulo a capítulo (con su orden dentro del capítulo y quién
 estaba), un menú de clic derecho (pueblo, nota, suceso y
@@ -44,7 +46,8 @@ crea la ficha, un menú de clic derecho (ficha, marcador, región, ruta, rótulo
 comentario en ese punto), un cambio de imagen confirmado que conserva las
 proporciones, una escala con herramienta de medir, longitudes, superficies,
 tiempos de viaje y lugares reales a la misma escala, rutas como camino, senda o
-río y una leyenda pegada que nombra los marcadores con letra; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
+río con su grosor y línea continua, discontinua o punteada (Intro termina el
+trazo) y una leyenda pegada que nombra los marcadores con letra; las épocas de los mapas dibujados pueden seguir sucesos de la cronología
 y reproducirse en orden. Cada capacidad tiene herramientas del puente
 (docs/AI-BRIDGE.md, sección 28).
 El perfil opcional 5e (2014), SRD 5.1 conserva valores manuales y contadores

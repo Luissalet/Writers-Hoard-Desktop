@@ -60,6 +60,10 @@ export interface Road {
   cells: number[];
   /** Trade artery between major settlements, versus a local track. */
   major: boolean;
+  /** Hand-drawn roads only: line width as a multiple of the class's (absent = 1). */
+  width?: number;
+  /** Hand-drawn roads only: solid, dashed or dotted over the class's own. */
+  pattern?: import('./edits').RoadPattern;
 }
 
 export interface Realm {
@@ -802,7 +806,7 @@ export function buildHumanGeography(
       }));
     if (!erased) finalRoads.push(r);
   }
-  for (const r of world.painted?.roads ?? []) finalRoads.push({ cells: r.cells, major: r.major });
+  for (const r of world.painted?.roads ?? []) finalRoads.push({ cells: r.cells, major: r.major, ...(r.width !== undefined ? { width: r.width } : {}), ...(r.pattern ? { pattern: r.pattern } : {}) });
 
   return { depth, settlements, roads: finalRoads, realms, realmOf, features, ruins, landforms, languages, languageOf };
 }
