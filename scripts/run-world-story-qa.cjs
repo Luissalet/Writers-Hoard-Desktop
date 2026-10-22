@@ -156,6 +156,22 @@ async function main() {
   assert(!(await js(`!!document.querySelector('[data-testid="worldgen-hover-tip"]')`)), 'A hover box from before the map flew is still showing');
   tests.push(`Playing the story: the caption reads "${at5.text.trim()}" at chapter 5; Previous goes to chapter 2 (ambush only, naming Ana as there); Play advances to 5 on its own and stops at the end, with no stale hover box left where the map was`);
   fs.writeFileSync(path.join(evidence, 'story-reader-play-1440.png'), (await win.webContents.capturePage()).toPNG());
+  // Scrubbing and what is planned next: a planned flight in chapter 7, added through the bridge.
+  const flight = await js(`(async()=>{const {runBridgeTool}=await import('/src/services/aiBridge/dispatch.ts');const r=await runBridgeTool('wh_add_story_event',{worldId:'${W}',x:${ambush.x},y:${ambush.y},type:'journey',title:'La huida',chapter:7,status:'planned'});return r.ok?r.result.event.id:JSON.stringify(r);})()`);
+  assert(/^[\w-]+$/.test(flight) && !flight.startsWith('{'), `Planned flight ${flight}`);
+  await wait(`document.querySelector('[data-testid="worldgen-reader-scrub"]')?.max==='2'`, 'scrub has three notches (2, 5, 7)');
+  await setValue('[data-testid="worldgen-reader-scrub"]', '0'); await settle();
+  const scrub2 = await caption(), planned2 = await js(`document.querySelector('[data-testid="worldgen-reader-next-planned"]')?.textContent`);
+  assert(scrub2.chapter === 2 && /Emboscada/.test(scrub2.text) && /La huida/.test(planned2 || '') && /7/.test(planned2), `Scrub to the start: ${JSON.stringify(scrub2)} / ${planned2}`);
+  await setValue('[data-testid="worldgen-reader-scrub"]', '2'); await settle();
+  const scrub7 = await caption();
+  assert(scrub7.chapter === 7 && !/Emboscada|consejo/i.test(scrub7.text.split('Previsto')[0]) && /Previsto: La huida/.test(scrub7.text), `Scrub to the end: ${JSON.stringify(scrub7)}`);
+  win.webContents.invalidate(); await pause(300); await win.webContents.capturePage();
+  fs.writeFileSync(path.join(evidence, 'story-reader-scrub-1440.png'), (await win.webContents.capturePage()).toPNG());
+  tests.push(`Scrub bar: three notches for chapters 2, 5 and 7; at the start the caption names the ambush and "${planned2.trim()}", at the end chapter 7 is quiet and still says what is planned`);
+  const removed = await js(`(async()=>{const {runBridgeTool}=await import('/src/services/aiBridge/dispatch.ts');return (await runBridgeTool('wh_remove_story_event',{worldId:'${W}',id:${JSON.stringify(flight)}})).ok;})()`);
+  assert(removed, 'Removing the planned flight');
+  await wait(`document.querySelector('[data-testid="worldgen-reader-scrub"]')?.max==='1'`, 'scrub back to two notches');
   await click('Carta'); await pause(3500);
   fs.writeFileSync(path.join(evidence, 'story-reader-carta-1440.png'), (await win.webContents.capturePage()).toPNG());
   await js(`document.querySelector('[data-testid="worldgen-reader-toggle"]').click()`); await pause(300);

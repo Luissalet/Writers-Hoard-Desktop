@@ -70,7 +70,7 @@ reviewed independently (rounds r1–r13, r13 approving: stamps from r4, grid and
 | A1 #71–72 versions on the timeline | Era ↔ event links, calendar order, play, orphans, portability | PARTIAL (no snapshot strip, no "open in Timeline") |
 | A2 travel rows | World pace, speeds, ground costs, per-leg modes, rest days, MCP planner, day-by-day playback | see A2 rows #29–#37 (trade lens is in its own row below) |
 | A2 #20, #21 reader's view and fog brushes | Fog brush Seen/Heard/Hide with chapter; Reader's view per chapter in atlas, Carta and PNG; MCP paint/view/render | PRESENT (not in 3D) |
-| A2 #25 story playback | Previous / Play / Next through the chapters in the Reader's view; the map follows each chapter's events and a caption names them; MCP wh_story_chapters | PARTIAL (no scrub bar or "next planned") |
+| A2 #25 story playback | Previous / Play / Next and a scrub bar through the chapters in the Reader's view; the map follows each chapter's events, a caption names them and what is planned next; MCP wh_story_chapters | PARTIAL (no session replay, "Now" or "As you saw it") |
 | A2 #28 reader's map settings | Start state saved with the look; route marked as seen with sight radius and chapter | PARTIAL (no "land in ink", towns as dots or trail) |
 | A1 play grid | Square/hex grid in km over atlas, Carta, PNG export and MCP render | PRESENT (atlas: equirect and Mercator) |
 | A2 #43–47 trade lens | Deterministic economy: sites by ground, needs, granaries, shortages, prices, road and sea shipments, month playback; Trade tab; sites and shipments on the map; MCP | PRESENT except #46 PARTIAL (no per-port goods list); no population growth |
