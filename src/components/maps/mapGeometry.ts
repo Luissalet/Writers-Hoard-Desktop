@@ -88,7 +88,8 @@ export function stepMapFeatures(current: MapFeature[], left: MapFeature[], targe
     // Untouched since the step: present exactly as the step left it, or still absent if it removed it.
     if (now.get(id) !== was.get(id)) skipped.add(id);
   }
-  const keep = (list: MapFeature[]) => list.map(feature => skipped.has(feature.id) ? current.find(item => item.id === feature.id) : feature).filter((feature): feature is MapFeature => !!feature);
+  // A skipped shape leaves both lists, so the rebase neither changes, adds nor removes it.
+  const keep = (list: MapFeature[]) => list.filter(feature => !skipped.has(feature.id));
   const guardedLeft = keep(left), guardedTarget = keep(target);
   return { features: rebaseMapFeatures(current, guardedLeft, guardedTarget), skipped: [...skipped] };
 }
