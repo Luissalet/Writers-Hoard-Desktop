@@ -81,6 +81,7 @@ import {
 } from '../cartography/texture';
 import { requestGeographyBase } from '../cartography/geographyClient';
 import type { GeoDepth } from '../core/settlements';
+import { paintedNames, rollLabelName } from '../core/rollName';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { CartoLayers } from '../cartography/render';
 import type { CartoAnnotations } from '../cartography/annotations';
@@ -2162,13 +2163,18 @@ export default function WorldView({
                   <button type="button" data-testid="worldgen-reader-next" disabled={!readerView || nextStoryChapter(readerChapters, readerChapter) === null} aria-label={t('worldgen.reader.next')} title={t('worldgen.reader.next')}
                     onClick={() => { setStoryPlaying(false); showChapter(nextStoryChapter(readerChapters, readerChapter)); }}
                     className="border border-border rounded-lg p-1.5 text-text-primary bg-elevated hover:border-accent-gold/40 disabled:opacity-40"><SkipForward size={13} /></button>
-                  {/* Scrub through the story: one notch per chapter with events or fog. */}
-                  <input type="range" data-testid="worldgen-reader-scrub" disabled={!readerView || readerChapters.length < 2}
-                    min={0} max={Math.max(0, readerChapters.length - 1)} step={1}
-                    value={readerChapter === null ? 0 : (() => { const i = readerChapters.findIndex((c) => c >= readerChapter); return i < 0 ? Math.max(0, readerChapters.length - 1) : i; })()}
-                    onChange={(e) => { setStoryPlaying(false); showChapter(readerChapters[Number(e.target.value)] ?? null); }}
-                    aria-label={t('worldgen.reader.scrub')} title={t('worldgen.reader.scrub')}
-                    className="w-24 accent-amber-400 disabled:opacity-40" />
+                  {/* Scrub through the story: one notch per chapter with events or fog, and a last one for everything painted. */}
+                  {(() => {
+                    const atEnd = readerChapters.length;
+                    let notch = atEnd;
+                    if (readerChapter !== null) { notch = 0; readerChapters.forEach((c, i) => { if (c <= readerChapter) notch = i; }); }
+                    const said = readerChapter === null ? t('worldgen.reader.allChapters') : t('worldgen.reader.upTo').replace('{n}', String(readerChapter));
+                    return <input type="range" data-testid="worldgen-reader-scrub" disabled={!readerView || !readerChapters.length}
+                      min={0} max={atEnd} step={1} value={notch} aria-valuetext={said}
+                      onChange={(e) => { const i = Number(e.target.value); setStoryPlaying(false); showChapter(i >= atEnd ? null : readerChapters[i]); }}
+                      aria-label={t('worldgen.reader.scrub')} title={`${t('worldgen.reader.scrub')}: ${said}`}
+                      className="w-24 accent-amber-400 disabled:opacity-40" />;
+                  })()}
                   <select data-testid="worldgen-reader-start" disabled={!readerView} aria-label={t('worldgen.reader.start')} title={t('worldgen.reader.start')}
                     value={readerStart}
                     onChange={(e) => setReaderStart(e.target.value as ReaderStart)}
@@ -2793,6 +2799,7 @@ export default function WorldView({
                 storyPeople={storyPeople}
                 onReorderStory={reorderStory}
                 worldLevels={levels}
+                onRollName={(style, roll) => (geography && data ? rollLabelName(geography, String(data.params.seed), style, roll, undefined, { painted: paintedNames(data.painted) }) : null)}
                 onWorldLevel={(kind, m) => {
                   const taken = applyEdit(kind === 'seaLevel' ? { kind: 'seaLevel', m } : { kind: 'snowline', m });
                   if (!taken) toast.info(t('worldgen.story.busy'));

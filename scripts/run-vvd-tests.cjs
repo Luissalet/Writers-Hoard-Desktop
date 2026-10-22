@@ -67,6 +67,7 @@ const suites = [
   ['world-place-lock.browser.ts', 'testWorldPlaceLock'],
   ['world-lake.browser.ts', 'testWorldLake'],
   ['world-levels.browser.ts', 'testWorldLevels'],
+  ['world-roll-name.browser.ts', 'testWorldRollName'],
   ['world-economy.browser.ts', 'testWorldEconomy'],
   ['world-trade.browser.ts', 'testWorldTrade'],
   ['map-style.browser.ts', 'testMapStyle'],

@@ -47,9 +47,20 @@ tiradores, biblioteca de 32 sellos, reproducción del viaje día a día, rejilla
 de juego y niebla del lector por capítulos, sucesos de la historia, lente de
 comercio, figuras con estilo en los mapas clásicos, selector de fichas que las
 crea, menú de clic derecho con comentarios en el punto, cambio de imagen con
-proporciones, escala con medidas, lugares reales y leyenda pegada, todo con interfaz, MCP, deshacer y ámbito de época.
+proporciones, escala con medidas, lugares reales y leyenda pegada; después,
+orden y «quién estaba» en los sucesos con barra para recorrer capítulos y lo
+siguiente previsto, caminos con grosor y trazo, lugares bloqueados y
+duplicados, lagos que llenan su hondonada, nivel del mar y línea de nieve de
+todo el mundo (también en las hojas de comarca), puntos libres y paradas
+editables en los viajes y nombres tirados en las lenguas del mundo para los
+rótulos; todo con interfaz, MCP, deshacer y ámbito de época.
 
 Siguiente, en este orden:
+- Huecos restantes del catálogo A1/A2 (filas PARTIAL y ABSENT en
+  tasks/vvd1095): plantillas y tamaños de arranque, zona de inicio, modo de
+  puntos del río y flujo invertido, curvas de nivel en 2D, nubes, iluminación
+  por hora en 2D, marcas de grupo, vías propias, frases de ruta y «pasa por»,
+  mercancías por puerto, sin vado/restaurar vado.
 - Comercio: rutas de envío que rodeen bahías por tierra y usen los ríos; la
   lente también en proyecciones curvas.
 - Sucesos: enlace de un suceso a su escena del manuscrito; arrastrar para

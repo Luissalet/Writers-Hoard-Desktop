@@ -127,7 +127,12 @@ a hard pace's rest days and arrives, with a caption of what the party is doing.
 A square or hex play grid of any size in km can be laid over the atlas, the
 Carta and exports, and is saved with the world's look. Hand-drawn map eras can stand for timeline
 events: they order by the world calendar (each event in its own timeline's
-calendar), play in sequence and keep their date if the event is deleted. The
+calendar), play in sequence and keep their date if the event is deleted. Point → Label
+has a Roll button beside the text: it coins a name for a Region, Water, Range or
+Place label in one of the world's own languages (each roll walks through them),
+never one the map already uses, and shows its language and etymology. A label
+the author placed is always drawn on the atlas, even where it overlaps another
+(a long curved name covers a lot of map). The
 Labels tool picks a painted label and turns, spaces, sizes and curves it with
 handles or exact values, in the atlas, the Carta and the 3D view. Point → Stamp
 places one of 32 pictures (settlements, places such as inns, shrines, mills or
@@ -156,7 +161,8 @@ copy is a city) and Lock it: a locked place is not picked up by the Move tool
 unlocked; an agent is refused the same way.
 
 Paint → Whole world moves the sea level (±1000 m: every height shifts, so coasts
-drown or shelves come up and the biomes follow; rivers keep their courses until
+drown or shelves come up and the biomes follow, on the region sheets too; a lake
+the sea covers comes back when it goes down; rivers keep their courses until
 Recalculate climate and rivers) and the snowline (±3000 m: higher means less
 snow; only where snow is drawn changes). Each move is one undoable edit,
 written when the slider is let go.

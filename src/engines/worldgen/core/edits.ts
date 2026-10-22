@@ -808,8 +808,15 @@ function seaDistanceFor(world: WorldData, elev: Float32Array, W: number, H: numb
   return dist;
 }
 
-/** The biomes right after the newest sea-level change, per world, keyed by the list up to it. */
-const seaBiomes = new WeakMap<WorldData, { key: string; biome: Uint8Array }>();
+/**
+ * The biomes right after each sea-level change, per world, keyed by the list up
+ * to it: a list with several changes keeps one per change (the last few), so a
+ * later stroke reuses all of them instead of classifying the world again.
+ */
+const seaBiomes = new WeakMap<WorldData, Map<string, Uint8Array>>();
+const SEA_BIOMES_KEPT = 6;
+/** How often the sea-level biomes were reused or worked out; read by the tests. */
+export const SEA_BIOME_STATS = { hits: 0, misses: 0 };
 
 export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const W = world.width, H = world.height, N = W * H;
@@ -843,7 +850,9 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     start = index + 1; out.terrainChanged = true; break;
   }
   // The sea level already in the heights: what the prefix a checkpoint restored had set.
-  let seaM = 0;
+  let seaM = 0, seaMoved = false;
+  // Lakes the sea has covered in this replay: a later, lower sea gives them back; a stroke that lifts the ground does not.
+  let drownedLakes: Uint8Array | null = null;
   for (let index = 0; index < start; index++) { const e = edits[index]; if (e.kind === 'seaLevel') seaM = e.m; }
   for (let index = start; index < edits.length; index++) {
     const e = edits[index];
@@ -857,21 +866,32 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       // Lake surfaces are heights too: they move with the ground they sit on.
       const surface = world.lakeSurface;
       if (surface?.length === N) for (let i = 0; i < N; i++) if (surface[i]) surface[i] -= d;
-      for (let i = 0; i < N; i++) if (elev[i] <= 0) world.lake[i] = 0;
+      seaMoved = true;
+      // A lake under the sea reads as sea, but keeps its surface; the sea going
+      // down again brings it back.
+      drownedLakes ??= new Uint8Array(N);
+      for (let i = 0; i < N; i++) {
+        if (world.lake[i] && elev[i] <= 0) { world.lake[i] = 0; drownedLakes[i] = 1; }
+        else if (drownedLakes[i] && elev[i] > 0) { world.lake[i] = 1; drownedLakes[i] = 0; }
+      }
       // The whole world's biomes follow the new shore. Worked out once per list
       // prefix and kept, so a later stroke does not pay for the whole world again.
       const key = serializeEdits(edits.slice(0, index + 1));
-      const kept = seaBiomes.get(world);
-      const cached = kept?.key === key ? kept.biome : null;
-      if (cached) world.biome.set(cached);
+      let kept = seaBiomes.get(world);
+      if (!kept) { kept = new Map(); seaBiomes.set(world, kept); }
+      const cached = kept.get(key);
+      if (cached) { world.biome.set(cached); kept.delete(key); kept.set(key, cached); SEA_BIOME_STATS.hits++; }
       else {
+        SEA_BIOME_STATS.misses++;
         const reliefR = Math.max(3, Math.round(W / 150));
         classifyBiomes(world.params, {
           elevation: elev, temperature: world.temperature, precipitation: world.precipitation, lake: world.lake,
           flow: world.flow, relief: localRelief(elev, W, H, reliefR), seaDist: seaDistanceFor(world, elev, W, H),
           sst: world.sst, boundary: world.boundary, filters: world.params.filters,
         }, undefined, world.biome);
-        seaBiomes.set(world, { key, biome: world.biome.slice() });
+        kept.set(key, world.biome.slice());
+        // Keep the newest few: an older prefix is one the author has moved past.
+        while (kept.size > SEA_BIOMES_KEPT) kept.delete(kept.keys().next().value as string);
       }
       out.terrainChanged = true;
       continue;
@@ -942,6 +962,9 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     }
     if (changed.cells.length) { needsClassification = true; out.terrainChanged = true; }
   }
+
+  // A lake the final sea covers reads as sea.
+  if (seaMoved) for (let i = 0; i < N; i++) if (elev[i] <= 0) world.lake[i] = 0;
 
   // ---- 2. re-derive what the terrain decides -----------------------------
   if (needsClassification) {
@@ -1042,20 +1065,29 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     keyUses.set(base, n);
     return n === 1 ? base : `${base}#${n}`;
   };
-  for (const e of edits) {
+  // Where in the list each mark was put down, so an eraser takes only what came before it.
+  const placedAt = new WeakMap<object, number>();
+  for (let at = 0; at < edits.length; at++) {
+    const e = edits[at];
     if (e.kind === 'marker') {
-      out.markers.push({
+      const marker = {
         marker: e.marker, x: e.x, y: e.y, name: e.name, rank: e.rank,
         population: e.population, ruin: e.ruin, landmark: e.landmark,
-      });
+      };
+      placedAt.set(marker, at);
+      out.markers.push(marker);
     } else if (e.kind === 'label') {
       // A second label in the same cell gets its own key (`label:x,y#2`), so a
       // removal or rename of the first never reaches it.
       const key = uniqueKey(editKey('label', e.x, e.y));
-      out.labels.push({ x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle, spacing: e.spacing, curve: e.curve, key });
+      const label = { x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle, spacing: e.spacing, curve: e.curve, key };
+      placedAt.set(label, at);
+      out.labels.push(label);
     } else if (e.kind === 'stamp') {
       const key = uniqueKey(editKey('stamp', e.x, e.y));
-      out.stamps.push({ x: e.x, y: e.y, glyph: e.glyph, size: e.size, name: e.name, key });
+      const stamp = { x: e.x, y: e.y, glyph: e.glyph, size: e.size, name: e.name, key };
+      placedAt.set(stamp, at);
+      out.stamps.push(stamp);
     } else if (e.kind === 'relabel') {
       // The most recent label painted at that origin is the one changed.
       const label = [...out.labels].reverse().find((item) => item.key === e.key);
@@ -1146,7 +1178,8 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   // place stays where it is (the same rule the tools and the bridge refuse by).
   // Locked as the list stood at that eraser, not as it ends.
   const lockedNow = new Set<string>();
-  for (const e of edits) {
+  for (let at = 0; at < edits.length; at++) {
+    const e = edits[at];
     if (e.kind === 'lock') { for (const k of lockAliases(e.key)) { if (e.locked) lockedNow.add(k); else lockedNow.delete(k); } continue; }
     if (e.kind !== 'eraseMarkers') continue;
     const hit = (p: { x: number; y: number }) => {
@@ -1154,9 +1187,10 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       if (dx > W / 2) dx = W - dx;
       return dx * dx + (p.y - e.y) ** 2 <= e.radius * e.radius;
     };
-    out.markers = out.markers.filter((m) => !hit(m) || (lockedNow.size > 0 && lockedNow.has(markerKey(m))));
-    out.labels = out.labels.filter((l) => !hit(l));
-    out.stamps = out.stamps.filter((st) => !hit(st));
+    const later = (item: object) => (placedAt.get(item) ?? -1) > at;
+    out.markers = out.markers.filter((m) => later(m) || !hit(m) || (lockedNow.size > 0 && lockedNow.has(markerKey(m))));
+    out.labels = out.labels.filter((l) => later(l) || !hit(l));
+    out.stamps = out.stamps.filter((st) => later(st) || !hit(st));
   }
   // A painted label answers to the same keyed edits as a generated name:
   // renamed in place, or removed (and restored) without erasing round it.

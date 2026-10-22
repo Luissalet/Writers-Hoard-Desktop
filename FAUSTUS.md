@@ -38,7 +38,7 @@ scene, ask `wh_world_economy` for that month and settlement instead of
 inventing figures; it is deterministic for the world. To add a river that
 follows the ground, use `wh_add_spring_river` from its source (`dryRun` first
 to see where it ends) instead of drawing one by hand; move the sea level or snowline with `wh_set_world_levels` only when the author
-asks; for a lake use `wh_add_lake` (`dryRun` first,
+asks; to name a region, sea, range or town label, offer names from `wh_roll_name` (in the world's own languages, at the spot when you have one) instead of inventing them; for a lake use `wh_add_lake` (`dryRun` first,
 `size` only when the author gives one) and `wh_drain_lake` to remove one; a place marked `locked: true` is
 the author's to move: do not unlock it with `wh_lock_place` unless asked; copy a
 town with `wh_duplicate_place`; to lay a road between two
