@@ -13,7 +13,7 @@
 
 import { isStampGlyph } from '../cartography/stampGlyphs';
 import {
-  editKey, type BrushTip, type EditTarget, type Falloff, type LandOp, type PaintFilter,
+  editKey, roadLook, type BrushTip, type EditTarget, type Falloff, type LandOp, type PaintFilter,
   type Pt, type Stroke, type TerrainOp, type WorldEdit,
 } from './edits';
 import type { HumanGeography, SettlementRank } from './settlements';
@@ -61,6 +61,9 @@ export interface PaintSpec {
   /** The next stamp's optional name; cleared once it is placed. */
   stampName?: string;
   roadMajor: boolean;
+  /** Road tool: line width (multiple of the class's) and pattern over the class's own. */
+  roadWidth?: number;
+  roadPattern?: import('./edits').RoadPattern;
   /** What the point tool puts down. */
   point: PointKind;
 }
@@ -335,7 +338,7 @@ export function commitPaintStroke(
       if (ctx.negative) {
         return { kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: negativeReach(ctx) };
       }
-      return pts.length >= 2 ? { kind: 'road', pts, major: p.roadMajor } : null;
+      return pts.length >= 2 ? { kind: 'road', pts, major: p.roadMajor, ...roadLook(p) } : null;
     default:
       return null;
   }

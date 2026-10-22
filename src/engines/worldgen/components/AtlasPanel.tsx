@@ -44,6 +44,11 @@ interface AtlasPanelProps {
   onRename?: (key: string, name: string) => void;
   /** Delete the selected place from the world. */
   onDelete?: (key: string) => void;
+  /** Places locked against moving and hiding. */
+  lockedKeys?: ReadonlySet<string>;
+  onLock?: (key: string, locked: boolean) => void;
+  /** A copy of a town, ruin or landmark beside it. */
+  onDuplicate?: (place: AtlasPlace) => void;
   /** Centre the map on a place. */
   onFlyTo?: (x: number, y: number) => void;
   /**
@@ -71,7 +76,7 @@ const KIND_KEY: Record<string, string> = {
 
 export default function AtlasPanel({
   world, geography, links, selectedKey, onSelect, onRename, onDelete, onFlyTo, onEditPlan,
-  onOpenLink,
+  onOpenLink, lockedKeys, onLock, onDuplicate,
 }: AtlasPanelProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
@@ -185,11 +190,33 @@ export default function AtlasPanel({
                 {t('worldgen.place.cityPlan')}
               </button>
             )}
+            {onDuplicate && ['settlement', 'ruin', 'landmark'].includes(selected.kind) && (
+              <button
+                onClick={() => onDuplicate(selected)}
+                data-testid="atlas-duplicate"
+                className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px]"
+              >
+                {t('worldgen.place.duplicate')}
+              </button>
+            )}
+            {onLock && (
+              <button
+                onClick={() => onLock(selected.key, !lockedKeys?.has(selected.key))}
+                aria-pressed={!!lockedKeys?.has(selected.key)}
+                data-testid="atlas-lock"
+                title={lockedKeys?.has(selected.key) ? t('worldgen.place.unlockHint') : t('worldgen.place.lockHint')}
+                className={`px-2 py-1 rounded text-[10px] ${lockedKeys?.has(selected.key) ? 'bg-amber-400/25 text-amber-100' : 'bg-white/10 hover:bg-white/20'}`}
+              >
+                {lockedKeys?.has(selected.key) ? t('worldgen.place.unlock') : t('worldgen.place.lock')}
+              </button>
+            )}
             {onDelete && (
               <button
                 onClick={() => { onDelete(selected.key); onSelect(null); }}
-                title={t('worldgen.atlas.removeTitle')}
-                className="px-2 py-1 rounded bg-white/10 hover:bg-red-500/25 hover:text-red-200 text-[10px]"
+                disabled={!!lockedKeys?.has(selected.key)}
+                data-testid="atlas-remove"
+                title={lockedKeys?.has(selected.key) ? t('worldgen.place.lockedHide') : t('worldgen.atlas.removeTitle')}
+                className="px-2 py-1 rounded bg-white/10 hover:bg-red-500/25 hover:text-red-200 text-[10px] disabled:opacity-40 disabled:hover:bg-white/10 disabled:hover:text-inherit"
               >
                 {t('worldgen.atlas.remove')}
               </button>

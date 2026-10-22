@@ -5,7 +5,8 @@ import type { LabelChange } from '../core/labelShape';
 import { useMemo, useState } from 'react';
 import { Biome, type BiomeId, type RuinKind } from '../core/types';
 import type { SettlementRank } from '../core/settlements';
-import type { BrushTip, Falloff, LandOp, PaintFilter, TerrainOp } from '../core/edits';
+import type { BrushTip, Falloff, LandOp, PaintFilter, RoadPattern, TerrainOp } from '../core/edits';
+import { ROAD_PATTERNS, ROAD_WIDTH } from '../core/edits';
 import type { PointKind } from '../core/paintCommit';
 import { FOG_OPS, type FogOp } from '../core/readerFog';
 import StoryEditor from './StoryEditor';
@@ -109,6 +110,9 @@ export interface PaintTool {
   stampName?: string;
   /** Road tool: a trade artery or a local track. */
   roadMajor: boolean;
+  /** Road tool: line width as a multiple of the class's, and a pattern over the class's own (unset = as the class). */
+  roadWidth: number;
+  roadPattern?: RoadPattern;
   /** What the point tool puts down. */
   point: PointKind;
   /** The fog brush: mark ground as seen, heard of or hidden again. */
@@ -153,6 +157,7 @@ export const DEFAULT_PAINT_TOOL: PaintTool = {
   ruin: 'tower',
   rank: 'town',
   roadMajor: false,
+  roadWidth: 1,
   labelStyle: 'region',
   labelText: '',
   stampGlyph: 'inn',
@@ -732,6 +737,25 @@ export default function PaintPanel({
               <Chip on={tool.roadMajor} onClick={() => set('roadMajor', true)}>{t('worldgen.paint.road.major')}</Chip>
             </div>
           </Row>
+          <Row label={t('worldgen.paint.row.roadPattern')}>
+            <div className="flex flex-wrap gap-1" data-testid="road-pattern">
+              <Chip on={!tool.roadPattern} onClick={() => set('roadPattern', undefined)}>{t('worldgen.paint.road.byClass')}</Chip>
+              {ROAD_PATTERNS.map((pattern) => (
+                <Chip key={pattern} on={tool.roadPattern === pattern} onClick={() => set('roadPattern', pattern)}>{t(`worldgen.paint.road.pattern.${pattern}`)}</Chip>
+              ))}
+            </div>
+          </Row>
+          <div data-testid="road-width">
+            <Slider
+              label={t('worldgen.paint.road.width')}
+              value={tool.roadWidth ?? 1}
+              min={ROAD_WIDTH.min}
+              max={ROAD_WIDTH.max}
+              step={0.25}
+              format={(v) => `×${v.toFixed(2).replace(/\.?0+$/, '')}`}
+              onChange={(v) => set('roadWidth', v)}
+            />
+          </div>
           <p className="text-[10px] text-white/55 leading-snug">
             {t('worldgen.paint.road.note')}
           </p>

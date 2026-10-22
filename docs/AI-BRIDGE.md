@@ -1848,6 +1848,15 @@ deshecho.
   `who` ids de fichas del Códice que estaban; ids que no existen se rechazan),
   `wh_update_story_event` (sólo los campos dados; `chapter: null` lo desata,
   `order: null` y `who: []` los quitan), `wh_remove_story_event` y
+  `wh_lock_place` (bloquea un lugar contra mover y ocultar, `locked: false`
+  lo desbloquea; `wh_list_places`/`wh_find_place` lo marcan `locked: true` y
+  `wh_move_place`/`wh_remove_place` lo rechazan mientras esté bloqueado),
+  `wh_duplicate_place` (copia un pueblo, ruina o hito como «<nombre> 2» dos
+  celdas al este o en `x`,`y`; reinos y mares no; se deshace),
+  `wh_add_world_road` (un camino trazado a mano entre dos lugares o celdas
+  por la ruta de carro, como la herramienta Camino; `major` calzada real o
+  camino, `width` 0,5–3 y `pattern` solid/dashed/dotted; `dryRun` sólo la
+  calcula; se deshace),
   `wh_add_spring_river` (un río que baja solo desde un manantial en `place` o
   `x`,`y` hasta el mar, otro río o una hondonada; `dryRun` sólo traza; se
   deshace) y
@@ -1900,8 +1909,10 @@ deshecho.
   cuando hay escala.
 - **Mapas clásicos: rutas con estilo y claves.** `wh_add_map_feature` y
   `wh_update_map_feature` aceptan `pathStyle` (`road`, `trail` o `river`;
-  `null` al actualizar lo quita) sólo en rutas; en regiones y rótulos se
-  rechaza. `wh_list_map_features` lo devuelve. `wh_name_map_pins_from_key`
+  `null` al actualizar lo quita) y `linePattern` (`solid`, `dashed` o
+  `dotted`, sobre el del estilo; `null` vuelve al del estilo; el grosor es
+  `strokeWidth`) sólo en rutas; en regiones y rótulos se rechazan.
+  `wh_list_map_features` los devuelve. `wh_name_map_pins_from_key`
   toma una clave pegada («A. El molino / B) La posada / 3 - La atalaya») y
   renombra los marcadores que aún se llaman sólo por su letra o número («A»,
   «b.», «(3)»); `dryRun: true` sólo informa de `matches` (`pinId`, `key`,

@@ -175,8 +175,9 @@ export function newStoryId(): string {
   return `ev-${Date.now().toString(36)}-${random}`;
 }
 
-/** True for edits the world itself ignores: the reader's fog, story events and trade sites. */
+/** True for edits the world itself ignores: the reader's fog, story events, trade sites and place locks. */
 export function isViewOnlyEdit(edit: WorldEdit): boolean {
   return edit.kind === 'fog' || edit.kind === 'story' || edit.kind === 'storyRemove'
-    || edit.kind === 'tradeSite' || edit.kind === 'tradeSiteRemove' || edit.kind === 'tradeSiteRestore';
+    || edit.kind === 'tradeSite' || edit.kind === 'tradeSiteRemove' || edit.kind === 'tradeSiteRestore'
+    || edit.kind === 'lock';
 }

@@ -971,7 +971,7 @@ List the project's generated worlds: id, title, seed, grid size, how many edits 
     name: 'wh_list_places',
     description:
       `List a generated world's named places, most important first, with keys and coordinates.
-The named places of a world, most important first: settlements (capital, city, town, village), ruins, realms (countries), named features (seas, ranges, rivers) and landmarks. Each carries its stable key — the handle every other place tool takes — its cell coordinates x,y and normalised u,v in 0..1, its importance and whether the generator or the reader made it. Scope "places" is cheaper and skips realms, features and roads. ${PENDING_NOTE}`,
+The named places of a world, most important first: settlements (capital, city, town, village), ruins, realms (countries), named features (seas, ranges, rivers) and landmarks. Each carries its stable key (and locked: true when the author locked it against moving and hiding) — the handle every other place tool takes — its cell coordinates x,y and normalised u,v in 0..1, its importance and whether the generator or the reader made it. Scope "places" is cheaper and skips realms, features and roads. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -1064,7 +1064,7 @@ Rename a place by its key: a town, a ruin, a realm, a sea, a range or a landmark
     name: 'wh_move_place',
     description:
       `Move a world place to another cell, keeping its key, name and links; undoable.
-Move a place to another cell without changing its key, so its links and its name survive. Roads re-route to a moved settlement the next time the world's full geography is built. Undoable.`,
+Move a place to another cell without changing its key, so its links and its name survive. Roads re-route to a moved settlement the next time the world's full geography is built. Refused while the place is locked (wh_lock_place). Undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1082,13 +1082,49 @@ Move a place to another cell without changing its key, so its links and its name
     name: 'wh_remove_place',
     description:
       `Hide a place from the world; a reversible edit, not a deletion.
-Hide a place from the world: a town that should not exist, a ruin, a named sea, a landmark. Not a deletion — it appends a \`remove\` edit that wh_restore_place (or the writer's undo) reverses, and the place's key stays valid for exactly that purpose.`,
+Hide a place from the world: a town that should not exist, a ruin, a named sea, a landmark. Not a deletion — it appends a \`remove\` edit that wh_restore_place (or the writer's undo) reverses, and the place's key stays valid for exactly that purpose. Refused while the place is locked (wh_lock_place).`,
     writes: true,
     schema: {
       type: 'object',
       properties: {
         worldId: WORLD_ID,
         key: PLACE_KEY,
+      },
+      required: ['worldId', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_lock_place',
+    description:
+      `Lock a world place against moving and hiding, or unlock it (locked: false).
+The author's guard against accidents: a locked place is not picked up by the Move tool, its card will not hide it, and wh_move_place / wh_remove_place refuse it. wh_list_places and wh_find_place mark it locked: true. Unlock only when the author asks. Changes nothing in the world; undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: PLACE_KEY,
+        locked: { type: 'boolean', description: 'true locks (default), false unlocks.' },
+      },
+      required: ['worldId', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_duplicate_place',
+    description:
+      `Copy a settlement, ruin or landmark as a new hand-placed one, beside it or at x, y.
+The copy keeps the kind (a town's rank, a ruin's or landmark's type) and is named "<name> 2" unless name is given; without x and y it goes two cells east. Realms, seas, ranges and regions cannot be copied. A settlement copy on sea is refused. Returns the new key; undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: PLACE_KEY,
+        x: CELL_X,
+        y: CELL_Y,
+        name: s('Name of the copy (default "<name> 2").'),
       },
       required: ['worldId', 'key'],
       additionalProperties: false,
@@ -1244,6 +1280,26 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
     description: `Take a story event off a world's map by id. Not a deletion: it appends an undoable edit to the world's list (Ctrl+Z or the bridge undo puts the event back).`,
     writes: true,
     schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Event id from wh_list_story_events.') }, required: ['worldId', 'id'], additionalProperties: false },
+  },
+  {
+    name: 'wh_add_world_road',
+    description:
+      `Lay a road by hand between two places (keys from wh_find_place) or world cells, routed like the Road tool: the cart route over the real ground, through passes and around marshes, then drawn with the world's roads (map, 3D, Carta, travel). major true is a royal road (solid by default), false a track (dashed). width scales its line (0.5–3, default 1) and pattern draws it solid, dashed or dotted over its class's own. dryRun only routes it and says how long it is. Undone like any world edit; the Road tool's eraser removes it.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        from: { type: 'object', description: '{place: key} or {x, y} world cells.', properties: { place: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' } }, additionalProperties: false },
+        to: { type: 'object', description: '{place: key} or {x, y} world cells.', properties: { place: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' } }, additionalProperties: false },
+        major: { type: 'boolean', description: 'A royal road (true) or a track (false, default).' },
+        width: { type: 'number', minimum: 0.5, maximum: 3, description: 'Line width as a multiple of the class\'s, default 1.' },
+        pattern: { type: 'string', enum: ['solid', 'dashed', 'dotted'], description: 'Line pattern over the class\'s own.' },
+        dryRun: { type: 'boolean', description: 'Only route it.' },
+      },
+      required: ['worldId', 'from', 'to'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'wh_add_spring_river',
