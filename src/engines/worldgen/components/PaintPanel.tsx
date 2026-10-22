@@ -383,7 +383,8 @@ interface PaintPanelProps {
   onReorderStory?: (id: string, by: -1 | 1) => void;
   /** The whole world's sea level and snowline (metres against the generated ones), and their writer. */
   worldLevels?: { seaLevelM: number; snowlineM: number };
-  onWorldLevel?: (kind: 'seaLevel' | 'snowline', m: number) => void;
+  /** False when the change could not be taken (the world is busy). */
+  onWorldLevel?: (kind: 'seaLevel' | 'snowline', m: number) => boolean;
 }
 
 /**
@@ -1187,11 +1188,18 @@ function signedM(m: number): string {
  * edit, written when the hand lets go (or a key is released), not one per pixel.
  */
 function LevelSlider({ testId, label, value, max, step, onCommit, disabled }: {
-  testId: string; label: string; value: number; max: number; step: number; onCommit: (m: number) => void; disabled?: boolean;
+  testId: string; label: string; value: number; max: number; step: number; onCommit: (m: number) => boolean; disabled?: boolean;
 }) {
   const [draft, setDraft] = useState<number | null>(null);
-  const shown = draft ?? value;
-  const commit = () => { if (draft !== null && draft !== value) onCommit(draft); setDraft(null); };
+  // What was let go of, shown until the world catches up with it (the replay runs after a frame).
+  const [sent, setSent] = useState<number | null>(null);
+  if (sent !== null && value === sent) setSent(null);
+  const shown = draft ?? sent ?? value;
+  const commit = () => {
+    if (draft === null) return;
+    if (draft !== value && onCommit(draft)) setSent(draft);
+    setDraft(null);
+  };
   return (
     <label className="flex flex-col gap-0.5" data-testid={testId}>
       <span className="flex justify-between text-[10px] text-white/45">
@@ -1201,7 +1209,7 @@ function LevelSlider({ testId, label, value, max, step, onCommit, disabled }: {
       <input
         type="range" min={-max} max={max} step={step} value={shown} disabled={disabled}
         onChange={(e) => setDraft(Number(e.target.value))}
-        onPointerUp={commit} onKeyUp={commit} onBlur={commit}
+        onPointerUp={commit} onPointerCancel={commit} onKeyUp={commit} onBlur={commit}
         className="w-full accent-amber-400"
       />
     </label>

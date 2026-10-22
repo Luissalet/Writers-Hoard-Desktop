@@ -25,6 +25,8 @@ export interface LakeFill {
   dammed: boolean;
 }
 
+/** How far (in steps) the water may run down from the click to find its hollow. */
+export const LAKE_DESCENT_MAX = 12;
 /** The smallest pond a click makes on ground with no hollow. */
 export const LAKE_MIN_CELLS = 4;
 /** The default ceiling, scaled to the world's grid. */
@@ -50,12 +52,13 @@ function nextStamp(world: Pick<WorldData, 'width' | 'height'>, scratch?: LakeScr
 
 /**
  * The lake that forms at (x, y), in world cells. The water first runs down to
- * the bottom of the hollow it is in; from there it fills until it spills, meets
- * the sea or another lake (then there is no lake: the water just runs on), or
- * reaches the cap. Where it runs off to the sea or a lake without finding a
- * hollow, the lake is dammed at the clicked spot instead (`dammed`): the ground
- * below the dam stays dry and the water rises up the valley until the lake has
- * `minCells`. `nowhere` when the spot is sea or already a lake.
+ * the bottom of the hollow it is in (a few cells at most); from there it fills
+ * until it spills — over dry ground, or straight into the sea, which makes a
+ * lagoon — or reaches the cap. Where no hollow is that close, or the water runs
+ * off into the sea or a lake first, the lake is dammed at the clicked spot
+ * (`dammed`): the ground below the dam stays dry and the water rises up the
+ * valley until the lake has `minCells`. A lake that would touch another lake is
+ * refused (`lake`), and `nowhere` when the spot is sea or already a lake.
  */
 export function fillLake(
   world: Pick<WorldData, 'width' | 'height' | 'elevation'> & { lake?: Uint8Array },
@@ -72,8 +75,10 @@ export function fillLake(
   // Down to the bottom of the hollow: steepest descent over dry land. Reaching the
   // sea or a lake means there is no hollow on this slope, so the lake is dammed
   // where the author clicked.
-  let start = clicked, dammed = false;
-  for (let step = 0; step < W * 2; step++) {
+  // Only a short way, though: a lake that formed far down a long slope would not be
+  // the one the author clicked for, so beyond that the lake is dammed at the click.
+  let start = clicked, dammed = false, found = false;
+  for (let step = 0; step < LAKE_DESCENT_MAX; step++) {
     const cx = start % W, cy = (start / W) | 0;
     let best = -1, bestE = elev[start];
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -83,10 +88,11 @@ export function fillLake(
       const j = ny * W + ((cx + dx + W) % W);
       if (elev[j] < bestE) { bestE = elev[j]; best = j; }
     }
-    if (best < 0) break;
-    if (elev[best] <= 0 || lake?.[best]) { dammed = true; start = clicked; break; }
+    if (best < 0) { found = true; break; }
+    if (elev[best] <= 0 || lake?.[best]) break;
     start = best;
   }
+  if (!found) { start = clicked; dammed = true; }
   const { mark, stamp } = nextStamp(world, options.scratch);
   // A min-heap of the shore: the next cell the water reaches is always the lowest one.
   const heap: number[] = [];

@@ -34,6 +34,8 @@ export async function testWorldLake(): Promise<string[]> {
     const slope = new Float32Array(W * H);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) slope[y * W + x] = x >= 20 ? -0.1 : 1 - x * 0.03;
     const pond = fillLake({ width: W, height: H, elevation: slope }, 5, 8);
+    // The descent is short: a hollow far down the slope is not where the lake goes.
+    assert(pond.cells.every((i) => Math.abs((i % W) - 5) <= 1), 'The pond is not at the click');
     assert(pond.cells.length === 4 && pond.end === 'spill' && pond.dammed, `Pond ${pond.cells.length} ${pond.end} ${pond.dammed}`);
     const dammed = fillLake({ width: W, height: H, elevation: slope }, 5, 8, { minCells: 12, maxCells: 40 });
     assert(dammed.cells.length >= 12 && dammed.cells.length <= 16 && dammed.cells.every((i) => (i % W) <= 5), `A least size dams a lake of 12 cells that rises up the slope, never below the dam: ${dammed.cells.length}`);

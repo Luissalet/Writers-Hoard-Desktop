@@ -109,7 +109,11 @@ export function relevantEditsForSheets(
   const edits = deserializeEdits(editsJson);
   // A lake is worked out from the ground as a whole: a stroke far from a sheet can
   // move its spill point or its dam, so with lakes in the list every edit counts.
-  if (edits.some((e) => e.kind === 'lake')) return edits;
+  // Edits a sheet never draws: the reader's view, the story, trade sites, locks and
+  // the snowline (region sheets keep their own snow cover).
+  const blind = (e: WorldEdit) => e.kind === 'fog' || e.kind === 'story' || e.kind === 'storyRemove' || e.kind === 'tradeSite'
+    || e.kind === 'tradeSiteRemove' || e.kind === 'tradeSiteRestore' || e.kind === 'lock' || e.kind === 'snowline';
+  if (edits.some((e) => e.kind === 'lake')) return edits.filter((e) => !blind(e));
   let environmentPrefix = edits.length - 1;
   while (environmentPrefix >= 0 && edits[environmentPrefix].kind !== 'recalculate') environmentPrefix--;
   return edits.filter((e, index) => {
@@ -117,7 +121,7 @@ export function relevantEditsForSheets(
     // The checkpoint therefore depends on its entire prefix, not only local strokes.
     if (index <= environmentPrefix) return true;
     // The reader's-eye fog is a view of the map, not ground: it never reaches a sheet.
-    if (e.kind === 'fog' || e.kind === 'story' || e.kind === 'storyRemove' || e.kind === 'tradeSite' || e.kind === 'tradeSiteRemove' || e.kind === 'tradeSiteRestore' || e.kind === 'lock') return false;
+    if (blind(e)) return false;
     if ('stroke' in e) return touches(e.stroke);
     if (e.kind === 'river') return touches(asStroke(e.pts, Math.max(1, e.width)));
     if (e.kind === 'road' || e.kind === 'realmArea') {

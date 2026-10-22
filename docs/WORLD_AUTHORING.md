@@ -162,9 +162,9 @@ snow; only where snow is drawn changes). Each move is one undoable edit,
 written when the slider is let go.
 
 The River tool (Paint → Stroke → River) has a Water row: Draw a river, or
-Lake. In Lake mode a click runs down to the bottom of the hollow it is in and fills
-it until it spills; on a slope that runs to the sea the lake is dammed where
-you clicked (the Least size slider makes the water rise until it is at least
+Lake. In Lake mode a click runs a few cells down to the bottom of the hollow it is in
+and fills it until it spills (into the sea, it is a lagoon); with no hollow that
+close the lake is dammed where you clicked (the Least size slider makes the water rise until it is at least
 that big); a lake that would touch another is refused; Ctrl+click drains the lake you click,
 painted or generated. The lake is re-derived from the ground on every replay,
 so it follows later terrain edits and survives "Recalculate climate and
