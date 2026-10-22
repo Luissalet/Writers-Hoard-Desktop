@@ -18,9 +18,10 @@
 //   - text_range   : attaches to a specific plain-text range within the
 //                    entity's body text. HTML is stripped before measuring
 //                    offsets so format-only edits don't invalidate anchors.
+//   - map_point    : a spot on a classic map (x, y in percent of the image).
 
 export type NoteType = 'text' | 'image' | 'reference';
-export type AnchorType = 'entity' | 'text_range';
+export type AnchorType = 'entity' | 'text_range' | 'map_point';
 
 /**
  * Anchor data stored on every annotation. For `text_range` anchors we also
@@ -38,6 +39,9 @@ export interface AnnotationAnchor {
   contextBefore?: string;
   /** ~40 chars of plain text following the selection. */
   contextAfter?: string;
+  /** map_point only: where on the map image the note sits, in percent of its width and height. */
+  x?: number;
+  y?: number;
 }
 
 /**

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useEmbeddedToolCloseGuard } from '@/components/editor/toolBlocks/EmbeddedToolCloseContext';
-import type { CodexEntry, MapPin } from '@/types';
+import type { CodexEntry, CodexEntryType, MapPin } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
@@ -30,6 +30,9 @@ import { useMapFeatures, type MapFeatureOptions } from './useMapFeatures';
 import { MapFeatureCanvas, MapFeatureInspector, MapFeatureToolbar } from './MapFeatureEditor';
 import { exportMapSvg, mapItemLayers, mapItemVisible, withMapLayers } from './mapGeometry';
 import MapViewportControls from './MapViewportControls';
+import CodexEntryPicker from './CodexEntryPicker';
+import MapContextMenu, { type MapMenuAt } from './MapContextMenu';
+import MapCommentMarks from './MapCommentMarks';
 
 const PIN_ICONS: Record<string, { icon: typeof MapPinIcon; color: string }> = {
   city: { icon: MapPinIcon, color: '#c4973b' },
@@ -63,7 +66,14 @@ interface MapViewProps extends MapFeatureOptions {
   /** Owned by the engine so a map switch retains another pin's draft. */
   drafts?: Map<string, PinDraft>;
   onOpenEntry?: (entryId: string) => void;
+  /** Creates a Codex entry from the map (link picker, right-click "new entry here"); resolves with its id. */
+  onCreateEntry?: (title: string, type: CodexEntryType) => Promise<string>;
+  /** Opens a comment anchored at a spot on the map (right-click "comment here"). */
+  onCommentAt?: (at: { x: number; y: number }) => void;
 }
+
+/** Pin icon for an entry created from the map, by the kind of entry. */
+const ENTRY_PIN_ICON: Partial<Record<CodexEntryType, MapPin['icon']>> = { location: 'city', faction: 'castle', magic: 'temple', item: 'ruins' };
 
 export interface PinDraft {
   /** Rejected drag remains a recoverable explicit pending edit. */
@@ -115,6 +125,8 @@ export default function MapView({
   onChangeNamedLayers,
   readOnly = false,
   featureDrafts,
+  onCreateEntry,
+  onCommentAt,
 }: MapViewProps) {
   const { t } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
@@ -138,6 +150,8 @@ export default function MapView({
   const mapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageSize, setImageSize] = useState({ width: 1000, height: 600 });
+  const [menu, setMenu] = useState<MapMenuAt | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const featureEditor = useMapFeatures({ features, layerVisibility, onChangeFeatures, onChangeLayers, namedLayers, onChangeNamedLayers, readOnly, featureDrafts });
 
   const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null;
@@ -430,7 +444,7 @@ export default function MapView({
           >
             <MapViewportControls mapRef={mapRef} imageWidth={imageSize.width} imageHeight={imageSize.height} />
             <TransformComponent wrapperStyle={{ width: '100%', height: '500px' }}>
-              <div ref={mapRef} className="relative inline-block" onClick={handleMapClick}>
+              <div ref={mapRef} className="relative inline-block" onClick={handleMapClick} onContextMenu={event => { if (readOnly || featureEditor.busy) return; const at = getMapPosition(event.clientX, event.clientY); if (!at) return; event.preventDefault(); setMenu({ clientX: event.clientX, clientY: event.clientY, x: at.x, y: at.y }); }} data-testid="map-surface">
                 <img src={backgroundImage} alt={featureEditor.copy.mapAlt} draggable={false} onLoad={event => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} className="max-w-none block" style={{ maxHeight: '800px' }} />
                 <MapFeatureCanvas editor={featureEditor} aspectRatio={imageSize.width / imageSize.height} />
 
@@ -491,6 +505,7 @@ export default function MapView({
                     </div>
                   );
                 })}
+                <MapCommentMarks projectId={projectId} mapId={mapId} />
               </div>
 
             </TransformComponent>
@@ -498,7 +513,7 @@ export default function MapView({
         </div>
       )}
 
-      {backgroundImage && <MapFeatureInspector editor={featureEditor} entries={sortedCodexEntries} onOpenEntry={onOpenEntry} />}
+      {backgroundImage && <MapFeatureInspector editor={featureEditor} entries={sortedCodexEntries} onOpenEntry={onOpenEntry} onCreateEntry={onCreateEntry} />}
       </div>
 
       {/* Pin sidebar */}
@@ -572,19 +587,8 @@ export default function MapView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">{t('gallery.linkEntries')}</label>
-                  <select
-                    value={pinDraft.linkedEntryId ?? ''}
-                    onChange={(e) => patchPinDraft({ ...pinDraft, linkedEntryId: e.target.value || undefined })}
-                    className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition"
-                  >
-                    <option value="">—</option>
-                    {sortedCodexEntries.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.title} · {entry.type}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="block text-xs text-text-muted mb-1.5">{t('gallery.linkEntries')}</span>
+                  <CodexEntryPicker entries={sortedCodexEntries} value={pinDraft.linkedEntryId} onChange={id => patchPinDraft({ ...pinDraft, linkedEntryId: id })} onCreate={onCreateEntry} testId="map-pin-link" disabled={savingPin} />
                 </div>
               </div>
 
@@ -724,6 +728,17 @@ export default function MapView({
         onConfirm={handleConfirmDelete}
         onCancel={() => setPendingDeletePin(null)}
       />
+      {menu && <MapContextMenu at={menu} onClose={closeMenu}
+        onNewEntry={onCreateEntry ? async (title, type) => {
+          const entryId = await onCreateEntry(title, type);
+          const pin: MapPin = { id: generateId('pin'), projectId, mapId, name: title, icon: ENTRY_PIN_ICON[type] ?? 'custom', position: { x: menu.x, y: menu.y }, description: '', linkedEntryId: entryId, layerId: featureEditor.activeLayerId || undefined };
+          await onAddPin(pin);
+          setPlacingPin(false);
+          selectPin(pin);
+        } : undefined}
+        onAddPin={() => { setPlacingPin(false); setPendingPosition({ x: menu.x, y: menu.y }); setCreatePinFailed(false); setShowPinForm(true); }}
+        onDraw={featureEditor.enabled ? kind => { setPlacingPin(false); featureEditor.beginAt(kind, { x: menu.x, y: menu.y }); } : undefined}
+        onComment={onCommentAt ? () => onCommentAt({ x: menu.x, y: menu.y }) : undefined} />}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { createElement, useRef, useState } from 'react';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Check, CircleX, ExternalLink, MousePointer2, Pentagon, Redo2, Route, Trash2, Type, Undo2 } from 'lucide-react';
-import type { CodexEntry, MapFeature, MapPoint } from '@/types';
+import type { CodexEntry, CodexEntryType, MapFeature, MapPoint } from '@/types';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { MapFeatureEditor } from './useMapFeatures';
 import { mapFeatureCenter, mapItemLayers, mapItemVisible, mapPoint, minimumMapPoints, withMapLayers } from './mapGeometry';
 import MapNamedLayers from './MapNamedLayers';
+import CodexEntryPicker from './CodexEntryPicker';
 import { MAP_LABEL_FONTS, MAP_LABEL_OUTLINE, MAP_LABEL_SIZE, MAP_PATTERNS, MAP_PATTERN_SCALE, MAP_STROKE_WIDTH, DEFAULT_LABEL_SIZE, patternTile, reorderFeature, resolvedLabel, resolvedStroke } from './mapStyle';
 
 /** SVG attribute names in the tile spec are kebab-case; React wants camelCase. */
@@ -73,20 +74,13 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
         {tile && <polygon points={points} fill={`url(#mp-${feature.id})`} stroke="none" style={{ pointerEvents: 'none' }} data-testid={`map-pattern-${feature.id}`} />}
         {feature.kind === 'path' && <><polyline points={points} fill="none" stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.drawing ? 'none' : 'stroke', cursor: 'pointer' }} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); activate(); }} /><polyline {...attributes} points={points} fill="none" strokeLinecap="round" strokeLinejoin="round" /></>}
         <text {...attributes} x={center.x} y={center.y / ratio} stroke={lettering.outline} strokeWidth={lettering.outlineWidth} fill={lettering.fill} fontSize={lettering.size} fontWeight={lettering.weight} fontStyle={lettering.style} textAnchor="middle" paintOrder="stroke" fontFamily={lettering.family} transform={lettering.rotation ? `rotate(${lettering.rotation} ${center.x} ${center.y / ratio})` : undefined} data-testid={`map-label-${feature.id}`}>{feature.name}</text>
-        {selected && !editor.drawing && !editor.readOnly && feature.points.map((point, index) => <circle key={index} cx={point.x} cy={point.y / ratio} r={.5} fill="#eeeae2" stroke={feature.color} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.busy ? 'none' : 'auto', cursor: 'move', touchAction: 'none' }} data-testid={`map-vertex-${index}`}
-          onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-          onPointerDown={event => { event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setDrag({ pointer: event.pointerId, index, points: feature.points }); }}
-          onPointerMove={event => { if (!drag || drag.pointer !== event.pointerId || drag.index !== index) return; event.stopPropagation(); editor.patch({ points: feature.points.map((at, i) => i === index ? fromEvent(event) : at) }); }}
-          onPointerUp={event => { if (!drag || drag.pointer !== event.pointerId) return; event.stopPropagation(); event.currentTarget.releasePointerCapture(event.pointerId); setDrag(null); }}
-          onPointerCancel={() => { if (drag) editor.patch({ points: drag.points }); setDrag(null); }}
-          onClick={event => event.stopPropagation()}
-          onDoubleClick={event => { event.stopPropagation(); if (feature.points.length > minimumMapPoints(feature.kind)) editor.patch({ points: feature.points.filter((_, i) => i !== index) }); }} />)}
-        {/* "Add a point": a handle halfway along each edge; pressing it inserts a vertex there and drags it. */}
+        {/* "Add a point": a handle halfway along each edge; pressing it inserts a vertex there and drags it. Drawn under the vertices, and its ring never reaches them, so a vertex is always the one pressed. */}
         {selected && !editor.drawing && !editor.readOnly && feature.kind !== 'label' && feature.points.map((point, index) => {
           const nextIndex = index + 1 < feature.points.length ? index + 1 : (feature.kind === 'region' ? 0 : -1);
           if (nextIndex < 0) return null;
           const other = feature.points[nextIndex];
           const mid = mapPoint((point.x + other.x) / 2, (point.y + other.y) / 2);
+          const ring = Math.max(.35, Math.min(1.1, Math.hypot(other.x - point.x, (other.y - point.y) / ratio) / 2 - .6));
           // The visible dot is small; a wider transparent ring around it takes the press.
           return <g key={`mid-${index}`} style={{ pointerEvents: editor.busy ? 'none' : 'auto', cursor: 'copy', touchAction: 'none' }} data-testid={`map-midpoint-${index}`}
             onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
@@ -95,10 +89,18 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
             onPointerUp={event => { if (!drag || drag.pointer !== event.pointerId) return; event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDrag(null); }}
             onPointerCancel={() => { if (drag) editor.patch({ points: drag.points }); setDrag(null); }}
             onClick={event => event.stopPropagation()}>
-            <circle cx={mid.x} cy={mid.y / ratio} r={1.1} fill="transparent" stroke="none" />
+            <circle cx={mid.x} cy={mid.y / ratio} r={ring} fill="transparent" stroke="none" />
             <circle cx={mid.x} cy={mid.y / ratio} r={.35} fill={feature.color} fillOpacity={.55} stroke="#eeeae2" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
           </g>;
         })}
+        {selected && !editor.drawing && !editor.readOnly && feature.points.map((point, index) => <circle key={index} cx={point.x} cy={point.y / ratio} r={.5} fill="#eeeae2" stroke={feature.color} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ pointerEvents: editor.busy ? 'none' : 'auto', cursor: 'move', touchAction: 'none' }} data-testid={`map-vertex-${index}`}
+          onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+          onPointerDown={event => { event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setDrag({ pointer: event.pointerId, index, points: feature.points }); }}
+          onPointerMove={event => { if (!drag || drag.pointer !== event.pointerId || drag.index !== index) return; event.stopPropagation(); editor.patch({ points: feature.points.map((at, i) => i === index ? fromEvent(event) : at) }); }}
+          onPointerUp={event => { if (!drag || drag.pointer !== event.pointerId) return; event.stopPropagation(); event.currentTarget.releasePointerCapture(event.pointerId); setDrag(null); }}
+          onPointerCancel={() => { if (drag) editor.patch({ points: drag.points }); setDrag(null); }}
+          onClick={event => event.stopPropagation()}
+          onDoubleClick={event => { event.stopPropagation(); if (feature.points.length > minimumMapPoints(feature.kind)) editor.patch({ points: feature.points.filter((_, i) => i !== index) }); }} />)}
       </g>;
     })}
     {editor.drawing && <g pointerEvents="none">
@@ -108,7 +110,7 @@ export function MapFeatureCanvas({ editor, aspectRatio = 1 }: { editor: MapFeatu
   </svg>;
 }
 
-export function MapFeatureInspector({ editor, entries, onOpenEntry }: { editor: MapFeatureEditor; entries: CodexEntry[]; onOpenEntry?: (entryId: string) => void }) {
+export function MapFeatureInspector({ editor, entries, onOpenEntry, onCreateEntry }: { editor: MapFeatureEditor; entries: CodexEntry[]; onOpenEntry?: (entryId: string) => void; onCreateEntry?: (title: string, type: CodexEntryType) => Promise<string> }) {
   if (!editor.enabled) return null;
   const { copy, draft, selected } = editor;
   const filtered = editor.features.filter(feature => `${feature.name} ${feature.description ?? ''}`.toLocaleLowerCase().includes(editor.query.toLocaleLowerCase()));
@@ -122,7 +124,7 @@ export function MapFeatureInspector({ editor, entries, onOpenEntry }: { editor: 
     {selected && draft && !editor.readOnly && <fieldset disabled={editor.busy} className="space-y-4 border-t border-border pt-4" data-testid="map-feature-inspector">
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-xs text-text-muted space-y-1.5 block">{copy.name}<input value={draft.name} onChange={event => editor.patch({ name: event.target.value })} className={field} data-testid="map-feature-name" /></label>
-        <label className="text-xs text-text-muted space-y-1.5 block">{copy.linkedEntry}<select className={field} value={draft.linkedEntryId ?? ''} onChange={event => editor.patch({ linkedEntryId: event.target.value || undefined })} data-testid="map-feature-link"><option value="">{copy.noLink}</option>{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>
+        <div className="min-w-0 text-xs text-text-muted space-y-1.5 block"><span>{copy.linkedEntry}</span><CodexEntryPicker entries={entries} value={draft.linkedEntryId} onChange={id => editor.patch({ linkedEntryId: id })} onCreate={onCreateEntry} testId="map-feature-link" disabled={editor.busy} /></div>
       </div>
       {!!editor.namedLayers.length && <fieldset className="text-xs text-text-muted space-y-1.5" data-testid="map-feature-layers"><legend>{copy.layersOf}</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{editor.namedLayers.map(layer => { const ids = mapItemLayers(draft); return <label key={layer.id} className="flex items-center gap-1.5"><input type="checkbox" className="accent-accent-gold" checked={ids.includes(layer.id)} onChange={event => editor.patch(withMapLayers(event.target.checked ? [...ids, layer.id] : ids.filter(id => id !== layer.id)))} data-testid={`map-feature-layer-${layer.id}`} />{layer.name}</label>; })}</div><p className="text-[11px]">{copy.layersHelp}</p></fieldset>}
       <label className="text-xs text-text-muted space-y-1.5 block">{copy.description}<textarea rows={2} value={draft.description ?? ''} onChange={event => editor.patch({ description: event.target.value })} className={field} /></label>

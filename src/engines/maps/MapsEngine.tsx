@@ -2,7 +2,7 @@ import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { readEraRow, listEraRows } from '@/services/worldEras/store';
 import type { MapPin, WorldMap } from '@/types';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ExternalLink, Link2, Map } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -19,10 +19,16 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
 import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
 import type { TimelineEvent } from '@/types';
-import { worldMapOps, mapPinOps, captureMapVersion, updateMapVersion, deleteMapVersion, restoreMapVersion } from './operations';
+import { createEntryFromMap } from './codexLink';
+import { useProject } from '@/hooks/useProjects';
+import type { AnnotationAnchor } from '@/engines/annotations/types';
+import { worldMapOps, mapPinOps, captureMapVersion, updateMapVersion, deleteMapVersion, restoreMapVersion, changeMapGround } from './operations';
+import ChangeGroundDialog from '@/components/maps/ChangeGroundDialog';
+import { remapMapContent, type GroundFitMode, type GroundSize } from '@/components/maps/mapGround';
+import { mapGroundCopy } from '@/components/maps/mapGroundCopy';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const scope = useWorldEraScope(projectId);
   // Timeline moments map eras can stand for. A map stays usable when the
   // timeline cannot be read: the history then simply offers no events.
@@ -39,6 +45,8 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   const [activeMapId, setActiveMapId] = useState<string>('');
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
   const [restoreEpoch, setRestoreEpoch] = useState(0);
+  // A replacement image waiting for the author's confirmation (only when the map already has one).
+  const [pendingGround, setPendingGround] = useState<string | null>(null);
   const [featureDrafts] = useState(() => createLocalDraftStore<MapFeature>(`wh.map-features-drafts.v1.${projectId}${scope.eraId ? `.era:${scope.eraId}` : ''}`, (value): value is MapFeature => {
     if (!value || typeof value !== 'object') return false;
     const draft = value as Partial<MapFeature>;
@@ -51,6 +59,11 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   }));
   const { items: pins, addItem: addPin, editItem: editPin, removeItem: removePin, refresh: refreshPins } = useMapPins(activeMapId);
   const { items: codexEntries } = useCodexEntries(projectId);
+  const { project } = useProject(projectId);
+  const codexOn = project?.enabledEngines.includes('codex') ?? false;
+  // A comment started from a spot on the map; the notes panel below opens its composer.
+  const [mapCommentAnchor, setMapCommentAnchor] = useState<{ mapId: string; anchor: AnnotationAnchor } | null>(null);
+  const notesRef = useRef<HTMLDivElement>(null);
 
   useAutoSelect(maps, activeMapId, setActiveMapId);
 
@@ -125,6 +138,28 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     }
   };
 
+  const applyGround = async (image: string, change: { mode: GroundFitMode; oldSize: GroundSize | null; newSize: GroundSize }) => {
+    await changeMapGround(activeMapId, { image, ...change, versionName: mapGroundCopy[locale].versionName }, scope);
+    // Unsaved shape drafts are in the old picture's coordinates: move them with the saved shapes.
+    if (change.mode === 'keep' && change.oldSize && featureDrafts.size) {
+      const moved = remapMapContent({ features: [...featureDrafts.values()], pins: [] }, change.oldSize, change.newSize, 'keep').features;
+      moved.forEach(feature => featureDrafts.set(feature.id, feature));
+    }
+    await Promise.all([refreshMaps(), refreshPins()]);
+    setPendingGround(null);
+    setPreviewVersionId(null);
+    setRestoreEpoch(value => value + 1);
+  };
+
+  const handleUploadBackground = (image: string) => {
+    // With no image yet there is nothing to compare or move: apply it at once.
+    if (!activeMap?.backgroundImage) {
+      void editMap(activeMapId, { backgroundImage: image, source: 'uploaded', sourceWorldId: undefined, sourceRevision: undefined });
+      return;
+    }
+    setPendingGround(image);
+  };
+
   return (
     <div className="space-y-4">
       {activeMapId && (
@@ -180,24 +215,35 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             onOpenEntry={(entryId) => navigate(`/project/${projectId}/codex?entry=${encodeURIComponent(entryId)}`)}
             drafts={pinDrafts}
             codexEntries={codexEntries}
-            onUploadBackground={(img) => editMap(activeMapId, {
-              backgroundImage: img,
-              source: 'uploaded',
-              sourceWorldId: undefined,
-              sourceRevision: undefined,
-            })}
+            onUploadBackground={handleUploadBackground}
             onAddPin={addPin}
             onEditPin={editPin}
             onDeletePin={removePin}
             focusPinId={deepLinkedPinId}
+            onCreateEntry={previewVersion || !codexOn ? undefined : (title, type) => createEntryFromMap(scope, title, type)}
+            onCommentAt={previewVersion ? undefined : at => { setMapCommentAnchor({ mapId: activeMapId, anchor: { type: 'map_point', x: at.x, y: at.y } }); requestAnimationFrame(() => notesRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }}
           />
+          {activeMap?.backgroundImage && pendingGround && (
+            <ChangeGroundDialog
+              open
+              oldImage={activeMap.backgroundImage}
+              newImage={pendingGround}
+              features={activeMap.features ?? []}
+              pins={pins}
+              onCancel={() => setPendingGround(null)}
+              onChooseAnother={setPendingGround}
+              onConfirm={change => applyGround(pendingGround, change)}
+            />
+          )}
           {/* Annotation surface — margin notes + backlinks for the active map */}
-          <div className="pt-2 border-t border-border">
+          <div ref={notesRef} className="pt-2 border-t border-border">
             <AnnotationSurface
               projectId={projectId}
               engineId="maps"
               entityId={activeMapId}
               layout="stack"
+              pendingAnchor={mapCommentAnchor?.mapId === activeMapId ? mapCommentAnchor.anchor : null}
+              onPendingAnchorConsumed={() => setMapCommentAnchor(null)}
             />
           </div>
         </>

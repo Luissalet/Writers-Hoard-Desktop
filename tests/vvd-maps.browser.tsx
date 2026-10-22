@@ -65,7 +65,8 @@ export async function testVvdMaps(): Promise<string[]> {
     await draw('region', [[15, 20], [55, 15], [50, 65], [20, 70]]);
     let region = (await saved()).features![0];
     assert(region.kind === 'region' && region.points.length === 4 && Math.abs(region.points[0].x - 15) < .2, 'Polygon persists in image percentages');
-    await act(async () => { typeInto(node<HTMLInputElement>('map-feature-name'), 'Northern <province>'); typeInto(node<HTMLSelectElement>('map-feature-link'), E); });
+    await act(async () => { typeInto(node<HTMLInputElement>('map-feature-name'), 'Northern <province>'); });
+    await click('map-feature-link'); await act(async () => { typeInto(node<HTMLInputElement>('map-feature-link-search'), 'nort'); }); await click(`map-feature-link-option-${E}`);
     await click('map-feature-save');
     region = (await saved()).features![0];
     assert(region.name === 'Northern <province>' && region.linkedEntryId === E, 'Metadata and Codex link persisted');

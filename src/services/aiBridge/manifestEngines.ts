@@ -803,6 +803,21 @@ Optional: description, codex link, named layer, fill colour and opacity, outline
       order: s('Drawing order move.', { enum: ['front', 'forward', 'backward', 'back'] }),
     }, required: ['mapId', 'id'], additionalProperties: false },
   },
+  {
+    name: 'wh_preview_map_ground', writes: false,
+    description: 'Before replacing a classic map\'s image: compare a candidate image (galleryAssetId from wh_list_images, or imageDataUrl) with the current one. Returns both pixel sizes, whether they have the same shape (aspect ratios within 2%), and how many places, zones, paths and names move with the map. Nothing is changed.',
+    schema: { type: 'object', properties: {
+      mapId: s('Map id.'), galleryAssetId: s('Gallery image id to use as the new ground.'), imageDataUrl: s('A base64 data:image/... URL; use this or galleryAssetId, not both.'),
+    }, required: ['mapId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_change_map_ground', writes: true,
+    description: 'Replace a classic map\'s ground image with a gallery image (galleryAssetId) or a base64 data URL (imageDataUrl). Shapes and pins are percentages of the image, so a new image with another shape would stretch them: fit "keep" (default) keeps their proportions by placing the old drawing centred inside the new image, "stretch" leaves their coordinates as they are. The map is first saved as an era ("Before changing the ground image"). Undo restores the image, shapes, pins and removes that era, if none of them changed since.',
+    schema: { type: 'object', properties: {
+      mapId: s('Map id.'), galleryAssetId: s('Gallery image id to use as the new ground.'), imageDataUrl: s('A base64 data:image/... URL; use this or galleryAssetId, not both.'),
+      fit: s('How shapes and pins fit a differently shaped image. Default keep.', { enum: ['keep', 'stretch'] }),
+    }, required: ['mapId'], additionalProperties: false },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1883,6 +1898,13 @@ Leave a margin note on something. Pass \`quote\` with the exact phrase you are c
         entityId: s('Id of the thing you are annotating.'),
         note: s('What you want to say. Plain text or Markdown.'),
         quote: s('Exact phrase from the entity to anchor to. Must match the text as written.'),
+        at: {
+          type: 'object',
+          description: 'Classic maps only (engineId "maps"): the spot the comment points at, in percent of the map image (x from the left, y from the top), the same units as pins and shapes. The note shows as a marker on the map. Not with quote.',
+          properties: { x: { type: 'number', minimum: 0, maximum: 100 }, y: { type: 'number', minimum: 0, maximum: 100 } },
+          required: ['x', 'y'],
+          additionalProperties: false,
+        },
       },
       required: ['engineId', 'entityId', 'note'],
       additionalProperties: false,

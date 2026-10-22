@@ -10,7 +10,7 @@ async function preview() {
   useLocaleStore.setState({ locale: 'es' });
   const projectId = 'vvd-map-preview', mapId = 'vvd-map-preview-atlas';
   // The map belongs to a real project, as every map in the app does; annotation panels read it.
-  await db.projects.put({ id: projectId, title: 'Las Tierras del Estuario', type: 'standalone', mode: 'custom', color: '#cab57d', description: '', status: 'draft', enabledEngines: ['maps'], engineOrder: ['maps'], createdAt: 1, updatedAt: 1 } as never);
+  await db.projects.put({ id: projectId, title: 'Las Tierras del Estuario', type: 'standalone', mode: 'custom', color: '#cab57d', description: '', status: 'draft', enabledEngines: ['maps', 'codex'], engineOrder: ['maps', 'codex'], createdAt: 1, updatedAt: 1 } as never);
   const canvas = document.createElement('canvas'); canvas.width = 1400; canvas.height = 800;
   const context = canvas.getContext('2d')!;
   context.fillStyle = '#334c51'; context.fillRect(0, 0, 1400, 800);
@@ -25,6 +25,11 @@ async function preview() {
     { id: 'road', kind: 'path', name: 'Camino de la Sal', color: '#e4a853', points: [{ x: 29, y: 46 }, { x: 43, y: 52 }, { x: 59, y: 49 }, { x: 74, y: 65 }] },
     { id: 'sea', kind: 'label', name: 'Estuario de las Brumas', color: '#e2e7df', points: [{ x: 76, y: 25 }] },
   ] });
+  // Two Codex entries for the link picker (one with an accent, to search without it).
+  await db.codexEntries.bulkPut([
+    { id: 'avila', projectId, type: 'location', title: 'Ávila del Estuario', fields: {}, content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1 },
+    { id: 'orden', projectId, type: 'faction', title: 'Orden de la Sal', fields: {}, content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1 },
+  ]);
   await db.mapPins.bulkPut([
     { id: 'harbour', projectId, mapId, name: 'Puerto del Viento', icon: 'port', position: { x: 73, y: 66 }, description: 'El puerto de entrada al estuario.' },
     { id: 'fortress', projectId, mapId, name: 'Torre de Sal', icon: 'castle', position: { x: 30, y: 45 } },
