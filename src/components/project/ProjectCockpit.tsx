@@ -31,6 +31,7 @@ import HealthRecoveryPanel from './HealthRecoveryPanel';
 import CreativeDevelopmentLab from './CreativeDevelopmentLab';
 import CreativeLaunchpad from './CreativeLaunchpad';
 import AssetsLibrary from './AssetsLibrary';
+import ProjectHomeTools, { DocumentGrowthPanel } from './ProjectHomeTools';
 import {
   COCKPIT_GROUPS,
   COCKPIT_TAB_LABEL_KEYS,
@@ -263,6 +264,11 @@ function Overview({
                 : t('projectCockpit.overview.openHealth')
           }
         />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        {data.documentGrowth && <DocumentGrowthPanel growth={data.documentGrowth} />}
+        <ProjectHomeTools key={projectId} projectId={projectId} data={data} onReview={onOpenHealth} onContinue={onManageEngines} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">

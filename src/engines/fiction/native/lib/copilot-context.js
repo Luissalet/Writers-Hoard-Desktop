@@ -44,7 +44,7 @@ export function entityPatchBody(changed, withSecrets) {
 
 // A snapshot must never carry the GM's secrets, whatever the form holds.
 export function publicFields(fields) {
-  const { secrets: _secrets, ...rest } = fields || {};
+  const { secrets: _secrets, dm_notes: _dmNotes, ...rest } = fields || {};
   return rest;
 }
 

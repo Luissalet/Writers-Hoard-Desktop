@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from pydantic import BaseModel, Field
 
 from . import __version__, backend, consistency, context as context_mod
-from . import db, delta as delta_mod, dice, exchange, export, hub_bridge, narration, narrator, prospero, store, tables, views
+from . import db, delta as delta_mod, dice, exchange, export, hub_bridge, narration, narrator, prospero, sessions, store, tables, views
 from .hoard_link import family, tokens
 from .hoard_link.guard import install_guard
 
@@ -263,6 +263,27 @@ class SessionRenameAgentBody(BaseModel):
     world: str
     session: str
     title: str
+
+
+class SessionListDetailsBody(BaseModel):
+    world: str
+    session: Optional[str] = None
+    include_dm_notes: bool = False
+
+
+class SessionPlanBody(BaseModel):
+    title: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionPlanAgentBody(SessionPlanBody):
+    world: str
+
+
+class SessionDetailsUpdateBody(BaseModel):
+    world: str
+    session: str
+    patch: dict[str, Any]
 
 
 class TimelineCreateBody(BaseModel):
@@ -676,6 +697,31 @@ def create_app(data_dir: Path, static_dir: Optional[Path] = None, port: int = DE
             session_id = store.resolve_session_id(C(), wid, session)
             return store.list_turns(C(), session_id)
 
+    @app.get("/api/worlds/{world}/session-details")
+    async def list_session_details_ep(world: str):
+        with _db_lock:
+            wid = store.resolve_world_id(C(), world)
+            return sessions.list_details(C(), wid, include_dm_notes=True)
+
+    @app.post("/api/worlds/{world}/session-plans")
+    async def create_session_plan_ep(world: str, body: SessionPlanBody):
+        with _db_lock:
+            wid = store.resolve_world_id(C(), world)
+            return sessions.create_plan(C(), wid, body.title, body.details, include_dm_notes=True)
+
+    @app.patch("/api/worlds/{world}/sessions/{session}/details")
+    async def update_session_details_ep(world: str, session: str, body: dict[str, Any]):
+        with _db_lock:
+            wid = store.resolve_world_id(C(), world)
+            return sessions.update_details(C(), wid, session, body, include_dm_notes=True)
+
+    @app.get("/api/worlds/{world}/sessions/{session}/recap.md")
+    async def session_recap_ep(world: str, session: str, draft: bool = False):
+        with _db_lock:
+            wid = store.resolve_world_id(C(), world)
+            text = sessions.recap_markdown(C(), wid, session, draft)
+        return PlainTextResponse(text, media_type="text/markdown")
+
     @app.get("/api/worlds/{world}/dice_log")
     async def list_dice_log_ep(world: str, limit: int = 20):
         with _db_lock:
@@ -897,6 +943,27 @@ def create_app(data_dir: Path, static_dir: Optional[Path] = None, port: int = DE
     async def a_session_rename(body: SessionRenameAgentBody):
         wid = store.resolve_world_id(C(), body.world)
         return store.rename_session(C(), wid, body.session, body.title)
+
+    @app.post("/api/agent/wh_story_session_list")
+    @agent_call("wh_story_session_list")
+    async def a_session_list_details(body: SessionListDetailsBody):
+        with _db_lock:
+            wid = store.resolve_world_id(C(), body.world)
+            return sessions.list_details(C(), wid, body.session, body.include_dm_notes)
+
+    @app.post("/api/agent/wh_story_session_create")
+    @agent_call("wh_story_session_create")
+    async def a_session_plan(body: SessionPlanAgentBody):
+        with _db_lock:
+            wid = store.resolve_world_id(C(), body.world)
+            return sessions.create_plan(C(), wid, body.title, body.details)
+
+    @app.post("/api/agent/wh_story_session_update")
+    @agent_call("wh_story_session_update")
+    async def a_session_update_details(body: SessionDetailsUpdateBody):
+        with _db_lock:
+            wid = store.resolve_world_id(C(), body.world)
+            return sessions.update_details(C(), wid, body.session, body.patch)
 
     @app.post("/api/agent/session_export")
     @agent_call("session_export")

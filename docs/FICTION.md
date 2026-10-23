@@ -53,10 +53,11 @@ Disabling a feature waits for active requests. Disabling Worlds and play and
 quitting Writer close clients, SQLite and the worker; parent-pipe EOF also closes
 the worker. A catalogue/status read never launches it again.
 
-All 203 previous Writer MCP tools remain, plus the 19 original fiction tools
+Writer's existing MCP tools remain, including the 19 original fiction tools
 with their original names, return shapes and annotations, and two controls:
-`wh_story_modules` and `wh_story_module_set`. The compiled 224-tool catalogue is
-available even with Writer closed. Calls use Writer's existing bridge/token.
+`wh_story_modules` and `wh_story_module_set`. Three additive tools manage session
+preparation, attendance and recaps. The compiled catalogue is available even
+with Writer closed. Calls use Writer's existing bridge/token.
 Its existing write switch applies to new tools too.
 
 The native REST API is under the same Writer listener: `/api/fiction/worlds`,
@@ -93,3 +94,77 @@ startup, the complete Writer renderer and joined worker shutdown.
 `npm run test:fiction -- --packaged` repeats with the bundled executable.
 Core/API regressions import the incorporated `writer_story` package; the former
 standalone launcher/logging entrypoint is not shipped.
+
+## Session preparation, attendance and recaps (1095)
+
+Fiction → Sessions now distinguishes **Plan session** from the existing **Start
+new session**. Planning never changes the current session for new turns. Open
+**Preparation and recap** to record a scheduled local date/time (stored as UTC
+seconds with the computer's time zone), duration in minutes, place, opening hook,
+private GM notes, status and attendance. Attendance can use player names alone
+or link to characters in the same fiction world. Old sessions remain
+unclassified until edited; their original rows and timestamps are unchanged.
+
+Starting a chosen session explicitly selects it for new turns. Marking it played
+sets its end time if absent and deselects it only if it was current. Returning it
+to planned deselects it without clearing historical timestamps. Changes to
+unrelated preparation fields preserve the current session. The outline-based
+Session planner remains a separate preparation view.
+
+Selecting a new live session also marks the previous current session played and
+sets its end time if it had explicitly been marked live in preparation. This
+transition preserves all turns and recap drafts. A legacy current session without
+preparation details is left unchanged. The preparation form states this behavior
+before starting; planning alone never completes another session.
+
+Recaps are written by the author, with no model call. **Save preparation and
+draft** saves the text; **Save recap as ready and mark played** atomically makes
+it ready to share locally and marks the session played. Nothing is sent or
+published externally. Editing ready text returns it to draft unless explicitly
+marked ready again. A separate Markdown download contains only the saved recap;
+draft downloads are explicitly labelled. Chapter exports keep their original
+transcript behavior and never substitute the recap.
+
+GM notes are excluded from Faustus form context, recap downloads, chapters,
+bibles and the default results of the new tools. A deliberate
+`include_dm_notes:true` reads them through `wh_story_session_list`. The complete
+private JSON archive retains them. Full JSON archives add an optional
+`session_details` collection while preserving the existing `sessions` shape;
+imports remap session and attendance character ids, retain names without a
+surviving character reference, and never activate an imported session. Old
+archives without the new collection still import.
+
+The new tools `wh_story_session_list`, `wh_story_session_create` and
+`wh_story_session_update` share the native API implementation. They add to the
+19 original fiction tool schemas, descriptions, annotations and return shapes;
+those original contracts are frozen in the regression fixture. Metadata lives
+in a companion SQLite table, created only when the existing fiction worker
+opens a database on explicit use. Catalogue/status reads and enabling the module
+do not open or migrate a database.
+
+Characters also accept the additive `retired` status (`retirado`/`retirada` are
+normalized). The Bible status selector and an explicit per-character session-end
+action use the existing entity update operation. Retired characters remain
+readable, searchable, available to explicit scene context and included in full
+archives; no character is deleted or automatically retired when a session ends.
+The original `entity_upsert` schema remains an open status string and its
+historical description remains unchanged.
+
+Native endpoints added: `GET /api/worlds/{world}/session-details`,
+`POST /api/worlds/{world}/session-plans`,
+`PATCH /api/worlds/{world}/sessions/{session}/details`, and
+`GET /api/worlds/{world}/sessions/{session}/recap.md?draft=false`, plus the three
+matching agent routes. Writer's `/api/fiction` transport mirrors these routes.
+New list results use `{sessions:[{session,details,is_current}]}`; a legacy session
+has `details:null`. A partial update omits unchanged fields; null clears the
+scheduled instant/duration, empty strings clear text and attendance `[]` clears
+the roster. Status values are `planned`, `live`, `played`; `recap_posted` is the
+stored local ready flag, not an external publication receipt.
+
+CPU regression commands: `python tests/test_fiction_sessions.py` and
+`node tests/fiction-session-contract.node.cjs`. The first uses fresh temporary
+SQLite databases and ASGI without providers; the second verifies all 19 original
+contracts and excludes private notes from form snapshots. The browser fixture
+`tests/fiction-sessions.browser.tsx` covers save errors, attendance, recap status
+and the explicit retirement action. Real transport/UI validation is recorded
+separately; CPU tests do not certify live models or external services.

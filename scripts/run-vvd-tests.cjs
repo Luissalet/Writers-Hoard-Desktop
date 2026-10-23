@@ -8,6 +8,17 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['wiki-standalone-pages.browser.tsx', 'testWikiEmbeddedSheet'],
+  ['review-home-independent.browser.tsx', 'reviewHomeIndependent'],
+  ['review-fiction-session-races.browser.tsx', 'testReviewFictionRaces'],
+  ['review-wiki-independent.browser.tsx', 'reviewWikiIndependent'],
+  ['wiki-standalone-pages.browser.tsx', 'testWikiStandalonePages'],
+  ['wiki-curation.browser.tsx', 'testWikiCuration'],
+  ['project-home.browser.tsx', 'testProjectHome'],
+  ['campaign-quick-wins.browser.tsx', 'testCampaignQuickWins'],
+  ['review-campaign-quickwins.browser.tsx', 'testReviewCampaignQuickWins'],
+  ['fiction-sessions.browser.tsx', 'testFictionSessions'],
+  ['fiction-session-drafts.browser.tsx', 'testFictionSessionDrafts'],
   ['vvd-codex-aliases.browser.tsx', 'testVvdCodexAliases'],
   ['vvd-reference-edit.browser.tsx', 'testVvdReferenceEdit'],
   ['codex-templates.browser.tsx', 'testCodexTemplates'],

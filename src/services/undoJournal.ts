@@ -37,7 +37,7 @@ export class UndoPartialError extends Error {
   constructor(done: number, total: number, causeError: unknown) { super('Only part of it was undone.'); this.name = 'UndoPartialError'; this.done = done; this.total = total; this.causeError = causeError; }
 }
 
-export type UndoKind = 'archive' | 'rename' | 'asset' | 'appearance';
+export type UndoKind = 'archive' | 'rename' | 'asset' | 'appearance' | 'bookmark';
 export interface UndoEntry {
   id: number;
   projectId: string;

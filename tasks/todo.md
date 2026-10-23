@@ -1239,6 +1239,18 @@ Later waves follow the ranked lists in C-writing, D1-tools, D2-platform and B-ca
 - [x] Resolve reproducible critical failure; compare Electron diagnostics with main; both worktree typechecks pass.
 - [x] Independent review D3-D5 and regressions for each finding, including real pointer hit-testing.
 - [x] Native IPC/HTTP/MCP secondary key read/revoke401; Browser prep blocks, planner and pins (Luis requested Browser, no desktop control).
-- [ ] Full battery; scoped commit as Luissalet; locked fast-forward into main without push.
-- [ ] Update Google manual with CAS/readback.
-- [ ] Complete remaining D2/B gaps and Electron types with honest matrix/docs updates.
+- [x] Inherited battery and focused correction; scoped Luissalet commit bf6669a; locked fast-forward into main without push.
+- [x] Update Google manual with CAS/readback for inherited lot.
+- [x] Continue prioritized D2/B gaps and resolve Electron types; retain explicit partial matrix subclaims.
+
+
+## Writer1095 — remaining offline gaps after bf6669a
+Success: keep old payloads/output for unchanged options, preserve edits/archives/eras and validate new capabilities through MCP and Browser in isolated data. Established Writer visual identity; no desktop control, models or push.
+- [x] Finish inherited D3–D5 lot, independent review and real secondary-key bridge test; integrate bf6669a under merge lock.
+- [x] Update Google manual with native revision control and verify unchanged surrounding paragraphs.
+- [x] Standalone wiki pages and bulk/nested curation; policy, frozen editions and portability.
+- [x] Fiction session metadata/attendance/manual recap with original19tool contracts preserved.
+- [x] Home document growth, quick creation and contextual next action.
+- [x] Small campaign improvements: optional workspace particles, library context bookmarks/session recents; state exact remaining gaps.
+- [x] Focused tests, native MCP/Browser checks and independent code/visual review; final broad run recorded in verification-next.md.
+- [ ] Update matrices/docs/memory/graph; commit explicit paths as Luissalet and integrate under merge lock, no push.
