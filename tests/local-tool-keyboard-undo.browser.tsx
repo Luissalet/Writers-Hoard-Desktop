@@ -38,7 +38,7 @@ export async function testLocalToolKeyboardUndo() {
   try {
     await db.projects.put({id: projectId, title: 'Keyboard QA', description: '', mode: 'custom', type: 'standalone', status: 'draft', color: '#777777', enabledEngines: ['codex', 'local-tool-' + definition.namespace], engineOrder: [], createdAt: 1, updatedAt: 1});
     const a = await createSourceToolDocument({projectId}, definition.namespace, 'A'), b = await createSourceToolDocument({projectId}, definition.namespace, 'B');
-    const owned = createLocalToolBlockEnvelope(definition.namespace, definition.blocks![0], 'keyboard-owned');
+    const owned = createLocalToolBlockEnvelope(definition.namespace, definition.blocks!.find(block => block.key === 'initiative')!, 'keyboard-owned');
     const card = {...authorCard(projectId, 'Keyboard host'), id: 'keyboard-host', content: '<p>Keep this text.</p>' + serializeLocalToolBlock(projectId, owned)};
     await db.codexEntries.put(card);
     function Host() {

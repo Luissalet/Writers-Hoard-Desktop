@@ -1,3 +1,5 @@
+import ManuscriptsPanel from './ManuscriptsPanel';
+import {manuscriptProject,manuscriptMetadata,selectManuscriptWritings,writingManuscriptId} from '../manuscripts';
 import {saveAuthoredWriting,dockMetadataAdvance} from '../toolDock/authoredSave';
 import ToolDockPanel from '../toolDock/ToolDockPanel';
 import {canLeaveToolDocks} from '../toolDock/pending';
@@ -512,10 +514,15 @@ interface WritingsViewProps {
   onRefresh?: () => Promise<void>;
 }
 
-export default function WritingsView({ projectId, writings, onAdd, onDelete, onRefresh }: WritingsViewProps) {
+export default function WritingsView({ projectId, writings:worldWritings, onAdd, onDelete, onRefresh }: WritingsViewProps) {
   const { t, locale } = useTranslation();
   const pane = useEnginePane();
   const scope = useWorldEraScope(projectId);
+  const manuscriptQuery=useDeepLinkParam('manuscript'),linkedChapter=useDeepLinkParam('writing');
+  const linkedOwner=worldWritings.find(row=>row.id===linkedChapter);
+  const manuscriptId=linkedOwner?writingManuscriptId(linkedOwner):manuscriptQuery&&manuscriptQuery!=='library'?manuscriptQuery:'main';
+  const writingScope=useMemo(()=>({kind:'manuscript' as const,id:manuscriptId}),[manuscriptId]);
+  const writings=useMemo(()=>selectManuscriptWritings(worldWritings,writingScope),[worldWritings,writingScope]);
   const { expectDeletedWriting, getWriting, getWritingVersion, restoreDeletedWriting, takeLastDeletedWriting, updateWritingAtVersion } = useEraWritingOperations(projectId);
   const { ensureSnapshot, takeSnapshot } = useEraSnapshotOperations(projectId);
   const reportPaneTitle = pane?.reportTitle;
@@ -618,7 +625,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     (editedTitle.trim() !== '' || /(?:^|>)\s*[^<\s]/.test(editedContent));
 
   const { accessToken } = useGoogleStore();
-  const { project } = useProject(projectId);
+  const { project:worldProject } = useProject(projectId);
+  const project=useMemo(()=>{if(!worldProject)return undefined;try{return manuscriptProject(worldProject,writingScope,scope.eraId);}catch{return undefined;}},[worldProject,writingScope,scope.eraId]);
   const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
   const projectTitle = project?.title || t('writings.compile.untitledProject');
   // Footnote marker style is a property of the manuscript, kept on the project row.
@@ -1118,8 +1126,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // identity each render would tear that interval down and rebuild it.
   // ---------------------------------------------------------------------
   const projectWords = useMemo(
-    () => writings.reduce((sum, writing) => sum + (writing.wordCount || 0), 0),
-    [writings],
+    () => worldWritings.reduce((sum, writing) => sum + (writing.wordCount || 0), 0),
+    [worldWritings],
   );
   // Seeded rather than only synced: a child's effects run before its parent's,
   // and the sprint control reads this on its very first one.
@@ -1216,20 +1224,25 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     });
   }, [projectId, recoveryOwner, takeSnapshot]);
 
-  // Open whatever the deep link pointed at, once the row is available.
-  // Guarded so it never yanks the author out of a document they already have
-  // open (e.g. a stale param surviving a re-render).
+  // A new linked chapter takes precedence over its surrounding book query.
+  // Repeated params do nothing; a genuine retarget flushes the current draft
+  // before opening the destination and ignores stale asynchronous completions.
   const deepLinkOpened = useRef<string | null>(null);
   useEffect(() => {
     if (parallelWorkspace) return;
     if (!deepLinkedWritingId || deepLinkOpened.current === deepLinkedWritingId) return;
-    if (openWriting) return;
     const target = writings.find((w) => w.id === deepLinkedWritingId);
     if (!target) return;
-    deepLinkOpened.current = deepLinkedWritingId;
-    setActiveStatus(target.status);
-    handleOpenWriting(target);
-  }, [deepLinkedWritingId, writings, openWriting, handleOpenWriting, parallelWorkspace]);
+    if(openWriting?.id===target.id){deepLinkOpened.current=target.id;return;}
+    let live=true;
+    const open=()=>{if(!live)return;deepLinkOpened.current=target.id;setActiveStatus(target.status);handleOpenWriting(target);};
+    if(!openWriting)open();
+    else if(canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId))void flushSave().then(saved=>{
+      if(!live)return;
+      if(saved)open();else setPendingLeave(true);
+    });
+    return()=>{live=false;};
+  }, [deepLinkedWritingId, writings, openWriting, handleOpenWriting, parallelWorkspace,flushSave,projectId,scope.eraId,pane?.instanceId]);
 
   // The writer's answer to a draft whose chapter moved on. Both answers are
   // safe by the time they are offered — the draft is already a version — so
@@ -1781,6 +1794,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     if (!newTitle.trim()) return;
     const writing: Writing = {
       id: generateId('wrt'),
+      ...(manuscriptId!=='main'?{manuscriptId}:{}),
       projectId,
       title: newTitle,
       status: newStatus,
@@ -1953,7 +1967,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     if (plan.length === 0) return false;
     setOrderBusy(true);
     try {
-      await applyChapterNumbers(projectId, plan, scope);
+      await applyChapterNumbers(projectId, plan, scope,manuscriptId);
       await onRefresh?.();
       return true;
     } catch (err) {
@@ -1965,7 +1979,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     } finally {
       setOrderBusy(false);
     }
-  }, [onRefresh, projectId, t, scope]);
+  }, [onRefresh, projectId, t, scope,manuscriptId]);
 
   const handleMoveChapter = useCallback(
     (id: string, direction: ChapterDirection) => applyOrderPlan(moveChapter(writings, id, direction)),
@@ -2139,6 +2153,10 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     />
   );
 
+  const openManuscript=(id:string)=>{navigate(`/project/${encodeURIComponent(projectId)}/writings?manuscript=${encodeURIComponent(id)}`);};
+  if(manuscriptQuery==='library'&&!linkedOwner)return <ManuscriptsPanel projectId={projectId} writings={worldWritings} onOpen={openManuscript} onClose={()=>openManuscript('main')}/>;
+  if(worldProject&&!project)return <div role="alert" className="space-y-3"><p>{locale==='es'?'El relato no está disponible.':'The manuscript is unavailable.'}</p><button className="rounded-lg border border-border px-3 py-2" onClick={()=>openManuscript('library')}>{locale==='es'?'Relatos':'Manuscripts'}</button></div>;
+
   // ---- Whole book ----
   if (parallelWorkspace) return <ParallelDraftWorkspace key={projectId} projectId={projectId} start={parallelWorkspace} onClose={async writingId => {
     const row = await getWriting(writingId);
@@ -2150,6 +2168,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   if (bookMode) {
     return (
       <BookEditor
+        manuscriptId={manuscriptId}
         projectId={projectId}
         writings={writings}
         onRefresh={() => onRefresh?.()}
@@ -2168,6 +2187,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   if (reading && readingPieces.length > 0) {
     return (
       <ReadingView
+        writingScope={writingScope}
         pieces={readingPieces}
         startId={readingStartId}
         onClose={handleReadingClose}
@@ -2346,6 +2366,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     // one chapter to a beta reader through the manuscript export meant
     // unchecking every other writing by hand, one at a time.
     const singleWritingProfile: PublishingProfile = {
+      writingScope,
       id: '',
       projectId,
       name: exportTitle,
@@ -2922,6 +2943,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             variant="quick"
             titleOverride={exportTitle}
             initialProfile={singleWritingProfile}
+            writingScope={writingScope}
+            eraId={scope.eraId}
           />
         )}
 
@@ -2962,6 +2985,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // ---- List View ----
   return (
     <div className="space-y-5">
+      <header className="flex flex-wrap items-center gap-3"><h1 className="mr-auto min-w-0 break-words font-serif text-2xl text-text-primary">{projectTitle}</h1><button className="min-h-9 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:border-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={()=>openManuscript('library')}>{locale==='es'?'Relatos':'Manuscripts'}</button></header>
+      {worldProject&&manuscriptMetadata(worldProject,manuscriptId).archivedAt&&<p className="text-sm text-text-muted">{locale==='es'?'Relato archivado. Sus capítulos siguen disponibles; puedes restaurarlo desde Relatos.':'Archived manuscript. Its chapters remain available; restore it from Manuscripts.'}</p>}
       {/* Getting Started checklist — auto-hides outside essentials mode */}
       <GettingStartedChecklist projectId={projectId} />
 
@@ -3600,6 +3625,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           chosen splitting rule are thrown away. */}
       {showManuscriptImport && (
         <ManuscriptImportModal
+          manuscriptId={manuscriptId}
           open
           onClose={() => setShowManuscriptImport(false)}
           projectId={projectId}
@@ -3611,13 +3637,15 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       )}
 
       {/* Compile / Export manuscript */}
-      {showPublishedEditions&&<PublishedEditionsModal projectId={projectId} eraId={scope.eraId} writings={[...manuscriptOrder,...writings.filter(writing=>!manuscriptOrder.some(chapter=>chapter.id===writing.id))]} onClose={()=>setShowPublishedEditions(false)} onRestored={()=>{void onRefresh?.();}}/>}
+      {showPublishedEditions&&<PublishedEditionsModal writingScope={writingScope} projectId={projectId} eraId={scope.eraId} writings={[...manuscriptOrder,...writings.filter(writing=>!manuscriptOrder.some(chapter=>chapter.id===writing.id))]} onClose={()=>setShowPublishedEditions(false)} onRestored={()=>{void onRefresh?.();}}/>}
       <CompileModal
         open={showCompile}
         onClose={() => setShowCompile(false)}
         writings={writings}
         projectId={projectId}
         projectTitle={projectTitle}
+        writingScope={writingScope}
+        eraId={scope.eraId}
       />
 
       {/* Renumbering is asked for, never inferred. 1, 5, 10 can be act

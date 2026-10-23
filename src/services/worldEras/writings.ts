@@ -35,7 +35,7 @@ export function eraWritingOperations(scope: WorldEraScope) {
     if (outcome.current) throw new ops.WritingConflictError(outcome.current, expectedVersion!, outcome.rejectedSnapshotId ?? null);
     return outcome.version!;
   };
-  const createWriting = async (row: Writing) => { if (!scope.eraId) return ops.createWriting(row); await saveEraDocument(scope, 'writings', { root: row as unknown as EraRow, children: { writingSnapshots: [] } }, null); return row.id; };
+  const createWriting = (row: Writing): Promise<string> => !scope.eraId ? ops.createWriting(row) : Dexie.Promise.resolve(saveEraDocument(scope, 'writings', { root: row as unknown as EraRow, children: { writingSnapshots: [] } }, null)).then(() => row.id);
   const deleteWritingRestorable = async (id: string): Promise<ops.DeletedWritingBundle | null> => {
     if (!scope.eraId) return ops.deleteWritingRestorable(id);
     const current = await readWorldDocument(scope, 'writings', id); if (!current) return null;

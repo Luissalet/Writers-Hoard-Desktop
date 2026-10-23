@@ -1,5 +1,5 @@
 import type { BridgeTool } from '@/services/aiBridge/schema';
-const scope = { projectId: { type: 'string' }, eraId: { type: 'string' } };
+const scope = { manuscriptId:{type:'string',description:'Optional authored manuscript destination, main by default for import. Source reads without a filter retain world scope.'}, projectId: { type: 'string' }, eraId: { type: 'string' } };
 const files = { type: 'array', minItems: 1, items: { type: 'object', properties: { name: { type: 'string' }, dataBase64: { type: 'string' } }, required: ['name', 'dataBase64'], additionalProperties: false } };
 const pasted = { type: 'array', minItems: 1, items: { type: 'object', properties: { name: { type: 'string' }, text: { type: 'string' } }, required: ['text'], additionalProperties: false } };
 const split = { type: 'object', properties: { mode: { type: 'string', enum: ['file', 'heading', 'separator'] }, headingLevel: { type: 'integer', minimum: 1, maximum: 6 }, separator: { type: 'string' } }, required: ['mode', 'headingLevel', 'separator'], additionalProperties: false };

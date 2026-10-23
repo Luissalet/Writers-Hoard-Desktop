@@ -1,3 +1,4 @@
+import {undoManuscript,type ManuscriptReceipt} from '@/engines/writings/manuscriptStore';
 // ============================================================================
 // AI bridge — undoing a logged change
 // ============================================================================
@@ -77,6 +78,7 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
   let entry = args.entry as Record<string, unknown> | undefined;
   if (!entry) throw new BridgeError('bad-args', 'No audit entry was passed to undo.');
 
+  if(entry.tool==='wh_writing_manuscript_set'&&typeof entry.projectId==='string'&&entry.before&&typeof entry.before==='object'&&'__manuscript' in entry.before){await undoManuscript(entry.projectId,(entry.before as {__manuscript:ManuscriptReceipt}).__manuscript);return{undone:true,kind:'update',entityId:String(entry.entityId??''),what:'manuscript change'};}
   const kind = String(entry.kind ?? '');
   const entityId = typeof entry.entityId === 'string' ? entry.entityId : '';
   const summary = typeof entry.summary === 'string' ? entry.summary : 'that change';

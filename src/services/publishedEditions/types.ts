@@ -9,6 +9,8 @@ export interface PublishedEditionChapter {
 }
 /** Append-only local publication. reader.html is an independent frozen artifact. */
 export interface PublishedEdition {
+  writingScope?:import('@/engines/writings/manuscripts').WritingSelection;
+  manuscriptTitle?:string;
   id:string;
   projectId:string;
   title:string;
@@ -29,6 +31,7 @@ export interface PublishedEditionsProject {
   publishedEditionRevision?:number;
 }
 export interface PublishEditionInput {
+  writingScope?:import('@/engines/writings/manuscripts').WritingSelection;
   projectId:string;
   eraId?:string;
   chapterIds:string[];
@@ -39,6 +42,7 @@ export interface PublishEditionInput {
   supersedesEditionId?:string;
 }
 export interface RestoreEditionInput {
+  targetManuscriptId?:string;
   projectId:string;
   editionId:string;
   chapterIds?:string[];

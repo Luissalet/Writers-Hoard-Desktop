@@ -1,3 +1,4 @@
+import {projectWritingOwner} from '@/engines/writings/manuscriptStore';
 import { applyEraReaderCover, validateProjectCoverMetadata } from '@/engines/writings/coverDesign/model';
 import {validateToolDockProjectMetadata,renewToolDockGeneration} from '@/engines/writings/toolDock/types';
 import Dexie, { type Transaction } from 'dexie';
@@ -60,6 +61,7 @@ export async function listWorldDocuments(scope: WorldEraScope, kind: EraDocument
     if (variant.hidden) byId.delete(variant.entityId);
     else if (variant.document) byId.set(variant.entityId, { document: await resolveEraDocumentAssets(scope.projectId, structuredClone(variant.document)), provenance: 'variant', version: `variant:${variant.revision}`, variantRevision: variant.revision });
   }
+  if(kind==='writings')for(const read of byId.values())read.document=await projectWritingOwner(scope.projectId,read.document);
   return [...byId.values()];
 }
 export async function readWorldDocument(scope: WorldEraScope, kind: EraDocumentKind, entityId: string): Promise<EraDocumentRead | undefined> {
@@ -68,11 +70,11 @@ export async function readWorldDocument(scope: WorldEraScope, kind: EraDocumentK
     const variant = await db.worldEraVariants.where('[projectId+eraId+kind+entityId]').equals([scope.projectId, scope.eraId, kind, entityId]).first();
     if (variant && !variant.archived) {
       if (variant.hidden || !variant.document) return undefined;
-      return { document: await resolveEraDocumentAssets(scope.projectId, structuredClone(variant.document)), provenance: 'variant', version: `variant:${variant.revision}`, variantRevision: variant.revision };
+      const document=await resolveEraDocumentAssets(scope.projectId, structuredClone(variant.document));return { document:kind==='writings'?await projectWritingOwner(scope.projectId,document):document, provenance: 'variant', version: `variant:${variant.revision}`, variantRevision: variant.revision };
     }
   }
   const document = (await baseEraDocuments(scope.projectId, kind, project, entityId))[0];
-  return document ? { document, provenance: 'base', version: await eraDocumentVersion(document), variantRevision: null } : undefined;
+  return document ? { document:kind==='writings'?await projectWritingOwner(scope.projectId,document):document, provenance: 'base', version: await eraDocumentVersion(document), variantRevision: null } : undefined;
 }
 export interface WorldEraWriteOptions { checkpoint?: boolean }
 export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, document: EraDocument, expectedVersion: string | null, options: WorldEraWriteOptions = {}): Promise<EraDocumentRead> {
@@ -82,6 +84,7 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
   validateEraDocument(scope.projectId, kind, document.root.id, document);
   return db.transaction('rw', db.tables, async tx => {
     await assertWorldEra(scope);
+    if(kind==='writings')document=await projectWritingOwner(scope.projectId,document);
     const current = await readWorldDocument(scope, kind, document.root.id);
     if ((current?.version ?? null) !== expectedVersion) throw new WorldEraConflict();
     const previous = await tx.table<WorldEraVariant>('worldEraVariants').where('[projectId+eraId+kind+entityId]').equals([scope.projectId, scope.eraId!, kind, document.root.id]).first();

@@ -1,3 +1,4 @@
+import {writingManuscriptId} from './manuscripts';
 // ============================================
 // Manuscript order — the single write
 // ============================================
@@ -37,6 +38,7 @@ export async function applyChapterNumbers(
   projectId: string,
   assignments: readonly ChapterAssignment[],
   scope?: WorldEraScope,
+  manuscriptId='main',
 ): Promise<number> {
   if (assignments.length === 0) return 0;
 
@@ -46,7 +48,7 @@ export async function applyChapterNumbers(
     await db.transaction('rw', db.tables, async () => {
       for (const assignment of assignments) {
         const row = await operations.getWriting(assignment.id);
-        if (row?.projectId !== projectId) continue;
+        if (row?.projectId !== projectId||writingManuscriptId(row)!==manuscriptId) continue;
         await operations.updateWritingAtVersion(row.id, { chapter: assignment.chapter }, row.updatedAt); count++;
       }
     }); return count;
@@ -56,7 +58,7 @@ export async function applyChapterNumbers(
     const updatedAt = Date.now();
     for (const assignment of assignments) {
       const row = await db.writings.get(assignment.id);
-      if (!row || row.projectId !== projectId) continue;
+      if (!row || row.projectId !== projectId||writingManuscriptId(row)!==manuscriptId) continue;
       written += await db.writings.update(assignment.id, {
         chapter: assignment.chapter,
         updatedAt,

@@ -1,3 +1,4 @@
+import {validateManuscriptContents,structuralManuscriptOwners} from '@/engines/writings/manuscripts';
 import { validateCodexOptionLists } from '@/engines/codex/optionListTypes';
 import { preserveLegacyProjectMetadata, preserveLegacyWritingToolDock, preserveLegacyEraWritingToolDock, validateProjectArchiveMetadata } from '@/services/projectArchiveMetadata';
 import type {WorldEraVariant} from '@/services/worldEras/types';
@@ -95,6 +96,7 @@ interface BackupManifest {
 }
 
 interface ProjectRecord {
+  manuscriptCatalog?:import('@/types').Project['manuscriptCatalog'];
   writingToolDock?: import('@/engines/writings/toolDock/types').ToolDockLayout|null;
   genres?: string[];
   id: string;
@@ -793,6 +795,7 @@ async function runStrategyPreflight(
         );
       }
     }
+    try{const rows=(table:string)=>sections.filter(section=>section.table===table).flatMap(section=>[...section.rows]);validateManuscriptContents(project.project as import('@/types').Project,rows('writings'),rows('worldEraVariants'),rows('publishingProfiles'),rows('documentArchives'));}catch(error){failures.push(failure('preflight',error,{projectId:project.projectId,projectDir:project.projectDir}));}
     scopedProjects.push({
       projectId: project.projectId,
       projectDir: project.projectDir,
@@ -1112,16 +1115,19 @@ export async function importProjectZip(
       for (const [index, project] of prepared.projects.entries()) {
         const existingProject = existingProjects[index];
         const keptWritingSidecars = new Map((await db.writings.where('projectId').equals(project.projectId).toArray())
-          .filter(writing => writing.toolDock !== undefined)
-          .map(writing => [writing.id, { projectId: writing.projectId, toolDock: writing.toolDock }]));
+          .filter(writing => writing.toolDock !== undefined||writing.manuscriptId!==undefined)
+          .map(writing => [writing.id, { projectId: writing.projectId, toolDock: writing.toolDock,manuscriptId:writing.manuscriptId }]));
         const keptEraSidecars=new Map((await db.worldEraVariants.where('projectId').equals(project.projectId).toArray()).map(row=>[row.id,row]));
+        const previousOwners=await captureWritingOwners(project.projectId);
         if (existingProject) {
           await clearProjectForRestore(project.projectId);
         }
         await db.projects.add(preserveLegacyProjectMetadata(project.project, existingProject) as never);
         await importProjectStrategies(zip, project);
-        await restoreLegacyWritingSidecars(project.projectId, keptWritingSidecars);
-        await restoreLegacyEraWritingSidecars(project.projectId,keptEraSidecars);
+        await restoreLegacyWritingSidecars(project.projectId, keptWritingSidecars,previousOwners.get(project.projectId));
+        await restoreLegacyEraWritingSidecars(project.projectId,keptEraSidecars,previousOwners.get(project.projectId));
+        await restoreArchiveWritingOwners(project.projectId,previousOwners.get(project.projectId));
+        await validateRestoredManuscriptContents(project.projectId);
       }
     });
     return prepared.projects.map((project) => project.projectId);
@@ -1130,18 +1136,50 @@ export async function importProjectZip(
   }
 }
 
-async function restoreLegacyWritingSidecars(projectId:string,previous:ReadonlyMap<string,Pick<Writing,'projectId'|'toolDock'>>):Promise<void>{
+async function restoreLegacyWritingSidecars(projectId:string,previous:ReadonlyMap<string,Pick<Writing,'projectId'|'toolDock'|'manuscriptId'>>,owners:ReadonlyMap<string,string>|undefined):Promise<void>{
   for(const writing of await db.writings.where('projectId').equals(projectId).toArray()){
-    const old=previous.get(writing.id),next=preserveLegacyWritingToolDock(writing,old?.projectId===projectId?old:undefined);
-    if(next!==writing)await db.writings.update(writing.id,{toolDock:next.toolDock});
+    const old=previous.get(writing.id),next=preserveLegacyWritingToolDock(writing,old?.projectId===projectId?old:undefined,owners?.get(writing.id));
+    if(next!==writing)await db.writings.update(writing.id,{toolDock:next.toolDock,...(next.manuscriptId?{manuscriptId:next.manuscriptId}:{})});
   }
 }
 
-async function restoreLegacyEraWritingSidecars(projectId:string,previous:ReadonlyMap<string,WorldEraVariant>):Promise<void>{
+async function restoreLegacyEraWritingSidecars(projectId:string,previous:ReadonlyMap<string,WorldEraVariant>,owners:ReadonlyMap<string,string>|undefined):Promise<void>{
  for(const row of await db.worldEraVariants.where('projectId').equals(projectId).toArray()){
-  const next=preserveLegacyEraWritingToolDock(row,previous.get(row.id));
+  const next=preserveLegacyEraWritingToolDock(row,previous.get(row.id),owners?.get(row.entityId));
   if(next!==row)await db.worldEraVariants.put(next);
  }
+}
+
+/** Capture identity before replacement can remove its live, era or Archive origin. */
+async function captureWritingOwners(projectId?:string):Promise<Map<string,Map<string,string>>>{
+ const [writings,variants,archives]=await Promise.all([projectId?db.writings.where('projectId').equals(projectId).toArray():db.writings.toArray(),projectId?db.worldEraVariants.where('projectId').equals(projectId).toArray():db.worldEraVariants.toArray(),projectId?db.documentArchives.where('projectId').equals(projectId).toArray():db.documentArchives.toArray()]);
+ const ids=projectId?[projectId]:[...new Set([...writings,...variants,...archives].map(row=>row.projectId))];
+ return new Map(ids.map(id=>[id,structuralManuscriptOwners(writings.filter(row=>row.projectId===id),variants.filter(row=>row.projectId===id),archives.filter(row=>row.projectId===id))]));
+}
+async function restoreArchiveWritingOwners(projectId:string,owners:ReadonlyMap<string,string>|undefined):Promise<void>{
+ if(!owners?.size)return;
+ for(const archive of await db.documentArchives.where('projectId').equals(projectId).toArray()){
+  let changed=false;
+  const mutations=archive.mutations.map(mutation=>{
+   if(mutation.table!=='writings')return mutation;
+   const next={...mutation};for(const field of ['beforeRow','afterRow'] as const){const row=mutation[field] as Writing|undefined;if(!row)continue;const restored=preserveLegacyWritingToolDock(row,undefined,owners.get(row.id));if(restored!==row){changed=true;next[field]=restored as unknown as Record<string,unknown>;}}
+   return next;
+  });
+  if(changed)await db.documentArchives.update(archive.id,{mutations});
+ }
+}
+
+/** Legacy sidecars may add an owner absent from the incoming file. Recheck
+ * its effective catalogue before this restore transaction can commit. */
+async function validateRestoredManuscriptContents(projectId:string):Promise<void>{
+ const project=await db.projects.get(projectId);if(!project)throw Error('project_missing');
+ const [writings,variants,profiles,archives]=await Promise.all([
+  db.writings.where('projectId').equals(projectId).toArray(),
+  db.worldEraVariants.where('projectId').equals(projectId).toArray(),
+  db.publishingProfiles.where('projectId').equals(projectId).toArray(),
+  db.documentArchives.where('projectId').equals(projectId).toArray(),
+ ]);
+ validateManuscriptContents(project,writings,variants,profiles,archives);
 }
 
 export async function importFullZip(file: File): Promise<void> {
@@ -1174,8 +1212,9 @@ export async function importFullZip(file: File): Promise<void> {
         ? []
         : await db.notes.where('projectId').equals(GLOBAL_NOTES_SCOPE).toArray();
       const keptProjectMetadata = new Map((await db.projects.toArray()).map(project => [project.id, project]));
-      const keptWritingSidecars=new Map((await db.writings.toArray()).filter(writing=>writing.toolDock!==undefined).map(writing=>[writing.id,{projectId:writing.projectId,toolDock:writing.toolDock}]));
+      const keptWritingSidecars=new Map((await db.writings.toArray()).filter(writing=>writing.toolDock!==undefined||writing.manuscriptId!==undefined).map(writing=>[writing.id,{projectId:writing.projectId,toolDock:writing.toolDock,manuscriptId:writing.manuscriptId}]));
       const keptEraSidecars=new Map((await db.worldEraVariants.toArray()).map(row=>[row.id,row]));
+      const previousOwners=await captureWritingOwners();
       await Promise.all(toClear.map((table) => table.clear()));
       if (settings.length) await db.settings.bulkAdd(settings as never[]);
       if (tags.length) await db.tags.bulkAdd(tags as never[]);
@@ -1194,8 +1233,10 @@ export async function importFullZip(file: File): Promise<void> {
       for (const project of prepared.projects) {
         await db.projects.add(preserveLegacyProjectMetadata(project.project, keptProjectMetadata.get(project.projectId)) as never);
         await importProjectStrategies(zip, project);
-        await restoreLegacyWritingSidecars(project.projectId,keptWritingSidecars);
-        await restoreLegacyEraWritingSidecars(project.projectId,keptEraSidecars);
+        await restoreLegacyWritingSidecars(project.projectId,keptWritingSidecars,previousOwners.get(project.projectId));
+        await restoreLegacyEraWritingSidecars(project.projectId,keptEraSidecars,previousOwners.get(project.projectId));
+        await restoreArchiveWritingOwners(project.projectId,previousOwners.get(project.projectId));
+        await validateRestoredManuscriptContents(project.projectId);
       }
     });
   } catch (error) {

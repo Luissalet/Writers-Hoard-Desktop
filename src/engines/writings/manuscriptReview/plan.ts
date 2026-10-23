@@ -1,3 +1,5 @@
+import {writingManuscriptId} from '../manuscripts';
+import {eraWritingOperations} from '@/services/worldEras/writings';
 import { manuscriptMarkerPattern } from './markers';
 import { splitIntoChapters } from '../manuscriptImport';
 import { createWritingEditor } from '@/services/aiBridge/tools/editorialDocument';
@@ -9,7 +11,8 @@ import { sha256Hex } from '@/services/judge/text';
 import type { WorldEraScope } from '@/services/worldEras/types';
 import type { InspectedManuscript, ImportChoice, ImportPlanChapter, ImportSplit, ManuscriptPlan } from './types';
 
-export async function planManuscriptImport(sources: InspectedManuscript[], split: ImportSplit, scope: WorldEraScope, choices: ImportChoice[] = []): Promise<ManuscriptPlan> {
+export async function planManuscriptImport(sources: InspectedManuscript[], split: ImportSplit, scope: WorldEraScope, choices: ImportChoice[] = [],manuscriptId='main'): Promise<ManuscriptPlan> {
+  if(choices.some(choice=>choice.targetId)){const rows=await eraWritingOperations(scope).getWritings(scope.projectId);if(choices.some(choice=>choice.targetId&&!rows.some(row=>row.id===choice.targetId&&writingManuscriptId(row)===manuscriptId)))throw Error('manuscript_target_scope_invalid');}
   if (!['file', 'heading', 'separator'].includes(split.mode) || !Number.isInteger(split.headingLevel) || split.headingLevel < 1 || split.headingLevel > 6 || typeof split.separator !== 'string') throw Error('manuscript_split_invalid');
   if (new Set(choices.map(choice => choice.key)).size !== choices.length) throw Error('manuscript_choice_duplicate');
   const parsed = splitIntoChapters(sources, { ...split, fallbackTitle: index => `Capítulo ${index}` });
@@ -48,7 +51,7 @@ export async function planManuscriptImport(sources: InspectedManuscript[], split
   const retainedComments = allComments - mapped.size;
   if (retainedComments) findings.push({ code: 'comments-retained-in-original-unmapped-or-excluded', count: retainedComments });
   const commentData = ({ startMarker: _start, endMarker: _end, ...comment }: import('./types').SourceComment) => { void _start; void _end; return comment; };
-  const digest = await sha256Hex(JSON.stringify({ version: 1, sources: sources.map(source => ({ name: source.name, sha256: source.sha256, format: source.format })), split, scope, choices: chapters.map(chapter => ({ ...chapter.choice, title: chapter.title })), findings, content: chapters.map(chapter => ({ content: chapter.content, comments: chapter.comments.map(comment => ({ ...comment, source: commentData(comment.source), replies: comment.replies.map(commentData) })) })) }));
+  const digest = await sha256Hex(JSON.stringify({ version: 1, manuscriptId, sources: sources.map(source => ({ name: source.name, sha256: source.sha256, format: source.format })), split, scope, choices: chapters.map(chapter => ({ ...chapter.choice, title: chapter.title })), findings, content: chapters.map(chapter => ({ content: chapter.content, comments: chapter.comments.map(comment => ({ ...comment, source: commentData(comment.source), replies: comment.replies.map(commentData) })) })) }));
   const importedComments = chapters.reduce((n, chapter) => n + chapter.comments.length, 0);
   return { digest, chapters, findings, importedComments, importedReplies: mapped.size - importedComments, retainedComments };
 }

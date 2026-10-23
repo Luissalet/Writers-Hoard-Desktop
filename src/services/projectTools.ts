@@ -1,3 +1,5 @@
+import {selectManuscriptWritings,writingSelection,manuscriptProject,assertManuscriptOwner} from '@/engines/writings/manuscripts';
+import {listEraRows} from '@/services/worldEras/store';
 import { db } from '@/db';
 import { bookPages, normalizeBookStyle } from '@/engines/writings/bookStyle';
 import * as projectOps from '@/db/operations';
@@ -455,7 +457,7 @@ export function resolvePublishingWritings(
   rawProfile: PublishingProfile,
 ): PublishingResolution {
   const profile = normalizePublishingProfile(rawProfile);
-  const scoped = allWritings.filter(writing => writing.projectId === profile.projectId);
+  const scoped = selectManuscriptWritings(allWritings.filter(writing => writing.projectId === profile.projectId),profile.writingScope);
   const byId = new Map(scoped.map(writing => [writing.id, writing]));
   const fallbackOrder = defaultPublishingOrder(scoped);
   const seen = new Set<string>();
@@ -490,8 +492,11 @@ export function resolvePublishingWritings(
 export async function savePublishingProfile(
   value: Omit<PublishingProfile, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
 ): Promise<PublishingProfile> {
-  const now = Date.now();
+  const scope=writingSelection(value.writingScope),project=await db.projects.get(value.projectId);if(!project)throw Error('project_missing');if(scope.kind==='manuscript')assertManuscriptOwner(project,scope.id==='main'?{}:{manuscriptId:scope.id});
   const existing = value.id ? await db.publishingProfiles.get(value.id) : undefined;
+  const all=await db.writings.where('projectId').equals(value.projectId).toArray(),known=new Map(all.map(row=>[row.id,row]));for(const variant of await db.worldEraVariants.where('projectId').equals(value.projectId).toArray())if(variant.kind==='writings')for(const state of [variant,...variant.history??[]])if(state.document&&!known.has(variant.entityId))known.set(variant.entityId,state.document.root as unknown as Writing);
+  const ids=new Set(selectManuscriptWritings([...known.values()],scope).map(row=>row.id)),prior=new Set([...existing?.selectedWritingIds??[],...existing?.writingOrder??[]]);if([...value.selectedWritingIds??[],...value.writingOrder??[]].some(id=>!ids.has(id)&&(known.has(id)||!prior.has(id))))throw Error('manuscript_profile_selection_invalid');
+  const now = Date.now();
   const profile = normalizePublishingProfile({
     ...value,
     id: value.id ?? generateId('publish'),
@@ -619,9 +624,10 @@ export async function exportPublishingProfile(
   project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>,
   profile: PublishingProfile,
   output: PublishingOutput,
-  artifactOptions: { titleOverride?: string; generatedAt?: number } = {},
+  artifactOptions: { titleOverride?: string; generatedAt?: number;eraId?:string } = {},
 ): Promise<PublishingExportResult> {
-  const allWritings = await db.writings.where('projectId').equals(project.id).toArray();
+  const stored=await db.projects.get(project.id),book=stored?manuscriptProject(stored,profile.writingScope,artifactOptions.eraId):await withFootnoteStyle(project);
+  const allWritings = artifactOptions.eraId?await listEraRows<Writing>({projectId:project.id,eraId:artifactOptions.eraId},'writings'):await db.writings.where('projectId').equals(project.id).toArray();
   const resolved = resolvePublishingWritings(allWritings, profile);
   const baseResult = {
     missingWritingIds: resolved.missingWritingIds,
@@ -635,7 +641,7 @@ export async function exportPublishingProfile(
   }
   const citations = profile.includeBibliography ? await getCitations(project.id) : [];
   const artifacts = buildPublishingArtifacts(
-    await withFootnoteStyle(project),
+    book,
     profile,
     resolved.writings,
     citations,

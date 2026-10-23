@@ -1,3 +1,4 @@
+import {selectManuscriptWritings} from '../manuscripts';
 import {dockMetadataAdvance} from '../toolDock/authoredSave';
 import ToolDockPanel from '../toolDock/ToolDockPanel';
 import {canLeaveToolDocks} from '../toolDock/pending';
@@ -184,6 +185,7 @@ interface BookSession {
 }
 
 interface BookEditorProps {
+  manuscriptId?:string;
   projectId: string;
   writings: Writing[];
   /** Refetch the chapter list; awaited when it answers with a promise, so a caller that follows a save sees the rows it wrote. */
@@ -280,6 +282,7 @@ function ChapterToolButton({ editor, title, label }: { editor: Editor | null; ti
 }
 
 export default function BookEditor({
+  manuscriptId='main',
   projectId,
   writings,
   onRefresh,
@@ -390,7 +393,7 @@ export default function BookEditor({
     void getWritings(projectId)
       .then(async (all) => {
         if (cancelled) return;
-        const ordered = numberedInOrder(all);
+        const ordered = numberedInOrder(selectManuscriptWritings(all,{kind:'manuscript',id:manuscriptId}));
         const start = Math.max(0, ordered.findIndex((row) => row.id === fromId));
         const endAt = ordered.findIndex((row) => row.id === toId);
         const end = endAt < start ? ordered.length - 1 : endAt;
@@ -429,7 +432,7 @@ export default function BookEditor({
     return () => {
       cancelled = true;
     };
-  }, [projectId, fromId, toId, generation, getWritings, takeSnapshot]);
+  }, [projectId, fromId, toId, generation, getWritings, takeSnapshot,manuscriptId]);
 
   // ---------------------------------------------------------------------
   // The session baseline: the rows as this editor was built from them, each
@@ -608,6 +611,7 @@ export default function BookEditor({
         let result;
         try {
           result = await saveBook({
+            manuscriptId,
             scope,
             projectId,
             baseline: session.baseline,
@@ -1344,7 +1348,7 @@ export default function BookEditor({
         >
           <TiptapEditor
             key={loaded.key}
-            referenceContext={{ projectId, scopeId: bookScopeId(projectId) }}
+            referenceContext={{ projectId, scopeId: bookScopeId(projectId,manuscriptId) }}
             prepareExternal={()=>flushSaveRef.current()}
             canAcceptExternalBlock={()=>!sessionRef.current.dirty&&!sessionRef.current.savePromise}
             onExternalBlockCommit={(owner,root)=>{if(owner.kind!=='writings')return;const session=sessionRef.current,baseline=session.baseline.get(owner.documentId);if(!baseline||session.dirty||session.savePromise)return;const row=root as unknown as Writing,section=editorRef.current?splitBookDoc(editorRef.current.state.doc,editorRef.current.schema).find(section=>section.writingId===owner.documentId):undefined;if(section)session.baseline.set(owner.documentId,{...baseline,title:row.title,persistedTitle:row.title,html:section.html,persisted:row.content,version:row.updatedAt,wordCount:row.wordCount});}}
@@ -1371,7 +1375,7 @@ export default function BookEditor({
               own, kept apart from any chapter's. */}
           <ReferencePanel
             projectId={projectId}
-            writingId={bookScopeId(projectId)}
+            writingId={bookScopeId(projectId,manuscriptId)}
             editor={editor}
             prefs={referencePrefs}
             mode="temporary"

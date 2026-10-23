@@ -1,3 +1,4 @@
+import {validateWritingOwner} from './manuscriptStore';
 import { lazy } from 'react';
 import { PenLine } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
@@ -203,7 +204,7 @@ registerBackupStrategy({
     });
     for (const wf of files) {
       const writing = await readBackupJson<Record<string, unknown>>(zip, wf);
-      if (writing) await db.writings.add(writing as never);
+      if (writing) await db.writings.add(await validateWritingOwner(writing as unknown as import('@/types').Writing));
     }
     const snapshots = await readBackupJson<unknown[]>(zip, `${projectDir}/writings/_snapshots.json`);
     if (snapshots?.length) await db.writingSnapshots.bulkPut(snapshots as never[]);
