@@ -5,6 +5,7 @@ import { extractContentCodexReferences } from '@/services/codexReference/content
 import {templateIsWithin} from '../templateHierarchy';
 import type {CodexTemplate} from '../templateTypes';
 import type { CodexGraphLayout, WorldGraph, WorldGraphEdge, WorldGraphFilters, WorldGraphInput, WorldGraphNode } from './types';
+import { normalizeWorldGraphDisplay, WORLD_GRAPH_CARD_SIZE } from './types';
 
 const identity = (...parts: string[]) => parts.map(encodeURIComponent).join(':');
 
@@ -102,6 +103,10 @@ export function filterWorldGraph(graph: WorldGraph, filters: WorldGraphFilters, 
 
 /** Deterministic breadth-first columns per component; explicit manual positions win. */
 export function layoutWorldGraph(nodes: WorldGraphNode[], edges: WorldGraphEdge[], manual?: CodexGraphLayout): CodexGraphLayout['positions'] {
+  const display = normalizeWorldGraphDisplay(manual?.display), spacing = display.spacing ?? 1;
+  const size = WORLD_GRAPH_CARD_SIZE[display.nodeSize];
+  const gap = (step: number, extent: number) => step + (spacing - 1) * Math.max(0, step - extent);
+  const columnStep = gap(290, size.width), rowStep = gap(112, size.height), isolatedStep = gap(250, size.width);
   const positions: CodexGraphLayout['positions'] = {}, byId = new Map(nodes.map(node => [node.id, node]));
   const adjacency = new Map(nodes.map(node => [node.id, new Set<string>()]));
   for (const edge of edges) { if (byId.has(edge.source) && byId.has(edge.target)) { adjacency.get(edge.source)!.add(edge.target); adjacency.get(edge.target)!.add(edge.source); } }
@@ -115,11 +120,11 @@ export function layoutWorldGraph(nodes: WorldGraphNode[], edges: WorldGraphEdge[
       const next = [...adjacency.get(id)!].sort((a, b) => (byId.get(b)?.degree ?? 0) - (byId.get(a)?.degree ?? 0) || a.localeCompare(b));
       for (const neighbor of next) if (!seen.has(neighbor)) { seen.add(neighbor); queue.push({ id: neighbor, depth: depth + 1 }); }
     }
-    const height = Math.max(...columns.map(column => column.length)) * 112;
-    columns.forEach((column, x) => column.forEach((id, y) => { positions[id] = { x: x * 290, y: offset + y * 112 + (height - column.length * 112) / 2 }; }));
-    offset += height + 80;
+    const height = Math.max(...columns.map(column => column.length)) * rowStep;
+    columns.forEach((column, x) => column.forEach((id, y) => { positions[id] = { x: x * columnStep, y: offset + y * rowStep + (height - column.length * rowStep) / 2 }; }));
+    offset += height + 80 * spacing;
   }
-  nodes.filter(node => !adjacency.get(node.id)!.size).forEach((node, index) => { positions[node.id] = { x: (index % 4) * 250, y: offset + Math.floor(index / 4) * 112 }; });
+  nodes.filter(node => !adjacency.get(node.id)!.size).forEach((node, index) => { positions[node.id] = { x: (index % 4) * isolatedStep, y: offset + Math.floor(index / 4) * rowStep }; });
   for (const node of nodes) {
     const saved = manual?.positions[node.id];
     if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) positions[node.id] = { x: Math.max(-100000, Math.min(100000, saved.x)), y: Math.max(-100000, Math.min(100000, saved.y)) };
