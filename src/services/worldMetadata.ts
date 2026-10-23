@@ -119,7 +119,18 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
     localToolStates:localStates(project.localToolStates),
     ...remapWorkspaceLibrary(project, remap, { ...Object.fromEntries(Object.entries(toolIds).filter(([kind]) => kind.startsWith('local-tool-'))), 'dialog-scene':toolIds['dialog-scene'],worldgen:toolIds.worldgen,codex: codexIds, writings: writingIds, media: mediaIds, maps: toolIds.maps, board: toolIds.board, timeline: toolIds.timeline, dictionary: toolIds.dictionary, tables: toolIds.tables, genealogy: toolIds['relation-tree'], 'character-sheets': toolIds['character-sheets'], radar: toolIds.radar, 'model-viewer': toolIds['model-viewer'] }),
     readerPresentation: project.readerPresentation ? { ...project.readerPresentation, cover: project.readerPresentation.cover?.jacket ? cloneCoverJacket(project.readerPresentation.cover, remap) : project.readerPresentation.cover, revision: 0, chapters: Object.fromEntries(Object.entries(project.readerPresentation.chapters).filter(([id]) => writingIds.has(id)).map(([id, style]) => [remap(id, 'wr'), { ...style, audio: track(style.audio), paragraphAudio: style.paragraphAudio?.flatMap(cue => { const audio = track(cue.track); return audio ? [{ ...cue, track: audio }] : []; }) }])) } : undefined,
-    codexGraphLayout: project.codexGraphLayout ? { positions: Object.fromEntries(Object.entries(project.codexGraphLayout.positions).filter(([id]) => codexIds.has(id)).map(([id, position]) => [remap(id, 'codex'), position])) } : undefined,
+    codexGraphLayout: project.codexGraphLayout ? {
+      positions: Object.fromEntries(Object.entries(project.codexGraphLayout.positions).filter(([id]) => codexIds.has(id)).map(([id, position]) => [remap(id, 'codex'), { ...position }])),
+      ...(project.codexGraphLayout.display ? { display: structuredClone(project.codexGraphLayout.display) } : {}),
+      ...(project.codexGraphLayout.hiddenIds ? { hiddenIds: project.codexGraphLayout.hiddenIds.map(id => entry(id)).filter((id): id is string => Boolean(id)) } : {}),
+      ...(project.codexGraphLayout.views ? { views: project.codexGraphLayout.views.map(view => ({
+        ...structuredClone(view), id: remap(view.id, 'graph-view'), filters: {
+          ...structuredClone(view.filters),
+          ...(view.filters.focusId !== undefined ? { focusId: entry(view.filters.focusId) ?? '' } : {}),
+          ...(view.filters.templateId !== undefined ? { templateId: templateLink(view.filters.templateId) } : {}),
+        },
+      })) } : {}),
+    } : undefined,
     wikiOptions: project.wikiOptions ? {
       ...project.wikiOptions,
       excludedEntryIds: project.wikiOptions.excludedEntryIds?.map(id => entry(id)).filter((id): id is string => Boolean(id)),

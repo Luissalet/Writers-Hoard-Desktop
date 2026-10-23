@@ -1,7 +1,7 @@
 import { db } from '@/db';
 import { notifyProjectsChanged } from '@/db/operations';
 import { trackPendingWrite } from '@/services/pendingWrites';
-import type { CodexGraphLayout } from './types';
+import { normalizeWorldGraphDisplay, type CodexGraphLayout } from './types';
 
 /** Layout-only writes merge into the latest project row and stay project-scoped. */
 export async function saveWorldGraphLayout(projectId: string, positions: CodexGraphLayout['positions']): Promise<void> {
@@ -22,8 +22,8 @@ export async function saveWorldGraphSettings(projectId: string, patch: Partial<O
     const project = await db.projects.get(projectId);
     if (!project) throw new Error('Project no longer exists');
     const current = project.codexGraphLayout ?? { positions: {} };
-    const display = patch.display ? { names: (['all', 'main', 'hover'] as const).includes(patch.display.names) ? patch.display.names : 'all', nodeSize: (['small', 'medium', 'large'] as const).includes(patch.display.nodeSize) ? patch.display.nodeSize : 'medium', linkOpacity: Math.max(0.1, Math.min(1, Number(patch.display.linkOpacity) || 1)), pictures: patch.display.pictures !== false } : current.display;
-    const next: CodexGraphLayout = { ...current, ...(display ? { display } : {}), ...(patch.hiddenIds ? { hiddenIds: [...new Set(patch.hiddenIds.filter(id => typeof id === 'string'))].slice(0, 5000) } : {}), ...(patch.views ? { views: patch.views.slice(0, 50).map(view => ({ ...view, name: String(view.name).trim().slice(0, 80) || '—' })) } : {}) };
+    const display = patch.display ? normalizeWorldGraphDisplay({ ...current.display, ...patch.display }) : current.display;
+    const next: CodexGraphLayout = { ...current, ...(display ? { display } : {}), ...(patch.hiddenIds ? { hiddenIds: [...new Set(patch.hiddenIds.filter(id => typeof id === 'string'))].slice(0, 5000) } : {}), ...(patch.views ? { views: patch.views.slice(0, 50).map(view => ({ ...view, display: normalizeWorldGraphDisplay(view.display), name: String(view.name).trim().slice(0, 80) || '—' })) } : {}) };
     await db.projects.update(projectId, { codexGraphLayout: next, updatedAt: Date.now() });
     return next;
   });
