@@ -3,8 +3,7 @@
 // ============================================
 //
 // A note is the smallest unit of capture in the app: one thought, one quote,
-// one word you liked. Deliberately flat — no title, no rich text, no folders.
-// Anything that grows past a paragraph belongs in Writings or Diary.
+// one word you liked. Plain capture stays quick; rich formatting is opt-in.
 
 import { StickyNote, Quote, Lightbulb, Type } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -22,6 +21,8 @@ export interface Note {
   kind: NoteKind;
   /** The note itself. Plain text; the first line doubles as its title. */
   text: string;
+  /** Optional native editor HTML; text stores its plain search/AI/copy projection. */
+  richHtml?: string;
   /** An optional title shown over the text (otherwise the first line stands for it). */
   title?: string;
   /** An optional cover picture (a PNG, JPEG, GIF or WebP data URL up to 1.5 MB). */

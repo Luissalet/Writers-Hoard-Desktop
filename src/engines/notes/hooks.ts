@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { onDataChanged } from '@/engines/_shared';
 import * as ops from './operations';
 import type { Note } from './types';
+import { normalizeNoteContent } from './content';
 
 const useNotesBaseOptions = {
   fetchFn: ops.getNotes,
@@ -23,7 +24,7 @@ function useNotesBase(scopeId: string) { return useEraEntities<Note>(scopeId, 'n
  */
 export function useNotes(scopeId: string): ReturnType<typeof useNotesBase> {
   const result = useNotesBase(scopeId);
-  const { refresh } = result;
+  const { refresh,addItem:saveNew,editItem:saveChanges } = result;
 
   useEffect(() => {
     const onChanged = () => { void refresh(); };
@@ -31,7 +32,9 @@ export function useNotes(scopeId: string): ReturnType<typeof useNotesBase> {
     return () => window.removeEventListener('wh:notes-changed', onChanged);
   }, [refresh]);
 
-  return result;
+  const addItem=useCallback((note:Note)=>saveNew(normalizeNoteContent(note)),[saveNew]);
+  const editItem=useCallback((id:string,changes:Partial<Note>)=>saveChanges(id,normalizeNoteContent(changes)),[saveChanges]);
+  return {...result,addItem,editItem};
 }
 
 /**

@@ -2,10 +2,11 @@
 // AI bridge tools — notes and the project-less inbox
 // ============================================================================
 //
-// Notes are deliberately flat: plain text, no title, no rich text. The inbox
+// Notes retain a plain projection and optional native rich formatting. The inbox
 // (`GLOBAL_NOTES_SCOPE`) is a real scope id, not a null project, so the same
 // table and ops serve both.
 
+import { normalizeNoteContent } from '@/engines/notes/content';
 import type { Note, NoteKind } from '@/engines/notes/types';
 import { GLOBAL_NOTES_SCOPE, noteTitle } from '@/engines/notes/types';
 import { createNote, getNote, getNotes, updateNote, deleteNote } from '@/engines/notes/operations';
@@ -52,6 +53,7 @@ export async function whListNotes(args: ToolArgs): Promise<unknown> {
       kind: note.kind,
       title: noteTitle(note),
       text: note.text,
+      ...(note.richHtml!==undefined?{richHtml:note.richHtml}:{}),
       source: note.source,
       tags: note.tags,
       pinned: note.pinned,
@@ -68,18 +70,19 @@ export async function whCreateNote(args: ToolArgs): Promise<unknown> {
     ? GLOBAL_NOTES_SCOPE
     : await resolveProjectForEngine(args, 'notes');
   const now = Date.now();
-  const note: Note = {
+  const note: Note = normalizeNoteContent({
     id: generateId('note'),
     projectId: scope,
     kind: optEnum(args, 'kind', KINDS) ?? 'note',
     text: requireString(args, 'text'),
+    ...(args.richHtml!==undefined?{richHtml:requireString(args,'richHtml')}:{}),
     source: optString(args, 'source'),
     ...(optString(args, 'title')?.trim() ? { title: optString(args, 'title')!.trim().slice(0, 200) } : {}),
     tags: optStringArray(args, 'tags') ?? [],
     pinned: optBoolean(args, 'pinned') ?? false,
     createdAt: now,
     updatedAt: now,
-  };
+  });
   await noteOps(args).create(note);
   return withAudit(
     { id: note.id, title: noteTitle(note), created: true },
@@ -105,6 +108,7 @@ export async function whUpdateNote(args: ToolArgs): Promise<unknown> {
   const changes: Partial<Note> = {};
   const text = optString(args, 'text');
   if (text !== undefined) changes.text = text;
+  if(args.richHtml===null)changes.richHtml=undefined;else if(args.richHtml!==undefined)changes.richHtml=requireString(args,'richHtml');
   const kind = optEnum(args, 'kind', KINDS);
   if (kind !== undefined) changes.kind = kind;
   const source = optString(args, 'source');
@@ -119,15 +123,16 @@ export async function whUpdateNote(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
-  await noteOps(args).update(id, changes);
+  const normalized=normalizeNoteContent(changes);
+  await noteOps(args).update(id, normalized);
   return withAudit(
-    { id, updated: Object.keys(changes) },
+    { id, updated: Object.keys(normalized) },
     {
       projectId: existing.projectId,
       entityId: id,
       table: 'notes',
       summary: `updated note "${noteTitle(existing, 40)}"`,
-      before: { text: existing.text, kind: existing.kind, tags: existing.tags, source: existing.source, pinned: existing.pinned, __absent: existing.source === undefined ? ['source'] : [] },
+      before: { richHtml:existing.richHtml,title:existing.title,cover:existing.cover,text: existing.text, kind: existing.kind, tags: existing.tags, source: existing.source, pinned: existing.pinned, __absent: (['source','title','cover','richHtml'] as const).filter(key=>existing[key]===undefined) },
     },
   );
 }
