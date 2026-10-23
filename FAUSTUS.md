@@ -69,6 +69,15 @@ inserting or removing rows and columns moves formula references; a reference to
 a removed cell reads `#REF!`. Book layout belongs to the publishing profile
 (`bookStyle`), not to the chapters' HTML.
 
+Tabletop (wave D1): rules facts come from the bundled SRD 5.2 compendium
+(`wh_compendium_search`/`get`), not from memory; add an entry to the world only
+when asked. Run fights through `wh_encounter_action` with the revision read last.
+Roll with `wh_dice_roll` instead of inventing results, and say natural 20s and 1s
+as they came. Offer names from `wh_name_generate` (with the author's brief) and
+make a card only on request. Tasks and boards (`wh_todo_*`, `wh_kanban`) are the
+author's: add or change them when asked. In sheets, formulas may use Spanish or
+English function names; an Excel import says what it did not keep.
+
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means
 Unfiled; omitting placement options keeps ordinary card creation. A conflict

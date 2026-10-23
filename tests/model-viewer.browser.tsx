@@ -101,6 +101,10 @@ export async function testModelViewer(): Promise<string[]> {
   const wireframe = rootNode.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   await act(async () => { wireframe.click(); }); assert(wireframe.checked, 'Wireframe UI did not respond');
   await act(async () => { wireframe.click(); button('Play animation').click(); }); await act(async () => { button('Pause animation').click(); });
+  const loopBox = rootNode.querySelector<HTMLInputElement>('[data-testid="model-animation-loop"]');
+  assert(loopBox?.checked && rootNode.querySelector('[data-testid="model-animation-count"]')?.textContent === '1/1', 'Loop on by default, clip 1 of 1');
+  await act(async () => { loopBox.click(); }); assert(!loopBox.checked, 'Loop can be turned off to play the clip once');
+  await act(async () => { button('Play animation').click(); }); await act(async () => { button('Pause animation').click(); loopBox.click(); });
   const originalCreate = URL.createObjectURL; const originalRevoke = URL.revokeObjectURL; const originalClick = HTMLAnchorElement.prototype.click;
   let download: Blob | undefined;
   let filename = '';

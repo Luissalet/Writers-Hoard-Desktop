@@ -6,6 +6,7 @@ import type {FiveEAutoField} from './fiveETypes';
 import {button,input,signed} from './uiStyles';
 import {Field,NumberField} from './ui';
 import RowsPanel from './RowsPanel';
+import FiveEHealthPanel from './FiveEHealthPanel';
 
 type Choice={field:FiveEAutoField;before:string;after:number|string;automatic:boolean};
 export default function FiveEPlayPanel({sheet,locale,update,confirm,addRoll,report}:PanelProps&{addRoll:(roll:SheetRoll)=>void;report:(message:string)=>void}){
@@ -17,6 +18,7 @@ export default function FiveEPlayPanel({sheet,locale,update,confirm,addRoll,repo
  const choose=(id:string,nextLevel=level)=>{setCandidate(id);setNotice('');try{setChoices(id?fiveEClassPreview(sheet,id,nextLevel).changes.filter(change=>change.safe).map(change=>({field:change.field,before:change.before,after:change.after,automatic:true})):[]);}catch{setChoices([]);}setRecordLabel(!sheet.details.class?sheet.details.class??'':null);};
  const fieldLabel=(field:FiveEAutoField)=>field==='hpMax'?(es?'PV máximos':'HP maximum'):field==='hitDiceMax'?(es?'Dados de golpe máximos':'Hit dice maximum'):field==='castingAbility'?(es?'Aptitud para conjuros':'Casting ability'):`${es?'Espacios de nivel':'Level'} ${field.match(/\d/)?.[0]}${es?'':' slots'}`;
  return <div className="space-y-6" data-testid="five-e-play">
+  <FiveEHealthPanel sheet={sheet} locale={locale} update={update} addRoll={addRoll} />
   <section className="space-y-3" aria-label={es?'Clase y nivel de 2014':'2014 class and level'}>
    <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="font-display text-xl text-text-primary">5e (2014)</h3><a href={FIVE_E_SOURCE.url} target="_blank" rel="noreferrer noopener" className="text-sm text-accent-gold underline">SRD 5.1 · CC BY 4.0</a></div>
    <p className="max-w-prose text-sm text-text-muted">{es?'Elige los cálculos que quieras vincular a una clase. Los valores manuales y los recursos usados se conservan; guarda la ficha para confirmar los cambios.':'Choose which calculations to link to a class. Manual values and used resources are preserved; save the sheet to commit changes.'}</p>

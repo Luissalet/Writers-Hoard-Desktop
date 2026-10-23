@@ -88,6 +88,29 @@ mueven y una quitada da #REF!), orden múltiple y filtros. Todo tiene
 herramientas del puente (docs/AI-BRIDGE.md, sección 29); la matriz con pruebas
 está en tasks/vvd1095/C-writing.md.
 
+**Herramientas de mesa (tarea 1095, ola D1).** Las hojas de personaje suman un
+compendio SRD 5.2 sin conexión (341 monstruos, 339 conjuros, 262 objetos
+mágicos, 15 estados; búsqueda y filtros; «Añadir al mundo» crea una ficha del
+Códex y un bloque de estadísticas; atribución CC BY 4.0), una pestaña de Combate
+(iniciativa, turnos y rondas, daño con PG temporales, curación, estados que
+caducan, concentración, salvaciones contra muerte), una bandeja de dados (4d6kh3,
+ventaja, una dificultad que se supera o se falla, «¡20 natural!» y «1 natural»,
+seis juegos de dados, fórmulas guardadas, historial) y los puntos de golpe de una
+hoja 5e en partida (daño, curación, salvaciones contra muerte, estados), con la
+frase de lanzamiento de conjuros de un bloque de estadísticas. Un generador de
+nombres crea posadas, tiendas, personas, pueblos y casas nobles en 13 estilos,
+con dueño, encanto, secreto, problema y lema, y los convierte en fichas
+(«/nombre» en el editor; «/dados» tira). Las notas suman una lista de tareas
+(estado, urgencia, día, enlaces) y tableros kanban, y una nota admite título y
+portada. Las hojas calculan SI, SUMAR.SI, CONTAR.SI, BUSCARV y otras funciones,
+abren y guardan libros de Excel con sus pestañas y agrupan hojas como pestañas
+de un libro. El lienzo tiene menú de clic derecho, superficies blanca, rayada y
+de tiza, una barra de recursos y comentarios sobre una tarjeta; el grafo del
+mundo, ajustes de vista, fichas ocultas y grafos guardados; el ambiente del
+proyecto, un mezclador de paisajes sonoros; el selector de iconos, categorías,
+géneros y recientes. Herramientas del puente: docs/AI-BRIDGE.md, sección 30;
+matriz: tasks/vvd1095/D1-tools.md.
+
 **Duplicar proyecto** crea una copia local, remapea referencias internas
 declaradas y copia los archivos gestionados de Scrapper disponibles. Los
 originales globales de biblioteca y publicación nativa siguen compartidos.

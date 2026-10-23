@@ -60,7 +60,7 @@ export default function MarginPanel({
   // and no cascading effect render.
   if (pendingAnchor && !composing) {
     setComposing({ anchor: pendingAnchor, defaultType: 'text' });
-  } else if (pendingAnchor?.type === 'map_point' && composing && composing.anchor !== pendingAnchor) {
+  } else if ((pendingAnchor?.type === 'map_point' || pendingAnchor?.elementId) && composing && composing.anchor !== pendingAnchor) {
     // A second spot picked on the map while the composer is open moves the note there.
     setComposing({ anchor: pendingAnchor, defaultType: composing.defaultType });
   }

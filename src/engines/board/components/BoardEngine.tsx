@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Network, Trash2 } from 'lucide-react';
 import { ConfirmDialog, EngineSpinner, NewItemForm, useAutoSelect, useEnsureDefault } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
+import type { AnnotationAnchor } from '@/engines/annotations/types';
 import type { EngineComponentProps } from '@/engines/_types';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -21,6 +22,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
   const copy = getBoardCopy(locale);
   const { items: boards, loading, addItem, editItem, removeItem } = useBoards(projectId);
   const [activeId, setActiveId] = useState('');
+  const [commentAnchor, setCommentAnchor] = useState<AnnotationAnchor | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const targetId = searchParams.get('node') ?? searchParams.get('board');
   const [creating, setCreating] = useState(false);
@@ -99,7 +101,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
         </h2>
 
         {active && <select aria-label={copy.surface} value={active.surface} onChange={(event) => void editItem(active.id, { surface: event.target.value as Board['surface'] })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-xs text-text-muted focus-visible:outline-2 focus-visible:outline-accent-gold">
-          {(['cork', 'slate', 'grid', 'blueprint'] as const).map((surface) => <option key={surface} value={surface}>{copy[surface]}</option>)}
+          {(['cork', 'slate', 'grid', 'blueprint', 'white', 'lined', 'chalk'] as const).map((surface) => <option key={surface} value={surface}>{copy[surface]}</option>)}
         </select>}
 
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
@@ -183,13 +185,18 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
             projectId={projectId}
             board={active}
             onViewportChange={(viewport) => void editItem(active.id, { viewport })}
+            onCommentNode={(node) => { setCommentAnchor({ type: 'entity', elementId: node.id, elementTitle: node.title || node.kind }); requestAnimationFrame(() => document.querySelector('[data-board-comments]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })); }}
           />
+          <div data-board-comments>
           <AnnotationSurface
             projectId={projectId}
             engineId="board"
             entityId={active.id}
             layout="stack"
+            pendingAnchor={commentAnchor}
+            onPendingAnchorConsumed={() => setCommentAnchor(null)}
           />
+          </div>
         </>
       ) : null}
 

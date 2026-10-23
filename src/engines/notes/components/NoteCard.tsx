@@ -26,8 +26,10 @@ export default function NoteCard({
   onTagClick,
   deepLinkToken = null,
 }: NoteCardProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const es = locale !== 'en';
   const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(note.title ?? ''), [draftCover, setDraftCover] = useState(note.cover), [coverError, setCoverError] = useState(false);
   const [draft, setDraft] = useState(note.text);
   const [draftSource, setDraftSource] = useState(note.source ?? '');
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -48,6 +50,7 @@ export default function NoteCard({
     if (deepLinkToken) {
       setDraft(note.text);
       setDraftSource(note.source ?? '');
+      setDraftTitle(note.title ?? ''); setDraftCover(note.cover);
       setEditing(true);
     }
   }
@@ -55,6 +58,7 @@ export default function NoteCard({
   const startEdit = () => {
     setDraft(note.text);
     setDraftSource(note.source ?? '');
+    setDraftTitle(note.title ?? ''); setDraftCover(note.cover); setCoverError(false);
     setEditing(true);
   };
 
@@ -81,7 +85,7 @@ export default function NoteCard({
       setEditing(false);
       return;
     }
-    if (await update({ text, source: draftSource.trim() || undefined })) setEditing(false);
+    if (await update({ text, source: draftSource.trim() || undefined, title: draftTitle.trim().slice(0, 200) || undefined, cover: draftCover })) setEditing(false);
   };
 
   const copy = () => {
@@ -222,6 +226,10 @@ export default function NoteCard({
         {/* Body */}
         {editing ? (
           <div className="space-y-2">
+            {draftCover && <div className="relative"><img src={draftCover} alt="" className="max-h-40 w-full rounded-lg object-cover" /><button type="button" className="absolute right-1 top-1 rounded bg-deep/80 px-2 py-0.5 text-[11px] text-text-primary" data-testid="note-cover-remove" onClick={() => setDraftCover(undefined)}>{es ? 'Quitar portada' : 'Remove cover'}</button></div>}
+            <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} placeholder={es ? 'Título (opcional)' : 'Title (optional)'} aria-label={es ? 'Título' : 'Title'} data-testid="note-title" maxLength={200} className="w-full px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-sm font-semibold text-text-primary placeholder:text-text-dim outline-none focus:border-accent-gold transition" />
+            <label className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-text-muted hover:text-text-primary">{draftCover ? (es ? 'Cambiar portada' : 'Change cover') : (es ? 'Añadir portada' : 'Add cover')}<input type="file" className="sr-only" accept="image/png,image/jpeg,image/gif,image/webp" data-testid="note-cover" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (!file) return; if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 1_500_000) { setCoverError(true); return; } const reader = new FileReader(); reader.onload = () => { if (typeof reader.result === 'string') { setDraftCover(reader.result); setCoverError(false); } }; reader.readAsDataURL(file); }} /></label>
+            {coverError && <p role="alert" className="text-[11px] text-danger">{es ? 'La portada debe ser PNG, JPEG, GIF o WebP de hasta 1,5 MB.' : 'The cover must be a PNG, JPEG, GIF or WebP up to 1.5 MB.'}</p>}
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -261,6 +269,8 @@ export default function NoteCard({
             onClick={startEdit}
             className="w-full text-left"
           >
+            {note.cover && <img src={note.cover} alt="" className="mb-2 max-h-40 w-full rounded-lg object-cover" data-testid="note-cover-image" />}
+            {note.title && <p className="mb-1 text-base font-semibold text-text-primary" data-testid="note-title-shown">{note.title}</p>}
             <p
               className={`text-sm text-text-primary whitespace-pre-wrap leading-relaxed ${
                 note.kind === 'quote' ? 'font-serif italic' : ''
@@ -274,6 +284,7 @@ export default function NoteCard({
         {note.source && !editing && (
           <p className="text-xs text-text-muted mt-2">— {note.source}</p>
         )}
+        {!editing && (note.title || note.cover) && <p className="mt-1 text-[11px] text-text-dim" data-testid="note-word-count">{(() => { const words = note.text.trim().split(/\s+/).filter(Boolean).length; return es ? `${words} palabra${words === 1 ? '' : 's'}` : `${words} word${words === 1 ? '' : 's'}`; })()}</p>}
 
         {onDevelop && !editing && <button type="button" onClick={() => onDevelop(note)} className="mt-3 flex items-center gap-1.5 py-1 text-sm text-accent-gold hover:underline"><ArrowUpRight size={14} aria-hidden="true" />{t('notes.developIdea')}</button>}
 

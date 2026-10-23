@@ -29,7 +29,7 @@ export interface BoardViewport {
   zoom: number;
 }
 
-export type BoardSurface = 'cork' | 'slate' | 'grid' | 'blueprint';
+export type BoardSurface = 'cork' | 'slate' | 'grid' | 'blueprint' | 'white' | 'lined' | 'chalk';
 
 export interface Board {
   id: string;

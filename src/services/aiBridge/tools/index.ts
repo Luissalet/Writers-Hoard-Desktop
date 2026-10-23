@@ -86,6 +86,12 @@ import { whCodexRulesCard } from './rulesCards';
 import { whExtractBlockToCard } from './blockExtract';
 import { whTextEffect } from './textEffects';
 import { whSoundLibrary } from './soundLibrary';
+import { whCompendiumAdd, whCompendiumGet, whCompendiumSearch, whEncounterAction, whEncounterList } from './compendium';
+import { whDiceRoll, whDiceTray } from './dice';
+import { whNameGenerate } from './names';
+import { whTodoAction, whTodoList } from './todos';
+import { whSoundscape } from './soundscape';
+import { whKanban } from './kanban';
 import { whWorkspaceLibraryUpdate } from './workspaceLibrary';
 import {
   whConnectEvents,
@@ -437,6 +443,18 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_extract_block_to_card: whExtractBlockToCard,
   wh_text_effect: whTextEffect,
   wh_sound_library: whSoundLibrary,
+  wh_compendium_search: whCompendiumSearch,
+  wh_compendium_get: whCompendiumGet,
+  wh_compendium_add: whCompendiumAdd,
+  wh_encounter_list: whEncounterList,
+  wh_encounter_action: whEncounterAction,
+  wh_dice_roll: whDiceRoll,
+  wh_dice_tray: whDiceTray,
+  wh_name_generate: whNameGenerate,
+  wh_todo_list: whTodoList,
+  wh_todo_action: whTodoAction,
+  wh_soundscape: whSoundscape,
+  wh_kanban: whKanban,
   wh_workspace_library_update: whWorkspaceLibraryUpdate,
   wh_duplicate_event: whDuplicateEvent,
   wh_timeline_tags: whTimelineTags,

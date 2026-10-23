@@ -39,7 +39,7 @@ const NODE_KINDS = [
   'card', 'postit', 'text', 'image', 'shape', 'frame', 'entity',
 ] as const satisfies readonly BoardNodeKind[];
 
-const SURFACES = ['cork', 'slate', 'grid', 'blueprint'] as const satisfies readonly BoardSurface[];
+const SURFACES = ['cork', 'slate', 'grid', 'blueprint', 'white', 'lined', 'chalk'] as const satisfies readonly BoardSurface[];
 
 export async function whCreateBoard(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'board');

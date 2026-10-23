@@ -14,6 +14,17 @@ import {
   loadFullProjectIconCatalog,
 } from './projectIconCatalog';
 import type { ProjectIconCatalog } from './fullLucideIconCatalog';
+import IconGroupChips, { type IconFilter } from './IconGroupChips';
+import { ICON_CATEGORIES, ICON_GENRES, inGroup, recentIcons, rememberIcon } from './iconCategories';
+
+/** Icons of a category, genre or the recent list, then narrowed by the search. */
+function groupedIcons(entries: [string, LucideIcon][], icons: ProjectIconCatalog, group: IconFilter, query: string): [string, LucideIcon][] | null {
+  if (!group) return null;
+  const list: [string, LucideIcon][] = group.kind === 'recent'
+    ? recentIcons().flatMap(name => icons[name] ? [[name, icons[name]] as [string, LucideIcon]] : [])
+    : (() => { const found = (group.kind === 'category' ? ICON_CATEGORIES : ICON_GENRES).find(item => item.id === group.id); return found ? entries.filter(([name]) => inGroup(name, found)) : []; })();
+  return (query ? list.filter(([name]) => iconNameToWords(name).includes(query) || name.toLowerCase().includes(query)) : list).slice(0, 240);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,7 +73,8 @@ export default function IconPicker({
   color = '#c4973b',
   size = 'md',
 }: IconPickerProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const [group, setGroup] = useState<IconFilter>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -103,6 +115,8 @@ export default function IconPicker({
   // Filter icons
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
+    const inGroupList = groupedIcons(iconEntries, availableIcons, group, query);
+    if (inGroupList) return inGroupList;
 
     if (!query) {
       // Show featured first, then the rest
@@ -120,7 +134,7 @@ export default function IconPicker({
       const words = iconNameToWords(name);
       return words.includes(query) || name.toLowerCase().includes(query);
     }).slice(0, 120);
-  }, [availableIcons, iconEntries, search]);
+  }, [availableIcons, iconEntries, search, group]);
 
   const SelectedIcon = value ? (availableIcons[value] || null) : null;
   const btnSize = size === 'sm' ? 'w-9 h-9' : 'w-11 h-11';
@@ -182,6 +196,7 @@ export default function IconPicker({
             )}
           </div>
 
+          <IconGroupChips value={group} onChange={setGroup} locale={locale} hasRecent={recentIcons().length > 0} />
           {/* Icon grid */}
           <div className="grid grid-cols-8 gap-1 max-h-[240px] overflow-y-auto pr-1 scrollbar-thin">
             {filtered.map(([name, Icon]) => {
@@ -190,7 +205,7 @@ export default function IconPicker({
                 <button
                   key={name}
                   type="button"
-                  onClick={() => { onChange(name); setOpen(false); }}
+                  onClick={() => { rememberIcon(name); onChange(name); setOpen(false); }}
                   className={`p-2 rounded-lg flex items-center justify-center transition ${
                     isSelected
                       ? 'bg-accent-gold/20 ring-1 ring-accent-gold/50'
@@ -235,7 +250,8 @@ interface InlineIconPickerProps {
 }
 
 export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineIconPickerProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const [group, setGroup] = useState<IconFilter>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -289,6 +305,8 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
+    const inGroupList = groupedIcons(iconEntries, availableIcons, group, query);
+    if (inGroupList) return inGroupList;
     if (!query) {
       const featuredSet = new Set<string>(featuredProjectIconNames);
       const featured = featuredProjectIconNames
@@ -303,9 +321,10 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
       const words = iconNameToWords(name);
       return words.includes(query) || name.toLowerCase().includes(query);
     }).slice(0, 120);
-  }, [availableIcons, iconEntries, search]);
+  }, [availableIcons, iconEntries, search, group]);
 
   const handleSelect = useCallback((name: string) => {
+    rememberIcon(name);
     onChange(name);
     setOpen(false);
   }, [onChange]);
@@ -351,6 +370,7 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
         )}
       </div>
 
+      <IconGroupChips value={group} onChange={setGroup} locale={locale} hasRecent={recentIcons().length > 0} />
       <div className="grid grid-cols-7 gap-1 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin">
         {filtered.map(([name, Icon]) => {
           const isSelected = name === value;

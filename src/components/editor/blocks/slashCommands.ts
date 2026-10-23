@@ -3,7 +3,7 @@
 // Enter or a click choose; Escape closes it until the slash is retyped.
 import type { Editor } from '@tiptap/react';
 import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
-import { AlertTriangle, ChevronRight, Code, Heading1, Heading2, Heading3, HelpCircle, Info, Lightbulb, List, ListChecks, ListOrdered, Mail, MessageSquare, Minus, Pilcrow, Quote, Scissors, StickyNote, Table, type LucideIcon, Mic, Square, Columns2 } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Code, Heading1, Heading2, Heading3, HelpCircle, Info, Lightbulb, List, ListChecks, ListOrdered, Mail, MessageSquare, Minus, Pilcrow, Quote, Scissors, StickyNote, Table, type LucideIcon, Mic, Square, Columns2, Dices, Wand2 } from 'lucide-react';
 import type { CalloutKind } from './extensions';
 
 export interface SlashState { active: boolean; from: number; to: number; query: string; dismissed: number | null }
@@ -68,6 +68,8 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: 'scene', es: 'Separador de escena', en: 'Scene break', keywords: 'separador escena scene break hr linea', icon: Minus, run: e => { e.chain().focus().setHorizontalRule().run(); } },
   { id: 'table', es: 'Tabla', en: 'Table', keywords: 'tabla table', icon: Table, run: e => { e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); } },
   { id: 'page', es: 'Salto de página', en: 'Page break', keywords: 'salto pagina page break', icon: Scissors, run: e => { e.chain().focus().insertPageBreak().run(); } },
+  { id: 'names', es: 'Generar un nombre', en: 'Generate a name', keywords: 'nombre nombres generador posada tienda pueblo persona casa name generator inn shop village person house', icon: Wand2, run: e => { e.view.dom.dispatchEvent(new CustomEvent('wh-slash-tool', { detail: { tool: 'names' } })); } },
+  { id: 'dice', es: 'Tirar dados', en: 'Roll dice', keywords: 'dados tirada dado d20 dice roll', icon: Dices, run: e => { e.view.dom.dispatchEvent(new CustomEvent('wh-slash-tool', { detail: { tool: 'dice' } })); } },
   { id: 'code', es: 'Código', en: 'Code', keywords: 'codigo code', icon: Code, run: e => { e.chain().focus().toggleCodeBlock().run(); } },
 ];
 const fold = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();

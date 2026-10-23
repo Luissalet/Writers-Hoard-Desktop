@@ -12,7 +12,8 @@ export interface ModelViewport {
   rotate(direction: 'left' | 'right'): void;
   setWireframe(enabled: boolean): void;
   setLighting(lighting: Lighting): void;
-  setAnimation(index: number, playing: boolean): void;
+  /** Play or pause a clip; `loop` false plays it once and holds the last pose. */
+  setAnimation(index: number, playing: boolean, loop?: boolean): void;
   setCameraMode(mode: CameraMode): void;
   setAutoRotate(enabled: boolean): void;
   setActive(active: boolean): void;
@@ -225,10 +226,12 @@ export async function createModelViewport(container: HTMLElement, asset: ModelAs
         keyLight.intensity = lighting === 'soft' ? 1 : lighting === 'daylight' ? 5 : 3;
         fillLight.intensity = lighting === 'daylight' ? 0.6 : 1.5; render();
       },
-      setAnimation(index, playing) {
+      setAnimation(index, playing, loop = true) {
         if (!mixer || !clips[index]) return;
         const next = mixer.clipAction(clips[index]);
         if (next !== activeAction) { activeAction?.stop(); activeAction = next; activeAction.reset(); }
+        activeAction.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1); activeAction.clampWhenFinished = !loop;
+        if (!loop && playing && activeAction.time >= clips[index].duration) activeAction.reset();
         activeAction.paused = !playing; activeAction.play();
         animationPlaying = playing;
         if (playing) schedule(); else render();
