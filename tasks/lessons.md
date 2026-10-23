@@ -1537,3 +1537,9 @@ edits preserve the shape.
 95. Legacy absent DOM attributes must stay absent when the pure DTO distinguishes
 absence from empty or null. Fix serialization defaults without weakening external
 validation, and reopen both HTML and JSON in the regression oracle.
+
+96. Check whitespace on the staged diff after adding explicit paths, including new
+files, before committing. A working-tree diff cannot check an untracked test.
+After an amend, verify the commit delta as well. Withdrawal messages are asynchronous:
+read the recorded review outcome before calling an older submission unvoted, and
+obtain a fresh revision-bound vote for the amended commit.

@@ -1322,7 +1322,7 @@ Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item 
 - [x] Complete independent core/metadata review,26 distinct result labels with repeated legacy coverage separated; commit13explicit paths and approve fresh CAS16.
 - [x] Integrate exact ecb1703 under fresh merge lock/HEAD. Root Brave checks drag, filter, reload and saved-view restore; generated SVG tests remain separate from the Browser download timeout.
 - [x] Record final main verify:quick/Vite32.31s/Electron/Node937 PASS, root session66185 exit0, main clean and merge lock released. Native manual separately adds355UTF16 with required revision/readback,198paragraphs/197other texts/styles preserved and both manual locks released; vvd1095/verification-graph-display.md.
-- [ ] Continue manual player5e attack fields and actual SDK levels/spatial research, without closing1095 or claiming universal parity.
+- [ ] Continue actual SDK levels/spatial/pan research without closing 1095 or claiming universal parity; the separately reviewed manual player 5e attacks are integrated, with final receipts below.
 
 ## SDK resources — source d542365 integrated, CAS15
 
@@ -1332,3 +1332,14 @@ Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item 
 - [x] Root updated the Google manual through its separately locked workflow:588 UTF-16 units, requiredRevision/readback,198 paragraphs,197 others unchanged and all styles preserved. manual-receipt.json records source d542365; both manual locks released. This documentation pass did not write the manual.
 
 See [resources verification](vvd1095/verification-sdk-assets.md). Installation offers CAS+Revert without Undo; documents/owned blocks retain native receipts/history. Font/data have Blob defaults without generic picking. Wiki's sanitizer retains its own SVG frame. Task1095 remains open; no universal SDK parity claim.
+
+
+## Manual player 5e attacks — source 112f1fc integrated, CAS 18
+
+- [x] Compare actual reference 5eCharacterSheet0.1.11 fields/persistence and implement optional manual bonus/type beside existing generic/spell rows, native separate rolls, contextual ES/EN history, bounded Unicode labels and paper after existing ink. Source `112f1fc` is approved by fresh independent CAS 18 after a two-byte test-EOF amendment; no gameplay resource spending, target or critical adjudication.
+- [x] Close independent history-identity and maximum-context REDs without changing their oracles; contextual Discard/Reload preserves real Delete. Technical review: 32 distinct groups (10 author + 5 independent + 17 legacy), final repeated 21 separately attributed. Root Brave verifies save/reopen, labels, clear/spell coexistence, Discard/Cancel and paper. Existing Age/Height custom properties also persist/print without new code.
+- [x] Record final source `112f1fc3e108cd83d73ed9c8ad9accf7ad2d60f3` and fresh independent CAS 18 approval. CAS 17 approved predecessor `971870a` before the two-byte EOF amendment; its vote was not inherited.
+- [x] Integrate exact `112f1fc` FF-only under merge lock; final verify:quick 34 engines / 64 tables / 6515 keys / 22 locale files / zero warnings, shipping lint zero, Vite 36.92s, Electron and both plain-Node checks PASS (937 tools and Reveal schema/limits). Root session 30517 exited zero, main stayed clean and the merge lock was released. This is the player-attack receipt, separate from graph/assets builds.
+- [x] Root updated the Google manual with its own requiredRevision/readback: 412 UTF-16 units, 198 paragraphs, 197 other texts unchanged and all paragraph styles preserved. `_stage/player-attacks-next/manual-receipt.json` names source `112f1fc`; this documentation pass did not write the manual.
+
+See [player-attack verification](vvd1095/verification-player-attacks.md). Task 1095 remains open, historical counts stay unchanged, and the cached stdio host is not final-source transport proof.
