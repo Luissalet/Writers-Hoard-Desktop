@@ -47,6 +47,7 @@ import { MODEL_READER_WIKI_HANDLERS } from './modelReaderWiki';
 import { TIMELINE_BATCH_HANDLERS } from '@/engines/timeline/batchBridge';
 import { ANNOTATION_THREAD_HANDLERS } from '@/engines/annotations/bridge';
 import { DOCUMENT_IMAGE_HANDLERS } from '@/services/documentImage/bridge';
+import { PREP_BLOCK_HANDLERS } from '@/engines/prepBlocks/bridge';
 import { TABLE_HANDLERS } from '@/engines/tables/bridge';
 import { PUBLISHED_EDITION_HANDLERS } from '@/services/publishedEditions/bridge';
 import { DICTIONARY_HANDLERS } from '@/engines/dictionary/bridge';
@@ -129,6 +130,7 @@ import {
   whListOutlines,
   whUpdateBeat,
 } from './outline';
+import { whSessionPlanner, whSessionSetStatus } from './sessionPlanner';
 import {
   whDownloadSnapshotMedia,
   whGetSnapshot,
@@ -172,7 +174,7 @@ import {
 } from './board';
 import { whListImages, whTagImage, whViewImage } from './gallery';
 import { whGenerateImage } from './imageStudio';
-import { whAddMapFeature, whAddMapPin, whCaptureMapVersion, whChangeMapGround, whLinkMapVersion, whListMapFeatures, whListMaps, whListMapVersions, whMeasureMap, whNameMapPinsFromKey, whPreviewMapGround, whSetMapScale, whSetMapLayers, whUpdateMapFeature, whUpdateMapPin } from './maps';
+import { whAddMapFeature, whAddMapPin, whCaptureMapVersion, whChangeMapGround, whLinkMapVersion, whListMapFeatures, whListMaps, whMapParty, whMapReveal, whListMapVersions, whMeasureMap, whNameMapPinsFromKey, whPreviewMapGround, whSetMapScale, whSetMapLayers, whMapArtwork, whMapArtworkGet, whUpdateMapFeature, whUpdateMapPin } from './maps';
 import {
   whAddLabel,
   whListLabels,
@@ -368,6 +370,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...TIMELINE_BATCH_HANDLERS,
   ...ANNOTATION_THREAD_HANDLERS,
   ...DOCUMENT_IMAGE_HANDLERS,
+  ...PREP_BLOCK_HANDLERS,
   ...TABLE_HANDLERS,
   ...PUBLISHED_EDITION_HANDLERS,
   ...DICTIONARY_HANDLERS,
@@ -488,6 +491,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   // Outline
   wh_list_outlines: whListOutlines,
   wh_create_outline: whCreateOutline,
+  wh_session_planner: whSessionPlanner,
+  wh_session_set_status: whSessionSetStatus,
   wh_list_beats: whListBeats,
   wh_create_beat: whCreateBeat,
   wh_update_beat: whUpdateBeat,
@@ -610,6 +615,10 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_preview_map_ground: whPreviewMapGround,
   wh_set_map_scale: whSetMapScale,
   wh_set_map_layers: whSetMapLayers,
+  wh_map_reveal: whMapReveal,
+  wh_map_party: whMapParty,
+  wh_map_artwork: whMapArtwork,
+  wh_map_artwork_get: whMapArtworkGet,
   wh_measure_map: whMeasureMap,
   wh_name_map_pins_from_key: whNameMapPinsFromKey,
   wh_remove_trade_site: whRemoveTradeSite,

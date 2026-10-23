@@ -30,7 +30,7 @@ export async function whExtractBlockToCard(args: ToolArgs): Promise<unknown> {
   const body = new DOMParser().parseFromString(source.content ?? '', 'text/html').body;
   const blocks = [...body.children];
   // The blocks as stored, with their indexes: what blockIndex counts.
-  if (args.list === true) return { blocks: blocks.map((block, index) => ({ index, tag: block.tagName.toLowerCase(), kind: block.getAttribute('data-wh-callout') ?? block.getAttribute('data-wh-rules-card') ?? (block.matches('[data-wh-codex-block="true"]') ? 'codex-reference' : undefined), text: (block.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 100) })) };
+  if (args.list === true) return { blocks: blocks.map((block, index) => ({ index, tag: block.tagName.toLowerCase(), kind: block.getAttribute('data-wh-callout') ?? block.getAttribute('data-wh-rules-card') ?? (block.hasAttribute('data-wh-prep') ? 'prep-' + block.getAttribute('data-wh-prep') : null) ?? (block.matches('[data-wh-codex-block="true"]') ? 'codex-reference' : undefined), text: (block.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 100) })) };
   const index = optNumber(args, 'blockIndex');
   if (index === undefined || !Number.isInteger(index) || index < 0) throw new BridgeError('bad-args', 'blockIndex is the 0-based top-level block (list:true shows them).');
   const block = blocks[index];

@@ -12,6 +12,9 @@ import type { Outline, OutlineBeat } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import TemplateSelector from './TemplateSelector';
 import BeatList from './BeatList';
+import SessionFields from './SessionFields';
+import SessionPlanner from './SessionPlanner';
+import { isSession } from '../session';
 import Modal from '@/components/common/Modal';
 
 export default function OutlineEngine({ projectId }: EngineComponentProps) {
@@ -38,6 +41,8 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   const [beatCounts, setBeatCounts] = useState<Record<string, number>>({});
   const [pendingDeleteOutline, setPendingDeleteOutline] = useState<Outline | null>(null);
   const deepLinkedOutlineId = useDeepLinkParam('outline');
+  const deepLinkedView = useDeepLinkParam('view');
+  const [view, setView] = useState<'outlines' | 'planner'>(deepLinkedView === 'planner' ? 'planner' : 'outlines');
   const deepLinkedBeatId = useDeepLinkParam('beat');
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
   const deepLinkedBeat = useMemo(
@@ -133,14 +138,37 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
 
   if (loading) return <EngineSpinner />;
 
+  const tabClass = (on: boolean) =>
+    `px-3 py-1.5 text-xs rounded-lg border transition ${on ? 'border-accent-gold bg-accent-gold/10 text-accent-gold' : 'border-border text-text-dim hover:text-text-primary'}`;
+
   return (
     <div className="space-y-6">
+      <div role="tablist" aria-label={t('outline.view.label')} className="flex gap-2" data-testid="outline-views">
+        <button type="button" role="tab" aria-selected={view === 'outlines'} onClick={() => setView('outlines')} data-testid="outline-view-outlines" className={tabClass(view === 'outlines')}>
+          {t('outline.view.outlines')}
+        </button>
+        <button type="button" role="tab" aria-selected={view === 'planner'} onClick={() => setView('planner')} data-testid="outline-view-planner" className={tabClass(view === 'planner')}>
+          {t('outline.view.planner')}
+        </button>
+      </div>
+
+      {view === 'planner' && (
+        <SessionPlanner
+          projectId={projectId}
+          outlines={outlines}
+          writings={writings}
+          onOpenOutline={(id) => { setActiveOutlineId(id); setView('outlines'); }}
+          onChanged={refreshOutlines}
+        />
+      )}
+
       {/* Main Outline View */}
-      {activeOutline && (
+      {view === 'outlines' && activeOutline && (
         <div className="space-y-4">
           <div className="border border-border rounded-xl bg-surface/50 p-6">
             {/* Outline Title */}
             <OutlineTitle key={activeOutline.id} outline={activeOutline} onSave={editOutline} />
+            <SessionFields key={`session-${activeOutline.id}`} outline={activeOutline} writings={writings} onChanged={refreshOutlines} />
             {activeOutline.templateId && (
               <p className="text-xs text-text-dim">
                 {t('outline.usingTemplate')} {activeTemplate ? t(activeTemplate.nameKey) : activeOutline.templateId}
@@ -175,7 +203,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
       )}
 
       {/* Outlines Collection Dashboard */}
-      <div className="border border-border rounded-xl bg-surface/50 p-4 mt-8">
+      {view === 'outlines' && <div className="border border-border rounded-xl bg-surface/50 p-4 mt-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
             <ListTree size={14} className="text-accent-gold" />
@@ -279,6 +307,9 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
                   <p className="text-xs font-medium text-text-primary truncate w-full">
                     {outline.title}
                   </p>
+                  {isSession(outline) && (
+                    <p className="text-xs text-accent-gold" data-testid="outline-session-badge">{t('outline.session.badge')}</p>
+                  )}
                   <p className="text-xs text-text-dim mt-1">
                     {beatCounts[outline.id] ?? 0}{' '}
                     {t((beatCounts[outline.id] ?? 0) === 1 ? 'outline.beatSingular' : 'outline.beats')}
@@ -288,7 +319,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             })}
           </div>
         )}
-      </div>
+      </div>}
 
       <ConfirmDialog
         open={pendingDeleteOutline !== null}

@@ -22,7 +22,7 @@ export async function testWritingBlocks(): Promise<string[]> {
   const passed: string[] = [];
   assert(slashMatches('not', 'es').map(i => i.id).join() === 'note', `Filter "not": ${slashMatches('not', 'es').map(i => i.id)}`);
   assert(slashMatches('lista', 'es').map(i => i.id).join() === 'bullet,ordered,checklist', `Filter "lista": ${slashMatches('lista', 'es').map(i => i.id)}`);
-  assert(slashMatches('', 'en').length === 28, 'All blocks with nothing typed');
+  assert(slashMatches('', 'en').length === 31, 'All blocks with nothing typed');
   useLocaleStore.setState({ locale: 'es' });
   const host = document.getElementById('root'); assert(host, 'root');
   const root = createRoot(host);
@@ -38,7 +38,7 @@ export async function testWritingBlocks(): Promise<string[]> {
     // "/" opens the menu; typing narrows it; Escape closes it until retyped.
     await type('/');
     await until(() => !!document.querySelector('[data-testid="slash-menu"]'), 'menu opens');
-    assert(document.querySelectorAll('[data-testid="slash-menu"] [role="option"]').length === 28, 'Every block offered');
+    assert(document.querySelectorAll('[data-testid="slash-menu"] [role="option"]').length === 31, 'Every block offered');
     await type('not');
     await until(() => document.querySelectorAll('[data-testid="slash-menu"] [role="option"]').length === 1, 'filtered to Nota');
     await key('Escape');

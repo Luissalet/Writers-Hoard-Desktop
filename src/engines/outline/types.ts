@@ -5,9 +5,30 @@ export interface Outline {
   projectId: string;
   title: string;
   templateId?: string; // which beat sheet template was used
+  /**
+   * Session marker. All the fields below are optional and additive: an outline
+   * without them is an ordinary story outline. `kind === 'session'` is what
+   * puts it on the planner; the other three only mean something then.
+   */
+  kind?: 'session';
+  /** Where the session stands: in prep, next to be played, being played, or played. */
+  sessionStatus?: SessionStatus;
+  /** Day the session is (or was) played, `YYYY-MM-DD`. */
+  sessionDate?: string;
+  /** The prep note (a Writing) this session reads from. Remapped on project clone. */
+  linkedWritingId?: string;
+  /** Bumped by every session change; the bridge refuses a stale one. */
+  sessionRevision?: number;
   createdAt: number;
   updatedAt: number;
 }
+
+export const SESSION_STATUSES = ['prep', 'next', 'live', 'played'] as const;
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
+
+/** Tool-dock layouts the planner can lay into a session's prep note (see sessionDock.ts). */
+export const DOCK_PRESET_IDS = ['combat', 'map', 'reference'] as const;
+export type DockPresetId = (typeof DOCK_PRESET_IDS)[number];
 
 export interface OutlineBeat {
   id: string;
@@ -74,6 +95,10 @@ const BEAT_COLORS = {
   'save-the-cat-finale': '#8b5cf6',
   'save-the-cat-final': '#6366f1',
 };
+
+const SESSION_COLORS = [
+  '#e8b661', '#f59e0b', '#4a9e6d', '#7c5cbf', '#10b981', '#4a7ec4', '#ef4444', '#c4973b',
+];
 
 export const BEAT_SHEET_TEMPLATES: BeatSheetTemplate[] = [
   {
@@ -227,7 +252,71 @@ export const BEAT_SHEET_TEMPLATES: BeatSheetTemplate[] = [
         descriptionKey: 'outline.template.five-act.beat.5.description' },
     ],
   },
+  // ----- Session prep (appended: template ids are persisted, never reorder or rename) -----
+  {
+    id: 'session-prep',
+    nameKey: 'outline.template.session-prep.name',
+    descriptionKey: 'outline.template.session-prep.description',
+    beats: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
+      level: 'beat' as const,
+      color: SESSION_COLORS[n - 1],
+      titleKey: `outline.template.session-prep.beat.${n}.title`,
+      descriptionKey: `outline.template.session-prep.beat.${n}.description`,
+    })),
+  },
+  {
+    id: 'hub-and-spoke',
+    nameKey: 'outline.template.hub-and-spoke.name',
+    descriptionKey: 'outline.template.hub-and-spoke.description',
+    beats: [
+      { level: 'act', color: BEAT_COLORS['act'],
+        titleKey: 'outline.template.hub-and-spoke.beat.1.title',
+        descriptionKey: 'outline.template.hub-and-spoke.beat.1.description' },
+      ...[2, 3, 4, 5].map((n) => ({
+        level: 'scene' as const, color: BEAT_COLORS['scene'],
+        titleKey: `outline.template.hub-and-spoke.beat.${n}.title`,
+        descriptionKey: `outline.template.hub-and-spoke.beat.${n}.description`,
+      })),
+      { level: 'beat', color: BEAT_COLORS['beat'],
+        titleKey: 'outline.template.hub-and-spoke.beat.6.title',
+        descriptionKey: 'outline.template.hub-and-spoke.beat.6.description' },
+    ],
+  },
+  {
+    id: 'three-act-session',
+    nameKey: 'outline.template.three-act-session.name',
+    descriptionKey: 'outline.template.three-act-session.description',
+    beats: [
+      { level: 'act', storyPosition: 0, color: BEAT_COLORS['act'],
+        titleKey: 'outline.template.three-act-session.beat.1.title',
+        descriptionKey: 'outline.template.three-act-session.beat.1.description' },
+      { level: 'beat', storyPosition: 10, color: '#f59e0b',
+        titleKey: 'outline.template.three-act-session.beat.2.title',
+        descriptionKey: 'outline.template.three-act-session.beat.2.description' },
+      { level: 'act', storyPosition: 30, color: BEAT_COLORS['act'],
+        titleKey: 'outline.template.three-act-session.beat.3.title',
+        descriptionKey: 'outline.template.three-act-session.beat.3.description' },
+      { level: 'beat', storyPosition: 50, color: '#f97316',
+        titleKey: 'outline.template.three-act-session.beat.4.title',
+        descriptionKey: 'outline.template.three-act-session.beat.4.description' },
+      { level: 'beat', storyPosition: 65, color: '#ef4444',
+        titleKey: 'outline.template.three-act-session.beat.5.title',
+        descriptionKey: 'outline.template.three-act-session.beat.5.description' },
+      { level: 'act', storyPosition: 75, color: BEAT_COLORS['act'],
+        titleKey: 'outline.template.three-act-session.beat.6.title',
+        descriptionKey: 'outline.template.three-act-session.beat.6.description' },
+      { level: 'beat', storyPosition: 90, color: '#8b5cf6',
+        titleKey: 'outline.template.three-act-session.beat.7.title',
+        descriptionKey: 'outline.template.three-act-session.beat.7.description' },
+      { level: 'beat', storyPosition: 100, color: '#6366f1',
+        titleKey: 'outline.template.three-act-session.beat.8.title',
+        descriptionKey: 'outline.template.three-act-session.beat.8.description' },
+    ],
+  },
 ];
+
+/** Templates meant for running a table session; the planner offers these first. */
+export const SESSION_TEMPLATE_IDS = ['session-prep', 'hub-and-spoke', 'three-act-session'] as const;
 
 export const BEAT_STATUS_CONFIG = {
   empty: { labelKey: 'outline.status.empty', color: 'bg-gray-500/20 text-gray-400', icon: 'circle' },

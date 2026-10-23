@@ -1,4 +1,5 @@
 import {annotationEntity} from '@/engines/annotations/scope';
+import {isThreadUnread} from '@/engines/annotations/readState';
 import type {WorldEraScope} from '@/services/worldEras/types';
 // ============================================================================
 // AI bridge tools — margin notes
@@ -22,10 +23,13 @@ import {
 import {
   captureContext,
   getAnchorAdapter,
+  getPositionalAnchorAdapter,
+  getPositionalAnchorEngineIds,
   resolveTextRangeAnchor,
 } from '@/engines/_shared/anchoring';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   assertRowInScope,
   BridgeError,
   optBoolean,
@@ -46,7 +50,9 @@ function serialize(annotation: Annotation, freshOrphan?: boolean): Record<string
     note: annotation.noteBody,
     noteType: annotation.noteType,
     anchoredTo: annotation.anchor.selectedText,
-    ...(annotation.anchor.type === 'map_point' ? { at: { x: annotation.anchor.x, y: annotation.anchor.y } } : {}),
+    ...(annotation.anchor.type === 'map_point' || annotation.anchor.type === 'board_point' ? { at: { x: annotation.anchor.x, y: annotation.anchor.y }, atSpace: annotation.anchor.type === 'map_point' ? 'percent' : 'board' } : {}),
+    unread: isThreadUnread(annotation),
+    readAt: annotation.readAt,
     isOrphaned: freshOrphan ?? annotation.isOrphaned,
     createdAt: annotation.createdAt,updatedAt:annotation.updatedAt,eraId:annotation.eraId,revision:annotation.revision??0,resolved:!!annotation.resolvedAt,resolvedAt:annotation.resolvedAt,replies:annotation.replies??[],mentions:annotation.mentions??[],
   };
@@ -56,6 +62,7 @@ export async function whListAnnotations(args: ToolArgs): Promise<unknown> {
   const engineId = optString(args, 'engineId');
   const entityId = optString(args, 'entityId');
   const orphanedOnly = optBoolean(args, 'orphanedOnly') === true;
+  const unreadOnly = optBoolean(args, 'unreadOnly') === true;
 
   if (entityId && !engineId) {
     throw new BridgeError('bad-args', 'entityId needs engineId too: ids are only unique within an engine.');
@@ -85,10 +92,12 @@ export async function whListAnnotations(args: ToolArgs): Promise<unknown> {
 
   const filtered = rows
     .filter((row) => (engineId && !entityId ? row.sourceEngineId === engineId : true))
-    .filter((row) => (orphanedOnly ? fresh?.get(row.id) ?? row.isOrphaned : true));
+    .filter((row) => (orphanedOnly ? fresh?.get(row.id) ?? row.isOrphaned : true))
+    .filter((row) => (unreadOnly ? isThreadUnread(row) : true));
 
   return {
     count: filtered.length,
+    unreadCount: filtered.filter((row) => isThreadUnread(row)).length,
     annotations: filtered.map((row) => serialize(row, fresh?.get(row.id))),
     orphanStatus: fresh
       ? 'checked against the text as it stands right now'
@@ -168,13 +177,17 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
   }
 
   if (args.at !== undefined) {
-    // A spot on a classic map, in percent of the image, like pins and shapes.
-    if (engineId !== 'maps') throw new BridgeError('bad-args', '`at` only applies to classic maps (engineId "maps").');
+    // A spot on a canvas: a classic map (percent of the image, like pins and
+    // shapes) or a board (board coordinates, like card positions). Each engine
+    // says what a valid spot is through its positional anchor adapter.
+    const positional = getPositionalAnchorAdapter(engineId);
+    if (!positional) throw new BridgeError('bad-args', `\`at\` only applies to engines that take comments at a point: ${getPositionalAnchorEngineIds().join(', ')}.`);
     if (quote) throw new BridgeError('bad-args', 'Pass either `quote` or `at`, not both.');
+    if (engineId === 'board') await assertEngineEnabled(projectId, 'board');
     const point = args.at as { x?: unknown; y?: unknown } | null;
-    const inRange = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
-    if (!point || typeof point !== 'object' || !inRange(point.x) || !inRange(point.y)) throw new BridgeError('bad-args', '`at` needs x and y between 0 and 100 (percent of the map image).');
-    anchor = { type: 'map_point', x: point.x, y: point.y };
+    const spot = point && typeof point === 'object' ? positional.toAnchor(point) : null;
+    if (!spot) throw new BridgeError('bad-args', positional.space === 'percent' ? '`at` needs x and y between 0 and 100 (percent of the map image).' : '`at` needs finite x and y in board coordinates (the units of card positions).');
+    anchor = spot;
   }
 
   const existing = await getAnnotationsForEntity(engineId, entityId,scope);
@@ -191,20 +204,23 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
     position: nextSlot(existing, 'position'),
     createdAt: now,
     updatedAt: now,
+    // Made through the bridge: unread until the writer opens it.
+    readAt: 0,
   };
   await createAnnotation(annotation);
   return withAudit(
     {
       id: annotation.id,
       anchoredTo: quote ?? null,
-      ...(anchor.type === 'map_point' ? { at: { x: anchor.x, y: anchor.y } } : {}),
+      ...(anchor.type === 'map_point' || anchor.type === 'board_point' ? { at: { x: anchor.x, y: anchor.y }, atSpace: anchor.type === 'map_point' ? 'percent' : 'board' } : {}),
+      unread: true,
       on: { engineId, entityId, title },
       created: true,
     },
     {
       projectId,
       entityId: annotation.id,
-      summary: `left a note on ${engineId} "${title}"${quote ? ` at "${quote.slice(0, 60)}"` : anchor.type === 'map_point' ? ` at ${Math.round(anchor.x ?? 0)}%, ${Math.round(anchor.y ?? 0)}%` : ''}`,
+      summary: `left a note on ${engineId} "${title}"${quote ? ` at "${quote.slice(0, 60)}"` : anchor.type === 'map_point' ? ` at ${Math.round(anchor.x ?? 0)}%, ${Math.round(anchor.y ?? 0)}%` : anchor.type === 'board_point' ? ` at board point ${Math.round(anchor.x ?? 0)}, ${Math.round(anchor.y ?? 0)}` : ''}`,
     },
   );
 }

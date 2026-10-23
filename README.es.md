@@ -68,6 +68,20 @@ los mismos bytes que antes. El panel de exportación muestra qué cambió desde 
 quitados); la herramienta de solo lectura `wh_wiki_profile_changes` del puente
 devuelve la misma lista.
 
+**Mapas de la wiki (tarea 1095, ola D2).** Los mapas de la wiki exportada se
+pueden mover y ampliar (arrastrar, pellizcar, Ctrl + rueda, teclado; libres o
+contenidos en el marco, con botón de restablecer y marcadores que no cambian de
+tamaño), pueden llevar capas de ilustración (fondo, media y primer plano) que se
+desplazan con suavidad al mover el mapa (quietas si el lector prefiere menos
+movimiento) y una capa de nubes que el lector puede ocultar, y pueden sonar con
+ambiente para el mapa y para cada marcador, que empieza solo cuando el lector pulsa
+el botón de sonido. Todo está apagado por defecto y un perfil que no lo pide exporta
+los mismos bytes que antes. Las capas y el ambiente viven en el mapa, en el editor
+de mapas («Capas de ilustración»), y viajan con las copias de seguridad y los
+duplicados; las herramientas del puente `wh_map_artwork_get` y `wh_map_artwork`
+(con comprobación de revisión y deshacer) los configuran. Ver
+`docs/wiki-appearance.md`.
+
 **Biblioteca de recursos (tarea 1095, ola D2).** La pestaña Recursos del proyecto
 reúne ahora imágenes, sonidos, vídeos y modelos 3D: búsqueda por nombre o
 etiqueta, seis órdenes, filtro por tipo, selección múltiple, descarga y cambio
@@ -80,6 +94,32 @@ con nombre (avatar, fichas, banner, portada, fondo) con aviso de «demasiado
 pequeña», y el visor de la galería hace zoom y desplazamiento (rueda, arrastre,
 `+`/`-`, `0`, flechas). Herramientas del puente `wh_list_assets` y
 `wh_asset_usage` (docs/AI-BRIDGE.md, «Biblioteca de recursos»); matriz: tasks/vvd1095/D2-platform.md.
+
+**Comentarios: lectura y chinchetas (tarea 1095, ola D2).** Los hilos de
+comentarios saben ahora si los has leído. Lo que escribes tú está leído; los hilos
+y respuestas que llegan por el puente de IA están sin leer hasta que los abres
+(basta tocar el hilo o pulsar su chincheta). La lista muestra «N sin leer», puede
+ordenar «Sin leer primero», marcar un hilo como leído o no leído, o «Marcar todo
+como leído» (con un solo Deshacer para todos), y la pestaña Interconexión de la barra lateral (donde viven los
+comentarios) lleva una marca dorada de sin leer. El panel de comentarios del
+proyecto también filtra «Solo sin leer» y «Solo este documento». En un tablero,
+clic derecho en el lienzo vacío y «Comentar aquí» clava un comentario en ese
+punto: la chincheta sigue el desplazamiento y el zoom, sobrevive a recargar, se
+arrastra y al pulsarla se abre su hilo; los comentarios en un punto de un mapa
+clásico abren su hilo igual. Puente: `wh_annotation_mark_read`,
+`wh_annotation_mark_all_read`, `unreadOnly` en `wh_list_annotations` y `at` en
+`wh_annotate` para tableros (docs/AI-BRIDGE.md, «Comentarios: leídos y
+chinchetas»). Sin hacer: chinchetas en el mapa del mundo generado, flechas para
+marcas fuera de pantalla e interruptor para ocultar marcas. Matriz:
+tasks/vvd1095/D2-platform.md.
+
+**Claves con nombre del puente de IA.** En Ajustes, Puente de IA, «Claves de acceso»
+lista cada clave con su nombre, fecha de creación, último uso y estado. «Nueva clave»
+da a un cliente la suya (el token se enseña una sola vez, con botones para copiarlo y
+para copiar la configuración del cliente); las claves se pueden renombrar y revocar
+(con confirmación y efecto inmediato). El token que ya usas sigue como clave principal
+y sigue funcionando. La lista de actividad indica qué clave hizo cada cambio. Docs:
+docs/AI-BRIDGE.md, «Varias claves del puente»; matriz: tasks/vvd1095/D2-platform.md.
 
 **Pestañas del espacio de trabajo y Deshacer.** Las pestañas del panel de consulta
 se pueden renombrar (el documento conserva su título), fijar, duplicar, cerrar en
@@ -107,6 +147,41 @@ se deshace, y el deshacer se rechaza si una ficha cambió después), más
 ficha (no por bloque), las entidades del motor de ficción tienen su propio
 interruptor de secretos y no están enlazadas con esta marca, y la lista del
 Códex aún no tiene un punto de «pendiente de publicar» por página.
+
+**Preparar sesiones y el planificador (tarea 1095, hueco 7).** Tres plantillas nuevas
+de esquema para llevar una mesa: «Preparar sesión: ocho pasos» (personajes, inicio
+fuerte, escenas posibles, secretos y pistas, lugares, PNJ, monstruos, recompensas, cada
+uno con una indicación breve), «Centro y ramales» y «Sesión en tres actos». Un esquema
+se puede marcar como «Este esquema es una sesión de mesa», con fecha, estado (En
+preparación / Siguiente / En juego / Jugada) y una nota de preparación vinculada. Una
+pestaña nueva «Planificador» en Esquema lista las sesiones agrupadas En juego /
+Siguiente / En preparación / Jugada, con cambio rápido de estado, abrir, abrir la nota
+de preparación y una caja «Nueva sesión»; sus botones Combate / Mapa / Consulta colocan
+en el panel de herramientas de la nota los primeros documentos de esos tipos del
+proyecto (se puede deshacer). Los campos viajan con las copias de seguridad y las
+copias de proyecto. Puente: `wh_session_planner` (lee), `wh_session_set_status`
+(comprueba la revisión, se deshace) y campos de sesión en `wh_create_outline`. Sin
+hacer: iconos o colores por sesión, notas por escena, elegir qué mapa o tablero entra
+en una disposición, un PDF junto a las notas y un centro de campaña que una ficción,
+mapas y diario.
+
+**Niebla de exploración y marcador del grupo en mapas de imagen (tarea 1095, hueco
+9).** Un mapa de imagen (no un mundo generado) tiene una franja «Niebla»: al
+encenderla, todo el mapa queda oculto a los jugadores; se revela u oculta con un
+pincel redondo, con «Revelar todo» / «Ocultar todo» o colocando el grupo y
+arrastrando su marcador, que revela un círculo de su radio de visión y, con «Dejar
+rastro», añade un paso al rastro con su sesión. La «Vista de jugadores» dibuja la
+niebla opaca, oculta marcadores y figuras bajo ella y mantiene el rastro; el autor
+ve la niebla semitransparente. El registro (máscara, grupo, rastro, revisión) es un
+campo opcional del mapa que viaja con las copias JSON/ZIP, el clonado y las épocas.
+Los perfiles de wiki tienen «Con niebla de exploración» (apagada por defecto; las
+exportaciones sin ella no cambian ni un byte) y el SVG del mapa tiene su botón
+«Exportar con niebla». Puente: `wh_map_reveal` y `wh_map_party` (revisión esperada,
+se deshacen, comprobación de motor) y `exploration` en `wh_list_maps`. Sin hacer:
+los inicios «en tinta» / «tierra en tinta», la visión en km, mirar atrás por sesión,
+colocar «cerca de X», un marcador del grupo en los mundos generados, y el archivo
+exportado sigue llevando la imagen entera (la niebla es una máscara visual, no un
+secreto).
 
 **Recorridos guiados (tarea 1095, ola D2).** El botón de brújula de la barra
 superior (y un enlace «Ver los recorridos guiados» bajo la tarjeta Primeros
@@ -156,6 +231,26 @@ insertar y duplicar filas y columnas (las referencias de las fórmulas se
 mueven y una quitada da #REF!), orden múltiple y filtros. Todo tiene
 herramientas del puente (docs/AI-BRIDGE.md, sección 29); la matriz con pruebas
 está en tasks/vvd1095/C-writing.md.
+
+**Bloques de preparación y material para jugadores (tarea 1095, huecos 3 y 10 de B).**
+El menú «/» de las notas y los capítulos ofrece ahora tres bloques de preparación.
+«Prueba» guarda una habilidad, una dificultad, un modificador y una nota sobre lo
+que revela la tirada; «Tirar» lanza el d20 con el motor de dados y deja la última
+tirada en el bloque (y en la bandeja de dados). «Encuentro» lista criaturas con
+cantidad y vínculo opcional al compendio SRD o a una ficha del Códex; «Preparar
+combate» crea una pelea en el seguimiento de combate con esos combatientes y
+«Abrir combate» va a ella. «Material para jugadores» señala una imagen de la
+galería con un nombre y «cuándo se entrega»; su estudio dibuja una carta, un
+expediente, una pantalla de terminal o un tablón de anuncios desde texto editable
+(con tres ganchos de apertura), lo guarda en la galería y redibuja la misma
+imagen si cambia el texto. Cada bloque se lee como texto corriente en Markdown,
+Word, ePub, el lector y la wiki (las pruebas y los encuentros nacen ocultos en la
+wiki), sobrevive a copias de seguridad y clonados, y el puente lo lee y lo escribe
+(`> [!CHECK]`, `> [!ENCOUNTER]`, `> [!HANDOUT]` en `wh_create_writing`;
+`wh_create_handout`, `wh_render_handout`). Sin hacer: contador de «marcar como
+leído» en la caja de leer en voz alta, estado en curso/terminado en el encuentro,
+plantilla de sueño, material en PDF. Prueba: `tests/prep-blocks-handouts.browser.tsx`;
+pruebas y huecos en tasks/vvd1095/B-campaign.md.
 
 **Reglas de la mesa (tarea 1095, hueco 6 de B).** Hojas tiene una pestaña «Reglas
 de la mesa» (también desde los ajustes del proyecto): eliges el sistema (D&D 5e

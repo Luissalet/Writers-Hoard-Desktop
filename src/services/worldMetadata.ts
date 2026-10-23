@@ -1,4 +1,5 @@
 import {remapLocalToolBlocksInHtml,validateLocalToolBlocksInHtml} from '@/engines/local/blocks/types';
+import { remapPrepBlocks } from '@/engines/prepBlocks/remap';
 import {remapLocalToolReferences} from '@/engines/local/stateCodec';
 import {remapSourceToolDocuments} from '@/engines/local/documents/types';
 import {remapToolDockLayout} from '@/engines/writings/toolDock/types';
@@ -54,6 +55,7 @@ export function projectToolIds(project: Project, core: { writings?:{id:string}[]
 }
 export function remapWorldRichContent(content: string, sourceProjectId: string, targetProjectId: string, remap: (id: string, prefix: string) => string, codexIds: ReadonlySet<string>, mediaIds: ReadonlySet<string> = new Set(), toolIds: WorldToolIds = {}): string {
   if(content.includes('data-wh-source-block')){validateLocalToolBlocksInHtml(content,sourceProjectId);content=remapLocalToolBlocksInHtml(content,remap,targetProjectId);}
+  if (content.includes('data-wh-prep')) content = remapPrepBlocks(content, remap, codexIds);
   if (!content.includes('data-wh-codex-block') && !content.includes('data-wh-media-block') && !content.includes('data-wh-tool-block') && !/\/(?:codex|writings|tables|timeline)\?/.test(content)) return content;
   const template = document.createElement('template'); template.innerHTML = content;
   for (const block of template.content.querySelectorAll('[data-wh-codex-block="true"], [data-wh-media-block="true"]')) {

@@ -22,8 +22,10 @@ import type { TimelineEvent } from '@/types';
 import { createEntryFromMap } from './codexLink';
 import { useProject } from '@/hooks/useProjects';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
-import { worldMapOps, mapPinOps, captureMapVersion, updateMapVersion, deleteMapVersion, restoreMapVersion, changeMapGround } from './operations';
+import { worldMapOps, mapPinOps, captureMapVersion, updateMapVersion, deleteMapVersion, restoreMapVersion, changeMapGround, changeMapExploration } from './operations';
+import { applyIntent } from '@/components/maps/mapExploration';
 import ChangeGroundDialog from '@/components/maps/ChangeGroundDialog';
+import MapArtworkPanel from '@/components/maps/MapArtworkPanel';
 import { remapMapContent, type GroundFitMode, type GroundSize } from '@/components/maps/mapGround';
 import { mapGroundCopy } from '@/components/maps/mapGroundCopy';
 
@@ -222,9 +224,19 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             focusPinId={deepLinkedPinId}
             widthKm={activeMap?.widthKm}
             onChangeScale={previewVersion ? undefined : async widthKm => { await editMap(activeMapId, { widthKm }); }}
+            exploration={previewVersion ? undefined : activeMap?.exploration}
+            onChangeExploration={previewVersion ? undefined : async (intent, aspect) => { await changeMapExploration(activeMapId, current => applyIntent(current, aspect, intent, Date.now()), {}, scope); await refreshMaps(); }}
             onCreateEntry={previewVersion || !codexOn ? undefined : (title, type) => createEntryFromMap(scope, title, type)}
             onCommentAt={previewVersion ? undefined : at => { setMapCommentAnchor({ mapId: activeMapId, anchor: { type: 'map_point', x: at.x, y: at.y } }); requestAnimationFrame(() => notesRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }}
           />
+          {activeMap && !previewVersion && <MapArtworkPanel
+            key={`artwork:${activeMap.id}`}
+            projectId={projectId}
+            artwork={activeMap.artwork}
+            ambience={activeMap.ambience}
+            readOnly={false}
+            onChange={async change => { await editMap(activeMapId, { ...('artwork' in change ? { artwork: change.artwork } : {}), ...('ambience' in change ? { ambience: change.ambience } : {}) }); }}
+          />}
           {activeMap?.backgroundImage && pendingGround && (
             <ChangeGroundDialog
               open

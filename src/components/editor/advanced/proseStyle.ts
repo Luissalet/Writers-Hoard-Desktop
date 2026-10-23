@@ -1,6 +1,6 @@
-import { WRITING_BLOCKS_CSS } from '../blocks/style';
+import { WRITING_BLOCKS_CSS, PREP_BLOCKS_CSS } from '../blocks/style';
 /** Shared content CSS; static HTML/PDF may add display-only initial wrappers. */
-export const EDITORIAL_PROSE_CSS=WRITING_BLOCKS_CSS+`
+const PROSE_REST=`
 [data-wh-small-caps="true"]{font-variant:small-caps;font-variant-caps:small-caps}
 [data-wh-small-caps="false"]{font-variant:normal;font-variant-caps:normal}
 [data-wh-drop-cap="true"]{text-indent:0!important}
@@ -15,6 +15,10 @@ hr[data-wh-ornament="diamond"]::after{content:"◇"}
 hr[data-wh-ornament="space"]::after{content:""}
 .wh-scene-break{clear:both;text-align:center;text-indent:0!important;margin:1.5em 0;min-height:1em;break-inside:avoid;letter-spacing:.15em}
 `;
+/** Shared content CSS without the prep blocks: for outputs that only add them when a document holds one. */
+export const EDITORIAL_PROSE_BASE_CSS=WRITING_BLOCKS_CSS+PROSE_REST;
+export const EDITORIAL_PROSE_CSS=WRITING_BLOCKS_CSS+PREP_BLOCKS_CSS+PROSE_REST;
+export { PREP_BLOCKS_CSS };
 
 /** Static HTML/PDF only: never pass a live editor DOM into this preparation. */
 export function prepareStaticEditorialHtml(html: string): string {

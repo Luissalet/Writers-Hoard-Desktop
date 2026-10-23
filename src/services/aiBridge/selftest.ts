@@ -1017,7 +1017,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_timeline_batch_apply', 'wh_timeline_batch_undo',
   'wh_wiki_profile_save', 'wh_wiki_profile_delete',
   'wh_wiki_profile_publish', 'wh_wiki_profile_restore_config',
-  'wh_capture_map_version', 'wh_link_map_version',
+  'wh_capture_map_version', 'wh_link_map_version', 'wh_map_artwork',
   'wh_set_world_presentation', 'wh_set_world_travel_settings',
   'wh_update_label', 'wh_add_stamp', 'wh_paint_reader_fog', 'wh_add_story_event', 'wh_add_spring_river', 'wh_shape_terrain', 'wh_draw_river', 'wh_reverse_river', 'wh_add_zone', 'wh_update_zone', 'wh_remove_zone', 'wh_add_world_road', 'wh_paint_biome', 'wh_set_river_crossing', 'wh_add_lake', 'wh_drain_lake', 'wh_set_world_levels', 'wh_lock_place', 'wh_duplicate_place', 'wh_update_story_event', 'wh_remove_story_event', 'wh_add_trade_site', 'wh_remove_trade_site', 'wh_restore_trade_site', 'wh_add_map_feature', 'wh_update_map_feature', 'wh_change_map_ground', 'wh_set_map_scale', 'wh_set_map_layers', 'wh_name_map_pins_from_key',
 ];
@@ -1242,6 +1242,7 @@ async function buildGuardProbes(
       ['wh_change_map_ground', { mapId, imageDataUrl: 'data:image/png;base64,AAAA', fit: 'keep' }],
       ['wh_set_map_scale', { mapId, widthKm: 100 }],
       ['wh_set_map_layers', { mapId, names: true }],
+      ['wh_map_artwork', { mapId, expectedUpdatedAt: 0, clouds: true }],
       ['wh_name_map_pins_from_key', { mapId, key: 'A. x', dryRun: true }],
       ['wh_remove_trade_site', { worldId, id: 'x' }],
       ['wh_restore_trade_site', { worldId, id: 'x' }],

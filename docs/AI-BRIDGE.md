@@ -177,7 +177,7 @@ una imagen que el modelo no tiene.
 
 ## 5. Seguridad
 
-- **Token obligatorio** (`Authorization: Bearer …`) en todas las rutas.
+- **Token obligatorio** (`Authorization: Bearer …`) en todas las rutas. Vale el de cualquier clave no revocada (ver «Varias claves del puente»).
 - **Se rechaza cualquier petición con cabecera `Origin`.** Un adaptador MCP o
   un CLI no manda `Origin`; una página web siempre lo hace. Esa regla cierra
   el agujero que CORS no cubre: que una web cualquiera que visites dispare
@@ -213,7 +213,7 @@ curl -s http://127.0.0.1:8766/api/call \
 
 Códigos de error que puede devolver: `app-closed`, `timeout`, `unknown-tool`,
 `writes-disabled`, `bridge-disabled`, `bad-args`, `not-found`, `no-project`,
-`tool-error`, `missing-token`, `bad-token`, `browser-origin-refused`.
+`tool-error`, `missing-token`, `bad-token`, `revoked-token`, `browser-origin-refused`.
 
 ### Importar una sesión de Scheherazade
 
@@ -244,7 +244,8 @@ contrato de referencias de HoardLink.
 | `src/services/aiBridge/markdown.ts` | Markdown ⇄ HTML de TipTap, sin dependencias; con `footnotes: true`, las notas al pie del manuscrito. |
 | `electron/aibridge/server.ts` | El puerto HTTP y su política de acceso. |
 | `electron/aibridge/rpc.ts` | El canal main→renderer con correlación por id. |
-| `electron/aibridge/state.ts` | Token, interruptores y registro de auditoría. |
+| `electron/aibridge/state.ts` | Token principal, interruptores y registro de auditoría. |
+| `electron/aibridge/keys.ts` | Las claves con nombre (almacén `keys.json`; el fichero `token` es la clave principal). |
 | `electron/aibridge/mcpStdio.ts` | El adaptador MCP. **No importa `electron`**: ahí no hay runtime de Electron. |
 | `src/components/settings/AiBridgePane.tsx` | La sección de Ajustes. |
 | `tests/ai-bridge.ts` | Paridad manifiesto↔handlers e ida y vuelta del Markdown. |
@@ -2323,3 +2324,202 @@ Dos herramientas de solo lectura sobre la pestaña Recursos del panel del proyec
 Borrar, renombrar y comprimir se hacen desde la pestaña, no por el puente: el borrado pasa por la vía de cada herramienta y se deshace desde el aviso.
 
 Prueba: `tests/assets-library.browser.tsx`.
+
+
+## 38. Planificador de sesiones (Ágora 1095, ola B)
+
+Un esquema (outline) puede marcarse como **sesión de mesa**. No hay tabla nueva: el
+`Outline` lleva cuatro campos opcionales (`kind:'session'`, `sessionStatus`
+`prep|next|live|played`, `sessionDate` `YYYY-MM-DD`, `linkedWritingId` con la nota de
+preparación) y un `sessionRevision` que sube con cada cambio. Un esquema sin ellos es
+un esquema normal. Los campos viajan con las copias JSON/ZIP y el clonado de
+proyecto (el enlace a la nota se reasigna a la nota copiada).
+
+Plantillas nuevas de `wh_create_outline template` (se añaden al final; los ids antiguos no
+cambian): `session-prep` (ocho pasos de preparación), `hub-and-spoke` (centro y
+ramales) y `three-act-session`. Los textos salen en el idioma de la app.
+
+- `wh_create_outline` (escribe; motor Esquema): además acepta `session` (bool),
+  `sessionStatus`, `sessionDate` y `linkedWritingId`; cualquiera de ellos marca el
+  esquema como sesión. Una fecha inexistente o una nota de otro proyecto se rechazan
+  antes de crear nada. `wh_list_outlines` devuelve `session {status, date,
+  linkedWritingId, revision}` en las sesiones.
+- `wh_session_planner` (lee): `{projectId?, outlineId?, preset?}`. Devuelve `groups`
+  (`live`, `next`, `prep`, `played`; la fecha más próxima primero y las jugadas de la más
+  reciente a la más antigua), `counts`, `presets` (`combat`, `map`, `reference`) y, por
+  sesión, `id, title, templateId, status, date, linkedWritingId, revision, beatCount,
+  done`. Con `outlineId` y `preset` añade `dockPlan {documents, apply}`: `apply` son el
+  `owner`, el `expectedVersion` y las `actions` listos para pasar a
+  `wh_writing_tool_dock_apply` (`null` si el proyecto no tiene ningún documento de esos
+  tipos). No escribe nada.
+- `wh_session_set_status` (escribe; motor Esquema): `{projectId?, outlineId, status?,
+  date?, linkedWritingId?, expectedRevision?}`; `date` y `linkedWritingId` admiten `null`
+  para borrarlos. Marca como sesión un esquema normal. Con el motor apagado responde
+  `engine-disabled` antes de leer nada; `expectedRevision` distinto del actual da
+  `conflict` sin tocar nada. Devuelve `{id, status, date, linkedWritingId, revision}`.
+- Deshacer (`wh_undo`): devuelve estado, fecha, nota y marca de sesión, y también la
+  revisión, de modo que se pueden deshacer varios cambios seguidos; se rechaza con
+  `cannot-undo` si la sesión cambió después.
+
+En la interfaz: pestaña «Planificador» en el motor Esquema (también
+`?view=planner`) con los grupos En juego / Siguiente / En preparación / Jugada, un
+selector de estado, «Abrir», «Abrir nota de preparación», «Nueva sesión» desde una de las
+tres plantillas y las disposiciones de herramientas Combate (hojas, tablas, tablero),
+Mapa (mapas, Códex) y Consulta (Códex, diccionario, cronología) para la nota de
+preparación, con «Deshacer disposición». Cada disposición toma el primer documento de
+cada tipo y sustituye el panel de herramientas de esa nota. Las casillas y campos del
+esquema («Este esquema es una sesión de mesa», fecha, estado, nota) están bajo el título.
+
+Prueba: `tests/session-planner.browser.tsx` (`scripts/run-vvd-tests.cjs`).
+
+## 39. Comentarios: leídos y chinchetas (Ágora 1095, ola D2)
+
+Cada hilo de comentarios tiene ahora un estado de lectura y los comentarios pueden clavarse en un punto del lienzo de un tablero (además de los que ya podían ponerse en un punto de un mapa clásico).
+
+**Lectura.** El campo `readAt` es opcional en la fila del comentario: si falta, el hilo está leído (todos los anteriores y los que escribe la persona); con valor `0` está sin leer. Lo que se crea por el puente (`wh_annotate`) nace sin leer, y una respuesta que añade el puente (`wh_annotation_reply`) vuelve a dejar sin leer un hilo ya leído. Leer no es editar: no cambia la revisión de un hilo ni invalida un borrador ni el «Deshacer» de la última edición. Los cambios de contenido que hace la persona desde la interfaz cuentan como haberlo leído; los que hace el puente, no.
+
+- `wh_annotation_thread_get` devuelve además `unread` y `readAt`.
+- `wh_list_annotations` acepta `unreadOnly: true`; cada nota trae `unread` y `readAt`, y el resultado `unreadCount`.
+- `wh_annotation_mark_read` (`id`, `expectedRevision`, `read` por defecto `true`; `false` lo deja sin leer): comprueba la revisión del hilo y devuelve un recibo para `wh_annotation_undo`.
+- `wh_annotation_mark_all_read` (`projectId`, `eraId`, opcional `engineId` + `entityId` para un solo documento): marca como leídos todos los hilos sin leer del contexto, devuelve `{marked, undo}` y un único recibo que `wh_annotation_undo` deshace; sólo devuelve cada hilo a su estado anterior si sigue como lo dejó la llamada. El recibo es de un solo uso.
+
+**Chinchetas en un tablero.** `wh_annotate` con `engineId: "board"`, `entityId` el id del tablero y `at: {x, y}` en coordenadas del tablero (las mismas que las posiciones de las tarjetas; admite negativos); no junto a `quote`, y el motor Tablero debe estar activo. El comentario se dibuja como chincheta en ese punto del lienzo: sigue el desplazamiento y el zoom y conserva su tamaño. `wh_list_annotations` devuelve `at: {x, y}` y `atSpace` (`percent` en mapas, `board` en tableros). `wh_annotation_move` (con `expectedRevision`) mueve tanto las marcas de un mapa (0 a 100, % de la imagen) como las de un tablero (coordenadas del tablero) y devuelve un recibo que lo deshace. En la interfaz: clic derecho en el tablero vacío → «Comentar aquí»; la chincheta se arrastra para moverla y al pulsarla se abre y se marca como leído su hilo.
+
+**Para quien lo amplíe.** Un motor con lienzo registra, además de su `AnchorAdapter` (que no cambia), un `PositionalAnchorAdapter` con `registerPositionalAnchorAdapter` (`src/engines/_shared/anchoring/registry.ts`): dice qué tipo de ancla guarda, en qué espacio van `x` e `y`, cómo validar un punto y cómo describirlo. `wh_annotate` consulta ese registro para aceptar `at`, de modo que otro motor sólo tiene que registrarse. Los mapas (`map_point`) y el tablero (`board_point`) ya lo hacen; los mundos generados no.
+
+Quedan fuera: chinchetas en el mapa del mundo generado, flechas para marcas fuera de pantalla y un interruptor para ocultar marcas.
+
+Prueba: `tests/comments-read-pins.browser.tsx`.
+
+## 40. Varias claves del puente (Ágora 1095, ola D2)
+
+El puente ya no tiene un único token: tiene una lista de claves con nombre, para dar una a cada cliente y cortar una sin tocar las demás.
+
+- **La clave principal («Principal»)** es el token de siempre (`<userData>/aibridge/token`). No cambia nada para los clientes ya configurados: `WH_BRIDGE_TOKEN`, el fichero que lee el adaptador stdio y el hub de la familia siguen funcionando. Se puede renombrar y regenerar, no revocar. Es la única cuyo token se vuelve a mostrar en Ajustes, como hasta ahora.
+- **Claves nuevas** (Ajustes → Puente de IA → Claves de acceso → «Nueva clave»): un nombre de 1 a 60 caracteres, sin repetir entre claves activas, hasta 20 activas. El token (64 caracteres hexadecimales) se enseña **una sola vez**, con botones para copiarlo y para copiar la configuración del cliente; en disco solo queda su hash SHA-256 en `keys.json`. Si se pierde, se crea otra clave.
+- **Revocar** pide confirmación y es inmediato: la siguiente petición con esa clave recibe 401 `revoked-token`. No se puede deshacer, y liberar el nombre permite reutilizarlo.
+- **Uso**: cada clave guarda `createdAt` y `lastUsedAt` (se escribe como mucho una vez por minuto y clave). El panel muestra nombre, fecha de creación, último uso y estado.
+- **Auditoría**: las líneas de `audit.jsonl` de escrituras hechas por el puerto llevan el campo aditivo `keyLabel` (nombre de la clave que autenticó la llamada, también en deshacer) junto al `client` que declara el cliente. El panel de actividad lo muestra. Las llamadas del copiloto no lo llevan.
+- **IPC** (solo la ventana principal, `electron/security.ts`): `aibridge:listKeys`, `aibridge:createKey`, `aibridge:renameKey`, `aibridge:revokeKey`. Solo `createKey` devuelve un token; el resto nunca.
+- **Límites**: sin permisos por clave (todas ven lo mismo y respetan el interruptor global de escritura), sin caducidad, y el adaptador stdio solo lee por su cuenta el token de la clave principal (con una clave nueva hay que pasarla en `WH_BRIDGE_TOKEN`).
+
+Pruebas: `tests/ai-bridge-keys-main.ts` (migración, alta, renombrado, revocación, autenticación de cada clave, límite de `lastUsedAt`; se ejecuta desde `tests/electron-security.ts`) y `tests/ai-bridge-keys.browser.tsx` (panel con IPC simulado). Matriz: `tasks/vvd1095/D2-platform.md`, fila 75 y hueco 13.
+
+## 41. Bloques de preparación y material para jugadores (Ágora 1095, ola B)
+
+El menú «/» del editor ofrece tres bloques de preparación de partida: **Prueba**
+(habilidad o característica, CD, modificador, ventaja o desventaja, qué revela y un
+botón «Tirar» que guarda la última tirada en el bloque y la anota en la bandeja de
+dados), **Encuentro** (criaturas con cantidad, vínculo opcional al compendio SRD o a
+una ficha del Códex, «Preparar combate» crea una pelea en el seguimiento de
+combate) y **Material para jugadores** (una imagen de la galería, qué es y cuándo
+se entrega). Cada bloque se guarda como HTML semántico con sus datos en un atributo
+(`data-wh-prep="check|encounter|handout"`, `data-wh-prep-data`) y su texto legible
+dentro, de modo que Markdown, Word, ePub, el lector y la wiki lo dicen sin leer
+atributos. La Prueba y el Encuentro nacen ocultos en la wiki (`wikiHidden`); el
+material para jugadores no.
+
+Markdown (lo que leen y escriben `wh_get_writing`, `wh_create_writing` y
+`wh_update_writing`, además de la exportación a Markdown):
+
+- `> [!CHECK] Prueba de Percepción CD 15 — hay huellas` (también `[!PRUEBA]`). A
+  mano basta `> [!CHECK] Percepción CD 15 — nota`.
+- `> [!ENCOUNTER] Emboscada` con líneas `> - 2x Goblin Warrior` y, opcional,
+  `{monster:goblin-boss}` o `{card:<idDeFicha>}` al final de la línea (también
+  `[!ENCUENTRO]`). Sin vínculo, un nombre que coincide exactamente con una criatura
+  del compendio se rellena con sus datos al preparar el combate.
+- `> [!HANDOUT] Carta del barón — al llegar a la posada` con una línea
+  `> image: <id de imagen de la galería>` (también `[!MATERIAL]`).
+- Al leer, cada bloque lleva una última línea `> <!-- wh-prep {…} -->` con todos sus
+  datos; escribir ese Markdown de vuelta conserva la tirada, los vínculos y la
+  referencia a la galería. `wh_extract_block_to_card` con `list:true` nombra los
+  bloques `prep-check`, `prep-encounter` y `prep-handout`.
+
+Herramientas nuevas (motor Galería):
+
+- `wh_render_handout` (lectura): dibuja un material con estilo y devuelve
+  `{template, width, height, mimeType:'image/png', base64}` sin guardar nada.
+  Argumentos: `template` (`letter`, `casefile`, `terminal`, `noticeboard`), `title`,
+  `body`, `signature`, `extra`, `lang`, `scale` (0,2 a 2), o `imageId` de un
+  material ya guardado para redibujarlo desde su texto.
+- `wh_create_handout` (escribe; motor Galería): lo dibuja y lo guarda en la galería
+  (etiquetas `handout` y la plantilla, con el texto editable en la propia imagen);
+  devuelve `{id, name, template}`. Se deshace con `wh_undo`; con la Galería apagada
+  responde `engine-disabled`.
+
+Las plantillas se hacen también en la interfaz («Crear desde una plantilla» en el
+bloque): carta, expediente, pantalla de terminal y tablón de anuncios, con tres
+ganchos de apertura (visita inesperada, hallazgo, suceso repentino). Editar el
+texto de un material redibuja la misma imagen de la galería, así que los bloques
+que la señalan siguen valiendo. Copias de seguridad JSON/ZIP y clonado conservan el
+texto editable y reasignan las referencias a la galería y a las fichas.
+
+No hay herramienta de puente para editar un material ya guardado (se crea otro o se
+edita en la interfaz), ni se extendió `wh_export_document_image`.
+
+Prueba: `tests/prep-blocks-handouts.browser.tsx` (`scripts/run-vvd-tests.cjs`).
+
+## 42. Niebla de exploración en mapas de imagen (Ágora 1095, ola B)
+
+Los mapas de imagen (motor Mapas; no los mundos generados, que tienen su propia
+niebla de lector por capítulo) pueden llevar el campo opcional `exploration`:
+`{revision, enabled, cols, rows, mask, party?, trail?}`. `mask` es una cuadrícula
+de 256 celdas de ancho (las filas siguen el aspecto de la imagen) codificada por
+tramos y en base64; una celda es explorada (1) o con niebla (0). `party` es
+`{x, y, sightRadius}` (x e y en porcentaje de la imagen, `sightRadius` en
+porcentaje de su ancho) y `trail` son pasos `{x, y, at, session?}` (hasta 500, se
+descartan los más antiguos). `revision` sube con cada escritura. El campo viaja
+con las copias JSON/ZIP, el clonado y las épocas como cualquier otro campo
+opcional del mapa; sin campo, el mapa es el de siempre.
+
+- `wh_map_reveal` (escribe; motor Mapas, comprobado antes de leer nada):
+  `{projectId?, mapId, ops?, enabled?, expectedRevision?, eraId?}`. `ops` es una
+  lista de 1 a 200 pinceladas `{op:"reveal"|"hide", x, y, radius}` (radio 0,5 a 100)
+  o `{op:"all"}` (todo explorado) / `{op:"none"}` (todo con niebla); `enabled`
+  enciende o apaga la niebla para los jugadores sin perder lo explorado. La
+  primera llamada sobre un mapa crea el registro con la niebla encendida.
+- `wh_map_party` (escribe): `{projectId?, mapId, x, y, sightRadius?, trail?,
+  session?, expectedRevision?, eraId?}`. Mueve el grupo: se explora un círculo de
+  `sightRadius` (0,5 a 100; por defecto el último, o 8) alrededor del lugar nuevo y,
+  con `trail:true`, se añade un paso al rastro con su `session` (hasta 60
+  caracteres).
+- `expectedRevision` es la revisión leída en `wh_list_maps` →
+  `exploration.revision` (0 si el mapa aún no tiene registro); si la niebla cambió
+  desde entonces la llamada se rechaza con `conflict` y no cambia nada. Una llamada
+  que no cambiaría nada (celdas ya exploradas, niebla ya encendida) se rechaza con
+  `bad-args`.
+- Deshacer (`__undo`): devuelve el registro anterior (o lo quita si no había). Se
+  rechaza con `cannot-undo` si la niebla ya no está como la dejó esa llamada; las
+  llamadas se deshacen en orden inverso. La revisión no baja nunca, de modo que una
+  `expectedRevision` anterior sigue siendo obsoleta después de deshacer.
+- Lectura: `wh_list_maps` añade `exploration` (`revision`, `enabled`,
+  `exploredPercent`, `party`, `trailSteps`, `trail` con los últimos 50 pasos) solo
+  en los mapas que lo tienen.
+- Exportaciones: `exploredFog` en las opciones de la wiki
+  (`wh_wiki_profile_save`, `wh_wiki_export`; por defecto apagada, y con ella apagada
+  la salida es idéntica byte a byte a la de antes). Encendida, los mapas con la
+  niebla activa dejan fuera lo no explorado y los marcadores y figuras que hay ahí,
+  y conservan el rastro y la posición del grupo. El SVG del editor tiene su botón
+  «Exportar con niebla». La niebla es una máscara visual: la imagen del mapa
+  viaja entera en el archivo.
+
+En la interfaz (pestaña Mapas): botón «Niebla» con «Niebla activa», pinceles
+«Revelar» / «Ocultar» con radio, «Revelar todo» / «Ocultar todo», «Colocar el
+grupo» (o arrastrar su marcador, que revela un círculo de «Visión»), «Dejar
+rastro» con una «Sesión» opcional, «Borrar rastro» y «Vista de jugadores», que
+dibuja la niebla opaca, oculta marcadores y figuras bajo ella y mantiene el rastro.
+En la vista del autor la niebla se ve semitransparente.
+
+Prueba: `tests/map-exploration.browser.tsx` (`scripts/run-vvd-tests.cjs`).
+
+## 43. Mapas de la wiki: navegar, capas y sonido (Ágora 1095, ola D2)
+
+La wiki exportada puede mover y ampliar sus mapas, dibujar capas de ilustración con paralaje y sonar con ambiente. Todo está apagado por defecto: un perfil que no lo pide exporta los mismos bytes que antes.
+
+- `wh_wiki_profile_save` acepta cuatro opciones nuevas en `options`, sin tocar las anteriores: `mapNavigation` (`free` | `contained`), `mapArtwork`, `mapClouds` y `mapAmbience` (booleanos). `wh_wiki_profile_preview` y `wh_wiki_profile_publish` las aplican.
+- `wh_map_artwork_get` (solo lectura, `mapId`): `{mapId, title, updatedAt, layers:{background|mid|front:{present, chars?}}, clouds, ambience, pinsWithAmbience}`. No devuelve las imágenes; `updatedAt` es la revisión que pide la escritura.
+- `wh_map_artwork` (escritura, `mapId`, `expectedUpdatedAt` obligatorio): `background`, `mid`, `front` (URL de datos `data:image/` raster, nunca SVG ni remota; `null` quita la capa), `clouds` (booleano) y `ambience` (`{assetId, volume?}` de un audio local del proyecto, o `null`). Rechaza un mapa que cambió desde la lectura (`conflict`), imágenes demasiado grandes y audios inexistentes; exige el motor Mapas encendido. Se deshace: el recibo guarda marcas y las imágenes anteriores esperan en el almacén de imágenes; el deshacer se rechaza si esa parte se editó otra vez o la imagen salió del almacén.
+- `wh_update_map_pin` acepta `ambience` (`{assetId, volume?, radius?}` con radio 2 a 60 por ciento del ancho del mapa, o `null` para quitarlo) y se deshace como el resto de sus cambios.
+- `wh_list_assets` / `wh_asset_usage`: un audio usado como ambiente de un mapa o de un marcador aparece en `places` con el tipo `map-ambience`.
+
+Prueba: `tests/wiki-map-navigation.browser.tsx`.

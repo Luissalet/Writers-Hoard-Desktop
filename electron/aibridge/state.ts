@@ -4,7 +4,8 @@
 //
 // Everything durable the bridge owns lives in <userData>/aibridge/:
 //
-//   token         32 random bytes, hex. Required on every HTTP request.
+//   token         32 random bytes, hex: the default key "Principal".
+//   keys.json     the named keys (label, dates, revoked) — see keys.ts
 //   config.json   { enabled, writesEnabled }
 //   audit.jsonl   one line per mutating call, with the previous state
 //
@@ -15,8 +16,8 @@
 
 import { app } from 'electron';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import { createKeyStore } from './keys';
 
 export interface BridgeConfig {
   /** Master switch. Off by default: turning the port on is a deliberate act. */
@@ -30,7 +31,6 @@ const DEFAULT_CONFIG: BridgeConfig = { enabled: false, writesEnabled: true };
 /** Rotate once the log passes this, so a runaway agent cannot fill the disk. */
 const AUDIT_MAX_BYTES = 5 * 1024 * 1024;
 
-let cachedToken: string | null = null;
 let cachedConfig: BridgeConfig | null = null;
 
 function bridgeDir(): string {
@@ -47,28 +47,19 @@ async function ensureDir(): Promise<string> {
 // Token
 // ---------------------------------------------------------------------------
 
+/**
+ * The named keys (electron/aibridge/keys.ts). The legacy `token` file is the
+ * default key "Principal", so everything below keeps meaning what it meant.
+ */
+export const bridgeKeys = createKeyStore({ dir: bridgeDir });
+
+/** The default key's token — what the settings pane shows and the adapter reads. */
 export async function getBridgeToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
-  const dir = await ensureDir();
-  const file = path.join(dir, 'token');
-  try {
-    const existing = (await fs.readFile(file, 'utf8')).trim();
-    if (/^[a-f0-9]{64}$/.test(existing)) {
-      cachedToken = existing;
-      return existing;
-    }
-  } catch {
-    // falls through to generation
-  }
-  return regenerateBridgeToken();
+  return bridgeKeys.getDefaultToken();
 }
 
 export async function regenerateBridgeToken(): Promise<string> {
-  const dir = await ensureDir();
-  const token = randomBytes(32).toString('hex');
-  await fs.writeFile(path.join(dir, 'token'), `${token}\n`, { encoding: 'utf8', mode: 0o600 });
-  cachedToken = token;
-  return token;
+  return bridgeKeys.regenerateDefaultToken();
 }
 
 /**
@@ -123,6 +114,8 @@ export interface AuditEntry {
   at: number;
   tool: string;
   client?: string;
+  /** Label of the named key that authenticated the call (additive; absent for the copilot). */
+  keyLabel?: string;
   /** Which door the call came through: the local port or the in-app copilot. */
   origin?: 'bridge' | 'copilot' | 'feature';
   /** Copilot thread the change belongs to, so its card can find this line. */

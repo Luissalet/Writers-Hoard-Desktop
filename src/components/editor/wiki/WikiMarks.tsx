@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NodeSelection } from '@tiptap/pm/state';
 import { useEditorState, type Editor } from '@tiptap/react';
 import { Copy, EyeOff, FileOutput, FoldVertical, ScanEye } from 'lucide-react';
 import type { CodexEntry } from '@/types';
@@ -15,6 +16,9 @@ const wikiMarkCopy = {
 /** The outermost block around the cursor that can be kept out of the wiki. */
 function wikiBlockAt(editor: Editor): { pos: number; hidden: boolean } | null {
   const { $from } = editor.state.selection;
+  // A selected whole block (an image, a prep block) is the block itself.
+  const selected = editor.state.selection instanceof NodeSelection ? editor.state.selection.node : null;
+  if (selected && (WIKI_HIDDEN_BLOCK_TYPES as readonly string[]).includes(selected.type.name)) return { pos: editor.state.selection.from, hidden: !!selected.attrs.wikiHidden };
   for (let depth = 1; depth <= $from.depth; depth++) {
     const node = $from.node(depth);
     if ((WIKI_HIDDEN_BLOCK_TYPES as readonly string[]).includes(node.type.name)) return { pos: $from.before(depth), hidden: !!node.attrs.wikiHidden };

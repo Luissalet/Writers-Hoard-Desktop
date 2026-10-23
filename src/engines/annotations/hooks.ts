@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { getAnnotationsForEntity,getReferenceForAnnotation,getBacklinksForEntity,getAnnotationsForProject,reanchorEntityAnnotations } from './operations';
 import { annotationEntity } from './scope';
+import { countUnread } from './readState';
 import type { AnnotationWithReference,BacklinkPreview } from './types';
 interface EntityKey {engineId:string;entityId:string;projectId?:string;eraId?:string}
 /** Live reads share the existing annotation aggregate and discard superseded contexts. */
@@ -30,3 +31,5 @@ export function useAnnotationsForProject(projectId:string|undefined){
  const scope=useWorldEraScope(projectId),eraId=scope.eraId,fetch=useCallback(async()=>projectId?Promise.all((await getAnnotationsForProject(projectId,eraId)).map(async annotation=>({...annotation,reference:annotation.noteType==='reference'?await getReferenceForAnnotation(annotation.id):undefined,mentionTitles:await Promise.all([...annotation.mentions??[],...(annotation.replies??[]).flatMap(reply=>reply.mentions??[])].map(async mention=>(await annotationEntity({projectId,eraId},mention.engineId,mention.entityId))?.title??mention.entityId))}))):[],[projectId,eraId]);return useHydratedList<AnnotationWithReference>(projectId?JSON.stringify([projectId,eraId]):null,fetch);
 }
 export function useOrphanCount(projectId:string|undefined){const {items,error,refresh}=useAnnotationsForProject(projectId);return{count:items.filter(row=>row.isOrphaned).length,error,refresh};}
+/** Threads in this context the writer has not read yet (made or answered through the AI bridge). */
+export function useUnreadCount(projectId:string|undefined){const scope=useWorldEraScope(projectId),eraId=scope.eraId;const count=useLiveQuery(async()=>projectId?countUnread(await getAnnotationsForProject(projectId,eraId)):0,[projectId,eraId]);return{count:count??0};}

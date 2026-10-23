@@ -165,6 +165,26 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId: receipt.mapId, what: summary };
   }
 
+  if ((entry.tool === 'wh_map_reveal' || entry.tool === 'wh_map_party') && entry.before && typeof entry.before === 'object' && '__mapExploration' in entry.before) {
+    const receipt = (entry.before as { __mapExploration: import('@/engines/maps/operations').MapExplorationReceipt }).__mapExploration;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { undoMapExploration } = await import('@/engines/maps/operations');
+    // Fog or party changed again since is someone's later work: refuse.
+    try { await undoMapExploration(receipt, scope); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
+  if (entry.tool === 'wh_map_artwork' && entry.before && typeof entry.before === 'object' && '__mapArtwork' in entry.before) {
+    const receipt = (entry.before as { __mapArtwork: import('@/engines/maps/operations').MapArtworkReceipt }).__mapArtwork;
+    const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
+    const { undoMapArtwork } = await import('@/engines/maps/operations');
+    // Artwork edited again since is someone's later choice: refuse.
+    try { await undoMapArtwork(receipt, scope); }
+    catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId: receipt.mapId, what: summary };
+  }
+
   if (entry.tool === 'wh_name_map_pins_from_key' && entry.before && typeof entry.before === 'object' && '__mapPinNames' in entry.before) {
     const receipt = (entry.before as { __mapPinNames: { mapId: string; renames: import('@/engines/maps/operations').MapPinRename[] } }).__mapPinNames;
     const scope = typeof entry.projectId === 'string' && typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined;
@@ -420,6 +440,24 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     const {setProjectGenres}=await import('@/services/projectGenres/store');
     await setProjectGenres(entry.projectId,change.from,change.to);
     return{undone:true,kind,entityId:entry.projectId,what:summary};
+  }
+
+  // A session change puts back status, date, note link and the session marker, unless the session moved on since.
+  if (entry.tool === 'wh_session_set_status' && entry.before && typeof entry.before === 'object') {
+    const { __sessionAfterRevision, __absent, ...fields } = entry.before as Record<string, unknown>;
+    delete fields.__sessionBeforeRevision;
+    await db.transaction('rw', db.outlines, async () => {
+      const outline = await db.outlines.get(entityId);
+      if (!outline) throw new BridgeError('not-found', 'That session has since been deleted, so there is nothing to restore it onto.');
+      if (typeof __sessionAfterRevision === 'number' && (outline.sessionRevision ?? 0) !== __sessionAfterRevision) {
+        throw new BridgeError('cannot-undo', 'The session changed after this edit, so undoing it would lose that later work; change it back by hand instead.');
+      }
+      // Restoring content is a new revision; never recycle a CAS value.
+      const patch: Record<string, unknown> = { ...fields, sessionRevision: (outline.sessionRevision ?? 0) + 1, updatedAt: Date.now() };
+      if (Array.isArray(__absent)) for (const key of __absent) if (typeof key === 'string') patch[key] = undefined;
+      await db.outlines.update(entityId, patch);
+    });
+    return { undone: true, kind, entityId, what: summary };
   }
 
   // Logical IDs intentionally remain the same across eras. The ordinary

@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { makeTableOps, reorderItems, makeCascadeDeleteOp, notifyDataChanged } from '@/engines/_shared';
-import { BEAT_SHEET_TEMPLATES, type Outline, type OutlineBeat } from './types';
+import { BEAT_SHEET_TEMPLATES, type Outline, type OutlineBeat, type SessionStatus } from './types';
 import { generateId } from '@/utils/idGenerator';
 
 // ===== Outlines =====
@@ -20,6 +20,8 @@ export async function createOutlineFromTemplate(
   title: string,
   templateId: string | undefined,
   translate: (key: string) => string,
+  /** Start it as a table session (status defaults to in prep). */
+  session?: { status?: SessionStatus; date?: string; linkedWritingId?: string },
 ): Promise<Outline> {
   if (!title.trim()) throw new Error('Outline title is required');
   const template = templateId ? BEAT_SHEET_TEMPLATES.find(candidate => candidate.id === templateId) : undefined;
@@ -28,6 +30,13 @@ export async function createOutlineFromTemplate(
   const outline: Outline = {
     id: generateId('outline'), projectId, title: title.trim(), templateId,
     createdAt: now, updatedAt: now,
+    ...(session ? {
+      kind: 'session' as const,
+      sessionStatus: session.status ?? 'prep',
+      sessionRevision: 1,
+      ...(session.date ? { sessionDate: session.date } : {}),
+      ...(session.linkedWritingId ? { linkedWritingId: session.linkedWritingId } : {}),
+    } : {}),
   };
   const beats: OutlineBeat[] = (template?.beats ?? []).map((beat, order) => ({
     id: generateId('beat'), outlineId: outline.id, projectId, order,

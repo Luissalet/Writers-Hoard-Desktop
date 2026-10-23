@@ -8,7 +8,7 @@ import {WRITING_TOOL_DOCK_TOOLS} from '@/engines/writings/toolDock/bridgeManifes
 import { WORLD_GRAPH_QUERY_TOOLS } from '@/engines/codex/worldGraph/bridgeManifest';
 import { RELATION_TREE_ACTION_TOOLS } from '@/engines/genealogy/treeActionManifest';
 import { WIKI_PROFILE_TOOLS } from '@/services/wikiProfiles/bridgeManifest';
-import { CODEX_REVEAL_TOOLS } from '@/engines/codex/revealBridge';
+import { CODEX_REVEAL_TOOLS } from '@/engines/codex/revealBridgeManifest';
 import { ENTITY_DETECTION_TOOLS } from '@/services/entityDetection/bridgeManifest';
 import { PARALLEL_DRAFT_TOOLS } from '@/engines/writings/parallelDraftManifest';
 import { CODEX_OPTION_LIST_TOOLS } from '@/engines/codex/optionListBridgeManifest';
@@ -30,7 +30,7 @@ import { CODEX_OPTION_LIST_TOOLS } from '@/engines/codex/optionListBridgeManifes
 // `engines/outline/types` is a leaf data module with no imports of its own —
 // no Dexie, no DOM — so reading the beat sheets from it keeps the template
 // list here and the one the handler validates against the same list.
-import { BEAT_SHEET_TEMPLATES } from '@/engines/outline/types';
+import { BEAT_SHEET_TEMPLATES, DOCK_PRESET_IDS, SESSION_STATUSES } from '@/engines/outline/types';
 import { MODEL_TOOLS } from '@/engines/model-viewer/bridgeManifest';
 import { RADAR_TOOLS } from '@/engines/radar/bridgeManifest';
 import { SHEET_TOOLS } from '@/engines/character-sheets/bridgeManifest';
@@ -48,6 +48,7 @@ import { MODEL_READER_WIKI_TOOLS } from '@/engines/model-viewer/wikiManifest';
 import { TIMELINE_BATCH_TOOLS } from '@/engines/timeline/batchManifest';
 import { ANNOTATION_THREAD_TOOLS } from '@/engines/annotations/bridgeManifest';
 import { DOCUMENT_IMAGE_TOOLS } from '@/services/documentImage/bridgeManifest';
+import { PREP_BLOCK_TOOLS } from '@/engines/prepBlocks/bridgeManifest';
 import { TABLE_TOOLS } from '@/engines/tables/bridgeManifest';
 import { PUBLISHED_EDITION_TOOLS } from '@/services/publishedEditions/bridgeManifest';
 import { DICTIONARY_TOOLS } from '@/engines/dictionary/bridgeManifest';
@@ -102,6 +103,7 @@ export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
 /** Beat sheet ids a model may ask for, and the only ones the handler accepts. */
 export const TEMPLATE_IDS = BEAT_SHEET_TEMPLATES.map((template) => template.id);
+const SESSION_STATUS_IDS = SESSION_STATUSES;
 const inEra = (tools: BridgeTool[]): BridgeTool[] => tools.map(tool => ({ ...tool, description: `${tool.description} eraId selects era; preserves Base.`, schema: { ...tool.schema, properties: { ...tool.schema.properties, projectId: PROJECT_ID, eraId: s('Named era ID. Omit for Shared base; provide projectId when selecting an era.') } } }));
 
 /**
@@ -1333,9 +1335,13 @@ Start an outline. Pass \`template\` to lay it out from a beat sheet — the beat
         projectId: PROJECT_ID,
         title: s('What this outline is called.'),
         template: s(
-          'Beat sheet to lay down. Omit for an empty outline.',
+          'Beat sheet to lay down. Omit for an empty outline. Session-prep templates: session-prep (eight steps), hub-and-spoke, three-act-session.',
           { enum: [...TEMPLATE_IDS] },
         ),
+        session: b('true marks the outline as a table session (shown in the planner). Implied by any of the next three.'),
+        sessionStatus: s('Session status; default prep.', { enum: [...SESSION_STATUS_IDS] }),
+        sessionDate: s('Day the session is played, YYYY-MM-DD.'),
+        linkedWritingId: s('Prep note: id of a chapter of this project.'),
       },
       required: ['title'],
       additionalProperties: false,
@@ -1405,6 +1411,42 @@ Change a beat. Only the fields you pass are touched. Moving a beat to "drafted" 
       additionalProperties: false,
     },
   },
+  {
+    name: 'wh_session_planner',
+    description:
+      `Read the table sessions (outlines marked as sessions) grouped live, next, prep and played.
+Read the session planner: every outline marked as a table session, grouped by status (live = being played now, next = up next, prep = in preparation, played), soonest date first, with its date, prep note, revision and how many steps are done. Pass preset (combat, map or reference) with outlineId to also get the actions that lay that tool layout into the session's prep note; give them to wh_writing_tool_dock_apply.`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        outlineId: s('Session whose prep note the layout is for (with preset).'),
+        preset: s('Tool layout to plan for the prep note.', { enum: [...DOCK_PRESET_IDS] }),
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_session_set_status',
+    description:
+      `Mark an outline as a table session or change its status, date or prep note; undoable.
+Mark an outline as a table session, or change a session's status (prep, next, live, played), its date (YYYY-MM-DD, null clears) or its prep note (a chapter id, null unlinks). Pass expectedRevision from wh_session_planner to refuse a stale write. Undo with wh_undo puts the previous values back if the session has not changed since.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        outlineId: s('Outline to change. Required.'),
+        status: s('New status.', { enum: [...SESSION_STATUS_IDS] }),
+        date: { type: ['string', 'null'], description: 'Day YYYY-MM-DD, or null to clear.' },
+        linkedWritingId: { type: ['string', 'null'], description: 'Prep note: chapter id, or null to unlink.' },
+        expectedRevision: n('Revision read last from wh_session_planner.'),
+      },
+      required: ['outlineId'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1456,6 +1498,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('story', inEngine('timeline', TIMELINE_BATCH_TOOLS)),
   ...ANNOTATION_THREAD_TOOLS,
   ...DOCUMENT_IMAGE_TOOLS,
+  ...PREP_BLOCK_TOOLS,
   ...TABLE_TOOLS,
   ...PUBLISHED_EDITION_TOOLS,
   ...DICTIONARY_TOOLS,

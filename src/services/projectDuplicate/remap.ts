@@ -39,6 +39,7 @@ const refs:Record<string,Record<string,string>>={
   storyboardPanels:{storyboardId:'storyboards',imageRef:'inspirationImages',linkedSceneId:'scenes'},storyboardConnectors:{storyboardId:'storyboards',sourceId:'storyboardPanels',targetId:'storyboardPanels'},
   dialogBlocks:{sceneId:'scenes',characterId:'codexEntries',dualGroupId:'dual-group'},sceneCasts:{sceneId:'scenes',characterId:'codexEntries'},videoSegments:{videoPlanId:'videoPlans'},
   biographies:{subjectId:'codexEntries'},biographyFacts:{biographyId:'biographies','sources.*.entityId':'snapshots'},
+  outlines:{linkedWritingId:'writings'},
   outlineBeats:{outlineId:'outlines',parentId:'outlineBeats',linkedWritingId:'writings',linkedSceneId:'scenes'},characterArcs:{characterId:'codexEntries'},arcBeats:{arcId:'characterArcs',linkedBeatId:'outlineBeats',linkedSceneId:'scenes'},
   seeds:{linkedBeatId:'outlineBeats',linkedSceneId:'scenes',linkedWritingId:'writings'},payoffs:{seedId:'seeds',linkedBeatId:'outlineBeats',linkedSceneId:'scenes',linkedWritingId:'writings'},
   writingSnapshots:{writingId:'writings',sourceDraftId:'writingSnapshots'},generatedWorlds:{originWorldId:'generatedWorlds'},worldWaypoints:{worldId:'generatedWorlds'},
@@ -122,8 +123,8 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     for(const field of richFields[table]??[])if(typeof value[field]==='string')value[field]=rich(value[field]);
     if(table==='writings'){value.manuscriptSource=cloneManuscriptWritingSource(input.manuscriptSource as Writing['manuscriptSource'],remap);value.toolDock=remapToolDockLayout(input.toolDock as Writing['toolDock'],remap);}
     if(table==='manuscriptSources')value=cloneManuscriptSource(input as unknown as ManuscriptSourceRow,targetProjectId,remap) as unknown as Row;
-    if(table==='worldMaps')value=remapImportedWorldMap(input as unknown as WorldMap,targetProjectId,remap,codexIds,eventIds) as unknown as Row;
-    if(table==='mapPins')value=remapImportedMapPin(input as unknown as MapPin,targetProjectId,remap(String(input.mapId),'map'),remap,codexIds) as unknown as Row;
+    if(table==='worldMaps')value=remapImportedWorldMap(input as unknown as WorldMap,targetProjectId,remap,codexIds,eventIds,mediaIds) as unknown as Row;
+    if(table==='mapPins')value=remapImportedMapPin(input as unknown as MapPin,targetProjectId,remap(String(input.mapId),'map'),remap,codexIds,mediaIds) as unknown as Row;
     // The legacy map importer intentionally drops generated-world provenance; a complete local copy carries those worlds.
     if(table==='worldMaps'){
       value.source=input.source;value.sourceWorldId=typeof input.sourceWorldId==='string'?remap(input.sourceWorldId,'world'):input.sourceWorldId;value.sourceRevision=input.sourceRevision;

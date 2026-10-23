@@ -1,3 +1,4 @@
+import BoardCommentPins from './BoardCommentPins';
 import {createCanvasPile,setPileCollapsed} from '../graph/piles';
 import {hiddenCanvasNodeIds,pileSelection,pileItemCount} from '../graph/membership';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -88,6 +89,8 @@ export interface BoardCanvasProps {
   onViewportChange: (viewport: BoardViewport) => void;
   /** Right-click → Comment: the host opens a comment about that card. */
   onCommentNode?: (node: BoardNode) => void;
+  /** Right-click on the empty board → Comment here: the host opens a comment pinned to that point (board coordinates). */
+  onCommentAt?: (at: { x: number; y: number }) => void;
 }
 
 export default function BoardCanvas(props: BoardCanvasProps) {
@@ -98,7 +101,7 @@ export default function BoardCanvas(props: BoardCanvasProps) {
   );
 }
 
-function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode }: BoardCanvasProps) {
+function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, onCommentAt }: BoardCanvasProps) {
   const { t, locale } = useTranslation();
   const worldScope=useWorldEraScope(projectId);
   const navigateTo = usePaneNavigate();
@@ -1297,6 +1300,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode }:
             </div>
           </Panel>
         ) : null}
+        <BoardCommentPins projectId={projectId} boardId={boardId} />
         {drawing && <FreehandOverlay tool={inkTool} onTool={setInkTool} color={drawingColor} width={drawingWidth} onColor={setDrawingColor} onWidth={setDrawingWidth} onDone={() => setDrawing(false)} disabled={graph.loading || (!!activeLayerId && (layerById.get(activeLayerId)?.locked === true || layerById.get(activeLayerId)?.visible === false))} onStroke={(points, zoom) => {
           if (graph.loading || (activeLayerId && (layerById.get(activeLayerId)?.locked || layerById.get(activeLayerId)?.visible === false))) return;
           if(inkTool==='eraser'){const ids=erasedNodeIds(visibleNodes.filter(node=>canMoveNode(node,layerById)),points,8/Math.max(.005,zoom));if(ids.length){graph.remove(ids,[],freehandCopy(locale).erase);setSelectedNodeIds(new Set());setSelectedEdgeIds(new Set());}return;}
@@ -1316,6 +1320,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode }:
           ['delete', locale === 'es' ? 'Borrar' : 'Delete', deleteSelection],
         ] : [
           ['card', locale === 'es' ? 'Nueva tarjeta aquí' : 'New card here', () => addNode('card', { position: contextMenu.at })],
+          ...(onCommentAt ? [['comment-here', locale === 'es' ? 'Comentar aquí' : 'Comment here', () => { const box = containerRef.current?.getBoundingClientRect(); const exact = box ? flow.screenToFlowPosition({ x: box.left + contextMenu.x, y: box.top + contextMenu.y }, { snapToGrid: false }) : contextMenu.at; onCommentAt({ x: Math.round(exact.x * 100) / 100, y: Math.round(exact.y * 100) / 100 }); }] as [string, string, () => void]] : []),
           ...(clipboard.nodes.length ? [['paste', locale === 'es' ? 'Pegar aquí' : 'Paste here', () => { const box = boundsOfNodes(clipboard.nodes, 0); paste(box ? { x: contextMenu.at.x - box.x, y: contextMenu.at.y - box.y } : { x: 40, y: 40 }); }] as [string, string, () => void]] : []),
           ['all', locale === 'es' ? 'Seleccionar todo' : 'Select all', () => { setSelectedNodeIds(new Set(visibleNodes.map(node => node.id))); setSelectedEdgeIds(new Set()); }],
           ['fit', locale === 'es' ? 'Ajustar a la vista' : 'Zoom to fit', () => void flow.fitView(fitOptions)],

@@ -36,6 +36,7 @@
 // it is not or it is already taken.
 
 import { htmlToMarkdown } from '@/engines/writings/manuscriptExport';
+import { PREP_ALERT_PATTERN, prepAlertToHtml } from '@/engines/prepBlocks/markdown';
 import {
   FOOTNOTE_ID_ATTR,
   footnoteRefHtml,
@@ -262,8 +263,11 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
   const flushQuote = (): void => {
     if (!quote.length) return;
     // "> [!NOTE]" (also INFO, QUESTION, TIP, WARNING) is a callout block.
-    const alert = /^\[!(NOTE|NOTA|INFO|QUESTION|PREGUNTA|TIP|IDEA|WARNING|AVISO|CAUTION|READALOUD|SIDEBAR|RECUADRO)\]\s*(.*)$/i.exec(quote[0] ?? '');
-    if (alert) {
+    const prep = new RegExp(`^\\[!(${PREP_ALERT_PATTERN})\\]\\s*(.*)$`, 'i').exec(quote[0] ?? '');
+    const prepHtml = prep ? prepAlertToHtml(prep[1], prep[2], quote.slice(1)) : null;
+    const alert = prepHtml ? null : /^\[!(NOTE|NOTA|INFO|QUESTION|PREGUNTA|TIP|IDEA|WARNING|AVISO|CAUTION|READALOUD|SIDEBAR|RECUADRO)\]\s*(.*)$/i.exec(quote[0] ?? '');
+    if (prepHtml) out.push(prepHtml);
+    else if (alert) {
       const kind = ({ note: 'note', nota: 'note', info: 'info', question: 'question', pregunta: 'question', tip: 'tip', idea: 'tip', warning: 'warning', aviso: 'warning', caution: 'warning', readaloud: 'readaloud', sidebar: 'sidebar', recuadro: 'sidebar' } as Record<string, string>)[alert[1].toLowerCase()];
       const body = [alert[2], ...quote.slice(1)].filter((line, index) => index > 0 || line.trim());
       out.push(`<aside data-wh-callout="${kind}"><p>${body.map(inline).join('<br>')}</p></aside>`);

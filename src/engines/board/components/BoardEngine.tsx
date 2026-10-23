@@ -185,6 +185,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
             projectId={projectId}
             board={active}
             onViewportChange={(viewport) => void editItem(active.id, { viewport })}
+            onCommentAt={(at) => { setCommentAnchor({ type: 'board_point', x: at.x, y: at.y }); requestAnimationFrame(() => document.querySelector('[data-board-comments]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })); }}
             onCommentNode={(node) => { setCommentAnchor({ type: 'entity', elementId: node.id, elementTitle: node.title || node.kind }); requestAnimationFrame(() => document.querySelector('[data-board-comments]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })); }}
           />
           <div data-board-comments>

@@ -709,7 +709,7 @@ export const MAP_TOOLS: BridgeTool[] = [
     name: 'wh_list_maps',
     description:
       `List a project's maps with every pin: name, icon, description and codex link.
-List the project's maps with every pin on them: name, icon, description and any codex entry the pin points at. Pin coordinates are relative to the map image, 0 to 100 on each axis.`,
+List the project's maps with every pin on them: name, icon, description and any codex entry the pin points at. Pin coordinates are relative to the map image, 0 to 100 on each axis. A map with a fog of exploration also gives exploration: revision (for wh_map_reveal and wh_map_party), enabled, exploredPercent, party {x, y, sightRadius} and the last trail steps.`,
     writes: false,
     schema: {
       type: 'object',
@@ -757,6 +757,7 @@ Drop a pin on a map. Coordinates are percentages of the image, so x:50 y:50 is d
         linkedEntryId: s('New linked codex entry.'),
         size: s('Marker size S, M or L.', { enum: ['S', 'M', 'L'] }),
         hideIcon: { type: 'boolean', description: 'Show a plain dot without the icon.' },
+        ambience: { anyOf: [{ type: 'object', properties: { assetId: s('Local audio asset id (wh_list_assets).'), volume: n('0-1, default 0.5.'), radius: n('2-60: percent of the map width within which the loop fades in as the exported wiki view centres on the pin; default 15.') }, required: ['assetId'], additionalProperties: false }, { type: 'null' }], description: 'Looping ambience for this pin in the exported wiki (profile option mapAmbience); null removes it. It plays only after the reader presses the map sound button.' },
       },
       required: ['id'],
       additionalProperties: false,
@@ -808,6 +809,23 @@ Optional: pathStyle for a route (road, trail or river; not for regions or labels
     }, required: ['mapId', 'id'], additionalProperties: false },
   },
   {
+    name: 'wh_map_artwork_get', writes: false,
+    description: 'Read-only. The illustration layers of a classic map for the exported wiki (background, mid, front: present or not and their size, never the pictures), the cloud switch, the map ambience, the pins that have ambience and updatedAt, which wh_map_artwork needs as expectedUpdatedAt.',
+    schema: { type: 'object', properties: { mapId: s('Map id.') }, required: ['mapId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_map_artwork', writes: true,
+    description: 'Set or remove the illustration layers of a classic map and its ambience, used by the exported wiki when the profile sets mapArtwork / mapClouds / mapAmbience (wh_wiki_profile_save). background shows behind and around the map picture, mid sits over the picture under the pins, front over everything; each is a base64 data:image/ URL (png, jpeg, webp, gif, avif, bmp; no SVG), or null to remove it, and drifts gently while the reader pans unless they prefer reduced motion. clouds switches the cloud overlay for this map. ambience is {assetId, volume?} of a local audio asset (looping, started only by the reader\'s sound button) or null. Requires expectedUpdatedAt from wh_map_artwork_get and refuses a map changed since; undoable (earlier pictures wait in the picture stash, so an undo can be refused if they were evicted or the artwork changed again).',
+    schema: { type: 'object', properties: {
+      mapId: s('Map id.'), expectedUpdatedAt: n('updatedAt from wh_map_artwork_get.'),
+      background: { anyOf: [{ type: 'string' }, { type: 'null' }], description: 'Raster data URL or null.' },
+      mid: { anyOf: [{ type: 'string' }, { type: 'null' }], description: 'Raster data URL or null.' },
+      front: { anyOf: [{ type: 'string' }, { type: 'null' }], description: 'Raster data URL or null.' },
+      clouds: { type: 'boolean', description: 'Cloud overlay for this map.' },
+      ambience: { anyOf: [{ type: 'object', properties: { assetId: s('Local audio asset id.'), volume: n('0-1, default 0.5.') }, required: ['assetId'], additionalProperties: false }, { type: 'null' }], description: 'Looping map ambience or null.' },
+    }, required: ['mapId', 'expectedUpdatedAt'], additionalProperties: false },
+  },
+  {
     name: 'wh_set_map_layers', writes: true,
     description: 'Show or hide what a classic map draws: pins, region, path and label; portraits (a pin linked to an entry with a picture shows that picture framed in the pin colour, its name under it; on unless set false); names (every pin name always in view, off unless set true). Pass any of them as true or false; undoable.',
     schema: { type: 'object', properties: {
@@ -827,6 +845,30 @@ Optional: pathStyle for a route (road, trail or river; not for regions or labels
       clear: { type: 'boolean', description: 'true removes the map\'s scale.' },
       aspect: n('Picture height divided by width; only used when the map has no readable image.'),
     }, required: ['mapId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_map_reveal', writes: true,
+    description: 'Fog of exploration on a picture map (not a generated world): reveal or hide parts of it with circular brushes. ops is a list of {op:"reveal"|"hide", x, y, radius} (x and y in percent of the picture, radius in percent of its width, 0.5 to 100) or {op:"all"} (everything explored) / {op:"none"} (everything fogged); enabled switches the fog for players on or off (the explored area is kept). The first call on a map creates its exploration record with the fog on. Pass expectedRevision (the revision read in wh_list_maps -> exploration.revision, 0 when the map has none) to refuse if the fog changed meanwhile. Returns revision, exploredPercent and party. Undoable while the exploration has not changed again. Players see unexplored areas as fog and no pins or shapes under it; exports honour it only when the export option "exploredFog" is on.',
+    schema: { type: 'object', properties: {
+      projectId: PROJECT_ID,
+      mapId: s('Map id, from wh_list_maps.'),
+      ops: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object', properties: { op: { type: 'string', enum: ['reveal', 'hide', 'all', 'none'] }, x: n('0-100, percent of the picture width.'), y: n('0-100, percent of the picture height.'), radius: n('0.5-100, percent of the picture width.') }, required: ['op'], additionalProperties: false } },
+      enabled: { type: 'boolean', description: 'Switch the fog on or off for players.' },
+      expectedRevision: n('Revision read last; 0 when the map has no exploration yet.', { type: 'integer', minimum: 0 }),
+    }, required: ['mapId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_map_party', writes: true,
+    description: 'Move the party marker on a picture map: x and y in percent of the picture. The party sees a circle of sightRadius (percent of the picture width, 0.5 to 100; default the last one, else 8) around its new place, which becomes explored. trail:true also adds a step to the trail the party leaves (kept visible to players; up to 500 steps), session labels that step (e.g. "Session 4"). The first call on a map creates its exploration record with the fog on. Pass expectedRevision to refuse if the fog changed meanwhile. Undoable while the exploration has not changed again.',
+    schema: { type: 'object', properties: {
+      projectId: PROJECT_ID,
+      mapId: s('Map id, from wh_list_maps.'),
+      x: n('0-100, percent of the picture width.'), y: n('0-100, percent of the picture height.'),
+      sightRadius: n('0.5-100, percent of the picture width.'),
+      trail: { type: 'boolean', description: 'Add this step to the trail (default false).' },
+      session: s('Session label for the trail step, up to 60 characters.'),
+      expectedRevision: n('Revision read last; 0 when the map has no exploration yet.', { type: 'integer', minimum: 0 }),
+    }, required: ['mapId', 'x', 'y'], additionalProperties: false },
   },
   {
     name: 'wh_measure_map', writes: false,
@@ -2203,6 +2245,7 @@ List the margin notes in a project: what they say, what they are attached to, an
         engineId: s('Engine of the annotated entity, e.g. "writings", "codex", "seeds".'),
         entityId: s('The annotated entity. Requires engineId.'),
         orphanedOnly: b('Only notes whose anchor text has gone.'),
+        unreadOnly: b('Only threads the writer has not read yet (made or answered through this bridge). Each note carries `unread` and `readAt`; the result has `unreadCount`.'),
       },
       additionalProperties: false,
     },
@@ -2224,8 +2267,8 @@ Leave a margin note on something. Pass \`quote\` with the exact phrase you are c
         quote: s('Exact phrase from the entity to anchor to. Must match the text as written.'),
         at: {
           type: 'object',
-          description: 'Classic maps only (engineId "maps"): the spot the comment points at, in percent of the map image (x from the left, y from the top), the same units as pins and shapes. The note shows as a marker on the map. Not with quote.',
-          properties: { x: { type: 'number', minimum: 0, maximum: 100 }, y: { type: 'number', minimum: 0, maximum: 100 } },
+          description: 'A spot to comment on, for engines with a canvas. Classic maps (engineId "maps"): percent of the map image, 0 to 100 (x from the left, y from the top), the same units as pins and shapes. Boards (engineId "board", entityId the board id): board coordinates, the units of card positions; the note shows as a pin that follows pan and zoom. Not with quote. The note arrives unread for the writer.',
+          properties: { x: { type: 'number' }, y: { type: 'number' } },
           required: ['x', 'y'],
           additionalProperties: false,
         },

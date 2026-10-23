@@ -115,3 +115,13 @@ Siguiente en mapas (filas ABSENT o PARTIAL de tasks/vvd1095 A1/A2):
 
 Ninguna fila del catálogo cambia de estado sin un flujo mostrado en interfaz y
 MCP; no se declara paridad.
+
+## Continuación 1095 tras preparación de sesiones
+
+Planificador, bloques de preparación, chinchetas/comentarios leídos, claves MCP
+independientes, exploración de mapas de imagen y navegación/ambiente de wiki
+incorporados en la entrega D3-D5. Pruebas y límites en
+`tasks/vvd1095/verification-D345.md`. Siguen los huecos priorizados de páginas
+sueltas/curación de wiki, crecimiento/creación rápida del inicio y metadatos,
+asistencia/resumen de sesiones de ficción, más las mejoras menores de campaña.
+Los errores de tipos de Electron están corregidos en esta entrega.
