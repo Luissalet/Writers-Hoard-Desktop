@@ -6,7 +6,7 @@ export const WikiHidden = Mark.create({
   renderHTML: () => ['span', { 'data-wh-wiki-hidden': 'true', class: 'wh-wiki-hidden' }, 0],
 });
 /** The blocks a whole paragraph, heading, quote, list or story block can be kept out of the wiki as. */
-export const WIKI_HIDDEN_BLOCK_TYPES = ['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList', 'codeBlock', 'callout', 'checklist', 'toggleBlock', 'messageBubble', 'letterBlock', 'emailBlock', 'image'] as const;
+export const WIKI_HIDDEN_BLOCK_TYPES = ['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList', 'codeBlock', 'callout', 'checklist', 'toggleBlock', 'messageBubble', 'letterBlock', 'emailBlock', 'prepCheck', 'prepEncounter', 'prepHandout', 'image'] as const;
 /** A whole block kept out of the published wiki: the same marker the wiki already removes. */
 export const WikiHiddenBlock = Extension.create({
   name: 'wikiHiddenBlock',

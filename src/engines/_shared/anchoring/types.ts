@@ -54,3 +54,22 @@ export interface InlineCreateFormProps {
   onCreated: (entityId: string) => void;
   onCancel: () => void;
 }
+
+/**
+ * A second, optional capability beside `AnchorAdapter`: an engine whose
+ * canvas can take a comment at a point. It is registered separately so no
+ * existing adapter changes shape. Coordinates are in the engine's own space
+ * (`space`), never screen pixels, so a pin survives pan, zoom and resize.
+ */
+export interface PositionalAnchorAdapter {
+  /** Engine id of the annotated document (same key as its `AnchorAdapter`). */
+  engineId: string;
+  /** The `AnnotationAnchor.type` this engine stores. */
+  anchorType: 'map_point' | 'board_point';
+  /** 'percent': 0-100 of a picture. 'board': the canvas's own coordinates. */
+  space: 'percent' | 'board';
+  /** A clean anchor for the point, or null when it is not a valid spot for this engine. */
+  toAnchor: (point: { x?: unknown; y?: unknown } | null | undefined) => { type: 'map_point' | 'board_point'; x: number; y: number } | null;
+  /** Short plain-words place label, e.g. "En el mapa · 12%, 40%". */
+  describe: (anchor: { x?: number; y?: number }, locale: string) => string;
+}

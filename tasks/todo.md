@@ -1233,3 +1233,12 @@ Wave 1, maps:
 - [ ] Classic-map polish, part 2: card picker with "create entry here", right-click menu with positional comment, change-ground dialog (A2 #14, #15, #18).
 
 Later waves follow the ranked lists in C-writing, D1-tools, D2-platform and B-campaign.
+
+## Handover 1095 — 2026-10-23
+- [x] Read criteria, handover, Agora1195 and h183; adopt task and path lock.
+- [x] Resolve reproducible critical failure; compare Electron diagnostics with main; both worktree typechecks pass.
+- [x] Independent review D3-D5 and regressions for each finding, including real pointer hit-testing.
+- [x] Native IPC/HTTP/MCP secondary key read/revoke401; Browser prep blocks, planner and pins (Luis requested Browser, no desktop control).
+- [ ] Full battery; scoped commit as Luissalet; locked fast-forward into main without push.
+- [ ] Update Google manual with CAS/readback.
+- [ ] Complete remaining D2/B gaps and Electron types with honest matrix/docs updates.

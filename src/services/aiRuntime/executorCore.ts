@@ -29,6 +29,8 @@ export interface AuditLine {
   at: number;
   tool: string;
   client?: string;
+  /** Label of the named bridge key that made the call. */
+  keyLabel?: string;
   origin?: ExecutionContext['origin'];
   conversationId?: string;
   projectId?: string;
@@ -141,6 +143,7 @@ export function createToolExecutor(deps: ExecutorDeps) {
       at: now(),
       tool: tool.name,
       client: ctx.clientLabel,
+      keyLabel: ctx.keyLabel,
       origin: ctx.origin,
       conversationId: ctx.conversationId,
       ok: outcome.ok,

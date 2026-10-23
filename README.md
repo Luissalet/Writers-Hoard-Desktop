@@ -65,6 +65,18 @@ same bytes as before. The export panel shows what changed since the last local
 edition ("Publish (3 changes)" with added, changed and removed documents); the
 read-only bridge tool `wh_wiki_profile_changes` returns the same list.
 
+**Wiki maps (task 1095, wave D2).** Exported wiki maps can now be moved and zoomed
+(drag, pinch, Ctrl + wheel, keys; free or contained in the frame, with a reset
+button and pins that keep their size), show optional illustration layers
+(background, middle, foreground) that drift gently while the reader pans (still
+under reduced motion) with a drifting cloud overlay the reader can hide, and loop
+ambience for the map and for each pin that starts only when the reader presses the
+sound button. All of it is off by default and a profile that does not ask for it
+exports the same bytes as before. The layers and ambience live on the map in the
+map editor ("Capas de ilustración") and travel with backups and copies; the bridge
+tools `wh_map_artwork_get` and `wh_map_artwork` (revision-checked, undoable) set
+them. See `docs/wiki-appearance.md`.
+
 **Assets library (task 1095, wave D2).** The project's Assets tab now lists
 pictures, sounds, videos and 3D models together: search by name or tag, six
 sort orders, a kind filter, multi-select, download and rename. Deleting reads
@@ -76,6 +88,30 @@ original). The crop dialog has named frames (avatar, cards, banner, cover,
 wallpaper) with a "too small" notice, and the gallery lightbox zooms and pans
 (wheel, drag, `+`/`-`, `0`, arrows). Bridge tools `wh_list_assets` and
 `wh_asset_usage` (docs/AI-BRIDGE.md, "Biblioteca de recursos"); matrix: tasks/vvd1095/D2-platform.md.
+
+**Comments: read state and pins (task 1095, wave D2).** Comment threads now
+know whether you have read them. Threads you write are read; threads and replies
+that arrive through the AI bridge are unread until you open them (touching a
+thread or clicking its pin is enough). The comment list shows "N unread", can
+sort "Unread first", mark one thread read or unread, or "Mark all as read" (one
+Undo for the lot), and the Interconnectedness tab in the sidebar (where comments live) carries a gold unread
+pill. The project's comment dashboard also filters "Only unread" and "Only this
+document". On a board, right-click the empty canvas and choose "Comment here"
+to pin a comment to that point: the pin follows pan and zoom, survives a reload,
+can be dragged, and clicking it opens its thread; classic-map point comments
+open their thread the same way. Bridge: `wh_annotation_mark_read`,
+`wh_annotation_mark_all_read`, `unreadOnly` on `wh_list_annotations`, `at` on
+`wh_annotate` for boards (docs/AI-BRIDGE.md, "Comentarios: leídos y chinchetas").
+Not built: pins on the generated world map, off-screen marker arrows, a
+hide-markers switch. Matrix: tasks/vvd1095/D2-platform.md.
+
+**Named AI-bridge keys.** In Settings, AI bridge, "Access keys" lists each key with
+its name, creation date, last use and status. "New key" gives a client its own key
+(the token is shown once, with buttons to copy it and the client configuration);
+keys can be renamed and revoked (with confirmation, effective at once). The token
+you already use stays as the main key and keeps working. The activity list says
+which key made each change. Docs: docs/AI-BRIDGE.md, "Varias claves del puente";
+matrix: tasks/vvd1095/D2-platform.md.
 
 **Workspace tabs and Undo.** The companion pane's tabs can be renamed (the
 document keeps its title), pinned, duplicated, closed in bulk (the others, or
@@ -100,6 +136,37 @@ undo is refused if a card changed since), plus `revealed` in `wh_list_codex` and
 `wh_get_codex_entry`. Not built: the marker is per card (no per-block reveal),
 fiction-engine entities have their own secrets switch and are not linked to it,
 and there is no per-page "waiting for publish" dot in the Codex list yet.
+
+**Session prep and the planner (task 1095, gap 7).** Three new outline templates for
+running a table: "Session prep: eight steps" (characters, strong start, possible scenes,
+secrets and clues, locations, NPCs, monsters, rewards, each with a short prompt),
+"Hub and spoke" and "Three-act session". An outline can be marked "This outline is a
+table session" with a date, a status (In prep / Up next / Live / Played) and a linked
+prep note. A new "Session planner" tab in Outline lists sessions grouped Live / Up next
+/ In prep / Played, with a quick status change, open, open the prep note and a
+"New session" box; its Combat / Map / Reference buttons lay the project's first
+documents of those kinds into the prep note's tool dock (undoable). The fields travel with
+backups and project copies. Bridge: `wh_session_planner` (read),
+`wh_session_set_status` (revision-checked, undoable) and session fields in
+`wh_create_outline`. Not built: icons or colours per session, per-scene notes, choosing
+which map or board goes into a layout, a PDF beside the notes, a campaign-wide hub
+across fiction, maps and journal.
+
+**Exploration fog and the party marker on picture maps (task 1095, gap 9).** A
+picture map (not a generated world) gets a "Fog" strip: switch the fog on and the
+whole map is hidden from the players; reveal or hide it with a round brush, reveal
+or hide it all, or place the party and drag its marker, which reveals a circle of
+its sight radius and, with "Leave a trail", adds a step to a trail labelled with a
+session. "Player view" draws the opaque fog, hides the pins and shapes under it and
+keeps the trail; the author sees the fog semi-transparent. The record (mask, party,
+trail, revision) is an optional map field that travels with JSON/ZIP backups,
+clones and eras. Wiki profiles get "With exploration fog" (off by default; exports
+without it are byte-identical to before) and the map's SVG export has its own
+"Export with fog" button. Bridge: `wh_map_reveal` and `wh_map_party` (revision
+guard, undoable, engine-guarded) plus `exploration` in `wh_list_maps`. Not built:
+"start in ink / land in ink" presets, sight in km, looking back by session, "near X"
+placement, a party marker on generated worlds, and the picture file still contains
+the whole image (the fog is a visual mask, not secrecy).
 
 **Guided tours (task 1095, wave D2).** The compass button in the top bar (and a
 "See the guided tours" link under the Getting started card, which stays) opens a
@@ -142,6 +209,25 @@ multi-select; tables gain find, insert/duplicate rows and columns (formula
 references follow, a removed one reads #REF!), multi-sort and filters.
 Everything has bridge tools (docs/AI-BRIDGE.md, section 29); the matrix with
 evidence is tasks/vvd1095/C-writing.md.
+
+**Game-prep blocks and player handouts (task 1095, B gaps 3 and 10).** The "/" menu
+in notes and chapters now also offers three prep blocks. "Check" holds a skill, a
+difficulty, a modifier and a note about what the roll reveals; "Roll" throws the
+d20 with the dice engine and keeps the last result on the block (and in the dice
+tray). "Encounter" lists creatures with a count and an optional link to the SRD
+compendium or a Codex card; "Prepare combat" creates a fight in the encounter
+tracker with those combatants and "Open combat" goes to it. "Player handout"
+points at a gallery picture with a label and "when to hand it out", and its
+studio draws a letter, a case file, a terminal screen or a notice board from
+editable text (with three opening hooks), saves it to the gallery and redraws the
+same picture when the text changes. Each block reads as plain text in Markdown,
+Word, ePub, the reader and the wiki (checks and encounters start hidden from the
+wiki), survives backup and copies, and is read and written by the bridge
+(`> [!CHECK]`, `> [!ENCOUNTER]`, `> [!HANDOUT]` in `wh_create_writing`;
+`wh_create_handout`, `wh_render_handout`). Not built: a "mark spoken" count on the
+read-aloud box, a live/done state on the encounter block, a dream template, PDF
+handouts. Test: `tests/prep-blocks-handouts.browser.tsx`; evidence and gaps in
+tasks/vvd1095/B-campaign.md.
 
 **Table rules (task 1095, B gap 6).** Sheets has a "Table rules" tab (also
 reachable from the project settings): pick the game system (D&D 5e 2024 or 2014,

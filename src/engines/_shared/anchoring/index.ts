@@ -1,11 +1,14 @@
 // Anchoring barrel — re-exports for the rest of the app.
 
-export type { AnchorAdapter, InlineCreateFormProps } from './types';
+export type { AnchorAdapter, InlineCreateFormProps, PositionalAnchorAdapter } from './types';
 export {
   registerAnchorAdapter,
   getAnchorAdapter,
   getAllAnchorAdapters,
   getAnnotatableEngineIds,
+  registerPositionalAnchorAdapter,
+  getPositionalAnchorAdapter,
+  getPositionalAnchorEngineIds,
 } from './registry';
 export { htmlToText } from './htmlToText';
 export {

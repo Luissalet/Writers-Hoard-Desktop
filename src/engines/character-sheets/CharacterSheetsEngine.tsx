@@ -46,7 +46,7 @@ function Workspace({ projectId }: EngineComponentProps) {
   const [confirmation, setConfirmation] = useState<null | { message: string; action: () => void | Promise<void> }>(null);
   const importRef = useRef<HTMLInputElement>(null); const pending = useRef(false);
   const deepLink = useDeepLinkParam('entity'); const [seenLink, setSeenLink] = useState(''); const viewLink = useDeepLinkParam('view'); const [seenView, setSeenView] = useState('');
-  if (viewLink && viewLink !== seenView) { setSeenView(viewLink); if (viewLink === 'rules') setView('rules'); }
+  if (viewLink && viewLink !== seenView) { setSeenView(viewLink); if (viewLink === 'rules') setView('rules'); if (viewLink === 'fight') setView('fight'); }
   const sheets = useMemo(() => project?.characterSheets ?? [], [project?.characterSheets]);
   const id = selected || sheets[0]?.id || Object.keys(drafts)[0] || '';
   const active = drafts[id]; const rawSheet = active?.sheet ?? sheets.find(item => item.id === id);

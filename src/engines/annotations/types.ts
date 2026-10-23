@@ -19,9 +19,11 @@
 //                    entity's body text. HTML is stripped before measuring
 //                    offsets so format-only edits don't invalidate anchors.
 //   - map_point    : a spot on a classic map (x, y in percent of the image).
+//   - board_point  : a spot on a board canvas (x, y in board coordinates, the
+//                    same units as card positions, so it follows pan and zoom).
 
 export type NoteType = 'text' | 'image' | 'reference';
-export type AnchorType = 'entity' | 'text_range' | 'map_point';
+export type AnchorType = 'entity' | 'text_range' | 'map_point' | 'board_point';
 
 /**
  * Anchor data stored on every annotation. For `text_range` anchors we also
@@ -42,7 +44,7 @@ export interface AnnotationAnchor {
   /** A comment about one element of a canvas (a board card): its id, and its title when the comment was made. */
   elementId?: string;
   elementTitle?: string;
-  /** map_point only: where on the map image the note sits, in percent of its width and height. */
+  /** map_point: where on the map image the note sits, in percent of its width and height. board_point: board coordinates. */
   x?: number;
   y?: number;
 }
@@ -61,6 +63,13 @@ export interface Annotation {
   replies?: AnnotationReply[];
   mentions?: AnnotationMention[];
   resolvedAt?: number;
+  /**
+   * When the thread was last read. Absent = read (every thread that predates
+   * read state, and every thread the writer made). 0 = not read yet (threads
+   * the AI bridge made, or one marked unread). Replies the bridge adds after
+   * this time also make the thread unread; see `readState.ts`.
+   */
+  readAt?: number;
   /** Engine the anchor lives in — e.g. 'writings', 'codex'. */
   sourceEngineId: string;
   /** The entity being annotated (chapter id, codex entry id, seed id, etc.). */
@@ -121,7 +130,9 @@ export interface BacklinkPreview {
 }
 
 export interface AnnotationMention { engineId: string; entityId: string }
-export interface AnnotationReply { id: string; body: string; mentions?: AnnotationMention[]; createdAt: number; updatedAt: number; importedComment?: import('@/engines/writings/manuscriptReview/sourceTypes').ImportedCommentOrigin }
-export interface AnnotationThreadFields { noteBody?: string; mentions?: AnnotationMention[]; replies?: AnnotationReply[]; resolvedAt?: number; /** map_point comments only: where it sat, so moving it can be undone. */ anchor?: AnnotationAnchor }
-export type AnnotationUndo = { receiptId:string;projectId:string;eraId?:string;annotationId:string;expectedRevision:number;kind:'edit';before:AnnotationThreadFields } | { receiptId:string;projectId:string;eraId?:string;annotationId:string;kind:'delete';before:Annotation;reference?:AnnotationReference };
+export interface AnnotationReply { id: string; body: string; /** Written through the AI bridge: unread until the writer opens the thread. */ fromBridge?: true; mentions?: AnnotationMention[]; createdAt: number; updatedAt: number; importedComment?: import('@/engines/writings/manuscriptReview/sourceTypes').ImportedCommentOrigin }
+export interface AnnotationThreadFields { noteBody?: string; mentions?: AnnotationMention[]; replies?: AnnotationReply[]; resolvedAt?: number; /** Positional comments only (map_point, board_point): where it sat, so moving it can be undone. */ anchor?: AnnotationAnchor; /** Read-state changes only: `readAt` is the value to put back (absent = was read), and nothing else is restored. */ readStateOnly?: true; readAt?: number }
+/** Undo for "mark all as read": the rows it touched, each with the value it set and the one to restore. */
+export interface AnnotationReadBatchUndo { receiptId:string;projectId:string;eraId?:string;annotationId:'*';kind:'read-batch';rows:{id:string;before?:number;after:number}[] }
+export type AnnotationUndo = { receiptId:string;projectId:string;eraId?:string;annotationId:string;expectedRevision:number;kind:'edit';before:AnnotationThreadFields } | { receiptId:string;projectId:string;eraId?:string;annotationId:string;kind:'delete';before:Annotation;reference?:AnnotationReference } | AnnotationReadBatchUndo;
 export class AnnotationConflict extends Error { constructor(){super('annotation_thread_conflict');this.name='AnnotationConflict';} }

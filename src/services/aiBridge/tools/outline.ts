@@ -4,7 +4,8 @@
 
 import { db } from '@/db';
 import type { BeatStatus, Outline, OutlineBeat } from '@/engines/outline/types';
-import { BEAT_SHEET_TEMPLATES } from '@/engines/outline/types';
+import { BEAT_SHEET_TEMPLATES, SESSION_STATUSES } from '@/engines/outline/types';
+import { validDay } from '@/engines/outline/session';
 import {
   createBeat,
   createOutline,
@@ -69,6 +70,9 @@ export async function whListOutlines(args: ToolArgs): Promise<unknown> {
         beatCount: own.length,
         done: own.filter((beat) => beat.status === 'done').length,
         updatedAt: outline.updatedAt,
+        ...(outline.kind === 'session'
+          ? { session: { status: outline.sessionStatus ?? 'prep', date: outline.sessionDate, linkedWritingId: outline.linkedWritingId, revision: outline.sessionRevision ?? 0 } }
+          : {}),
       };
     }),
   };
@@ -109,6 +113,20 @@ export async function whCreateOutline(args: ToolArgs): Promise<unknown> {
     );
   }
 
+  // Session fields are additive: any of them, or `session: true`, makes this a table session.
+  if (args.sessionStatus !== undefined && !optEnum(args, 'sessionStatus', SESSION_STATUSES)) {
+    throw new BridgeError('bad-args', `sessionStatus is one of ${SESSION_STATUSES.join(', ')}.`);
+  }
+  const sessionStatus = optEnum(args, 'sessionStatus', SESSION_STATUSES);
+  const sessionDate = optString(args, 'sessionDate');
+  if (sessionDate !== undefined && !validDay(sessionDate)) {
+    throw new BridgeError('bad-args', 'sessionDate is a real day, YYYY-MM-DD.');
+  }
+  const linkedWritingId = optString(args, 'linkedWritingId') || undefined;
+  await checkLinkedRow(db.writings, linkedWritingId, projectId, 'writing');
+  const isSessionOutline = args.session === true || sessionStatus !== undefined
+    || sessionDate !== undefined || linkedWritingId !== undefined;
+
   const now = Date.now();
   const outline: Outline = {
     id: generateId('outline'),
@@ -117,6 +135,13 @@ export async function whCreateOutline(args: ToolArgs): Promise<unknown> {
     templateId: template?.id,
     createdAt: now,
     updatedAt: now,
+    ...(isSessionOutline ? {
+      kind: 'session' as const,
+      sessionStatus: sessionStatus ?? 'prep',
+      sessionRevision: 1,
+      ...(sessionDate ? { sessionDate } : {}),
+      ...(linkedWritingId ? { linkedWritingId } : {}),
+    } : {}),
   };
   await createOutline(outline);
 
@@ -142,7 +167,7 @@ export async function whCreateOutline(args: ToolArgs): Promise<unknown> {
   }
 
   return withAudit(
-    { id: outline.id, title: outline.title, template: template?.id ?? null, beats, created: true },
+    { id: outline.id, title: outline.title, template: template?.id ?? null, beats, ...(isSessionOutline ? { session: { status: outline.sessionStatus, date: sessionDate ?? null, linkedWritingId: linkedWritingId ?? null, revision: 1 } } : {}), created: true },
     {
       projectId,
       entityId: outline.id,

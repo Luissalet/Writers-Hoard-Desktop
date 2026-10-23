@@ -25,6 +25,8 @@ export interface ExecutionContext {
   conversationId?: string;
   /** Free-text label for the audit line ("mcp-stdio", "copilot", "odysseus"). */
   clientLabel?: string;
+  /** Label of the named bridge key that authenticated the call (bridge origin only). */
+  keyLabel?: string;
   actionPolicy?: ActionPolicy;
 }
 

@@ -28,6 +28,7 @@ import { runCausalGraphTests } from './causal-graph';
 import { runWikidataMainTests } from './wikidata-main';
 import { runFamilySearchMainTests } from './family-search-main';
 import { runFamilyCallMainTests } from './family-call-main';
+import { runAiBridgeKeysTests } from './ai-bridge-keys-main';
 // Relative, not `@/`: this bundle has no alias. The module is pure (its one
 // `@/` import is a type), and it is the rule `asImageRequest` applies.
 import { isControlNetModelName } from '../src/engines/image-studio/studio/controlNet';
@@ -45,6 +46,7 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   passed.push(...await runWikidataMainTests());
   passed.push(...await runFamilySearchMainTests());
   passed.push(...await runFamilyCallMainTests(temporaryDirectory));
+  passed.push(...await runAiBridgeKeysTests(temporaryDirectory));
 
   assert(isSafeNativeSegment('project_1-safe.zip'), 'safe native segment rejected');
   for (const unsafe of ['.', '..', '', '../escape', 'folder/file', 'folder\\file']) {

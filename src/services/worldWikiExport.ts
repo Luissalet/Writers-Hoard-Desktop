@@ -17,15 +17,19 @@ import { eventMatches, normalizeTimelineViews } from '@/engines/timeline/timelin
 import es from '@/locales/es';
 import en from '@/locales/en';
 import { createMentionIndex, type MentionIndex } from '@/services/codexReference/indexedMentions';
+import { fogOf, pinRevealed, shapeRevealed } from '@/components/maps/mapExploration';
+import { fogWikiHtml, partyWikiHtml } from '@/components/maps/mapExplorationSvg';
 import { clampMapCoordinate, DEFAULT_MAP_LAYERS, mapFeatureCenter, mapItemVisible, minimumMapPoints } from '@/components/maps/mapGeometry';
 import { effectiveCodexTemplate } from '@/engines/codex/templateHierarchy';
 import { encodeLocalMedia, type PortableLocalMedia } from '@/engines/media/portability';
 import { mediaKind } from '@/engines/media/types';
+import { wikiMapsActive, wikiMapFrame, wikiMapScript, WIKI_MAP_CSS } from '@/services/wikiProfiles/mapExperience';
+import { usableMapArtwork, MAP_ARTWORK_LIMITS, MAP_AMBIENCE_DEFAULT } from '@/engines/maps/mapArtwork';
 import { resolveToolPreview,sanitizeToolPreviewHtml,type ToolPreview } from '@/components/editor/toolBlocks/preview';
 import { toolTarget } from '@/components/editor/toolBlocks/model';
 import { modelReaderMarkup } from '@/engines/model-viewer/readerMarkup';
 import { prepareModelReaderRuntime, modelReaderExportScript } from '@/engines/model-viewer/offlineExport';
-import { EDITORIAL_PROSE_CSS } from '@/components/editor/advanced/proseStyle';
+import { EDITORIAL_PROSE_BASE_CSS, PREP_BLOCKS_CSS } from '@/components/editor/advanced/proseStyle';
 import { sheetPaper } from '@/engines/character-sheets/paper';
 import {findLocalToolBlocksInHtml} from '@/engines/local/blocks/types';
 import {sourceBlockPreviewHtml} from '@/services/sourceBlockReading';
@@ -62,6 +66,7 @@ export async function loadWorldWikiData(projectId:string,options:WorldWikiOption
    const preview=await resolveToolPreview(target,projectId,options.locale??'es',{...options,excludedEntryIds,excludedMapIds,source});if(preview)blocks[key]=preview;
   }
  }
+ if(options.mapAmbience&&options.includeMedia!==false){const shown=new Set(admitted.maps.map(map=>map.id));for(const map of admitted.maps)if(map.ambience?.assetId)mediaIds.add(map.ambience.assetId);for(const pin of pins)if(shown.has(pin.mapId)&&pin.ambience?.assetId)mediaIds.add(pin.ambience.assetId);}
  const mediaRows=source.rows('localMediaAssets').filter(asset=>mediaIds.has(asset.id)&&asset.projectId===projectId);
  if(Object.values(blocks).some(preview=>preview.model))await prepareModelReaderRuntime();
  return{project,entries,maps,pins,images,...(options.includeTimelines?{timelines:source.rows('timelines') as unknown as Timeline[],timelineEvents:source.rows('timelineEvents') as unknown as TimelineEvent[]}:{}),media:await Promise.all(mediaRows.map(encodeLocalMedia)),toolPreviews:{policy:toolPolicyKey(projectId,admitted.entries,admitted.maps,options),blocks}};
@@ -278,12 +283,26 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
       ${gallery.length ? `<section><h3>${copy.gallery}</h3><div class="gallery">${gallery.map(image => `<figure><img src="${esc(image.imageData)}" alt="${esc(image.notes)}" loading="lazy"><figcaption>${esc(image.notes)}</figcaption></figure>`).join('')}</div></section>` : ''}
       <footer><a href="#top">${copy.home}</a></footer></article>`;
   });
+  // Map extras (pan/zoom, artwork layers, clouds, ambience) exist only when the profile asks for them; otherwise the map block below is the unchanged static one.
+  const mapUi = wikiMapsActive(options), ambienceIds = new Map<string, string>();
+  let ambienceBytes = 0;
+  const ambient = (assetId: string | undefined) => {
+    if (!mapUi || !options.mapAmbience || options.includeMedia === false || !assetId) return undefined;
+    const known = ambienceIds.get(assetId); if (known) return known;
+    const asset = media.get(assetId);
+    if (!asset || mediaKind(asset.mime) !== 'audio' || asset.size > MAP_ARTWORK_LIMITS.ambienceBytes || ambienceBytes + asset.size > MAP_ARTWORK_LIMITS.ambienceTotalBytes || !/^data:audio\/[a-z\d.+-]+(?:;[a-z\d=.+-]+)*;base64,/i.test(asset.dataUrl.slice(0, 200))) return undefined;
+    ambienceBytes += asset.size; const id = `wiki-amb-${ambienceIds.size}`; ambienceIds.set(assetId, id); return id;
+  };
+  const level = (value: number | undefined) => Number(Math.max(0, Math.min(1, Number.isFinite(value) ? value! : MAP_AMBIENCE_DEFAULT.volume)).toFixed(2));
+  let mapFrames = 0;
   for (const map of maps) {
     const mapKey = key('map', map.id);
     const visibility = { ...DEFAULT_MAP_LAYERS, ...map.layerVisibility };
     const namedLayers = map.layers ?? [];
-    const mapPins = visibility.pins ? pins.filter(pin => pin.mapId === map.id && mapItemVisible(pin, namedLayers)&&(!pin.linkedEntryId||entryMap.has(pin.linkedEntryId))) : [];
-    const features = (map.features ?? []).filter(feature => (!feature.linkedEntryId||entryMap.has(feature.linkedEntryId))&& ['region', 'path', 'label'].includes(feature.kind) && visibility[feature.kind] && mapItemVisible(feature, namedLayers) && feature.points.length >= minimumMapPoints(feature.kind) && feature.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)));
+    // Only with the "exploredFog" option, and only for a map whose fog is on: unexplored places leave the page (picture overlay, pins, shapes and their list).
+    const fog = options.exploredFog ? fogOf(map.exploration) : null;
+    const mapPins = visibility.pins ? pins.filter(pin => pin.mapId === map.id && mapItemVisible(pin, namedLayers)&&(!pin.linkedEntryId||entryMap.has(pin.linkedEntryId))&&(!fog||pinRevealed(fog, pin))) : [];
+    const features = (map.features ?? []).filter(feature => (!feature.linkedEntryId||entryMap.has(feature.linkedEntryId))&&(!fog||shapeRevealed(fog, feature))&& ['region', 'path', 'label'].includes(feature.kind) && visibility[feature.kind] && mapItemVisible(feature, namedLayers) && feature.points.length >= minimumMapPoints(feature.kind) && feature.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)));
     const vectors = features.map((feature, i) => {
       const color = /^#[0-9a-f]{6}$/i.test(feature.color) ? feature.color : '#d5b575';
       const points = feature.points.map(point => `${clampMapCoordinate(point.x)},${clampMapCoordinate(point.y)}`).join(' ');
@@ -292,8 +311,11 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
       return `<a href="#${mapKey}-feature-${i}" aria-label="${esc(feature.name)}"><title>${esc(feature.name)}</title>${shape}<text x="${clampMapCoordinate(center.x)}" y="${clampMapCoordinate(center.y)}" fill="${color}" text-anchor="middle">${esc(feature.name)}</text></a>`;
     }).join('');
     index.push(`<li data-article-id="${mapKey}"><a href="#${mapKey}">${esc(map.title)}<small>${copy.maps}</small></a></li>`);
-    const markers = mapPins.flatMap((pin, i) => Number.isFinite(pin.position.x) && Number.isFinite(pin.position.y) ? [`<a class="pin" href="#${mapKey}-pin-${i}" style="left:${Math.max(0, Math.min(100, pin.position.x))}%;top:${Math.max(0, Math.min(100, pin.position.y))}%" aria-label="${esc(pin.name)}">${i + 1}</a>`] : []).join('');
-    articles.push(`<article id="${mapKey}" data-category="maps" data-tags="[]"><h2 tabindex="-1">${esc(map.title)}</h2><p class="meta">${copy.maps}</p>${includeImages && raster(map.backgroundImage) ? `<div class="map-wrap"><img src="${esc(map.backgroundImage)}" alt="${esc(map.title)}">${vectors ? `<svg class="map-vectors" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="${esc(map.title)}">${vectors}</svg>` : ''}${markers}</div>` : ''}<ol class="map-list">${mapPins.map((pin, i) => `<li id="${mapKey}-pin-${i}"><strong>${pin.linkedEntryId ? link(pin.linkedEntryId, pin.name) : esc(pin.name)}</strong>${pin.description ? `<p>${esc(pin.description)}</p>` : ''}</li>`).join('')}${features.map((feature, i) => `<li id="${mapKey}-feature-${i}"><strong>${feature.linkedEntryId ? link(feature.linkedEntryId, feature.name) : esc(feature.name)}</strong>${feature.description ? `<p>${esc(feature.description)}</p>` : ''}</li>`).join('')}</ol><footer><a href="#top">${copy.home}</a></footer></article>`);
+    const pinAmbience = (pin: MapPin) => { const id = ambient(pin.ambience?.assetId); return id ? ` data-amb="${id}" data-amb-r="${Number(Math.max(2, Math.min(60, Number.isFinite(pin.ambience?.radius) ? pin.ambience!.radius! : MAP_AMBIENCE_DEFAULT.radius)).toFixed(1))}" data-amb-v="${level(pin.ambience?.volume)}"` : ''; };
+    const markers = mapPins.flatMap((pin, i) => Number.isFinite(pin.position.x) && Number.isFinite(pin.position.y) ? [`<a class="pin" href="#${mapKey}-pin-${i}" style="left:${Math.max(0, Math.min(100, pin.position.x))}%;top:${Math.max(0, Math.min(100, pin.position.y))}%" aria-label="${esc(pin.name)}"${pinAmbience(pin)}>${i + 1}</a>`] : []).join('');
+    // The fog of exploration (only with exploredFog) sits over the picture with the party on top.
+    const fogged = `${fog ? fogWikiHtml(fog, mapKey) : ''}${markers}${fog ? partyWikiHtml(fog) : ''}`;
+    articles.push(`<article id="${mapKey}" data-category="maps" data-tags="[]"><h2 tabindex="-1">${esc(map.title)}</h2><p class="meta">${copy.maps}</p>${includeImages && raster(map.backgroundImage) ? (mapUi ? (mapFrames++, wikiMapFrame({ key: mapKey, title: map.title, image: map.backgroundImage, vectors, markers: fogged, options, locale, artwork: usableMapArtwork(map.artwork), ambience: (() => { const id = ambient(map.ambience?.assetId); return id ? { domId: id, volume: level(map.ambience?.volume) } : undefined; })(), pinAmbience: markers.includes(' data-amb="'), esc })) : `<div class="map-wrap"><img src="${esc(map.backgroundImage)}" alt="${esc(map.title)}">${vectors ? `<svg class="map-vectors" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="${esc(map.title)}">${vectors}</svg>` : ''}${fogged}</div>`) : ''}<ol class="map-list">${mapPins.map((pin, i) => `<li id="${mapKey}-pin-${i}"><strong>${pin.linkedEntryId ? link(pin.linkedEntryId, pin.name) : esc(pin.name)}</strong>${pin.description ? `<p>${esc(pin.description)}</p>` : ''}</li>`).join('')}${features.map((feature, i) => `<li id="${mapKey}-feature-${i}"><strong>${feature.linkedEntryId ? link(feature.linkedEntryId, feature.name) : esc(feature.name)}</strong>${feature.description ? `<p>${esc(feature.description)}</p>` : ''}</li>`).join('')}</ol><footer><a href="#top">${copy.home}</a></footer></article>`);
   }
   const documents=[...entries.map(entry=>({ref:{kind:'entry' as const,id:entry.id},id:key('entry',entry.id),title:entry.title,image:includeImages&&raster(entry.avatar)?entry.avatar:undefined})),...maps.map(map=>({ref:{kind:'map' as const,id:map.id},id:key('map',map.id),title:map.title,image:includeImages&&raster(map.backgroundImage)?map.backgroundImage:undefined}))].map((doc,position)=>({...doc,html:articles[position],index:index[position]}));
   const composed=composeWikiLayout(documents,entries,maps,options,{...copy.types,maps:copy.maps},locale);
@@ -306,7 +328,7 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   };
   const palette = palettes[options.theme ?? 'parchment'] ?? palettes.parchment;
   const accent = /^#[0-9a-f]{6}$/i.test(options.accent ?? '') ? options.accent : palette[4];
-  const presentation = `audio,video{display:block;width:100%;max-height:32rem}figcaption{margin-bottom:.5rem}.map-vectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.map-vectors a{pointer-events:all}.map-vectors polygon,.map-vectors polyline{stroke-width:2px}.map-vectors text{font:2px Georgia,serif;paint-order:stroke;stroke:#17191a;stroke-width:.25px}.map-vectors a:focus{outline:2px solid var(--accent)}:root{color-scheme:${options.theme === 'night' ? 'dark' : 'light'};--paper:${palette[0]};--ink:${palette[1]};--muted:${palette[2]};--line:${palette[3]};--accent:${accent}}button,input,select,header,.prose pre{background:var(--paper);color:var(--ink)}button:hover{background:color-mix(in srgb,var(--ink) 8%,var(--paper))}body{font-family:${options.font === 'sans' ? 'system-ui,sans-serif' : "Georgia,'Times New Roman',serif"}}.pin{background:var(--accent);color:var(--paper)}.cover{display:block;width:100%;max-height:320px;object-fit:cover;margin-bottom:24px}.wiki-spoiler{display:inline}.wiki-spoiler button{font:inherit;padding:1px 6px;min-height:0;margin-right:4px}.wiki-spoiler button[aria-expanded=true]{font-size:0}.wiki-spoiler button[aria-expanded=true]::after{content:'−';font-size:16px}button:focus-visible{outline:3px solid var(--accent)}${options.layout === 'journal' ? '.layout{display:block;max-width:900px}nav{position:static;max-height:none;margin-bottom:40px}#index{columns:2}#index li{break-inside:avoid}article{padding-top:20px}@media(max-width:600px){#index{columns:1}}' : ''}`;
+  const presentation = `${mapUi ? WIKI_MAP_CSS : ''}audio,video{display:block;width:100%;max-height:32rem}figcaption{margin-bottom:.5rem}.map-vectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.map-vectors a{pointer-events:all}.map-vectors polygon,.map-vectors polyline{stroke-width:2px}.map-vectors text{font:2px Georgia,serif;paint-order:stroke;stroke:#17191a;stroke-width:.25px}.map-vectors a:focus{outline:2px solid var(--accent)}:root{color-scheme:${options.theme === 'night' ? 'dark' : 'light'};--paper:${palette[0]};--ink:${palette[1]};--muted:${palette[2]};--line:${palette[3]};--accent:${accent}}button,input,select,header,.prose pre{background:var(--paper);color:var(--ink)}button:hover{background:color-mix(in srgb,var(--ink) 8%,var(--paper))}body{font-family:${options.font === 'sans' ? 'system-ui,sans-serif' : "Georgia,'Times New Roman',serif"}}.pin{background:var(--accent);color:var(--paper)}.cover{display:block;width:100%;max-height:320px;object-fit:cover;margin-bottom:24px}.wiki-spoiler{display:inline}.wiki-spoiler button{font:inherit;padding:1px 6px;min-height:0;margin-right:4px}.wiki-spoiler button[aria-expanded=true]{font-size:0}.wiki-spoiler button[aria-expanded=true]::after{content:'−';font-size:16px}button:focus-visible{outline:3px solid var(--accent)}${options.layout === 'journal' ? '.layout{display:block;max-width:900px}nav{position:static;max-height:none;margin-bottom:40px}#index{columns:2}#index li{break-inside:avoid}article{padding-top:20px}@media(max-width:600px){#index{columns:1}}' : ''}`;
   // Timelines: one article each, events in their order; an event kept out of the wiki never shows, and a saved view narrows the rest.
   const view = options.timelineViewId ? normalizeTimelineViews(data.project.timelineViews).find(item => item.id === options.timelineViewId) : undefined;
   // With onlyRevealed an event shows only when it is tied to at least one card and every card it is tied to is admitted.
@@ -328,20 +350,22 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   const banner=options.home?.banner??(options.includeCover?data.project.coverImage:undefined);
   const cover = includeImages && raster(banner) ? `<img class="cover" src="${esc(banner)}" alt="">` : '';
   const hasModels = articles.join('').includes('data-wh-model-reader="true"');
+  // The prep-block look is only added when a published article holds one, so other exports keep their exact bytes.
+  const hasPrepBlocks = /data-wh-prep="/.test(composed.home + composed.html + timelineArticles.map(item => item.html).join(''));
   const branding=options.branding;
   const brand=branding?.name||includeImages&&raster(branding?.mark)?`<div class="wiki-brand">${includeImages&&raster(branding?.mark)?`<img class="wiki-mark" src="${esc(branding.mark)}" alt="">`:''}${branding?.name?`<span>${esc(branding.name)}</span>`:''}</div>`:'';
   const consoleDocuments=[...entries.map(entry=>({id:key('entry',entry.id),names:[entry.title,...entryNames({...entry,fields:Object.fromEntries(Object.entries(entry.fields).filter(([name])=>!excludedFields.has(name)))})].filter((name,i,all)=>all.indexOf(name)===i)})),...maps.map(map=>({id:key('map',map.id),names:[map.title]}))];
   const console=options.layout==='shell',terminal=wikiTerminalActive(options);
   const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${hasModels?' blob:':''}; media-src data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; connect-src ${hasModels?"data: blob:":"'none'"}">
-    <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(options.home?.title??data.project.title)} · ${copy.title}</title><style>${WIKI_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}${EDITORIAL_PROSE_CSS}${WIKI_PROFILE_CSS}${presentation}${wikiAppearanceStyle(options)}${console?WIKI_CONSOLE_CSS:''}${terminal?wikiTerminalStyle(terminal):''}</style></head>
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(options.home?.title??data.project.title)} · ${copy.title}</title><style>${WIKI_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}${EDITORIAL_PROSE_BASE_CSS}${hasPrepBlocks?PREP_BLOCKS_CSS:''}${WIKI_PROFILE_CSS}${presentation}${wikiAppearanceStyle(options)}${console?WIKI_CONSOLE_CSS:''}${terminal?wikiTerminalStyle(terminal):''}</style></head>
     <body id="top"><header>${terminal?wikiTerminalBoot(terminal):''}${brand}${cover}<h1>${esc(options.home?.title??data.project.title)}</h1><p>${esc(options.home?.intro??data.project.description)}</p><small>${copy.offline}</small></header>${composed.home}${console?wikiConsoleMarkup(locale,terminal?wikiTerminalOpening(terminal,locale):''):''}
     <div class="layout"><nav aria-label="${copy.contents}"><h2>${copy.title}</h2>
       <label for="search">${copy.search}</label><input id="search" type="search" placeholder="${copy.search}">
       <label for="category">${copy.category}</label><select id="category"><option value="">${copy.all}</option>${[...new Set(entries.map(entry => entry.type))].map(type => `<option value="${type}">${copy.types[type]}</option>`).join('')}${maps.length ? `<option value="maps">${copy.maps}</option>` : ''}${timelineArticles.length ? `<option value="timelines">${copy.timelines}</option>` : ''}</select>
       <label for="tag">${copy.tag}</label><select id="tag"><option value="">${copy.all}</option>${allTags.map(tag => `<option value="${esc(tag)}">${esc(tag)}</option>`).join('')}</select>
       <p role="status" aria-live="polite"><span id="count">${articles.length + timelineArticles.length}</span> / ${articles.length + timelineArticles.length}</p><button id="print" type="button">${copy.print}</button><ol id="index">${composed.index}${timelineArticles.map(item => item.index).join('')}</ol></nav>
-      <main><p id="empty" hidden>${copy.noResults}</p><div id="wiki">${composed.html}${timelineArticles.map(item => item.html).join('')}</div></main></div>${wikiFooterMarkup(branding)}<script nonce="${nonce}">${WIKI_SCRIPT}${console?wikiConsoleScript(consoleDocuments,locale):''}${terminal?wikiTerminalScript(terminal,console):''};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(articles.join(''),nonce)}</body></html>`;
+      <main><p id="empty" hidden>${copy.noResults}</p><div id="wiki">${composed.html}${timelineArticles.map(item => item.html).join('')}</div></main></div>${wikiFooterMarkup(branding)}<script nonce="${nonce}">${WIKI_SCRIPT}${console?wikiConsoleScript(consoleDocuments,locale):''}${terminal?wikiTerminalScript(terminal,console):''};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(articles.join(''),nonce)}${mapFrames ? `${[...ambienceIds].map(([assetId, id]) => `<audio id="${id}" data-map-audio loop preload="none" style="display:none" src="${esc(media.get(assetId)!.dataUrl)}"></audio>`).join('')}${wikiMapScript(nonce, ambienceIds.size > 0)}` : ''}</body></html>`;
   return { html, filename: `${sanitizeFilename(data.project.title)}-wiki.html`, counts: { entries: entries.length, maps: maps.length, timelines: timelineArticles.length } };
 }
 

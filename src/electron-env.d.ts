@@ -277,6 +277,8 @@ export interface AiBridgeAuditEntry {
   at: number;
   tool: string;
   client?: string;
+  /** Label of the named key that made the call. */
+  keyLabel?: string;
   projectId?: string;
   eraId?: string;
   entityId?: string;
@@ -286,6 +288,18 @@ export interface AiBridgeAuditEntry {
   ok: boolean;
   error?: string;
 }
+
+export interface AiBridgeKey {
+  id: string;
+  label: string;
+  createdAt: number;
+  lastUsedAt?: number;
+  revokedAt?: number;
+  isDefault: boolean;
+  status: 'active' | 'revoked';
+}
+
+export type AiBridgeKeyResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; error: string };
 
 export interface AiBridgeUndoResult {
   ok: boolean;
@@ -489,6 +503,10 @@ export interface ElectronAPI {
     regenerateToken: () => Promise<AiBridgeInfo>;
     readAudit: (limit?: number) => Promise<AiBridgeAuditEntry[]>;
     undo: (index: number) => Promise<AiBridgeUndoResult>;
+    listKeys: () => Promise<AiBridgeKey[]>;
+    createKey: (label: string) => Promise<AiBridgeKeyResult<{ key: AiBridgeKey; token: string }>>;
+    renameKey: (id: string, label: string) => Promise<AiBridgeKeyResult<{ key: AiBridgeKey }>>;
+    revokeKey: (id: string) => Promise<AiBridgeKeyResult<{ key: AiBridgeKey }>>;
   };
 
   /** AI runtime: connections by IP/URL, models, hardware fit, streaming. See electron/ai/. */

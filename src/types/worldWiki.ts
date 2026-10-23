@@ -23,5 +23,15 @@ export interface WorldWikiOptions {
   timelineViewId?: string;
   /** Publish only the cards the author revealed to the players (and no maps). Absent or false: the rest of the policy decides, as before. */
   onlyRevealed?: boolean;
+  /** Draw each picture map's fog of exploration (unexplored places hidden, the trail and party kept). Absent or false: maps are exported whole, as before. */
+  exploredFog?: boolean;
+  /** Exported maps: pan and zoom with pointer, wheel, keyboard and touch. 'free' lets the map leave the frame; 'contained' keeps it covering the frame. Absent: the map stays a static picture and the export is unchanged. */
+  mapNavigation?: 'free' | 'contained';
+  /** Draw each map's illustration layers (background, mid, front); they drift gently while the reader pans unless the reader prefers reduced motion. */
+  mapArtwork?: boolean;
+  /** Drifting cloud overlay on exported maps (CSS only; the reader can hide it). */
+  mapClouds?: boolean;
+  /** Ambience audio for maps and pins; plays only after the reader presses the map's sound button. */
+  mapAmbience?: boolean;
 }
 

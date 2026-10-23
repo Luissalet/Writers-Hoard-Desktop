@@ -656,6 +656,15 @@ async function testExecutorEquivalence(): Promise<void> {
   assert(canonical(strip(lines[0])) === canonical(strip(lines[1])), 'bridge and copilot wrote different audit lines');
   assert(lines[0].origin === 'bridge' && lines[1].origin === 'copilot' && lines[1].conversationId === 'thr-1', 'audit provenance missing');
   assert(lines[0].kind === 'create' && lines[0].projectId === 'p1' && lines[0].summary === 'made a thing', 'audit line lost its facts');
+  // The named key that authenticated a bridge write is recorded beside it (additive field).
+  assert(lines[0].keyLabel === undefined && lines[1].keyLabel === undefined, 'a call without a key label invented one');
+  const keyed = await execute(
+    { tool: 'wh_create_codex_entry', args: { projectId: 'p1', title: 'Marta', type: 'character' } },
+    { origin: 'bridge', clientLabel: 'mcp-stdio', keyLabel: 'Claude Desktop' },
+  );
+  assert(keyed.ok && lines[lines.length - 1].keyLabel === 'Claude Desktop', 'the audit line lost the label of the key that made the write');
+  lines.pop();
+  relays.pop();
 
   // Reads log nothing; the bridge switch gates only the bridge.
   const read = await execute({ tool: 'wh_search', args: { query: 'Marta' } }, { origin: 'bridge' });

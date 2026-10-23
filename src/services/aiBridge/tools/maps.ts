@@ -10,6 +10,7 @@ import { worldEraToolScope, checkEraLinkedRow } from '@/services/worldEras/toolS
 import type { MapPathStyle, MapPin, MapPoint, WorldMap } from '@/types';
 import { mapPinOps as baseMapPinOps, worldMapOps as baseWorldMapOps } from '@/engines/maps/operations';
 import { areaKm2, lineLengthKm, matchMapKey, parseMapKey, pictureAspect, validWidthKm, widthFromKnownDistance, MAP_WIDTH_KM_RANGE } from '@/components/maps/mapScale';
+import { applyRevealOps, createExploration, decodeMask, exploredPercent, movePartyRecord, readExploration, BRUSH_RADIUS_RANGE, SIGHT_RADIUS_RANGE, MAX_SESSION_LENGTH, type RevealOp } from '@/components/maps/mapExploration';
 import { travelEstimates } from '@/engines/real-atlas/geo';
 import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
@@ -17,10 +18,12 @@ import {
   assertEngineEnabled,
   assertRowInScope,
   BridgeError,
+  optBoolean,
   optEnum,
   optNumber,
   optString,
   requireString,
+  resolveProjectForEngine,
   resolveProjectId,
   withAudit,
   type ToolArgs,
@@ -50,6 +53,13 @@ function clampPercent(value: number | undefined, fallback: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+/** Additive read field: only maps that have an exploration record carry it. */
+function explorationSummary(map: WorldMap): { exploration?: unknown } {
+  const record = readExploration(map.exploration);
+  if (!record) return {};
+  return { exploration: { revision: record.revision, enabled: record.enabled, exploredPercent: exploredPercent(decodeMask(record)), ...(record.party ? { party: record.party } : {}), trailSteps: record.trail?.length ?? 0, ...(record.trail?.length ? { trail: record.trail.slice(-50) } : {}) } };
+}
+
 export async function whListMaps(args: ToolArgs): Promise<unknown> {
   const scope = worldEraToolScope(args), worldMapOps = scopedTableOps(scope, 'worldMaps', 'projectId', baseWorldMapOps), mapPinOps = scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps);
   const projectId = resolveProjectId(args);
@@ -63,6 +73,7 @@ export async function whListMaps(args: ToolArgs): Promise<unknown> {
         source: map.source,
         hasImage: Boolean(map.backgroundImage),
         ...(validWidthKm(map.widthKm) ? { widthKm: map.widthKm } : {}),
+        ...explorationSummary(map),
         pins: (await mapPinOps.getAll(map.id)).map((pin) => ({
           id: pin.id,
           name: pin.name,
@@ -132,6 +143,14 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
     changes.linkedEntryId = linkedEntryId;
   }
   Object.assign(changes, pinLook(args));
+  if (args.ambience !== undefined) {
+    const { normalizeMapAmbience } = await import('@/engines/maps/mapArtwork');
+    let ambience: ReturnType<typeof normalizeMapAmbience>;
+    try { ambience = normalizeMapAmbience(args.ambience, true); }
+    catch { throw new BridgeError('bad-args', 'ambience must be {assetId, volume? 0-1, radius? 2-60} or null to remove it.'); }
+    if (ambience) await requireAudioAsset(pin.projectId, ambience.assetId);
+    changes.ambience = ambience;
+  }
   const x = optNumber(args, 'x');
   const y = optNumber(args, 'y');
   if (x !== undefined || y !== undefined) {
@@ -606,5 +625,170 @@ export async function whNameMapPinsFromKey(args: ToolArgs): Promise<unknown> {
   return withAudit(
     { ...result, renamed: applied.length },
     { projectId: map.projectId, entityId: map.id, summary: `named ${applied.length} pin${applied.length === 1 ? '' : 's'} on map "${map.title}" from its key`, before: { __mapPinNames: { mapId: map.id, renames: applied } } },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Exploration: fog of a picture map and the party marker
+// ---------------------------------------------------------------------------
+
+/** Load the map of an exploration call, after the engine guard and the project check. */
+async function loadMapForExploration(args: ToolArgs) {
+  const projectId = await resolveProjectForEngine(args, 'maps');
+  const scope = worldEraToolScope(args), worldMapOps = scopedTableOps(scope, 'worldMaps', 'projectId', baseWorldMapOps);
+  const mapId = requireString(args, 'mapId');
+  const map = await worldMapOps.getOne(mapId);
+  if (!map || map.projectId !== projectId) throw new BridgeError('not-found', `No map with id "${mapId}" in this project.`);
+  assertRowInScope(args, map.projectId);
+  return { map, scope };
+}
+
+/** The picture's height over width for a new record; a map without a readable image gets the default shape. */
+async function explorationAspect(map: WorldMap): Promise<number | undefined> {
+  try { return (await pictureAspectFor(map, {})).aspect; } catch { return undefined; }
+}
+
+function expectedRevisionArg(args: ToolArgs): number | undefined {
+  if (args.expectedRevision === undefined) return undefined;
+  if (typeof args.expectedRevision !== 'number' || !Number.isInteger(args.expectedRevision) || args.expectedRevision < 0) throw new BridgeError('bad-args', 'expectedRevision must be a whole number from 0 (the map has no exploration yet) up: the revision read last.');
+  return args.expectedRevision;
+}
+
+function revealOps(raw: unknown): RevealOp[] {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 200) throw new BridgeError('bad-args', 'ops must list 1 to 200 operations: {op:"reveal"|"hide", x, y, radius} (x, y in percent of the picture, radius in percent of its width) or {op:"all"} / {op:"none"}.');
+  return raw.map((item, index): RevealOp => {
+    const op = item as { op?: unknown; x?: unknown; y?: unknown; radius?: unknown };
+    if (!op || typeof op !== 'object') throw new BridgeError('bad-args', `ops[${index}] must be an object.`);
+    if (op.op === 'all' || op.op === 'none') {
+      if (Object.keys(op).some(key => key !== 'op')) throw new BridgeError('bad-args', `ops[${index}] "${op.op}" takes no other field.`);
+      return { op: op.op };
+    }
+    if (op.op !== 'reveal' && op.op !== 'hide') throw new BridgeError('bad-args', `ops[${index}].op must be reveal, hide, all or none.`);
+    const { x, y, radius } = op;
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 100 || y < 0 || y > 100) throw new BridgeError('bad-args', `ops[${index}] needs x and y from 0 to 100 (percent of the picture).`);
+    if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < BRUSH_RADIUS_RANGE.min || radius > BRUSH_RADIUS_RANGE.max) throw new BridgeError('bad-args', `ops[${index}].radius must be from ${BRUSH_RADIUS_RANGE.min} to ${BRUSH_RADIUS_RANGE.max} (percent of the picture's width).`);
+    return { op: op.op, x, y, radius };
+  });
+}
+
+async function writeExploration(args: ToolArgs, map: WorldMap, scope: ReturnType<typeof worldEraToolScope>, change: (current: import('@/types').MapExploration | undefined) => import('@/types').MapExploration, summary: string, extra: Record<string, unknown> = {}): Promise<unknown> {
+  const { changeMapExploration, ExplorationConflict } = await import('@/engines/maps/operations');
+  let receipt: import('@/engines/maps/operations').MapExplorationReceipt;
+  try {
+    receipt = await changeMapExploration(map.id, current => {
+      const next = change(current);
+      if (current && next.mask === current.mask && next.enabled === current.enabled && JSON.stringify(next.party) === JSON.stringify(current.party) && JSON.stringify(next.trail) === JSON.stringify(current.trail)) throw new BridgeError('bad-args', 'Nothing to change: the map is already so.');
+      return next;
+    }, { expectedRevision: expectedRevisionArg(args) }, scope);
+  } catch (error) {
+    if (error instanceof ExplorationConflict) throw new BridgeError('conflict', `${error.message} Nothing was changed.`);
+    throw error;
+  }
+  const after = receipt.after!;
+  return withAudit(
+    { mapId: map.id, revision: after.revision, enabled: after.enabled, exploredPercent: exploredPercent(decodeMask(after)), ...(after.party ? { party: after.party } : {}), trailSteps: after.trail?.length ?? 0, updated: true, ...extra },
+    { projectId: map.projectId, entityId: map.id, summary, before: { __mapExploration: receipt } },
+  );
+}
+
+/**
+ * Reveal or hide parts of a picture map's fog with circular brushes, reveal or
+ * hide it all, and switch the fog on or off. Guarded by the record's revision;
+ * undo refuses once the exploration changed again.
+ */
+export async function whMapReveal(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForExploration(args);
+  if (args.enabled !== undefined && typeof args.enabled !== 'boolean') throw new BridgeError('bad-args', 'enabled must be true or false.');
+  if (args.ops === undefined && args.enabled === undefined) throw new BridgeError('bad-args', 'Nothing to do: pass ops (brush operations) and/or enabled.');
+  const ops = args.ops === undefined ? [] : revealOps(args.ops);
+  expectedRevisionArg(args);
+  const aspect = await explorationAspect(map);
+  const enabled = optBoolean(args, 'enabled');
+  return writeExploration(args, map, scope, current => {
+    const base = current ?? createExploration(aspect, true);
+    const painted = ops.length ? applyRevealOps(base, ops) : { ...base, revision: base.revision + 1 };
+    return { ...painted, enabled: enabled ?? base.enabled };
+  }, `changed the fog of map "${map.title}"`);
+}
+
+/** Move the party marker: it sees a circle around its new place, and may leave a trail step. */
+export async function whMapParty(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForExploration(args);
+  const x = args.x, y = args.y;
+  if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 100 || y < 0 || y > 100) throw new BridgeError('bad-args', 'x and y are required, from 0 to 100 (percent of the picture).');
+  const sight = args.sightRadius;
+  if (sight !== undefined && (typeof sight !== 'number' || !Number.isFinite(sight) || sight < SIGHT_RADIUS_RANGE.min || sight > SIGHT_RADIUS_RANGE.max)) throw new BridgeError('bad-args', `sightRadius must be from ${SIGHT_RADIUS_RANGE.min} to ${SIGHT_RADIUS_RANGE.max} (percent of the picture's width).`);
+  if (args.trail !== undefined && typeof args.trail !== 'boolean') throw new BridgeError('bad-args', 'trail must be true or false.');
+  if (args.session !== undefined && (typeof args.session !== 'string' || args.session.length > MAX_SESSION_LENGTH)) throw new BridgeError('bad-args', `session must be text of up to ${MAX_SESSION_LENGTH} characters.`);
+  expectedRevisionArg(args);
+  const aspect = await explorationAspect(map);
+  return writeExploration(args, map, scope, current => movePartyRecord(current ?? createExploration(aspect, true), { x, y, sightRadius: sight as number | undefined, trail: args.trail === true, session: args.session as string | undefined }, Date.now()), `moved the party on map "${map.title}"`);
+}
+
+// ---------------------------------------------------------------------------
+// Map artwork and ambience for the exported wiki (layers, clouds, looping sound)
+// ---------------------------------------------------------------------------
+
+/** Read-only: which illustration layers a map has (never the pictures), the cloud switch, the map ambience, pins with ambience and the `updatedAt` to pass back as expectedUpdatedAt. */
+export async function whMapArtworkGet(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  const { MAP_ARTWORK_LAYERS } = await import('@/engines/maps/mapArtwork');
+  const mapPinOps = scopedTableOps(scope, 'mapPins', 'mapId', baseMapPinOps);
+  const artwork = map.artwork ?? {};
+  return {
+    mapId: map.id, title: map.title, updatedAt: map.updatedAt,
+    layers: Object.fromEntries(MAP_ARTWORK_LAYERS.map((layer) => [layer, artwork[layer] ? { present: true, chars: artwork[layer]!.length } : { present: false }])),
+    clouds: artwork.clouds === true, ambience: map.ambience ?? null,
+    pinsWithAmbience: (await mapPinOps.getAll(map.id)).filter((pin) => pin.ambience).map((pin) => ({ id: pin.id, name: pin.name, ambience: pin.ambience })),
+  };
+}
+
+async function requireAudioAsset(projectId: string, assetId: string): Promise<void> {
+  const asset = await db.localMediaAssets.get(assetId);
+  if (!asset || asset.projectId !== projectId) throw new BridgeError('not-found', `No local audio "${assetId}" in this project; use wh_list_assets.`);
+  const { mediaKind } = await import('@/engines/media/types');
+  if (mediaKind(asset.mime) !== 'audio') throw new BridgeError('bad-args', `Asset "${assetId}" is not audio.`);
+}
+
+/**
+ * Set or remove a classic map's illustration layers (background, mid, front: raster data URLs, null removes), the cloud
+ * switch and the looping ambience, in one undoable write that refuses a map changed since expectedUpdatedAt.
+ */
+export async function whMapArtwork(args: ToolArgs): Promise<unknown> {
+  const { map, scope } = await loadMapForEras(args);
+  await assertEngineEnabled(map.projectId, 'maps');
+  const allowed = ['mapId', 'projectId', 'eraId', 'expectedUpdatedAt', 'background', 'mid', 'front', 'clouds', 'ambience'];
+  const unknown = Object.keys(args).filter((key) => !allowed.includes(key) && !key.startsWith('__'));
+  if (unknown.length) throw new BridgeError('bad-args', `Unknown field ${unknown.join(', ')}. Pass any of background, mid, front, clouds, ambience.`);
+  if (typeof args.expectedUpdatedAt !== 'number' || !Number.isSafeInteger(args.expectedUpdatedAt)) throw new BridgeError('bad-args', 'expectedUpdatedAt is required: the updatedAt that wh_map_artwork_get returned.');
+  const { isMapRaster, MAP_ARTWORK_LAYERS, MAP_ARTWORK_LIMITS, normalizeMapAmbience } = await import('@/engines/maps/mapArtwork');
+  const change: import('@/engines/maps/operations').MapArtworkChange = {};
+  for (const layer of MAP_ARTWORK_LAYERS) {
+    const value = args[layer];
+    if (value === undefined) continue;
+    if (value !== null && !isMapRaster(value)) throw new BridgeError('bad-args', `${layer} must be a base64 data:image/... URL (png, jpeg, webp, gif, bmp or avif), or null to remove it.`);
+    if (typeof value === 'string' && value.length > MAP_ARTWORK_LIMITS.layerChars) throw new BridgeError('bad-args', `${layer} is too large (limit ${MAP_ARTWORK_LIMITS.layerChars} characters of data URL).`);
+    change[layer] = value as string | null;
+  }
+  if (args.clouds !== undefined) { if (typeof args.clouds !== 'boolean') throw new BridgeError('bad-args', 'clouds must be true or false.'); change.clouds = args.clouds; }
+  if (args.ambience !== undefined) {
+    try { const ambience = normalizeMapAmbience(args.ambience, false); change.ambience = ambience ?? null; }
+    catch { throw new BridgeError('bad-args', 'ambience must be {assetId, volume?} (volume 0 to 1) or null.'); }
+    if (change.ambience) await requireAudioAsset(map.projectId, change.ambience.assetId);
+  }
+  if (!Object.keys(change).length) throw new BridgeError('bad-args', 'Nothing to change: pass any of background, mid, front, clouds, ambience.');
+  const { setMapArtwork } = await import('@/engines/maps/operations');
+  let done: Awaited<ReturnType<typeof setMapArtwork>>;
+  try { done = await setMapArtwork(map.id, change, scope, args.expectedUpdatedAt); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'map_artwork_conflict') throw new BridgeError('conflict', 'The map changed since it was read. Read wh_map_artwork_get again and retry with its updatedAt.');
+    if (message === 'map_artwork_unchanged') throw new BridgeError('bad-args', 'Nothing to change: the map already has exactly that artwork.');
+    if (message === 'map_artwork_too_large') throw new BridgeError('bad-args', 'The three layers together are too large for a self-contained wiki.');
+    throw new BridgeError('bad-args', message);
+  }
+  return withAudit(
+    { mapId: map.id, updated: true, updatedAt: done.updatedAt, changed: [...Object.keys(done.receipt.layers), ...(done.receipt.clouds ? ['clouds'] : []), ...(done.receipt.ambience ? ['ambience'] : [])] },
+    { projectId: map.projectId, entityId: map.id, summary: `changed the illustration layers or ambience of map "${map.title}"`, before: { __mapArtwork: done.receipt } },
   );
 }

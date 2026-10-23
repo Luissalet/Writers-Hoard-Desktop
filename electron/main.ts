@@ -50,6 +50,7 @@ import {
 } from './aibridge/rpc';
 import {
   auditPath,
+  bridgeKeys,
   getBridgeConfig,
   getBridgeToken,
   readAudit,
@@ -2185,6 +2186,24 @@ function registerIpc(): void {
   ipcMain.handle('aibridge:undo', async (event, index: number) => {
     assertIpcSender(event, 'aibridge:undo');
     return undoBridgeChange(index);
+  });
+  // Named keys. Arguments are untrusted: the store validates label and id types
+  // itself. Only creation ever returns a token, once; listing never does.
+  ipcMain.handle('aibridge:listKeys', (event) => {
+    assertIpcSender(event, 'aibridge:listKeys');
+    return bridgeKeys.list();
+  });
+  ipcMain.handle('aibridge:createKey', (event, label: unknown) => {
+    assertIpcSender(event, 'aibridge:createKey');
+    return bridgeKeys.create(label);
+  });
+  ipcMain.handle('aibridge:renameKey', (event, id: unknown, label: unknown) => {
+    assertIpcSender(event, 'aibridge:renameKey');
+    return bridgeKeys.rename(id, label);
+  });
+  ipcMain.handle('aibridge:revokeKey', (event, id: unknown) => {
+    assertIpcSender(event, 'aibridge:revokeKey');
+    return bridgeKeys.revoke(id);
   });
 }
 

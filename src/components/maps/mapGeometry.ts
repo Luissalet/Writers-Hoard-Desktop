@@ -1,6 +1,8 @@
 import type { MapFeature, MapLayerVisibility, MapPoint, MapPin, MapNamedLayer } from '@/types';
 import { pathLook, patternSvg, patternTile, resolvedLabel, resolvedStroke } from './mapStyle';
 import { scaleBar } from './mapScale';
+import { pinRevealed, shapeRevealed, type MapFog } from './mapExploration';
+import { fogLayerSvg, partyLayerSvg } from './mapExplorationSvg';
 
 export const DEFAULT_MAP_LAYERS: MapLayerVisibility = { pins: true, region: true, path: true, label: true, portraits: true, names: false };
 export const EMPTY_MAP_FEATURES: MapFeature[] = [];
@@ -97,7 +99,7 @@ export function stepMapFeatures(current: MapFeature[], left: MapFeature[], targe
 const escapeXml = (value: string): string => value.replace(/[<>&"']/g, char => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[char]!);
 
 /** Self-contained vector export: no services, script, foreignObject, or linked resources. */
-export function exportMapSvg(background: string, width: number, height: number, features: MapFeature[], pins: MapPin[], layers: MapLayerVisibility, namedLayers: MapNamedLayer[] = [], widthKm?: number, portraits: Record<string, string> = {}): string {
+export function exportMapSvg(background: string, width: number, height: number, features: MapFeature[], pins: MapPin[], layers: MapLayerVisibility, namedLayers: MapNamedLayer[] = [], widthKm?: number, portraits: Record<string, string> = {}, fog?: MapFog | null): string {
   const w = Math.max(1, width), h = Math.max(1, height);
   const position = (point: MapPoint) => `${point.x * w / 100},${point.y * h / 100}`;
   const label = (name: string, point: MapPoint, color: string) => `<text x="${point.x * w / 100}" y="${point.y * h / 100}" text-anchor="middle" fill="${escapeXml(color)}" stroke="#17191a" stroke-width="3" paint-order="stroke" font-family="Georgia,serif" font-size="${Math.max(14, w / 65)}">${escapeXml(name)}</text>`;
@@ -108,7 +110,7 @@ export function exportMapSvg(background: string, width: number, height: number, 
     return `<text x="${x}" y="${y}" text-anchor="middle" fill="${escapeXml(l.fill)}" stroke="${escapeXml(l.outline)}" stroke-width="${l.outlineWidth}" paint-order="stroke" font-family="${escapeXml(l.family)}" font-size="${size}"${l.weight !== 400 ? ` font-weight="${l.weight}"` : ''}${l.style !== 'normal' ? ` font-style="${l.style}"` : ''}${l.rotation ? ` transform="rotate(${l.rotation} ${x} ${y})"` : ''}>${escapeXml(feature.name)}</text>`;
   };
   const defs: string[] = [];
-  const shapes = features.filter(feature => layers[feature.kind] && mapItemVisible(feature, namedLayers)).map((feature, index) => {
+  const shapes = features.filter(feature => layers[feature.kind] && mapItemVisible(feature, namedLayers) && (!fog || shapeRevealed(fog, feature))).map((feature, index) => {
     const points = feature.points.map(position).join(' ');
     const color = escapeXml(feature.color);
     const stroke = resolvedStroke(feature);
@@ -122,7 +124,7 @@ export function exportMapSvg(background: string, width: number, height: number, 
   // A pin with a portrait is drawn as the screen draws it: the picture in a frame of the pin's colour, standing on its point, the name under it.
   const portraitSide = { S: 28, M: 40, L: 56 } as const;
   const portraitOn = layers.portraits !== false;
-  const markers = layers.pins ? pins.filter(pin => mapItemVisible(pin, namedLayers)).map((pin, index) => {
+  const markers = layers.pins ? pins.filter(pin => mapItemVisible(pin, namedLayers) && (!fog || pinRevealed(fog, pin))).map((pin, index) => {
     const x = pin.position.x * w / 100, y = pin.position.y * h / 100, color = escapeXml(pin.color ?? '#d5b575');
     const picture = portraitOn ? portraits[pin.id] : undefined;
     if (picture && /^data:image\/(png|jpeg|gif|webp|avif|bmp);base64,/i.test(picture)) {
@@ -133,5 +135,5 @@ export function exportMapSvg(background: string, width: number, height: number, 
   }).join('') : '';
   // Uploaded/Gallery backgrounds are data images. Do not turn a remote reference into a network request on export.
   const image = /^data:image\/(png|jpeg|gif|webp|avif|bmp);base64,/i.test(background) ? `<image href="${escapeXml(background)}" width="${w}" height="${h}"/>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}<rect width="100%" height="100%" fill="#17191a"/>${image}${shapes}${markers}${widthKm ? scaleBarSvg(widthKm, w, h) : ''}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}<rect width="100%" height="100%" fill="#17191a"/>${image}${shapes}${fog ? fogLayerSvg(fog, w, h) : ''}${markers}${fog ? partyLayerSvg(fog, w, h) : ''}${widthKm ? scaleBarSvg(widthKm, w, h) : ''}</svg>`;
 }

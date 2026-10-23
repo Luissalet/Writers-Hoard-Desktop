@@ -3,6 +3,8 @@ import { MessageSquare } from 'lucide-react';
 import type { MapPoint } from '@/types';
 import { useAnnotationsForEntity } from '@/engines/annotations/hooks';
 import { mutateAnnotationThread } from '@/engines/annotations/threads';
+import { openCommentThread } from '@/engines/annotations/openThread';
+import { isThreadUnread } from '@/engines/annotations/readState';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { useTranslation } from '@/i18n/useTranslation';
 import { mapFeatureCopy } from './mapFeatureCopy';
@@ -42,16 +44,10 @@ export default function MapCommentMarks({ projectId, mapId, toPicture, onDraggin
     return { ...now, moved, at: { x: Math.max(0, Math.min(100, now.start.x + spot.x - now.from.x)), y: Math.max(0, Math.min(100, now.start.y + spot.y - now.from.y)) } };
   };
   const marks = items.filter(note => note.anchor.type === 'map_point' && Number.isFinite(note.anchor.x) && Number.isFinite(note.anchor.y));
-  const show = (id: string) => {
-    const thread = document.querySelector<HTMLElement>(`[data-comment-thread="${CSS.escape(id)}"]`);
-    if (!thread) return;
-    thread.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    thread.classList.add('ring-2', 'ring-accent-gold');
-    window.setTimeout(() => thread.classList.remove('ring-2', 'ring-accent-gold'), 1600);
-  };
+  const show = (id: string) => openCommentThread(scope, id);
   return <>{marks.map((note, index) => {
     const at = drag?.id === note.id ? drag.at : { x: note.anchor.x!, y: note.anchor.y! };
-    return <div key={note.id} role="button" tabIndex={0} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show(note.id); } }} className={`absolute z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full rounded-bl-none border shadow ${failed === note.id ? 'border-danger' : 'border-white/40'} ${note.resolvedAt ? 'bg-elevated text-text-muted' : 'bg-accent-gold text-deep'} ${toPicture ? 'cursor-grab' : ''}`}
+    return <div key={note.id} role="button" tabIndex={0} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show(note.id); } }} className={`absolute z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full rounded-bl-none border shadow ${failed === note.id ? 'border-danger' : 'border-white/40'} ${note.resolvedAt ? 'bg-elevated text-text-muted' : 'bg-accent-gold text-deep'} ${isThreadUnread(note) ? 'ring-2 ring-danger' : ''} ${toPicture ? 'cursor-grab' : ''}`}
       style={{ left: `${at.x}%`, top: `${at.y}%`, touchAction: 'none' }} title={note.noteBody || copy.commentHere} aria-label={`${copy.commentHere} ${index + 1}: ${note.noteBody ?? ''}`}
       onPointerDown={event => {
         event.stopPropagation(); dragged.current = false;
@@ -70,12 +66,12 @@ export default function MapCommentMarks({ projectId, mapId, toPicture, onDraggin
         const done = follow(event) ?? (held.current?.pointer === event.pointerId ? held.current : null);
         if (!done || done.id !== note.id) return;
         held.current = null; setDrag(null); onDragging?.(false);
-        if (!done.moved) return;
         dragged.current = true;
+        if (!done.moved) { show(note.id); return; }
         try { await mutateAnnotationThread(scope, note.id, note.revision ?? 0, { kind: 'move', x: done.at.x, y: done.at.y }); setFailed(null); await refresh(); }
         catch { setFailed(note.id); }
       }}
       onPointerCancel={() => { held.current = null; setDrag(null); onDragging?.(false); }}
-      onClick={event => { event.stopPropagation(); if (dragged.current) { dragged.current = false; return; } show(note.id); }} data-testid={`map-comment-${note.id}`} data-drag={drag?.id === note.id ? (drag.moved ? 'moving' : 'pressed') : undefined}><MessageSquare size={12} /></div>;
+      onClick={event => { event.stopPropagation(); if (dragged.current) { dragged.current = false; return; } show(note.id); }} data-testid={`map-comment-${note.id}`} data-unread={isThreadUnread(note) ? 'true' : undefined} data-drag={drag?.id === note.id ? (drag.moved ? 'moving' : 'pressed') : undefined}><MessageSquare size={12} /></div>;
   })}</>;
 }

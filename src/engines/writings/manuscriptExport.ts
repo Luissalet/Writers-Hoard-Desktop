@@ -10,6 +10,7 @@
 // Downloads use the browser-native blob + <a download> pattern
 // (tasks/lessons: the OS save dialog is the browser's job).
 
+import { prepMarkdownFromHtml } from '@/engines/prepBlocks/markdown';
 import { bookPageCss, bookStyleCss, titleOrnamentHtml } from './bookStyle';
 import type { Writing } from '@/types';
 import { isDesktop } from '@/utils/platform';
@@ -154,6 +155,14 @@ export function htmlToMarkdownParts(
     const language = /<code\b[^>]*\bclass="[^"]*\blanguage-([\w+#-]+)/i.exec(inner)?.[1] ?? '';
     const code = decodeEntities(inner.replace(/<[^>]+>/g, ''));
     codeBlocks.push(`\`\`\`${language}\n${code}\n\`\`\``);
+    return `\n\n\u0001${codeBlocks.length - 1}\u0001\n\n`;
+  });
+
+  // Prep blocks (check, encounter, player handout): an alert whose last line carries the data, kept whole as a stashed block.
+  s = s.replace(/<(div|figure)\b[^>]*\bdata-wh-prep="(?:check|encounter|handout)"[^>]*>[\s\S]*?<\/\1>/gi, block => {
+    const markdown = prepMarkdownFromHtml(block);
+    if (!markdown) return '\n\n';
+    codeBlocks.push(markdown);
     return `\n\n\u0001${codeBlocks.length - 1}\u0001\n\n`;
   });
 

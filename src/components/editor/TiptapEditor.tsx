@@ -67,6 +67,7 @@ import { CodexBlock } from './codexBlocks/CodexBlock';
 import CodexBlockControls from './codexBlocks/CodexBlockControls';
 import { createCodexBlockHost } from './codexBlocks/model';
 import { MediaBlock } from './mediaBlocks/MediaBlock';
+import { PrepCheck, PrepEncounter, PrepHandout } from './prepBlocks/PrepNodes';
 import MediaBlockControls from './mediaBlocks/MediaBlockControls';
 import { ToolDocumentBlock } from './toolBlocks/ToolDocumentBlock';
 import ToolDocumentControls from './toolBlocks/ToolDocumentControls';
@@ -319,6 +320,9 @@ export default function TiptapEditor({
       WikiSpoiler,
       CodexBlock.configure(codexBlockHost),
       MediaBlock.configure(codexBlockHost),
+      PrepCheck.configure(codexBlockHost),
+      PrepEncounter.configure(codexBlockHost),
+      PrepHandout.configure(codexBlockHost),
       ToolDocumentBlock.configure(codexBlockHost),
       SourceToolBlock.configure({host:sourceHost}),
       ...(extensions ?? []),

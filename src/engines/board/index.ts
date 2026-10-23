@@ -14,6 +14,7 @@ import {
   getCurrentProjectIdFromUrl,
   navigateTo,
   registerAnchorAdapter,
+  registerPositionalAnchorAdapter,
 } from '@/engines/_shared/anchoring';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
@@ -263,3 +264,13 @@ function boardDirs(zip: JSZip, projectDir: string): string[] {
 }
 
 export { boardEngine };
+
+// A comment at a point of the canvas, in board coordinates (the units of card positions).
+const onBoard = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 1e7;
+registerPositionalAnchorAdapter({
+  engineId: 'board',
+  anchorType: 'board_point',
+  space: 'board',
+  toAnchor: (point) => (point && onBoard(point.x) && onBoard(point.y) ? { type: 'board_point', x: Math.round(point.x * 100) / 100, y: Math.round(point.y * 100) / 100 } : null),
+  describe: (anchor, locale) => `${locale === 'es' ? 'En el tablero' : 'On the board'} · ${Math.round(anchor.x ?? 0)}, ${Math.round(anchor.y ?? 0)}`,
+});
