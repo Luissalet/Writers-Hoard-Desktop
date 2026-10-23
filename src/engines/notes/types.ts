@@ -22,6 +22,10 @@ export interface Note {
   kind: NoteKind;
   /** The note itself. Plain text; the first line doubles as its title. */
   text: string;
+  /** An optional title shown over the text (otherwise the first line stands for it). */
+  title?: string;
+  /** An optional cover picture (a PNG, JPEG, GIF or WebP data URL up to 1.5 MB). */
+  cover?: string;
   /** Attribution — who said it (quotes) or where it came from (everything else). */
   source?: string;
   tags: string[];

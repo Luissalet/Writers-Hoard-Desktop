@@ -10,6 +10,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { db } from '@/db';
 import type { CodexEntry } from '@/types';
 import ReferencePanel from '@/engines/writings/components/ReferencePanel';
+import { EnginePaneContext } from '@/engines/_shared/EnginePaneContext';
 import { getReferenceUi, setReferenceConsult, useReferencePrefs } from '@/engines/writings/components/referencePrefs';
 import { migrateLocalPins, readPins } from '@/services/codexReference/pins';
 import { createProjectZipArchive, importProjectZip } from '@/services/zipBackup';
@@ -28,6 +29,7 @@ const rowNames = () =>
 let liveEditor: Editor | null = null;
 
 interface HarnessProps {
+  openBeside?: (to: string) => void;
   projectId: string;
   writingId: string;
   html: string;
@@ -37,7 +39,7 @@ interface HarnessProps {
   fromEditor?: boolean;
 }
 
-function Harness({ projectId, writingId, html, narrowBreakpoint, mode, fromEditor }: HarnessProps) {
+function Harness({ projectId, writingId, html, narrowBreakpoint, mode, fromEditor, openBeside }: HarnessProps) {
   const prefs = useReferencePrefs();
   const [content, setContent] = useState(html);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -62,6 +64,7 @@ function Harness({ projectId, writingId, html, narrowBreakpoint, mode, fromEdito
   return (
     <div>
       <div ref={setMount} data-testid="harness-editor" />
+      <EnginePaneContext.Provider value={openBeside ? { instanceId: 'reference-pane', projectId, visible: true, openBeside } : null}>
       <ReferencePanel
         projectId={projectId}
         writingId={writingId}
@@ -71,6 +74,7 @@ function Harness({ projectId, writingId, html, narrowBreakpoint, mode, fromEdito
         mode={mode}
         narrowBreakpoint={narrowBreakpoint}
       />
+      </EnginePaneContext.Provider>
     </div>
   );
 }
@@ -156,6 +160,21 @@ export async function testCodexReferencePanel(): Promise<string[]> {
     assert(!byTestId('reference-preview'), 'Escape closes the preview');
     assert(editor.view.hasFocus(), 'focus returns to the editor');
     assert(editor.state.selection.from === before.from && editor.state.selection.to === before.to, 'the selection survived Escape');
+    {
+      let beside = '';
+      await render(1, '<p>Anita subió hasta el faro de noche.</p>', { openBeside: to => { beside = to; } });
+      const row = await (async () => { for (let i = 0; i < 60; i++) { const found = document.querySelector<HTMLElement>(`[data-entry-id="${P}-faro"] button`); if (found) return found; await act(async () => { await pause(50); }); } return null; })();
+      assert(row, 'faro row in a pane');
+      await act(async () => { row.click(); await pause(80); });
+      const open = byTestId('reference-open-beside');
+      assert(open, 'Open beside offered inside a pane');
+      await act(async () => { open.click(); await pause(40); });
+      assert(beside === `/project/${encodeURIComponent(P)}/codex?entry=${encodeURIComponent(`${P}-faro`)}`, `Opened beside: ${beside}`);
+      passed.push('"Abrir al lado" in the preview opens the card in its own tab beside the chapter');
+      await key(document.activeElement ?? open, { key: 'Escape' });
+      await render(1, '<p>Anita subió hasta el faro de noche.</p>');
+      assert(!byTestId('reference-preview'), 'preview closed again');
+    }
     passed.push('preview opens in the panel, Escape closes it, focus returns to the editor and the selection is intact');
 
     const mention: OpenCodexReferenceDetail = { projectId: P, entryId: `${P}-faro`, scopeId: `${W}-other`, handled: false };

@@ -74,6 +74,7 @@ export async function whCreateNote(args: ToolArgs): Promise<unknown> {
     kind: optEnum(args, 'kind', KINDS) ?? 'note',
     text: requireString(args, 'text'),
     source: optString(args, 'source'),
+    ...(optString(args, 'title')?.trim() ? { title: optString(args, 'title')!.trim().slice(0, 200) } : {}),
     tags: optStringArray(args, 'tags') ?? [],
     pinned: optBoolean(args, 'pinned') ?? false,
     createdAt: now,
@@ -108,6 +109,8 @@ export async function whUpdateNote(args: ToolArgs): Promise<unknown> {
   if (kind !== undefined) changes.kind = kind;
   const source = optString(args, 'source');
   if (source !== undefined) changes.source = source;
+  if (args.title === null) changes.title = undefined;
+  else { const title = optString(args, 'title'); if (title !== undefined) changes.title = title.trim().slice(0, 200) || undefined; }
   const tags = optStringArray(args, 'tags');
   if (tags !== undefined) changes.tags = tags;
   const pinned = optBoolean(args, 'pinned');

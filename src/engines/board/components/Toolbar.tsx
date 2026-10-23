@@ -4,13 +4,14 @@ import {
   AlignStartHorizontal, AlignStartVertical, BarChart3, Bookmark, Camera, Circle,
   Frame, Grid3x3, Image as ImageIcon, Layers, Link2, Magnet, Maximize,
   Network, Pencil, Redo2, Share2, Spline, Square, StickyNote, Tag, Type, Undo2, User,
+  Images,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { LayoutKind } from '../graph/layout';
 import type { BoardNodeKind } from '../types';
 import { freehandCopy } from '../freehandCopy';
 
-export type PanelKey = 'layers' | 'views' | 'metrics' | null;
+export type PanelKey = 'layers' | 'views' | 'metrics' | 'assets' | null;
 
 export interface ToolbarProps {
   onAdd: (kind: BoardNodeKind) => void;
@@ -236,6 +237,16 @@ export default function Toolbar(props: ToolbarProps) {
           className={`${buttonClass} ${props.panel === 'metrics' ? activeClass : ''}`}
         >
           <BarChart3 size={15} />
+        </button>
+        <button
+          type="button"
+          title={locale === 'es' ? 'Recursos del proyecto' : 'Project assets'}
+          aria-label={locale === 'es' ? 'Recursos del proyecto' : 'Project assets'}
+          data-testid="board-assets-toggle"
+          onClick={() => props.onPanel(props.panel === 'assets' ? null : 'assets')}
+          className={`${buttonClass} ${props.panel === 'assets' ? activeClass : ''}`}
+        >
+          <Images size={15} />
         </button>
       </div>
 

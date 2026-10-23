@@ -16,6 +16,8 @@ export interface WorldTable {
   /** A live view of every Codex card of the project, whatever its type (read-only cells). */
   codexAllTypes?: boolean;
   hiddenPropertyIds?:string[];
+  /** A tab of a workbook: sheets with the same workbook id are shown as tabs of one book, in `order`. */
+  workbook?: { id: string; name: string; order: number; color?: string; hidden?: boolean };
   columns: DataColumn[];
   rows: DataRow[];
 }

@@ -26,12 +26,13 @@ export function shiftSheetReferences(table: WorldTable, axis: 'row' | 'column', 
   if (table.mode !== 'sheet') return;
   for (const row of table.rows) for (const [id, value] of Object.entries(row.cells)) {
     if (typeof value !== 'string' || !value.startsWith('=')) continue;
-    row.cells[id] = '=' + value.slice(1).replace(/\b([A-Za-z]{1,3})([1-9]\d*)\b/g, (_reference, letters: string, digits: string) => {
+    // Text in quotes ("A1 is the corner") is left as written; only references move.
+    row.cells[id] = '=' + value.slice(1).split(/("(?:[^"]|"")*")/).map((part, index) => index % 2 ? part : part.replace(/(\$?)\b([A-Za-z]{1,3})(\$?)([1-9]\d*)\b/g, (_reference, fixedColumn: string, letters: string, fixedRow: string, digits: string) => {
       const column = columnIndex(letters), rowIndex = Number(digits) - 1;
       const moved = map(axis === 'row' ? rowIndex : column);
-      if (moved === null) return `${columnLetters(column)}${GONE_ROW}`;
-      return axis === 'row' ? `${columnLetters(column)}${moved + 1}` : `${columnLetters(moved)}${rowIndex + 1}`;
-    });
+      if (moved === null) return `${fixedColumn}${columnLetters(column)}${fixedRow}${GONE_ROW}`;
+      return axis === 'row' ? `${fixedColumn}${columnLetters(column)}${fixedRow}${moved + 1}` : `${fixedColumn}${columnLetters(moved)}${fixedRow}${rowIndex + 1}`;
+    })).join('');
   }
 }
 const inserted = (at: number) => (index: number) => (index >= at ? index + 1 : index);

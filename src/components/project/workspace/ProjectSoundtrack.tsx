@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
 import { LocalMediaPlayer } from '@/engines/media/LocalMediaPlayer';
 import SoundLibraryPicker from '@/engines/media/SoundLibraryPicker';
+import SoundscapePanel from '@/engines/soundscape/SoundscapePanel';
 
 /** A project-owned local alternative to streaming radio. It stays mounted
  * across tool/pane navigation, and never starts playback without user input. */
@@ -17,6 +18,7 @@ export default function ProjectSoundtrack({ projectId, locale }: { projectId: st
     {assets.length > 0 && <><div className="flex flex-wrap items-end gap-3"><label className="min-w-48 flex-1 space-y-1 text-xs text-text-muted">{c.clip}<select className="min-h-9 w-full rounded-lg border border-border bg-deep px-3 text-sm text-text-primary" value={asset?.id ?? ''} onChange={event => setSelectedId(event.target.value)}><option value="">{c.choose}</option>{assets.map(asset => <option key={asset.id} value={asset.id}>{asset.title}</option>)}</select></label><label className="flex min-h-9 items-center gap-2 text-sm text-text-primary"><input type="checkbox" checked={loop} onChange={event => setLoop(event.target.checked)} />{c.loop}</label><label className="space-y-1 text-xs text-text-muted">{c.speed}<select className="block min-h-9 rounded-lg border border-border bg-deep px-3 text-sm text-text-primary" value={speed} onChange={event => setSpeed(Number(event.target.value))}>{[.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value}×</option>)}</select></label></div>
       {asset && <><LocalMediaPlayer key={`${projectId}:${asset.id}`} asset={asset} loop={loop} speed={speed} fallback={c.error} /><button type="button" className="min-h-9 rounded-lg border border-border px-3 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={() => setSelectedId('')}>{c.stop}</button></>}
     </>}
+    <SoundscapePanel projectId={projectId} locale={locale} />
     <SoundLibraryPicker projectId={projectId} locale={locale} onAdded={added => setSelectedId(added.id)} />
   </div></details>;
 }
