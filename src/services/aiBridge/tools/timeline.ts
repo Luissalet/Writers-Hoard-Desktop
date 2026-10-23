@@ -94,6 +94,7 @@ function serializeEvent(event: TimelineEvent): Record<string, unknown> {
     hideFromWiki: !!event.hideFromWiki,
     repeat: event.repeat ?? null,
     bannerPattern: event.bannerPattern ?? 'solid',
+    bannerShape: event.bannerShape ?? 'plain',
   };
 }
 
@@ -125,6 +126,10 @@ async function extraEventFields(projectId: string, args: ToolArgs, current?: Tim
   if (args.bannerPattern !== undefined) {
     if (!['solid', 'stripes', 'dots', 'checks'].includes(String(args.bannerPattern))) throw new BridgeError('bad-args', 'bannerPattern is solid, stripes, dots or checks.');
     fields.bannerPattern = args.bannerPattern === 'solid' ? undefined : args.bannerPattern as TimelineEvent['bannerPattern'];
+  }
+  if (args.bannerShape !== undefined) {
+    if (typeof args.bannerShape !== 'string' || !['plain', 'ribbon', 'bunting', 'scallop'].includes(args.bannerShape)) throw new BridgeError('bad-args', 'bannerShape is plain, ribbon, bunting or scallop.');
+    fields.bannerShape = args.bannerShape === 'plain' ? undefined : args.bannerShape as TimelineEvent['bannerShape'];
   }
   if (args.repeat !== undefined) {
     if (args.repeat === null) fields.repeat = undefined;
@@ -301,7 +306,7 @@ export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
       projectId: existing.projectId,
       entityId: id,
       summary: `updated event "${existing.title}"`,
-      before: serializeEvent(existing),
+      before: { ...serializeEvent(existing), ...(existing.bannerShape === undefined ? { __absent: ['bannerShape'] } : {}) },
     },
   );
 }

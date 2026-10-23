@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, Calculator } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Timeline, TimelineEvent } from '@/types';
@@ -83,8 +84,16 @@ export default function CalendarView({ events, timelines, worldCalendar, onAddEv
       {day.bars.slice(0, 3).map(({ event, start, end }) => {
         // A run of days reads as one banner: square where it carries on, its title where it starts (or on a week's first day).
         const span = !(start && end);
-        return <span key={event.id} data-testid="calendar-event" data-banner={span ? (start ? 'start' : end ? 'end' : 'middle') : 'single'} data-pattern={event.bannerPattern ?? 'solid'} className="mt-0.5 truncate px-1 text-[10px] text-white"
-          style={{ background: bannerBackground(event), borderRadius: `${start ? 4 : 0}px ${end ? 4 : 0}px ${end ? 4 : 0}px ${start ? 4 : 0}px`, marginLeft: start || small ? 0 : -5, marginRight: end || small ? 0 : -5 }}>{event.title}</span>;
+        const shape = event.bannerShape === 'ribbon' || event.bannerShape === 'bunting' || event.bannerShape === 'scallop' ? event.bannerShape : 'plain';
+        const decorative = shape !== 'plain';
+        const silhouette: CSSProperties = shape === 'ribbon'
+          ? { clipPath: `polygon(0 0, 100% 0, ${end ? 'calc(100% - 6px)' : '100%'} 50%, 100% 100%, 0 100%, ${start ? '6px' : '0'} 50%)`, paddingLeft: start ? 8 : 4, paddingRight: end ? 8 : 4 }
+          : shape === 'bunting' || shape === 'scallop'
+            ? { paddingBottom: 4, maskImage: `linear-gradient(#000 0 0), ${shape === 'bunting' ? 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'8\' height=\'4\'%3E%3Cpath fill=\'black\' d=\'M0 0H8L4 4Z\'/%3E%3C/svg%3E")' : 'radial-gradient(ellipse 4px 4px at 50% 0, #000 98%, transparent 100%)'}`, maskSize: '100% calc(100% - 4px), 8px 4px', maskPosition: 'top, bottom', maskRepeat: 'no-repeat, repeat-x' }
+            : {};
+        const showTitle = !decorative || start || day.day === 1 || (month.lead + day.day - 1) % (calendar.weekdays.length || 7) === 0;
+        return <span key={event.id} data-testid="calendar-event" data-banner={span ? (start ? 'start' : end ? 'end' : 'middle') : 'single'} data-pattern={event.bannerPattern ?? 'solid'} data-shape={shape} className="mt-0.5 truncate px-1 text-[10px] text-white"
+          style={{ background: bannerBackground(event), borderRadius: `${start ? 4 : 0}px ${end ? 4 : 0}px ${end ? 4 : 0}px ${start ? 4 : 0}px`, marginLeft: start || small ? 0 : -5, marginRight: end || small ? 0 : -5, ...(decorative ? { minHeight: 20, lineHeight: '16px', ...silhouette } : {}) }}>{showTitle ? event.title : <span className="sr-only">{event.title}</span>}</span>;
       })}
       {day.events.length > 3 && <span className="text-[10px] text-text-dim">+{day.events.length - 3}</span>}
     </>}
