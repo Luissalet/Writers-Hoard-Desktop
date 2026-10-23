@@ -2,6 +2,8 @@
 
 Graph source `ecb1703` is separately integrated after CAS16: spacing/type areas and JSON/Duplicate preservation of settings, hidden cards and views. Real Brave verified final pins, filtering and restored views; [evidence](verification-graph-display.md) distinguishes generated SVG checks from the Browser download timeout. Historical counts remain unchanged and task1095 stays open.
 
+Manual player 5e attacks are implemented at `112f1fc`, approved by fresh independent CAS 18 after a test-only EOF amendment. CAS 17 approved predecessor `971870a`; its vote is historical and was not inherited. Root Brave verified split fields/save/reopen, spell coexistence/clear, final action labels, contextual Discard and the paper appendix. Technical peer review has 32 distinct focused groups, including CAS/Undo/era/portability and read-only refresh; repetitions are not additional groups. Root integrated exact `112f1fc` FF-only and completed clean-main verify:quick (34 engines, 64 tables, 6515 keys, 22 locale files, zero warnings/lint), Vite 36.92s, Electron and both plain-Node checks (937 tools and Reveal schema/limits). Session 30517 exited zero, main stayed clean and the merge lock was released. The separate Google manual receipt adds 412 UTF-16 units using requiredRevision/readback, with 198 paragraphs, 197 other texts and all styles preserved. Reference evidence proves fields/persistence, not row roller controls; Age/Height custom fields already worked without new implementation. [Attack evidence and limits](verification-player-attacks.md). Historical counts and the open task remain unchanged.
+
 ## Why this exists
 
 The 148-row inventory of task 1041 has no row for VVD's map editor (its M rows are

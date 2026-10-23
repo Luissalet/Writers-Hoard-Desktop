@@ -4,6 +4,8 @@
 
 El grafo del mundo añade separación ajustable y áreas opcionales por tipo de tarjeta, conservando posiciones fijadas y vistas guardadas. Las copias JSON y Duplicar conservan sus ajustes y remapean las referencias a tarjetas y plantillas. La fuente `ecb1703` está integrada tras CAS16 independiente; [verificación y límites](tasks/vvd1095/verification-graph-display.md) registra esta entrega. La comparación1095 continúa.
 
+Los ataques manuales de jugador 5e separan bonificación y tipo de daño libre, conservando notas, cantidad, dados de daño y datos de conjuro de la fila. Las tiradas nativas de Ataque/Daño añaden contexto al historial sin gastar recursos ni asumir objetivo; el anexo opcional de ataques va después del contenido y la tinta existentes. Descartar y Recargar tienen su propia confirmación. La fuente `112f1fc` está integrada tras aprobación independiente nueva de CAS 18. Verify/build de main limpio pasó (Vite 36.92s, Electron y Node 937); la actualización del manual Google tiene su recibo separado de revisión y relectura. [Flujo de ataques verificado y límites](tasks/vvd1095/verification-player-attacks.md).
+
 Plataforma local de escritura creativa empaquetada como aplicación de escritorio con **Electron**. Comparte la base React/Vite/Dexie con la versión web, pero la ventana nativa amplía los límites de almacenamiento del navegador e incluye descargas multimedia con `yt-dlp` y `gallery-dl`, sin servidor Python aparte.
 
 > Plan de transición: [`tasks/desktop-transition.md`](tasks/desktop-transition.md).
