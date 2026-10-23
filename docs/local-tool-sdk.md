@@ -351,3 +351,36 @@ Installation selections reuse portable project/era state; eras store only their 
 Declarative readonly previews resolve captured bytes without mounting authored controls or writing state. Captures include only referenced gallery images, including nested draft blocks, and never fall back to live DB when a snapshot exists. Images obey `includeImages`/image exclusions; media obeys `includeMedia`. JSON/ZIP/clone remap image/media reference domains separately. Normal SVG/raster preview frames are96×96; wiki resanitizes SVG with its own full-width/max360px frame. Global manuscript SVG policy is unchanged. Asset-backed audio still uses the existing gesture-gated SDK graph; native MCP play does not start or queue it.
 
 Verification:18 author groups +6 independent groups +10 relevant legacy groups,34 distinct focused groups, not a global suite. Root's normal Brave imports/selection/Revert/save/reopen and readonly96px evidence are separate from dispatcher tests; no final-source stdio or hardware-listening claim. See the linked verification for source receipts, final integration/build and the separate manual receipt.
+
+## Measured audio levels and stereo pan
+
+Source `fcf94f61a99a7541ac4029916e023f7405e3a14d` is approved CAS20 after a fresh review/vote and integrated FF-only into main from07f6777. Thirteen committed routes comprise the11-path author freeze, independent oracle and runner registration of11 exports. Final review:29 distinct groups (7 author +4 independent +18 legacy). Root's normal Brave flow is verified separately. Manual update/readback is complete (415 UTF-16 units,198 paragraphs,197 other texts and styles preserved; both locks released). Exact-main session58713 exited0: verify:quick34 engines/64 tables/6515 locale keys/22 locale files/0 warnings, shipping lint0, renderer/Electron types PASS, Vite43.33s, Electron PASS, Node937 tools/schema2 checks PASS and the original Node author-kit four scenarios plus headless assertion PASS. Main is clean and the merge lock released. MEMORY and the documentation commit/integration remain pending. These are Writer's own signatures, not matching upstream parameters. [Evidence and current gates](../tasks/vvd1095/verification-sdk-audio-levels.md).
+
+`LocalToolAudio` adds `supportsPan`, `getLevels(handleId)` and optional `pan` in play/update; state includes its current pan. Range is finite[-1,1], default0, left/centre/right. The existing default-centre output is retained. Backends without stereo capability keep default playback but explicitly reject nonzero pan. This is stereo panning, without3D position, listener, distance or HRTF.
+
+```ts
+const id = await client.audio?.play(
+  {kind: 'media', id: localAudioId},
+  {bus: 'music', loop: true, volume: 0.15, pan: 0},
+); // call from a real user gesture; null/undefined is not a started voice
+if (id) {
+  client.audio?.update(id, {pan: -1});
+  const levels = client.audio?.getLevels(id);
+  // levels?.left.rms / .peak, levels?.right.rms / .peak
+}
+```
+
+`getLevels` returns `{rms,peak,left:{rms,peak},right:{rms,peak}} | null`. Values are digital linear PCM amplitude from the voice **after effective gain/bus/duck and pan**, not the configured gain or an analysis of the original file. RMS is the square-root mean square over the current sample window; peak is its maximum absolute sample. Aggregate RMS uses the two channel powers and aggregate peak is the larger channel peak. Internal values may exceed1; the API does not normalize away clipping. Copies are detached. They do not measure speaker loudness, physical audio delivery or SPL.
+
+An active silent/zero-gain voice returns measured zeros. Unknown, stopped, foreign-owner, revoked or unavailable handles return null; the production backend also returns null while its context is suspended. Reads never create/resume AudioContext, start playback or queue a future play. A caller may read only its own handles. Inert/recording backends return null unless they explicitly supply test measurements; volume is never fabricated into a measured signal.
+
+For a normal React meter, import `useLocalToolAudioLevels` from the SDK and pass the actual ID returned by play:
+
+```ts
+const levels = useLocalToolAudioLevels(client.audio, activeHandleId);
+// null means no active measurement, not measured silence
+```
+
+This opt-in hook samples while that handle is active and the view is visible. Retargeting/unmount removes its RAF/subscription; the first frame of a new binding never shows the old samples. It does not stop other playback. `examples/SoundPad.tsx` uses the normal Local sounds Owned block: low-volume music loop, L/R metrics, pan and Stop. These controls are runtime only: saving the parent retains the block, reopening starts Stopped at15%/pan0 without autoplay. Readonly previews remain inert.
+
+Native agent correspondence reuses `wh_local_audio_status` with optional `includeLevels:true`, returning per-handle `levels` or null in the same project/era; without it the levels field is absent. `wh_local_audio_control` adds `action:'pan'`, required `handleId` and finite `pan`. It changes that existing scoped voice only. Native play remains `started:false`, `queued:false`, `gesture-required` for both media and source-slot refs. No final-source stdio or hardware evidence follows from a dispatcher test. The linked verification separates29 focused groups, real OfflineAudioContext/Analyser checks, controlled backend-state tests, root Browser, CAS20/manual receipts and the final main verification still in progress.

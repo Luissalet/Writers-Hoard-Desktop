@@ -1,5 +1,15 @@
 # Writer consolidation #931
 
+## Writer1095: audio medido integrado y siguiente comparación
+
+- [x] Fuente fcf94f6 por13rutas; CAS20 nuevo;29grupos focales7autor+4peer+18legacy.
+- [x] Brave normal: loop15%, L/R/pan, volumen0 medido, Stop/null y bloque guardado/reabierto sin autoplay.
+- [x] Main verify/build43.33s/Electron/Node937/schema y author-kit original PASS; main limpio, lock liberado, sin push.
+- [x] Manual415UTF16 con requiredRevision/readback198/197/estilos, amboslocks liberados.
+- [ ] Continuar relatos independientes en un mundo compartido: investigación y revisión de arquitectura en Ágora1451, sin código aún. Referencia A creada/guardada; segundo relato limitado por upgrade, sin pago ni prueba B inventada.
+
+[Evidencia del audio y límites](vvd1095/verification-sdk-audio-levels.md).
+
 ## Design and acceptance
 Public base a4bbf79; Borges 10db1fb; Gutenberg ca8ee4c. Preserve Writer IndexedDB/origin 5174 and existing fiction worker untouched. Incorporate complete tracked engines, packages and editor sources with notices under `publishing/`; exclude real data, environments, build outputs and binaries. The existing Writer IPC/MCP bridge owns a second lazy stdio worker. Library, reading, paperwork and publishing switches default OFF. Native ASGI apps execute in-process over httpx, without listeners or former application processes. UI source mounts in Writer React/shadow surfaces; no iframe or former-app URLs. Original tool names/schemas survive in the native bridge catalogue. Gutenberg remains an owned Rust/editor build with its complete native format.
 

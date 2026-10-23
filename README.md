@@ -1,5 +1,7 @@
 # Writers Hoard — Desktop
 
+SDK audio `fcf94f6` is integrated after fresh independent CAS20: per-handle digital RMS/peak and left/right levels, plus stereo pan, use the real playback graph. Local sounds exposes these through normal controls; native status/control share the scoped contract. Brave verified pan, measured silence, Stop and save/reopen without autoplay. Peer coverage is29 distinct focused groups (7 author +4 own +18 legacy), with overlap of capabilities. Clean-main verify/build passed: Vite43.33s, Electron, Node937/schema checks and the original headless author kit. The Google manual has a separate415 UTF-16 revision/readback receipt. The headless regression from resource previews was corrected separately in043e906/CAS19. Own signatures, SDK-only playback and stereo scope remain partial; no3D, speaker measurement or final-source stdio claim. [Audio evidence and limits](tasks/vvd1095/verification-sdk-audio-levels.md). Task1095 continues.
+
 [Español](README.es.md)
 
 The world graph adds adjustable spacing and optional areas by card type, preserving manual pins and saved views. Project JSON copies and Duplicate retain graph settings and remap their card/template references. Source `ecb1703` is integrated after independent CAS16; [verification and limits](tasks/vvd1095/verification-graph-display.md) track this separate delivery. Task1095 continues.
