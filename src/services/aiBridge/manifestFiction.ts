@@ -990,3 +990,37 @@ export const FICTION_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destru
     "idempotentHint": false
   }
 };
+
+// Native session preparation is additive: the 19 incorporated contracts above stay frozen.
+const sessionDetailProperties = {
+  scheduled_at: { anyOf: [{ type: 'number' }, { type: 'null' }], description: 'Scheduled instant in UTC Unix seconds; null clears it.' },
+  timezone: { type: 'string', description: 'Time zone recorded alongside the scheduled instant.' },
+  length_min: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+  place: { type: 'string' }, hook: { type: 'string' }, dm_notes: { type: 'string', description: 'Private GM notes; omitted from results by default.' },
+  status: { type: 'string', enum: ['planned', 'live', 'played'] },
+  recap: { type: 'string', description: 'Author-written recap. Editing returns a ready recap to draft unless explicitly marked ready again.' },
+  recap_posted: { type: 'boolean', description: 'true marks a nonempty recap ready to share locally and the session played. Sends nothing.' },
+  attendance: { type: 'array', items: { type: 'object', properties: { name: { type: 'string', minLength: 1 },
+    entity_id: { type: 'string', description: 'Optional character id belonging to this world.' }, present: { type: 'boolean' } },
+    required: ['name', 'present'], additionalProperties: false } },
+};
+const sessionDetailsSchema = { type: 'object' as const, properties: sessionDetailProperties, additionalProperties: false };
+FICTION_TOOLS.push(
+  { name: 'wh_story_session_list', group: 'story', writes: false,
+    description: 'Read session plans, dates, status, attendance and manually written recap drafts or ready recaps. Old sessions remain unclassified. Omit session for all; pass its id or title for one. DM notes are omitted unless include_dm_notes is true. Never creates or activates a session.',
+    schema: { type: 'object', properties: { world: { type: 'string' }, session: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+      include_dm_notes: { type: 'boolean', default: false } }, required: ['world'], additionalProperties: false } },
+  { name: 'wh_story_session_create', group: 'story', writes: true,
+    description: 'Plan a fiction session without changing the current play session. A new plan starts planned. Pass title and optional details: scheduled date, zone, duration, place, hook, private DM notes, attendance or recap draft. Start it later explicitly with wh_story_session_update status live. DM notes are omitted from the result; no model or external publication is used.',
+    schema: { type: 'object', properties: { world: { type: 'string' }, title: { type: 'string' }, details: sessionDetailsSchema },
+      required: ['world'], additionalProperties: false } },
+  { name: 'wh_story_session_update', group: 'story', writes: true,
+    description: 'Partially edit a fiction session by id or title. Omitted patch fields stay unchanged; null clears date/duration, empty strings clear text. status live selects it for new turns and completes the previous current session only if that session had preparation status live; legacy sessions are unchanged. played ends and deselects it if current; planned deselects it without clearing historical times. recap_posted true marks a nonempty author-written recap ready to share locally and the session played atomically. Editing recap returns it to draft. Sends nothing. DM notes are omitted from results.',
+    schema: { type: 'object', properties: { world: { type: 'string' }, session: { type: 'string' }, patch: sessionDetailsSchema },
+      required: ['world', 'session', 'patch'], additionalProperties: false } },
+);
+Object.assign(FICTION_ANNOTATIONS, {
+  wh_story_session_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  wh_story_session_create: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  wh_story_session_update: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+});

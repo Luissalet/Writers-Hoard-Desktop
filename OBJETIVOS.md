@@ -125,3 +125,7 @@ incorporados en la entrega D3-D5. Pruebas y límites en
 sueltas/curación de wiki, crecimiento/creación rápida del inicio y metadatos,
 asistencia/resumen de sesiones de ficción, más las mejoras menores de campaña.
 Los errores de tipos de Electron están corregidos en esta entrega.
+
+
+## Writer1095 continuation scope
+Implemented in source: supported standalone wiki pages/curation, Home creation-date counts/3engine quick creation/manual tips, native fiction session preparation/attendance/manual recap, and scoped B11bookmarks/effects/retired. Verification/review/integration recorded in tasks/vvd1095/verification-next.md. Remaining: soundscape and other unprojected wiki pages/spatial boards, other quick-create engines and word/connection history, ICS/RSVP/statistics/outline-fiction convergence, arbitrary editor/rules bookmarks, additional effect families and banner crop. Matrices remain PARTIAL where those subclaims remain.

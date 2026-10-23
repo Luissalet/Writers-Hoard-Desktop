@@ -1,8 +1,9 @@
+import { WIKI_ADDITIONAL_KINDS,type WikiAdditionalKind } from '@/types/worldWiki';
 import { buildWorldWiki, loadWorldWikiData } from '@/services/worldWikiExport';
 import { getWikiProfile } from './store';
 import { captureWikiSnapshot, wikiSource, wikiSourceFingerprint } from './snapshot';
 
-export type WikiChangeKind = 'entry' | 'map' | 'timeline';
+export type WikiChangeKind = 'entry' | 'map' | WikiAdditionalKind;
 export interface WikiDocumentChange { documentId: string; title: string; kind: WikiChangeKind; change: 'added' | 'changed' | 'removed' }
 export interface WikiProfileChanges {
   changes: WikiDocumentChange[];
@@ -21,7 +22,9 @@ type Page = Map<string, { title: string; html: string }>;
 const unhex = (hex: string) => new TextDecoder().decode(Uint8Array.from(hex.match(/../g) ?? [], byte => parseInt(byte, 16)));
 const split = (articleId: string): { kind: WikiChangeKind; documentId: string } | undefined => {
   const match = /^(entry|map|timeline)-((?:[\da-f]{2})+)$/.exec(articleId);
-  return match ? { kind: match[1] as WikiChangeKind, documentId: unhex(match[2]) } : undefined;
+  if(match)return{kind:match[1] as WikiChangeKind,documentId:unhex(match[2])};
+  const extra=/^document-((?:[\da-f]{2})+)$/.exec(articleId);if(!extra)return undefined;
+  try{const[kind,documentId]=JSON.parse(unhex(extra[1]));return WIKI_ADDITIONAL_KINDS.includes(kind)&&typeof documentId==='string'?{kind,documentId}:undefined;}catch{return undefined;}
 };
 /** What a reader sees of each document: the article markup of an exported wiki, by article id. */
 function articlesOf(html: string): Page {

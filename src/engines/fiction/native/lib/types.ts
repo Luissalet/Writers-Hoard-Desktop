@@ -4,7 +4,7 @@
 
 export type Ruleset = "freeform" | "d20" | "pbta_2d6";
 export type EntityKind = "character" | "location" | "faction" | "item" | "lore" | "creature";
-export type EntityStatus = "alive" | "dead" | "missing" | "destroyed" | "active" | "unknown";
+export type EntityStatus = "alive" | "dead" | "missing" | "destroyed" | "active" | "unknown" | "retired";
 export type ThreadStatus = "open" | "advanced" | "resolved" | "abandoned";
 export type TurnRole = "narration" | "action" | "dialogue" | "ooc" | "roll" | "system";
 export type TurnAuthor = "user" | "narrator" | "agent";
@@ -146,6 +146,24 @@ export interface Session {
   started_at: number;
   ended_at: number | null;
 }
+
+export interface SessionAttendance { name: string; entity_id?: string; present: boolean }
+export interface SessionDetails {
+  session_id: string;
+  scheduled_at: number | null;
+  timezone: string;
+  length_min: number | null;
+  place: string;
+  hook: string;
+  dm_notes?: string;
+  status: 'planned' | 'live' | 'played';
+  recap: string;
+  recap_posted: boolean;
+  attendance: SessionAttendance[];
+  updated_at: number;
+}
+export type SessionDetailsPatch = Partial<Omit<SessionDetails, 'session_id' | 'updated_at'>>;
+export interface SessionWithDetails { session: Session; details: SessionDetails | null; is_current: boolean }
 
 export interface Turn {
   id: string;

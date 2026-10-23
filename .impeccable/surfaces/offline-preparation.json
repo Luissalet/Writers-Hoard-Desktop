@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T12:59:34.3565691Z",
+  "title": "Writer1095: preparación local",
+  "extensions": {},
+  "components": [
+    {
+      "name": "Crear en Overview",
+      "kind": "button",
+      "description": "Primario del formulario contextual; conserva oro y tinta oscura al hover.",
+      "html": "<button class=\"ds-home-create\">Crear</button>",
+      "css": ".ds-home-create { min-height:40px; padding:8px 12px; border:1px solid var(--color-border,#3b3e3e); border-radius:8px; font:600 14px var(--font-sans,'Source Sans 3',sans-serif); background:var(--color-accent-gold,#d5b575); color:var(--color-deep,#17191a); transition:filter .15s; } .ds-home-create:hover { filter:brightness(1.1); } .ds-home-create:focus-visible { outline:none; box-shadow:0 0 0 2px var(--color-accent-gold,#d5b575); } .ds-home-create:disabled { opacity:.5; }"
+    },
+    {
+      "name": "Acción secundaria de Overview",
+      "kind": "button",
+      "description": "Acción contextual con borde fino y hover tonal.",
+      "html": "<button class=\"ds-home-secondary\">Revisar el proyecto</button>",
+      "css": ".ds-home-secondary { min-height:40px; padding:8px 12px; border:1px solid var(--color-border,#3b3e3e); border-radius:8px; font:400 14px var(--font-sans,'Source Sans 3',sans-serif); background:transparent; color:var(--color-text-primary,#eeeae2); transition:background .15s; } .ds-home-secondary:hover { background:var(--color-elevated,#2a2d2e); } .ds-home-secondary:focus-visible { outline:none; box-shadow:0 0 0 2px var(--color-accent-gold,#d5b575); } .ds-home-secondary:disabled { opacity:.5; }"
+    },
+    {
+      "name": "Título de creación contextual",
+      "kind": "input",
+      "description": "Campo etiquetado del formulario abierto; el estado de espera lo deshabilita.",
+      "html": "<label class=\"ds-home-label\" for=\"ds-home-title\">Título o nota · Escritos</label><input class=\"ds-home-input\" id=\"ds-home-title\" value=\"Borrador de prueba\" />",
+      "css": ".ds-home-label { display:block; margin-bottom:12px; font:400 14px var(--font-sans,'Source Sans 3',sans-serif); color:var(--color-text-muted,#babcb6); } .ds-home-input { min-height:40px; width:100%; padding:8px 12px; border:1px solid var(--color-border,#3b3e3e); border-radius:8px; font:400 14px var(--font-sans,'Source Sans 3',sans-serif); background:var(--color-deep,#17191a); color:var(--color-text-primary,#eeeae2); outline:none; } .ds-home-input:focus { box-shadow:0 0 0 2px var(--color-accent-gold,#d5b575); }"
+    },
+    {
+      "name": "Panel de crecimiento documental",
+      "kind": "card",
+      "description": "Título serif, explicación y recuento escrito dentro del panel tonal existente.",
+      "html": "<section class=\"ds-home-panel\"><h3>Crecimiento documental</h3><p>Documentos del proyecto por mes.</p><table><thead><tr><th>Mes</th><th>Documentos</th></tr></thead><tbody><tr><th scope=\"row\">oct 2026</th><td>5</td></tr></tbody></table></section>",
+      "css": ".ds-home-panel { padding:20px; border:1px solid var(--color-border,#3b3e3e); border-radius:12px; background:var(--color-surface,#202223); color:var(--color-text-primary,#eeeae2); font:400 14px/1.5 var(--font-sans,'Source Sans 3',sans-serif); } .ds-home-panel h3 { margin:0; font-family:var(--font-serif,'Cinzel',Georgia,serif); font-weight:600; } .ds-home-panel p { margin:8px 0 16px; color:var(--color-text-muted,#babcb6); } .ds-home-panel table { width:100%; text-align:left; } .ds-home-panel thead { color:var(--color-text-muted,#babcb6); } .ds-home-panel td { text-align:right; font-variant-numeric:tabular-nums; }"
+    },
+    {
+      "name": "Marcador contextual de Library",
+      "kind": "custom",
+      "description": "Una acción en menú tonal. La muestra es visual: apertura, Escape y restauración de foco pertenecen al componente React.",
+      "html": "<div class=\"ds-library-menu\" role=\"menu\" aria-label=\"Marcador\"><button class=\"ds-library-item\" role=\"menuitem\">Fijar en Library</button></div>",
+      "css": ".ds-library-menu { display:inline-block; padding:4px; border:1px solid var(--color-border,#3b3e3e); border-radius:8px; background:var(--color-surface,#202223); color:var(--color-text-primary,#eeeae2); } .ds-library-item { min-height:40px; width:176px; padding:0 12px; border:0; border-radius:4px; text-align:left; font:400 14px var(--font-sans,'Source Sans 3',sans-serif); color:inherit; background:transparent; } .ds-library-item:hover { background:var(--color-elevated,#2a2d2e); } .ds-library-item:focus-visible { outline:2px solid var(--color-accent-gold,#d5b575); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El escritorio Writer de la familia Hoard",
+    "overview": "La preparación se incorpora a las superficies existentes: Overview muestra crecimiento documental, siguiente acción, creación contextual y consejos manuales; Library recuerda aperturas de esta sesión de ventana y ofrece marcadores contextuales; la wiki permite seleccionar documentos y organizar secciones; Sesiones amplía una fila con preparación y resumen manual. La apariencia añade efectos opcionales en el fondo del espacio de trabajo.",
+    "keyCharacteristics": [],
+    "rules": [
+      {
+        "name": "The Local Draft Rule",
+        "body": "Plegar o cambiar una preparación de sesión conserva el borrador, error y estado guardado en la caché de la vista por mundo/sesión. Al recibir datos nuevos se rebasan los campos no editados; una respuesta tardía de un propietario antiguo no sustituye el borrador posterior. Esta caché no implica persistencia tras desmontar SessionsPage, cerrar o reiniciar la app.",
+        "section": "components"
+      },
+      {
+        "name": "The Search Intent Rule",
+        "body": "Una consulta con filtros, exclusiones o frases entrecomilladas sigue siendo búsqueda y no ofrece creación rápida. El texto simple puede crear mediante los motores habilitados y el contexto Base/era admitido.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do conservar identidad, densidad, estados escritos y foco del escritorio Writer.",
+      "Do mantener tinta oscura y fondo dorado legibles en reposo y hover de Crear.",
+      "Do distinguir selección múltiple, inclusión en perfil y guardado/publicación.",
+      "Do conservar borradores de preparación durante plegado y cambio de sesión dentro de la vista."
+    ],
+    "donts": [
+      "Don't presentar un borrador local como guardado en disco o un resumen listo como enviado.",
+      "Don't promover colores de un perfil, documento o apariencia a una identidad global nueva.",
+      "Don't presentar el lector a 390px como soporte móvil del escritorio completo."
+    ]
+  }
+}

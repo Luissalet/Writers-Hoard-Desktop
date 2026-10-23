@@ -9,6 +9,14 @@ downloaders (`yt-dlp` + `gallery-dl`) — no separate Python server.
 
 > Transition plan and rationale: [`tasks/desktop-transition.md`](tasks/desktop-transition.md)
 
+## Offline planning and local publishing (task1095)
+
+Named wiki profiles can publish selected notes, tables, boards, timelines, character sheets, dictionaries, relation trees, radar charts, 3D models and declarative local-tool documents as their own pages. Search and bulk include/omit/move controls, nested sections and drag ordering share the saved profile and immutable local editions. Boards publish their visible cards as a semantic list; spatial drawing and soundscape pages remain outside this delivery. Source-era policies, secret fields and exclusions still apply before content and assets are resolved.
+
+Project Overview adds monthly creation counts for existing writings, scenes, Codex entries, notes, outlines and research sources, a contextual next action and manual navigation tips. Overview and the command palette can create writings, notes and outlines through their normal operations; writings/notes support eras, outlines remain Base-only. Filtered search syntax never becomes a new document. Library documents have a right-click pin menu with revision-checked Undo and a window-session list of documents opened from the Library. Optional snow, rain, embers or fireflies respect reduced motion and performance mode.
+
+Fiction sessions can be planned separately from starting play, with date/time, local timezone, duration, place, hook, private DM notes and attendance. Author-written recaps stay drafts until marked ready to share locally, which also marks the session played; no external posting occurs. Retired characters remain in the world and can be changed explicitly from linked attendance after a session. The original19 tools and session row shapes are unchanged; three session tools are additive. See [offline scope and limits](docs/OFFLINE-PREPARATION.md).
+
 ## Library and publishing
 
 Writer incorporates the full library, reading/links, paperwork/PDF and Gutenberg editorial engine/editor as independent modules, initially OFF. Native formats and MCP contracts are retained. See [capabilities, verification and migration](docs/PUBLISHING.md). Existing fiction and profile/origin 5174 are preserved.

@@ -29,7 +29,7 @@ export async function runFictionIntegration(root: string, directory: string, por
   await assert.rejects(failedControl.setModule('fiction', true));
   assert.deepEqual((await failedControl.status()).enabled, []);
   assert.equal((await failedControl.status()).running, false);
-  assert.equal(FICTION_TOOLS.length, 21);
+  assert.equal(FICTION_TOOLS.length, 24);
   assert.equal(new Set(BRIDGE_TOOLS.map(tool => tool.name)).size, BRIDGE_TOOLS.length);
   assert.equal((await engine.tool('story_worlds', {})).ok, false);
   await assert.rejects(fs.stat(dataDir));
@@ -96,7 +96,7 @@ export async function runFictionIntegration(root: string, directory: string, por
     const identity = await request('GET', '/api/writer-identity');
     assert.ok(identity.data_space_id);
     const nativeCatalog = await request('GET', '/api/agent/tools');
-    assert.deepEqual(nativeCatalog.tools.map((tool: { name: string }) => tool.name).sort(), FICTION_TOOLS.filter(tool => !tool.name.startsWith('wh_story_')).map(tool => tool.name).sort());
+    assert.deepEqual(nativeCatalog.tools.map((tool: { name: string }) => tool.name).sort(), FICTION_TOOLS.filter(tool => !['wh_story_modules', 'wh_story_module_set'].includes(tool.name)).map(tool => tool.name).sort());
     assert.equal((await call('story_worlds')).worlds.length, 1);
     const place = await call('entity_upsert', { world: worldId, kind: 'location', name: 'Faro' });
     const person = await call('entity_upsert', { world: worldId, kind: 'character', name: 'Inés', summary: 'Capitana sintética', secrets: 'Secreto de prueba' });

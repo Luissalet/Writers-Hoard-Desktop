@@ -1,4 +1,4 @@
-import { appearanceFonts, type WorkspaceAppearanceValues } from './types';
+import { appearanceFonts, workspaceEffects, type WorkspaceAppearanceValues } from './types';
 export const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024;
 export function validateRaster(value: string): string {
   const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
@@ -24,6 +24,8 @@ export function normalizeAppearance(value: unknown): WorkspaceAppearanceValues {
     else if (key === 'backgroundImage' && (item === null || typeof item === 'string')) result[key] = item === null ? null : validateRaster(item);
     else if (key === 'grain' && typeof item === 'number' && Number.isFinite(item) && item >= 0 && item <= 100) result[key] = Math.round(item);
     else if (key === 'performance' && typeof item === 'boolean') result[key] = item;
+    else if (key === 'effect' && typeof item === 'string' && (workspaceEffects as readonly string[]).includes(item)) result[key] = item;
+    else if (key === 'effectIntensity' && typeof item === 'number' && Number.isFinite(item) && item >= 0 && item <= 100) result[key] = Math.round(item);
     else throw Error('workspace_appearance_invalid');
   }
   return result as WorkspaceAppearanceValues;

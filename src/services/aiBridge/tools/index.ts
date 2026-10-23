@@ -1,3 +1,4 @@
+import { HOME_HANDLERS } from './projectHome';
 import {MANUSCRIPT_REVIEW_HANDLERS} from '@/engines/writings/manuscriptReview/bridge';
 import {PROJECT_GENRE_HANDLERS} from '@/services/projectGenres/bridge';
 import {WORLD_FOLDER_IMPORT_HANDLERS} from '@/services/worldFolderImport/bridge';
@@ -361,6 +362,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...READER_HANDLERS,
   ...VOICE_MEMO_HANDLERS,
   ...BOARD_CANVAS_HANDLERS,
+  ...HOME_HANDLERS,
   ...WORKSPACE_APPEARANCE_HANDLERS,
   ...WORKSPACE_THEME_HANDLERS,
   ...LOCAL_TOOL_HANDLERS,

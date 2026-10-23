@@ -2,6 +2,16 @@
 .workspace-appearance-pane > .workspace-decoration { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
 .workspace-decoration::before { content: ''; position: absolute; inset: 0; background: var(--workspace-image) center / cover; opacity: .1; }
 .workspace-decoration::after { content: ''; position: absolute; inset: 0; background-image: var(--workspace-grain); opacity: var(--workspace-grain-opacity, 0); }
+.workspace-particles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.workspace-particles i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-muted); opacity: .25; animation: workspace-snow 12s linear infinite; }
+.workspace-particles[data-effect='rain'] i { width: 1px; height: 14px; border-radius: 0; animation-name: workspace-rain; }
+.workspace-particles[data-effect='embers'] i { background: var(--color-accent-gold); animation-name: workspace-rise; }
+.workspace-particles[data-effect='fireflies'] i { background: var(--color-accent-gold); animation-name: workspace-firefly; }
+@keyframes workspace-snow { from { transform: translate(-20px,-35vh); } to { transform: translate(35px,100vh); } }
+@keyframes workspace-rain { from { transform: translate(10px,-100vh); } to { transform: translate(-40px,100vh); } }
+@keyframes workspace-rise { from { transform: translate(-10px,100vh); opacity: 0; } 30% { opacity: .3; } to { transform: translate(45px,-100vh); opacity: 0; } }
+@keyframes workspace-firefly { 0%,100% { transform: translate(0,0); opacity: 0; } 50% { transform: translate(22px,-18px); opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .workspace-particles { display: none; } }
 .workspace-appearance-pane[data-workspace-prose]:not([data-workspace-prose='reading']) .tiptap-editor .ProseMirror[contenteditable] { font-family: var(--workspace-prose-font); }
 .workspace-appearance-pane[data-workspace-performance] *, .workspace-appearance-pane[data-workspace-performance] *::before, .workspace-appearance-pane[data-workspace-performance] *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .workspace-appearance-pane[data-workspace-performance] [class*='bg-deep/'] { background-color: var(--color-deep); }

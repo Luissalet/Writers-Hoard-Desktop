@@ -1,0 +1,48 @@
+# Writer1095 — offline gaps after bf6669a
+
+## Scope and compatibility
+
+This wave follows the inherited135-path D3–D5 lot bf6669a, already approved at Agora1095 revision1 and integrated locally. It implements the supported standalone wiki page/curation gap, Home creation-date counts/quick creation/tips, native fiction metadata/attendance/manual recap and scoped B11 improvements. See docs/OFFLINE-PREPARATION.md and the D2/B matrices for exact remaining subclaims. This does not install/update a release, migrate real profiles, invoke models or push.
+
+Wiki adds10document kinds through the same captured effective ReaderSource, full page projections, privacy before hydration, generic exclusions, nested/bulk/drag curation, immutable editions/CAS and JSON/ZIP/clone remapping. Boards are visible-card lists; soundscape and unprojected engines remain absent. Home covers6root creation dates and3quick-create engines; outlines remain Base-only. Fiction keeps the original sessions row shape and19exact original schemas/descriptions/annotations, adds a companion table and3tools. DM notes stay out of default agent/context/recap; the private full fiction JSON retains them. Library recents are ephemeral opens from that Library, not a universal reading log.4optional effects respect performance/app/system motion preferences. Retired changes are explicit and preserve characters.
+
+## Verification evidence
+
+Logs are retained under C:/Users/luism/Downloads/writer1095-*.log and the worktree's _stage review folders. Evidence is synthetic and isolated.
+
+- writer1095-next-verify.log: renderer/Electron typechecks, shipping lint0baseline, conformance34engines/64engine tables/6510keys, all PASS before the final review corrections. A later final-verify log detected a real TS2304 in an embedded-sheet branch; see correction below. Final after-fix verification is recorded in the acceptance section.
+- writer1095-next-vvd.log: **740groups,162suites,0failed**. This broad run began before the final independent review fixes; the affected areas were rerun with the precise regressions below. The runner now also registers the independent regression suites and embedded-sheet case, rather than pretending those extra entries ran in that earlier162suite invocation.
+- writer1095-next-critical.log: **396critical checks PASS**, process exit0.
+- writer1095-next-build.log: production Vite build(base./) PASS. No installed executable was restarted or replaced.
+- writer1095-next-fiction.log: native API/MCP/original19paths PASS, initial full-renderer fixture failed because dist/index.html did not exist in this worktree. After building, writer1095-next-fiction-built.log passes native API/MCP plus full renderer/4switchesOFF/narrationOFF/manual send/worker shutdown. Failed log retained.
+- B2 author:7SQLite/ASGI tests;3contract groups. Independent review: original fixture compared to Git bf6669a, cold status/catalogue/OFF/habilitation without worker/data,4UI groups and3race regressions. No real data/model/network service involved.
+- Wiki author:4standalone groups,3curation groups,50legacy focal groups. Independent wiki review:4groups with DB closed plus9legacy look/changes groups including11exact legacy hash sets.
+- Home:6author and6independent groups,3engine persistence/undo, era writing/note isolation, rejected invalid/archived eras/disabled engines, dates and exact accented title preservation.
+- Small improvements:4author plus4independent groups, bookmark CAS/concurrency/Undo, era isolation, motion/performance and portal focus. CSS-empty focal runners do not certify visual contrast; actual Browser evidence below does.
+
+## Independent findings and corrections
+
+1. Home filtered query engine:notes "Título café" -borrador tag:magia offered creation and copied search syntax into content. Recognized filters/exclusions/phrases now suppress creation; plain original accents/case remain intact. RED and final6GREEN retained in _stage/review-home-independent*.log.
+2. Wiki board reference used genealogy while exclusion used relation-tree, leaking the omitted tree's title. Shared kind normalization now applies to tool previews, semantic references and source blocks. Independent RED→GREEN4, plus curation/standalone/tool-blocks after-fix18groups.
+3. Session IO allowed late typing to disappear on response and repeated Enter to create/rename twice. Immediate refs and disabled fieldsets preserve the draft and avoid duplicate writes. Independent RED→GREEN3 plus4authorUI groups.
+4. Library pin in an era exposed an existing transaction hang: parallel inherited-document hashing used Dexie.waitFor concurrently. Era source reads are sequential only inside the transaction; Base/outside transactions remain parallel. The same full fixture with media Blob now completes; independent4groups and author4PASS. Undo retains monotonic revision and rejects intervening changes.
+5. Final typecheck found an undefined id introduced into embedded sheet rendering. The native legacy embedded renderer is restored; the stable prefix stays only in standalone pages with a valid id. Real Codex embedded sheet with notes/ink/eraser RED→GREEN1, plus standalone4 and blocks7.
+6. Fresh visual review initially requested recapture because fiction-prep.png incorrectly showed the lower form. It was replaced and revalidated; no UI verdict is attributed to invalid evidence. Full review then requested preserving session drafts across close/switch and primary hover contrast. SessionsPage now retains a private world/session cache while mounted, rebases untouched fields and uses owner tokens against stale responses after remount. Five final draft/date/error regressions PASS, plus the3race/4authorUI/3contract groups. Real Browser closed the edited session, opened another, returned and recovered the exact unsaved hook. Primary Create now retains gold/dark text under real hover; scoped computed styles confirm hover=true and base contrast8.9849:1. Fresh VerdictPass scored both findings resolved, disposition ship limited to these2fixes; it is not an unrelated whole-product certification.
+
+## Real bridge and Browser
+
+_stage/qa-codex/native-next-result.json: stdio initialize/catalogue930tools; wh_project_quick_create note and wh_project_home; wh_story_session_create/list/update plan→live→ready/played, default DM omission and explicit private read; wh_wiki_profile_get includeDocuments and real note-only preview. Original entity_upsert retired and entity_get readback also pass actual stdio (_stage/qa-codex/retired-native-result.json). The previous bf6669a test created/revoked a real secondary key and verified Principal remained usable; that credential test is not replaced with a mock here.
+
+Browser background IAB: actual Home create and palette Enter; right-click Library pin/read-open/session list; particles14withpointer-events:none and performance0; wiki board-only profile, bulk include/save, Puerto/Rutas subsections and standalone preview; separate exported note HTML at desktop and390px reader viewport. Fiction NativeSurface uses a test-only HTTP relay to the actual own Electron preload fiction.request, same native worker and private fixture directory. It creates a world and planned session, saves120min/place/hook/DM/Nora attendance, starts explicitly, saves recap ready+played and reloads. Date25Oct2026 18:30 Europe/Madrid persists with real keyboard input. CUA fill alone changed the datetime DOM without React input state; ArrowUp/Down confirmed the native input path, no source workaround.
+
+No desktop input was used. The relay is an uncommitted local QA harness, not a product API or a claim that fiction runs without Desktop. Captures in .impeccable/review/1095-next and C:/Users/luism/Downloads/writer1095-*.png have been opened and validated.390px evidence is the standalone reader inside an explicit iframe; it does not certify the entire desktop workspace as a mobile app.
+
+## Acceptance and integration
+
+Final after-fix writer1095-final2-verify.log passes renderer and Electron typechecks, shipping lint with0baseline fingerprints and conformance34engines/64tables/6510keys. writer1095-final-build.log passes production base./ Vite in45.98s; writer1095-final-electron-build.log passes the native main/preload/stdio bundles. **writer1095-final-vvd.log:759groups,167suites,0failed, process exit0**, after all source corrections and with every new independent/draft/embedded-sheet case registered. The older broad and red logs remain retained; the final complete pass does not rewrite them.
+
+The fresh visual verdict is ship at the stated2fix scope. The final documenter recorded only .impeccable/surfaces/offline-preparation.md and its local JSON; PRODUCT.md, DESIGN.md and the global sidecar remain unchanged. No detector/context rerun, new raster or identity replacement occurred.
+
+The Google manual was extended natively under both shared manual locks after their previous owner released them: requiredRevisionId CAS,1270characters inserted into the existing Writer paragraph, readback198paragraphs with the target exactly expected and197others unchanged. It distinguishes code capabilities from the separately updated installed app. Own QA fiction was switched OFF and its proxy/hidden Electron/Vite stopped by verified exact process identity;63395–63398 have no listeners. No installed app/model was stopped.
+
+Exact-path Luissalet commit and independent Agora submission revision2 acceptance are required before lock-protected main integration. Their exact SHA/revision/readback are recorded in Agora1195 and the task submission, avoiding a self-referential commit hash in this file. No push. Task1095 retains partial matrix gaps; do not silently close it or delete its worktree while it remains open.
