@@ -1040,6 +1040,26 @@ export async function whListPlaceLinks(args: ToolArgs): Promise<unknown> {
   };
 }
 
+/** Create the card and its ordinary atlas link together, matching the inspector. */
+export async function whCreatePlaceCard(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  await assertEngineEnabled(world.projectId, 'codex');
+  const key = requireString(args, 'key');
+  placeTarget(key);
+  const type = optEnum(args, 'type', ['location', 'character', 'faction', 'item', 'concept', 'magic', 'custom'] as const) ?? 'location';
+  const opened = await openWorldForReading(world, 'full', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const place = opened.world.atlas.byKey.get(key);
+  if (!place) throw new BridgeError('not-found', 'No place with that key in this world.');
+  const { createPlaceCard } = await import('@/engines/worldgen/placeCards');
+  const receipt = await createPlaceCard({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id, place, type);
+  return withAudit({ worldId: world.id, key, created: true, cardId: receipt.card.id, linkId: receipt.link.id, title: receipt.card.title, type: receipt.card.type }, {
+    projectId: world.projectId, entityId: receipt.card.id, entityIds: [receipt.card.id, receipt.link.id], kind: 'create',
+    summary: `created card "${receipt.card.title}" from an atlas place`, before: { __placeCard: receipt },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // The saved look of a world
 // ---------------------------------------------------------------------------
