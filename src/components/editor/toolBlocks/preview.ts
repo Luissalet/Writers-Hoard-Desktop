@@ -12,6 +12,8 @@ import { exportMapSvg, DEFAULT_MAP_LAYERS } from '@/components/maps/mapGeometry'
 import { exportRelationTreeSvg } from '@/engines/genealogy/relationTrees';
 import { exportRadarSvgComplete } from '@/engines/radar/interchange';
 import { validateSheet,type CharacterSheet } from '@/engines/character-sheets/types';
+import { cocSummary,type CocSummary } from '@/engines/character-sheets/cocSummary';
+import { cocSummaryHtml } from '@/engines/character-sheets/cocSummaryMarkup';
 import { sheetPaper } from '@/engines/character-sheets/paper';
 import { projectCodexEntry } from '@/engines/codex/properties';
 import { resolveRadarSeries } from '@/engines/radar/model';
@@ -26,7 +28,7 @@ import type { ModelAsset } from '@/engines/model-viewer/portable';
 import { prepareModelReaderRuntime } from '@/engines/model-viewer/offlineExport';
 import { escapeToolText as esc, targetAllowed, toolTarget, type ToolDocumentTarget } from './model';
 
-export interface ToolPreview { title: string; html: string; truncated: boolean; model?: ModelAsset;sheet?:CharacterSheet }
+export interface ToolPreview { title: string; html: string; truncated: boolean; model?: ModelAsset;sheet?:CharacterSheet;summary?:CocSummary }
 export interface ToolExportPolicy { page?:boolean; excludedDocuments?:readonly {kind:string;id:string;namespace?:string}[]; source?:ReaderSource; eraId?: string; includeMaps?: boolean; includeImages?: boolean; includeMedia?: boolean; excludedMapIds?: ReadonlySet<string>|readonly string[]; excludedEntryIds?: ReadonlySet<string>|readonly string[]; excludedFields?:readonly string[] }
 const excluded = (ids:ReadonlySet<string>|readonly string[]|undefined,id:string|undefined) => Boolean(id && (Array.isArray(ids)?ids.includes(id):(ids as ReadonlySet<string>|undefined)?.has(id)));
 const text = (value: unknown, max = 400) => esc(String(value ?? '').slice(0, max));
@@ -71,6 +73,7 @@ export function sanitizeToolPreviewHtml(source:string,stablePrefix?:string,allow
     if(allowImages&&node.tagName==='IMG'&&raster(node.getAttribute('src')??'')){const img=document.createElement('img');img.src=node.getAttribute('src')!;img.alt=node.getAttribute('alt')??'';parent.append(img);return;}
     if(!tags.has(node.tagName))return;
     const element=document.createElement(node.tagName.toLowerCase());parent.append(element);
+    if(node.tagName==='SECTION'&&node.hasAttribute('data-coc-summary'))element.setAttribute('data-coc-summary',node.getAttribute('data-coc-summary')!);
     if(node.tagName==='SECTION'&&node.hasAttribute('data-wh-local-tool-preview'))element.setAttribute('data-wh-local-tool-preview','true');
     for(const child of node.childNodes)visit(child,element);
   };
@@ -186,6 +189,7 @@ export async function resolveToolPreview(target: ToolDocumentTarget, hostProject
   if (target.kind === 'character-sheets') {
     const source = project.characterSheets?.find(row => row.id === target.documentId); if (!source || policy.page&&excluded(policy.excludedEntryIds,source.linkedEntryId)) return null;
     validateSheet(source);
+    if(target.sheetDisplay==='compact'){const summary=cocSummary(source);return summary?{...result(source.title,cocSummaryHtml(summary,locale)),summary}:null;}
     return {...result(source.title,''),sheet:structuredClone(source)};
   }
   const model = project.modelAssets?.find(row => row.id === target.documentId); if (!model || policy.includeMedia === false) return null;
@@ -197,7 +201,7 @@ export async function resolveToolPreview(target: ToolDocumentTarget, hostProject
 export async function prepareToolDocumentBlocksForExport(html: string, projectId: string, locale: 'es'|'en' = 'en', policy:ToolExportPolicy = {}): Promise<string> {
   const doc = new DOMParser().parseFromString(sanitizeRichHtml(html), 'text/html');
   for (const element of doc.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"]')) {
-    const target = toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,label:element.dataset.label,namespace:element.dataset.namespace,presentation:element.dataset.presentation});
+    const target = toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,label:element.dataset.label,namespace:element.dataset.namespace,presentation:element.dataset.presentation,sheetDisplay:element.dataset.sheetDisplay});
     let preview: ToolPreview|null = null;
     try { if (target) preview = await resolveToolPreview(target,projectId,locale,policy); } catch { /* Invalid sources get an honest fallback. */ }
     const section = doc.createElement('section'); section.className = 'wh-tool-export';

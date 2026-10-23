@@ -20,6 +20,8 @@ import EncounterPanel from '@/engines/encounters/EncounterPanel';
 import DiceTray from '@/engines/dice/DiceTray';
 import TableRulesPanel from './TableRulesPanel';
 import { addMonsterToFight } from '@/engines/encounters/fromSources';
+import { cocSummary } from './cocSummary';
+import CocSummaryCard from './CocSummaryCard';
 
 export default function CharacterSheetsEngine({ projectId }: EngineComponentProps) {
   return <Workspace key={projectId} projectId={projectId} />;
@@ -40,13 +42,13 @@ function Workspace({ projectId }: EngineComponentProps) {
     for (const key of Object.keys(before)) if (!next[key]) journal.delete(key);
     rerender(value => value + 1);
   };
-  const [view, setView] = useState<'sheets' | 'compendium' | 'fight' | 'dice' | 'rules'>('sheets');
+  const [view, setView] = useState<'sheets' | 'roster' | 'compendium' | 'fight' | 'dice' | 'rules'>('sheets');
   const [selected, setSelected] = useState(''); const [preset, setPreset] = useState<SheetPreset>('5e-character');
   const [query, setQuery] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [status, setStatus] = useState(''); const [conflict, setConflict] = useState(false);
   const [confirmation, setConfirmation] = useState<null | { message: string; action: () => void | Promise<void>; destructive: boolean }>(null);
   const importRef = useRef<HTMLInputElement>(null); const pending = useRef(false);
   const deepLink = useDeepLinkParam('entity'); const [seenLink, setSeenLink] = useState(''); const viewLink = useDeepLinkParam('view'); const [seenView, setSeenView] = useState('');
-  if (viewLink && viewLink !== seenView) { setSeenView(viewLink); if (viewLink === 'rules') setView('rules'); if (viewLink === 'fight') setView('fight'); }
+  if (viewLink && viewLink !== seenView) { setSeenView(viewLink); if (viewLink === 'rules') setView('rules'); if (viewLink === 'fight') setView('fight'); if (viewLink === 'roster') setView('roster'); }
   const sheets = useMemo(() => project?.characterSheets ?? [], [project?.characterSheets]);
   const id = selected || sheets[0]?.id || Object.keys(drafts)[0] || '';
   const active = drafts[id]; const rawSheet = active?.sheet ?? sheets.find(item => item.id === id);
@@ -84,7 +86,8 @@ function Workspace({ projectId }: EngineComponentProps) {
         void perform(async () => { try { if (file.size > 8000000) throw new Error(); const next = parseSheetImport(await file.text()); if (next.linkedEntryId && !entries.some(entry => entry.id === next.linkedEntryId)) next.linkedEntryId = undefined; setDrafts(current => ({ ...current, [next.id]: { sheet: next, base: null } })); setSelected(next.id); setConflict(false); setStatus(c.unsaved); } catch { setError(c.importError); } });
       }} />
     </div></header>
-    <div role="tablist" aria-label={locale === 'es' ? 'Vista' : 'View'} className="flex gap-1 border-b border-border px-5 py-2">{(['sheets', 'compendium', 'fight', 'dice', 'rules'] as const).map(value => <button key={value} type="button" role="tab" aria-selected={view === value} data-testid={`sheets-view-${value}`} onClick={() => setView(value)} className={`rounded-lg px-3 py-1.5 text-sm ${view === value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{({ sheets: locale === 'es' ? 'Hojas' : 'Sheets', compendium: locale === 'es' ? 'Compendio' : 'Compendium', fight: locale === 'es' ? 'Combate' : 'Fight', dice: locale === 'es' ? 'Dados' : 'Dice', rules: locale === 'es' ? 'Reglas de la mesa' : 'Table rules' })[value]}</button>)}</div>
+    <div role="tablist" aria-label={locale === 'es' ? 'Vista' : 'View'} className="flex flex-wrap gap-1 border-b border-border px-5 py-2">{(['sheets', 'roster', 'compendium', 'fight', 'dice', 'rules'] as const).map(value => <button key={value} type="button" role="tab" aria-selected={view === value} data-testid={`sheets-view-${value}`} onClick={() => setView(value)} className={`rounded-lg px-3 py-1.5 text-sm ${view === value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{({ sheets: locale === 'es' ? 'Hojas' : 'Sheets', roster: locale === 'es' ? 'Investigadores' : 'Investigators', compendium: locale === 'es' ? 'Compendio' : 'Compendium', fight: locale === 'es' ? 'Combate' : 'Fight', dice: locale === 'es' ? 'Dados' : 'Dice', rules: locale === 'es' ? 'Reglas de la mesa' : 'Table rules' })[value]}</button>)}</div>
+    {view === 'roster' && <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5" data-testid="coc-roster"><p className="text-sm text-text-muted">{locale==='es'?'Resumen de fichas de investigador guardadas. Los cambios sin guardar siguen en la ficha y no aparecen aquí.':'Summary of saved investigator sheets. Unsaved changes stay in the sheet and are not shown here.'}</p><div className="grid gap-4 xl:grid-cols-2">{sheets.flatMap(saved=>{const summary=cocSummary(saved);return summary?[<CocSummaryCard key={saved.id} summary={summary} locale={locale} onOpen={()=>{setSelected(saved.id);setView('sheets');setConflict(false);setError('');}}/>]:[];})}</div>{!sheets.some(saved=>saved.preset==='coc7')&&<p className="text-sm text-text-muted">{locale==='es'?'Crea y guarda una ficha de investigador para verla aquí.':'Create and save an investigator sheet to see it here.'}</p>}</div>}
     {view === 'compendium' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><CompendiumPanel projectId={projectId} eraId={scope.eraId} locale={locale} onAddToFight={monster => { void addMonsterToFight(projectId, monster, 1, locale === 'es' ? 'Combate' : 'Fight').catch(() => setError(c.error)); }} /></div>}
     {view === 'dice' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><DiceTray projectId={projectId} locale={locale} /></div>}
     {view === 'rules' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><TableRulesPanel projectId={projectId} locale={locale} /></div>}

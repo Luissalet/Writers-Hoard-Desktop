@@ -46,6 +46,16 @@ HP single-hit thresholds drive major wound, unconscious/dying/dead states. Pendi
 
 Recalculating secondary values, starting a day and resolving skill development use an ordinary Confirm dialog. Cancelling preserves the current draft; sheet/field deletion keeps its deletion label and styling.
 
+## Investigator summaries
+
+The optional **Investigators** view lists saved CoC sheets with current/maximum HP, SAN and Luck, active conditions, trait regular/half/fifth values and featured skills. **Open sheet** returns to the existing editor and retains its draft. The roster reads saved records; an unsaved selection or resource edit is shown only in the normal sheet until Save.
+
+Play → **Featured skills** explicitly selects up to five ordered skill IDs, independently of development marks. Five is the number of visible summary slots; it does not change the sheet's full skill list. `coc.summarySkillIds` is optional. Existing preset skill IDs are generated UUIDs, so absence remains unconfigured with guidance instead of guessing matches by name or writing a default selection on read. An empty array deliberately selects none. Renaming a selected skill retains its ID; a removed skill displays unavailable until its slot is explicitly cleared. Reset removes the optional field.
+
+`cocSummary(sheet)` is a pure projection using the existing resolved rules and authored values. `CocSummaryCard` presents the same data locally; `cocSummaryHtml` renders it statically without interactive callbacks. The card accepts optional `onOpen` and `onRoll(subjectId)` callbacks for an editable host; the renderer itself performs no roll or persistence. The roster and static HTML are read-only. Paper and ink are unchanged.
+
+MCP `wh_sheet_get` adds `derived.summary` for CoC. `wh_sheet_list({includeSummary:true})` adds summaries only to CoC rows; the ordinary metadata list remains the default. Configure selection using normal `wh_sheet_update` with its current revision. JSON, project clone/ZIP and explicit eras carry the optional IDs; read-only projections create no revision or Undo receipt.
+
 ## API and projection
 
 `cocRules.ts` exports pure rules and `resolveCocSheet`; UI and native operations consume those same rules. `bridge.ts` / `bridgeManifest.ts` expose normal `wh_sheet_*` CRUD, JSON, ink and CoC action tools. Writes use saveSheet/deleteSheet and expected revisions; reads project calculated values without database migration writes. The document tool block projects resolved sheet paper read-only.
