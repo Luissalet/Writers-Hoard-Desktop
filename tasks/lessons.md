@@ -8,6 +8,8 @@ When Luis identifies his Brave tab as active, inspect the Browser inventory and 
 
 Luis corrected a drift toward bridge credentials, delivery bookkeeping and stopping after a batch. The ongoing objective is to exercise VVD's live website and SDK, then give Writer the same functions or more with equal or better behavior, excluding external paid/API dependencies. A completed delivery is the next baseline, not completion of that objective. Source labels and passing Writer tests do not prove reference parity: record the actual reference flow, reproduce it in Writer and close the concrete difference.
 
+Luis repeated “Sigue, no lo hemos igualado aún” after another delivery. Do not use a successful commit, a manual update or two completed features as the stopping condition. Continue with the next observed offline difference while productive work is available; reserve completion for the agreed parity scope or a concrete external blocker, and keep operational bookkeeping proportionate to feature work.
+
 ## Writer1095 — Keep the desktop available during UI verification
 
 Luis explicitly requested Browser control for Writer so he can keep working. Use a background browser and isolated data. Native IPC/API checks may use an isolated hidden host, but never use desktop input or bring its window forward.

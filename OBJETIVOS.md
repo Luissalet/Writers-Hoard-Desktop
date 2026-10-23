@@ -1,6 +1,6 @@
 # Objetivos de autoría local
 
-La comparación viva de Table0.1.37 cierra cinco filtros ausentes (exclusión, prefijo/sufijo y límites inclusivos). Quedan por contrastar las ediciones de filas vinculadas a tarjetas y el resumen compacto CoC. Evidencia y límites en tasks/vvd1095/verification-tables.md.
+La comparación viva de Table0.1.37 cierra cinco filtros ausentes (exclusión, prefijo/sufijo y límites inclusivos); la creación de fila y sincronización de nombre con su tarjeta se ejercitaron después. El resumen compacto CoC, selección de cinco habilidades, lista de investigadores guardados, lectura Acerca de y listas vivas del SDK están integrados hasta12264fd, con CAS8 complementaria. Quedan sin acreditar la edición numérica y el borrado de tarjeta en la referencia, su selector de habilidades y su salida wiki de sólo lectura. Seguir comparando otros huecos offline; no declarar paridad universal ni cerrar1095. Evidencia y límites en tasks/vvd1095/verification-tables.md y tasks/vvd1095/verification-compact.md.
 
 La continuación1095 contrasta la web y el SDK vivos antes de cerrar diferencias: índice/query de herramientas propias, Deshacer de teclado y estado CoC en papel están implementados; verificación/integración exactas en tasks/vvd1095/verification-live.md. La comparación sigue abierta: no se declara paridad universal ni se incluyen funciones que dependan de APIs externas o pagos.
 
@@ -8,8 +8,8 @@ Alcance: continuación de las herramientas locales de mundo documentadas en
 [WORLD_AUTHORING](docs/WORLD_AUTHORING.md). Este archivo no sustituye los planes
 ni las tareas de otros módulos.
 
-- Completar la integración Git con los hashes revisados y bloqueo de
-  integración; QA, manual y documentación ya están completos.
+- Integrar cada entrega posterior con los hashes revisados y bloqueo de
+  integración, tras su QA y documentación; la entrega hasta12264fd ya está integrada.
   Conservar los fallos originales y los límites de cada revisión independiente.
 - Mantener la misma operación y el mismo ámbito en interfaz y MCP: Base/era,
   propietario, revisiones, recuperación y Deshacer que preserve cambios ajenos.

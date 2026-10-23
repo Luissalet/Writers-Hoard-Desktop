@@ -1275,3 +1275,21 @@ Baseline main e75aabe. In Brave's real Table0.1.37 preview, numeric sort yields9
 - [x] Add gte/lte/notContains/startsWith/endsWith to shared filtering, UI EN/ES and normal MCP schema/handler without changing existing operators.
 - [x] RED/GREEN real CSV/UI/dispatcher tests, numeric equality boundary, current suites and independent review; author/reviewer11groups each, root7legacy area groups, types/lint/conformance pass.
 - [x] Browser proof, exact transport limits, scoped commit8f90c68/CAS5/ff-only integration under merge lock, clean-main build25.43s/Electron/Node931; no push. Native manual updated without changing197other paragraphs. Task1095 stays open for actual card-linked row editing and compact CoC roster comparisons.
+
+## Continue until the remaining parity scope is actually covered
+
+Luis repeated that parity has not been reached. Main44edddf is another baseline, not the stopping condition. Next success criteria are actual live card-backed table edits and actual compact sheet embedding/selected skills, reproduced through normal Writer UI and its MCP operations with persistence/portability preserved.
+
+- [x] Attempt a separate reference QA world: blocked by paid world limit, no purchase. Continue with explicitly named synthetic QA documents; original cards/maps/wiki untouched.
+- [x] Exercise actual card-backed row creation/name sync; reproduce native Writer live-table save/reopen on the same card. Numeric reference edit/delete remain unverified; no missing capability inferred from labels.
+- [x] Fix genuinely empty sheet preview in actual Tiptap NodeView,13focused groups author/reviewer, Browser re-open, CAS6 and locked ff-only930f6b2; no push.
+- [x] Exercise compact CoC embedding/source roll and implement saved skill choice, native projection/roster and opt-in linked summary without replacing full paper or moving ink; normal Brave Save/reopen and source Hard SpotHidden34/failure→Undo confirmed. Reference skill-choice control/readonly wiki remain unexercised.
+- [x] Correct saved Codex About hydration and player nested-caption leakage; complementary CAS8 approved7b841e2+12264fd. Native SDK WorldCardList stayed mounted through normal create/rename/archive and both saved blocks reopened resolved. Root integrated under merge lock without push; clean-main Vite46.61s/Electron/Node931 and combined verify:quick PASS. Manual readback preserved197other paragraphs; evidence/transport limits in vvd1095/verification-compact.md. MEMORY/own graph node updated under shared locks, previous bytes/other nodes and edges preserved; locks released.
+- [ ] Continue to the next observed offline gaps after these, with proportionate tests/review/integration and no push.
+
+## Rich notes — actual next reference gap
+
+Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item bullet list after closing/reopening. Writer notes currently offer title/cover but plain body only. Success: optional rich editing through existing Tiptap, coherent plain projection for search/AI, native MCP create/update/read, persistence and portability; old plain quick capture remains unchanged.
+
+- [x] Exercise actual reference slash heading/list, save/reopen, screenshot `_stage/live-next/vvd-rich-note.png`; no images uploaded or payment.
+- [ ] Implement optional native rich note body, review independently and prove Browser/MCP save/reopen and unchanged plain capture.
