@@ -1,4 +1,5 @@
 import { DEFAULT_PARAMS } from '../core/types';
+import { cellKmOf, isSheet, sheetKmForLandmass, worldKmOf } from '../core/geoScale';
 import { LANDMASS_KM } from '../core/landmass';
 import { useId } from 'react';
 import { Check, Dices, Sparkles } from 'lucide-react';
@@ -18,6 +19,9 @@ interface ParamsPanelProps {
   onReset?: () => void;
 }
 
+/** Sheet widths offered for a world that is not a single landmass (km across). */
+const WORLD_KM_CHOICES = [1000, 2000, 4000, 8000, 16000];
+
 export default function ParamsPanel({
   params, onChange, onGenerate, onRandomSeed, generating, hasWorld, onCreateAlternative, onReset,
 }: ParamsPanelProps) {
@@ -28,6 +32,18 @@ export default function ParamsPanel({
 
   const set = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) =>
     onChange({ ...params, [key]: value });
+  /**
+   * A single landmass is laid on a sheet its own size by default — a lone
+   * island on the whole planet is thirty cells of land with no room for a
+   * river. The sheet follows the land's size; unticked, the planet again.
+   */
+  const withSheet = (next: WorldParams, on: boolean): WorldParams => {
+    const rest = { ...next };
+    delete rest.worldKm;
+    return on && next.starter === 'landmass' ? { ...rest, worldKm: sheetKmForLandmass(next.landmassKm ?? LANDMASS_KM.default) } : rest;
+  };
+  const sheetOn = isSheet(params);
+  const landCellKm = cellKmOf(params, params.width);
 
   return (
     <div className="space-y-4">
@@ -43,7 +59,7 @@ export default function ParamsPanel({
               key={p.id}
               aria-pressed={selected}
               disabled={generating}
-              onClick={() => onChange(applyWorldPreset(params, p))}
+              onClick={() => onChange(withSheet(applyWorldPreset(params, p), p.overrides.starter === 'landmass' && (params.starter !== 'landmass' || sheetOn)))}
               className={`flex min-h-10 items-center justify-between gap-1 rounded-lg border px-2.5 py-2 text-left text-xs transition disabled:opacity-50 ${selected ? 'border-accent-gold/60 bg-accent-gold/10 text-accent-gold' : 'border-border text-text-primary hover:bg-elevated'}`}
             >
               {t(`worldgen.preset.${p.id}`)}
@@ -111,11 +127,30 @@ export default function ParamsPanel({
       {params.starter === 'landmass' && <div className="space-y-2 rounded-lg border border-border bg-surface/50 p-2.5 text-xs leading-relaxed text-text-muted" data-testid="worldgen-landmass-note">
         <p>{t('worldgen.params.landmassNote')}</p>
         <Slider label={t('worldgen.params.landmassKm')} value={params.landmassKm ?? LANDMASS_KM.default} min={LANDMASS_KM.min} max={LANDMASS_KM.max} step={100}
-          display={`${(params.landmassKm ?? LANDMASS_KM.default).toLocaleString(locale)} km`} onChange={(v) => set('landmassKm', v)} />
+          display={`${(params.landmassKm ?? LANDMASS_KM.default).toLocaleString(locale)} km`} onChange={(v) => onChange(withSheet({ ...params, landmassKm: v }, sheetOn))} />
+        <label className="flex cursor-pointer items-start gap-2 text-text-primary" data-testid="worldgen-landmass-sheet">
+          <input type="checkbox" className="mt-0.5" checked={sheetOn} onChange={(e) => onChange(withSheet(params, e.target.checked))} />
+          <span>{t('worldgen.params.landmassSheet')}<span className="block text-text-muted">{sheetOn
+            ? t('worldgen.params.landmassSheetOn').replace('{km}', worldKmOf(params).toLocaleString(locale))
+            : t('worldgen.params.landmassSheetOff')}</span></span>
+        </label>
         <p data-testid="worldgen-landmass-cell">{t('worldgen.params.landmassCell')
-          .replace('{km}', String(Math.round(40075 / params.width)))
-          .replace('{cells}', String(Math.round((params.landmassKm ?? LANDMASS_KM.default) / (40075 / params.width))))}</p>
+          .replace('{km}', landCellKm >= 10 ? String(Math.round(landCellKm)) : landCellKm.toLocaleString(locale, { maximumFractionDigits: 1 }))
+          .replace('{cells}', String(Math.round((params.landmassKm ?? LANDMASS_KM.default) / landCellKm)))}</p>
       </div>}
+      {params.starter !== 'landmass' && <label className="block space-y-1 text-xs text-text-muted" data-testid="worldgen-world-km">
+        <span className="font-medium text-text-primary">{t('worldgen.params.worldKm')}</span>
+        <select value={sheetOn ? String(worldKmOf(params)) : 'planet'}
+          onChange={(e) => { const next = { ...params }; if (e.target.value === 'planet') delete next.worldKm; else next.worldKm = Number(e.target.value); onChange(next); }}
+          className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-text-primary">
+          <option value="planet">{t('worldgen.params.worldKmPlanet')}</option>
+          {[...new Set([...WORLD_KM_CHOICES, ...(sheetOn ? [worldKmOf(params)] : [])])].sort((a, b) => a - b).map((km) => (
+            <option key={km} value={String(km)}>{t('worldgen.params.worldKmSheet').replace('{km}', km.toLocaleString(locale))}</option>
+          ))}
+        </select>
+        <span className="block leading-relaxed">{t(sheetOn ? 'worldgen.params.worldKmSheetHint' : 'worldgen.params.worldKmPlanetHint')
+          .replace('{cell}', landCellKm >= 10 ? String(Math.round(landCellKm)) : landCellKm.toLocaleString(locale, { maximumFractionDigits: 1 }))}</span>
+      </label>}
       {params.starter && params.starter !== 'landmass' && <div className="rounded-lg border border-border bg-surface/50 p-2.5 text-xs leading-relaxed text-text-muted" data-testid="worldgen-starter-note">
         <p>{t('worldgen.params.starterNote')}</p>
         <button type="button" className="mt-1.5 text-accent-gold underline" data-testid="worldgen-starter-leave"

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db';
 import {
   BookOpen,
   ChevronDown,
@@ -12,6 +14,7 @@ import {
 } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import PublishingPreviewPane from '@/components/project/PublishingPreviewPane';
+import BookStylePanel from '@/components/project/BookStylePanel';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import { canExportPdf } from '@/engines/writings/manuscriptExport';
@@ -63,6 +66,8 @@ function initialDraft(
     format: 'manuscript',
     includeTitlePage: true,
     includeToc: false,
+    includeCopyright: false,
+    includeBlurb: false,
     includeSynopsis: false,
     includeBibliography: false,
     citationStyle: 'apa',
@@ -85,6 +90,15 @@ export default function PublishingProfileModal({
   onSaved,
 }: PublishingProfileModalProps) {
   const { t, locale } = useTranslation();
+  // The compile shortcuts pass only the id and the title: the byline, the back
+  // cover and the chapter images come from the stored project, as the export does.
+  const stored = useLiveQuery(() => db.projects.get(project.id), [project.id]);
+  const previewProject = useMemo(() => ({
+    ...project,
+    author: (project as Partial<Project>).author ?? stored?.author,
+    blurb: (project as Partial<Project>).blurb ?? stored?.blurb,
+    readerPresentation: (project as Partial<Project>).readerPresentation ?? stored?.readerPresentation,
+  }), [project, stored]);
   const [draft, setDraft] = useState<PublishingProfile>(() => initialDraft(project, writings, variant, initialProfile));
   const [busy, setBusy] = useState<PublishingOutput | 'save' | null>(null);
 
@@ -279,6 +293,22 @@ export default function PublishingProfileModal({
             {t('projectTools.publishing.includeToc')}
           </label>
           <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" data-testid="publishing-include-copyright" checked={draft.includeCopyright ?? false} onChange={event => update('includeCopyright', event.target.checked)} className="accent-accent-gold" />
+            {t('projectTools.publishing.includeCopyright')}
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" data-testid="publishing-include-blurb" checked={draft.includeBlurb ?? false} onChange={event => update('includeBlurb', event.target.checked)} className="accent-accent-gold" />
+            {t('projectTools.publishing.includeBlurb')}
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" data-testid="publishing-include-chapter-images" checked={draft.includeChapterImages ?? false} onChange={event => update('includeChapterImages', event.target.checked)} className="accent-accent-gold" />
+            {t('projectTools.publishing.includeChapterImages')}
+          </label>
+          <label className="flex cursor-pointer items-center gap-2" title={t('projectTools.publishing.includeInlineImagesHint')}>
+            <input type="checkbox" data-testid="publishing-include-inline-images" checked={draft.includeInlineImages ?? false} onChange={event => update('includeInlineImages', event.target.checked)} className="accent-accent-gold" />
+            {t('projectTools.publishing.includeInlineImages')}
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
             <input type="checkbox" checked={draft.includeSynopsis} onChange={event => update('includeSynopsis', event.target.checked)} className="accent-accent-gold" />
             {t('projectTools.publishing.synopsis')}
           </label>
@@ -299,6 +329,8 @@ export default function PublishingProfileModal({
             </select>
           )}
         </div>
+
+        <BookStylePanel value={draft.bookStyle} onChange={bookStyle => update('bookStyle', bookStyle)} />
 
         <section>
           <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -401,7 +433,7 @@ export default function PublishingProfileModal({
         </section>
 
         <PublishingPreviewPane
-          project={project}
+          project={previewProject}
           profile={draft}
           writings={scopedWritings}
           titleOverride={titleOverride}

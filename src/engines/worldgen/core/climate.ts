@@ -9,6 +9,7 @@
 // shadows and continental-interior deserts. Runs on a half-resolution grid
 // (climate is smooth) and bilinearly upsamples.
 
+import { climateLatDeg } from './geoScale';
 import { SphereNoise } from './noise';
 import type { WorldParams } from './types';
 
@@ -109,7 +110,7 @@ export function computeClimate(
   // ---- Sea-level temperature by latitude (+ noise wobble) ----
   const tempHalf = new Float32Array(n);
   for (let y = 0; y < h; y++) {
-    const lat = (0.5 - (y + 0.5) / h) * 180;
+    const lat = climateLatDeg((y + 0.5) / h, params);
     const a = Math.abs(lat) / 90;
     const baseT = 29 - 51 * Math.pow(a, 1.9) + params.temperature;
     const aFrac = Math.abs(lat) / 90;
@@ -145,7 +146,7 @@ export function computeClimate(
       // Evapotranspiration recycles moisture over warm land — without this,
       // continental interiors turn into wall-to-wall desert. Suppressed in
       // the subtropical high (deserts must stay deserts).
-      const lat = Math.abs((0.5 - ((j / w) | 0) / h) * 180);
+      const lat = Math.abs(climateLatDeg(((j / w) | 0) / h, params));
       const subtropic = Math.exp(-((lat - 23) ** 2) / (2 * 10 * 10));
       evap[j] = Math.min(0.26, 0.08 + t / 110) * (1 - 0.75 * subtropic);
       hum[j] = evap[j] * 0.5;
@@ -170,7 +171,7 @@ export function computeClimate(
   const wyRow = new Float32Array(h);
   const beltRow = new Float32Array(h);
   for (let y = 0; y < h; y++) {
-    const lat = (0.5 - (y + 0.5) / h) * 180;
+    const lat = climateLatDeg((y + 0.5) / h, params);
     const [wx, wy] = windAt(lat);
     wxRow[y] = wx; wyRow[y] = wy;
     const a = Math.abs(lat);
@@ -241,7 +242,7 @@ export function computeClimate(
   // ocean. Deep interiors run colder at high latitudes and slightly hotter
   // in the tropics — breaks the "temperature is only latitude" look.
   for (let y = 0; y < h; y++) {
-    const a = Math.abs((0.5 - (y + 0.5) / h) * 180);
+    const a = Math.abs(climateLatDeg((y + 0.5) / h, params));
     const yW = y * w;
     for (let x = 0; x < w; x++) {
       const j = yW + x;
@@ -258,7 +259,7 @@ export function computeClimate(
   // water to be genuinely cold rather than merely cool.
   if (inputs?.sst) {
     for (let y = 0; y < h; y++) {
-      const lat = Math.abs((0.5 - (y + 0.5) / h) * 180);
+      const lat = Math.abs(climateLatDeg((y + 0.5) / h, params));
       // Peak around 22°, gone by the mid-latitudes where storms dominate.
       const belt = Math.exp(-((lat - 22) ** 2) / (2 * 13 * 13));
       const yW = y * w;

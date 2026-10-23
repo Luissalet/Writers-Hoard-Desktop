@@ -13,6 +13,8 @@ export interface WorldTable {
   /** When set, rows are the project's real Codex entries of this type. */
   codexType?: CodexEntryType;
   codexTemplateId?:string;
+  /** A live view of every Codex card of the project, whatever its type (read-only cells). */
+  codexAllTypes?: boolean;
   hiddenPropertyIds?:string[];
   columns: DataColumn[];
   rows: DataRow[];

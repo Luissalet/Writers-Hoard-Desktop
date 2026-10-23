@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Route } from '../core/travel';
-import { travelAnchors, travellerAt, type TravellerState } from '../core/journeyPlayback';
+import { MOVING_SHARE, travelAnchors, travellerAt, type TravellerState } from '../core/journeyPlayback';
+import { partyHour } from '../core/hourLight';
 
 const SPEEDS = [0.5, 1, 2, 4] as const;
 
@@ -10,9 +11,11 @@ const SPEEDS = [0.5, 1, 2, 4] as const;
  * for each night where the planner put it, with what the party is doing. The
  * map draws the banner; this panel holds the clock.
  */
-export default function JourneyPlayback({ route, worldWidth, fromName, toName, onTraveller }: {
+export default function JourneyPlayback({ route, worldWidth, fromName, toName, onTraveller, setOffHour = 7, hoursPerDay = 10 }: {
   route: Route; worldWidth: number; fromName: string; toName: string;
-  onTraveller: (traveller: { x: number; y: number; label: string; resting: boolean } | null) => void;
+  onTraveller: (traveller: { x: number; y: number; label: string; resting: boolean; hour?: number } | null) => void;
+  /** When the party sets off each day and how long it moves: the clock the map's light follows. */
+  setOffHour?: number; hoursPerDay?: number;
 }) {
   const { t } = useTranslation();
   const anchors = useMemo(() => travelAnchors(route, worldWidth), [route, worldWidth]);
@@ -44,19 +47,22 @@ export default function JourneyPlayback({ route, worldWidth, fromName, toName, o
   // banner going away, is published at once.
   const lastPublish = useRef({ at: 0, label: '', phase: '' as string | undefined });
   const trailing = useRef(0);
+  // The party's clock hour, a quarter of an hour at a time, for the map's light.
+  const hour = state ? Math.round(partyHour(state.day, setOffHour, MOVING_SHARE, Math.min(20, hoursPerDay)) * 4) / 4 : undefined;
   useEffect(() => {
-    const value = state ? { x: state.x, y: state.y, label, resting: state.phase === 'rest' || state.phase === 'night' } : null;
+    const value = state ? { x: state.x, y: state.y, label, resting: state.phase === 'rest' || state.phase === 'night', hour } : null;
     const send = () => {
       window.clearTimeout(trailing.current);
       lastPublish.current = { at: performance.now(), label, phase: state?.phase };
       publish.current(value);
     };
     const prev = lastPublish.current;
-    const wait = 80 - (performance.now() - prev.at);
+    const since = () => performance.now() - prev.at;
+    const wait = 80 - since();
     if (!value || label !== prev.label || state?.phase !== prev.phase || wait <= 0) { send(); return; }
     window.clearTimeout(trailing.current);
     trailing.current = window.setTimeout(send, wait);
-  }, [state?.x, state?.y, label, state?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state?.x, state?.y, label, state?.phase, hour]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { window.clearTimeout(trailing.current); publish.current(null); }, []);
   // Leaving a route behind clears its clock.
   const [seenRoute, setSeenRoute] = useState(route);

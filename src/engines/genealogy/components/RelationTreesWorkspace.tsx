@@ -15,7 +15,7 @@ import { generateId } from '@/utils/idGenerator';
 import { db } from '@/db';
 import type { CodexEntry } from '@/types';
 import { rowToLink } from '../genealogyStore';
-import { copyCanonicalTree, duplicateRelationTree, exportRelationTreeSvg, layoutRelationTree, RelationTreeValidationError, TREE_KINDS, validateRelationTree, type RelationTreeDocument, type RelationTreeEdge } from '../relationTrees';
+import { copyCanonicalTree, duplicateRelationTree, treeVariantFamily, exportRelationTreeSvg, layoutRelationTree, RelationTreeValidationError, TREE_KINDS, validateRelationTree, type RelationTreeDocument, type RelationTreeEdge } from '../relationTrees';
 import { deleteRelationTree as deleteRelationTreeScoped, RelationTreeConflict, saveRelationTree as saveRelationTreeScoped } from '../relationTreeStore';
 import { relationTreeCopy, type RelationTreeCopy } from '../relationTreeCopy';
 import { makeTreeStroke, makeTreeText, MAX_TREE_ANNOTATIONS, TREE_ANNOTATION_COLOR, type RelationTreeAnnotation } from '../relationTreeAnnotations';
@@ -24,7 +24,11 @@ import { AnnotationNode, TreeAnnotationInspector, type AnnotationFlowNode } from
 import { insertTreeJunction, relationTreeSegments, removeTreeJunction, treeEdgeLabelPosition } from '../relationTreeRoutes';
 import { RELATION_ICON_NAMES } from '../relationIcons';
 import { ProjectIcon } from '@/components/common/ProjectIcon';
-import { JunctionNode, TreeRelationFlowEdge, type JunctionFlowNode, type RelationFlowEdge } from './TreeRelationFlow';
+import { GroupBoxNode, JunctionNode, TreeRelationFlowEdge, type GroupFlowNode, type JunctionFlowNode, type RelationFlowEdge } from './TreeRelationFlow';
+import { groupBox, groupOf, placeInTreeGroup, pruneTreeGroups, removeTreeGroup, setTreeGroup, TREE_GROUP_COLORS, type RelationLabelMode } from '../relationTreeGroups';
+import { createCodexEntry } from '@/db/operations';
+import { saveEraDocument } from '@/services/worldEras/store';
+import type { EraRow } from '@/services/worldEras/types';
 import { createTreePreset, snapTreePoint, TREE_PRESETS, treePresetNames, type TreePreset } from '../treePresets';
 import { decodeTreeImage, MAX_TREE_IMAGE_BYTES } from '../treeImages';
 import {reconnectTreeEdge,type TreeSide} from '../treeAffordances';
@@ -40,11 +44,11 @@ function draftsFor(projectId: string, eraId?: string) {
     return !!draft.tree && typeof draft.tree.id === 'string' && Array.isArray(draft.tree.nodes) && Array.isArray(draft.tree.edges) && Number.isInteger(draft.baseRevision);
   });
 }
-type TreeNodeData = { label: string; avatar?: string; deceased?: boolean; missing?: boolean; copy: RelationTreeCopy;onNeighbor:(side:TreeSide)=>void } & Record<string, unknown>;
+type TreeNodeData = { label: string; avatar?: string; deceased?: boolean; missing?: boolean; groupColor?: string; copy: RelationTreeCopy;onNeighbor:(side:TreeSide)=>void } & Record<string, unknown>;
 type PersonFlowNode = Node<TreeNodeData, 'person'>;
-type FlowNode = PersonFlowNode | AnnotationFlowNode | JunctionFlowNode;
+type FlowNode = PersonFlowNode | AnnotationFlowNode | JunctionFlowNode | GroupFlowNode;
 function PersonNode({ data, selected }: NodeProps<PersonFlowNode>) {
-  return <div className={`group relative w-[200px] min-h-[75px] rounded-lg border bg-surface px-3 py-2 shadow-sm ${selected ? 'border-accent-gold ring-1 ring-accent-gold' : 'border-border'}`}>
+  return <div className={`group relative w-[200px] min-h-[75px] rounded-lg border bg-surface px-3 py-2 shadow-sm ${selected ? 'border-accent-gold ring-1 ring-accent-gold' : 'border-border'}`} style={data.groupColor && !selected ? { borderColor: data.groupColor, borderLeftWidth: 4 } : undefined}>
     {([['top',ArrowUp,Position.Top],['bottom',ArrowDown,Position.Bottom],['left',ArrowLeft,Position.Left],['right',ArrowRight,Position.Right]] as const).map(([side,Icon,position])=><NodeToolbar key={side} isVisible={selected} position={position} offset={10}><button type="button" aria-label={`${data.copy.neighbor} · ${data.copy[side]} · ${data.label}`} title={`${data.copy.neighbor} · ${data.copy[side]}`} className="nodrag nopan flex h-8 w-8 items-center justify-center rounded border border-border bg-elevated text-accent-gold hover:bg-surface focus-visible:outline focus-visible:outline-accent-gold" onClick={event=>{event.stopPropagation();data.onNeighbor(side);}}><Icon size={15}/></button></NodeToolbar>)}
     {([['top', Position.Top], ['bottom', Position.Bottom], ['left', Position.Left], ['right', Position.Right]] as const).map(([id, position]) => <Handle key={id} id={id} type="source" position={position} className="!h-3 !w-3 !bg-accent-gold !border-surface" />)}
     <div className="flex items-center gap-2">
@@ -55,7 +59,7 @@ function PersonNode({ data, selected }: NodeProps<PersonFlowNode>) {
     {data.missing && <p className="mt-1 text-xs text-warning">{data.copy.missing}</p>}
   </div>;
 }
-const nodeTypes = { person: PersonNode, annotation: AnnotationNode, junction: JunctionNode };
+const nodeTypes = { person: PersonNode, annotation: AnnotationNode, junction: JunctionNode, 'group-box': GroupBoxNode };
 const edgeTypes = { relation: TreeRelationFlowEdge };
 
 // This child runs inside ReactFlow's store provider. Cancelling the gesture also
@@ -108,7 +112,9 @@ export function TreeEditor({ projectId, current, entries, onSaved, onVariant, on
   const [notice, setNotice] = useState('');
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [confirm, setConfirm] = useState<'node' | 'edge' | 'annotation' | 'junction' | 'reload' | null>(null);
+  const [confirm, setConfirm] = useState<'node' | 'nodes' | 'edge' | 'annotation' | 'junction' | 'reload' | null>(null);
+  // The people selected together (Shift+drag a box, Ctrl/⌘+click), for removing several at once.
+  const [multi, setMulti] = useState<string[]>([]);
   const history = useRef<{ past: RelationTreeDocument[]; future: RelationTreeDocument[] }>({ past: [], future: [] });
   const submitting = useRef(false);
   const tree = session.tree;
@@ -204,11 +210,36 @@ export function TreeEditor({ projectId, current, entries, onSaved, onVariant, on
     } catch (error) { setNotice(explain(error)); }
   };
   const nodes: FlowNode[] = [
+    ...(tree.groups ?? []).flatMap((group): GroupFlowNode[] => { const box = groupBox(tree, group, measurements); return box ? [{ id: `group-box:${group.id}`, type: 'group-box', position: { x: box.x, y: box.y }, width: box.width, height: box.height, style: { width: box.width, height: box.height, pointerEvents: 'none' }, selectable: false, draggable: false, focusable: false, connectable: false, zIndex: -1, data: { name: group.name, color: group.color } }] : []; }),
     ...(tree.annotations ?? []).map((annotation): AnnotationFlowNode => ({ id: annotation.id, type: 'annotation', measured:measurements[annotation.id], position: annotation.position, width: annotation.size.width, height: annotation.size.height, style: { width: annotation.size.width, height: annotation.size.height }, ariaLabel: annotation.kind === 'text' ? annotation.text.slice(0, 300) : copy.drawing, selected: selected?.kind === 'annotation' && selected.id === annotation.id, zIndex: 0, data: { annotation } })),
     ...(tree.junctions ?? []).map((point, index): JunctionFlowNode => ({ id: point.id, type: 'junction', measured:measurements[point.id], position: point.position, width: 16, height: 16, zIndex: 2, selected: selected?.kind === 'junction' && selected.id === point.id, ariaLabel: `${copy.junction} ${index + 1}`, data: { label: `${copy.junction} ${index + 1}` } })),
-    ...tree.nodes.map((node): PersonFlowNode => ({ id: node.id, type: 'person', measured:measurements[node.id], position: node.position, zIndex: 1, selected: selected?.kind === 'node' && selected.id === node.id, data: { label: nameFor(node), deceased: node.deceased, avatar: node.image ?? (node.codexEntryId ? byEntry.get(node.codexEntryId)?.avatar : undefined), missing: !!node.codexEntryId && !byEntry.has(node.codexEntryId), copy,onNeighbor:side=>{setSelected({kind:'node',id:node.id});setNeighbor({parentId:node.id,side});} } })),
+    ...tree.nodes.map((node): PersonFlowNode => ({ id: node.id, type: 'person', measured:measurements[node.id], position: node.position, zIndex: 1, selected: multi.includes(node.id) || selected?.kind === 'node' && selected.id === node.id, data: { label: nameFor(node), deceased: node.deceased, avatar: node.image ?? (node.codexEntryId ? byEntry.get(node.codexEntryId)?.avatar : undefined), missing: !!node.codexEntryId && !byEntry.has(node.codexEntryId), groupColor: groupOf(tree, node.id)?.color, copy,onNeighbor:side=>{setSelected({kind:'node',id:node.id});setNeighbor({parentId:node.id,side});} } })),
   ];
-  const edges: RelationFlowEdge[] = relationTreeSegments(tree).map(edge => ({ id: edge.id, source: edge.source, target: edge.target, sourceHandle: edge.sourceHandle ?? 'bottom', targetHandle: edge.targetHandle ?? 'top', reconnectable:edge.segmentIndex===0?(edge.last?true:'source'):(edge.last?'target':false), type: 'relation', ariaLabel: selected?.kind==='edge'&&selected.id===edge.logicalId ? copy.reconnectInstructions : undefined, data: { logicalId: edge.logicalId, segmentIndex: edge.segmentIndex, labelText: edge.segmentIndex || edge.label === '' ? '' : edge.label || copy[edge.kind], icon: edge.icon, labelPosition: treeEdgeLabelPosition(tree, tree.edges.find(item => item.id === edge.logicalId)!) }, selected: selected?.kind === 'edge' && selected.id === edge.logicalId, style: { stroke: selected?.id === edge.logicalId ? 'var(--color-accent-gold)' : 'var(--color-text-muted)', strokeWidth: 2, strokeDasharray: edge.style === 'dashed' ? '8 5' : edge.style === 'dotted' ? '2 5' : undefined }, markerEnd: edge.last && edge.kind.endsWith('_parent') ? { type: MarkerType.ArrowClosed } : undefined }));
+  const edges: RelationFlowEdge[] = relationTreeSegments(tree).map(edge => ({ id: edge.id, source: edge.source, target: edge.target, sourceHandle: edge.sourceHandle ?? 'bottom', targetHandle: edge.targetHandle ?? 'top', reconnectable:edge.segmentIndex===0?(edge.last?true:'source'):(edge.last?'target':false), type: 'relation', ariaLabel: selected?.kind==='edge'&&selected.id===edge.logicalId ? copy.reconnectInstructions : undefined, data: { logicalId: edge.logicalId, segmentIndex: edge.segmentIndex, labelText: tree.labelMode === 'hidden' || edge.segmentIndex || edge.label === '' ? '' : edge.label || copy[edge.kind], hoverOnly: tree.labelMode === 'hover', icon: edge.icon, labelPosition: treeEdgeLabelPosition(tree, tree.edges.find(item => item.id === edge.logicalId)!) }, selected: selected?.kind === 'edge' && selected.id === edge.logicalId, style: { stroke: selected?.id === edge.logicalId ? 'var(--color-accent-gold)' : 'var(--color-text-muted)', strokeWidth: 2, strokeDasharray: edge.style === 'dashed' ? '8 5' : edge.style === 'dotted' ? '2 5' : undefined }, markerEnd: edge.last && edge.kind.endsWith('_parent') ? { type: MarkerType.ArrowClosed } : undefined }));
+  const [cardBusy, setCardBusy] = useState(false);
+  /** A free node becomes a character card of its own, linked back to the node. */
+  const createCardFor = async (nodeId: string) => {
+    const node = latestSession.current.tree.nodes.find(item => item.id === nodeId);
+    if (!node || node.codexEntryId || cardBusy) return;
+    setCardBusy(true);
+    try {
+      const now = Date.now();
+      const entry: CodexEntry = { id: generateId('codex'), projectId, type: 'character', title: node.label.trim() || copy.node, fields: {}, content: '', tags: [], relations: [], createdAt: now, updatedAt: now };
+      if (scope.eraId) await saveEraDocument({ projectId, eraId: scope.eraId }, 'codex', { root: entry as unknown as EraRow, children: {} }, null); else await createCodexEntry(entry);
+      remember(latestSession.current.tree);
+      setSession(previous => ({ ...previous, dirty: true, tree: { ...previous.tree, nodes: previous.tree.nodes.map(item => item.id === nodeId ? { ...item, codexEntryId: entry.id, label: entry.title } : item) } }));
+      setNotice('');
+    } catch { setNotice(copy.failure); } finally { setCardBusy(false); }
+  };
+  const nodeGroup = selectedNode ? groupOf(tree, selectedNode.id) : undefined;
+  const chooseGroup = (value: string) => {
+    if (!selectedNode) return;
+    if (value === '__new') {
+      const used = new Set((tree.groups ?? []).map(group => group.color));
+      const color = TREE_GROUP_COLORS.find(item => !used.has(item)) ?? TREE_GROUP_COLORS[(tree.groups?.length ?? 0) % TREE_GROUP_COLORS.length];
+      change(setTreeGroup(tree, { id: generateId('tree-group'), name: `${copy.group} ${(tree.groups?.length ?? 0) + 1}`, color, nodeIds: [selectedNode.id] }), true);
+    } else change(placeInTreeGroup(tree, selectedNode.id, value || null), true);
+  };
   const patchNode = (patch: Partial<RelationTreeDocument['nodes'][number]>) => { if (selectedNode) change({ ...tree, nodes: tree.nodes.map(node => node.id === selectedNode.id ? { ...node, ...patch } : node) }); };
   const patchEdge = (patch: Partial<RelationTreeEdge>) => {
     if(!selectedEdge)return;
@@ -225,6 +256,9 @@ export function TreeEditor({ projectId, current, entries, onSaved, onVariant, on
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     const dimensions=changes.flatMap(item=>item.type==='dimensions'&&item.dimensions?[[item.id,item.dimensions] as const]:[]);
     if(dimensions.length)setMeasurements(previous=>{let next=previous;for(const[id,size]of dimensions)if(previous[id]?.width!==size.width||previous[id]?.height!==size.height)next={...next,[id]:size};return next;});
+    // Every selection change, so a box (Shift+drag) or Ctrl/⌘+click can hold several people at once.
+    const selects = changes.filter(change => change.type === 'select');
+    if (selects.length) setMulti(previous => { const next = new Set(previous); for (const change of selects) if (change.type === 'select') { if (change.selected) next.add(change.id); else next.delete(change.id); } const ids = [...next].filter(id => tree.nodes.some(node => node.id === id)); return ids.length === previous.length && ids.every((id, i) => id === previous[i]) ? previous : ids; });
     const selection = changes.find(change => change.type === 'select' && change.selected);
     if (selection?.type === 'select') setSelected({ kind: tree.nodes.some(node => node.id === selection.id) ? 'node' : tree.annotations?.some(item => item.id === selection.id) ? 'annotation' : 'junction', id: selection.id });
     const positions = new Map(changes.flatMap(change => change.type === 'position' && change.position ? [[change.id, snapTreePoint(tree, change.id, change.position, 8 / (flow.current?.getZoom() ?? 1))] as const] : []));
@@ -237,6 +271,7 @@ export function TreeEditor({ projectId, current, entries, onSaved, onVariant, on
       <span role="status" className={`text-xs ${session.dirty ? 'text-accent-gold' : 'text-text-muted'}`}>{saving ? copy.saving : session.dirty ? copy.dirty : copy.saved}</span>
       <button type="button" className={buttonClass} disabled={saving || !session.dirty} onClick={() => void save()}><Save size={15} />{copy.save}</button>
       <button type="button" className={buttonClass} disabled={saving} onClick={() => onVariant(tree)}><Copy size={15} />{copy.variant}</button>
+      {multi.length > 1 && <button type="button" data-testid="tree-delete-selection" className={`${buttonClass} text-danger`} disabled={saving} onClick={() => setConfirm('nodes')}><Trash2 size={15} />{copy.removeSelection.replace('{count}', String(multi.length))}</button>}
       <button type="button" className={buttonClass} disabled={saving} onClick={download}><Download size={15} />{copy.export}</button>
       <button type="button" className={buttonClass} disabled={saving} onClick={onDelete} aria-label={copy.removeTree} title={copy.removeTree}><Trash2 size={15} /></button>
     </div>
@@ -249,13 +284,14 @@ export function TreeEditor({ projectId, current, entries, onSaved, onVariant, on
       <button type="button" className={buttonClass} onClick={() => undo(true)} disabled={!history.current.future.length} aria-label={copy.redo}><Redo2 size={15} /></button>
       <button type="button" className={buttonClass} onClick={() => change(layoutRelationTree(tree))}><Network size={15} />{copy.layout}</button>
       <label className="flex items-center gap-2 text-sm text-text-muted"><input type="checkbox" checked={tree.snapToNodes ?? false} onChange={event => change({ ...tree, snapToNodes: event.target.checked })} />{locale === 'es' ? 'Alinear al arrastrar' : 'Align while dragging'}</label>
+      <label className="flex items-center gap-2 text-sm text-text-muted">{copy.labelMode}<select data-testid="tree-label-mode" className="rounded-lg border border-border bg-elevated px-2 py-1.5 text-sm text-text-primary" value={tree.labelMode ?? 'always'} onChange={event => { const mode = event.target.value as RelationLabelMode; change({ ...tree, labelMode: mode === 'always' ? undefined : mode }); }}><option value="always">{copy.labelAlways}</option><option value="hover">{copy.labelHover}</option><option value="hidden">{copy.labelHidden}</option></select></label>
       <button type="button" className={buttonClass} onClick={addText}><Type size={15} />{copy.addText}</button>
       <button ref={drawingButton} type="button" className={`${buttonClass} ${drawing ? 'border-accent-gold text-accent-gold' : ''}`} aria-pressed={drawing} onClick={() => setDrawing(value => !value)}><Pencil size={15} />{copy.draw}</button>
       <p className="text-xs text-text-muted flex-1">{copy.instructions}</p>
     </div>
     <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
       <div ref={canvas} className="relative h-[620px] min-h-[420px] bg-deep border border-border rounded-lg overflow-hidden" data-testid="relation-tree-canvas">
-        <ReactFlow<FlowNode, RelationFlowEdge> className="wh-relation-tree-flow" aria-describedby={selectedEdge?reconnectHelpId:undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={instance => { flow.current = instance; }} connectionMode={ConnectionMode.Loose} onConnect={connect} onReconnectStart={(_event,_edge,end)=>{reconnectEnd.current=end==='source'?'target':'source';}} onReconnect={reconnect} onReconnectEnd={()=>{reconnectEnd.current=null;}} onNodesChange={onNodesChange} onNodeDragStart={() => remember()} onNodeDragStop={(_event, node) => setSession(previous => ({ ...previous, dirty: true, tree: { ...previous.tree, nodes: previous.tree.nodes.map(item => item.id === node.id ? { ...item, position: snapTreePoint(previous.tree, item.id, node.position, 8 / (flow.current?.getZoom() ?? 1)) } : item) } }))} onNodeClick={(_event, node) => setSelected({ kind: node.type === 'annotation' ? 'annotation' : node.type === 'junction' ? 'junction' : 'node', id: node.id })} onEdgeClick={(_event, edge) => setSelected({ kind: 'edge', id: edge.data?.logicalId ?? edge.id, segmentIndex: edge.data?.segmentIndex })} onPaneClick={() => setSelected(null)} onMoveEnd={(event, viewport) => { if (event) setSession(previous => ({ ...previous, dirty: true, tree: { ...previous.tree, viewport } })); }} defaultViewport={tree.viewport} fitView={!tree.viewport && nodes.length > 0} minZoom={0.1} maxZoom={4} deleteKeyCode={null} proOptions={{ hideAttribution: true }}><ReconnectEscape activeEnd={reconnectEnd}/><Background gap={24} color="var(--color-border)" /><Controls className="wh-canvas-controls" showInteractive={false} />{nodes.length === 0 && <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none"><p className="max-w-sm text-sm text-text-muted text-center">{copy.empty}</p></div>}{drawing && <FreehandOverlay color={penColor} width={penWidth} onColor={setPenColor} onWidth={setPenWidth} onDone={finishDrawing} onStroke={(points, zoom) => addAnnotation(makeTreeStroke(generateId('tree-stroke'), points, penColor, penWidth, zoom))} />}</ReactFlow>
+        <ReactFlow<FlowNode, RelationFlowEdge> className="wh-relation-tree-flow" aria-describedby={selectedEdge?reconnectHelpId:undefined} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={instance => { flow.current = instance; }} connectionMode={ConnectionMode.Loose} onConnect={connect} onReconnectStart={(_event,_edge,end)=>{reconnectEnd.current=end==='source'?'target':'source';}} onReconnect={reconnect} onReconnectEnd={()=>{reconnectEnd.current=null;}} onNodesChange={onNodesChange} onNodeDragStart={() => remember()} onNodeDragStop={(_event, node) => setSession(previous => ({ ...previous, dirty: true, tree: { ...previous.tree, nodes: previous.tree.nodes.map(item => item.id === node.id ? { ...item, position: snapTreePoint(previous.tree, item.id, node.position, 8 / (flow.current?.getZoom() ?? 1)) } : item) } }))} onNodeClick={(_event, node) => node.type !== 'group-box' && setSelected({ kind: node.type === 'annotation' ? 'annotation' : node.type === 'junction' ? 'junction' : 'node', id: node.id })} onEdgeClick={(_event, edge) => setSelected({ kind: 'edge', id: edge.data?.logicalId ?? edge.id, segmentIndex: edge.data?.segmentIndex })} onPaneClick={() => { setSelected(null); setMulti([]); }} onMoveEnd={(event, viewport) => { if (event) setSession(previous => ({ ...previous, dirty: true, tree: { ...previous.tree, viewport } })); }} defaultViewport={tree.viewport} fitView={!tree.viewport && nodes.length > 0} minZoom={0.1} maxZoom={4} deleteKeyCode={null} proOptions={{ hideAttribution: true }}><ReconnectEscape activeEnd={reconnectEnd}/><Background gap={24} color="var(--color-border)" /><Controls className="wh-canvas-controls" showInteractive={false} />{nodes.length === 0 && <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none"><p className="max-w-sm text-sm text-text-muted text-center">{copy.empty}</p></div>}{drawing && <FreehandOverlay color={penColor} width={penWidth} onColor={setPenColor} onWidth={setPenWidth} onDone={finishDrawing} onStroke={(points, zoom) => addAnnotation(makeTreeStroke(generateId('tree-stroke'), points, penColor, penWidth, zoom))} />}</ReactFlow>
       </div>
       <aside className="space-y-4 min-w-0 rounded-lg border border-border bg-surface p-3" aria-label={copy.selection}>
         {neighbor&&<TreeNeighborForm key={neighbor.parentId+neighbor.side} context={neighbor} tree={tree} trees={vocabularyTrees} locale={locale} entries={entries} onChange={next=>{change(next,true);setSelected({kind:"node",id:next.nodes[next.nodes.length-1].id});window.setTimeout(()=>canvas.current?.parentElement?.querySelector<HTMLInputElement>(`input[aria-label="${copy.nodeName} · ${copy.selection}"]`)?.focus(),0);}} onClose={()=>setNeighbor(null)}/>}
@@ -281,6 +317,13 @@ export function TreeEditor({ projectId, current, entries, onSaved, onVariant, on
           <label className="block text-xs text-text-muted">{copy.person}<select aria-label={`${copy.person} · ${copy.selection}`} className={`${fieldClass} mt-1`} value={selectedNode.codexEntryId ?? ''} onChange={event => { const entry = byEntry.get(event.target.value); patchNode({ codexEntryId: entry?.id, label: entry?.title ?? selectedNode.label }); }}><option value="">{copy.freeNode}</option>{selectedNode.codexEntryId && !byEntry.has(selectedNode.codexEntryId) && <option value={selectedNode.codexEntryId}>{copy.missing}</option>}{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>
           <div className="flex flex-wrap gap-2"><input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" data-testid="tree-node-image" aria-label={locale === 'es' ? 'Imagen local del nodo' : 'Local node image'} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void uploadImage(file, selectedNode.id); }} /><button type="button" className={buttonClass} onClick={() => imageInput.current?.click()}>{locale === 'es' ? 'Elegir imagen local' : 'Choose local image'}</button>{selectedNode.image && <button type="button" className={buttonClass} onClick={() => { imageRequest.current++; patchNode({ image: undefined }); }}>{locale === 'es' ? 'Quitar imagen propia' : 'Remove own image'}</button>}</div>
           <label className="flex items-center gap-2 text-sm text-text-primary"><input type="checkbox" checked={!!selectedNode.deceased} onChange={event => patchNode({ deceased: event.target.checked })} />{copy.deceased}</label>
+          {!selectedNode.codexEntryId && <button type="button" className={buttonClass} data-testid="tree-node-create-card" disabled={cardBusy || !selectedNode.label.trim()} onClick={() => void createCardFor(selectedNode.id)}><User size={14} />{copy.createCard}</button>}
+          <label className="block text-xs text-text-muted">{copy.group}<select data-testid="tree-node-group" className={`${fieldClass} mt-1`} value={nodeGroup?.id ?? ''} onChange={event => chooseGroup(event.target.value)}><option value="">{copy.noGroup}</option>{(tree.groups ?? []).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}<option value="__new">{copy.newGroup}</option></select></label>
+          {nodeGroup && <div className="space-y-2 rounded-lg border p-2" style={{ borderColor: nodeGroup.color }} data-testid="tree-group-editor">
+            <label className="block text-xs text-text-muted">{copy.groupName}<input data-testid="tree-group-name" maxLength={60} className={`${fieldClass} mt-1`} value={nodeGroup.name} onChange={event => { if (event.target.value.trim()) change(setTreeGroup(tree, { ...nodeGroup, name: event.target.value }), true); }} /></label>
+            <div className="text-xs text-text-muted">{copy.groupColor}<div className="mt-1 flex flex-wrap gap-1.5">{TREE_GROUP_COLORS.map(color => <button key={color} type="button" data-testid={`tree-group-color-${color.slice(1)}`} aria-label={color} aria-pressed={nodeGroup.color === color} className={`h-6 w-6 rounded-full border-2 ${nodeGroup.color === color ? 'border-text-primary' : 'border-transparent'}`} style={{ background: color }} onClick={() => change(setTreeGroup(tree, { ...nodeGroup, color }), true)} />)}</div></div>
+            <button type="button" data-testid="tree-group-remove" className={`${buttonClass} text-danger`} onClick={() => change(removeTreeGroup(tree, nodeGroup.id), true)}><Trash2 size={14} />{copy.removeGroup}</button>
+          </div>}
           <div className="grid grid-cols-2 gap-2">{(['x', 'y'] as const).map(axis => <label key={axis} className="text-xs text-text-muted">{copy[axis]}<input type="number" aria-label={copy[axis]} className={`${fieldClass} mt-1`} value={selectedNode.position[axis]} onChange={event => { const value = event.target.valueAsNumber; if (Number.isFinite(value)) patchNode({ position: { ...selectedNode.position, [axis]: value } }); }} /></label>)}</div>
           {selectedNode.codexEntryId && byEntry.has(selectedNode.codexEntryId) && <button type="button" className={buttonClass} onClick={() => navigateTo(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(selectedNode.codexEntryId!)}`)}>{copy.openEntry}</button>}
           <button type="button" className={`${buttonClass} text-danger`} onClick={() => setConfirm('node')}><Trash2 size={14} />{copy.removeNode}</button>
@@ -298,9 +341,10 @@ export function TreeEditor({ projectId, current, entries, onSaved, onVariant, on
         </div> : <p className="border-t border-border pt-3 text-xs text-text-muted">{copy.select}</p>}
       </aside>
     </div>
-    <ConfirmDialog open={confirm !== null} destructive title={confirm === 'reload' ? copy.reload : confirm === 'junction' ? copy.removeJunction : confirm === 'annotation' ? copy.removeAnnotation : confirm === 'node' ? copy.removeNode : copy.removeEdge} message={confirm === 'reload' ? copy.reloadConfirm : confirm === 'junction' ? copy.removeJunctionConfirm : confirm === 'annotation' ? copy.removeAnnotationConfirm : confirm === 'node' ? copy.removeNodeConfirm : copy.removeEdgeConfirm} onCancel={() => setConfirm(null)} onConfirm={() => {
+    <ConfirmDialog open={confirm !== null} destructive title={confirm === 'reload' ? copy.reload : confirm === 'junction' ? copy.removeJunction : confirm === 'annotation' ? copy.removeAnnotation : confirm === 'node' ? copy.removeNode : confirm === 'nodes' ? copy.removeSelection.replace('{count}', String(multi.length)) : copy.removeEdge} message={confirm === 'reload' ? copy.reloadConfirm : confirm === 'junction' ? copy.removeJunctionConfirm : confirm === 'annotation' ? copy.removeAnnotationConfirm : confirm === 'node' ? copy.removeNodeConfirm : confirm === 'nodes' ? copy.removeSelectionConfirm.replace('{count}', String(multi.length)) : copy.removeEdgeConfirm} onCancel={() => setConfirm(null)} onConfirm={() => {
       if (confirm === 'reload') { drafts.delete(tree.id); setSession({ tree: structuredClone(current), baseRevision: current.revision, dirty: false }); setConflict(false); setRecovered(false); }
-      else if (confirm === 'node' && selectedNode) { change({ ...tree, nodes: tree.nodes.filter(node => node.id !== selectedNode.id), edges: tree.edges.filter(edge => edge.source !== selectedNode.id && edge.target !== selectedNode.id) }); setSelected(null); }
+      else if (confirm === 'node' && selectedNode) { change(pruneTreeGroups({ ...tree, nodes: tree.nodes.filter(node => node.id !== selectedNode.id), edges: tree.edges.filter(edge => edge.source !== selectedNode.id && edge.target !== selectedNode.id) })); setSelected(null); }
+      else if (confirm === 'nodes' && multi.length) { const gone = new Set(multi); change(pruneTreeGroups({ ...tree, nodes: tree.nodes.filter(node => !gone.has(node.id)), edges: tree.edges.filter(edge => !gone.has(edge.source) && !gone.has(edge.target)) })); setMulti([]); setSelected(null); }
       else if (confirm === 'edge' && selectedEdge) { change({ ...tree, edges: tree.edges.filter(edge => edge.id !== selectedEdge.id) }); setSelected(null); }
       else if (confirm === 'annotation' && selectedAnnotation) { change({ ...tree, annotations: tree.annotations?.filter(item => item.id !== selectedAnnotation.id) }); setSelected(null); }
       else if (confirm === 'junction' && selectedJunction) { change(removeTreeJunction(tree, selectedJunction.id), true); setSelected(null); }
@@ -348,6 +392,7 @@ export default function RelationTreesWorkspace({ projectId, canonical }: { proje
     </div>
     <p className="text-xs text-text-muted">{copy.independent}</p>
     {notice && <p role="alert" className="text-sm text-danger">{notice}</p>}
+    {active && (() => { const family = treeVariantFamily(trees, active.id); return family.length > 1 && <div role="tablist" aria-label={copy.variants} className="flex flex-wrap gap-1 border-b border-border" data-testid="tree-variant-tabs">{family.map(tree => <button key={tree.id} type="button" role="tab" aria-selected={tree.id === active.id} data-testid={`tree-variant-tab-${tree.id}`} onClick={() => setActiveId(tree.id)} className={`-mb-px rounded-t-lg border px-3 py-1.5 text-xs ${tree.id === active.id ? 'border-border border-b-transparent bg-surface text-accent-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}>{tree.title}</button>)}</div>; })()}
     {active ? <TreeEditor key={active.id} projectId={projectId} current={active} entries={entries} onSaved={() => void refresh()} onVariant={tree => void create(tree)} onDelete={() => setPendingDelete(active)} /> : canonical}
     <ConfirmDialog open={!!pendingDelete} destructive title={copy.removeTree} message={copy.removeTreeConfirm} onCancel={() => setPendingDelete(null)} onConfirm={async () => {
       if (!pendingDelete) return;

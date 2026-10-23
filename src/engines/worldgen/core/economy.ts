@@ -1,4 +1,6 @@
 import { Biome } from './types';
+import { cellKmOf } from './geoScale';
+import { landReach } from './tradeRoutes';
 import { createRng } from './rng';
 import type { Settlement, SettlementRank } from './settlements';
 
@@ -78,6 +80,10 @@ export const MAX_MONTHS = 240;
 export const LAND_RANGE_KM = 800;
 /** Trade partners kept per place; keeps the monthly loop linear in places. */
 export const NEIGHBOUR_CAP = 12;
+/** A road round a bay is worth taking up to this many times the straight line. */
+export const DETOUR_MAX = 1.8;
+/** How far (cells of going) the search for a way round looks from a place. */
+const DETOUR_RADIUS_CELLS = 120;
 
 // ------------------------------------------------------------------ records
 
@@ -97,6 +103,10 @@ export interface EconomyWorld {
   temperature: Float32Array;
   biome: Uint8Array;
   lake: Uint8Array;
+  /** A sheet's width in km, when the world is a sheet rather than a planet. */
+  params?: { worldKm?: number };
+  /** 0..1 drainage; roads follow river valleys where they can. */
+  flow?: Float32Array;
 }
 export interface EconomyInput {
   world: EconomyWorld;
@@ -403,7 +413,7 @@ export function autoSites(input: EconomyInput): TradeSite[] {
   checkWorld(world);
   indexPlaces(places);
   const w = world.width, h = world.height;
-  const kmPerCell = 40075 / w;
+  const kmPerCell = cellKmOf(world.params, w);
   const occupied = new Set<number>();
   for (const p of places) occupied.add(clamp(Math.floor(p.y), 0, h - 1) * w + wrap(Math.floor(p.x), w));
 
@@ -642,7 +652,7 @@ function overLand(world: EconomyWorld, a: EconomyPlace, b: EconomyPlace): boolea
  */
 function buildLinks(world: EconomyWorld, places: readonly EconomyPlace[]): Links {
   const w = world.width;
-  const range = Math.max(12, Math.round(LAND_RANGE_KM / (40075 / w)));
+  const range = Math.max(12, Math.round(LAND_RANGE_KM / cellKmOf(world.params, w)));
   const range2 = range * range;
   const ports: number[] = [];
   places.forEach((p, i) => { if (p.port) ports.push(i); });
@@ -664,9 +674,17 @@ function buildLinks(world: EconomyWorld, places: readonly EconomyPlace[]): Links
     }
     cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
     const roads: number[] = [];
-    for (const [, b] of cand) {
+    // Round the bay by land: a partner across water is still a road partner when
+    // the way round (along the rivers where it can) is under DETOUR_MAX times
+    // the straight line. One bounded search from this place answers them all.
+    let reach: ((x: number, y: number) => number) | null = null;
+    for (const [dd, b] of cand) {
       if (roads.length >= NEIGHBOUR_CAP) break;
-      if (overLand(world, places[a], places[b])) roads.push(b);
+      if (overLand(world, places[a], places[b])) { roads.push(b); continue; }
+      const straight = Math.sqrt(dd);
+      if (straight * DETOUR_MAX > DETOUR_RADIUS_CELLS) continue;
+      reach ??= landReach(world, places[a], Math.min(DETOUR_RADIUS_CELLS, range * DETOUR_MAX));
+      if (reach(places[b].x, places[b].y) <= straight * DETOUR_MAX) roads.push(b);
     }
     land.push(roads);
     const lanes: number[] = [];
@@ -935,4 +953,40 @@ export function tradeSitesFrom(edits: readonly { kind: string }[]): { manual: Tr
     }
   }
   return { manual: [...manual.values()], removed: [...removed] };
+}
+
+/** What a port has shipped and taken in by sea, month 1 up to `month` (inclusive), per good and per partner. */
+export interface PortTrade {
+  port: boolean;
+  landed: Partial<Record<Good, number>>;
+  shipped: Partial<Record<Good, number>>;
+  /** Other ports traded with, most cargo first: in and out, all goods together. */
+  partners: { id: number; landed: number; shipped: number }[];
+}
+
+/**
+ * A port's sea trade so far. Cargo shipped in a month lands the month after,
+ * so what is still at sea at `month` counts as shipped but not yet landed.
+ */
+export function portTrade(snapshots: readonly EconomySnapshot[], place: Pick<EconomyPlace, 'id' | 'port'>, month: number): PortTrade {
+  const landed: Partial<Record<Good, number>> = {}, shipped: Partial<Record<Good, number>> = {};
+  const partners = new Map<number, { id: number; landed: number; shipped: number }>();
+  const last = Math.min(month, snapshots.length - 1);
+  for (let m = 0; m <= last; m++) {
+    for (const move of snapshots[m].movements) {
+      if (!move.bySea) continue;
+      if (move.from === place.id) {
+        shipped[move.good] = (shipped[move.good] ?? 0) + move.amount;
+        const p = partners.get(move.to) ?? { id: move.to, landed: 0, shipped: 0 };
+        p.shipped += move.amount; partners.set(move.to, p);
+      }
+      // A cargo lands the month after it sails.
+      if (move.to === place.id && m + 1 <= last) {
+        landed[move.good] = (landed[move.good] ?? 0) + move.amount;
+        const p = partners.get(move.from) ?? { id: move.from, landed: 0, shipped: 0 };
+        p.landed += move.amount; partners.set(move.from, p);
+      }
+    }
+  }
+  return { port: place.port, landed, shipped, partners: [...partners.values()].filter((p) => p.landed + p.shipped > 0).sort((a, b) => b.landed + b.shipped - (a.landed + a.shipped)) };
 }

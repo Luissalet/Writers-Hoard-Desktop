@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Biome, type BiomeId, type RuinKind } from '../core/types';
 import type { SettlementRank } from '../core/settlements';
 import type { BrushTip, Falloff, LandOp, PaintFilter, RoadPattern, TerrainOp } from '../core/edits';
-import { ROAD_PATTERNS, ROAD_WIDTH, SEA_LEVEL_MAX_M, SNOWLINE_MAX_M } from '../core/edits';
+import { ROAD_PATTERNS, ROAD_WIDTH, SEA_LEVEL_MAX_M, SNOWLINE_MAX_M, TERRAIN_HEIGHT_M } from '../core/edits';
+import { ZONE_COLORS, ZONE_NAME_MAX, ZONE_PATTERNS, type WorldZone, type ZonePattern } from '../core/zones';
 import type { PointKind } from '../core/paintCommit';
 import { FOG_OPS, type FogOp } from '../core/readerFog';
 import StoryEditor from './StoryEditor';
@@ -74,7 +75,10 @@ export type PaintMode =
   // sigue siendo papel en blanco. No cambia el mundo; sólo la vista del lector.
   | 'fog'
   // SUCESOS: qué pasa dónde y en qué capítulo; un clic lo pone en el mapa.
-  | 'story';
+  | 'story'
+  // ZONAS: áreas con nombre que el autor dibuja esquina a esquina, libres de
+  // la política y del suelo.
+  | 'zone';
 
 export interface PaintTool {
   mode: PaintMode;
@@ -101,8 +105,10 @@ export interface PaintTool {
   only: PaintFilter;
   /** River width in cells. */
   riverWidth: number;
-  /** Draw a river, or click to fill a lake (Ctrl drains one). */
-  riverMode?: 'draw' | 'lake';
+  /** Draw a river freehand, put it down point by point, or click to fill a lake (Ctrl drains one). */
+  riverMode?: 'draw' | 'points' | 'lake';
+  /** The Height op: the ground the brush sets, in metres. */
+  heightM?: number;
   /** Lake mode: the least size in cells. */
   lakeSize?: number;
   marker: 'settlement' | 'ruin';
@@ -135,6 +141,10 @@ export interface PaintTool {
   realmTool: 'brush' | 'fill' | 'poly' | 'curve';
   /** What stops the bucket. */
   realmBound: 'coast' | 'river' | 'ridge';
+  /** The next zone drawn: its name, colour and how it is filled. */
+  zoneName?: string;
+  zoneColor?: string;
+  zonePattern?: ZonePattern;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- Shared by the paint canvas and panel as one tool contract.
@@ -174,6 +184,7 @@ export const DEFAULT_PAINT_TOOL: PaintTool = {
   storyTitle: '',
   storyChapter: null,
   storyStatus: 'happened',
+  heightM: TERRAIN_HEIGHT_M.default,
   /** The first country, not −1. −1 is what Ctrl already does, so a tool whose
    *  resting state is its own negative unclaims the first province the reader
    *  paints — before they have chosen anybody at all. */
@@ -214,6 +225,7 @@ const GROUPS: { title: string; note: string; modes: ModeSpec[] }[] = [
       { id: 'frontera', label: 'worldgen.paint.mode.frontera', hint: 'worldgen.paint.mode.frontera.hint', negative: 'worldgen.paint.mode.frontera.negative' },
       { id: 'move', label: 'worldgen.paint.mode.move', hint: 'worldgen.paint.mode.move.hint', negative: '' },
       { id: 'labels', label: 'worldgen.paint.mode.labels', hint: 'worldgen.paint.mode.labels.hint', negative: '' },
+      { id: 'zone', label: 'worldgen.paint.mode.zone', hint: 'worldgen.paint.mode.zone.hint', negative: '' },
     ],
   },
   {
@@ -258,6 +270,8 @@ const TERRAIN_OPS: { id: TerrainOp; label: string }[] = [
   { id: 'roughen', label: 'worldgen.paint.op.roughen' },
   { id: 'gully', label: 'worldgen.paint.op.gully' },
   { id: 'grab', label: 'worldgen.paint.op.grab' },
+  { id: 'volcano', label: 'worldgen.paint.op.volcano' },
+  { id: 'height', label: 'worldgen.paint.op.height' },
 ];
 
 /**
@@ -384,6 +398,16 @@ interface PaintPanelProps {
   onFocusStory?: (event: StoryEvent) => void;
   storyPeople?: { id: string; title: string }[];
   onReorderStory?: (id: string, by: -1 | 1) => void;
+  /** Put a story event at a place in its chapter (dragged in the list). */
+  onPlaceStoryInChapter?: (id: string, index: number) => void;
+  /** Manuscript chapters and scenes a story event can be linked to, and how to open one. */
+  storyWritings?: { id: string; title: string; chapter?: number }[];
+  onOpenWriting?: (id: string) => void;
+  /** The world's named zones, and their writers. */
+  zones?: WorldZone[];
+  onUpdateZone?: (zone: WorldZone) => void;
+  onRemoveZone?: (id: string) => void;
+  onFocusZone?: (zone: WorldZone) => void;
   /** The whole world's sea level and snowline (metres against the generated ones), and their writer. */
   worldLevels?: { seaLevelM: number; snowlineM: number };
   /** False when the change could not be taken (the world is busy). */
@@ -451,7 +475,8 @@ function groundLabel(km: number, t: (key: string) => string): string {
 export default function PaintPanel({
   tool, onChange, strokeCount, canUndo, canRedo, onUndo, onRedo, onClear, onExport,
   cellKm, realms, busy, selectedLabel = null, onRelabel, onRemoveLabel,
-  flatOnlyNote = false, storyEvents = [], selectedStoryId = null, onSelectStory, onUpdateStory, onRemoveStory, onFocusStory, storyPeople, onReorderStory,
+  flatOnlyNote = false, storyEvents = [], selectedStoryId = null, onSelectStory, onUpdateStory, onRemoveStory, onFocusStory, storyPeople, onReorderStory, onPlaceStoryInChapter, storyWritings, onOpenWriting,
+  zones = [], onUpdateZone, onRemoveZone, onFocusZone,
   worldLevels, onWorldLevel, onRollName,
 }: PaintPanelProps) {
   const { t } = useTranslation();
@@ -555,6 +580,13 @@ export default function PaintPanel({
               </Chip>
             ))}
           </div>
+          {tool.terrainOp === 'volcano' && <p className="mt-1 text-[10px] leading-snug text-white/55" data-testid="paint-volcano-hint">{t('worldgen.paint.op.volcano.hint')}</p>}
+          {tool.terrainOp === 'height' && (
+            <label className="mt-1 flex items-center justify-between gap-2 text-[11px] text-white/70" data-testid="paint-height">
+              <span>{t('worldgen.paint.op.height.label')}</span>
+              <MetresInput value={tool.heightM ?? TERRAIN_HEIGHT_M.default} onChange={(v) => set('heightM', v)} />
+            </label>
+          )}
           {/* One click to the plateau brush: a square head with a flat edge lifts ground evenly; Ctrl cuts it back. */}
           <button type="button" data-testid="paint-plateau" title={t('worldgen.paint.plateau.hint')}
             aria-pressed={tool.terrainOp === 'raise' && tool.tip === 'square' && tool.curve === 'flat'}
@@ -654,7 +686,51 @@ export default function PaintPanel({
           onFocus={(event) => onFocusStory?.(event)}
           people={storyPeople}
           onReorder={onReorderStory}
+          onPlace={onPlaceStoryInChapter}
+          writings={storyWritings}
+          onOpenWriting={onOpenWriting}
         />
+      )}
+
+      {tool.mode === 'zone' && (
+        <div className="flex flex-col gap-2" data-testid="zone-editor">
+          <p className="text-[10px] leading-snug text-white/55">{t('worldgen.zone.howTo')}</p>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-white/45">{t('worldgen.zone.nextName')}</span>
+            <input value={tool.zoneName ?? ''} maxLength={ZONE_NAME_MAX} placeholder={t('worldgen.zone.namePlaceholder')} data-testid="zone-name"
+              onChange={(e) => set('zoneName', e.target.value)}
+              className="rounded border border-white/15 bg-black/40 px-1.5 py-1 text-[11px] text-white" />
+          </label>
+          <div className="flex items-center gap-1" data-testid="zone-colors">
+            {ZONE_COLORS.map((c) => (
+              <button key={c} type="button" aria-label={c} onClick={() => set('zoneColor', c)} style={{ background: c }}
+                className={`h-5 w-5 rounded-sm border ${(tool.zoneColor ?? ZONE_COLORS[0]) === c ? 'border-white ring-1 ring-white/70' : 'border-black/40'}`} />
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-1" data-testid="zone-patterns">
+            {ZONE_PATTERNS.map((p) => (
+              <Chip key={p} on={(tool.zonePattern ?? 'wash') === p} onClick={() => set('zonePattern', p)}>{t(`worldgen.zone.pattern.${p}`)}</Chip>
+            ))}
+          </div>
+          {zones.length > 0 && (
+            <div className="flex flex-col gap-1" data-testid="zone-list">
+              <span className="text-[10px] uppercase tracking-wider text-white/35">{t('worldgen.zone.list').replace('{n}', String(zones.length))}</span>
+              {zones.map((z) => (
+                <div key={z.id} className="flex items-center gap-1.5 rounded bg-white/5 px-1.5 py-1" data-testid={`zone-${z.id}`}>
+                  <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: z.color }} />
+                  <input key={`${z.id}:${z.name}`} defaultValue={z.name} maxLength={ZONE_NAME_MAX} aria-label={t('worldgen.zone.rename')}
+                    onBlur={(e) => { const name = e.target.value.trim(); if (name && name !== z.name) onUpdateZone?.({ ...z, name }); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 text-[11px] text-white hover:border-white/15 focus:border-white/30" />
+                  <button type="button" onClick={() => onUpdateZone?.({ ...z, pattern: ZONE_PATTERNS[(ZONE_PATTERNS.indexOf(z.pattern) + 1) % ZONE_PATTERNS.length] })}
+                    title={t('worldgen.zone.nextPattern')} className="text-[10px] text-white/55 underline">{t(`worldgen.zone.pattern.${z.pattern}`)}</button>
+                  <button type="button" onClick={() => onFocusZone?.(z)} className="text-[10px] text-white/55 underline">{t('worldgen.zone.show')}</button>
+                  <button type="button" onClick={() => onRemoveZone?.(z.id)} data-testid={`zone-remove-${z.id}`} className="text-[10px] text-red-300 hover:text-red-200">{t('worldgen.zone.remove')}</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {tool.mode === 'labels' && (
@@ -741,10 +817,12 @@ export default function PaintPanel({
         <div className="flex flex-col gap-1.5">
           <Row label={t('worldgen.paint.row.riverMode')}>
             <div className="flex gap-1" data-testid="river-mode">
-              <Chip on={tool.riverMode !== 'lake'} onClick={() => set('riverMode', 'draw')}>{t('worldgen.paint.river.draw')}</Chip>
+              <Chip on={tool.riverMode !== 'lake' && tool.riverMode !== 'points'} onClick={() => set('riverMode', 'draw')}>{t('worldgen.paint.river.draw')}</Chip>
+              <Chip on={tool.riverMode === 'points'} onClick={() => set('riverMode', 'points')}>{t('worldgen.paint.river.points')}</Chip>
               <Chip on={tool.riverMode === 'lake'} onClick={() => set('riverMode', 'lake')}>{t('worldgen.paint.river.lake')}</Chip>
             </div>
           </Row>
+          {tool.riverMode === 'points' && <p className="text-[10px] leading-snug text-white/55" data-testid="river-points-hint">{t('worldgen.paint.river.pointsHint')}</p>}
           {tool.riverMode === 'lake' && <p className="text-[10px] leading-snug text-white/55" data-testid="lake-hint">{t('worldgen.paint.river.lakeHint')}</p>}
           {tool.riverMode === 'lake' && (
             <div data-testid="lake-size">
@@ -1348,5 +1426,30 @@ function Slider({
         className="w-full accent-amber-400"
       />
     </label>
+  );
+}
+
+/**
+ * Metres typed freely — a minus sign, an empty field on the way to another
+ * number — and taken when they read as a whole number within the scale, or
+ * put back on leaving the field.
+ */
+function MetresInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const [seen, setSeen] = useState(value);
+  // While the field is being typed in, what is typed stays as typed (a value
+  // taken from it must not rewrite it under the caret); it settles on leaving.
+  const [typing, setTyping] = useState(false);
+  if (seen !== value) { setSeen(value); if (!typing) setText(String(value)); }
+  const take = (raw: string) => {
+    const v = Number(raw);
+    if (raw.trim() !== '' && raw.trim() !== '-' && Number.isFinite(v)) onChange(Math.max(TERRAIN_HEIGHT_M.min, Math.min(TERRAIN_HEIGHT_M.max, Math.round(v))));
+  };
+  return (
+    <input type="text" inputMode="numeric" value={text}
+      onChange={(e) => { setText(e.target.value); take(e.target.value); }}
+      onFocus={() => setTyping(true)}
+      onBlur={() => { setTyping(false); setText(String(value)); }}
+      className="w-24 rounded border border-white/15 bg-black/40 px-1.5 py-0.5 text-right tabular-nums text-white" />
   );
 }

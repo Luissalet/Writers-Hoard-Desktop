@@ -1,4 +1,4 @@
-import { getEraProject, listEraRows,readWorldDocument } from '@/services/worldEras/store';
+import { getEraProject, listEraRows,readWorldDocument, saveEraDocument } from '@/services/worldEras/store';
 import {db} from '@/db';
 import { BridgeError, optString, requireString, resolveProjectForEngine, resolveProjectId, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
 import { generateId } from '@/utils/idGenerator';
@@ -8,6 +8,10 @@ import { exportRelationTreeSvg, type RelationTreeDocument,type RelationVocabular
 import {addTreeNeighbor,reconnectTreeEdge,saveTreeVocabulary,removeTreeVocabulary,applyTreeVocabulary,type TreeSide} from './treeAffordances';
 import {issueTreeReceipt} from './treeUndo';
 import { deleteRelationTree, saveRelationTree } from './relationTreeStore';
+import { pruneTreeGroups, removeTreeGroup, setTreeGroup, TREE_GROUP_COLORS } from './relationTreeGroups';
+import type { EraRow } from '@/services/worldEras/types';
+import { RELATION_CATALOGUE_SETS, addCatalogueSet, type RelationCatalogueSet } from './relationCatalogue';
+import { useLocaleStore } from '@/stores/localeStore';
 function scope(args: ToolArgs) { return { projectId: resolveProjectId(args), eraId: optString(args, 'eraId') }; }
 function expected(args: ToolArgs) { if (!Number.isSafeInteger(args.expectedRevision) || Number(args.expectedRevision) < 1) throw new BridgeError('bad-args', 'Read the current expectedRevision from get.'); return Number(args.expectedRevision); }
 async function current(args: ToolArgs) { const context = scope(args), tree = (await getEraProject(context)).relationTrees?.find(item => item.id === requireString(args, 'treeId')); if (!tree) throw new BridgeError('not-found', 'Tree not found in this context.'); return { ...context, tree }; }
@@ -26,8 +30,31 @@ export const RELATION_TREE_HANDLERS = {
           next=addTreeNeighbor(tree,requireString(args,'nodeId'),requireString(args,'side') as TreeSide,{id:generateId('tree-node'),label:entry?.title||optString(args,'label')?.trim()||'Node',codexEntryId},generateId('tree-edge'),relation,args.reverse===true);
         }else if(action==='reconnect')next=reconnectTreeEdge(tree,requireString(args,'edgeId'),requireString(args,'endpoint') as 'source'|'target',requireString(args,'nodeId'),requireString(args,'side') as TreeSide);
         else if(action==='vocabulary-save'){const value=args.value as RelationVocabulary|undefined;if(!value||typeof value!=='object')throw new BridgeError('bad-args','A named vocabulary value is required.');next=saveTreeVocabulary(tree,{...value,id:value.id||generateId('tree-vocabulary')});}
+        else if(action==='vocabulary-catalogue'){const set=requireString(args,'catalogue') as RelationCatalogueSet;if(!RELATION_CATALOGUE_SETS.includes(set))throw new BridgeError('bad-args',`catalogue is one of ${RELATION_CATALOGUE_SETS.join(', ')}.`);next=addCatalogueSet(tree,set,optString(args,'locale')??useLocaleStore.getState().locale,()=>generateId('tree-vocabulary')).tree;}
         else if(action==='vocabulary-remove')next=removeTreeVocabulary(tree,requireString(args,'vocabularyId'));
         else if(action==='vocabulary-apply'){const value=await vocabulary();next=applyTreeVocabulary(tree,requireString(args,'edgeId'),value);if(args.copy===true)next=saveTreeVocabulary(next,{...value,id:generateId('tree-vocabulary')});}
+        else if(action==='nodes-remove'){
+          const ids=Array.isArray(args.nodeIds)?(args.nodeIds as unknown[]).filter((id):id is string=>typeof id==='string'):[];
+          if(!ids.length)throw new BridgeError('bad-args','nodeIds lists the people to remove.');
+          const unknown=ids.find(id=>!tree.nodes.some(node=>node.id===id));if(unknown)throw new BridgeError('bad-args',`No node "${unknown}" in this tree.`);
+          const gone=new Set(ids);next=pruneTreeGroups({...tree,nodes:tree.nodes.filter(node=>!gone.has(node.id)),edges:tree.edges.filter(edge=>!gone.has(edge.source)&&!gone.has(edge.target))});
+        }
+        else if(action==='group-set'){
+          const existing=tree.groups?.find(item=>item.id===optString(args,'groupId'));if(optString(args,'groupId')&&!existing)throw new BridgeError('not-found','No group with that groupId in this tree.');
+          const name=(optString(args,'groupName')??existing?.name??'').trim(),color=optString(args,'groupColor')??existing?.color??TREE_GROUP_COLORS[(tree.groups?.length??0)%TREE_GROUP_COLORS.length];
+          const nodeIds=Array.isArray(args.nodeIds)?(args.nodeIds as unknown[]).filter((id):id is string=>typeof id==='string'):existing?.nodeIds??[];
+          if(!name||name.length>60)throw new BridgeError('bad-args','groupName (1 to 60 characters) is required.');if(!/^#[0-9a-f]{6}$/i.test(color))throw new BridgeError('bad-args','groupColor must be #rrggbb.');
+          const unknown=nodeIds.find(id=>!tree.nodes.some(node=>node.id===id));if(unknown)throw new BridgeError('bad-args',`No node "${unknown}" in this tree.`);
+          next=setTreeGroup(tree,{id:existing?.id??generateId('tree-group'),name,color,nodeIds});
+        }
+        else if(action==='group-remove'){if(!tree.groups?.some(item=>item.id===requireString(args,'groupId')))throw new BridgeError('not-found','No group with that groupId in this tree.');next=removeTreeGroup(tree,requireString(args,'groupId'));}
+        else if(action==='label-mode'){const mode=requireString(args,'labelMode');if(!['always','hover','hidden'].includes(mode))throw new BridgeError('bad-args','labelMode is always, hover or hidden.');next={...tree,labelMode:mode==='always'?undefined:mode as 'hover'|'hidden'};if((tree.labelMode??'always')===mode)next=tree;}
+        else if(action==='node-card'){
+          const node=tree.nodes.find(item=>item.id===requireString(args,'nodeId'));if(!node)throw new BridgeError('not-found','No node with that nodeId.');if(node.codexEntryId)throw new BridgeError('bad-args','That node is already linked to a card.');
+          const now=Date.now(),entry:CodexEntry={id:generateId('codex'),projectId,type:'character',title:node.label.trim()||'Node',fields:{},content:'',tags:[],relations:[],createdAt:now,updatedAt:now};
+          if(eraId)await saveEraDocument(context,'codex',{root:entry as unknown as EraRow,children:{}},null);else await db.codexEntries.add(entry);
+          next={...tree,nodes:tree.nodes.map(item=>item.id===node.id?{...item,codexEntryId:entry.id,label:entry.title}:item)};
+        }
         else throw new BridgeError('bad-args','Unknown tree action.');
       }catch(error){if(error instanceof BridgeError)throw error;throw new BridgeError('bad-args',error instanceof Error?error.message:'Invalid tree action.');}
       if(next===tree)return{...context,tree,noChange:true};

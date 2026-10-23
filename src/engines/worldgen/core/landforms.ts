@@ -28,6 +28,7 @@
 // local mean at radius R, and it costs four passes over the grid instead of a
 // disc sample per cell.
 
+import { climateLatDeg } from './geoScale';
 import type { WorldData } from './types';
 import { blur, distanceTo } from './fields';
 import { Biome } from './types';
@@ -227,7 +228,7 @@ function findBays(c: Ctx, budget: number): Landform[] {
   const cand: Landform[] = [];
   const { W, H, world } = c;
   for (let y = 2; y < H - 2; y++) {
-    const lat = Math.abs((0.5 - (y + 0.5) / H) * 180);
+    const lat = Math.abs(climateLatDeg((y + 0.5) / H, world.params));
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       if (!c.sea[i]) continue;

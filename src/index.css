@@ -19,6 +19,11 @@
   text-underline-offset: 0.25em;
   background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
 }
+.tiptap .wh-wiki-hidden-block {
+  border-left: 3px dashed var(--color-text-muted);
+  padding-left: 0.6em;
+  opacity: 0.85;
+}
 .tiptap .wh-wiki-spoiler {
   text-decoration: underline dotted;
   text-decoration-color: var(--color-accent-gold);

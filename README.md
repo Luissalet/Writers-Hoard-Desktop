@@ -40,7 +40,7 @@ reveals the map chapter by chapter, story events placed by chapter and played
 back chapter by chapter or scrubbed to any chapter (with their order inside a chapter, who was there
 and what is planned next),
 a right-click menu (village, note, story event, a
-spring whose river finds its way downhill, no crossing / open the crossing again on a river), river fords that cost a party time (bridges on the roads do not; frozen rivers in a hard winter are walked over), a lake tool that fills a hollow to its spill, worlds of a single island, country or continent of a chosen size (300 to 9,000 km) that the map and the 3D tabletop model frame, fantasy grounds and a one-click plateau brush, contour lines at a chosen interval, a whole-world sea level and snowline, a 3D view of the whole world as a tabletop model (its cut through rock and sea showing, on a table with its shadow) or as a landscape to the horizon, a Painted skin (grounds that melt into each other, a sea with shallows and coast rings, painted forests and dunes, names lettered like a map), with the 2D map's own landmark marks, and a
+spring whose river finds its way downhill, no crossing / open the crossing again on a river), river fords that cost a party time (bridges on the roads do not; frozen rivers in a hard winter are walked over), a lake tool that fills a hollow to its spill, worlds of a single island, country or continent of a chosen size (300 to 9,000 km) that the map and the 3D tabletop model frame, fantasy grounds and a one-click plateau brush, contour lines at a chosen interval, a whole-world sea level and snowline, a 3D view of the whole world as a tabletop model (its cut through rock and sea showing, on a table with its shadow) or as a landscape to the horizon, a Painted skin (grounds that melt into each other, a sea with shallows and coast rings, painted forests and dunes, names lettered like a map), with the 2D map's own landmark marks, clouds and a block of rock, stacked paper or an engraving with standing trees on the model, a single land on its own flat sheet of its size, named zones, volcanoes and heights in metres, rivers drawn point by point or turned round, the map at an hour of the day with the party's lantern, the world's own ways of travel (a griffin, a sledge), each port's sea trade, a reader's view with the land in ink, towns as dots and the party's trail, story events linked to their chapter, and a
 month-by-month trade lens (sites, shortages, prices, shipments); classic image
 maps carry styled shapes (outline, hatch, lettering, drawing order, several
 layers), pin sizes, pins that show their entry's picture framed in their colour with the name under it (and every name in view on request), a searchable Codex link that can create the entry, a
@@ -53,6 +53,35 @@ hand-drawn map eras can follow timeline
 events and play in sequence. Each has bridge tools (see docs/AI-BRIDGE.md, section 28). The optional 5e (2014), SRD 5.1
 character profile preserves manual values and played counters; it is not a
 complete rules or spell-catalogue engine.
+
+**Writing, publishing, Codex, timelines and tables (task 1095, wave C).** The
+editor's "/" menu offers 26 blocks (callouts including read-aloud and sidebar
+boxes, toggles, checklists, sent/received messages, letter, email, column
+break…), screen text effects (glow, shake, wave, rainbow, pulse, blur; still for
+reduced motion and print), page-wide images and rules cards: a spell, magic
+item or creature box filled from a Codex card's properties through a slot
+mapping that can be refreshed. Chapters take a kicker (Prologue, Interlude),
+can be held back from the book and moved before any other; a chapter's header
+image sits above, beside or as a banner. Publishing adds an author byline,
+title, copyright and back-cover pages, book styles (classic, modern, epic and a
+two-column "sourcebook" with striped tables) with paper, format and page counts,
+device previews and a per-chapter review, in HTML/PDF, DOCX and ePub. The
+Reader has text size, typeface and light/dark, and a built-in library of 12
+sounds made on the device; a paragraph cue can play through to a later
+paragraph. The cover designer writes vertical text and erases part of a
+stroke; a new project can design its cover at creation, and a saga shelves its
+books on the Dashboard. Codex cards gain a type picker, alias chips, select and
+required properties, frozen cards, card faces, a guided wizard, private types,
+block fold/copy/extract-to-card and card drops into the manuscript. Timelines
+gain duplicate and click-to-add, display precision, week modes, a leap month,
+re-dating on calendar change (undoable), moon colours and phases, a date
+calculator and picker, a calendar grid, repeats and banners, tags, saved views
+and a Gregorian correlation that shows both calendars' events on either grid.
+Relation trees gain a catalogue of relationship sets, groups, variants and
+multi-select; tables gain find, insert/duplicate rows and columns (formula
+references follow, a removed one reads #REF!), multi-sort and filters.
+Everything has bridge tools (docs/AI-BRIDGE.md, section 29); the matrix with
+evidence is tasks/vvd1095/C-writing.md.
 
 **Duplicate project** creates one local project copy, remaps declared internal
 references and copies available managed Scrapper files. Global library and native

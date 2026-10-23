@@ -1097,7 +1097,9 @@ async function htmlToPdf(html: string): Promise<Buffer> {
   try {
     await fs.writeFile(htmlPath, html, 'utf8');
     await win.loadFile(htmlPath);
-    return await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+    // A document that sets its own page (`@page { size }` — a book trim) is
+    // printed at that size; anything else stays on A4.
+    return await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4', preferCSSPageSize: true });
   } finally {
     win.destroy();
     await fs.rm(tmpdir, { recursive: true, force: true });

@@ -45,6 +45,8 @@ export interface WorldMoon {
   periodDays: number;
   /** Day number of a new moon. Default 0. */
   newMoonDay?: number;
+  /** Colour the moon is drawn in on the calendar (#rrggbb). */
+  color?: string;
 }
 
 export interface WorldHoliday {
@@ -77,10 +79,16 @@ export interface WorldCalendar {
   weekdays: string[];
   /** Weekday index (0-based) of day 0. Default 0. */
   weekdayOffset?: number;
+  /** continuous (default): the week runs on across months. monthStart: every month begins on the first weekday. */
+  weekMode?: 'continuous' | 'monthStart';
+  /** Which moon phases the calendar marks: the four principal ones (default), every night, the full moon only, or none. */
+  moonDisplay?: 'quarters' | 'every' | 'full' | 'none';
   eras: WorldEra[];
   moons: WorldMoon[];
   holidays: WorldHoliday[];
   leap?: WorldLeapRule;
+  /** Which day of this calendar falls on which Gregorian day (YYYY-MM-DD): lets dates convert to and from the Earth calendar. */
+  correlation?: { date: WorldDate; earth: string };
 }
 
 export interface WorldDate {
@@ -156,7 +164,9 @@ export function validateWorldCalendar(input: unknown): string[] {
     if (cal.months.length > 100) errors.push('At most 100 months.');
     cal.months.forEach((m, i) => {
       if (!m || !nonEmpty(m.name)) errors.push(`Month ${i + 1} needs a name.`);
-      if (!m || !isInt(m.days) || m.days < 1 || m.days > 1000) errors.push(`Month ${i + 1} needs between 1 and 1000 days.`);
+      // A leap month (one that exists only in leap years) has no days in a common year.
+      const leapMonth = !!cal.leap && cal.leap.month === i + 1;
+      if (!m || !isInt(m.days) || m.days < (leapMonth ? 0 : 1) || m.days > 1000) errors.push(`Month ${i + 1} needs between 1 and 1000 days${leapMonth ? ' (0 when it exists only in leap years)' : ''}.`);
     });
     if (cal.months.every((m) => m?.intercalary)) errors.push('At least one month must be part of the week cycle.');
     const names = cal.months.map((m) => m?.name?.trim().toLowerCase());
@@ -167,6 +177,8 @@ export function validateWorldCalendar(input: unknown): string[] {
   } else if (cal.weekdayOffset !== undefined && (!isInt(cal.weekdayOffset) || cal.weekdayOffset < 0 || cal.weekdayOffset >= cal.weekdays.length)) {
     errors.push('weekdayOffset must be a weekday index.');
   }
+  if (cal.weekMode !== undefined && cal.weekMode !== 'continuous' && cal.weekMode !== 'monthStart') errors.push('weekMode must be continuous or monthStart.');
+  if (cal.moonDisplay !== undefined && !['quarters', 'every', 'full', 'none'].includes(cal.moonDisplay)) errors.push('moonDisplay must be quarters, every, full or none.');
   if (!Array.isArray(cal.eras) || cal.eras.length === 0) errors.push('At least one era is required.');
   else {
     const sorted = [...cal.eras].sort((a, b) => a.startYear - b.startYear);
@@ -185,14 +197,20 @@ export function validateWorldCalendar(input: unknown): string[] {
     if (!nonEmpty(m?.name) || typeof m?.periodDays !== 'number' || !(m.periodDays > 1) || m.periodDays > 100000) {
       errors.push(`Moon "${m?.name ?? '?'}" needs a name and a period above 1 day.`);
     }
+    if (m?.color !== undefined && (typeof m.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(m.color))) errors.push(`Moon "${m?.name ?? '?'}" colour must be #rrggbb.`);
   });
   if (!Array.isArray(cal.holidays)) errors.push('holidays must be a list (it may be empty).');
   else if (Array.isArray(cal.months)) cal.holidays.forEach((h) => {
     const month = cal.months![h?.month - 1];
-    if (!nonEmpty(h?.name) || !month || !isInt(h.day) || h.day < 1 || h.day > month.days) {
+    const most = month ? month.days + (cal.leap && cal.leap.month === h?.month ? cal.leap.extraDays : 0) : 0;
+    if (!nonEmpty(h?.name) || !month || !isInt(h.day) || h.day < 1 || h.day > most) {
       errors.push(`Holiday "${h?.name ?? '?'}" must fall on an existing month and day.`);
     }
   });
+  if (cal.correlation !== undefined && cal.correlation !== null) {
+    const c = cal.correlation as { date?: WorldDate; earth?: unknown };
+    if (!c.date || !isInt(c.date.year) || !isInt(c.date.month) || !isInt(c.date.day) || typeof c.earth !== 'string' || !/^-?\d{1,6}-\d{2}-\d{2}$/.test(c.earth)) errors.push('correlation needs a full date of this calendar and an Earth date YYYY-MM-DD.');
+  }
   if (cal.leap !== undefined && cal.leap !== null) {
     const l = cal.leap;
     if (!isInt(l.every) || l.every < 1) errors.push('leap.every must be a positive integer.');
@@ -216,6 +234,16 @@ function leapIndex(cal: WorldCalendar, n: number): number {
   if (!leap) return 0;
   const relative = n - (leap.offset ?? 0);
   return floorDiv(relative, leap.every) - (leap.exceptEvery ? floorDiv(relative, leap.exceptEvery) : 0) + (leap.restoreEvery ? floorDiv(relative, leap.restoreEvery) : 0);
+}
+
+/** The months a year has: a leap month (no days in a common year) is left out of common years. */
+export function monthsInYear(cal: WorldCalendar, year: number): number[] {
+  return cal.months.map((_, index) => index + 1).filter(month => daysInMonth(cal, year, month) > 0);
+}
+
+/** A month that exists only in leap years: it has no days of its own and the leap rule gives it all of them. */
+export function isLeapMonth(cal: WorldCalendar, month: number): boolean {
+  return !!cal.leap && cal.leap.month === month && cal.months[month - 1]?.days === 0;
 }
 
 export function isLeapYear(cal: WorldCalendar, year: number): boolean {
@@ -253,8 +281,9 @@ export function assertValidDate(cal: WorldCalendar, date: WorldDate): void {
   if (!isInt(date.month) || date.month < 1 || date.month > cal.months.length) {
     throw new RangeError(`There is no month ${date.month}; the calendar has ${cal.months.length}.`);
   }
-  if (date.day === undefined) return;
   const max = daysInMonth(cal, date.year, date.month);
+  if (max === 0) throw new RangeError(`${cal.months[date.month - 1].name} exists only in leap years; ${date.year} is not one.`);
+  if (date.day === undefined) return;
   if (!isInt(date.day) || date.day < 1 || date.day > max) {
     throw new RangeError(`${cal.months[date.month - 1].name} ${date.year} has ${max} days, not ${date.day}.`);
   }
@@ -313,6 +342,8 @@ function intercalaryBefore(cal: WorldCalendar, year: number): number {
 export function weekdayOf(cal: WorldCalendar, date: WorldDate): string | null {
   if (date.month === undefined || date.day === undefined) return null;
   if (cal.months[date.month - 1].intercalary) return null;
+  // Every month starts the week afresh: its first day is the first weekday.
+  if (cal.weekMode === 'monthStart') return cal.weekdays[mod(date.day - 1 + (cal.weekdayOffset ?? 0), cal.weekdays.length)];
   const n = toDayNumber(cal, date);
   let skipped = intercalaryBefore(cal, date.year);
   for (let m = 1; m < date.month; m++) if (cal.months[m - 1].intercalary) skipped += daysInMonth(cal, date.year, m);

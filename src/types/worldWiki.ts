@@ -14,5 +14,8 @@ export interface WorldWikiOptions {
   font?: 'serif' | 'sans'; accent?: string; includeCover?: boolean;
   includeMedia?: boolean;
   grouping?:'type'|'manual';sections?:WikiSection[];home?:WikiHome;
+  /** Timelines as articles (events kept out of the wiki never are); a saved view narrows them. */
+  includeTimelines?: boolean;
+  timelineViewId?: string;
 }
 

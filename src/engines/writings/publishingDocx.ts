@@ -1,6 +1,7 @@
 import type { Paragraph, ParagraphChild, Table, TableOfContents } from 'docx';
 import { FOOTNOTE_REF_SELECTOR, FOOTNOTE_TEXT_ATTR } from '@/components/editor/footnotes/footnoteModel';
 import type { PublishingDocument } from './publishingDocument';
+import { PAPER_COLORS, TITLE_ORNAMENT_TEXT, TRIM_SIZES, type BookStyle } from './bookStyle';
 import {formattingFromElement,SCENE_BREAK_TEXT} from '@/components/editor/advanced/model';
 
 type DocxModule = typeof import('docx');
@@ -29,10 +30,25 @@ interface BlockContext {
   quoted: boolean;
   /** Which kind of Word note a reference becomes. */
   notes: Notes;
+  /** The book style, when the profile sets one: the gap after each paragraph. */
+  book?: BookStyle;
+  /** The book's language, for the labels of boxed text. */
+  locale?: string;
 }
 
+/** The label a boxed block prints over its text, as the editor draws it. */
+const CALLOUT_LABELS: Record<string, { es: string; en: string; fill: string; border: string }> = {
+  note: { es: '✎ Nota', en: '✎ Note', fill: 'F1EEE6', border: '8A7A55' },
+  info: { es: 'ℹ Info', en: 'ℹ Info', fill: 'E8F0F8', border: '3D85C6' },
+  question: { es: '? Pregunta', en: '? Question', fill: 'F2ECF7', border: '8E7CC3' },
+  tip: { es: '✦ Idea', en: '✦ Idea', fill: 'EDF5E9', border: '6AA84F' },
+  warning: { es: '! Aviso', en: '! Warning', fill: 'F8E9E8', border: 'C0504D' },
+  readaloud: { es: '❝ Leer en voz alta', en: '❝ Read aloud', fill: 'F3EAD7', border: 'A0763C' },
+  sidebar: { es: '▣ Recuadro', en: '▣ Sidebar', fill: 'EEF3EE', border: '5B7F5A' },
+};
+
 const BLOCK_TAGS = new Set([
-  'blockquote', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'aside', 'blockquote', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'hr', 'ol', 'p', 'pre', 'section', 'table', 'ul',
 ]);
 
@@ -78,6 +94,18 @@ function numberFootnotes(root: ParentNode, docx: DocxModule, notes: NoteBodies):
   }
 }
 
+/** The manuscript's own pictures decoded for this build (src → Word image), when the profile keeps them. */
+let wordImages: Map<string, { type: 'png' | 'jpg' | 'gif'; data: Uint8Array; width: number; height: number }> | null = null;
+
+function imageRunFor(element: Element, docx: DocxModule): ParagraphChild | null {
+  const image = wordImages?.get(element.getAttribute('src') ?? '');
+  if (!image) return null;
+  const percent = Number(element.getAttribute('data-wh-width'));
+  const target = element.getAttribute('data-wh-width') === 'page' ? 520 : [25, 50, 75, 100].includes(percent) ? 520 * percent / 100 : Math.min(520, image.width);
+  const scale = Math.min(target / image.width, 680 / image.height);
+  return new docx.ImageRun({ type: image.type, data: image.data, transformation: { width: Math.round(image.width * scale), height: Math.round(image.height * scale) } });
+}
+
 function inlineChildren(
   nodes: Iterable<Node>,
   docx: DocxModule,
@@ -120,7 +148,8 @@ function inlineChildren(
       children.push(new docx.TextRun({ break: 1 }));
       continue;
     }
-    if (tag === 'img' || tag === 'ul' || tag === 'ol') continue;
+    if (tag === 'img') { const run = imageRunFor(node, docx); if (run) children.push(run); continue; }
+    if (tag === 'ul' || tag === 'ol') continue;
     if (tag === 'sup' && node.hasAttribute(FOOTNOTE_NUMBER_ATTR)) {
       const id = Number(node.getAttribute(FOOTNOTE_NUMBER_ATTR));
       children.push(notes.kind === 'endnotes'
@@ -280,14 +309,19 @@ function tableBlocks(
       insideHorizontal: border,
       insideVertical: border,
     },
-    rows: rows.map(row => new docx.TableRow({
+    rows: rows.map((row, rowIndex) => new docx.TableRow({
       children: [...row.children]
         .filter(cell => ['td', 'th'].includes(cell.tagName.toLowerCase()))
-        .map(cell => new docx.TableCell({
-          columnSpan: spanOf(cell, 'colspan'),
-          rowSpan: spanOf(cell, 'rowspan'),
-          children: cellBlocks(cell, docx, context),
-        })),
+        .map(cell => {
+          // A striped book table: the header row darker, every other row lightly shaded.
+          const fill = !context.book?.stripedTables ? undefined : cell.tagName.toLowerCase() === 'th' ? 'D9D9D9' : rowIndex % 2 === 0 && rowIndex > 0 ? 'EFEFEF' : undefined;
+          return new docx.TableCell({
+            columnSpan: spanOf(cell, 'colspan'),
+            rowSpan: spanOf(cell, 'rowspan'),
+            ...(fill ? { shading: { fill, type: docx.ShadingType.CLEAR, color: 'auto' } } : {}),
+            children: cellBlocks(cell, docx, context),
+          });
+        }),
     })),
   })];
 }
@@ -299,7 +333,28 @@ function paragraphsFromElement(
 ): BlockChild[] {
   const tag = element.tagName.toLowerCase();
   if (tag === 'ul' || tag === 'ol') return listBlocks(element, docx, context);
+  if (tag === 'img') { const run = imageRunFor(element, docx); return run ? [new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, spacing: { after: 160 }, children: [run] })] : []; }
   if (tag === 'table') return tableBlocks(element, docx, context);
+  // A column break: in a two-column book the next text starts the next column.
+  if (tag === 'div' && element.hasAttribute('data-wh-column-break')) return context.book?.columns === 2 ? [new docx.Paragraph({ children: [new docx.ColumnBreak()] })] : [];
+  // Boxed text (a note, a read-aloud box, a sidebar): one shaded, bordered cell with its label on top.
+  const rulesCard = tag === 'div' && element.hasAttribute('data-wh-rules-card');
+  if (rulesCard || (tag === 'aside' && CALLOUT_LABELS[element.getAttribute('data-wh-callout') ?? ''])) {
+    // A rules card (spell, item, creature) is boxed the same way, its title already inside it.
+    const kind = rulesCard ? { es: '', en: '', fill: 'F8EEDD', border: '9A3A1C' } : CALLOUT_LABELS[element.getAttribute('data-wh-callout')!];
+    const label = (context.locale ?? '').toLowerCase().startsWith('en') ? kind.en : kind.es;
+    const border = { style: docx.BorderStyle.SINGLE, size: 8, color: kind.border };
+    const inner = blocksFromChildren(element, docx, { ...context, quoted: false });
+    return [new docx.Table({
+      width: { size: 100, type: docx.WidthType.PERCENTAGE },
+      borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
+      rows: [new docx.TableRow({ cantSplit: true, children: [new docx.TableCell({
+        shading: { fill: kind.fill, type: docx.ShadingType.CLEAR, color: 'auto' },
+        margins: { top: 100, bottom: 100, left: 160, right: 160 },
+        children: [...(label ? [new docx.Paragraph({ children: [new docx.TextRun({ text: label, bold: true, size: 18, color: kind.border })], spacing: { after: 80 } })] : []), ...(inner.length ? inner : [new docx.Paragraph({ children: inlineChildren(element.childNodes, docx, context.notes) })])],
+      })] })],
+    }), new docx.Paragraph({ spacing: { after: 120 }, children: [] })];
+  }
   if (tag === 'hr') {
     // The manuscript convention for a scene or POV break.
     return [new docx.Paragraph({
@@ -343,10 +398,16 @@ function paragraphsFromElement(
       preformatted: tag === 'pre',
     });
     const indent=context.quoted||format.indent!==undefined||format.firstLineIndent!==undefined?{...(context.quoted?{left:720,right:720}:{}),...(format.indent!==undefined?{left:(context.quoted?720:0)+Math.round(format.indent*360)}:{}),...(format.firstLineIndent!==undefined?{firstLine:format.dropCap?0:Math.round(format.firstLineIndent*240)}:{})}:undefined;
+    const alignment = format.alignment === 'justify' ? docx.AlignmentType.JUSTIFIED
+      : format.alignment === 'center' ? docx.AlignmentType.CENTER
+      : format.alignment === 'right' ? docx.AlignmentType.RIGHT
+      : format.alignment === 'left' ? docx.AlignmentType.LEFT : undefined;
+    const after = context.book ? (context.book.paragraphs === 'spaced' ? Math.round(context.book.paragraphSpacing * 240) : 0) : 120;
     return [...initials,new docx.Paragraph({
       children,
       indent,
-      spacing: { after: 120 },
+      ...(alignment ? { alignment } : {}),
+      spacing: { after, ...(format.lineHeight ? { line: Math.round(format.lineHeight * 240) } : {}) },
     })];
   }
 
@@ -363,10 +424,12 @@ function paragraphsFromHtml(
   docx: DocxModule,
   nextInstance: { value: number },
   notes: Notes,
+  book?: BookStyle,
+  locale?: string,
 ): BlockChild[] {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
   numberFootnotes(parsed.body, docx, notes.bodies);
-  const context: BlockContext = { listLevel: 0, listInstance: 0, nextInstance, quoted: false, notes };
+  const context: BlockContext = { listLevel: 0, listInstance: 0, nextInstance, quoted: false, notes, book, locale };
   const blocks: BlockChild[] = [];
   for (const child of parsed.body.childNodes) {
     if (child instanceof Element) {
@@ -376,6 +439,31 @@ function paragraphsFromHtml(
     }
   }
   return blocks;
+}
+
+/** A header image decoded for Word, or null for a format Word cannot hold (WebP). */
+async function docxHeaderImage(image: { src: string } | undefined): Promise<{ type: 'png' | 'jpg' | 'gif'; data: Uint8Array; fit: (layout: string) => { width: number; height: number } } | null> {
+  const match = image && /^data:image\/(png|jpe?g|gif);base64,(.+)$/is.exec(image.src);
+  if (!match) return null;
+  const binary = atob(match[2].replace(/\s+/g, ''));
+  const data = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
+  let width = 4, height = 3;
+  try {
+    const bitmap = await createImageBitmap(new Blob([data]));
+    width = bitmap.width; height = bitmap.height; bitmap.close();
+  } catch { /* An image the browser cannot decode keeps a 4:3 frame. */ }
+  const type = match[1].toLowerCase() === 'png' ? 'png' : match[1].toLowerCase() === 'gif' ? 'gif' : 'jpg';
+  return {
+    type, data,
+    // Pixels at 96 dpi: across the text block, a third of it beside the title, or a banner strip.
+    fit: layout => {
+      if (layout === 'natural') return { width, height };
+      const max = layout === 'beside' ? 200 : 520, maxHeight = layout === 'banner' ? 220 : 520;
+      const scale = Math.min(max / width, maxHeight / height, 1e9);
+      return { width: Math.round(width * scale), height: Math.round(height * scale) };
+    },
+  };
 }
 
 function numberingLevels(docx: DocxModule, ordered: boolean) {
@@ -405,10 +493,17 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
         alignment: docx.AlignmentType.CENTER,
         spacing: { before: 2800, after: 300 },
       }),
+      ...(document.author ? [new docx.Paragraph({ text: document.author, alignment: docx.AlignmentType.CENTER, spacing: { after: 300 } })] : []),
       new docx.Paragraph({
         text: `${document.wordCount.toLocaleString(document.locale)} ${document.wordLabel} · ${new Date(document.generatedAt).toLocaleDateString(document.locale)}`,
         alignment: docx.AlignmentType.CENTER,
       }),
+      new docx.Paragraph({ children: [new docx.PageBreak()] }),
+    );
+  }
+  if (document.copyright) {
+    children.push(
+      new docx.Paragraph({ text: document.copyright, alignment: docx.AlignmentType.CENTER, spacing: { before: 6000 } }),
       new docx.Paragraph({ children: [new docx.PageBreak()] }),
     );
   }
@@ -430,12 +525,48 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
       new docx.Paragraph({ children: [new docx.PageBreak()] }),
     );
   }
+  // The manuscript's own pictures Word can hold, decoded once for the whole book.
+  wordImages = new Map();
+  for (const section of document.sections) {
+    if (!section.portableHtml.includes('<img')) continue;
+    for (const image of new DOMParser().parseFromString(section.portableHtml, 'text/html').querySelectorAll('img')) {
+      const src = image.getAttribute('src') ?? '';
+      if (wordImages.has(src)) continue;
+      const decoded = await docxHeaderImage({ src });
+      if (!decoded) continue;
+      const natural = decoded.fit('natural');
+      wordImages.set(src, { type: decoded.type, data: decoded.data, width: natural.width, height: natural.height });
+    }
+  }
+  // Where the front matter ends: a two-column book sets only what follows in columns.
+  const frontMatter = children.length;
+  // Header images Word can hold (PNG, JPEG, GIF), with their pixel sizes.
+  const headers = await Promise.all(document.sections.map(section => docxHeaderImage(section.headerImage)));
   document.sections.forEach((section, sectionIndex) => {
+    const book = document.bookStyle;
+    const header = headers[sectionIndex], layout = section.headerImage?.layout;
+    const image = (pageBreakBefore: boolean) => new docx.Paragraph({
+      alignment: layout === 'beside' ? docx.AlignmentType.LEFT : docx.AlignmentType.CENTER,
+      spacing: { after: 200 },
+      ...(pageBreakBefore ? { pageBreakBefore: true } : {}),
+      children: [new docx.ImageRun({ type: header!.type, data: header!.data, transformation: header!.fit(layout ?? 'above') })],
+    });
+    // Above or as a banner, the picture opens the chapter's page; beside, it follows the title.
+    const opensPage = !!header && layout !== undefined && layout !== 'beside';
+    if (opensPage) {
+      const label = layout === 'banner' ? section.headerImage?.label : undefined;
+      if (label) children.push(new docx.Paragraph({ children: [new docx.TextRun({ text: label.toUpperCase(), size: 18, characterSpacing: 60 })], alignment: docx.AlignmentType.CENTER, spacing: { after: 120 }, ...(sectionIndex > 0 ? { pageBreakBefore: true } : {}) }));
+      children.push(image(sectionIndex > 0 && !label));
+    }
     children.push(new docx.Paragraph({
-      text: section.title,
+      ...(book ? { children: [new docx.TextRun({ text: section.title, size: Math.round(book.titleSize * 2) })], alignment: docx.AlignmentType.CENTER } : { text: section.title }),
       heading: docx.HeadingLevel.HEADING_1,
-      pageBreakBefore: sectionIndex > 0,
+      pageBreakBefore: sectionIndex > 0 && !opensPage,
     }));
+    if (header && layout === 'beside') children.push(image(false));
+    if (book && book.titleOrnament !== 'none') {
+      children.push(new docx.Paragraph({ text: TITLE_ORNAMENT_TEXT[book.titleOrnament], alignment: docx.AlignmentType.CENTER, spacing: { after: 360 } }));
+    }
     if (section.synopsis) {
       children.push(new docx.Paragraph({
         children: [new docx.TextRun({ text: section.synopsis, italics: true })],
@@ -443,8 +574,12 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
         spacing: { after: 240 },
       }));
     }
-    children.push(...paragraphsFromHtml(section.portableHtml, docx, listInstances, notes));
+    children.push(...paragraphsFromHtml(section.portableHtml, docx, listInstances, notes, document.bookStyle, document.locale));
   });
+  if (document.blurb) {
+    children.push(new docx.Paragraph({ text: document.blurb.title, heading: docx.HeadingLevel.HEADING_1, pageBreakBefore: true }));
+    for (const line of document.blurb.text.split(/\n+/)) children.push(new docx.Paragraph({ text: line, spacing: { after: 180 } }));
+  }
   if (document.bibliography.length > 0 && document.bibliographyTitle) {
     children.push(new docx.Paragraph({
       text: document.bibliographyTitle,
@@ -458,7 +593,7 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
 
   const file = new docx.Document({
     title: document.title,
-    creator: 'Writers Hoard',
+    creator: document.author ?? 'Writers Hoard',
     // Real Word footnotes (`word/footnotes.xml`) or endnotes
     // (`word/endnotes.xml`), numbered and placed by Word itself.
     footnotes: notes.kind === 'footnotes' ? notes.bodies : undefined,
@@ -470,10 +605,19 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
         { reference: 'publishing-numbers', levels: numberingLevels(docx, true) },
       ],
     },
-    sections: [{
-      properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
-      children,
-    }],
+    // A book style sets the page: its trim (millimetres to twips) and paper.
+    ...(document.bookStyle && document.bookStyle.paper !== 'white' && document.bookStyle.paper !== 'night' ? { background: { color: PAPER_COLORS[document.bookStyle.paper].background.slice(1) } } : {}),
+    sections: (() => {
+      const page = document.bookStyle ? (() => {
+        const trim = TRIM_SIZES[document.bookStyle.trim], twips = (mm: number) => Math.round(mm * 1440 / 25.4), margin = twips(trim.margin);
+        return { size: { width: twips(trim.width), height: twips(trim.height) }, margin: { top: margin, right: margin, bottom: margin, left: margin } };
+      })() : { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } };
+      if (document.bookStyle?.columns !== 2) return [{ properties: { page }, children }];
+      // Two columns for the chapters; the title page, copyright and contents stay in one.
+      const body = { properties: { page, type: docx.SectionType.CONTINUOUS, column: { count: 2, space: 400, equalWidth: true } }, children: children.slice(frontMatter) };
+      return frontMatter > 0 ? [{ properties: { page }, children: children.slice(0, frontMatter) }, body] : [{ ...body, properties: { ...body.properties, type: undefined } }];
+    })(),
   });
+  wordImages = null;
   return docx.Packer.toBlob(file);
 }

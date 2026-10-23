@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { db } from '@/db';
-import { getAllProjects, updateProject } from '@/db/operations';
+import { getAllProjects, notifyProjectsChanged, updateProject } from '@/db/operations';
 import { searchProjectContent } from '@/services/projectSearchIndex';
 import { useAppStore } from '@/stores/appStore';
 import {listLocalToolDefinitions,localToolEngineId} from '@/engines/local/definitions';
@@ -92,6 +92,7 @@ export async function whListProjects(): Promise<unknown> {
         id: project.id,
         title: project.title,
         description: project.description,
+        author: project.author ?? null,
         mode: project.mode,
         type: project.type,
         status: project.status,
@@ -159,4 +160,21 @@ export async function whSearch(args: ToolArgs): Promise<unknown> {
       ? 'Use the engineId and id of a hit with the matching read tool (wh_get_writing, wh_get_codex_entry...).'
       : 'Nothing matched. Queries under 3 characters are ignored; try a distinctive name instead.',
   };
+}
+
+/** Title, description, author's byline and back-cover text of a project, as Edit project changes them. Undoable. */
+export async function whUpdateProjectDetails(args: ToolArgs): Promise<unknown> {
+  const projectId = resolveProjectId(args);
+  const project = await db.projects.get(projectId);
+  if (!project) throw new BridgeError('not-found', 'Project not found.');
+  const changes: { title?: string; description?: string; author?: string | undefined; blurb?: string | undefined } = {};
+  if (args.title !== undefined) { const title = typeof args.title === 'string' ? args.title.trim() : ''; if (!title || title.length > 200) throw new BridgeError('bad-args', 'title is 1 to 200 characters.'); changes.title = title; }
+  if (args.description !== undefined) { if (typeof args.description !== 'string' || args.description.length > 5000) throw new BridgeError('bad-args', 'description is up to 5000 characters.'); changes.description = args.description.trim(); }
+  if (args.author !== undefined) { if (typeof args.author !== 'string' || args.author.length > 120) throw new BridgeError('bad-args', 'author is up to 120 characters; "" removes it.'); changes.author = args.author.trim() || undefined; }
+  if (args.blurb !== undefined) { if (typeof args.blurb !== 'string' || args.blurb.length > 4000) throw new BridgeError('bad-args', 'blurb is up to 4000 characters; "" removes it.'); changes.blurb = args.blurb.trim() || undefined; }
+  if (!Object.keys(changes).length) throw new BridgeError('bad-args', 'Pass title, description, author or blurb.');
+  const before = { title: project.title, description: project.description, author: project.author ?? null, blurb: project.blurb ?? null };
+  await db.projects.update(projectId, { ...changes, updatedAt: Date.now() });
+  notifyProjectsChanged();
+  return withAudit({ projectId, updated: Object.keys(changes), title: changes.title ?? project.title, author: ('author' in changes ? changes.author : project.author) ?? null }, { projectId, entityId: projectId, summary: `updated project details (${Object.keys(changes).join(', ')})`, before: { __projectDetails: before } });
 }

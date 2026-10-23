@@ -1,9 +1,11 @@
 const es = {
+  group: 'Grupo', noGroup: 'Sin grupo', newGroup: '+ Grupo nuevo', groupName: 'Nombre del grupo', groupColor: 'Color del grupo', removeGroup: 'Quitar grupo', labelMode: 'Nombres de relación', labelAlways: 'Siempre', labelHover: 'Al pasar el ratón', labelHidden: 'Ocultos', createCard: 'Crear ficha del Codex', cardCreated: 'Ficha creada y enlazada',
   reconnectInstructions:'Arrastra los círculos dorados de los extremos para reconectar. Escape cancela. También puedes cambiar el origen, destino y anclajes en el inspector.',
   neighbor:'Añadir vecino',canonical: 'Genealogía canónica', trees: 'Árboles y variantes', create: 'Nuevo árbol', copyCanonical: 'Crear árbol desde la genealogía',
   name: 'Nombre del árbol', defaultName: 'Árbol de relaciones', variant: 'Crear variante', variantSuffix: 'variante', save: 'Guardar árbol', saved: 'Guardado', dirty: 'Borrador sin guardar',
   addNode: 'Añadir persona o nodo', addEdge: 'Conectar nodos', nodeName: 'Nombre del nodo', person: 'Ficha del Codex', freeNode: 'Nodo independiente',
   deceased: 'Fallecido', removeNode: 'Quitar nodo', removeEdge: 'Quitar relación', removeTree: 'Eliminar árbol',
+  variants: 'Variantes de este árbol', removeSelection: 'Quitar {count}', removeSelectionConfirm: '¿Quitar estos {count} nodos y sus relaciones? El cambio se aplicará al guardar el árbol.',
   removeNodeConfirm: '¿Quitar este nodo y sus relaciones? El cambio se aplicará al guardar el árbol.', removeEdgeConfirm: '¿Quitar esta relación? El cambio se aplicará al guardar el árbol.', removeTreeConfirm: '¿Mover este árbol guardado al archivo y descartar su borrador local pendiente? El árbol guardado se puede restaurar; las fichas y la genealogía canónica siguen disponibles.',
   from: 'Origen', to: 'Destino', kind: 'Tipo de relación', label: 'Etiqueta de la relación', style: 'Trazo',
   biological_parent: 'Progenitor biológico', adoptive_parent: 'Progenitor adoptivo', guardian: 'Tutor', partner: 'Pareja', custom: 'Relación personalizada',
@@ -22,11 +24,13 @@ const es = {
   junction: 'Punto de unión', insertJunction: 'Añadir punto de unión a la relación', removeJunction: 'Quitar punto de unión', removeJunctionConfirm: '¿Quitar este punto? Las relaciones que pasan por él continuarán directas; sus ramales conectados se quitarán al guardar.', junctionHelp: 'Este punto visual admite varias conexiones. Arrástralo o ajusta sus coordenadas; no es una ficha ni una persona.', icon: 'Icono de la relación', noIcon: 'Sin icono', anchorFrom: 'Anclaje de origen', anchorTo: 'Anclaje de destino', top: 'Arriba', bottom: 'Abajo', left: 'Izquierda', right: 'Derecha',
 };
 const en: typeof es = {
+  group: 'Group', noGroup: 'No group', newGroup: '+ New group', groupName: 'Group name', groupColor: 'Group colour', removeGroup: 'Remove group', labelMode: 'Relationship names', labelAlways: 'Always', labelHover: 'On hover', labelHidden: 'Hidden', createCard: 'Create Codex card', cardCreated: 'Card created and linked',
   reconnectInstructions:'Drag the gold circles at the outer endpoints to reconnect. Escape cancels. You can also change source, target and anchors in the inspector.',
   neighbor:'Add neighbor',canonical: 'Canonical genealogy', trees: 'Trees and variants', create: 'New tree', copyCanonical: 'Create tree from genealogy',
   name: 'Tree name', defaultName: 'Relationship tree', variant: 'Create variant', variantSuffix: 'variant', save: 'Save tree', saved: 'Saved', dirty: 'Unsaved draft',
   addNode: 'Add person or node', addEdge: 'Connect nodes', nodeName: 'Node name', person: 'Codex entry', freeNode: 'Independent node',
   deceased: 'Deceased', removeNode: 'Remove node', removeEdge: 'Remove relationship', removeTree: 'Delete tree',
+  variants: 'Variants of this tree', removeSelection: 'Remove {count}', removeSelectionConfirm: 'Remove these {count} nodes and their relationships? This change will apply when you save the tree.',
   removeNodeConfirm: 'Remove this node and its relationships? This change will apply when you save the tree.', removeEdgeConfirm: 'Remove this relationship? This change will apply when you save the tree.', removeTreeConfirm: 'Move this saved tree to the archive and discard its pending local draft? The saved tree can be restored; Codex entries and canonical genealogy stay available.',
   from: 'Source', to: 'Target', kind: 'Relationship type', label: 'Relationship label', style: 'Line style',
   biological_parent: 'Biological parent', adoptive_parent: 'Adoptive parent', guardian: 'Guardian', partner: 'Partner', custom: 'Custom relationship',

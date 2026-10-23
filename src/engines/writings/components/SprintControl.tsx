@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Timer, Play, ChevronDown, Square, X, Check } from 'lucide-react';
+import { Timer, Play, ChevronDown, Square, X, Check, Coffee, SkipForward, Pause } from 'lucide-react';
 // The non-reactive `t` is imported alongside the hook on purpose: strings
 // read inside callbacks must not put the reactive `t` — a fresh identity on
 // every render — into a dependency array that the running clock depends on.
@@ -10,6 +10,12 @@ import {
   DEFAULT_SPRINT_PREFS,
   SPRINT_PRESETS,
   beginSprint,
+  beginSprintBreak,
+  breakMinutesAfter,
+  endSprintBreak,
+  listSprints,
+  peekSprintBreak,
+  roundsToday,
   clampMinutes,
   clampTarget,
   endSprint,
@@ -20,7 +26,11 @@ import {
   readSprintPrefs,
   reconcileSprint,
   targetMet,
+  pauseSprint,
+  resumeSprint,
+  sprintRemaining,
 } from '@/engines/writing-stats/sprints';
+import type { SprintBreak } from '@/engines/writing-stats/sprints';
 import type {
   ActiveSprint,
   SprintPrefs,
@@ -73,6 +83,9 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
   const [ready, setReady] = useState(() => peekActiveSprint(projectId) !== undefined);
   const [finished, setFinished] = useState<SprintRecord | null>(null);
   const [prefs, setPrefs] = useState<SprintPrefs>(() => peekSprintPrefs() ?? DEFAULT_SPRINT_PREFS);
+  // Rounds run to the end today, and the break being taken after one.
+  const [round, setRound] = useState(0);
+  const [rest, setRest] = useState<SprintBreak | null>(() => peekSprintBreak(projectId));
 
   const [setupOpen, setSetupOpen] = useState(false);
   const [draftMinutes, setDraftMinutes] = useState('');
@@ -99,7 +112,9 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
           reconcileSprint(projectId, getProjectWords()),
           readSprintPrefs(),
         ]);
+        const logged = await listSprints(projectId);
         if (cancelled) return;
+        setRound(roundsToday(logged));
         if (!touchedRef.current) {
           setPrefs(storedPrefs);
           setActive(reconciled.active);
@@ -128,6 +143,7 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
         });
         setActive(null);
         setFinished(record);
+        if (!stopped) setRound((value) => value + 1);
       } catch (err) {
         console.error('[writings] could not file the sprint', err);
         toast.error(translate('stats.sprint.saveError'));
@@ -150,7 +166,7 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
     const sprint = active;
 
     const paint = (): number => {
-      const remaining = sprint.endsAt - Date.now();
+      const remaining = sprintRemaining(sprint);
       const clock = clockNodeRef.current;
       if (clock) clock.textContent = formatCountdown(remaining);
       const words = wordsNodeRef.current;
@@ -168,6 +184,8 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
       void fileSprint(sprint, false);
       return;
     }
+    // Paused: the clock shows the time it stopped at and does not tick.
+    if (sprint.pausedAt !== undefined) return;
 
     const timer = window.setInterval(() => {
       if (paint() > 0) return;
@@ -176,6 +194,38 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
     }, 1000);
     return () => window.clearInterval(timer);
   }, [active, getProjectWords, fileSprint]);
+
+  // The break's clock: written straight into its text node, like the sprint's.
+  const restNodeRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (!rest) return;
+    const paint = (): number => {
+      const remaining = rest.endsAt - Date.now();
+      if (restNodeRef.current) restNodeRef.current.textContent = formatCountdown(remaining);
+      return remaining;
+    };
+    const over = () => {
+      endSprintBreak(projectId);
+      setRest(null);
+      toast.success(translate('stats.sprint.breakOver').replace('{round}', String(rest.round + 1)));
+    };
+    if (paint() <= 0) { over(); return; }
+    const timer = window.setInterval(() => {
+      if (paint() > 0) return;
+      window.clearInterval(timer);
+      over();
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [rest, projectId]);
+
+  const takeBreak = useCallback(() => {
+    setFinished(null);
+    setRest(beginSprintBreak(projectId, Math.max(1, round)));
+  }, [projectId, round]);
+  const skipBreak = useCallback(() => {
+    endSprintBreak(projectId);
+    setRest(null);
+  }, [projectId]);
 
   // Close the setup popover on any click outside it — the same dismissal the
   // writings card menu uses.
@@ -204,6 +254,8 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
         });
         setFinished(null);
         setSetupOpen(false);
+        endSprintBreak(projectId);
+        setRest(null);
         setActive(sprint);
         toast.success(
           translate('stats.sprint.started').replace(
@@ -245,6 +297,17 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
         <span className="text-xs text-text-muted" title={t('stats.sprint.wordsSoFar')}>
           <span ref={wordsNodeRef} className="tabular-nums" /> {t('writings.words')}
         </span>
+        <button
+          type="button"
+          data-testid="sprint-pause"
+          aria-pressed={active.pausedAt !== undefined}
+          onClick={() => { void (active.pausedAt !== undefined ? resumeSprint(projectId) : pauseSprint(projectId)).then(next => { if (next) setActive(next); }); }}
+          className="p-1 rounded text-text-muted hover:text-accent-gold transition"
+          title={active.pausedAt !== undefined ? t('stats.sprint.resume') : t('stats.sprint.pause')}
+          aria-label={active.pausedAt !== undefined ? t('stats.sprint.resume') : t('stats.sprint.pause')}
+        >
+          {active.pausedAt !== undefined ? <Play size={13} /> : <Pause size={13} />}
+        </button>
         <button
           onClick={() => setConfirmStop(true)}
           className="p-1 rounded text-text-muted hover:text-danger transition"
@@ -296,12 +359,51 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
             {verdict ? ` · ${verdict}` : ''}
           </p>
         </div>
+        {!finished.stopped && round > 0 && (
+          <button
+            data-testid="sprint-break"
+            onClick={takeBreak}
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-text-muted hover:text-accent-gold hover:bg-elevated transition"
+            title={t('stats.sprint.breakHint').replace('{round}', String(round))}
+          >
+            <Coffee size={12} />
+            {t('stats.sprint.breakFor').replace('{minutes}', String(breakMinutesAfter(round)))}
+          </button>
+        )}
+        <button
+          data-testid="sprint-again"
+          onClick={() => void start(prefs.durationMinutes, prefs.targetWords)}
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-text-muted hover:text-accent-gold hover:bg-elevated transition"
+          title={t('stats.startSprint')}
+        >
+          <Play size={12} />
+          {t('stats.sprint.again')}
+        </button>
         <button
           onClick={() => setFinished(null)}
           className="p-1 rounded text-text-dim hover:text-text-primary transition"
           title={t('common.dismiss')}
         >
           <X size={13} />
+        </button>
+      </div>
+    );
+  }
+
+  // ---- On a break ---------------------------------------------------------
+  if (rest) {
+    return (
+      <div data-testid="sprint-resting" className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-border bg-elevated/60">
+        <Coffee size={14} className="text-text-muted flex-shrink-0" />
+        <span className="text-[11px] text-text-muted">{t('stats.sprint.resting')}</span>
+        <span ref={restNodeRef} data-testid="sprint-rest-clock" className="text-sm font-mono font-semibold text-text-primary tabular-nums" />
+        <button
+          data-testid="sprint-break-skip"
+          onClick={skipBreak}
+          className="p-1 rounded text-text-muted hover:text-accent-gold transition"
+          title={t('stats.sprint.skipBreak')}
+        >
+          <SkipForward size={13} />
         </button>
       </div>
     );
@@ -324,6 +426,11 @@ function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 
         >
           <Play size={14} />
           {presetLabel}
+          {round > 0 && (
+            <span data-testid="sprint-round" className="text-[10px] text-text-dim" title={t('stats.sprint.roundsToday')}>
+              · {t('stats.sprint.round').replace('{round}', String(round + 1))}
+            </span>
+          )}
         </button>
         <button
           onClick={() => (setupOpen ? setSetupOpen(false) : openSetup())}

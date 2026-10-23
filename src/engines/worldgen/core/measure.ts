@@ -14,6 +14,7 @@
 // equator has to be a quarter of `EARTH_KM`, and antipodes half of it, whatever
 // the map does with the answer.
 
+import { cellKmOf, climateLatDeg, isSheet, mapDistanceKm, sheetScale } from './geoScale';
 import { EARTH_KM } from './camera';
 
 /** A point in world cells, fractional, as every gesture in the 2D reports it. */
@@ -47,6 +48,16 @@ export function cellToLonLat(p: CellPoint, width: number, height: number): LonLa
 }
 
 /**
+ * The latitude and longitude a reader is shown for a cell: the planet's grid,
+ * or on a sheet the band of the globe the sheet stands for (its climate's
+ * latitude round SHEET_LAT, and longitude at the same scale round 0°).
+ */
+export function mapLonLat(p: CellPoint, width: number, height: number, sheet?: { worldKm?: number }): LonLatDeg {
+  if (!isSheet(sheet)) return cellToLonLat(p, width, height);
+  return { lon: (p.x / width - 0.5) * 360 * sheetScale(sheet), lat: climateLatDeg(p.y / height, sheet) };
+}
+
+/**
  * Great-circle distance between two cells, in kilometres.
  *
  * Haversine rather than the arc-cosine form: `acos` loses every digit for
@@ -55,8 +66,10 @@ export function cellToLonLat(p: CellPoint, width: number, height: number): LonLa
  * difference of 359° is the trigonometry of 1°.
  */
 export function cellDistanceKm(
-  a: CellPoint, b: CellPoint, width: number, height: number, radiusKm = PLANET_RADIUS_KM,
+  a: CellPoint, b: CellPoint, width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: { worldKm?: number },
 ): number {
+  // A sheet is flat: the straight distance at its own scale.
+  if (isSheet(sheet)) return mapDistanceKm(sheet, width, height, a.x, a.y, b.x, b.y);
   const p = cellToLonLat(a, width, height);
   const q = cellToLonLat(b, width, height);
   const dLat = (q.lat - p.lat) * DEG;
@@ -67,7 +80,14 @@ export function cellDistanceKm(
 }
 
 /** Initial bearing from `a` to `b`, degrees clockwise from north in [0, 360). */
-export function cellBearingDeg(a: CellPoint, b: CellPoint, width: number, height: number): number {
+export function cellBearingDeg(a: CellPoint, b: CellPoint, width: number, height: number, sheet?: { worldKm?: number }): number {
+  // A sheet is flat: north is up the map, east is right, whatever the row.
+  if (isSheet(sheet)) {
+    let dx = b.x - a.x;
+    while (dx > width / 2) dx -= width;
+    while (dx < -width / 2) dx += width;
+    return ((Math.atan2(dx, -(b.y - a.y)) / DEG) + 360) % 360;
+  }
   const p = cellToLonLat(a, width, height);
   const q = cellToLonLat(b, width, height);
   const phi1 = p.lat * DEG, phi2 = q.lat * DEG;
@@ -121,14 +141,14 @@ export interface RulerReading {
 }
 
 /** Every leg of the polyline and the sum, once per change — never per frame. */
-export function measurePolyline(points: CellPoint[], width: number, height: number): RulerReading {
+export function measurePolyline(points: CellPoint[], width: number, height: number, sheet?: { worldKm?: number }): RulerReading {
   const legs: RulerLeg[] = [];
   let totalKm = 0;
   for (let i = 1; i < points.length; i++) {
     const from = points[i - 1], to = points[i];
-    const km = cellDistanceKm(from, to, width, height);
+    const km = cellDistanceKm(from, to, width, height, PLANET_RADIUS_KM, sheet);
     totalKm += km;
-    legs.push({ from, to, km, bearing: cellBearingDeg(from, to, width, height) });
+    legs.push({ from, to, km, bearing: cellBearingDeg(from, to, width, height, sheet) });
   }
   return { legs, totalKm };
 }
@@ -156,8 +176,16 @@ export function wrappedDx(a: CellPoint, b: CellPoint, width: number): number {
  * that crosses the east-west seam is measured as one piece, and a ring round a
  * pole measures the polar cap it encloses.
  */
-export function polygonAreaKm2(points: CellPoint[], width: number, height: number, radiusKm = PLANET_RADIUS_KM): number {
+export function polygonAreaKm2(points: CellPoint[], width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: { worldKm?: number }): number {
   if (points.length < 3) return 0;
+  // A sheet: the flat shoelace area, the ring unwrapped round the seam.
+  if (isSheet(sheet)) {
+    const k = cellKmOf(sheet, width);
+    let prev = points[0].x, a = 0;
+    const xs = points.map((p) => { let x = p.x; while (x - prev > width / 2) x -= width; while (x - prev < -width / 2) x += width; prev = x; return x; });
+    for (let i = 0; i < points.length; i++) { const j = (i + 1) % points.length; a += xs[i] * points[j].y - xs[j] * points[i].y; }
+    return Math.abs(a) / 2 * k * k;
+  }
   const ll = points.map((p) => cellToLonLat(p, width, height));
   const lon: number[] = [ll[0].lon];
   for (let i = 1; i < ll.length; i++) {
@@ -183,7 +211,7 @@ export function polygonAreaKm2(points: CellPoint[], width: number, height: numbe
 }
 
 /** Perimeter of the ring closed back to its first point, in km. */
-export function closedPerimeterKm(points: CellPoint[], width: number, height: number): number {
+export function closedPerimeterKm(points: CellPoint[], width: number, height: number, sheet?: { worldKm?: number }): number {
   if (points.length < 3) return 0;
-  return measurePolyline([...points, points[0]], width, height).totalKm;
+  return measurePolyline([...points, points[0]], width, height, sheet).totalKm;
 }

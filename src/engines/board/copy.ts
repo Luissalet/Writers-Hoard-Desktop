@@ -8,6 +8,7 @@ const es = {
   branchFrom: 'Conectada con', close: 'Cerrar panel', saveRetry: 'Reintentar guardado',
   loading: 'Abriendo tus ideas…', group: 'Agrupar', search: 'Buscar ideas y conexiones',
   pile:'Grupo',collapsePile:'Colapsar en un grupo',openPile:'Abrir este grupo',items:'elementos',
+  quickConnect: 'Nueva idea conectada a este lado',
   surface: 'Superficie', cork: 'Corcho', slate: 'Pizarra', grid: 'Papel', blueprint: 'Plano',
 };
 export type BoardCopy = typeof es;
@@ -20,6 +21,7 @@ const en: BoardCopy = {
   branchFrom: 'Connected to', close: 'Close panel', saveRetry: 'Retry saving',
   loading: 'Opening your ideas…', group: 'Group', search: 'Search ideas and connections',
   pile:'Pile',collapsePile:'Collapse into a pile',openPile:'Open this pile',items:'items',
+  quickConnect: 'New idea connected on this side',
   surface: 'Surface', cork: 'Cork', slate: 'Slate', grid: 'Paper', blueprint: 'Blueprint',
 };
 export function getBoardCopy(locale: string): BoardCopy { return locale === 'es' ? es : en; }

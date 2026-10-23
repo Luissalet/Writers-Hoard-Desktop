@@ -24,6 +24,8 @@
 import * as THREE from 'three';
 
 export type StageStyle = 'maqueta' | 'paisaje';
+/** How the block looks: cut rock, stacked paper or an engraving. */
+export type BlockLook = 'roca' | 'papel' | 'grabado';
 export const STAGE_STYLES: StageStyle[] = ['maqueta', 'paisaje'];
 
 export interface DioramaOptions {
@@ -54,6 +56,10 @@ export interface Diorama {
     sun: THREE.Vector3;
     /** 0 night … 1 noon: how strongly the sun lights the cut and casts the shadow. */
     light: number;
+    /** How the block looks (default rock). */
+    look?: BlockLook;
+    /** Paper sheets: the thickness of one, in km (0 = the ground as it is). */
+    terrace?: number;
   }): void;
   /** The colour the backdrop and the far table fade to. */
   readonly backdrop: THREE.Color;
@@ -78,6 +84,7 @@ in float aBottom;  // 1 on the base edge, 0 on the top edge
 in float aAlong;   // distance along the cut, scene units
 in float aFace;    // 0 north, 1 east, 2 south, 3 west
 uniform float uYMul;
+uniform float uTerrace; // paper sheets: the ground is lifted to the sheet it stands on (km; 0 = none)
 uniform float uBase;
 uniform float uDeep;   // the deepest the cut shows the sea floor, scene units (negative)
 out float vY;
@@ -86,7 +93,8 @@ out float vTop;
 out float vAlong;
 out float vFace;
 void main() {
-  float ground = max(aKm * uYMul, uDeep);
+  float km = uTerrace > 0.0 && aKm > 0.0 ? ceil(aKm / uTerrace) * uTerrace : aKm;
+  float ground = max(km * uYMul, uDeep);
   float top = max(ground, 0.0);
   float y = mix(top, uBase, aBottom);
   vY = y; vGround = ground; vTop = top; vAlong = aAlong; vFace = aFace;
@@ -105,6 +113,8 @@ uniform float uBase;
 uniform float uScale;   // scene units per km of the cut's own scale (not exaggerated)
 uniform vec3 uSun;
 uniform float uLight;
+uniform float uLook;    // 0 cut rock, 1 stacked paper, 2 engraving
+uniform float uSheet;   // paper: one sheet's thickness, scene units
 out vec4 outColor;
 
 float hash1(float n) { return fract(sin(n * 91.345) * 47453.5453); }
@@ -122,9 +132,90 @@ vec3 stratum(float k) {
   return col * (0.94 + 0.12 * hash1(k + 17.0));
 }
 
+// Stacked paper: sheets of one thickness, cream above the sea, kraft under the
+// ground below it, blue under the water, with a fine shadowed seam between two.
+vec3 paperCut(float span) {
+  float sheet = max(uSheet, span * 0.012);
+  float k = floor(vY / sheet);
+  float f = fract(vY / sheet);
+  float w = max(fwidth(vY / sheet), 1e-4);
+  vec3 col;
+  if (vY > vGround + 1e-4) {
+    float depth = clamp((vTop - vY) / max(vTop - vGround, 1e-3), 0.0, 1.0);
+    col = mix(vec3(0.62, 0.78, 0.84), vec3(0.24, 0.42, 0.60), depth);
+  } else if (vY > 0.0) {
+    col = vec3(0.93, 0.90, 0.82);
+  } else {
+    col = vec3(0.70, 0.58, 0.43);
+  }
+  col *= 0.96 + 0.06 * hash1(k + 3.0);
+  // The seam: a dark hairline where one sheet lies on the next, with its shadow just under it.
+  float seam = 1.0 - smoothstep(0.0, w * 1.4, f);
+  float under = 1.0 - smoothstep(0.0, 0.35, f);
+  col *= 1.0 - 0.38 * seam - 0.10 * under;
+  // The board it is glued to.
+  float foot = vY - uBase;
+  if (foot < span * 0.05) col = vec3(0.24, 0.23, 0.22) * (0.9 + 0.1 * smoothstep(0.0, span * 0.05, foot));
+  return col;
+}
+
+// An engraving: parchment, ink lines along the beds and hatching that grows
+// denser with depth; the water column is hatched blue-grey.
+vec3 engravedCut(float span) {
+  vec3 paper = vec3(0.89, 0.84, 0.71);
+  vec3 ink = vec3(0.24, 0.19, 0.15);
+  float pitch = span * 0.022;
+  float t = vY / pitch;
+  float w = max(fwidth(t), 1e-4);
+  float line = 1.0 - smoothstep(w * 0.6, w * 1.8, abs(fract(t) - 0.5) * 2.0 - 0.75);
+  vec3 col = paper;
+  if (vY > vGround + 1e-4) {
+    float depth = clamp((vTop - vY) / max(vTop - vGround, 1e-3), 0.0, 1.0);
+    col = mix(paper, vec3(0.70, 0.76, 0.78), 0.55);
+    col = mix(col, vec3(0.20, 0.27, 0.33), line * (0.25 + 0.55 * depth));
+  } else {
+    float band = span * 0.085;
+    float wob = sin(vAlong * 0.21 + vFace * 1.7) * 0.35 + sin(vAlong * 0.057 + vFace) * 0.65;
+    float level = (vY - uBase) + wob * band * 0.55 + (vGround - uBase) * 0.18;
+    float k = floor(level / band);
+    float lb = level / band;
+    float wb = max(fwidth(lb), 1e-4);
+    float bed = 1.0 - smoothstep(0.0, wb * 1.6, min(fract(lb), 1.0 - fract(lb)));
+    // Diagonal hatching inside each bed, the direction flipping bed to bed.
+    float dir = mod(k, 2.0) < 1.0 ? 1.0 : -1.0;
+    float d = (vAlong * dir + vY) / pitch;
+    float wd = max(fwidth(d), 1e-4);
+    float hatch = 1.0 - smoothstep(wd * 0.6, wd * 1.8, abs(fract(d) - 0.5) * 2.0 - 0.7);
+    float density = 0.25 + 0.5 * hash1(k + 9.0) + 0.35 * clamp((vGround - vY) / max(span, 1e-3), 0.0, 1.0);
+    col = mix(col, ink, hatch * density * 0.55);
+    col = mix(col, ink, bed * 0.85);
+    // The ground's own edge: a firm outline along the top.
+    float lip = 1.0 - smoothstep(0.0, span * 0.012, vGround - vY);
+    col = mix(col, ink, lip * 0.8);
+  }
+  // The plinth: cross-hatched.
+  float foot = vY - uBase;
+  if (foot < span * 0.06) col = mix(col, ink, 0.45 + 0.3 * line);
+  return col;
+}
+
 void main() {
   float span = max(vTop - uBase, 1e-3);
   vec3 col;
+  if (uLook > 1.5) {
+    col = engravedCut(span);
+    vec3 n = vFace < 0.5 ? vec3(0.0, 0.0, -1.0) : vFace < 1.5 ? vec3(1.0, 0.0, 0.0) : vFace < 2.5 ? vec3(0.0, 0.0, 1.0) : vec3(-1.0, 0.0, 0.0);
+    float lambert = max(dot(n, normalize(uSun)), 0.0);
+    outColor = vec4(col * mix(0.82, 1.0, lambert) * mix(0.7, 1.0, uLight), 1.0);
+    return;
+  }
+  if (uLook > 0.5) {
+    col = paperCut(span);
+    vec3 n = vFace < 0.5 ? vec3(0.0, 0.0, -1.0) : vFace < 1.5 ? vec3(1.0, 0.0, 0.0) : vFace < 2.5 ? vec3(0.0, 0.0, 1.0) : vec3(-1.0, 0.0, 0.0);
+    float lambert = max(dot(n, normalize(uSun)), 0.0);
+    outColor = vec4(col * mix(0.66, 1.0, lambert) * mix(0.65, 1.0, uLight), 1.0);
+    return;
+  }
   if (vY > vGround + 1e-4) {
     // The water column: clear at the surface, deep blue towards the seabed.
     float depth = clamp((vTop - vY) / max(vTop - vGround, 1e-3), 0.0, 1.0);
@@ -219,6 +310,9 @@ export function createDiorama(o: DioramaOptions): Diorama {
 
   const wallUniforms = {
     uYMul: { value: 1 },
+    uTerrace: { value: 0 },
+    uLook: { value: 0 },
+    uSheet: { value: 0 },
     uBase: { value: -5 },
     uDeep: { value: -1e6 },
     uScale: { value: 1 },
@@ -351,9 +445,13 @@ export function createDiorama(o: DioramaOptions): Diorama {
       baseY = Math.min(0, Math.max(minKm * u.yMul, deep)) - widthX * BASE_DEPTH;
       wallUniforms.uYMul.value = u.yMul;
       wallUniforms.uBase.value = baseY;
+      wallUniforms.uLook.value = u.look === 'papel' ? 1 : u.look === 'grabado' ? 2 : 0;
+      wallUniforms.uTerrace.value = u.terrace ?? 0;
+      wallUniforms.uSheet.value = (u.terrace ?? 0) * u.yMul;
       wallUniforms.uSun.value.copy(u.sun);
       wallUniforms.uLight.value = u.light;
       bottom.position.y = baseY;
+      bottomMat.color.setRGB(...(u.look === 'grabado' ? [0.5, 0.44, 0.34] : u.look === 'papel' ? [0.2, 0.19, 0.18] : [0.16, 0.13, 0.11]) as [number, number, number], THREE.SRGBColorSpace);
       table.position.y = baseY - 0.02;
       // The shadow falls away from the sun, further the lower it is.
       const s = u.sun;

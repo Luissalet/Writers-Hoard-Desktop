@@ -4,12 +4,13 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
 import {
-  defaultWorldCalendar, validateWorldCalendar, type WorldCalendar,
+  defaultWorldCalendar, formatWorldDate, parseWorldDate, validateWorldCalendar, type WorldCalendar,
 } from '../worldCalendar';
 import { saveWorldCalendar as saveWorldCalendarScoped, type ResolvedWorldCalendar } from '../worldCalendarStore';
 import CalendarPresetControls from './CalendarPresetControls';
 import type { Timeline } from '@/types';
 import { saveTimelineSettings as saveTimelineSettingsScoped } from '../timelineSettings';
+import { applyRedate, projectCalendarEvents, redatePlan, timelineWorldEvents, type RedateChange } from '../redate';
 
 interface WorldCalendarEditorProps {
   projectId: string;
@@ -38,10 +39,13 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
   const [weekdaysText, setWeekdaysText] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  // Events the new calendar no longer has a date for, waiting for "Aplicar y re-fechar".
+  const [pendingRedate, setPendingRedate] = useState<RedateChange[] | null>(null);
   const [rangeStart, setRangeStart] = useState('');
   const [rangeEnd, setRangeEnd] = useState('');
   const [precision, setPrecision] = useState<Timeline['displayPrecision']>('hour');
   const [useOwnCalendar, setUseOwnCalendar] = useState(false);
+  const [corrWorld, setCorrWorld] = useState(''), [corrEarth, setCorrEarth] = useState('');
 
   // Load the draft once per opening. `t` is a new function on every render and
   // `resolved` is re-read live, so depending on them would wipe what is typed.
@@ -54,20 +58,29 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
     const start = resolved ? copy(resolved.calendar) : defaultWorldCalendar(defaultName);
     setDraft(start);
     setWeekdaysText(start.weekdays.join(', '));
+    setCorrWorld((() => { try { return start.correlation ? formatWorldDate(start, start.correlation.date) : ''; } catch { return ''; } })());
+    setCorrEarth(start.correlation?.earth ?? '');
     setErrors([]);
     setRangeStart(timeline?.yearRange ? String(timeline.yearRange.start) : '');
     setRangeEnd(timeline?.yearRange ? String(timeline.yearRange.end) : '');
     setPrecision(timeline?.displayPrecision ?? 'hour');
     setUseOwnCalendar(!!timeline?.worldCalendar);
+    setPendingRedate(null);
   }, [open, resolved, defaultName, timeline]);
 
   const set = (patch: Partial<WorldCalendar>) => setDraft((d) => ({ ...d, ...patch }));
-  const withWeekdays = (): WorldCalendar => ({
-    ...draft,
-    weekdays: weekdaysText.split(',').map((w) => w.trim()).filter(Boolean),
-  });
+  const withWeekdays = (): WorldCalendar => {
+    const calendar: WorldCalendar = { ...draft, weekdays: weekdaysText.split(',').map((w) => w.trim()).filter(Boolean) };
+    // The correlation with the Earth calendar: both halves, or neither.
+    delete calendar.correlation;
+    if (corrWorld.trim() || corrEarth.trim()) {
+      const date = (() => { try { return parseWorldDate(calendar, corrWorld); } catch { return null; } })();
+      calendar.correlation = { date: date?.month && date.day ? date : { year: NaN }, earth: corrEarth.trim() } as WorldCalendar['correlation'];
+    }
+    return calendar;
+  };
 
-  const save = async () => {
+  const save = async (redate = false, keepDates = false) => {
     const calendar = withWeekdays();
     const problems = validateWorldCalendar(calendar);
     setErrors(problems.map(problem => problem.startsWith('hoursPerDay') ? t('timeline.details.invalidHours') : /^leap\.(exceptEvery|restoreEvery)/.test(problem) ? t('timeline.details.invalidLeap') : problem));
@@ -76,8 +89,21 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
     try {
       if (timeline) {
         if (!!rangeStart !== !!rangeEnd) throw new Error('timeline.settings.invalidRange');
-        await saveTimelineSettings(projectId, timeline.id, { worldCalendar: useOwnCalendar ? calendar : undefined, yearRange: rangeStart && rangeEnd ? { start: Number(rangeStart), end: Number(rangeEnd) } : undefined, displayPrecision: precision });
-      } else await saveWorldCalendar(projectId, calendar);
+        const changes = { worldCalendar: useOwnCalendar ? calendar : undefined, yearRange: rangeStart && rangeEnd ? { start: Number(rangeStart), end: Number(rangeEnd) } : undefined, displayPrecision: precision };
+        if (!redate && useOwnCalendar) {
+          const plan = redatePlan(await timelineWorldEvents(projectId, timeline.id, scope.eraId), calendar);
+          if (plan.length) { setPendingRedate(plan); return; }
+        }
+        if (redate) await saveTimelineSettingsScoped(projectId, timeline.id, changes, scope.eraId, { redate: true });
+        else await saveTimelineSettings(projectId, timeline.id, changes);
+      } else {
+        const plan = redatePlan(await projectCalendarEvents(projectId, scope.eraId), calendar);
+        if (plan.length && !redate && !keepDates) { setPendingRedate(plan); return; }
+        await saveWorldCalendar(projectId, calendar);
+        // "Save without moving them": the events keep their label and leave the date axis, as before re-dating existed.
+        if (redate) await applyRedate(projectId, plan, scope.eraId);
+      }
+      setPendingRedate(null);
       onClose();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -105,7 +131,7 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
   return (
     <Modal open={open} onClose={() => { if (!saving) onClose(); }} title={t(timeline ? 'timeline.settings.open' : 'timeline.world.editorTitle')} wide busy={saving}>
       <fieldset disabled={saving} className="space-y-4 min-w-0" data-testid="world-calendar-editor">
-        {timeline && <div className="space-y-3 rounded-lg bg-elevated p-3"><p className="text-sm font-semibold text-accent-gold">{timeline.title}</p><p className="text-xs text-text-muted">{t('timeline.settings.scopeHelp')}</p><div className="flex flex-wrap gap-3"><label className="text-xs text-text-muted">{t('timeline.settings.fromYear')}<input aria-label={t('timeline.settings.fromYear')} type="number" className={`${input} block w-28 mt-1`} value={rangeStart} onChange={event => setRangeStart(event.target.value)} /></label><label className="text-xs text-text-muted">{t('timeline.settings.toYear')}<input aria-label={t('timeline.settings.toYear')} type="number" className={`${input} block w-28 mt-1`} value={rangeEnd} onChange={event => setRangeEnd(event.target.value)} /></label><button type="button" className={addButton} onClick={() => { setRangeStart(''); setRangeEnd(''); }}>{t('timeline.settings.allYears')}</button><label className="text-xs text-text-muted">{t('timeline.settings.precision')}<select aria-label={t('timeline.settings.precision')} className={`${input} block mt-1`} value={precision} onChange={event => setPrecision(event.target.value as Timeline['displayPrecision'])}>{(['year', 'day', 'hour'] as const).map(value => <option key={value} value={value}>{t(`timeline.settings.${value}`)}</option>)}</select></label></div><p className="text-xs text-text-muted">{t('timeline.settings.rangeHelp')}</p></div>}
+        {timeline && <div className="space-y-3 rounded-lg bg-elevated p-3"><p className="text-sm font-semibold text-accent-gold">{timeline.title}</p><p className="text-xs text-text-muted">{t('timeline.settings.scopeHelp')}</p><div className="flex flex-wrap gap-3"><label className="text-xs text-text-muted">{t('timeline.settings.fromYear')}<input aria-label={t('timeline.settings.fromYear')} type="number" className={`${input} block w-28 mt-1`} value={rangeStart} onChange={event => setRangeStart(event.target.value)} /></label><label className="text-xs text-text-muted">{t('timeline.settings.toYear')}<input aria-label={t('timeline.settings.toYear')} type="number" className={`${input} block w-28 mt-1`} value={rangeEnd} onChange={event => setRangeEnd(event.target.value)} /></label><button type="button" className={addButton} onClick={() => { setRangeStart(''); setRangeEnd(''); }}>{t('timeline.settings.allYears')}</button><label className="text-xs text-text-muted">{t('timeline.settings.precision')}<select aria-label={t('timeline.settings.precision')} className={`${input} block mt-1`} value={precision} onChange={event => setPrecision(event.target.value as Timeline['displayPrecision'])}>{(['year', 'month', 'day', 'hour'] as const).map(value => <option key={value} value={value}>{t(`timeline.settings.${value}`)}</option>)}</select></label></div><p className="text-xs text-text-muted">{t('timeline.settings.rangeHelp')}</p></div>}
         {resolved?.inherited && (
           <p className="text-xs text-text-muted bg-elevated rounded-md p-2">{t('timeline.world.inheritedNote')}</p>
         )}
@@ -127,7 +153,7 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
             <div key={i} className="flex items-center gap-2">
               <input aria-label={t('timeline.world.monthName').replace('{n}', String(i + 1))} className={`${input} flex-1`} value={m.name}
                 onChange={(e) => set({ months: draft.months.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
-              <input aria-label={t('timeline.world.monthDays').replace('{n}', String(i + 1))} type="number" min={1} className={num} value={m.days}
+              <input aria-label={t('timeline.world.monthDays').replace('{n}', String(i + 1))} type="number" min={draft.leap?.month === i + 1 ? 0 : 1} className={num} value={m.days}
                 onChange={(e) => set({ months: draft.months.map((x, j) => (j === i ? { ...x, days: Number(e.target.value) } : x)) })} />
               <label className="flex items-center gap-1 text-xs text-text-muted" title={t('timeline.world.intercalaryHelp')}>
                 <input type="checkbox" checked={!!m.intercalary}
@@ -148,6 +174,12 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
           <label htmlFor="wc-weekdays" className={heading}>{t('timeline.world.weekdays')}</label>
           <input id="wc-weekdays" className={`${input} w-full`} value={weekdaysText} onChange={(e) => setWeekdaysText(e.target.value)} />
           <p className="text-[11px] text-text-dim">{t('timeline.world.weekdaysHelp')}</p>
+          <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">{t('timeline.world.weekMode')}
+            <select data-testid="world-calendar-week-mode" className={input} value={draft.weekMode ?? 'continuous'} onChange={(e) => set({ weekMode: e.target.value === 'monthStart' ? 'monthStart' : undefined })}>
+              <option value="continuous">{t('timeline.world.weekContinuous')}</option>
+              <option value="monthStart">{t('timeline.world.weekMonthStart')}</option>
+            </select>
+          </label>
         </div>
 
         <div className={section}>
@@ -188,10 +220,17 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
                 onChange={(e) => set({ moons: draft.moons.map((x, j) => (j === i ? { ...x, periodDays: Number(e.target.value) } : x)) })} />
               <input aria-label={t('timeline.world.moonNewDay')} title={t('timeline.world.moonNewDay')} type="number" className={num} value={moon.newMoonDay ?? 0}
                 onChange={(e) => set({ moons: draft.moons.map((x, j) => (j === i ? { ...x, newMoonDay: Number(e.target.value) } : x)) })} />
+              <input data-testid={`world-calendar-moon-color-${i}`} aria-label={t('timeline.world.moonColor')} title={t('timeline.world.moonColor')} type="color" className="h-8 w-9 rounded border border-border bg-elevated" value={moon.color ?? '#c8c8d0'}
+                onChange={(e) => set({ moons: draft.moons.map((x, j) => (j === i ? { ...x, color: e.target.value } : x)) })} />
               <button type="button" className={iconButton} aria-label={t('timeline.world.removeMoon')}
                 onClick={() => set({ moons: draft.moons.filter((_, j) => j !== i) })}><Trash2 size={14} aria-hidden="true" /></button>
             </div>
           ))}
+          <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">{t('timeline.world.moonDisplay')}
+            <select data-testid="world-calendar-moon-display" className={input} value={draft.moonDisplay ?? 'quarters'} onChange={(e) => set({ moonDisplay: e.target.value === 'quarters' ? undefined : e.target.value as WorldCalendar['moonDisplay'] })}>
+              {(['quarters', 'every', 'full', 'none'] as const).map(mode => <option key={mode} value={mode}>{t(`timeline.world.moonDisplay.${mode}`)}</option>)}
+            </select>
+          </label>
           <button type="button" className={addButton} onClick={() => set({ moons: [...draft.moons, { name: `${t('timeline.world.newMoon')} ${draft.moons.length + 1}`, periodDays: 29.5, newMoonDay: 0 }] })}>
             <Plus size={12} aria-hidden="true" /> {t('timeline.world.addMoon')}
           </button>
@@ -237,13 +276,35 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
                 onChange={(e) => set({ leap: { ...draft.leap!, month: Number(e.target.value) } })}>
                 {draft.months.map((m, k) => <option key={k} value={k + 1}>{m.name}</option>)}
               </select>
+              {draft.months[draft.leap.month - 1]?.days === 0 && <p data-testid="world-calendar-leap-month-note" className="w-full text-[11px] text-text-dim">{t('timeline.world.leapMonthNote').replace('{name}', draft.months[draft.leap.month - 1].name).replace('{days}', String(draft.leap.extraDays))}</p>}
               <label>{t('timeline.details.leapExcept')} <input aria-label={t('timeline.details.leapExcept')} type="number" min={1} className={num} value={draft.leap.exceptEvery ?? ''} onChange={event => set({ leap: { ...draft.leap!, exceptEvery: event.target.value ? Number(event.target.value) : undefined, ...(!event.target.value ? { restoreEvery: undefined } : {}) } })} /></label>
               <label>{t('timeline.details.leapRestore')} <input aria-label={t('timeline.details.leapRestore')} type="number" min={1} className={num} disabled={!draft.leap.exceptEvery} value={draft.leap.restoreEvery ?? ''} onChange={event => set({ leap: { ...draft.leap!, restoreEvery: event.target.value ? Number(event.target.value) : undefined } })} /></label>
             </div>
           )}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted" data-testid="world-calendar-correlation">
+            <span>{t('timeline.world.correlation')}</span>
+            <input data-testid="world-calendar-correlation-world" aria-label={t('timeline.world.correlationWorld')} placeholder={t('timeline.world.correlationWorld')} className={`${input} w-40`} value={corrWorld} onChange={event => setCorrWorld(event.target.value)} />
+            <span>=</span>
+            <input data-testid="world-calendar-correlation-earth" aria-label={t('timeline.world.correlationEarth')} type="date" className={input} value={corrEarth} onChange={event => setCorrEarth(event.target.value)} />
+            <p className="w-full text-[11px] text-text-dim">{t('timeline.world.correlationHelp')}</p>
+          </div>
+          <button type="button" data-testid="world-calendar-add-leap-month" className={addButton} onClick={() => {
+            // A month with no days of its own that the leap rule fills: it exists only in leap years.
+            const months = [...draft.months, { name: t('timeline.world.leapMonthName'), days: 0 }];
+            set({ months, leap: { ...(draft.leap ?? { every: 4, offset: 0 }), month: months.length, extraDays: 30 } });
+          }}>
+            <Plus size={12} aria-hidden="true" /> {t('timeline.world.addLeapMonth')}
+          </button>
         </div>
 
         </fieldset>
+        {pendingRedate && (
+          <div className="space-y-2 rounded-md border border-accent-gold/40 bg-accent-gold/10 p-3 text-xs" data-testid="world-calendar-redate-plan">
+            <p className="font-semibold text-text-primary">{t('timeline.settings.redateTitle').replace('{count}', String(pendingRedate.length))}</p>
+            <ul className="space-y-0.5 text-text-muted">{pendingRedate.slice(0, 8).map(change => <li key={change.id}>«{change.title}»: {change.before} → <span className="text-text-primary">{change.after}</span></li>)}{pendingRedate.length > 8 && <li>…</li>}</ul>
+            <div className="flex gap-2"><button type="button" data-testid="world-calendar-redate" onClick={() => void save(true)} className="rounded-lg bg-accent-gold px-3 py-1.5 font-semibold text-deep">{t('timeline.settings.redateApply')}</button>{!timeline && <button type="button" data-testid="world-calendar-keep-dates" onClick={() => void save(false, true)} className="rounded-lg border border-border px-3 py-1.5 text-text-primary">{t('timeline.settings.redateKeep')}</button>}<button type="button" onClick={() => setPendingRedate(null)} className="rounded-lg border border-border px-3 py-1.5 text-text-muted">{t('common.cancel')}</button></div>
+          </div>
+        )}
         {errors.length > 0 && (
           <ul className="text-xs text-danger space-y-1 bg-danger/10 rounded-md p-2" role="alert" data-testid="world-calendar-errors">
             {errors.map((e) => <li key={e}>{e}</li>)}

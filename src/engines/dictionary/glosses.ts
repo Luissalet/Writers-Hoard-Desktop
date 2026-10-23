@@ -5,18 +5,21 @@ import { nativeWord, type WorldDictionary } from './types';
 
 export const dictionaryGlossKey = new PluginKey<DecorationSet>('dictionaryGlosses');
 
-export interface WordGloss { from: number; to: number; wordId: string; title: string }
+export interface WordGloss { from: number; to: number; wordId: string; title: string; /** The native spelling to show beside it, when its language asks and it differs. */ native?: string }
 
 export function createGlossMatcher(dictionaries: WorldDictionary[]): (text: string) => WordGloss[] {
-  const terms = new Map<string, { id: string; title: string }>();
+  const terms = new Map<string, { id: string; title: string; native?: string }>();
   for (const dictionary of dictionaries.filter(item => item.detectInManuscript)) {
     for (const word of dictionary.words) {
       const title = [dictionary.name, [word.word, nativeWord(word, dictionary.scriptMapping), word.pronunciation, word.partOfSpeech].filter(Boolean).join(' · '), word.meaning].join('\n');
-      for (const spelling of new Set([word.word.trim(), nativeWord(word, dictionary.scriptMapping).trim()])) {
+      const native = nativeWord(word, dictionary.scriptMapping).trim();
+      for (const spelling of new Set([word.word.trim(), native])) {
         if (!spelling || spelling.length > 300) continue;
         const key = spelling.toLowerCase();
         const existing = terms.get(key);
-        terms.set(key, { id: existing?.id ?? word.id, title: existing ? `${existing.title}\n\n${title}` : title });
+        // The native form beside the word as written, never beside the native form itself.
+        const besides = dictionary.showNativeInProse && native && native.toLowerCase() !== key ? native : undefined;
+        terms.set(key, { id: existing?.id ?? word.id, title: existing ? `${existing.title}\n\n${title}` : title, native: existing?.native ?? besides });
       }
     }
   }
@@ -28,7 +31,7 @@ export function createGlossMatcher(dictionaries: WorldDictionary[]): (text: stri
     const result: WordGloss[] = [];
     for (const match of text.matchAll(pattern)) {
       const term = terms.get(match[0].toLowerCase());
-      if (term) result.push({ from: match.index, to: match.index + match[0].length, wordId: term.id, title: term.title });
+      if (term) result.push({ from: match.index, to: match.index + match[0].length, wordId: term.id, title: term.title, ...(term.native ? { native: term.native } : {}) });
     }
     return result;
   };
@@ -45,6 +48,20 @@ export function createDictionaryGlossPlugin(dictionaries: WorldDictionary[], onO
         class: 'dictionary-gloss', 'data-dictionary-word': gloss.wordId, title: gloss.title, role: 'link', tabindex: '0',
         style: 'text-decoration: underline dotted; text-underline-offset: 0.2em; cursor: help;',
       }));
+      // The native spelling as a widget after the word: drawn, never written into the document.
+      for (const gloss of match(node.text)) if (gloss.native) {
+        const native = gloss.native;
+        decorations.push(Decoration.widget(pos + gloss.to, () => {
+          const span = document.createElement('span');
+          span.className = 'dictionary-native';
+          span.dataset.dictionaryNative = gloss.wordId;
+          span.setAttribute('aria-hidden', 'true');
+          span.contentEditable = 'false';
+          span.textContent = ` ${native}`;
+          span.style.cssText = 'font-size:0.82em;opacity:0.72;user-select:none;';
+          return span;
+        }, { side: 1, key: `native:${gloss.wordId}:${native}`, ignoreSelection: true }));
+      }
     });
     return DecorationSet.create(doc, decorations);
   };

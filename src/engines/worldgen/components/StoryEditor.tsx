@@ -20,7 +20,7 @@ const parseChapter = (raw: string): number | null => {
  * Story events: the draft for the next one (placed with a click on the map),
  * the selected one's fields, and the story so far, chapter by chapter.
  */
-export default function StoryEditor({ draft, onDraft, events, selectedId, onSelect, onUpdate, onRemove, onFocus, people = [], onReorder }: {
+export default function StoryEditor({ draft, onDraft, events, selectedId, onSelect, onUpdate, onRemove, onFocus, people = [], onReorder, onPlace, writings = [], onOpenWriting }: {
   draft: StoryDraft;
   onDraft: (patch: Partial<StoryDraft>) => void;
   events: StoryEvent[];
@@ -33,7 +33,16 @@ export default function StoryEditor({ draft, onDraft, events, selectedId, onSele
   people?: { id: string; title: string }[];
   /** Move an event up or down within its chapter. */
   onReorder?: (id: string, by: -1 | 1) => void;
+  /** Put an event at a place within its chapter (dragged there in the list). */
+  onPlace?: (id: string, index: number) => void;
+  /** The manuscript's chapters and scenes an event can be linked to. */
+  writings?: { id: string; title: string; chapter?: number }[];
+  /** Open a linked chapter or scene in the manuscript. */
+  onOpenWriting?: (id: string) => void;
 }) {
+  // Dragging within a chapter: which event is held and where it would drop.
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<string | null>(null);
   const { t } = useTranslation();
   const selected = selectedId ? events.find((event) => event.id === selectedId) ?? null : null;
   // Text is committed when the field is left (or Enter), not per keystroke: one undo step per change.
@@ -153,6 +162,30 @@ export default function StoryEditor({ draft, onDraft, events, selectedId, onSele
               {people.filter((person) => !(selected.who ?? []).includes(person.id)).map((person) => <option key={person.id} value={person.id}>{person.title}</option>)}
             </select>}
           </div>
+          {/* Where it is told: a chapter or scene of the manuscript. */}
+          <div className="flex flex-col gap-1" data-testid="story-writing">
+            <span className="text-[10px] text-white/55">{t('worldgen.story.writing')}</span>
+            <div className="flex items-center gap-1">
+              <select value={selected.writingId ?? ''} aria-label={t('worldgen.story.writing')} data-testid="story-writing-pick"
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id) { onUpdate(selected.id, { writingId: undefined }); return; }
+                  const chosen = writings.find((w) => w.id === id);
+                  // An event with no chapter takes the chapter of the scene it is told in.
+                  onUpdate(selected.id, { writingId: id, ...(selected.chapter === undefined && typeof chosen?.chapter === 'number' ? { chapter: chosen.chapter } : {}) });
+                }}
+                className="min-w-0 flex-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-white">
+                <option value="">{t('worldgen.story.writingNone')}</option>
+                {selected.writingId && !writings.some((w) => w.id === selected.writingId) && <option value={selected.writingId}>{t('worldgen.story.writingMissing')}</option>}
+                {writings.map((w) => <option key={w.id} value={w.id}>{typeof w.chapter === 'number' ? `${w.chapter} · ` : ''}{w.title}</option>)}
+              </select>
+              {selected.writingId && onOpenWriting && writings.some((w) => w.id === selected.writingId) && (
+                <button type="button" data-testid="story-writing-open" onClick={() => onOpenWriting(selected.writingId!)}
+                  className="shrink-0 rounded bg-white/10 px-1.5 py-1 text-[10px] hover:bg-white/20">{t('worldgen.story.writingOpen')}</button>
+              )}
+            </div>
+            {!writings.length && <p className="text-[10px] text-white/35">{t('worldgen.story.writingEmpty')}</p>}
+          </div>
           <p className="text-[10px] leading-snug text-white/45">{t('worldgen.story.moveHint')}</p>
           <button type="button" data-testid="story-remove" onClick={() => { onRemove(selected.id); onSelect(null); }}
             className="self-start rounded bg-red-500/20 px-2 py-0.5 text-[10px] text-red-200 hover:bg-red-500/30">{t('worldgen.story.remove')}</button>
@@ -165,7 +198,24 @@ export default function StoryEditor({ draft, onDraft, events, selectedId, onSele
           <div key={chapter ?? 'none'} className="flex flex-col gap-0.5">
             <span className="text-[10px] text-white/50">{chapter === null ? t('worldgen.story.noChapter') : t('worldgen.story.chapterN').replace('{n}', String(chapter))}</span>
             {events.filter((event) => (event.chapter ?? null) === chapter).map((event, index, group) => (
-              <div key={event.id} className="flex items-center gap-0.5">
+              <div key={event.id} data-testid={`story-row-${event.id}`}
+                draggable={!!onPlace && group.length > 1}
+                onDragStart={(e) => { setDragging(event.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', event.id); }}
+                onDragEnd={() => { setDragging(null); setDropAt(null); }}
+                onDragOver={(e) => {
+                  // Only within the same chapter: a drag never changes the chapter.
+                  const held = dragging ? events.find((other) => other.id === dragging) : null;
+                  if (!held || held.id === event.id || (held.chapter ?? null) !== chapter) return;
+                  e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropAt(event.id);
+                }}
+                onDragLeave={() => setDropAt((at) => (at === event.id ? null : at))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const id = dragging ?? e.dataTransfer.getData('text/plain');
+                  setDragging(null); setDropAt(null);
+                  if (id && id !== event.id && onPlace) onPlace(id, index);
+                }}
+                className={`flex items-center gap-0.5 rounded ${dropAt === event.id ? 'ring-1 ring-amber-300/80' : ''} ${dragging === event.id ? 'opacity-50' : ''} ${onPlace && group.length > 1 ? 'cursor-grab' : ''}`}>
                 <button type="button" data-testid={`story-item-${event.id}`}
                   onClick={() => { onSelect(event.id); onFocus(event); }}
                   title={(event.who ?? []).map((id) => people.find((person) => person.id === id)?.title).filter(Boolean).join(', ') || undefined}
@@ -174,6 +224,7 @@ export default function StoryEditor({ draft, onDraft, events, selectedId, onSele
                     style={event.status === 'planned' ? { borderColor: STORY_COLORS[event.type] } : { background: STORY_COLORS[event.type] }} />
                   <span className="truncate">{event.title}</span>
                   {!!event.who?.length && <span className="shrink-0 text-[9px] text-white/50">· {event.who.length}</span>}
+                  {event.writingId && <span className="shrink-0 text-[9px] text-white/50" title={writings.find((w) => w.id === event.writingId)?.title ?? t('worldgen.story.writingMissing')} data-testid={`story-item-writing-${event.id}`}>¶</span>}
                   <span className="ml-auto shrink-0 text-[9px] text-white/40">{t(`worldgen.story.type.${event.type}`)}</span>
                 </button>
                 {onReorder && group.length > 1 && <>

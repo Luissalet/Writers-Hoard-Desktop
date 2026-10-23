@@ -1,5 +1,6 @@
+import { WRITING_BLOCKS_CSS } from '../blocks/style';
 /** Shared content CSS; static HTML/PDF may add display-only initial wrappers. */
-export const EDITORIAL_PROSE_CSS=`
+export const EDITORIAL_PROSE_CSS=WRITING_BLOCKS_CSS+`
 [data-wh-small-caps="true"]{font-variant:small-caps;font-variant-caps:small-caps}
 [data-wh-small-caps="false"]{font-variant:normal;font-variant-caps:normal}
 [data-wh-drop-cap="true"]{text-indent:0!important}

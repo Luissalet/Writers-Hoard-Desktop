@@ -19,6 +19,8 @@ export const READER_PRESENTATION_CSS = EDITORIAL_PROSE_CSS+`.wh-reader-cover-sta
 .wh-reader-pages .ProseMirror{height:65vh;max-height:640px;column-width:50ch;column-gap:3rem;column-fill:auto;overflow-x:auto;overflow-y:hidden;padding-bottom:20px}
 .wh-reader-pages .ProseMirror figure,.wh-reader-pages .ProseMirror img{break-inside:avoid}
 .wh-reader-chapter-image{display:block;max-height:24rem;max-width:100%;object-fit:contain;margin:0 auto 24px}
+.wh-reader-image-banner{width:100%;max-width:none;height:14rem;max-height:14rem;object-fit:cover;border-radius:4px;margin:0 auto 18px}
+.wh-reader-chapter-label{text-align:center;font-size:11px;letter-spacing:.24em;text-transform:uppercase;opacity:.7;margin:0 0 10px}
 .wh-reader-playback{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-block:16px;font:13px/1.4 system-ui,sans-serif}
 .wh-reader-playback button{min-height:36px;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:6px 10px;background:transparent;color:inherit;font:inherit;cursor:pointer}
 .wh-reader-playback button[data-reader-playback=previous],.wh-reader-playback button[data-reader-playback=restart]{border-color:transparent}

@@ -1,5 +1,7 @@
 import { useWorldEraScope } from '@/services/worldEras/hooks';
-import { projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
+import { missingRequiredProperties, projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
+import { freezeCodexEntry } from '@/engines/codex/freeze';
+import type { CodexPropertyDefinition } from '@/engines/codex/templateTypes';
 import PropertyValueInput from './PropertyValueInput';
 import { useEffect, useId, useState, useRef } from 'react';
 import type { CodexEntry, CodexEntryType } from '@/types';
@@ -14,7 +16,7 @@ import { CodexEditConflict, type CodexFieldConflict } from '@/engines/codex/oper
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { ConfirmDialog } from '@/engines/_shared';
 import { codexDraftStore, codexFormValues, restoreCodexDraft, sameCodexFormValues, toCodexDraft } from './codexDrafts';
-import { foldAlias, isAliasField, readAliases, replaceAliases } from '@/services/codexReference/aliases';
+import { aliasProblem, foldAlias, isAliasField, readAliases, replaceAliases, suggestAliases } from '@/services/codexReference/aliases';
 import { useProject } from '@/hooks/useProjects';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { applyCodexTemplate, type CodexTemplate } from '@/engines/codex/templates';
@@ -107,16 +109,21 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
   });
   const [type, setType] = useState<CodexEntryType>(initial.values.type);
   const [title, setTitle] = useState(initial.values.title);
+  // The alias just refused, and why: shown under the chips until the next one.
+  const [aliasRefused, setAliasRefused] = useState<{ alias: string; problem: string } | null>(null);
   const [avatar, setAvatar] = useState(initial.values.avatar);
   const [avatarOriginal, setAvatarOriginal] = useState(initial.values.avatarOriginal);
   const [fields, setFields] = useState<Record<string, string>>(initial.values.fields);
   const [content, setContent] = useState(initial.values.content);
   const [tags, setTags] = useState<string[]>(initial.values.tags);
   const [templateId, setTemplateId] = useState(initial.values.templateId);
+  // Set when the card is frozen from its type: its own property kinds from then on.
+  const [frozenDefinitions, setFrozenDefinitions] = useState<CodexPropertyDefinition[] | undefined>(undefined);
   const [referenceFields, setReferenceFields] = useState<Record<string, string[]>>(initial.values.referenceFields ?? {});
   const rawTemplate = project?.codexTemplates?.find(item => item.id === templateId) ?? (template?.id === templateId ? template : undefined);
   const activeTemplate = rawTemplate ? effectiveCodexTemplate(rawTemplate, project?.codexTemplates ?? []) : undefined;
   const valueDefinitions = activeTemplate ? propertyDefinitions(activeTemplate) : entry?.propertyDefinitions ?? [];
+  const [requiredMissing, setRequiredMissing] = useState<string[]>([]);
   const projection = projectCodexEntry({ ...initial.values, ...entry, id: entry?.id ?? '', projectId, type, title, fields, content, tags, relations: [], createdAt: 0, updatedAt: 0, templateId }, project?.codexTemplates ?? (activeTemplate ? [activeTemplate] : []));
   const referenceDefinitions = activeTemplate?.referenceFieldDefinitions ?? [];
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -256,6 +263,9 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
 
   const handleSave = async () => {
     if (!title.trim() || savingRef.current || conflict) return;
+    const missing = missingRequiredProperties(valueDefinitions, fields);
+    setRequiredMissing(missing.map(definition => definition.label));
+    if (missing.length) return;
     savingRef.current = true;
     setSaving(true);
     setSaveError(false);
@@ -270,7 +280,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
       avatarOriginal: avatarOriginal || avatar || undefined,
       fields,
       templateId,
-      propertyDefinitions: entry?.propertyDefinitions,
+      propertyDefinitions: frozenDefinitions ?? entry?.propertyDefinitions,
       referenceFields,
       content,
       tags,
@@ -309,13 +319,17 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
             if (!selected) { setTemplateId(undefined); return; }
             if(selected.id!==templateId&&effectiveTemplatePresentation(selected,project?.codexTemplates??[]).hiddenFromPickers)return;
             const applied = applyCodexTemplate(selected, fields, content, project?.codexTemplates ?? []);
-            setType(applied.type); setTemplateId(applied.templateId); setFields(applied.fields); setContent(applied.content);
+            setType(applied.type); setTemplateId(applied.templateId); setFields(applied.fields); setContent(applied.content); setFrozenDefinitions(undefined);
           }} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold">
             <option value="">{t('codex.templates.none')}</option>
             {templateId && !project?.codexTemplates?.some(item => item.id === templateId) && <option value={templateId}>{activeTemplate?.name ?? t('codex.templates.retired')}</option>}
             {selectableCodexTemplates(project?.codexTemplates ?? [],templateId).map(item => <option key={item.id} value={item.id}>{templatePath(item, project?.codexTemplates ?? [])} · {t(`codex.types.${item.category}`)}{effectiveTemplatePresentation(item,project?.codexTemplates??[]).hiddenFromPickers?` (${presentationCopy.hiddenTag})`:''}</option>)}
           </select>
           <p className="text-xs text-text-dim mt-1.5">{t('codex.templates.applyHint')}</p>
+          {templateId && <button type="button" data-testid="codex-freeze" onClick={() => {
+            const frozen = freezeCodexEntry({ ...(entry ?? {} as CodexEntry), id: entry?.id ?? '', projectId, type, title, fields, content, tags, relations: entry?.relations ?? [], createdAt: entry?.createdAt ?? 0, updatedAt: 0, templateId }, project?.codexTemplates ?? []);
+            setFields(frozen.fields); setFrozenDefinitions(frozen.propertyDefinitions ?? []); setTemplateId(undefined);
+          }} title={t('codex.templates.freezeHint')} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-text-muted hover:text-accent-gold hover:bg-elevated">❄ {t('codex.templates.freeze')}</button>}
           {activeTemplate&&<div className="mt-2 flex items-center gap-2 text-sm" style={{color:activeTemplate.color??typeConfig[type].color}}><ProjectIcon name={activeTemplate.icon} fallback={typeConfig[type].icon} size={18}/><span>{activeTemplate.name}</span></div>}
         </div>
       ) : null}
@@ -417,9 +431,28 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
           inputId={aliasesInputId}
           describedBy={`${aliasesInputId}-hint`}
           tags={readAliases(fields)}
-          onChange={aliases => setFields(previous => replaceAliases(previous, aliases))}
+          onChange={aliases => {
+            // A new alias that is a common word, too short or the name itself is refused, with the reason.
+            const before = new Set(readAliases(fields).map(foldAlias));
+            const refused = aliases.map(alias => ({ alias, problem: before.has(foldAlias(alias)) ? null : aliasProblem(alias, title) })).find(item => item.problem);
+            setAliasRefused(refused?.problem ? { alias: refused.alias, problem: refused.problem } : null);
+            setFields(previous => replaceAliases(previous, aliases.filter(alias => before.has(foldAlias(alias)) || !aliasProblem(alias, title))));
+          }}
           placeholder={t('codex.aliasesPlaceholder')}
         />
+        {aliasRefused && <p role="alert" data-testid="codex-alias-refused" className="mt-1.5 text-xs text-danger">{t(`codex.aliasRefused.${aliasRefused.problem}`).replace('{alias}', aliasRefused.alias)}</p>}
+        {(() => {
+          const suggested = suggestAliases(title, readAliases(fields), { person: type === 'character' });
+          return suggested.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="codex-alias-suggestions">
+              <span className="text-xs text-text-dim">{t('codex.aliasSuggest')}</span>
+              {suggested.map(alias => (
+                <button key={alias} type="button" data-testid={`codex-alias-suggest-${alias}`} onClick={() => { setAliasRefused(null); setFields(previous => replaceAliases(previous, [...readAliases(previous), alias])); }}
+                  className="px-2 py-0.5 rounded border border-dashed border-accent-plum/50 text-xs text-accent-plum-light hover:bg-accent-plum/15 transition">+ {alias}</button>
+              ))}
+            </div>
+          );
+        })()}
         <p id={`${aliasesInputId}-hint`} className="mt-1.5 text-xs text-text-dim">{t('codex.aliasesHint')}</p>
       </div>
 
@@ -428,12 +461,12 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
         {Object.entries({ ...Object.fromEntries(valueDefinitions.map(item => [item.key, ''])), ...fields }).filter(([key]) => !isAliasField(key)).map(([key, value]) => { const definition = valueDefinitions.find(item => item.key === key); const projected = projection.properties[key]; return (
           <div key={key}>
             <div className="flex items-start justify-between gap-2 mb-1.5">
-              <label htmlFor={`${aliasesInputId}-field-${encodeURIComponent(key)}`} className="text-sm text-text-muted break-words min-w-0">{definition?.label ?? t(FIELD_LABEL_KEYS[key] || key)}</label>
+              <label htmlFor={`${aliasesInputId}-field-${encodeURIComponent(key)}`} className="text-sm text-text-muted break-words min-w-0">{definition?.label ?? t(FIELD_LABEL_KEYS[key] || key)}{definition?.required && !definition.formula && <span className="ml-0.5 text-danger" data-testid="codex-property-required" aria-label={t('codex.property.required')}>*</span>}</label>
               {!definition?.formula && !Object.hasOwn(getTemplateFields(type), key) && (
                 <button type="button" onClick={() => value ? setPendingRemoveField(key) : removeField(key)} className="shrink-0 rounded p-1 text-text-muted hover:text-danger hover:bg-danger/10" aria-label={t('codex.fields.remove').replace('{name}', key)} title={t('codex.fields.remove').replace('{name}', key)}><X size={14} aria-hidden="true" /></button>
               )}
             </div>
-            {definition ? <PropertyValueInput id={`${aliasesInputId}-field-${encodeURIComponent(key)}`} definition={definition} value={value} projected={projected} onChange={value => setFields({ ...fields, [key]: value })} /> : key === 'backstory' || key === 'history' || key === 'physicalDescription' || key === 'personality' ? (
+            {definition ? <><PropertyValueInput id={`${aliasesInputId}-field-${encodeURIComponent(key)}`} definition={definition} value={value} projected={projected} onChange={value => setFields({ ...fields, [key]: value })} />{definition.description && <p className="mt-1 text-xs text-text-dim" data-testid="codex-property-description">{definition.description}</p>}</> : key === 'backstory' || key === 'history' || key === 'physicalDescription' || key === 'personality' ? (
               <textarea
                 id={`${aliasesInputId}-field-${encodeURIComponent(key)}`}
                 value={value}
@@ -525,6 +558,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
           ))}
         </div>
       )}
+      {requiredMissing.length > 0 && <p role="alert" data-testid="codex-required-missing" className="text-sm text-danger">{t('codex.property.requiredMissing').replace('{names}', requiredMissing.join(', '))}</p>}
       {saveError && <p role="alert" className="text-sm text-red-400">{t('codex.saveError')}</p>}
       <div className="flex gap-3 pt-2">
         <button

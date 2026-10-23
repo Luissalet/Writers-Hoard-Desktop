@@ -10,6 +10,7 @@
 // Downloads use the browser-native blob + <a download> pattern
 // (tasks/lessons: the OS save dialog is the browser's job).
 
+import { bookPageCss, bookStyleCss, titleOrnamentHtml } from './bookStyle';
 import type { Writing } from '@/types';
 import { isDesktop } from '@/utils/platform';
 import { projectWritingHtml } from './revisionProjection';
@@ -91,11 +92,13 @@ const CONVERTED_LIST_RE = /\u0002([\s\S]*?)\u0003/g;
  */
 function listToMarkdown(tag: string, attributes: string, inner: string): string {
   const ordered = tag.toLowerCase() === 'ol';
+  const checks = /\bdata-wh-checklist=/i.test(attributes);
   const start = ordered ? Number(/\bstart="(\d+)"/i.exec(attributes)?.[1] ?? 1) : 1;
   const lines: string[] = [];
   let index = 0;
-  for (const [, item] of inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)) {
-    const marker = ordered ? `${start + index}.` : '-';
+  for (const [, itemAttributes, item] of inner.matchAll(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi)) {
+    // A checklist item keeps its box: "- [ ]" or "- [x]".
+    const marker = ordered ? `${start + index}.` : checks ? `- [${/\bdata-checked="true"/i.test(itemAttributes) ? 'x' : ' '}]` : '-';
     index += 1;
     const nested: string[] = [];
     const text = item
@@ -154,6 +157,16 @@ export function htmlToMarkdownParts(
     return `\n\n\u0001${codeBlocks.length - 1}\u0001\n\n`;
   });
 
+  // A story email's header and a message's sender are attributes in the editor; written out here.
+  const attr = (tag: string, name: string) => (new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(tag)?.[1] ?? '');
+  s = s.replace(/<div\b[^>]*\bdata-wh-email="true"[^>]*>/gi, tag => {
+    if (/data-wh-email-rendered/.test(tag)) return '\n\n';
+    const from = attr(tag, 'data-wh-from'), to = attr(tag, 'data-wh-to'), subject = attr(tag, 'data-wh-subject'), date = attr(tag, 'data-wh-date');
+    const lines = [from || to ? `✉ ${from}${to ? ` → ${to}` : ''}` : '', subject || date ? `**${subject}**${date ? ` · ${date}` : ''}` : ''].filter(Boolean);
+    return lines.length ? `\n\n${lines.join('  \n')}\n\n` : '\n\n';
+  });
+  s = s.replace(/<div\b[^>]*\bdata-wh-sender="([^"]*)"[^>]*>/gi, (tag, sender: string) => /data-wh-sender-rendered/.test(tag) ? '\n\n' : `\n\n**${sender}:** `);
+
   // Inline marks first (so block regexes see clean text)
   s = s.replace(/<(strong|b)[^>]*>(.*?)<\/\1>/gis, '**$2**');
   s = s.replace(/<(em|i)[^>]*>(.*?)<\/\1>/gis, '*$2*');
@@ -167,6 +180,13 @@ export function htmlToMarkdownParts(
   s = s.replace(/<h2[^>]*>(.*?)<\/h2>/gis, '\n\n## $1\n\n');
   s = s.replace(/<h3[^>]*>(.*?)<\/h3>/gis, '\n\n### $1\n\n');
   s = s.replace(/<h[4-6][^>]*>(.*?)<\/h[4-6]>/gis, '\n\n#### $1\n\n');
+
+  // Callouts read as "> [!NOTE]" alerts; a toggle as its title in bold over its content.
+  s = s.replace(/<aside\b[^>]*\bdata-wh-callout="(note|info|question|tip|warning|readaloud|sidebar)"[^>]*>([\s\S]*?)<\/aside>/gi, (_m, kind: string, inner: string) => {
+    const text = inner.replace(/<br\s*\/?>/gi, '\n').replace(/<p[^>]*>(.*?)<\/p>/gis, '$1\n').replace(/<[^>]+>/g, '');
+    return `\n\n> [!${kind.toUpperCase()}]\n${text.split('\n').filter((line: string) => line.trim()).map((line: string) => `> ${line.trim()}`).join('\n')}\n\n`;
+  });
+  s = s.replace(/<summary\b[^>]*>([\s\S]*?)<\/summary>/gi, '\n\n**$1**\n\n').replace(/<\/?details\b[^>]*>/gi, '\n\n');
 
   // Blockquotes (Tiptap: <blockquote><p>…</p></blockquote>). A line break
   // is a line of its own here, so every line after it is quoted too.
@@ -252,8 +272,9 @@ export function renderPublishingMarkdown(document: PublishingDocument): string {
   const parts: string[] = [];
   if (document.includeTitlePage) {
     const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
-    parts.push(`# ${escapeHtml(document.title)}\n\n*${document.wordCount.toLocaleString(document.locale)} ${escapeHtml(document.wordLabel)} · ${escapeHtml(date)}*\n\n---`);
+    parts.push(`# ${escapeHtml(document.title)}\n\n${document.author ? `**${escapeHtml(document.author)}**\n\n` : ''}*${document.wordCount.toLocaleString(document.locale)} ${escapeHtml(document.wordLabel)} · ${escapeHtml(date)}*\n\n---`);
   }
+  if (document.copyright) parts.push(`\n\n*${escapeHtml(document.copyright)}*\n\n---`);
   if (document.includeToc && document.sections.length > 0) {
     const slugs = new Map<string, number>();
     const entries = document.sections.map(
@@ -293,6 +314,7 @@ export function renderPublishingMarkdown(document: PublishingDocument): string {
     parts.push(`\n\n# ${escapeHtml(document.bibliographyTitle)}\n`);
     for (const citation of document.bibliography) parts.push(`\n${escapeHtml(citation)}\n`);
   }
+  if (document.blurb) parts.push(`\n\n# ${escapeHtml(document.blurb.title)}\n\n${document.blurb.text.split(/\n+/).map(escapeHtml).join('\n\n')}\n`);
   return parts.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
@@ -337,7 +359,11 @@ export function renderPublishingHtml(document: PublishingDocument): string {
       }
       return `
     <section class="chapter">
+      ${section.headerImage?.layout === 'banner' && section.headerImage.label ? `<p class="wh-chapter-label">${escapeHtml(section.headerImage.label)}</p>` : ''}
+      ${section.headerImage && section.headerImage.layout !== 'beside' ? `<img class="wh-chapter-image wh-chapter-image--${section.headerImage.layout}" src="${escapeHtml(section.headerImage.src)}" alt="">` : ''}
       <h1 class="chapter-title" id="${chapterAnchorId(scope)}">${escapeHtml(section.title)}</h1>
+      ${titleOrnamentHtml(document.bookStyle)}
+      ${section.headerImage?.layout === 'beside' ? `<img class="wh-chapter-image wh-chapter-image--beside" src="${escapeHtml(section.headerImage.src)}" alt="">` : ''}
       ${section.synopsis ? `<p class="synopsis">${escapeHtml(section.synopsis)}</p>` : ''}
       <div class="content">${prepareStaticEditorialHtml(footnotes.html)}</div>
       ${endnotes}
@@ -394,6 +420,8 @@ ${EDITORIAL_PROSE_CSS}
   .content h2 { font-size: 14pt; margin: 1.4em 0 0.6em; }
   .content blockquote { margin: 1em 2em; font-style: italic; color: #444; }
   .content img { max-width: 100%; }
+  .content .wh-column-break { border: 0; margin: 0; height: 0; }
+  .content .wh-column-break::after { content: none; display: none; }
   .content a { color: #1a1a1a; }
   .wh-footnote-ref { font-size: 0.7em; line-height: 1; vertical-align: super; }
   .wh-footnote-ref a { color: #1a1a1a; text-decoration: none; }
@@ -408,7 +436,13 @@ ${EDITORIAL_PROSE_CSS}
   .wh-endnotes--book ol { margin-bottom: 0.6em; }
   .wh-endnotes li { margin: 0 0 0.3em; }
   .wh-endnote-back { color: #666; text-decoration: none; margin-left: 0.3em; }
+  .wh-chapter-image { display: block; max-width: 100%; max-height: 22em; object-fit: contain; margin: 0 auto 1.2em; }
+  .wh-chapter-image--banner { width: 100%; max-height: 14em; object-fit: cover; }
+  .wh-chapter-image--beside { float: left; max-width: 38%; margin: 0.3em 1.2em 0.8em 0; }
+  .wh-chapter-label { text-align: center; font-size: 9pt; letter-spacing: 0.24em; text-transform: uppercase; color: #777; margin: 0 0 0.8em; }
+  .copyright-page { display: flex; align-items: flex-end; justify-content: center; min-height: 80vh; page-break-after: always; text-align: center; font-size: 10pt; color: #444; }
   @media print { body { padding: 0; max-width: none; } }
+  ${document.bookStyle ? `${bookStyleCss(document.bookStyle, '.content', '.chapter-title')}\n${bookPageCss(document.bookStyle)}` : ''}
 </style>
 </head>
 <body>
@@ -416,14 +450,17 @@ ${EDITORIAL_PROSE_CSS}
     document.includeTitlePage
       ? `<div class="title-page">
     <h1>${escapeHtml(document.title)}</h1>
+    ${document.author ? `<p class="byline">${escapeHtml(document.author)}</p>` : ''}
     <p class="meta">${document.wordCount.toLocaleString(document.locale)} ${escapeHtml(document.wordLabel)} · ${escapeHtml(date)}</p>
   </div>`
       : ''
   }
+  ${document.copyright ? `<div class="copyright-page"><p>${escapeHtml(document.copyright)}</p></div>` : ''}
   ${toc}
   ${chapters}
   ${bookEndnotes}
   ${bibliography}
+  ${document.blurb ? `<section class="chapter blurb"><h1 class="chapter-title">${escapeHtml(document.blurb.title)}</h1>${document.blurb.text.split(/\n+/).map(line => `<p>${escapeHtml(line)}</p>`).join('')}</section>` : ''}
 </body>
 </html>`;
 }

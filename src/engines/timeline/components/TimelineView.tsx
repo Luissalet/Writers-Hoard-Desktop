@@ -30,13 +30,16 @@ interface TimelineViewProps {
   onAddEvent: (event: TimelineEvent) => void | Promise<void>;
   onEditEvent: (id: string, changes: Partial<TimelineEvent>, baseline?:TimelineEvent) => void | Promise<void>;
   onDeleteEvent: (id: string) => void;
+  tagSuggestions?: string[];
+  /** Every event of the timeline when `events` is filtered: a new one is numbered after all of them. */
+  unfilteredEvents?: TimelineEvent[];
 }
 
 function getDisplayDate(evt: TimelineEvent, calendar?: WorldCalendar | null, locale?: string): string { return timelineEventLabel(evt, calendar, locale); }
 
 type SortMode = 'manual' | 'chronological';
 
-export default function TimelineView({ projectId, timelineId, events: storedEvents, onAddEvent, onEditEvent, onDeleteEvent }: TimelineViewProps) {
+export default function TimelineView({ projectId, timelineId, events: storedEvents, onAddEvent, onEditEvent, onDeleteEvent, tagSuggestions = [], unfilteredEvents }: TimelineViewProps) {
   const { t, locale } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -121,7 +124,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
         // Not `events.length`: once anything has been deleted the count is
         // lower than the highest `order`, and the new event lands tied with a
         // row that is already there — a tie no reorder can break.
-        order: events.reduce((max, e) => Math.max(max, e.order), -1) + 1,
+        order: (unfilteredEvents ?? events).reduce((max, e) => Math.max(max, e.order), -1) + 1,
         lane: form.lane,
         color: form.color,
         createdAt: now,
@@ -452,7 +455,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
               size="sm"
             />
           </div>
-          <EventDetailsFields value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
+          <EventDetailsFields tagSuggestions={tagSuggestions} value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
           {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
           {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
           <div className="flex gap-3 pt-2">

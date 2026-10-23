@@ -9,6 +9,9 @@ import { groupEnginesForMode } from '@/config/projectPresets';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Project, ProjectMode } from '@/types';
 import GenrePicker from '@/services/projectGenres/GenrePicker';
+import { defaultReaderPresentation, readerInk } from '@/engines/writings/readerPresentation';
+import { initialCoverJacket } from '@/engines/writings/coverDesign/model';
+import ReaderBookCover from '@/engines/writings/components/ReaderBookCover';
 
 interface CreateProjectModalProps {
   open: boolean;
@@ -22,10 +25,12 @@ interface FormState {
   description: string;
   color: string;
   icon: string;
+  /** The book's cover, set at creation (the jacket editor refines it later). */
+  cover: { enabled: boolean; style: 'hardcover' | 'paperback' | 'paper'; color: string };
 }
 
 export default function CreateProjectModal({ open, onClose, onCreate }: CreateProjectModalProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const titleId = useId();
   const descriptionId = useId();
   const [creationStep, setCreationStep] = useState<'mode' | 'details'>('mode');
@@ -36,6 +41,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     type: 'standalone',
     description: '',
     color: '#c4973b',
+    cover: { enabled: false, style: 'hardcover', color: '#293b33' },
     icon: '',
   });
   const [creating, setCreating] = useState(false);
@@ -65,7 +71,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     setCreationStep('mode');
     setSelectedMode(null);
     setEnabledEngines([]);
-    setForm({ title: '', type: 'standalone', description: '', color: '#c4973b', icon: '' });
+    setForm({ title: '', type: 'standalone', description: '', color: '#c4973b', icon: '', cover: { enabled: false, style: 'hardcover', color: '#293b33' } });
     setGenres([]);
   };
 
@@ -94,6 +100,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
         status: 'draft',
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        ...(form.cover.enabled && (form.type === 'standalone' || form.type === 'saga') ? { readerPresentation: { ...defaultReaderPresentation(), cover: { style: form.cover.style, color: form.cover.color, texture: 'linen' as const, artwork: false, showAtStart: true, jacket: initialCoverJacket(form.title, readerInk(form.cover.color), true) } } } : {}),
       };
       await onCreate(project);
       handleResetCreate();
@@ -231,6 +238,23 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               />
             </div>
           </div>
+
+          {(form.type === 'standalone' || form.type === 'saga') && <div className="rounded-lg border border-border p-3" data-testid="create-cover">
+            <label className="flex items-center gap-2 text-sm text-text-primary"><input type="checkbox" data-testid="create-cover-enabled" checked={form.cover.enabled} onChange={event => setForm({ ...form, cover: { ...form.cover, enabled: event.target.checked } })} />{t('createProject.cover')}</label>
+            {form.cover.enabled && <div className="mt-3 flex flex-wrap items-start gap-4">
+              <div className="space-y-2">
+                <label className="block text-xs text-text-muted">{t('createProject.coverStyle')}
+                  <select data-testid="create-cover-style" className="mt-1 block rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text-primary" value={form.cover.style} onChange={event => setForm({ ...form, cover: { ...form.cover, style: event.target.value as FormState['cover']['style'] } })}>
+                    <option value="hardcover">{t('createProject.coverHardcover')}</option><option value="paperback">{t('createProject.coverPaperback')}</option><option value="paper">{t('createProject.coverPaper')}</option>
+                  </select>
+                </label>
+                <span className="block text-xs text-text-muted">{t('createProject.coverColor')}</span>
+                <ColorPicker value={form.cover.color} onChange={(color) => setForm({ ...form, cover: { ...form.cover, color } })} />
+                <p className="max-w-xs text-[11px] text-text-dim">{t('createProject.coverHelp')}</p>
+              </div>
+              <div className="w-40" data-testid="create-cover-preview"><ReaderBookCover title={form.title || t('createProject.coverUntitled')} cover={{ style: form.cover.style, color: form.cover.color, texture: 'linen', artwork: false, showAtStart: true, jacket: initialCoverJacket(form.title || t('createProject.coverUntitled'), readerInk(form.cover.color), true) }} locale={locale === 'en' ? 'en' : 'es'} /></div>
+            </div>}
+          </div>}
 
           {/* Engines Section */}
           <div className="bg-elevated border border-border rounded-lg p-4">

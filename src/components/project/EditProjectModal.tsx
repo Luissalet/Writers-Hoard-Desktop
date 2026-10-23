@@ -22,6 +22,8 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
   const [type, setType] = useState<Project['type']>(project.type);
   const [status, setStatus] = useState<Project['status']>(project.status);
   const [description, setDescription] = useState(project.description ?? '');
+  const [author, setAuthor] = useState(project.author ?? '');
+  const [blurb, setBlurb] = useState(project.blurb ?? '');
   const [genres,setGenres]=useState(project.genres??[]);
   const [color, setColor] = useState(project.color || '#c4973b');
   const [icon, setIcon] = useState(project.icon ?? '');
@@ -32,6 +34,8 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
     || type !== project.type
     || status !== project.status
     || description !== (project.description ?? '')
+    || author !== (project.author ?? '')
+    || blurb !== (project.blurb ?? '')
     || JSON.stringify(genres)!==JSON.stringify(project.genres??[])
     || color !== (project.color || '#c4973b')
     || icon !== (project.icon ?? '');
@@ -50,6 +54,8 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
         type,
         status,
         description: description.trim(),
+        author: author.trim() || undefined,
+        blurb: blurb.trim() || undefined,
         genres,
         color,
         icon: icon || undefined,
@@ -129,6 +135,33 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
             value={description}
             onChange={event => setDescription(event.target.value)}
             rows={4}
+            className="w-full resize-none rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none transition focus:border-accent-gold"
+          />
+        </div>
+
+        <div>
+          <label htmlFor={`${fieldId}-author`} className="mb-1.5 block text-sm text-text-muted">{t('project.edit.author')}</label>
+          <input
+            id={`${fieldId}-author`}
+            data-testid="project-author"
+            value={author}
+            maxLength={120}
+            onChange={event => setAuthor(event.target.value)}
+            placeholder={t('project.edit.authorHint')}
+            className="w-full rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none transition focus:border-accent-gold"
+          />
+        </div>
+
+        <div>
+          <label htmlFor={`${fieldId}-blurb`} className="mb-1.5 block text-sm text-text-muted">{t('project.edit.blurb')}</label>
+          <textarea
+            id={`${fieldId}-blurb`}
+            data-testid="project-blurb"
+            value={blurb}
+            maxLength={4000}
+            onChange={event => setBlurb(event.target.value)}
+            placeholder={t('project.edit.blurbHint')}
+            rows={3}
             className="w-full resize-none rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none transition focus:border-accent-gold"
           />
         </div>

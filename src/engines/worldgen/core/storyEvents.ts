@@ -8,7 +8,7 @@ import type { WorldEdit } from './edits';
  * one replaces an earlier one); `storyRemove` takes it off. They change nothing
  * in the world itself.
  */
-export const STORY_TYPES = ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'custom'] as const;
+export const STORY_TYPES = ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'lantern', 'sneaking', 'inside', 'custom'] as const;
 export type StoryType = (typeof STORY_TYPES)[number];
 export const STORY_STATUSES = ['planned', 'happened'] as const;
 export type StoryStatus = (typeof STORY_STATUSES)[number];
@@ -30,6 +30,8 @@ export interface StoryEvent {
   order?: number;
   /** Who was there: Codex entry ids (characters, factions), at most `STORY_WHO_MAX`. */
   who?: string[];
+  /** The manuscript chapter or scene (a writing's id) where it is told. */
+  writingId?: string;
 }
 
 export const STORY_WHO_MAX = 20;
@@ -37,7 +39,7 @@ export const STORY_WHO_MAX = 20;
 /** Colour of each kind of event, for every view. */
 export const STORY_COLORS: Record<StoryType, string> = {
   fight: '#b3261e', find: '#c08a1e', meeting: '#2f6db3', rest: '#3d8b5a', change: '#7b3fa0',
-  journey: '#8a5a2b', camp: '#5e6b2f', inn: '#a0522d', custom: '#4a4a4a',
+  journey: '#8a5a2b', camp: '#5e6b2f', inn: '#a0522d', lantern: '#c9871a', sneaking: '#3b4250', inside: '#6b4f3a', custom: '#4a4a4a',
 };
 
 /** Validate and tidy one record; throws with a readable message. */
@@ -53,6 +55,7 @@ export function normalizeStoryEvent(input: unknown): StoryEvent {
   if (raw.status !== undefined && !STORY_STATUSES.includes(raw.status as StoryStatus)) throw new Error('status must be planned or happened.');
   if (raw.order !== undefined && !(typeof raw.order === 'number' && Number.isInteger(raw.order) && raw.order >= 0 && raw.order < 10000)) throw new Error('order must be a whole number from 0 to 9999.');
   if (raw.who !== undefined && !(Array.isArray(raw.who) && raw.who.length <= STORY_WHO_MAX && raw.who.every((id) => typeof id === 'string' && id.trim() && id.length <= 80))) throw new Error(`who must be a list of up to ${STORY_WHO_MAX} Codex entry ids.`);
+  if (raw.writingId !== undefined && !(typeof raw.writingId === 'string' && raw.writingId.trim() && raw.writingId.length <= 80)) throw new Error('writingId must be the id of a manuscript chapter or scene.');
   const note = typeof raw.note === 'string' ? raw.note.trim().slice(0, STORY_NOTE_MAX) : '';
   const who = Array.isArray(raw.who) ? [...new Set((raw.who as string[]).map((id) => id.trim()))] : [];
   return {
@@ -66,6 +69,7 @@ export function normalizeStoryEvent(input: unknown): StoryEvent {
     status: (raw.status as StoryStatus | undefined) ?? 'happened',
     ...(typeof raw.order === 'number' ? { order: raw.order } : {}),
     ...(who.length ? { who } : {}),
+    ...(typeof raw.writingId === 'string' ? { writingId: raw.writingId.trim() } : {}),
   };
 }
 
@@ -175,9 +179,9 @@ export function newStoryId(): string {
   return `ev-${Date.now().toString(36)}-${random}`;
 }
 
-/** True for edits the world itself ignores: the reader's fog, story events, trade sites and place locks. */
+/** True for edits the world itself ignores: the reader's fog, story events, trade sites, place locks and named zones. */
 export function isViewOnlyEdit(edit: WorldEdit): boolean {
   return edit.kind === 'fog' || edit.kind === 'story' || edit.kind === 'storyRemove'
     || edit.kind === 'tradeSite' || edit.kind === 'tradeSiteRemove' || edit.kind === 'tradeSiteRestore'
-    || edit.kind === 'lock';
+    || edit.kind === 'lock' || edit.kind === 'zone' || edit.kind === 'zoneRemove';
 }

@@ -113,8 +113,12 @@ export class PaintSession {
   pushMany(edits: WorldEdit[]): void {
     if (!edits.length) return;
     // Match saved precision immediately so an explicit derivation reopens bit-for-bit.
-    this.edits.push(...deserializeEdits(serializeEdits(edits)));
-    this.groups.push(edits.length);
+    // Reading drops what would not survive a reopen (a malformed record): the
+    // step counts what was KEPT, or the next undo would take a neighbour too.
+    const kept = deserializeEdits(serializeEdits(edits));
+    if (!kept.length) return;
+    this.edits.push(...kept);
+    this.groups.push(kept.length);
     this.undone.length = 0;
     // The reader's-eye fog changes nothing in the world: replaying for it would
     // bump the revision and send the geography off to a full rebuild.

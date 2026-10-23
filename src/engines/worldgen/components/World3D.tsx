@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { fogHides, fogUnnamed, type ReaderFogLayer } from '../cartography/readerFogLayer';
+import { kmPerWorldCell } from '../region/terrain';
+import { cellKmOf, sheetScale } from '../core/geoScale';
+import { mapLonLat } from '../core/measure';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
@@ -30,7 +34,10 @@ import {
 import { createSky, type Sky } from '../sculpt/sky';
 import { lakeHeightAtUV } from '../core/lakeSurface';
 import { createWater, type Water } from '../sculpt/water';
-import { createDiorama, type Diorama, type StageStyle } from '../sculpt/diorama';
+import { createDiorama, type BlockLook, type Diorama, type StageStyle } from '../sculpt/diorama';
+import { createGrove, type Grove } from '../sculpt/grove';
+import { createClouds, type Clouds } from '../sculpt/clouds';
+import { paperSheetKm, standingTrees } from '../sculpt/modelLook';
 import { drawLandmarkGlyph, isNaturalLandmark } from '../cartography/landmarkGlyph';
 import { createScatter, type Scatter } from '../sculpt/scatter';
 import { createPlaceModels } from '../sculpt/places';
@@ -92,7 +99,7 @@ import {
 } from '../core/spatialEntities';
 import { semanticZoomProfile } from '../core/semanticZoom';
 import { realmAnchors } from '../cartography/realmAnchors';
-import { editKey, realmEditKey } from '../core/edits';
+import { editKey, realmEditKey, TERRAIN_HEIGHT_M } from '../core/edits';
 import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING } from '../core/labelShape';
 import { drawStamp, isStampGlyph, STAMP_SIZES, type StampGlyph, type StampSize } from '../cartography/stampGlyphs';
 import {
@@ -167,7 +174,15 @@ interface World3DProps {
   shape: Shape3D;
   /** On the plane, with the whole world in view: a tabletop model (default) or a landscape out to the horizon. */
   stage?: StageStyle;
+  /** The tabletop model's block: cut rock (default), stacked paper or an engraving. */
+  block?: BlockLook;
+  /** Clouds over the plane, with their shadows on the ground. */
+  clouds?: boolean;
+  /** The reader's-eye fog, laid on the ground as on the flat maps (absent = none). */
+  readerFog?: ReaderFogLayer;
   onShape: (s: Shape3D) => void;
+  /** A sheet world: flat, with no globe to offer. */
+  noGlobe?: boolean;
   exaggeration: number;
   tool: PaintTool;
   /** So the wheel and the bracket keys can change the brush the panel owns. */
@@ -447,10 +462,12 @@ const OP_KEY: Record<TerrainOp, string> = {
   roughen: 'worldgen.threeD.op.roughen',
   gully: 'worldgen.threeD.op.gully',
   grab: 'worldgen.threeD.op.grab',
+  volcano: 'worldgen.paint.op.volcano',
+  height: 'worldgen.paint.op.height',
 };
 
 const OPS: TerrainOp[] = [
-  'raise', 'lower', 'smooth', 'sharpen', 'flatten', 'terrace', 'roughen', 'gully', 'grab',
+  'raise', 'lower', 'smooth', 'sharpen', 'flatten', 'terrace', 'roughen', 'gully', 'grab', 'volcano', 'height',
 ];
 
 /**
@@ -497,7 +514,7 @@ export default function World3D({
   showLandmarks, showRivers = true, showRoads = true, showBorders = false,
   selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
   viewport, onViewportChange,
-  skin, shape, stage = 'maqueta', onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
+  skin, shape, stage = 'maqueta', block = 'roca', clouds = false, readerFog, onShape, noGlobe = false, exaggeration, tool, onTool, onEdit, onEdits, revision,
   flyTarget, flyMark = null, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
   onZoomTo,
 }: World3DProps) {
@@ -584,6 +601,8 @@ export default function World3D({
     sky: Sky;
     water: Water;
     diorama: Diorama;
+    grove: Grove;
+    clouds: Clouds;
     scatter: Scatter;
     placeModels: ReturnType<typeof createPlaceModels>;
     /** La dirección AL sol, la misma que `surface.setSun` construye. */
@@ -688,6 +707,13 @@ export default function World3D({
   shapeRef.current = shape;
   const stageRef = useRef(stage);
   stageRef.current = stage;
+  /** Whether the tabletop model is on the table now (the whole world, or a framed land): the painting follows it. */
+  const [modelShown, setModelShown] = useState(() => stage === 'maqueta' && shape === 'plane');
+  const modelShownRef = useRef(modelShown);
+  const blockRef = useRef(block);
+  blockRef.current = block;
+  const cloudsRef = useRef(clouds);
+  cloudsRef.current = clouds;
   const qualityRef = useRef(quality);
   qualityRef.current = quality;
   const viewportRef = useRef(viewport);
@@ -698,6 +724,7 @@ export default function World3D({
   mirrorRef.current = { x: mirrorX, y: mirrorY };
   const keys = useRef({ shift: false, ctrl: false });
   const over = useRef(false);
+  const readerFogRef = useRef<ReaderFogLayer | undefined>(readerFog);
   const propsRef = useRef({
     geography,
     waypoints,
@@ -873,14 +900,17 @@ export default function World3D({
       const st = R.current;
       const sf = st ? st.surface : surface;
       const sc = st ? st.scatter : scatter;
-      // The cut of the tabletop model follows the same ground.
-      (st ? st.diorama : diorama).setGround({ heightAt: (u: number, v: number) => sf.heightAtUV(u, v), width: world.width, height: world.height }, landFrameOf(world) ?? undefined);
+      // The cut of the tabletop model follows the same ground, and so do its standing trees and its clouds.
+      const heightAt = (u: number, v: number) => sf.baseHeightAtUV(u, v);
+      (st ? st.diorama : diorama).setGround({ heightAt, width: world.width, height: world.height }, landFrameOf(world) ?? undefined);
+      (st ? st.grove : grove).setGround({ heightAt, biome: world.biome, width: world.width, height: world.height, seed: world.params.seed }, landFrameOf(world));
+      (st ? st.clouds : cloudLayer).setGround({ heightAt, precipitation: world.precipitation, width: world.width, height: world.height, seed: world.params.seed }, landFrameOf(world));
       sc.setWorld({
         elevation: world.elevation, biome: world.biome,
         width: world.width, height: world.height,
         yMul: sf.yMul, seaLevel: 0,
         temperature: world.temperature,
-        heightAt: (u: number, v: number) => sf.heightAtUV(u, v),
+        heightAt: (u: number, v: number) => sf.baseHeightAtUV(u, v),
       });
     };
     // La PRIMERA siembra no se hace aquí: `scatter` se crea más abajo, después
@@ -920,6 +950,11 @@ export default function World3D({
     // switch of stage costs nothing.
     const diorama = createDiorama({ sizeX: SIZE_X, sizeZ });
     scene.add(diorama.group);
+    // The tabletop model's standing trees (the painted skin) and the clouds over the plane.
+    const grove = createGrove({ sizeX: SIZE_X, sizeZ });
+    scene.add(grove.group);
+    const cloudLayer = createClouds({ sizeX: SIZE_X, sizeZ });
+    scene.add(cloudLayer.group);
 
     /**
      * Y LO QUE CRECE ENCIMA.
@@ -984,7 +1019,7 @@ export default function World3D({
     );
 
     const st = {
-      renderer, scene, camera, controls, surface, sky, water, diorama, scatter, placeModels,
+      renderer, scene, camera, controls, surface, sky, water, diorama, grove, clouds: cloudLayer, scatter, placeModels,
       // La misma que `setSun(az, el)` arma; el efecto de la hora la rellena
       // antes del primer dibujo. Aquí, mediodía largo, por si acaso.
       sun: new THREE.Vector3(0, 1, 0),
@@ -1040,6 +1075,8 @@ export default function World3D({
       sky.dispose();
       water.dispose();
       diorama.dispose();
+      grove.dispose();
+      cloudLayer.dispose();
       scatter.dispose();
       placeModels.dispose();
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
@@ -1239,8 +1276,16 @@ export default function World3D({
     const camDir = new THREE.Vector3();
     const marca = propsRef.current.flyMark;
 
-    /** Project, cull, and place. Returns null when the point is not on screen. */
-    const place = (cx: number, cy: number): { x: number; y: number } | null => {
+    /**
+     * Project, cull, and place. Returns null when the point is not on screen —
+     * or, in the reader's view, under blank paper: the reader cannot see a name
+     * the story has not shown (the arrival pin, `always`, is the exception).
+     */
+    const fog = readerFogRef.current;
+    // Towns as dots: in the 3D a place the story has not shown carries no name at all.
+    const unnamed = fogUnnamed(fog);
+    const place = (cx: number, cy: number, always = false): { x: number; y: number } | null => {
+      if (!always && (fogHides(fog, cx, cy) || unnamed?.(cx - 0.5, cy - 0.5))) return null;
       scenePos(cx, cy, p);
       if (shapeRef.current === 'globe') {
         // The far side of a planet is behind the planet.
@@ -1260,7 +1305,7 @@ export default function World3D({
      * llevaría hasta él para tapar su nombre con el de un pueblo vecino.
      */
     if (marca) {
-      const at = place(marca.x, marca.y);
+      const at = place(marca.x, marca.y, true);
       if (at) {
         out.push({
           x: at.x, y: at.y, kind: 'fly', rank: -2,
@@ -1298,7 +1343,7 @@ export default function World3D({
     }
     if (geo && sl) for (const ruin of geo.ruins) {
       const key = ruin.sourceKey ?? editKey('ruin', ruin.x, ruin.y), style = world.painted?.styles?.[key];
-      if (!style || !semanticZoomProfile(st.surface.uvWindow.size * EARTH_KM).showRegionalTerrain) continue;
+      if (!style || !semanticZoomProfile(st.surface.uvWindow.size * EARTH_KM * sheetScale(world.params)).showRegionalTerrain) continue;
       const at = place(ruin.x, ruin.y); if (!at) continue;
       out.push({ x: at.x, y: at.y, kind: 'spatial', rank: 3, label: ruin.name, color: style.color ?? '#f2e3c4', spatial: resolveWorldSpatialEntity({ key, kind: 'ruin', type: ruin.kind, name: ruin.name, x: ruin.x, y: ruin.y, extent: 1, importance: ruin.importance, style }) });
     }
@@ -1307,7 +1352,7 @@ export default function World3D({
       // is worth drawing: every village at full zoom is a grey smear, and only
       // the capitals at close range is a map with nothing on it.
       const win = st.surface.uvWindow.size;
-      const profile = semanticZoomProfile(win * 40075);
+      const profile = semanticZoomProfile(win * 40075 * sheetScale(world.params));
       const maxRank = profile.settlementRank;
       const ranked = geo.settlements
         .filter((s) => (RANK_ORDER[s.rank] ?? 3) <= maxRank || settlementStyle(world, s).labelVisible)
@@ -1324,7 +1369,7 @@ export default function World3D({
       }
     }
     if (sl) {
-      const profile = semanticZoomProfile(st.surface.uvWindow.size * 40075);
+      const profile = semanticZoomProfile(st.surface.uvWindow.size * 40075 * sheetScale(world.params));
       const ranked = entities
         .filter((entity) => !entity.hidden)
         .filter((entity) => entity.source !== 'regional' || profile.showRegionalTerrain)
@@ -1668,7 +1713,7 @@ export default function World3D({
      */
     const stF = R.current;
     if (stF) {
-      const kmPorPx = stF.focusKm / Math.max(1, w);
+      const kmPorPx = stF.focusKm * sheetScale(stF.zoomInputs.world?.params) / Math.max(1, w);
       drawScreenScaleBar(ctx, {
         kmPerPx: kmPorPx,
         align: 'right',
@@ -1752,6 +1797,17 @@ export default function World3D({
     });
   }, []);
 
+  // The reader's-eye fog on the ground and over the names.
+  useEffect(() => {
+    readerFogRef.current = readerFog;
+    const st = R.current;
+    if (!st) return;
+    st.surface.setReaderFog(readerFog ?? null);
+    const host = hostRef.current;
+    if (host) host.dataset.readerFog = st.surface.readerFogShown ?? 'off';
+    request();
+    // `ready`: a scene built again (a lost context) gets the paper back.
+  }, [readerFog, request, ready]);
   // ---- la piel de cerca ------------------------------------------------------
   //
   // LA PIEL DE ARRIBA ES UNA SOLA IMAGEN DEL MUNDO ENTERO. Da igual lo buena
@@ -1877,7 +1933,7 @@ export default function World3D({
       ? [{ z: floorZ, view: plan.view }, { z: plan.z, view: plan.view }]
       : [{ z: plan.z, view: plan.view }]);
 
-    const mPerPx = (plan.view.w * (EARTH_KM / w.width) * 1000) / plan.width;
+    const mPerPx = (plan.view.w * kmPerWorldCell(w) * 1000) / plan.width;
     const done = got.exact >= got.needed;
 
     // 2b. LAS CIUDADES DEL RELLENO. «Coloca las ciudades» (Luis, 2026-08-11):
@@ -1901,7 +1957,7 @@ export default function World3D({
         drawTownStains(ctx, geo.settlements, {
           worldWidth: w.width, worldHeight: w.height,
           view: plan.view, width: plan.width, height: plan.height,
-          metresPerCell: (EARTH_KM / w.width) * 1000,
+          metresPerCell: kmPerWorldCell(w) * 1000,
         });
       }
       // 2c. LOS CAMINOS, la misma capa y el mismo fundido que el 2D
@@ -2199,7 +2255,7 @@ export default function World3D({
       scheduleZoomSkin(focus);
       st.surface.setCamera(c.position);
       const cpq = st.surface.cellsPerQuad(MESH_STEPS[mesh]);
-      const km = Math.round((40075 / world.width) * cpq);
+      const km = Math.round(cellKmOf(world.params, world.width) * cpq * 10) / 10;
       if (t0 - st.hudAt > 220) {
         /**
          * Y CUÁNTAS PLANTAS, CON SU COSTE.
@@ -2291,6 +2347,9 @@ export default function World3D({
     const maqueta = shapeRef.current === 'plane' && stageRef.current === 'maqueta'
       && ((landFrame !== null && !walkRef.current) || (win.size >= 0.999 && Math.abs(win.u - 0.5) < 1e-3 && Math.abs(win.v - 0.5) < 1e-3));
     st.surface.setClip(maqueta && landFrame ? landFrame : null);
+    // The paper block: the land rises in paper sheets, on the model only.
+    const terrace = maqueta && blockRef.current === 'papel' ? paperSheetKm(st.zoomInputs.world) : 0;
+    st.surface.setTerrace(terrace);
     st.sky.mesh.visible = !maqueta;
     st.scene.background = maqueta ? st.diorama.backdrop : null;
     // ¿Hay oleaje que animar en este encuadre? El shader del agua lo apaga entre
@@ -2325,7 +2384,22 @@ export default function World3D({
     // La luz del terreno, del mismo cielo que se está pintando.
     const light = st.sky.sunLight();
     st.surface.setSunLight(light.color, light.intensity, light.ambient);
-    st.diorama.update({ visible: maqueta, yMul: st.surface.yMul, sun: st.sun, light: Math.max(0, Math.min(1, light.intensity)) });
+    st.diorama.update({ visible: maqueta, yMul: st.surface.yMul, sun: st.sun, light: Math.max(0, Math.min(1, light.intensity)), look: blockRef.current, terrace });
+    // On the tabletop stage the painted skin's trees stand up (and the painting leaves them out).
+    const groveOn = maqueta && standingTrees(st.zoomInputs.skin, shapeRef.current, stageRef.current) && !walkRef.current;
+    // The painted skin leaves its trees out only while the model is on the table; closer in, they are painted again.
+    if (maqueta !== modelShownRef.current) { modelShownRef.current = maqueta; setModelShown(maqueta); }
+    st.grove.update({ visible: groveOn, yMul: st.surface.yMul, terrace, sun: st.sun, sunColor: light.color, sunIntensity: light.intensity, ambient: light.ambient });
+    // Clouds: over the model, or over the landscape while it is seen whole; they thin out as it closes in.
+    const cloudFade = maqueta ? 1 : Math.max(0, Math.min(1, (win.size - 0.45) / 0.4));
+    st.clouds.update({ visible: cloudsRef.current && shapeRef.current === 'plane', fade: cloudFade, yMul: st.surface.yMul, sun: st.sun, sunColor: light.color, sunIntensity: light.intensity, ambient: light.ambient, time: st.time });
+    st.surface.setCloudShadows(st.clouds.shadows());
+    // What the model carries, on the view's element: read by the interface runners.
+    const hostEl = hostRef.current;
+    if (hostEl) {
+      const marks = { groveTrees: String(groveOn ? st.grove.stats().trees : 0), clouds: String(st.clouds.shadows().length / 4), terraceKm: String(terrace), block: maqueta ? blockRef.current : '' };
+      for (const [k, v] of Object.entries(marks)) if (hostEl.dataset[k] !== v) hostEl.dataset[k] = v;
+    }
 
     // La distancia de la niebla. ES LA MISMA CUENTA QUE EL AGUA SE HACE POR
     // DENTRO (ver `update` en water.ts): escala con la ALTURA sobre el agua y no
@@ -2375,6 +2449,8 @@ export default function World3D({
       entities: propsRef.current.spatialEntities,
       sunColor: light.color, sunIntensity: light.intensity, ambient: light.ambient,
     });
+    // The model's trees replace the landscape's plants on the tabletop stage.
+    st.scatter.group.visible = !groveOn;
     st.scatter.update({
       camera: c,
       sun: st.sun,
@@ -2468,6 +2544,7 @@ export default function World3D({
   }, [
     world.width,
     world.height,
+    world.params,
     mesh,
     projectMarks,
     drawOverlay,
@@ -2709,12 +2786,13 @@ export default function World3D({
     const st = R.current;
     if (!st) return;
     const rev = revision;
-    const key = `${worldContentKey(world)}:${skin}:${theme.id}:${geography ? geographyContentKey(geography) : 'bare'}:${showRivers}:${showRoads}:${showBorders}`;
+    const standing = standingTrees(skin, shape, stage) && modelShown;
+    const key = `${worldContentKey(world)}:${skin}:${theme.id}:${geography ? geographyContentKey(geography) : 'bare'}:${showRivers}:${showRoads}:${showBorders}:${standing}`;
     if (st.skinnedKey === key && st.skinnedRev === rev) return;
     // The painted skin is a whole picture: repainting it on every committed
     // stroke would stall the hand. The same world under the same look waits
     // until the strokes stop; the old picture stays meanwhile.
-    const look = `${skin}:${theme.id}:${showRivers}:${showRoads}:${showBorders}`;
+    const look = `${skin}:${theme.id}:${showRivers}:${showRoads}:${showBorders}:${standing}`;
     if (skin === 'pintado' && st.paintedWorld === world && st.paintedLook === look && !st.paintDue) {
       window.clearTimeout(st.paintTimer);
       st.paintTimer = window.setTimeout(() => { st.paintDue = true; setPaintTick((n) => n + 1); }, PAINT_SETTLE_MS);
@@ -2753,6 +2831,7 @@ export default function World3D({
       // relief, painted forests and dunes, rivers in the same picture.
       const painted = renderPaintedGround(world, {
         rivers: showRivers,
+        trees: !standing,
         drawRivers: (ctx, width) => drawWorldRivers(world, ctx, { x: 0, y: 0, w: world.width, h: world.height }, width, false),
       });
       // Borders and the realm wash go on a copy; the painting itself stays clean
@@ -2832,7 +2911,7 @@ export default function World3D({
     st.surface.setShading(false, cavity, headlight, shadow);
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders, paintTick]);
+  }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders, paintTick, shape, stage, modelShown]);
 
   // ---- the stage: a frame is enough, the draw reads `stageRef` ---------------
   useEffect(() => {
@@ -2841,7 +2920,7 @@ export default function World3D({
     st.need = true;
     st.poseKey = '';
     request();
-  }, [stage, ready, request]);
+  }, [stage, block, clouds, ready, request]);
 
   // ---- everything else the look depends on ---------------------------------
   useEffect(() => {
@@ -3077,6 +3156,7 @@ export default function World3D({
           radius: t.radius, strength: t.strength, softness: t.softness,
           curve: t.curve, tip: t.tip, angle: t.angle,
           jitter: t.jitter, aspect: t.aspect, taper: t.taper,
+          ...(b.kind === 'terrain' && b.op === 'height' ? { heightM: t.heightM ?? TERRAIN_HEIGHT_M.default } : {}),
           mirrorX: mirrorRef.current.x, mirrorY: mirrorRef.current.y,
         },
       );
@@ -3543,6 +3623,7 @@ export default function World3D({
     <div className="absolute inset-0 overflow-hidden select-none">
       <div
         ref={hostRef}
+        data-testid="world3d-host"
         className={`absolute inset-0 ${
           brushing ? 'cursor-crosshair' : hovering ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
         }`}
@@ -3570,8 +3651,8 @@ export default function World3D({
         <div className={`flex gap-1 p-1 ${HUD}`}>
           <Chip on={shape === 'plane'} onClick={() => onShape('plane')} icon={Layers}
             label={t('worldgen.threeD.shape.plane')} title={`${t('worldgen.threeD.shape.plane')} (G)`} />
-          <Chip on={shape === 'globe'} onClick={() => onShape('globe')} icon={Globe}
-            label={t('worldgen.threeD.shape.globe')} title={`${t('worldgen.threeD.shape.globe')} (G)`} />
+          {!noGlobe && <Chip on={shape === 'globe'} onClick={() => onShape('globe')} icon={Globe}
+            label={t('worldgen.threeD.shape.globe')} title={`${t('worldgen.threeD.shape.globe')} (G)`} />}
           <Chip
             on={walking}
             onClick={() => setWalking((v) => !v)}
@@ -3791,8 +3872,8 @@ function describe(world: WorldData, p: Pt, t: (key: string) => string): string {
   const xi = ((Math.round(p.x) % world.width) + world.width) % world.width;
   const yi = Math.min(world.height - 1, Math.max(0, Math.round(p.y)));
   const km = world.elevation[yi * world.width + xi];
-  const lat = 90 - (yi / world.height) * 180;
-  const lon = (xi / world.width) * 360 - 180;
+  // The same coordinate the flat map shows: on a sheet, its band of the globe.
+  const { lat, lon } = mapLonLat({ x: xi, y: yi }, world.width, world.height, world.params);
   return `${km >= 0 ? `${Math.round(km * 1000)} m` : `${Math.round(-km * 1000)} m ${t('worldgen.threeD.belowSea')}`}`
     + ` · ${Math.abs(lat).toFixed(1)}°${t(lat >= 0 ? 'worldgen.threeD.compass.n' : 'worldgen.threeD.compass.s')}`
     + ` ${Math.abs(lon).toFixed(1)}°${t(lon >= 0 ? 'worldgen.threeD.compass.e' : 'worldgen.threeD.compass.w')}`;

@@ -31,6 +31,10 @@ export interface Project {
   description: string;
   /** Suggested or custom genres of this world, independent of engine presets. */
   genres?: string[];
+  /** The name the book is signed with, on its title page and exports. */
+  author?: string;
+  /** Back-cover text, printed as the book's last page when a profile asks. */
+  blurb?: string;
   parentId?: string; // For books within a saga
   children?: string[]; // IDs of sub-projects
   status: 'draft' | 'in-progress' | 'completed';
@@ -77,6 +81,10 @@ export interface Project {
   workspaceFolders?: import('@/components/project/workspace/library/types').WorkspaceFolder[];
   workspacePlacements?: import('@/components/project/workspace/library/types').WorkspacePlacement[];
   workspaceRevision?: number;
+  /** Filters of the timeline saved by name (tags, shapes, words). */
+  timelineViews?: import('@/engines/timeline/timelineFilter').TimelineSavedView[];
+  /** Colours of timeline tags, by tag (case and accents aside). */
+  timelineTagColors?: Record<string, string>;
   /** Trusted source-extension JSON, scoped by developer namespace; no executable content. */
   localToolStates?: import('@/engines/local/stateTypes').LocalToolStates;
   sourceToolDocuments?: import('@/engines/local/documents/types').SourceToolDocument[];
@@ -169,7 +177,7 @@ export interface Timeline {
   worldCalendar?: import('@/engines/timeline/worldCalendar').WorldCalendar;
   /** Visible absolute years, inclusive; events outside remain stored. */
   yearRange?: { start: number; end: number };
-  displayPrecision?: 'year' | 'day' | 'hour';
+  displayPrecision?: 'year' | 'month' | 'day' | 'hour';
   /** Present on the timeline an imported story world's events were filed in. */
   familySource?: FamilySource;
   createdAt: number;
@@ -209,6 +217,14 @@ export interface TimelineEvent {
   endTime?: string;
   /** Present when this event was imported from a story world. */
   familySource?: FamilySource;
+  /** Free tags (battle, prophecy…) to filter the timeline by. */
+  tags?: string[];
+  /** Kept out of the world wiki and the reader's export. */
+  hideFromWiki?: true;
+  /** A festival, a market day: the event comes back every year, month or week on the Calendar view, until an optional year. */
+  repeat?: { every: 'year' | 'month' | 'week'; untilYear?: number };
+  /** How a run of days is drawn on the Calendar view: a plain band, stripes, dots or checks. */
+  bannerPattern?: 'stripes' | 'dots' | 'checks';
   createdAt: number;
   updatedAt: number;
 }
@@ -469,6 +485,10 @@ export interface Writing {
   synopsis?: string;
   wordCount: number;
   chapter?: number;
+  /** Read in place of the chapter number in the book ("Prólogo", "Interludio"); absent = the number. */
+  kicker?: string;
+  /** Held back from the book: kept in the manuscript, left out when a whole-book profile compiles it. */
+  heldBack?: boolean;
   tags: string[];
   /** When the chapter happens in the project's world calendar (absent = undated). */
   worldDate?: WorldDate;

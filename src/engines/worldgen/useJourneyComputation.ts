@@ -29,7 +29,7 @@ export function useJourneyComputation(world: WorldData, geography: HumanGeograph
     options: { ...options, via: via.map(stop => ({ x: stop.x, y: stop.y })) }, stopNames: [from.name, ...via.map(stop => stop.name), to.name], compare, locale }) : null,
   // revision changes in place, so object identity alone is insufficient.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [world, world.revision, geography, from?.x, from?.y, from?.name, to?.x, to?.y, to?.name, via, options.mode, options.season, options.hoursPerDay, options.planetRadiusKm, options.pace, JSON.stringify(options.legModes ?? null), JSON.stringify(options.profile ?? null), compare, locale, attempt]);
+  [world, world.revision, geography, from?.x, from?.y, from?.name, to?.x, to?.y, to?.name, via, options.mode, options.way, options.season, options.hoursPerDay, options.planetRadiusKm, options.pace, JSON.stringify(options.legModes ?? null), JSON.stringify(options.profile ?? null), compare, locale, attempt]);
   const [state, setState] = useState<JourneyState | null>(null);
   useEffect(() => {
     if (!job) return;

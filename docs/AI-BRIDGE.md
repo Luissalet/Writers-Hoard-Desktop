@@ -1985,9 +1985,120 @@ deshecho.
   un marcador enlazado en ese punto. Por el puente: `wh_create_codex_entry` y
   después `wh_add_map_pin` con `linkedEntryId`.
 
+- **Mundos: hoja a la medida, zonas, relieve y ríos (continuación).**
+  `wh_create_world` con preset `island`, `country` o `continent` pone la tierra
+  en su propia hoja plana (unas 3,2 veces su tamaño; `worldKm` de 1000 a 40074
+  km la fija; `sheet: false` vuelve al planeta entero); `wh_get_world` dice si es
+  hoja y su `worldKm`. Zonas con nombre: `wh_add_zone` (nombre, esquinas, color,
+  relleno `outline`/`wash`/`hatch`), `wh_list_zones` (con su área),
+  `wh_update_zone` y `wh_remove_zone` (no es un borrado: una edición que se
+  deshace). `wh_shape_terrain` con `op: "volcano"` (borde y cráter; en mar
+  profundo, una isla) o `op: "height"` con `heightM` (metros, -11000 a 9000); `wh_draw_river` por puntos
+  desde el manantial; `wh_reverse_river` invierte un río dibujado.
+- **Aspecto 3D y luz.** `wh_set_world_presentation` guarda `clouds` (nubes con
+  sombra, más donde llueve) y `block3D` (`roca`, `papel`, `grabado`) de la
+  maqueta; con Pintado los árboles se ponen de pie en la maqueta.
+  `wh_render_world_map` acepta `hour` (amanecer rosa, anochecer rojo, noche azul
+  con el farol del grupo) y la vista del lector con `readerStart: "land"`
+  (tierra a tinta), `readerTowns` (pueblos como puntos) y `readerTrail` (rastro
+  numerado por capítulo).
+- **Viaje y comercio.** `wh_set_world_travel_settings` admite `ways` (las vías
+  propias del mundo: velocidad, día y noche, por mar, tierra o ambos, como un
+  grifo o un trineo) y `wh_plan_journey` las usa con `way`. `wh_world_economy`
+  dice qué llega por mar a un puerto y de dónde; los envíos rodean bahías por
+  tierra y siguen los ríos, también en proyecciones curvas.
+- **Sucesos y manuscrito.** `wh_add_story_event`/`wh_update_story_event`
+  enlazan un suceso al capítulo donde se cuenta (`writingId`, `null` lo
+  desenlaza) y aceptan las marcas `lantern`, `sneaking` y `inside`; los sucesos se
+  reordenan arrastrando dentro de su capítulo.
+
 Pruebas: `tests/world-presentation*.ts*`, `world-blank-starters`,
 `world-measure-area`, `world-travel-profile`, `world-map-eras*` (con transporte
 nativo stdio + HTTP), `world-labels`, `world-stamps`, `world-grid`,
 `world-journey-playback`, `world-reader-fog`, `world-story-events`,
-`world-economy`, `world-trade`, `map-style`, `map-ground`, `map-picker`, `map-scale`, y los recorridos de interfaz
+`world-economy`, `world-trade`, `world-sheet`, `world-zones`, `world-terrain-ops`, `world-3d-model`, `world-light-ways`, `world-reader-plus`, `world-trade-routes`, `world-story-scenes`, `map-style`, `map-ground`, `map-picker`, `map-scale`, y los recorridos de interfaz
 `scripts/run-world-{presentation,blank,measure,travel,map-eras,labels,stamps,grid,reader-fog,story,trade}-qa.cjs` y `scripts/run-map-{style,ground,picker,scale}-qa.cjs`.
+
+## 29. Escritura, publicación, Códex, cronologías y tablas (Ágora 1095, ola C)
+
+Todo lo que la ola C añadió a la interfaz tiene su camino por el puente, con
+deshacer donde la herramienta escribe.
+
+### Publicación
+- `wh_publishing_profiles` lista los perfiles de publicación del proyecto con sus
+  piezas; `wh_publishing_profile_set` crea o cambia uno (selección, orden, portada
+  de título, índice, página de derechos `includeCopyright`, contracubierta
+  `includeBlurb`, imágenes de capítulo `includeChapterImages`, imágenes del texto
+  `includeInlineImages`, estilo de libro `bookStyle`) y deshacer lo devuelve o lo
+  borra; `wh_publishing_compile` compila un perfil a Markdown o HTML.
+- `bookStyle` es un preajuste (`classic`, `modern`, `epic`, `sourcebook`), `null`
+  o un objeto con alineación, interlineado, espaciado, párrafos sangrados o
+  espaciados, capitular, versalitas de apertura, separador de escena, tamaño y
+  ornamento del título, formato (A4, Letter, A5, 6×9), papel, `columns` 1|2 y
+  `stripedTables`. `sourcebook` es el manual de juego: dos columnas en Letter,
+  tablas rayadas; un salto de columna empieza la siguiente; los títulos, los h2 y
+  las imágenes a página completa ocupan las dos.
+- `wh_update_project_details` acepta `blurb` (texto de contracubierta).
+
+### Bloques y texto
+- El Markdown del puente lee y escribe `> [!READALOUD]` (para leer en voz alta) y
+  `> [!SIDEBAR]` (recuadro) además de NOTE/INFO/QUESTION/TIP/WARNING.
+- `wh_codex_rules_card` construye una ficha de reglas (hechizo, objeto mágico o
+  criatura) desde una ficha del Códex: cada hueco toma la propiedad asignada
+  (adivinada por el nombre —Nivel, Escuela, Alcance, CA, PG, FUE…— o con
+  `slots`); devuelve HTML, Markdown, huecos rellenos y vacíos; con `writingId` la
+  añade al final del capítulo (versión pre-IA y deshacer).
+- `wh_extract_block_to_card` mueve el bloque n.º `blockIndex` de un capítulo o
+  ficha a una ficha nueva y deja en su lugar una referencia viva; con
+  `list:true` solo enseña los bloques con su número, y `expectText` (sus primeras
+  palabras) evita mover otro si el texto cambió. Deshacer devuelve el bloque (la
+  ficha nueva queda). Solo en la base compartida.
+- En una hoja, insertar o quitar filas y columnas (`wh_table_edit`, la interfaz)
+  mueve las referencias de las fórmulas; una referencia a una celda quitada da
+  `#REF!`. `wh_table_query` acepta números en las condiciones.
+- Deshacer `wh_world_calendar_set` con `redate:true` devuelve el calendario y
+  las fechas de los sucesos movidos; deshacer `wh_timeline_settings` respeta la
+  era en la que se hizo.
+- `wh_text_effect` pone o quita un efecto (glow, shake, wave, rainbow, pulse,
+  blur) en la n-ésima aparición de una frase de un capítulo.
+- `wh_dictionary_settings` activa la escritura nativa junto a las glosas en la
+  prosa.
+
+### Códex
+- Plantillas: `privateType` (el tipo y sus herederos no salen en la wiki
+  publicada), propiedades `select`, `required` y `description`;
+  `wh_get_codex_entry` devuelve `missingRequired`.
+
+### Cronologías y calendario
+- `wh_timeline_settings` (precisión, modo de semana, fases lunares que se ven);
+  eventos con `repeat` (año/mes/semana hasta un año) y `bannerPattern`.
+- El calendario admite un **mes bisiesto** (un mes de 0 días al que la regla
+  bisiesta da sus días: solo existe en años bisiestos; una fecha en él un año
+  común se rechaza con el motivo) y una **correlación** con el gregoriano
+  (`calendar.correlation {date, earth}` en `wh_world_calendar_set`). Con ella
+  `wh_world_date` devuelve `earth` (el día gregoriano) y acepta `earthDate` para
+  convertir al revés; la vista de calendario muestra los sucesos de los dos
+  calendarios.
+
+### Tablas, árboles, tablero, barra de herramientas y sonido
+- `wh_table_edit` (insertar/duplicar/quitar filas y columnas), `wh_table_query`
+  (filtros con operadores, ordenación múltiple, buscar) y
+  `wh_table_create_cards_view` (vista de solo lectura de todas las fichas).
+- `wh_relation_tree_action`: `nodes-remove` (varias personas a la vez) y
+  `vocabulary-catalogue` (familia, empresa, ejército, corte real, orden,
+  bajos fondos: añade un juego de tipos de relación al árbol).
+- `wh_board_canvas_action border` (solid/dashed/sketch) y
+  `wh_writing_tool_dock_apply` con `span` (bloque a fila entera).
+- `wh_sound_library` lista la biblioteca de sonidos hecha en el equipo (lluvia,
+  viento, trueno, hoguera, olas, bosque de noche, taberna, latido, campana,
+  pasos, llamada, espadas) y con `add` la añade a los sonidos del proyecto
+  devolviendo su `assetId`; las pistas de párrafo admiten `through` (suena hasta
+  ese párrafo) en `wh_reader_settings_save`.
+
+Pruebas: `tests/publishing-{front-matter,book-style,chapter-images,inline-images,sourcebook,review}`,
+`codex-{rules-cards,card-drop,private-type,required-properties,type-picker,card-faces}`,
+`block-actions`, `text-effects`, `writing-{blocks,email-block}`, `wiki-hidden-block`,
+`world-calendar-{weeks-moons,leap-lens}`, `world-date-picker`, `timeline-{precision-settings,repeat-banners}`,
+`table-{edits,all-types}`, `relation-catalogue`, `sound-library`, `cover-vertical-eraser`,
+`saga-shelf`, `create-cover`, `tool-dock-tiles`, `sprint-pause`, `library-bulk-delete`,
+`dictionary-native-prose`, y los recorridos `scripts/run-{board-quick,tree-groups,timeline-calendar,sprint-rounds}-qa.cjs`.

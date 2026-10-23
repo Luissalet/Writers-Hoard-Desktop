@@ -8,13 +8,14 @@ import { addTable, changeTable, saveCell, importCsv, previewCsv } from './operat
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
 import { sheetValues } from './formulas';
 import { cellKey, tableCsv, validateCell, type WorldTable } from './types';
+import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, insertColumn, insertRow, removeRows, sortRows, type TableCondition, type TableSort } from './tableEdits';
 const scope = async (args: ToolArgs) => ({ projectId: await resolveProjectForEngine(args, 'tables'), eraId: optString(args, 'eraId') });
 async function read(args: ToolArgs) {
   const target = await scope(args), project = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId);
   const source = await readWorldDocument(target, 'tables', requireString(args, 'tableId'));
   if (!project || !source) throw Error('table_missing');
   const table = source.document.root as unknown as WorldTable;
-  const entries = table.codexType ? (await listEraRows<CodexEntry>(target, 'codexEntries')).filter(entry => entry.type === table.codexType) : [];
+  const entries = table.codexAllTypes ? await listEraRows<CodexEntry>(target, 'codexEntries') : table.codexType ? (await listEraRows<CodexEntry>(target, 'codexEntries')).filter(entry => entry.type === table.codexType) : [];
   const projection=projectWorldTable(table,entries,project.codexTemplates??[]);
   return { target, table:{...table,columns:projection.columns}, rows:projection.rows,displayRows:projection.displayRows,calculatedColumnIds:projection.calculatedColumnIds,version:source.version };
 }
@@ -43,7 +44,47 @@ export const TABLE_HANDLERS = {
     for (const row of rows) table.rows.push({ id: crypto.randomUUID(), cells: Object.fromEntries((await valuesFor(table, row, target)).map((value, index) => [table.columns[index].id, value])) });
     await addTable(target.projectId, table, target.eraId); return { table };
   },
-  async wh_table_append_row(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType) throw Error('table_live_codex_requires_entry'); const values = await valuesFor(table, args.values, target), row = { id: crypto.randomUUID(), cells: Object.fromEntries(values.map((value, index) => [table.columns[index].id, value])) }; await db.transaction('rw', db.tables, async () => { if ((await readWorldDocument(target, 'tables', table.id))?.version !== requireString(args, 'expectedVersion')) throw Error('table_conflict'); await changeTable(target.projectId, table.id, current => { current.rows.push(row); }, target.eraId); }); return { row }; },
-  async wh_table_save_cell(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType) throw Error('table_live_codex_requires_entry'); const value = stringArg(args, 'value'), column = table.columns.find(item => item.id === requireString(args, 'columnId')); if (!column) throw Error('table_column_missing'); if (table.mode !== 'sheet' && column.kind === 'reference' && value && !(await listEraRows<CodexEntry>(target, 'codexEntries')).some(entry => entry.id === value)) throw Error('table_reference_invalid'); await saveCell(target.projectId, table.id, requireString(args, 'rowId'), column.id, value, stringArg(args, 'expected'), target.eraId); return { saved: true }; },
+  async wh_table_append_row(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType || table.codexAllTypes) throw Error('table_live_codex_requires_entry'); const values = await valuesFor(table, args.values, target), row = { id: crypto.randomUUID(), cells: Object.fromEntries(values.map((value, index) => [table.columns[index].id, value])) }; await db.transaction('rw', db.tables, async () => { if ((await readWorldDocument(target, 'tables', table.id))?.version !== requireString(args, 'expectedVersion')) throw Error('table_conflict'); await changeTable(target.projectId, table.id, current => { current.rows.push(row); }, target.eraId); }); return { row }; },
+  async wh_table_edit(args: ToolArgs) {
+    const { table, target } = await read(args), action = requireString(args, 'action'), expected = requireString(args, 'expectedVersion');
+    if (table.codexAllTypes) throw Error('table_all_types_read_only');
+    let result: Record<string, unknown> = {};
+    await db.transaction('rw', db.tables, async () => {
+      if ((await readWorldDocument(target, 'tables', table.id))?.version !== expected) throw Error('table_conflict');
+      await changeTable(target.projectId, table.id, current => {
+        if (action === 'insert-row') { const at = typeof args.at === 'number' ? args.at : current.rows.length; result = { row: insertRow(current, at) }; }
+        else if (action === 'duplicate-row') result = { row: duplicateRow(current, requireString(args, 'rowId')) };
+        else if (action === 'remove-rows') { const ids = args.rowIds; if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw Error('table_rows_invalid'); result = { removed: removeRows(current, ids as string[]) }; }
+        else if (action === 'insert-column') {
+          if (current.codexType) throw Error('table_live_codex_column_needs_field');
+          const kind = String(args.kind ?? 'text'); if (!['text', 'number', 'reference', 'checkbox'].includes(kind)) throw Error('table_column_invalid');
+          result = { column: insertColumn(current, typeof args.at === 'number' ? args.at : current.columns.length, { name: requireString(args, 'name'), kind: kind as WorldTable['columns'][number]['kind'] }) };
+        }
+        else if (action === 'duplicate-column') { if (current.codexType) throw Error('table_live_codex_column_needs_field'); result = { column: duplicateColumn(current, requireString(args, 'columnId'), typeof args.copyLabel === 'string' ? args.copyLabel : 'copy') }; }
+        else throw Error('table_action_invalid');
+      }, target.eraId);
+    });
+    return { ...result, version: (await readWorldDocument(target, 'tables', table.id))!.version };
+  },
+  async wh_table_create_cards_view(args: ToolArgs) {
+    const target = await scope(args);
+    const table: WorldTable = { id: crypto.randomUUID(), title: requireString(args, 'title'), mode: 'table', codexAllTypes: true, columns: [{ id: crypto.randomUUID(), name: optString(args, 'nameColumn') ?? 'Nombre', kind: 'text', field: 'title' }, { id: crypto.randomUUID(), name: optString(args, 'typeColumn') ?? 'Tipo', kind: 'text', field: '__type' }], rows: [] };
+    await addTable(target.projectId, table, target.eraId);
+    return { table };
+  },
+  async wh_table_query(args: ToolArgs) {
+    const { table, rows, displayRows } = await read(args);
+    const shown = new Map(displayRows.map(row => [row.id, row]));
+    const value = (row: { id: string; cells: Record<string, string> }, columnId: string) => table.columns.some(column => column.id === columnId) ? (shown.get(row.id)?.cells[columnId] ?? row.cells[columnId] ?? '') : undefined;
+    const given = Array.isArray(args.conditions) ? args.conditions as Partial<TableCondition>[] : [];
+    if (given.some(condition => !condition || typeof condition !== 'object' || typeof condition.columnId !== 'string' || !CONDITION_OPS.includes(condition.op as never))) throw Error('table_condition_invalid');
+    const conditions: TableCondition[] = given.map(condition => ({ columnId: condition.columnId!, op: condition.op!, ...(condition.value !== undefined && condition.value !== null ? { value: String(condition.value) } : {}) }));
+    const sortArgs = Array.isArray(args.sorts) ? args.sorts as Partial<TableSort>[] : [];
+    if (sortArgs.some(sort => !sort || typeof sort !== 'object' || typeof sort.id !== 'string')) throw Error('table_sort_invalid');
+    const sorts = sortArgs.map(sort => ({ id: sort.id!, descending: !!sort.descending }));
+    const result = sortRows(filterRows(rows, conditions, value), sorts, (row, id) => value(row, id) ?? '', id => table.columns.find(column => column.id === id)?.kind === 'number');
+    return { columns: table.columns.map(column => ({ id: column.id, name: column.name, kind: column.kind })), total: rows.length, matched: result.length, rows: result.slice(0, 500).map(row => ({ id: row.id, cells: Object.fromEntries(table.columns.map(column => [column.name, value(row, column.id) ?? ''])) })) };
+  },
+  async wh_table_save_cell(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType || table.codexAllTypes) throw Error('table_live_codex_requires_entry'); const value = stringArg(args, 'value'), column = table.columns.find(item => item.id === requireString(args, 'columnId')); if (!column) throw Error('table_column_missing'); if (table.mode !== 'sheet' && column.kind === 'reference' && value && !(await listEraRows<CodexEntry>(target, 'codexEntries')).some(entry => entry.id === value)) throw Error('table_reference_invalid'); await saveCell(target.projectId, table.id, requireString(args, 'rowId'), column.id, value, stringArg(args, 'expected'), target.eraId); return { saved: true }; },
   async wh_table_export_csv(args: ToolArgs) { const { table, rows,displayRows } = await read(args), computed = table.mode === 'sheet' ? sheetValues(table) : undefined; const options:CsvExportOptions={delimiter:csvDelimiter(args.delimiter) as CsvExportOptions['delimiter'],decimal:args.decimal as CsvExportOptions['decimal'],encoding:args.encoding as CsvExportOptions['encoding']};if(options.decimal!==undefined&&options.decimal!=='.'&&options.decimal!==',')throw Error('csv_decimal_invalid');const csv=tableCsv(table.columns, rows, (row, column) => computed ? String(computed.get(cellKey(table.columns.indexOf(column), rows.indexOf(row))) ?? '') : displayRows.find(item=>item.id===row.id)?.cells[column.id] ?? row.cells[column.id] ?? '',options),bytes=encodeCsv(csv,options.encoding);let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return{title:table.title,csv,encoding:options.encoding??'utf-8',base64:btoa(raw)}; },
 };

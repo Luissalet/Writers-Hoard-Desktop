@@ -1,3 +1,4 @@
+import { shiftSheetReferences } from './tableEdits';
 import {csvNumeric,detectCsvDelimiter,type CsvOptions,type CsvDelimiter} from './csv';
 import { getEraProject, updateEraProjectMetadata, listEraRows } from '@/services/worldEras/store';
 import { db } from '@/db';
@@ -44,6 +45,18 @@ export function addColumn(projectId: string, tableId: string, column: DataColumn
   }, eraId);
 }
 
+/** A column at a position (0 = first), with the same checks as adding one at the end. */
+export function insertColumnAt(projectId: string, tableId: string, column: DataColumn, at: number, eraId?: string): Promise<void> {
+  return changeTable(projectId, tableId, table => {
+    if (column.field && ['__proto__', 'constructor', 'prototype'].includes(column.field.toLowerCase())) throw new Error('Reserved field.');
+    if (!column.name.trim() || table.columns.some(item => item.name.trim().toLocaleLowerCase() === column.name.trim().toLocaleLowerCase())) throw new Error('Use a unique column name.');
+    if (table.columns.length >= 100) throw new Error('Column limit reached.');
+    const index = Math.max(0, Math.min(table.columns.length, Math.floor(at)));
+    shiftSheetReferences(table, 'column', column => (column >= index ? column + 1 : column));
+    table.columns.splice(index, 0, column);
+  }, eraId);
+}
+
 /** Parse CSV records, including quoted separators/newlines and escaped quotes. */
 export function parseCsv(source: string, delimiter:CsvDelimiter=','): string[][] {
   if (source.length > 8_000_000) throw new Error('CSV exceeds 8 MB.');
@@ -81,7 +94,7 @@ export function importCsv(source: string, title: string,options:CsvOptions={}): 
 
 /** Validate inside the same mutation transaction, after user/bridge preflight. */
 async function validateReferences(projectId:string,table:WorldTable,eraId?:string,previous?:WorldTable):Promise<void>{
- if(table.mode==='sheet'||table.codexType||table.codexTemplateId||!table.columns.some(column=>column.kind==='reference'))return;
+ if(table.mode==='sheet'||table.codexType||table.codexAllTypes||table.codexTemplateId||!table.columns.some(column=>column.kind==='reference'))return;
  const entries=new Set((await listEraRows<{id:string}>({projectId,eraId},'codexEntries')).map(row=>row.id));
  for(const column of table.columns.filter(column=>column.kind==='reference'))for(const row of table.rows){const id=row.cells[column.id];if(id&&!entries.has(id)&&!(previous?.columns.some(item=>item.id===column.id&&item.kind==='reference')&&previous.rows.find(item=>item.id===row.id)?.cells[column.id]===id))throw Error('table_reference_invalid');}
 }
