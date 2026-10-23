@@ -27,7 +27,7 @@ import { mediaKind } from '@/engines/media/types';
 import { wikiMapsActive, wikiMapFrame, wikiMapScript, WIKI_MAP_CSS } from '@/services/wikiProfiles/mapExperience';
 import { usableMapArtwork, MAP_ARTWORK_LIMITS, MAP_AMBIENCE_DEFAULT } from '@/engines/maps/mapArtwork';
 import { resolveToolPreview,sanitizeToolPreviewHtml,type ToolPreview } from '@/components/editor/toolBlocks/preview';
-import { toolTarget } from '@/components/editor/toolBlocks/model';
+import { toolTarget,toolPreviewKey } from '@/components/editor/toolBlocks/model';
 import { modelReaderMarkup } from '@/engines/model-viewer/readerMarkup';
 import { prepareModelReaderRuntime, modelReaderExportScript } from '@/engines/model-viewer/offlineExport';
 import { EDITORIAL_PROSE_BASE_CSS, PREP_BLOCKS_CSS } from '@/components/editor/advanced/proseStyle';
@@ -65,7 +65,7 @@ export async function loadWorldWikiData(projectId:string,options:WorldWikiOption
  for(const entry of admitted.entries){const template=document.createElement('template');template.innerHTML=sanitizeRichHtml(entry.content);template.content.querySelectorAll('[data-wh-wiki-hidden="true"]').forEach(node=>node.remove());
   for(const block of template.content.querySelectorAll<HTMLElement>('figure[data-wh-source-block="true"]')){try{const span=findLocalToolBlocksInHtml(block.outerHTML)[0];if(!span||span.projectId!==projectId)continue;blocks[JSON.stringify(['source-block',entry.id,span.envelope.id])]={title:'',html:await sourceBlockPreviewHtml(span.envelope,projectId,options.locale??'es',{...options,excludedDocuments,excludedEntryIds:entries.filter(row=>!admitted.entries.some(item=>item.id===row.id)).map(row=>row.id),excludedMapIds,source},true),truncated:false};}catch{/* Invalid atoms remain unavailable. */}}
   if(options.includeMedia!==false)for(const block of template.content.querySelectorAll('[data-wh-media-block="true"]'))if(block.getAttribute('data-project-id')===projectId&&block.getAttribute('data-asset-id'))mediaIds.add(block.getAttribute('data-asset-id')!);
-  for(const block of template.content.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"]')){const target=toolTarget({projectId:block.dataset.projectId,kind:block.dataset.toolKind,documentId:block.dataset.documentId,label:block.dataset.label,namespace:block.dataset.namespace,presentation:block.dataset.presentation});if(!target||target.projectId!==projectId)continue;const key=JSON.stringify([target.kind,target.documentId,...(target.kind==='local-tool'?[target.namespace]:[])]);if(blocks[key])continue;
+  for(const block of template.content.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"]')){const target=toolTarget({projectId:block.dataset.projectId,kind:block.dataset.toolKind,documentId:block.dataset.documentId,label:block.dataset.label,namespace:block.dataset.namespace,presentation:block.dataset.presentation,sheetDisplay:block.dataset.sheetDisplay});if(!target||target.projectId!==projectId)continue;const key=toolPreviewKey(target);if(blocks[key])continue;
    const preview=await resolveToolPreview(target,projectId,options.locale??'es',{...options,excludedDocuments,excludedEntryIds:entries.filter(row=>!admitted.entries.some(item=>item.id===row.id)).map(row=>row.id),excludedMapIds,source});if(preview)blocks[key]=preview;
   }
  }
@@ -88,7 +88,7 @@ function rich(content: string, entries: Map<string, CodexEntry>, includeImages: 
   const doc = new DOMParser().parseFromString(sanitizeRichHtml(content), 'text/html');
   // Omitted prose is removed before indexing or serializing, including any nested media.
   doc.querySelectorAll('[data-wh-wiki-hidden="true"]').forEach(element => element.remove());
-  const toolBlocks=[...doc.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"]')].map(element=>({element,target:toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,namespace:element.dataset.namespace,presentation:element.dataset.presentation})}));
+  const toolBlocks=[...doc.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"]')].map(element=>({element,target:toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,namespace:element.dataset.namespace,presentation:element.dataset.presentation,sheetDisplay:element.dataset.sheetDisplay})}));
   const sourceBlocks=[...doc.querySelectorAll<HTMLElement>('figure[data-wh-source-block="true"]')].map(element=>{try{const span=findLocalToolBlocksInHtml(element.outerHTML)[0];return{element,key:span?.projectId===projectId?JSON.stringify(['source-block',currentEntryId,span.envelope.id]):''};}catch{return{element,key:''};}});
   const voiceFigures:Array<{figure:HTMLElement;asset:PortableLocalMedia}>=[];
   for (const block of doc.querySelectorAll('[data-wh-media-block="true"]')) {
@@ -156,7 +156,7 @@ function rich(content: string, entries: Map<string, CodexEntry>, includeImages: 
   // safe SVG survives and text inside SVG never gains HTML anchors.
   for(const block of toolBlocks){
     if(!doc.body.contains(block.element))continue;
-    const target=block.target,preview=target?.projectId===projectId?toolPreviews[JSON.stringify([target.kind,target.documentId,...(target.kind==='local-tool'?[target.namespace]:[])])]:undefined;
+    const target=block.target,preview=target?.projectId===projectId?toolPreviews[toolPreviewKey(target)]:undefined;
     const section=doc.createElement('section');
     if(preview&&typeof preview.title==='string'&&typeof preview.html==='string'){
       try{section.innerHTML=`<h3>${esc(preview.title.slice(0,300))}</h3>${preview.model?modelReaderMarkup(preview.model,locale):preview.sheet?sheetPaper(preview.sheet,locale).svg:sanitizeToolPreviewHtml(preview.html)}`;}
