@@ -1253,4 +1253,4 @@ Success: keep old payloads/output for unchanged options, preserve edits/archives
 - [x] Home document growth, quick creation and contextual next action.
 - [x] Small campaign improvements: optional workspace particles, library context bookmarks/session recents; state exact remaining gaps.
 - [x] Focused tests, native MCP/Browser checks and independent code/visual review; final broad run recorded in verification-next.md.
-- [ ] Update matrices/docs/memory/graph; commit explicit paths as Luissalet and integrate under merge lock, no push.
+- [x] Update matrices/docs/manual/memory/graph; commit86explicit paths as Luissalet and integrate56994f1 under merge lock after complementary CAS2 approvals, no push. Remaining partial subclaims stay in D2/B; task1095 remains open.
