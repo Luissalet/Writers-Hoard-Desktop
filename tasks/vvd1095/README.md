@@ -9,6 +9,8 @@ starts from VVD's own shipped interface catalogue instead of from screenshots.
 
 ## Method and evidence levels
 
+Latest integrated follow-up: source12264fd after930f6b2+7b841e2, with complementary CAS8 approvals for7b841e2/12264fd. Actual reference card-backed creation/name synchronization and a compact CoC source roll were exercised. Writer supplies optional saved-investigator summaries/selected skills/roster, compact linked source rolls with Undo, readonly Codex About hydration and reactive SDK world lists/reads. Root's normal Brave checks saved/reopened the blocks and followed create/rename/archive while the original list stayed mounted. [Detailed evidence and limits](verification-compact.md). Existing table counts below remain historical; no global status/count uplift, universal parity or task closure follows from this delivery.
+
 1. Source catalogue: the English interface strings VVD serves to the
    authenticated editor (`/i18n/en.<hash>.json`, 21,286 keys, read 21-10-2026).
    They are the list of controls and options the product exposes. They are not
