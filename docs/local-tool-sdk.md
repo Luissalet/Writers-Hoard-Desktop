@@ -297,3 +297,57 @@ Results carry client/query identity: changing project, era, kind or document ID 
 The memory author kit now supplies the same optional public subscription. A successful transaction publishes only when that project's committed memory changed; reads, pending transaction drafts and aborted operations produce no event. Subscribers see the committed snapshot, and unsubscribe stops delivery. This reuses its existing serialized transactions and fake tool boundary. Domain adapters remain explicit fixtures, including the kit's existing lack of arbitrary Base document write APIs; no results are fabricated.
 
 Verification: `tests/local-tool-world-live.browser.tsx` exports `testWorldCardListLive`, `testLocalToolWorldQueryRaces` and `testLocalToolWorldFakeCommits`. It mounts the real block with real/fake clients, exercises normal Codex creation/rename/archive, registered MCP list/get comparison, era variant/hide/reinherit, rollback/commit coalescing/teardown, late requests and scope frames, visible retry/navigation, and confirmed-only author transactions. `tests/local-tool-author-kit.node.cjs` retains its no-DB/no-network/headless check; the structured index and its live hook remain unchanged.
+
+## Native packaged resources and slot overrides
+
+Source `d542365` is integrated FF-only from f44e387 after independent CAS15 approval. Final main verify:quick/shipping lint passed; Vite28.92s, Electron and Node937/schema2PASS passed (root session2655 exit0, clean main and merge lock released). The Google manual update/readback is complete; its separate receipt records588 UTF-16 units,198 paragraphs,197 others and styles preserved. This is Writer's additive API, inspired by the reference's `appAssets` contract, not a claim of identical upstream signatures. [Evidence and final receipts](../tasks/vvd1095/verification-sdk-assets.md).
+
+Add optional `assets` and `assetFiles` to an existing definition. Each slot declares `path`, `kind` (`audio|image|font|video|data`) and optional JSON `meta`, `replaceable`, MIME `accept` and `aliases`. Aliases must be unambiguous. The local loader path must appear in a compiled release's file manifest; actual bytes/size are verified. Example definition fields:
+
+```ts
+import {localAssetFile} from '@/engines/local/sdk';
+
+assets: {
+  portrait: {path: 'assets/portrait.svg', kind: 'image', accept: ['image/*']},
+  tick: {path: 'assets/tick.wav', kind: 'audio', aliases: ['click']},
+},
+assetFiles: {
+  'assets/portrait.svg': localAssetFile(new URL('./assets/portrait.svg', import.meta.url).href),
+  'assets/tick.wav': localAssetFile(new URL('./assets/tick.wav', import.meta.url).href),
+},
+```
+
+These are fields of `defineLocalTool({...})`, not a complete definition. URLs come only from compiled source; `localAssetFile` decodes bundled data URLs locally and fetches only the renderer's own origin. It does not fetch a URL persisted by a user or require another server. Importing a backup never executes its package code. A missing compiled release/file stays unavailable.
+
+`client.assets` methods:
+
+| Method | Contract |
+|---|---|
+| `list()` | Detached slot manifest; no state created. |
+| `resolve(ref)` | Resolve a typed local ref to `Blob`, `kind`, `mime`, `version`, `ref`, `slot`, `origin`, or `null`. |
+| `slot(slot, overrides?)` | Resolve document override → effective installation override → shipped default. Returns `origin: document|installation|default`; a present unavailable/invalid override does not silently fall through. |
+| `validate(slot, refOrNull)` | Validate replacement and return canonical `slot` plus its `aliases` for the caller's normal state action. |
+| `choices(kind)` | Local project image choices or effective audio/video media choices. |
+| `installation.read()` / `.set(slot, refOrNull, version)` | Read CAS token and effective/own selections; set or Revert the current Base/era layer. Readonly or revoked clients reject writes. |
+
+Refs are `{kind:'image',id}`, `{kind:'media',id}` or `{kind:'source',namespace,slot,releaseHash?}`. An omitted hash follows the effective project pin; an explicit hash selects exactly that compiled release of the same namespace, even if another release is the current pin. There is no fallback to an uncompiled release. The current client lease remains checked. No temporary URL or Blob belongs in JSON state.
+
+A document or owned block can declare its optional selection map:
+
+```ts
+initialState: {assetOverrides: {}},
+codec: {version: 1, fields: {
+  assetOverrides: {kind: 'map', assetReferenceValues: true},
+}},
+preview: {version: 1, fields: [], assets: [{
+  namespace: 'me.tool', slot: 'portrait', overridesField: 'assetOverrides',
+}]},
+```
+
+In its React component, `useLocalToolAsset(client, 'portrait', overrides)` returns `{asset,url,loading,error}`; render `url` as an image. The hook owns/revokes its ObjectURLs, ignores late former-binding results and observes commits. Use `assets.validate` to canonicalize a chosen slot and remove its aliases through the existing `state.apply` map actions; those actions keep normal document/block Undo receipts. The shipped `examples/AssetPad.tsx` shows both selectors, Revert and explicit `useSound` Play/Stop. Its audio volume is15%; mounting never plays.
+
+Installation selections reuse portable project/era state; eras store only their differences and Revert restores inheritance. **Installation offers CAS+Revert, without Undo.** Font/data can supply shipped Blob defaults, but there is no generic replacement picker for them. No new permission or global media store is introduced. The author kit shares resolution/cascade logic and accepts explicit fixture media/images.
+
+Declarative readonly previews resolve captured bytes without mounting authored controls or writing state. Captures include only referenced gallery images, including nested draft blocks, and never fall back to live DB when a snapshot exists. Images obey `includeImages`/image exclusions; media obeys `includeMedia`. JSON/ZIP/clone remap image/media reference domains separately. Normal SVG/raster preview frames are96×96; wiki resanitizes SVG with its own full-width/max360px frame. Global manuscript SVG policy is unchanged. Asset-backed audio still uses the existing gesture-gated SDK graph; native MCP play does not start or queue it.
+
+Verification:18 author groups +6 independent groups +10 relevant legacy groups,34 distinct focused groups, not a global suite. Root's normal Brave imports/selection/Revert/save/reopen and readonly96px evidence are separate from dispatcher tests; no final-source stdio or hardware-listening claim. See the linked verification for source receipts, final integration/build and the separate manual receipt.
