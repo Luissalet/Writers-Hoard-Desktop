@@ -10,7 +10,7 @@ import { Badge, EmptyState, ErrorBanner, Field } from "../components/ui";
 
 const KINDS: EntityKind[] = ["character", "location", "faction", "item", "lore", "creature"];
 
-const STATUSES: EntityStatus[] = ["alive", "dead", "missing", "destroyed", "active", "unknown"];
+const STATUSES: EntityStatus[] = ["alive", "dead", "missing", "destroyed", "active", "unknown", "retired"];
 
 function kindLabel(kind: EntityKind, lang: Lang): string {
   return t(`bible_kind_${kind}` as DictKey, lang);

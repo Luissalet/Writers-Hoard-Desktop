@@ -1,6 +1,7 @@
 import { getSetting, PROJECT_SETTING_PREFIXES, updateSetting } from '@/db/operations';
 import { generateId } from '@/utils/idGenerator';
 import { foldSearchText } from '@/services/searchQuery';
+import { quickCreateEngines } from '@/services/projectQuickCreate';
 
 export type CommandCenterActionIcon =
   | 'home'
@@ -28,6 +29,16 @@ export interface CommandCenterAction {
   icon: CommandCenterActionIcon;
   target: string;
   engineId?: string;
+  createTitle?: string;
+}
+
+export function buildQuickCreateActions(project: CommandCenterProjectContext | undefined, title: string, eraId?: string): CommandCenterAction[] {
+  if (!project || !title.trim()) return [];
+  return quickCreateEngines(project.enabledEngines, eraId).map(engineId => ({
+    type: 'action', id: `create:${engineId}`, key: `create:${project.id}:${engineId}`,
+    labelKey: `engines.${engineId}.name`, detailKey: 'home.createQuery', keywordsKey: '',
+    icon: 'engine', target: '', engineId, createTitle: title.trim(),
+  }));
 }
 
 export interface CommandCenterSearchIdentity {

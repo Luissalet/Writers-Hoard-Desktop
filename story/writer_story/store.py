@@ -161,7 +161,7 @@ def update_world(conn: sqlite3.Connection, ref: str, **patch: Any) -> dict:
 # ---------------------------------------------------------------------------
 
 VALID_KINDS = {"character", "location", "faction", "item", "lore", "creature"}
-VALID_STATUS = {"alive", "dead", "missing", "destroyed", "active", "unknown"}
+VALID_STATUS = {"alive", "dead", "missing", "destroyed", "active", "unknown", "retired"}
 # Spanish (and a few English) spellings a model is likely to write, folded
 # to the canonical status the rest of the engine reasons about. Without
 # this, "muerta" would not count as dead and the character could act again.
@@ -170,6 +170,7 @@ _STATUS_ALIASES = {
     "fallecido": "dead", "fallecida": "dead", "desaparecido": "missing", "desaparecida": "missing",
     "perdido": "missing", "perdida": "missing", "destruido": "destroyed", "destruida": "destroyed",
     "activo": "active", "activa": "active", "desconocido": "unknown", "desconocida": "unknown",
+    "retirado": "retired", "retirada": "retired",
 }
 
 

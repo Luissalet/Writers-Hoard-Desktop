@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Awaitable, Callable, Optional
 
-from . import db, store
+from . import db, sessions, store
 
 _POLISH_PROMPT = """Rewrite the following scene transcript as flowing prose for a reader.
 Keep every fact, name, number and event exactly as given — do not invent or
@@ -160,12 +160,47 @@ def export_world_json(conn, world_id: str) -> dict[str, Any]:
         "world": world, "entities": entities, "relations": relations,
         "facts": facts, "timeline_events": timeline, "threads": threads,
         "clocks": clocks, "tables": tables, "sessions": sessions, "turns": turns,
+        "session_details": [detail for session in sessions
+                            if (detail := session_details_for_export(conn, session["id"])) is not None],
     }
+
+
+def session_details_for_export(conn, session_id: str) -> dict | None:
+    # The full JSON archive is private, like entity secrets; public exports never call this.
+    return sessions.read_details(conn, session_id)
+
+
+def _validate_session_details(data: dict) -> dict[str, dict]:
+    """Validate the whole additive archive collection before creating an imported world."""
+    result = {}
+    session_ids = {row["id"] for row in data.get("sessions", [])}
+    characters = {row["id"] for row in data.get("entities", []) if row.get("kind") == "character"}
+    records = data.get("session_details", [])
+    if not isinstance(records, list):
+        raise ValueError("session_details must be a list")
+    for record in records:
+        if not isinstance(record, dict) or record.get("session_id") not in session_ids:
+            raise ValueError("session_details must name an archived session")
+        sid = record["session_id"]
+        if sid in result:
+            raise ValueError("duplicate session_details record")
+        patch = {key: value for key, value in record.items() if key not in ("session_id", "updated_at")}
+        clean = sessions.validate_patch(patch)
+        value = {**sessions.DEFAULTS, **clean}
+        if value["recap_posted"] and not value["recap"].strip():
+            raise ValueError("a ready archived recap must not be empty")
+        for attendee in value["attendance"]:
+            if attendee.get("entity_id") and attendee["entity_id"] not in characters:
+                # Keep the person's name when a historical character is missing.
+                attendee.pop("entity_id")
+        result[sid] = value
+    return result
 
 
 def import_world_json(conn, data: dict[str, Any]) -> dict:
     if data.get("format") != "scheherazades-hoard-world-export":
         raise ValueError("not a Scheherazade's Hoard world export")
+    session_details = _validate_session_details(data)
     w = data["world"]
     new_world = store.create_world(
         conn, name=f"{w['name']} (imported)", genre=w.get("genre", ""), tone=w.get("tone", ""),
@@ -203,11 +238,11 @@ def import_world_json(conn, data: dict[str, Any]) -> dict:
             store.tick_clock(conn, wid, created["id"], c["filled"])
     for t in data.get("tables", []):
         store.create_table(conn, wid, t["name"], t.get("entries", []))
-    _import_sessions(conn, wid, data, id_map)
+    _import_sessions(conn, wid, data, id_map, session_details)
     return store.get_world(conn, wid)
 
 
-def _import_sessions(conn, world_id: str, data: dict[str, Any], id_map: dict[str, str]) -> None:
+def _import_sessions(conn, world_id: str, data: dict[str, Any], id_map: dict[str, str], session_details: dict) -> None:
     """Sessions and their turns, in order, with scenes pointing at the new
     entity ids. Undo snapshots are not carried over (they name rows of the
     old world), so none of the imported sessions becomes current: the next
@@ -219,6 +254,13 @@ def _import_sessions(conn, world_id: str, data: dict[str, Any], id_map: dict[str
         new_sess = store.insert_session(
             conn, world_id, sess.get("title") or "", sess.get("started_at") or 0, sess.get("ended_at"), commit=False,
         )
+        detail = session_details.get(sess["id"])
+        if detail is not None:
+            detail = {**detail, "attendance": [
+                {**{key: value for key, value in attendee.items() if key != "entity_id"},
+                 **({"entity_id": id_map[attendee["entity_id"]]} if attendee.get("entity_id") in id_map else {})}
+                for attendee in detail["attendance"]]}
+            sessions.write_details(conn, new_sess["id"], detail)
         for t in sorted(by_session.get(sess["id"], []), key=lambda t: t.get("idx", 0)):
             scene = dict(t.get("scene") or {})
             if scene.get("location"):

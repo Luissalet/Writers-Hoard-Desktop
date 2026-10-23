@@ -107,6 +107,8 @@ export interface AssetInventoryItem {
 }
 
 export interface ProjectCockpitData {
+  documentGrowth?: DocumentGrowth;
+  outlineCount?: number;
   recent: RecentProjectItem[];
   health: ProjectHealthIssue[];
   healthStatus: ProjectHealthStatus;
@@ -127,6 +129,32 @@ export interface ProjectCockpitData {
     research: number;
     unresolved: number;
   };
+}
+
+export interface DocumentGrowth {
+  months: Array<{ month: string; count: number }>;
+  undated: number;
+}
+
+/** Creation distribution of extant documents; never substitute an edit/open time. */
+export function deriveDocumentGrowth(rows: ReadonlyArray<{ createdAt?: number }>): DocumentGrowth {
+  const counts = new Map<string, number>();
+  let undated = 0;
+  for (const row of rows) {
+    const date = typeof row.createdAt === 'number' && Number.isFinite(row.createdAt) ? new Date(row.createdAt) : null;
+    if (!date || !Number.isFinite(date.getTime())) { undated++; continue; }
+    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    counts.set(month, (counts.get(month) ?? 0) + 1);
+  }
+  return { months: [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count })), undated };
+}
+
+export function deriveNextProjectMove(enabled: readonly string[], data: Pick<ProjectCockpitData, 'counts' | 'outlineCount'>): 'write' | 'outline' | 'review' | 'notes' | 'continue' {
+  if (data.counts.unresolved > 0) return 'review';
+  if (enabled.includes('writings') && data.counts.writings === 0) return 'write';
+  if (enabled.includes('outline') && data.outlineCount === 0 && data.counts.writings > 0) return 'outline';
+  if (enabled.includes('notes') && data.counts.notes === 0) return 'notes';
+  return 'continue';
 }
 
 function issue(
@@ -710,6 +738,8 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   ];
 
   return {
+    documentGrowth: deriveDocumentGrowth([...writings, ...scenes, ...codexEntries, ...notes, ...outlines, ...snapshots]),
+    outlineCount: outlines.length,
     recent,
     health,
     healthStatus,

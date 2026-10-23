@@ -6,6 +6,14 @@ Plataforma local de escritura creativa empaquetada como aplicación de escritori
 
 > Plan de transición: [`tasks/desktop-transition.md`](tasks/desktop-transition.md).
 
+## Preparación y publicación local (tarea1095)
+
+Los perfiles de wiki publican notas, tablas, tableros, cronologías, fichas de personaje, diccionarios, árboles, gráficos radar, modelos3D y documentos de herramientas locales declarativas como páginas propias. Incluyen búsqueda, selección masiva para incluir/omitir/mover, subsecciones y orden por arrastre, con perfiles guardados y ediciones locales inmutables. Los tableros se leen como listas de tarjetas visibles; el dibujo espacial y las páginas de paisaje sonoro quedan fuera. Las eras, campos privados y exclusiones se aplican antes de resolver contenido y recursos.
+
+El inicio muestra creaciones mensuales de escritos, escenas, Códex, notas, esquemas y fuentes existentes, una siguiente acción contextual y consejos manuales. Inicio y paleta crean escritos, notas y esquemas por sus operaciones habituales; escritos/notas admiten eras y los esquemas pertenecen a Base. Las consultas con filtros no se convierten en documentos. La biblioteca incorpora menú contextual para fijar referencias con Deshacer sujeto a revisión y una lista de documentos abiertos desde ella durante esta sesión de ventana. Nieve, lluvia, brasas y luciérnagas opcionales respetan movimiento reducido y modo de rendimiento.
+
+Las sesiones de ficción se planifican sin iniciar la partida: fecha/hora, zona local, duración, lugar, gancho, notas DM privadas y asistencia. El resumen manual permanece como borrador hasta dejarlo listo para compartir localmente y marcar jugada; no se envía nada. Los personajes retirados se conservan y su estado se cambia expresamente desde la asistencia vinculada al terminar. Se mantienen los19 contratos y filas originales; se añaden tres herramientas de sesión. [Alcance y límites](docs/OFFLINE-PREPARATION.md).
+
 ## Biblioteca y publicación
 
 Writer incorpora biblioteca, lecturas/enlaces, documentos/trámites/PDF y el motor/editor editorial completo de Gutenberg como módulos independientes, apagados inicialmente. Conserva formatos y contratos MCP nativos. [Capacidades, verificación y traslado](docs/PUBLISHING.md). La ficción y el perfil/origen 5174 existentes se conservan.

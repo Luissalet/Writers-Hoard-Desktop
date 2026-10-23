@@ -45,6 +45,8 @@ import {
 import { useCommandCenterSearch, type CommandCenterGroup } from './useCommandCenterSearch';
 import { getActiveEnginePaneScope } from '@/engines/_shared/EnginePaneContext';
 import { COMMAND_CENTRE_SHORTCUT, matchesShortcut } from './shortcuts';
+import { buildQuickCreateActions } from '@/services/commandCenter';
+import { quickCreateProjectDocument, type QuickCreateEngine } from '@/services/projectQuickCreate';
 
 interface PresentedAction extends CommandCenterAction {
   title: string;
@@ -200,6 +202,9 @@ export default function GlobalSearch() {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
+  const [createError, setCreateError] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   /** null while not naming; a string is the pending name of the current query. */
   const [saveName, setSaveName] = useState<string | null>(null);
@@ -266,6 +271,7 @@ export default function GlobalSearch() {
       setSelectedIdx(0);
       setLoading(false);
       setSearchError(false);
+      setCreateError(false);
       setSaveName(null);
       setPendingDelete(null);
     }
@@ -368,6 +374,10 @@ export default function GlobalSearch() {
       query: saved.query,
     }));
 
+  const createActions: PresentedAction[] = parsed.hasText && !parsed.hasFilters && parsed.exclusions.length === 0 && parsed.phrases.length === 0 ? buildQuickCreateActions(activeProject ?? undefined, query, eraId).map(item => ({
+    ...item, title: `${t('home.create')} ${t(item.labelKey)}: ${item.createTitle}`, subtitle: t('home.createQuery'),
+  })) : [];
+
   const sections: PaletteSection[] = [];
   let cursor = 0;
   const addSection = (key: string, label: string, items: CommandCenterItem[], count?: number) => {
@@ -378,6 +388,7 @@ export default function GlobalSearch() {
 
   addSection('saved', t('search.commandCenter.saved.title'), savedItems, savedItems.length);
   addSection('actions', t('search.commandCenter.actions'), actionResults);
+  addSection('create', t('home.createQuery'), createActions);
   for (const group of groups) {
     const label = group.engineId === ''
       ? t('dashboard.projects')
@@ -401,6 +412,7 @@ export default function GlobalSearch() {
     setGroups(NO_GROUPS);
     setSelectedIdx(0);
     setSearchError(false);
+    setCreateError(false);
     setLoading(!parseSearchQuery(value).isEmpty);
   };
 
@@ -414,6 +426,17 @@ export default function GlobalSearch() {
 
   const openItem = async (item: PresentedAction | SearchResult) => {
     if (item.type === 'action') {
+      if (item.createTitle && item.engineId && projectId) {
+        const created = await quickCreateProjectDocument({ projectId, eraId }, item.engineId as QuickCreateEngine, item.createTitle);
+        const navigateResult = (path: string) => {
+          if (searchPane?.projectId === projectId && searchPane.navigate) searchPane.navigate(path);
+          else navigate(path);
+        };
+        const adapter = getAnchorAdapter(created.engineId);
+        if (adapter) adapter.navigateToEntity(created.id, projectId, navigateResult);
+        else navigateResult(`/project/${encodeURIComponent(projectId)}/${created.engineId}`);
+        return;
+      }
       navigate(item.target);
     } else if (item.type === 'project') {
       navigate(`/project/${encodeURIComponent(item.id)}/overview`);
@@ -440,15 +463,25 @@ export default function GlobalSearch() {
    * step to the next one, which is how you walk a list of matches without
    * retyping the query at every stop.
    */
-  const activate = (item: CommandCenterItem, keepOpen: boolean) => {
+  const activate = async (item: CommandCenterItem, keepOpen: boolean) => {
+    if (creatingRef.current) return;
     if (item.type === 'saved') {
       updateQuery(item.query);
       pendingCaretRef.current = item.query.length;
       inputRef.current?.focus();
       return;
     }
-    openItem(item);
-    if (!keepOpen) {
+    const creates = item.type === 'action' && Boolean(item.createTitle);
+    creatingRef.current = creates;
+    setCreating(creates);
+    setCreateError(false);
+    try { await openItem(item); }
+    catch (error) {
+      console.error('Command center action failed', error);
+      setCreateError(true);
+      return;
+    } finally { creatingRef.current = false; setCreating(false); }
+    if (!keepOpen || creates) {
       closeSearch(false);
       return;
     }
@@ -573,9 +606,10 @@ export default function GlobalSearch() {
                 onChange={event => updateQuery(event.target.value)}
                 onKeyDown={handleInputKeyDown}
                 placeholder={t('search.commandCenter.placeholder')}
+                disabled={creating}
                 className="flex-1 border-none bg-transparent text-text-primary outline-none"
               />
-              {loading && <Loader2 size={15} className="animate-spin text-text-muted" aria-hidden="true" />}
+              {(loading || creating) && <Loader2 size={15} className="animate-spin text-text-muted" aria-hidden="true" />}
               <button
                 type="button"
                 onClick={() => closeSearch()}
@@ -637,6 +671,8 @@ export default function GlobalSearch() {
                 {t('search.commandCenter.loading')}
               </div>
             )}
+            {createError && <p role="alert" className="px-4 py-3 text-sm text-amber-400">{t('home.createError')}</p>}
+            {creating && <p role="status" className="px-4 py-3 text-sm text-text-muted">{t('home.creating')}</p>}
             {searchError && !loading && (
               <div role="alert" className="px-4 py-5 text-center text-sm text-red-400">
                 {t('search.commandCenter.error')}

@@ -131,3 +131,7 @@ map navigation, artwork and audio are opt-in. Named MCP keys support independent
 revocation while preserving the existing Principal token. See
 [tasks/vvd1095/verification-D345.md](tasks/vvd1095/verification-D345.md) and the
 D2/Bmatrices for proof, scope and remaining gaps.
+
+
+## Writer1095 continuation — offline preparation
+Source extends named wiki profiles with10additional page kinds, explicit/bulk/nested curation and immutable captured source policy. Home adds real monthly document counts, normal-operation quick creation and contextual guidance. Native fiction uses a companion preparation table, original19contracts intact,3additive tools, attendance/manual recap and explicit retired status; private notes stay out of default agent/context/recap. Library context bookmarks use CAS Undo/session opens;4appearance effects obey motion/performance. See docs/OFFLINE-PREPARATION.md and tasks/vvd1095/verification-next.md for exact tests and narrower gaps. Existing installed executables/profiles are not updated by source integration.

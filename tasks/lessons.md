@@ -1,5 +1,9 @@
 # Lessons Learned
 
+## Writer1095 — Keep the desktop available during UI verification
+
+Luis explicitly requested Browser control for Writer so he can keep working. Use a background browser and isolated data. Native IPC/API checks may use an isolated hidden host, but never use desktop input or bring its window forward.
+
 ## 99. Settings on an inherited era row fork the whole world
 **Date:** 2026-10-21
 **Context:** Saving a world's look or travel settings in a named era went through the era's copy-on-write, so a style toggle copied the entire world into the era and detached it from later Base edits.

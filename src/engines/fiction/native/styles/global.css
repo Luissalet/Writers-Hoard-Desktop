@@ -1591,3 +1591,32 @@ input::placeholder, textarea::placeholder { color: var(--hoard-text-dim); }
 :host([data-theme="light"]) .btn-primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); color: white; }
 :host([data-theme="light"]) .badge-gold { color: #8a5f10; }
 :host { display:block; height:100%; min-height:28rem; --hoard-accent: #c4973b; --hoard-accent-strong: #ddb055; --hoard-accent-soft: rgba(196,151,59,.14); }
+
+/* Session preparation follows the native fields and buttons, with inline detail rather than a modal. */
+.session-list { table-layout: fixed; width: 100%; }
+.session-list td, .session-list th { overflow-wrap: anywhere; }
+.session-list td:first-child { width: 32%; }
+.session-prep { padding: 12px 0; text-align: left; }
+.session-prep-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.session-prep-heading h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.session-prep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; margin-bottom: 12px; }
+.session-prep-grid > label, .session-attendee > label { min-width: 0; }
+.session-prep small, .session-prep-muted { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.session-prep small { display: block; margin-top: 4px; }
+.session-prep-muted { margin: 6px 0; }
+.session-prep-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.session-attendance { margin: 16px 0; border: 0; padding: 0; }
+.session-attendance legend { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.session-attendee { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 8px; }
+.session-attendee > label:not(.session-present) { flex: 1 1 180px; }
+.session-present { display: flex; gap: 6px; align-items: center; min-height: 36px; }
+.session-present input { width: auto; }
+.session-hook { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; margin: 6px 0; }
+@media (max-width: 650px) {
+  .session-list > thead { display: none; }
+  .session-list > tbody, .session-list > tbody > tr { display: block; }
+  .session-list > tbody > tr { border-bottom: 1px solid var(--border); padding: 12px 0; }
+  .session-list > tbody > tr > td { display: block; width: 100%; padding: 4px 0; border: 0; }
+  .session-list > tbody > tr > td[data-label]::before { content: attr(data-label) ': '; color: var(--text-muted); }
+  .session-list > tbody > tr > td:last-child > div { justify-content: flex-start !important; }
+}

@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS worlds (
@@ -152,6 +152,22 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_world ON sessions(world_id);
 
+-- Additive session preparation; historical session rows and tool shapes stay unchanged.
+CREATE TABLE IF NOT EXISTS session_details (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    scheduled_at REAL,
+    timezone TEXT NOT NULL DEFAULT '',
+    length_min INTEGER,
+    place TEXT NOT NULL DEFAULT '',
+    hook TEXT NOT NULL DEFAULT '',
+    dm_notes TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'planned',
+    recap TEXT NOT NULL DEFAULT '',
+    recap_posted INTEGER NOT NULL DEFAULT 0,
+    attendance_json TEXT NOT NULL DEFAULT '[]',
+    updated_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS turns (
     id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -254,6 +270,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
         "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
         (str(SCHEMA_VERSION),),
     )
+    conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version' AND CAST(value AS INTEGER) < ?",
+                 (str(SCHEMA_VERSION), SCHEMA_VERSION))
     conn.commit()
     return conn
 

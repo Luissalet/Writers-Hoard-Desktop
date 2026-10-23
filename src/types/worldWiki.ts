@@ -1,11 +1,16 @@
 import type { CodexEntryType } from './index';
-export interface WikiDocumentRef {kind:'entry'|'map';id:string}
-export interface WikiSection {id:string;name:string;category?:CodexEntryType|'maps';documents:WikiDocumentRef[];view?:'full'|'cards'|'list';navigationHidden?:boolean;hideDocuments?:boolean}
+export const WIKI_ADDITIONAL_KINDS = ['notes','tables','board','timeline','character-sheets','dictionary','relation-tree','radar','model-viewer','local-tool'] as const;
+export type WikiAdditionalKind = typeof WIKI_ADDITIONAL_KINDS[number];
+export interface WikiDocumentRef {kind:'entry'|'map'|WikiAdditionalKind;id:string;namespace?:string}
+export interface WikiSection {id:string;name:string;parentId?:string;category?:CodexEntryType|'maps'|WikiAdditionalKind;documents:WikiDocumentRef[];view?:'full'|'cards'|'list';navigationHidden?:boolean;hideDocuments?:boolean}
 export interface WikiHome {title?:string;intro?:string;banner?:string;featured?:WikiDocumentRef[];tiles?:Array<{document:WikiDocumentRef;size:'small'|'medium'|'large'}>}
 export interface WorldWikiOptions {
   eraId?: string;
   locale?: 'es' | 'en'; types?: CodexEntryType[]; includeMaps?: boolean; includeImages?: boolean;
   excludedEntryIds?: string[]; excludedMapIds?: string[]; excludedFields?: string[];
+  /** Explicitly selected standalone tool pages. Absent: the existing publication stays unchanged. */
+  additionalDocuments?: WikiDocumentRef[];
+  excludedDocuments?: WikiDocumentRef[];
   theme?: 'parchment' | 'paper' | 'night' | 'forest'; layout?: 'sidebar' | 'journal' | 'terminal' | 'shell';
   colors?: Partial<import('@/services/wikiProfiles/appearance').WikiColors>;
   headingFont?: import('@/services/wikiProfiles/appearance').WikiFont;

@@ -1,7 +1,7 @@
 import type {
   AgentCall, BackendStatus, Clock, DiceLogEntry, DiceRollResult, Entity, Fact,
   NarrateResult, RandomTable, Relation, Session, StoryAppendResult, Thread,
-  TimelineEvent, Turn, World, WorldCheckResult, WorldContextResult,
+  TimelineEvent, Turn, World, WorldCheckResult, WorldContextResult, SessionWithDetails, SessionDetailsPatch,
 } from "./types";
 import { ApiError } from "./types";
 
@@ -97,6 +97,18 @@ export const api = {
     agent<{ text: string; rolls: { table: string; entry: string }[] }>("table_roll", { world, table }),
 
   listSessions: (world: string) => get<Session[]>(`/api/worlds/${world}/sessions`),
+  listSessionDetails: (world: string) => get<{ sessions: SessionWithDetails[] }>(`/api/worlds/${encodeURIComponent(world)}/session-details`),
+  planSession: (world: string, title: string) => post<SessionWithDetails>(`/api/worlds/${encodeURIComponent(world)}/session-plans`, { title }),
+  updateSessionDetails: (world: string, session: string, body: SessionDetailsPatch) =>
+    patch<SessionWithDetails>(`/api/worlds/${encodeURIComponent(world)}/sessions/${encodeURIComponent(session)}/details`, body),
+  sessionRecap: async (world: string, session: string, draft = false) => {
+    const result = await storyFetch(`/api/worlds/${encodeURIComponent(world)}/sessions/${encodeURIComponent(session)}/recap.md?draft=${draft}`);
+    if (!result.ok) {
+      const body = await result.json();
+      throw new ApiError(result.status, body);
+    }
+    return result.text();
+  },
   startSession: (world: string, title = "") => post<Session>(`/api/worlds/${world}/sessions`, { title }),
   renameSession: (world: string, session: string, title: string) =>
     patch<Session>(`/api/worlds/${world}/sessions/${encodeURIComponent(session)}`, { title }),

@@ -354,6 +354,39 @@ async def session_rename(world: str, session: str, title: str) -> dict:
 
 
 @mcp.tool(annotations=_ann(read_only=True, idempotent=True))
+async def wh_story_session_list(world: str, session: Optional[str] = None, include_dm_notes: bool = False) -> dict:
+    """Read session plans, dates, attendance and author-written recaps. Old sessions without details remain unclassified.
+
+    Omit session for the world's list; pass its id or title for one. DM notes are omitted unless include_dm_notes is true.
+    This reads stored data only and never activates or creates a session.
+    """
+    return await _call("wh_story_session_list", {"world": world, "session": session, "include_dm_notes": include_dm_notes})
+
+
+@mcp.tool(annotations=_ann(read_only=False, idempotent=False))
+async def wh_story_session_create(world: str, title: str = "", details: Optional[dict] = None) -> dict:
+    """Plan a session without changing the current play session. Details accept scheduled_at (UTC Unix seconds),
+    timezone, length_min, place, hook, dm_notes, recap and attendance [{name, entity_id?, present}].
+    A new plan starts planned. Use wh_story_session_update with status live to start it explicitly.
+    DM notes are stored but omitted from this result. No model or external publishing is used.
+    """
+    return await _call("wh_story_session_create", {"world": world, "title": title, "details": details or {}})
+
+
+@mcp.tool(annotations=_ann(read_only=False, idempotent=True))
+async def wh_story_session_update(world: str, session: str, patch: dict) -> dict:
+    """Partially edit a session's details; omitted fields stay unchanged. Null clears date/duration, empty text clears text.
+    Status planned/live/played: live selects this session for subsequent turns and completes the previous current
+    session only if that session had preparation status live (legacy sessions stay intact). played ends and deselects
+    it if current; planned deselects it without clearing historical timestamps.
+    Attendance is [{name, entity_id?, present}]. Saving recap writes a draft; recap_posted true marks a nonempty recap
+    ready to share locally and the session played in one transaction. Editing its text returns it to draft.
+    Nothing is sent or published externally. DM notes are omitted from the result.
+    """
+    return await _call("wh_story_session_update", {"world": world, "session": session, "patch": patch})
+
+
+@mcp.tool(annotations=_ann(read_only=True, idempotent=True))
 async def session_export(
     world: str, session: Optional[str] = None, format: str = "md", offset: int = 0, max_chars: int = 6000,
 ) -> dict:

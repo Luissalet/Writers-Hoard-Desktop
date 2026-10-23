@@ -1,3 +1,4 @@
+import {wikiDocumentExcluded} from '@/services/wikiProfiles/policy';
 import {findLocalToolBlocksInHtml,type LocalToolBlockEnvelope} from '@/engines/local/blocks/types';
 import {localToolBlockPreview,renderLocalToolPreview} from '@/engines/local/blocks/preview';
 import {listWorldDocuments} from '@/services/worldEras/store';
@@ -13,7 +14,7 @@ export async function sourceBlockPreviewHtml(envelope:LocalToolBlockEnvelope,pro
   documents=policy.source?policy.source.documents?.(envelope.world.kind):(await listWorldDocuments({projectId,eraId:policy.eraId},envelope.world.kind)).map(read=>read.document);
   if(documents){
    const kind=envelope.world.kind;
-   documents=documents.filter(({root})=>(kind!=='codex'||!excludes(policy.excludedEntryIds,root.id))&&(kind!=='maps'||policy.includeMaps!==false&&!excludes(policy.excludedMapIds,root.id))).map(worldDocument=>{
+   documents=documents.filter(({root})=>!wikiDocumentExcluded(policy.excludedDocuments,kind,root.id,typeof root.namespace==='string'?root.namespace:undefined)&&(kind!=='codex'||!excludes(policy.excludedEntryIds,root.id))&&(kind!=='maps'||policy.includeMaps!==false&&!excludes(policy.excludedMapIds,root.id))).map(worldDocument=>{
     const root={...worldDocument.root};
     for(const field of policy.excludedFields??[])delete root[field];
     if(kind==='codex'&&root.fields&&typeof root.fields==='object')root.fields=Object.fromEntries(Object.entries(root.fields).filter(([field])=>!policy.excludedFields?.includes(field)));

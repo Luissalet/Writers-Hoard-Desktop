@@ -6,6 +6,19 @@ import { listWorkspaceDocuments, workspaceCatalogTables } from './catalog';
 import { applyWorkspaceLibraryAction, readWorkspaceLibrary, WorkspaceLibraryConflict, WorkspaceLibraryInvalidAction, type WorkspaceLibraryAction } from './model';
 import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
 import { t } from '@/i18n/useTranslation';
+import type { WorkspaceDocument } from './types';
+
+export async function pinWorkspaceDocument(projectId: string, expectedRevision: number, document: WorkspaceDocument, pinned: boolean, eraId?: string): Promise<void> {
+  const project = await (eraId ? getEraProject({ projectId, eraId }) : db.projects.get(projectId));
+  if (!project) throw new Error('Project not found.');
+  const before = readWorkspaceLibrary(project).placements.find(item => item.engineId === document.engineId && item.entityId === document.entityId)?.pinned ?? false;
+  await updateWorkspaceLibrary(projectId, expectedRevision, { kind: 'pin', documents: [document], pinned }, eraId);
+  if (before === pinned) return;
+  recordUndoable({ projectId, kind: 'bookmark', label: document.title, notice: `${pinned ? t('workspaceLibrary.pinnedNotice') : t('workspaceLibrary.unpinnedNotice')}: ${document.title}`, undo: async () => {
+    try { await updateWorkspaceLibrary(projectId, expectedRevision + 1, { kind: 'pin', documents: [document], pinned: before }, eraId); }
+    catch (error) { if (error instanceof WorkspaceLibraryConflict || error instanceof WorkspaceLibraryInvalidAction) throw new UndoStaleError(); throw error; }
+  } });
+}
 
 export async function updateWorkspaceLibrary(projectId: string, expectedRevision: number, action: WorkspaceLibraryAction, eraId?: string): Promise<void> {
   await db.transaction('rw', eraId ? db.tables : [db.projects, ...workspaceCatalogTables], async () => {
