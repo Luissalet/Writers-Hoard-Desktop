@@ -1,4 +1,5 @@
 import { trackPendingWrite } from '@/services/pendingWrites';
+import { tabsStorageKey } from '@/services/workspaceTabsKey';
 
 // Keep a single owner per journal, including while storage is unavailable.
 // Reopening an engine must neither lose the in-memory draft nor create a stale
@@ -16,6 +17,8 @@ export function clearProjectDraftStores(projectId: string): void {
       createLocalDraftStore(key, (value): value is object => value !== null && typeof value === 'object').clear();
     }
   }
+  // The companion-tab layout is a per-project view kept in this window's storage; it goes with the project.
+  try { localStorage.removeItem(tabsStorageKey(projectId)); } catch { /* Saved project deletion remains authoritative. */ }
   try { localStorage.removeItem(`writing-workflow-draft:${projectId}`); } catch { /* Saved project deletion remains authoritative. */ }
 }
 

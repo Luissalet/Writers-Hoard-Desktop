@@ -141,3 +141,44 @@ AI-BRIDGE section 30. Known limits: PENDIENTES, "Herramientas de mesa 1095".
 An independent review (11 findings: Excel export and import, formulas, undo
 safety, live-table export, the mixer) was fixed, each with a check in
 `tests/review-1095d1`.
+
+## Wave D2 — platform (first batch)
+
+Matrix: [D2-platform.md](D2-platform.md). Delivered in this batch: saved
+workspace themes (library, presets, apply with Deshacer), the world as a
+Markdown vault (ZIP with `world.json`, optional media with size guards), the
+wiki look and the wiki changes since the last edition, and workspace tabs
+(pin, rename, duplicate, close others, recently closed, `Mod+1..9`,
+`Mod+Shift+T`, keep-or-delete for an empty new document, an undo journal with
+Deshacer in the toast). Tests: `workspace-themes`, `world-markdown-export`,
+`workspace-tabs`, `workspace-appearance`, `wiki-look-changes`, plus
+`project-workspace*` and `document-archive`. Bridge tools: AI-BRIDGE sections
+31 to 34. An independent review (10 findings: receipts that carried whole
+pictures, wiki pages in `world.json`, export memory guards, a quadratic CSV
+render, theme apply without confirmation or undo, undo that lost its entry on
+failure, stale closes, what counts as an empty document, shortcut guards,
+Windows reserved names and leftover tab keys) was addressed, each with a check
+in `tests/review-1095d2a`.
+
+## Wave D2 (second batch) and wave B (first part)
+
+Matrices: [D2-platform.md](D2-platform.md) and [B-campaign.md](B-campaign.md).
+This batch covers table rules, reveal and the player view, guided tours,
+import from pasted text, ePub and PDF, and the assets library with compression.
+Tests: `codex-reveal`, `assets-library`, `import-paste-epub-pdf`,
+`wiki-look-changes`, plus the wiki suites. Bridge tools: AI-BRIDGE sections 35
+to 37.
+
+An independent review of the reveal / player view, assets library, ePub / PDF
+import and compression work (9 findings) was addressed, each with a check in
+`tests/review-1095d2b`: timelines in a revealed-only wiki publish only events
+tied to admitted cards; the player view strips Codex, tool and source blocks of
+unrevealed cards, searches only player-safe text and honours the project
+preferences plus the saved profiles that publish only revealed cards; the usage
+scan now covers Codex, diary and board blocks, reader audio, published editions
+and recipe inputs; ePub and ZIP intake check the declared size before inflating,
+count the real bytes while inflating, read a repeated spine file once and cap
+chapters, text, entries and PDF pages; pasted text counts in the import budgets;
+compression releases its slot on failure, times out, runs quiet and bounded,
+accepts one job at a time and is cancelled when the assets panel closes; the
+export settings no longer count maps while only revealed cards are published.

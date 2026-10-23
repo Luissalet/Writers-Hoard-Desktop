@@ -306,6 +306,10 @@ export interface ShutdownWarning {
   keepOpen: string;
 }
 
+export type CompressAssetResult =
+  | { ok: true; bytes: ArrayBuffer; mime: string; ext: string; beforeBytes: number; afterBytes: number }
+  | { ok: false; cancelled?: boolean; error: string };
+
 export interface ElectronAPI {
   visualSearch: import('./services/visualSearch/types').VisualSearchAPI;
   entityDetection: import('./services/entityDetection/types').EntityDetectionAPI;
@@ -331,6 +335,9 @@ export interface ElectronAPI {
   openWindowMenu: () => void;
   media: import('./engines/media/voiceTypes').VoiceRuntimeAPI & {
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string) => Promise<SaveResult>;
+    /** Optional: absent in older shells and in the web build. */
+    compressAsset?: (args: { requestId: string; kind: 'audio' | 'video'; preset?: 'balanced' | 'small'; bytes: ArrayBuffer }) => Promise<CompressAssetResult>;
+    cancelCompress?: (requestId: string) => Promise<boolean>;
     downloaderHealth: () => Promise<MediaDownloaderHealthResult>;
     detectDownloadPlatform: (url: string) => Promise<MediaPlatformResult>;
     downloadToFile: (args: {

@@ -19,7 +19,7 @@ import { db } from '@/db';
 import { DELETABLE } from './tools/deletion';
 import { undoEnrichment } from '@/engines/inquiry/enrichment';
 import { BridgeError, type ToolArgs } from './tools/shared';
-import { diceStamp, encounterStamp, graphStamp, kanbansStamp, soundscapesStamp, todosStamp } from './undoStamp';
+import { diceStamp, encounterStamp, graphStamp, kanbansStamp, soundscapesStamp, tableRulesStamp, todosStamp } from './undoStamp';
 import { hideEraDocument, mutateEraRows, readEraRow, readWorldDocument, saveEraDocument } from '@/services/worldEras/store';
 import { eraAdapterForTable } from '@/services/worldEras/adapters';
 import type { EraDocumentKind } from '@/services/worldEras/types';
@@ -303,11 +303,45 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     await restoreKanbans(String(entry.projectId), (entry.before as { __kanbans: import('@/engines/kanban/model').KanbanList }).__kanbans);
     return { undone: true, kind, entityId, what: summary };
   }
+  if (entry.before && typeof entry.before === 'object' && '__tableRules' in (entry.before as Record<string, unknown>)) {
+    const { restoreTableRules, readTableRules } = await import('@/engines/character-sheets/tableRulesOperations');
+    const nowRules = await readTableRules(String(entry.projectId));
+    assertUnchangedSince(entry.before as Record<string, unknown>, { revision: nowRules.revision, stamp: tableRulesStamp(nowRules) }, 'table rules');
+    await restoreTableRules(String(entry.projectId), (entry.before as { __tableRules: import('@/engines/character-sheets/tableRules').TableRules }).__tableRules);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // Reveals go back as they were, unless the card changed since: later work is never overwritten.
+  if (entry.before && typeof entry.before === 'object' && '__codexRevealed' in (entry.before as Record<string, unknown>) && typeof entry.projectId === 'string') {
+    const recorded = (entry.before as { __codexRevealed: { eraId: string | null; changes: import('@/engines/codex/reveal').RevealChange[] } }).__codexRevealed;
+    const { restoreCodexRevealed, RevealConflict } = await import('@/engines/codex/reveal');
+    try { await restoreCodexRevealed({ projectId: entry.projectId, eraId: recorded.eraId ?? undefined }, recorded.changes); }
+    catch (error) {
+      if (error instanceof RevealConflict) throw new BridgeError('cannot-undo', `${error.message} Change it by hand instead.`);
+      throw error;
+    }
+    return { undone: true, kind, entityId, entityIds: recorded.changes.map(change => change.id), what: summary };
+  }
   if (entry.before && typeof entry.before === 'object' && '__todos' in (entry.before as Record<string, unknown>)) {
     const { restoreTodos, readTodos } = await import('@/engines/todos/operations');
     const nowTodos = await readTodos(String(entry.projectId));
     assertUnchangedSince(entry.before as Record<string, unknown>, { revision: nowTodos.revision, stamp: todosStamp(nowTodos) }, 'task list');
     await restoreTodos(String(entry.projectId), (entry.before as { __todos: import('@/engines/todos/model').TodoList }).__todos);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.before && typeof entry.before === 'object' && '__workspaceThemes' in (entry.before as Record<string, unknown>)) {
+    const { restoreThemeLibrary, undoThemeDelta } = await import('@/services/workspaceAppearance/themeLibrary');
+    const recorded = (entry.before as { __workspaceThemes: import('@/services/workspaceAppearance/themeLibrary').ThemeDeltaReceipt & import('@/services/workspaceAppearance/themeLibrary').ThemeLibraryReceipt }).__workspaceThemes;
+    // Refused (never forced) when the library was changed after this entry, or when a deleted theme's picture is no longer kept.
+    try { if ('op' in recorded) await undoThemeDelta(recorded); else await restoreThemeLibrary(recorded); }
+    catch { throw new BridgeError('cannot-undo', 'The theme library changed after this entry (or its picture is no longer kept); undo it by hand in Appearance.'); }
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.before && typeof entry.before === 'object' && '__workspaceAppearanceReplace' in (entry.before as Record<string, unknown>) && typeof entry.projectId === 'string') {
+    const { undoAppearanceReplace } = await import('@/services/workspaceAppearance/themeLibrary');
+    const recorded = (entry.before as { __workspaceAppearanceReplace: import('@/services/workspaceAppearance/themeLibrary').AppearanceReplaceReceipt }).__workspaceAppearanceReplace;
+    // Refused (never forced) when the appearance was saved again after the theme was applied, or its previous picture is no longer kept.
+    try { await undoAppearanceReplace(entry.projectId, recorded); }
+    catch { throw new BridgeError('cannot-undo', 'The appearance changed after this theme was applied (or its previous picture is no longer kept); restore it by hand in Appearance.'); }
     return { undone: true, kind, entityId, what: summary };
   }
   if (entry.before && typeof entry.before === 'object' && '__diceTray' in (entry.before as Record<string, unknown>)) {

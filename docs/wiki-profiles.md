@@ -20,5 +20,8 @@ The registered native commands use that API:
 - `wh_wiki_profile_save`, `wh_wiki_profile_delete`
 - `wh_wiki_profile_preview`, `wh_wiki_profile_publish`
 - `wh_wiki_edition_read`, `wh_wiki_profile_restore_config`
+- `wh_wiki_profile_changes` (read-only): `{projectId, profileId}` returns `{changes:[{documentId,title,kind:'entry'|'map'|'timeline',change:'added'|'changed'|'removed'}], count, lastEditionAt, editionId, configChanged, sourceChanged}`. It compares what the saved profile would publish now with its last local edition (without an edition every admitted document counts as added), computes on demand and writes nothing.
 
-The full options schema is returned by the ordinary tool manifest. Read/preview commands are queries; the other four commands write. The existing `wh_wiki_export` contract remains available.
+`onlyRevealed` (default off) is a publication policy next to the exclusions: with it on, only the Codex cards the author revealed to the players (Codex → "Revelar a los jugadores", or `wh_set_revealed`) enter the wiki. Maps are left out while it is on (they cannot be marked yet), a revealed card of a private type is still never published, and hidden blocks and excluded fields are removed as always. Profiles that do not set it, and every edition already published, are unchanged; revealing or hiding a card counts as a change waiting to publish only for profiles that use the policy.
+
+The full options schema is returned by the ordinary tool manifest. Read/preview/changes commands are queries; the other four commands write. `wh_wiki_profile_save` also accepts the optional `customPalettes`, `terminal` and `branding.links`/`branding.signature` options described in `docs/wiki-appearance.md`; unsafe footer addresses are refused. The existing `wh_wiki_export` contract remains available.

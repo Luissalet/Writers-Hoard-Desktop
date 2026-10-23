@@ -14,6 +14,7 @@ export function appearanceFromProject(project: Project, scope: AppearanceScope):
   return { ...scope, revision: profile?.revision ?? 0, own, effective: { ...base, ...legacy, ...own }, inherited: !!scope.eraId && Object.keys(own).length === 0 };
 }
 export async function getWorkspaceAppearance(scope: AppearanceScope): Promise<AppearanceRead> { return appearanceFromProject(await assertWorldEra(scope), scope); }
+/** `reset` clears the own values; with a non-empty patch it REPLACES them (saved themes), so no field of the old look survives. */
 export async function saveWorkspaceAppearance(scope: AppearanceScope, patch: WorkspaceAppearanceValues, expectedRevision: number, reset = false): Promise<AppearanceRead> {
   const changes = normalizeAppearance(patch);
   if (changes.backgroundImage) await validateRasterImage(changes.backgroundImage);
@@ -21,7 +22,7 @@ export async function saveWorkspaceAppearance(scope: AppearanceScope, patch: Wor
   const saved = await db.transaction('rw', db.projects, async () => {
     const project = await assertWorldEra(scope), current = appearanceFromProject(project, scope);
     if (current.revision !== expectedRevision) throw new WorkspaceAppearanceConflict();
-    const profile = { revision: current.revision + 1, values: reset ? {} : { ...current.own, ...changes } };
+    const profile = { revision: current.revision + 1, values: reset ? changes : { ...current.own, ...changes } };
     // Update only our field against the freshly read row; metadata and sibling eras survive.
     const changeset = scope.eraId ? { worldEras: project.worldEras!.map(era => era.id === scope.eraId ? { ...era, workspaceAppearance: profile, revision: era.revision + 1, updatedAt: Date.now() } : era) } : { workspaceAppearance: profile };
     await db.projects.update(scope.projectId, { ...changeset, updatedAt: Math.max(Date.now(), project.updatedAt + 1) });

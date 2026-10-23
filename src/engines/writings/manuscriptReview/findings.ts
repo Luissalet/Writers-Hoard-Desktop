@@ -16,6 +16,12 @@ const labels: Record<string, string> = {
   'nested-insertion-and-deletion-not-in-manuscript-html': 'Revisiones anidadas incompatibles con el capítulo',
   'trailing-paragraph-revision-has-no-following-manuscript-paragraph': 'Revisión del último separador conservada en el original',
   'comments-retained-in-original-unmapped-or-excluded': 'Comentarios fuera de los capítulos incluidos o sin rango exacto; disponibles en el original',
+  'epub-images-skipped': 'Imágenes del ePub no importadas (el original las conserva)',
+  'epub-pages-skipped': 'Páginas de portada, índice o navegación del ePub omitidas',
+  'epub-tables-flattened': 'Tablas del ePub convertidas a un párrafo por fila',
+  'pdf-pages-without-text': 'Páginas del PDF sin texto (imagen escaneada): no se han importado',
+  'pdf-pages-capped': 'El PDF tiene más páginas de las que se leen de una vez: las últimas no se han importado',
+  'pdf-layout-guess': 'Párrafos y títulos del PDF reconstruidos a partir de la posición del texto: revisa el resultado',
 };
 const en: Record<string, string> = {
   'simplified-browser-docx': 'Simplified browser import retains prose, headings, emphasis and notes; complete formatting remains in the original. Rich review needs the desktop document engine',
@@ -35,5 +41,11 @@ const en: Record<string, string> = {
   'nested-insertion-and-deletion-not-in-manuscript-html': 'Nested revisions incompatible with the chapter',
   'trailing-paragraph-revision-has-no-following-manuscript-paragraph': 'Trailing paragraph revision preserved in the original',
   'comments-retained-in-original-unmapped-or-excluded': 'Comments outside included chapters or without an exact range; available in the original',
+  'epub-images-skipped': 'ePub images not imported (the original keeps them)',
+  'epub-pages-skipped': 'ePub cover, contents and navigation pages skipped',
+  'epub-tables-flattened': 'ePub tables flattened to one paragraph per row',
+  'pdf-pages-without-text': 'PDF pages without text (scanned images) were not imported',
+  'pdf-pages-capped': 'The PDF has more pages than are read in one go: the last ones were not imported',
+  'pdf-layout-guess': 'PDF paragraphs and headings were rebuilt from text positions: review the result',
 };
 export const manuscriptFindingLabel = (code: string, locale: string = 'es') => (locale === 'es' ? labels : en)[code] ?? code;

@@ -1,0 +1,71 @@
+// The tour chrome's own words (buttons, list, notices). The tours' text is in
+// tours.ts. Both languages side by side.
+
+export const tourCopy = {
+  es: {
+    listTitle: 'Recorridos guiados',
+    listIntro: 'Pequeños recorridos sobre la propia pantalla. Puedes dejarlos a medias y retomarlos, o repetirlos cuando quieras.',
+    close: 'Cerrar',
+    open: 'Recorridos guiados',
+    start: 'Empezar',
+    resume: 'Continuar',
+    repeat: 'Repetir',
+    notStarted: 'Sin empezar',
+    inProgress: 'Paso {step} de {total}',
+    done: 'Hecho',
+    steps: '{count} pasos',
+    back: 'Atrás',
+    next: 'Siguiente',
+    skip: 'Saltar',
+    finish: 'Terminar',
+    stepOf: 'Paso {step} de {total}',
+    dialogLabel: 'Recorrido guiado',
+    doneToast: 'Recorrido terminado. Puedes repetirlo desde «Recorridos guiados».',
+    nothingToShow: 'Este recorrido no se puede mostrar desde donde estás.',
+    skippedNoProject: 'Algunos pasos necesitan un mundo abierto y no hay ninguno: se han saltado.',
+    skippedToolOff: 'Algunos pasos son de herramientas que este mundo no tiene activadas: se han saltado.',
+    skippedMissing: 'Algún paso se ha saltado porque su elemento no está en pantalla.',
+    needsWorld: 'Este recorrido necesita un mundo. Crea uno primero con el recorrido «Tu primer mundo».',
+    offerTitle: '¿Te enseño la aplicación en un minuto?',
+    offerText: 'Un recorrido corto por la pantalla, sin tocar nada tuyo.',
+    offerYes: 'Enséñamela',
+    offerNo: 'Ahora no',
+    checklistLink: 'Ver los recorridos guiados',
+  },
+  en: {
+    listTitle: 'Guided tours',
+    listIntro: 'Short tours over the screen itself. You can leave them half-way and pick them up again, or repeat them whenever you like.',
+    close: 'Close',
+    open: 'Guided tours',
+    start: 'Start',
+    resume: 'Continue',
+    repeat: 'Repeat',
+    notStarted: 'Not started',
+    inProgress: 'Step {step} of {total}',
+    done: 'Done',
+    steps: '{count} steps',
+    back: 'Back',
+    next: 'Next',
+    skip: 'Skip',
+    finish: 'Finish',
+    stepOf: 'Step {step} of {total}',
+    dialogLabel: 'Guided tour',
+    doneToast: 'Tour finished. You can repeat it from "Guided tours".',
+    nothingToShow: 'This tour cannot be shown from where you are.',
+    skippedNoProject: 'Some steps need an open world and there is none: they were skipped.',
+    skippedToolOff: 'Some steps are about tools this world has not switched on: they were skipped.',
+    skippedMissing: 'A step was skipped because its element is not on screen.',
+    needsWorld: 'This tour needs a world. Create one first with the "Your first world" tour.',
+    offerTitle: 'Want a one-minute look around?',
+    offerText: 'A short tour over the screen, without touching anything of yours.',
+    offerYes: 'Show me',
+    offerNo: 'Not now',
+    checklistLink: 'See the guided tours',
+  },
+} as const;
+
+export type TourCopy = (typeof tourCopy)['es'];
+
+export function fill(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_match, key: string) => String(values[key] ?? ''));
+}

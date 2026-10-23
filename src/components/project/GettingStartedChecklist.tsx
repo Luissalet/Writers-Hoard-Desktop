@@ -34,6 +34,8 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { useProject } from '@/hooks/useProjects';
 import { updateProject } from '@/db/operations';
 import EditProjectModal from './EditProjectModal';
+import { openToursPanel } from '@/components/tutorial/tourStore';
+import { tourCopy } from '@/components/tutorial/tourCopy';
 
 interface GettingStartedChecklistProps {
   projectId: string;
@@ -80,7 +82,7 @@ function Checklist({
   project: Project;
   onDismiss: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const [editingProject, setEditingProject] = useState(false);
   // Counts, not rows: the two data items only ask whether anything exists at
@@ -158,6 +160,16 @@ function Checklist({
             </li>
           ))}
         </ul>
+        {/* The guided tours live one click away from the first thing a new writer sees. */}
+        <button
+          type="button"
+          onClick={openToursPanel}
+          data-testid="checklist-tours-link"
+          className="mt-3 inline-flex items-center gap-1 text-xs text-accent-gold hover:underline"
+        >
+          {tourCopy[locale].checklistLink}
+          <ChevronRight size={12} aria-hidden="true" />
+        </button>
       </div>
       {editingProject && (
         <EditProjectModal

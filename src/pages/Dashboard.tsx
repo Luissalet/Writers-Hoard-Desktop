@@ -23,6 +23,7 @@ import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import ImportCollisionDialog from '@/components/dashboard/ImportCollisionDialog';
 import { importProjectData, importFullDatabase } from '@/db/operations';
 import DuplicateProjectModal from '@/components/project/DuplicateProjectModal';
+import WorldMarkdownExportModal from '@/components/project/WorldMarkdownExportModal';
 import {
   describeBackupError,
   exportFullZip,
@@ -105,6 +106,7 @@ export default function Dashboard() {
   // must never wipe a whole project.
   const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
   const [duplicateProjectSource,setDuplicateProjectSource]=useState<Project|null>(null);
+  const [markdownExportProject,setMarkdownExportProject]=useState<Project|null>(null);
   const [pendingProjectImport, setPendingProjectImport] = useState<{
     file: File;
     preview: ProjectZipImportPreview;
@@ -516,7 +518,7 @@ export default function Dashboard() {
                 red when the last attempt failed — and the label is the button
                 that runs one now. */}
             {backup && projects.length > 0 && (
-              <div ref={backupBoxRef} className="relative flex items-center">
+              <div ref={backupBoxRef} data-tour="dashboard-backup-status" className="relative flex items-center">
                 <button
                   type="button"
                   onClick={runBackupNow}
@@ -635,6 +637,7 @@ export default function Dashboard() {
             {/* Full backup controls */}
             <button
               onClick={handleFullExport}
+              data-tour="dashboard-backup-full"
               disabled={exporting}
               className="flex items-center gap-2 px-3 py-2.5 border border-accent-plum/30 text-accent-plum-light rounded-xl hover:bg-accent-plum/10 transition text-sm"
               title={t('dashboard.fullExport.title')}
@@ -645,6 +648,7 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => fullImportRef.current?.click()}
+              data-tour="dashboard-backup-restore"
               disabled={importing}
               className="flex items-center gap-2 px-3 py-2.5 border border-accent-plum/30 text-accent-plum-light rounded-xl hover:bg-accent-plum/10 transition text-sm"
               title={t('dashboard.fullImport.title')}
@@ -666,6 +670,7 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => setShowCreate(true)}
+              data-tour="dashboard-new-project"
               className="flex items-center gap-2 px-5 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:brightness-110 transition"
             >
               <Plus size={18} />
@@ -710,6 +715,7 @@ export default function Dashboard() {
                   onClick={() => navigate(`/project/${project.id}`)}
                   onDelete={() => setPendingDeleteProject(project)}
                   onDuplicate={()=>setDuplicateProjectSource(project)}
+                  onExportMarkdown={()=>setMarkdownExportProject(project)}
                   onColorChange={(color) => editProject(project.id, { color })}
                   onIconChange={(icon) => editProject(project.id, { icon: icon || undefined })}
                   onPin={async()=>{await setProjectPinned(project.id,!project.pinned,project.pinned??false);}}
@@ -761,6 +767,7 @@ export default function Dashboard() {
         onCancel={() => setPendingDeleteProject(null)}
       />
 
+      {markdownExportProject&&<WorldMarkdownExportModal key={markdownExportProject.id} projectId={markdownExportProject.id} onClose={()=>setMarkdownExportProject(null)}/>}
       {duplicateProjectSource&&<DuplicateProjectModal key={duplicateProjectSource.id} project={duplicateProjectSource} onClose={()=>setDuplicateProjectSource(null)} onOpen={projectId=>{setDuplicateProjectSource(null);void refresh();navigate(`/project/${projectId}`);}}/>}
       <ImportCollisionDialog
         open={pendingProjectImport !== null}

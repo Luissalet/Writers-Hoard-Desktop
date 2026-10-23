@@ -252,6 +252,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
       )}
 
       <CollectionDashboard
+        tourAnchor="maps-list"
         icon={Map}
         title={t('maps.yourMaps')}
         itemNoun={t('maps.itemNoun')}

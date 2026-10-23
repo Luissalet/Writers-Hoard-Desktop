@@ -24,6 +24,8 @@ export interface CollectionDashboardProps<T extends { id: string; title: string;
   onDelete: (id: string) => Promise<void>;
   /** Placeholder for the new item input */
   placeholder?: string;
+  /** Optional guided-tour anchor (`data-tour`) for this list. */
+  tourAnchor?: string;
 }
 
 export default function CollectionDashboard<T extends { id: string; title: string; createdAt: number }>({
@@ -36,6 +38,7 @@ export default function CollectionDashboard<T extends { id: string; title: strin
   onCreate,
   onDelete,
   placeholder,
+  tourAnchor,
 }: CollectionDashboardProps<T>) {
   const { t } = useTranslation();
   const [showNew, setShowNew] = useState(false);
@@ -72,7 +75,7 @@ export default function CollectionDashboard<T extends { id: string; title: strin
   };
 
   return (
-    <div className="border border-border rounded-xl bg-surface/50 p-4">
+    <div data-tour={tourAnchor} className="border border-border rounded-xl bg-surface/50 p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
           <Icon size={14} className="text-accent-gold" />

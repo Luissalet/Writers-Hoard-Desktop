@@ -58,7 +58,8 @@ import {
   undoneIndices,
 } from './aibridge/state';
 import { BRIDGE_TOOLS } from '@/services/aiBridge/manifest';
-import { killAllTranscodes, transcodeWebmToMp4 } from './media/transcode';
+import { cancelCompress, compressMedia, killAllTranscodes, transcodeWebmToMp4 } from './media/transcode';
+import { isCompressKind, isCompressPreset } from './media/compressArgs';
 import {
   detectPlatform,
   downloadMedia,
@@ -1430,6 +1431,23 @@ function registerIpc(): void {
       }
     },
   );
+
+  // Assets library: shrink an oversize sound or video on request (cancellable).
+  ipcMain.handle(
+    'media:compressAsset',
+    async (event, args: { requestId: string; kind: string; preset?: string; bytes: ArrayBuffer }) => {
+      assertIpcSender(event, 'media:compressAsset');
+      if (!args || typeof args.requestId !== 'string' || !args.requestId || !isCompressKind(args.kind) || !(args.bytes instanceof ArrayBuffer)) return { ok: false, error: 'Invalid compression request.' };
+      const result = await compressMedia(args.requestId, Buffer.from(args.bytes), args.kind, isCompressPreset(args.preset) ? args.preset : 'balanced');
+      if (!result.ok) return result;
+      const out = result.bytes;
+      return { ...result, bytes: out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) };
+    },
+  );
+  ipcMain.handle('media:cancelCompress', async (event, requestId: string): Promise<boolean> => {
+    assertIpcSender(event, 'media:cancelCompress');
+    return typeof requestId === 'string' && cancelCompress(requestId);
+  });
 
   // Script: render styled HTML to a real PDF and save it.
   ipcMain.handle(

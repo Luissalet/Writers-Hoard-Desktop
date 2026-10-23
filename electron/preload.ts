@@ -355,6 +355,10 @@ const api = {
     /** Transcode a WebM capture to MP4 and prompt the user to save it. */
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> =>
       ipcRenderer.invoke('media:saveTeleprompterMp4', webm, suggestedName),
+    /** Re-encode a library sound or video into a smaller file (only on user action). */
+    compressAsset: (args: { requestId: string; kind: 'audio' | 'video'; preset?: 'balanced' | 'small'; bytes: ArrayBuffer }) =>
+      ipcRenderer.invoke('media:compressAsset', args),
+    cancelCompress: (requestId: string): Promise<boolean> => ipcRenderer.invoke('media:cancelCompress', requestId),
     /** Probe the bundled downloader without revealing its loopback auth token. */
     downloaderHealth: (): Promise<MediaDownloaderHealthResult> =>
       ipcRenderer.invoke('media:downloaderHealth'),

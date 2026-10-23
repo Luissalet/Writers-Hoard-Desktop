@@ -39,7 +39,8 @@ export type ShortcutScope =
   | 'find'
   | 'reader'
   | 'board'
-  | 'world';
+  | 'world'
+  | 'tabs';
 
 export interface ShortcutScopeMeta {
   id: ShortcutScope;
@@ -61,6 +62,7 @@ export const SHORTCUT_SCOPES: readonly ShortcutScopeMeta[] = [
   { id: 'reader', titleKey: 'shortcuts.scope.reader', whereKey: 'shortcuts.scope.reader.where' },
   { id: 'board', titleKey: 'shortcuts.scope.board', whereKey: 'shortcuts.scope.board.where' },
   { id: 'world', titleKey: 'shortcuts.scope.world', whereKey: 'shortcuts.scope.world.where' },
+  { id: 'tabs', titleKey: 'shortcuts.scope.tabs', whereKey: 'shortcuts.scope.tabs.where' },
 ];
 
 export interface Shortcut {
@@ -94,6 +96,7 @@ export const COMMAND_CENTRE_SHORTCUT = 'global.commandCentre';
 export const SHORTCUTS_PANEL_SHORTCUT = 'global.shortcuts';
 export const SIDEBAR_SHORTCUT = 'global.sidebar';
 export const FOCUS_MODE_SHORTCUT = 'editor.focusMode';
+export const TAB_REOPEN_SHORTCUT = 'tabs.reopen';
 
 export const SHORTCUTS: readonly Shortcut[] = [
   // ── Anywhere ──────────────────────────────────────────────────────────────
@@ -577,6 +580,25 @@ export const SHORTCUTS: readonly Shortcut[] = [
     descriptionKey: 'shortcuts.world.shape',
     source: 'src/engines/worldgen/components/World3D.tsx',
   },
+
+  // ── Workspace tabs ────────────────────────────────────────────────────────
+  {
+    id: 'tabs.jump',
+    scope: 'tabs',
+    // One row for nine keys: `1-9` is a display-only token, so the answer lives
+    // in `tabJumpIndex` (workspaceTabs.ts), which reads the digit itself.
+    keys: ['Mod+1-9'],
+    descriptionKey: 'shortcuts.tabs.jump',
+    source: 'src/components/project/workspace/ProjectWorkspace.tsx, src/components/project/workspace/workspaceTabs.ts',
+  },
+  {
+    id: TAB_REOPEN_SHORTCUT,
+    scope: 'tabs',
+    keys: ['Mod+Shift+T'],
+    descriptionKey: 'shortcuts.tabs.reopen',
+    source: 'src/components/project/workspace/ProjectWorkspace.tsx',
+    readsThisTable: true,
+  },
 ];
 
 export function getShortcut(id: string): Shortcut | undefined {
@@ -641,7 +663,7 @@ const KEY_CAPS: Readonly<Record<string, KeyCap | undefined>> = {
  * single event for "the arrows" — and `matchesChord` says so out loud rather
  * than quietly returning false for a chord someone expected to work.
  */
-export const DISPLAY_ONLY_KEYS: ReadonlySet<string> = new Set(['Arrows']);
+export const DISPLAY_ONLY_KEYS: ReadonlySet<string> = new Set(['Arrows', '1-9']);
 
 function capFor(token: string, mac: boolean): KeyCap {
   if (token === 'Mod') return { text: mac ? '⌘' : 'Ctrl' };

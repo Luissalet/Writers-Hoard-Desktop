@@ -26,3 +26,56 @@ these options. The exported file contains its admitted content and runs without
 Writer, its database, bridge or network. Profile MCP operations and
 `wh_wiki_export` accept the same appearance options. Named profiles can restore an
 earlier edition's configuration without replacing original documents or siblings.
+
+## Palettes, saved palettes, footer and terminal extras
+
+**Palette catalogue.** The appearance editor offers 20 named palettes in four
+groups (light, dark, book/serif-friendly, high contrast; `src/services/wikiProfiles/palettes.ts`).
+A palette only fills the five existing colour tokens, so it is exactly the same
+data as hand-picked colours; every catalogue palette has text on background of at
+least 7:1 and accent on background of at least 4.5:1 (checked by the test).
+"Back to the theme" removes the overrides.
+
+**Saved palettes.** "Save my palette" stores the five current colours under a
+name (up to 40 characters, unique ignoring case, at most 24 per profile). They
+can be applied, renamed and deleted. They are kept in `options.customPalettes`
+of the profile (or of the legacy preferences), not in app settings: the options
+already travel in profiles, project/full JSON, ZIP and clones, so no new backup
+registration is needed and a palette follows the world it was made for. The
+export never reads them. Colours are validated like the existing five (six-digit
+hex); a palette needs all five. Like every other option they are persisted by
+"Save preferences". "Copy appearance from a profile" copies them too.
+
+**Footer.** `branding.links` takes up to six `{label, url}` pairs and
+`branding.signature` one line of text. Only `http:`, `https:` and `mailto:`
+addresses are accepted (no `javascript:`, `data:`, `file:`, credentials in the
+address, quotes, spaces or control characters). Links are written escaped with
+`target="_blank" rel="noopener noreferrer"`. The export's Content-Security-Policy
+is unchanged (no network is fetched; links are only followed when clicked). A
+profile with only the old footer text exports the same footer bytes as before.
+
+**Terminal extras** (`options.terminal`, Terminal and Shell layouts only, ignored
+elsewhere): `phosphor` (amber, green, ice, purple, red; replaces the theme and
+custom colours while chosen), `scanlines` (CRT lines and a soft glow, hidden when
+printing), `dither` (a small script in the exported page turns embedded pictures
+into two-colour ordered dithers using the page's own colours; it runs offline and
+falls back to the plain picture if the browser cannot decode it), `bootLine` (one
+line shown above the title, blinking cursor stopped under reduced-motion) and
+`opening` (up to eight `{command, note?}` buttons under "New here?" that run the
+command in the Shell command line; Terminal has no command line, so it ignores
+the list). Everything is off by default; a profile without `terminal`, `customPalettes`
+or `branding.links` exports the same bytes as before these features.
+
+**Changes since the last edition.** In the export panel, once a profile has an
+edition and the section is opened, "Changes since the last edition" lists added,
+changed and removed documents and the publish button reads "Publish (N changes)".
+It is computed on open, after saving or publishing and on "Check changes", never
+while typing or editing a card. The check compares the captured-source
+fingerprint and the saved configuration with the last edition's; only when they
+differ does it render the wiki once and compare each document's article with the
+frozen one, so it counts what a reader would see (edits to excluded cards or
+fields do not count). If the app's rendering changed between versions, a world
+that was also edited may list documents whose text did not change; the count
+returns to zero after the next publish. `wh_wiki_profile_changes` (read-only)
+returns `{changes:[{documentId,title,kind,change}],count,lastEditionAt}` plus
+`configChanged`, `sourceChanged` and `editionId`.

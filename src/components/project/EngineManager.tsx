@@ -325,7 +325,7 @@ export default function EngineManager({
       <Modal open={open} onClose={handleModalClose} title={t('engines.manager')} wide>
         <div className="space-y-6">
           {/* ── Preset ── */}
-          <section className="rounded-lg border border-border bg-elevated p-4">
+          <section data-tour="engine-manager-preset" className="rounded-lg border border-border bg-elevated p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 items-start gap-3">
                 {ModeIcon && (
@@ -433,7 +433,7 @@ export default function EngineManager({
           </section>
 
           {/* ── Search ── */}
-          <div className="relative">
+          <div data-tour="engine-manager-search" className="relative">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
             <input
               value={query}
@@ -456,7 +456,7 @@ export default function EngineManager({
           </div>
 
           {/* ── Active engines, in tab order ── */}
-          <section>
+          <section data-tour="engine-manager-active">
             <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-text-primary">
               <span className="h-2 w-2 rounded-full bg-accent-gold" />
               {t('engines.active')}
@@ -547,7 +547,7 @@ export default function EngineManager({
           </section>
 
           {/* ── Everything you can switch on, grouped by the preset ── */}
-          <section>
+          <section data-tour="engine-manager-available">
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-text-primary">
               <span className="h-2 w-2 rounded-full bg-text-dim" />
               {t('engines.available')}
@@ -611,6 +611,7 @@ export default function EngineManager({
             <button
               type="button"
               onClick={() => void handleSave()}
+              data-tour="engine-manager-save"
               disabled={saving}
               className="rounded-lg bg-accent-gold px-4 py-2 text-sm font-medium text-surface transition hover:bg-accent-amber disabled:opacity-60"
             >

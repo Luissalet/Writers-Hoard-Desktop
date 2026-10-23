@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { useInRouterContext } from 'react-router-dom';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
 import IconPicker from '@/components/common/IconPicker';
@@ -8,6 +9,7 @@ import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Project } from '@/types';
 import GenrePicker from '@/services/projectGenres/GenrePicker';
+import TableRulesLink from './TableRulesLink';
 
 interface EditProjectModalProps {
   project: Project;
@@ -16,7 +18,8 @@ interface EditProjectModalProps {
 }
 
 export default function EditProjectModal({ project, onClose, onSave }: EditProjectModalProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const inRouter = useInRouterContext();
   const fieldId = useId();
   const [title, setTitle] = useState(project.title);
   const [type, setType] = useState<Project['type']>(project.type);
@@ -190,6 +193,8 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
           </div>
           <p className="mt-1.5 text-xs text-text-dim">{t('project.edit.presetHint')}</p>
         </div>
+
+        {inRouter && project.enabledEngines.includes('character-sheets') && <TableRulesLink projectId={project.id} locale={locale} beforeGo={save} disabled={!title.trim() || saving} />}
 
         <div className="flex gap-6">
           <div className="flex-1">

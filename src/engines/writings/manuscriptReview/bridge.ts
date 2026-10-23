@@ -5,15 +5,43 @@ import { assertEngineEnabled, assertRowInScope, BridgeError, requireString, optS
 import { inspectManuscriptFile } from './inspect';
 import { planManuscriptImport } from './plan';
 import { applyManuscriptImport } from './persist';
-import { MAX_SOURCE_BYTES, MAX_TOTAL_BYTES } from '../manuscriptImport';
+import { MAX_SOURCE_BYTES, MAX_TOTAL_BYTES, ManuscriptImportError } from '../manuscriptImport';
 import type { ImportChoice, ImportSplit } from './types';
 const scopeFor = (args: ToolArgs) => ({ projectId: requireString(args, 'projectId'), eraId: optString(args, 'eraId') });
 async function scopeChecked(args: ToolArgs) { const scope = scopeFor(args); assertRowInScope(args, scope.projectId); await assertWorldEra(scope); return scope; }
+const REFUSALS: Record<string, string> = {
+  'scanned-pdf': 'Este PDF es una imagen escaneada: necesita OCR. No se ha importado nada.',
+  protected: 'El fichero está protegido (contraseña o DRM) y no se puede leer.',
+  'invalid-pdf': 'El fichero no es un PDF legible.',
+  'invalid-epub': 'El fichero no es un ePub legible.',
+  unsupported: 'Formato no admitido: se leen .docx, .epub, .pdf, .md y .txt.',
+  'too-large': 'El archivo supera el límite de importación del manuscrito.',
+  'no-text': 'No se ha encontrado texto en el archivo.',
+};
+/** Most pasted pieces one call may carry; each one becomes a source file. */
+export const MAX_PASTED_ITEMS = 200;
 async function inspect(args: ToolArgs) {
-  if (!Array.isArray(args.files) || !args.files.length) throw new BridgeError('bad-args', 'Indica archivos locales.');
+  const pasted = args.pasted === undefined ? [] : args.pasted;
+  if (!Array.isArray(pasted) || pasted.some(row => !row || typeof (row as { text?: unknown }).text !== 'string' || (row as { name?: unknown }).name !== undefined && typeof (row as { name?: unknown }).name !== 'string')) throw new BridgeError('bad-args', 'Texto pegado inválido.');
+  if (pasted.length > MAX_PASTED_ITEMS) throw new BridgeError('bad-args', `Demasiados textos pegados (máximo ${MAX_PASTED_ITEMS}).`);
+  const given = args.files === undefined ? [] : args.files;
+  if (!Array.isArray(given) || !given.length && !pasted.length) throw new BridgeError('bad-args', 'Indica archivos locales o texto pegado.');
   const sources = [], files: File[] = []; let total = 0;
-  for (const row of args.files) { if (!row || typeof row.name !== 'string' || typeof row.dataBase64 !== 'string') throw new BridgeError('bad-args', 'Archivo inválido.'); const bytes = bytesFromBase64(row.dataBase64); total += bytes.length; if (bytes.length > MAX_SOURCE_BYTES || total > MAX_TOTAL_BYTES) throw new BridgeError('bad-args', 'El archivo supera el límite de importación del manuscrito.'); files.push(new File([bytes], row.name)); }
-  for (const file of files) sources.push(await inspectManuscriptFile(file));
+  for (const row of given) { if (!row || typeof row.name !== 'string' || typeof row.dataBase64 !== 'string') throw new BridgeError('bad-args', 'Archivo inválido.'); const bytes = bytesFromBase64(row.dataBase64); total += bytes.length; if (bytes.length > MAX_SOURCE_BYTES || total > MAX_TOTAL_BYTES) throw new BridgeError('bad-args', 'El archivo supera el límite de importación del manuscrito.'); files.push(new File([bytes], row.name)); }
+  const used = new Set(files.map(file => file.name));
+  for (const [index, row] of (pasted as { name?: string; text: string }[]).entries()) {
+    const base = Array.from(row.name ?? '').map(char => (char.charCodeAt(0) < 32 ? '-' : char)).join('').replace(/[\\/:*?"<>|]/g, '-').replace(/\.(?:md|markdown|txt)$/i, '').trim().slice(0, 80) || `pegado${pasted.length > 1 ? `-${index + 1}` : ''}`;
+    let name = `${base}.md`, copy = 2; while (used.has(name)) name = `${base}-${copy++}.md`;
+    used.add(name);
+    const pastedBytes = new TextEncoder().encode(row.text).length;
+    total += pastedBytes;
+    if (pastedBytes > MAX_SOURCE_BYTES || total > MAX_TOTAL_BYTES) throw new BridgeError('bad-args', 'El archivo supera el límite de importación del manuscrito.');
+    files.push(new File([row.text], name, { type: 'text/markdown' }));
+  }
+  for (const file of files) {
+    try { sources.push(await inspectManuscriptFile(file)); }
+    catch (error) { if (error instanceof ManuscriptImportError) throw new BridgeError(error.code, `${REFUSALS[error.code] ?? error.message}${error.detail ? ` (${error.detail})` : ` (${file.name})`}`); throw error; }
+  }
   return sources;
 }
 export async function whManuscriptInspect(args: ToolArgs) { const scope = await scopeChecked(args); const sources = await inspect(args); const plan = await planManuscriptImport(sources, args.split as ImportSplit, scope, args.choices as ImportChoice[] | undefined); return { sources: sources.map(({ name, sha256, findings }) => ({ name, sha256, findings })), ...plan, chapters: plan.chapters.map(({ blocks: _blocks, ...chapter }) => { void _blocks; return chapter; }) }; }

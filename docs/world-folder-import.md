@@ -27,3 +27,13 @@ The same service backs the UI and these normal tools:
 Preview/apply use `{projectId,eraId?,format,files:[{path,dataBase64}],decisions?}`. A file may be a local ZIP; its nested entries become the same relative manifest. `format` is `obsidian`, `notion`, `worldanvil` or `campfire`; the latter two retain the existing bounded Codex JSON reader. Decisions identify a source `path` and may set `include`, `target`, `title`, Codex `type`/`templateId`, CSV options/column mapping, or zero-based `excludedRows`. Apply also requires the returned digest. The pure manifest exposes the complete input schema.
 
 The operation is local. No hosted application, remote parser, model or source-code plugin is required. It does not promise universal Obsidian/Notion interchange, arbitrary original attachment archival, imported live queries or all-to-all format conversion.
+
+## Pasted text, PDF, Library folder and skip reasons
+
+- **Paste text.** The panel has a *Paste text* box. A line holding only `---8<---` ends one document and starts the next. Each piece becomes a virtual `pasted.md` (`pasted-2.md`, or the chosen name) that goes through the same reader and is hashed into the plan digest like a file. Bridge: the `pasted` argument.
+- **PDF.** A `.pdf` is read through its text layer; paragraphs are rebuilt from line positions and a line is a heading only when it is clearly bigger than the body text. A PDF with no text layer is not imported: the review says *this PDF is a scanned image: it needs OCR*. Password-protected PDFs are reported as protected. ePub is read by **Import manuscript** in Writings, not here.
+- **Skipped files.** Every file that produced nothing appears under *Skipped files and why* with one reason: unsupported type, empty, too large, duplicate, encrypted, scanned image (needs OCR) or unreadable. The bridge returns the same `reason` on each finding.
+- **Select by type.** Groups by destination and Codex category offer *Select all of this type* and *Clear all of this type*.
+- **Library folder.** An optional destination folder of the document Library; created documents are filed there in the same commit, and Undo removes the placements (`libraryFolderId`).
+- **Guides.** Five cards explain, in plain words and without naming products, how to export from a kind of tool, what is kept and what is dropped.
+

@@ -8,6 +8,7 @@ import {WRITING_TOOL_DOCK_TOOLS} from '@/engines/writings/toolDock/bridgeManifes
 import { WORLD_GRAPH_QUERY_TOOLS } from '@/engines/codex/worldGraph/bridgeManifest';
 import { RELATION_TREE_ACTION_TOOLS } from '@/engines/genealogy/treeActionManifest';
 import { WIKI_PROFILE_TOOLS } from '@/services/wikiProfiles/bridgeManifest';
+import { CODEX_REVEAL_TOOLS } from '@/engines/codex/revealBridge';
 import { ENTITY_DETECTION_TOOLS } from '@/services/entityDetection/bridgeManifest';
 import { PARALLEL_DRAFT_TOOLS } from '@/engines/writings/parallelDraftManifest';
 import { CODEX_OPTION_LIST_TOOLS } from '@/engines/codex/optionListBridgeManifest';
@@ -39,6 +40,7 @@ import { READER_TOOLS } from './manifestReader';
 import { VOICE_MEMO_TOOLS } from '@/engines/media/voiceManifest';
 import { BOARD_CANVAS_TOOLS } from '@/engines/board/canvasManifest';
 import { WORKSPACE_APPEARANCE_TOOLS } from '@/services/workspaceAppearance/bridgeManifest';
+import { WORKSPACE_THEME_TOOLS } from '@/services/workspaceAppearance/themeBridgeManifest';
 import { LOCAL_TOOL_TOOLS } from '@/engines/local/manifest';
 import { RELATION_TREE_TOOLS } from '@/engines/genealogy/treeManifest';
 import { DOCUMENT_HISTORY_TOOLS } from '@/services/documentHistory/bridgeManifest';
@@ -83,6 +85,7 @@ import { FAMILY_TOOLS } from './manifestFamily';
 import { GENEALOGY_BRIDGE_TOOLS } from './tools/genealogy';
 import { CODEX_FOLDER_IMPORT_TOOLS } from './tools/codexFolderImport';
 import { BIBLE_TOOLS } from './manifestBible';
+import { WORLD_MARKDOWN_TOOLS } from './manifestWorldMarkdown';
 import { BETA_TOOLS } from './manifestBeta';
 import { REFERENCE_TOOLS } from './manifestReference';
 import { COVERAGE_TOOLS } from './manifestCoverage';
@@ -512,6 +515,7 @@ List codex entries (characters, locations, items, factions, concepts) with their
       properties: {
         projectId: PROJECT_ID,
         type: s('Filter by entry type.', { enum: CODEX_TYPES }),
+        revealed: { type: 'boolean', description: 'true lists only the cards revealed to the players, false only those not revealed yet (wh_set_revealed). Omit for all.' },
       },
       additionalProperties: false,
     },
@@ -770,6 +774,18 @@ const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
     description: 'Change the to-do list as the Tasks tab does: action add (text, optional status, urgency, due, links) · update (id or match, then any of text, status, urgency, due — null clears it —, links which replaces them) · remove (id or match). links: [{kind: "writing"|"codex", id}] of this project. Undo with wh_undo.',
     writes: true,
     schema: { type: 'object', properties: { projectId: s('Project id.'), action: { type: 'string', enum: ['add', 'update', 'remove'] }, id: s('Task id from wh_todo_list.'), match: s('Words of the task\'s text (instead of id).'), text: s('Task text (up to 500 characters).'), status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'dropped'] }, urgency: n('0 none, 1 low, 2 medium, 3 high.'), due: { type: ['string', 'null'], description: 'Day YYYY-MM-DD, or null to clear.' }, links: { type: 'array', maxItems: 20, items: { type: 'object', properties: { kind: { type: 'string', enum: ['writing', 'codex'] }, id: s('Chapter or card id.') }, required: ['kind', 'id'], additionalProperties: false } }, expectedRevision: n('Revision read last.') }, required: ['action'], additionalProperties: false },
+  },
+  {
+    name: 'wh_list_assets',
+    description: 'The project\'s assets library in one list: pictures (gallery), sounds and videos (media) and 3D models, with id, kind (image, audio, video, model), name, size in bytes, creation time, MIME type and tags. kind filters (default all), query matches words of the name or tags, sort is date-desc (default), date-asc, name-asc, name-desc, size-desc or size-asc, limit caps the list (default 100, at most 500). Read only; the pictures themselves are not included.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: s('Project id.'), kind: { type: 'string', enum: ['all', 'image', 'audio', 'video', 'model'] }, query: s('Words to find in the name or tags.'), sort: { type: 'string', enum: ['date-desc', 'date-asc', 'name-asc', 'name-desc', 'size-desc', 'size-asc'] }, limit: { type: 'number', description: 'How many to return (default 100, at most 500).' }, eraId: s('Read the world as it is in this era.') }, additionalProperties: false },
+  },
+  {
+    name: 'wh_asset_usage',
+    description: 'Where one asset from wh_list_assets is used, before anyone deletes it: Codex card avatars and links, board nodes, storyboard panels, video segments, map backgrounds, the project cover, wiki profile banners, visual references, soundscape strips and media or 3D blocks inside chapters. Returns the places (kind, id, name) and a ready "Se usa en N sitios" warning when there are any. Read only.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: s('Project id.'), assetId: s('Asset id from wh_list_assets.') }, required: ['assetId'], additionalProperties: false },
   },
   {
     name: 'wh_soundscape',
@@ -1398,6 +1414,7 @@ Change a beat. Only the fields you pass are touched. Moving a beat to "drafted" 
 export const BRIDGE_TOOLS: BridgeTool[] = [
   {name:'wh_workspace_library_get',writes:false,group:'core',description:'Read the project Library folders, placements, document references and exact revision. Pass its revision and an existing folder ID to wh_create_codex_entry to create a card inside that folder atomically. Explicit era reads its contextual Library; omitted era reads Shared base. Does not start disabled engines.',schema:{type:'object',properties:{projectId:PROJECT_ID,eraId:s('Optional named era; omit for Shared base.')},additionalProperties:false}} satisfies BridgeTool,
   {name:'wh_workspace_library_update',writes:true,group:'core',description:'Organise the project Library (references to documents in folders; the documents stay in their tools), one action per call against the revision from wh_workspace_library_get: create-folder (name, parentId), rename-folder (folderId, name), move-folder (folderId, parentId; empty = top), delete-folder (folderId; its contents move up), order-folder (folderId, direction -1/1), style-folder (folderId, icon among folder/book/users/map/scroll/sword/crown/star/heart/flag/gem/leaf and/or color #rrggbb; an empty string clears), place (documents, folderId; empty = Unfiled), order-document (documents[0], direction), pin (documents, pinned true/false: pinned documents lead the Library), group (name, parentId, documents: a new folder holding them), prune (drop references to deleted documents). Returns the new revision, folders and placements, and folderId for a new folder.',schema:{type:'object',properties:{projectId:PROJECT_ID,eraId:s('Optional named era; omit for Shared base.'),action:s('The action.',{enum:['create-folder','rename-folder','move-folder','delete-folder','order-folder','style-folder','place','order-document','pin','group','prune']}),expectedRevision:n('Revision from wh_workspace_library_get.',{type:'integer',minimum:0}),folderId:s('Folder to act on (or destination for place).'),parentId:s('Parent folder; empty for the top level.'),name:s('Folder name (create-folder, rename-folder, group).'),icon:s('style-folder: icon name, or an empty string to clear.'),color:s('style-folder: #rrggbb, or an empty string to clear.'),direction:{type:'integer',enum:[-1,1]},pinned:b('pin: true pins (default), false unpins.'),documents:{type:'array',minItems:1,maxItems:500,items:{type:'object',properties:{engineId:s('Engine id.'),entityId:s('Document id.')},required:['engineId','entityId'],additionalProperties:false}}},required:['action','expectedRevision'],additionalProperties:false}} satisfies BridgeTool,
+  {name:'wh_workspace_tabs',writes:false,group:'core',description:'Read the companion tabs open beside the main view for a project, as the workspace last stored them in this window: position (the number shown on the tab and used by Mod+1..9), tool, route, document title, the writer\'s own tab name, pinned, active, plus how many closed tabs can be reopened (Mod+Shift+T, up to ten). Read-only; it does not open, close or rename tabs.',schema:{type:'object',properties:{projectId:PROJECT_ID},additionalProperties:false}} satisfies BridgeTool,
   ...PROJECT_GENRE_TOOLS,
   ...WORLD_FOLDER_IMPORT_TOOLS,
   ...PROJECT_PIN_TOOLS,
@@ -1407,6 +1424,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...RADAR_TOOLS,
   ...SHEET_TOOLS,
   ...grouped('story', BIBLE_TOOLS),
+  ...grouped('core', WORLD_MARKDOWN_TOOLS),
   // Core spans every engine or none, so it carries no engineId.
   ...grouped('core', CONTEXT_TOOLS),
   ...grouped('writing', inEngine('writings', inEra(WRITING_TOOLS))),
@@ -1416,6 +1434,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   // Reads the chapter and the codex; pins are local preferences, so no engineId.
   ...grouped('writing', REFERENCE_TOOLS.map(tool => ['wh_chapter_references', 'wh_pin_reference', 'wh_reference_search', 'wh_reference_preview'].includes(tool.name) ? inEra([tool])[0] : tool)),
   ...grouped('people', inEngine('codex', inEra(CODEX_TOOLS))),
+  ...grouped('people', inEngine('codex', inEra(CODEX_REVEAL_TOOLS))),
   ...grouped('people', inEngine('biography', BIOGRAPHY_TOOLS)),
   ...grouped('people', inEngine('relationships', RELATIONSHIP_TOOLS)),
   ...grouped('people', inEngine('genealogy', GENEALOGY_BRIDGE_TOOLS)),
@@ -1429,6 +1448,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('script', inEngine('dialog-scene', inEra(DIALOG_TOOLS))),
   ...grouped('visual', inEngine('board', [...inEra(BOARD_TOOLS), ...BOARD_CANVAS_TOOLS])),
   ...grouped('core', WORKSPACE_APPEARANCE_TOOLS),
+  ...grouped('core', WORKSPACE_THEME_TOOLS),
   ...LOCAL_TOOL_TOOLS,
   ...grouped('people', inEngine('genealogy', RELATION_TREE_TOOLS)),
   ...DOCUMENT_HISTORY_TOOLS,

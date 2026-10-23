@@ -67,6 +67,8 @@ export interface Project {
   diceTray?: import('@/engines/dice/operations').DiceTray;
   /** The project's to-do list (status, urgency, due day, links to documents). */
   todos?: import('@/engines/todos/model').TodoList;
+  /** How the table plays: game system, rules changed from the defaults, and the notes about the evening. */
+  tableRules?: import('@/engines/character-sheets/tableRules').TableRules;
   /** Mixes of the project's sounds by scene (loops and one-shots with their levels). */
   soundscapes?: import('@/engines/soundscape/model').SoundscapeList;
   /** Kanban boards: columns of cards to drag across. */
@@ -164,8 +166,24 @@ export interface CodexEntry {
   wikidataQid?: string;
   /** Present when this entry was imported from a story world (wh_world_from_scheherazade). */
   familySource?: FamilySource;
+  /**
+   * Set when the author has told the players what this card says. Absent means
+   * not revealed. The player view and the "only what is revealed" wiki policy
+   * read it; nothing else does.
+   */
+  revealed?: CodexReveal;
   createdAt: number;
   updatedAt: number;
+}
+
+/** When and (optionally) where in the story the players learnt what a card says. */
+export interface CodexReveal {
+  /** Epoch ms of the moment the author marked it revealed. */
+  at: number;
+  /** Free words from the author, e.g. what exactly the players were told. */
+  note?: string;
+  /** Free label of the story moment, e.g. "Session 3" or "Chapter 12". */
+  moment?: string;
 }
 
 // Relation between entities
@@ -387,6 +405,8 @@ export interface InspirationImage {
   id: string;
   projectId: string;
   collectionId?: string;
+  /** Optional file-style name shown in the Assets library; absent on older rows. */
+  name?: string;
   imageData: string; // base64 (cropped for display)
   imageDataOriginal?: string; // base64 — original uncropped source
   thumbnailData?: string; // compressed base64
