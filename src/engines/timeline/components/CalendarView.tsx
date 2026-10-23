@@ -32,7 +32,7 @@ const input = 'rounded-lg border border-border bg-elevated px-2 py-1 text-xs tex
  * the whole year, on the project's world calendar or the Gregorian one, with
  * go-to-date and a small date calculator.
  */
-export default function CalendarView({ events, timelines, worldCalendar, onAddEvent }: { events: TimelineEvent[]; timelines: Timeline[]; worldCalendar: WorldCalendar | null; onAddEvent: (event: TimelineEvent) => void | Promise<void> }) {
+export default function CalendarView({ events, timelines, worldCalendar, onAddEvent, onOpenEvent }: { events: TimelineEvent[]; timelines: Timeline[]; worldCalendar: WorldCalendar | null; onAddEvent: (event: TimelineEvent) => void | Promise<void>; onOpenEvent?: (event: TimelineEvent, trigger: HTMLButtonElement) => void }) {
   const { t, locale } = useTranslation();
   const lang = locale === 'en' ? 'en' : 'es';
   const [kind, setKind] = useState<CalendarKind>(worldCalendar ? 'world' : 'earth');
@@ -120,7 +120,7 @@ export default function CalendarView({ events, timelines, worldCalendar, onAddEv
     {scale === 'month' && dayAt && <div className="space-y-2 rounded-lg border border-border bg-surface p-3" data-testid="calendar-day-detail">
       <p className="text-sm font-semibold text-text-primary">{label({ year: at.year, month: at.month, day: dayAt.day })}{dayAt.weekday ? ` · ${dayAt.weekday}` : ''}{dayAt.holidays.length ? ` · ${dayAt.holidays.join(', ')}` : ''}</p>
       {lens && equivalent({ year: at.year, month: at.month, day: dayAt.day }) && <p data-testid="calendar-equivalent" className="text-xs text-text-muted">{lang === 'es' ? 'En el otro calendario' : 'On the other calendar'}: {equivalent({ year: at.year, month: at.month, day: dayAt.day })}</p>}
-      {dayAt.events.length ? dayAt.events.map(event => <div key={event.id} className="border-l-2 pl-2" style={{ borderColor: event.color }}><p className="text-sm text-text-primary">{event.title}</p>{event.description && <p className="text-xs text-text-muted">{event.description}</p>}</div>) : <p className="text-xs text-text-dim">{copy.none}</p>}
+      {dayAt.events.length ? dayAt.events.map(event => <div key={event.id} className="border-l-2 pl-2" style={{ borderColor: event.color }}>{onOpenEvent ? <button type="button" data-testid={`calendar-open-event-${event.id}`} onClick={click => onOpenEvent(event, click.currentTarget)} className="min-h-9 text-left text-sm text-accent-gold hover:underline">{event.title}</button> : <p className="text-sm text-text-primary">{event.title}</p>}{event.description && <p className="text-xs text-text-muted">{event.description}</p>}</div>) : <p className="text-xs text-text-dim">{copy.none}</p>}
       {timelines.length > 0 && <form className="flex gap-2" onSubmit={event => { event.preventDefault(); void create(); }}><input data-testid="calendar-new-title" className={`${input} flex-1`} value={draft} onChange={event => setDraft(event.target.value)} placeholder={copy.add} /><button type="submit" className={button} data-testid="calendar-new" disabled={!draft.trim()}><Plus size={12} />{copy.add}</button></form>}
     </div>}
     <details className="rounded-lg border border-border p-3 text-xs" data-testid="calendar-calculator">
