@@ -1,4 +1,6 @@
 export {defineLocalToolBlock} from './blocks/definitions';
+export {useLocalToolWorldList,useLocalToolWorldRead} from './useLocalToolWorld';
+export type {LocalToolWorldClient} from './useLocalToolWorld';
 export type {LocalToolBlockDefinition,LocalToolOwnedBlockDefinition,LocalToolWorldBlockDefinition,LocalToolWorldBlockProps} from './blocks/definitions';
 export type {LocalToolBlockEnvelope,LocalToolOwnedBlockEnvelope,LocalToolWorldBlockEnvelope,LocalToolBlockOwner,LocalToolBlockDataOwner} from './blocks/types';
 export type {LocalToolPreviewSpec} from './previewTypes';
