@@ -6,6 +6,7 @@ import { db } from '@/db';
 import { makeTableOps } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
 import { GLOBAL_NOTES_SCOPE, type Note, type NoteKind } from './types';
+import { normalizeNoteContent } from './content';
 
 const ops = makeTableOps<Note>({
   tableName: 'notes',
@@ -17,8 +18,8 @@ const ops = makeTableOps<Note>({
 
 export const getNotes = ops.getAll;
 export const getNote = ops.getOne;
-export const createNote = ops.create;
-export const updateNote = ops.update;
+export const createNote = (note:Note) => ops.create(normalizeNoteContent(note));
+export const updateNote = (id:string,changes:Partial<Note>) => ops.update(id,normalizeNoteContent(changes));
 export const deleteNote = ops.delete;
 
 /** Build a fresh note row. Shared by the composer, quick capture and imports. */
@@ -35,8 +36,7 @@ export function makeNote(
     pinned: false,
     createdAt: now,
     updatedAt: now,
-    ...fields,
-    text: fields.text.trim(),
+    ...normalizeNoteContent({...fields,text:fields.text.trim()}),
   };
 }
 

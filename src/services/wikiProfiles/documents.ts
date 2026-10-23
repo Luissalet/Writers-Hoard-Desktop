@@ -1,4 +1,5 @@
 import type { ReaderSource } from '@/engines/writings/readerSource';
+import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import type { EraDocumentKind } from '@/services/worldEras/types';
 import { WIKI_ADDITIONAL_KINDS, type WikiDocumentRef, type WorldWikiOptions } from '@/types/worldWiki';
 import { resolveToolPreview, type ToolPreview, type ToolExportPolicy } from '@/components/editor/toolBlocks/preview';
@@ -42,7 +43,14 @@ export async function prepareStandaloneWikiPages(source:ReaderSource,options:Wor
     if(doc.ref.kind==='notes'){
       const note=source.documents?.('notes').find(item=>item.root.id===doc.ref.id)?.root;
       if(!note)continue;
-      const body=String(note.text??'').split(/\r?\n/).map(line=>`<p>${esc(line)||'<br>'}</p>`).join('');
+      let body=String(note.text??'').split(/\r?\n/).map(line=>`<p>${esc(line)||'<br>'}</p>`).join('');
+      if(typeof note.richHtml==='string'){
+        const content=document.createElement('template');content.innerHTML=sanitizeRichHtml(note.richHtml);
+        content.content.querySelectorAll('[data-wh-wiki-hidden="true"],[data-wh-tool-block],[data-wh-source-block],[data-wh-codex-block]').forEach(node=>node.remove());
+        content.content.querySelectorAll('[data-wh-wiki-spoiler="true"]').forEach(node=>node.replaceChildren(document.createTextNode('▮▮▮')));
+        content.content.querySelectorAll('img').forEach(image=>{if(options.includeImages===false||!raster(image.getAttribute('src')))image.remove();});
+        body=content.innerHTML;
+      }
       const cover=options.includeImages!==false&&raster(note.cover)?`<img src="${esc(note.cover)}" alt="">`:'';
       pages.push({...doc,preview:{title:doc.title,html:cover+body+(note.source?`<p>${esc(note.source)}</p>`:''),truncated:false}});
       continue;

@@ -65,7 +65,7 @@ export function safeToolSvg(source: string, stablePrefix?:string): string {
  * semantic preview rather than trusting a supposedly prepared HTML string. */
 export function sanitizeToolPreviewHtml(source:string,stablePrefix?:string,allowImages=false):string {
   const doc=new DOMParser().parseFromString(source,'text/html'),out=document.createElement('div');
-  const tags=new Set(['P','H3','H4','STRONG','B','EM','UL','OL','LI','TABLE','THEAD','TBODY','TR','TD','TH','DIV','SPAN','SECTION','DL','DT','DD']);
+  const tags=new Set(['P','H1','H2','H3','H4','H5','H6','STRONG','B','EM','UL','OL','LI','TABLE','THEAD','TBODY','TR','TD','TH','DIV','SPAN','SECTION','DL','DT','DD']);
   const visit=(node:Node,parent:Element)=>{
     if(node.nodeType===Node.TEXT_NODE){parent.append(document.createTextNode(node.textContent??''));return;}
     if(!(node instanceof Element))return;
