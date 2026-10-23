@@ -70,16 +70,19 @@ function useRestartedNumbers(editor: Editor | null, restartAt: string | undefine
 
   useEffect(() => {
     if (!editor || !restartAt) return;
-    const refresh = ({ transaction }: { transaction: Transaction }) => {
-      if (!transaction.docChanged) return;
+    const refresh = () => {
       const next = collectFootnotes(editor.state.doc, restartAt).map((note) => note.index);
       setNumbers((current) =>
         current.length === next.length && current.every((n, at) => n === next[at]) ? current : next,
       );
     };
-    editor.on('transaction', refresh);
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      if (transaction.docChanged) refresh();
+    };
+    editor.on('transaction', onTransaction);
+    refresh();
     return () => {
-      editor.off('transaction', refresh);
+      editor.off('transaction', onTransaction);
     };
   }, [editor, restartAt]);
 

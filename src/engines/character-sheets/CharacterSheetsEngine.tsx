@@ -43,7 +43,7 @@ function Workspace({ projectId }: EngineComponentProps) {
   const [view, setView] = useState<'sheets' | 'compendium' | 'fight' | 'dice' | 'rules'>('sheets');
   const [selected, setSelected] = useState(''); const [preset, setPreset] = useState<SheetPreset>('5e-character');
   const [query, setQuery] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [status, setStatus] = useState(''); const [conflict, setConflict] = useState(false);
-  const [confirmation, setConfirmation] = useState<null | { message: string; action: () => void | Promise<void> }>(null);
+  const [confirmation, setConfirmation] = useState<null | { message: string; action: () => void | Promise<void>; destructive: boolean }>(null);
   const importRef = useRef<HTMLInputElement>(null); const pending = useRef(false);
   const deepLink = useDeepLinkParam('entity'); const [seenLink, setSeenLink] = useState(''); const viewLink = useDeepLinkParam('view'); const [seenView, setSeenView] = useState('');
   if (viewLink && viewLink !== seenView) { setSeenView(viewLink); if (viewLink === 'rules') setView('rules'); if (viewLink === 'fight') setView('fight'); }
@@ -70,7 +70,7 @@ function Workspace({ projectId }: EngineComponentProps) {
       removeDraft(sheet.id); setSelected(saved.id); setConflict(false); setStatus(c.saved);
     });
   };
-  const confirm = (message: string, action: () => void | Promise<void>) => setConfirmation({ message, action });
+  const confirm = (message: string, action: () => void | Promise<void>, destructive = true) => setConfirmation({ message, action, destructive });
   if (!project) return <p className="p-5 text-text-muted">…</p>;
   const documents = [...sheets, ...Object.values(drafts).map(item => item.sheet).filter(item => !sheets.some(saved => saved.id === item.id))];
   const visible = documents.filter(item => (drafts[item.id]?.sheet.title ?? item.title).toLowerCase().includes(query.toLowerCase()));
@@ -106,6 +106,6 @@ function Workspace({ projectId }: EngineComponentProps) {
       <fieldset disabled={busy}><SheetEditor key={sheet.id} sheet={sheet} sheets={sheets} tableRules={project.tableRules} locale={locale} update={update} confirm={confirm} report={setError} status={setStatus} /></fieldset>
       <footer className="border-t border-border pt-4"><p className="max-w-prose text-sm text-text-muted">{sheet.preset==='coc7'?(locale==='es'?'Los máximos automáticos siguen las características; los ajustes manuales se conservan. Las acciones de Partida aplican heridas y cordura al borrador. Guarda para conservar los resultados.':'Automatic maxima follow characteristics; manual overrides persist. Play actions apply wounds and sanity to the draft. Save to keep the results.'):c.manual}</p>{sourceLinks[sheet.preset] && <p className="mt-3 flex flex-wrap gap-3 text-xs text-text-muted">{c.sources}: {(sheet.fiveE?[{title:FIVE_E_SOURCE.title,url:FIVE_E_SOURCE.url}]:sourceLinks[sheet.preset]!).map(source => <a key={source.url} className="text-accent-gold underline underline-offset-4" href={source.url} target="_blank" rel="noreferrer noopener">{source.title}</a>)}</p>}</footer>
     </>}</main></div>}
-    <ConfirmDialog open={!!confirmation} message={confirmation?.message ?? ''} destructive onCancel={() => setConfirmation(null)} onConfirm={async () => { const action = confirmation?.action; setConfirmation(null); await action?.(); }} />
+    <ConfirmDialog open={!!confirmation} message={confirmation?.message ?? ''} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={async () => { const action = confirmation?.action; setConfirmation(null); await action?.(); }} />
   </section>;
 }

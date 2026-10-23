@@ -1,5 +1,11 @@
 # D1-tools: VVD smaller tools vs Writer (capability cross-reference)
 
+## Live continuation,23October2026
+
+The inherited rows below remain historical catalogue/source comparisons. Actual Browser observation now additionally covers CoC0.1.17: STR85/CON70/SIZ60, PulpHP26, Build1, DB+1D4, Move8; half/fifth targets; Modern skills and a retained pushed-roll result. Writer reproduces those values. This batch closes a concrete projection gap: paper/read-only output now includes investigator state, daily SAN/pending checks, characteristic targets, manual-derived sources, improvement marks and linked pushes without moving existing ink. Non-destructive confirmation labels are corrected. [Evidence, reviews and transport limits](verification-live.md).
+
+The real Table0.1.37 preview was opened next, showing five sample records. Its description advertises typed text/integer/card-link columns and distinguishes record tables from formula sheets; behavior of linking edits back into cards has **not** yet been exercised. Next comparison must test that actual operation against Writer rather than treating the description or this matrix as proof. The reference CoC description also advertises a compact read-only party card with selected skills; Writer's new paper output is comprehensive, and compact roster equivalence remains to be checked separately.
+
 Scope: `D1-tools.txt` (898 UI strings: icons, compendium, peek, audio/radio, soundscape, canvas, annotator, graphTool, entitySuggestions, notesTool, sheetTool, embedTool, radarChart, animator, board, dice, todoListTool, voiceMemo, nameGenerator).
 Writer repo read-only: `Writers hoard desktop/` (code read via a copy of `src/`, `electron/`, `docs/`; nothing modified). Prior matrix `tasks/worldcraft1041-feature-inventory.md` was read for overlap only; every PRESENT/PARTIAL below was confirmed in code.
 Legend: ONLINE = needs a server by nature (excluded from gap analysis). "(inferred)" = behaviour inferred from labels only. UNKNOWN = evidence missing.

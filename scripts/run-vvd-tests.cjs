@@ -8,6 +8,19 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['tiptap-reconnect.browser.tsx', 'testTiptapReconnect'],
+  ['review-footnotes-handoff.browser.tsx', 'reviewFootnotesHandoff'],
+  ['sheet-confirmations.browser.tsx', 'testSheetConfirmations'],
+  ['local-tool-index.browser.tsx', 'testLocalToolIndex'],
+  ['review-local-tool-index.browser.tsx', 'reviewLocalToolIndexSelection'],
+  ['review-local-tool-index.browser.tsx', 'reviewLocalToolIndexBoundaries'],
+  ['local-tool-keyboard-undo.browser.tsx', 'testLocalToolKeyboardUndo'],
+  ['review-local-tool-keyboard.browser.tsx', 'reviewLocalToolKeyboard'],
+  ['review-local-tool-keyboard.browser.tsx', 'reviewLocalToolKeyboardRetarget'],
+  ['review-local-tool-keyboard.browser.tsx', 'reviewLocalToolKeyboardLateFailure'],
+  ['review-local-tool-keyboard.browser.tsx', 'reviewLocalToolKeyboardGlobal'],
+  ['coc-paper.browser.tsx', 'testCocPaper'],
+  ['review-coc-paper.browser.tsx', 'reviewCocPaper'],
   ['wiki-standalone-pages.browser.tsx', 'testWikiEmbeddedSheet'],
   ['review-home-independent.browser.tsx', 'reviewHomeIndependent'],
   ['review-fiction-session-races.browser.tsx', 'testReviewFictionRaces'],

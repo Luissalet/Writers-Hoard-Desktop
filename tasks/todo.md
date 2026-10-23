@@ -1254,3 +1254,14 @@ Success: keep old payloads/output for unchanged options, preserve edits/archives
 - [x] Small campaign improvements: optional workspace particles, library context bookmarks/session recents; state exact remaining gaps.
 - [x] Focused tests, native MCP/Browser checks and independent code/visual review; final broad run recorded in verification-next.md.
 - [x] Update matrices/docs/manual/memory/graph; commit86explicit paths as Luissalet and integrate56994f1 under merge lock after complementary CAS2 approvals, no push. Remaining partial subclaims stay in D2/B; task1095 remains open.
+
+## Live reference parity — continued after user correction, 23-10-2026
+Objective: exercise the actual VVD website and current SDK, then implement equal or better native Writer behavior; exclude external paid/API dependencies. Deliveries are intermediate baselines. Success is a reference flow → concrete Writer difference → implementation → Browser/MCP persistence/portability proof, with no desktop control and no push.
+- [x] Resume authenticated VVD in Brave through user.claimTab; inspect real tool catalogue and interactive sheet preview. Internal Browser is only for SDK docs/isolated Writer QA.
+- [x] Structured source-tool index/query usable in normal UI, SDK and MCP; lists/maps searchable, effective era source and live updates. Final-source tests and actual transport have separately recorded limits.
+- [x] Focused keyboard Undo/Redo for source-tool documents and owned blocks, preserving text-input Undo and pane isolation; independent lifecycle/global shortcut regressions.
+- [x] CoC paper/read-only investigator state and matching non-destructive confirmations; real Browser save/reload and independent paper-coordinate review.
+- [x] Correct missed footnote-panel updates between render and subscription; deterministic RED/GREEN and complete critical396PASS.
+- [x] Correct the actual Codex New Entry editor lifecycle crash, reproduce and independently review; Browser opens normally and owned-block keyboard Undo/Redo retains the block before normal Save.
+- [ ] Continue live tool comparisons and implement further observed offline gaps; never infer parity from catalogue labels alone.
+- [ ] Review, functional verification and integration of resulting features; keep the investigation open beyond this delivery.
