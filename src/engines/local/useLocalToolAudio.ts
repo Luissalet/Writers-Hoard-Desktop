@@ -1,0 +1,14 @@
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import type { LocalToolClient,LocalToolJson } from './sdk';
+import type {LocalAudioOptions,LocalAudioRef,LocalAudioUpdate} from './audio';
+/** No mount playback. Every hook owns only its handles, even on a shared client. */
+export function useSound(client:Pick<LocalToolClient<LocalToolJson>,'audio'>,ref:LocalAudioRef|null,defaults:LocalAudioOptions={}){
+ const audio=client.audio,refKey=ref?JSON.stringify(ref):'',latest=useRef({ref,defaults});latest.current={ref,defaults};const [state,setState]=useState<{session:object|null;playing:boolean;error?:string}>({session:null,playing:false});
+ const session=useMemo(()=>({audio,refKey,active:true,generation:0,handles:new Set<string>(),requests:new Set<AbortController>()}),[audio,refKey]);
+ useEffect(()=>{session.active=true;session.generation++;const off=audio?.subscribe(()=>{if(session.active)setState(prior=>({session,playing:[...session.handles].some(id=>audio.getState().some(row=>row.id===id)),error:prior.session===session?prior.error:undefined}));});return()=>{session.active=false;session.generation++;off?.();for(const request of session.requests)request.abort();session.requests.clear();for(const id of session.handles)audio?.stop(id);session.handles.clear();};},[audio,session]);
+ const play=useCallback(async(options:LocalAudioOptions={})=>{if(!session.active||!audio||!latest.current.ref)return null;const generation=session.generation,request=new AbortController();session.requests.add(request);try{setState(prior=>({session,playing:prior.session===session&&prior.playing}));const id=await audio.play(latest.current.ref,{bus:'sfx',focus:'mix',...latest.current.defaults,...options,signal:request.signal});if(id){if(!session.active||session.generation!==generation){audio.stop(id);return null;}session.handles.add(id);setState({session,playing:true});}return id;}catch(reason){if(session.active&&session.generation===generation)setState(prior=>({session,playing:prior.session===session&&prior.playing,error:reason instanceof Error?reason.message:String(reason)}));return null;}finally{session.requests.delete(request);}},[audio,session]);
+ const stop=useCallback((options?:{fadeOutMs?:number})=>{for(const request of session.requests)request.abort();session.requests.clear();for(const id of session.handles)audio?.stop(id,options);session.handles.clear();setState({session,playing:false});},[audio,session]);
+ const update=useCallback((options:LocalAudioUpdate)=>{for(const id of session.handles)audio?.update(id,options);},[audio,session]);
+ return{available:audio?.available??false,playing:state.session===session&&state.playing,error:state.session===session?state.error:undefined,play,stop,update};
+}
+export function useAudioPlayer(client:Pick<LocalToolClient<LocalToolJson>,'audio'>,ref:LocalAudioRef|null,defaults:LocalAudioOptions={}){return useSound(client,ref,{bus:'music',focus:'exclusive',loop:true,...defaults});}

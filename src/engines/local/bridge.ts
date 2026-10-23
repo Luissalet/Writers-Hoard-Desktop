@@ -1,3 +1,4 @@
+import {LOCAL_AUDIO_HANDLERS} from './audioBridge';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {LOCAL_TOOL_BLOCK_HANDLERS} from './blocks/bridge';
 import {createSourceToolDocument,listSourceToolDocuments,renameSourceToolDocument,archiveSourceToolDocument} from './documents/store';
@@ -17,6 +18,7 @@ async function client(args:ToolArgs,readOnly=false){const selected=await sourceF
 async function invoke(args:ToolArgs,writes:boolean){const {source,releaseHash}=await sourceFor(args),scoped=createLocalToolClient(resolveProjectId(args),source,{documentId:optString(args,'documentId'),eraId:optString(args,'eraId'),readOnly:!writes,requireSelectedRelease:true,releaseHash});await assertEngineEnabled(scoped.projectId,localToolEngineId(source.namespace));try{return await runLocalToolOperation(source,requireString(args,'operation'),args.input??{},writes,scoped,run=>db.transaction('rw',db.tables,async()=>{const row=await db.projects.get(scoped.projectId);if((row?.localToolInstallations?.[source.namespace]?.contentHash??null)!==releaseHash)throw Error('local_tool_pin_conflict');return await run(scoped);}));}catch(error){if(error instanceof LocalToolOperationError)throw new BridgeError(error.code,error.message);throw error;}}
 async function stateClient(args:ToolArgs){const scoped=await client(args);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.state)throw new BridgeError('bad-args','This source has no declarative state codec.');return scoped;}
 export const LOCAL_TOOL_HANDLERS={
+ ...LOCAL_AUDIO_HANDLERS,
  ...LOCAL_TOOL_BLOCK_HANDLERS,
  async wh_local_tool_document_query(args:ToolArgs){const query=Object.fromEntries(['namespace','where','reference','offset','limit'].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));return{documents:await queryLocalToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},query)};},
  async wh_local_tool_document_list(args:ToolArgs){return{documents:await listSourceToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'namespace'))};},

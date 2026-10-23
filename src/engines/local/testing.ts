@@ -1,3 +1,5 @@
+import {createLocalAudioEngine,silentLocalToolAudio,type LocalAudioBackend} from './audio';
+export {createRecordingLocalToolAudio} from './audioTesting';
 import {evaluateLocalToolIndex,queryLocalToolIndexRows,type LocalToolDocumentQuery} from './documentIndex';
 import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
 import {createLocalToolStateActions} from './stateRuntime';
@@ -24,6 +26,7 @@ export interface LocalToolHostFixtures {projects:LocalToolFixtureProject[];docum
 export interface LocalToolRecordedCommand {kind:'navigate'|'search'|'tool'|'media-import';scope:WorldEraScope;name?:string;args?:LocalToolJson;query?:string;documentKind?:EraDocumentKind;documentId?:string;filename?:string}
 export interface LocalToolFakeTool<T extends LocalToolJson> {tool:BridgeTool;run:(args:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostOverrides<T extends LocalToolJson> {
+ audio?:LocalAudioBackend;
  tools?:readonly LocalToolFakeTool<T>[];
  navigate?:(kind:EraDocumentKind,id:string,scope:WorldEraScope)=>Promise<void>;
  search?:(query:string,limit:number,scope:WorldEraScope)=>Promise<ContentSearchHit[]>;
@@ -35,6 +38,7 @@ const key=(scope:WorldEraScope,kind:EraDocumentKind,id:string)=>JSON.stringify([
 const sameScope=(a:WorldEraScope,b:WorldEraScope)=>a.projectId===b.projectId&&a.eraId===b.eraId;
 /** Each fixture is an aggregate owned by one scope; versions are opaque fixture-only CAS tokens. */
 export function createFakeLocalToolHost<T extends LocalToolJson>(definition:LocalToolDefinition<T>,fixtures:LocalToolHostFixtures,overrides:LocalToolHostOverrides<T>={}){
+ const audioEngine=overrides.audio?createLocalAudioEngine(overrides.audio):undefined;
  const hostIdentity=++hostSequence,hooks=new WeakMap<Memory,{commit:(()=>void)[];abort:(()=>void)[]}>();
  const listeners=new Set<{projectId:string;changed:()=>void}>();
  let version=0,memory:Memory={projects:new Map(),documents:new Map()},queue:Promise<unknown>=Promise.resolve();
@@ -64,7 +68,9 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
    search:async(query,limit=20)=>{project(scope,state());commands.push({kind:'search',scope:{...scope},query});if(overrides.search)return overrides.search(query,limit,scope);if(typeof query!=='string'||!Number.isInteger(limit)||limit<1)throw Error('fake_host_invalid_search');const rows=new Map<string,LocalToolIndexFixture>();for(const row of indexFixtures)if(row.projectId===scope.projectId&&!row.eraId)rows.set(`${row.engineId}:${row.id}`,row);if(scope.eraId)for(const row of indexFixtures)if(sameScope(scope,row))rows.set(`${row.engineId}:${row.id}`,row);const parsed=parseSearchQuery(query),engines=resolveEngineFilter(parsed,[...new Set([...rows.values()].map(row=>row.engineId))].map(id=>({id,name:id})));return[...rows.values()].filter(row=>{const text=foldSearchText(`${row.title} ${row.text??row.snippet}`);return!row.hidden&&matchesFacets(parsed,{engineId:row.engineId,tags:(row.tags??[]).map(foldSearchText),type:foldSearchText(row.type??''),status:foldSearchText(row.status??''),day:row.day??''},engines,searchToday())&&!hasExcludedText(parsed,text)&&!!findRequiredMatch(parsed,text);}).slice(0,limit).map(({id,engineId,projectId,title,subtitle,snippet})=>({id,engineId,projectId,title,subtitle,snippet}));},
    openDocument:async(documentKind,id)=>{if(!effective(scope,documentKind,state()).some(row=>row.document.root.id===id))throw Error('world_document_missing');commands.push({kind:'navigate',scope:{...scope},documentKind,documentId:id});await overrides.navigate?.(documentKind,id,scope);},
   } satisfies Omit<LocalToolClient<T>,'refs'|'state'>;
-  const client:LocalToolClient<T>={...base,refs:createLocalToolReferences(base),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify(['fixture',hostIdentity,scope.projectId,scope.eraId??null,definition.namespace,definition.codec,documentId??null]),run=>write(async working=>{const callbacks=hooks.get(working);if(!callbacks)throw Error('fake_host_transaction_missing');return run({client:createClient(scope,readOnly,working,documentId),onCommit:callback=>callbacks.commit.push(callback),onAbort:callback=>callbacks.abort.push(callback)});}))}:{})};return Object.freeze(client);
+  const audio=audioEngine?.createOwner({current:()=>!draft||hooks.has(draft),resolve:async ref=>{const asset=(await base.media.list()).find(row=>row.id===ref.id&&row.kind==='audio');return asset?{blob:asset.blob,version:JSON.stringify([asset.id,asset.updatedAt,asset.size])}:null;}})??silentLocalToolAudio();
+  if(draft){const callbacks=hooks.get(draft);callbacks?.commit.push(()=>audio.dispose());callbacks?.abort.push(()=>audio.dispose());}
+  const client:LocalToolClient<T>={...base,audio,refs:createLocalToolReferences(base),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify(['fixture',hostIdentity,scope.projectId,scope.eraId??null,definition.namespace,definition.codec,documentId??null]),run=>write(async working=>{const callbacks=hooks.get(working);if(!callbacks)throw Error('fake_host_transaction_missing');return run({client:createClient(scope,readOnly,working,documentId),onCommit:callback=>callbacks.commit.push(callback),onAbort:callback=>callbacks.abort.push(callback)});}))}:{})};return Object.freeze(client);
  };
  return Object.freeze({commands,createClient:(scope:WorldEraScope,readOnly=false,documentId?:string)=>{project(scope,memory);return createClient({...scope},readOnly,undefined,documentId);},inspect:()=>structuredClone({projects:[...memory.projects.values()],documents:[...memory.documents.values()]}),runOperation:(scope:WorldEraScope,operationId:string,input:unknown={},writes=false,documentId?:string)=>runLocalToolOperation(definition,operationId,input,writes,createClient(scope,!writes,undefined,documentId),run=>transaction(draft=>run(createClient(scope,false,draft,documentId)),scope.projectId))});
 }

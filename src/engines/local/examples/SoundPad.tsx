@@ -1,0 +1,12 @@
+import {useEffect,useState} from 'react';
+import {useSound,useAudioPlayer,type LocalToolProps,type LocalToolJson} from '../sdk';
+import type {LocalMediaAsset} from '@/engines/media/types';
+import {useTranslation} from '@/i18n/useTranslation';
+/** SDK example: the source is a local media ID; mounting never starts playback. */
+export default function SoundPad({client}:LocalToolProps<LocalToolJson>){
+ const {locale}=useTranslation(),es=locale==='es';
+ const [assets,setAssets]=useState<LocalMediaAsset[]>([]),[id,setId]=useState(''),[volume,setVolume]=useState(.15);
+ useEffect(()=>{let active=true,generation=0;const refresh=()=>{const request=++generation;void client.media.list().then(rows=>{if(active&&request===generation)setAssets(rows.filter(row=>row.kind==='audio'));});};refresh();const off=client.subscribe?.(refresh);return()=>{active=false;off?.();};},[client]);
+ const selected=assets.some(asset=>asset.id===id)?id:assets[0]?.id,ref=selected?{kind:'media' as const,id:selected}:null,sound=useSound(client,ref,{volume}),music=useAudioPlayer(client,ref,{volume});
+ return <section className="space-y-3 text-sm text-text-primary" data-sdk-sound-pad><label>{es?'Sonido local':'Local sound'} <select aria-label={es?'Sonido local':'Local sound'} value={selected??''} onChange={event=>{sound.stop();music.stop();setId(event.target.value);}}>{assets.map(asset=><option key={asset.id} value={asset.id}>{asset.title}</option>)}</select></label><label className="flex items-center gap-2">{es?'Volumen':'Volume'} <input type="range" aria-label={es?'Volumen':'Volume'} min={0} max={1} step={.05} value={volume} onChange={event=>{const value=Number(event.target.value);setVolume(value);sound.update({volume:value});music.update({volume:value});}}/><output>{Math.round(volume*100)}%</output></label><div className="flex flex-wrap gap-2"><button type="button" disabled={!ref||!sound.available} onClick={()=>{void sound.play({fadeInMs:20});}}>{es?'Reproducir efecto':'Play effect'}</button><button type="button" disabled={!ref||!music.available} onClick={()=>{void music.play({fadeInMs:100});}}>{es?'Reproducir música':'Play music'}</button><button type="button" onClick={()=>{sound.stop({fadeOutMs:80});music.stop({fadeOutMs:80});}}>{es?'Detener sonidos':'Stop sounds'}</button></div><p role="status">{!sound.available?(es?'Audio no disponible':'Audio unavailable'):sound.playing||music.playing?(es?'Reproduciendo sonido local':'Playing local sound'):(es?'Detenido':'Stopped')}</p>{(sound.error||music.error)&&<p role="alert">{sound.error||music.error}</p>}</section>;
+}
