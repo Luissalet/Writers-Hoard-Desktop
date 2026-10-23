@@ -17,6 +17,16 @@ editing model. Calendar views mounted without an open-event callback retain
 read-only event details.
 
 Writer supports weekly/monthly/yearly repeats and solid/stripes/dots/checks
-patterns. Decorative banner shapes such as ribbon are not represented by those
-patterns. No format migration or automatic date conversion is performed by
-opening an event.
+fill patterns. Band shape is a separate option: Plain retains the original
+band, Ribbon has inward notches at the ends, Bunting has a triangular lower
+edge, and Scallop has a rounded lower edge. Decorative shapes show the title
+at the start of each occurrence and at the first visible day of a month or
+week. They work with all existing fill patterns. The year overview retains
+its compact event dots.
+
+Native MCP create/update accepts `bannerShape: plain|ribbon|bunting|scallop`;
+`wh_list_events` returns the selected shape. Setting Plain clears a decorative shape.
+Old rows remain unchanged when read, and an absent shape keeps Plain. The
+existing JSON/ZIP formats preserve the optional field. The world wiki remains
+an event list, without calendar-band decoration. No format migration or
+automatic date conversion is performed by opening an event.
