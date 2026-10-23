@@ -60,7 +60,7 @@ operations: [{
 
 Schemas are returned in full by `wh_local_tool_describe`. The supported validation vocabulary is types (including nullable unions/integer), nested object properties/required/additionalProperties, arrays/items/uniqueItems/minItems/maxItems, enum/const, number bounds, Unicode string lengths/pattern, and anyOf/oneOf/allOf. Descriptive title/description/default/examples/readOnly/writeOnly/deprecated/$schema annotations are accepted. Unsupported assertion keywords, including `$ref` and `format`, are refused when registering a definition. This is the product's explicit schema vocabulary, not a complete JSON Schema implementation.
 
-The ordinary native MCP transport exposes fifteen static tools: `wh_local_tool_list`, `wh_local_tool_describe`, `wh_local_tool_read`, `wh_local_tool_save`, `wh_local_tool_query`, `wh_local_tool_call`, `wh_local_tool_pin`, `wh_local_tool_state_apply`, `wh_local_tool_state_undo`, `wh_local_tool_state_redo` `wh_local_tool_reference_resolve`, `wh_local_tool_document_list`, `wh_local_tool_document_create`, `wh_local_tool_document_rename` and `wh_local_tool_document_archive`. Read/save/query/call accept `projectId`, `namespace` and optional `eraId`; operations additionally take `operation` and object `input`. Save takes `data` and nullable `expectedRevision`. `wh_enable_engine` accepts an actually registered `local-tool-*` engine; an invented ID is rejected. The default installation contains no source tools.
+The ordinary native MCP transport exposes sixteen static tools: `wh_local_tool_list`, `wh_local_tool_describe`, `wh_local_tool_read`, `wh_local_tool_save`, `wh_local_tool_query`, `wh_local_tool_call`, `wh_local_tool_pin`, `wh_local_tool_state_apply`, `wh_local_tool_state_undo`, `wh_local_tool_state_redo` `wh_local_tool_reference_resolve`, `wh_local_tool_document_list`, `wh_local_tool_document_query`, `wh_local_tool_document_create`, `wh_local_tool_document_rename` and `wh_local_tool_document_archive`. Read/save/query/call accept `projectId`, `namespace` and optional `eraId`; operations additionally take `operation` and object `input`. Save takes `data` and nullable `expectedRevision`. `wh_enable_engine` accepts an actually registered `local-tool-*` engine; an invented ID is rejected. The default installation contains no source tools.
 
 Use query for `writes:false`, call for `writes:true`. Queries receive a read-only client: namespace save, variant writes, media import and writing `callTool` invocations reject. Calls require the existing native writes switch and an enabled source engine. Writing operations run in one database transaction; an exception or invalid JSON return rolls back database edits. Keep them to local database work and await every edit. Network/filesystem effects, navigation and arbitrary trusted source code cannot be rolled back by this transaction. Input schema validation happens before running the operation. Operation implementations remain renderer-side; Electron's generic manifest is pure data and never imports React or source functions.
 
@@ -252,3 +252,36 @@ D2 checks use the normal Electron CSS runner with `tests/local-tool-{host.ui,foc
 
 
 D2 lifetime correction: a document host emits a client for each committed host setup. Readonly changes, retargeting, source changes and unmount permanently revoke that emitted client; reopening the same document creates a fresh one. StrictMode cleanup does not revive a client from its earlier setup. Concurrent editor/embed/fullscreen hosts each own their lease, so closing one does not revoke the others. This UI lease is an optional in-memory `isCurrent` callback, never project metadata or a new backend permission. Native/headless clients retain their normal independent lifecycle. Document save/state actions check it both before work and before their own RW completes, so revocation during that transaction rolls back. Delegated domain tools check before dispatch; this does not reverse a domain commit or external effect that already completed outside that transaction.
+
+## Structured source-document queries
+
+The optional portable `index` describes fields and document references in authored `data`. The ordinary Initiative example uses it to find saved trackers by participant name and minimum initiative and open a result. Those are document conditions: a matching name and initiative need not belong to the same participant.
+
+```ts
+index: {version: 1, fields: {
+  participant: {path: '$.combatants[*].name', type: 'string[]', mode: 'all'},
+  initiative: {path: '$.combatants[*].initiative', type: 'number[]', mode: 'all'},
+  round: {path: '$.round', type: 'number'},
+}, refs: [{kind: 'codex', path: '$.combatants[*].cardId'}]}
+
+const rows = await client.queryDocuments({
+  namespace: 'examples.initiative',
+  where: {participant: {contains: 'Nora'}, initiative: {gte: 10}},
+});
+```
+
+`LocalToolIndexSpec`, `LocalToolDocumentQuery`, `LocalToolIndexRow`, `evaluateLocalToolIndex` and `queryLocalToolIndexRows` are SDK exports. `useLocalToolIndex(client, query)` from `@/engines/local/useLocalToolIndex` subscribes to ordinary product changes, sequences asynchronous reads and returns `{rows, loading, error}`. Native `wh_local_tool_document_query` accepts the same query plus project/era. Describe includes the selected descriptor. Queries are read-only and require no custom operation.
+
+Selectors support `$`, `.name` (arrays auto-unwrap), `[*]`, `.**` (self and descendants), and filters such as `? (@.kind == "battle")` or `? (@ != null)`. Filters compare a current scalar or named property with JSON string, finite number, boolean or null, using `==`/`!=`. Names are ASCII identifiers allowing `_`/`-`. Numeric subscripts, wildcard properties, arbitrary functions and filter ordering comparisons are rejected. Limits are32fields,16reference paths, two recursive-descent occurrences in total and512characters/path. These are the selector forms published in the researched [primary reference](https://docs.beta.vvd.world/workshop/reference/tools#search-and-the-index), implemented locally; package/database compatibility is not implied.
+
+Types are `string`, `number`, `boolean` and their `[]` forms. There is no coercion. `mode:'all'` projects all typed matches as an array; default `first` retains the first (a one-element array for array types). Absent scalar fields are omitted; absent array fields are empty. Document title is result metadata, not an automatically indexed `title` field. Prose stays opaque unless explicitly selected as string data.
+
+Writer's explicit `where` operators are `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `contains`, `exists`. Fields and operators combine with AND. All operators on one array field must match the same member; empty arrays match no value predicate. `exists` tests projected presence, so an empty array is present. Number/string types stay distinct, string ordering is JavaScript lexical order, and substring matching is case-sensitive. `{reference:{kind,documentId}}` finds declared references. Rows include ID, namespace, title, update time, provenance, fields and deduplicated references. Sorting is title/ID; pagination uses `offset` and `limit` (default100, maximum500). No aggregate or total-count guarantee is implied.
+
+Queries read current effective roots, including era hiding/overrides, without a second projection cache. A compiled project-selected release supplies its descriptor, including an intentional absence of an index; only unavailable source uses the document's last saved portable descriptor. Creation/save stores it; a successful explicit save by a compiled source without an index removes the old descriptor, while merely reading/selecting never rewrites authored data. Normal content search includes its projected list/scalar values alongside the existing codec prose/scalar body; pin changes refresh that search. Legacy documents without an index keep their existing state/search and gain no structured row automatically.
+
+Descriptors survive normal JSON/ZIP, era/history/archive and clone flows. Clone remaps declared reference paths using Writer logical IDs, preserving opaque text and stable local item IDs. References are queryable edges, not a new durable graph service. Backup import still installs no source code. No server, SQL, account, network, model or payment is needed. Automatic codec-derived index schemas, upstream undocumented `IndexWhere` operators and online collaboration are not claimed.
+
+`useLocalToolState` also routes Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y to the focused document, owned block or legacy tool. Native text-field Undo remains native; the action stack belongs to the current source surface. It does not reverse arbitrary tool calls or effects elsewhere.
+
+Verification: `tests/local-tool-index.browser.tsx` / `testLocalToolIndex` covers the real scoped client, ordinary dispatcher/MCP handler, normal search, actual Initiative form/live filter, era isolation/hiding, ZIP restore, product clone, release selection and the shared author-kit evaluator. Native transport and Browser evidence are recorded separately.

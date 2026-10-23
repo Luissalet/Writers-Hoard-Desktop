@@ -1,5 +1,13 @@
 # Lessons Learned
 
+## Writer1095 — Claim the user's actual reference tab
+
+When Luis identifies his Brave tab as active, inspect the Browser inventory and claim that user tab through its Browser provider. A failed generic tab binding does not prove the extension is inactive. Do not ask Luis to reactivate a working extension or silently substitute an internal browser. Keep Writer QA in its isolated background browser and never use desktop input.
+
+## Writer1095 — Continue parity from the live reference
+
+Luis corrected a drift toward bridge credentials, delivery bookkeeping and stopping after a batch. The ongoing objective is to exercise VVD's live website and SDK, then give Writer the same functions or more with equal or better behavior, excluding external paid/API dependencies. A completed delivery is the next baseline, not completion of that objective. Source labels and passing Writer tests do not prove reference parity: record the actual reference flow, reproduce it in Writer and close the concrete difference.
+
 ## Writer1095 — Keep the desktop available during UI verification
 
 Luis explicitly requested Browser control for Writer so he can keep working. Use a background browser and isolated data. Native IPC/API checks may use an isolated hidden host, but never use desktop input or bring its window forward.

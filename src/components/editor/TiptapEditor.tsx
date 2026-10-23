@@ -481,7 +481,9 @@ export default function TiptapEditor({
   // External content sync (e.g. restoring a version snapshot). During normal
   // typing `editor.getHTML() === content`, so this never fights the cursor.
   useEffect(() => {
-    if (!editor) return;
+    // Effect reconnection may still capture the editor just replaced by useEditor.
+    // Its destroy() clears the schema; the live replacement will sync next render.
+    if (!editor || editor.isDestroyed) return;
     if (content === emittedHtmlRef.current) return;
     if (editor.getHTML() !== content) {
       editor.commands.setContent(content, { emitUpdate: false });

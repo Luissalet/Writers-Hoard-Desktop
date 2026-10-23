@@ -19,8 +19,8 @@ export function useFootnotes(editor: Editor | null): FootnoteRef[] {
     editor ? collectFootnotes(editor.state.doc) : [],
   );
   // A new editor (or none) resets the list during render — the sanctioned
-  // shape for state derived from a prop, and the reason there is no setState
-  // in the effect below.
+  // shape for state derived from a prop. The subscription also reconciles a
+  // transaction that landed between this render and its passive effect.
   const [source, setSource] = useState(editor);
   if (source !== editor) {
     setSource(editor);
@@ -29,14 +29,17 @@ export function useFootnotes(editor: Editor | null): FootnoteRef[] {
 
   useEffect(() => {
     if (!editor) return;
-    const refresh = ({ transaction }: { transaction: Transaction }) => {
-      if (!transaction.docChanged) return;
+    const refresh = () => {
       const next = collectFootnotes(editor.state.doc);
       setNotes((current) => (sameFootnotes(current, next) ? current : next));
     };
-    editor.on('transaction', refresh);
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      if (transaction.docChanged) refresh();
+    };
+    editor.on('transaction', onTransaction);
+    refresh();
     return () => {
-      editor.off('transaction', refresh);
+      editor.off('transaction', onTransaction);
     };
   }, [editor]);
 

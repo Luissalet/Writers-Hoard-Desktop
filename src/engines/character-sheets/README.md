@@ -44,9 +44,13 @@ nonnegative. The operation uses the same normal validation/CAS/save. Existing
 
 HP single-hit thresholds drive major wound, unconscious/dying/dead states. Pending CON checks resolve consciousness or survival per round; first aid stabilization is explicit. SAN loss of 5 queues INT (success causes temporary insanity for d10 hours); losing one fifth of the day-start SAN triggers indefinite insanity; zero marks permanent insanity. Start new day resets only the daily tracker, preserving current SAN and conditions. Keeper condition adjustments are explicit.
 
+Recalculating secondary values, starting a day and resolving skill development use an ordinary Confirm dialog. Cancelling preserves the current draft; sheet/field deletion keeps its deletion label and styling.
+
 ## API and projection
 
 `cocRules.ts` exports pure rules and `resolveCocSheet`; UI and native operations consume those same rules. `bridge.ts` / `bridgeManifest.ts` expose normal `wh_sheet_*` CRUD, JSON, ink and CoC action tools. Writes use saveSheet/deleteSheet and expected revisions; reads project calculated values without database migration writes. The document tool block projects resolved sheet paper read-only.
+
+The paper also includes the investigator's era/Pulp mode, active conditions, daily SAN loss and threshold, pending CON/INT checks, temporary duration, checked skills, automatic/manual derived values and linked push context. Trait targets show regular/half/fifth. These read-only sections are appended after the existing paper and ink extent, retaining annotation coordinates. Paper, Reader/wiki and document-image export use this same projection; opening/exporting never updates the saved sheet.
 
 The optional `coc.version=1` state remains inside the existing portable sheet JSON v1. Old sheets adopt automation where values match the rules; differing authored maxima/skills/MOV/build/damage bonus become persistent overrides. Legacy custom era text is retained.
 

@@ -1,5 +1,7 @@
 import { validateSheet,type CharacterSheet } from './types';
-import { resolveCocSheet } from './cocRules';
+import { cocCalculated, resolveCocSheet } from './cocRules';
+import { cocConditionKeys, cocDerivedKeys } from './cocTypes';
+import { cocConditionNames, cocDerivedNames } from './cocLabels';
 import { skillBonus } from './mechanics';
 import { sheetInkHeight,sheetInkSvg } from './ink';
 import {fiveEDerived,FIVE_E_SOURCE} from './fiveE';
@@ -38,6 +40,31 @@ export function sheetPaper(sheet:CharacterSheet,locale:'es'|'en'='en'):{svg:stri
   section(es?'Filas':'Rows',[es?'Sección':'Section',es?'Nombre':'Name',es?'Detalle':'Detail',es?'Expresión':'Expression',es?'Cantidad':'Quantity'],sheet.rows.filter(row=>!row.fiveESpell).map(row=>[row.section,row.name,row.detail,row.expression,row.quantity]));
   section(es?'Conjuros':'Spells',[es?'Sección':'Section',es?'Nivel':'Level',es?'Nombre':'Name',es?'Preparado':'Prepared',es?'Detalle':'Detail',es?'Expresión':'Expression',es?'Cantidad':'Quantity'],sheet.rows.filter(row=>row.fiveESpell).map(row=>[row.section,row.fiveESpell!.level,row.name,row.fiveESpell!.prepared?(es?'Sí [x]':'Yes [x]'):(es?'No [ ]':'No [ ]'),row.detail,row.expression,row.quantity]));
   section(es?'Tiradas':'Rolls',[es?'Etiqueta':'Label',es?'Expresión':'Expression',es?'Dados':'Dice',es?'Total':'Total',es?'Resultado':'Outcome'],sheet.rolls.map(row=>[row.label,row.expression,row.dice.join(', '),row.total,row.outcome]));
+  // Append play state after the existing content and ink plane, preserving annotations.
+  if(sheet.coc)y=Math.max(y,sheetInkHeight(sheet.ink));
+  if(sheet.coc){
+    const state=sheet.coc,calculated=cocCalculated(sheet),derived={...calculated,...state.overrides},conditions=cocConditionKeys.filter(key=>state.conditions[key]).map(key=>cocConditionNames[locale][key]);
+    const rows:unknown[][]=[
+      [es?'Época':'Era',state.era==='modern'?(es?'Moderna':'Modern'):'1920s'],
+      ['Pulp',state.pulp?(es?'Sí · PV reforzados':'Yes · increased HP'):(es?'No':'No')],
+      [es?'Condiciones':'Conditions',conditions.join(', ')||(es?'Ninguna':'None')],
+      [es?'Pérdida hoy / umbral diario':'Lost today / daily threshold',`${state.daySanityLoss} / ${Math.ceil(state.dayStartSanity/5)}`],
+      [es?'Cordura al inicio del día':'Day-start sanity',state.dayStartSanity],
+    ];
+    if(state.pendingCon)rows.push([es?'Tirada pendiente':'Pending check',`CON · ${state.pendingCon==='dying'?(es?'sobrevivir esta ronda':'survive this round'):(es?'mantener la consciencia':'remain conscious')}`]);
+    if(state.pendingInt)rows.push([es?'Tirada pendiente':'Pending check',`INT · ${es?'comprender el horror':'comprehend the horror'}`]);
+    if(state.temporaryHours!==undefined)rows.push([es?'Duración temporal':'Temporary duration',`${state.temporaryHours} h`]);
+    section(es?'Estado del investigador':'Investigator state',[es?'Campo':'Field',es?'Valor':'Value'],rows);
+    section(es?'Objetivos de atributos':'Trait targets',[es?'Rasgo':'Trait',es?'Normal / difícil / extremo':'Regular / hard / extreme'],sheet.traits.map(row=>[row.label,`${row.value} / ${Math.floor(row.value/2)} / ${Math.floor(row.value/5)}`]));
+    section(es?'Valores calculados y ajustes manuales':'Calculated values and manual overrides',[es?'Campo':'Field',es?'Valor':'Value',es?'Automático':'Automatic',es?'Origen':'Source'],cocDerivedKeys.map(key=>[cocDerivedNames[locale][key],derived[key],calculated[key],state.overrides[key]!==undefined?(es?'Manual':'Manual'):(es?'Automático':'Automatic')]));
+    section(es?'Habilidades marcadas para mejora':'Skills marked for development',[es?'Habilidad':'Skill',es?'Valor':'Value'],state.checkedSkills.map(id=>sheet.skills.find(skill=>skill.id===id)).filter(skill=>skill!==undefined).map(skill=>[skill.label,skill.value]));
+  }
+  if(sheet.coc)section(es?'Contexto de las tiradas':'Roll context',[es?'Etiqueta / fecha':'Label / date',es?'Dificultad / objetivo':'Difficulty / target',es?'Resultado':'Result',es?'Forzada':'Push'],sheet.rolls.filter(row=>row.coc).map(row=>[
+    `${row.label} · ${new Date(row.at).toISOString()}`,
+    `${row.difficulty??'—'} / ${row.target??'—'}`,
+    row.passed===undefined?row.outcome:row.passed?(es?'Éxito':'Passed'):(es?'Fallo':'Failed'),
+    row.coc!.pushedFrom?`${es?'Tras':'After'} ${sheet.rolls.find(item=>item.id===row.coc!.pushedFrom)?.total??row.coc!.pushedFrom} · ${row.coc!.justification??''}`:row.coc!.pushedBy?`${es?'Forzada una vez':'Pushed once'} → ${sheet.rolls.find(item=>item.id===row.coc!.pushedBy)?.total??row.coc!.pushedBy}`:'—',
+  ]));
   const height=Math.ceil(Math.max(700,y+48,sheetInkHeight(sheet.ink)+48)),prefix='sheet-ink-'+crypto.randomUUID();
   return{height,svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${height}" width="1000" height="${height}" role="img" aria-label="${esc(sheet.title)}" data-sheet-paper="paper-v1" style="display:block;width:100%;height:auto;max-height:none"><rect width="1000" height="${height}" fill="#f6f2e8"/>${elements.join('')}${sheetInkSvg(sheet.ink,height,prefix)}</svg>`};
 }
