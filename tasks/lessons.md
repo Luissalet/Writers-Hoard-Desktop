@@ -1543,3 +1543,10 @@ files, before committing. A working-tree diff cannot check an untracked test.
 After an amend, verify the commit delta as well. Withdrawal messages are asynchronous:
 read the recorded review outcome before calling an older submission unvoted, and
 obtain a fresh revision-bound vote for the amended commit.
+
+97. For this comparison, control the actual Brave tabs through Browser; desktop
+input prevents Luis from using his computer and the in-app browser is a different
+session. A control deadline is not proof that the extension is disabled: recheck
+the bound Brave inventory and current page state before asking for reconnection.
+Keep implementation and read-only research moving while control recovers. Report
+observed capabilities and remaining gaps; one delivered batch is not full parity.
