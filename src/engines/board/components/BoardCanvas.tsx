@@ -40,6 +40,10 @@ import FreehandOverlay,{type InkTool} from './FreehandOverlay';
 import { erasedNodeIds,makeFreehandNode } from '../freehand';
 import {arrangeCanvasNodes,expandFrameMoves} from '../canvasGeometry';
 import { freehandCopy } from '../freehandCopy';
+import AssetsRail from './AssetsRail';
+import { BOARD_ASSET_MIME, imageFile } from './boardAssets';
+import { db } from '@/db';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 const nodeTypes = { board: BoardNodeView };
 const fitOptions = { padding: { top: '128px', left: '112px', right: '48px', bottom: '64px' }, maxZoom: 1 } as const;
@@ -52,6 +56,9 @@ const SURFACE_CLASS: Record<Board['surface'], string> = {
   slate: 'bg-deep',
   grid: 'bg-surface',
   blueprint: 'bg-[#0b1522]',
+  white: 'bg-white',
+  lined: 'wh-board-lined',
+  chalk: 'bg-[#1f3b2d]',
 };
 
 const SIDES = new Set<BoardSide>(['top', 'right', 'bottom', 'left']);
@@ -79,6 +86,8 @@ export interface BoardCanvasProps {
   projectId: string;
   board: Board;
   onViewportChange: (viewport: BoardViewport) => void;
+  /** Right-click → Comment: the host opens a comment about that card. */
+  onCommentNode?: (node: BoardNode) => void;
 }
 
 export default function BoardCanvas(props: BoardCanvasProps) {
@@ -89,7 +98,7 @@ export default function BoardCanvas(props: BoardCanvasProps) {
   );
 }
 
-function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasProps) {
+function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode }: BoardCanvasProps) {
   const { t, locale } = useTranslation();
   const worldScope=useWorldEraScope(projectId);
   const navigateTo = usePaneNavigate();
@@ -683,6 +692,17 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
     setSelectedNodeIds(new Set([frame.id]));
   }, [selectedNodes, projectId, boardId, activeLayerId, graph, t]);
 
+  // Comments left about a card, counted for the menu.
+  const commentCounts = useLiveQuery(async () => { const rows = await db.annotations.where('[sourceEngineId+sourceEntityId]').equals(['board', board.id]).toArray(); const counts = new Map<string, number>(); for (const row of rows) if (row.anchor?.elementId) counts.set(row.anchor.elementId, (counts.get(row.anchor.elementId) ?? 0) + 1); return counts; }, [board.id]) ?? new Map<string, number>();
+  // Right-click: the same actions as the toolbar and keys, at the pointer.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; at: { x: number; y: number }; onNode: boolean } | null>(null);
+  const reorder = (front: boolean) => {
+    const ids = new Set(selectedNodes.map(node => node.id)); if (!ids.size) return;
+    const others = graph.nodes.filter(node => !ids.has(node.id) && node.kind !== 'frame');
+    const top = Math.max(0, ...others.map(node => node.zIndex));
+    graph.patchNodes(front ? selectedNodes.map(node => ({ id: node.id, changes: { zIndex: top + 1 } })) : [...selectedNodes.map(node => ({ id: node.id, changes: { zIndex: 0 } })), ...others.filter(node => node.zIndex === 0).map(node => ({ id: node.id, changes: { zIndex: 1 } }))], front ? (locale === 'es' ? 'Traer al frente' : 'Bring to front') : (locale === 'es' ? 'Enviar al fondo' : 'Send to back'));
+  };
+  const unframe = () => { const frames = selectedNodes.filter(node => node.kind === 'frame'); if (frames.length) { graph.remove(frames.map(node => node.id), [], locale === 'es' ? 'Quitar marco' : 'Remove frame'); setSelectedNodeIds(new Set()); } };
   const collapseSelection=useCallback(()=>{const frame=createCanvasPile(graph.nodes,selectedNodes.map(node=>node.id),copy.pile);if(activeLayerId)frame.layerId=activeLayerId;graph.addNodes([frame],copy.collapsePile);setSelectedNodeIds(new Set([frame.id]));setSelectedEdgeIds(new Set());void flow.setCenter(frame.position.x+frame.size.width/2,frame.position.y+frame.size.height/2,{zoom:1,duration:200});},[graph,selectedNodes,copy.pile,copy.collapsePile,activeLayerId,flow]);
 
   const align = useCallback((mode:'left'|'center-x'|'right'|'top'|'center-y'|'bottom')=>{graph.patchNodes(expandFrameMoves(graph.nodes,arrangeCanvasNodes(movableNodes,mode),node=>canMoveNode(node,layerById)),t('board.history.align'));},[movableNodes,graph,t,layerById]);
@@ -1001,6 +1021,8 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
         if (event.dataTransfer.files.length > 0) {
           addImagesFromFiles(event.dataTransfer.files, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
         }
+        const assetId = event.dataTransfer.getData(BOARD_ASSET_MIME);
+        if (assetId) { const at = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }); void db.inspirationImages.get(assetId).then(picture => picture ? imageFile(picture.imageData, 'imagen') : undefined).then(file => { if (file) addImagesFromFiles([file], at); }); }
       }}
     >
       <ReactFlow
@@ -1016,7 +1038,20 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
           if (!(event.target as HTMLElement).classList.contains('react-flow__pane') || graph.loading) return;
           addNode('card', { position: flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
         }}
+        onNodeContextMenu={(event, flowNode) => {
+          event.preventDefault();
+          const box = containerRef.current?.getBoundingClientRect();
+          if (!selectedNodeIds.has(flowNode.id)) { setSelectedNodeIds(new Set([flowNode.id])); setSelectedEdgeIds(new Set()); }
+          setContextMenu({ x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0), at: flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), onNode: true });
+        }}
+        onPaneContextMenu={(event) => {
+          event.preventDefault();
+          const box = containerRef.current?.getBoundingClientRect();
+          setContextMenu({ x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0), at: flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), onNode: false });
+        }}
+        onMoveStart={() => setContextMenu(null)}
         onPaneClick={() => {
+          setContextMenu(null);
           setSelectedEdgeIds(new Set());
           setPathIds(null);
         }}
@@ -1044,12 +1079,12 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
         fitViewOptions={fitOptions}
         className="h-full w-full"
       >
-        <Background
+        {board.surface !== 'lined' && <Background
           variant={board.surface === 'blueprint' ? BackgroundVariant.Lines : BackgroundVariant.Dots}
           gap={GRID_STEP}
-          size={1}
-          color="#2a2a3a"
-        />
+          size={board.surface === 'chalk' ? 1.5 : 1}
+          color={board.surface === 'white' ? '#d5d5de' : board.surface === 'chalk' ? '#ffffff33' : '#2a2a3a'}
+        />}
         <Controls className="board-chrome wh-canvas-controls" position="bottom-right" showInteractive={false} fitViewOptions={fitOptions} />
         <MiniMap
           className="board-chrome !ml-28"
@@ -1268,6 +1303,23 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
           if (node) { graph.addNodes([node], freehandCopy(locale).title); setSelectedNodeIds(new Set([node.id])); setSelectedEdgeIds(new Set()); }
         }} />}
       </ReactFlow>
+      {contextMenu && <div role="menu" data-testid="board-context-menu" aria-label={locale === 'es' ? 'Acciones' : 'Actions'} className="board-chrome absolute z-40 min-w-48 rounded-xl border border-border bg-surface p-1 text-sm shadow-2xl" style={{ left: Math.min(contextMenu.x, (containerRef.current?.clientWidth ?? 800) - 200), top: Math.min(contextMenu.y, (containerRef.current?.clientHeight ?? 600) - 260) }} onKeyDown={event => { if (event.key === 'Escape') setContextMenu(null); }} onMouseLeave={() => undefined}>
+        {((contextMenu.onNode ? [
+          ['duplicate', locale === 'es' ? 'Duplicar' : 'Duplicate', () => { copySelection(); paste({ x: 40, y: 40 }); }],
+          ['copy', locale === 'es' ? 'Copiar' : 'Copy', copySelection],
+          ...(onCommentNode && selectedNodes.length === 1 ? [['comment', `${locale === 'es' ? 'Comentar' : 'Comment'}${commentCounts.get(selectedNodes[0].id) ? ` (${commentCounts.get(selectedNodes[0].id)})` : ''}`, () => onCommentNode(selectedNodes[0])]] : []),
+          ['front', locale === 'es' ? 'Traer al frente' : 'Bring to front', () => reorder(true)],
+          ['back', locale === 'es' ? 'Enviar al fondo' : 'Send to back', () => reorder(false)],
+          ['frame', locale === 'es' ? 'Agrupar en un marco' : 'Group into a frame', groupIntoFrame],
+          ...(selectedNodes.some(node => node.kind === 'frame') ? [['unframe', locale === 'es' ? 'Quitar el marco (deja su contenido)' : 'Remove frame, keep contents', unframe] as [string, string, () => void]] : []),
+          ['delete', locale === 'es' ? 'Borrar' : 'Delete', deleteSelection],
+        ] : [
+          ['card', locale === 'es' ? 'Nueva tarjeta aquí' : 'New card here', () => addNode('card', { position: contextMenu.at })],
+          ...(clipboard.nodes.length ? [['paste', locale === 'es' ? 'Pegar aquí' : 'Paste here', () => { const box = boundsOfNodes(clipboard.nodes, 0); paste(box ? { x: contextMenu.at.x - box.x, y: contextMenu.at.y - box.y } : { x: 40, y: 40 }); }] as [string, string, () => void]] : []),
+          ['all', locale === 'es' ? 'Seleccionar todo' : 'Select all', () => { setSelectedNodeIds(new Set(visibleNodes.map(node => node.id))); setSelectedEdgeIds(new Set()); }],
+          ['fit', locale === 'es' ? 'Ajustar a la vista' : 'Zoom to fit', () => void flow.fitView(fitOptions)],
+        ]) as [string, string, () => void][]).map(([id, label, action]) => <button key={id} type="button" role="menuitem" data-testid={`board-menu-${id}`} className={`block w-full rounded-lg px-3 py-1.5 text-left hover:bg-elevated ${id === 'delete' ? 'text-danger' : 'text-text-primary'}`} onClick={() => { setContextMenu(null); action(); }}>{label}</button>)}
+      </div>}
 
       {(selectedNode || selectedEdge || panel) && (
         <aside className="board-chrome absolute right-3 top-28 z-20 max-h-[calc(100%-8rem)] w-[min(300px,calc(100%-8rem))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-xl">
@@ -1320,6 +1372,8 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
               onDelete={(id) => void removeView(id)}
             />
           ) : null}
+
+          {panel === 'assets' ? <AssetsRail projectId={projectId} locale={locale} onAdd={file => addImagesFromFiles([file])} /> : null}
 
           {panel === 'metrics' ? (
             <MetricsPanel

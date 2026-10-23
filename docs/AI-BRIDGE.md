@@ -2102,3 +2102,48 @@ Pruebas: `tests/publishing-{front-matter,book-style,chapter-images,inline-images
 `table-{edits,all-types}`, `relation-catalogue`, `sound-library`, `cover-vertical-eraser`,
 `saga-shelf`, `create-cover`, `tool-dock-tiles`, `sprint-pause`, `library-bulk-delete`,
 `dictionary-native-prose`, y los recorridos `scripts/run-{board-quick,tree-groups,timeline-calendar,sprint-rounds}-qa.cjs`.
+
+## 30. Herramientas de mesa: compendio, combate, dados, nombres, tareas, hojas y más (Ágora 1095, ola D1)
+
+- **Compendio SRD 5.2** (Hojas → Compendio; sin conexión, CC BY 4.0):
+  `wh_compendium_search` (texto y filtros: `kind`, `crMin`/`crMax`, `type`,
+  `level`, `school`, `className`, `rarity`), `wh_compendium_get` (la entrada
+  completa) y `wh_compendium_add` (la copia como ficha del Códex con su
+  atribución; un monstruo trae además su bloque de estadísticas). Deshacer quita
+  la ficha.
+- **Combate** (Hojas → Combate): `wh_encounter_list` y `wh_encounter_action`
+  (create, rename, add, add-monster, add-sheet, remove, roll-initiative,
+  set-initiative, sort, next, previous, damage, heal, temp-hp, condition,
+  death-save, concentrating, end) con `expectedRevision`; cada cambio se
+  deshace.
+- **Dados** (Hojas → Dados y «/dados»): `wh_dice_roll` (2d6+1d8-1, 4d6kh3, d%,
+  `mode` advantage/disadvantage, `target`, `times`; con `projectId` queda en el
+  historial) y `wh_dice_tray` (read, clear-log, save-formula, remove-formula).
+- **Nombres** (Códex → Generar un nombre y «/nombre»): `wh_name_generate`
+  (posada, tienda, persona, pueblo, casa noble; 13 estilos; `brief`, `seed`,
+  `count`; `makeCard` crea la ficha con sus partes). Se hace en el equipo con
+  tablas de palabras, sin modelo.
+- **Tareas y tableros** (Notas → Tareas / Tableros): `wh_todo_list`,
+  `wh_todo_action` (add, update por `id` o `match`, remove; estado, urgencia,
+  día, enlaces) y `wh_kanban` (tableros, columnas y tarjetas que se mueven).
+  Las notas aceptan `title`.
+- **Hojas**: funciones SI, SUMAR.SI, CONTAR.SI, PROMEDIO.SI, BUSCARV,
+  SI.ERROR, Y, O, NO, MEDIANA, REDONDEAR.MAS/MENOS, ENTERO, RESIDUO, POTENCIA,
+  RAIZ, CONCATENAR, LARGO, MAYUSC, MINUSC, ESPACIOS (o en inglés), comparaciones
+  y `&`; `wh_table_import_xlsx` (cada hoja de Excel como una pestaña, con
+  informe de lo que no se conserva), `wh_table_export_xlsx` y
+  `wh_table_workbook` (pestañas: add, duplicate, rename, colour, hide, show,
+  move, remove).
+- **Grafo del mundo**: `wh_world_graph_settings` (read, display, hide, show,
+  save-view, remove-view).
+- **Sonido**: `wh_soundscape` (paisajes sonoros por escenas con bucles y
+  efectos; el puente nunca empieza a sonar).
+- **Lienzo**: superficies `white`, `lined` y `chalk` en `wh_create_board`; el
+  menú de clic derecho, los recursos y los comentarios sobre una tarjeta son de
+  la interfaz.
+- **Bloque de estadísticas**: el lanzamiento de conjuros va en `details`
+  (`spellAbility`, `spellsAtWill`, `spellsPerDay`) de `wh_sheet_update`.
+
+Pruebas: `tests/compendium-encounter`, `table-tools`, `board-context-menu`,
+`world-graph-settings`, `soundscape`, `kanban`, `codex-reference-panel` y
+`model-viewer`.

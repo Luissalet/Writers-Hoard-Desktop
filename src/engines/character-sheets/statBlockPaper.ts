@@ -2,6 +2,7 @@ import {d20Skills,type CharacterSheet} from './types';
 import {abilityModifier,skillBonus} from './mechanics';
 import {statBlockDerived,challengeLabel} from './statBlock';
 import {sheetInkHeight,sheetInkSvg} from './ink';
+import {SPELLCASTING_KEYS,spellcastingText} from './spellcasting';
 const esc=(value:unknown)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 const named=(value:string)=>value.replace(/([a-z])([A-Z])/g,'$1 $2').replaceAll('_',' ');
 const signed=(value:number)=>(value>=0?'+':'')+value;
@@ -27,7 +28,7 @@ export function statBlockPaper(sheet:CharacterSheet,locale:'es'|'en'):{svg:strin
  line('CR',`${derived.authoredChallenge===null?'—':challengeLabel(derived.authoredChallenge)} · XP ${derived.effectiveXp??'—'} (${derived.xpSource==='legacy'?(es?'registrado':'recorded'):derived.xpSource==='override'?(es?'manual':'override'):'CR'}) · PB ${signed(derived.proficiency)}`);
  if(derived.automaticXp===null)line(es?'XP por CR':'CR XP',es?'CR fuera de la tabla':'CR outside the table');
  if(temp&&(temp.current||temp.max||temp.marked||temp.label!=='Temporary HP'))line(temp.label|| (es?'PV temporales':'Temporary HP'),resourceValue(temp));
- const shownDetails=new Set(['size','type','alignment',...(hp?['hitDice']:[])]);
+ const shownDetails=new Set(['size','type','alignment',...(hp?['hitDice']:[]),...(spellcastingText(sheet,locale)?SPELLCASTING_KEYS:[])]);
  const detailNames:Record<string,string>={resistances:es?'Resistencias':'Resistances',immunities:es?'Inmunidades':'Immunities',vulnerabilities:es?'Vulnerabilidades':'Vulnerabilities',conditions:es?'Condiciones':'Conditions',senses:es?'Sentidos':'Senses',languages:es?'Idiomas':'Languages'};
  for(const[key,label]of Object.entries(detailNames)){if(sheet.details[key])line(label,sheet.details[key]);shownDetails.add(key);}
  const defaultSkills=new Set([...d20Skills.map(([name])=>name),...abilities.map(id=>id[0].toUpperCase()+id.slice(1)+' save')]);
@@ -40,6 +41,7 @@ export function statBlockPaper(sheet:CharacterSheet,locale:'es'|'en'):{svg:strin
  const numberExtras=Object.entries(sheet.numbers).filter(([key])=>!['challenge','armorClass','speed','initiativeBonus'].includes(key));if(numberExtras.length){section(es?'Valores registrados':'Recorded values');for(const[key,value]of numberExtras)line(key==='experience'?(es?'XP registrado':'Recorded XP'):named(key),value);}
  const printed=new Set<string>();
  const rows=(title:string,items:CharacterSheet['rows'])=>{if(!items.length)return;section(title);for(const row of items){printed.add(row.id);if(row.name)y+=text(48,y,row.name,17,true)+3;if(row.detail)y+=text(48,y,row.detail)+3;const meta=[row.expression,row.quantity!==1?`${es?'Cantidad':'Quantity'} ${row.quantity}`:''].filter(Boolean).join(' · ');if(meta)y+=text(48,y,meta,14)+3;if(!row.name&&!row.detail&&!meta)y+=text(48,y,'—');y+=10;}};
+ const spells=spellcastingText(sheet,locale);if(spells){section(es?'Lanzamiento de conjuros':'Spellcasting');y+=text(48,y,spells.intro)+6;for(const entry of spells.lines)y+=text(72,y,entry,16,false,880)+4;}
  for(const[en,spanish,aliases]of groups)rows(es?spanish:en,sheet.rows.filter(row=>aliases.some(alias=>alias===fold(row.section))));
  for(const name of new Set(sheet.rows.filter(row=>!printed.has(row.id)).map(row=>row.section)))rows(name|| (es?'Otras entradas':'Other entries'),sheet.rows.filter(row=>!printed.has(row.id)&&row.section===name));
  if(sheet.rolls.length){section(es?'Historial de tiradas':'Roll history');for(const roll of sheet.rolls)line(roll.label,`${roll.expression} · [${roll.dice.join(', ')}] = ${roll.total} · ${roll.outcome}`);}

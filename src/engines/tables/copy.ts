@@ -13,7 +13,7 @@ const en = {
   empty: 'Create a typed table, a live view of your Codex, or a formula sheet.', noRows: 'No rows match this filter.',
   error: 'The change could not be saved. Check the value and retry. Another edit to the same cell may require reopening this document.',
   invalid: 'Use a number with a decimal point for this column.', width: 'Column width', noLink: 'No linked entry', openCard: 'Open entry',
-  formulaHelp: 'Enter =SUM(A1:A5), =AVERAGE(B1:B4), arithmetic, MIN, MAX, COUNT, ABS or ROUND. Cell addresses follow the saved row order, even while sorting or filtering.',
+  formulaHelp: 'Enter =SUM(A1:A5), =AVERAGE(B1:B4), arithmetic, comparisons (=, <>, <, >) and & to join text; also IF, IFERROR, AND, OR, NOT, SUMIF, COUNTIF, AVERAGEIF, VLOOKUP, MIN, MAX, COUNT, COUNTA, MEDIAN, ROUND, ROUNDUP, ROUNDDOWN, INT, MOD, POWER, SQRT, CONCAT, LEN, UPPER, LOWER, TRIM (Spanish names such as SI or BUSCARV work too). Cell addresses follow the saved row order, even while sorting or filtering.',
   cellHint: 'Changes save after a pause or when you leave the cell. Press Enter to save, Escape to cancel.', count: 'rows', value: 'Calculated value', editCard: 'Edit Codex entry', retry: 'Retry save', missingLink: 'Entry unavailable',
 };
 const es: typeof en = {
@@ -31,7 +31,7 @@ const es: typeof en = {
   empty: 'Crea una tabla tipada, una vista de las fichas del Códice o una hoja de cálculo.', noRows: 'No hay filas con este filtro.',
   error: 'No se ha podido guardar el cambio. Comprueba el valor y vuelve a intentarlo. Si ha cambiado la misma celda en otro lugar, vuelve a abrir el documento.',
   invalid: 'Esta columna requiere un número; usa el punto decimal.', width: 'Anchura de columna', noLink: 'Sin ficha vinculada', openCard: 'Abrir ficha',
-  formulaHelp: 'Escribe =SUM(A1:A5), =AVERAGE(B1:B4), operaciones, MIN, MAX, COUNT, ABS o ROUND. Las direcciones siguen el orden guardado de las filas aunque ordenes o filtres la vista.',
+  formulaHelp: 'Escribe =SUMA(A1:A5), =PROMEDIO(B1:B4), operaciones, comparaciones (=, <>, <, >) y & para unir texto; también SI, SI.ERROR, Y, O, NO, SUMAR.SI, CONTAR.SI, PROMEDIO.SI, BUSCARV, MIN, MAX, CONTAR, CONTARA, MEDIANA, REDONDEAR, REDONDEAR.MAS, REDONDEAR.MENOS, ENTERO, RESIDUO, POTENCIA, RAIZ, CONCATENAR, LARGO, MAYUSC, MINUSC, ESPACIOS (o sus nombres en inglés; separa con , o ;). Las direcciones siguen el orden guardado de las filas aunque ordenes o filtres la vista.',
   cellHint: 'Se guarda tras una pausa o al salir de la celda. Intro guarda y Escape cancela.', count: 'filas', value: 'Valor calculado', editCard: 'Editar ficha del Códice', retry: 'Reintentar guardado', missingLink: 'Ficha no disponible',
 };
 export const tableCopy = { en, es };

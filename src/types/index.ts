@@ -61,6 +61,16 @@ export interface Project {
   relationTrees?: import('@/engines/genealogy/relationTrees').RelationTreeDocument[];
   /** Offline RPG sheets with local checks and portable roll history. */
   characterSheets?: import('@/engines/character-sheets/types').CharacterSheet[];
+  /** Fights run at the table (initiative, hit points, conditions); kept with the project, not per era. */
+  encounters?: import('@/engines/encounters/model').Encounter[];
+  /** The dice tray: its last rolls and saved formulas. */
+  diceTray?: import('@/engines/dice/operations').DiceTray;
+  /** The project's to-do list (status, urgency, due day, links to documents). */
+  todos?: import('@/engines/todos/model').TodoList;
+  /** Mixes of the project's sounds by scene (loops and one-shots with their levels). */
+  soundscapes?: import('@/engines/soundscape/model').SoundscapeList;
+  /** Kanban boards: columns of cards to drag across. */
+  kanbans?: import('@/engines/kanban/model').KanbanList;
   /** Independent local charts; no renderer or database code in this type leaf. */
   radarCharts?: import('@/engines/radar/types').RadarChartDocument[];
   codexTemplates?: import('@/engines/codex/templateTypes').CodexTemplate[];

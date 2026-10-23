@@ -4,7 +4,9 @@ import { resolveProjectForEngine, requireString, optString, type ToolArgs } from
 import {projectWorldTable} from './projection';
 import {createTypeTable,saveTableCalculation,removeTableColumn,type SaveTableCalculation} from './calculations';
 import type { CodexEntry } from '@/types';
-import { addTable, changeTable, saveCell, importCsv, previewCsv } from './operations';
+import { addTable, changeTable, deleteTable, saveCell, importCsv, previewCsv } from './operations';
+import { exportXlsxReport, importXlsx, sheetsToTables } from './xlsx';
+import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
 import { sheetValues } from './formulas';
 import { cellKey, tableCsv, validateCell, type WorldTable } from './types';
@@ -87,4 +89,34 @@ export const TABLE_HANDLERS = {
   },
   async wh_table_save_cell(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType || table.codexAllTypes) throw Error('table_live_codex_requires_entry'); const value = stringArg(args, 'value'), column = table.columns.find(item => item.id === requireString(args, 'columnId')); if (!column) throw Error('table_column_missing'); if (table.mode !== 'sheet' && column.kind === 'reference' && value && !(await listEraRows<CodexEntry>(target, 'codexEntries')).some(entry => entry.id === value)) throw Error('table_reference_invalid'); await saveCell(target.projectId, table.id, requireString(args, 'rowId'), column.id, value, stringArg(args, 'expected'), target.eraId); return { saved: true }; },
   async wh_table_export_csv(args: ToolArgs) { const { table, rows,displayRows } = await read(args), computed = table.mode === 'sheet' ? sheetValues(table) : undefined; const options:CsvExportOptions={delimiter:csvDelimiter(args.delimiter) as CsvExportOptions['delimiter'],decimal:args.decimal as CsvExportOptions['decimal'],encoding:args.encoding as CsvExportOptions['encoding']};if(options.decimal!==undefined&&options.decimal!=='.'&&options.decimal!==',')throw Error('csv_decimal_invalid');const csv=tableCsv(table.columns, rows, (row, column) => computed ? String(computed.get(cellKey(table.columns.indexOf(column), rows.indexOf(row))) ?? '') : displayRows.find(item=>item.id===row.id)?.cells[column.id] ?? row.cells[column.id] ?? '',options),bytes=encodeCsv(csv,options.encoding);let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return{title:table.title,csv,encoding:options.encoding??'utf-8',base64:btoa(raw)}; },
+  async wh_table_import_xlsx(args: ToolArgs) {
+    const target = await scope(args); let raw: string; try { raw = atob(requireString(args, 'base64')); } catch { throw Error('xlsx_base64_invalid'); }
+    const { sheets, report } = await importXlsx(Uint8Array.from(raw, char => char.charCodeAt(0)));
+    const created = sheetsToTables(sheets, optString(args, 'title') ?? 'Libro');
+    for (const sheet of created) await addTable(target.projectId, sheet, target.eraId);
+    return { workbookId: created[0].workbook!.id, tabs: created.map(sheet => ({ tableId: sheet.id, title: sheet.title, rows: sheet.rows.length, columns: sheet.columns.length, ...(sheet.workbook?.hidden ? { hidden: true } : {}) })), report };
+  },
+  async wh_table_export_xlsx(args: ToolArgs) {
+    const { table: shown, rows, target } = await read(args), project = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId);
+    // A live view has no stored rows: export the projected rows it shows.
+    const table = { ...shown, rows };
+    const tabs = args.wholeWorkbook === false ? [table] : workbookTabs(project?.dataTables ?? [], table).map(item => item.id === table.id ? table : item);
+    const exported = await exportXlsxReport(tabs), bytes = new Uint8Array(await exported.blob.arrayBuffer()); let binary = ''; for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return { fileName: `${(table.workbook?.name ?? table.title).replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'libro'}.xlsx`, tabs: tabs.map(item => item.title), bytes: bytes.length, warnings: exported.warnings, base64: btoa(binary) };
+  },
+  async wh_table_workbook(args: ToolArgs) {
+    const { table, target } = await read(args), project = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId), tables = project?.dataTables ?? [];
+    if (table.mode !== 'sheet' || table.codexType || table.codexAllTypes) throw Error('workbook_sheets_only');
+    const action = optString(args, 'action') ?? 'list', tabs = workbookTabs(tables, table), nextOrder = Math.max(...tabs.map(item => item.workbook?.order ?? 0)) + 1;
+    const ensure = async () => { if (table.workbook) return table.workbook; const workbook = { id: crypto.randomUUID(), name: optString(args, 'workbookName') ?? table.title, order: 0 }; await changeTable(target.projectId, table.id, current => { current.workbook = workbook; }, target.eraId); return workbook; };
+    const list = async () => { const fresh = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId), current = (fresh?.dataTables ?? []).find(item => item.id === table.id) ?? table; return { workbook: current.workbook ? { id: current.workbook.id, name: current.workbook.name } : null, tabs: workbookTabs(fresh?.dataTables ?? [], current).map(item => ({ tableId: item.id, title: item.title, order: item.workbook?.order ?? 0, ...(item.workbook?.color ? { color: item.workbook.color } : {}), ...(item.workbook?.hidden ? { hidden: true } : {}) })) }; };
+    if (action === 'list') return list();
+    if (action === 'add' || action === 'duplicate') { const workbook = await ensure(); const sheet = action === 'add' ? blankSheet(optString(args, 'title') ?? `Hoja ${tabs.length + 1}`, { id: workbook.id, name: workbook.name, order: table.workbook ? nextOrder : 1 }) : duplicateSheet({ ...table, workbook }, optString(args, 'title') ?? `${table.title} (copia)`, table.workbook ? nextOrder : 1); await addTable(target.projectId, sheet, target.eraId); return { created: sheet.id, ...(await list()) }; }
+    if (action === 'rename') { const title = requireString(args, 'title').trim().slice(0, 200); await changeTable(target.projectId, table.id, current => { current.title = title; }, target.eraId); return list(); }
+    if (action === 'colour') { const color = optString(args, 'color') ?? ''; if (color && !/^#[0-9a-f]{6}$/i.test(color)) throw Error('workbook_colour_invalid'); const workbook = await ensure(); await changeTable(target.projectId, table.id, current => { current.workbook = { ...(current.workbook ?? workbook) }; if (color) current.workbook.color = color.toLowerCase(); else delete current.workbook.color; }, target.eraId); return list(); }
+    if (action === 'hide' || action === 'show') { if (!table.workbook) throw Error('workbook_missing'); if (action === 'hide' && tabs.filter(item => !item.workbook?.hidden && item.id !== table.id).length < 1) throw Error('workbook_needs_visible_tab'); await changeTable(target.projectId, table.id, current => { current.workbook = { ...current.workbook!, hidden: action === 'hide' }; }, target.eraId); return list(); }
+    if (action === 'move') { if (!table.workbook) throw Error('workbook_missing'); const to = Math.max(0, Math.min(tabs.length - 1, Math.round(Number(args.position ?? 0)))); const order = tabs.filter(item => item.id !== table.id); order.splice(to, 0, table); for (const [index, item] of order.entries()) if (item.workbook!.order !== index) await changeTable(target.projectId, item.id, current => { current.workbook = { ...current.workbook!, order: index }; }, target.eraId); return list(); }
+    if (action === 'remove') { if (tabs.length < 2) throw Error('workbook_needs_a_tab'); if (tabs.filter(item => item.id !== table.id && !item.workbook?.hidden).length < 1) throw Error('workbook_needs_visible_tab'); await deleteTable(target.projectId, table.id, target.eraId); const other = tabs.find(item => item.id !== table.id)!; const fresh = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId); return { removed: table.id, tabs: workbookTabs(fresh?.dataTables ?? [], other).map(item => ({ tableId: item.id, title: item.title })) }; }
+    throw Error('workbook_action_invalid');
+  },
 };

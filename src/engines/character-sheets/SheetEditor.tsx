@@ -9,6 +9,7 @@ import { cocRoll } from './cocRules';
 import CocPlayPanel from './CocPlayPanel';
 import DaggerheartPlayPanel from './DaggerheartPlayPanel';
 import FiveEPlayPanel from './FiveEPlayPanel';
+import SpellcastingEditor from './SpellcastingEditor';
 
 import { sheetCopy } from './copy';
 
@@ -83,6 +84,7 @@ export default function SheetEditor({ sheet, sheets, locale, update, confirm, re
       {tab === 'stats' && sheet.preset === 'daggerheart-adversary' && <button className={button} onClick={() => check('Attack',sheet.numbers.attack ?? 0)}><Dice5 size={16} />{locale === 'es' ? 'Ataque del adversario' : 'Adversary attack'} · {sheet.numbers.attack ?? 0}</button>}
 
       {tab === 'stats' && <StatsPanel {...panelProps} sheets={sheets} check={check} />}
+      {tab === 'stats' && sheet.preset === '5e-stat-block' && <SpellcastingEditor sheet={sheet} locale={locale} update={update} />}
 
       {tab === 'resources' && <ResourcePanel {...panelProps} />}
 

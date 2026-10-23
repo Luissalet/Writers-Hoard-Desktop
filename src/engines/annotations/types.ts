@@ -39,6 +39,9 @@ export interface AnnotationAnchor {
   contextBefore?: string;
   /** ~40 chars of plain text following the selection. */
   contextAfter?: string;
+  /** A comment about one element of a canvas (a board card): its id, and its title when the comment was made. */
+  elementId?: string;
+  elementTitle?: string;
   /** map_point only: where on the map image the note sits, in percent of its width and height. */
   x?: number;
   y?: number;

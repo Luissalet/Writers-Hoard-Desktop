@@ -9,7 +9,7 @@ const es = {
   loading: 'Abriendo tus ideas…', group: 'Agrupar', search: 'Buscar ideas y conexiones',
   pile:'Grupo',collapsePile:'Colapsar en un grupo',openPile:'Abrir este grupo',items:'elementos',
   quickConnect: 'Nueva idea conectada a este lado',
-  surface: 'Superficie', cork: 'Corcho', slate: 'Pizarra', grid: 'Papel', blueprint: 'Plano',
+  surface: 'Superficie', cork: 'Corcho', slate: 'Pizarra', grid: 'Papel', blueprint: 'Plano', white: 'Blanco', lined: 'Rayado', chalk: 'Tiza',
 };
 export type BoardCopy = typeof es;
 const en: BoardCopy = {
@@ -22,6 +22,6 @@ const en: BoardCopy = {
   loading: 'Opening your ideas…', group: 'Group', search: 'Search ideas and connections',
   pile:'Pile',collapsePile:'Collapse into a pile',openPile:'Open this pile',items:'items',
   quickConnect: 'New idea connected on this side',
-  surface: 'Surface', cork: 'Cork', slate: 'Slate', grid: 'Paper', blueprint: 'Blueprint',
+  surface: 'Surface', cork: 'Cork', slate: 'Slate', grid: 'Paper', blueprint: 'Blueprint', white: 'White', lined: 'Lined', chalk: 'Chalk',
 };
 export function getBoardCopy(locale: string): BoardCopy { return locale === 'es' ? es : en; }

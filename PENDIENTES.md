@@ -138,6 +138,16 @@ lectura exacta del manual actualizado).
 
 ---
 
+## Herramientas de mesa 1095 (ola D1) — cosas a revisar (no requieren decisión de Luis)
+
+- `[~]` Excel: se importan valores y fórmulas de cada hoja; el formato, las
+  celdas combinadas, los gráficos, las imágenes y las macros no (el informe lo
+  dice). Las fórmulas con funciones que la hoja no calcula o con referencias a
+  otra pestaña (`Hoja2!A1`) se guardan tal cual y se muestran como `#FORMULA!`.
+- `[~]` La tirada «animada» de dados es una animación, no física 3D.
+- `[~]` El compendio es el SRD 5.2 en inglés (los nombres de las entradas no se
+  traducen); los estados se muestran en español.
+
 ## Escritura 1095 (ola C) — cosas a revisar (no requieren decisión de Luis)
 
 - `[~]` Word (DOCX) del «manual de juego»: las dos columnas empiezan después de

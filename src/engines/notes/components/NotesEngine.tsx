@@ -14,6 +14,11 @@ import NoteCard from './NoteCard';
 import NoteComposer, { type NoteDraft } from './NoteComposer';
 import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import { creativeSourceKey } from '@/components/project/creative-lab';
+import TodoPanel from '@/engines/todos/TodoPanel';
+import KanbanPanel from '@/engines/kanban/KanbanPanel';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db';
+import { isOpen } from '@/engines/todos/model';
 
 type KindFilter = NoteKind | 'all';
 
@@ -30,6 +35,10 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
   const { items: notes, loading, hasLoaded, error, refetching, addItem, editItem, removeItem, refresh } = useNotes(projectId);
   const { projects } = useProjects();
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  const { locale } = useTranslation();
+  const deepLinkedTab = useDeepLinkParam('tab');
+  const [tab, setTab] = useState<'notes' | 'todo' | 'kanban'>(deepLinkedTab === 'todo' ? 'todo' : deepLinkedTab === 'kanban' ? 'kanban' : 'notes');
+  const openTodos = useLiveQuery(async () => isInbox ? 0 : ((await db.projects.get(projectId))?.todos?.items ?? []).filter(isOpen).length, [projectId, isInbox]);
   const [query, setQuery] = useState('');
   const deepLinkedNoteId = useDeepLinkParam('note');
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
@@ -99,8 +108,18 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
   if (loading && notes.length === 0) return <EngineSpinner />;
   if (error && !hasLoaded) return <ReadErrorNotice onRetry={refresh} retrying={refetching} />;
 
+  const tabs = isInbox ? null : <div role="tablist" aria-label={locale === 'es' ? 'Vista' : 'View'} className="flex gap-1 border-b border-border px-4 py-2">
+    <button type="button" role="tab" aria-selected={tab === 'notes'} data-testid="notes-tab-notes" onClick={() => setTab('notes')} className={`rounded-lg px-3 py-1.5 text-sm ${tab === 'notes' ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{locale === 'es' ? 'Notas' : 'Notes'}</button>
+    <button type="button" role="tab" aria-selected={tab === 'todo'} data-testid="notes-tab-todo" onClick={() => setTab('todo')} className={`rounded-lg px-3 py-1.5 text-sm ${tab === 'todo' ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{locale === 'es' ? 'Tareas' : 'To-do'}{openTodos ? <span className="ml-1.5 rounded-full bg-accent-gold/20 px-1.5 text-xs" data-testid="notes-todo-count">{openTodos}</span> : null}</button>
+    <button type="button" role="tab" aria-selected={tab === 'kanban'} data-testid="notes-tab-kanban" onClick={() => setTab('kanban')} className={`rounded-lg px-3 py-1.5 text-sm ${tab === 'kanban' ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{locale === 'es' ? 'Tableros' : 'Boards'}</button>
+  </div>;
+  const openLink = (link: { kind: 'writing' | 'codex'; id: string }) => navigate(link.kind === 'writing' ? `/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(link.id)}` : `/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(link.id)}`);
+  if (tab === 'kanban' && !isInbox) return <div className="flex h-full flex-col overflow-y-auto bg-deep">{tabs}<KanbanPanel projectId={projectId} locale={locale === 'en' ? 'en' : 'es'} onOpenLink={openLink} /></div>;
+  if (tab === 'todo' && !isInbox) return <div className="flex h-full flex-col overflow-y-auto bg-deep">{tabs}<TodoPanel projectId={projectId} locale={locale === 'en' ? 'en' : 'es'} onOpenLink={link => navigate(link.kind === 'writing' ? `/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(link.id)}` : `/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(link.id)}`)} /></div>;
+
   return (
     <div className="flex flex-col h-full bg-deep">
+      {tabs}
       {error && <ReadErrorNotice onRetry={refresh} retrying={refetching} />}
       <div className="p-4 pb-0">
         <NoteComposer onSubmit={handleCreate} tagSuggestions={allTags} />

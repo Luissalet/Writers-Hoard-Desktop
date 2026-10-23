@@ -15,6 +15,10 @@ import { Field } from './ui';
 import SheetEditor from './SheetEditor';
 import { reconcileCocSheet, resolveCocSheet } from './cocRules';
 import {FIVE_E_SOURCE,reconcileFiveESheet} from './fiveE';
+import CompendiumPanel from '@/engines/compendium/CompendiumPanel';
+import EncounterPanel from '@/engines/encounters/EncounterPanel';
+import DiceTray from '@/engines/dice/DiceTray';
+import { addMonsterToFight } from '@/engines/encounters/fromSources';
 
 export default function CharacterSheetsEngine({ projectId }: EngineComponentProps) {
   return <Workspace key={projectId} projectId={projectId} />;
@@ -35,6 +39,7 @@ function Workspace({ projectId }: EngineComponentProps) {
     for (const key of Object.keys(before)) if (!next[key]) journal.delete(key);
     rerender(value => value + 1);
   };
+  const [view, setView] = useState<'sheets' | 'compendium' | 'fight' | 'dice'>('sheets');
   const [selected, setSelected] = useState(''); const [preset, setPreset] = useState<SheetPreset>('5e-character');
   const [query, setQuery] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [status, setStatus] = useState(''); const [conflict, setConflict] = useState(false);
   const [confirmation, setConfirmation] = useState<null | { message: string; action: () => void | Promise<void> }>(null);
@@ -77,7 +82,11 @@ function Workspace({ projectId }: EngineComponentProps) {
         void perform(async () => { try { if (file.size > 8000000) throw new Error(); const next = parseSheetImport(await file.text()); if (next.linkedEntryId && !entries.some(entry => entry.id === next.linkedEntryId)) next.linkedEntryId = undefined; setDrafts(current => ({ ...current, [next.id]: { sheet: next, base: null } })); setSelected(next.id); setConflict(false); setStatus(c.unsaved); } catch { setError(c.importError); } });
       }} />
     </div></header>
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto md:flex-row"><nav className="shrink-0 border-b border-border p-3 md:w-60 md:overflow-y-auto md:border-r md:border-b-0" aria-label={c.title}>
+    <div role="tablist" aria-label={locale === 'es' ? 'Vista' : 'View'} className="flex gap-1 border-b border-border px-5 py-2">{(['sheets', 'compendium', 'fight', 'dice'] as const).map(value => <button key={value} type="button" role="tab" aria-selected={view === value} data-testid={`sheets-view-${value}`} onClick={() => setView(value)} className={`rounded-lg px-3 py-1.5 text-sm ${view === value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{({ sheets: locale === 'es' ? 'Hojas' : 'Sheets', compendium: locale === 'es' ? 'Compendio' : 'Compendium', fight: locale === 'es' ? 'Combate' : 'Fight', dice: locale === 'es' ? 'Dados' : 'Dice' })[value]}</button>)}</div>
+    {view === 'compendium' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><CompendiumPanel projectId={projectId} eraId={scope.eraId} locale={locale} onAddToFight={monster => { void addMonsterToFight(projectId, monster, 1, locale === 'es' ? 'Combate' : 'Fight').catch(() => setError(c.error)); }} /></div>}
+    {view === 'dice' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><DiceTray projectId={projectId} locale={locale} /></div>}
+    {view === 'fight' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><EncounterPanel projectId={projectId} locale={locale} sheets={sheets} /></div>}
+    {view === 'sheets' && <div className="flex min-h-0 flex-1 flex-col overflow-auto md:flex-row"><nav className="shrink-0 border-b border-border p-3 md:w-60 md:overflow-y-auto md:border-r md:border-b-0" aria-label={c.title}>
       <div className="md:hidden"><Field label={locale === 'es' ? 'Ficha activa' : 'Current sheet'}><select className={input} aria-label={locale === 'es' ? 'Ficha activa' : 'Current sheet'} value={id} disabled={busy} onChange={event => { setSelected(event.target.value); setConflict(false); setError(''); setStatus(''); }}>{!documents.length && <option value="">{c.none}</option>}{documents.map(item => <option key={item.id} value={item.id}>{drafts[item.id]?.sheet.title || item.title || c.new}{drafts[item.id] ? ' *' : ''}</option>)}</select></Field></div>
       <div className="hidden md:block"><input className={input} aria-label={locale === 'es' ? 'Buscar ficha' : 'Find sheet'} placeholder={locale === 'es' ? 'Buscar ficha…' : 'Find sheet…'} value={query} onChange={event => setQuery(event.target.value)} />
       {visible.map(item => <button key={item.id} className={`mt-2 w-full rounded-lg p-3 text-left focus-visible:outline-2 focus-visible:outline-accent-gold ${id === item.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} disabled={busy} aria-current={id === item.id ? 'page' : undefined} onClick={() => { setSelected(item.id); setConflict(false); setError(''); setStatus(''); }}><span className="block break-words text-sm">{drafts[item.id]?.sheet.title || item.title || c.new}{drafts[item.id] ? ' *' : ''}</span><span className="mt-1 block text-xs text-text-muted">{(drafts[item.id]?.sheet??item).fiveE?FIVE_E_SOURCE.title:c.categories[presets.indexOf(item.preset)]}</span></button>)}
@@ -93,7 +102,7 @@ function Workspace({ projectId }: EngineComponentProps) {
       <Field label={c.codex}><select className={input} aria-label={c.codex} value={sheet.linkedEntryId ?? ''} onChange={event => update(current => ({ ...current, linkedEntryId: event.target.value || undefined }))}><option value="">{c.none}</option>{sheet.linkedEntryId && !entries.some(entry => entry.id === sheet.linkedEntryId) && <option value={sheet.linkedEntryId}>{locale === 'es' ? 'Entrada no disponible' : 'Entry unavailable'}</option>}{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></Field>
       <fieldset disabled={busy}><SheetEditor key={sheet.id} sheet={sheet} sheets={sheets} locale={locale} update={update} confirm={confirm} report={setError} status={setStatus} /></fieldset>
       <footer className="border-t border-border pt-4"><p className="max-w-prose text-sm text-text-muted">{sheet.preset==='coc7'?(locale==='es'?'Los máximos automáticos siguen las características; los ajustes manuales se conservan. Las acciones de Partida aplican heridas y cordura al borrador. Guarda para conservar los resultados.':'Automatic maxima follow characteristics; manual overrides persist. Play actions apply wounds and sanity to the draft. Save to keep the results.'):c.manual}</p>{sourceLinks[sheet.preset] && <p className="mt-3 flex flex-wrap gap-3 text-xs text-text-muted">{c.sources}: {(sheet.fiveE?[{title:FIVE_E_SOURCE.title,url:FIVE_E_SOURCE.url}]:sourceLinks[sheet.preset]!).map(source => <a key={source.url} className="text-accent-gold underline underline-offset-4" href={source.url} target="_blank" rel="noreferrer noopener">{source.title}</a>)}</p>}</footer>
-    </>}</main></div>
+    </>}</main></div>}
     <ConfirmDialog open={!!confirmation} message={confirmation?.message ?? ''} destructive onCancel={() => setConfirmation(null)} onConfirm={async () => { const action = confirmation?.action; setConfirmation(null); await action?.(); }} />
   </section>;
 }

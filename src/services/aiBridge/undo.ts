@@ -19,6 +19,7 @@ import { db } from '@/db';
 import { DELETABLE } from './tools/deletion';
 import { undoEnrichment } from '@/engines/inquiry/enrichment';
 import { BridgeError, type ToolArgs } from './tools/shared';
+import { diceStamp, encounterStamp, graphStamp, kanbansStamp, soundscapesStamp, todosStamp } from './undoStamp';
 import { hideEraDocument, mutateEraRows, readEraRow, readWorldDocument, saveEraDocument } from '@/services/worldEras/store';
 import { eraAdapterForTable } from '@/services/worldEras/adapters';
 import type { EraDocumentKind } from '@/services/worldEras/types';
@@ -57,6 +58,19 @@ function specForTable(table: string): { type: string; remove: (id: string) => Pr
     if (spec.table === table) return { type, remove: spec.remove };
   }
   return null;
+}
+
+/**
+ * Refuse to put a snapshot back over later work. The write recorded what it left
+ * behind (a revision and a fingerprint of the content); if the data now is neither,
+ * someone changed it since and restoring would silently drop that. Lines written
+ * before this was recorded carry neither and keep their old behaviour.
+ */
+function assertUnchangedSince(recorded: Record<string, unknown>, current: { revision?: number; stamp: string }, what: string) {
+  if (recorded.__after === undefined && recorded.__afterRevision === undefined) return;
+  if (typeof recorded.__afterRevision === 'number' && current.revision === recorded.__afterRevision) return;
+  if (recorded.__after === current.stamp) return;
+  throw new BridgeError('cannot-undo', `The ${what} changed after this edit, so undoing it would lose that later work; change them back by hand instead.`);
 }
 
 export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
@@ -256,6 +270,50 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     await db.projects.update(entry.projectId, { title: before.title, description: typeof before.description === 'string' ? before.description : '', author: typeof before.author === 'string' ? before.author : undefined, blurb: typeof before.blurb === 'string' ? before.blurb : undefined, updatedAt: Date.now() });
     const { notifyProjectsChanged } = await import('@/db/operations');
     notifyProjectsChanged();
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // An encounter goes back to how it was (or away, if the change made it).
+  if (entry.before && typeof entry.before === 'object' && '__encounter' in (entry.before as Record<string, unknown>)) {
+    const recorded = entry.before as { __encounter: import('@/engines/encounters/model').Encounter | null; __encounterId: string };
+    const { restoreEncounter, listEncounters } = await import('@/engines/encounters/operations');
+    const nowEncounter = (await listEncounters(String(entry.projectId))).find(item => item.id === recorded.__encounterId);
+    assertUnchangedSince(entry.before as Record<string, unknown>, { revision: nowEncounter?.revision, stamp: encounterStamp(nowEncounter) }, 'encounter');
+    await restoreEncounter(String(entry.projectId), recorded.__encounter, recorded.__encounterId);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.before && typeof entry.before === 'object' && '__graphSettings' in (entry.before as Record<string, unknown>)) {
+    const recorded = (entry.before as { __graphSettings: { display: import('@/engines/codex/worldGraph/types').WorldGraphDisplay | null; hiddenIds: string[]; views: import('@/engines/codex/worldGraph/types').WorldGraphView[] } }).__graphSettings;
+    const { db: database } = await import('@/db');
+    const graphProjectId = String(entry.projectId);
+    assertUnchangedSince(entry.before as Record<string, unknown>, { stamp: graphStamp((await database.projects.get(graphProjectId))?.codexGraphLayout ?? {}) }, 'graph settings');
+    await database.transaction('rw', database.projects, async () => { const project = await database.projects.get(graphProjectId); if (!project) return; const layout = { ...(project.codexGraphLayout ?? { positions: {} }), hiddenIds: recorded.hiddenIds, views: recorded.views }; if (recorded.display) layout.display = recorded.display; else delete layout.display; await database.projects.update(graphProjectId, { codexGraphLayout: layout, updatedAt: Date.now() }); });
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.before && typeof entry.before === 'object' && '__soundscapes' in (entry.before as Record<string, unknown>)) {
+    const { restoreSoundscapes, readSoundscapes } = await import('@/engines/soundscape/operations');
+    const nowSoundscapes = await readSoundscapes(String(entry.projectId));
+    assertUnchangedSince(entry.before as Record<string, unknown>, { revision: nowSoundscapes.revision, stamp: soundscapesStamp(nowSoundscapes) }, 'soundscapes');
+    await restoreSoundscapes(String(entry.projectId), (entry.before as { __soundscapes: import('@/engines/soundscape/model').SoundscapeList }).__soundscapes);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.before && typeof entry.before === 'object' && '__kanbans' in (entry.before as Record<string, unknown>)) {
+    const { restoreKanbans, readKanbans } = await import('@/engines/kanban/operations');
+    const nowKanbans = await readKanbans(String(entry.projectId));
+    assertUnchangedSince(entry.before as Record<string, unknown>, { revision: nowKanbans.revision, stamp: kanbansStamp(nowKanbans) }, 'kanban boards');
+    await restoreKanbans(String(entry.projectId), (entry.before as { __kanbans: import('@/engines/kanban/model').KanbanList }).__kanbans);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.before && typeof entry.before === 'object' && '__todos' in (entry.before as Record<string, unknown>)) {
+    const { restoreTodos, readTodos } = await import('@/engines/todos/operations');
+    const nowTodos = await readTodos(String(entry.projectId));
+    assertUnchangedSince(entry.before as Record<string, unknown>, { revision: nowTodos.revision, stamp: todosStamp(nowTodos) }, 'task list');
+    await restoreTodos(String(entry.projectId), (entry.before as { __todos: import('@/engines/todos/model').TodoList }).__todos);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.before && typeof entry.before === 'object' && '__diceTray' in (entry.before as Record<string, unknown>)) {
+    const { restoreDiceTray, readDiceTray } = await import('@/engines/dice/operations');
+    assertUnchangedSince(entry.before as Record<string, unknown>, { stamp: diceStamp(await readDiceTray(String(entry.projectId))) }, 'dice tray');
+    await restoreDiceTray(String(entry.projectId), (entry.before as { __diceTray: import('@/engines/dice/operations').DiceTray }).__diceTray);
     return { undone: true, kind, entityId, what: summary };
   }
   // A calendar saved with "re-date": the calendar and the moved events both go back.

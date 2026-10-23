@@ -1,7 +1,12 @@
 import type { CodexEntry, CodexEntryType } from '@/types';
 import type { Relationship } from '@/engines/relationships/types';
 
-export interface CodexGraphLayout { positions: Record<string, { x: number; y: number }> }
+/** How the graph is drawn: names on every card, only on the most connected ("main"), or on hover; card size; link strength; pictures. */
+export interface WorldGraphDisplay { names: 'all' | 'main' | 'hover'; nodeSize: 'small' | 'medium' | 'large'; linkOpacity: number; pictures: boolean }
+export const DEFAULT_GRAPH_DISPLAY: WorldGraphDisplay = { names: 'all', nodeSize: 'medium', linkOpacity: 1, pictures: true };
+/** A named graph: its filters and look, saved with the project. */
+export interface WorldGraphView { id: string; name: string; filters: Partial<WorldGraphFilters>; display: WorldGraphDisplay }
+export interface CodexGraphLayout { positions: Record<string, { x: number; y: number }>; display?: WorldGraphDisplay; hiddenIds?: string[]; views?: WorldGraphView[] }
 export type WorldGraphEdgeKind = 'mention' | 'codex' | 'reference' | 'relationship';
 export interface WorldGraphEvidence {
   field?: string;

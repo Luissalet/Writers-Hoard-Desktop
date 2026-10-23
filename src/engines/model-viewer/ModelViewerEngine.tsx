@@ -22,6 +22,7 @@ export function ModelView({ asset,compact=false }: { asset: ModelAsset;compact?:
   const [animations, setAnimations] = useState<string[]>([]);
   const [animation, setAnimation] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [loop, setLoop] = useState(true);
   const [cameraMode, setCameraMode] = useState<CameraMode>('orbit');
   const [autoRotate, setAutoRotate] = useState(compact && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   useEffect(() => {
@@ -49,8 +50,12 @@ export function ModelView({ asset,compact=false }: { asset: ModelAsset;compact?:
       <label className="inline-flex items-center gap-2 px-2 text-sm text-text-primary"><input type="checkbox" checked={wireframe} disabled={!ready} onChange={event => { setWireframe(event.target.checked); viewport.current?.setWireframe(event.target.checked); }} className="accent-accent-gold" />{copy.wireframe}</label>
       <label className="inline-flex items-center gap-2 text-sm text-text-muted">{copy.lighting}<select value={lighting} disabled={!ready} onChange={event => { const value = event.target.value as Lighting; setLighting(value); viewport.current?.setLighting(value); }} className="bg-elevated text-text-primary border border-border rounded-lg px-2 py-2"><option value="studio">{copy.studio}</option><option value="soft">{copy.soft}</option><option value="daylight">{copy.daylight}</option></select></label>
       {animations.length > 0 && <>
-        <label className="inline-flex items-center gap-2 text-sm text-text-muted">{copy.animation}<select value={animation} onChange={event => { const value = Number(event.target.value); setAnimation(value); viewport.current?.setAnimation(value, playing); }} className="bg-elevated text-text-primary border border-border rounded-lg px-2 py-2">{animations.map((name, i) => <option key={i} value={i}>{name}</option>)}</select></label>
-        <button type="button" className={buttonClass} disabled={!ready} onClick={() => { setPlaying(value => !value); viewport.current?.setAnimation(animation, !playing); }}>{playing ? copy.pause : copy.play}</button>
+        <button type="button" className={buttonClass} disabled={!ready || animations.length < 2} aria-label={locale === 'es' ? 'Animación anterior' : 'Previous animation'} data-testid="model-animation-previous" onClick={() => { const value = (animation - 1 + animations.length) % animations.length; setAnimation(value); viewport.current?.setAnimation(value, playing, loop); }}>‹</button>
+        <label className="inline-flex items-center gap-2 text-sm text-text-muted">{copy.animation}<select data-testid="model-animation" value={animation} onChange={event => { const value = Number(event.target.value); setAnimation(value); viewport.current?.setAnimation(value, playing, loop); }} className="bg-elevated text-text-primary border border-border rounded-lg px-2 py-2">{animations.map((name, i) => <option key={i} value={i}>{name}</option>)}</select></label>
+        <button type="button" className={buttonClass} disabled={!ready || animations.length < 2} aria-label={locale === 'es' ? 'Animación siguiente' : 'Next animation'} data-testid="model-animation-next" onClick={() => { const value = (animation + 1) % animations.length; setAnimation(value); viewport.current?.setAnimation(value, playing, loop); }}>›</button>
+        <button type="button" className={buttonClass} disabled={!ready} data-testid="model-animation-play" onClick={() => { setPlaying(value => !value); viewport.current?.setAnimation(animation, !playing, loop); }}>{playing ? copy.pause : copy.play}</button>
+        <label className="inline-flex items-center gap-2 text-sm text-text-primary"><input type="checkbox" className="accent-accent-gold" data-testid="model-animation-loop" checked={loop} disabled={!ready} onChange={event => { setLoop(event.target.checked); viewport.current?.setAnimation(animation, playing, event.target.checked); }} />{locale === 'es' ? 'En bucle' : 'Loop'}</label>
+        <span className="text-xs text-text-muted" data-testid="model-animation-count">{animation + 1}/{animations.length}</span>
       </>}
     </div>
     <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm text-text-muted">

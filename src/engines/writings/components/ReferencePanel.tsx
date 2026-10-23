@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
-import { BookOpen, ChevronLeft, Pencil, Pin, PinOff, Search, X } from 'lucide-react';
+import { BookOpen, ChevronLeft, ExternalLink, Pencil, Pin, PinOff, Search, X } from 'lucide-react';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { saveCodexDraft } from '@/engines/codex/operations';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
@@ -112,7 +112,7 @@ export default function ReferencePanel({
   anchor = 'right',
   loadedRange = null,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const pane = useEnginePane();
   const referenceScope = paneReferenceScope(writingId, pane);
   const panelBodyId = useId();
@@ -412,6 +412,7 @@ export default function ReferencePanel({
       <div data-testid="reference-preview" className="space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           {backButton}
+          {pane?.openBeside && <button type="button" onMouseDown={keepEditorFocus} onClick={() => pane.openBeside!(`/project/${encodeURIComponent(entry.projectId)}/codex?entry=${encodeURIComponent(entry.id)}`)} data-testid="reference-open-beside" title={locale === 'es' ? 'Abrir en su propia pestaña al lado' : 'Open in its own tab beside'} className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-text-muted hover:bg-elevated hover:text-text-primary"><ExternalLink size={13} aria-hidden="true" />{locale === 'es' ? 'Abrir al lado' : 'Open beside'}</button>}
           <button type="button" onMouseDown={keepEditorFocus} onClick={() => { setEntryDirty(false); setEditingEntry(entry); }} data-testid="reference-edit-entry" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-text-primary hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50"><Pencil size={13} aria-hidden="true" />{t('codex.editEntry')}</button>
         </div>
         <div className="flex items-start gap-3">

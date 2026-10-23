@@ -83,6 +83,27 @@ references follow, a removed one reads #REF!), multi-sort and filters.
 Everything has bridge tools (docs/AI-BRIDGE.md, section 29); the matrix with
 evidence is tasks/vvd1095/C-writing.md.
 
+**Tabletop tools (task 1095, wave D1).** Character sheets gain an offline SRD 5.2
+compendium (341 monsters, 339 spells, 262 magic items, 15 conditions; search and
+filters; "Add to world" makes a Codex card and a stat block; CC BY 4.0 credit),
+a Fight tab (initiative, turns and rounds, damage with temporary HP, healing,
+conditions that wear off, concentration checks, death saves), a dice tray
+(4d6kh3, advantage, a target with pass or miss, natural 20 / 1 called out, six
+dice sets, saved formulas, a roll log) and a 5e sheet's hit points in play
+(damage, healing, death saves, condition chips) with a stat block's
+spellcasting sentence. A name generator makes inns, shops, people, villages and
+noble houses in 13 styles with owner, charm, secret, trouble and motto, and
+turns one into a Codex card ("/nombre" in the editor; "/dados" rolls). Notes
+gain a to-do list (status, urgency, due days, links) and kanban boards, and a
+note takes a title and a cover. Sheets compute IF, SUMIF, COUNTIF, VLOOKUP and
+other functions (Spanish names too), open and save Excel workbooks with their
+tabs, and group sheets as tabs of a workbook. The board has a right-click menu,
+white, lined and chalk surfaces, an assets rail and comments about one card;
+the world graph has display settings, hidden cards and saved graphs; the
+project ambience has a soundscape mixer; the icon picker has categories,
+genres and recent icons. Bridge tools: docs/AI-BRIDGE.md, section 30; matrix:
+tasks/vvd1095/D1-tools.md.
+
 **Duplicate project** creates one local project copy, remaps declared internal
 references and copies available managed Scrapper files. Global library and native
 publishing originals remain shared. A copied book stays in its saga; a copied

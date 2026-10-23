@@ -522,7 +522,7 @@ Start a corkboard: a free canvas of cards and the threads between them. Use it t
         projectId: PROJECT_ID,
         title: s('What this board is called.'),
         surface: s('Canvas backdrop. Default "cork".', {
-          enum: ['cork', 'slate', 'grid', 'blueprint'],
+          enum: ['cork', 'slate', 'grid', 'blueprint', 'white', 'lined', 'chalk'],
         }),
       },
       required: ['title'],

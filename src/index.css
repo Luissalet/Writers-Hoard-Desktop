@@ -389,6 +389,14 @@ input, textarea { caret-color: var(--color-accent-gold); }
   border-radius: 8px !important;
 }
 
+/* Lined paper for the board: ruled lines and a red margin. */
+.wh-board-lined {
+  background-color: #fbf8ef;
+  background-image:
+    linear-gradient(90deg, transparent 63px, rgba(196, 70, 58, 0.45) 63px, rgba(196, 70, 58, 0.45) 65px, transparent 65px),
+    repeating-linear-gradient(180deg, transparent 0, transparent 31px, rgba(74, 126, 196, 0.35) 31px, rgba(74, 126, 196, 0.35) 32px);
+}
+
 /* Cork board texture for yarn */
 .cork-bg {
   background-color: #2a1f14;

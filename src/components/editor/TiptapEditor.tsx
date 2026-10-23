@@ -10,6 +10,7 @@ import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import { createWritingBlockExtensions } from './blocks/extensions';
 import SlashMenu from './blocks/SlashMenu';
+import SlashToolHost from './blocks/SlashToolHost';
 import ImageControls from './blocks/ImageControls';
 import BlockFieldControls from './blocks/BlockFieldControls';
 import { lazy, Suspense, useEffect,useLayoutEffect, useRef, useState } from 'react';
@@ -804,6 +805,7 @@ export default function TiptapEditor({
       {/* Editor */}
       <EditorContent editor={editor} />
       <SlashMenu editor={editor} wrapperRef={wrapperRef} locale={locale} />
+      <SlashToolHost editor={editor} locale={locale} projectId={editorialProjectId} eraId={editorialEraId} />
       <ImageControls editor={editor} wrapperRef={wrapperRef} locale={locale} />
       <BlockFieldControls editor={editor} wrapperRef={wrapperRef} locale={locale} />
       {/* The suggestion is drawn over the text but is not in it, so assistive

@@ -53,17 +53,22 @@ correlación con el gregoriano, re-fechado con deshacer, repeticiones, bandas,
 etiquetas, vistas), catálogos de relaciones y tablas con búsqueda, inserciones
 y filtros. Todo con interfaz, MCP, deshacer y ámbito de época.
 
-Siguiente, en este orden (ola D1, herramientas de mesa):
-- Compendio SRD 5.2 sin conexión (monstruos, conjuros, objetos, estados) con
-  «Añadir al mundo» y «Añadir al combate», y el combate en la mesa (iniciativa,
-  PG, estados que caducan, salvaciones contra muerte, concentración).
-- Bandeja de dados (ventaja, dificultad, 20 y 1 naturales, juegos de dados,
-  fórmulas guardadas), generador de nombres (posadas, tiendas, personas,
-  pueblos, casas; 13 estilos; «Crear ficha») y lista de tareas.
-- Hojas: funciones (SI, SUMAR.SI, BUSCARV…), pestañas de libro e importar y
-  exportar .xlsx; después el lienzo (menú contextual, fondos, audio) y el grafo
-  (ajustes de vista, grafos guardados).
-- Luego las olas D2 (plataforma) y B (campaña).
+Ola D1 (herramientas de mesa), hecha: compendio SRD 5.2 sin conexión con
+«Añadir al mundo» y «Añadir al combate», combate en la mesa, bandeja de dados,
+puntos de golpe y conjuros en las hojas 5e, generador de nombres, lista de
+tareas, tableros kanban, notas con título y portada, funciones de hoja con
+nombres en español, libros de Excel con pestañas, menú de clic derecho,
+superficies, recursos y comentarios en el lienzo, ajustes y grafos guardados en
+el grafo, paisajes sonoros, iconos por categoría y género, clips del visor 3D y
+«Abrir al lado» en la consulta (matriz: tasks/vvd1095/D1-tools.md, 44 de 69
+PRESENT).
+
+Siguiente:
+- D1 pendiente: elegir reglamento y un compendio 5e 2014 (SRD 5.1); editor de
+  bloque de estadísticas con acciones estructuradas; notas con texto rico y
+  tamaños de imagen; renombrar y ordenar clips guardados con el modelo; búsqueda
+  de imágenes en la web (en línea) fuera de alcance.
+- Olas D2 (plataforma) y B (campaña), por sus listas priorizadas.
 - La fila C #1 sigue PARTIAL: un proyecto es un solo manuscrito; varias
   historias dentro de un mismo mundo pediría un cambio de modelo.
 

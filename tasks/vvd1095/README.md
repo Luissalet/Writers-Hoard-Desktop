@@ -130,3 +130,14 @@ and the zoom tiers use the sheet's own kilometres, trade ways keep their line
 round the seam, a river put down point by point needs two different cells,
 and zone hatching is anchored to the map so it does not slide while panning.
 
+## Wave D1 — tabletop tools (first part)
+
+Matrix: [D1-tools.md](D1-tools.md) — 44 of 69 rows PRESENT (was 19), 14
+PARTIAL, 1 ABSENT on purpose (#66, licensed art), 10 online. Tests:
+`compendium-encounter`, `table-tools`, `board-context-menu`,
+`world-graph-settings`, `soundscape`, `kanban`, plus additions to
+`codex-reference-panel`, `model-viewer`, `writing-blocks`. Bridge tools:
+AI-BRIDGE section 30. Known limits: PENDIENTES, "Herramientas de mesa 1095".
+An independent review (11 findings: Excel export and import, formulas, undo
+safety, live-table export, the mixer) was fixed, each with a check in
+`tests/review-1095d1`.
