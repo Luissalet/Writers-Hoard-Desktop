@@ -1,3 +1,4 @@
+import {WRITING_MANUSCRIPT_TOOLS} from '@/engines/writings/manuscriptManifest';
 import { HOME_TOOLS } from './manifestHome';
 import { VISUAL_SEARCH_TOOLS } from '@/services/visualSearch/bridgeManifest';
 import {MANUSCRIPT_REVIEW_TOOLS} from '@/engines/writings/manuscriptReview/bridgeManifest';
@@ -269,6 +270,7 @@ List the manuscript pieces (chapters, scenes, drafts) of a project with their st
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
+        manuscriptId:s('Optional manuscript id from wh_writing_manuscripts; main selects legacy principal. Omit to list the entire world.'),
         status: s('Filter by status.', { enum: ['idea', 'draft', 'finished'] }),
       },
       additionalProperties: false,
@@ -294,6 +296,7 @@ Read one manuscript piece in full. The body comes back as Markdown; footnotes ap
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
+        manuscriptId:s('Destination manuscript; omitted means main.'),
         title: s('Title of the piece.'),
         content: s(`Body. ${MARKDOWN_NOTE} ${FOOTNOTE_NOTE}`),
         synopsis: s('One-paragraph summary shown on the card.'),
@@ -698,6 +701,7 @@ const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
+        writingScope:{type:'object',properties:{kind:{type:'string',enum:['world','manuscript']},id:{type:'string'}},required:['kind'],additionalProperties:false},
         profileId: s('Profile to change; leave out to create one.'),
         name: s('Profile name, 1 to 120 characters.'),
         format: { type: 'string', enum: ['manuscript', 'screenplay', 'research', 'biography', 'video'] },
@@ -875,7 +879,7 @@ const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
     name: 'wh_publishing_compile',
     description: 'Compile a publishing profile exactly as its export would and return the Markdown or HTML text (up to 200,000 characters), with the piece and word counts, the byline, the copyright line and whether the back cover is included. Read only: saving the file (and PDF, DOCX or ePub) stays with the person in the app.',
     writes: false,
-    schema: { type: 'object', properties: { projectId: PROJECT_ID, profileId: s('Profile id from wh_publishing_profiles.'), output: { type: 'string', enum: ['markdown', 'html'] } }, required: ['profileId'], additionalProperties: false },
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId:{type:'string'}, profileId: s('Profile id from wh_publishing_profiles.'), output: { type: 'string', enum: ['markdown', 'html'] } }, required: ['profileId'], additionalProperties: false },
   },
 ];
 
@@ -1506,6 +1510,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...PREP_BLOCK_TOOLS,
   ...TABLE_TOOLS,
   ...PUBLISHED_EDITION_TOOLS,
+  ...WRITING_MANUSCRIPT_TOOLS,
   ...DICTIONARY_TOOLS,
   ...CODEX_OPTION_LIST_TOOLS,
   ...VISUAL_SEARCH_TOOLS,

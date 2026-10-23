@@ -1,3 +1,5 @@
+import {structuralWritingOwner} from './manuscriptStore';
+import {selectManuscriptWritings,writingManuscriptId} from './manuscripts';
 import {saveAuthoredWriting} from './toolDock/authoredSave';
 // ============================================
 // Saving the book — one diff, one pass over the rows
@@ -83,6 +85,7 @@ export type BookConflict =
   | { writingId: string; kind: 'gone' };
 
 export interface SaveBookOptions {
+  manuscriptId?:string;
   scope?: WorldEraScope;
   projectId: string;
   baseline: BookBaseline;
@@ -165,9 +168,14 @@ function toConflict(err: unknown, writingId: string): BookConflict {
 export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult> {
   const { projectId, baseline, sections, confirmedDeletes, firstChapter, untitledTitle } = options;
   const { createWriting, deleteWritingRestorable, expectDeletedWriting, getWritings, restoreDeletedWriting, takeLastDeletedWriting, updateWritingAtVersion } = eraWritingOperations(options.scope ?? { projectId });
+  const currentRows=await getWritings(projectId);for(const id of baseline.keys()){const row=currentRows.find(row=>row.id===id);if(row&&writingManuscriptId(row)!==(options.manuscriptId??'main'))throw Error('manuscript_book_selection_invalid');}
   const contested = options.contested ?? new Set<string>();
   const outsideChapters = options.outsideChapters ?? new Set<number>();
   const diff = diffBookSections(baseline, sections);
+  // A restore create can name a chapter no longer in the live list. Resolve
+  // its archive/era identity before updates, numbering or consuming Undo.
+  const identities=new Set([...baseline.keys(),...diff.creates.map(create=>sections[create.index].writingId).filter((id):id is string=>id!==null)]);
+  for(const id of identities){const owner=await structuralWritingOwner(projectId,id);if(owner!==undefined&&owner!==(options.manuscriptId??'main'))throw Error('manuscript_book_selection_invalid');}
 
   const next: BookBaseline = new Map(baseline);
   const result: SaveBookResult = {
@@ -221,7 +229,7 @@ export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult
   const order: (string | null)[] = [...diff.order];
   let canCreate = diff.creates.length > 0;
   if (canCreate) {
-    const outside = (await getWritings(projectId)).filter(
+    const outside = selectManuscriptWritings(await getWritings(projectId),{kind:'manuscript',id:options.manuscriptId??'main'}).filter(
       (row): row is OutsideRow => typeof row.chapter === 'number' && !baseline.has(row.id),
     );
     result.outsideChapters = new Set(outside.map((row) => row.chapter));
@@ -302,6 +310,7 @@ export async function saveBook(options: SaveBookOptions): Promise<SaveBookResult
     const now = Date.now();
     const id = generateId('wrt');
     await createWriting({
+      ...(options.manuscriptId&&options.manuscriptId!=='main'?{manuscriptId:options.manuscriptId}:{}),
       id,
       projectId,
       title,

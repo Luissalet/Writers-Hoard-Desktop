@@ -1,3 +1,6 @@
+import {writingSelection,manuscriptProject} from '@/engines/writings/manuscripts';
+import {listEraRows} from '@/services/worldEras/store';
+import type {Writing} from '@/types';
 // ============================================
 // AI bridge — the project's publishing profiles
 // ============================================
@@ -30,6 +33,7 @@ function summary(profile: PublishingProfile, writingCount: number) {
   const normal = normalizePublishingProfile(profile);
   return {
     id: profile.id,
+    writingScope:writingSelection(profile.writingScope),
     name: profile.name,
     format: profile.format,
     includeTitlePage: profile.includeTitlePage,
@@ -76,6 +80,7 @@ export async function whPublishingProfileSet(args: ToolArgs): Promise<unknown> {
   const next: Omit<PublishingProfile, 'id' | 'createdAt' | 'updatedAt'> & { id?: string } = existing
     ? { ...existing }
     : { projectId, name: '', format: 'manuscript', includeTitlePage: true, includeToc: false, includeCopyright: false, includeBlurb: false, includeSynopsis: false, includeBibliography: false, citationStyle: 'chicago', selectionMode: 'all', selectedWritingIds: [], writingOrder: [] };
+  if(args.writingScope!==undefined)next.writingScope=writingSelection(args.writingScope);
   if (args.name !== undefined) {
     if (typeof args.name !== 'string' || !args.name.trim() || args.name.length > 120) throw new BridgeError('bad-args', 'name is 1 to 120 characters.');
     next.name = args.name.trim();
@@ -142,11 +147,12 @@ export async function whPublishingCompile(args: ToolArgs): Promise<unknown> {
   const profile = typeof args.profileId === 'string' ? await db.publishingProfiles.get(args.profileId) : undefined;
   if (!profile || profile.projectId !== projectId) throw new BridgeError('not-found', 'No publishing profile with that id in this project.');
   const output = args.output === 'html' ? 'html' : 'markdown';
-  const writings = await db.writings.where('projectId').equals(projectId).toArray();
+  const eraId=typeof args.eraId==='string'?args.eraId:undefined;
+  const writings = eraId?await listEraRows<Writing>({projectId,eraId},'writings'):await db.writings.where('projectId').equals(projectId).toArray();
   const resolved = resolvePublishingWritings(writings, profile);
   if (!resolved.writings.length) throw new BridgeError('bad-args', 'This profile compiles no pieces.');
   const citations = profile.includeBibliography ? await getCitations(projectId) : [];
-  const artifacts = buildPublishingArtifacts(project, profile, resolved.writings, citations);
+  const artifacts = buildPublishingArtifacts(manuscriptProject(project,profile.writingScope,eraId), profile, resolved.writings, citations);
   const text = output === 'html' ? artifacts.html : artifacts.markdown;
   return {
     projectId,

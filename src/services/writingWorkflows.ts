@@ -92,7 +92,7 @@ export async function generateWorkflowStep(projectId: string, draft: WritingWork
 }
 
 export async function promoteWorkflowStep(projectId: string, workflowId: string, stepId: string): Promise<string> {
-  return db.transaction('rw', [db.projects, db.writings], async () => {
+  return db.transaction('rw', [db.projects, db.writings, db.worldEraVariants, db.worldEraAssets, db.documentArchives], async () => {
     const project = await db.projects.get(projectId);
     const workflow = project?.writingWorkflows?.find(w => w.id === workflowId);
     const step = workflow?.steps.find(s => s.id === stepId);

@@ -27,7 +27,10 @@ export async function testSprintRounds(): Promise<string[]> {
     await db.projects.put({ id: P, title: 'Rondas', description: '', mode: 'custom', type: 'standalone', color: '#888888', status: 'draft', enabledEngines: ['writings'], createdAt: 1, updatedAt: 1 });
     for (const [words, stopped] of [[400, false], [250, false], [90, true]] as const) {
       const sprint = await beginSprint({ projectId: P, durationMinutes: 25, targetWords: 300, baselineWords: 0 });
-      await endSprint(sprint, { words, stopped });
+      // Completed fixtures ended at the observed start instant; their scheduled
+      // end must not be 25 minutes in the future (possibly tomorrow).
+      const finished = stopped ? sprint : { ...sprint, startedAt: sprint.startedAt - 25 * 60_000, endsAt: sprint.startedAt };
+      await endSprint(finished, { words, stopped });
     }
     const reply = await runBridgeTool('wh_sprint_log', { projectId: P, limit: 2 });
     const out = reply.result as { roundsToday: number; nextBreakMinutes: number; bestWords: number; sprints: Array<{ words: number; stopped: boolean }>; total: number; running: unknown };

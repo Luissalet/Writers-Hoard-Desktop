@@ -1,3 +1,5 @@
+import {validateManuscriptContents,writingSelection,structuralManuscriptOwners} from '@/engines/writings/manuscripts';
+import {validateWritingOwner,assertWritingOwnerUnchanged} from '@/engines/writings/manuscriptStore';
 import { encodeManuscriptSource, decodeManuscriptSources, cloneManuscriptSource, cloneManuscriptWritingSource } from '@/engines/writings/manuscriptReview/portability';
 import { validateCodexOptionLists } from '@/engines/codex/optionListTypes';
 import {validateLocalToolBlockRichContent} from '@/engines/local/blocks/types';
@@ -433,13 +435,19 @@ export async function getWriting(id: string): Promise<Writing | undefined> {
   return db.writings.get(id);
 }
 
-export async function createWriting(writing: Writing): Promise<string> {
-  const id = await db.writings.add(writing);
-  void touchProject(writing.projectId);
-  return id;
+export function createWriting(writing: Writing): Promise<string> {
+  return db.transaction('rw', [db.projects, db.writings, db.worldEraVariants, db.worldEraAssets, db.documentArchives], () =>
+    Dexie.Promise.resolve(validateWritingOwner(writing)).then(row => db.writings.add(row)),
+  ).then(id => {
+    // Creation and its catalogue membership commit together; UndoCreate cannot
+    // remove the owner between validation and insertion.
+    void touchProject(writing.projectId);
+    return id;
+  });
 }
 
 export async function updateWriting(id: string, changes: Partial<Writing>): Promise<void> {
+  const previous=await db.writings.get(id);if(previous)assertWritingOwnerUnchanged(previous,changes);
   await db.writings.update(id, { ...changes, updatedAt: Date.now() });
   // This entry point is the Google Docs sync, not the prose editor (that saves
   // through the writings engine's own operations), so resolving the parent with
@@ -683,7 +691,9 @@ export async function exportProjectData(projectId: string) {
   ]);
 
   const entityLinks = await db.entityLinks.where('projectId').equals(projectId).toArray();
+  const publishingProfiles=project?.manuscriptCatalog?await db.publishingProfiles.where('projectId').equals(projectId).toArray():[];
   return {
+    ...(publishingProfiles.length?{publishingProfiles}:{}),
     project,
     ...(entityLinks.length ? { entityLinks } : {}),
     ...await exportAnnotationData(projectId),
@@ -750,6 +760,7 @@ export async function importProjectData(
   const media = decodeLocalMedia(data.localMediaAssets ?? [], data.project!.id);
   const eraAssets = await decodeEraAssets(data.worldEraAssets, data.project!.id);
   const eraVariants = decodeEraVariants(data.worldEraVariants, data.project!.id, eraAssets);
+  validateManuscriptContents(data.project!,data.writings??[],eraVariants,data.publishingProfiles??[]);
   const history = await decodeDocumentHistory(data.documentHistory, data.project!.id, eraAssets);
   const clonedHistory = await cloneDocumentHistory(history, eraVariants, data.project!, newProjectId, remap, { ...data, localMediaAssets: media }, eraAssets);
   const sceneSources = (data.scenes ?? []).map(root => ({ kind: 'dialog-scene' as const, document: { root, children: { sceneCasts: (data.sceneCasts ?? []).filter(row=>row.sceneId===root.id), dialogBlocks: (data.dialogBlocks ?? []).filter(row=>row.sceneId===root.id) } } as unknown as import('@/services/worldEras/types').EraDocument }));
@@ -763,7 +774,7 @@ export async function importProjectData(
   const richContent = (content: string) => remapWorldRichContent(content, data.project!.id, newProjectId, remap, codexIds, mediaIds, toolIds);
 
   await db.transaction('rw', [
-    db.projects, db.codexEntries, db.writings, db.manuscriptSources, db.timelines, db.timelineEvents, db.documentHistory, db.annotations, db.annotationReferences, db.scenes, db.sceneCasts, db.dialogBlocks,
+    db.projects, db.codexEntries, db.writings, db.publishingProfiles, db.manuscriptSources, db.timelines, db.timelineEvents, db.documentHistory, db.annotations, db.annotationReferences, db.scenes, db.sceneCasts, db.dialogBlocks,
     db.boards, db.boardNodes, db.boardEdges, db.boardLayers, db.boardViews,
     db.worldMaps, db.mapPins, db.entityLinks,
     db.imageCollections, db.inspirationImages, db.snapshots, db.localMediaAssets, db.worldEraVariants, db.worldEraAssets, db.notes, db.writingSnapshots, db.timelineConnections, db.generatedWorlds, db.worldWaypoints,
@@ -809,7 +820,7 @@ export async function importProjectData(
     for (const source of sources) await db.manuscriptSources.add(cloneManuscriptSource(source, newProjectId, remap));
     // Writings
     for (const w of data.writings || []) {
-      await db.writings.add({ ...w, toolDock:remapToolDockLayout(w.toolDock,remap), id: remap(w.id, 'wr'), projectId: newProjectId, manuscriptSource: cloneManuscriptWritingSource(w.manuscriptSource, remap), content: richContent(w.content) });
+      await db.writings.add({ ...w,...(w.manuscriptId?{manuscriptId:remap(w.manuscriptId,'manuscript')}:{}), toolDock:remapToolDockLayout(w.toolDock,remap), id: remap(w.id, 'wr'), projectId: newProjectId, manuscriptSource: cloneManuscriptWritingSource(w.manuscriptSource, remap), content: richContent(w.content) });
     }
 
     for (const asset of media) await db.localMediaAssets.add({ ...asset, id: remap(asset.id, 'media'), projectId: newProjectId, linkedEntryIds: asset.linkedEntryIds.filter(id => codexIds.has(id)).map(id => remap(id, 'codex')) });
@@ -930,6 +941,7 @@ export async function importProjectData(
       });
     }
 
+    for(const profile of data.publishingProfiles??[]){const scope=profile.writingScope?writingSelection(profile.writingScope):undefined;await db.publishingProfiles.add({...profile,id:remap(profile.id,'publish'),projectId:newProjectId,...(scope?{writingScope:scope.kind==='manuscript'&&scope.id!=='main'?{kind:'manuscript',id:remap(scope.id,'manuscript')}:scope}:{}),selectedWritingIds:profile.selectedWritingIds.map(id=>remap(id,'wr')),writingOrder:profile.writingOrder?.map(id=>remap(id,'wr'))});}
     for (const row of data.writingSnapshots ?? []) await db.writingSnapshots.add({ ...row, id: remap(row.id, 'wsnap'), projectId: newProjectId, writingId: remap(row.writingId, 'wr'), sourceDraftId: row.sourceDraftId ? remap(row.sourceDraftId, 'wsnap') : undefined, content: richContent(row.content) });
     for (const row of data.notes ?? []) await db.notes.add({ ...row, id: remap(row.id, 'note'), projectId: newProjectId });
     for (const row of data.timelineConnections ?? []) await db.timelineConnections.add({ ...row, id: remap(row.id, 'tconn'), projectId: newProjectId, timelineId: remap(row.timelineId, 'tl'), sourceEventId: remap(row.sourceEventId, 'evt'), targetEventId: remap(row.targetEventId, 'evt') });
@@ -1115,8 +1127,12 @@ export async function importFullDatabase(
   await db.transaction('rw', db.tables, async () => {
     suppressDocumentHistoryForTransaction();
     const restoredProjects = await Promise.all((data.projects ?? []).map(async project => preserveLegacyProjectMetadata(project, await db.projects.get(project.id))));
-    const restoredWritings = await Promise.all((data.writings??[]).map(async writing=>{const existing=await db.writings.get(writing.id);return preserveLegacyWritingToolDock(writing,existing?.projectId===writing.projectId?existing:undefined);}));
-    const restoredVariants = await Promise.all(eraVariants.map(async row=>preserveLegacyEraWritingToolDock(row,await db.worldEraVariants.get(row.id))));
+    const [previousWritings,previousVariants,previousArchives]=await Promise.all([db.writings.toArray(),db.worldEraVariants.toArray(),db.documentArchives.toArray()]);
+    const previousOwners=new Map(restoredProjects.map(project=>[project.id,structuralManuscriptOwners(previousWritings.filter(row=>row.projectId===project.id),previousVariants.filter(row=>row.projectId===project.id),previousArchives.filter(row=>row.projectId===project.id))]));
+    const restoredWritings = (data.writings??[]).map(writing=>{const existing=previousWritings.find(row=>row.id===writing.id&&row.projectId===writing.projectId);return preserveLegacyWritingToolDock(writing,existing,previousOwners.get(writing.projectId)?.get(writing.id));});
+    const restoredVariants = eraVariants.map(row=>preserveLegacyEraWritingToolDock(row,previousVariants.find(previous=>previous.id===row.id),previousOwners.get(row.projectId)?.get(row.entityId)));
+    for(const project of restoredProjects)validateManuscriptContents(project,restoredWritings.filter(row=>row.projectId===project.id),restoredVariants.filter(row=>row.projectId===project.id),Array.isArray(payload.publishingProfiles)?payload.publishingProfiles.filter(row=>row.projectId===project.id):[],previousArchives.filter(row=>row.projectId===project.id));
+    if(restoredWritings.some(row=>row.manuscriptId&&!restoredProjects.some(project=>project.id===row.projectId)))throw Error('manuscript_project_missing');
     for (const tableName of toClear) await db.table(tableName).clear();
 
     // Import all data with original IDs (preserving references).

@@ -1,3 +1,5 @@
+import {db} from '@/db';
+import {selectManuscriptWritings,assertManuscriptOwner} from '@/engines/writings/manuscripts';
 // ============================================================================
 // AI bridge tools — the manuscript
 // ============================================================================
@@ -159,11 +161,14 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
   const status = optEnum(args, 'status', STATUSES);
   const writings = await scopedWriting(args, projectId).getWritings(projectId);
   const calendar = (await resolveWorldCalendar(projectId))?.calendar ?? null;
-  const filtered = status ? writings.filter((w) => w.status === status) : writings;
+  const scoped=typeof args.manuscriptId==='string'?selectManuscriptWritings(writings,{kind:'manuscript',id:args.manuscriptId}):writings;
+  if(typeof args.manuscriptId==='string'){const project=await db.projects.get(projectId);if(project)assertManuscriptOwner(project,args.manuscriptId==='main'?{}:{manuscriptId:args.manuscriptId});}
+  const filtered = status ? scoped.filter((w) => w.status === status) : scoped;
   return {
     projectId,
     writings: filtered.map((w) => ({
       id: w.id,
+      ...(w.manuscriptId?{manuscriptId:w.manuscriptId}:{}),
       title: w.title,
       status: w.status,
       chapter: w.chapter,
@@ -192,6 +197,7 @@ export async function whGetWriting(args: ToolArgs): Promise<unknown> {
   const projected = finalHtml !== writing.content;
   return {
     id: writing.id,
+    ...(writing.manuscriptId?{manuscriptId:writing.manuscriptId}:{}),
     projectId: writing.projectId,
     title: writing.title,
     status: writing.status,
@@ -215,6 +221,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
   const now = Date.now();
   const writing: Writing = {
     id: generateId('writing'),
+    ...(optString(args,'manuscriptId')&&args.manuscriptId!=='main'?{manuscriptId:optString(args,'manuscriptId')}:{}),
     projectId,
     title,
     status: optEnum(args, 'status', STATUSES) ?? 'draft',

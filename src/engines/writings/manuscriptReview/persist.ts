@@ -1,3 +1,4 @@
+import {assertManuscriptOwner,selectManuscriptWritings,writingManuscriptId} from '../manuscripts';
 import { db } from '@/db';
 import { eraWritingOperations } from '@/services/worldEras/writings';
 import { assertWorldEra, readWorldDocument, announceEraChange } from '@/services/worldEras/store';
@@ -10,8 +11,8 @@ import { planManuscriptImport } from './plan';
 import type { ImportChoice, ImportSplit, InspectedManuscript, ImportedCommentOrigin } from './types';
 
 /** No parse/hash/native work is performed inside the transaction. */
-export async function applyManuscriptImport(scope: WorldEraScope, sources: InspectedManuscript[], split: ImportSplit, choices: ImportChoice[], expectedDigest: string) {
-  const plan = await planManuscriptImport(sources, split, scope, choices);
+export async function applyManuscriptImport(scope: WorldEraScope, sources: InspectedManuscript[], split: ImportSplit, choices: ImportChoice[], expectedDigest: string,manuscriptId='main') {
+  const plan = await planManuscriptImport(sources, split, scope, choices,manuscriptId);
   if (plan.digest !== expectedDigest) throw Error('manuscript_plan_conflict');
   const contentHashes = await Promise.all(plan.chapters.map(chapter => sha256Hex(chapter.content)));
   const commitId = crypto.randomUUID(), now = Date.now(), ids: string[] = [], sourceIds: string[] = [];
@@ -19,13 +20,14 @@ export async function applyManuscriptImport(scope: WorldEraScope, sources: Inspe
   if (new Set(replacements.map(chapter => chapter.choice.targetId)).size !== replacements.length) throw Error('manuscript_target_duplicate');
   await db.transaction('rw', db.tables, async () => {
     const project = await assertWorldEra(scope);
+    assertManuscriptOwner(project,manuscriptId==='main'?{}:{manuscriptId});
     if (!project.enabledEngines.includes('writings')) throw Error('writings_engine_disabled');
     const ops = eraWritingOperations(scope), current = new Map<string, Writing>();
     // Preflight *all* targets before snapshots or sources. A refusal is atomic.
     for (const chapter of replacements) {
       const choice = chapter.choice, read = await readWorldDocument(scope, 'writings', choice.targetId!);
       const row = read?.document.root as unknown as Writing | undefined;
-      if (!row || row.projectId !== scope.projectId || row.updatedAt !== choice.expectedUpdatedAt || scope.eraId && read!.version !== choice.expectedDocumentVersion) throw Error('manuscript_target_conflict');
+      if (!row || row.projectId !== scope.projectId || writingManuscriptId(row)!==manuscriptId || row.updatedAt !== choice.expectedUpdatedAt || scope.eraId && read!.version !== choice.expectedDocumentVersion) throw Error('manuscript_target_conflict');
       current.set(row.id, row);
     }
     for (const source of sources) {
@@ -33,7 +35,7 @@ export async function applyManuscriptImport(scope: WorldEraScope, sources: Inspe
       if (!stored) { stored = { id: crypto.randomUUID(), projectId: scope.projectId, sha256: source.sha256, name: source.name, format: source.format, original: source.original, revision: 0, receipts: [], createdAt: now }; await db.manuscriptSources.add(stored); }
       sourceIds.push(stored.id);
     }
-    const existing = await ops.getWritings(scope.projectId);
+    const existing = selectManuscriptWritings(await ops.getWritings(scope.projectId),{kind:'manuscript',id:manuscriptId});
     let number = existing.reduce((max, row) => Math.max(max, row.chapter ?? 0), 0);
     for (const [index, chapter] of plan.chapters.entries()) {
       const sourceIndex = Number(chapter.key.split(':')[0]), sourceId = sourceIds[sourceIndex];
@@ -45,7 +47,7 @@ export async function applyManuscriptImport(scope: WorldEraScope, sources: Inspe
         if (replaced.status !== 'applied') throw Error('manuscript_target_conflict');
       } else {
         id = crypto.randomUUID();
-        const row: Writing = { id, projectId: scope.projectId, title: chapter.title, content: chapter.content, wordCount: chapter.words, status: 'draft', tags: [], chapter: ++number, manuscriptSource: receipt, createdAt: now, updatedAt: now };
+        const row: Writing = { id,...(manuscriptId!=='main'?{manuscriptId}:{}), projectId: scope.projectId, title: chapter.title, content: chapter.content, wordCount: chapter.words, status: 'draft', tags: [], chapter: ++number, manuscriptSource: receipt, createdAt: now, updatedAt: now };
         if (scope.eraId) await ops.createWriting(row); else await db.writings.add(row);
       }
       ids.push(id);

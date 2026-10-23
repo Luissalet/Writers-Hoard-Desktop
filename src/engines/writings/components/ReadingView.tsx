@@ -1,8 +1,8 @@
+import {manuscriptProject,type WritingSelection} from '../manuscripts';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Bookmark, ChevronLeft, ChevronRight, Keyboard, ListTree, Palette, PenLine, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
-import { getEraProject } from '@/services/worldEras/store';
 import type { Writing } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useEnginePane, ownsEnginePaneEvent } from '@/engines/_shared/EnginePaneContext';
@@ -172,6 +172,7 @@ const ReadingPiece = memo(function ReadingPiece({
 });
 
 interface ReadingViewProps {
+  writingScope?:WritingSelection;
   /** The pieces to read, already in manuscript order. */
   pieces: Writing[];
   /** Where to open — the chapter the writer had in the editor, when there was one. */
@@ -196,7 +197,16 @@ interface ReadingViewProps {
  * writes, and the single action it offers per piece hands the writing back to
  * the host to open in the editor.
  */
-export default function ReadingView({
+export default function ReadingView(props:ReadingViewProps) {
+  const pane=useEnginePane(),projectId=props.pieces[0]?.projectId;
+  const eraId=pane?.projectId===projectId?pane.eraId:undefined;
+  // Retarget only the read-only session: cleanup saves the old book's place,
+  // while the new session restores its own bookmark and playback state.
+  return <ReadingSession key={JSON.stringify([projectId,eraId,props.writingScope??{kind:'manuscript',id:'main'}])} {...props}/>;
+}
+
+function ReadingSession({
+  writingScope,
   pieces,
   startId,
   onClose,
@@ -208,7 +218,9 @@ export default function ReadingView({
   const projectId = pieces[0]?.projectId;
   const pane = useEnginePane();
   const eraId = pane?.projectId === projectId ? pane?.eraId : undefined;
-  const project = useLiveQuery(() => projectId ? eraId ? getEraProject({ projectId, eraId }) : db.projects.get(projectId) : undefined, [projectId, eraId]);
+  const sourceProject = useLiveQuery(() => projectId ? db.projects.get(projectId) : undefined, [projectId]);
+  const project=useMemo(()=>sourceProject?manuscriptProject(sourceProject,writingScope,eraId):undefined,[sourceProject,writingScope,eraId]);
+  const manuscriptId=writingScope?.kind==='manuscript'?writingScope.id:'main';
   const readerProject = useMemo(() => project?.id === projectId ? { ...project, readerPresentation: safeReaderPresentation(project.readerPresentation) } : undefined, [project, projectId]);
   const [showPresentation, setShowPresentation] = useState(false);
   const reading = useAppStore((s) => s.reading);
@@ -503,7 +515,7 @@ export default function ReadingView({
     restoredRef.current = true;
 
     let live = true;
-    void loadReadingPosition(projectId).then((saved) => {
+    void loadReadingPosition(projectId,manuscriptId).then((saved) => {
       if (!live) return;
       const resume = resolveResumePoint(saved, pieces, projectId);
       if (resume.resumed && !scrolledRef.current) {
@@ -515,7 +527,7 @@ export default function ReadingView({
     return () => {
       live = false;
     };
-  }, [jumpTo, pieces, startId]);
+  }, [jumpTo, pieces, startId, manuscriptId]);
 
   /**
    * Saving where reading stopped, at most once every `POSITION_SAVE_MS`.
@@ -553,7 +565,7 @@ export default function ReadingView({
       const mark = serializeReadingPosition(next);
       if (mark === written) return;
       written = mark;
-      void saveReadingPosition(next);
+      void saveReadingPosition(next,manuscriptId);
     };
 
     const timer = window.setInterval(flush, POSITION_SAVE_MS);
@@ -564,7 +576,7 @@ export default function ReadingView({
       // the exit button and "open in the editor" all unmount this view.
       flush();
     };
-  }, [pieces, restored]);
+  }, [pieces, restored, manuscriptId]);
 
   // The note about having resumed goes away by itself. This is a reader:
   // something that has to be clicked away is a worse interruption than the one
@@ -860,7 +872,7 @@ export default function ReadingView({
           <p data-reader-end className="px-6 py-10 text-center text-xs text-text-dim">{t('writings.reading.end')}</p>
         </div>
       </div>
-      {showPresentation && readerProject && <ReaderPresentationModal project={readerProject} writings={pieces.filter(piece => piece.projectId === readerProject.id)} initialWritingId={activePiece?.id} eraId={eraId} onClose={() => setShowPresentation(false)} />}
+      {showPresentation && readerProject && <ReaderPresentationModal manuscriptId={manuscriptId} project={readerProject} writings={pieces.filter(piece => piece.projectId === readerProject.id)} initialWritingId={activePiece?.id} eraId={eraId} onClose={() => setShowPresentation(false)} />}
     </div>
   );
 }

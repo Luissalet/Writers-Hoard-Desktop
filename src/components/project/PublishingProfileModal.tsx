@@ -1,3 +1,4 @@
+import {manuscriptProject,selectManuscriptWritings,writingSelection,type WritingSelection} from '@/engines/writings/manuscripts';
 import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
@@ -35,6 +36,8 @@ import type {
 } from '@/types/projectTools';
 
 export interface PublishingProfileModalProps {
+  writingScope?:WritingSelection;
+  eraId?:string;
   open: boolean;
   onClose: () => void;
   project: Pick<Project, 'id' | 'title'>;
@@ -55,12 +58,14 @@ function initialDraft(
   writings: Writing[],
   variant: PublishingProfileModalProps['variant'],
   initialProfile?: PublishingProfile,
+  writingScope?:WritingSelection,
 ): PublishingProfile {
   if (initialProfile) return normalizePublishingProfile(initialProfile);
-  const ordered = defaultPublishingOrder(writings.filter(writing => writing.projectId === project.id));
+  const ordered = defaultPublishingOrder(selectManuscriptWritings(writings.filter(writing => writing.projectId === project.id),writingScope));
   const quickSelection = ordered.filter(writing => writing.status !== 'idea').map(writing => writing.id);
   return {
     id: '',
+    writingScope:writingSelection(writingScope),
     projectId: project.id,
     name: variant === 'quick' ? project.title : '',
     format: 'manuscript',
@@ -80,6 +85,7 @@ function initialDraft(
 }
 
 export default function PublishingProfileModal({
+  writingScope,eraId,
   open,
   onClose,
   project,
@@ -93,18 +99,13 @@ export default function PublishingProfileModal({
   // The compile shortcuts pass only the id and the title: the byline, the back
   // cover and the chapter images come from the stored project, as the export does.
   const stored = useLiveQuery(() => db.projects.get(project.id), [project.id]);
-  const previewProject = useMemo(() => ({
-    ...project,
-    author: (project as Partial<Project>).author ?? stored?.author,
-    blurb: (project as Partial<Project>).blurb ?? stored?.blurb,
-    readerPresentation: (project as Partial<Project>).readerPresentation ?? stored?.readerPresentation,
-  }), [project, stored]);
-  const [draft, setDraft] = useState<PublishingProfile>(() => initialDraft(project, writings, variant, initialProfile));
+  const [draft, setDraft] = useState<PublishingProfile>(() => initialDraft(project, writings, variant, initialProfile,writingScope));
+  const previewProject=useMemo(()=>{try{return stored?manuscriptProject(stored,draft.writingScope,eraId):project;}catch{return{...project,title:locale==='es'?'Relato no disponible':'Unavailable manuscript',author:'',blurb:'',readerPresentation:undefined};}},[stored,draft.writingScope,eraId,project,locale]);
   const [busy, setBusy] = useState<PublishingOutput | 'save' | null>(null);
 
   const scopedWritings = useMemo(
-    () => writings.filter(writing => writing.projectId === project.id),
-    [project.id, writings],
+    () => selectManuscriptWritings(writings.filter(writing => writing.projectId === project.id),draft.writingScope),
+    [project.id, writings,draft.writingScope],
   );
   const byId = useMemo(() => new Map(scopedWritings.map(writing => [writing.id, writing])), [scopedWritings]);
   const orderedWritings = useMemo(() => {
@@ -215,7 +216,7 @@ export default function PublishingProfileModal({
         project,
         { ...draft, name: draft.name.trim() },
         output,
-        { titleOverride },
+        { titleOverride,eraId },
       );
       if (result.ok) {
         toast.success(t('projectTools.publishing.exported').replace('{name}', draft.name.trim()));
@@ -259,6 +260,7 @@ export default function PublishingProfileModal({
   return (
     <Modal open={open} onClose={onClose} title={modalTitle} wide>
       <div className="space-y-5">
+        {variant!=='quick'&&<label className="block text-sm text-text-muted">{locale==='es'?'Capítulos de':'Chapters from'}<select className={`${fieldClass} mt-1.5`} value={writingSelection(draft.writingScope).kind==='world'?'world':(writingSelection(draft.writingScope) as {id:string}).id} onChange={event=>{const scope:WritingSelection=event.target.value==='world'?{kind:'world'}:{kind:'manuscript',id:event.target.value};const ids=selectManuscriptWritings(writings,scope).map(row=>row.id);setDraft(value=>({...value,writingScope:scope,selectedWritingIds:ids,writingOrder:ids}));}}><option value="main">{locale==='es'?'Relato principal':'Main manuscript'}</option>{stored?.manuscriptCatalog?.entries.map(row=><option key={row.id} value={row.id}>{row.title}</option>)}<option value="world">{locale==='es'?'Todo el mundo (selección combinada)':'Entire world (combined selection)'}</option></select></label>}
         <div className="grid gap-3 sm:grid-cols-[1fr_14rem]">
           <label className="text-sm text-text-muted">
             {t('projectTools.publishing.name')}

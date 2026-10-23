@@ -21,6 +21,7 @@ export type FootnoteMarkerStyle = 'numbers' | 'symbols' | 'roman' | 'letters';
 export type FootnotePlacement = 'chapter' | 'book';
 
 export interface Project {
+  manuscriptCatalog?: import('@/engines/writings/manuscripts').ManuscriptCatalog;
   id: string;
   title: string;
   mode: ProjectMode;                    // Writer type / engine preset
@@ -560,6 +561,8 @@ export interface StorySessionSource {
 }
 
 export interface Writing {
+  /** Absent is the legacy principal; identity is shared across eras. */
+  manuscriptId?: string;
   /** Explicit chapter sidecar; missing/null inherits the project default. */
   toolDock?: import('@/engines/writings/toolDock/types').ToolDockLayout | null;
   manuscriptSource?: import('@/engines/writings/manuscriptReview/sourceTypes').ManuscriptWritingSource;

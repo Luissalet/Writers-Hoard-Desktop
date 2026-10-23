@@ -1010,7 +1010,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_tag_snapshot', 'wh_download_snapshot_media',
   'wh_add_place', 'wh_rename_place', 'wh_move_place', 'wh_remove_place',
   'wh_restore_place', 'wh_add_label', 'wh_add_waypoint', 'wh_update_waypoint',
-  'wh_link_place', 'wh_update_atlas_place', 'wh_update_divergence',
+  'wh_link_place', 'wh_create_place_card', 'wh_update_atlas_place', 'wh_update_divergence',
   'wh_update_claim', 'wh_rate_hypothesis', 'wh_undo_enrichment', 'wh_run_judge',
   'wh_beta_comment_set_status',
   'wh_append_conversation_turn', 'wh_style_place',
@@ -1255,6 +1255,7 @@ async function buildGuardProbes(
       ['wh_link_place', {
         worldId, key: 'settlement:1,1', targetType: 'codex-entry', targetId: characterId,
       }],
+      ['wh_create_place_card', { worldId, key: 'settlement:1,1', type: 'location' }],
       ['wh_style_place', { worldId, key: 'settlement:1,1', style: { labelVisible: true } }],
       ['wh_timeline_batch_apply', { projectId, eventIds: [eventA], kind: 'remove', expectedTargets: currentTargets.targets }],
       ['wh_timeline_batch_undo', { projectId, receiptId: batch.receiptId }],

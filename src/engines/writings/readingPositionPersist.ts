@@ -15,13 +15,11 @@
 // line, a project re-imported onto an id it had used before would inherit the
 // previous book's place in it.
 //
-// `setSetting` rather than `updateSetting`: the dismissals are a collection
-// changed one member at a time and genuinely need the read and the write in
-// one transaction, whereas a reading position is a whole value replaced
-// outright. Two overlapping saves are two answers to "where am I now", and the
-// later one is the one worth keeping.
+// The principal position keeps its legacy root shape. Additional books share
+// this session row under `manuscripts`; updateSetting merges one position
+// atomically so saving one pane cannot erase another book's bookmark.
 
-import { getSetting, PROJECT_SETTING_PREFIXES, setSetting } from '@/db/operations';
+import { getSetting, PROJECT_SETTING_PREFIXES, updateSetting } from '@/db/operations';
 import {
   parseReadingPosition,
   serializeReadingPosition,
@@ -33,8 +31,9 @@ function positionKey(projectId: string): string {
 }
 
 /** The place this project was left at, or `null` if it has none this app trusts. */
-export async function loadReadingPosition(projectId: string): Promise<SavedReadingPosition | null> {
-  return parseReadingPosition(await getSetting(positionKey(projectId)));
+export async function loadReadingPosition(projectId: string,manuscriptId='main'): Promise<SavedReadingPosition | null> {
+  const raw=await getSetting(positionKey(projectId));if(manuscriptId==='main')return parseReadingPosition(raw);
+  try{return parseReadingPosition(JSON.stringify(JSON.parse(raw??'{}').manuscripts?.[manuscriptId]));}catch{return null;}
 }
 
 /**
@@ -45,9 +44,9 @@ export async function loadReadingPosition(projectId: string): Promise<SavedReadi
  * write is a chapter to scroll back to, and the next tick writes again anyway
  * — none of which is worth an unhandled rejection thrown out of a reader.
  */
-export async function saveReadingPosition(position: SavedReadingPosition): Promise<void> {
+export async function saveReadingPosition(position: SavedReadingPosition,manuscriptId='main'): Promise<void> {
   try {
-    await setSetting(positionKey(position.projectId), serializeReadingPosition(position));
+    await updateSetting(positionKey(position.projectId),raw=>{let current:Record<string,unknown>={};try{current=JSON.parse(raw??'{}');}catch{/* A malformed old bookmark has no position to retain. */}const value=JSON.parse(serializeReadingPosition(position));return JSON.stringify(manuscriptId==='main'?{...value,...(current.manuscripts?{manuscripts:current.manuscripts}:{})}:{...current,manuscripts:{...(current.manuscripts as Record<string,unknown>??{}),[manuscriptId]:value}});});
   } catch {
     // Nothing to retry: the position this dropped is already superseded.
   }

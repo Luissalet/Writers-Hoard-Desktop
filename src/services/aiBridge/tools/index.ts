@@ -1,3 +1,4 @@
+import {WRITING_MANUSCRIPT_HANDLERS} from '@/engines/writings/manuscriptBridge';
 import { HOME_HANDLERS } from './projectHome';
 import {MANUSCRIPT_REVIEW_HANDLERS} from '@/engines/writings/manuscriptReview/bridge';
 import {PROJECT_GENRE_HANDLERS} from '@/services/projectGenres/bridge';
@@ -376,6 +377,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...PREP_BLOCK_HANDLERS,
   ...TABLE_HANDLERS,
   ...PUBLISHED_EDITION_HANDLERS,
+  ...WRITING_MANUSCRIPT_HANDLERS,
   ...DICTIONARY_HANDLERS,
   ...CODEX_OPTION_LIST_HANDLERS,
   ...VISUAL_SEARCH_HANDLERS,
