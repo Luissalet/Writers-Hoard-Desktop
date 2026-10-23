@@ -65,6 +65,11 @@ export function sheetPaper(sheet:CharacterSheet,locale:'es'|'en'='en'):{svg:stri
     row.passed===undefined?row.outcome:row.passed?(es?'Éxito':'Passed'):(es?'Fallo':'Failed'),
     row.coc!.pushedFrom?`${es?'Tras':'After'} ${sheet.rolls.find(item=>item.id===row.coc!.pushedFrom)?.total??row.coc!.pushedFrom} · ${row.coc!.justification??''}`:row.coc!.pushedBy?`${es?'Forzada una vez':'Pushed once'} → ${sheet.rolls.find(item=>item.id===row.coc!.pushedBy)?.total??row.coc!.pushedBy}`:'—',
   ]));
+  const attacks=sheet.rows.filter(row=>row.fiveEAttack);
+  if(attacks.length){
+    y=Math.max(y,sheetInkHeight(sheet.ink));
+    section(es?'Ataques':'Attacks',[es?'Nombre':'Name',es?'Bonificación':'Attack bonus',es?'Daño':'Damage',es?'Tipo de daño':'Damage type',es?'Notas':'Notes'],attacks.map(row=>[row.name,`${row.fiveEAttack!.bonus>=0?'+':''}${row.fiveEAttack!.bonus}`,row.expression,row.fiveEAttack!.damageType,row.detail]));
+  }
   const height=Math.ceil(Math.max(700,y+48,sheetInkHeight(sheet.ink)+48)),prefix='sheet-ink-'+crypto.randomUUID();
   return{height,svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${height}" width="1000" height="${height}" role="img" aria-label="${esc(sheet.title)}" data-sheet-paper="paper-v1" style="display:block;width:100%;height:auto;max-height:none"><rect width="1000" height="${height}" fill="#f6f2e8"/>${elements.join('')}${sheetInkSvg(sheet.ink,height,prefix)}</svg>`};
 }

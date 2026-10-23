@@ -2,7 +2,7 @@ import type {CharacterSheet,SheetResource,SheetRow} from './types';
 import {abilityModifier,sheetProficiency} from './mechanics';
 import {FIVE_E_ABILITIES,FIVE_E_AUTO_FIELDS,FIVE_E_CLASS_IDS,FIVE_E_RULESET,type FiveEAbilityId,type FiveEAutoField,type FiveEClassId,type FiveEState,validFiveESpell} from './fiveETypes';
 export {FIVE_E_AUTO_FIELDS,FIVE_E_CLASS_IDS,FIVE_E_RULESET};
-export const FIVE_E_ACTIONS=['configure','resource','upsert-spell','prepare-spell','casting-override'] as const;
+export const FIVE_E_ACTIONS=['configure','resource','upsert-spell','prepare-spell','casting-override','roll-attack','roll-damage'] as const;
 export const FIVE_E_SOURCE={title:'5e (2014) · SRD 5.1',url:'https://media.dndbeyond.com/compendium-images/srd/5.1/SRD_CC_v5.1.pdf',license:'https://creativecommons.org/licenses/by/4.0/',attribution:'This work includes material taken from the System Reference Document 5.1 (“SRD 5.1”) by Wizards of the Coast LLC and available at https://dnd.wizards.com/resources/systems-reference-document. The SRD 5.1 is licensed under the Creative Commons Attribution 4.0 International License available at https://creativecommons.org/licenses/by/4.0/legalcode.'} as const;
 type ClassFact={id:FiveEClassId;name:string;die:number;caster:'none'|'full'|'half'|'pact';ability?:FiveEAbilityId;page:number};
 export const FIVE_E_CLASSES:ClassFact[]=[

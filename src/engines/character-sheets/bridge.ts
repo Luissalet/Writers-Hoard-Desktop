@@ -1,5 +1,6 @@
 import {FIVE_E_CLASSES,FIVE_E_ACTIONS,fiveEClassPreview,applyFiveEClass,setFiveEResource,upsertFiveESpell,prepareFiveESpell,setFiveECastingOverride,fiveEDerived} from './fiveE';
 import type {SheetRow} from './types';
+import {rollFiveEAttack} from './fiveEAttacks';
 import { getEraProject, readEraRow, readWorldDocument } from '@/services/worldEras/store';
 import {db} from '@/db';
 import type { CodexEntry } from '@/types';
@@ -47,6 +48,7 @@ export const SHEET_HANDLERS={
       else if(action==='resource'){if(typeof args.value!=='number')throw Error('five_e_resource_invalid');next=setFiveEResource(sheet,requireString(args,'resourceId'),args.value);}
       else if(action==='upsert-spell'){if(!args.row||typeof args.row!=='object'||Array.isArray(args.row))throw Error('five_e_spell_invalid');next=upsertFiveESpell(sheet,args.row as unknown as SheetRow);}
       else if(action==='prepare-spell'){if(typeof args.prepared!=='boolean')throw Error('five_e_spell_invalid');next=prepareFiveESpell(sheet,requireString(args,'rowId'),args.prepared);}
+      else if(action==='roll-attack'||action==='roll-damage'){const roll=rollFiveEAttack(sheet,requireString(args,'rowId'),action==='roll-attack'?'attack':'damage');next={...sheet,rolls:[roll,...sheet.rolls].slice(0,200)};}
       else{if(args.value!==undefined&&typeof args.value!=='number')throw Error('five_e_override_invalid');next=setFiveECastingOverride(sheet,requireString(args,'key'),args.value as number|undefined);}
       validateSheet(next);
     }catch(error){throw new BridgeError('bad-args',error instanceof Error?error.message:'Invalid2014 action.');}
