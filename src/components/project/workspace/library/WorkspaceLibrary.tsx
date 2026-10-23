@@ -11,7 +11,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import { listWorkspaceDocuments } from './catalog';
 import { folderPath, folderTree, readWorkspaceLibrary, sortWorkspaceDocuments, WorkspaceLibraryConflict, WorkspaceLibraryInvalidAction, type WorkspaceLibraryAction } from './model';
-import { updateWorkspaceLibrary } from './store';
+import { renameWorkspaceFolder, updateWorkspaceLibrary } from './store';
 import { WORKSPACE_FOLDER_COLORS, WORKSPACE_FOLDER_ICONS, workspaceDocumentKey, type WorkspaceDocument, type WorkspaceFolderIcon } from './types';
 import { libraryCopy } from './copy';
 import { deleteLibraryDocuments, splitDeletable } from './bulkDelete';
@@ -42,12 +42,13 @@ export default function WorkspaceLibrary({ projectId, eraId, enabledEngineIds, o
   const visible = filtered.slice(0, limit), catalogKeys = new Set(documents.map(workspaceDocumentKey)), missing = library.placements.filter(item => !catalogKeys.has(workspaceDocumentKey(item))).length;
   const selected = documents.filter(document => selection.has(workspaceDocumentKey(document)));
   const pinned = sortWorkspaceDocuments(documents.filter(document => placements.get(workspaceDocumentKey(document))?.pinned), library.placements);
-  const run = async (action: WorkspaceLibraryAction, success?: () => void) => {
+  const runTask = async (task: () => Promise<void>, success?: () => void) => {
     if (locked.current) return; locked.current = true; setBusy(true); setError('');
-    try { await updateWorkspaceLibrary(projectId, library.revision, action, eraId); success?.(); }
+    try { await task(); success?.(); }
     catch (failure) { setError(failure instanceof WorkspaceLibraryConflict ? copy.conflict : failure instanceof WorkspaceLibraryInvalidAction ? copy.invalid : copy.failed); setRefresh(value => value + 1); }
     finally { locked.current = false; setBusy(false); }
   };
+  const run = (action: WorkspaceLibraryAction, success?: () => void) => runTask(() => updateWorkspaceLibrary(projectId, library.revision, action, eraId), success);
   const open = async (route?: string, beside = false) => { if (locked.current) return; locked.current = true; setBusy(true); setError(''); try { if (!(await (route ? onOpen(route, beside ? 'beside' : 'main') : onManage()))) setError(copy.failed); } catch { setError(copy.failed); } finally { locked.current = false; setBusy(false); } };
   const changeFolder = (id: string) => { setFolderId(id); setRenameName(library.folders.find(item => item.id === id)?.name ?? ''); setLimit(100); };
   const options = <><option value="">{copy.root}</option>{tree.map(({ folder: item }) => <option key={item.id} value={item.id}>{folderPath(library.folders, item.id)}</option>)}</>;
@@ -60,7 +61,7 @@ export default function WorkspaceLibrary({ projectId, eraId, enabledEngineIds, o
     <button type="button" className={button} data-testid="library-history" onClick={()=>setHistory({})}><History size={15} aria-hidden="true"/>{locale==='es'?'Historial de Base compartida':'Shared base history'}</button>
     <ConfirmDialog open={confirmDelete} destructive title={copy.deleteSelected} message={(() => { const { deletable, kept } = splitDeletable(selected); return `${copy.deleteConfirm.replace('{count}', String(deletable.length))}${kept.length ? ` ${copy.deleteKept.replace('{count}', String(kept.length))}` : ''}`; })()} onCancel={() => setConfirmDelete(false)} onConfirm={async () => {
       if (locked.current) return; locked.current = true; setBusy(true); setError('');
-      try { await deleteLibraryDocuments(selected); setSelection(new Set()); } catch { setError(copy.failed); } finally { locked.current = false; setBusy(false); setConfirmDelete(false); setRefresh(value => value + 1); }
+      try { await deleteLibraryDocuments(selected, projectId); setSelection(new Set()); } catch { setError(copy.failed); } finally { locked.current = false; setBusy(false); setConfirmDelete(false); setRefresh(value => value + 1); }
     }} />
     {history && <DocumentHistoryPanel key={JSON.stringify(history.target)} projectId={projectId} initialTarget={history.target} onClose={()=>setHistory(undefined)}/>}
     <p className="max-w-prose text-sm text-text-muted">{copy.help}</p>
@@ -78,7 +79,7 @@ export default function WorkspaceLibrary({ projectId, eraId, enabledEngineIds, o
         {folder && <details className="rounded-xl border border-border p-3" key={folder.id}><summary className="cursor-pointer text-sm text-text-primary">{copy.folderSettings}</summary><div className="mt-3 space-y-3">
           <div className="space-y-1 text-xs text-text-muted"><p>{copy.icon}</p><div className="flex flex-wrap gap-1">{WORKSPACE_FOLDER_ICONS.map(icon => { const Icon = FOLDER_ICON[icon], chosen = (folder.icon ?? 'folder') === icon; return <button key={icon} type="button" data-testid={`library-folder-icon-${icon}`} aria-pressed={chosen} aria-label={icon} disabled={busy} className={`rounded-md border p-1.5 ${chosen ? 'border-accent-gold text-accent-gold' : 'border-border text-text-muted hover:text-text-primary'}`} onClick={() => void run({ kind: 'style-folder', id: folder.id, icon: icon === 'folder' ? null : icon })}><Icon size={14} aria-hidden="true" /></button>; })}</div></div>
           <div className="space-y-1 text-xs text-text-muted"><p>{copy.color}</p><div className="flex flex-wrap items-center gap-1.5">{WORKSPACE_FOLDER_COLORS.map(color => <button key={color} type="button" data-testid={`library-folder-color-${color.slice(1)}`} aria-pressed={folder.color === color} aria-label={color} disabled={busy} className={`h-6 w-6 rounded-full border-2 ${folder.color === color ? 'border-text-primary' : 'border-transparent'}`} style={{ background: color }} onClick={() => void run({ kind: 'style-folder', id: folder.id, color })} />)}<button type="button" data-testid="library-folder-color-none" disabled={busy || !folder.color} className="rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-elevated" onClick={() => void run({ kind: 'style-folder', id: folder.id, color: null })}>{copy.noColor}</button></div></div>
-          <label className="block space-y-1 text-xs text-text-muted">{copy.rename}<input className={`${input} w-full`} maxLength={120} value={renameName} onChange={event => setRenameName(event.target.value)} /></label><button type="button" className={button} disabled={busy || !renameName.trim()} onClick={() => void run({ kind: 'rename-folder', id: folder.id, name: renameName })}>{copy.save}</button>
+          <label className="block space-y-1 text-xs text-text-muted">{copy.rename}<input className={`${input} w-full`} maxLength={120} value={renameName} onChange={event => setRenameName(event.target.value)} /></label><button type="button" className={button} disabled={busy || !renameName.trim()} onClick={() => void runTask(() => renameWorkspaceFolder(projectId, library.revision, folder, renameName, eraId))}>{copy.save}</button>
           <label className="block space-y-1 text-xs text-text-muted">{copy.destination}<select data-testid="library-folder-destination" className={`${input} w-full`} value={destination} onChange={event => setDestination(event.target.value)}>{options}</select></label>
           <button type="button" className={button} disabled={busy} onClick={() => void run({ kind: 'move-folder', id: folder.id, parentId: destination || undefined })}>{copy.moveFolder}</button>
           <div className="flex flex-wrap gap-2">{([-1, 1] as const).map(direction => <button key={direction} type="button" className={button} disabled={busy} aria-label={direction < 0 ? copy.up : copy.down} onClick={() => void run({ kind: 'order-folder', id: folder.id, direction })}>{direction < 0 ? <ArrowUp size={15} /> : <ArrowDown size={15} />}</button>)}<button type="button" className={button} disabled={busy} onClick={() => setConfirmRemove(true)}>{copy.remove}</button></div>

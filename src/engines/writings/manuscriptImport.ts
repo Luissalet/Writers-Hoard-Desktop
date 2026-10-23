@@ -33,7 +33,7 @@
 export type ManuscriptErrorCode =
   /** Nothing was chosen, or the pasted box is blank. */
   | 'empty'
-  /** A file this importer does not read (.doc, .rtf, .odt, .pdf …). */
+  /** A file this importer does not read (.doc, .rtf, .odt …). */
   | 'unsupported'
   /** Past the byte cap — refused rather than attempted. */
   | 'too-large'
@@ -46,7 +46,15 @@ export type ManuscriptErrorCode =
   /** Read fine, contained no text. */
   | 'no-text'
   /** Split fine, every chapter was empty or dropped. */
-  | 'no-chapters';
+  | 'no-chapters'
+  /** An .epub that is not a zip or has no readable package file. */
+  | 'invalid-epub'
+  /** A file that is not a readable PDF. */
+  | 'invalid-pdf'
+  /** A PDF with no text layer: scanned pages, needs OCR first. */
+  | 'scanned-pdf'
+  /** Password-protected PDF or an ePub with DRM. */
+  | 'protected';
 
 /**
  * A refusal with a reason the writer can act on. `detail` names the file when
@@ -88,6 +96,9 @@ export interface ManuscriptBlock {
   words: number;
 }
 
+/** A thing the reader skipped or simplified, reported with the plan. */
+export interface SourceNote { code: string; count: number; detail?: string }
+
 /** One file (or the pasted box), reduced to blocks. */
 export interface ManuscriptSource {
   /** File name as chosen, or the label given to pasted text. */
@@ -95,6 +106,8 @@ export interface ManuscriptSource {
   /** `name` without extension, tidied — the fallback title for a whole-file chapter. */
   stem: string;
   blocks: ManuscriptBlock[];
+  /** What the reader left out or simplified (images in an ePub, a guessed PDF layout …). */
+  notes?: SourceNote[];
 }
 
 export type ManuscriptPhase = 'reading' | 'writing';
@@ -115,10 +128,12 @@ export const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 
 /** What the file picker offers. */
-export const MANUSCRIPT_ACCEPT = '.docx,.md,.markdown,.txt';
+export const MANUSCRIPT_ACCEPT = '.docx,.md,.markdown,.txt,.epub,.pdf';
 
 const DOCX_EXTENSION = /\.docx$/i;
 const TEXT_EXTENSION = /\.(?:md|markdown|mdown|txt|text)$/i;
+const EPUB_EXTENSION = /\.epub$/i;
+const PDF_EXTENSION = /\.pdf$/i;
 
 /**
  * Hand the frame back to the browser: paint the progress bar, run the click
@@ -169,18 +184,28 @@ async function readText(file: File): Promise<string> {
   }
 }
 
-async function readOneFile(file: File, report: (ratio: number) => void): Promise<ManuscriptBlock[]> {
+async function readOneFile(file: File, report: (ratio: number) => void): Promise<{ blocks: ManuscriptBlock[]; notes?: SourceNote[] }> {
   // Extension, not MIME type: browsers report .md as everything from
   // text/markdown to the empty string depending on the OS.
   if (DOCX_EXTENSION.test(file.name)) {
     const buffer = await readArrayBuffer(file);
     const { parseDocxBlocks } = await import('./manuscriptDocx');
-    return parseDocxBlocks(buffer, report);
+    return { blocks: await parseDocxBlocks(buffer, report) };
+  }
+  if (EPUB_EXTENSION.test(file.name)) {
+    const buffer = await readArrayBuffer(file);
+    const { parseEpubBlocks } = await import('./manuscriptEpub');
+    return parseEpubBlocks(buffer, report);
+  }
+  if (PDF_EXTENSION.test(file.name)) {
+    const buffer = await readArrayBuffer(file);
+    const { parsePdfBlocks } = await import('./manuscriptPdf');
+    return parsePdfBlocks(buffer, report);
   }
   if (TEXT_EXTENSION.test(file.name)) {
     const text = await readText(file);
     const { parseTextBlocks } = await import('./manuscriptText');
-    return parseTextBlocks(text, report);
+    return { blocks: await parseTextBlocks(text, report) };
   }
   throw new ManuscriptImportError('unsupported', file.name);
 }
@@ -221,11 +246,11 @@ export async function readManuscriptFiles(
       });
     };
     report(0);
-    const blocks = await readOneFile(file, report);
+    const { blocks, notes } = await readOneFile(file, report);
     // An empty file among many is skipped, not fatal: exporters routinely
     // leave a stray `notes.md`. Every file empty is caught below.
     if (blocks.length > 0) {
-      sources.push({ name: file.name, stem: stemOf(file.name), blocks });
+      sources.push({ name: file.name, stem: stemOf(file.name), blocks, ...(notes?.length ? { notes } : {}) });
     }
   }
 

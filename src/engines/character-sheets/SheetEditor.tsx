@@ -18,6 +18,7 @@ import { button, input, titleCase } from './uiStyles';
 import { Field, NumberField } from './ui';
 
 import StatsPanel, { type PanelProps } from './StatsPanel';
+import type { TableRules } from './tableRules';
 
 import ResourcePanel from './ResourcePanel';
 
@@ -26,7 +27,7 @@ import SheetPaper from './SheetPaper';
 
 const allTabs = ['play', 'stats', 'resources', 'rows', 'rolls', 'details', 'paper'] as const;
 
-export default function SheetEditor({ sheet, sheets, locale, update, confirm, report, status }: PanelProps & { sheets: CharacterSheet[]; report: (error: string) => void; status: (message: string) => void }) {
+export default function SheetEditor({ sheet, sheets, tableRules, locale, update, confirm, report, status }: PanelProps & { sheets: CharacterSheet[]; tableRules?: TableRules; report: (error: string) => void; status: (message: string) => void }) {
 
   const c = sheetCopy[locale]; const coc = sheet.preset === 'coc7', duality = sheet.preset === 'daggerheart-character';
 
@@ -78,7 +79,7 @@ export default function SheetEditor({ sheet, sheets, locale, update, confirm, re
 
       {tab === 'play' && coc && <CocPlayPanel {...panelProps} report={report}/>}
       {tab === 'play' && dh && <DaggerheartPlayPanel {...panelProps}/>}
-      {tab === 'play' && fiveE && <FiveEPlayPanel {...panelProps} addRoll={addRoll} report={report}/>}
+      {tab === 'play' && fiveE && <FiveEPlayPanel {...panelProps} addRoll={addRoll} report={report} tableRules={tableRules}/>}
       {tab === 'paper' && <SheetPaper {...panelProps}/>}
 
       {tab === 'stats' && sheet.preset === 'daggerheart-adversary' && <button className={button} onClick={() => check('Attack',sheet.numbers.attack ?? 0)}><Dice5 size={16} />{locale === 'es' ? 'Ataque del adversario' : 'Adversary attack'} · {sheet.numbers.attack ?? 0}</button>}

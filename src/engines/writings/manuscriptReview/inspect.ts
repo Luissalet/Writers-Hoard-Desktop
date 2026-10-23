@@ -13,7 +13,7 @@ export async function inspectManuscriptFile(file: File): Promise<InspectedManusc
   const stem = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '), markerPrefix = `\uE000wh-${sha256.slice(0, 16)}-`;
   if (!/\.docx$/i.test(file.name)) {
     const sources = await readManuscriptFiles([file]);
-    return { ...sources[0], sha256, original: file, findings: [], comments: [], markerPrefix, format: file.name.split('.').at(-1) ?? 'txt' };
+    return { ...sources[0], sha256, original: file, findings: (sources[0].notes ?? []).map(note => ({ ...note })), comments: [], markerPrefix, format: file.name.split('.').at(-1) ?? 'txt' };
   }
   const reply = await callDocumentTool<{ sessionId: string }>('wh_document_open_bytes', { dataBase64: base64FromBytes(bytes), format: 'docx', fileName: file.name });
   if (!reply.ok) {

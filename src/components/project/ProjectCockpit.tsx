@@ -30,6 +30,7 @@ import ProofreaderPanel from '@/components/proofreader/ProofreaderPanel';
 import HealthRecoveryPanel from './HealthRecoveryPanel';
 import CreativeDevelopmentLab from './CreativeDevelopmentLab';
 import CreativeLaunchpad from './CreativeLaunchpad';
+import AssetsLibrary from './AssetsLibrary';
 import {
   COCKPIT_GROUPS,
   COCKPIT_TAB_LABEL_KEYS,
@@ -736,6 +737,7 @@ function Assets({ projectId, data }: { projectId: string; data: ProjectCockpitDa
   };
   return (
     <div className="space-y-4">
+      <AssetsLibrary projectId={projectId} />
       {window.electronAPI?.media.listLibraryFiles && (
         <section className="rounded-xl border border-border bg-surface p-4">
           <div className="flex flex-wrap items-center gap-3">

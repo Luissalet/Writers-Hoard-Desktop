@@ -231,7 +231,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
     <div className="space-y-4">
       {/* View Mode Toggle */}
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-0.5 p-0.5 bg-elevated rounded-lg border border-border">
+        <div data-tour="timeline-view-toggle" className="flex items-center gap-0.5 p-0.5 bg-elevated rounded-lg border border-border">
           <button
             onClick={() => setViewMode('swimlane')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition ${
@@ -271,6 +271,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
           type="button"
           onClick={() => { setCalendarScope('project'); setCalendarOpen(true); }}
           data-testid="world-calendar-open"
+          data-tour="timeline-calendar"
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border text-text-muted hover:text-text-primary transition"
           title={worldCalendar ? worldCalendar.calendar.name : t('timeline.world.noCalendar')}
         >
@@ -325,6 +326,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
       <WorldCalendarEditor key={`${calendarScope}:${calendarScope === 'timeline' ? activeTimelineId : 'project'}`} projectId={projectId} open={calendarOpen} onClose={() => setCalendarOpen(false)} resolved={calendarScope === 'timeline' ? timelineCalendar : worldCalendar} timeline={calendarScope === 'timeline' ? activeTimeline : undefined} />
 
       <CollectionDashboard
+        tourAnchor="timeline-list"
         icon={Clock}
         title={t('timeline.yourTimelines')}
         itemNoun={t('timeline.itemNoun')}

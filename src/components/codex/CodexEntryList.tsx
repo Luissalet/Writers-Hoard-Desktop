@@ -2,7 +2,7 @@ import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
 import { useEffect, useState } from 'react';
 import { liveQuery } from 'dexie';
-import { Plus, Search, User, HelpCircle, Image as ImageIcon, Wand2, X } from 'lucide-react';
+import { Plus, Search, User, HelpCircle, Image as ImageIcon, Wand2, X, Eye, Users } from 'lucide-react';
 import { db } from '@/db';
 import { loadCodexAppearances, type CodexAppearance } from '@/services/projectIntelligence';
 import type { CodexEntry, CodexEntryType, InspirationImage } from '@/types';
@@ -29,6 +29,10 @@ import { effectiveCodexTemplate, effectiveTemplatePresentation,selectableCodexTe
 import {ProjectIcon} from '@/components/common/ProjectIcon';
 import {templatePresentationCopy} from '@/engines/codex/templatePresentationCopy';
 import { generateId } from '@/utils/idGenerator';
+import CodexRevealControl from './CodexRevealControl';
+import { isRevealed, matchesRevealFilter, type RevealFilter } from '@/engines/codex/reveal';
+import { playerHiddenFields, playerSafeHtml, playerVisibleEntries } from '@/engines/codex/playerView';
+import { revealCopy } from '@/engines/codex/revealCopy';
 
 interface CodexEntryListProps {
   projectId: string;
@@ -115,7 +119,11 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<CodexEntryType | 'all'>('all');
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-  const selectedEntry = entries.find(entry => entry.id === selectedEntryId && entry.projectId === projectId) ?? null;
+  const [revealFilter, setRevealFilter] = useState<RevealFilter>('all');
+  // The player view is a way of looking, never saved: it only shows revealed cards and hides what the wiki hides.
+  const [playerView, setPlayerView] = useState(false);
+  const reveal = revealCopy[locale === 'en' ? 'en' : 'es'];
+  const selectedEntry = entries.find(entry => entry.id === selectedEntryId && entry.projectId === projectId && (!playerView || playerVisibleEntries([entry], project?.codexTemplates, project ?? undefined).length > 0)) ?? null;
 
   const selectedProjection = selectedEntry ? projectCodexEntry(selectedEntry, project?.codexTemplates ?? []) : undefined;
   const selectedTemplateSource = project?.codexTemplates?.find(template => template.id === selectedEntry?.templateId);
@@ -175,8 +183,15 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
     };
   }, [projectId, characterOpened, appearanceIndex]);
 
-  const typeEntries = entries.filter(e => (filterType === 'all' || e.type === filterType) && (!filterTemplate || templateIsWithin(e.templateId, filterTemplate, project?.codexTemplates ?? [])));
-  const filtered = search.trim() ? searchEntries(search, typeEntries.map(entry => ({ ...entry, fields: projectCodexEntry(entry, project?.codexTemplates ?? []).fields })), typeEntries.length).map(found => typeEntries.find(entry => entry.id === found.id)!) : typeEntries;
+  const visibleEntries = playerView ? playerVisibleEntries(entries, project?.codexTemplates, project ?? undefined) : entries;
+  const hiddenFields = playerView ? playerHiddenFields(project ?? undefined) : new Set<string>();
+  const typeEntries = visibleEntries.filter(e => (filterType === 'all' || e.type === filterType) && (!filterTemplate || templateIsWithin(e.templateId, filterTemplate, project?.codexTemplates ?? [])) && (playerView || matchesRevealFilter(e, revealFilter)));
+  // In the player view the search reads only what the players can read: no aliases, no hidden fields, the body as players see it.
+  const playerBlocks = playerView ? new Set(visibleEntries.map(entry => entry.id)) : undefined;
+  const searchable = (entry: CodexEntry) => playerView
+    ? { ...entry, fields: Object.fromEntries(Object.entries(projectCodexEntry(entry, project?.codexTemplates ?? []).fields).filter(([key]) => !isAliasField(key) && !hiddenFields.has(key))), content: playerSafeHtml(entry.content ?? '', playerBlocks) }
+    : { ...entry, fields: projectCodexEntry(entry, project?.codexTemplates ?? []).fields };
+  const filtered = search.trim() ? searchEntries(search, typeEntries.map(searchable), typeEntries.length).map(found => typeEntries.find(entry => entry.id === found.id)!) : typeEntries;
 
   const types: (CodexEntryType | 'all')[] = ['all', 'character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
 
@@ -187,6 +202,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
         <div className="flex-1 min-w-[200px] relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
+            data-testid="codex-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('codex.searchEntries')}
@@ -208,12 +224,21 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             </button>
           ))}
         </div>
+        <div role="group" aria-label={reveal.filterLabel} className="flex gap-1" data-testid="codex-reveal-filter" hidden={playerView}>
+          {(['all', 'revealed', 'unrevealed'] as const).map(value => (
+            <button key={value} type="button" aria-pressed={revealFilter === value} data-testid={`codex-reveal-filter-${value}`} onClick={() => setRevealFilter(value)} className={`px-2.5 py-1.5 rounded-lg text-xs transition ${revealFilter === value ? 'bg-accent-gold/20 text-accent-gold' : 'text-text-muted hover:text-text-primary hover:bg-elevated'}`}>
+              {value === 'all' ? reveal.filterAll : value === 'revealed' ? reveal.filterRevealed : reveal.filterUnrevealed}
+            </button>
+          ))}
+        </div>
+        <button type="button" aria-pressed={playerView} title={reveal.playerViewHint} data-testid="codex-player-view" onClick={() => { setPlayerView(value => !value); setSelectedEntryId(null); }} className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition ${playerView ? 'border-accent-gold bg-accent-gold/15 text-accent-gold' : 'border-border text-text-primary hover:bg-elevated'}`}><Users size={15} aria-hidden="true" />{reveal.playerView}</button>
         <ScheherazadeButtons projectId={projectId} />
         <button type="button" onClick={() => { setTemplateSeed(undefined); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.title')}</button>
         {!!project?.codexTemplates?.length && <select aria-label={t('codex.templates.template')} value={filterTemplate} onChange={event => setFilterTemplate(event.target.value)} className="px-2 py-2 rounded-lg border border-border bg-elevated text-sm text-text-primary"><option value="">{t('codex.types.all')}</option>{selectableCodexTemplates(project.codexTemplates,filterTemplate).map(template => <option key={template.id} value={template.id}>{templatePath(template, project.codexTemplates!)}{effectiveTemplatePresentation(template,project.codexTemplates??[]).hiddenFromPickers?` (${templatePresentationCopy[locale].hiddenTag})`:''}</option>)}</select>}
-        <button type="button" data-testid="codex-guided-open" onClick={() => setShowGuide(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated"><Wand2 size={15} />{locale === 'en' ? 'Guided card' : 'Ficha guiada'}</button>
+        <button type="button" data-testid="codex-guided-open" data-tour="codex-guided" onClick={() => setShowGuide(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated"><Wand2 size={15} />{locale === 'en' ? 'Guided card' : 'Ficha guiada'}</button>
         <button
           onClick={() => { setFormTemplate(undefined); setShowForm(true); }}
+          data-tour="codex-new-entry"
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
         >
           <Plus size={16} />
@@ -222,7 +247,10 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
       </div>
 
       {/* Grid */}
-      {filtered.length === 0 ? (
+      {playerView && <p role="status" data-testid="codex-player-view-note" className="text-xs text-text-muted">{reveal.playerViewHint}</p>}
+      {filtered.length === 0 && playerView ? (
+        <p data-testid="codex-player-view-empty" className="py-10 text-center text-sm text-text-muted">{reveal.playerEmpty}</p>
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={<User size={40} />}
           title={t('codex.noEntries.title')}
@@ -239,6 +267,8 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             return (
               <button
                 key={entry.id}
+                data-testid="codex-card"
+                data-entry-id={entry.id}
                 onClick={() => setSelectedEntryId(entry.id)}
                 className="text-left p-4 bg-surface border border-border rounded-xl hover:border-accent-gold/40 transition group"
               >
@@ -255,6 +285,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                       {entry.title}
                     </h3>
                     <p className="text-xs mt-0.5 flex items-center gap-1.5" style={{ color }}>{entryTemplate&&<ProjectIcon name={appearance.icon} fallback={Icon} size={12}/>}<span>{entryTemplate?.name??t(`codex.types.${entry.type}`)}</span></p>
+                    {!playerView && isRevealed(entry) && <span data-testid="codex-revealed-badge" className="mt-1 inline-flex items-center gap-1 rounded bg-accent-gold/15 px-1.5 py-0.5 text-[10px] text-accent-gold"><Eye size={10} aria-hidden="true" />{reveal.badge}</span>}
                     {entry.tags.length > 0 && (
                       <div className="flex gap-1 mt-2 flex-wrap">
                         {entry.tags.slice(0, 3).map(tag => (
@@ -328,7 +359,20 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
               </div>
             </div>
 
-            <CodexCardFaces key={selectedEntry.id} entry={selectedEntry} project={project} about={<>
+            {!playerView && <CodexRevealControl projectId={projectId} entry={selectedEntry} />}
+            {playerView ? (
+              <div className="space-y-4" data-testid="codex-player-card">
+                <div className="grid grid-cols-2 gap-3">
+                  {Object.entries(selectedProjection?.fields ?? selectedEntry.fields).filter(([key, v]) => v && !isAliasField(key) && !hiddenFields.has(key)).map(([key, value]) => (
+                    <div key={key} className="p-3 bg-elevated rounded-lg">
+                      <div className="text-xs text-text-muted mb-1 capitalize">{selectedProjection?.properties[key]?.label ?? key.replace(/([A-Z])/g, ' $1')}</div>
+                      <div className="text-sm text-text-primary">{selectedProjection?.properties[key]?.displayValue ?? value}</div>
+                    </div>
+                  ))}
+                </div>
+                {selectedEntry.content && <div className="tiptap-editor border border-border rounded-lg p-4 bg-elevated"><div dangerouslySetInnerHTML={sanitizedHtml(playerSafeHtml(selectedEntry.content, playerBlocks))} /></div>}
+              </div>
+            ) : <CodexCardFaces key={selectedEntry.id} entry={selectedEntry} project={project} about={<>
             {readAliases(selectedEntry.fields).length > 0 && (
               <p className="text-sm text-text-muted break-words"><span className="font-semibold">{t('codex.aliases')}:</span> {readAliases(selectedEntry.fields).join(' · ')}</p>
             )}
@@ -378,9 +422,9 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                 layout="stack"
               />
             </div>
-            </>} />
+            </>} />}
 
-            <div className="flex gap-3 pt-2">
+            {!playerView && <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => { const source = project?.codexTemplates?.find(template => template.id === selectedEntry.templateId); const seed = templateFromEntry(selectedEntry, generateId('codex-template'), selectedEntry.title, Date.now(), source ? propertyDefinitions(effectiveCodexTemplate(source, project?.codexTemplates ?? [])) : selectedEntry.propertyDefinitions); setTemplateSeed({ ...seed, ...effectiveTemplatePresentation(source,project?.codexTemplates??[]),referenceFieldDefinitions: source ? effectiveCodexTemplate(source, project?.codexTemplates ?? []).referenceFieldDefinitions : seed.referenceFieldDefinitions }); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.fromEntry')}</button>
               <button
                 onClick={() => { setSelectedEntryId(null); setEditEntry(selectedEntry); }}
@@ -397,7 +441,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
               >
                 {t('common.delete')}
               </button>
-            </div>
+            </div>}
           </div>
         )}
       </Modal>

@@ -7,6 +7,7 @@ import ShortcutsPanel from '../common/ShortcutsPanel';
 import { ToastHost } from '../common/toast';
 import BridgeConfirmHost from '../common/BridgeConfirmHost';
 import PendingWritesHost from '../common/PendingWritesHost';
+import TourHost from '../tutorial/TourHost';
 import QuickNoteHost from '@/engines/notes/components/QuickNoteHost';
 import CopilotDock from '@/components/copilot/CopilotDock';
 import { installNavigator } from '@/engines/_shared/anchoring';
@@ -81,6 +82,8 @@ export default function MainLayout() {
       {/* The keyboard sheet. Mounted here rather than per page because the
           key that opens it is bound to the window, like the palette's. */}
       <ShortcutsPanel />
+      {/* Guided tours: spotlight, list and the one-time offer. */}
+      <TourHost />
       <QuickNoteHost />
       <ToastHost />
       {/* Coordinates buffered fields and asks visibly if a write failed. */}

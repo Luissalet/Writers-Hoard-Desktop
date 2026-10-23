@@ -31,6 +31,7 @@ import { aliasProblem, readAliases, replaceAliases, suggestAliases } from '@/ser
 import { genrePackTemplates, seedGenrePack } from '@/engines/codex/genrePacks';
 import { CARD_GUIDES, cardGuide, guideAnswers } from '@/engines/codex/guides';
 import { freezeCodexEntry } from '@/engines/codex/freeze';
+import { isRevealed, readReveal } from '@/engines/codex/revealModel';
 import {
   assertEngineEnabled,
   assertRowInScope,
@@ -66,7 +67,8 @@ export async function whListCodex(args: ToolArgs): Promise<unknown> {
   const type = optEnum(args, 'type', TYPES);
   const eraId = optString(args, 'eraId');
   const entries = eraId ? await listEraRows<CodexEntry>({ projectId, eraId }, 'codexEntries') : await getCodexEntries(projectId);
-  const filtered = type ? entries.filter((e) => e.type === type) : entries;
+  const revealedFilter = optBoolean(args, 'revealed');
+  const filtered = entries.filter((e) => (!type || e.type === type) && (revealedFilter === undefined || isRevealed(e) === revealedFilter));
   const templates = (await db.projects.get(projectId))?.codexTemplates ?? [];
   return {
     projectId,
@@ -78,6 +80,7 @@ export async function whListCodex(args: ToolArgs): Promise<unknown> {
       templateId: entry.templateId,
       tags: entry.tags,
       hasBody: Boolean(entry.content && entry.content.trim()),
+      revealed: isRevealed(entry),
       updatedAt: entry.updatedAt,
     })),
   };
@@ -115,6 +118,8 @@ export async function whGetCodexEntry(args: ToolArgs): Promise<unknown> {
     aliasSuggestions: suggestAliases(entry.title, readAliases(entry.fields), { person: entry.type === 'character' }),
     // Required properties of its type left empty: the app will not save the card until they are filled.
     missingRequired: (() => { const raw = templates.find(item => item.id === entry.templateId); return raw ? missingRequiredProperties(propertyDefinitions(effectiveCodexTemplate(raw, templates)), entry.fields).map(definition => definition.label) : []; })(),
+    revealed: isRevealed(entry),
+    ...(readReveal(entry.revealed) ? { reveal: readReveal(entry.revealed) } : {}),
     updatedAt: entry.updatedAt,
     content: markdownFromHtml(entry.content),
   };

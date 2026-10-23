@@ -11,6 +11,8 @@ import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { countWords } from '@/utils/text';
 import { sha256Hex } from '@/services/judge/text';
 import { prepareWorldFolderImport, folderContextVersion } from './plan';
+import { placeImportedDocuments, unplaceImportedDocuments } from './library';
+import { notifyProjectsChanged } from '@/db/operations';
 import type { WorldFolderInput, WorldFolderImportReceipt, WorldFolderImportReference } from './types';
 import { validateWorldFolderImportsProject } from './portability';
 import { remapLocalToolReferences } from '@/engines/local/stateCodec';
@@ -70,6 +72,7 @@ export async function applyWorldFolderImport(scope:WorldEraScope,input:WorldFold
       }
       refs.push({kind:row.target,id:row.id,path:row.path});
     }
+    if(input.libraryFolderId)await placeImportedDocuments(scope,refs,input.libraryFolderId);
     const paths=new Set(selected.map(row=>row.sourcePath));for(const asset of plan.assets)if(asset.used)paths.add(asset.path);
     const receipt:WorldFolderImportReceipt={version:1,id:batchId,eraId:scope.eraId,format:input.format,files:plan.files.filter(file=>paths.has(file.path)),refs};
     const current=await db.projects.get(scope.projectId);if(!current)throw Error('world_folder_project_missing');
@@ -81,7 +84,8 @@ export async function applyWorldFolderImport(scope:WorldEraScope,input:WorldFold
   const receiptId=crypto.randomUUID();undoReceipts.set(receiptId,{scope:{...scope},batchId,versions:result.versions});
   const outer=Dexie.currentTransaction;if(outer)outermost(outer).on('abort',()=>undoReceipts.delete(receiptId));
   committedNotification(scope);
-  return{created:result.refs,receiptId,batchId,undoPersistence:'session' as const};
+  if(input.libraryFolderId)notifyProjectsChanged();
+  return{created:result.refs,receiptId,batchId,undoPersistence:'session' as const,...(plan.libraryFolder?{libraryFolder:plan.libraryFolder}:{})};
 }
 
 function referencesCreated(value:unknown,ids:Set<string>,projectId:string,key='',targetEra?:string,referenceEra?:string,visible=ids):boolean{
@@ -98,6 +102,7 @@ function referencesCreated(value:unknown,ids:Set<string>,projectId:string,key=''
 }
 export async function undoWorldFolderImport(scope:WorldEraScope,receiptId:string){
   const receipt=undoReceipts.get(receiptId);if(!receipt||receipt.scope.projectId!==scope.projectId||receipt.scope.eraId!==scope.eraId)throw Error('world_folder_receipt_missing');
+  let libraryChanged=false;
   await db.transaction('rw',db.tables,async tx=>{
     const project=await assertWorldEra(scope);if(receipt.claimed||undoReceipts.get(receiptId)!==receipt)throw Error('world_folder_receipt_missing');
     const outer=outermost(tx);receipt.claimed=outer;outer.on('complete',()=>undoReceipts.delete(receiptId));outer.on('abort',()=>{if(undoReceipts.get(receiptId)===receipt)receipt.claimed=undefined;});
@@ -124,9 +129,10 @@ export async function undoWorldFolderImport(scope:WorldEraScope,receiptId:string
       const adapter=eraAdapters[ref.kind];if(ref.kind==='tables'){const current=await db.projects.get(scope.projectId);await db.projects.update(scope.projectId,{dataTables:(current?.dataTables??[]).filter(row=>row.id!==ref.id)});}
       else{for(const [table,parent] of Object.entries(adapter.children??{}))await db.table(table).where(parent).equals(ref.id).delete();await db.table(adapter.table!).delete(ref.id);}
     }
+    libraryChanged=await unplaceImportedDocuments(scope,receipt.versions.map(saved=>saved.ref));
     // Immutable manuscript originals/receipts also back retained document history.
     // Their normal lifecycle ends at project deletion, not session batch Undo.
     await db.projects.update(scope.projectId,{worldFolderImports:(project.worldFolderImports??[]).filter(item=>item.id!==receipt.batchId),updatedAt:Math.max(Date.now(),project.updatedAt+1)});
   });
-  committedNotification(scope);return{removed:receipt.versions.map(saved=>saved.ref)};
+  committedNotification(scope);if(libraryChanged)notifyProjectsChanged();return{removed:receipt.versions.map(saved=>saved.ref)};
 }

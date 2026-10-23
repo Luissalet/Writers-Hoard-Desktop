@@ -21,10 +21,17 @@ import { useTranslation } from '@/i18n/useTranslation';
 
 export type ToastKind = 'success' | 'error' | 'info';
 
+/** An optional button on a toast ("Deshacer", "Ver"). It runs once; the toast goes when it settles. */
+export interface ToastAction {
+  label: string;
+  onAction: () => void | Promise<void>;
+}
+
 export interface ToastItem {
   id: number;
   kind: ToastKind;
   message: string;
+  action?: ToastAction;
 }
 
 type Listener = (toasts: ToastItem[]) => void;
@@ -48,16 +55,16 @@ export function dismissToast(id: number) {
   emit();
 }
 
-function push(kind: ToastKind, message: string, durationMs?: number) {
+function push(kind: ToastKind, message: string, durationMs?: number, action?: ToastAction) {
   const id = nextId++;
-  stack = [...stack, { id, kind, message }];
+  stack = [...stack, action ? { id, kind, message, action } : { id, kind, message }];
   // Keep the stack sane if something loops
   if (stack.length > 5) {
     const evicted = stack[0];
     dismissToast(evicted.id);
   }
   emit();
-  const ttl = durationMs ?? (kind === 'error' ? 6000 : 3500);
+  const ttl = durationMs ?? (action ? 9000 : kind === 'error' ? 6000 : 3500);
   timers.set(id, window.setTimeout(() => dismissToast(id), ttl));
 }
 
@@ -65,6 +72,8 @@ export const toast = {
   success: (message: string, durationMs?: number) => push('success', message, durationMs),
   error: (message: string, durationMs?: number) => push('error', message, durationMs),
   info: (message: string, durationMs?: number) => push('info', message, durationMs),
+  /** A toast with one button. Existing `success/error/info` call sites are untouched. */
+  withAction: (kind: ToastKind, message: string, action: ToastAction, durationMs?: number) => push(kind, message, durationMs, action),
 };
 
 const KIND_STYLES: Record<ToastKind, { icon: typeof Info; accent: string }> = {
@@ -99,6 +108,7 @@ export function ToastHost() {
           >
             <Icon size={16} className={`${accent} flex-shrink-0 mt-0.5`} />
             <span className="text-sm text-text-primary leading-snug flex-1">{t.message}</span>
+            {t.action && <ToastActionButton item={t} action={t.action} />}
             <button
               onClick={() => dismissToast(t.id)}
               className="text-text-dim hover:text-text-primary transition flex-shrink-0 mt-0.5"
@@ -111,5 +121,28 @@ export function ToastHost() {
         );
       })}
     </div>
+  );
+}
+
+function ToastActionButton({ item, action }: { item: ToastItem; action: ToastAction }) {
+  const [running, setRunning] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={running}
+      data-testid="toast-action"
+      onClick={() => {
+        setRunning(true);
+        // The toast stays until the action settles, so a slow undo is not
+        // pressed twice, and a refusal toast can follow it.
+        void Promise.resolve()
+          .then(action.onAction)
+          .catch(() => undefined)
+          .finally(() => dismissToast(item.id));
+      }}
+      className="text-sm font-semibold text-accent-gold hover:underline disabled:opacity-50 flex-shrink-0 mt-px"
+    >
+      {action.label}
+    </button>
   );
 }

@@ -5,6 +5,14 @@ const en = {
   failure: 'Some changes could not be saved. The panes and drafts are still open. Resolve the save error and try again.',
   loading: 'Loading tool…', primary: 'Main pane', resize: 'Main pane width',
   help: 'Tabs stay open while you work. Links inside this pane open here.',
+  tabTools: 'Tab actions', rename: 'Rename tab', renameLabel: 'Tab name', renameSave: 'Save name', renameReset: 'Use the document title',
+  pin: 'Pin tab', unpin: 'Unpin tab', pinnedStays: 'Pinned: unpin it to close it', duplicateTab: 'Duplicate tab',
+  closeOthers: 'Close the other tabs', closeRight: 'Close the tabs to the right', reopen: 'Reopen closed tab',
+  overview: 'Open tabs', overviewTitle: 'Open tabs', overviewEmpty: 'No tabs are open.', jump: 'Go to', recentlyClosed: 'Recently closed', closeFromOverview: 'Close',
+  undoLast: 'Undo: {label}',
+  freshTitle: 'Keep or delete this empty document?', freshBody: '“{title}” was just created and has nothing in it yet.', freshKeep: 'Keep', freshDelete: 'Delete', freshCancel: 'Do not close',
+  freshDeleteFailed: 'The empty document could not be deleted. It is still in your project.',
+  untitled: 'Untitled',
 };
 const es: typeof en = {
   open: 'Abrir al lado', close: 'Cerrar panel', title: 'Panel de consulta', add: 'Abrir herramienta al lado', newTab: 'Abrir pestaña', archive: 'Papelera',
@@ -13,5 +21,13 @@ const es: typeof en = {
   failure: 'Hay cambios que no se han podido guardar. Los paneles y borradores siguen abiertos. Resuelve el error de guardado y vuelve a intentarlo.',
   loading: 'Cargando herramienta…', primary: 'Panel principal', resize: 'Anchura del panel principal',
   help: 'Las pestañas se mantienen abiertas mientras trabajas. Los enlaces de este panel se abren aquí.',
+  tabTools: 'Acciones de la pestaña', rename: 'Renombrar pestaña', renameLabel: 'Nombre de la pestaña', renameSave: 'Guardar nombre', renameReset: 'Usar el título del documento',
+  pin: 'Fijar pestaña', unpin: 'Desfijar pestaña', pinnedStays: 'Fijada: desfíjala para cerrarla', duplicateTab: 'Duplicar pestaña',
+  closeOthers: 'Cerrar las demás pestañas', closeRight: 'Cerrar las pestañas de la derecha', reopen: 'Reabrir pestaña cerrada',
+  overview: 'Pestañas abiertas', overviewTitle: 'Pestañas abiertas', overviewEmpty: 'No hay pestañas abiertas.', jump: 'Ir a', recentlyClosed: 'Cerradas hace poco', closeFromOverview: 'Cerrar',
+  undoLast: 'Deshacer: {label}',
+  freshTitle: '¿Conservar o borrar este documento vacío?', freshBody: '«{title}» se acaba de crear y todavía no tiene nada escrito.', freshKeep: 'Conservar', freshDelete: 'Borrar', freshCancel: 'No cerrar',
+  freshDeleteFailed: 'No se ha podido borrar el documento vacío. Sigue en tu proyecto.',
+  untitled: 'Sin título',
 };
 export const workspaceCopy = { en, es };

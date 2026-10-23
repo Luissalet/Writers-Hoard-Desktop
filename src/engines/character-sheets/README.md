@@ -91,3 +91,17 @@ Author QA: `five-e-rules.browser.ts` (rules/manual data), `five-e-preview-select
 `node node_modules/electron/cli.js tests/coc-depth.runner.cjs`
 
 Unset ELECTRON_RUN_AS_NODE before Electron runs. The depth runner uses its own temporary profile, disables network, builds current application CSS, checks actual registered native dispatch, archive/clone/recovery, captures desktop/narrow screenshots and sends native mouse/keyboard input. It never uses the real application profile.
+
+## Table rules
+
+The **Table rules** tab (`TableRulesPanel.tsx`; `?view=rules` opens it) keeps one
+optional record per project, `Project.tableRules = {revision, system, values, info}`.
+`tableRules.ts` holds the rule sets (5e 2024, 5e 2014, Daggerheart, CoC 7e,
+freeform) and their defaults; `values` stores only what differs from the
+system's default, so a reset deletes the key and switching system keeps the
+other systems' values hidden. `info` is the ordered list of notes for the
+evening. Saving goes through `tableRulesOperations.ts` (CAS revision, like the
+to-do list). Bridge: `wh_table_rules_get` / `wh_table_rules_set` (engine-guarded,
+undoable, stale revision refused). Today only two things read it: the 5e class
+preview (note when hit points are rolled) and the dice tray (note for own dice);
+sheets do not enforce the other rules.

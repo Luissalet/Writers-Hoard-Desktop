@@ -131,7 +131,10 @@ export interface AuditEntry {
   eraId?: string;
   entityId?: string;
   summary?: string;
-  /** Previous state, base64 fields stripped, so a bad edit can be undone. */
+  /**
+   * Previous state, so a bad edit can be undone. Nothing strips it here: a handler must keep
+   * large payloads (pictures, files) out of `before` itself and record a content hash instead.
+   */
   before?: unknown;
   /**
    * What the call did to the row. Inferred from the result, not declared by

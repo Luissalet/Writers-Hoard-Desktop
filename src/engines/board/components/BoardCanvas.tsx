@@ -1010,6 +1010,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode }:
   return (
     <div
       ref={containerRef}
+      data-tour="board-canvas"
       tabIndex={-1}
       onPointerDownCapture={(event) => {
         if (isCanvasShortcutTarget(event.target, containerRef.current)) containerRef.current?.focus({ preventScroll: true });

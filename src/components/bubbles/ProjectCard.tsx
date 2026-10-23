@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { BookOpen, Clock, Library, Lightbulb, Layers, PenLine, PlayCircle, Trash2, Palette, Pin, Copy } from 'lucide-react';
+import { BookOpen, Clock, Library, Lightbulb, Layers, PenLine, PlayCircle, Trash2, Palette, Pin, Copy, FileText } from 'lucide-react';
 import { InlineIconPicker } from '@/components/common/IconPicker';
 import { ProjectIcon } from '@/components/common/ProjectIcon';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -23,6 +23,7 @@ interface ProjectCardProps {
   onClick: () => void;
   onDelete: () => void;
   onDuplicate?: () => void;
+  onExportMarkdown?: () => void;
   onColorChange?: (color: string) => void;
   onIconChange?: (icon: string) => void;
   onPin?: () => Promise<void>;
@@ -45,6 +46,7 @@ export default function ProjectCard({
   onClick,
   onDelete,
   onDuplicate,
+  onExportMarkdown,
   onColorChange,
   onIconChange,
   onPin,
@@ -192,6 +194,7 @@ export default function ProjectCard({
                 </div>
               )}
               {onDuplicate&&<button type="button" onClick={event=>{event.stopPropagation();onDuplicate();}} aria-label={locale==='es'?'Duplicar proyecto':'Duplicate project'} title={locale==='es'?'Duplicar proyecto':'Duplicate project'} className="min-h-9 min-w-9 rounded-lg p-1.5 text-text-muted hover:bg-accent-gold/20 focus-visible:outline-2 focus-visible:outline-accent-gold"><Copy size={15} aria-hidden="true"/></button>}
+              {onExportMarkdown&&<button type="button" data-testid="project-export-markdown" onClick={event=>{event.stopPropagation();onExportMarkdown();}} aria-label={locale==='es'?'Exportar como Markdown':'Export as Markdown'} title={locale==='es'?'Exportar como Markdown':'Export as Markdown'} className="min-h-9 min-w-9 rounded-lg p-1.5 text-text-muted hover:bg-accent-gold/20 focus-visible:outline-2 focus-visible:outline-accent-gold"><FileText size={15} aria-hidden="true"/></button>}
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
                 className="p-1.5 rounded-lg hover:bg-danger/20 transition"

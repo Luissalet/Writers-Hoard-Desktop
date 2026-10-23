@@ -28,7 +28,7 @@ export default function CodexEngine({ projectId }: EngineComponentProps) {
 
   return (
     <div className="space-y-4">
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label={copy.title}>
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label={copy.title} data-tour="codex-view-toggle">
       <button type="button" aria-pressed={view === 'cards'} onClick={() => setView('cards')} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm ${view === 'cards' ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-elevated'}`} data-testid="codex-show-cards"><LayoutGrid size={16} />{copy.cards}</button>
       <button type="button" aria-pressed={view === 'graph'} onClick={() => setView('graph')} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm ${view === 'graph' ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-elevated'}`} data-testid="codex-show-graph"><Network size={16} />{copy.graph}</button>
           {!scope.eraId && <button type="button" onClick={() => setNames(true)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated" data-testid="codex-name-generator"><Wand2 size={16} />{locale === 'es' ? 'Generar un nombre' : 'Generate a name'}</button>}

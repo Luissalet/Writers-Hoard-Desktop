@@ -9,6 +9,8 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'faustus:cancel': ['main'],
   'window:openMenu': ['main'],
   'media:saveTeleprompterMp4': ['main'],
+  'media:compressAsset': ['main'],
+  'media:cancelCompress': ['main'],
   'media:downloaderHealth': ['main'],
   'media:detectDownloadPlatform': ['main'],
   'media:downloadToFile': ['main'],

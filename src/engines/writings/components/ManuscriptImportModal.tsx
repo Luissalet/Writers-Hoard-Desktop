@@ -82,6 +82,14 @@ function errorMessage(t: Translate, code: ManuscriptErrorCode): string {
       return t('writings.manuscriptImport.error.no-text');
     case 'no-chapters':
       return t('writings.manuscriptImport.error.no-chapters');
+    case 'invalid-epub':
+      return t('writings.manuscriptImport.error.invalid-epub');
+    case 'invalid-pdf':
+      return t('writings.manuscriptImport.error.invalid-pdf');
+    case 'scanned-pdf':
+      return t('writings.manuscriptImport.error.scanned-pdf');
+    case 'protected':
+      return t('writings.manuscriptImport.error.protected');
   }
 }
 

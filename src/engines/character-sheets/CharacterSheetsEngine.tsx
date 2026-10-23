@@ -18,6 +18,7 @@ import {FIVE_E_SOURCE,reconcileFiveESheet} from './fiveE';
 import CompendiumPanel from '@/engines/compendium/CompendiumPanel';
 import EncounterPanel from '@/engines/encounters/EncounterPanel';
 import DiceTray from '@/engines/dice/DiceTray';
+import TableRulesPanel from './TableRulesPanel';
 import { addMonsterToFight } from '@/engines/encounters/fromSources';
 
 export default function CharacterSheetsEngine({ projectId }: EngineComponentProps) {
@@ -39,12 +40,13 @@ function Workspace({ projectId }: EngineComponentProps) {
     for (const key of Object.keys(before)) if (!next[key]) journal.delete(key);
     rerender(value => value + 1);
   };
-  const [view, setView] = useState<'sheets' | 'compendium' | 'fight' | 'dice'>('sheets');
+  const [view, setView] = useState<'sheets' | 'compendium' | 'fight' | 'dice' | 'rules'>('sheets');
   const [selected, setSelected] = useState(''); const [preset, setPreset] = useState<SheetPreset>('5e-character');
   const [query, setQuery] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [status, setStatus] = useState(''); const [conflict, setConflict] = useState(false);
   const [confirmation, setConfirmation] = useState<null | { message: string; action: () => void | Promise<void> }>(null);
   const importRef = useRef<HTMLInputElement>(null); const pending = useRef(false);
-  const deepLink = useDeepLinkParam('entity'); const [seenLink, setSeenLink] = useState('');
+  const deepLink = useDeepLinkParam('entity'); const [seenLink, setSeenLink] = useState(''); const viewLink = useDeepLinkParam('view'); const [seenView, setSeenView] = useState('');
+  if (viewLink && viewLink !== seenView) { setSeenView(viewLink); if (viewLink === 'rules') setView('rules'); }
   const sheets = useMemo(() => project?.characterSheets ?? [], [project?.characterSheets]);
   const id = selected || sheets[0]?.id || Object.keys(drafts)[0] || '';
   const active = drafts[id]; const rawSheet = active?.sheet ?? sheets.find(item => item.id === id);
@@ -82,9 +84,10 @@ function Workspace({ projectId }: EngineComponentProps) {
         void perform(async () => { try { if (file.size > 8000000) throw new Error(); const next = parseSheetImport(await file.text()); if (next.linkedEntryId && !entries.some(entry => entry.id === next.linkedEntryId)) next.linkedEntryId = undefined; setDrafts(current => ({ ...current, [next.id]: { sheet: next, base: null } })); setSelected(next.id); setConflict(false); setStatus(c.unsaved); } catch { setError(c.importError); } });
       }} />
     </div></header>
-    <div role="tablist" aria-label={locale === 'es' ? 'Vista' : 'View'} className="flex gap-1 border-b border-border px-5 py-2">{(['sheets', 'compendium', 'fight', 'dice'] as const).map(value => <button key={value} type="button" role="tab" aria-selected={view === value} data-testid={`sheets-view-${value}`} onClick={() => setView(value)} className={`rounded-lg px-3 py-1.5 text-sm ${view === value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{({ sheets: locale === 'es' ? 'Hojas' : 'Sheets', compendium: locale === 'es' ? 'Compendio' : 'Compendium', fight: locale === 'es' ? 'Combate' : 'Fight', dice: locale === 'es' ? 'Dados' : 'Dice' })[value]}</button>)}</div>
+    <div role="tablist" aria-label={locale === 'es' ? 'Vista' : 'View'} className="flex gap-1 border-b border-border px-5 py-2">{(['sheets', 'compendium', 'fight', 'dice', 'rules'] as const).map(value => <button key={value} type="button" role="tab" aria-selected={view === value} data-testid={`sheets-view-${value}`} onClick={() => setView(value)} className={`rounded-lg px-3 py-1.5 text-sm ${view === value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:bg-surface'}`}>{({ sheets: locale === 'es' ? 'Hojas' : 'Sheets', compendium: locale === 'es' ? 'Compendio' : 'Compendium', fight: locale === 'es' ? 'Combate' : 'Fight', dice: locale === 'es' ? 'Dados' : 'Dice', rules: locale === 'es' ? 'Reglas de la mesa' : 'Table rules' })[value]}</button>)}</div>
     {view === 'compendium' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><CompendiumPanel projectId={projectId} eraId={scope.eraId} locale={locale} onAddToFight={monster => { void addMonsterToFight(projectId, monster, 1, locale === 'es' ? 'Combate' : 'Fight').catch(() => setError(c.error)); }} /></div>}
     {view === 'dice' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><DiceTray projectId={projectId} locale={locale} /></div>}
+    {view === 'rules' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><TableRulesPanel projectId={projectId} locale={locale} /></div>}
     {view === 'fight' && <div className="min-h-0 flex-1 overflow-y-auto p-5"><EncounterPanel projectId={projectId} locale={locale} sheets={sheets} /></div>}
     {view === 'sheets' && <div className="flex min-h-0 flex-1 flex-col overflow-auto md:flex-row"><nav className="shrink-0 border-b border-border p-3 md:w-60 md:overflow-y-auto md:border-r md:border-b-0" aria-label={c.title}>
       <div className="md:hidden"><Field label={locale === 'es' ? 'Ficha activa' : 'Current sheet'}><select className={input} aria-label={locale === 'es' ? 'Ficha activa' : 'Current sheet'} value={id} disabled={busy} onChange={event => { setSelected(event.target.value); setConflict(false); setError(''); setStatus(''); }}>{!documents.length && <option value="">{c.none}</option>}{documents.map(item => <option key={item.id} value={item.id}>{drafts[item.id]?.sheet.title || item.title || c.new}{drafts[item.id] ? ' *' : ''}</option>)}</select></Field></div>
@@ -100,7 +103,7 @@ function Workspace({ projectId }: EngineComponentProps) {
       {error && <div role="alert" className="rounded-lg border border-danger/40 p-3 text-sm text-danger">{error}{conflict && <div className="mt-3 flex flex-wrap gap-2"><button className={button} disabled={busy} onClick={() => save(true)}>{c.copy}</button><button className={button} disabled={busy} onClick={() => confirm(c.discardHelp, () => { removeDraft(sheet.id); setConflict(false); setError(''); })}>{c.reload}</button></div>}</div>}
       {status && <p role="status" className="text-sm text-text-muted">{status}</p>}
       <Field label={c.codex}><select className={input} aria-label={c.codex} value={sheet.linkedEntryId ?? ''} onChange={event => update(current => ({ ...current, linkedEntryId: event.target.value || undefined }))}><option value="">{c.none}</option>{sheet.linkedEntryId && !entries.some(entry => entry.id === sheet.linkedEntryId) && <option value={sheet.linkedEntryId}>{locale === 'es' ? 'Entrada no disponible' : 'Entry unavailable'}</option>}{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></Field>
-      <fieldset disabled={busy}><SheetEditor key={sheet.id} sheet={sheet} sheets={sheets} locale={locale} update={update} confirm={confirm} report={setError} status={setStatus} /></fieldset>
+      <fieldset disabled={busy}><SheetEditor key={sheet.id} sheet={sheet} sheets={sheets} tableRules={project.tableRules} locale={locale} update={update} confirm={confirm} report={setError} status={setStatus} /></fieldset>
       <footer className="border-t border-border pt-4"><p className="max-w-prose text-sm text-text-muted">{sheet.preset==='coc7'?(locale==='es'?'Los máximos automáticos siguen las características; los ajustes manuales se conservan. Las acciones de Partida aplican heridas y cordura al borrador. Guarda para conservar los resultados.':'Automatic maxima follow characteristics; manual overrides persist. Play actions apply wounds and sanity to the draft. Save to keep the results.'):c.manual}</p>{sourceLinks[sheet.preset] && <p className="mt-3 flex flex-wrap gap-3 text-xs text-text-muted">{c.sources}: {(sheet.fiveE?[{title:FIVE_E_SOURCE.title,url:FIVE_E_SOURCE.url}]:sourceLinks[sheet.preset]!).map(source => <a key={source.url} className="text-accent-gold underline underline-offset-4" href={source.url} target="_blank" rel="noreferrer noopener">{source.title}</a>)}</p>}</footer>
     </>}</main></div>}
     <ConfirmDialog open={!!confirmation} message={confirmation?.message ?? ''} destructive onCancel={() => setConfirmation(null)} onConfirm={async () => { const action = confirmation?.action; setConfirmation(null); await action?.(); }} />
