@@ -6,7 +6,7 @@ import type {LocalToolPreviewSpec} from '../previewTypes';
 import {validateLocalToolBlockEnvelope,type LocalToolBlockEnvelope,type LocalToolWorldBlockQuery} from './types';
 interface Common {key:string;name:{en:string;es:string};preview?:LocalToolPreviewSpec}
 export interface LocalToolOwnedBlockDefinition<T extends LocalToolJson=LocalToolJson> extends Common {scope:'host';initialState:T;codec:LocalToolStateCodec;validateState:(data:LocalToolJson)=>data is T;component:ComponentType<LocalToolProps<T>>}
-export interface LocalToolWorldBlockProps {projectId:string;client:Pick<LocalToolClient<LocalToolJson>,'projectId'|'namespace'|'eraId'|'world'|'queryCodex'|'refs'|'search'|'openDocument'>}
+export interface LocalToolWorldBlockProps {projectId:string;client:Pick<LocalToolClient<LocalToolJson>,'projectId'|'namespace'|'eraId'|'world'|'queryCodex'|'refs'|'search'|'openDocument'|'subscribe'>}
 export interface LocalToolWorldBlockDefinition extends Common {scope:'world';world:LocalToolWorldBlockQuery;component:ComponentType<LocalToolWorldBlockProps>}
 export type LocalToolBlockDefinition=LocalToolOwnedBlockDefinition|LocalToolWorldBlockDefinition;
 /** Erase only the component's generic at the validated source-registration boundary. */
