@@ -33,19 +33,24 @@ interface TimelineViewProps {
   tagSuggestions?: string[];
   /** Every event of the timeline when `events` is filtered: a new one is numbered after all of them. */
   unfilteredEvents?: TimelineEvent[];
+  /** Calendar requests reuse this editor; its host decides where to return. */
+  requestedEventId?: string;
+  onEditorClosed?: () => void;
+  restoreEditorFocus?: () => void;
 }
 
 function getDisplayDate(evt: TimelineEvent, calendar?: WorldCalendar | null, locale?: string): string { return timelineEventLabel(evt, calendar, locale); }
 
 type SortMode = 'manual' | 'chronological';
 
-export default function TimelineView({ projectId, timelineId, events: storedEvents, onAddEvent, onEditEvent, onDeleteEvent, tagSuggestions = [], unfilteredEvents }: TimelineViewProps) {
+export default function TimelineView({ projectId, timelineId, events: storedEvents, onAddEvent, onEditEvent, onDeleteEvent, tagSuggestions = [], unfilteredEvents, requestedEventId, onEditorClosed, restoreEditorFocus }: TimelineViewProps) {
   const { t, locale } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
-  const linkedEntity = useDeepLinkParam('entity');
+  const deepLinkedEntity = useDeepLinkParam('entity');
+  const linkedEntity = requestedEventId ?? deepLinkedEntity;
   const [appliedEntity, setAppliedEntity] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('manual');
   const [form, setForm] = useState({
@@ -135,6 +140,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
     setShowForm(false);
     setEditingEvent(null);
     resetForm();
+    onEditorClosed?.();
     } catch {
       setSaveFailed(true);
     } finally {
@@ -307,7 +313,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
       )}
 
       {/* Form Modal */}
-      <Modal open={showForm} onClose={() => { if (!saving) { setShowForm(false); setEditingEvent(null); } }} dismissible={!formDirty} title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
+      <Modal open={showForm} restoreFocus={restoreEditorFocus} onClose={() => { if (!saving) { setShowForm(false); setEditingEvent(null); onEditorClosed?.(); } }} dismissible={!formDirty} title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
         <fieldset disabled={saving} className="space-y-4">
           <div>
             <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>
@@ -384,6 +390,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
                   <label className="block text-[11px] text-text-dim mb-1">{t('timeline.startDate')}</label>
                   <input
                     type="date"
+                    aria-label={t('timeline.startDate')}
                     value={form.realDate}
                     onChange={(e) => setForm({ ...form, realDate: e.target.value })}
                     className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition [color-scheme:dark]"
@@ -393,6 +400,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
                   <label className="block text-[11px] text-text-dim mb-1">{t('timeline.endDate')} <span className="text-text-dim">{t('timeline.endDateOptional')}</span></label>
                   <input
                     type="date"
+                    aria-label={t('timeline.endDate')}
                     value={form.realDateEnd}
                     onChange={(e) => setForm({ ...form, realDateEnd: e.target.value })}
                     min={form.realDate || undefined}
@@ -462,7 +470,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
             <button onClick={handleSave} disabled={saving || Boolean(dateError)} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50">
               {saving ? t('common.saving') : editingEvent ? t('timeline.save') : t('timeline.create')}
             </button>
-            <button onClick={() => { setShowForm(false); setEditingEvent(null); }} className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
+            <button onClick={() => { setShowForm(false); setEditingEvent(null); onEditorClosed?.(); }} className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
               {t('timeline.cancel')}
             </button>
           </div>
