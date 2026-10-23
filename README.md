@@ -11,6 +11,10 @@ downloaders (`yt-dlp` + `gallery-dl`) — no separate Python server.
 
 ## Offline planning and local publishing (task1095)
 
+Notes can opt into Rich text using the existing editor for headings, lists and local raster images. Saved rich HTML keeps a matching plain-text projection for search, Copy, AI context and existing clients; quick capture with Enter stays plain. Native MCP writes/Undo, eras, captured wiki pages, document-image sources and JSON/ZIP/clone preserve the supported content. [Verified note flows and limits](tasks/vvd1095/verification-notes.md).
+
+Atlas Index→Place and cards opens the existing place inspector. Create a Codex card of the selected type from the confirmed place name, link other cards or open a linked card in its normal pane/era. Creation/link and native Undo are atomic; project JSON/ZIP preserve their links. Source `ff3baead`, independently approved CAS10, is integrated and passed root's Browser flow and clean-main build. Card search/aliases and automatic rename synchronization are not added. [Atlas-to-card verification and limits](tasks/vvd1095/verification-place-cards.md).
+
 Typed-table filters also support negative containment, prefixes/suffixes and inclusive lower/upper bounds. The existing `wh_table_query` uses the same operator list and evaluator as the UI; old filters remain available. [Live comparison and verification](tasks/vvd1095/verification-tables.md).
 
 Source tools can declare portable indexed fields and document references, query saved effective documents through `client.queryDocuments()` / `useLocalToolIndex()`, and expose the same query through MCP. The initiative authoring example includes participant/minimum-initiative filters. Normal project search can find declared values inside lists and maps. Focused source-tool documents, owned blocks and legacy tool views support Ctrl/Cmd+Z, Ctrl+Shift+Z and Ctrl+Y using their existing scoped receipts; editable text keeps native Undo and global shortcuts remain available.

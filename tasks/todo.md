@@ -1289,7 +1289,12 @@ Luis repeated that parity has not been reached. Main44edddf is another baseline,
 
 ## Rich notes — actual next reference gap
 
-Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item bullet list after closing/reopening. Writer notes currently offer title/cover but plain body only. Success: optional rich editing through existing Tiptap, coherent plain projection for search/AI, native MCP create/update/read, persistence and portability; old plain quick capture remains unchanged.
+Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item bullet list after closing/reopening. Writer's original plain-body gap is now addressed by optional rich editing through existing Tiptap, coherent plain projection for search/AI, native MCP create/update/read and Undo, persistence and portability; old plain quick capture remains unchanged. Root's final clean-main verify:quick and production/Electron/Node931 checks passed; failed dependency attempts remain separate.
 
 - [x] Exercise actual reference slash heading/list, save/reopen, screenshot `_stage/live-next/vvd-rich-note.png`; no images uploaded or payment.
-- [ ] Implement optional native rich note body, review independently and prove Browser/MCP save/reopen and unchanged plain capture.
+- [x] Implement optional native rich note body, independently reviewed CAS9 and integrated0a90dd4; root Brave Save/reload, exact three-line Copy/search and Enter plain confirmed. Author17/peer26 focused groups overlap; no new final-source stdio claim. Root's clean-main verify:quick/Vite1m18s/Electron/Node931 PASS after npm ci --ignore-scripts exactlock; manifests unchanged. `vvd1095/verification-notes.md` retains TS2307/TS2322 and concurrent atlas exclusion. Task1095 remains open.
+
+## Atlas places to Codex cards — next delivery
+
+- [x] Freeze eleven source/test paths and complete independent technical review of reachable Index→Place inspector, atomic create/link/Undo, scoped MCP and project-JSON link remapping; five author focal functions and fifteen overlapping peer groups. `vvd1095/verification-place-cards.md` keeps exact evidence and failures.
+- [x] Complete root Brave Index→QA Faro del puerto→Place and cards→create Faction, link Character Grupo del puerto — QA, open Faction and return with both links retained. Independent CAS10 approved ff3baead; root integrated FF-only from0a90dd4 under merge lock, main clean/lock released. Separate clean-main verify:quick/Vite43.47s/Electron/Node932 PASS and native manual607chars/readback197other paragraphs/styles preserved. `vvd1095/verification-place-cards.md`; A1#54 stays PARTIAL for search/aliases. No task1095 closure or new final-source stdio claim.
