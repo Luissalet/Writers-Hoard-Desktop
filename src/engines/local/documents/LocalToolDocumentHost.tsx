@@ -1,4 +1,4 @@
-import {useLocalToolAssetPreview} from '../useLocalToolAsset';
+import {useLocalToolAssetPreview} from '../useLocalToolAssetPreview';
 import {useLocalToolAudioLifecycle} from '../useLocalToolAudioLifecycle';
 import {useContext,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
