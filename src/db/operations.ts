@@ -682,8 +682,10 @@ export async function exportProjectData(projectId: string) {
     getInspirationImages(projectId),
   ]);
 
+  const entityLinks = await db.entityLinks.where('projectId').equals(projectId).toArray();
   return {
     project,
+    ...(entityLinks.length ? { entityLinks } : {}),
     ...await exportAnnotationData(projectId),
     codexEntries: entries,
     writings,
@@ -732,6 +734,9 @@ export async function importProjectData(
   };
 
   const newProjectId = remap(data.project!.id, 'proj');
+  for (const link of data.entityLinks ?? []) {
+    if (!link || link.projectId !== data.project!.id || ['id', 'sourceEntityId', 'targetEntityId', 'sourceEngineId', 'targetEngineId'].some(key => typeof link[key as keyof typeof link] !== 'string' || !String(link[key as keyof typeof link]).trim())) throw Error('entity_link_invalid');
+  }
   validatePublishedEditionsProject(data.project!);
   validateCodexOptionLists(data.project!.codexOptionLists);
   validateProjectArchiveMetadata(data.project!);
@@ -760,7 +765,7 @@ export async function importProjectData(
   await db.transaction('rw', [
     db.projects, db.codexEntries, db.writings, db.manuscriptSources, db.timelines, db.timelineEvents, db.documentHistory, db.annotations, db.annotationReferences, db.scenes, db.sceneCasts, db.dialogBlocks,
     db.boards, db.boardNodes, db.boardEdges, db.boardLayers, db.boardViews,
-    db.worldMaps, db.mapPins,
+    db.worldMaps, db.mapPins, db.entityLinks,
     db.imageCollections, db.inspirationImages, db.snapshots, db.localMediaAssets, db.worldEraVariants, db.worldEraAssets, db.notes, db.writingSnapshots, db.timelineConnections, db.generatedWorlds, db.worldWaypoints,
   ], async () => {
     suppressDocumentHistoryForTransaction();
@@ -936,6 +941,10 @@ export async function importProjectData(
     if (clonedAnnotations.annotations.length) await db.annotations.bulkAdd(clonedAnnotations.annotations);
     if (clonedAnnotations.annotationReferences.length) await db.annotationReferences.bulkAdd(clonedAnnotations.annotationReferences);
     for(const source of sceneSources){const document=cloneScene('dialog-scene',source.document);await db.table('scenes').add(document.root);for(const [table,rows] of Object.entries(document.children))if(rows.length)await db.table(table).bulkAdd(rows);}
+    // All imported documents have allocated their IDs now. Unknown historical
+    // targets retain their identity, as in the existing era document cloner.
+    const linkTarget = (id: string) => { const split = id.indexOf('::'); return split < 0 ? idMap.get(id) ?? id : `${idMap.get(id.slice(0, split)) ?? id.slice(0, split)}${id.slice(split)}`; };
+    for (const link of data.entityLinks ?? []) await db.entityLinks.add({ ...link, id: remap(link.id, 'entity-link'), projectId: newProjectId, sourceEntityId: linkTarget(link.sourceEntityId), targetEntityId: linkTarget(link.targetEntityId) });
 
     // External links (retired engine) → link-only Scrapper snapshots
     for (const l of data.externalLinks || []) {

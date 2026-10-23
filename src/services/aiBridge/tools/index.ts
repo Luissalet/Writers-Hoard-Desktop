@@ -224,6 +224,7 @@ import {
   whSetWorldTravelSettings,
   whPlanJourney,
   whLinkPlace,
+  whCreatePlaceCard,
   whListPlaceLinks,
   whListPlaces,
   whListWaypoints,
@@ -631,6 +632,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_add_waypoint: whAddWaypoint,
   wh_update_waypoint: whUpdateWaypoint,
   wh_link_place: whLinkPlace,
+  wh_create_place_card: whCreatePlaceCard,
   wh_list_place_links: whListPlaceLinks,
   // Real atlas
   wh_list_atlas_places: whListAtlasPlaces,
