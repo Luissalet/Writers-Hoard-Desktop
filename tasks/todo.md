@@ -1266,3 +1266,12 @@ Objective: exercise the actual VVD website and current SDK, then implement equal
 - [ ] Continue live tool comparisons and implement further observed offline gaps; never infer parity from catalogue labels alone.
 - [x] Review, functional verification and integration of this delivery: d718745+b203159, complementary CAS4, clean-main production build and manual/graph update; no push. Full781/178 and later deltas remain separately counted in verification-live.md.
 - [ ] Continue from actual Table0.1.37 numeric sort/card-linked records and the compact CoC roster comparison; task1095 remains active.
+
+## Live Table comparison — next concrete gap,23October2026
+
+Baseline main e75aabe. In Brave's real Table0.1.37 preview, numeric sort yields900/1750/2450/3200/8100 and a Souls>=2000 filter keeps2450/3200/8100. Writer's normal CSV import (explicit numeric Population type) reproduces numeric sorting; its filter picker lacks the inclusive bounds and three text operations exposed by the reference.
+
+- [x] Observe the actual reference controls/results and reproduce Writer's current normal flow, using synthetic data and Browser only.
+- [x] Add gte/lte/notContains/startsWith/endsWith to shared filtering, UI EN/ES and normal MCP schema/handler without changing existing operators.
+- [x] RED/GREEN real CSV/UI/dispatcher tests, numeric equality boundary, current suites and independent review; author/reviewer11groups each, root7legacy area groups, types/lint/conformance pass.
+- [ ] Browser proof, exact transport limits, scoped commit/review/integration under merge lock, no push.

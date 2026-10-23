@@ -8,6 +8,8 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['table-filter-operators.browser.tsx', 'testTableFilterOperators'],
+  ['table-filter-operators.browser.tsx', 'testTableFilterOptionsUI'],
   ['tiptap-reconnect.browser.tsx', 'testTiptapReconnect'],
   ['review-footnotes-handoff.browser.tsx', 'reviewFootnotesHandoff'],
   ['sheet-confirmations.browser.tsx', 'testSheetConfirmations'],

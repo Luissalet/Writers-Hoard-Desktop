@@ -96,7 +96,7 @@ export function duplicateColumn(table: WorldTable, columnId: string, copyLabel =
 
 // ── view ──────────────────────────────────────────────────────────────────
 
-export const CONDITION_OPS = ['contains', 'equals', 'notEquals', 'gt', 'lt', 'empty', 'notEmpty', 'checked', 'unchecked'] as const;
+export const CONDITION_OPS = ['contains', 'notContains', 'startsWith', 'endsWith', 'equals', 'notEquals', 'gt', 'gte', 'lt', 'lte', 'empty', 'notEmpty', 'checked', 'unchecked'] as const;
 export type ConditionOp = typeof CONDITION_OPS[number];
 export interface TableCondition { columnId: string; op: ConditionOp; value?: string }
 export interface TableSort { id: string; descending: boolean }
@@ -110,10 +110,15 @@ export function meetsCondition(cell: string, condition: TableCondition): boolean
   const folded = value.toLocaleLowerCase(), target = wanted.toLocaleLowerCase();
   switch (condition.op) {
     case 'contains': return folded.includes(target);
+    case 'notContains': return !folded.includes(target);
+    case 'startsWith': return folded.startsWith(target);
+    case 'endsWith': return folded.endsWith(target);
     case 'equals': return numeric(value) && numeric(wanted) ? Number(value) === Number(wanted) : folded.trim() === target.trim();
     case 'notEquals': return !(numeric(value) && numeric(wanted) ? Number(value) === Number(wanted) : folded.trim() === target.trim());
     case 'gt': return numeric(value) && numeric(wanted) ? Number(value) > Number(wanted) : value.localeCompare(wanted, undefined, { numeric: true }) > 0;
+    case 'gte': return numeric(value) && numeric(wanted) ? Number(value) >= Number(wanted) : value.localeCompare(wanted, undefined, { numeric: true }) >= 0;
     case 'lt': return numeric(value) && numeric(wanted) ? Number(value) < Number(wanted) : value.localeCompare(wanted, undefined, { numeric: true }) < 0;
+    case 'lte': return numeric(value) && numeric(wanted) ? Number(value) <= Number(wanted) : value.localeCompare(wanted, undefined, { numeric: true }) <= 0;
     case 'empty': return !value.trim();
     case 'notEmpty': return !!value.trim();
     case 'checked': return value === 'true';
