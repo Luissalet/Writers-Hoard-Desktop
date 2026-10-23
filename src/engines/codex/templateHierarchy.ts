@@ -22,18 +22,22 @@ export function hierarchyOrder(templates: readonly CodexTemplate[]): CodexTempla
   for (const item of templates) append(item);
   return result;
 }
-export type TemplatePresentation = Pick<CodexTemplate,'icon'|'color'|'imageLayout'|'hiddenFromPickers'>;
+export type TemplatePresentation = Pick<CodexTemplate,'icon'|'color'|'imageLayout'|'hiddenFromPickers'|'privateType'>;
 /** Independent inheritance; explicit false remains a visibility override. */
 export function effectiveTemplatePresentation(template:CodexTemplate|undefined,templates:readonly CodexTemplate[]):TemplatePresentation {
-  const result:TemplatePresentation={icon:undefined,color:undefined,imageLayout:undefined,hiddenFromPickers:undefined};if(!template)return result;
+  const result:TemplatePresentation={icon:undefined,color:undefined,imageLayout:undefined,hiddenFromPickers:undefined,privateType:undefined};if(!template)return result;
   for(const item of templateLineage(template,templates)){
     if(item.category!==template.category)continue;
-    for(const key of ['icon','color','imageLayout','hiddenFromPickers']as const){
+    for(const key of ['icon','color','imageLayout','hiddenFromPickers','privateType']as const){
       if(item[key]===undefined)continue;
       try{validateTemplatePresentation({[key]:item[key]});Object.assign(result,{[key]:item[key]});}catch{/* Malformed imported values never become CSS, component names or visibility rules. */}
     }
   }
   return result;
+}
+/** Ids of the types whose cards are never published: private themselves or by inheritance. */
+export function privateTemplateIds(templates:readonly CodexTemplate[]):Set<string>{
+  return new Set(templates.filter(template=>effectiveTemplatePresentation(template,templates).privateType===true).map(template=>template.id));
 }
 export function selectableCodexTemplates(templates:readonly CodexTemplate[],selectedId?:string):CodexTemplate[]{
   return hierarchyOrder(templates).filter(template=>template.id===selectedId||!effectiveTemplatePresentation(template,templates).hiddenFromPickers);

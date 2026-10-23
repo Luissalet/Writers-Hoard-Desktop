@@ -96,7 +96,7 @@ export function applyCanonElevationEdits(
       if (touchedMask) s.each((i, cov) => { if (cov > 0) touchedMask[i] = 1; });
       const r = opBaseRect(e.op, stroke, s, W);
       const base = snapshotBase(elev, W, H, r.x0, r.y0, r.w, r.h);
-      applyTerrainOp(e.op, elev, base, W, H, s, stroke, world.params.seed);
+      applyTerrainOp(e.op, elev, base, W, H, s, stroke, world.params.seed, false);
       touched = true;
     } else if (e.kind === 'land') {
       const stroke = toSheetStroke(e.stroke, g, world.width);

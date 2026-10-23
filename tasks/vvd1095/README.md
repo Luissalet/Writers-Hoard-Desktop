@@ -97,3 +97,36 @@ reviewed independently (rounds r1–r13, r13 approving: stamps from r4, grid and
 Commits: 22cdf7d, dd8f6a5, 4849ac8 (look, blank starters, measure, travel),
 6b3a3e6 (review r1), 3258e65 (map eras), 59e7ad9 (review r2), 07f14f6 (labels),
 fef1c9a (stamps, review r3), 342b8b7 (playback, grid, review r4) and the reader's-eye fog and review-r5 commit that follows.
+
+## Wave C — writing, publishing, Codex, timelines, trees, tables (integrated into main on 23-10-2026, without push)
+
+Matrix: [C-writing.md](C-writing.md) — 107 of 113 rows PRESENT, 5 n/a (online
+hosting, plans and embeds), 1 PARTIAL (#1, several stories inside one world).
+Each row names the focused test or QA runner that proves it; the suite is in
+`scripts/run-vvd-tests.cjs`, the QA runners are `run-board-quick-qa`,
+`run-sprint-rounds-qa`, `run-tree-groups-qa`, `run-timeline-calendar-qa`,
+`run-timeline-duplicate-qa`, `run-world-reader-plus-qa` and
+`run-workspace-library-qa`. An independent review (12 findings: sheet
+references after inserts, table query sanitising, timeline settings undo per
+era, re-dating into a missing leap month, calendar re-date undo, ePub book
+style scoped to chapters, publishing profile presets, Word inline image size,
+engine checks on three tools, eraser on turned strokes) was fixed and each
+fix has a check in `tests/review-1095c.browser.tsx`. Bridge tools: AI-BRIDGE
+section 29. Known limits: PENDIENTES, "Escritura 1095 (ola C)".
+
+## Maps after fb67d94 — sheet, zones, relief, 3D, light, ways, reader (integrated with wave C)
+
+A1 #3, #17, #23, #25, #28, #33, #34, #66, #67 and A2 #22, #26, #28, #29, #30,
+#38, #46 updated in place ("— was X"). Tests: `world-sheet`, `world-zones`,
+`world-terrain-ops`, `world-3d-model`, `world-light-ways`, `world-reader-plus`,
+`world-trade-routes`, `world-story-scenes` (focused) and the QA runners
+`run-world-{sheet,zones,terrain-ops,3d-model,light-ways,reader-plus,routes-scenes}-qa.cjs`.
+Bridge tools: AI-BRIDGE section 28 ("Mundos: hoja a la medida…"). An
+independent review of these waves found no blocker; its findings were fixed
+before the merge: the trade lens is worked out off the click (a moment after
+the tab opens or the last stroke, a few shipment ways per frame), a day never
+holds more than 24 moving hours (night ways at a hard pace), the 3D readout
+and the zoom tiers use the sheet's own kilometres, trade ways keep their line
+round the seam, a river put down point by point needs two different cells,
+and zone hatching is anchored to the map so it does not slide while panning.
+

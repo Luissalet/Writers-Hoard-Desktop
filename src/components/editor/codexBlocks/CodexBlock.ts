@@ -1,4 +1,6 @@
 import { Node } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { LOCAL_TOOL_DOCUMENT_MIME, decodeLocalToolDocumentDrag } from '@/engines/local/references';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 import { CHAPTER_HEADING_NAME } from '../chapterHeading/chapterBlocks';
 import CodexBlockView from './CodexBlockView';
@@ -29,5 +31,24 @@ export const CodexBlock = Node.create<CodexBlockHost & { nodeView: boolean }>({
     if (crossesChapter) return false;
     return commands.insertContent({ type: this.name, attrs: safe });
   } }; },
+  addProseMirrorPlugins() {
+    const host = this.options;
+    // A Codex card dragged from the library onto the text becomes a live block where it is dropped.
+    return [new Plugin({ key: new PluginKey('codexCardDrop'), props: { handleDrop: (view, event) => {
+      const raw = (event as DragEvent).dataTransfer?.getData(LOCAL_TOOL_DOCUMENT_MIME);
+      if (!raw || !view.editable) return false;
+      let drag; try { drag = decodeLocalToolDocumentDrag(raw); } catch { return false; }
+      if (drag.reference.kind !== 'codex') return false;
+      const target = { projectId: blockIdentifier(drag.projectId), entryId: blockIdentifier(drag.reference.documentId), label: '' };
+      if (!blockMatchesProject(target, host.context())) return false;
+      const at = view.posAtCoords({ left: (event as DragEvent).clientX, top: (event as DragEvent).clientY });
+      if (!at) return false;
+      const $at = view.state.doc.resolve(at.pos);
+      for (let depth = $at.depth; depth > 0; depth--) if ($at.node(depth).type.name === CHAPTER_HEADING_NAME) return false;
+      event.preventDefault();
+      view.dispatch(view.state.tr.replaceRangeWith(at.pos, at.pos, view.state.schema.nodes[CODEX_BLOCK_NAME].create(target)).scrollIntoView());
+      return true;
+    } } })];
+  },
   addNodeView() { return this.options.nodeView ? ReactNodeViewRenderer(CodexBlockView,{stopEvent:({event})=>event.target instanceof Element&&!!event.target.closest('[data-tool-editor-surface]')}) : null; },
 });

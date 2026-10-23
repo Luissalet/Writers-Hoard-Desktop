@@ -216,6 +216,8 @@ function safeUrl(raw: string): string | null {
 
 interface ListFrame {
   ordered: boolean;
+  /** A checklist ("- [ ] item"): the writing blocks' tickable list. */
+  checks?: boolean;
   indent: number;
   /** An <li> is open: a deeper list nests inside it, a sibling item closes it. */
   open: boolean;
@@ -249,6 +251,7 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
       out.push(frame?.ordered ? '</ol>' : '</ul>');
     }
   };
+  const openList = (ordered: boolean, checks: boolean, start = 1): string => checks ? '<ul data-wh-checklist="true">' : ordered ? (start > 1 ? `<ol start="${start}">` : '<ol>') : '<ul>';
 
   const flushParagraph = (): void => {
     if (!paragraph.length) return;
@@ -258,7 +261,13 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
 
   const flushQuote = (): void => {
     if (!quote.length) return;
-    out.push(`<blockquote><p>${quote.map(inline).join('<br>')}</p></blockquote>`);
+    // "> [!NOTE]" (also INFO, QUESTION, TIP, WARNING) is a callout block.
+    const alert = /^\[!(NOTE|NOTA|INFO|QUESTION|PREGUNTA|TIP|IDEA|WARNING|AVISO|CAUTION|READALOUD|SIDEBAR|RECUADRO)\]\s*(.*)$/i.exec(quote[0] ?? '');
+    if (alert) {
+      const kind = ({ note: 'note', nota: 'note', info: 'info', question: 'question', pregunta: 'question', tip: 'tip', idea: 'tip', warning: 'warning', aviso: 'warning', caution: 'warning', readaloud: 'readaloud', sidebar: 'sidebar', recuadro: 'sidebar' } as Record<string, string>)[alert[1].toLowerCase()];
+      const body = [alert[2], ...quote.slice(1)].filter((line, index) => index > 0 || line.trim());
+      out.push(`<aside data-wh-callout="${kind}"><p>${body.map(inline).join('<br>')}</p></aside>`);
+    } else out.push(`<blockquote><p>${quote.map(inline).join('<br>')}</p></blockquote>`);
     quote = [];
   };
 
@@ -324,7 +333,9 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
       flushQuote();
       let indent = item[1].length;
       const isOrdered = Boolean(ordered);
-      const text = (ordered ? ordered[3] : item[2]).trim();
+      const task = bullet ? /^\[( |x|X)\]\s+(.*)$/.exec(item[2]) : null;
+      const isChecks = Boolean(task);
+      const text = (task ? task[2] : ordered ? ordered[3] : item[2]).trim();
       // Models write "1. Marta" then "- age: 34" flush left, meaning the bullet
       // belongs to the item above. CommonMark would start a new list and the
       // numbering would restart at 1 for every entry; read it as nesting.
@@ -334,19 +345,19 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
       const top = listStack[listStack.length - 1];
       if (!top || top.indent < indent) {
         const start = ordered ? Number(ordered[2]) : 1;
-        listStack.push({ ordered: isOrdered, indent, open: false });
-        out.push(isOrdered ? (start > 1 ? `<ol start="${start}">` : '<ol>') : '<ul>');
-      } else if (top.ordered !== isOrdered) {
+        listStack.push({ ordered: isOrdered, checks: isChecks, indent, open: false });
+        out.push(openList(isOrdered, isChecks, start));
+      } else if (top.ordered !== isOrdered || Boolean(top.checks) !== isChecks) {
         // A different marker at the same depth starts a different list.
         listStack.pop();
         if (top.open) out.push('</li>');
         out.push(top.ordered ? '</ol>' : '</ul>');
-        listStack.push({ ordered: isOrdered, indent, open: false });
-        out.push(isOrdered ? '<ol>' : '<ul>');
+        listStack.push({ ordered: isOrdered, checks: isChecks, indent, open: false });
+        out.push(openList(isOrdered, isChecks));
       }
       const frame = listStack[listStack.length - 1];
       if (frame.open) out.push('</li>');
-      out.push(`<li><p>${inline(text)}</p>`);
+      out.push(task ? `<li data-checked="${task[1] === ' ' ? 'false' : 'true'}"><p>${inline(text)}</p>` : `<li><p>${inline(text)}</p>`);
       frame.open = true;
       continue;
     }

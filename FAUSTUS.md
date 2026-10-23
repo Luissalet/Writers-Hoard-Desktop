@@ -43,7 +43,7 @@ asks; to name a region, sea, range or town label, offer names from `wh_roll_name
 the author's to move: do not unlock it with `wh_lock_place` unless asked; copy a
 town with `wh_duplicate_place`; to lay a road between two
 places use `wh_add_world_road` (`dryRun` first; `width`, `pattern` only when
-the author asks for a look). On a classic (image) map,
+the author asks for a look). For a story set on one island or country, keep the land on its own sheet (the default for those presets; `worldKm` only when the author gives a size); name regions the author describes with `wh_add_zone`; change relief with `wh_shape_terrain` (`volcano`, `height` with `heightM`) and rivers with `wh_draw_river` / `wh_reverse_river` only when asked. Use the world's own ways (`profile.ways`, `wh_plan_journey way`) for how a party travels, `wh_render_world_map hour` to see a scene's light, and link a story event to its chapter (`writingId`). On a classic (image) map,
 positions are percent of the picture: list shapes with `wh_list_map_features`
 before changing one, leave a comment about a spot with `wh_annotate` `at`, and
 before replacing the picture call `wh_preview_map_ground`; only use `fit:
@@ -52,6 +52,22 @@ For distances or travel times on a classic map use `wh_measure_map` (it needs
 the map's scale; set one with `wh_set_map_scale` only when the author gives
 it), and name lettered pins from a key with `wh_name_map_pins_from_key`
 (`dryRun` first).
+
+Writing (wave C): read before writing here too. To put a rules box in a
+chapter, call `wh_codex_rules_card` without `writingId` first to see which
+slots it filled and which it left empty, and fix the mapping with `slots`
+rather than inventing values for empty ones. `wh_extract_block_to_card` moves a
+block: list the blocks with `list: true` and pass `expectText`. Use
+`wh_text_effect` only when the author asks for an effect; effects are for the
+screen and print plain. Dates: in a calendar with a leap month, a date in that
+month exists only in leap years; ask `wh_world_date` instead of computing it,
+and with a Gregorian correlation use its `earth`/`earthDate`. Change a
+calendar with `wh_world_calendar_set` without `redate` first: it refuses a
+calendar that would strand events and says which; `redate: true` moves them to
+the nearest date that exists (undoable). In sheets,
+inserting or removing rows and columns moves formula references; a reference to
+a removed cell reads `#REF!`. Book layout belongs to the publishing profile
+(`bookStyle`), not to the chapters' HTML.
 
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means

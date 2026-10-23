@@ -21,6 +21,7 @@
 //                      the surf cannot reach. They are why a delta does not look
 //                      like a beach.
 
+import { climateLatDeg } from './geoScale';
 import { Biome } from './types';
 import { SphereNoise } from './noise';
 import type { WorldParams } from './types';
@@ -96,7 +97,7 @@ export function classifyBiomes(
 
   for (let y = y0; y < y1; y++) {
     const v = (y + 0.5) / H;
-    const latAbs = Math.abs((0.5 - v) * 180);
+    const latAbs = Math.abs(climateLatDeg(v, params));
     const tl = treeline(latAbs);
     const yW = y * W;
     for (let xi = 0; xi < xn; xi++) {

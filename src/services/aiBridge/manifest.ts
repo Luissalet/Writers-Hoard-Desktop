@@ -173,6 +173,12 @@ Every project in Writers Hoard with its id, title, mode and item counts. Use it 
     schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'wh_update_project_details',
+    description: 'Change a project\'s title, description, author (the byline printed under the title on the title page and in every export: Markdown, HTML, PDF, DOCX, ePub and the Reader edition) or blurb (the back-cover text, printed as the last page by a publishing profile with includeBlurb), as Edit project does. Undoable.',
+    writes: true,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, title: s('New title.'), description: s('New description.'), author: s('Author\'s name for the byline, up to 120 characters; "" removes it.'), blurb: s('Back-cover text, up to 4000 characters; "" removes it.') }, additionalProperties: false },
+  },
+  {
     name: 'wh_enable_engine',
     description:
       `Turn on an engine for a project so writing and search can reach it.
@@ -287,6 +293,8 @@ Read one manuscript piece in full. The body comes back as Markdown; footnotes ap
         synopsis: s('One-paragraph summary shown on the card.'),
         status: s('Default "draft".', { enum: ['idea', 'draft', 'finished'] }),
         chapter: n('Chapter number, for ordering.'),
+        kicker: s('Read in place of the chapter number in the book ("Prologue", "Interlude"), up to 60 characters; "" removes it.'),
+        heldBack: { type: 'boolean', description: 'Held back from the book: kept in the manuscript, left out when a whole-book publishing profile compiles it.' },
         tags: arr('Freeform tags.'),
         worldDate: WORLD_DATE('When the chapter happens in the project world calendar (wh_world_calendar_get): "12 Frostfall 431 TE", "Frostfall 431 TE" or { year, month, day }. Needs a calendar.'),
         worldDateEnd: WORLD_DATE('End of the span the chapter covers (optional).'),
@@ -315,6 +323,22 @@ Pass the complete Markdown returned by session_export (join all pages in order).
     },
   },
   {
+    name: 'wh_move_chapter',
+    description: 'Put a numbered chapter at a place in the manuscript, as dragging it in the chapter list does: position (1 = first), before another chapter, or one place up/down. The chapter numbers are dealt along the new order in one save (gaps stay); returns the chapters renumbered and the new position. Undoable.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        id: s('Writing id of the chapter to move.'),
+        position: { type: 'integer', minimum: 1, description: 'New place in the manuscript, 1 = first.' },
+        before: s('Put it just before this chapter (writing id).'),
+        direction: s('One place up or down.', { enum: ['up', 'down'] }),
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'wh_update_writing',
     description:
       `Change a manuscript piece; replacing content snapshots the old version first.
@@ -329,6 +353,8 @@ Change a manuscript piece. Only the fields you pass are touched. Passing \`conte
         synopsis: s('New synopsis.'),
         status: s('New status.', { enum: ['idea', 'draft', 'finished'] }),
         chapter: n('New chapter number.'),
+        kicker: s('Read in place of the chapter number in the book ("Prologue", "Interlude"), up to 60 characters; "" removes it.'),
+        heldBack: { type: 'boolean', description: 'Held back from the book: kept in the manuscript, left out when a whole-book publishing profile compiles it.' },
         tags: arr('Replacement tag list.'),
         worldDate: WORLD_DATE('New world-calendar date of the chapter; "" removes the date (and its end).'),
         worldDateEnd: WORLD_DATE('New end of the span; "" removes it.'),
@@ -493,7 +519,7 @@ List codex entries (characters, locations, items, factions, concepts) with their
   {
     name: 'wh_get_codex_entry',
     description:
-      'Read one codex entry in full: its structured `fields` map plus the long-form body as Markdown.',
+      'Read one codex entry in full: its structured `fields` map plus the long-form body as Markdown, its `aliases` and `aliasSuggestions` (other names read from the title, e.g. "Aragorn" from "Aragorn, hijo de Arathorn"), and `missingRequired`: the labels of required properties of its type it leaves empty (the app will not save the card until they are filled).',
     writes: false,
     schema: {
       type: 'object',
@@ -524,6 +550,7 @@ Create a character sheet, location, item, faction or concept. \`fields\` is a fr
         },
         content: s(`Long-form description. ${MARKDOWN_NOTE}`),
         tags: arr('Freeform tags.'),
+        aliases: arr('Other names the card goes by (nicknames, titles), as its alias chips. A common word ("el", "the"), a one-letter name or the title itself is refused. wh_get_codex_entry offers aliasSuggestions read from the title.'),
       },
       required: ['title'],
       additionalProperties: false,
@@ -549,6 +576,8 @@ Change a codex entry. \`fields\` is MERGED into the existing map by default, so 
         replaceFields: b('Replace the whole field map instead of merging. Default false.'),
         content: s(`Replacement body. ${MARKDOWN_NOTE}`),
         tags: arr('Replacement tag list.'),
+        aliases: arr('Replacement list of other names (the alias chips); [] clears them. A common word, a one-letter name or the title itself is refused.'),
+        freeze: b('true freezes the card from its type, as "Congelar la ficha": inherited and calculated values become its own, and later changes to the type no longer reach it.'),
       },
       required: ['id'],
       additionalProperties: false,
@@ -622,7 +651,150 @@ List the diary: pinned entries first, then newest first, each with its date, moo
 
 /** A world-calendar date: text in that calendar or { year, month?, day?, approx? } / { era, eraYear, … }. */
 
+const ARCHIVE_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_archive_list',
+    description: 'List the documents deleted from this project that lie in its archive (Archive tool): id, title, kind (writings, codex, maps, board, timeline, dictionary, tables…), when it was archived and how many links were kept. query filters by title. Read only.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, query: s('Part of a title, accent- and case-insensitive.') }, additionalProperties: false },
+  },
+  {
+    name: 'wh_archive_restore',
+    description: 'Restore archived documents with their content and links, oldest first, as the Archive tool does (one or several). Each is restored whole or not at all; one whose id or links changed since is reported under conflicts and left archived. Deleting archived copies forever is only done in the app, by the person.',
+    writes: true,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, ids: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string' }, description: 'Archive ids from wh_archive_list.' } }, required: ['ids'], additionalProperties: false },
+  },
+];
+
+const SPRINT_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_sprint_log',
+    description: 'The writing sprints of a project, as the writings toolbar and Statistics keep them: recent sprints (minutes, words, target, stopped), how many rounds were run to the end today, the break the next round earns (5 min, 15 after every fourth), sprints this week, the best one and the sprint running now (paused or not, and its time left). Read only: sprints and breaks are timed by the person in the app.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, limit: { type: 'integer', minimum: 1, maximum: 100, description: 'How many recent sprints (default 20).' } }, additionalProperties: false },
+  },
+];
+
+const PROFILE_FLAG = (what: string) => ({ type: 'boolean', description: what });
+const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_publishing_profiles',
+    description: 'The publishing profiles of a project, as Project tools → Publishing keeps them: each named compilation of the manuscript with its format, which pieces (all, or a chosen selection) in which order, and its front and back matter (title page, chapter list, copyright page, back-cover text, synopses, bibliography). Also says whether the project has an author byline and a blurb to print.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID }, additionalProperties: false },
+  },
+  {
+    name: 'wh_publishing_profile_set',
+    description: 'Create a publishing profile (no profileId; name required) or change the fields given on one, as the profile dialog does. includeCopyright adds a copyright page after the title page (© year, the author or else the title, all rights reserved); includeBlurb prints the project\'s back-cover text (wh_update_project_details blurb) as the last page. A "selected" profile needs at least one writing id. Undoable.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        profileId: s('Profile to change; leave out to create one.'),
+        name: s('Profile name, 1 to 120 characters.'),
+        format: { type: 'string', enum: ['manuscript', 'screenplay', 'research', 'biography', 'video'] },
+        includeTitlePage: PROFILE_FLAG('Title page with the byline.'),
+        includeToc: PROFILE_FLAG('Chapter list before the first chapter.'),
+        includeCopyright: PROFILE_FLAG('Copyright page after the title page.'),
+        includeBlurb: PROFILE_FLAG('Back-cover text as the last page.'),
+        includeInlineImages: PROFILE_FLAG('The manuscript\'s own pictures (stored PNG, JPEG, GIF, WebP up to 3 MB) also in DOCX and ePub, with their width; off: those formats carry no picture, as before. Linked web pictures are always left out.'),
+        includeChapterImages: PROFILE_FLAG('Each chapter\'s header image from its Reader presentation (above the title, beside it, or as a banner with the chapter label) in HTML/PDF, ePub (as files in the book) and DOCX (PNG/JPEG/GIF; a WebP header image is left out of Word).'),
+        includeSynopsis: PROFILE_FLAG('Each piece\'s synopsis under its heading.'),
+        includeBibliography: PROFILE_FLAG('Bibliography of the project\'s citations.'),
+        citationStyle: { type: 'string', enum: ['apa', 'mla', 'chicago'] },
+        bookStyle: { description: 'How the whole book is set at compile time: a preset "classic" (justified, indented, drop cap, small-capital opening, ◇ under titles), "modern" (ragged, spaced paragraphs, no ornaments) or "epic" (large titles with a rule, drop cap) or "sourcebook" (a game manual: two columns on Letter, spaced paragraphs, striped tables); "none" or null to print paragraphs as written; or an object changing settings: align justify|left, lineHeight 1.1-2.4, letterSpacing 0-0.12 em, paragraphs indented|spaced, paragraphSpacing 0.2-2 em, flushAfterBreak, dropCap, smallCapsOpening, sceneBreak line|asterism|dots|diamond|space, titleSize 12-36 pt, titleOrnament none|line|asterism|dots|diamond, trim a4|letter|a5|6x9 (page size of the PDF and Word file, and the page estimate), paper white|cream|parchment|night, columns 1|2 (chapter titles, h2 and page-wide images span both; a column-break block starts the next column), stripedTables. Presets also set trim and paper (classic: A5 on cream; modern: A4 white; epic: 6×9 on parchment). A paragraph formatted by hand keeps its own settings.', anyOf: [{ type: 'string', enum: ['classic', 'modern', 'epic', 'sourcebook', 'none'] }, { type: 'object' }, { type: 'null' }] },
+        selectionMode: { type: 'string', enum: ['all', 'selected'] },
+        selectedWritingIds: { type: 'array', items: { type: 'string' }, maxItems: 2000 },
+        writingOrder: { type: 'array', items: { type: 'string' }, maxItems: 2000, description: 'Explicit order; pieces not listed follow in manuscript order.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_sound_library',
+    description: 'The built-in sound library, made on this device with no download or licence: ambience (campfire, sea waves, night forest, tavern), weather (rain, wind, thunder) and effects (heartbeat, bell, footsteps, knock at the door, sword clash). Without `add` lists them; with add:<id> puts that sound among the project\'s sounds once (a WAV file) and returns its assetId — use it as a chapter track or a paragraph cue (paragraphAudio, with `through` to keep it playing over a passage) in wh_reader_settings_save.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: s('Project id (needed with add).'),
+        add: s('Sound id to add to the project.'),
+        locale: { type: 'string', enum: ['es', 'en'] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_text_effect',
+    description: 'Put a screen text effect on a phrase of a chapter — glow, shake, wave, rainbow, pulse, or blur (unblurs on hover) — or take it off with effect null, as the editor\'s "Efecto de texto". The phrase must lie within one run of text; occurrence picks which (from 1). The effects play in the editor, Reader, wiki, HTML and ePub (still for readers that ask for reduced motion); print and Word set the text plain. A pre-AI version is kept and the change can be undone.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        writingId: s('Chapter id.'),
+        text: s('Exact phrase.'),
+        effect: { anyOf: [{ type: 'string', enum: ['glow', 'shake', 'wave', 'rainbow', 'pulse', 'blur'] }, { type: 'null' }] },
+        occurrence: n('Which occurrence, from 1 (default 1).'),
+      },
+      required: ['writingId', 'text', 'effect'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_extract_block_to_card',
+    description: 'Move one top-level block (paragraph, list, table, box…) of a chapter or a Codex card into a new Codex card, leaving a live Codex reference to it where it stood — as "Extraer bloque a una ficha nueva" in the editor. blockIndex counts the stored top-level blocks from 0: call first with list:true to see them (index, tag, first words), and pass expectText (the block\'s first words) so a changed text is refused instead of moving the wrong block. The title defaults to the block\'s first words. The source change can be undone (a chapter also keeps a pre-AI version); the new card stays. Shared base only, not inside an era.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: s('Project id.'),
+        writingId: s('Chapter to take the block from (or entryId).'),
+        entryId: s('Codex card to take the block from (or writingId).'),
+        blockIndex: n('0-based index of the top-level block.'),
+        list: { type: 'boolean', description: 'Only list the blocks with their indexes; nothing changes.' },
+        expectText: s('The first words of the block, checked before it is moved.'),
+        title: s('Title of the new card.'),
+        type: s('Codex type of the new card (default concept).'),
+      },
+      required: ['projectId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_codex_rules_card',
+    description: 'A sourcebook rules card from a Codex card: a spell (level, school, casting time, range, components, duration, classes), a magic item (type, rarity, attunement, value) or a creature (size, type, alignment, armour class, hit points, speed, the six ability scores with modifiers, senses, languages, challenge). Each slot is filled from the card property mapped to it — guessed from the property names (Nivel/Level, Escuela, Alcance, CA/AC, PG/HP, FUE/STR…) unless `slots` maps them — followed by the card\'s body. Returns the box as HTML and Markdown with which slots were filled and which were left empty; with `writingId` the box is added to the end of that chapter (a pre-AI version is kept and the write can be undone). In the editor: Codex block → Insertar como "Ficha de reglas"; inside a box, "Actualizar ficha de reglas" fills it again from the card.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: s('Project id.'),
+        entryId: s('Codex card id.'),
+        layout: { type: 'string', enum: ['spell', 'item', 'creature'] },
+        slots: { type: 'object', additionalProperties: { type: 'string' }, description: 'slot → property name of the card. Omit to guess from the names; an unknown slot or property is refused with the lists of both.' },
+        includeDescription: { type: 'boolean', description: 'The card\'s body under the slots (default true).' },
+        writingId: s('Add the box to the end of this chapter.'),
+        locale: { type: 'string', enum: ['es', 'en'], description: 'Language of the slot labels (default: the app\'s).' },
+      },
+      required: ['projectId', 'entryId', 'layout'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_publishing_compile',
+    description: 'Compile a publishing profile exactly as its export would and return the Markdown or HTML text (up to 200,000 characters), with the piece and word counts, the byline, the copyright line and whether the back cover is included. Read only: saving the file (and PDF, DOCX or ePub) stays with the person in the app.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, profileId: s('Profile id from wh_publishing_profiles.'), output: { type: 'string', enum: ['markdown', 'html'] } }, required: ['profileId'], additionalProperties: false },
+  },
+];
+
 const TIMELINE_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_timeline_settings',
+    description: 'Change a timeline\'s own settings, as its settings panel does: title, colour (#rrggbb), description, displayPrecision (year, month, day or hour: how precisely its event dates are shown in the lists and lanes) and yearRange ({start, end} absolute years it covers, or null for no limit). Its calendar is set with wh_world_calendar_set. Undoable.',
+    writes: true,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId: s('Explicit era; omit for Base.'), timelineId: s('Timeline id from wh_list_timelines.'), title: s('Title.'), color: s('#rrggbb.'), description: s('Description.'), displayPrecision: { type: 'string', enum: ['year', 'month', 'day', 'hour'] }, yearRange: { anyOf: [{ type: 'object', properties: { start: { type: 'integer' }, end: { type: 'integer' } }, required: ['start', 'end'], additionalProperties: false }, { type: 'null' }] } }, required: ['timelineId'], additionalProperties: false },
+  },
   {
     name: 'wh_list_timelines',
     description:
@@ -657,13 +829,17 @@ Create a new timeline inside a project. Make one per chronology worth reading se
     name: 'wh_list_events',
     description:
       `List timeline events, for one timeline or the whole project, in drawn order.
-List events. Pass timelineId for one timeline, or only projectId for every event in the project, ordered as they are drawn.`,
+List events. Pass timelineId for one timeline, or only projectId for every event in the project, ordered as they are drawn. tags, types, text and wikiOnly filter them as the timeline's filter bar does; each event carries its tags and hideFromWiki.`,
     writes: false,
     schema: {
       type: 'object',
       properties: {
         timelineId: s('Timeline to read. Omit to read the whole project.'),
         projectId: PROJECT_ID,
+        tags: arr('Only events carrying any of these tags.'),
+        types: { type: 'array', items: { type: 'string', enum: ['point', 'range', 'milestone'] }, description: 'Only these event shapes.' },
+        text: s('Only events whose title, description, date, lane or tags hold every word.'),
+        wikiOnly: b('Leave out events kept out of the wiki.'),
       },
       additionalProperties: false,
     },
@@ -696,10 +872,38 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
         endTime: s('Optional local HH:mm end time, on realDateEnd/worldDateEnd or the start day.'),
         icon: s('Named timeline icon.', { enum: ['calendar', 'flag', 'star', 'swords', 'crown', 'heart', 'book', 'sun', 'moon', 'ship', 'mountain'] }),
         image: s('Embedded raster image data URL, at most 5 MB. No remote URL or SVG.'),
+        tags: arr('Free tags (battle, prophecy…), up to 20 of 40 characters; a leading # is dropped.'),
+        hideFromWiki: b('Keep it out of the world wiki and the reader export.'),
+        bannerPattern: { type: 'string', enum: ['solid', 'stripes', 'dots', 'checks'], description: 'How a run of days is drawn as one band on the Calendar view.' },
+        repeat: { type: 'object', properties: { every: { type: 'string', enum: ['year', 'month', 'week'] }, untilYear: { type: 'integer' } }, required: ['every'], additionalProperties: false, description: 'A festival or a market day: the event comes back every year (same month and day), month (same day) or week on the Calendar view, from its date until untilYear.' },
       },
       required: ['timelineId', 'title'],
       additionalProperties: false,
     },
+  },
+  {
+    name: 'wh_timeline_tags',
+    description: 'The tags on the project\'s timeline events, as the timeline\'s tag manager has them: action list (each tag with how many events carry it), rename (tag → to on every event; to an existing tag merges them), remove (take tag off every event) or color (the tag\'s colour on its chips). Undoable.',
+    writes: true,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId: s('Named era; omit for Shared base.'), action: s('Default list.', { enum: ['list', 'rename', 'remove', 'color'] }), tag: s('The tag to rename, remove or colour.'), to: s('New name (rename).'), color: s('color: #rrggbb, or "" to remove it.') }, additionalProperties: false },
+  },
+  {
+    name: 'wh_timeline_views',
+    description: 'Saved views of the timeline (named filters shown in its "Vistas guardadas" list): action list, save (name plus tags/types/text/wikiOnly; a view of the same name is replaced) or remove (viewId). A view can be published to the world wiki with the wiki option timelineViewId. Undoable.',
+    writes: true,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, action: s('Default list.', { enum: ['list', 'save', 'remove'] }), name: s('View name (save), up to 60 characters.'), viewId: s('View to remove.'), tags: arr('Events carrying any of these tags.'), types: { type: 'array', items: { type: 'string', enum: ['point', 'range', 'milestone'] } }, text: s('Words to find.'), wikiOnly: b('Leave out events kept out of the wiki.') }, additionalProperties: false },
+  },
+  {
+    name: 'wh_timeline_calendar',
+    description: 'The timeline\'s Calendar view as data: with month, that month\'s days (weekday, holidays, the moon\'s new/quarter/full phase, leap days, the events on each day); without, the year\'s months with how many events each holds. calendar "world" uses the project\'s world calendar (dateMode world events), "earth" the Gregorian one (dateMode calendar events). tags/types/text/wikiOnly filter as the filter bar does. For date arithmetic use wh_world_date.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId: s('Named era; omit for Shared base.'), calendar: s('Default world.', { enum: ['world', 'earth'] }), year: n('Absolute year.'), month: n('1-based month; omit for the whole year.'), locale: s('Month names for the Gregorian calendar.', { enum: ['es', 'en'] }), tags: arr('Only events with any of these tags.'), types: { type: 'array', items: { type: 'string', enum: ['point', 'range', 'milestone'] } }, text: s('Words to find.'), wikiOnly: b('Leave out events kept out of the wiki.') }, required: ['year'], additionalProperties: false },
+  },
+  {
+    name: 'wh_duplicate_event',
+    description: 'Copy a timeline event right after itself on its timeline, as "Duplicate event" in the swim lanes does: the same dates, kind, colour, links and description, a new id, and "(copy)" on the title unless title is given. Undoable.',
+    writes: true,
+    schema: { type: 'object', properties: { id: s('Event id to copy.'), title: s('Title for the copy; default the original with "(copy)".') }, required: ['id'], additionalProperties: false },
   },
   {
     name: 'wh_update_event',
@@ -727,6 +931,10 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
         endTime: s('New local HH:mm end time; an empty string removes it.'),
         icon: s('Named timeline icon; an empty string removes it.', { enum: ['', 'calendar', 'flag', 'star', 'swords', 'crown', 'heart', 'book', 'sun', 'moon', 'ship', 'mountain'] }),
         image: s('Embedded raster data URL under 5 MB; an empty string removes it.'),
+        tags: arr('Replace the tags; [] removes them all.'),
+        hideFromWiki: b('true keeps it out of the wiki and the reader export, false shows it.'),
+        bannerPattern: { type: 'string', enum: ['solid', 'stripes', 'dots', 'checks'], description: 'How a run of days is drawn as one band on the Calendar view.' },
+        repeat: { anyOf: [{ type: 'object', properties: { every: { type: 'string', enum: ['year', 'month', 'week'] }, untilYear: { type: 'integer' } }, required: ['every'], additionalProperties: false }, { type: 'null' }], description: 'Make it come back every year, month or week on the Calendar view; null stops it repeating.' },
       },
       required: ['id'],
       additionalProperties: false,
@@ -744,7 +952,7 @@ Read the invented calendar the project dates its events in. A book of a saga wit
     name: 'wh_world_calendar_set',
     description:
       `Define or replace the project's world calendar, or remove it.
-Define the story world's calendar. calendar = { name, months:[{name, days, intercalary?}], weekdays:[names], weekdayOffset?, eras:[{name, abbr, startYear, countdown?, yearZero?}], moons:[{name, periodDays, newMoonDay?}], holidays:[{name, month, day}], hoursPerDay?, allowNegativeYears?, leap?:{every, offset?, month, extraDays, exceptEvery?, restoreEvery?} }. Years are absolute (year 1 is the first of the count); an era starts at an absolute year and a countdown era counts backwards to the next one. intercalary months sit outside the week. Refuses a change that would strand existing world-dated events unless force:true.`,
+Define the story world's calendar. calendar = { name, months:[{name, days, intercalary?}], weekdays:[names], weekdayOffset?, weekMode?:'continuous'|'monthStart' (monthStart: every month begins on the first weekday), eras:[{name, abbr, startYear, countdown?, yearZero?}], moons:[{name, periodDays, newMoonDay?, color?:#rrggbb}], moonDisplay?:'quarters'|'every'|'full'|'none' (which phases the Calendar view marks), holidays:[{name, month, day}], hoursPerDay?, allowNegativeYears?, leap?:{every, offset?, month, extraDays, exceptEvery?, restoreEvery?} }. Years are absolute (year 1 is the first of the count); an era starts at an absolute year and a countdown era counts backwards to the next one. intercalary months sit outside the week. Refuses a change that would strand existing world-dated events unless force:true.`,
     writes: true,
     schema: {
       type: 'object',
@@ -754,6 +962,7 @@ Define the story world's calendar. calendar = { name, months:[{name, days, inter
         calendar: { type: 'object', description: 'The whole calendar, as described above.' },
         remove: b('Remove the project\'s own calendar (events keep their text label).'),
         force: b('Save even if some world-dated events no longer fit.'),
+        redate: b('Apply and re-date: events on dates the calendar no longer has move to the nearest one it has (a removed month to the last month, a day past the month\'s end to its last day, an hour past the day to its last hour); the moves are returned. Undo puts back the calendar only.'),
       },
       additionalProperties: false,
     },
@@ -771,6 +980,7 @@ Describe a date in the project's world calendar: label, absolute day number, era
         timelineId: s('Optional timeline calendar scope; absent uses the project / saga calendar.'),
         date: WORLD_DATE('The date to describe.'),
         dayNumber: n('Alternative to date: days since the first day of year 1 (day 0).'),
+        earthDate: s('Alternative to date: a Gregorian day YYYY-MM-DD, converted to the world calendar through its correlation (calendar.correlation {date, earth}, set with wh_world_calendar_set). With a correlation every answer also carries `earth`, the Gregorian day of the date.'),
         plusDays: n('Days to add (negative to go back).'),
         to: WORLD_DATE('Second date, to count the days between.'),
       },
@@ -1113,6 +1323,7 @@ Change a beat. Only the fields you pass are touched. Moving a beat to "drafted" 
 
 export const BRIDGE_TOOLS: BridgeTool[] = [
   {name:'wh_workspace_library_get',writes:false,group:'core',description:'Read the project Library folders, placements, document references and exact revision. Pass its revision and an existing folder ID to wh_create_codex_entry to create a card inside that folder atomically. Explicit era reads its contextual Library; omitted era reads Shared base. Does not start disabled engines.',schema:{type:'object',properties:{projectId:PROJECT_ID,eraId:s('Optional named era; omit for Shared base.')},additionalProperties:false}} satisfies BridgeTool,
+  {name:'wh_workspace_library_update',writes:true,group:'core',description:'Organise the project Library (references to documents in folders; the documents stay in their tools), one action per call against the revision from wh_workspace_library_get: create-folder (name, parentId), rename-folder (folderId, name), move-folder (folderId, parentId; empty = top), delete-folder (folderId; its contents move up), order-folder (folderId, direction -1/1), style-folder (folderId, icon among folder/book/users/map/scroll/sword/crown/star/heart/flag/gem/leaf and/or color #rrggbb; an empty string clears), place (documents, folderId; empty = Unfiled), order-document (documents[0], direction), pin (documents, pinned true/false: pinned documents lead the Library), group (name, parentId, documents: a new folder holding them), prune (drop references to deleted documents). Returns the new revision, folders and placements, and folderId for a new folder.',schema:{type:'object',properties:{projectId:PROJECT_ID,eraId:s('Optional named era; omit for Shared base.'),action:s('The action.',{enum:['create-folder','rename-folder','move-folder','delete-folder','order-folder','style-folder','place','order-document','pin','group','prune']}),expectedRevision:n('Revision from wh_workspace_library_get.',{type:'integer',minimum:0}),folderId:s('Folder to act on (or destination for place).'),parentId:s('Parent folder; empty for the top level.'),name:s('Folder name (create-folder, rename-folder, group).'),icon:s('style-folder: icon name, or an empty string to clear.'),color:s('style-folder: #rrggbb, or an empty string to clear.'),direction:{type:'integer',enum:[-1,1]},pinned:b('pin: true pins (default), false unpins.'),documents:{type:'array',minItems:1,maxItems:500,items:{type:'object',properties:{engineId:s('Engine id.'),entityId:s('Document id.')},required:['engineId','entityId'],additionalProperties:false}}},required:['action','expectedRevision'],additionalProperties:false}} satisfies BridgeTool,
   ...PROJECT_GENRE_TOOLS,
   ...WORLD_FOLDER_IMPORT_TOOLS,
   ...PROJECT_PIN_TOOLS,
@@ -1136,6 +1347,9 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('people', inEngine('genealogy', GENEALOGY_BRIDGE_TOOLS)),
   ...grouped('people', inEngine('codex', CODEX_FOLDER_IMPORT_TOOLS)),
   ...grouped('story', inEngine('timeline', inEra(TIMELINE_TOOLS))),
+  ...grouped('core', inEngine('archive', ARCHIVE_TOOLS)),
+  ...grouped('writing', inEngine('writings', SPRINT_TOOLS)),
+  ...grouped('writing', PUBLISHING_PROFILE_TOOLS),
   ...grouped('story', inEngine('seeds', SEED_TOOLS)),
   ...grouped('story', inEngine('character-arc', ARC_TOOLS)),
   ...grouped('script', inEngine('dialog-scene', inEra(DIALOG_TOOLS))),

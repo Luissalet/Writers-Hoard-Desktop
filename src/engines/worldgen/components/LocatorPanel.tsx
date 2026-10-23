@@ -36,7 +36,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Search } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { buildAtlas } from '../core/atlas';
-import { EARTH_KM } from '../core/camera';
+import { cellKmOf } from '../core/geoScale';
 import { foldForSearch as fold, matchRank } from '../core/searchText';
 import type { WorldData } from '../core/types';
 import type { HumanGeography } from '../core/settlements';
@@ -163,8 +163,8 @@ export default function LocatorPanel({
       .map((m) => m.p);
   }, [pool, query]);
 
-  /** Km por celda: el mundo entero mide una vuelta al planeta de ancho. */
-  const kmPerCell = EARTH_KM / world.width;
+  /** Km por celda: una vuelta al planeta de ancho, o la anchura de la hoja. */
+  const kmPerCell = cellKmOf(world.params, world.width);
 
   /**
    * Lo importante que hay alrededor de la cámara, para la caja vacía.

@@ -130,6 +130,9 @@ export function clampCameraToSurface(
   return true;
 }
 
+/** The most cloud shadows the ground draws (one per cloud; see sculpt/clouds.ts). */
+export const MAX_CLOUD_SHADOWS = 40;
+
 const HEIGHT_FN = /* glsl */`
 // Monotone reconstruction preserves ramps, samples and continuous slopes.
 ${WORLD_HEIGHT_GLSL}
@@ -270,6 +273,7 @@ uniform vec3  uPivot;        // dónde vive la malla en la escena (ver «setWind
 uniform float uAmpDetail;    // km of invented sub-cell relief, at full roughness
 uniform float uPainted;      // 1 = the painted skin: the sea is a flat painted surface at sea level
 uniform float uSea;
+uniform float uTerrace;      // paper sheets on the tabletop model: the land rises in steps of this many km (0 = none)
 
 out vec2 vUV;
 out vec2 vLocal;
@@ -325,6 +329,11 @@ void main() {
   // The painted skin carries its own sea (shelf, rings, depth): the surface is
   // laid flat at sea level and the picture says how deep it is.
   float eShown = uPainted > 0.5 ? max(e, uSea) : e;
+  // Paper sheets: the land stands on the sheet its ground reaches (a lake's bed stays under its water).
+  if (uTerrace > 0.0 && uShape < 0.5 && e > uSea) {
+    int bed = int(texture(uBiome, vec2(fract(w.x), clamp(w.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
+    if (bed != ${Biome.Lake}) eShown = uSea + ceil((e - uSea) / uTerrace) * uTerrace;
+  }
   vec3 p = uShape < 0.5
     ? vec3(d.x * uSizeX, eShown * uYMul, d.y * uSizeZ)
     : placeAt(w, eShown);
@@ -422,6 +431,9 @@ uniform float uFlatLight;    // 1 = the skin already carries its own shading
 uniform float uPainted;      // 1 = the painted skin: its trees and shading are in the picture
 uniform float uClipOn;       // 1 = the tabletop model stands on a window of the world: nothing outside it
 uniform vec4 uClipRect;      // that window, uv (u0, v0, u1, v1)
+uniform float uTerrace;      // paper sheets (km a sheet; 0 = none): flat tops with their cut edges drawn
+uniform vec4 uCloudShadow[${MAX_CLOUD_SHADOWS}]; // clouds' shadows on the plane: x, z, radius, strength
+uniform int uCloudCount;
 uniform float uDetail;       // 0–1 how much invented close-range relief
 uniform float uCavity;       // strength of the crease darkening
 uniform vec3  uCam;          // camera position, for the headlight
@@ -446,6 +458,10 @@ uniform vec3  uHorizon;      // el cielo en la dirección de la vista, APLANADA
 uniform vec3  uFogWarm;      // el cielo en el horizonte del lado del sol
 uniform float uFogDist;      // distancia a la que la niebla vale 1-1/e
 uniform float uFogOn;
+// The reader's-eye fog: one texel per world cell, 0 hidden, ~0.5 heard of, 1 seen.
+uniform sampler2D uReaderFog;
+uniform float uReaderFogOn;  // 0 off · 1 the reader's view (paper) · 2 the author's tint
+uniform vec3  uReaderPaper;
 
 in vec2 vUV;
 /** El desplazamiento respecto al CENTRO de la ventana, en uv de mundo. Pequeño
@@ -676,6 +692,10 @@ void main() {
     float dv = hy * uYMul * uGlobeRelief / (uSizeZ * texel.y * 2.0);
     n = normalize(up - east * du + north * dv);
   }
+
+  // Paper sheets lie flat: each one is lit as a level sheet, its cut edge drawn further down.
+  bool paperSheet = uTerrace > 0.0 && uShape < 0.5 && !underwater;
+  if (paperSheet) n = vec3(0.0, 1.0, 0.0);
 
   // Cavity: the discrete Laplacian of the height field. Positive in a hollow,
   // negative on a ridge. It is the single cheapest thing that makes a sculpt
@@ -964,6 +984,32 @@ void main() {
     col = paintedCol * breath * mix(vec3(1.0), tint, 0.12) * mix(1.0, dayAmt, 0.35);
   }
 
+  if (paperSheet) {
+    // Where this sheet ends under the next one up: a fine dark seam and the
+    // upper sheet's shadow just before it; its own cut edge catches the light.
+    float lv = (e - uSea) / uTerrace;
+    float f = fract(lv);
+    float w = max(fwidth(lv), 1e-4);
+    float seam = 1.0 - smoothstep(0.0, w * 1.5, 1.0 - f);
+    float shade = smoothstep(0.72, 1.0, f);
+    float lip = 1.0 - smoothstep(0.0, w * 1.5, f);
+    col *= 1.0 - 0.45 * seam - 0.16 * shade;
+    col += vec3(0.07) * lip;
+    col *= 0.97 + 0.06 * fract(sin(ceil(lv) * 91.345) * 47453.5453);
+  }
+
+  // Clouds' shadows, soft discs on the ground of the plane.
+  if (uCloudCount > 0 && uShape < 0.5) {
+    float cs = 0.0;
+    for (int i = 0; i < ${MAX_CLOUD_SHADOWS}; i++) {
+      if (i >= uCloudCount) break;
+      vec4 c = uCloudShadow[i];
+      float d = length(surfaceWorld.xz - c.xy);
+      cs = max(cs, c.w * (1.0 - smoothstep(c.z * 0.3, c.z, d)));
+    }
+    col *= 1.0 - cs;
+  }
+
   if (!underwater && uContour > 0.0) {
     float f = e / uContour;
     float w = fwidth(f);
@@ -998,6 +1044,23 @@ void main() {
   // Y va ANTES del pincel y de las guías de simetría a propósito: esas dos son
   // herramienta, no sitio. Un aro de pincel que se desvanece con la distancia es
   // el contorno con el que apuntas desapareciendo justo donde más falta hace.
+  // The reader's-eye fog, as on the flat maps: blank paper where the story
+  // has not been, a faint sketch under a wash where it has only been heard of.
+  // The relief keeps its light on the paper, so the model still reads as ground.
+  if (uReaderFogOn > 0.5) {
+    float fv = texture(uReaderFog, vec2(fract(vUV.x), clamp(vUV.y, 0.0, 1.0))).r;
+    float hidden = 1.0 - smoothstep(0.18, 0.32, fv);
+    float heard = smoothstep(0.18, 0.32, fv) * (1.0 - smoothstep(0.68, 0.82, fv));
+    if (uReaderFogOn < 1.5) {
+      float lum = dot(col, vec3(0.30, 0.59, 0.11));
+      vec3 sketch = mix(uReaderPaper, uReaderPaper * (0.55 + 0.45 * lum), 0.6);
+      col = mix(col, sketch, heard * 0.75);
+      col = mix(col, uReaderPaper * (0.86 + 0.14 * clamp(dot(n, L), 0.0, 1.0)), hidden);
+    } else {
+      col = mix(col, col * vec3(0.55, 0.57, 0.68), hidden * 0.55 + heard * 0.2);
+    }
+  }
+
   if (uFogOn > 0.5) {
     float dxz = uShape < 0.5 ? length(surfaceWorld.xz - uCam.xz) : length(surfaceWorld - uCam);
     vec3 fogCol = mix(uHorizon, uFogWarm, pow(max(dot(-V, uSun), 0.0), 3.0) * 0.55);
@@ -1213,6 +1276,9 @@ export class SculptSurface {
         uPainted: { value: 0 },
         uClipOn: { value: 0 },
         uClipRect: { value: new THREE.Vector4(0, 0, 1, 1) },
+        uTerrace: { value: 0 },
+        uCloudShadow: { value: Array.from({ length: MAX_CLOUD_SHADOWS }, () => new THREE.Vector4()) },
+        uCloudCount: { value: 0 },
         uDetail: { value: 0.6 },
         uCavity: { value: 0.55 },
         uCam: { value: new THREE.Vector3(0, 100, 100) },
@@ -1229,6 +1295,9 @@ export class SculptSurface {
         uFogWarm: { value: new THREE.Color(0.7, 0.75, 0.85) },
         uFogDist: { value: SIZE_X * 8 },
         uFogOn: { value: 0 },
+        uReaderFog: { value: this.blankTex },
+        uReaderFogOn: { value: 0 },
+        uReaderPaper: { value: new THREE.Color('#ece3c8') },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -1302,6 +1371,22 @@ export class SculptSurface {
   setClip(frame: { u: number; v: number; su: number; sv: number } | null): void {
     this.material.uniforms.uClipOn.value = frame ? 1 : 0;
     if (frame) (this.material.uniforms.uClipRect.value as THREE.Vector4).set(frame.u - frame.su / 2, frame.v - frame.sv / 2, frame.u + frame.su / 2, frame.v + frame.sv / 2);
+  }
+
+  /** Paper sheets on the tabletop model: the land rises in steps of `km` (0 = the ground as it is). */
+  setTerrace(km: number): void {
+    this.terraceKm = Math.max(0, km);
+    this.material.uniforms.uTerrace.value = this.terraceKm;
+  }
+  /** Paper sheets now shown, in km (0 = none); `heightAtUV` answers with the stepped ground. */
+  private terraceKm = 0;
+
+  /** Clouds' shadows on the plane: (x, z, radius, strength) per cloud, scene units. */
+  setCloudShadows(discs: Float32Array): void {
+    const list = this.material.uniforms.uCloudShadow.value as THREE.Vector4[];
+    const n = Math.min(MAX_CLOUD_SHADOWS, Math.floor(discs.length / 4));
+    for (let i = 0; i < n; i++) list[i].set(discs[i * 4], discs[i * 4 + 1], discs[i * 4 + 2], discs[i * 4 + 3]);
+    this.material.uniforms.uCloudCount.value = n;
   }
 
   setPainted(on: boolean): void {
@@ -1664,6 +1749,17 @@ export class SculptSurface {
    * believes does not exist.
    */
   heightAtUV(u: number, v: number): number {
+    const h = this.baseHeightAtUV(u, v);
+    const t = this.terraceKm;
+    if (t <= 0 || h <= 0 || this.material.uniforms.uShape.value > 0.5) return h;
+    // The same stepping the vertex shader does: a lake's bed is left as it is.
+    const x = Math.min(this.W - 1, Math.floor((((u % 1) + 1) % 1) * this.W)), y = Math.min(this.H - 1, Math.max(0, Math.floor(v * this.H)));
+    if ((this.biomeTex.image.data as Uint8Array)[y * this.W + x] === Biome.Lake) return h;
+    return Math.ceil(h / t) * t;
+  }
+
+  /** The ground as it is, without the paper sheets: what sowing and the model's cut read. */
+  baseHeightAtUV(u: number, v: number): number {
     const base = sampleWorldHeight(this.heights, this.W, this.H, u, v);
     const patch = this.detailPatch;
     if (!patch) return base;
@@ -1685,7 +1781,39 @@ export class SculptSurface {
     return base + (detail - base) * blend * this.detailDisp;
   }
 
+  /**
+   * The reader's-eye fog over the ground, or none. `mask` is one byte per world
+   * cell (0 hidden, 1 heard of, 2 seen); 'reader' lays the paper, 'author' only
+   * tints. The texture is rebuilt only when the mask itself changes.
+   */
+  setReaderFog(layer: { mask: Uint8Array; width: number; height: number; mode: 'reader' | 'author'; paper?: string } | null): void {
+    const u = this.material.uniforms;
+    if (!layer || layer.mask.length !== layer.width * layer.height) { u.uReaderFogOn.value = 0; return; }
+    if (this.readerFogMask !== layer.mask) {
+      const bytes = new Uint8Array(layer.mask.length);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = layer.mask[i] >= 2 ? 255 : layer.mask[i] === 1 ? 128 : 0;
+      this.readerFogTex?.dispose();
+      const tex = new THREE.DataTexture(bytes, layer.width, layer.height, THREE.RedFormat, THREE.UnsignedByteType);
+      tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter;
+      tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
+      this.readerFogTex = tex;
+      this.readerFogMask = layer.mask;
+      u.uReaderFog.value = tex;
+    }
+    (u.uReaderPaper.value as THREE.Color).set(layer.paper ?? '#ece3c8');
+    u.uReaderFogOn.value = layer.mode === 'reader' ? 1 : 2;
+  }
+  /** Whether the reader's paper is down, and the mask under it (for tests and the host's readout). */
+  get readerFogShown(): 'reader' | 'author' | null {
+    const v = this.material.uniforms.uReaderFogOn.value as number;
+    return v === 1 ? 'reader' : v === 2 ? 'author' : null;
+  }
+  private readerFogTex: THREE.DataTexture | null = null;
+  private readerFogMask: Uint8Array | null = null;
+
   dispose(): void {
+    this.readerFogTex?.dispose();
     this.detailAlbedoTex?.dispose();
     this.mesh.geometry.dispose();
     this.material.dispose();

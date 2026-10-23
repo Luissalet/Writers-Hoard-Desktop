@@ -14,6 +14,7 @@
 // through, and a river is either the best road in the country or an obstacle
 // requiring a bridge, depending entirely on which way you are going.
 
+import { cellKmOf, isSheet, mapDistanceKm, sheetScale } from './geoScale';
 import { Biome, type WorldData } from './types';
 import { riverKey } from './edits';
 import { englishRoute } from './travelText';
@@ -78,6 +79,11 @@ export interface TravelOptions {
    * they meet, so no time is lost at fords and a closed crossing does not stop them.
    */
   building?: boolean;
+  /** One of the author's own ways (`profile.ways`), by id: it replaces `mode` and the per-leg modes. */
+  way?: string;
+  /** Set from the way when the route is solved; not for callers. */
+  wayFactor?: number;
+  flies?: boolean;
 }
 
 export type TravelPace = 'easy' | 'steady' | 'hard';
@@ -104,6 +110,55 @@ export const GROUND_CLASSES: GroundClass[] = ['open', 'dry', 'forest', 'jungle',
 export interface TravelProfile {
   speed?: Partial<Record<TravelMode, number>>;
   ground?: Partial<Record<GroundClass, number>>;
+  /** The author's own ways of travelling (a griffin, a sledge, a sand ship), each built on a mode. */
+  ways?: TravelWay[];
+}
+
+/**
+ * A way of travelling the author made: named, built on one of the five modes
+ * (whose ground, roads and water it follows), faster or slower than it, and
+ * optionally flying (straight over land, sea and mountains alike, at a bird's
+ * pace) or going on through the night.
+ */
+export interface TravelWay {
+  id: string;
+  name: string;
+  base: TravelMode;
+  /** Over the base mode's speeds (or the flying pace), 0.25 to 4; absent = 1. */
+  speed?: number;
+  /** Flies: no roads, fords, coasts or mountains in its way. */
+  flies?: boolean;
+  /** Keeps going through the night: twenty-two hours on the move a day. */
+  night?: boolean;
+}
+export const TRAVEL_WAYS_MAX = 12;
+export const TRAVEL_WAY_NAME_MAX = 40;
+/** A flier's pace in km/h before its own speed factor: a horse's day by the morning. */
+export const FLY_KMH = 40;
+
+function normalizeTravelWays(value: unknown): TravelWay[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error('ways must be a list.');
+  if (value.length > TRAVEL_WAYS_MAX) throw new Error(`At most ${TRAVEL_WAYS_MAX} ways.`);
+  const ids = new Set<string>();
+  const out = value.map((raw, index) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`ways[${index}] must be an object.`);
+    const w = raw as Record<string, unknown>;
+    for (const key of Object.keys(w)) if (!['id', 'name', 'base', 'speed', 'flies', 'night'].includes(key)) throw new Error(`Unknown way field "${key}".`);
+    if (typeof w.id !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(w.id)) throw new Error(`ways[${index}].id must be 1-40 letters, digits or dashes.`);
+    if (ids.has(w.id)) throw new Error(`Two ways share the id "${w.id}".`);
+    ids.add(w.id);
+    if (typeof w.name !== 'string' || !w.name.trim() || w.name.trim().length > TRAVEL_WAY_NAME_MAX) throw new Error(`ways[${index}].name must be 1-${TRAVEL_WAY_NAME_MAX} characters.`);
+    if (!(['foot', 'horse', 'cart', 'boat', 'ship'] as unknown[]).includes(w.base)) throw new Error(`ways[${index}].base must be foot, horse, cart, boat or ship.`);
+    if (w.speed !== undefined && !(typeof w.speed === 'number' && Number.isFinite(w.speed) && w.speed >= TRAVEL_FACTOR_RANGE.min && w.speed <= TRAVEL_FACTOR_RANGE.max)) throw new Error(`ways[${index}].speed must be from ${TRAVEL_FACTOR_RANGE.min} to ${TRAVEL_FACTOR_RANGE.max}.`);
+    for (const flag of ['flies', 'night'] as const) if (w[flag] !== undefined && typeof w[flag] !== 'boolean') throw new Error(`ways[${index}].${flag} must be true or false.`);
+    const way: TravelWay = { id: w.id, name: w.name.trim(), base: w.base as TravelMode };
+    if (typeof w.speed === 'number' && Math.abs(w.speed - 1) > 0.001) way.speed = Math.round(w.speed * 100) / 100;
+    if (w.flies === true) way.flies = true;
+    if (w.night === true) way.night = true;
+    return way;
+  });
+  return out.length ? out : undefined;
 }
 export const TRAVEL_FACTOR_RANGE = { min: 0.25, max: 4 } as const;
 
@@ -112,7 +167,7 @@ export function normalizeTravelProfile(input: unknown): TravelProfile {
   if (input === undefined || input === null) return {};
   if (typeof input !== 'object' || Array.isArray(input)) throw new Error('Travel profile must be an object.');
   const raw = input as Record<string, unknown>, out: TravelProfile = {};
-  for (const key of Object.keys(raw)) if (key !== 'speed' && key !== 'ground') throw new Error(`Unknown travel profile field "${key}".`);
+  for (const key of Object.keys(raw)) if (key !== 'speed' && key !== 'ground' && key !== 'ways') throw new Error(`Unknown travel profile field "${key}".`);
   const table = <K extends string>(value: unknown, keys: readonly K[], what: string): Partial<Record<K, number>> | undefined => {
     if (value === undefined) return undefined;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${what} must be an object of factors.`);
@@ -126,8 +181,10 @@ export function normalizeTravelProfile(input: unknown): TravelProfile {
   };
   const speed = table(raw.speed, ['foot', 'horse', 'cart', 'boat', 'ship'] as const, 'speed');
   const ground = table(raw.ground, GROUND_CLASSES, 'ground');
+  const ways = normalizeTravelWays(raw.ways);
   if (speed) out.speed = speed;
   if (ground) out.ground = ground;
+  if (ways) out.ways = ways;
   return out;
 }
 
@@ -147,13 +204,14 @@ const GROUND_OF: Partial<Record<number, GroundClass>> = {
 };
 /** Which ground class a biome belongs to, for the author's cost table. */
 export function groundClassOf(biome: number): GroundClass | undefined { return GROUND_OF[biome]; }
-function speedFactor(opts: TravelOptions, mode: TravelMode): number { return opts.profile?.speed?.[mode] ?? 1; }
+function speedFactor(opts: TravelOptions, mode: TravelMode): number { return (opts.profile?.speed?.[mode] ?? 1) * (mode === opts.mode ? opts.wayFactor ?? 1 : 1); }
 function groundFactor(opts: TravelOptions, biome: number): number { const g = GROUND_OF[biome]; return g ? opts.profile?.ground?.[g] ?? 1 : 1; }
 
 /** The hours actually spent moving each day: the season's (or the author's) daylight times the pace. */
 export function effectiveHoursPerDay(opts: Pick<TravelOptions, 'season' | 'hoursPerDay' | 'pace'>): number {
   const base = Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay! : SEASON_HOURS[opts.season];
-  return base * PACE_HOURS[opts.pace ?? 'steady'];
+  // Nobody moves more than the whole day, whatever the pace or the way.
+  return Math.min(24, base * PACE_HOURS[opts.pace ?? 'steady']);
 }
 /** Rest days a hard pace adds to a journey of this many days on the move. */
 export function paceRestDays(pace: TravelPace | undefined, travelDays: number): number {
@@ -431,6 +489,8 @@ function cellCost(
   const b = world.biome[to];
   const mode = opts.mode;
   const km = stepDistance(world, metric, from, to);
+  // A flier crosses everything alike: no road, ford, coast or mountain in its way.
+  if (opts.flies) return { hours: km / (FLY_KMH * (opts.wayFactor ?? 1)), onRoad: false };
 
   if (mode === 'ship' || mode === 'boat') {
     const fromWater = navigableWater(world, from, opts);
@@ -517,7 +577,8 @@ function travelMetric(world: WorldData, radius: number): TravelMetric {
     horizontal[y] = greatCircleKm(world, y * world.width, y * world.width + 1, radius);
     if (y + 1 < world.height) diagonal[y] = greatCircleKm(world, y * world.width, (y + 1) * world.width + 1, radius);
   }
-  const metric = { radius, horizontal, diagonal, vertical: Math.PI * radius / world.height };
+  // A sheet's step north is its own cell, flat; the planet's is the arc of a row.
+  const metric = { radius, horizontal, diagonal, vertical: isSheet(world.params) ? cellKmOf(world.params, world.width) : Math.PI * radius / world.height };
   METRIC_CACHE.set(world, metric);
   return metric;
 }
@@ -677,13 +738,30 @@ function solveRoute(
   to: { x: number; y: number },
   opts: TravelOptions,
 ): Route {
+  // One of the author's own ways: its mode, its speed, flying, night travel.
+  if (opts.way) {
+    const way = opts.profile?.ways?.find((candidate) => candidate.id === opts.way);
+    if (!way) {
+      return {
+        cells: [], km: 0, hours: 0, days: 0, directKm: 0, legs: [], crossings: [],
+        roadFraction: 0, stages: [], realms: [], highestM: 0, lowestM: 0, ascentM: 0,
+        impossible: 'esa vía no existe en este mundo',
+      };
+    }
+    opts = {
+      ...opts, mode: way.base, legModes: undefined, way: undefined,
+      wayFactor: way.speed ?? 1, flies: !!way.flies,
+      // A night way moves through the dark too: at least 22 hours, never past the day.
+      ...(way.night ? { hoursPerDay: Math.min(24, Math.max(22, Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay! : 0)) } : {}),
+    };
+  }
   const pace = opts.pace;
   opts = {
     ...opts,
     // The pace scales the hours on the move; the rest days are added once, at the end.
     hoursPerDay: effectiveHoursPerDay(opts),
     pace: undefined,
-    planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371,
+    planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371 * sheetScale(world.params),
   };
   const withRest = (route: Route): Route => {
     const restDays = paceRestDays(pace, route.days);
@@ -720,9 +798,9 @@ function solveRoute(
   // Include favourable currents, downstream flow and frozen road surfaces;
   // a planar/base-speed heuristic overestimated at high latitudes and could
   // permanently close a cell before its quickest approach was considered.
-  const boost = opts.mode === 'ship' ? 1.5 : opts.mode === 'boat' ? 1.45 : opts.season === 'winter' ? 1 / 0.42 : 1;
+  const boost = opts.flies ? 1 : opts.mode === 'ship' ? 1.5 : opts.mode === 'boat' ? 1.45 : opts.season === 'winter' ? 1 / 0.42 : 1;
   const minGround = Math.min(1, ...Object.values(opts.profile?.ground ?? {}));
-  const modeFastest = Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off / minGround) * speedFactor(opts, opts.mode) * boost;
+  const modeFastest = opts.flies ? FLY_KMH * (opts.wayFactor ?? 1) : Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off / minGround) * speedFactor(opts, opts.mode) * boost;
   // Water modes walk their embark/disembark steps; with a very fast walker those
   // steps can beat the boat, and the bound must cover them to stay admissible.
   const accessFastest = opts.mode === 'ship' || opts.mode === 'boat'
@@ -764,7 +842,7 @@ function solveRoute(
     }
   }
 
-  const directKm = greatCircleKm(world, start, goal, opts.planetRadiusKm ?? 6371);
+  const directKm = greatCircleKm(world, start, goal, opts.planetRadiusKm ?? 6371 * sheetScale(world.params));
   if (!found) {
     return {
       cells: [], km: 0, hours: 0, days: 0, directKm, legs: [], crossings: [],
@@ -804,7 +882,7 @@ function solveRoute(
     }
     // A river crossed off-road is a ford or a ferry, and it is the kind of thing
     // that turns up in a chapter.
-    if (opts.mode !== 'boat' && opts.mode !== 'ship' && !opts.building && !(terminals.has(b) && isRiverCell(world, b))) {
+    if (opts.mode !== 'boat' && opts.mode !== 'ship' && !opts.building && !opts.flies && !(terminals.has(b) && isRiverCell(world, b))) {
       const crossed = riverCrossed(world, landRivers(world), a, b);
       if (crossed >= 0) {
         crossings.push({ x: crossed % W, y: (crossed / W) | 0, kind: 'river', ...(c.onRoad ? { bridge: true } : frozenRiver(world, crossed, opts) ? { frozen: true } : {}) });
@@ -985,7 +1063,7 @@ function weldRoutes(
   // The stages are recomputed over the WHOLE journey rather than concatenated:
   // a night does not fall at a waypoint just because the route happened to be
   // solved in pieces there.
-  const metric = travelMetric(world, opts.planetRadiusKm ?? 6371);
+  const metric = travelMetric(world, opts.planetRadiusKm ?? 6371 * sheetScale(world.params));
   const terminals = new Set(parts.flatMap(part => [part.cells[0], part.cells[part.cells.length - 1]]));
   const stages = findStages(world, geo, roadMask(world, geo), cells, metric, hpd, opts, terminals, modes?.some(mode => mode !== opts.mode) ? stepModes : undefined);
   const profile = elevationProfile(world, cells);
@@ -1037,6 +1115,8 @@ function greatCircleKm(world: WorldData, a: number, b: number, radiusKm: number)
 
 export function coordinateDistance(world: WorldData, ax: number, ay: number, bx: number, by: number, radiusKm: number): number {
   const W = world.width, H = world.height;
+  // A sheet is flat: straight distances at its own scale.
+  if (isSheet(world.params)) return mapDistanceKm(world.params, W, H, ax, ay, bx, by);
   const toRad = (x: number, y: number) => ({
     lon: (x / W) * Math.PI * 2,
     lat: (0.5 - (y + 0.5) / H) * Math.PI,

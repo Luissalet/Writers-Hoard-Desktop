@@ -6,6 +6,7 @@ import { annotationIssues, annotationLines, annotationPolyline, type RelationTre
 import { edgePathIds, relationTreeSegments, treeEdgeLabelPosition, type RelationTreeJunction } from './relationTreeRoutes';
 import { isRelationIcon, relationIconSvg } from './relationIcons';
 import { validTreeImage } from './treeImages';
+import { groupBox, groupIssues, RELATION_LABEL_MODES, type RelationLabelMode, type RelationTreeGroup } from './relationTreeGroups';
 
 export interface RelationTreeNode {
   id: string;
@@ -40,6 +41,10 @@ export interface RelationTreeDocument {
   snapToNodes?: boolean;
   copiedFrom?: string;
   relationVocabulary?: RelationVocabulary[];
+  /** Houses, factions, companies: a coloured, named box round their members. */
+  groups?: RelationTreeGroup[];
+  /** How relationship names show: always (default), on hover, or hidden. */
+  labelMode?: RelationLabelMode;
   revision: number;
   createdAt: number;
   updatedAt: number;
@@ -80,6 +85,8 @@ export function validateRelationTree(tree: RelationTreeDocument): void {
   }
   const edgeIds = new Set<string>();
   issues.push(...annotationIssues(tree.annotations, nodeIds));
+  issues.push(...groupIssues(tree.groups, new Set(tree.nodes.map(node => node.id))));
+  if (tree.labelMode !== undefined && !RELATION_LABEL_MODES.includes(tree.labelMode)) issues.push('invalid_label_mode');
   for (const edge of tree.edges) {
     if (!edge.id || edgeIds.has(edge.id)) issues.push('duplicate_edge');
     edgeIds.add(edge.id);
@@ -119,6 +126,20 @@ export function duplicateRelationTree(tree: RelationTreeDocument, id: string, ti
   return { ...copy, id, title, copiedFrom: tree.id, revision: 0, createdAt: now, updatedAt: now };
 }
 
+/**
+ * A tree and its variants: everything copied from the same original, by way
+ * of `copiedFrom`, in the order they were made. A tree that is nobody's copy
+ * and has no copies stands alone.
+ */
+export function treeVariantFamily<T extends Pick<RelationTreeDocument, 'id' | 'copiedFrom' | 'createdAt'>>(trees: readonly T[], id: string): T[] {
+  const byId = new Map(trees.map(tree => [tree.id, tree]));
+  const rootOf = (tree: T) => { const seen = new Set<string>(); let at = tree; while (at.copiedFrom && byId.has(at.copiedFrom) && !seen.has(at.id)) { seen.add(at.id); at = byId.get(at.copiedFrom)!; } return at.id; };
+  const start = byId.get(id);
+  if (!start) return [];
+  const root = rootOf(start);
+  return trees.filter(tree => rootOf(tree) === root).sort((a, b) => a.createdAt - b.createdAt);
+}
+
 /** Local SVG export preserves authored positions and escapes all author text. */
 export function exportRelationTreeSvg(tree: RelationTreeDocument, names: ReadonlyMap<string, string> = new Map()): string {
   validateRelationTree(tree);
@@ -141,15 +162,19 @@ export function exportRelationTreeSvg(tree: RelationTreeDocument, names: Readonl
     const tangent = (point: typeof a, side: string) => ({ x: point.x + (side === 'left' ? -offset : side === 'right' ? offset : 0), y: point.y + (side === 'top' ? -offset : side === 'bottom' ? offset : 0) });
     const c1 = tangent(a, sourceSide), c2 = tangent(b, targetSide);
     const dash = edge.style === 'dashed' ? '8 5' : edge.style === 'dotted' ? '2 5' : '';
-    const label = edge.segmentIndex || edge.label === '' ? '' : edge.label || edge.kind;
+    const named = edge.segmentIndex || edge.label === '' ? '' : edge.label || edge.kind;
+    // Hidden names are left out; "on hover" names become the line's tooltip.
+    const label = tree.labelMode === 'hidden' || tree.labelMode === 'hover' ? '' : named;
+    const tip = tree.labelMode === 'hover' && named ? `<title>${esc(named)}</title>` : '';
     const labelPoint = treeEdgeLabelPosition(tree, tree.edges.find(item => item.id === edge.logicalId)!) ?? { x: (x + tx) / 2, y: (y + ty) / 2 - 8 };
-    return `<g><path d="M${x} ${y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${tx} ${ty}" fill="none" stroke="#716650" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ''}${edge.last && edge.kind.endsWith('_parent') ? ' marker-end="url(#arrow)"' : ''}/>${relationIconSvg(edge.icon, labelPoint.x - 9, labelPoint.y - 25)}${label ? `<text x="${labelPoint.x}" y="${labelPoint.y}" text-anchor="middle" font-size="12">${esc(label)}</text>` : ''}</g>`;
+    return `<g>${tip}<path d="M${x} ${y} C${c1.x} ${c1.y} ${c2.x} ${c2.y} ${tx} ${ty}" fill="none" stroke="#716650" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ''}${edge.last && edge.kind.endsWith('_parent') ? ' marker-end="url(#arrow)"' : ''}/>${relationIconSvg(edge.icon, labelPoint.x - 9, labelPoint.y - 25)}${label ? `<text x="${labelPoint.x}" y="${labelPoint.y}" text-anchor="middle" font-size="12">${esc(label)}</text>` : ''}</g>`;
   }).join('');
   const cards = tree.nodes.map(node => {
     const label = node.codexEntryId ? names.get(node.codexEntryId) ?? node.label : node.label;
     const image = node.image ? `<image href="${esc(node.image)}" x="10" y="18" width="36" height="36"/>` : '', limit = image ? 19 : 26;
-    return `<g transform="translate(${node.position.x} ${node.position.y})"><rect width="200" height="75" rx="8" fill="${node.deceased ? '#e4e1db' : '#faf8f2'}" stroke="#716650"/>${image}<text x="${image ? 56 : 12}" y="30" font-size="14"${node.deceased ? ' text-decoration="line-through"' : ''}>${esc(label.length > limit ? `${label.slice(0, limit - 1)}…` : label)}</text>${node.deceased ? '<path d="M180 12V34M172 20H188" stroke="#716650" stroke-width="2"/>' : ''}<title>${esc(label)}</title></g>`;
+    return `<g transform="translate(${node.position.x} ${node.position.y})"><rect width="200" height="75" rx="8" fill="${node.deceased ? '#e4e1db' : '#faf8f2'}" stroke="${tree.groups?.find(group => group.nodeIds.includes(node.id))?.color ?? '#716650'}"${tree.groups?.some(group => group.nodeIds.includes(node.id)) ? ' stroke-width="2"' : ''}/>${image}<text x="${image ? 56 : 12}" y="30" font-size="14"${node.deceased ? ' text-decoration="line-through"' : ''}>${esc(label.length > limit ? `${label.slice(0, limit - 1)}…` : label)}</text>${node.deceased ? '<path d="M180 12V34M172 20H188" stroke="#716650" stroke-width="2"/>' : ''}<title>${esc(label)}</title></g>`;
   }).join('');
+  const boxes = (tree.groups ?? []).map(group => { const box = groupBox(tree, group); return box ? `<g><rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="14" fill="${group.color}" fill-opacity="0.08" stroke="${group.color}" stroke-width="2"/><text x="${box.x + 12}" y="${box.y + 18}" font-size="13" font-weight="600" fill="${group.color}">${esc(group.name)}</text></g>` : ''; }).join('');
   const points = (tree.junctions ?? []).map(point => `<circle cx="${point.position.x + 8}" cy="${point.position.y + 8}" r="6" stroke="#716650" stroke-width="2" fill="white"/>`).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${x1 - x0} ${y1 - y0}" width="${x1 - x0}" height="${y1 - y0}"><title>${esc(tree.title)}</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#716650"/></marker></defs><rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="white"/><g fill="#242d36" font-family="system-ui,sans-serif">${drawings}${edges}${cards}${points}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${x1 - x0} ${y1 - y0}" width="${x1 - x0}" height="${y1 - y0}"><title>${esc(tree.title)}</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#716650"/></marker></defs><rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="white"/><g fill="#242d36" font-family="system-ui,sans-serif">${boxes}${drawings}${edges}${cards}${points}</g></svg>`;
 }

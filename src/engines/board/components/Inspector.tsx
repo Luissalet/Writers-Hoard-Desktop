@@ -10,6 +10,7 @@ import TiptapEditor from '@/components/editor/TiptapEditor';
 import { useTranslation } from '@/i18n/useTranslation';
 import { EDGE_KINDS, NODE_ROLES, POSTIT_PALETTE, edgeKindColor } from '../catalog';
 import type { BoardEdge, BoardLayer, BoardNode, BoardShape } from '../types';
+import { BOARD_NODE_BORDERS } from '../types';
 import {BOARD_SHAPES,boardShapeLabel} from '../shapes';
 import { freehandCopy } from '../freehandCopy';
 
@@ -198,6 +199,19 @@ export function NodeInspector({ node, layers, onPatch, onDelete, onBindEntity, o
           ) : null}
         </div>
       </Field>
+
+      {node.kind === 'card' || (node.kind === 'shape' && !node.freehand) ? (
+        <Field label={t('board.inspector.border')}>
+          <div className="flex flex-wrap gap-1" role="group" aria-label={t('board.inspector.border')}>
+            {BOARD_NODE_BORDERS.map(border => (
+              <button key={border} type="button" data-testid={`board-border-${border}`} aria-pressed={(node.border ?? 'solid') === border} onClick={() => onPatch({ border: border === 'solid' ? undefined : border })}
+                className={`rounded-lg border px-2.5 py-1 text-xs transition ${(node.border ?? 'solid') === border ? 'border-accent-gold bg-accent-gold/10 text-accent-gold' : 'border-border text-text-muted hover:text-accent-gold'}`}>
+                {t(`board.inspector.border.${border}`)}
+              </button>
+            ))}
+          </div>
+        </Field>
+      ) : null}
 
       {node.kind === 'image' || node.kind === 'card' ? (
         <Field label={t('board.inspector.image')}>

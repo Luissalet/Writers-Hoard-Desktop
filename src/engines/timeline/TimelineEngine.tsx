@@ -2,7 +2,7 @@ import { useWorldEraScope, useEraRows } from '@/services/worldEras/hooks';
 import type { Writing } from '@/types';
 import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useState, useMemo, useEffect } from 'react';
-import { Clock, List, Layers, Globe } from 'lucide-react';
+import { Clock, List, Layers, Globe, CalendarDays } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
@@ -12,11 +12,16 @@ import { generateId } from '@/utils/idGenerator';
 import TimelineView from './components/TimelineView';
 import SwimLaneView from './components/SwimLaneView';
 import TimelineBatchBar from './components/TimelineBatchBar';
+import TimelineFilterBar from './components/TimelineFilterBar';
+import CalendarView from './components/CalendarView';
+import { EMPTY_TIMELINE_FILTER, filterTimelineEvents, isFilterActive, normalizeTagColors, tagKey, normalizeTimelineViews, retagEvents, timelineTagCounts, MAX_TIMELINE_VIEWS, type TimelineFilter } from './timelineFilter';
+import { db } from '@/db';
+import { useLiveQuery } from 'dexie-react-hooks';
 import WorldCalendarEditor from './components/WorldCalendarEditor';
 import { useWorldCalendar } from './useWorldCalendar';
 import { manuscriptTimelineItems } from '@/engines/writings/chapterWorldDate';
 
-type ViewMode = 'list' | 'swimlane';
+type ViewMode = 'list' | 'swimlane' | 'calendar';
 
 export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
@@ -24,7 +29,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const { timelines, loading: timelinesLoading, addTimeline, editTimeline, removeTimeline } = useTimelines(projectId);
   const [activeTimelineId, setActiveTimelineId] = useState<string>('');
   const linkedView=useDeepLinkParam('view');
-  const [viewMode, setViewMode] = useState<ViewMode>(linkedView==='list'?'list':'swimlane');
+  const [viewMode, setViewMode] = useState<ViewMode>(linkedView==='list'?'list':linkedView==='calendar'?'calendar':'swimlane');
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarScope, setCalendarScope] = useState<'project' | 'timeline'>('project');
   const worldCalendar = useWorldCalendar(projectId);
@@ -44,6 +49,10 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   // resto de hooks porque más abajo hay un `return` temprano por carga, y un
   // hook detrás de un return no se llama siempre en el mismo orden. La
   // explicación de por qué existe esta guarda está en `askRemoveEvent`.
+  const [filter, setFilter] = useState<TimelineFilter>(EMPTY_TIMELINE_FILTER);
+  const storedProject = useLiveQuery(() => db.projects.get(projectId), [projectId]);
+  const views = normalizeTimelineViews(storedProject?.timelineViews ?? []);
+  const tagColors = normalizeTagColors(storedProject?.timelineTagColors);
   const [pendingDelete, setPendingDelete] = useState<
     { id: string; title: string; connections: number; run: (id: string) => Promise<void> } | null
   >(null);
@@ -170,6 +179,27 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
     refreshConnections();
   };
 
+  // ---- Tags, the filter and saved views ------------------------------------
+  const tagCounts = timelineTagCounts(allEvents);
+  const shownAll = filterTimelineEvents(allEvents, filter);
+  const shownActive = filterTimelineEvents(activeEvents, filter);
+  const saveViews = async (next: ReturnType<typeof normalizeTimelineViews>) => { await db.projects.update(projectId, { timelineViews: next.length ? next : undefined, updatedAt: Date.now() }); };
+  const saveView = async (name: string) => saveViews([...views.filter(view => view.name.toLocaleLowerCase() !== name.toLocaleLowerCase()), { id: generateId('tlview'), name, filter }].slice(-MAX_TIMELINE_VIEWS));
+  const removeView = async (id: string) => saveViews(views.filter(view => view.id !== id));
+  const setTagColor = async (tag: string, color: string | null) => {
+    const next = { ...tagColors }; if (color) next[tagKey(tag)] = color; else delete next[tagKey(tag)];
+    await db.projects.update(projectId, { timelineTagColors: Object.keys(next).length ? next : undefined, updatedAt: Date.now() });
+  };
+  /** Rename (or merge, or take off) a tag on every event that carries it. */
+  const retag = async (from: string, to: string | null) => {
+    for (const change of retagEvents(allEvents, from, to)) await editEventGlobal(change.id, { tags: change.tags });
+    // The colour goes with the name (a merge keeps the colour the other tag had).
+    const color = tagColors[tagKey(from)];
+    if (color) { const next = { ...tagColors }; delete next[tagKey(from)]; if (to && !next[tagKey(to)]) next[tagKey(to)] = color; await db.projects.update(projectId, { timelineTagColors: Object.keys(next).length ? next : undefined }); }
+    refreshActiveEvents();
+    setFilter(current => ({ ...current, tags: current.tags.flatMap(tag => tag.toLocaleLowerCase() === from.toLocaleLowerCase() ? (to ? [to] : []) : [tag]) }));
+  };
+
   /**
    * La pregunta antes de borrar un evento, UNA sola vez y para las dos vistas.
    *
@@ -224,6 +254,18 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
             <List size={13} />
             {t('timeline.viewList')}
           </button>
+          <button
+            data-testid="timeline-view-calendar"
+            onClick={() => setViewMode('calendar')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition ${
+              viewMode === 'calendar'
+                ? 'bg-accent-gold/20 text-accent-gold font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <CalendarDays size={13} />
+            {t('timeline.viewCalendar')}
+          </button>
         </div>
         <button
           type="button"
@@ -244,12 +286,17 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
       </div>
 
       {/* Active view */}
+      <TimelineFilterBar filter={filter} onFilter={setFilter} tags={tagCounts} shown={viewMode === 'list' ? shownActive.length : shownAll.length} total={viewMode === 'list' ? activeEvents.length : allEvents.length} views={views} onSaveView={saveView} onRemoveView={removeView} onRetag={retag} tagColors={tagColors} onTagColor={setTagColor} />
       <TimelineBatchBar key={`${projectId}:${scope.eraId ?? 'base'}`} projectId={projectId} events={allEvents} onChanged={() => { refreshActiveEvents(); refreshAllEvents(); refreshConnections(); }} />
-      {viewMode === 'swimlane' ? (
+      {viewMode === 'calendar' ? (
+        <CalendarView events={shownAll} timelines={activeTimeline ? [activeTimeline, ...timelines.filter(item => item.id !== activeTimeline.id)] : timelines} worldCalendar={worldCalendar?.calendar ?? null} onAddEvent={handleAddEventGlobal} />
+      ) : viewMode === 'swimlane' ? (
         <SwimLaneView
           projectId={projectId}
           timelines={timelines}
-          events={allEvents}
+          events={shownAll}
+          tagSuggestions={tagCounts.map(row => row.tag)}
+          unfilteredEvents={isFilterActive(filter) ? allEvents : undefined}
           connections={connections}
           manuscript={manuscript ?? undefined}
           onAddEvent={handleAddEventGlobal}
@@ -265,7 +312,9 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
           <TimelineView
             projectId={projectId}
             timelineId={activeTimelineId}
-            events={activeEvents}
+            events={shownActive}
+            tagSuggestions={tagCounts.map(row => row.tag)}
+            unfilteredEvents={isFilterActive(filter) ? activeEvents : undefined}
             onAddEvent={handleAddEvent}
             onEditEvent={handleEditEvent}
             onDeleteEvent={(id) => askRemoveEvent(id, handleRemoveEvent)}

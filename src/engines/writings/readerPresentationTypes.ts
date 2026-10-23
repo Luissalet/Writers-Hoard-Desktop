@@ -1,10 +1,12 @@
 export interface ReaderAudioTrack { assetId: string; volume: number; loop: boolean }
-export interface ReaderParagraphAudio { paragraphIndex: number; fingerprint: string; excerpt: string; track: ReaderAudioTrack }
+/** A sound tied to a paragraph: it plays while that paragraph is read, or — with `through` — on through that later paragraph (an ambience over a passage). */
+export interface ReaderParagraphAudio { paragraphIndex: number; fingerprint: string; excerpt: string; track: ReaderAudioTrack; through?: number }
 export interface ChapterPresentation {
   font: 'inherit' | 'serif' | 'sans' | 'mono';
   background: string;
   image?: string;
-  imageLayout: 'above' | 'beside' | 'none';
+  /** banner: the chapter label, the image across the page, then the title. */
+  imageLayout: 'above' | 'beside' | 'banner' | 'none';
   mode: 'flow' | 'pages';
   audio?: ReaderAudioTrack;
   paragraphAudio?: ReaderParagraphAudio[];

@@ -10,13 +10,11 @@
 import { SphereNoise } from './noise';
 import { createRng } from './rng';
 import { LANDMASS_KM, type WorldData, type WorldParams } from './types';
+import { isSheet, worldKmOf } from './geoScale';
 
 export { LANDMASS_KM };
 
-/** Equatorial circumference of every generated planet, in km. */
-const EARTH_KM = 40075;
-/** km per degree of latitude. */
-const KM_PER_DEG = EARTH_KM / 360;
+
 /** The land keeps clear of the poles and of the date line by these margins. */
 const MAX_LAT = 76;
 const U_MARGIN = 0.03;
@@ -41,6 +39,13 @@ const smooth = (a: number, b: number, x: number) => {
  */
 export function shapeLandmass(elevation: Float32Array, uplift: Float32Array, W: number, H: number, params: WorldParams): void {
   const spanKm = clampLandmassKm(params.landmassKm);
+  // The map's width: the planet's, or the sheet's. On a sheet the ground is flat
+  // (a cell measures the same east-west on every row) and the land lies across the
+  // middle of the map, where the grid is least drawn out.
+  const EARTH_KM = worldKmOf(params);
+  const KM_PER_DEG = EARTH_KM / 360;
+  const sheet = isSheet(params);
+  const cosAt = (latRad: number) => (sheet ? 1 : Math.cos(latRad));
   const kmCell = EARTH_KM / W;
   const rng = createRng(params.seed, 'landmass');
   // A large land lies east-west, along the latitudes, where the planet has room for it.
@@ -67,7 +72,7 @@ export function shapeLandmass(elevation: Float32Array, uplift: Float32Array, W: 
     if (latDeg + latReach > MAX_LAT || latDeg - latReach < -MAX_LAT) return false;
     // East-west room at the land's most poleward row.
     const far = Math.min(85, Math.abs(latDeg) + latReach) * Math.PI / 180;
-    const du = ew / (EARTH_KM * Math.max(0.05, Math.cos(far)));
+    const du = ew / (EARTH_KM * Math.max(0.05, cosAt(far)));
     return u - du >= U_MARGIN && u + du <= 1 - U_MARGIN;
   };
 
@@ -76,15 +81,17 @@ export function shapeLandmass(elevation: Float32Array, uplift: Float32Array, W: 
   // inside its outline. Always the same draws, whatever fits.
   const rows = (latDeg: number) => (0.5 - latDeg / 180) * H;
   const spots: { lat: number; u: number }[] = [];
-  for (let k = 0; k < 12; k++) spots.push({ lat: 24 + rng() * 26, u: 0.2 + rng() * 0.6 });
+  // On a sheet, round the middle of the map instead (the same draws, so the same choice).
+  const home = sheet ? 0 : 35;
+  for (let k = 0; k < 12; k++) { const lat = 24 + rng() * 26; spots.push({ lat: sheet ? (lat - 37) * 0.35 : lat, u: 0.2 + rng() * 0.6 }); }
   // A land too big for the band shrinks until it fits at 35°N in the middle of the map.
-  while (!spots.some((s) => fits(s.lat, s.u, R)) && !fits(35, 0.5, R) && R > 50) R *= 0.95;
+  while (!spots.some((s) => fits(s.lat, s.u, R)) && !fits(home, 0.5, R) && R > 50) R *= 0.95;
   const candidates = spots.filter((s) => fits(s.lat, s.u, R));
-  if (!candidates.length) candidates.push({ lat: 35, u: 0.5 });
-  let cx = W / 2, cy = rows(35), best = -Infinity;
+  if (!candidates.length) candidates.push({ lat: home, u: 0.5 });
+  let cx = W / 2, cy = rows(home), best = -Infinity;
   for (const { lat, u } of candidates) {
     const x = u * W, y = rows(lat);
-    const kx = kmCell * Math.cos(lat * Math.PI / 180);
+    const kx = kmCell * cosAt(lat * Math.PI / 180);
     // The same 9 × 9 points of the land's own outline in km, whatever the resolution.
     let score = 0;
     for (let gy = -4; gy <= 4; gy++) for (let gx = -4; gx <= 4; gx++) {
@@ -105,7 +112,7 @@ export function shapeLandmass(elevation: Float32Array, uplift: Float32Array, W: 
   const deepest = -0.04 - 3.5;
   for (let y = 0; y < H; y++) {
     const lat = (0.5 - (y + 0.5) / H) * Math.PI;
-    const kx = kmCell * Math.max(0.05, Math.cos(lat));
+    const kx = kmCell * Math.max(0.05, cosAt(lat));
     const dyKm = (y - cy) * kmCell;
     for (let x = 0; x < W; x++) {
       const i = y * W + x;

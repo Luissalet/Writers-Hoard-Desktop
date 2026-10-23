@@ -286,6 +286,10 @@ function worldDigest(world: GeneratedWorld, waypoints: WorldWaypoint[]): Record<
     seed: world.params.seed,
     width,
     height,
+    // How big the map is: a sheet of worldKm across, or the planet (40075 km round).
+    sheet: typeof world.params.worldKm === 'number' && world.params.worldKm < 40075,
+    worldKm: typeof world.params.worldKm === 'number' && world.params.worldKm >= 1000 && world.params.worldKm < 40075 ? world.params.worldKm : 40075,
+    cellKm: Math.round(((typeof world.params.worldKm === 'number' && world.params.worldKm >= 1000 && world.params.worldKm < 40075 ? world.params.worldKm : 40075) / width) * 1000) / 1000,
     ...editDigest(world),
     regions: (world.regions ?? []).map((region) => ({ id: region.id, title: region.title })),
     waypointCount: waypoints.length,
@@ -376,6 +380,8 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   // The reader's-eye map: blank paper where the story has not been yet (up to a chapter, if given).
   let fog: import('@/engines/worldgen/cartography/readerFogLayer').ReaderFogLayer | null = null;
   let story: import('@/engines/worldgen/core/storyEvents').StoryEvent[] | null = null;
+  let townDots: { x: number; y: number }[] | null = null;
+  let trail: { x: number; y: number; chapter?: number }[] | null = null;
   // readerChapter implies the reader's view unless readerView is explicitly false.
   const readerView = args.readerView === true || (args.readerView === undefined && args.readerChapter !== undefined && args.readerChapter !== null);
   if (args.readerView !== undefined && typeof args.readerView !== 'boolean') throw new BridgeError('bad-args', 'readerView must be true or false.');
@@ -387,16 +393,41 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
     }
     const { fogMask } = await import('@/engines/worldgen/core/readerFog');
     const data = opened.world.data;
-    fog = { mask: fogMask(deserializeEdits(world.edits ?? '[]'), data.width, data.height, look.readerStart, chapter), width: data.width, height: data.height, mode: 'reader' };
+    fog = { mask: fogMask(deserializeEdits(world.edits ?? '[]'), data.width, data.height, look.readerStart, chapter, data.elevation), width: data.width, height: data.height, mode: 'reader', ...(look.readerTowns === 'dots' ? { townDots: true } : {}) };
     const { storyEventsFrom, storyKnownBy } = await import('@/engines/worldgen/core/storyEvents');
     story = storyKnownBy(storyEventsFrom(deserializeEdits(world.edits ?? '[]')), chapter);
+    // Towns as dots and the party's trail, as the look asks.
+    if (fog.townDots) {
+      const { fogStateAt } = await import('@/engines/worldgen/cartography/readerFogLayer');
+      const { FOG_HEARD } = await import('@/engines/worldgen/core/readerFog');
+      townDots = (opened.world.geo?.settlements ?? []).filter((s) => fogStateAt(fog, s.x + 0.5, s.y + 0.5) === FOG_HEARD).map((s) => ({ x: s.x, y: s.y }));
+    }
+    if (look.readerTrail) {
+      const done = story.filter((event) => event.status === 'happened');
+      if (done.length >= 2) trail = done.map((event) => ({ x: event.x - 0.5, y: event.y - 0.5, ...(event.chapter !== undefined ? { chapter: event.chapter } : {}) }));
+    }
   } else if (args.storyEvents === true) {
     const { storyEventsFrom } = await import('@/engines/worldgen/core/storyEvents');
     story = storyEventsFrom(deserializeEdits(world.edits ?? '[]'));
   }
   if (args.storyEvents !== undefined && typeof args.storyEvents !== 'boolean') throw new BridgeError('bad-args', 'storyEvents must be true or false.');
-  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, story, layers: { ...DEFAULT_LAYERS, ...look.layers, ...(look.contours === null ? {} : { contours: false }) }, contourIntervalM: typeof look.contours === 'number' ? look.contours : null, reliefAmount: look.reliefAmount });
-  return { worldId: world.id, theme: themeId, ...(readerView ? { readerView: true } : {}), view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
+  // The hour: a name from the map's light menu or a clock hour.
+  let hour: number | null = null;
+  if (args.hour !== undefined && args.hour !== null) {
+    const { MAP_HOURS } = await import('@/engines/worldgen/core/hourLight');
+    if (typeof args.hour === 'string' && Object.hasOwn(MAP_HOURS, args.hour)) hour = MAP_HOURS[args.hour as keyof typeof MAP_HOURS];
+    else if (typeof args.hour === 'number' && Number.isFinite(args.hour) && args.hour >= 0 && args.hour <= 24) hour = args.hour;
+    else throw new BridgeError('bad-args', `hour must be a clock hour from 0 to 24 or one of ${Object.keys(MAP_HOURS).join(', ')}.`);
+  }
+  // The author's zones are part of the author's map, not of what the reader has seen.
+  const zones = readerView ? null : (await import('@/engines/worldgen/core/zones')).zonesFrom(deserializeEdits(world.edits ?? '[]'));
+  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, story, zones, trail, townDots, layers: { ...DEFAULT_LAYERS, ...look.layers, ...(look.contours === null ? {} : { contours: false }) }, contourIntervalM: typeof look.contours === 'number' ? look.contours : null, reliefAmount: look.reliefAmount });
+  if (hour !== null) {
+    const { drawHourLight } = await import('@/engines/worldgen/core/hourLight');
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
+    if (ctx) drawHourLight(ctx, 0, 0, canvas.width, canvas.height, hour);
+  }
+  return { worldId: world.id, theme: themeId, ...(readerView ? { readerView: true } : {}), ...(hour !== null ? { hour } : {}), view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
 }
 
 export async function whListPlaces(args: ToolArgs): Promise<unknown> {
@@ -1030,8 +1061,8 @@ export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
   const patch: Record<string, unknown> = {};
-  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours']) if (args[key] !== undefined) patch[key] = args[key];
-  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, stage3D, reliefAmount, layers, grid, readerStart or contours.');
+  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail']) if (args[key] !== undefined) patch[key] = args[key];
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, stage3D, reliefAmount, layers, grid, readerStart, contours, clouds, block3D, readerTowns or readerTrail.');
   const expected = optNumber(args, 'expectedRevision');
   const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
   try {
@@ -1062,15 +1093,29 @@ export async function whCreateWorld(args: ToolArgs): Promise<unknown> {
     if (preset.overrides.starter !== 'landmass') throw new BridgeError('bad-args', 'landmassKm goes with the island, country or continent preset.');
     if (typeof args.landmassKm !== 'number' || !Number.isFinite(args.landmassKm) || args.landmassKm < 300 || args.landmassKm > 9000) throw new BridgeError('bad-args', 'landmassKm must be a number of km between 300 and 9000.');
   }
+  // How big the map is. A single landmass is laid on a sheet its own size
+  // (about 3.2 times the land, so the sea goes round it) unless sheet:false asks
+  // for the whole planet; worldKm sets a sheet of any width for any preset.
+  const { sheetKmForLandmass, WORLD_KM } = await import('@/engines/worldgen/core/geoScale');
+  if (args.sheet !== undefined && typeof args.sheet !== 'boolean') throw new BridgeError('bad-args', 'sheet must be true or false.');
+  if (args.worldKm !== undefined) {
+    if (typeof args.worldKm !== 'number' || !Number.isFinite(args.worldKm) || args.worldKm < WORLD_KM.min || args.worldKm >= WORLD_KM.max) throw new BridgeError('bad-args', `worldKm must be a sheet width in km from ${WORLD_KM.min} to ${WORLD_KM.max - 1}; leave it out for the whole planet.`);
+    if (args.sheet === false) throw new BridgeError('bad-args', 'worldKm makes a sheet; it cannot go with sheet:false.');
+  }
+  const landKm = typeof args.landmassKm === 'number' ? Math.round(args.landmassKm) : preset.overrides.landmassKm;
+  const worldKm = typeof args.worldKm === 'number' ? Math.round(args.worldKm)
+    : preset.overrides.starter === 'landmass' && args.sheet !== false && typeof landKm === 'number' ? sheetKmForLandmass(landKm)
+      : args.sheet === true ? (() => { throw new BridgeError('bad-args', 'sheet:true needs a landmass preset (island, country, continent) or a worldKm.'); })()
+        : undefined;
   const width = optNumber(args, 'width') ?? DEFAULT_PARAMS.width;
   if (![1024, 2048, 3072].includes(width)) throw new BridgeError('bad-args', 'width must be 1024 (fast), 2048 (standard) or 3072 (high).');
   const title = optString(args, 'title')?.trim() || 'World';
   const seed = optString(args, 'seed')?.trim() || generateId('seed').slice(-8);
   const now = Date.now();
-  const world: GeneratedWorld = { id: generateId('world'), projectId, title, params: { ...applyWorldPreset({ ...DEFAULT_PARAMS, seed, width }, preset), ...(typeof args.landmassKm === 'number' ? { landmassKm: Math.round(args.landmassKm) } : {}) }, edits: freshWorldEdits(), createdAt: now, updatedAt: now };
+  const world: GeneratedWorld = { id: generateId('world'), projectId, title, params: { ...applyWorldPreset({ ...DEFAULT_PARAMS, seed, width }, preset), ...(typeof args.landmassKm === 'number' ? { landmassKm: Math.round(args.landmassKm) } : {}), ...(worldKm !== undefined ? { worldKm } : {}) }, edits: freshWorldEdits(), createdAt: now, updatedAt: now };
   await worldgenScopeOperations(worldEraToolScope(args)).worlds.create(world);
   return withAudit(
-    { id: world.id, worldId: world.id, title, preset: presetId, seed, width, starter: world.params.starter ?? null, created: true },
+    { id: world.id, worldId: world.id, title, preset: presetId, seed, width, starter: world.params.starter ?? null, worldKm: worldKm ?? 40075, cellKm: Math.round(((worldKm ?? 40075) / width) * 1000) / 1000, sheet: worldKm !== undefined, created: true },
     { projectId, entityId: world.id, summary: `created world "${title}" (${presetId})` },
   );
 }
@@ -1089,13 +1134,14 @@ export async function whMeasureWorld(args: ToolArgs): Promise<unknown> {
     if (p.y < 0 || p.y > height) throw new BridgeError('bad-args', `points[${index}].y must be within 0..${height}.`);
     return { x: ((p.x % width) + width) % width, y: p.y };
   });
-  const reading = measurePolyline(points, width, height);
+  const sheet = normalizeParams(world.params);
+  const reading = measurePolyline(points, width, height, sheet);
   const round = (value: number) => Math.round(value * 100) / 100;
   return {
     worldId: world.id,
     totalKm: round(reading.totalKm),
     legs: reading.legs.map(leg => ({ km: round(leg.km), bearing: Math.round(leg.bearing) })),
-    ...(points.length >= 3 ? { areaKm2: Math.round(polygonAreaKm2(points, width, height)), closedPerimeterKm: round(closedPerimeterKm(points, width, height)) } : {}),
+    ...(points.length >= 3 ? { areaKm2: Math.round(polygonAreaKm2(points, width, height, undefined, sheet)), closedPerimeterKm: round(closedPerimeterKm(points, width, height, sheet)) } : {}),
   };
 }
 
@@ -1170,7 +1216,14 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   }
   const hoursPerDay = optNumber(args, 'hoursPerDay');
   if (hoursPerDay !== undefined && (hoursPerDay <= 0 || hoursPerDay > 24)) throw new BridgeError('bad-args', 'hoursPerDay must be more than 0 and at most 24.');
-  const options = { mode, season, ...(pace && pace !== 'steady' ? { pace } : {}), ...(legModes ? { legModes } : {}), ...(Object.keys(profile).length ? { profile } : {}), ...(hoursPerDay ? { hoursPerDay } : {}), via: stops.slice(1, -1).map(({ x, y }) => ({ x, y })) };
+  // One of the world's own ways, instead of a mode.
+  let way: import('@/engines/worldgen/core/travel').TravelWay | undefined;
+  if (args.way !== undefined) {
+    way = typeof args.way === 'string' ? profile.ways?.find(candidate => candidate.id === args.way) : undefined;
+    if (!way) throw new BridgeError('bad-args', `way must be one of the world's own ways: ${(profile.ways ?? []).map(candidate => candidate.id).join(', ') || 'none yet (wh_set_world_travel_settings profile.ways)'}.`);
+    if (args.mode !== undefined || args.legModes !== undefined) throw new BridgeError('bad-args', 'Give way or mode/legModes, not both.');
+  }
+  const options = { mode: way ? way.base : mode, season, ...(way ? { way: way.id } : {}), ...(pace && pace !== 'steady' ? { pace } : {}), ...(legModes && !way ? { legModes } : {}), ...(Object.keys(profile).length ? { profile } : {}), ...(hoursPerDay ? { hoursPerDay } : {}), via: stops.slice(1, -1).map(({ x, y }) => ({ x, y })) };
   // Where the party is on a given day, as the journey player shows it.
   const setOffArg = optNumber(args, 'setOffHour');
   if (setOffArg !== undefined && !(Number.isInteger(setOffArg) && setOffArg >= 0 && setOffArg <= 23)) throw new BridgeError('bad-args', 'setOffHour must be a whole hour from 0 to 23.');
@@ -1184,7 +1237,7 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const at = atDay !== undefined ? travellerAt(route, data.width, atDay) : null;
   const words = await import('@/engines/worldgen/core/routeWords');
   const setOffHour = setOffArg ?? words.DEFAULT_SET_OFF_HOUR;
-  const perDay = effectiveHoursPerDay(options);
+  const perDay = effectiveHoursPerDay(way?.night ? { ...options, hoursPerDay: 22 } : options);
   const { HARD_PACE_REST_EVERY } = await import('@/engines/worldgen/core/travel');
   const restEvery = options.pace === 'hard' ? HARD_PACE_REST_EVERY : 0;
   const clocks = words.legClocks(route, perDay, setOffHour, restEvery);
@@ -1192,8 +1245,8 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   return {
     worldId: world.id,
     stops: stops.map(stop => stop.name),
-    mode, season, pace: pace ?? 'steady', legModes: legModes ?? null,
-    hoursPerDay: r(effectiveHoursPerDay(options), 2),
+    mode: way ? way.base : mode, ...(way ? { way: { id: way.id, name: way.name, flies: !!way.flies, night: !!way.night } } : {}), season, pace: pace ?? 'steady', legModes: way ? null : legModes ?? null,
+    hoursPerDay: r(perDay, 2),
     km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0,
     roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
     crossings: route.crossings.length, fords: route.crossings.filter(c => c.kind === 'river' && !c.bridge && !c.frozen).length, frozenRivers: route.crossings.filter(c => c.kind === 'river' && c.frozen).length, bridges: route.crossings.filter(c => c.kind === 'river' && c.bridge).length, realms: route.realms,
@@ -1252,6 +1305,14 @@ export async function whPaintReaderFog(args: ToolArgs): Promise<unknown> {
   );
 }
 
+/** The land the 'land' start inks (the world opened for its ground), or nothing for the other starts. */
+async function readerLand(args: ToolArgs, world: GeneratedWorld, start: string): Promise<{ elevation: Float32Array } | { pending: unknown } | null> {
+  if (start !== 'land') return null;
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return { pending: pendingResult(world, opened) };
+  return { elevation: opened.world.data.elevation };
+}
+
 /** What the reader knows of the map up to a chapter: shares, chapters and the state of given cells. */
 export async function whReaderView(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
@@ -1265,7 +1326,9 @@ export async function whReaderView(args: ToolArgs): Promise<unknown> {
     chapter = args.chapter;
   }
   const edits = deserializeEdits(world.edits ?? '[]').filter((edit) => edit.kind === 'fog');
-  const mask = fogMask(edits, size.width, size.height, start, chapter);
+  const land = await readerLand(args, world, start);
+  if (land && 'pending' in land) return land.pending;
+  const mask = fogMask(edits, size.width, size.height, start, chapter, land?.elevation);
   const shares = fogShares(mask);
   const round = (v: number) => Math.round(v * 1000) / 1000;
   let cells: { x: number; y: number; state: 'seen' | 'heard' | 'hidden' }[] | undefined;
@@ -1325,12 +1388,14 @@ export async function whStoryChapters(args: ToolArgs): Promise<unknown> {
   const edits = deserializeEdits(world.edits ?? '[]');
   const fog = edits.filter((edit) => edit.kind === 'fog');
   const start = resolvePresentation(world.presentation).readerStart;
+  const land = await readerLand(args, world, start);
+  if (land && 'pending' in land) return land.pending;
   const round = (v: number) => Math.round(v * 1000) / 1000;
   const events = storyEventsFrom(edits);
   const names = await codexNames(args, world, events.flatMap((event) => event.who ?? []));
   const brief = (event: { id: string; type: string; title: string; x: number; y: number; who?: string[] }) => ({ id: event.id, type: event.type, title: event.title, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10, ...(event.who?.length ? { who: event.who.map((id) => names.get(id) ?? id) } : {}) });
   const frames = storyChapterFrames(events, fogChapters(fog)).map((frame) => {
-    const shares = fogShares(fogMask(fog, size.width, size.height, start, frame.chapter));
+    const shares = fogShares(fogMask(fog, size.width, size.height, start, frame.chapter, land?.elevation));
     return { chapter: frame.chapter, happened: frame.happened.map(brief), planned: frame.planned.map(brief), map: { seen: round(shares.seen), heard: round(shares.heard), hidden: round(shares.hidden) } };
   });
   return { worldId: world.id, readerStart: start, chapters: frames };
@@ -1372,6 +1437,89 @@ export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
   const summary = { end: run.end, cells: run.cells, from: { x: Math.floor(at.x), y: Math.floor(at.y) }, to: { x: ((Math.floor(run.pts[run.pts.length - 1].x) % opened.world.data.width) + opened.world.data.width) % opened.world.data.width, y: Math.floor(run.pts[run.pts.length - 1].y) } };
   if (args.dryRun === true) return { worldId: world.id, dryRun: true, ...summary, points: run.pts };
   return appendEdit(args, world, { kind: 'river', pts: run.pts, width }, summary, `added a river from a spring (${run.cells} cells to the ${run.end}) to world "${world.title}"`);
+}
+
+/** Cells given by an agent, as the points of a stroke or a line: inside the grid, round the seam, at cell centres. */
+/**
+ * Points of a stroke in world cells. `snap`: 'cell' takes each point at the
+ * centre of its cell (brush strokes), 'whole' at the nearest whole cell (a
+ * drawn river's points), 'exact' keeps the fractions (a zone's corners).
+ */
+function strokeCells(args: ToolArgs, size: { width: number; height: number }, min: number, snap: 'cell' | 'whole' | 'exact' = 'cell'): { x: number; y: number }[] {
+  const raw = args.points;
+  if (!Array.isArray(raw) || raw.length < min || raw.length > 400) throw new BridgeError('bad-args', `points must be ${min} to 400 {x, y} world cells.`);
+  return raw.map((point, index) => {
+    const p = point as Record<string, unknown>;
+    if (typeof p?.x !== 'number' || typeof p?.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
+    if (p.y < 0 || p.y >= size.height) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
+    const wrap = (x: number) => ((x % size.width) + size.width) % size.width;
+    if (snap === 'exact') return { x: wrap(p.x), y: p.y };
+    if (snap === 'whole') return { x: wrap(Math.round(p.x)), y: Math.min(size.height - 1, Math.round(p.y)) };
+    return { x: wrap(Math.floor(p.x)) + 0.5, y: Math.floor(p.y) + 0.5 };
+  });
+}
+
+/**
+ * Shape the ground with the Brush's terrain operations: raise, lower, smooth,
+ * sharpen, flatten, terrace, roughen, gully, a volcano where the stroke starts,
+ * or the ground set to a height in metres. One undoable edit.
+ */
+export async function whShapeTerrain(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const OPS = ['raise', 'lower', 'smooth', 'sharpen', 'flatten', 'terrace', 'roughen', 'gully', 'volcano', 'height'] as const;
+  const op = args.op as (typeof OPS)[number];
+  if (!OPS.includes(op)) throw new BridgeError('bad-args', `op must be one of ${OPS.join(', ')}.`);
+  const size = worldSize(world);
+  const pts = strokeCells(args, size, 1);
+  const radius = optNumber(args, 'radius') ?? 4;
+  if (!(radius >= 0.5 && radius <= 60)) throw new BridgeError('bad-args', 'radius must be between 0.5 and 60 cells.');
+  const strength = optNumber(args, 'strength') ?? 0.75;
+  if (!(strength >= 0.05 && strength <= 1)) throw new BridgeError('bad-args', 'strength must be between 0.05 and 1.');
+  const { TERRAIN_HEIGHT_M } = await import('@/engines/worldgen/core/edits');
+  let heightM: number | undefined;
+  if (op === 'height') {
+    heightM = optNumber(args, 'heightM');
+    if (heightM === undefined || !(heightM >= TERRAIN_HEIGHT_M.min && heightM <= TERRAIN_HEIGHT_M.max)) throw new BridgeError('bad-args', `op "height" needs heightM, metres from ${TERRAIN_HEIGHT_M.min} to ${TERRAIN_HEIGHT_M.max}.`);
+    heightM = Math.round(heightM);
+  } else if (args.heightM !== undefined) throw new BridgeError('bad-args', 'heightM is only for op "height".');
+  const stroke = { pts, radius, strength, softness: 0.5, ...(heightM !== undefined ? { heightM } : {}) };
+  const summary = { op, points: pts.length, radius, strength, ...(heightM !== undefined ? { heightM } : {}) };
+  return appendEdit(args, world, { kind: 'terrain', op, stroke }, summary, `shaped the ground (${op}) on world "${world.title}"`);
+}
+
+/** Draw a river through world cells, from its spring (the first point) to its mouth (the last), like the River tool. */
+export async function whDrawRiver(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const size = worldSize(world);
+  // A river's line runs through whole cells (its points are rounded to cells as it is drawn).
+  const pts = strokeCells(args, size, 2, 'whole');
+  const width = optNumber(args, 'width') ?? 2;
+  if (!(width >= 0.5 && width <= 12)) throw new BridgeError('bad-args', 'width must be between 0.5 and 12 cells.');
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { data } = opened.world;
+  const spring = Math.floor(pts[0].y) * data.width + Math.floor(pts[0].x) % data.width;
+  if (!(data.elevation[spring] > 0)) throw new BridgeError('bad-args', 'The first point is the spring and must be on land.');
+  return appendEdit(args, world, { kind: 'river', pts, width }, { points: pts.length, width, spring: { x: Math.floor(pts[0].x), y: Math.floor(pts[0].y) } }, `drew a river on world "${world.title}"`);
+}
+
+/** Turn round a river drawn by hand (its spring becomes its mouth). Generated rivers run downhill and are refused. */
+export async function whReverseRiver(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { x, y } = cellCoords(args, worldSize(world));
+  const opened = await openWorldForReading(world, 'places', worldEraToolScope(args)?.eraId);
+  if (!opened.ok) return pendingResult(world, opened);
+  const { data } = opened.world;
+  const { drawnRiverNear } = await import('@/engines/worldgen/core/edits');
+  const rivers = (data.painted?.rivers ?? []).map((r) => r.cells);
+  const k = drawnRiverNear(rivers, data.width, x, y);
+  if (k < 0) throw new BridgeError('bad-args', `No river drawn by hand within two cells of ${x},${y}. Only drawn rivers (wh_draw_river, wh_add_spring_river, the River tool) can be turned round; generated rivers run downhill.`);
+  const cells = rivers[k];
+  const end = (c: number) => ({ x: c % data.width, y: Math.floor(c / data.width) });
+  return appendEdit(args, world, { kind: 'reverseRiver', x: Math.floor(x), y: Math.floor(y) }, { springNow: end(cells[cells.length - 1]), mouthNow: end(cells[0]), cells: cells.length }, `turned a river round on world "${world.title}"`);
 }
 
 /**
@@ -1548,8 +1696,9 @@ export async function whAddWorldRoad(args: ToolArgs): Promise<unknown> {
 
 function storyFields(args: ToolArgs): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of ['type', 'title', 'note', 'chapter', 'status', 'order', 'who'] as const) if (args[key] !== undefined) out[key] = args[key];
+  for (const key of ['type', 'title', 'note', 'chapter', 'status', 'order', 'who', 'writingId'] as const) if (args[key] !== undefined) out[key] = args[key];
   if (args.chapter === null) out.chapter = undefined;
+  if (args.writingId === null) out.writingId = undefined;
   if (args.order === null) out.order = undefined;
   return out;
 }
@@ -1585,6 +1734,32 @@ async function checkStoryWho(args: ToolArgs, world: GeneratedWorld): Promise<voi
   args.who = ids;
 }
 
+/**
+ * Where it is told must be a chapter or scene of this project's manuscript (and
+ * era). Returns the writing's chapter number, so an event with no chapter can
+ * take it, as the editor does.
+ */
+async function checkStoryWriting(args: ToolArgs, world: GeneratedWorld): Promise<number | undefined> {
+  if (args.writingId === undefined || args.writingId === null) return undefined;
+  if (typeof args.writingId !== 'string' || !args.writingId.trim()) throw new BridgeError('bad-args', 'writingId must be the id of a manuscript chapter or scene (wh_list_writings / the Writings list).');
+  const id = args.writingId.trim();
+  const eraId = worldEraToolScope(args)?.eraId;
+  const writing = eraId ? await readEraRow<{ projectId: string; chapter?: number }>({ projectId: world.projectId, eraId }, 'writings', id).catch(() => undefined) : await db.writings.get(id);
+  if (!writing || writing.projectId !== world.projectId) throw new BridgeError('not-found', `No manuscript chapter or scene "${id}" in this project.`);
+  args.writingId = id;
+  return typeof writing.chapter === 'number' ? writing.chapter : undefined;
+}
+
+/** Titles of the linked chapters and scenes, by id (deleted ones are left out). */
+async function writingTitles(args: ToolArgs, world: GeneratedWorld, ids: Iterable<string>): Promise<Map<string, string>> {
+  const eraId = worldEraToolScope(args)?.eraId, titles = new Map<string, string>();
+  for (const id of new Set(ids)) {
+    const writing = eraId ? await readEraRow<{ projectId: string; title: string }>({ projectId: world.projectId, eraId }, 'writings', id).catch(() => undefined) : await db.writings.get(id);
+    if (writing && writing.projectId === world.projectId) titles.set(id, writing.title);
+  }
+  return titles;
+}
+
 /** An event with an `order` takes that place in its chapter and the others move along: every changed record. */
 async function placedStory(world: GeneratedWorld, event: import('@/engines/worldgen/core/storyEvents').StoryEvent): Promise<WorldEdit[]> {
   const { storyEventsFrom, placeInChapter } = await storyModule();
@@ -1601,8 +1776,9 @@ export async function whAddStoryEvent(args: ToolArgs): Promise<unknown> {
   const at = await storyPosition(args, world);
   if (!at) throw new BridgeError('bad-args', 'Give place (a key from wh_find_place) or x and y world cells.');
   await checkStoryWho(args, world);
+  const toldIn = await checkStoryWriting(args, world);
   let event: import('@/engines/worldgen/core/storyEvents').StoryEvent;
-  try { event = normalizeStoryEvent({ id: newStoryId(), ...at, type: 'custom', ...storyFields(args) }); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+  try { event = normalizeStoryEvent({ id: newStoryId(), ...at, type: 'custom', ...(args.chapter === undefined && toldIn !== undefined ? { chapter: toldIn } : {}), ...storyFields(args) }); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
   const written = await placedStory(world, event);
   event = (written.find((edit) => edit.kind === 'story' && edit.id === event.id) as typeof event | undefined) ?? event;
   return appendEdit(args, world, written, { event }, `added story event "${event.title}" to world "${world.title}"`);
@@ -1618,8 +1794,10 @@ export async function whUpdateStoryEvent(args: ToolArgs): Promise<unknown> {
   if (!current) throw new BridgeError('not-found', `No story event "${id}" on this world; use wh_list_story_events.`);
   const at = await storyPosition(args, world);
   await checkStoryWho(args, world);
-  const merged: Record<string, unknown> = { ...current, ...(at ?? {}), ...storyFields(args) };
+  const toldIn = await checkStoryWriting(args, world);
+  const merged: Record<string, unknown> = { ...current, ...(at ?? {}), ...(args.chapter === undefined && current.chapter === undefined && toldIn !== undefined ? { chapter: toldIn } : {}), ...storyFields(args) };
   if (args.chapter === null) delete merged.chapter;
+  if (args.writingId === null) delete merged.writingId;
   if (args.order === null) delete merged.order;
   // Moved to another chapter without a place in it: it goes to the end there, not to its old place number.
   if (args.chapter !== undefined && (merged.chapter ?? null) !== (current.chapter ?? null) && args.order === undefined) delete merged.order;
@@ -1655,7 +1833,73 @@ export async function whListStoryEvents(args: ToolArgs): Promise<unknown> {
   }
   if (status) events = events.filter((event) => event.status === status);
   const names = await codexNames(args, world, events.flatMap((event) => event.who ?? []));
-  return { worldId: world.id, events: events.map((event) => ({ ...event, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10, ...(event.who?.length ? { whoNames: event.who.map((id) => names.get(id) ?? null) } : {}) })) };
+  const told = await writingTitles(args, world, events.flatMap((event) => event.writingId ? [event.writingId] : []));
+  return { worldId: world.id, events: events.map((event) => ({ ...event, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10, ...(event.who?.length ? { whoNames: event.who.map((id) => names.get(id) ?? null) } : {}), ...(event.writingId ? { writingTitle: told.get(event.writingId) ?? null } : {}) })) };
+}
+
+// ---------------------------------------------------------------------------
+// The author's named zones
+// ---------------------------------------------------------------------------
+
+/** The zones drawn on a world: name, colour, fill, outline, size and where their label sits. */
+export async function whListZones(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { zonesFrom, zoneShape } = await import('@/engines/worldgen/core/zones');
+  const size = worldSize(world);
+  const { polygonAreaKm2 } = await import('@/engines/worldgen/core/measure');
+  const { unwrapRing } = await import('@/engines/worldgen/core/zones');
+  return {
+    worldId: world.id,
+    zones: zonesFrom(deserializeEdits(world.edits ?? '[]')).map((zone) => {
+      const shape = zoneShape(zone, size.width);
+      // The ruler's own area: on the sphere (shrinking toward the poles), or flat on a sheet.
+      const areaKm2 = Math.round(polygonAreaKm2(unwrapRing(zone.pts, size.width), size.width, size.height, undefined, world.params));
+      return { ...zone, points: zone.pts.length, pts: zone.pts.map((p) => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })), areaKm2, center: { x: Math.round(shape.cx * 10) / 10, y: Math.round(shape.cy * 10) / 10 } };
+    }),
+  };
+}
+
+/** Draw a named zone on a world, corner by corner, like the Zones tool. */
+export async function whAddZone(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { normalizeZone, zoneShape } = await import('@/engines/worldgen/core/zones');
+  const size = worldSize(world);
+  const raw = args.points;
+  if (!Array.isArray(raw) || raw.length < 3 || raw.length > 400) throw new BridgeError('bad-args', 'points must be 3 to 400 corners {x, y} in world cells.');
+  const pts = strokeCells(args, size, 3, 'exact');
+  let zone: import('@/engines/worldgen/core/zones').WorldZone;
+  try { zone = normalizeZone({ id: `zone-${Date.now().toString(36)}${(typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))}`, name: args.name, pts, color: args.color, pattern: args.pattern, opacity: args.opacity }); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+  if (zoneShape(zone, size.width).cells < 0.5) throw new BridgeError('bad-args', 'The corners enclose no ground: give at least three corners that are not in a line.');
+  return appendEdit(args, world, { kind: 'zone', ...zone }, { zone }, `drew the zone "${zone.name}" on world "${world.title}"`);
+}
+
+/** Rename, recolour, refill or reshape a zone. */
+export async function whUpdateZone(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { normalizeZone, zonesFrom, zoneShape } = await import('@/engines/worldgen/core/zones');
+  const id = requireString(args, 'id');
+  const current = zonesFrom(deserializeEdits(world.edits ?? '[]')).find((zone) => zone.id === id);
+  if (!current) throw new BridgeError('not-found', `No zone "${id}" on this world; use wh_list_zones.`);
+  const merged: Record<string, unknown> = { ...current };
+  for (const key of ['name', 'color', 'pattern', 'opacity'] as const) if (args[key] !== undefined) merged[key] = args[key];
+  if (args.points !== undefined) merged.pts = strokeCells(args, worldSize(world), 3, 'exact');
+  let zone: import('@/engines/worldgen/core/zones').WorldZone;
+  try { zone = normalizeZone(merged); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+  if (args.points !== undefined && zoneShape(zone, worldSize(world).width).cells < 0.5) throw new BridgeError('bad-args', 'The corners enclose no ground: give at least three corners that are not in a line.');
+  return appendEdit(args, world, { kind: 'zone', ...zone }, { zone }, `changed the zone "${zone.name}" on world "${world.title}"`);
+}
+
+/** Take a zone off the map (undoable). */
+export async function whRemoveZone(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  await assertEngineEnabled(world.projectId, ENGINE);
+  const { zonesFrom } = await import('@/engines/worldgen/core/zones');
+  const id = requireString(args, 'id');
+  const current = zonesFrom(deserializeEdits(world.edits ?? '[]')).find((zone) => zone.id === id);
+  if (!current) throw new BridgeError('not-found', `No zone "${id}" on this world; use wh_list_zones.`);
+  return appendEdit(args, world, { kind: 'zoneRemove', id }, { id, removed: true }, `removed the zone "${current.name}" from world "${world.title}"`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1693,6 +1937,12 @@ export async function whWorldEconomy(args: ToolArgs): Promise<unknown> {
       shortIn: Object.fromEntries(Object.entries(p.shortIn).map(([good, months]) => [good, r(months ?? 0)])),
       price: Object.fromEntries(economy.GOODS.map((good) => [good, r(p.price[good])])),
       stock: Object.fromEntries(economy.GOODS.map((good) => [good, Math.round(p.stock[good])])),
+      // The port's sea trade so far (only in a single place's detail).
+      ...(wanted ? (() => {
+        const sea = economy.portTrade(snapshots, { id: p.id, port: names.get(p.id)?.port ?? false }, snapshots.length - 1);
+        const round = (goods: Partial<Record<string, number>>) => Object.fromEntries(Object.entries(goods).filter(([, v]) => (v ?? 0) >= 0.05).map(([good, v]) => [good, r(v ?? 0)]));
+        return { port: sea.port, landedBySea: round(sea.landed), shippedBySea: round(sea.shipped), tradesWith: sea.partners.slice(0, 8).map((q) => names.get(q.id)?.name ?? q.id) };
+      })() : {}),
     }))
     .sort((a, b) => Number(a.fed) - Number(b.fed) || economy.STAPLES.filter((g) => g in b.shortIn).length - economy.STAPLES.filter((g) => g in a.shortIn).length || b.population - a.population)
     .slice(0, limit);
@@ -1701,7 +1951,27 @@ export async function whWorldEconomy(args: ToolArgs): Promise<unknown> {
     worldId: world.id, month, fedPlaces: snap.places.filter((p) => p.fed).length, places: snap.places.length,
     onTheMove: snap.onTheMove, sites: { generated: sites.filter((site) => site.auto).length, yours: sites.filter((site) => !site.auto).length },
     goods: economy.goodsSummary(snap, sites).map((g) => ({ ...g, priceMin: r(g.priceMin), priceMax: r(g.priceMax) })),
-    movements: snap.movements.slice(0, 40).map((m) => ({ good: m.good, from: names.get(m.from)?.name ?? m.from, to: names.get(m.to)?.name ?? m.to, amount: Math.round(m.amount), bySea: m.bySea })),
+    movements: await (async () => {
+      // routes: the way each shipment goes, in world cells — round bays by
+      // land, along rivers, round headlands by sea — as the lens draws it.
+      if (args.routes !== undefined && typeof args.routes !== 'boolean') throw new BridgeError('bad-args', 'routes must be true or false.');
+      const ways = args.routes === true ? await import('@/engines/worldgen/core/tradeRoutes') : null;
+      const cache = new Map<string, { x: number; y: number }[]>();
+      const { mapDistanceKm } = await import('@/engines/worldgen/core/geoScale');
+      const W = input.world.width, H = input.world.height;
+      const km = (path: { x: number; y: number }[]) => path.reduce((sum, q, i) => i ? sum + mapDistanceKm(input.world.params, W, H, path[i - 1].x + 0.5, path[i - 1].y + 0.5, q.x + 0.5, q.y + 0.5) : 0, 0);
+      return snap.movements.slice(0, 40).map((m) => {
+        const a = names.get(m.from), b = names.get(m.to);
+        let path: { x: number; y: number }[] | undefined;
+        if (ways && a && b) {
+          const key = `${m.from}>${m.to}:${m.bySea}`;
+          path = cache.get(key) ?? ways.shipmentPath(input.world, a, b, m.bySea);
+          cache.set(key, path);
+        }
+        return { good: m.good, from: a?.name ?? m.from, to: b?.name ?? m.to, amount: Math.round(m.amount), bySea: m.bySea,
+          ...(path ? { path: path.map((q) => ({ x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 })), lengthKm: Math.round(km(path)) } : {}) };
+      });
+    })(),
     placesDetail: rows,
   };
 }

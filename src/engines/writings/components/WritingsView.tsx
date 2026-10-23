@@ -128,6 +128,8 @@ import {
 import {
   compareManuscriptOrder,
   moveChapter,
+  placeChapter,
+  KICKER_MAX,
   numberedInOrder,
   renumberChapters,
   type ChapterAssignment,
@@ -264,6 +266,50 @@ function ChapterNumberField({
         className="w-12 px-1 py-0.5 text-center bg-transparent border-b border-border/60 text-text-primary outline-none transition focus:border-accent-gold placeholder:text-text-dim"
       />
     </span>
+  );
+}
+
+/**
+ * How the chapter stands in the book: a kicker read in place of its number
+ * ("Prólogo", "Interludio") and whether it is held back from the book (kept in
+ * the manuscript, left out of a whole-book export). Keyed by writing id, as
+ * the number is, so a pending kicker lands on the chapter it was typed into.
+ */
+function ChapterBookFields({
+  writing,
+  onUpdate,
+}: {
+  writing: Writing;
+  onUpdate: (id: string, changes: Partial<Writing>) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const field = useDebouncedField(
+    writing.kicker ?? '',
+    (value) => onUpdate(writing.id, { kicker: value.trim() ? value.trim().slice(0, KICKER_MAX) : undefined }),
+  );
+  return (
+    <>
+      <input
+        value={field.value}
+        onChange={(e) => field.onChange(e.target.value.slice(0, KICKER_MAX))}
+        onBlur={field.onBlur}
+        data-testid="writing-kicker"
+        placeholder={t('writings.kicker.placeholder')}
+        aria-label={t('writings.kicker.label')}
+        title={t('writings.kicker.hint')}
+        className="w-24 px-1 py-0.5 bg-transparent border-b border-border/60 text-text-primary outline-none transition focus:border-accent-gold placeholder:text-text-dim"
+      />
+      <label className="flex items-center gap-1 cursor-pointer" title={t('writings.heldBack.hint')}>
+        <input
+          type="checkbox"
+          data-testid="writing-held-back"
+          checked={writing.heldBack === true}
+          onChange={(e) => void onUpdate(writing.id, { heldBack: e.target.checked ? true : undefined })}
+          className="accent-accent-gold"
+        />
+        {t('writings.heldBack.label')}
+      </label>
+    </>
   );
 }
 
@@ -1925,6 +1971,14 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     (id: string, direction: ChapterDirection) => applyOrderPlan(moveChapter(writings, id, direction)),
     [applyOrderPlan, writings],
   );
+  /** A chapter dragged onto another takes its place in the book; the others move along. */
+  const handlePlaceChapter = useCallback(
+    (id: string, index: number) => applyOrderPlan(placeChapter(writings, id, index)),
+    [applyOrderPlan, writings],
+  );
+  // The chapter held by its grip, and the one it would land on.
+  const [draggingChapter, setDraggingChapter] = useState<string | null>(null);
+  const [chapterDropAt, setChapterDropAt] = useState<string | null>(null);
 
   const handleRenumber = useCallback(async () => {
     setConfirmRenumber(false);
@@ -2555,6 +2609,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             writing={openWriting}
             onUpdate={handleMetaUpdate}
           />
+          <ChapterBookFields
+            key={`chapter-book-${openWriting.id}`}
+            writing={openWriting}
+            onUpdate={handleMetaUpdate}
+          />
           <span>
             <StatusIcon size={12} className="inline mr-1" style={{ color: config.color }} />
             {statusLabel(openWriting.status)}
@@ -3181,7 +3240,19 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
               return (
                 <motion.div
                   key={writing.id}
-                  className="w-full p-4 bg-surface border border-border rounded-xl hover:border-accent-gold/40 transition group flex items-start gap-4"
+                  data-testid={`chapter-row-${writing.id}`}
+                  onDragOver={(event: React.DragEvent) => {
+                    if (!draggingChapter || draggingChapter === writing.id || chapterAt === undefined) return;
+                    event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setChapterDropAt(writing.id);
+                  }}
+                  onDragLeave={() => setChapterDropAt((at) => (at === writing.id ? null : at))}
+                  onDrop={(event: React.DragEvent) => {
+                    event.preventDefault();
+                    const id = draggingChapter ?? event.dataTransfer.getData('text/plain');
+                    setDraggingChapter(null); setChapterDropAt(null);
+                    if (id && id !== writing.id && chapterAt !== undefined) void handlePlaceChapter(id, chapterAt);
+                  }}
+                  className={`w-full p-4 bg-surface border rounded-xl hover:border-accent-gold/40 transition group flex items-start gap-4 ${chapterDropAt === writing.id ? 'border-accent-gold' : 'border-border'} ${draggingChapter === writing.id ? 'opacity-50' : ''}`}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
@@ -3193,7 +3264,12 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                       that opens the chapter — a button does not nest — so they
                       sit before it, against the number they change. */}
                   {chapterAt !== undefined && (
-                    <div className="flex flex-col items-center flex-shrink-0 -mr-2 -my-1">
+                    <div className="flex flex-col items-center flex-shrink-0 -mr-2 -my-1 cursor-grab"
+                      draggable={!orderBusy}
+                      data-testid={`chapter-grip-${writing.id}`}
+                      title={t('writings.chapterOrder.drag')}
+                      onDragStart={(event) => { setDraggingChapter(writing.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', writing.id); }}
+                      onDragEnd={() => { setDraggingChapter(null); setChapterDropAt(null); }}>
                       <button
                         type="button"
                         onClick={() => void handleMoveChapter(writing.id, -1)}
@@ -3234,6 +3310,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                     </div>
 
                     <div className="flex-1 min-w-0">
+                      {writing.kicker && (
+                        <span data-testid="chapter-kicker" className="block text-[10px] uppercase tracking-wider text-accent-gold">{writing.kicker}</span>
+                      )}
                       <h3 className="font-serif font-bold text-text-primary group-hover:text-accent-gold transition truncate">
                         {writing.title}
                       </h3>
@@ -3256,6 +3335,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                         )}
                         {writing.isGoogleDoc && (
                           <GoogleDocBadge compact />
+                        )}
+                        {writing.heldBack && (
+                          <span data-testid="chapter-held-back-badge" title={t('writings.heldBack.hint')} className="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-muted">
+                            {t('writings.heldBack.badge')}
+                          </span>
                         )}
                         {writing.tags.length > 0 && (
                           <div className="flex gap-1">

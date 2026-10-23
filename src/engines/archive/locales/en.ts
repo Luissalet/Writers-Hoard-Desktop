@@ -20,5 +20,13 @@ export default {
   'archive.restored': 'Document restored with its contents and links.',
   'archive.archived': 'Document moved to the archive.',
   'archive.forgotten': 'Archived copy deleted forever.',
+  'archive.pick': 'Choose',
+  'archive.pickAll': 'Choose all shown',
+  'archive.bulkRestore': 'Restore ({count})',
+  'archive.bulkForget': 'Delete forever ({count})',
+  'archive.bulkForgetTitle': 'Delete {count} archived copies forever?',
+  'archive.bulkForgetConfirm': 'The {count} chosen copies and their recovery data will be removed from the archive. This cannot be undone.',
+  'archive.bulkRestored': 'Restored: {done}. In conflict: {conflicts}. Failed: {failed}.',
+  'archive.bulkForgotten': 'Deleted forever: {done}. Failed: {failed}.',
   'archive.rows': "Contents and links kept",
 };

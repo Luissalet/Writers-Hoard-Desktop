@@ -13,14 +13,23 @@ import type { WorldEdit } from './edits';
 export const FOG_HIDDEN = 0, FOG_HEARD = 1, FOG_SEEN = 2;
 export type FogOp = 'seen' | 'heard' | 'hide';
 export const FOG_OPS: FogOp[] = ['seen', 'heard', 'hide'];
-/** How the reader's map starts before any stroke: blank paper, all sketched, or all in ink. */
-export type ReaderStart = 'blank' | 'sketch' | 'ink';
-export const READER_STARTS: ReaderStart[] = ['blank', 'sketch', 'ink'];
+/**
+ * How the reader's map starts before any stroke: blank paper, all sketched,
+ * all in ink, or the land in ink and the sea blank (the coasts known, the
+ * waters not yet sailed).
+ */
+export type ReaderStart = 'blank' | 'sketch' | 'ink' | 'land';
+export const READER_STARTS: ReaderStart[] = ['blank', 'sketch', 'ink', 'land'];
 
 const STATE: Record<FogOp, number> = { seen: FOG_SEEN, heard: FOG_HEARD, hide: FOG_HIDDEN };
 
-export function fogMask(edits: readonly WorldEdit[], width: number, height: number, start: ReaderStart = 'blank', chapter: number | null = null): Uint8Array {
+/**
+ * `elevation` (km, one per cell) is what the 'land' start reads: land in ink,
+ * the sea blank. Without it that start is blank paper.
+ */
+export function fogMask(edits: readonly WorldEdit[], width: number, height: number, start: ReaderStart = 'blank', chapter: number | null = null, elevation?: ArrayLike<number>): Uint8Array {
   const mask = new Uint8Array(width * height).fill(start === 'ink' ? FOG_SEEN : start === 'sketch' ? FOG_HEARD : FOG_HIDDEN);
+  if (start === 'land' && elevation && elevation.length === mask.length) for (let i = 0; i < mask.length; i++) if (elevation[i] > 0) mask[i] = FOG_SEEN;
   for (const edit of edits) {
     if (edit.kind !== 'fog' || !FOG_OPS.includes(edit.op)) continue;
     if (chapter !== null && edit.chapter !== undefined && edit.chapter > chapter) continue;

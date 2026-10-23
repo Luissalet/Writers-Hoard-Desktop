@@ -7,6 +7,7 @@
 // camp, and when it arrives. Pure: the route and the geography in, plain data
 // out; the panel and the bridge put it into words.
 
+import { sheetScale } from './geoScale';
 import { coordinateDistance, type Route, type TravelGeography } from './travel';
 import type { WorldData } from './types';
 
@@ -78,7 +79,7 @@ export interface PassedPlace {
   offKm: number;
 }
 
-type World = Pick<WorldData, 'width' | 'height'>;
+type World = Pick<WorldData, 'width' | 'height'> & { params?: Pick<WorldData['params'], 'worldKm'> };
 
 /** Kilometres from the start at each cell of the route, scaled to the route's own length. */
 function alongKm(world: World, route: Pick<Route, 'cells' | 'km'>, radiusKm: number): number[] {
@@ -105,7 +106,7 @@ export function placesPassed(
 ): PassedPlace[] {
   const W = world.width, cells = route.cells;
   if (cells.length < 2) return [];
-  const radius = options.radiusKm ?? 6371;
+  const radius = options.radiusKm ?? 6371 * sheetScale(world.params);
   const along = alongKm(world, route, radius);
   const cellKm = (2 * Math.PI * radius) / W;
   const near = options.nearKm ?? Math.max(10, cellKm * 1.5);
@@ -165,7 +166,7 @@ export function roadsTaken(
 ): RoadTaken[] {
   const W = world.width, cells = route.cells;
   if (cells.length < 2 || !geo.settlements.length) return [];
-  const radius = options.radiusKm ?? 6371;
+  const radius = options.radiusKm ?? 6371 * sheetScale(world.params);
   const along = alongKm(world, route, radius);
   const position = new Map<number, number>();
   cells.forEach((cell, k) => { if (!position.has(cell)) position.set(cell, k); });

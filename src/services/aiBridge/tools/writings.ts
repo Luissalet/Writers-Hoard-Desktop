@@ -96,7 +96,23 @@ function worldDateView(calendar: WorldCalendar | null, w: Pick<Writing, 'worldDa
   return { worldDate: w.worldDate, worldDateEnd: w.worldDateEnd, worldDateText: text };
 }
 
-async function mustGetWriting(id: string, args: ToolArgs): Promise<Writing> {
+/** A kicker read in place of the number, and whether the chapter is held back from the book. */
+function bookPlacement(args: ToolArgs): { kicker?: string; heldBack?: true } {
+  const out: { kicker?: string; heldBack?: true } = {};
+  if (args.kicker !== undefined) {
+    if (typeof args.kicker !== 'string') throw new BridgeError('bad-args', 'kicker must be text ("" removes it).');
+    const kicker = args.kicker.trim();
+    if (kicker.length > 60) throw new BridgeError('bad-args', 'kicker takes up to 60 characters.');
+    if (kicker) out.kicker = kicker;
+  }
+  if (args.heldBack !== undefined) {
+    if (typeof args.heldBack !== 'boolean') throw new BridgeError('bad-args', 'heldBack must be true or false.');
+    if (args.heldBack) out.heldBack = true;
+  }
+  return out;
+}
+
+export async function mustGetWriting(id: string, args: ToolArgs): Promise<Writing> {
   const writing = await scopedWriting(args).getWriting(id);
   if (!writing) throw new BridgeError('not-found', `No writing with id "${id}".`);
   return writing;
@@ -151,6 +167,8 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
       title: w.title,
       status: w.status,
       chapter: w.chapter,
+      ...(w.kicker ? { kicker: w.kicker } : {}),
+      ...(w.heldBack ? { heldBack: true } : {}),
       synopsis: w.synopsis,
       wordCount: w.wordCount,
       tags: w.tags,
@@ -204,6 +222,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
     synopsis: optString(args, 'synopsis'),
     wordCount: countWords(html),
     chapter: optNumber(args, 'chapter'),
+    ...bookPlacement(args),
     tags: optStringArray(args, 'tags') ?? [],
     ...(await worldDating(projectId, args)),
     createdAt: now,
@@ -323,6 +342,10 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   if (status !== undefined) changes.status = status;
   const chapter = optNumber(args, 'chapter');
   if (chapter !== undefined) changes.chapter = chapter;
+  const placement = bookPlacement(args);
+  // An empty kicker or heldBack false takes it off (Dexie drops a key set to undefined).
+  if (args.kicker !== undefined) changes.kicker = placement.kicker;
+  if (args.heldBack !== undefined) changes.heldBack = placement.heldBack;
   const tags = optStringArray(args, 'tags');
   if (tags !== undefined) changes.tags = tags;
   Object.assign(changes, await worldDating(existing.projectId, args, existing));
@@ -339,9 +362,13 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
     status: existing.status,
     wordCount: existing.wordCount,
   };
+  const absent: string[] = [];
   for (const key of Object.keys(changes) as Array<keyof Writing>) {
     before[key] = key === 'content' ? existing.content ?? '' : existing[key];
+    // A field the row did not have (a first kicker, say) is taken away again on undo.
+    if (key !== 'content' && existing[key] === undefined) absent.push(key);
   }
+  if (absent.length) before.__absent = absent;
   await writeToUnmovedRow(existing, changes, args);
   return withAudit(
     { id: existing.id, updated: Object.keys(changes), wordCount: changes.wordCount ?? existing.wordCount },
@@ -366,8 +393,17 @@ export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
     requireString(args, 'content'),
     extractFootnotesFromHtml(existing.content ?? '').map((note) => note.id),
   );
+  return appendHtmlToWriting(args, existing, addition, `appended to writing "${existing.title}"`);
+}
+
+/** Add ready HTML to the end of a writing: a pre-AI version first, then an undoable write. */
+export async function appendHtmlToWriting(args: ToolArgs, existing: Writing, addition: string, summary: string): Promise<unknown> {
+  return replaceWritingHtml(args, existing, `${existing.content ?? ''}${addition}`, summary);
+}
+
+/** Write a writing's whole body: a pre-AI version first, then an undoable write. */
+export async function replaceWritingHtml(args: ToolArgs, existing: Writing, content: string, summary: string): Promise<unknown> {
   await scopedSnapshots(args, existing.projectId).takeSnapshot(existing, 'pre-ai');
-  const content = `${existing.content ?? ''}${addition}`;
   const wordCount = countWords(content);
   await writeToUnmovedRow(existing, { content, wordCount }, args);
   return withAudit(
@@ -375,7 +411,7 @@ export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
     {
       projectId: existing.projectId,
       entityId: existing.id,
-      summary: `appended to writing "${existing.title}"`,
+      summary,
       // The body as well as the count: recording the count alone made undo a
       // lie — the appended words stayed in the manuscript and the stored
       // wordCount no longer matched them, with nothing to recompute it.
@@ -427,5 +463,49 @@ export async function whRestoreWritingVersion(args: ToolArgs): Promise<unknown> 
       entityId: snapshot.writingId,
       summary: `restored writing "${restored.title}" from a saved version`,
     },
+  );
+}
+
+/**
+ * Put a chapter at a place in the manuscript, as dragging it in the chapter
+ * list does: `position` (1 = first), `before` another chapter, or one place
+ * `up`/`down`. The chapter numbers are dealt along the new order in one save;
+ * gaps the writer left stay where they were.
+ */
+export async function whMoveChapter(args: ToolArgs): Promise<unknown> {
+  if (typeof args.projectId === 'string' && args.projectId) await assertEngineEnabled(resolveProjectId(args), 'writings');
+  const existing = await mustGetWriting(requireString(args, 'id'), args);
+  await assertEngineEnabled(existing.projectId, 'writings');
+  assertRowInScope(args, existing.projectId);
+  if (existing.chapter === undefined) throw new BridgeError('bad-args', 'This writing has no chapter number; give it one with wh_update_writing first.');
+  const { moveChapter, numberedInOrder, placeChapter } = await import('@/engines/writings/chapterOrder');
+  const { applyChapterNumbers } = await import('@/engines/writings/chapterOrderPersist');
+  const eraId = optString(args, 'eraId');
+  const rows = await scopedWriting(args, existing.projectId).getWritings(existing.projectId);
+  const ordered = numberedInOrder(rows);
+  const given = ['position', 'before', 'direction'].filter((key) => args[key] !== undefined);
+  if (given.length !== 1) throw new BridgeError('bad-args', 'Give exactly one of position, before or direction.');
+  let plan: import('@/engines/writings/chapterOrder').ChapterAssignment[];
+  if (args.position !== undefined) {
+    const position = optNumber(args, 'position');
+    if (position === undefined || !Number.isInteger(position) || position < 1) throw new BridgeError('bad-args', 'position is a whole number from 1 (first).');
+    plan = placeChapter(rows, existing.id, position - 1);
+  } else if (args.before !== undefined) {
+    const before = requireString(args, 'before');
+    const at = ordered.findIndex((row) => row.id === before);
+    if (at < 0) throw new BridgeError('not-found', `No numbered chapter "${before}" in this manuscript.`);
+    const from = ordered.findIndex((row) => row.id === existing.id);
+    plan = placeChapter(rows, existing.id, from < at ? at - 1 : at);
+  } else {
+    const direction = optEnum(args, 'direction', ['up', 'down'] as const);
+    if (!direction) throw new BridgeError('bad-args', 'direction is up or down.');
+    plan = moveChapter(rows, existing.id, direction === 'up' ? -1 : 1);
+  }
+  const before = rows.filter((row) => plan.some((change) => change.id === row.id)).map((row) => ({ id: row.id, chapter: row.chapter }));
+  const written = await applyChapterNumbers(existing.projectId, plan, eraId ? { projectId: existing.projectId, eraId } : undefined);
+  const after = numberedInOrder((await scopedWriting(args, existing.projectId).getWritings(existing.projectId)));
+  return withAudit(
+    { id: existing.id, title: existing.title, moved: written > 0, renumbered: plan, position: after.findIndex((row) => row.id === existing.id) + 1, of: after.length },
+    { projectId: existing.projectId, entityId: existing.id, summary: `moved chapter "${existing.title}" in the manuscript`, kind: 'update', before: { __chapters: before } },
   );
 }

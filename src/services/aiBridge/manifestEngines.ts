@@ -894,11 +894,11 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_render_world_map', writes: false,
     description: `Render a generated world as a portable PNG using the same cartographic materials as the app. Styles: wonder (illustrated parchment), antique (engraving), relief (continuous painted terrain) and survey (night contour chart). Without theme it uses the world's saved look (wh_get_world_presentation), including its layers, relief density and play grid. readerView renders the reader's-eye map (blank paper where the story has not been, a wash over what is only heard of), optionally only up to readerChapter. Does not change the geography or saved world. ${PENDING_NOTE}`,
-    schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), readerView: { type: 'boolean', description: "Render the reader's-eye map (fog painted with wh_paint_reader_fog)." }, readerChapter: { type: 'integer', minimum: 0, description: "Only the fog strokes revealed up to this chapter (implies readerView); story events that happened by then are marked." }, storyEvents: { type: 'boolean', description: 'Mark every story event (wh_list_story_events) on the map; the reader view marks only those known by its chapter.' }, width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
+    schema: { type: 'object', properties: { worldId: WORLD_ID, theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }), readerView: { type: 'boolean', description: "Render the reader's-eye map (fog painted with wh_paint_reader_fog)." }, readerChapter: { type: 'integer', minimum: 0, description: "Only the fog strokes revealed up to this chapter (implies readerView); story events that happened by then are marked." }, storyEvents: { type: 'boolean', description: 'Mark every story event (wh_list_story_events) on the map; the reader view marks only those known by its chapter.' }, hour: { anyOf: [{ type: 'number', minimum: 0, maximum: 24 }, { type: 'string', enum: ['dawn', 'morning', 'noon', 'afternoon', 'dusk', 'night'] }], description: 'Show the map at an hour of the day (a clock hour or a name): dawn pink, dusk red, night blue, as the map\'s light menu does.' }, width: n('PNG width in pixels, default 1600.'), height: n('PNG height in pixels; default preserves the view aspect ratio.'), view: { type: 'object', description: 'Optional source rectangle in world-grid cells, within the world dimensions from wh_get_world. Omit for the whole world.', properties: { x: n('Left cell.'), y: n('Top cell.'), w: n('Width in cells.'), h: n('Height in cells.') }, required: ['x', 'y', 'w', 'h'], additionalProperties: false } }, required: ['worldId'], additionalProperties: false },
   },
   {
     name: 'wh_get_world_presentation', writes: false,
-    description: 'Read the saved look of a generated world: cartographic style (wonder, antique, relief, survey), which layers are drawn, relief density and 3D skin. Everyone who opens the world, and wh_render_world_map without an explicit theme, uses this look. Returns the saved fields, the effective values with defaults filled in, and the revision for compare-and-swap.',
+    description: 'Read the saved look of a generated world: cartographic style (wonder, antique, relief, survey), which layers are drawn, relief density, 3D skin, stage, block and clouds. Everyone who opens the world, and wh_render_world_map without an explicit theme, uses this look. Returns the saved fields, the effective values with defaults filled in, and the revision for compare-and-swap.',
     schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
   },
   {
@@ -909,9 +909,13 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       theme: s('Cartographic style.', { enum: ['wonder', 'antique', 'relief', 'survey'] }),
       skin3D: s('3D surface: satelite, dibujado (the Carta draped), arcilla (bare relief) or pintado (a painted relief map: blended grounds, shelf and coast rings, painted forests and dunes).', { enum: ['satelite', 'dibujado', 'arcilla', 'pintado'] }),
       stage3D: s('3D stage on the plane with the whole world in view: maqueta = a tabletop model with its cut walls, table and shadow (default); paisaje = a landscape reaching to the horizon.', { enum: ['maqueta', 'paisaje'] }),
+      block3D: s("The tabletop model's block (maqueta): roca = cut rock with strata (default); papel = stacked paper, the land rising in paper sheets with their edges drawn; grabado = an engraving, hatched in ink on parchment.", { enum: ['roca', 'papel', 'grabado'] }),
+      clouds: { type: 'boolean', description: 'Clouds drifting over the 3D plane (tabletop model or landscape), gathered where it rains, with their shadows on the ground. Default false.' },
       reliefAmount: n('Relief symbol density, 0.3 to 2. Default 1.'),
       layers: { type: 'object', description: 'Layers to show (true) or hide (false).', properties: Object.fromEntries(['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'].map((key) => [key, { type: 'boolean' }])), additionalProperties: false },
-      readerStart: s("How the reader's-eye map starts before any fog stroke: blank (default), sketch (all heard of) or ink (all seen).", { enum: ['blank', 'sketch', 'ink'] }),
+      readerStart: s("How the reader's-eye map starts before any fog stroke: blank (default), sketch (all heard of), ink (all seen) or land (the land in ink, the sea blank).", { enum: ['blank', 'sketch', 'ink', 'land'] }),
+      readerTowns: s("In the reader's view, towns the story has not shown: names (hidden under the fog, default) or dots (a town only heard of is an unnamed dot, and no unseen town is named).", { enum: ['names', 'dots'] }),
+      readerTrail: { type: 'boolean', description: "In the reader's view, draw the party's trail: the story events that have happened, in chapter order, with the chapter numbers." },
       grid: { anyOf: [{ type: 'object', properties: { kind: { type: 'string', enum: ['square', 'hex'] }, km: { type: 'number', minimum: 1, maximum: 2000 } }, required: ['kind', 'km'], additionalProperties: false }, { type: 'null' }], description: 'A square or hex play grid over the map, cell size in km; null removes it.' },
       contours: { anyOf: [{ type: 'integer', minimum: 50, maximum: 2000 }, { type: 'string', enum: ['off'] }, { type: 'null' }], description: 'Contour lines every N metres on any look (atlas, Carta, exports, wh_render_world_map); "off" for none; null for the look\'s own (relief and survey draw some).' },
       expectedRevision: n('Revision read before changing; a different current revision refuses the write.'),
@@ -919,19 +923,21 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_create_world', writes: true,
-    description: 'Create a generated world from a starting point, as the engine form does. Presets: continents, pangaea, archipelago, shattered, iceAge, desertWorld, island / country / continent (one landmass of about 900 / 2200 / 5000 km with the sea round it; landmassKm sets another size, 300-9000), blankSea (open sea to paint a coast on with the Coast brush), blankLand (a low plain with no coast), lushWorld. Returns the worldId; the terrain is forged the first time it is opened or read.',
+    description: 'Create a generated world from a starting point, as the engine form does. Presets: continents, pangaea, archipelago, shattered, iceAge, desertWorld, island / country / continent (one landmass of about 900 / 2200 / 5000 km with the sea round it; landmassKm sets another size, 300-9000; the land is laid on a flat sheet about 3.2 times its size so a small island gets fine cells, rivers and towns, or on the whole planet with sheet:false), blankSea (open sea to paint a coast on with the Coast brush), blankLand (a low plain with no coast), lushWorld. Returns the worldId; the terrain is forged the first time it is opened or read.',
     schema: { type: 'object', properties: {
       projectId: PROJECT_ID,
       title: s('World title. Default "World".'),
       preset: s('Starting point.', { enum: ['continents', 'pangaea', 'archipelago', 'shattered', 'iceAge', 'desertWorld', 'island', 'country', 'continent', 'blankSea', 'blankLand', 'lushWorld'] }),
       landmassKm: n('Only with island, country or continent: km across the land, 300-9000.'),
+      sheet: { type: 'boolean', description: 'Landmass presets: true (default) lays the land on a sheet its own size (finer cells, more rivers and towns); false lays it on the whole planet.' },
+      worldKm: n('Make the map a flat sheet this many km wide (1000-40074), for any preset; omit for the planet (or the landmass sheet).'),
       seed: s('Seed text; omit for a random one. Same seed and preset give the same world.'),
       width: n('Grid width: 1024 fast, 2048 standard (default), 3072 high.'),
     }, additionalProperties: false },
   },
   {
     name: 'wh_measure_world', writes: false,
-    description: 'Measure on a generated world like the map ruler: great-circle distance along points in world cells (each leg with bearing) and, for three or more points, the enclosed area in km² and the closed perimeter. Uses the planet size every map instrument uses.',
+    description: 'Measure on a generated world like the map ruler: great-circle distance along points in world cells (each leg with bearing) and, for three or more points, the enclosed area in km² and the closed perimeter. Uses the size every map instrument uses: the planet, or on a sheet world its own width, measured flat.',
     schema: { type: 'object', properties: { worldId: WORLD_ID, points: { type: 'array', minItems: 2, maxItems: 500, description: 'Points in world cells, in order.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } } }, required: ['worldId', 'points'], additionalProperties: false },
   },
   {
@@ -947,6 +953,11 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       profile: { type: 'object', description: 'speed: factor per mode (2 = twice as fast); ground: factor per ground class off the road (2 = twice as slow).', properties: {
         speed: { type: 'object', properties: Object.fromEntries(['foot', 'horse', 'cart', 'boat', 'ship'].map((key) => [key, { type: 'number', minimum: 0.25, maximum: 4 }])), additionalProperties: false },
         ground: { type: 'object', properties: Object.fromEntries(['open', 'dry', 'forest', 'jungle', 'marsh', 'mountains', 'ice'].map((key) => [key, { type: 'number', minimum: 0.25, maximum: 4 }])), additionalProperties: false },
+        ways: { type: 'array', maxItems: 12, description: 'The world\'s own ways of travelling (a griffin, a sledge, a sand ship), each built on a mode: its ground, roads and water, times speed; flies goes straight over land, sea and mountains at 40 km/h times speed, with no fords; night keeps going at least 22 hours a day (a day never holds more than 24 moving hours, whatever the pace). Pick one with wh_plan_journey way.', items: { type: 'object', properties: {
+          id: { type: 'string', pattern: '^[A-Za-z0-9-]{1,40}$' }, name: { type: 'string', maxLength: 40 },
+          base: { type: 'string', enum: ['foot', 'horse', 'cart', 'boat', 'ship'] }, speed: { type: 'number', minimum: 0.25, maximum: 4 },
+          flies: { type: 'boolean' }, night: { type: 'boolean' },
+        }, required: ['id', 'name', 'base'], additionalProperties: false } },
       }, additionalProperties: false },
       pace: s('Usual pace for new plans.', { enum: ['easy', 'steady', 'hard'] }),
       expectedRevision: n('Revision read before changing; a different current revision refuses the write.'),
@@ -959,6 +970,7 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       worldId: WORLD_ID,
       stops: { type: 'array', minItems: 2, maxItems: 12, description: 'Ordered stops: {place: key} or {x, y} world cells.', items: { type: 'object', properties: { place: PLACE_KEY, x: CELL_X, y: CELL_Y }, additionalProperties: false } },
       mode: s('Way of travelling.', { enum: ['foot', 'horse', 'cart', 'boat', 'ship'] }),
+      way: s('One of the world\'s own ways (profile.ways, by id), instead of mode and legModes.'),
       legModes: { type: 'array', description: 'One mode per leg (stops - 1).', items: { type: 'string', enum: ['foot', 'horse', 'cart', 'boat', 'ship'] } },
       season: s('Season.', { enum: ['spring', 'summer', 'autumn', 'winter'] }),
       pace: s('Pace; default the world\'s usual pace.', { enum: ['easy', 'steady', 'hard'] }),
@@ -1252,13 +1264,14 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
         place: PLACE_KEY,
         x: CELL_X,
         y: CELL_Y,
-        type: s('Kind of event.', { enum: ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'custom'] }),
+        type: s('Kind of event (lantern: travelling by lantern-light at night; sneaking: going unseen; inside: gone inside somewhere — a cave, a keep, a mine).', { enum: ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'lantern', 'sneaking', 'inside', 'custom'] }),
         title: s('What happens, in a few words.'),
         note: s('Optional note: what changed, what was said.'),
         chapter: { type: 'integer', minimum: 0, description: 'Chapter in which it happens.' },
         status: s('planned or happened (default).', { enum: ['planned', 'happened'] }),
         who: { type: 'array', maxItems: 20, items: { type: 'string' }, description: 'Who was there: Codex entry ids (characters, factions) from wh_list_codex.' },
         order: { type: 'integer', minimum: 0, maximum: 9999, description: 'Position within its chapter, from 0 (first); the chapter\'s other events move along, past the end puts it last. Without it the event follows in the order it was placed.' },
+        writingId: { type: 'string', description: 'The manuscript chapter or scene (a writing id) where it is told; an event with no chapter takes that chapter.' },
       },
       required: ['worldId', 'title'],
       additionalProperties: false,
@@ -1277,13 +1290,14 @@ Kinds: fight, find, meeting, rest, change, journey (travelling), camp, inn, cust
         place: PLACE_KEY,
         x: CELL_X,
         y: CELL_Y,
-        type: s('Kind of event.', { enum: ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'custom'] }),
+        type: s('Kind of event (lantern: travelling by lantern-light at night; sneaking: going unseen; inside: gone inside somewhere — a cave, a keep, a mine).', { enum: ['fight', 'find', 'meeting', 'rest', 'change', 'journey', 'camp', 'inn', 'lantern', 'sneaking', 'inside', 'custom'] }),
         title: s('What happens.'),
         note: s('Note.'),
         chapter: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }], description: 'Chapter, or null for none.' },
         status: s('planned or happened.', { enum: ['planned', 'happened'] }),
         who: { type: 'array', maxItems: 20, items: { type: 'string' }, description: 'Who was there: the whole list of Codex character or faction ids (an empty list clears it).' },
         order: { anyOf: [{ type: 'integer', minimum: 0, maximum: 9999 }, { type: 'null' }], description: 'Position within its chapter, from 0 (first); the others move along. null goes back to placement order. Changing chapter without it puts the event last in the new chapter.' },
+        writingId: { anyOf: [{ type: 'string' }, { type: 'null' }], description: 'The manuscript chapter or scene (a writing id) where it is told; an event with no chapter takes that chapter. null unlinks it.' },
       },
       required: ['worldId', 'id'],
       additionalProperties: false,
@@ -1396,6 +1410,80 @@ From the spot the water runs a few cells down to the bottom of its hollow and fi
     },
   },
   {
+    name: 'wh_list_zones', writes: false,
+    description: 'The named zones drawn on a generated world (the Zones tool, or the map\'s right-click "Start a zone here"): id, name, colour, fill (outline, wash or hatch), corners in world cells, area in km² and the label\'s centre.',
+    schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_add_zone', writes: true,
+    description: 'Draw a named zone on a generated world corner by corner, like the Zones tool: an area with a name (a march, a cursed wood, a clan\'s grounds, where a campaign starts), drawn on the map, the Carta and wh_render_world_map as an outline, a wash or a hatching with its name across it. It changes neither the ground nor the realms. Undoable.',
+    schema: { type: 'object', properties: {
+      worldId: WORLD_ID,
+      name: s('The zone\'s name, up to 80 characters.'),
+      points: { type: 'array', minItems: 3, maxItems: 400, description: 'Corners in order, in world cells.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+      color: s('Colour as #RRGGBB (default a deep red).'),
+      pattern: s('How it is filled.', { enum: ['outline', 'wash', 'hatch'] }),
+      opacity: { type: 'number', minimum: 0.05, maximum: 1, description: 'How strongly it is drawn (default 1).' },
+    }, required: ['worldId', 'name', 'points'], additionalProperties: false },
+  },
+  {
+    name: 'wh_update_zone', writes: true,
+    description: 'Rename, recolour, refill or reshape a zone (id from wh_list_zones). Only the fields given change. Undoable.',
+    schema: { type: 'object', properties: {
+      worldId: WORLD_ID, id: s('Zone id from wh_list_zones.'),
+      name: s('New name.'), color: s('#RRGGBB.'), pattern: s('Fill.', { enum: ['outline', 'wash', 'hatch'] }),
+      opacity: { type: 'number', minimum: 0.05, maximum: 1 },
+      points: { type: 'array', minItems: 3, maxItems: 400, description: 'New corners, in world cells.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+    }, required: ['worldId', 'id'], additionalProperties: false },
+  },
+  {
+    name: 'wh_remove_zone', writes: true,
+    description: 'Take a zone off a generated world\'s map. Not a deletion: it is an undoable edit (the bridge undo or Ctrl+Z puts it back).',
+    schema: { type: 'object', properties: { worldId: WORLD_ID, id: s('Zone id from wh_list_zones.') }, required: ['worldId', 'id'], additionalProperties: false },
+  },
+  {
+    name: 'wh_shape_terrain',
+    description:
+      `Shape the ground of a generated world with the Brush's terrain operations, along a stroke of world cells with a radius.
+raise / lower lift or sink it; smooth / sharpen soften or cut the relief; flatten levels it to its mean; terrace steps it in benches; roughen and gully break it up; volcano puts a cone with its crater where the stroke starts (taller with strength, from about 0.6 to 3.2 km over the ground there; in the sea it raises an island); height sets the ground to heightM metres (above or below the sea), feathered at the brush's edge. Coasts, rivers' banks and biomes follow the new ground (rivers keep their courses until the author recalculates climate and rivers). Undoable.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        op: s('Operation.', { enum: ['raise', 'lower', 'smooth', 'sharpen', 'flatten', 'terrace', 'roughen', 'gully', 'volcano', 'height'] }),
+        points: { type: 'array', minItems: 1, maxItems: 400, description: 'The stroke, in world cells (a volcano stands at the first).', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+        radius: { type: 'number', minimum: 0.5, maximum: 60, description: 'Brush radius in cells (default 4); a volcano\'s base radius.' },
+        strength: { type: 'number', minimum: 0.05, maximum: 1, description: 'How hard, 0.05 to 1 (default 0.75).' },
+        heightM: { type: 'number', minimum: -11000, maximum: 9000, description: 'Only with op "height": the ground\'s height in metres.' },
+      },
+      required: ['worldId', 'op', 'points'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_draw_river',
+    description:
+      `Draw a river through world cells, like the River tool point by point: from its spring (the first point, on land) to its mouth (the last). It carves a channel, shows on the map, in 3D and on the Carta, travellers ford or bridge it, and it widens from spring to mouth. Undoable; wh_reverse_river turns it round, the River tool's eraser removes it.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        points: { type: 'array', minItems: 2, maxItems: 400, description: 'The river from spring to mouth, in world cells.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
+        width: { type: 'number', minimum: 0.5, maximum: 12, description: 'River width at its mouth in cells, default 2.' },
+      },
+      required: ['worldId', 'points'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_reverse_river',
+    description: 'Turn round the river drawn by hand that runs nearest a cell (within two cells), like the map\'s right-click "Reverse the river\'s flow": its spring becomes its mouth, and it widens the other way. Rivers the world generated run downhill and are refused. Twice puts it back. Undoable.',
+    writes: true,
+    schema: { type: 'object', properties: { worldId: WORLD_ID, x: CELL_X, y: CELL_Y }, required: ['worldId', 'x', 'y'], additionalProperties: false },
+  },
+  {
     name: 'wh_add_spring_river',
     description:
       `Add a river that runs downhill from a spring at a place or cell, until the sea, a lake, another river or a hollow.
@@ -1462,7 +1550,7 @@ Coins names with roots that suit the label: region (lands, realms), water (seas,
     name: 'wh_world_economy',
     description:
       `The trade lens of a world: month by month, who is fed, who will go short of what and when (shortIn: months until a place first cannot get all it needs, trade included; grain, meat and salt are the staples), prices against the usual (1 = usual), shipments on the move by road and sea, and which goods nobody makes.
-Generated from the settlements (each opens farms, fisheries, pastures, logging camps, quarries, mines and saltworks near it by the ground) plus the sites the author placed. month is 1..240 (default 1). place narrows the detail to one settlement by name. Deterministic: the same world gives the same economy. ${PENDING_NOTE}`,
+Generated from the settlements (each opens farms, fisheries, pastures, logging camps, quarries, mines and saltworks near it by the ground) plus the sites the author placed. month is 1..240 (default 1). place narrows the detail to one settlement by name, and then tells whether it is a port (a town with no shore near enough is not) and its sea trade so far: goods landed and shipped by sea and the ports it trades with. Roads also run round a bay by land when the way round is under 1.8 times the straight line. Deterministic: the same world gives the same economy. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -1471,6 +1559,7 @@ Generated from the settlements (each opens farms, fisheries, pastures, logging c
         month: { type: 'integer', minimum: 1, maximum: 240, description: 'Which month, from 1.' },
         place: s('A settlement name for its detail only.'),
         limit: n('How many places in the detail, default 30.'),
+        routes: { type: 'boolean', description: 'Also give each shipment its way in world cells (path) and length (lengthKm): round bays by land and along rivers, round headlands by sea, as the map lens draws it.' },
       },
       required: ['worldId'],
       additionalProperties: false,

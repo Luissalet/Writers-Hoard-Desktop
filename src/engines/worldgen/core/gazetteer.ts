@@ -13,6 +13,7 @@
 // and a plausible-sounding one, and it is why this is worth building on top of a
 // physical model rather than instead of one.
 
+import { cellKmOf, climateLatDeg, isSheet, sheetScale, worldKmOf } from './geoScale';
 import { Biome, type WorldData } from './types';
 import { createRng, rngInt } from './rng';
 import { cognates, etymology, GLOSS_ES, type Gloss, type Language } from './language';
@@ -157,7 +158,8 @@ function overview(c: Ctx): string {
     }
     if (w.elevation[i] < minE) minE = w.elevation[i];
   }
-  const surfaceKm2 = 4 * Math.PI * Math.pow(c.opts.planetRadiusKm ?? 6371, 2);
+  // A sheet's surface is its width by its height; a planet's, its sphere's.
+  const surfaceKm2 = isSheet(w.params) ? worldKmOf(w.params) ** 2 / 2 : 4 * Math.PI * Math.pow(c.opts.planetRadiusKm ?? 6371, 2);
   const landKm2 = surfaceKm2 * (land / N);
   const topBiomes = [...biomeCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
     .map(([b, n]) => `${biomeName(b)} (${Math.round((100 * n) / land)} %)`);
@@ -333,7 +335,7 @@ function geographySection(c: Ctx): string {
     if (!fs.length) continue;
     lines.push(`### ${heading}`, '');
     for (const f of fs) {
-      const lat = (0.5 - f.y / c.H) * 180;
+      const lat = climateLatDeg(f.y / c.H, c.world.params);
       lines.push(`- **${f.name}**${f.etym ? ` — ${etymology(f.etym)}` : ''}, en ${latitudeName(lat)}.`);
     }
     lines.push('');
@@ -370,7 +372,7 @@ function ruinSection(c: Ctx): string {
   for (const [site, list] of order) {
     lines.push(`### ${capitalizeFirst(RUIN_SITE_PROSE[site])}`, '');
     for (const r of list.sort((a, b) => b.importance - a.importance)) {
-      const lat = (0.5 - r.y / c.H) * 180;
+      const lat = climateLatDeg(r.y / c.H, c.world.params);
       lines.push(
         `- **${r.name}** — ${RUIN_KIND_PROSE[r.kind]}, ${ruinConditionProse(r.kind, r.condition)}, `
         + `en ${latitudeName(lat)}${r.painted ? ' (puesta a mano)' : ''}.`,
@@ -400,7 +402,7 @@ function coastSection(c: Ctx): string {
     const note = anom < -1.5 && rain < 500 ? 'costa desértica, niebla y pesca'
       : anom > 1.5 ? 'inviernos suaves para su latitud'
         : rain > 1600 ? 'lluviosa todo el año' : 'clima moderado';
-    rows.push(`| ${s.name} | ${((0.5 - s.y / c.H) * 180).toFixed(0)}° | ${kind} (${anom >= 0 ? '+' : ''}${anom.toFixed(1)} °C) | ${rain.toFixed(0)} mm | ${note} |`);
+    rows.push(`| ${s.name} | ${climateLatDeg(s.y / c.H, c.world.params).toFixed(0)}° | ${kind} (${anom >= 0 ? '+' : ''}${anom.toFixed(1)} °C) | ${rain.toFixed(0)} mm | ${note} |`);
   }
   if (!rows.length) return '';
   return [
@@ -531,8 +533,8 @@ export function buildGazetteer(
   opts: GazetteerOptions,
 ): string {
   const W = world.width, H = world.height;
-  const radius = opts.planetRadiusKm ?? 6371;
-  const c: Ctx = { world, geo, opts, W, H, kmPerCell: (2 * Math.PI * radius) / W };
+  const radius = opts.planetRadiusKm ?? 6371 * sheetScale(world.params);
+  const c: Ctx = { world, geo, opts, W, H, kmPerCell: isSheet(world.params) ? cellKmOf(world.params, W) : (2 * Math.PI * radius) / W };
 
   return [
     `# ${opts.title}`,

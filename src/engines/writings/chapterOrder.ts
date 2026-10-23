@@ -146,6 +146,27 @@ export function moveChapter<T extends ChapterRow>(
 }
 
 /**
+ * Put one chapter at a place in the manuscript (0 = first; past the end =
+ * last), as a drag in the chapter list does, and report the numbers that puts
+ * it there. Total like `moveChapter`: an unnumbered writing, an unknown id or a
+ * drop where it already is returns no changes.
+ */
+export function placeChapter<T extends ChapterRow>(
+  rows: readonly T[],
+  id: string,
+  index: number,
+): ChapterAssignment[] {
+  const ordered = numberedInOrder(rows);
+  const from = ordered.findIndex((row) => row.id === id);
+  if (from < 0 || !Number.isFinite(index)) return [];
+  const to = Math.max(0, Math.min(ordered.length - 1, Math.floor(index)));
+  if (to === from) return [];
+  const [moved] = ordered.splice(from, 1);
+  ordered.splice(to, 0, moved);
+  return dealAlong(ordered);
+}
+
+/**
  * The manuscript numbered 1..n in the order it reads right now.
  *
  * Idempotent by construction: run it on its own result and every row already
@@ -162,3 +183,6 @@ export function renumberChapters<T extends ChapterRow>(rows: readonly T[]): Chap
   });
   return changes;
 }
+
+/** Longest kicker a chapter may carry ("Prólogo", "Interludio", "Libro segundo"). */
+export const KICKER_MAX = 60;

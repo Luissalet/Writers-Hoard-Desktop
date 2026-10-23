@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
-import { Background, Controls, Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
+import { Background, ControlButton, Controls, Handle, MarkerType, Position, ReactFlow, getViewportForBounds, useReactFlow, useStore, type Edge, type Node, type NodeChange, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Download, ExternalLink, GitBranch, Network, Pin, Search } from 'lucide-react';
+import { Download, ExternalLink, GitBranch, Maximize, Network, Pin, Search } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
 import { codexTypeColors, codexTypeIcons } from '@/components/codex/codexTypeMeta';
@@ -100,7 +100,7 @@ export default function WorldGraphWorkspace({ graph, initialLayout, avatars, onO
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="relative min-w-0 h-[600px] rounded-xl border border-border bg-deep overflow-hidden" data-testid="world-graph-canvas">
         <ReactFlow key={`${layoutEpoch}:${filters.focusId}:${filters.query}:${filters.type}:${filters.types?.join()}:${filters.templateId}:${filters.includeDescendants}:${filters.tag}:${filters.nodeLimit}`} nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onNodeDragStop={(_event, node) => { const next = { ...manual, [node.id]: node.position }; setManual(next); void persist(next); }} onNodeClick={(_event, node) => setSelected({ kind: 'node', id: node.id })} onNodeDoubleClick={(_event, node) => open(node.id)} onEdgeClick={(_event, edge) => setSelected({ kind: 'edge', id: edge.id })} onPaneClick={() => setSelected(null)} fitView minZoom={.03} maxZoom={3} nodesConnectable={false} edgesReconnectable={false} deleteKeyCode={null} proOptions={{ hideAttribution: true }} ariaLabelConfig={{ 'controls.zoomIn.ariaLabel': copy.zoomIn, 'controls.zoomOut.ariaLabel': copy.zoomOut, 'controls.fitView.ariaLabel': copy.fit }}>
-          <Background color="var(--color-border)" gap={28} /><Controls showInteractive={false} className="[&>button]:!bg-elevated [&>button]:!text-text-primary [&>button]:!border-border" />
+          <Background color="var(--color-border)" gap={28} /><GraphControls fitLabel={copy.fit} />
           {!view.nodes.length && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-8 text-sm text-text-muted"><p>{copy.empty}</p><button type="button" className={button} onClick={() => setFilters(defaultFilters())}>{copy.clear}</button></div>}
         </ReactFlow>
       </div>
@@ -114,4 +114,29 @@ export default function WorldGraphWorkspace({ graph, initialLayout, avatars, onO
     {graph.stats.unresolvedReferences > 0 && <p className="text-xs text-text-muted">{graphText(copy.unresolved, { count: graph.stats.unresolvedReferences })}</p>}
     {(layoutBusy || layoutFailed || Object.keys(manual).length > 0) && <p className={`text-xs ${layoutFailed ? 'text-danger' : 'text-text-muted'}`} role={layoutFailed ? 'alert' : 'status'}>{layoutFailed ? copy.layoutFailed : layoutBusy ? copy.layoutSaving : copy.layoutSaved}{layoutFailed && <button type="button" className="ml-2 underline" onClick={() => void persist(manual)}>{copy.retry}</button>}</p>}
   </div>;
+}
+
+/**
+ * The graph's controls, with a Fit View that measures the canvas when it is
+ * pressed. React Flow's own button fits to the size its store last recorded,
+ * and a canvas that has just narrowed (a pane resized, a window not painting)
+ * can still be on the old one: the fit then frames the old width and nodes
+ * fall off the side. Measuring the element itself always frames what shows.
+ */
+function GraphControls({ fitLabel }: { fitLabel: string }) {
+  const flow = useReactFlow();
+  const domNode = useStore((state) => state.domNode);
+  const fitNow = () => {
+    const rect = domNode?.getBoundingClientRect();
+    const nodes = flow.getNodes();
+    if (!rect || rect.width < 2 || rect.height < 2 || !nodes.length) { void flow.fitView({ padding: 0.1 }); return; }
+    void flow.setViewport(getViewportForBounds(flow.getNodesBounds(nodes), rect.width, rect.height, 0.03, 3, 0.1));
+  };
+  return (
+    <Controls showInteractive={false} showFitView={false} className="[&>button]:!bg-elevated [&>button]:!text-text-primary [&>button]:!border-border">
+      <ControlButton onClick={fitNow} aria-label={fitLabel} title={fitLabel} className="react-flow__controls-fitview">
+        <Maximize size={12} />
+      </ControlButton>
+    </Controls>
+  );
 }

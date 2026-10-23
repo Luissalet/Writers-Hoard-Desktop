@@ -97,10 +97,18 @@ export interface WorldPresentation {
   layers?: Partial<Record<WorldPresentationLayer, boolean>>;
   /** A square or hex play grid over the map, in km; null or absent = none. */
   grid?: import('./cartography/mapGrid').MapGrid | null;
-  /** How the reader's-eye map starts before any fog stroke: blank paper (default), all sketched, or all in ink. */
-  readerStart?: 'blank' | 'sketch' | 'ink';
+  /** How the reader's-eye map starts before any fog stroke: blank paper (default), all sketched, all in ink, or the land in ink and the sea blank. */
+  readerStart?: 'blank' | 'sketch' | 'ink' | 'land';
+  /** In the reader's view, towns the story has not shown: hidden under the fog with their names (default), or as unnamed dots where heard of. */
+  readerTowns?: 'names' | 'dots';
+  /** In the reader's view, the party's trail: the events that have happened, in chapter order. Off unless chosen. */
+  readerTrail?: boolean;
   /** Contour lines: absent/null = as the look draws them, 'off' = none, a number = every N metres on any look. */
   contours?: number | 'off' | null;
+  /** Clouds drifting over the 3D plane, with their shadows on the ground. Off unless chosen. */
+  clouds?: boolean;
+  /** The tabletop model's block: cut rock (default), stacked paper (the land rises in paper sheets) or an engraving. */
+  block3D?: 'roca' | 'papel' | 'grabado';
 }
 
 /**

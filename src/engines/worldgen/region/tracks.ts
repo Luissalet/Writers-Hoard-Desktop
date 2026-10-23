@@ -13,6 +13,7 @@
 // villages, villages feed the highway, and the highway crosses the river once,
 // at the place everything else has already decided is the crossing.
 
+import { regionWorldKm } from './terrain';
 import { chaikin } from './terrain';
 import { SphereNoise } from '../core/noise';
 import type { HumanGeography } from '../core/settlements';
@@ -109,7 +110,7 @@ export function buildTracks(
   // and on genuinely flat ground a pure least-cost route is a dead straight
   // line from edge to edge, which is the one thing a medieval road never is.
   const going = new SphereNoise(world.params.seed, 'region-going');
-  const fGoing = (2 * Math.PI * 6371) / 1.1;
+  const fGoing = regionWorldKm(world) / 1.1;
   for (let ry = 0; ry < RH; ry++) {
     for (let rx = 0; rx < RW; rx++) {
       const x = Math.min(W - 1, rx * S), y = Math.min(H - 1, ry * S);

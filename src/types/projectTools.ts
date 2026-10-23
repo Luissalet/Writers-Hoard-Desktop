@@ -77,6 +77,16 @@ export interface PublishingProfile {
   includeTitlePage: boolean;
   /** A list of the chapters before the first one. Missing on older profiles: off. */
   includeToc?: boolean;
+  /** A copyright page after the title page. Missing on older profiles: off. */
+  includeCopyright?: boolean;
+  /** The project's back-cover text as the last page. Missing: off. */
+  includeBlurb?: boolean;
+  /** How the whole book is set at compile time; missing: as written. */
+  bookStyle?: import('@/engines/writings/bookStyle').BookStyle;
+  /** Each chapter's header image from its Reader presentation, in every format. Missing: off. */
+  includeChapterImages?: boolean;
+  /** The manuscript's own pictures in DOCX and ePub too (stored ones only). Missing: off, as before. */
+  includeInlineImages?: boolean;
   includeSynopsis: boolean;
   includeBibliography: boolean;
   citationStyle: 'apa' | 'mla' | 'chicago';

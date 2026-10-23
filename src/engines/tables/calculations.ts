@@ -1,3 +1,4 @@
+import { shiftSheetReferences } from './tableEdits';
 import {db} from '@/db';
 import type {WorldEraScope} from '@/services/worldEras/types';
 import {getEraProject,readWorldDocument} from '@/services/worldEras/store';
@@ -30,7 +31,7 @@ export async function saveTableCalculation(scope:WorldEraScope,input:SaveTableCa
  });
 }
 /** Removing a visible column never silently deletes a shared type property. */
-export async function removeTableColumn(scope:WorldEraScope,tableId:string,columnId:string,expectedVersion:string):Promise<void>{await db.transaction('rw',db.tables,async()=>{const read=await readWorldDocument(scope,'tables',tableId);if(!read||read.version!==expectedVersion)throw Error('table_conflict');const table=read.document.root as unknown as WorldTable,project=await getEraProject(scope),column=effectiveTableColumns(table,project.codexTemplates??[]).find(item=>item.id===columnId);if(!column)throw Error('table_column_missing');await changeTable(scope.projectId,tableId,current=>{current.columns=current.columns.filter(item=>item.id!==columnId);if(column.propertyId)current.hiddenPropertyIds=[...new Set([...current.hiddenPropertyIds??[],column.propertyId])];for(const row of current.rows)delete row.cells[columnId];},scope.eraId);});}
+export async function removeTableColumn(scope:WorldEraScope,tableId:string,columnId:string,expectedVersion:string):Promise<void>{await db.transaction('rw',db.tables,async()=>{const read=await readWorldDocument(scope,'tables',tableId);if(!read||read.version!==expectedVersion)throw Error('table_conflict');const table=read.document.root as unknown as WorldTable,project=await getEraProject(scope),column=effectiveTableColumns(table,project.codexTemplates??[]).find(item=>item.id===columnId);if(!column)throw Error('table_column_missing');await changeTable(scope.projectId,tableId,current=>{const gone=current.columns.findIndex(item=>item.id===columnId);if(gone>=0)shiftSheetReferences(current,'column',index=>index===gone?null:index>gone?index-1:index);current.columns=current.columns.filter(item=>item.id!==columnId);if(column.propertyId)current.hiddenPropertyIds=[...new Set([...current.hiddenPropertyIds??[],column.propertyId])];for(const row of current.rows)delete row.cells[columnId];},scope.eraId);});}
 
 /** A type-bound column label is the property label, never a second alias. */
 export async function updateTableColumn(scope:WorldEraScope,tableId:string,draft:DataColumn,expectedVersion:string,expectedTemplateRevision?:number):Promise<void>{await db.transaction('rw',db.tables,async()=>{

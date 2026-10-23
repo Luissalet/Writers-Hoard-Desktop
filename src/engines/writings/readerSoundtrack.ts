@@ -15,7 +15,7 @@ export function readerParagraphs(html: string) {
   const template = document.createElement('template'); template.innerHTML = html;
   return [...template.content.querySelectorAll('p')].filter(node => !node.closest('[data-wh-media-block],[data-wh-tool-block],[data-wh-codex-block],[data-wh-wiki-hidden]')).map((node, paragraphIndex) => ({ paragraphIndex, fingerprint: paragraphFingerprint(node.textContent ?? ''), excerpt: (node.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 100) }));
 }
-export interface ReaderSoundChapter { id: string; audio?: ReaderAudioTrack; cues: { paragraphIndex: number; fingerprint: string; track: ReaderAudioTrack }[] }
+export interface ReaderSoundChapter { id: string; audio?: ReaderAudioTrack; cues: { paragraphIndex: number; fingerprint: string; track: ReaderAudioTrack; through?: number }[] }
 export const readerSoundChapter = (id: string, style?: ChapterPresentation): ReaderSoundChapter => ({ id, audio: style?.audio, cues: style?.paragraphAudio ?? [] });
 
 /** Self-contained DOM runtime, also serialized verbatim into the offline reader.
@@ -51,8 +51,9 @@ export function installReaderSoundtrack(root: HTMLElement, toggle: HTMLButtonEle
     const revealed = selected.article.querySelector<HTMLElement>('[data-reader-active-block]');
     paragraphs.forEach((node, index) => { for (const box of node.getClientRects()) { if (box.bottom <= top || box.top >= bottom || box.right <= left || box.left >= right) continue; const distance = Math.abs(Math.max(box.top, Math.min(target, box.bottom)) - target); if (distance < score) { score = distance; active = index; } } });
     if (revealed) active = paragraphs.findIndex(node => node === revealed || revealed.contains(node));
-    const cue = selected.chapter.cues.find(cue => cue.paragraphIndex === active && paragraphs[active] && cue.fingerprint === fingerprint(paragraphs[active].textContent ?? ''));
-    play(1, cue ? `${selected.chapter.id}:${active}:${JSON.stringify(cue.track)}` : '', cue?.track);
+    // A cue plays on its paragraph, or on through its `through` paragraph; its start paragraph must still read as assigned.
+    const cue = selected.chapter.cues.find(cue => active >= cue.paragraphIndex && active <= (cue.through ?? cue.paragraphIndex) && paragraphs[cue.paragraphIndex] && cue.fingerprint === fingerprint(paragraphs[cue.paragraphIndex].textContent ?? ''));
+    play(1, cue ? `${selected.chapter.id}:${cue.paragraphIndex}:${JSON.stringify(cue.track)}` : '', cue?.track);
   };
   const schedule = () => { if (!frame && enabled && !disposed) frame = requestAnimationFrame(update); };
   const click = () => { enabled = !enabled; generation++; toggle.textContent = enabled ? copy.disable : copy.enable; toggle.setAttribute('aria-pressed', String(enabled)); status.textContent = ''; if (enabled) update(); else { stop(0); stop(1); } };

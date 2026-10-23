@@ -49,6 +49,7 @@ export async function testWorldTravelProfile(): Promise<string[]> {
     const steadyLong = planRoute(longWorld, longGeo, { x: 10, y: 64 }, { x: 120, y: 64 }, base, 'en');
     assert(hard.days < steadyLong.days, `Hard pace slower than steady: ${hard.days} vs ${steadyLong.days}`);
     assert(close(effectiveHoursPerDay({ season: 'winter', pace: 'hard' }), 7 * 1.3) && close(effectiveHoursPerDay({ season: 'winter', hoursPerDay: 12, pace: 'easy' }), 9), 'Effective hours per day');
+    assert(effectiveHoursPerDay({ season: 'summer', hoursPerDay: 22, pace: 'hard' }) === 24, 'A hard pace never moves more than the whole day');
     // Speed factors scale the whole least-time route.
     const quick = planRoute(w, g, from, to, { ...base, profile: { speed: { foot: 2 } } }, 'en');
     assert(close(quick.hours, plain.hours / 2, 1e-6) && quick.km === plain.km, `Double foot speed: ${quick.hours} vs ${plain.hours / 2}`);

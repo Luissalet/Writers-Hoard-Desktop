@@ -6,6 +6,7 @@ import type { Timeline, TimelineEvent } from '@/types';
 import { timelineEventLabel, validateEventClock } from './eventClock';
 import { validateWorldCalendar, validateWorldRange, type WorldCalendar, formatWorldDate } from './worldCalendar';
 import { resolveWorldCalendar } from './worldCalendarStore';
+import { redatePlan } from './redate';
 
 export function eventWithinYearRange(event: TimelineEvent, range?: Timeline['yearRange']): boolean {
   if (!range || event.dateMode === 'text' || !event.dateMode) return true;
@@ -17,16 +18,22 @@ export function eventWithinYearRange(event: TimelineEvent, range?: Timeline['yea
 export function compactTimelineLabel(event: TimelineEvent, calendar: WorldCalendar | null | undefined, precision: Timeline['displayPrecision'], locale?: string): string {
   if (!precision || precision === 'hour' || event.dateMode === 'text') return timelineEventLabel(event, calendar, locale);
   if (event.dateMode === 'world' && calendar && event.worldDate) {
-    const date = precision === 'year' ? { year: event.worldDate.year, approx: event.worldDate.approx } : event.worldDate;
-    const end = event.worldDateEnd && (precision === 'year' ? { year: event.worldDateEnd.year, approx: event.worldDateEnd.approx } : event.worldDateEnd);
+    const cut = (date: NonNullable<TimelineEvent['worldDate']>) => precision === 'year' ? { year: date.year, approx: date.approx } : precision === 'month' ? { year: date.year, month: date.month, approx: date.approx } : date;
+    const date = cut(event.worldDate);
+    const end = event.worldDateEnd && cut(event.worldDateEnd);
     return `${formatWorldDate(calendar, date)}${end ? ` – ${formatWorldDate(calendar, end)}` : ''}`;
   }
   if (precision === 'year' && event.realDate) return `${event.realDate.split('-')[0]}${event.realDateEnd ? ` – ${event.realDateEnd.split('-')[0]}` : ''}`;
+  if (precision === 'month' && event.realDate) {
+    const month = (iso: string) => { const [year, number] = iso.split('-'); const name = new Date(Date.UTC(2000, Number(number) - 1, 1)).toLocaleDateString(locale ?? 'es', { month: 'long', timeZone: 'UTC' }); return `${name} ${year}`; };
+    return `${month(event.realDate)}${event.realDateEnd ? ` – ${month(event.realDateEnd)}` : ''}`;
+  }
   return timelineEventLabel({ ...event, time: undefined, endTime: undefined }, calendar, locale);
 }
 
 /** Validate all existing dates before replacing calendar semantics. One atomic write. */
-export async function saveTimelineSettings(projectId: string, timelineId: string, changes: Pick<Partial<Timeline>, 'worldCalendar' | 'yearRange' | 'displayPrecision'>, eraId?: string): Promise<void> {
+/** With `redate`, events the calendar no longer accepts move to the nearest date it has instead of stopping the save. */
+export async function saveTimelineSettings(projectId: string, timelineId: string, changes: Pick<Partial<Timeline>, 'worldCalendar' | 'yearRange' | 'displayPrecision'>, eraId?: string, options: { redate?: boolean } = {}): Promise<void> {
   if (changes.worldCalendar) {
     const problems = validateWorldCalendar(changes.worldCalendar);
     if (problems.length) throw new Error(problems.join(' '));
@@ -42,9 +49,13 @@ export async function saveTimelineSettings(projectId: string, timelineId: string
     if ('worldCalendar' in changes) {
       const calendar = changes.worldCalendar ?? (await resolveWorldCalendar(projectId, undefined, eraId))?.calendar;
       const events = eraId ? (await listEraRows<TimelineEvent>(scope, 'timelineEvents')).filter(event => event.timelineId === timelineId) : await db.timelineEvents.where('timelineId').equals(timelineId).toArray();
-      for (const event of events) {
+      const moves = options.redate && calendar ? new Map(redatePlan(events.filter(event => event.projectId === projectId), calendar).map(change => [change.id, change.changes])) : new Map();
+      for (const original of events) {
+        const moved = moves.get(original.id);
+        const event = moved ? { ...original, ...moved } : original;
         if (event.projectId !== projectId || event.dateMode !== 'world' || !event.worldDate) continue;
         if (!calendar || validateWorldRange(calendar, event.worldDate, event.worldDateEnd) || validateEventClock(event, calendar)) throw new Error(`timeline.settings.invalidExisting:${event.title}`);
+        if (moved) { if (eraId) mutations.push({ table: 'timelineEvents', id: event.id, changes: { ...moved, updatedAt: Math.max(Date.now(), event.updatedAt + 1) } }); else await db.timelineEvents.update(event.id, { ...moved, updatedAt: Math.max(Date.now(), event.updatedAt + 1) }); continue; }
         if (eraId) mutations.push({ table: 'timelineEvents', id: event.id, changes: { date: timelineEventLabel(event, calendar), updatedAt: Math.max(Date.now(), event.updatedAt + 1) } }); else await db.timelineEvents.update(event.id, { date: timelineEventLabel(event, calendar), updatedAt: Math.max(Date.now(), event.updatedAt + 1) });
       }
     }

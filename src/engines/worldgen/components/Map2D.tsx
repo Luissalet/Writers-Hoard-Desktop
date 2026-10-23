@@ -7,6 +7,9 @@
 // and pointer interactions are inverse-projected. Cylindrical projections
 // wrap seamlessly east–west; the others pan as a single sheet.
 
+import { drawTownDots, drawTrail } from '../cartography/readerTrail';
+import { drawTradeLayerProjected } from '../cartography/tradeMarks';
+import { cellKmOf, isSheet, sheetScale } from '../core/geoScale';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useEnginePane, ownsEnginePaneEvent, dispatchEnginePaneCommand } from '@/engines/_shared/EnginePaneContext';
@@ -21,7 +24,7 @@ import {
   type PaintSpec,
 } from '../core/paintCommit';
 import type { EditTarget, Pt, Stroke, WorldEdit } from '../core/edits';
-import { editKey, filterFor } from '../core/edits';
+import { editKey, filterFor, TERRAIN_HEIGHT_M } from '../core/edits';
 import { settlementStyle, placeFont, labelScale, symbolScale } from '../core/placeStyle';
 import { drawPlaceBuilding } from '../cartography/placeSymbol';
 import { strokeMask } from '../sculpt/ops';
@@ -29,6 +32,8 @@ import { Biome } from '../core/types';
 import { settlementCellCenter, type HumanGeography, type Road, type Settlement } from '../core/settlements';
 import type { SavedWorldRegion, WorldViewport, WorldWaypoint } from '../types';
 import { drawAnnotations, drawClosedCrossings, type CartoAnnotations } from '../cartography/annotations';
+import { drawHourLight } from '../core/hourLight';
+import { ZONE_COLORS, ZONE_POINTS } from '../core/zones';
 import { tipOf, tipOutline } from '../sculpt/ops';
 import type { PaintTool } from './PaintPanel';
 import {
@@ -69,7 +74,7 @@ import {
   type FlyTarget,
 } from '../core/camera';
 import {
-  cellDistanceKm, cellToLonLat, closedPerimeterKm, compassPoint, formatLatLon, measurePolyline, polygonAreaKm2, type CellPoint,
+  cellDistanceKm, closedPerimeterKm, mapLonLat, compassPoint, formatLatLon, measurePolyline, polygonAreaKm2, type CellPoint,
 } from '../core/measure';
 import { placeReference, referenceRings, SCALE_REFERENCES } from '../core/scaleReference';
 import { loadBasemap, type Basemap } from '@/engines/real-atlas/basemap';
@@ -79,7 +84,7 @@ import { legendFor } from '../cartography/legend';
 import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
 import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
 import { drawStamp, isStampGlyph, STAMP_SIZES } from '../cartography/stampGlyphs';
-import { drawReaderFog, drawReaderFogProjected, fogHides, READER_PAPER } from '../cartography/readerFogLayer';
+import { drawReaderFog, drawReaderFogProjected, fogHides, fogUnnamed, READER_PAPER } from '../cartography/readerFogLayer';
 import { drawStoryMark } from '../cartography/storyMarks';
 import { drawLandmarkGlyph } from '../cartography/landmarkGlyph';
 
@@ -266,6 +271,10 @@ interface Map2DProps {
    * polilínea en celdas del mundo: esta vista sabe proyectar las dos cosas.
    */
   annotations?: CartoAnnotations;
+  /** The first corner of a zone started from the map's menu (a new object each time). */
+  zoneStart?: { x: number; y: number } | null;
+  /** The map seen at a clock hour (dawn's pink, night's blue, a lantern round the party); null = plain daylight. */
+  hour?: number | null;
   /**
    * LA REGLA está en la mano.
    *
@@ -821,7 +830,7 @@ export default function Map2D({
   showFeatures = true, roadFrom = null,
   tool, onEdit, onTool, onPickSettlement, onPickGround, lockedKeys, onLockedPress, onZoomTo,
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
-  exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
+  exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations, hour = null, zoneStart = null,
   measuring = false, onEndMeasure, scaleReference = null, scaleReferenceLabel = '', travelProfile,
   selectedLabelKey = null, onSelectLabel, onSelectStory, onPlaceStory, onMoveStory, onPickCell, onMapMenu,
 }: Map2DProps) {
@@ -892,11 +901,11 @@ export default function Map2D({
    * `draw` only projects the answer.
    */
   const [rulerPts, setRulerPts] = useState<CellPoint[]>([]);
-  const rulerReading = measurePolyline(rulerPts, world.width, world.height);
+  const rulerReading = measurePolyline(rulerPts, world.width, world.height, world.params);
   const hasRuler = rulerPts.length > 0;
   /** Three points or more enclose a shape: its area and closed perimeter. */
-  const rulerAreaKm2 = rulerPts.length >= 3 ? polygonAreaKm2(rulerPts, world.width, world.height) : 0;
-  const rulerPerimeterKm = rulerPts.length >= 3 ? closedPerimeterKm(rulerPts, world.width, world.height) : 0;
+  const rulerAreaKm2 = rulerPts.length >= 3 ? polygonAreaKm2(rulerPts, world.width, world.height, undefined, world.params) : 0;
+  const rulerPerimeterKm = rulerPts.length >= 3 ? closedPerimeterKm(rulerPts, world.width, world.height, world.params) : 0;
   /** The real outlines, decoded once and only when a comparison is asked for. */
   const [basemap, setBasemap] = useState<Basemap | null>(null);
   useEffect(() => {
@@ -943,7 +952,7 @@ export default function Map2D({
    * preview's colour for the rest of the shape, and honoured at the close;
    * reading it again at the close would commit a country the reader never saw.
    */
-  const realmPoly = useRef<{ pts: Pt[]; neg: boolean } | null>(null);
+  const realmPoly = useRef<{ pts: Pt[]; neg: boolean; river?: boolean; zone?: boolean } | null>(null);
   /**
    * Live terrain/land sculpting on the satellite: the SAME SculptGesture the
    * 3D view and the sculptor run — the world deforms under the brush, the
@@ -1033,7 +1042,7 @@ export default function Map2D({
   const painted = useRef<Hit[]>([]);
   /** The tier the view is currently in, advanced with a dead band. Seeded from
    *  the first camera it is given so the opening frame is not a transition. */
-  const tierRef = useRef<SemanticZoomTier>(semanticTier(viewport?.spanKm ?? 40075));
+  const tierRef = useRef<SemanticZoomTier>(semanticTier((viewport?.spanKm ?? 40075) * sheetScale(world.params)));
   const spaceRef = useRef(false);
   /**
    * Mover NO es pintar: el arrastre no deja tinta, coge lo que ya está ahí. Si
@@ -1497,7 +1506,8 @@ export default function Map2D({
     // worker generation, because `regionalResolution` is a dependency of that
     // effect. `nextSemanticTier` has provided a 14 % dead band since it was
     // written and no caller had ever used it.
-    const spanKm = 40075 * cw / Math.max(1, mapW);
+    // In the map's own kilometres: on a sheet the tiers follow the ground it shows.
+    const spanKm = 40075 * cw / Math.max(1, mapW) * sheetScale(world.params);
     // To a FIXED POINT, not one step per frame. `nextSemanticTier` moves at most
     // one position, and `applyViewport` schedules exactly one frame — so a jump
     // from the fitted planetary view to a saved comarca rendered (and therefore
@@ -1869,6 +1879,8 @@ export default function Map2D({
       return [copyOx + X * mapW, view.oy + Y * mapH];
     };
 
+    // Towns as dots in the reader's view: which towns go unnamed (null = all keep their names).
+    const unnamedTown = fogUnnamed(annotations?.fog);
     const copies: number[] = [];
     if (wraps) {
       for (let ox = firstOx; ox <= lastOx; ox += mapW) copies.push(ox);
@@ -2512,7 +2524,8 @@ export default function Map2D({
           ctx.strokeStyle = 'rgba(6,8,13,0.92)';
           ctx.stroke();
           }
-          if (!deepMarks && (style.labelVisible || rank === 0
+          // Towns as dots in the reader's view: a town the story has not shown goes unnamed.
+          if (!deepMarks && !unnamedTown?.(s.x, s.y) && (style.labelVisible || rank === 0
               || (rank <= 1 && semantic.tier !== 'planetary')
               || (rank <= 2 && (semantic.tier === 'regional' || semantic.tier === 'local'))
               || semantic.tier === 'local')) {
@@ -2650,10 +2663,10 @@ export default function Map2D({
       // interleave at the seam.
       // The trade lens repeats itself either side of the copy it is given, so
       // it rides on the same single copy.
-      const gridCopy = annotations.grid || annotations.trade || annotations.contours
+      const gridCopy = annotations.grid || annotations.trade || annotations.contours || annotations.zones?.length
         ? (copies.find((ox) => ox <= cw / 2 && cw / 2 < ox + mapW) ?? copies[0])
         : undefined;
-      if (marks.pins?.length || marks.route || marks.linked?.length || marks.traveller || annotations.grid || annotations.trade || annotations.contours) {
+      if (marks.pins?.length || marks.route || marks.linked?.length || marks.traveller || annotations.grid || annotations.trade || annotations.contours || annotations.zones?.length) {
         for (const copyOx of copies) {
           // Un límite conocido: el salto de la costura se compara dentro de
           // `drawAnnotations` contra `ctx.canvas.width`, que es el búfer y no
@@ -2663,7 +2676,7 @@ export default function Map2D({
           // entre dos poblaciones casi nunca lo cruza; arreglarlo de verdad es
           // un parámetro más en esa función, que no es de esta vista.
           drawAnnotations(
-            ctx, copyOx === gridCopy ? { ...marks, grid: annotations.grid, trade: annotations.trade, contours: annotations.contours } : marks, world,
+            ctx, copyOx === gridCopy ? { ...marks, grid: annotations.grid, trade: annotations.trade, contours: annotations.contours, zones: annotations.zones } : marks, world,
             (wx) => toScreen(wx / W, 0, copyOx)[0],
             (wy) => toScreen(0, wy / H, copyOx)[1],
             (PW * scale) / W,
@@ -2674,6 +2687,10 @@ export default function Map2D({
         // arriba) y vuelve a poner lo segundo por capa.
         ctx.textBaseline = 'middle';
       }
+    } else if (annotations?.trade) {
+      // The trade lens on a curved projection: every point of every way goes
+      // through the projection, so the shipments bend with the graticule.
+      drawTradeLayerProjected(ctx, annotations.trade, (wx, wy) => toScreen(((wx / W) % 1 + 1) % 1, Math.min(1, Math.max(0, wy / H)), view.ox), (PW * scale) / W, W);
     }
 
     // ---- las comarcas guardadas ---------------------------------------------
@@ -2699,7 +2716,8 @@ export default function Map2D({
       ctx.font = '600 10px "Source Sans 3", sans-serif';
       for (const copyOx of copies) {
         for (const rg of savedRegions) {
-          const halfW = ((rg.spanKm / EARTH_KM) * W * ppcX) / 2;
+          // A saved region measures the map's own km; on a sheet that is the sheet's scale.
+          const halfW = ((rg.spanKm / sheetScale(world.params) / EARTH_KM) * W * ppcX) / 2;
           const halfH = halfW / Math.max(0.25, rg.params?.aspect || 1.55) * (ppcY / ppcX);
           const [rx, ry] = toScreen(
             ((rg.x / W) % 1 + 1) % 1,
@@ -2812,6 +2830,19 @@ export default function Map2D({
       }
     }
 
+    // ---- the hour --------------------------------------------------------------
+    // Over the ground, the marks and the route, under the names, so they stay
+    // readable at night; the party carries a lantern.
+    if (hour !== null && Number.isFinite(hour)) {
+      const lights: { x: number; y: number }[] = [];
+      const tr = annotations?.traveller;
+      if (tr) for (const copyOx of copies) {
+        const [lx, ly] = toScreen(((tr.x / W) % 1 + 1) % 1, Math.min(1, Math.max(0, tr.y / H)), copyOx);
+        if (lx > -80 && lx < cw + 80 && ly > -80 && ly < ch + 80) lights.push({ x: lx, y: ly });
+      }
+      drawHourLight(ctx, 0, 0, cw, ch, hour, lights, 54);
+    }
+
     for (const candidate of declutterLabels(mapLabels, Math.max(8, Math.round(semantic.labelBudget * Math.min(1, cw * ch / 400000))), 4)) {
       const item = candidate.value;
       ctx.font = `${item.weight} ${item.size}px ${item.font}`;
@@ -2869,6 +2900,16 @@ export default function Map2D({
         if (bottom < ch) ctx.fillRect(0, bottom, cw, ch - bottom);
         ctx.restore();
       }
+    }
+
+    // ---- the reader's view: towns heard of as dots, and the party's trail -----
+    // Over the paper, like the story marks: they are what the reader knows.
+    if (wraps && (annotations?.townDots?.length || annotations?.trail?.length)) {
+      const copyOx = copies.find((ox) => ox <= cw / 2 && cw / 2 < ox + mapW) ?? copies[0];
+      const x0 = toScreen(0, 0, copyOx)[0], k = (PW * scale) / W;
+      const syc = (wy: number) => toScreen(0, Math.min(1, Math.max(0, wy / H)), copyOx)[1];
+      if (annotations.townDots?.length) drawTownDots(ctx, annotations.townDots, x0, syc, k, W);
+      if (annotations.trail?.length) drawTrail(ctx, annotations.trail, x0, syc, k, W);
     }
 
     // ---- story events: over the fog, they are what the reader knows ---------
@@ -2997,14 +3038,70 @@ export default function Map2D({
     // claim by one whole side — and, for the curved lasso, the ROUNDED ring
     // rather than the polygon, because the rounded ring is the ground that
     // changes hands.
+    // The river being put down point by point: its line at the river's width, a dot per point, and the
+    // rubber band from the last point to the pointer.
     {
       const open = realmPoly.current;
       const bt1 = brushRef.current.tool;
-      if (open && open.pts.length && bt1 && bt1.mode === 'frontera') {
+      if (open?.river && open.pts.length && bt1 && bt1.mode === 'river') {
+        const pxPerCell = (PW * scale) / W;
+        const line: Pt[] = [];
+        let prevX = open.pts[0].x;
+        for (const p of open.pts) {
+          let x = p.x;
+          while (x - prevX > W / 2) x -= W;
+          while (x - prevX < -W / 2) x += W;
+          prevX = x;
+          line.push({ x, y: p.y });
+        }
+        const ox0 = line[0].x, oy0 = line[0].y;
+        for (const copyOx of copies) {
+          const [ax, ay] = toScreen(((ox0 / W) % 1 + 1) % 1, Math.min(1, Math.max(0, oy0 / H)), copyOx);
+          const px = (p: Pt) => ax + (p.x - ox0) * pxPerCell;
+          const py = (p: Pt) => ay + (p.y - oy0) * pxPerCell;
+          ctx.save();
+          ctx.beginPath();
+          line.forEach((p, k) => (k ? ctx.lineTo(px(p), py(p)) : ctx.moveTo(px(p), py(p))));
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          ctx.lineWidth = Math.max(2.5, Math.max(0.8, bt1.riverWidth) * pxPerCell);
+          ctx.strokeStyle = 'rgba(64,124,196,0.75)';
+          ctx.stroke();
+          line.forEach((p, k) => {
+            ctx.beginPath();
+            ctx.arc(px(p), py(p), k === 0 ? 4.5 : 3, 0, Math.PI * 2);
+            ctx.fillStyle = k === 0 ? 'rgba(170,215,255,0.95)' : 'rgba(10,12,18,0.85)';
+            ctx.fill();
+            ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(64,124,196,1)'; ctx.stroke();
+          });
+          ctx.restore();
+        }
+        const at1 = brushAt.current;
+        if (at1) {
+          const tail = line[line.length - 1];
+          let dx = tail.x - at1.cx;
+          while (dx > W / 2) dx -= W;
+          while (dx < -W / 2) dx += W;
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(at1.x + dx * pxPerCell, at1.y + (tail.y - at1.cy) * pxPerCell);
+          ctx.lineTo(at1.x, at1.y);
+          ctx.setLineDash([5, 4]);
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = 'rgba(64,124,196,0.9)';
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+    {
+      const open = realmPoly.current;
+      const bt1 = brushRef.current.tool;
+      if (open && !open.river && open.pts.length && bt1 && (open.zone ? bt1.mode === 'zone' : bt1.mode === 'frontera')) {
         const pxPerCell = (PW * scale) / W;
         const own = open.neg ? -1 : bt1.realm;
-        const ink = realmColor(geography, own, 0.95);
-        const wash = realmColor(geography, own, 0.22);
+        const zoneInk = bt1.zoneColor ?? ZONE_COLORS[0];
+        const ink = open.zone ? zoneInk : realmColor(geography, own, 0.95);
+        const wash = open.zone ? `${zoneInk}38` : realmColor(geography, own, 0.22);
         // Un-wrapped exactly the way `polygonCells` un-wraps it, so a province
         // drawn across the antimeridian previews as one shape instead of two
         // touching the opposite edges — and so the corner cutting below sees a
@@ -3018,7 +3115,7 @@ export default function Map2D({
           prevX = x;
           ring.push({ x, y: p.y });
         }
-        const shape = bt1.realmTool === 'curve' && ring.length >= 3
+        const shape = !open.zone && bt1.realmTool === 'curve' && ring.length >= 3
           ? chaikinPreview(ring) : ring;
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         for (const p of shape) {
@@ -3135,7 +3232,7 @@ export default function Map2D({
           if (!wraps || Math.abs(cur.x - lx) <= mapW / 2) {
             band = {
               x0: lx, y0: ly, x1: cur.x, y1: cur.y,
-              label: kmText(cellDistanceKm(last, { x: cur.cx, y: cur.cy }, W, H)),
+              label: kmText(cellDistanceKm(last, { x: cur.cx, y: cur.cy }, W, H, undefined, world.params)),
             };
           }
         }
@@ -3173,7 +3270,7 @@ export default function Map2D({
       const centreY = (ch / 2 - view.oy) / mapH;
       const centre = centreY >= 0 && centreY <= 1 ? spec.inverse(centreX, centreY) : null;
       if (centre) {
-        const placed = placeReference(referenceShape, centre[0], centre[1]);
+        const placed = placeReference(referenceShape, centre[0], centre[1], undefined, undefined, world.params);
         for (const copyOx of copies) {
           ctx.save();
           ctx.beginPath();
@@ -3242,7 +3339,7 @@ export default function Map2D({
      * el centro del mapa tapa mapa.
      */
     drawScreenScaleBar(ctx, {
-      kmPerPx: spanKm / cw,
+      kmPerPx: spanKm * sheetScale(world.params) / cw,
       align: 'left',
       edge: 7,
       bottom: ch - 23,
@@ -3370,7 +3467,7 @@ export default function Map2D({
     // at all: the ring would draw a radius that changes nothing, at full brush
     // size, straight over the rubber band the shape is actually being aimed
     // with — the one line on screen that does say where the next click lands.
-    const headed = !(bt && bt.mode === 'frontera' && bt.realmTool !== 'brush');
+    const headed = !(bt && ((bt.mode === 'frontera' && bt.realmTool !== 'brush') || bt.mode === 'zone' || (bt.mode === 'river' && bt.riverMode === 'points')));
     if (at && bt && brushRef.current.brushing && headed) {
       const pxPerCell = (PW * scale) / W;
       const tip = tipOf(bt as unknown as Stroke);
@@ -3548,7 +3645,7 @@ export default function Map2D({
     regionDetail, canonWorld, canonEdits, landmarks, flyMark,
     // Las capas nuevas: sin esto una comarca recién guardada no aparece hasta
     // que algo mueva el mapa, y una ruta recién calculada tampoco.
-    savedRegions, activeRegionId, annotations,
+    savedRegions, activeRegionId, annotations, hour,
     // Y la regla: cada punto que cae es un tramo más que dibujar.
     rulerPts, measuring, referenceShape, scaleReferenceLabel,
   ]);
@@ -3827,7 +3924,7 @@ export default function Map2D({
         // Clamped in GROUND KILOMETRES, against the two ends of the panel's own
         // size track — the radius is stored in world cells, which mean nothing
         // to the reader and change meaning with the width of the world.
-        const kmPerCell = Math.max(1, Math.round(EARTH_KM / W));
+        const kmPerCell = isSheet(world.params) ? cellKmOf(world.params, W) : Math.max(1, Math.round(EARTH_KM / W));
         const km = Math.min(BRUSH_MAX_KM, Math.max(BRUSH_MIN_KM,
           bt.radius * kmPerCell * Math.pow(1.0022, -e.deltaY)));
         setTool({ radius: km / kmPerCell });
@@ -3840,7 +3937,7 @@ export default function Map2D({
     return () => canvas.removeEventListener('wheel', onWheel);
     // `W` only moves when the world is a different size, which rebuilds every
     // layer anyway; re-subscribing the listener then costs nothing.
-  }, [W, zoomAbout]);
+  }, [W, world.params, zoomAbout]);
 
   // ---- helpers -------------------------------------------------------------------
   const screenToMap = (sx: number, sy: number): { u: number; v: number } | null => {
@@ -4050,6 +4147,25 @@ export default function Map2D({
   const closeRealmPoly = useCallback((): boolean => {
     const open = realmPoly.current;
     const { tool: bt, onEdit: commit } = brushRef.current;
+    // A river put down point by point: two points make a river, from the first (its spring) to the last (its mouth).
+    if (open?.river) {
+      // Points on one cell draw nothing: a river needs two different cells (a double-click's repeat is dropped).
+      const pts = open.pts.filter((p, i) => !i || Math.floor(p.x) !== Math.floor(open.pts[i - 1].x) || Math.floor(p.y) !== Math.floor(open.pts[i - 1].y));
+      if (pts.length < 2 || !bt || bt.mode !== 'river' || !commit) return false;
+      realmPoly.current = null;
+      commit({ kind: 'river', pts, width: bt.riverWidth });
+      scheduleDraw();
+      return true;
+    }
+    // A zone: three corners make one, named and coloured as the panel says.
+    if (open?.zone) {
+      if (open.pts.length < 3 || !bt || bt.mode !== 'zone' || !commit) return false;
+      realmPoly.current = null;
+      const id = `zone-${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+      commit({ kind: 'zone', id, name: (bt.zoneName ?? '').trim() || t('worldgen.zone.defaultName'), pts: open.pts, color: bt.zoneColor ?? ZONE_COLORS[0], pattern: bt.zonePattern ?? 'wash' });
+      scheduleDraw();
+      return true;
+    }
     if (!open || open.pts.length < 3 || !bt || bt.mode !== 'frontera' || !commit) return false;
     realmPoly.current = null;
     commit({
@@ -4060,7 +4176,7 @@ export default function Map2D({
     });
     scheduleDraw();
     return true;
-  }, [scheduleDraw]);
+  }, [scheduleDraw, t]);
 
   /** Throw the half-drawn shape away. Nothing is committed, so there is nothing
    *  to undo — which is the whole point of having an Escape. */
@@ -4095,10 +4211,18 @@ export default function Map2D({
    * world cells, and a regenerated — or differently sized — world turns them
    * into coordinates into ground that is gone.
    */
-  const realmLasso = tool?.mode === 'frontera' ? tool.realmTool : null;
+  const realmLasso = tool?.mode === 'frontera' ? tool.realmTool : tool?.mode === 'river' && tool.riverMode === 'points' ? 'riverPoints' : tool?.mode === 'zone' ? 'zonePoly' : null;
   useEffect(() => {
-    if (realmLasso !== 'poly' && realmLasso !== 'curve') abandonRealmPoly();
+    const open = realmPoly.current;
+    // The river's points, the zone's corners and the frontier's corners are three gestures: each goes when its own tool is put away.
+    if (open?.river ? realmLasso !== 'riverPoints' : open?.zone ? realmLasso !== 'zonePoly' : realmLasso !== 'poly' && realmLasso !== 'curve') abandonRealmPoly();
   }, [realmLasso, world, abandonRealmPoly]);
+  // "Start a zone here" from the map's menu: the first corner, where the menu was opened.
+  useEffect(() => {
+    if (!zoneStart || tool?.mode !== 'zone') return;
+    realmPoly.current = { pts: [{ x: zoneStart.x, y: zoneStart.y }], neg: false, zone: true };
+    scheduleDraw();
+  }, [zoneStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Space suspends the brush for as long as it is held, the way every paint
   // program does it, so the reader can reposition mid-drawing without changing
@@ -4316,6 +4440,27 @@ export default function Map2D({
        * this one is not.
        */
       const lasso = brushRef.current.tool;
+      // The river point by point: every click is the next point; the double-click or Intro finishes it.
+      // A zone: every click is the next corner; a click on the first, the double-click or Intro closes it.
+      if (lasso && lasso.mode === 'zone') {
+        const open = realmPoly.current;
+        if (open?.zone && open.pts.length >= 3 && hitAt(sx, sy, ['realmVertex'])) { closeRealmPoly(); return; }
+        const corner = { x: m.u * W, y: m.v * H };
+        if (open?.zone) open.pts.push(corner);
+        else realmPoly.current = { pts: [corner], neg: false, zone: true };
+        // A zone holds at most ZONE_POINTS.max corners: the last one closes it.
+        if ((realmPoly.current?.pts.length ?? 0) >= ZONE_POINTS.max) { closeRealmPoly(); return; }
+        scheduleDraw();
+        return;
+      }
+      if (lasso && lasso.mode === 'river' && lasso.riverMode === 'points') {
+        const open = realmPoly.current;
+        const point = { x: m.u * W, y: m.v * H };
+        if (open?.river) open.pts.push(point);
+        else realmPoly.current = { pts: [point], neg: false, river: true };
+        scheduleDraw();
+        return;
+      }
       if (lasso && lasso.mode === 'frontera'
         && (lasso.realmTool === 'poly' || lasso.realmTool === 'curve')) {
         const open = realmPoly.current;
@@ -4360,6 +4505,7 @@ export default function Map2D({
           radius: spec.radius, strength: spec.strength, softness: spec.softness,
           curve: spec.curve, tip: spec.tip, angle: spec.angle,
           jitter: spec.jitter, aspect: spec.aspect, taper: spec.taper,
+          ...(spec.mode === 'terrain' && spec.terrainOp === 'height' ? { heightM: spec.heightM ?? TERRAIN_HEIGHT_M.default } : {}),
         });
         liveSculpt.current = g;
         patchLive(g.extend(p0));
@@ -4761,7 +4907,7 @@ export default function Map2D({
     // Where on the planet, in degrees: the one figure no view had. The same
     // routine rotulates the ruler's points, so the two can be compared.
     parts.push(formatLatLon(
-      cellToLonLat({ x: m.u * W, y: m.v * H }, W, H),
+      mapLonLat({ x: m.u * W, y: m.v * H }, W, H, world.params),
       t('worldgen.measure.cardinals'), t('worldgen.travel.dur.decimal'),
     ));
     // Clamp here (event handler) so render never touches the container ref.
@@ -5042,6 +5188,8 @@ export default function Map2D({
         open.pts.pop();
       }
       if (closeRealmPoly()) return;
+      // A river or a zone not long enough to finish: the double-click keeps it open and does not zoom.
+      if (open.river || open.zone) return;
     }
     /**
      * With the ruler out, a double-click FINISHES the line where the lasso's
@@ -5256,13 +5404,13 @@ export default function Map2D({
                 </div>
               )}
               <div className="text-white/45">
-                {formatLatLon(cellToLonLat(lastPt, W, H), cardinals, decimal)} · {t('worldgen.measure.keysHint')}
+                {formatLatLon(mapLonLat(lastPt, W, H, world.params), cardinals, decimal)} · {t('worldgen.measure.keysHint')}
               </div>
             </>
           ) : lastPt ? (
             <>
               <div>{t('worldgen.measure.next')}</div>
-              <div className="text-white/45">{formatLatLon(cellToLonLat(lastPt, W, H), cardinals, decimal)}</div>
+              <div className="text-white/45">{formatLatLon(mapLonLat(lastPt, W, H, world.params), cardinals, decimal)}</div>
             </>
           ) : (
             <div>{t('worldgen.measure.start')}</div>

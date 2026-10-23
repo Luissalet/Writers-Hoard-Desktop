@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { Copy, Plus, Save, Trash2, X } from 'lucide-react';
+import { Copy, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
 
 import type { CodexEntryType } from '@/types';
 
@@ -29,6 +29,7 @@ import TemplateAppearance from './TemplateAppearance';
 import PropertyDefinitionEditor from './PropertyDefinitionEditor';
 import TemplateSyncPanel from './TemplateSyncPanel';
 import { propertyDefinitions } from '@/engines/codex/properties';
+import { genrePackTemplates, seedGenrePack } from '@/engines/codex/genrePacks';
 
 
 const categories: CodexEntryType[] = ['character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
@@ -68,6 +69,16 @@ export default function CodexTemplateManager({ projectId, open, initial, onClose
   const dirty = !!draft && JSON.stringify(draft) !== savedSnapshot;
 
   const templates = project?.codexTemplates ?? [];
+  const genres = project?.genres ?? [];
+  const packCount = genres.length ? genrePackTemplates(genres, templates, locale === 'es' ? 'es' : 'en').length : 0;
+  const [seeded, setSeeded] = useState('');
+  const seedGenres = async () => {
+    if (busy || !packCount) return;
+    setBusy(true); setNotice(''); setSeeded('');
+    try { const added = await seedGenrePack(projectId, genres, templates, locale === 'es' ? 'es' : 'en'); await refresh(); setSeeded(t('codex.templates.seeded').replace('{count}', String(added.length)).replace('{names}', added.join(', '))); }
+    catch { setNotice(t('codex.templates.failure')); }
+    finally { setBusy(false); }
+  };
 
   // A closed manager stays mounted so deliberate Close preserves its in-progress editing session.
 
@@ -133,6 +144,11 @@ export default function CodexTemplateManager({ projectId, open, initial, onClose
 
       </div>
 
+      {genres.length > 0 && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-accent-gold/40 p-2 text-sm" data-testid="codex-seed-genres-row">
+        <span className="text-text-muted">{t('codex.templates.seedHint').replace('{genres}', genres.join(', '))}</span>
+        <button type="button" data-testid="codex-seed-genres" className={buttonClass} disabled={busy || !packCount} onClick={() => void seedGenres()}><Sparkles size={14} />{packCount ? t('codex.templates.seed').replace('{count}', String(packCount)) : t('codex.templates.seedNone')}</button>
+      </div>}
+      {seeded && <p role="status" data-testid="codex-seeded" className="text-sm text-success">{seeded}</p>}
       {notice && <p role="alert" className="text-sm text-danger">{notice}</p>}
 
       {draft && <fieldset disabled={busy} inert={busy} className="space-y-4">

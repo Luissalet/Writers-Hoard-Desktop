@@ -13,6 +13,7 @@
 // physical ones. It answers exactly one question: what was the SHAPE of this
 // place when the sea was lower.
 
+import { isSheet, worldKmOf } from './geoScale';
 import { Biome, type WorldData } from './types';
 
 export interface PaleoState {
@@ -234,7 +235,7 @@ export function nameBridges(
 /** A sentence a reader can put in a note. */
 export function describePaleo(world: WorldData, p: PaleoMap, locale: 'es' | 'en' = 'es'): string {
   const delta = (p.landFractionThen - p.landFractionNow) / Math.max(1e-6, p.landFractionNow);
-  const surfaceKm2 = 4 * Math.PI * 6371 * 6371;
+  const surfaceKm2 = isSheet(world.params) ? worldKmOf(world.params) ** 2 / 2 : 4 * Math.PI * 6371 * 6371;
   const gainedKm2 = (p.landFractionThen - p.landFractionNow) * surfaceKm2;
   if (locale === 'en') {
     const bits = p.state.seaLevelM < -2

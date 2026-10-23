@@ -4,6 +4,8 @@ import { Calendar, Flag, Star, Swords, Crown, Heart, BookOpen, Sun, Moon, Ship, 
 import { useTranslation, registerLocaleStrings } from '@/i18n/useTranslation';
 import type { CodexEntry, TimelineEvent } from '@/types';
 import { EVENT_ICONS, eventEntryIds, safeEventImage, type EventDetailDraft } from '../eventDetails';
+import TagInput from '@/components/common/TagInput';
+import { normalizeEventTags } from '../timelineFilter';
 import en from '../locales/en';
 import es from '../locales/es';
 registerLocaleStrings({ es, en });
@@ -15,7 +17,7 @@ export function EventIcon({ icon, size = 16, x, y }: { icon?: TimelineEvent['ico
 }
 const field = 'w-full px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold';
 
-export default function EventDetailsFields({ value, onChange, entries, mode, hours = 24 }: { value: EventDetailDraft; onChange: (value: Partial<EventDetailDraft>) => void; entries: CodexEntry[]; mode: TimelineEvent['dateMode']; hours?: number }) {
+export default function EventDetailsFields({ value, onChange, entries, mode, hours = 24, tagSuggestions = [] }: { value: EventDetailDraft; onChange: (value: Partial<EventDetailDraft>) => void; entries: CodexEntry[]; mode: TimelineEvent['dateMode']; hours?: number; /** Tags already used in the project. */ tagSuggestions?: string[] }) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [imageError, setImageError] = useState(false);
@@ -30,6 +32,20 @@ export default function EventDetailsFields({ value, onChange, entries, mode, hou
     } catch { setImageError(true); }
   }
   return <div className="space-y-4 border-t border-border pt-4">
+    <div className="space-y-1.5" data-testid="event-tags">
+      <span className="block text-sm text-text-muted">{t('timeline.tags.label')}</span>
+      <TagInput tags={value.tags} suggestions={tagSuggestions} placeholder={t('timeline.tags.placeholder')} onChange={tags => onChange({ ...value, tags: normalizeEventTags(tags) })} />
+    </div>
+    <label className="flex items-center gap-2 text-sm text-text-muted"><input type="checkbox" data-testid="event-hide-wiki" checked={value.hideFromWiki} onChange={event => onChange({ ...value, hideFromWiki: event.target.checked })} />{t('timeline.tags.hideFromWiki')}</label>
+    {mode !== 'text' && <div className="grid grid-cols-2 gap-3">
+      <label className="text-sm text-text-muted space-y-1.5">{t('timeline.repeat.label')}<select data-testid="event-repeat" className={field} value={value.repeat} onChange={event => onChange({ ...value, repeat: event.target.value as EventDetailDraft['repeat'] })}>
+        <option value="">{t('timeline.repeat.never')}</option><option value="year">{t('timeline.repeat.year')}</option><option value="month">{t('timeline.repeat.month')}</option><option value="week">{t('timeline.repeat.week')}</option>
+      </select></label>
+      <label className="text-sm text-text-muted space-y-1.5">{t('timeline.banner.label')}<select data-testid="event-banner-pattern" className={field} value={value.bannerPattern} onChange={event => onChange({ ...value, bannerPattern: event.target.value as EventDetailDraft['bannerPattern'] })}>
+        <option value="">{t('timeline.banner.solid')}</option><option value="stripes">{t('timeline.banner.stripes')}</option><option value="dots">{t('timeline.banner.dots')}</option><option value="checks">{t('timeline.banner.checks')}</option>
+      </select></label>
+      {value.repeat && <label className="text-sm text-text-muted space-y-1.5">{t('timeline.repeat.until')}<input data-testid="event-repeat-until" className={field} inputMode="numeric" placeholder={t('timeline.repeat.forever')} value={value.untilYear} onChange={event => onChange({ ...value, untilYear: event.target.value.replace(/[^\d-]/g, '') })} /></label>}
+    </div>}
     {mode !== 'text' && <div className="space-y-2">
       <div className="grid grid-cols-2 gap-3">
         <label className="text-sm text-text-muted space-y-1.5">{t('timeline.details.time')}<input className={field} aria-label={t('timeline.details.time')} inputMode="numeric" placeholder="HH:mm" value={value.time} onChange={event => onChange({ ...value, time: event.target.value })} maxLength={7} data-testid="event-time" /></label>

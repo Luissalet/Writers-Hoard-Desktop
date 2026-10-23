@@ -16,10 +16,10 @@ import { Biome, type WorldData } from '../core/types';
 import { atlasCellColor } from '../core/render';
 
 type RGB = [number, number, number];
-type TreeKind = 'broad' | 'conifer' | 'jungle' | 'fungal' | 'dead';
+export type TreeKind = 'broad' | 'conifer' | 'jungle' | 'fungal' | 'dead';
 
 /** Trees per unit of forest, by ground; the kind of tree; how big, relative to the base size. */
-const FORESTS: Partial<Record<number, { kind: TreeKind; density: number; mixed?: TreeKind; size?: number }>> = {
+export const FORESTS: Partial<Record<number, { kind: TreeKind; density: number; mixed?: TreeKind; size?: number }>> = {
   [Biome.BorealForest]: { kind: 'conifer', density: 0.95 },
   [Biome.MontaneForest]: { kind: 'conifer', density: 0.9 },
   [Biome.TemperateForest]: { kind: 'broad', density: 0.9 },
@@ -38,7 +38,7 @@ const FORESTS: Partial<Record<number, { kind: TreeKind; density: number; mixed?:
   [Biome.Chaparral]: { kind: 'broad', density: 0.06, size: 0.7 },
 };
 
-const PALETTES: Record<TreeKind, RGB[]> = {
+export const PALETTES: Record<TreeKind, RGB[]> = {
   broad: [[78, 122, 64], [96, 136, 70], [70, 110, 72]],
   conifer: [[52, 92, 70], [62, 102, 72], [46, 84, 66]],
   jungle: [[54, 120, 66], [70, 136, 70], [44, 108, 70]],
@@ -164,17 +164,20 @@ export interface PaintedGroundOptions {
   rivers?: boolean;
   /** Draws the rivers on the scaled canvas; passed in so this file stays free of the tile code. */
   drawRivers?: (ctx: CanvasRenderingContext2D, width: number) => void;
+  /** Paint the little trees (default true). Off when the tabletop model stands its trees up in 3D. */
+  trees?: boolean;
 }
 
 export interface PaintedGround { canvas: HTMLCanvasElement; pxPerCell: number; trees: number }
 
-const CACHE = new WeakMap<WorldData, { key: string; result: PaintedGround }>();
+// Two pictures a world: with its trees and without (the tabletop model stands them up), so going between the two is a lookup.
+const CACHE = new WeakMap<WorldData, Map<string, PaintedGround>>();
 
 export function renderPaintedGround(world: WorldData, options: PaintedGroundOptions = {}): PaintedGround {
   const maxWidth = options.maxWidth ?? 3072;
-  const key = `${world.revision ?? 0}:${maxWidth}:${options.rivers !== false}`;
-  const hit = CACHE.get(world);
-  if (hit && hit.key === key) return hit.result;
+  const key = `${world.revision ?? 0}:${maxWidth}:${options.rivers !== false}:${options.trees !== false}`;
+  const hit = CACHE.get(world)?.get(key);
+  if (hit) return hit;
 
   const { width: W, height: H, elevation, biome } = world;
   const s = Math.max(1, Math.min(16, Math.floor(maxWidth / W)));
@@ -315,7 +318,7 @@ export function renderPaintedGround(world: WorldData, options: PaintedGroundOpti
   const spacing = treeSize * 0.62;
   const perSide = Math.max(1, Math.round(s / spacing));
   const stamps: { x: number; y: number; kind: TreeKind; hue: number; size: number }[] = [];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  for (let y = 0; y < H && options.trees !== false; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x;
     if (elevation[i] <= 0) continue;
     for (let gy = 0; gy < perSide; gy++) for (let gx = 0; gx < perSide; gx++) {
@@ -348,6 +351,10 @@ export function renderPaintedGround(world: WorldData, options: PaintedGroundOpti
   }
 
   const result = { canvas, pxPerCell: s, trees: stamps.length };
-  CACHE.set(world, { key, result });
+  const kept = CACHE.get(world) ?? new Map<string, PaintedGround>();
+  // Only the latest revision is kept, at most two pictures of it.
+  for (const k of [...kept.keys()]) if (!k.startsWith(`${world.revision ?? 0}:`) || kept.size >= 2) kept.delete(k);
+  kept.set(key, result);
+  CACHE.set(world, kept);
   return result;
 }

@@ -10,9 +10,9 @@ const raster=(value:unknown)=>typeof value==='string'&&/^data:image\/(?:png|jpe?
 export function validateWikiOptions(value:unknown):asserts value is WorldWikiOptions{
  if(!record(value))throw Error('wiki_options_invalid');
  validateWikiAppearance(value);
- for(const key of ['eraId']as const)if(value[key]!==undefined&&!text(value[key]))throw Error('wiki_options_invalid');
+ for(const key of ['eraId','timelineViewId']as const)if(value[key]!==undefined&&!text(value[key]))throw Error('wiki_options_invalid');
  for(const[key,values]of Object.entries({locale:['es','en'],theme:['parchment','paper','night','forest'],layout:['sidebar','journal','terminal','shell'],font:['serif','sans'],grouping:['type','manual']}))if(value[key]!==undefined&&!values.includes(String(value[key])))throw Error('wiki_options_invalid');
- for(const key of ['includeMaps','includeImages','includeCover','includeMedia'])if(value[key]!==undefined&&typeof value[key]!=='boolean')throw Error('wiki_options_invalid');
+ for(const key of ['includeMaps','includeImages','includeCover','includeMedia','includeTimelines'])if(value[key]!==undefined&&typeof value[key]!=='boolean')throw Error('wiki_options_invalid');
  for(const key of ['excludedEntryIds','excludedMapIds','excludedFields'])if(value[key]!==undefined&&!strings(value[key]))throw Error('wiki_options_invalid');
  if(value.types!==undefined&&(!strings(value.types)||(value.types as string[]).some(type=>!choices.includes(type))))throw Error('wiki_options_invalid');
  if(value.accent!==undefined&&(typeof value.accent!=='string'||!/^#[\da-f]{6}$/i.test(value.accent)))throw Error('wiki_options_invalid');

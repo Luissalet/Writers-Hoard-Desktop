@@ -13,6 +13,8 @@
 // order matters because habitation is sited on the natural cover — you settle
 // where the ground is good — and then changes it.
 
+import { regionWorldKm } from './terrain';
+import { climateLatDeg, isSheet } from '../core/geoScale';
 import { SphereNoise } from '../core/noise';
 import { Biome, type WorldData } from '../core/types';
 import { Cover, type CoverId, type RegionParams, type RegionPlace } from './types';
@@ -107,7 +109,7 @@ export function buildNaturalCover(
   const warpA = new SphereNoise(seed, 'region-warp-a');
   const warpB = new SphereNoise(seed, 'region-warp-b');
   const WW = world.width;
-  const EARTH_KM = 2 * Math.PI * 6371;
+  const EARTH_KM = regionWorldKm(world);
   // Physical wavelengths, like the relief. `fPatch` decides how big a clearing
   // in a wood is, and tying it to the world grid made the finest clearing five
   // kilometres across — which is not a clearing, it is a county, and it is why
@@ -151,10 +153,12 @@ export function buildNaturalCover(
   const grainF = new CoarseField(W, H, sGrain, (x, y) => { const p = uvAt(x, y); return grain.fbm(p.u, p.v, fGrain, 3); }, oG.ox, oG.oy);
   const patchF = new CoarseField(W, H, sPatch, (x, y) => { const p = uvAt(x, y); return patchy.fbm(p.u, p.v, fPatch, 4, 2.1, 0.55); }, oP.ox, oP.oy);
 
+  const sheet = isSheet(world.params);
   for (let y = 0; y < H; y++) {
     const wy = g.originY + (y + 0.5) * g.worldPerCellY;
     const v = Math.min(1, Math.max(0, wy / world.height));
-    const latAbs = Math.abs(90 - v * 180);
+    // A sheet's band of latitude, as its climate sees it; the planet's grid otherwise (kept bit for bit).
+    const latAbs = sheet ? Math.abs(climateLatDeg(v, world.params)) : Math.abs(90 - v * 180);
     const tl = treeline(latAbs);
     for (let x = 0; x < W; x++) {
       const i = y * W + x;

@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import { ZoomIn, ZoomOut, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, ChevronRight, ArrowRightLeft, Globe } from 'lucide-react';
+import { ZoomIn, ZoomOut, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, ChevronRight, ArrowRightLeft, Globe, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Timeline, TimelineEvent, TimelineConnection, TimelineEventType, DateMode } from '@/types';
 import { generateId } from '@/utils/idGenerator';
@@ -55,6 +55,14 @@ interface SwimLaneViewProps {
   onEditTimeline: (id: string, changes: Partial<Timeline>) => void | Promise<void>;
   /** Dated chapters as a read-only lane; a click opens the chapter. */
   manuscript?: { lane: Timeline; events: TimelineEvent[]; onOpen: (writingId: string) => void };
+  /** Tags already used in the project, offered in the event form. */
+  tagSuggestions?: string[];
+  /**
+   * Every event when `events` is filtered: new events are numbered after all of
+   * them, and reordering is locked, since a lane shown in part cannot be
+   * renumbered without moving the events it hides.
+   */
+  unfilteredEvents?: TimelineEvent[];
 }
 
 type ConnectionWrite =
@@ -390,8 +398,9 @@ export default function SwimLaneView({
   projectId, timelines, events: storedEvents, connections,
   onAddEvent, onEditEvent, onDeleteEvent,
   onAddConnection, onEditConnection, onDeleteConnection,
-  onEditTimeline, manuscript,
+  onEditTimeline, manuscript, tagSuggestions = [], unfilteredEvents,
 }: SwimLaneViewProps) {
+  const reorderLocked = !!unfilteredEvents;
   const { t, locale } = useTranslation();
   const calendarSource = useWorldCalendar(projectId);
   const projectCalendar = calendarSource?.calendar ?? null;
@@ -609,10 +618,11 @@ export default function SwimLaneView({
     if (e.button !== 0) return; // left click only
     if (isManuscriptEventId(evtId)) return; // chapters are read-only here
     if (connectingFromId) return; // don't drag while connecting
+    if (reorderLocked) return; // a filtered lane is not renumbered
     dragStartPos.current = { x: e.clientX, y: e.clientY };
     dragStarted.current = false;
     setDraggingId(evtId);
-  }, [connectingFromId]);
+  }, [connectingFromId, reorderLocked]);
 
   useEffect(() => {
     if (!draggingId) return;
@@ -705,7 +715,7 @@ export default function SwimLaneView({
   // ── Reorder helpers (for context menu) ──
   const moveEvent = useCallback((evtId: string, direction: -1 | 1) => {
     const evt = events.find(e => e.id === evtId);
-    if (!evt) return;
+    if (!evt || reorderLocked) return;
     const laneEvts = getEventsForTimeline(events, evt.timelineId);
     const idx = laneEvts.findIndex(e => e.id === evtId);
     const newIdx = idx + direction;
@@ -721,7 +731,30 @@ export default function SwimLaneView({
       if (e.order !== i) onEditEvent(e.id, { order: i });
     });
     setContextMenu(null);
-  }, [events, onEditEvent]);
+  }, [events, onEditEvent, reorderLocked]);
+
+  /**
+   * A copy of an event, right after it in its lane: the same date, kind, colour,
+   * links and description, a new id and "(copia)" on the title. The lane is
+   * renumbered so the copy sits next to its original.
+   */
+  const duplicateEvent = useCallback(async (evtId: string) => {
+    const evt = events.find(e => e.id === evtId);
+    if (!evt) return;
+    const now = Date.now();
+    const copy: TimelineEvent = { ...structuredClone(evt), id: generateId('evt'), title: `${evt.title} ${t('timeline.copySuffix')}`.trim(), order: evt.order + 0.5, createdAt: now, updatedAt: now };
+    delete copy.familySource;
+    await onAddEvent(copy);
+    const lane = [...getEventsForTimeline(events, evt.timelineId)];
+    lane.splice(lane.findIndex(e => e.id === evtId) + 1, 0, copy);
+    // A filtered lane is not renumbered: the copy keeps its place half a step after the original.
+    if (!reorderLocked) {
+      lane.forEach((e, i) => { if (e.id !== copy.id && e.order !== i) onEditEvent(e.id, { order: i }); });
+      if (copy.order !== lane.findIndex(e => e.id === copy.id)) onEditEvent(copy.id, { order: lane.findIndex(e => e.id === copy.id) });
+    }
+    setContextMenu(null);
+    setSelectedEventId(copy.id);
+  }, [events, onAddEvent, onEditEvent, t, reorderLocked]);
 
   // ── Form handling ──
   const openAddForm = (timelineId: string) => {
@@ -770,7 +803,7 @@ export default function SwimLaneView({
       // one that is already there and neither can be moved past the other.
       const timelineChanged = form.timelineId !== editingEvent.timelineId;
       const newOrder = timelineChanged
-        ? nextOrderInLane(events, form.timelineId)
+        ? nextOrderInLane(unfilteredEvents ?? events, form.timelineId)
         : undefined;
 
       await onEditEvent(editingEvent.id, {
@@ -791,7 +824,7 @@ export default function SwimLaneView({
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         ...worldFields,
-        order: nextOrderInLane(events, form.timelineId), lane: form.lane, color: form.color,
+        order: nextOrderInLane(unfilteredEvents ?? events, form.timelineId), lane: form.lane, color: form.color,
         ...eventDetailFields(form, form.dateMode),
         createdAt: Date.now(), updatedAt: Date.now(),
       });
@@ -1225,6 +1258,10 @@ export default function SwimLaneView({
                 </button>
               </div>
               <div className="border-t border-border my-1" />
+              <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-elevated transition" data-testid="timeline-event-duplicate"
+                onClick={() => { void duplicateEvent(contextMenu.eventId); }}>
+                <Copy size={13} /> {t('timeline.duplicateEvent')}
+              </button>
               <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition"
                 onClick={() => { onDeleteEvent(contextMenu.eventId); setContextMenu(null); setSelectedEventId(null); }}>
                 <Trash2 size={13} /> {t('timeline.deleteEvent')}
@@ -1468,7 +1505,7 @@ export default function SwimLaneView({
             <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} size="sm" />
           </div>
 
-          <EventDetailsFields value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
+          <EventDetailsFields tagSuggestions={tagSuggestions} value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
 
           {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
           {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}

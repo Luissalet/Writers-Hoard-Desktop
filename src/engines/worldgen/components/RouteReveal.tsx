@@ -7,16 +7,18 @@ import type { WorldEdit } from '../core/edits';
  * "Paint in as they travel": mark the ground along this route as seen on the
  * reader's-eye map, within a sight radius, from a chapter on.
  */
-export default function RouteReveal({ cells, worldWidth, onReveal }: {
+export default function RouteReveal({ cells, worldWidth, cellKm, onReveal }: {
   cells: readonly number[];
   worldWidth: number;
+  /** Km one cell measures (a sheet's own, or the planet's). */
+  cellKm?: number;
   onReveal: (edits: WorldEdit[]) => void;
 }) {
   const { t } = useTranslation();
   const [km, setKm] = useState(30);
   const [chapter, setChapter] = useState('');
   const [done, setDone] = useState(false);
-  const kmPerCell = 40075 / Math.max(1, worldWidth);
+  const kmPerCell = cellKm ?? 40075 / Math.max(1, worldWidth);
   const reveal = () => {
     const n = chapter.trim() === '' ? null : Math.max(0, Math.floor(Number(chapter)));
     const edits = routeFogEdits(cells, worldWidth, Math.max(0.5, km / kmPerCell), n !== null && Number.isFinite(n) ? n : null);

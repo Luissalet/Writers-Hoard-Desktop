@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { bookPages, normalizeBookStyle } from '@/engines/writings/bookStyle';
 import * as projectOps from '@/db/operations';
 import { callAi } from '@/services/aiService';
 import { buildProjectEditorialContext } from '@/services/editorialProfile';
@@ -16,6 +17,7 @@ import {
   composePublishingDocument,
   publishingSectionWordCount,
   type PublishingDocument,
+  type PublishingDocumentSection,
 } from '@/engines/writings/publishingDocument';
 import { compareManuscriptOrder } from '@/engines/writings/chapterOrder';
 import { toLocalDateKey } from '@/engines/writing-stats/date';
@@ -369,6 +371,10 @@ export interface PublishingArtifactLabels extends CitationFormatLabels {
   notesLabel?: string;
   /** Heading over the chapter list; optional for the same reason. */
   tocTitle?: string;
+  /** "All rights reserved." on the copyright page. */
+  rightsLabel?: string;
+  /** Heading over the back-cover page. */
+  blurbTitle?: string;
 }
 
 export interface PublishingArtifacts {
@@ -467,8 +473,10 @@ export function resolvePublishingWritings(
   }
 
   const selected = new Set(profile.selectedWritingIds);
+  // A whole-book profile leaves out the chapters held back from the book; a
+  // chosen selection is the writer's own choice and is taken as made.
   const writings = profile.selectionMode === 'all'
-    ? ordered
+    ? ordered.filter(writing => writing.heldBack !== true)
     : ordered.filter(writing => selected.has(writing.id));
   const referencedIds = uniqueIds([...profile.selectedWritingIds, ...profile.writingOrder]);
   const missingWritingIds = referencedIds.filter(id => !byId.has(id));
@@ -510,11 +518,18 @@ function currentPublishingLabels(format: PublishingFormat): PublishingArtifactLa
     untitledLabel: t('projectTools.publishing.untitled'),
     notesLabel: t('writings.footnotes.endnotesTitle'),
     tocTitle: t('projectTools.publishing.tocTitle'),
+    rightsLabel: t('projectTools.publishing.rights'),
+    blurbTitle: t('projectTools.publishing.blurbTitle'),
   };
 }
 
+/** The copyright line: the year, who holds it (the byline, else the title) and the rights. */
+export function publishingCopyright(project: Pick<Project, 'title' | 'author'>, rights: string, at = Date.now()): string {
+  return `© ${new Date(at).getFullYear()} ${project.author?.trim() || project.title.trim()}. ${rights}`.trim();
+}
+
 export function buildPublishingArtifacts(
-  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>,
+  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement' | 'author' | 'blurb' | 'readerPresentation'>,
   profile: PublishingProfile,
   writings: readonly Writing[],
   citations: readonly Citation[],
@@ -528,6 +543,12 @@ export function buildPublishingArtifacts(
   const documentTitle = artifactOptions.titleOverride ?? `${project.title} — ${profile.name}`;
   const compileOptions = {
     projectTitle: documentTitle,
+    author: project.author,
+    copyright: profile.includeCopyright ? publishingCopyright(project, labels.rightsLabel ?? 'All rights reserved.', artifactOptions.generatedAt) : undefined,
+    blurb: profile.includeBlurb && project.blurb?.trim() ? { title: labels.blurbTitle ?? 'Back cover', text: project.blurb } : undefined,
+    bookStyle: profile.bookStyle,
+    chapterImages: profile.includeChapterImages ? project.readerPresentation?.chapters : undefined,
+    includeInlineImages: profile.includeInlineImages ?? false,
     includeTitlePage: profile.includeTitlePage,
     includeToc: profile.includeToc ?? false,
     tocTitle: labels.tocTitle,
@@ -573,9 +594,10 @@ export function buildPublishingArtifacts(
  * the same way.
  */
 async function withFootnoteStyle(
-  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>,
-): Promise<Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>> {
-  if (project.footnoteStyle !== undefined && project.footnotePlacement !== undefined) return project;
+  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'> & Partial<Pick<Project, 'author' | 'blurb' | 'readerPresentation'>>,
+): Promise<Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement' | 'author' | 'blurb' | 'readerPresentation'>> {
+  // The byline, the back cover and the chapter images live on the row too: a
+  // caller with only the id and the title still exports the whole book.
   try {
     const row = await db.projects.get(project.id);
     if (!row) return project;
@@ -583,6 +605,9 @@ async function withFootnoteStyle(
       ...project,
       footnoteStyle: project.footnoteStyle ?? row.footnoteStyle,
       footnotePlacement: project.footnotePlacement ?? row.footnotePlacement,
+      author: project.author ?? row.author,
+      blurb: project.blurb ?? row.blurb,
+      readerPresentation: project.readerPresentation ?? row.readerPresentation,
     };
   } catch {
     // Numbers per chapter, then — the defaults every exporter already assumes.
@@ -679,6 +704,8 @@ export const PUBLISHING_PREVIEW_BODY_LIMIT = 8;
 export const PUBLISHING_PREVIEW_OUTLINE_LIMIT = 60;
 /** A standard manuscript page: 12pt, double spaced, about 250 words. */
 export const PUBLISHING_WORDS_PER_PAGE = 250;
+/** Reading pace for the minutes shown in the publishing review (the Reader's default too). */
+export const READING_WORDS_PER_MINUTE = 240;
 
 /**
  * What the selection actually carries. A format caveat is only worth a line
@@ -747,6 +774,8 @@ export interface PublishingPreviewPiece {
   portableHtml: string;
   /** False when only the heading was compiled, to bound the preview's cost. */
   bodyCompiled: boolean;
+  /** The chapter's header image, when the profile prints them. */
+  headerImage?: PublishingDocumentSection['headerImage'];
 }
 
 export interface PublishingPreview {
@@ -776,7 +805,7 @@ export interface PublishingPreview {
  * manuscript from paying two DOM parses per chapter on every keystroke.
  */
 export function buildPublishingPreview(
-  project: Pick<Project, 'id' | 'title'>,
+  project: Pick<Project, 'id' | 'title' | 'author' | 'blurb' | 'readerPresentation'>,
   profile: PublishingProfile,
   writings: readonly Writing[],
   citations: readonly Citation[],
@@ -802,6 +831,7 @@ export function buildPublishingPreview(
     html: section.html,
     portableHtml: section.portableHtml,
     bodyCompiled: index < PUBLISHING_PREVIEW_BODY_LIMIT,
+    ...(section.headerImage ? { headerImage: section.headerImage } : {}),
   }));
   const wordCount = resolved.writings.reduce(
     (total, writing) => total + publishingSectionWordCount(writing),
@@ -813,7 +843,7 @@ export function buildPublishingPreview(
     unlistedPieceCount: resolved.writings.length - listed.length,
     pieceCount: resolved.writings.length,
     wordCount,
-    pageEstimate: wordCount === 0 ? 0 : Math.max(1, Math.ceil(wordCount / PUBLISHING_WORDS_PER_PAGE)),
+    pageEstimate: profile.bookStyle ? bookPages(wordCount, normalizeBookStyle(profile.bookStyle)) : wordCount === 0 ? 0 : Math.max(1, Math.ceil(wordCount / PUBLISHING_WORDS_PER_PAGE)),
     content: probePublishingContent(resolved.writings),
     missingWritingIds: resolved.missingWritingIds,
     googleDocsWithoutContent: resolved.googleDocsWithoutContent.map(({ id, title }) => ({ id, title })),

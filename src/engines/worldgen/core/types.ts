@@ -68,6 +68,12 @@ export interface WorldParams {
   starter?: 'sea' | 'land' | 'landmass';
   /** Across the single landmass, in km (300–9000); only with starter 'landmass'. */
   landmassKm?: number;
+  /**
+   * A sheet instead of a planet: the map is this many km wide (and half as
+   * tall), flat, round one latitude (see core/geoScale.ts). 1000 to 40075;
+   * absent = the whole planet, 40075 km round the equator.
+   */
+  worldKm?: number;
 }
 
 export const DEFAULT_PARAMS: WorldParams = {
@@ -101,6 +107,9 @@ export function normalizeParams(params: Partial<WorldParams>): WorldParams {
     const km = typeof normalized.landmassKm === 'number' && Number.isFinite(normalized.landmassKm) ? normalized.landmassKm : LANDMASS_KM.default;
     normalized.landmassKm = Math.round(Math.min(LANDMASS_KM.max, Math.max(LANDMASS_KM.min, km)));
   } else delete normalized.landmassKm;
+  // A sheet's width; the planet's own (or anything off the scale) is no sheet at all.
+  if (!(typeof normalized.worldKm === 'number' && Number.isFinite(normalized.worldKm) && normalized.worldKm >= 1000 && normalized.worldKm < 40075)) delete normalized.worldKm;
+  else normalized.worldKm = Math.round(normalized.worldKm);
   return normalized;
 }
 
