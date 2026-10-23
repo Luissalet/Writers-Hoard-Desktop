@@ -19,10 +19,10 @@ export function blockLabel(value: unknown): string { return typeof value === 'st
 export function blockMatchesProject(target: Pick<CodexBlockTarget, 'projectId' | 'entryId'>, context: CodexBlockContext): boolean { return Boolean(target.entryId && context.projectId && target.projectId === context.projectId); }
 export function localAvatar(value: string | undefined): string | undefined { return value && /^data:image\/(png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=\s]+$/i.test(value) ? value : undefined; }
 /** Projection only. Live prose/fields are never written back into node attrs. */
-export function codexBlockPreview(entry: CodexEntry, templates: readonly CodexTemplate[] = []) {
+export function codexBlockPreview(entry: CodexEntry, templates: readonly CodexTemplate[] = [], excludedFields?: ReadonlySet<string>) {
   const text = stripHtml(entry.content);
   const projection = projectCodexEntry(entry, [...templates]);
-  const visibleFields = Object.entries(projection.fields).filter(([key, value]) => !isAliasField(key) && typeof value === 'string' && value.trim()).slice(0, 5);
+  const visibleFields = Object.entries(projection.fields).filter(([key, value]) => !isAliasField(key) && !excludedFields?.has(key) && typeof value === 'string' && value.trim()).slice(0, 5);
   const fieldHtml = Object.fromEntries(visibleFields.filter(([key]) => { const property = projection.properties[key]; return property?.options || property?.displayValue !== undefined && property.displayValue !== property.value; }).map(([key]) => { const property = projection.properties[key]; return [property.label.slice(0, 80), codexPropertyHtml({ ...property, value: property.value.slice(0, 200), displayValue: property.displayValue?.slice(0, 200), options: property.options?.slice(0, 12).map(option => ({ ...option, value: option.value.slice(0, 200) })) })]; }));
   return { title: entry.title.slice(0, 300), avatar: localAvatar(entry.avatar), fields: visibleFields.map(([key, value]) => [(projection.properties[key]?.label ?? key).slice(0, 80), value.slice(0, 200)] as const), fieldHtml, text: text.slice(0, 600), truncated: text.length > 600 };
 }

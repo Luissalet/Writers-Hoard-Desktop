@@ -12,7 +12,7 @@ import CharacterConnections from './CharacterConnections';
 import CodexCardFaces from './CodexCardFaces';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
-import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
+import CodexReadContent from './CodexReadContent';
 import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import { deleteWithDraftCleanup } from '@/hooks/localDraftStore';
 import { codexDraftStore } from './codexDrafts';
@@ -370,7 +370,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                     </div>
                   ))}
                 </div>
-                {selectedEntry.content && <div className="tiptap-editor border border-border rounded-lg p-4 bg-elevated"><div dangerouslySetInnerHTML={sanitizedHtml(playerSafeHtml(selectedEntry.content, playerBlocks))} /></div>}
+                {selectedEntry.content && <div className="tiptap-editor border border-border rounded-lg p-4 bg-elevated"><CodexReadContent key={`${projectId}:${scope.eraId??'base'}:${selectedEntry.id}:player`} html={playerSafeHtml(selectedEntry.content, playerBlocks)} projectId={projectId} eraId={scope.eraId} locale={locale} player /></div>}
               </div>
             ) : <CodexCardFaces key={selectedEntry.id} entry={selectedEntry} project={project} about={<>
             {readAliases(selectedEntry.fields).length > 0 && (
@@ -392,7 +392,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             {/* Content */}
             {selectedEntry.content && (
               <div className="tiptap-editor border border-border rounded-lg p-4 bg-elevated">
-                <div dangerouslySetInnerHTML={sanitizedHtml(selectedEntry.content)} />
+                <CodexReadContent key={`${projectId}:${scope.eraId??'base'}:${selectedEntry.id}`} html={selectedEntry.content} projectId={projectId} eraId={scope.eraId} locale={locale} />
               </div>
             )}
 

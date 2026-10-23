@@ -25,7 +25,14 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  const project=async()=>{current();const row=await db.projects.get(projectId);current();if(!row)throw new LocalToolStateError('missing-project');if(scope.eraId&&!row.worldEras?.some(era=>era.id===scope.eraId))throw Error('world_era_missing');if(options.requireSelectedRelease&&(row.localToolInstallations?.[namespace]?.contentHash??null)!==(options.releaseHash??null))throw Error('local_tool_pin_conflict');return row;};
  const projected=async(documentKind:EraDocumentKind,read:EraDocumentRead)=>documentKind==='codex'?{...read,projection:{fields:projectCodexEntry(read.document.root as unknown as CodexEntry,(await getEraProject(scope)).codexTemplates).fields}}:read;
  const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,
-  subscribe:(changed:()=>void)=>onDataChanged(detail=>{if(!detail.projectId||detail.projectId===projectId)changed();}),
+  subscribe:(changed:()=>void)=>{
+   let active=true,pending:ReturnType<typeof setTimeout>|undefined;
+   const schedule=()=>{if(!active||pending!==undefined)return;pending=setTimeout(()=>{pending=undefined;if(active)changed();},0);};
+   const stop=onDataChanged(detail=>{if(!detail.projectId||detail.projectId===projectId)schedule();});
+   const committed=(parts:Record<string,unknown>)=>{if(Object.keys(parts).some(part=>part.startsWith(`idb://${db.name}/`)))schedule();};
+   Dexie.on('storagemutated',committed);
+   return()=>{active=false;stop();Dexie.on.storagemutated.unsubscribe(committed);if(pending!==undefined)clearTimeout(pending);};
+  },
   async read(){const row=await project();return options.documentId?readSourceToolState(scope,options.documentId,definition):readLocalToolState(row,definition,scope.eraId);},
   async save(data:T,expectedRevision:number|null,expectedDocumentVersion?:string){writable();if(options.documentId)return db.transaction('rw',db.tables,async()=>{await project();writable();const saved=await saveSourceToolState(scope,options.documentId!,definition,data,expectedRevision,expectedDocumentVersion);writable();return saved;});const snapshot=await db.transaction('rw',db.projects,async()=>{const row=await project(),prepared=prepareLocalToolSave(row,definition,data,expectedRevision,scope.eraId);writable();await db.projects.update(projectId,prepared.changes);writable();return prepared.snapshot;});announce(projectId);return snapshot;},
   async queryCodex(query:LocalToolCodexQuery={}){await project();const effective=await getEraProject(scope);return projectLocalToolCodex(await listEraRows<CodexEntry>(scope,'codexEntries'),effective.codexTemplates,query);},
