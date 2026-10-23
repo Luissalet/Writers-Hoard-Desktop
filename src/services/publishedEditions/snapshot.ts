@@ -1,3 +1,4 @@
+import {findLocalToolBlocksInHtml} from '@/engines/local/blocks/types';
 import { applyEraReaderCover } from '@/engines/writings/coverDesign/model';
 import type {Transaction} from 'dexie';
 import {db} from '@/db';
@@ -15,9 +16,11 @@ export async function capturePublicationSources(tx:Transaction,scope:WorldEraSco
  const project=await tx.table('projects').get(scope.projectId)as Project|undefined;if(!project)throw Error('project_missing');if(scope.eraId&&!project.worldEras?.some(era=>era.id===scope.eraId))throw Error('world_era_missing');
  const tables:Record<string,EraRow[]>={},roots=Object.values(eraAdapters).filter(adapter=>adapter.table);
  await Promise.all(roots.map(async adapter=>{tables[adapter.table!]=await tx.table(adapter.table!).where('projectId').equals(scope.projectId).toArray();}));
+ const imageIds=new Set<string>();const images=(value:unknown):void=>{if(!value||typeof value!=='object'||value instanceof Blob)return;if(Array.isArray(value)){value.forEach(images);return;}const row=value as Record<string,unknown>;if(row.kind==='image'&&typeof row.id==='string')imageIds.add(row.id);for(const child of Object.values(row)){if(typeof child==='string'&&child.includes('data-wh-source-block')){for(const span of findLocalToolBlocksInHtml(child))if(span.projectId===scope.projectId&&span.envelope.scope==='host')images(span.envelope.data);}else images(child);}};images(project);
  tables.writingSnapshots=await tx.table('writingSnapshots').where('projectId').equals(scope.projectId).filter(row=>row.kind==='parallel-draft').toArray();
  await Promise.all(roots.flatMap(adapter=>Object.entries(adapter.children??{}).filter(([table])=>table!=='writingSnapshots').map(async([table,parent])=>{const ids=tables[adapter.table!].map(row=>row.id);tables[table]=ids.length?await tx.table(table).where(parent).anyOf(ids).toArray():[];})));
  const variants:WorldEraVariant[]=scope.eraId?await tx.table('worldEraVariants').where('[projectId+eraId]').equals([scope.projectId,scope.eraId]).toArray():[];
+ Object.values(tables).forEach(images);images(variants);tables.inspirationImages=imageIds.size?await tx.table('inspirationImages').where('id').anyOf([...imageIds]).filter(row=>row.projectId===scope.projectId).toArray():[];
  const assetIds=[...new Set(variants.flatMap(variant=>{const id=variant.document&&eraDocumentAssetId(variant.document);return id?[id]:[];}))],assets=(assetIds.length?await tx.table('worldEraAssets').bulkGet(assetIds):[]).filter((asset):asset is WorldEraAsset=>!!asset);
  const parents:Project[]=[],seen=new Set([project.id]);let id=project.parentId;
  while(id&&parents.length<MAX_PARENT_HOPS&&!seen.has(id)){seen.add(id);const parent=await tx.table('projects').get(id)as Project|undefined;if(!parent)break;parents.push(parent);if(parent.worldCalendar)break;id=parent.parentId;}
@@ -36,7 +39,7 @@ export function publicationReaderSource(snapshot:PublicationSnapshot):ReaderSour
   if(adapter.table){tables[adapter.table]=[...documents.values()].map(document=>document.root);for(const table of Object.keys(adapter.children??{}))tables[table]=[...documents.values()].flatMap(document=>document.children[table]??[]);}
  }
  const projects=new Map([[project.id,project],...snapshot.parents.map(parent=>[parent.id,parent]as const)]);
- return{project,writings:tables.writings as unknown as Writing[],parallelDrafts:(tables.writingSnapshots??[])as unknown as WritingSnapshot[],hasDocument:(kind,id)=>available.get(kind)?.has(id)??false,documents:kind=>structuredClone(capturedDocuments.get(kind)??[]),rows<K extends keyof ReaderSourceRows>(table:K):ReaderSourceRows[K][]{if(!Object.hasOwn(tables,table))throw Error('reader_snapshot_table_missing');return structuredClone(tables[table])as unknown as ReaderSourceRows[K][];},calendar:timelineId=>resolveCapturedWorldCalendar(project.id,timelineId,projects,tables.timelines as unknown as ReaderSourceRows['timelines'][])};
+ return{project,capturedImages:()=>structuredClone(snapshot.tables.inspirationImages??[]) as unknown as import('@/types').InspirationImage[],writings:tables.writings as unknown as Writing[],parallelDrafts:(tables.writingSnapshots??[])as unknown as WritingSnapshot[],hasDocument:(kind,id)=>available.get(kind)?.has(id)??false,documents:kind=>structuredClone(capturedDocuments.get(kind)??[]),rows<K extends keyof ReaderSourceRows>(table:K):ReaderSourceRows[K][]{if(!Object.hasOwn(tables,table))throw Error('reader_snapshot_table_missing');return structuredClone(tables[table])as unknown as ReaderSourceRows[K][];},calendar:timelineId=>resolveCapturedWorldCalendar(project.id,timelineId,projects,tables.timelines as unknown as ReaderSourceRows['timelines'][])};
 }
 export async function publicationSourceFingerprint(snapshot:PublicationSnapshot):Promise<string>{
  const project={...snapshot.project};delete project.publishedEditions;delete project.publishedEditionRevision;

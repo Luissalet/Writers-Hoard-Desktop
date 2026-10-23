@@ -1,3 +1,4 @@
+import {LOCAL_ASSET_HANDLERS} from './assetBridge';
 import {LOCAL_AUDIO_HANDLERS} from './audioBridge';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {LOCAL_TOOL_BLOCK_HANDLERS} from './blocks/bridge';
@@ -19,6 +20,7 @@ async function invoke(args:ToolArgs,writes:boolean){const {source,releaseHash}=a
 async function stateClient(args:ToolArgs){const scoped=await client(args);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.state)throw new BridgeError('bad-args','This source has no declarative state codec.');return scoped;}
 export const LOCAL_TOOL_HANDLERS={
  ...LOCAL_AUDIO_HANDLERS,
+ ...LOCAL_ASSET_HANDLERS,
  ...LOCAL_TOOL_BLOCK_HANDLERS,
  async wh_local_tool_document_query(args:ToolArgs){const query=Object.fromEntries(['namespace','where','reference','offset','limit'].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));return{documents:await queryLocalToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},query)};},
  async wh_local_tool_document_list(args:ToolArgs){return{documents:await listSourceToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'namespace'))};},

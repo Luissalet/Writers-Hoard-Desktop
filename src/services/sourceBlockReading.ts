@@ -1,6 +1,7 @@
+import {renderLocalAssetPreview} from '@/engines/local/assetBrowser';
 import {wikiDocumentExcluded} from '@/services/wikiProfiles/policy';
 import {findLocalToolBlocksInHtml,type LocalToolBlockEnvelope} from '@/engines/local/blocks/types';
-import {localToolBlockPreview,renderLocalToolPreview} from '@/engines/local/blocks/preview';
+import {localToolBlockPreview} from '@/engines/local/blocks/preview';
 import {listWorldDocuments} from '@/services/worldEras/store';
 import type {EraDocument} from '@/services/worldEras/types';
 import type {ToolExportPolicy} from '@/components/editor/toolBlocks/preview';
@@ -23,7 +24,7 @@ export async function sourceBlockPreviewHtml(envelope:LocalToolBlockEnvelope,pro
    });
   }
  }
- return renderLocalToolPreview(localToolBlockPreview(envelope,locale,documents));
+ return renderLocalAssetPreview(localToolBlockPreview(envelope,locale,documents),projectId,envelope.namespace,policy);
 }
 /** Hydrate only exported HTML; the original atoms, code and host stay untouched. */
 export async function prepareSourceBlocksForExport(html:string,projectId:string,locale:'es'|'en',policy:ToolExportPolicy={},wiki=false):Promise<string>{

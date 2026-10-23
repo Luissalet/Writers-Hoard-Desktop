@@ -1,7 +1,8 @@
+import {renderLocalAssetPreview} from '@/engines/local/assetBrowser';
 import {wikiDocumentExcluded} from '@/services/wikiProfiles/policy';
 import {eraDocumentKinds,type EraDocumentKind} from '@/services/worldEras/types';
 import type {ReaderSource} from '@/engines/writings/readerSource';
-import {sourceDocumentPreview,renderLocalToolPreview} from '@/engines/local/documents/preview';
+import {sourceDocumentPreview} from '@/engines/local/documents/preview';
 import { db } from '@/db';
 import { getEraProject, listEraRows, readEraRow } from '@/services/worldEras/store';
 import type { CodexEntry, WorldMap, MapPin, Timeline, TimelineEvent } from '@/types';
@@ -29,7 +30,7 @@ import { prepareModelReaderRuntime } from '@/engines/model-viewer/offlineExport'
 import { escapeToolText as esc, targetAllowed, toolTarget, type ToolDocumentTarget } from './model';
 
 export interface ToolPreview { title: string; html: string; truncated: boolean; model?: ModelAsset;sheet?:CharacterSheet;summary?:CocSummary }
-export interface ToolExportPolicy { page?:boolean; excludedDocuments?:readonly {kind:string;id:string;namespace?:string}[]; source?:ReaderSource; eraId?: string; includeMaps?: boolean; includeImages?: boolean; includeMedia?: boolean; excludedMapIds?: ReadonlySet<string>|readonly string[]; excludedEntryIds?: ReadonlySet<string>|readonly string[]; excludedFields?:readonly string[] }
+export interface ToolExportPolicy { page?:boolean; excludedDocuments?:readonly {kind:string;id:string;namespace?:string}[]; source?:ReaderSource; eraId?: string; includeMaps?: boolean; includeImages?: boolean; includeMedia?: boolean; excludedMapIds?: ReadonlySet<string>|readonly string[]; excludedEntryIds?: ReadonlySet<string>|readonly string[]; excludedImageIds?:readonly string[]; excludedFields?:readonly string[] }
 const excluded = (ids:ReadonlySet<string>|readonly string[]|undefined,id:string|undefined) => Boolean(id && (Array.isArray(ids)?ids.includes(id):(ids as ReadonlySet<string>|undefined)?.has(id)));
 const text = (value: unknown, max = 400) => esc(String(value ?? '').slice(0, max));
 const list = (items: string[]) => `<ul>${items.map(item => `<li>${item}</li>`).join('')}</ul>`;
@@ -119,7 +120,7 @@ export async function resolveToolPreview(target: ToolDocumentTarget, hostProject
   const result = (title: string, html: string, truncated = false): ToolPreview => ({title,html,truncated});
   if(target.kind==='local-tool'){
     const source=project.sourceToolDocuments?.find(row=>row.id===target.documentId&&row.namespace===target.namespace);if(!source)return null;
-    return result(source.title,renderLocalToolPreview(sourceDocumentPreview(source,locale),false));
+    return result(source.title,await renderLocalAssetPreview(sourceDocumentPreview(source,locale),hostProjectId,source.namespace,policy,false));
   }
   if (target.kind === 'maps') {
     if(policy.includeMaps===false||excluded(policy.excludedMapIds,target.documentId))return null;

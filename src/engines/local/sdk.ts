@@ -1,3 +1,7 @@
+export {localAssetFile} from './assets';
+export {useLocalToolAsset} from './useLocalToolAsset';
+export type {LocalAssetRef,LocalAssetSpec,LocalAssetManifest,LocalAssetResolved,LocalAssetOverrides,LocalToolAssets} from './assets';
+import {HOST_ASSET_NAMESPACE,validateLocalAssetManifest,type LocalAssetManifest,type LocalAssetFiles} from './assets';
 export {defineLocalToolBlock} from './blocks/definitions';
 export {useLocalToolWorldList,useLocalToolWorldRead} from './useLocalToolWorld';
 export {useSound,useAudioPlayer} from './useLocalToolAudio';
@@ -32,6 +36,7 @@ export interface LocalToolWorldRead extends EraDocumentRead{projection?:{fields:
 export interface LocalToolCodexCard{id:string;title:string;type:CodexEntryType;tags:string[];fields:Record<string,string>;truncated:boolean}
 export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:readonly string[];limit?:number}
 export interface LocalToolClient<T extends LocalToolJson>{
+  readonly assets:import('./assets').LocalToolAssets;
   readonly audio?:import('./audio').LocalToolAudio;
   readonly projectId:string;readonly namespace:string;readonly documentId?:string;readonly eraId?:string;
   readonly refs:ReturnType<typeof createLocalToolReferences>;readonly state?:LocalToolStateActions<T>;
@@ -49,8 +54,10 @@ export interface LocalToolClient<T extends LocalToolJson>{
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostContext {view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string}}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
-export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
+export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{
+  if(definition.namespace===HOST_ASSET_NAMESPACE)throw Error('local_tool_reserved_namespace');
+  if(definition.assets)validateLocalAssetManifest(definition.assets,definition.assetFiles??{});
   if(!localToolNamespace(definition.namespace))throw new LocalToolStateError('invalid-namespace');
   for(const copy of [definition.name,definition.description])for(const locale of ['en','es']as const)if(typeof copy?.[locale]!=='string'||!copy[locale].trim()||copy[locale].length>500)throw new Error('invalid_local_tool_metadata');
   if(definition.document)for(const locale of ['en','es']as const)if(typeof definition.document.defaultTitle?.[locale]!=='string'||!definition.document.defaultTitle[locale].trim())throw Error('source_tool_document_invalid');
