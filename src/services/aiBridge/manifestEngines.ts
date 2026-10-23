@@ -1764,6 +1764,12 @@ Connect a place on the map to the manuscript: a codex entry that represents it (
     },
   },
   {
+    name: 'wh_create_place_card',
+    description: `Create a normal Codex card named after an atlas place and link it there in one atomic mutation. Choose any Codex type; default location. Existing cards and manuscript links are preserved. The world must have that place; returns pending while it is being forged. Undo removes both created records only while they remain unchanged.`,
+    writes: true,
+    schema: { type: 'object', properties: { worldId: WORLD_ID, key: PLACE_KEY, type: s('Codex type of the new card.', { enum: ['location', 'character', 'faction', 'item', 'concept', 'magic', 'custom'] }) }, required: ['worldId', 'key'], additionalProperties: false },
+  },
+  {
     name: 'wh_list_place_links',
     description:
       `List the manuscript links hanging on a world's places, for one place or the whole world.

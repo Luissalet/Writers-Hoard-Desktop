@@ -733,8 +733,9 @@ export default function WorldView({
     [globalSpatialEntities, regionalSpatialEntities],
   );
   const selectedSpatialEntity = useMemo(
-    () => spatialEntities.find((entity) => entity.key === selectedSpatialKey) ?? null,
-    [selectedSpatialKey, spatialEntities],
+    () => spatialEntities.find((entity) => entity.key === selectedSpatialKey)
+      ?? (data && geography && selectedSpatialKey ? buildAtlas(data, geography).byKey.get(selectedSpatialKey) : null) ?? null,
+    [selectedSpatialKey, spatialEntities, data, geography],
   );
 
   if (focusSpatial && focusSpatial.token !== consumedSpatialToken) {
@@ -2958,6 +2959,7 @@ export default function WorldView({
                   links={manuscriptLinks ?? []}
                   selectedKey={atlasKey}
                   onSelect={setAtlasKey}
+                  onInspect={(place) => { setSelectedSpatialKey(place.key); setPanelTab('places'); setToolsOpen(true); }}
                   onRename={renameByKey}
                   onDelete={removeByKey}
                   lockedKeys={lockedKeys}

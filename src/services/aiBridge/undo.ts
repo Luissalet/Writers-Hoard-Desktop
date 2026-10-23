@@ -92,6 +92,14 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     );
   }
 
+  if (entry.tool === 'wh_create_place_card' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__placeCard' in entry.before) {
+    const { undoPlaceCard } = await import('@/engines/worldgen/placeCards');
+    try {
+      await undoPlaceCard({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined }, (entry.before as { __placeCard: import('@/engines/worldgen/placeCards').PlaceCardReceipt }).__placeCard);
+    } catch (error) { throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error)); }
+    return { undone: true, kind, entityId, entityIds: listed, what: summary };
+  }
+
   if (['wh_parallel_draft_create', 'wh_parallel_draft_save', 'wh_parallel_draft_history_restore'].includes(String(entry.tool)) && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
     const { undoParallelDraftChange } = await import('@/engines/writings/parallelDraftUndo');
     const id = await undoParallelDraftChange(entry.projectId, typeof entry.eraId === 'string' ? entry.eraId : undefined, entry.before as Record<string, unknown>);

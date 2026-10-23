@@ -64,6 +64,8 @@ interface AtlasPanelProps {
    * como cosa seleccionable.
    */
   onEditPlan?: (place: AtlasPlace) => void;
+  /** Inspect the place and its Codex cards without changing the map camera. */
+  onInspect?: (place: AtlasPlace) => void;
   /** Open the host's own editor for a linked item. */
   onOpenLink?: (link: ManuscriptLink) => void;
 }
@@ -76,9 +78,9 @@ const KIND_KEY: Record<string, string> = {
 
 export default function AtlasPanel({
   world, geography, links, selectedKey, onSelect, onRename, onDelete, onFlyTo, onEditPlan,
-  onOpenLink, lockedKeys, onLock, onDuplicate,
+  onOpenLink, lockedKeys, onLock, onDuplicate, onInspect,
 }: AtlasPanelProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [query, setQuery] = useState('');
 
   const atlas = useMemo(() => buildAtlas(world, geography), [world, geography]);
@@ -176,6 +178,7 @@ export default function AtlasPanel({
             ))}
           </div>
           <div className="flex items-center gap-1 mt-1">
+            {onInspect && <button type="button" data-testid="atlas-inspect-place" onClick={() => onInspect(selected)} className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px]">{locale === 'en' ? 'Place and cards' : 'Lugar y tarjetas'}</button>}
             <button
               onClick={() => onFlyTo?.(selected.x, selected.y)}
               className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px]"

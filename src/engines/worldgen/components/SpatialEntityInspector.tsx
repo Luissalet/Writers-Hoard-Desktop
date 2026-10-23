@@ -1,8 +1,12 @@
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { listEraRows } from '@/services/worldEras/store';
-import type { CodexEntry, Writing, TimelineEvent } from '@/types';
+import type { CodexEntry, CodexEntryType, Writing, TimelineEvent } from '@/types';
 import { listWorldLinks, saveWorldLink, deleteWorldLink } from '../era';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
+import { useEraNavigate } from '@/services/worldEras/navigation';
+import { createPlaceCard } from '../placeCards';
+import { PICKER_TYPES } from '@/components/maps/codexSearch';
 import {
   Eye,
   EyeOff,
@@ -80,8 +84,15 @@ export default function SpatialEntityInspector({
   onReveal2D,
   onReveal3D,
 }: SpatialEntityInspectorProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const scope = useWorldEraScope(projectId);
+  const pane = useEnginePane(), navigate = useEraNavigate(), es = locale !== 'en';
+  const binding = JSON.stringify([projectId, scope.eraId ?? null, worldId, entity.key]);
+  const currentBinding = useRef(binding), mounted = useRef(true);
+  const creatingBindings = useRef(new Set<string>());
+  currentBinding.current = binding;
+  const [creatingCard, setCreatingCard] = useState(false), [linkError, setLinkError] = useState('');
+  const [cardType, setCardType] = useState<CodexEntryType>('location');
   const [previousKey, setPreviousKey] = useState(entity.key);
   const [name, setName] = useState(entity.name);
   const [x, setX] = useState(String(Math.round(entity.x * 100) / 100));
@@ -99,7 +110,7 @@ export default function SpatialEntityInspector({
 
   const loadLinkState = useCallback(async () => {
     const [locations, scenes, writings, timelineEvents, currentLinks] = await Promise.all([
-      listEraRows<CodexEntry>(scope, 'codexEntries').then(rows => rows.filter(entry => entry.type === 'location').sort((a, b) => a.title.localeCompare(b.title))),
+      listEraRows<CodexEntry>(scope, 'codexEntries').then(rows => rows.sort((a, b) => a.title.localeCompare(b.title))),
       db.scenes.where('projectId').equals(projectId).sortBy('order'),
       listEraRows<Writing>(scope, 'writings').then(rows => rows.sort((a, b) => a.title.localeCompare(b.title))),
       listEraRows<TimelineEvent>(scope, 'timelineEvents').then(rows => rows.sort((a, b) => a.order - b.order)),
@@ -112,7 +123,7 @@ export default function SpatialEntityInspector({
         title: entry.title,
         engineId: 'codex' as const,
         entityType: 'codex-entry' as const,
-        group: 'worldgen.place.group.codexLocations',
+        group: 'sidebar.codex',
       })),
       ...scenes.map((scene) => ({
         key: `scene:${scene.id}`,
@@ -146,22 +157,43 @@ export default function SpatialEntityInspector({
   }, [projectId, sourceEntityId, scope, worldId]);
 
   const refreshLinks = async () => {
+    const started = binding;
     const state = await loadLinkState();
+    if (!mounted.current || currentBinding.current !== started) return;
     setLinkTargets(state.targets);
     setLinks(state.links);
   };
 
   useEffect(() => {
     let active = true;
+    mounted.current = true;
+    setLinks([]); setLinkTargets([]); setLinkError(''); setCreatingCard(false);
     loadLinkState().then((state) => {
       if (!active) return;
       setLinkTargets(state.targets);
       setLinks(state.links);
-    });
+    }).catch(() => { if (active) setLinkError(es ? 'No se pudieron leer los vínculos.' : 'Could not read links.'); });
     return () => {
       active = false;
+      mounted.current = false;
     };
-  }, [loadLinkState]);
+  }, [loadLinkState, es]);
+
+  const createCard = async () => {
+    if (creatingBindings.current.has(binding)) return;
+    const started = binding;
+    creatingBindings.current.add(started);
+    setCreatingCard(true); setLinkError('');
+    try {
+      await createPlaceCard(scope, worldId, { key: entity.key, name: name.trim() || entity.name }, cardType);
+      await refreshLinks();
+    } catch {
+      if (mounted.current && currentBinding.current === started) setLinkError(es ? 'No se pudo crear y vincular la tarjeta. Reintenta.' : 'Could not create and link the card. Try again.');
+    } finally {
+      creatingBindings.current.delete(started);
+      if (mounted.current && currentBinding.current === started) setCreatingCard(false);
+    }
+  };
 
   const commitPosition = () => {
     const nextX = Number(x);
@@ -173,6 +205,7 @@ export default function SpatialEntityInspector({
   };
 
   const addLink = async (targetKey: string) => {
+    setLinkError('');
     const target = linkTargets.find((candidate) => candidate.key === targetKey);
     if (!target || links.some((link) => (
       link.targetEntityType === target.entityType && link.targetEntityId === target.id
@@ -401,9 +434,11 @@ export default function SpatialEntityInspector({
           <Link2 size={11} /> {t('worldgen.place.links')}
         </div>
         <select
+          data-testid="place-link-target"
+          aria-label={t('worldgen.place.linkPlaceholder')}
           value=""
           onChange={(event) => {
-            void addLink(event.target.value);
+            void addLink(event.target.value).catch(() => setLinkError(es ? 'No se pudo guardar el vínculo.' : 'Could not save the link.'));
           }}
           className="w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
         >
@@ -422,6 +457,15 @@ export default function SpatialEntityInspector({
             </optgroup>
           ))}
         </select>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <label className="flex items-center gap-1 text-xs text-text-muted">{es ? 'Tipo de tarjeta' : 'Card type'}
+            <select data-testid="place-card-type" value={cardType} disabled={creatingCard} onChange={event => setCardType(event.target.value as CodexEntryType)} className="min-h-9 rounded border border-border bg-deep p-1.5 text-text-primary">
+              {PICKER_TYPES.map(type => <option key={type} value={type}>{t(`codex.types.${type}`)}</option>)}
+            </select>
+          </label>
+          <button type="button" data-testid="place-create-card" disabled={creatingCard} onClick={() => void createCard()} className="min-h-9 rounded border border-border px-2 text-xs text-accent-gold disabled:opacity-50">{creatingCard ? (es ? 'Creando…' : 'Creating…') : (es ? 'Crear tarjeta' : 'Create card')}</button>
+        </div>
+        {linkError && <p role="alert" className="mt-2 text-xs text-danger">{linkError}</p>}
         {links.map((link) => (
           <div key={link.id} className="mt-1.5 flex items-center gap-2 rounded bg-elevated px-2 py-1.5 text-[11px]">
             <Eye size={11} className="text-accent-gold" />
@@ -429,6 +473,10 @@ export default function SpatialEntityInspector({
               <span className="text-text-muted">{link.targetEngineId} · </span>
               {link.targetTitle}
             </span>
+            {link.targetEntityType === 'codex-entry' && <button type="button" data-testid={`place-open-card-${link.targetEntityId}`} disabled={!linkTargets.some(target => target.entityType === 'codex-entry' && target.id === link.targetEntityId)} onClick={() => {
+              const to = `/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(link.targetEntityId)}${scope.eraId ? `&era=${encodeURIComponent(scope.eraId)}` : ''}`;
+              if (pane?.navigate) pane.navigate(to); else navigate(to);
+            }} className="min-h-8 shrink-0 px-1 text-accent-gold disabled:opacity-40">{es ? 'Abrir tarjeta' : 'Open card'}</button>}
             <button
               type="button"
               onClick={async () => {
