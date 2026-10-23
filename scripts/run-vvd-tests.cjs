@@ -8,6 +8,19 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['local-tool-assets.browser.tsx', 'testLocalToolAssets', 180000],
+  ['local-tool-assets.browser.tsx', 'testLocalToolAssetEdges', 180000],
+  ['local-tool-assets.browser.tsx', 'testLocalToolAssetAliasRevert', 180000],
+  ['local-tool-assets.browser.tsx', 'testLocalToolAssetDocumentUndo', 180000],
+  ['local-tool-assets.browser.tsx', 'testLocalToolAssetAudioBridge', 180000],
+  ['local-tool-assets.browser.tsx', 'testLocalToolAssetCompiledUrls', 180000],
+  ['local-tool-assets-portability.browser.tsx', 'testLocalToolAssetPortability', 180000],
+  ['local-tool-assets-portability.browser.tsx', 'testLocalToolAssetCodexReading', 180000],
+  ['review-local-tool-assets.browser.tsx', 'reviewLocalAssetGalleryCsp', 180000],
+  ['review-local-tool-assets.browser.tsx', 'reviewLocalAssetConcurrency', 180000],
+  ['review-local-tool-assets.browser.tsx', 'reviewLocalAssetCapturedDrafts', 180000],
+  ['review-local-tool-assets.browser.tsx', 'reviewLocalAssetCloneCollision', 180000],
+  ['review-local-tool-assets.browser.tsx', 'reviewLocalAssetAbout', 180000],
   ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeContract', 180000],
   ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeRendering', 180000],
   ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeEditor', 180000],

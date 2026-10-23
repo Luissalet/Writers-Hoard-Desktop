@@ -159,14 +159,14 @@ function rich(content: string, entries: Map<string, CodexEntry>, includeImages: 
     const target=block.target,preview=target?.projectId===projectId?toolPreviews[toolPreviewKey(target)]:undefined;
     const section=doc.createElement('section');
     if(preview&&typeof preview.title==='string'&&typeof preview.html==='string'){
-      try{section.innerHTML=`<h3>${esc(preview.title.slice(0,300))}</h3>${preview.model?modelReaderMarkup(preview.model,locale):preview.sheet?sheetPaper(preview.sheet,locale).svg:sanitizeToolPreviewHtml(preview.html)}`;}
+      try{section.innerHTML=`<h3>${esc(preview.title.slice(0,300))}</h3>${preview.model?modelReaderMarkup(preview.model,locale):preview.sheet?sheetPaper(preview.sheet,locale).svg:sanitizeToolPreviewHtml(preview.html,undefined,includeImages&&target?.kind==='local-tool')}`;}
       catch{section.textContent=locale==='es'?'Modelo no disponible.':'Model unavailable.';}
     }
     else section.textContent=locale==='es'?'Documento vinculado no incluido.':'Linked document not included.';
     block.element.replaceWith(section);
   }
   for(const {figure,asset}of voiceFigures)if(doc.body.contains(figure))figure.insertAdjacentHTML('beforeend',voiceReadingMarkup(asset,locale,{url:asset.dataUrl,filename:mediaFilename(asset)}));
-  for(const block of sourceBlocks){if(!doc.body.contains(block.element))continue;const section=doc.createElement('section'),preview=toolPreviews[block.key];if(preview)section.innerHTML=sanitizeToolPreviewHtml(preview.html);else section.textContent=locale==='es'?'Bloque local no disponible.':'Local block unavailable.';block.element.replaceWith(section);}
+  for(const block of sourceBlocks){if(!doc.body.contains(block.element))continue;const section=doc.createElement('section'),preview=toolPreviews[block.key];if(preview)section.innerHTML=sanitizeToolPreviewHtml(preview.html,undefined,includeImages);else section.textContent=locale==='es'?'Bloque local no disponible.':'Local block unavailable.';block.element.replaceWith(section);}
   return doc.body.innerHTML;
 }
 
@@ -338,7 +338,7 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   const extraPages=(data.standalone?.policy===toolPolicyKey(data.project.id,entries,maps,options)?data.standalone.pages:[]).filter(page=>selectedRefs.has(wikiRefKey(page.ref))&&page.ref.kind!=='entry'&&page.ref.kind!=='map'&&(!options.onlyRevealed||page.ref.kind==='timeline')&&!wikiDocumentHidden(page.ref,page.ref.kind,options));
   const extraDocuments=extraPages.map(page=>{
     const id=wikiDocumentArticleId(page.ref),preview=page.preview;
-    const body=preview.model?modelReaderMarkup(preview.model,locale):preview.sheet?sheetPaper(preview.sheet,locale).svg.replace(/sheet-ink-[0-9a-f-]{36}/g,'sheet-ink-'+id):sanitizeToolPreviewHtml(preview.html,'wiki-'+id+'-',page.ref.kind==='notes'&&includeImages);
+    const body=preview.model?modelReaderMarkup(preview.model,locale):preview.sheet?sheetPaper(preview.sheet,locale).svg.replace(/sheet-ink-[0-9a-f-]{36}/g,'sheet-ink-'+id):sanitizeToolPreviewHtml(preview.html,'wiki-'+id+'-',(page.ref.kind==='notes'||page.ref.kind==='local-tool')&&includeImages);
     const html=`<article id="${id}" data-category="${esc(page.ref.kind)}" data-tags="[]"><h2 tabindex="-1">${esc(page.title)}</h2><p class="meta">${esc(extraLabels[page.ref.kind]??page.ref.kind)}</p><div class="prose">${body}</div>${preview.truncated?`<p>${locale==='es'?'Vista parcial del documento.':'Partial document view.'}</p>`:''}<footer><a href="#top">${copy.home}</a></footer></article>`;
     articles.push(html);
     return{ref:page.ref,id,title:page.title,html,index:`<li data-article-id="${id}"><a href="#${id}">${esc(page.title)}<small>${esc(extraLabels[page.ref.kind]??page.ref.kind)}</small></a></li>`};
