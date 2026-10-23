@@ -8,6 +8,8 @@ Plataforma local de escritura creativa empaquetada como aplicación de escritori
 
 ## Preparación y publicación local (tarea1095)
 
+Los filtros de tablas admiten también «no contiene», «empieza por», «termina en», «mayor o igual que» y «menor o igual que». `wh_table_query` comparte operadores y evaluación con la interfaz; se conservan los filtros anteriores. [Comparación viva y verificación](tasks/vvd1095/verification-tables.md).
+
 Las herramientas de código declaran campos indexados y referencias portables, consultan sus documentos efectivos mediante `client.queryDocuments()` / `useLocalToolIndex()` y ofrecen la misma consulta por MCP. El ejemplo de iniciativa añade filtros por participante e iniciativa mínima. La búsqueda normal encuentra valores declarados dentro de listas y mapas. Los documentos, bloques propios y vistas antiguas de estas herramientas admiten Ctrl/Cmd+Z, Ctrl+Shift+Z y Ctrl+Y mediante sus recibos existentes; los campos de texto conservan su Deshacer nativo y los atajos globales siguen disponibles.
 
 El papel y la lectura de fichas de Call of Cthulhu incluyen estado, era/Pulp, cordura diaria, comprobaciones pendientes, objetivos de atributos, valores automáticos y manuales, marcas de mejora y contexto de tiradas forzadas. Los apartados se añaden después del contenido y la tinta existentes, sin desplazar las tablas originales. Recalcular, iniciar día y mejorar habilidades muestran una confirmación no destructiva. [Comparación viva y límites verificados](tasks/vvd1095/verification-live.md).

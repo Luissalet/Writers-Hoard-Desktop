@@ -1,5 +1,7 @@
 # Objetivos de autoría local
 
+La comparación viva de Table0.1.37 cierra cinco filtros ausentes (exclusión, prefijo/sufijo y límites inclusivos). Quedan por contrastar las ediciones de filas vinculadas a tarjetas y el resumen compacto CoC. Evidencia y límites en tasks/vvd1095/verification-tables.md.
+
 La continuación1095 contrasta la web y el SDK vivos antes de cerrar diferencias: índice/query de herramientas propias, Deshacer de teclado y estado CoC en papel están implementados; verificación/integración exactas en tasks/vvd1095/verification-live.md. La comparación sigue abierta: no se declara paridad universal ni se incluyen funciones que dependan de APIs externas o pagos.
 
 Alcance: continuación de las herramientas locales de mundo documentadas en

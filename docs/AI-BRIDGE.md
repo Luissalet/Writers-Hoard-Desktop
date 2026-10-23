@@ -1,5 +1,7 @@
 # Puente IA — puerto local para modelos externos
 
+Las condiciones de `wh_table_query` añaden `notContains`, `startsWith`, `endsWith`, `gte` y `lte` a las nueve existentes; interfaz, schema y validación usan la misma lista. No se añade otro endpoint ni cambia el recuento931. [Pruebas y límite del host stdio ya cargado](../tasks/vvd1095/verification-tables.md).
+
 Actualización1095: el catálogo de código contiene931herramientas. `wh_local_tool_document_query` consulta los documentos efectivos de un proyecto/era por campos y referencias declarados por su herramienta; comparte el evaluador del SDK y distingue tipos, valores ausentes y coincidencias dentro de arrays. No indexa campos no declarados. Una versión compilada sin índice no reutiliza el de una versión anterior; guardar con ella retira el descriptor portable. Si sólo falta el código fuente, el último descriptor guardado continúa disponible. Las herramientas existentes de estado/Deshacer/Rehacer y fichas conservan sus contratos. Véanse [SDK local](local-tool-sdk.md) y [evidencias y límites](../tasks/vvd1095/verification-live.md). Los recuentos históricos de abajo describen sus entregas respectivas.
 
 Writers Hoard expone un puerto en `127.0.0.1` para que un modelo de IA que

@@ -2,6 +2,8 @@
 
 ## Live continuation,23October2026
 
+Follow-up from the actual Table0.1.37 preview: numeric sort/filter/grouping and three text operations were exercised. Writer's normal CSV import reproduced numeric sort; five missing conditions are now added to its shared UI/`wh_table_query` implementation. [Exact observed flows, independent review and transport limits](verification-tables.md). This closes these five operation gaps without asserting that card-linked editing or every table feature has been compared.
+
 The inherited rows below remain historical catalogue/source comparisons. Actual Browser observation now additionally covers CoC0.1.17: STR85/CON70/SIZ60, PulpHP26, Build1, DB+1D4, Move8; half/fifth targets; Modern skills and a retained pushed-roll result. Writer reproduces those values. This batch closes a concrete projection gap: paper/read-only output now includes investigator state, daily SAN/pending checks, characteristic targets, manual-derived sources, improvement marks and linked pushes without moving existing ink. Non-destructive confirmation labels are corrected. [Evidence, reviews and transport limits](verification-live.md).
 
 The real Table0.1.37 preview was opened next, showing five sample records. Its description advertises typed text/integer/card-link columns and distinguishes record tables from formula sheets; behavior of linking edits back into cards has **not** yet been exercised. Next comparison must test that actual operation against Writer rather than treating the description or this matrix as proof. The reference CoC description also advertises a compact read-only party card with selected skills; Writer's new paper output is comprehensive, and compact roster equivalence remains to be checked separately.
