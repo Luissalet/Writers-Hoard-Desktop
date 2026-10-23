@@ -8,6 +8,10 @@ Plataforma local de escritura creativa empaquetada como aplicación de escritori
 
 ## Preparación y publicación local (tarea1095)
 
+Las notas pueden activar Texto enriquecido y reutilizar el editor existente para encabezados, listas e imágenes raster locales. El HTML guardado conserva una proyección de texto coherente para búsqueda, Copiar, contexto de IA y clientes existentes; la captura con Enter sigue siendo texto simple. Las escrituras MCP y Deshacer nativos, eras, páginas wiki capturadas, fuentes de documento-imagen y JSON/ZIP/clon conservan el contenido admitido. [Flujos de notas verificados y límites](tasks/vvd1095/verification-notes.md).
+
+Índice del atlas→Lugar y tarjetas abre el inspector existente. Permite crear una tarjeta Códex del tipo elegido con el nombre confirmado del lugar, enlazar otras tarjetas o abrir una enlazada en su panel/era normal. Creación/vínculo y Deshacer nativo son atómicos; JSON/ZIP de proyecto conservan los enlaces. La fuente `ff3baead`, aprobada independientemente con CAS10, está integrada y pasó el flujo Browser de raíz y el build de main limpio. No añade búsqueda/alias de tarjetas ni sincronización automática de nombres. [Verificación y límites de atlas→tarjeta](tasks/vvd1095/verification-place-cards.md).
+
 Los filtros de tablas admiten también «no contiene», «empieza por», «termina en», «mayor o igual que» y «menor o igual que». `wh_table_query` comparte operadores y evaluación con la interfaz; se conservan los filtros anteriores. [Comparación viva y verificación](tasks/vvd1095/verification-tables.md).
 
 Las herramientas de código declaran campos indexados y referencias portables, consultan sus documentos efectivos mediante `client.queryDocuments()` / `useLocalToolIndex()` y ofrecen la misma consulta por MCP. El ejemplo de iniciativa añade filtros por participante e iniciativa mínima. La búsqueda normal encuentra valores declarados dentro de listas y mapas. Los documentos, bloques propios y vistas antiguas de estas herramientas admiten Ctrl/Cmd+Z, Ctrl+Shift+Z y Ctrl+Y mediante sus recibos existentes; los campos de texto conservan su Deshacer nativo y los atajos globales siguen disponibles.

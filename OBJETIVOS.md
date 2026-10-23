@@ -1,5 +1,9 @@
 # Objetivos de autoría local
 
+Notas enriquecidas opcionales integradas en `0a90dd4` con CAS9: editor existente, texto coherente para búsqueda/Copiar/IA, captura Enter simple, MCP/Deshacer/eras y portabilidad. La comprobación Browser guardó/recargó encabezado y lista; el detalle y la atribución están en tasks/vvd1095/verification-notes.md. Verify:quick y build limpio Vite1m18s/Electron/Node931 pasaron tras reinstalar las dependencias del lock exacto; los intentos TS2307/TS2322 se conservan aparte. No trasladar el catálogo932 del working tree concurrente a capacidades verificadas. Seguir los demás huecos offline sin dar por probado cada control del editor ni cerrar1095.
+
+Atlas→tarjeta integrado en `ff3baead` con CAS10: entrada desde Índice al inspector, tipos Códex completos, creación/vínculo/Deshacer atómicos y enlaces JSON remapeados. Browser de raíz y verify:quick/build limpio Vite43.47s/Electron/Node932 completados. La fila A1#54 sigue PARTIAL por búsqueda/alias no añadidos; tampoco se promete sincronizar nombres posteriores. Continuar los siguientes huecos observados sin declarar paridad universal ni cerrar1095. Registro: tasks/vvd1095/verification-place-cards.md.
+
 La comparación viva de Table0.1.37 cierra cinco filtros ausentes (exclusión, prefijo/sufijo y límites inclusivos); la creación de fila y sincronización de nombre con su tarjeta se ejercitaron después. El resumen compacto CoC, selección de cinco habilidades, lista de investigadores guardados, lectura Acerca de y listas vivas del SDK están integrados hasta12264fd, con CAS8 complementaria. Quedan sin acreditar la edición numérica y el borrado de tarjeta en la referencia, su selector de habilidades y su salida wiki de sólo lectura. Seguir comparando otros huecos offline; no declarar paridad universal ni cerrar1095. Evidencia y límites en tasks/vvd1095/verification-tables.md y tasks/vvd1095/verification-compact.md.
 
 La continuación1095 contrasta la web y el SDK vivos antes de cerrar diferencias: índice/query de herramientas propias, Deshacer de teclado y estado CoC en papel están implementados; verificación/integración exactas en tasks/vvd1095/verification-live.md. La comparación sigue abierta: no se declara paridad universal ni se incluyen funciones que dependan de APIs externas o pagos.
@@ -9,7 +13,7 @@ Alcance: continuación de las herramientas locales de mundo documentadas en
 ni las tareas de otros módulos.
 
 - Integrar cada entrega posterior con los hashes revisados y bloqueo de
-  integración, tras su QA y documentación; la entrega hasta12264fd ya está integrada.
+  integración, tras su QA y documentación; la entrega hasta ff3baead ya está integrada.
   Conservar los fallos originales y los límites de cada revisión independiente.
 - Mantener la misma operación y el mismo ámbito en interfaz y MCP: Base/era,
   propietario, revisiones, recuperación y Deshacer que preserve cambios ajenos.
