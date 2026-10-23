@@ -8,6 +8,20 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['world-graph-display-next.browser.tsx', 'testGraphDisplayLegacySvg', 180000],
+  ['world-graph-display-next.browser.tsx', 'testGraphDisplayControls', 180000],
+  ['world-graph-display-next.browser.tsx', 'testGraphDisplayContract', 180000],
+  ['world-graph-display-next.browser.tsx', 'testGraphDisplayGeometrySvg', 180000],
+  ['world-graph-display-next.browser.tsx', 'testGraphDisplaySaveRetry', 180000],
+  ['world-graph-display-next.browser.tsx', 'testGraphDisplayEraScope', 180000],
+  ['world-graph-display-portability.browser.ts', 'testGraphDisplayJson', 180000],
+  ['world-graph-display-portability.browser.ts', 'testGraphDisplayDuplicate', 180000],
+  ['world-graph-display-portability.browser.ts', 'testGraphDisplayZip', 180000],
+  ['world-graph-display-portability.browser.ts', 'testGraphDisplayNewPortable', 180000],
+  ['world-graph-display-portability.browser.ts', 'testGraphDisplayMissingReferences', 180000],
+  ['review-world-graph-display.browser.tsx', 'reviewWorldGraphGeometry', 180000],
+  ['review-world-graph-display.browser.tsx', 'reviewWorldGraphAsyncSettings', 180000],
+  ['review-world-graph-display.browser.tsx', 'reviewWorldGraphMetadataIsolation', 180000],
   ['local-tool-assets.browser.tsx', 'testLocalToolAssets', 180000],
   ['local-tool-assets.browser.tsx', 'testLocalToolAssetEdges', 180000],
   ['local-tool-assets.browser.tsx', 'testLocalToolAssetAliasRevert', 180000],
