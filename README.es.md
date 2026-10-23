@@ -2,6 +2,8 @@
 
 [English](README.md)
 
+El grafo del mundo añade separación ajustable y áreas opcionales por tipo de tarjeta, conservando posiciones fijadas y vistas guardadas. Las copias JSON y Duplicar conservan sus ajustes y remapean las referencias a tarjetas y plantillas. La fuente `ecb1703` está integrada tras CAS16 independiente; [verificación y límites](tasks/vvd1095/verification-graph-display.md) registra esta entrega. La comparación1095 continúa.
+
 Plataforma local de escritura creativa empaquetada como aplicación de escritorio con **Electron**. Comparte la base React/Vite/Dexie con la versión web, pero la ventana nativa amplía los límites de almacenamiento del navegador e incluye descargas multimedia con `yt-dlp` y `gallery-dl`, sin servidor Python aparte.
 
 > Plan de transición: [`tasks/desktop-transition.md`](tasks/desktop-transition.md).

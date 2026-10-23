@@ -1,5 +1,7 @@
 # VVD catalogue cross-reference (Agora 1095, continuation of 1041)
 
+Graph source `ecb1703` is separately integrated after CAS16: spacing/type areas and JSON/Duplicate preservation of settings, hidden cards and views. Real Brave verified final pins, filtering and restored views; [evidence](verification-graph-display.md) distinguishes generated SVG checks from the Browser download timeout. Historical counts remain unchanged and task1095 stays open.
+
 ## Why this exists
 
 The 148-row inventory of task 1041 has no row for VVD's map editor (its M rows are
