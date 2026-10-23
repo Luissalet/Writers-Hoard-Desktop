@@ -1,0 +1,46 @@
+# Scoped SDK audio — task1095
+
+Status: source `7c4e3fb8213cc3b34eee356c21d78e095b065320` independently approved CAS13 by codex-writer1095-final-review and integrated FF-only into main from4e4bf5d under the merge lock/fresh HEAD checks. Root left main clean, completed final verify/build and released the lock. The initial NO APTO/four P2 and REDs remain history, not hidden by the final verdict. Task1095 stays open and SDK audio remains PARTIAL relative to the reference contract.
+
+## Primary contract and local scope
+
+Author/reviewer read the primary [SDK host-services reference](https://docs.beta.vvd.world/workshop/reference/sdk#hostservices) and [host-capabilities reference](https://docs.beta.vvd.world/workshop/reference/tools#host-capabilities). `_stage/sdk-audio-next/PLAN.md` records the concepts compared: optional tab-owned audio, sound/music hooks, five buses, mix/duck/exclusive focus, fades and current user gesture rather than mount autoplay. Those pages do not expose complete hook signatures; Writer's API is explicitly additive and does not claim exact upstream signature compatibility.
+
+The native source adds optional scoped `client.audio`, local `{kind:'media',id}` references, shared playback among SDK owners in the renderer, play/update/stop/stopAll/dispose and hooks `useSound(client,ref,defaults)` / `useAudioPlayer(client,ref,defaults)`. Five buses are music/ambience/sfx/voice/ui; bus levels are shared across SDK owners in that renderer. Legacy SoundscapeMixer, Reader and native players keep their separate graphs. No automatic resumption of displaced tracks, assetManifest/app/slot defaults, spatialization or measured waveform/getLevels is covered.
+
+Only a current Browser activation creates/unlocks AudioContext; mounting hooks never plays or queues rejected playback. Local media/project/era/release/lease checks precede and follow decode, and deletion/retarget/unmount cancels or releases ownership. Owners cannot stop one another's handles. Listening does not write document/history/Undo. A data-readonly client can listen through explicit gesture; published/readonly hosts retain inert projections. Ephemeral playback is not a data-transaction rollback, while temporary author-kit draft owners are disposed on commit/abort. The backend uses BufferSource/decode without ObjectURLs.
+
+## Native MCP correspondence
+
+Two native registered tools are `wh_local_audio_status` and `wh_local_audio_control`. Status reads actual SDK handles in scope and bus levels; stop controls actual scoped handles; bus changes declare renderer-wide SDK sharing. MCP play validates local media and honestly returns `started:false`, `queued:false`, `status:gesture-required`; it does not start sound, synthesize a Browser gesture or schedule later playback. Existing media/soundscape tools retain asset/scene CRUD. Dispatcher tests do not prove a fresh stdio host.
+
+## Four independent P2 and corrected freeze
+
+Initial `_stage/sdk-audio-next/REVIEW-independent.md` reports19overlapping greens and four independent REDs, which remain retained:
+
+1. Exclusive replacement temporarily dropped the owner's registry/watcher before inserting the new handle, so live playback disappeared from native status/deletion observation.
+2. Hook retarget stopped old handles but left Playing state from the previous ref/client.
+3. Invalid/failed/aborted exclusive preparation stopped valid existing playback too soon; an older late request could displace a newer one.
+4. Production backend ignored a rejected AudioContext.resume promise and still started/reported Playing under an inert AudioContext test.
+
+The author withdrew the first freeze and corrected registration during pending Play, session-bound hook state, prepare/revalidate/start-before-replace with request ordering, and awaiting resume before decode/start. Missing/failed/aborted replacement preserves previous SDK playback; successful replacement does not automatically resume displaced tracks later. `_stage/sdk-audio-next/FIXES.md` and RESULT preserve these exact contracts. Author repeated the five intact peer oracles (registry/hook/failed-exclusive/race/resume), all PASS, plus engine2/client4 final groups. Renderer type/lint receipts passed. These backend/React tests use explicitly inert doubles; they are not hardware recordings or measured output.
+
+The independent reviewer then confirmed17/17final hashes and reran11groups on the corrected source: five own registry/hook/exclusive/race/resume oracles plus author engine2/client4. All passed, with affected-source lint also passing and no open finding in scope; the updated REVIEW-independent.md gives technical APTO. The reviewer did not write production or attribute the author's types/manifest to their own execution. Legacy SDK6/documents4/blocks3 and pre-fix Node manifest2/934tools were recorded separately and not rerun as a new final suite after the fixes. All counts overlap other suites and are not combined. Formal CAS13 subsequently approved these same frozen bytes without rerunning11groups merely for commit/registration. Freeze paths/hashes are `_stage/sdk-audio-next/paths.txt` and `hashes.txt`.
+
+## Normal Browser: first and corrected freezes
+
+Root enabled native Media in the isolated QA project `proj_mvl51nyx_tl1a8w`, imported synthetic qa-bell.wav through the Browser file chooser and deliberately reloaded with HMR off. The existing QA Initiative reexport was left unchanged. In a synthetic Codex card, Source blocks→Local sounds · Owned exposed the imported file selector. The first premature async insertion saved an empty card and is not counted; the second waited for the combobox, saved and reopened the block.
+
+At5% via the native slider, Play effect showed Playing then Stopped; Play music showed Playing, Stop sounds returned Stopped, and closing/reopening the editor stopped it with the default15% and selected file restored. `_stage/sdk-audio-next/REFERENCE-root.md` and `writer-audio-playing.png` belong to root. They establish the first-freeze Browser UI/engine path and no mount autoplay, not microphone capture, speaker listening quality or hardware output measurement. This first run preceded the four P2 corrections and is not attributed to the corrected commit.
+
+Root subsequently deliberately reloaded the corrected SDK source, exercised effect and loop at5% with Playing state, used Stop to return Stopped and closed the editor. `_stage/sdk-audio-next/writer-audio-playing-final.png` is the separate corrected-freeze capture; this documentation pass inspected its Playing label and5% control without operating Browser. The bounded interaction sequence is root's evidence. Neither that status label nor this static image proves physical audio output, hardware recording or measured speaker quality.
+
+## Formal integration and final receipts
+
+`_stage/sdk-audio-next/formal-task-before.json`, `formal-hashes.json`, `formal-review.txt` and `formal-receipt.json` preserve the new submission13 read before voting,17/17frozen hashes and exact7c4e3fb approval. Nineteen committed paths include the seventeen frozen paths, independent oracle and runner. Seven exports retain180000ms registrations without altering prior assertions. Root reports FF-only integration from4e4bf5d under merge lock/fresh HEAD checks, clean main and lock release; this documentation pass did not operate Git or repeat product tests.
+
+Root's `_stage/sdk-audio-next/main-verify.log` records successful renderer/Electron typechecks, zero shipping-lint fingerprints and conformance34engines/64tables/6510keys/22locale files/zero known warnings. `main-build.log` records Vite26.31s, Electron bundles and both plain-Node manifest/schema checks with934tools. Root session97961 ended exit0. These are final main receipts for the audio commit, not reuse of the pre-fix working-tree Node result,934end-to-end tool tests or a new global battery.
+
+Native Google manual updates for calendar/audio remain pending while the shared lock is held by codex-silver-visual1323. The previous notes/atlas manual receipt does not cover these two deltas. No manual update is claimed here. New decorative shape work is a separate unintegrated implementation and is not promoted by either completed delivery.
+
+SDK-only graph sharing, own API signatures, gesture-required/no-queue MCP play, assets/spatial/measured-level gaps and the cached stdio limitation remain explicit. No paid/API dependency, model, hardware recording, installed-profile migration, universal SDK parity or task1095 closure is claimed.
