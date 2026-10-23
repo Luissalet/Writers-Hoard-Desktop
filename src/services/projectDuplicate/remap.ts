@@ -1,3 +1,4 @@
+import {validateManuscriptContents,writingSelection} from '@/engines/writings/manuscripts';
 import type { Project, WorldMap, MapPin, Writing } from '@/types';
 import { PROJECT_SETTING_PREFIXES } from '@/db/operations';
 import { projectToolIds, remapWorldMetadata, remapWorldRichContent, remapProjectDuplicateExtras } from '@/services/worldMetadata';
@@ -69,7 +70,8 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
   const remap=(id:string,kind:string):string=>{const key=`${prefix(kind)}\0${id}`;if(!map.has(key))map.set(key,`${prefix(kind)}_${crypto.randomUUID()}`);return map.get(key)!;};
   map.set(`proj\0${sourceProject.id}`,targetProjectId);
   const entity=(engine:string,id:string):string=>{
-    if(id.startsWith(`book:${sourceProject.id}`))return `book:${targetProjectId}`;
+    if(id===`book:${sourceProject.id}`)return `book:${targetProjectId}`;
+    if(id.startsWith(`book:${sourceProject.id}:manuscript:`))return `book:${targetProjectId}:manuscript:${remap(id.slice(`book:${sourceProject.id}:manuscript:`.length),'manuscript')}`;
     const split=id.indexOf('::');if(split>=0)return `${entity(engine,id.slice(0,split))}::${id.slice(split+2).split('::').map(part=>snapshot.tables.writingSnapshots?.some(row=>row.id===part)?remap(part,'wsnap'):sourceProject.worldEras?.some(era=>era.id===part)?remap(part,'era'):part).join('::')}`;
     const children:Record<string,string[]>={board:['boards','boardNodes','boardEdges'],timeline:['timelines','timelineEvents'],biography:['biographies','biographyFacts'],outline:['outlines','outlineBeats'],'character-arc':['characterArcs','arcBeats'],gallery:['inspirationImages','imageCollections'],storyboard:['storyboards','storyboardPanels']};
     const table=children[engine]?.find(table=>snapshot.tables[table]?.some(row=>row.id===id));
@@ -99,8 +101,9 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
         const url=new URL(anchor.getAttribute('href')!,'https://writer.invalid'),base=`/project/${encodeURIComponent(sourceProject.id)}/`;
         if(url.origin!=='https://writer.invalid'||!url.pathname.startsWith(base))continue;
         const engine=decodeURIComponent(url.pathname.slice(base.length).split('/')[0]);if(!engineTables[engine]&&!engine.startsWith('local-tool-'))continue;
-        for(const key of ['entity','entry','writing','map','board','scene','tree','document','world','language','sheet','radar','model','outline','beat','panel']){const id=url.searchParams.get(key);if(id)url.searchParams.set(key,entity(engine,id));}
-        for(const key of ['draft','draftId']){const id=url.searchParams.get(key);if(id)url.searchParams.set(key,remap(id,'wsnap'));}
+        for(const key of ['entity','entry','writing','compareWriting','map','board','scene','tree','document','world','language','sheet','radar','model','outline','beat','panel']){const id=url.searchParams.get(key);if(id)url.searchParams.set(key,entity(engine,id));}
+        const manuscript=url.searchParams.get('manuscript');if(manuscript&&!['main','library'].includes(manuscript))url.searchParams.set('manuscript',remap(manuscript,'manuscript'));
+        for(const key of ['draft','draftId','compareDraft']){const id=url.searchParams.get(key);if(id)url.searchParams.set(key,remap(id,'wsnap'));}
         const era=url.searchParams.get('era');if(era)url.searchParams.set('era',remap(era,'era'));
         url.pathname=`/project/${encodeURIComponent(targetProjectId)}/`+url.pathname.slice(base.length);anchor.setAttribute('href',url.pathname+url.search+url.hash);
       }catch{/* An ordinary authored link remains literal. */}
@@ -121,7 +124,8 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     if(value.projectId===sourceProject.id)value.projectId=targetProjectId;
     for(const[path,target]of Object.entries(refs[table]??{}))at(value,path.split('.'),id=>typeof id==='string'&&id?remap(id,target):id);
     for(const field of richFields[table]??[])if(typeof value[field]==='string')value[field]=rich(value[field]);
-    if(table==='writings'){value.manuscriptSource=cloneManuscriptWritingSource(input.manuscriptSource as Writing['manuscriptSource'],remap);value.toolDock=remapToolDockLayout(input.toolDock as Writing['toolDock'],remap);}
+    if(table==='writings'){if(typeof input.manuscriptId==='string')value.manuscriptId=remap(input.manuscriptId,'manuscript');value.manuscriptSource=cloneManuscriptWritingSource(input.manuscriptSource as Writing['manuscriptSource'],remap);value.toolDock=remapToolDockLayout(input.toolDock as Writing['toolDock'],remap);}
+    if(table==='publishingProfiles'&&input.writingScope){const scope=writingSelection(input.writingScope);value.writingScope=scope.kind==='manuscript'&&scope.id!=='main'?{kind:'manuscript',id:remap(scope.id,'manuscript')}:scope;}
     if(table==='manuscriptSources')value=cloneManuscriptSource(input as unknown as ManuscriptSourceRow,targetProjectId,remap) as unknown as Row;
     if(table==='worldMaps')value=remapImportedWorldMap(input as unknown as WorldMap,targetProjectId,remap,codexIds,eventIds,mediaIds) as unknown as Row;
     if(table==='mapPins')value=remapImportedMapPin(input as unknown as MapPin,targetProjectId,remap(String(input.mapId),'map'),remap,codexIds,mediaIds) as unknown as Row;
@@ -163,7 +167,7 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     if(table==='inquiryClaims')for(const field of ['subject','object'])if(object(value[field])&&value[field].kind==='codex')value[field].id=remap(String(value[field].id),'codex');
     if(table==='inquiryRatings')value.id=`${value.hypothesisId}|${value.claimId}`;
     if(table==='genealogyLinks')value.id=genealogyLinkKey(targetProjectId,String(value.linkId));
-    if(table==='referencePins'){value.scopeId=String(input.scopeId).startsWith('book:')?`book:${targetProjectId}`:remap(String(input.scopeId),'wr');value.id=value.scopeId;at(value,['entryIds','*'],id=>remap(String(id),'codex'));}
+    if(table==='referencePins'){value.scopeId=String(input.scopeId).startsWith('book:')?entity('writings',String(input.scopeId)):remap(String(input.scopeId),'wr');value.id=value.scopeId;at(value,['entryIds','*'],id=>remap(String(id),'codex'));}
     if(table==='betaPackages')at(value,['chapters','*'],item=>object(item)?{...item,chapterId:remap(String(item.chapterId),'wr')}:item);
     if(table==='betaResponses')for(const key of ['reactions','chapterHashes'])value[key]=mapKeys(input[key],'wr');
     if(table==='snapshots'){
@@ -199,6 +203,7 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
 }
 
 export async function remapDuplicateSnapshot(snapshot:ProjectDuplicateSnapshot,targetProjectId:string,title:string,pathMap:Record<string,string>={}):Promise<ProjectDuplicateSnapshot> {
+  validateManuscriptContents(snapshot.project,snapshot.tables.writings??[],snapshot.tables.worldEraVariants??[],snapshot.tables.publishingProfiles??[],snapshot.tables.documentArchives??[]);
   const clone=createDuplicateRemapper(snapshot,targetProjectId,pathMap),tables:Record<string,Row[]>={};
   for(const[table,rows]of Object.entries(snapshot.tables))tables[table]=rows.map(input=>clone.row(table,input));
   tables.worldEraAssets=(snapshot.tables.worldEraAssets??[]).map(input=>clone.row('worldEraAssets',input));
@@ -224,7 +229,7 @@ export async function remapDuplicateSnapshot(snapshot:ProjectDuplicateSnapshot,t
     if(['sprintLog','readingPosition','atlasRoutes','tableReadVoices'].includes(which[0])&&typeof value==='string'&&value){
       const parsed=JSON.parse(value) as Row;
       if(which[0]==='sprintLog')at(parsed,['sprints','*'],item=>object(item)?{...item,id:clone.remap(String(item.id),'sprint'),projectId:targetProjectId,...(typeof item.writingId==='string'?{writingId:clone.remap(item.writingId,'wr')}:{})}:item);
-      if(which[0]==='readingPosition'){parsed.projectId=targetProjectId;if(typeof parsed.pieceId==='string')parsed.pieceId=clone.remap(parsed.pieceId,'wr');}
+      if(which[0]==='readingPosition'){parsed.projectId=targetProjectId;if(typeof parsed.pieceId==='string')parsed.pieceId=clone.remap(parsed.pieceId,'wr');if(object(parsed.manuscripts))parsed.manuscripts=Object.fromEntries(Object.entries(parsed.manuscripts).map(([id,value])=>[clone.remap(id,'manuscript'),object(value)?{...value,projectId:targetProjectId,...(typeof value.pieceId==='string'?{pieceId:clone.remap(value.pieceId,'wr')}:{})}:value]));}
       if(which[0]==='atlasRoutes')at(parsed,['routes','*'],item=>{if(!object(item))return item;const route={...item,id:clone.remap(String(item.id),'route')};at(route,['placeIds','*'],id=>clone.remap(String(id),'atlasPlaces'));return route;});
       if(which[0]==='tableReadVoices')value=JSON.stringify(Object.fromEntries(Object.entries(parsed).map(([id,voice])=>[id.startsWith('id:')?'id:'+clone.remap(id.slice(3),'codex'):id,voice])));else value=JSON.stringify(parsed);
     }

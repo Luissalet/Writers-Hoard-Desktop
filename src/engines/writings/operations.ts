@@ -1,3 +1,5 @@
+import Dexie from 'dexie';
+import {validateWritingOwner,assertWritingOwnerUnchanged} from './manuscriptStore';
 import { archiveWithMutation, archiveValuesEqual, restoreArchivedDocument, ArchiveRestoreConflict } from '@/services/documentArchive/store';
 // ============================================
 // Writings Engine — Database Operations
@@ -20,12 +22,15 @@ export async function getWriting(id: string): Promise<Writing | undefined> {
   return db.writings.get(id);
 }
 
-export async function createWriting(writing: Writing): Promise<string> {
-  const id = await db.writings.add(writing);
-  // The dashboard sorts projects by their own updatedAt, which writing a
-  // chapter would otherwise never move.
-  void touchProject(writing.projectId);
-  return id;
+export function createWriting(writing: Writing): Promise<string> {
+  return db.transaction('rw', [db.projects, db.writings, db.worldEraVariants, db.worldEraAssets, db.documentArchives], () =>
+    Dexie.Promise.resolve(validateWritingOwner(writing)).then(row => db.writings.add(row)),
+  ).then(id => {
+    // Creation and its catalogue membership commit together; UndoCreate cannot
+    // remove the owner between validation and insertion.
+    void touchProject(writing.projectId);
+    return id;
+  });
 }
 
 /**
@@ -222,6 +227,7 @@ export async function updateWritingAtVersion(
     if (expectedVersion !== undefined && row.updatedAt !== expectedVersion) {
       return { kind: 'conflict', row, expected: expectedVersion };
     }
+    assertWritingOwnerUnchanged(row,changes);
     const version = nextWritingVersion(row.updatedAt);
     // `updatedAt` is stamped LAST so a caller cannot hand in a version of its
     // own and quietly break the ordering every other reader depends on.
@@ -307,6 +313,7 @@ export async function replaceWritingWithSnapshot(
       if (!current) return { kind: 'gone' };
       if (current.updatedAt !== expectedVersion) return { kind: 'conflict', current };
 
+      assertWritingOwnerUnchanged(current,changes);
       const snapshot = await ensureSnapshot(current, 'auto');
       const version = nextWritingVersion(current.updatedAt);
       const written = await db.writings.update(id, { ...changes, updatedAt: version });

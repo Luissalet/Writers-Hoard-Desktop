@@ -1,3 +1,4 @@
+import {remapManuscriptCatalog} from '@/engines/writings/manuscripts';
 import {remapLocalToolBlocksInHtml,validateLocalToolBlocksInHtml} from '@/engines/local/blocks/types';
 import { remapPrepBlocks } from '@/engines/prepBlocks/remap';
 import {remapLocalToolReferences} from '@/engines/local/stateCodec';
@@ -82,6 +83,7 @@ export function remapWorldRichContent(content: string, sourceProjectId: string, 
       };
       const route = Object.keys(routes).find(kind=>url.pathname===`/project/${encodeURIComponent(sourceProjectId)}/${kind}`);
       if (url.origin !== 'https://writer.invalid' || !route) continue;
+      const manuscript=url.searchParams.get('manuscript');if(route==='writings'&&manuscript){url.pathname=`/project/${encodeURIComponent(targetProjectId)}/writings`;if(!['main','library'].includes(manuscript))url.searchParams.set('manuscript',remap(manuscript,'manuscript'));const writing=url.searchParams.get('writing');if(writing)url.searchParams.set('writing',remap(writing,'wr'));const compare=url.searchParams.get('compareWriting');if(compare)url.searchParams.set('compareWriting',remap(compare,'wr'));for(const key of ['draft','draftId','compareDraft']){const value=url.searchParams.get(key);if(value)url.searchParams.set(key,remap(value,'wsnap'));}const era=url.searchParams.get('era');if(era)url.searchParams.set('era',remap(era,'era'));anchor.setAttribute('href',url.pathname+url.search+url.hash);continue;}
       const target=routes[route],id=url.searchParams.get(target.parameter)??'';
       if (!target.ids.has(id)) {anchor.removeAttribute('href');continue;}
       url.pathname=`/project/${encodeURIComponent(targetProjectId)}/${route}`;
@@ -103,6 +105,7 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
   const track = (audio: ReaderAudioTrack | undefined): ReaderAudioTrack | undefined => audio && mediaIds.has(audio.assetId) ? { ...audio, assetId: remap(audio.assetId, 'media') } : undefined;
   const localStates=(states:Project['localToolStates'])=>{const cloned=cloneLocalToolStates(states);if(cloned)for(const [namespace,state]of Object.entries(cloned)){const codec=project.localToolContracts?.[namespace];if(codec)state.data=remapLocalToolReferences(state.data,codec,(kind,id)=>remap(id,worldDocumentPrefixes[kind]),(kind,id)=>remap(id,kind==='image'?'img':'media'));}return cloned;};
   return {
+    ...(project.manuscriptCatalog?{manuscriptCatalog:remapManuscriptCatalog(project.manuscriptCatalog,remap)}:{}),
     sourceToolDocuments: remapSourceToolDocuments(project.sourceToolDocuments, remap),
     writingToolDock: remapToolDockLayout(project.writingToolDock, remap),
     worldFolderImports: remapWorldFolderImports(project.worldFolderImports, (id,kind)=>remap(id,kind==='import'?WORLD_FOLDER_IMPORT_ID_PREFIX:kind==='era'?'era':worldDocumentPrefixes[kind])),

@@ -26,7 +26,7 @@ export interface ReferencePinRow {
 const LEGACY_PREFIX = 'writers-hoard:reference:pins:';
 const EVENT = 'writers-hoard:reference-pins-changed';
 
-export const bookScopeId = (projectId: string) => `book:${projectId}`;
+export const bookScopeId = (projectId: string,manuscriptId='main') => `book:${projectId}${manuscriptId==='main'?'':`:manuscript:${manuscriptId}`}`;
 
 function legacyKeys(): string[] {
   try {

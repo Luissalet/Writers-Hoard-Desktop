@@ -70,6 +70,7 @@ export type PublishingFormat = 'manuscript' | 'screenplay' | 'research' | 'biogr
 export type PublishingSelectionMode = 'all' | 'selected';
 
 export interface PublishingProfile {
+  writingScope?: import('@/engines/writings/manuscripts').WritingSelection;
   id: string;
   projectId: string;
   name: string;

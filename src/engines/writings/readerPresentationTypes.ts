@@ -1,3 +1,4 @@
+export const defaultReaderPresentation = (): ReaderPresentation => ({ revision: 0, playback: { mode: 'read', wordsPerMinute: 240 }, cover: { style: 'hardcover', color: '#293b33', texture: 'linen', artwork: true, showAtStart: false }, chapters: {} });
 export interface ReaderAudioTrack { assetId: string; volume: number; loop: boolean }
 /** A sound tied to a paragraph: it plays while that paragraph is read, or — with `through` — on through that later paragraph (an ambience over a passage). */
 export interface ReaderParagraphAudio { paragraphIndex: number; fingerprint: string; excerpt: string; track: ReaderAudioTrack; through?: number }

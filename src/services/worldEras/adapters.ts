@@ -1,3 +1,4 @@
+import {writingManuscriptId} from '@/engines/writings/manuscripts';
 import {validateLocalToolBlockRichContent} from '@/engines/local/blocks/types';
 import {validateSourceToolDocument} from '@/engines/local/documents/types';
 import {validateToolDockWritingMetadata} from '@/engines/writings/toolDock/types';
@@ -28,7 +29,7 @@ export function validateEraDocument(projectId: string, kind: EraDocumentKind, en
   if (!adapter || !document?.root || document.root.id !== entityId || document.root.projectId !== undefined && document.root.projectId !== projectId || !document.children || typeof document.children !== 'object' || Array.isArray(document.children)) throw new Error('world_era_document_invalid');
   validateLocalToolBlockRichContent(document,projectId);
   const root = document.root;
-  if(kind==='writings')validateToolDockWritingMetadata({toolDock:root.toolDock});
+  if(kind==='writings'){validateToolDockWritingMetadata({toolDock:root.toolDock});writingManuscriptId({manuscriptId:root.manuscriptId});}
   if(kind==='local-tool')validateSourceToolDocument(root);
   else if (adapter.metadata) validateArchivedMetadata(kind === 'genealogy' ? 'relation-tree' : kind as Parameters<typeof validateArchivedMetadata>[0], root);
   else if (typeof root.id !== 'string' || !root.id || root.projectId !== projectId) throw new Error('world_era_root_scope_invalid');

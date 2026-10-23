@@ -94,6 +94,7 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
     if (kind === 'local-tool') return { root: remapSourceToolDocument(document.root as unknown as SourceToolDocument, remap) as unknown as EraRow, children: {} };
     const field = eraAdapters[kind].metadata;
     const root = rewrite(field ? (remapWorldMetadata({ ...projectWithVariants, [field]: [document.root] }, remap, codexIds, mediaIds, writingIds, tools)[field] as EraRow[])[0] : document.root) as EraRow;
+    if(kind==='writings'&&typeof document.root.manuscriptId==='string')root.manuscriptId=remap(document.root.manuscriptId,'manuscript');
     if (kind === 'writings' && document.root.manuscriptSource) root.manuscriptSource = cloneManuscriptWritingSource(document.root.manuscriptSource as import('@/engines/writings/manuscriptReview/types').ManuscriptWritingSource, remap);
     return { root, children: rewrite(document.children) as Record<string, EraRow[]> };
   };

@@ -1,3 +1,4 @@
+import {selectManuscriptWritings} from '../manuscripts';
 // ============================================
 // Manuscript import — pick, preview, import
 // ============================================
@@ -50,6 +51,7 @@ interface ManuscriptImportModalProps {
   onClose: () => void;
   projectId: string;
   eraId?: string;
+  manuscriptId?:string;
   /** Called once the rows exist, so the list behind the modal catches up. */
   onImported: () => void | Promise<void>;
 }
@@ -98,6 +100,7 @@ export default function ManuscriptImportModal({
   onClose,
   projectId,
   eraId,
+  manuscriptId='main',
   onImported,
 }: ManuscriptImportModalProps) {
   const { t, locale } = useTranslation();
@@ -124,11 +127,11 @@ export default function ManuscriptImportModal({
 
   const chapterLabel = t('writings.chapter');
   useEffect(() => { let active = true; void (async () => {
-    const scope = { projectId, eraId }, rows = await eraWritingOperations(scope).getWritings(projectId);
+    const scope = { projectId, eraId }, rows = selectManuscriptWritings(await eraWritingOperations(scope).getWritings(projectId),{kind:'manuscript',id:manuscriptId});
     const next = await Promise.all(rows.map(async row => ({ id: row.id, title: row.title, updatedAt: row.updatedAt, version: (await readWorldDocument(scope, 'writings', row.id))!.version })));
     const stored = (await db.manuscriptSources.where('projectId').equals(projectId).toArray()).filter(row => row.receipts.some(receipt => receipt.eraId === eraId));
     if (active) { setTargets(next); setSavedSources(stored); }
-  })().catch(error => { if (active) setPlanError(String(error)); }); return () => { active = false; }; }, [projectId, eraId]);
+  })().catch(error => { if (active) setPlanError(String(error)); }); return () => { active = false; }; }, [projectId, eraId,manuscriptId]);
   const levels = useMemo(() => availableHeadingLevels(sources), [sources]);
 
   const chapters = useMemo(
@@ -152,7 +155,7 @@ export default function ManuscriptImportModal({
   const includedWords = rows.reduce((total, row) => total + (row.included ? row.words : 0), 0);
   const choices: ImportChoice[] = rows.map(row => { const target = targets.find(target => target.id === selectedTargets[row.key]); return { key: row.key, title: row.title || chapters.find(chapter => chapter.key === row.key)!.title, included: row.included, ...(target ? { targetId: target.id, expectedUpdatedAt: target.updatedAt, expectedDocumentVersion: target.version } : {}) }; });
   const choiceKey = JSON.stringify(choices);
-  useEffect(() => { let active = true; setPlan(null); setPlanError(''); if (sources.length) void planManuscriptImport(sources, { mode, headingLevel, separator }, { projectId, eraId }, JSON.parse(choiceKey) as ImportChoice[]).then(value => { if (active) setPlan(value); }).catch(error => { if (active) setPlanError(error instanceof Error ? error.message : String(error)); }); return () => { active = false; }; }, [sources, mode, headingLevel, separator, choiceKey, projectId, eraId]);
+  useEffect(() => { let active = true; setPlan(null); setPlanError(''); if (sources.length) void planManuscriptImport(sources, { mode, headingLevel, separator }, { projectId, eraId }, JSON.parse(choiceKey) as ImportChoice[],manuscriptId).then(value => { if (active) setPlan(value); }).catch(error => { if (active) setPlanError(error instanceof Error ? error.message : String(error)); }); return () => { active = false; }; }, [sources, mode, headingLevel, separator, choiceKey, projectId, eraId,manuscriptId]);
 
   const describeError = useCallback(
     (error: unknown): string => {
@@ -211,7 +214,7 @@ export default function ManuscriptImportModal({
 
     let result: ManuscriptImportResult;
     try {
-      result = await applyManuscriptImport({ projectId, eraId }, sources, { mode, headingLevel, separator }, choices, plan.digest);
+      result = await applyManuscriptImport({ projectId, eraId }, sources, { mode, headingLevel, separator }, choices, plan.digest,manuscriptId);
     } catch (error) {
       // The transaction rolled back: the project is exactly as it was, and the
       // preview stays on screen so the writer can try again or change the rule.

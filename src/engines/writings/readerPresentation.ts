@@ -1,3 +1,4 @@
+import {manuscriptProject,selectManuscriptWritings,type ManuscriptCatalog} from './manuscripts';
 import { db } from '@/db';
 import { notifyProjectsChanged } from '@/db/operations';
 import type { ChapterPresentation, ReaderPresentation } from './readerPresentationTypes';
@@ -5,8 +6,9 @@ import { safeReaderTrack } from './readerSoundtrack';
 import { listEraRows, readEraRow } from '@/services/worldEras/store';
 import type { LocalMediaAsset } from '@/engines/media/types';
 import type { Writing } from '@/types';
-import {applyEraReaderCover,validateReaderCover,validateCoverJacket} from './coverDesign/model';
-export const defaultReaderPresentation = (): ReaderPresentation => ({ revision: 0, playback: { mode: 'read', wordsPerMinute: 240 }, cover: { style: 'hardcover', color: '#293b33', texture: 'linen', artwork: true, showAtStart: false }, chapters: {} });
+import {validateReaderCover,validateCoverJacket} from './coverDesign/model';
+import {defaultReaderPresentation} from './readerPresentationTypes';
+export {defaultReaderPresentation} from './readerPresentationTypes';
 export const defaultChapterPresentation = (): ChapterPresentation => ({ font: 'inherit', background: '', imageLayout: 'above', mode: 'flow' });
 export const readerRaster = (value: string | undefined): value is string => typeof value === 'string' && /^data:image\/(png|jpe?g|gif|webp|avif);base64,[a-z0-9+/=\s]+$/i.test(value) && value.length <= 3_000_000;
 export const readerColor = (value: unknown) => typeof value === 'string' && /^#[a-f0-9]{6}$/i.test(value) ? value : '';
@@ -34,13 +36,13 @@ export function safeReaderPresentation(value: ReaderPresentation | undefined): R
   };
 }
 /** Merge settings per field, so different chapter edits never replace one another. */
-export async function saveReaderPresentation(projectId: string, draft: ReaderPresentation, base: ReaderPresentation, eraId?: string): Promise<ReaderPresentation> {
+export async function saveReaderPresentation(projectId: string, draft: ReaderPresentation, base: ReaderPresentation, eraId?: string,manuscriptId='main'): Promise<ReaderPresentation> {
   validateReaderCover(draft.cover);
   const safe = safeReaderPresentation(draft); base = safeReaderPresentation(base);
-  const result = await db.transaction('rw', [db.projects, db.writings, db.writingSnapshots, db.localMediaAssets, db.worldEraVariants, db.worldEraAssets], async () => {
+  const result = await db.transaction('rw', [db.projects, db.writings, db.writingSnapshots, db.localMediaAssets, db.worldEraVariants, db.worldEraAssets, db.documentArchives], async () => {
     const project = await db.projects.get(projectId); if (!project) throw new Error('missing_project');
     const era=eraId?project.worldEras?.find(item=>item.id===eraId):undefined;if(eraId&&!era)throw Error('world_era_missing');
-    const shared=safeReaderPresentation(project.readerPresentation),current = safeReaderPresentation(applyEraReaderCover(project,era).readerPresentation);
+    const shared=safeReaderPresentation(project.readerPresentation),current = safeReaderPresentation(manuscriptProject(project,{kind:'manuscript',id:manuscriptId},eraId).readerPresentation);
     const merge = <T extends object>(original: T, ours: T, latest: T): T => {
       const result = { ...latest };
       for (const key of Object.keys({...original,...ours}) as (keyof T)[]) {
@@ -50,7 +52,7 @@ export async function saveReaderPresentation(projectId: string, draft: ReaderPre
       }
       return result;
     };
-    const chapters = { ...current.chapters }; const writings = eraId ? (await listEraRows<Writing>({ projectId, eraId }, 'writings')).map(row => row.id) : await db.writings.where('projectId').equals(projectId).primaryKeys();
+    const chapters = { ...current.chapters }; const writings = selectManuscriptWritings(eraId?await listEraRows<Writing>({projectId,eraId},'writings'):await db.writings.where('projectId').equals(projectId).toArray(),{kind:'manuscript',id:manuscriptId}).map(row=>row.id);
     for (const [id, chapter] of Object.entries(safe.chapters)) {
       const original = base.chapters[id] ?? defaultChapterPresentation();
       if (!writings.includes(id)) { if (JSON.stringify(chapter) === JSON.stringify(original)) continue; throw new Error('missing_chapter'); }
@@ -61,8 +63,15 @@ export async function saveReaderPresentation(projectId: string, draft: ReaderPre
       for (const track of tracks) { const asset = eraId ? await readEraRow<LocalMediaAsset>({ projectId, eraId }, 'localMediaAssets', track.assetId) : await db.localMediaAssets.get(track.assetId); if (!asset || asset.projectId !== projectId || asset.kind !== 'audio') throw new Error('missing_audio'); }
       Object.defineProperty(chapters, id, { value: merge(original, chapter, current.chapters[id] ?? defaultChapterPresentation()), enumerable: true, configurable: true, writable: true });
     }
-    const cover=merge(base.cover,safe.cover,current.cover),next = { revision: shared.revision + 1, playback: merge(base.playback!, safe.playback!, shared.playback!), cover:eraId?shared.cover:cover, chapters };
+    const cover=merge(base.cover,safe.cover,current.cover);
     const coverChanged=era&&JSON.stringify(safe.cover)!==JSON.stringify(base.cover),now=Math.max(Date.now(),project.updatedAt+1);
+    if(manuscriptId!=='main'){
+      const catalog=structuredClone(project.manuscriptCatalog) as ManuscriptCatalog,entry=catalog.entries.find(row=>row.id===manuscriptId)!;
+      const updated={...entry,reader:{cover:eraId?entry.reader?.cover??defaultReaderPresentation().cover:cover,playback:merge(base.playback!,safe.playback!,current.playback!)} ,...(coverChanged?{eraCovers:{...entry.eraCovers,[eraId!]:cover}}:{})};
+      const changed=JSON.stringify(updated)!==JSON.stringify(entry);if(changed){catalog.revision++;catalog.entries=catalog.entries.map(row=>row.id===entry.id?{...updated,updatedAt:now}:row);}
+      const sharedNext={...shared,revision:shared.revision+1,chapters};await db.projects.update(projectId,{readerPresentation:sharedNext,...(changed?{manuscriptCatalog:catalog}:{}),updatedAt:now});return{...sharedNext,cover,playback:updated.reader.playback};
+    }
+    const next = { revision: shared.revision + 1, playback: merge(base.playback!, safe.playback!, shared.playback!), cover:eraId?shared.cover:cover, chapters };
     await db.projects.update(projectId, { readerPresentation: next, ...(coverChanged?{worldEras:project.worldEras!.map(item=>item.id===era.id?{...item,readerCover:cover,revision:item.revision+1,updatedAt:Math.max(now,item.updatedAt+1)}:item)}:{}), updatedAt:now }); return eraId?{...next,cover}:next;
   });
   notifyProjectsChanged(); return result;

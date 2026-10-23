@@ -2,6 +2,8 @@ import PublishingProfileModal from '@/components/project/PublishingProfileModal'
 import type { Writing } from '@/types';
 
 interface CompileModalProps {
+  writingScope?:import('../manuscripts').WritingSelection;
+  eraId?:string;
   open: boolean;
   onClose: () => void;
   writings: Writing[];
@@ -11,6 +13,7 @@ interface CompileModalProps {
 
 /** The Writings shortcut is a quick, unsaved instance of the shared studio. */
 export default function CompileModal({
+  writingScope,eraId,
   open,
   onClose,
   writings,
@@ -26,6 +29,8 @@ export default function CompileModal({
       project={{ id: projectId, title: projectTitle }}
       writings={writings}
       variant="quick"
+      writingScope={writingScope}
+      eraId={eraId}
       titleOverride={projectTitle}
     />
   );

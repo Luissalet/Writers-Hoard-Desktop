@@ -1,3 +1,4 @@
+import {selectManuscriptWritings,type WritingSelection} from './manuscripts';
 import {voiceReadingMarkup,installVoiceReading,VOICE_READING_CSS} from '@/engines/media/voiceReading';
 import {mediaFilename} from '@/engines/media/types';
 import type { CodexEntry, Project, Writing } from '@/types';
@@ -30,10 +31,10 @@ function coverMarkup(project: Project, cover: ReaderPresentation['cover'], local
   return `<div class="wh-reader-cover" style="--book-color:${cover.color};--book-ink:${readerInk(cover.color)};--book-depth:${depth}px;--book-half:${depth / 2}px"><div class="wh-reader-cover-stage"><div class="wh-reader-book" role="img" aria-label="${esc(project.title)}" style="transform:rotateX(8deg) rotateY(-25deg)"><div class="wh-reader-book-back">${cover.jacket?face('back'):''}</div><div class="wh-reader-book-pages"></div><div class="wh-reader-book-spine">${cover.jacket?face('spine'):`<span>${esc(project.title)}</span>`}</div><div class="wh-reader-book-front" data-texture="${cover.jacket?'none':cover.texture}">${cover.jacket?face('front'):cover.artwork && readerRaster(project.coverImage) ? `<img src="${esc(project.coverImage)}" alt="">` : `<span>${esc(project.title)}</span>`}</div></div></div><label class="angle">${locale === 'es' ? 'Girar portada' : 'Rotate cover'} <input data-cover-angle type="range" min="${cover.jacket?-180:-65}" max="${cover.jacket?180:65}" value="-25"></label></div>`;
 }
 /** Standalone reader: only explicitly linked, same-project local assets are embedded. */
-export async function buildReaderHtml(project: Project, writings: Writing[], presentation: ReaderPresentation, locale: 'es' | 'en', scope: WorldEraScope = { projectId: project.id },source?:ReaderSource) {
+export async function buildReaderHtml(project: Project, writings: Writing[], presentation: ReaderPresentation, locale: 'es' | 'en', scope: WorldEraScope = { projectId: project.id },source?:ReaderSource,selection?:WritingSelection) {
   if (scope.projectId !== project.id) throw new Error('reader_project_mismatch');
   if(source&&source.project.id!==project.id)throw Error('reader_source_project_mismatch');
-  const safe = safeReaderPresentation(presentation); const pieces = writings.filter(writing => writing.projectId === project.id);
+  const safe = safeReaderPresentation(presentation); const pieces = selectManuscriptWritings(writings.filter(writing => writing.projectId === project.id),selection);
   const mediaIds = new Set<string>(), entryIds = new Set<string>(), linkedEntries = new Set<string>();
   const soundChapters = pieces.map(piece => readerSoundChapter(piece.id, safe.chapters[piece.id]));
   for (const chapter of soundChapters) for (const track of [chapter.audio, ...chapter.cues.map(cue => cue.track)]) if (track) mediaIds.add(track.assetId);

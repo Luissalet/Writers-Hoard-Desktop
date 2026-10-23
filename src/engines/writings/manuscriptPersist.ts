@@ -1,3 +1,4 @@
+import {selectManuscriptWritings,assertManuscriptOwner} from './manuscripts';
 // ============================================
 // Manuscript import — the single write
 // ============================================
@@ -87,6 +88,7 @@ export async function importManuscript(
   projectId: string,
   chapters: ManuscriptChapterInput[],
   onProgress?: ManuscriptProgressFn,
+  manuscriptId='main',
 ): Promise<ManuscriptImportResult> {
   if (chapters.length === 0) throw new ManuscriptImportError('no-chapters');
 
@@ -107,6 +109,7 @@ export async function importManuscript(
     wordCount += words;
     rows.push({
       id: generateId('wrt'),
+      ...(manuscriptId!=='main'?{manuscriptId}:{}),
       projectId,
       title: titleFor(chapter, index + 1),
       status: 'draft',
@@ -125,11 +128,12 @@ export async function importManuscript(
     }
   }
 
-  await db.transaction('rw', db.writings, async () => {
+  await db.transaction('rw', [db.writings,db.projects], async () => {
+    if(manuscriptId!=='main'){const project=await db.projects.get(projectId);if(!project)throw Error('project_missing');assertManuscriptOwner(project,{manuscriptId});}
     // The same read `getWritings` does on every visit to the list, for the one
     // number that cannot be computed anywhere else: where this book's numbering
     // has to start so it disturbs nothing.
-    const existing = await db.writings.where('projectId').equals(projectId).toArray();
+    const existing = selectManuscriptWritings(await db.writings.where('projectId').equals(projectId).toArray(),{kind:'manuscript',id:manuscriptId});
     const firstChapter = existing.reduce(
       (highest, writing) => Math.max(highest, (writing.chapter ?? 0) + 1),
       1,

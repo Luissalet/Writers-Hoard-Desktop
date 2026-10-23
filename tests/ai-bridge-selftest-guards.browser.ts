@@ -11,6 +11,7 @@ async function call(name:string,args:ToolArgs):Promise<any>{const tool=BRIDGE_TO
 export async function testSelfTestGuardContract(){
  const failures:string[]=[],passed:string[]=[],proof:unknown[]=[];
  const plan=selfTestGuardPlan();console.log('GUARD_CLASSIFICATION '+JSON.stringify(plan));assert(plan.parentFixtures.includes('wh_update_writing')&&!plan.projectFirst.includes('wh_update_writing')&&plan.projectFirst.includes('wh_create_writing'),'optional project scope cannot reclassify known parent validation');
+ assert(plan.parentFixtures.includes('wh_create_place_card')&&!plan.projectFirst.includes('wh_create_place_card')&&!plan.uncovered.includes('wh_create_place_card'),'Atlas card creation must be probed with its real world parent, not projectId alone');
  const uncovered=selfTestGuardPlan([...BRIDGE_TOOLS,{name:'wh_new_unprobed_engine_write',description:'Fixture',writes:true,engineId:'writings',schema:{type:'object',properties:{id:{type:'string'}},required:['id']}}]).uncovered;
  assert(uncovered.includes('wh_new_unprobed_engine_write'),'a new engine write without any probe must remain a coverage failure');passed.push('Parent/project-first classification and new unprobed write completeness remain strict');
  const names=['wh_timeline_batch_apply','wh_wiki_profile_save','wh_wiki_profile_delete','wh_wiki_profile_publish','wh_wiki_profile_restore_config','wh_timeline_batch_undo'];
