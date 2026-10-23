@@ -2,6 +2,8 @@
 
 [Español](README.es.md)
 
+The world graph adds adjustable spacing and optional areas by card type, preserving manual pins and saved views. Project JSON copies and Duplicate retain graph settings and remap their card/template references. Source `ecb1703` is integrated after independent CAS16; [verification and limits](tasks/vvd1095/verification-graph-display.md) track this separate delivery. Task1095 continues.
+
 Local-first creative writing platform, packaged as a desktop app with
 **Electron**. Same React/Vite/Dexie codebase as the web build, wrapped in a
 native shell that lifts the browser storage ceiling and bundles real media

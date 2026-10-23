@@ -1314,6 +1314,16 @@ Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item 
 - [x] Update the native manual for banner shapes under the required acquired/released locks: receipt names source 2f21eed, 314 added characters, 198 paragraphs, 197 other paragraphs unchanged and all styles preserved after CAS/readback. Calendar/audio's 610-character receipt is separate. C #83 remains PARTIAL for image/saved-banner workflows, year remains points and wiki remains a list; no full-reference parity or task 1095 closure.
 
 
+## Graph spacing and type areas — source ecb1703, CAS16
+
+- [x] Compare actual World Graph0.1.7 spacing/type-area controls and preserve reference limits.
+- [x] Add optional spacing/type areas, preserve pins/settings/views and extend native MCP settings/SVG without changing legacy defaults.
+- [x] Fix existing JSON/Duplicate loss of graph display/hidden IDs/views; preserve normal ZIP and remap only owned references.
+- [x] Complete independent core/metadata review,26 distinct result labels with repeated legacy coverage separated; commit13explicit paths and approve fresh CAS16.
+- [x] Integrate exact ecb1703 under fresh merge lock/HEAD. Root Brave checks drag, filter, reload and saved-view restore; generated SVG tests remain separate from the Browser download timeout.
+- [x] Record final main verify:quick/Vite32.31s/Electron/Node937 PASS, root session66185 exit0, main clean and merge lock released. Native manual separately adds355UTF16 with required revision/readback,198paragraphs/197other texts/styles preserved and both manual locks released; vvd1095/verification-graph-display.md.
+- [ ] Continue manual player5e attack fields and actual SDK levels/spatial research, without closing1095 or claiming universal parity.
+
 ## SDK resources — source d542365 integrated, CAS15
 
 - [x] Implement native manifest/loaders/resolver, document > installation > package cascade, scoped CAS/Revert, optional asset-reference codec and real owned AssetPad with bundled SVG/WAV; no new store or downloaded-code execution.
