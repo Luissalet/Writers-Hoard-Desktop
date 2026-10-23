@@ -11,6 +11,8 @@ downloaders (`yt-dlp` + `gallery-dl`) — no separate Python server.
 
 ## Offline planning and local publishing (task1095)
 
+Typed-table filters also support negative containment, prefixes/suffixes and inclusive lower/upper bounds. The existing `wh_table_query` uses the same operator list and evaluator as the UI; old filters remain available. [Live comparison and verification](tasks/vvd1095/verification-tables.md).
+
 Source tools can declare portable indexed fields and document references, query saved effective documents through `client.queryDocuments()` / `useLocalToolIndex()`, and expose the same query through MCP. The initiative authoring example includes participant/minimum-initiative filters. Normal project search can find declared values inside lists and maps. Focused source-tool documents, owned blocks and legacy tool views support Ctrl/Cmd+Z, Ctrl+Shift+Z and Ctrl+Y using their existing scoped receipts; editable text keeps native Undo and global shortcuts remain available.
 
 Call of Cthulhu paper and read-only views now include investigator conditions, era/Pulp mode, daily sanity and pending checks, characteristic targets, automatic/manual derived values, development marks and linked pushed-roll context. New sections follow the existing content and ink without moving the original tables. Recalculation, a new day and skill development use a non-destructive confirmation. See [live comparison and verification](tasks/vvd1095/verification-live.md) for the tested scope and limits.
