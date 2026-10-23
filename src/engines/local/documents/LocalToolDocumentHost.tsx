@@ -1,3 +1,4 @@
+import {useLocalToolAudioLifecycle} from '../useLocalToolAudioLifecycle';
 import {useContext,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
 import {Maximize2} from 'lucide-react';
@@ -32,6 +33,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  const [binding,setBinding]=useState<{client:LocalToolClient<LocalToolJson>;definition:LocalToolDefinition;namespace:string;hash:string|null;canEdit:boolean;navigate:typeof navigate}>();
  useLayoutEffect(()=>{let active=true;if(!definition||!documentNamespace){setBinding(undefined);return()=>{active=false;};}const client=createLocalToolClient(projectId,definition,{eraId,documentId,navigate,requireSelectedRelease:true,releaseHash:hash,readOnly:!canEdit,isCurrent:()=>active});setBinding({client,definition,namespace:documentNamespace,hash,canEdit,navigate});return()=>{active=false;};},[projectId,definition,eraId,documentId,navigate,hash,canEdit,documentNamespace]);
  const client=binding&&binding.definition===definition&&binding.namespace===documentNamespace&&binding.hash===hash&&binding.canEdit===canEdit&&binding.navigate===navigate?binding.client:undefined;
+ useLocalToolAudioLifecycle(client?.audio);
  const visible=parent?.visible??true;
  const pane=useMemo(()=>({instanceId,projectId,eraId,visible,primary:false,navigate,openBeside:parentOpenBeside}),[instanceId,projectId,eraId,visible,navigate,parentOpenBeside]);
  useEffect(()=>registerEnginePaneScope(instanceId,{projectId,eraId,navigate}),[instanceId,projectId,eraId,navigate]);

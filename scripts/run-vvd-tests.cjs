@@ -8,6 +8,13 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['local-tool-audio.browser.tsx', 'testLocalToolAudioEngine', 180000],
+  ['local-tool-audio.browser.tsx', 'testLocalToolAudioClients', 180000],
+  ['review-local-tool-audio.browser.tsx', 'reviewAudioSessionRegistry', 180000],
+  ['review-local-tool-audio.browser.tsx', 'reviewAudioHookRetarget', 180000],
+  ['review-local-tool-audio.browser.tsx', 'reviewAudioFailedExclusive', 180000],
+  ['review-local-tool-audio.browser.tsx', 'reviewAudioExclusiveRace', 180000],
+  ['review-local-tool-audio.browser.tsx', 'reviewAudioResumeFailure', 180000],
   ['calendar-event-editor.browser.tsx', 'testCalendarEventEditorEntry', 180000],
   ['review-calendar-reference.browser.tsx', 'reviewCalendarReference', 180000],
   ['review-calendar-reference.browser.tsx', 'reviewCalendarDateEdit', 180000],

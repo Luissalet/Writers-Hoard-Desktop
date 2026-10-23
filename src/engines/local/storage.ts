@@ -1,3 +1,4 @@
+import {createBrowserLocalToolAudio} from './audioBrowser';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {readSourceToolState,saveSourceToolState,readSourceToolDocument} from './documents/store';
 import {createLocalToolStateActions} from './stateRuntime';
@@ -13,7 +14,7 @@ import type {CodexEntry} from '@/types';
 import {localToolNamespace,LocalToolStateError,type LocalToolJson} from './stateTypes';
 import {readLocalToolState,prepareLocalToolSave,projectLocalToolCodex} from './clientContract';
 import type {LocalToolClient,LocalToolCodexQuery,LocalToolDefinition} from './sdk';
-export interface LocalToolClientOptions{documentId?:string;eraId?:string;navigate?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
+export interface LocalToolClientOptions{/** Injectable silent backend coordinator for host contract tests. */audioEngine?:ReturnType<typeof import('./audio').createLocalAudioEngine>;documentId?:string;eraId?:string;navigate?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
 function announce(projectId:string){const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});let transaction=Dexie.currentTransaction;if(!transaction){emit();return;}while(transaction.parent)transaction=transaction.parent;transaction.on('complete',emit);}
 export function createLocalToolClient<T extends LocalToolJson>(projectId:string,definition:LocalToolDefinition<T>,options:LocalToolClientOptions={}):LocalToolClient<T>{
  if(typeof projectId!=='string'||!projectId||projectId.length>500||Array.from(projectId).some(character=>character.charCodeAt(0)<32))throw new LocalToolStateError('missing-project');
@@ -24,7 +25,8 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  const kind=(value:EraDocumentKind)=>{if(!eraDocumentKinds.includes(value))throw new Error('world_document_kind_invalid');return value;};
  const project=async()=>{current();const row=await db.projects.get(projectId);current();if(!row)throw new LocalToolStateError('missing-project');if(scope.eraId&&!row.worldEras?.some(era=>era.id===scope.eraId))throw Error('world_era_missing');if(options.requireSelectedRelease&&(row.localToolInstallations?.[namespace]?.contentHash??null)!==(options.releaseHash??null))throw Error('local_tool_pin_conflict');return row;};
  const projected=async(documentKind:EraDocumentKind,read:EraDocumentRead)=>documentKind==='codex'?{...read,projection:{fields:projectCodexEntry(read.document.root as unknown as CodexEntry,(await getEraProject(scope)).codexTemplates).fields}}:read;
- const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,
+ const audio=createBrowserLocalToolAudio(scope,project,()=>{try{current();return true;}catch{return false;}},options.audioEngine);
+ const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,
   subscribe:(changed:()=>void)=>{
    let active=true,pending:ReturnType<typeof setTimeout>|undefined;
    const schedule=()=>{if(!active||pending!==undefined)return;pending=setTimeout(()=>{pending=undefined;if(active)changed();},0);};

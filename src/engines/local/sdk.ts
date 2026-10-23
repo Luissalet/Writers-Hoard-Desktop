@@ -1,5 +1,7 @@
 export {defineLocalToolBlock} from './blocks/definitions';
 export {useLocalToolWorldList,useLocalToolWorldRead} from './useLocalToolWorld';
+export {useSound,useAudioPlayer} from './useLocalToolAudio';
+export type {LocalToolAudio,LocalAudioRef,LocalAudioOptions,LocalAudioUpdate,LocalAudioState,LocalAudioBus,LocalAudioFocus} from './audio';
 export type {LocalToolWorldClient} from './useLocalToolWorld';
 export type {LocalToolBlockDefinition,LocalToolOwnedBlockDefinition,LocalToolWorldBlockDefinition,LocalToolWorldBlockProps} from './blocks/definitions';
 export type {LocalToolBlockEnvelope,LocalToolOwnedBlockEnvelope,LocalToolWorldBlockEnvelope,LocalToolBlockOwner,LocalToolBlockDataOwner} from './blocks/types';
@@ -30,6 +32,7 @@ export interface LocalToolWorldRead extends EraDocumentRead{projection?:{fields:
 export interface LocalToolCodexCard{id:string;title:string;type:CodexEntryType;tags:string[];fields:Record<string,string>;truncated:boolean}
 export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:readonly string[];limit?:number}
 export interface LocalToolClient<T extends LocalToolJson>{
+  readonly audio?:import('./audio').LocalToolAudio;
   readonly projectId:string;readonly namespace:string;readonly documentId?:string;readonly eraId?:string;
   readonly refs:ReturnType<typeof createLocalToolReferences>;readonly state?:LocalToolStateActions<T>;
   subscribe?(changed:()=>void):()=>void;
