@@ -1248,7 +1248,7 @@ const NOTE_TOOLS: BridgeTool[] = [
     name: 'wh_list_notes',
     description:
       `List short notes and quotes; pass inbox for the project-less capture inbox.
-List notes: single thoughts, quotes, ideas and words the writer liked. Plain text, no titles. Pass inbox:true for the project-less capture inbox instead of a project.`,
+List notes: single thoughts, quotes, ideas and words the writer liked. Plain text projection plus optional title and richHtml. Pass inbox:true for the project-less capture inbox instead of a project.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1264,8 +1264,7 @@ List notes: single thoughts, quotes, ideas and words the writer liked. Plain tex
   {
     name: 'wh_create_note',
     description:
-      `Capture one short note or quote, not a full paragraph.
-Capture one note. Keep it to a thought or a quote — anything longer than a paragraph belongs in a writing or a diary entry instead.`,
+      `Capture a note, quote, idea or word with optional title and native rich HTML. Plain capture remains supported; richHtml determines its coherent plain text projection.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1273,6 +1272,7 @@ Capture one note. Keep it to a thought or a quote — anything longer than a par
         projectId: PROJECT_ID,
         inbox: b('Capture into the project-less inbox instead of a project.'),
         text: s('The note itself, as plain text. Its first line doubles as the title.'),
+        richHtml: s('Optional native editor HTML. Sanitized; when supplied it determines the saved plain text projection.'),
         kind: s('Default "note".', { enum: ['note', 'quote', 'idea', 'word'] }),
         title: s('Optional title shown over the note.'),
         source: s('Who said it, or where it came from.'),
@@ -1291,7 +1291,8 @@ Capture one note. Keep it to a thought or a quote — anything longer than a par
       type: 'object',
       properties: {
         id: s('Note id.'),
-        text: s('Replacement text.'),
+        text: s('Replacement plain text; without richHtml this explicitly removes old formatting.'),
+        richHtml: {type:['string','null'],description:'Optional replacement native editor HTML, sanitized and projected into text. Null selects plain text; omitted retains formatting on metadata-only updates.'},
         kind: s('New kind.', { enum: ['note', 'quote', 'idea', 'word'] }),
         title: { type: ['string', 'null'], description: 'New title; null or empty removes it.' },
         source: s('New attribution.'),

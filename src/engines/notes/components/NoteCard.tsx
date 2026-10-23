@@ -3,6 +3,9 @@ import { ArrowUpRight, Check, Copy, FolderInput, Palette, Pencil, Pin, PinOff, T
 import { useTranslation } from '@/i18n/useTranslation';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import { NOTE_COLORS, NOTE_KIND_META, type Note } from '../types';
+import NoteRichEditor from './NoteRichEditor';
+import { hasNoteContent, plainNoteHtml } from '../content';
+import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 
 interface NoteCardProps {
   note: Note;
@@ -31,6 +34,7 @@ export default function NoteCard({
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(note.title ?? ''), [draftCover, setDraftCover] = useState(note.cover), [coverError, setCoverError] = useState(false);
   const [draft, setDraft] = useState(note.text);
+  const [draftRich,setDraftRich]=useState(note.richHtml);
   const [draftSource, setDraftSource] = useState(note.source ?? '');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [showColors, setShowColors] = useState(false);
@@ -49,6 +53,7 @@ export default function NoteCard({
     setAppliedDeepLink(deepLinkToken);
     if (deepLinkToken) {
       setDraft(note.text);
+      setDraftRich(note.richHtml);
       setDraftSource(note.source ?? '');
       setDraftTitle(note.title ?? ''); setDraftCover(note.cover);
       setEditing(true);
@@ -57,6 +62,7 @@ export default function NoteCard({
 
   const startEdit = () => {
     setDraft(note.text);
+    setDraftRich(note.richHtml);
     setDraftSource(note.source ?? '');
     setDraftTitle(note.title ?? ''); setDraftCover(note.cover); setCoverError(false);
     setEditing(true);
@@ -81,11 +87,11 @@ export default function NoteCard({
 
   const commit = async () => {
     const text = draft.trim();
-    if (!text) {
+    if (!hasNoteContent(text,draftRich)) {
       setEditing(false);
       return;
     }
-    if (await update({ text, source: draftSource.trim() || undefined, title: draftTitle.trim().slice(0, 200) || undefined, cover: draftCover })) setEditing(false);
+    if (await update({ text, richHtml:draftRich, source: draftSource.trim() || undefined, title: draftTitle.trim().slice(0, 200) || undefined, cover: draftCover })) setEditing(false);
   };
 
   const copy = () => {
@@ -230,7 +236,8 @@ export default function NoteCard({
             <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} placeholder={es ? 'Título (opcional)' : 'Title (optional)'} aria-label={es ? 'Título' : 'Title'} data-testid="note-title" maxLength={200} className="w-full px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-sm font-semibold text-text-primary placeholder:text-text-dim outline-none focus:border-accent-gold transition" />
             <label className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-text-muted hover:text-text-primary">{draftCover ? (es ? 'Cambiar portada' : 'Change cover') : (es ? 'Añadir portada' : 'Add cover')}<input type="file" className="sr-only" accept="image/png,image/jpeg,image/gif,image/webp" data-testid="note-cover" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (!file) return; if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 1_500_000) { setCoverError(true); return; } const reader = new FileReader(); reader.onload = () => { if (typeof reader.result === 'string') { setDraftCover(reader.result); setCoverError(false); } }; reader.readAsDataURL(file); }} /></label>
             {coverError && <p role="alert" className="text-[11px] text-danger">{es ? 'La portada debe ser PNG, JPEG, GIF o WebP de hasta 1,5 MB.' : 'The cover must be a PNG, JPEG, GIF or WebP up to 1.5 MB.'}</p>}
-            <textarea
+            <label className="flex min-h-9 items-center gap-2 text-xs text-text-muted"><input type="checkbox" data-testid="note-rich-toggle" checked={draftRich!==undefined} onChange={event=>setDraftRich(event.target.checked?plainNoteHtml(draft):undefined)}/>{es?'Texto enriquecido':'Rich text'}</label>
+            {draftRich!==undefined?<NoteRichEditor key={note.id} html={draftRich} onChange={(plain,html)=>{setDraft(plain);setDraftRich(html);}}/>:<textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -240,7 +247,7 @@ export default function NoteCard({
               autoFocus
               rows={4}
               className="w-full px-2.5 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition resize-none"
-            />
+            />}
             <input
               value={draftSource}
               onChange={(e) => setDraftSource(e.target.value)}
@@ -271,13 +278,13 @@ export default function NoteCard({
           >
             {note.cover && <img src={note.cover} alt="" className="mb-2 max-h-40 w-full rounded-lg object-cover" data-testid="note-cover-image" />}
             {note.title && <p className="mb-1 text-base font-semibold text-text-primary" data-testid="note-title-shown">{note.title}</p>}
-            <p
+            {note.richHtml!==undefined?<div className="tiptap-editor prose prose-sm max-w-none break-words text-text-primary" data-note-rich-read dangerouslySetInnerHTML={sanitizedHtml(note.richHtml)}/>:<p
               className={`text-sm text-text-primary whitespace-pre-wrap leading-relaxed ${
                 note.kind === 'quote' ? 'font-serif italic' : ''
               }`}
             >
               {note.text}
-            </p>
+            </p>}
           </button>
         )}
 

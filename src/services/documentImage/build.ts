@@ -91,7 +91,7 @@ async function renderPart(ctx:Context,kind:EraDocumentKind,id:string,view?:Docum
       }
       case 'writings':html=await prose(String(root.content??''),ctx);break;
       case 'local-tool':html=renderLocalToolPreview(sourceDocumentPreview(root as unknown as SourceToolDocument,ctx.locale),false);break;
-      case 'notes':{const note=root as unknown as Note;html=`<div style="white-space:pre-wrap">${esc(note.text)}</div>`+fields({kind:note.kind,source:note.source,tags:note.tags.join(', ')});break;}
+      case 'notes':{const note=root as unknown as Note;html=(note.richHtml!==undefined?await prose(note.richHtml,ctx):`<div style="white-space:pre-wrap">${esc(note.text)}</div>`)+fields({kind:note.kind,source:note.source,tags:note.tags.join(', ')});break;}
       case 'dialog-scene':{
         const scene=root as unknown as Scene,blocks=rows<DialogBlock>(document,'dialogBlocks').sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id)),seen=new Set<string>();
         const block=async(item:DialogBlock)=>`<div class="${esc(item.type)}">${item.type==='dialog'?`<b>${esc(item.characterName)}</b>${item.parenthetical?`<i>${esc(item.parenthetical)}</i>`:''}`:''}${await prose(item.content,ctx)}</div>`;

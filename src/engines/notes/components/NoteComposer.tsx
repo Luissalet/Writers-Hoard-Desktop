@@ -2,10 +2,13 @@ import { useRef, useState } from 'react';
 import { Loader2, Plus, Tag as TagIcon, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { NOTE_KINDS, NOTE_KIND_META, type NoteKind } from '../types';
+import NoteRichEditor from './NoteRichEditor';
+import { hasNoteContent, plainNoteHtml } from '../content';
 
 export interface NoteDraft {
   kind: NoteKind;
   text: string;
+  richHtml?: string;
   source?: string;
   tags: string[];
 }
@@ -32,9 +35,10 @@ export default function NoteComposer({
   autoFocus = false,
   bare = false,
 }: NoteComposerProps) {
-  const { t } = useTranslation();
+  const { t,locale } = useTranslation();
   const [kind, setKind] = useState<NoteKind>('note');
   const [text, setText] = useState('');
+  const [richHtml,setRichHtml]=useState<string>();
   const [source, setSource] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -45,18 +49,19 @@ export default function NoteComposer({
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = async () => {
-    if (!text.trim() || submittingRef.current) return;
+    if (!hasNoteContent(text,richHtml) || submittingRef.current) return;
     submittingRef.current = true;
     setSaving(true);
     setSaveError(false);
     onPendingChange?.(true);
     try {
-      const written = await onSubmit({ kind, text, source: source.trim() || undefined, tags });
+      const written = await onSubmit({ kind, text, ...(richHtml!==undefined?{richHtml}:{}), source: source.trim() || undefined, tags });
       if (written === false) {
         setSaveError(true);
         return;
       }
       setText('');
+      setRichHtml(undefined);
       setSource('');
       setTags([]);
       setTagInput('');
@@ -129,7 +134,8 @@ export default function NoteComposer({
         })}
       </div>
 
-      <textarea
+      {!bare&&<label className="flex min-h-9 items-center gap-2 text-xs text-text-muted"><input type="checkbox" data-testid="note-rich-toggle" checked={richHtml!==undefined} onChange={event=>setRichHtml(event.target.checked?plainNoteHtml(text):undefined)}/>{locale==='es'?'Texto enriquecido':'Rich text'}</label>}
+      {richHtml!==undefined?<NoteRichEditor html={richHtml} onChange={(plain,html)=>{setText(plain);setRichHtml(html);}}/>:<textarea
         ref={textRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -139,7 +145,7 @@ export default function NoteComposer({
         rows={bare ? 3 : 2}
         placeholder={kind === 'quote' ? t('notes.quotePlaceholder') : t('notes.placeholder')}
         className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder:text-text-dim outline-none focus:border-accent-gold transition resize-none"
-      />
+      />}
 
       {saveError && <p role="alert" className="text-sm text-red-400">{t('notes.saveFailed')}</p>}
 
@@ -210,7 +216,7 @@ export default function NoteComposer({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || !text.trim()}
+            disabled={saving || !hasNoteContent(text,richHtml)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />} {t(saving ? 'common.saving' : 'notes.save')}
