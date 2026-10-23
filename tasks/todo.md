@@ -1264,4 +1264,5 @@ Objective: exercise the actual VVD website and current SDK, then implement equal
 - [x] Correct missed footnote-panel updates between render and subscription; deterministic RED/GREEN and complete critical396PASS.
 - [x] Correct the actual Codex New Entry editor lifecycle crash, reproduce and independently review; Browser opens normally and owned-block keyboard Undo/Redo retains the block before normal Save.
 - [ ] Continue live tool comparisons and implement further observed offline gaps; never infer parity from catalogue labels alone.
-- [ ] Review, functional verification and integration of resulting features; keep the investigation open beyond this delivery.
+- [x] Review, functional verification and integration of this delivery: d718745+b203159, complementary CAS4, clean-main production build and manual/graph update; no push. Full781/178 and later deltas remain separately counted in verification-live.md.
+- [ ] Continue from actual Table0.1.37 numeric sort/card-linked records and the compact CoC roster comparison; task1095 remains active.
