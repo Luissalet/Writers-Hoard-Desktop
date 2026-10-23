@@ -62,6 +62,7 @@ const suites = [
   ['vvd-media.browser.tsx', 'testVvdMedia'],
   ['media-blocks.browser.tsx', 'testMediaBlocks'],
   ['tool-document-blocks.browser.tsx', 'testToolDocumentBlocks'],
+  ['tool-sheet-preview.browser.tsx', 'testToolSheetPreview'],
   ['wiki-export.browser.tsx', 'testWikiExport'],
   ['wiki-presentation.browser.tsx', 'testWikiPresentation'],
   ['wiki-look-changes.browser.tsx', 'testWikiLookChanges'],
