@@ -1,5 +1,7 @@
 # Objetivos de autoría local
 
+La continuación1095 contrasta la web y el SDK vivos antes de cerrar diferencias: índice/query de herramientas propias, Deshacer de teclado y estado CoC en papel están implementados; verificación/integración exactas en tasks/vvd1095/verification-live.md. La comparación sigue abierta: no se declara paridad universal ni se incluyen funciones que dependan de APIs externas o pagos.
+
 Alcance: continuación de las herramientas locales de mundo documentadas en
 [WORLD_AUTHORING](docs/WORLD_AUTHORING.md). Este archivo no sustituye los planes
 ni las tareas de otros módulos.

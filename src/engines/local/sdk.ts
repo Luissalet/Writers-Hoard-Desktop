@@ -18,6 +18,9 @@ import type { EraDocument, EraDocumentKind, EraDocumentRead } from '@/services/w
 import type { LocalMediaAsset } from '@/engines/media/types';
 import type { ContentSearchHit } from '@/services/projectSearchIndex';
 import {validateLocalOperationSchema} from './operationSchema';
+import {validateLocalToolIndexSpec,type LocalToolDocumentQuery,type LocalToolIndexRow,type LocalToolIndexSpec} from './documentIndex';
+export {evaluateLocalToolIndex,queryLocalToolIndexRows} from './documentIndex';
+export type {LocalToolDocumentQuery,LocalToolIndexSpec,LocalToolIndexRow,LocalToolIndexPredicate} from './documentIndex';
 export type {LocalToolJson,LocalToolState} from './stateTypes';
 export type {EraDocument,EraDocumentKind,EraDocumentRead} from '@/services/worldEras/types';
 export interface LocalToolSnapshot<T extends LocalToolJson>{revision:number|null;updatedAt:number|null;data:T;document?:{id:string;namespace:string;title:string;version:string;lineage:string};block?:{id:string;owner:import('./blocks/types').LocalToolBlockDataOwner;version:string;lineage:string};provenance?:'base'|'variant'}
@@ -35,18 +38,20 @@ export interface LocalToolClient<T extends LocalToolJson>{
   callTool(name:string,args?:Record<string,LocalToolJson>):Promise<LocalToolJson>;
   media:{list():Promise<LocalMediaAsset[]>;import(file:File):Promise<LocalMediaAsset>};
   search(query:string,limit?:number):Promise<ContentSearchHit[]>;
+  queryDocuments(query?:LocalToolDocumentQuery):Promise<LocalToolIndexRow[]>;
   openDocument(kind:EraDocumentKind,id:string):Promise<void>;
 }
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostContext {view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string}}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
-export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
+export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{
   if(!localToolNamespace(definition.namespace))throw new LocalToolStateError('invalid-namespace');
   for(const copy of [definition.name,definition.description])for(const locale of ['en','es']as const)if(typeof copy?.[locale]!=='string'||!copy[locale].trim()||copy[locale].length>500)throw new Error('invalid_local_tool_metadata');
   if(definition.document)for(const locale of ['en','es']as const)if(typeof definition.document.defaultTitle?.[locale]!=='string'||!definition.document.defaultTitle[locale].trim())throw Error('source_tool_document_invalid');
   if(definition.document?.embed&&!['preview','interactive'].includes(definition.document.embed))throw Error('source_tool_document_invalid');if(definition.preview)validateLocalToolPreviewSpec(definition.preview);
   if(definition.codec)validateLocalToolCodec(definition.codec);
+  if(definition.index)validateLocalToolIndexSpec(definition.index);
   const blockKeys=new Set<string>();for(const block of definition.blocks??[]){if(blockKeys.has(block.key))throw Error('local_tool_block_key_duplicate');blockKeys.add(block.key);validateLocalToolBlockDefinition(definition.namespace,block);}
   const initialState=cloneLocalToolJson(definition.initialState);if(definition.validateState(initialState)!==true)throw new LocalToolStateError('invalid-state');
   if(definition.codec)validateLocalToolCodecState(initialState,definition.codec);
@@ -60,5 +65,5 @@ export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalTo
     validateLocalOperationSchema(schema);
     return Object.freeze({...operation,description:{...operation.description},inputSchema:schema});
   });
-  return Object.freeze({...definition,...(definition.codec?{codec:cloneLocalToolJson(definition.codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
+  return Object.freeze({...definition,...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(definition.codec?{codec:cloneLocalToolJson(definition.codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
 }
