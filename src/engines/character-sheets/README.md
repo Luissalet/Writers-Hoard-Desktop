@@ -106,6 +106,29 @@ Author QA: `five-e-rules.browser.ts` (rules/manual data), `five-e-preview-select
 
 Unset ELECTRON_RUN_AS_NODE before Electron runs. The depth runner uses its own temporary profile, disables network, builds current application CSS, checks actual registered native dispatch, archive/clone/recovery, captures desktop/narrow screenshots and sends native mouse/keyboard input. It never uses the real application profile.
 
+## Manual attacks
+
+The 5e player sheet also supports optional **manual attacks** in Inventory & features.
+Add an attack, or explicitly mark an existing row as an attack. `fiveEAttack` stores
+`{version:1, bonus, damageType}`; the row's existing dice expression is its damage.
+Bonus is a safe signed integer and damage type is free text. This does not adopt a
+class profile, parse old notes, or remove `fiveESpell` metadata. Removing attack
+configuration preserves the entire generic row and spell configuration.
+
+Roll attack adds the manual bonus to one d20; Roll damage uses the existing dice
+expression grammar. Both append unsaved history through the normal editor. They
+label history with the action and row name, plus the written damage type for
+damage rolls (localized in the editor; canonical English through MCP). Existing
+saved roll labels remain unchanged. They
+do not assume a target, adjudicate natural 1/20, or spend quantity, slots or HP.
+When authored context exceeds the existing history label limit, only its derived
+label is shortened with ellipses; the complete row and damage type stay stored.
+The existing native `wh_sheet_5e_action` accepts `roll-attack` / `roll-damage` with
+`rowId`, current revision and optional era. Normal CAS, receipt Undo and rollback
+apply. The full update tool edits or clears the optional metadata. Existing JSON,
+clone and ZIP paths retain it; no default row is converted. Paper appends a manual
+attacks table after existing content and ink, retaining prior annotation anchors.
+
 ## Table rules
 
 The **Table rules** tab (`TableRulesPanel.tsx`; `?view=rules` opens it) keeps one
