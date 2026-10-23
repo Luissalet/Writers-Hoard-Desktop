@@ -3110,6 +3110,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
         <button
           onClick={() => { setNewStatus(newWritingStatus); setShowCreateForm(true); }}
+          data-tour="writings-new"
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
         >
           <Plus size={16} />

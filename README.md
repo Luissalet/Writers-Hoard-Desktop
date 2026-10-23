@@ -54,6 +54,66 @@ events and play in sequence. Each has bridge tools (see docs/AI-BRIDGE.md, secti
 character profile preserves manual values and played counters; it is not a
 complete rules or spell-catalogue engine.
 
+**Wiki look and publishing (task 1095, wave D2).** The offline wiki's appearance
+editor now has a catalogue of 20 named palettes (light, dark, book and high
+contrast, all readable), a "Save my palette" list that is renamed and deleted in
+place and travels with the profile in backups and clones, footer links (web or
+mail addresses only) with a signature line, and terminal extras for the Terminal
+and Shell layouts: phosphor colours, CRT scanlines, dithered pictures, a boot line
+and an editable "New here?" command list. Profiles that use none of it export the
+same bytes as before. The export panel shows what changed since the last local
+edition ("Publish (3 changes)" with added, changed and removed documents); the
+read-only bridge tool `wh_wiki_profile_changes` returns the same list.
+
+**Assets library (task 1095, wave D2).** The project's Assets tab now lists
+pictures, sounds, videos and 3D models together: search by name or tag, six
+sort orders, a kind filter, multi-select, download and rename. Deleting reads
+where the asset is used first ("Used in N places: ...") and then goes through
+each tool's own delete path, with Undo for pictures and sounds. In the desktop
+app a sound or video of 8 MB or more offers **Compress** (only when asked,
+cancellable, sizes before and after, saved as a copy or in place of the
+original). The crop dialog has named frames (avatar, cards, banner, cover,
+wallpaper) with a "too small" notice, and the gallery lightbox zooms and pans
+(wheel, drag, `+`/`-`, `0`, arrows). Bridge tools `wh_list_assets` and
+`wh_asset_usage` (docs/AI-BRIDGE.md, "Biblioteca de recursos"); matrix: tasks/vvd1095/D2-platform.md.
+
+**Workspace tabs and Undo.** The companion pane's tabs can be renamed (the
+document keeps its title), pinned, duplicated, closed in bulk (the others, or
+those to the right) and reopened (`Ctrl/Cmd+Shift+T`, the last ten); `Ctrl/Cmd+1-9`
+jumps to a tab, and an overview lists them. They come back when the project is
+reopened (stored per project in this window's storage, not in the project).
+Closing a tab with a brand-new empty card or chapter asks whether to keep or
+delete it; deleting goes through the tool's own delete path. Archiving and
+renaming a Library folder now show a toast with **Undo**, also reachable from the
+workspace bar; it is refused ("could not undo: it changed since") if the
+document or the Library moved on. Bridge: `wh_workspace_tabs` (read).
+
+**Revealing lore to the players (task 1095, gap 4).** A Codex card can be marked
+"Revealed" ("Reveal to the players" / "Hide again" in the card dialog, the card
+editor and the Consult panel; an optional moment such as "Session 3"). Revealed
+cards carry a badge, the list filters by "Only revealed / Not revealed yet", and a
+"Player view" shows only revealed cards, without hidden blocks, spoiler text or the
+project's excluded fields (nothing is saved). Wiki profiles get a policy "Publish
+only what is revealed" (off by default; maps stay out while on; editions already
+published do not change). Bridge: `wh_set_revealed` (several cards, undoable, the
+undo is refused if a card changed since), plus `revealed` in `wh_list_codex` and
+`wh_get_codex_entry`. Not built: the marker is per card (no per-block reveal),
+fiction-engine entities have their own secrets switch and are not linked to it,
+and there is no per-page "waiting for publish" dot in the Codex list yet.
+
+**Guided tours (task 1095, wave D2).** The compass button in the top bar (and a
+"See the guided tours" link under the Getting started card, which stays) opens a
+list of nine short tours over the real screen: your first world, first chapter,
+first card, first map, the timeline, the board, switching tools on, publishing a
+wiki edition and backups. Each step dims the screen except the element it talks
+about and follows it if the window resizes; **Back**, **Next**/**Finish**, **Skip**,
+the arrow keys and Esc all work (arrows are left alone while you type). A step
+whose element is not on screen, or that needs a world or a tool you have not got,
+is skipped with a notice instead of breaking. The list shows each tour as not
+started, "Step 2 of 4" (Continue) or Done (Repeat). Progress is app-wide, kept in
+one settings row, and is not part of any world's backup. A fresh install with no
+worlds gets a one-time, dismissible offer. Spanish and English; no bridge tool.
+
 **Writing, publishing, Codex, timelines and tables (task 1095, wave C).** The
 editor's "/" menu offers 26 blocks (callouts including read-aloud and sidebar
 boxes, toggles, checklists, sent/received messages, letter, email, column
@@ -83,6 +143,19 @@ references follow, a removed one reads #REF!), multi-sort and filters.
 Everything has bridge tools (docs/AI-BRIDGE.md, section 29); the matrix with
 evidence is tasks/vvd1095/C-writing.md.
 
+**Table rules (task 1095, B gap 6).** Sheets has a "Table rules" tab (also
+reachable from the project settings): pick the game system (D&D 5e 2024 or 2014,
+Daggerheart, Call of Cthulhu 7e, freeform), see the rules that system has with
+their usual value, change what your table plays differently (hit points fixed or
+rolled, rests, critical damage, flanking, potion action, carrying, death saves,
+Fear, Experiences, gold and more), and keep notes for the evening (when, where,
+house rules, food, dress code, your own sections) in the order you like. Each
+changed rule is marked and has its own reset; one button resets them all. It is
+saved with the project (undo-safe revision, JSON and ZIP backup, copies), answers
+the bridge (`wh_table_rules_get`, `wh_table_rules_set`) and is read by only two
+things so far: a note on the 5e class preview when hit points are rolled and a
+note in the dice tray when the table rolls its own dice.
+
 **Tabletop tools (task 1095, wave D1).** Character sheets gain an offline SRD 5.2
 compendium (341 monsters, 339 spells, 262 magic items, 15 conditions; search and
 filters; "Add to world" makes a Codex card and a stat block; CC BY 4.0 credit),
@@ -103,6 +176,17 @@ the world graph has display settings, hidden cards and saved graphs; the
 project ambience has a soundscape mixer; the icon picker has categories,
 genres and recent icons. Bridge tools: docs/AI-BRIDGE.md, section 30; matrix:
 tasks/vvd1095/D1-tools.md.
+
+**Workspace themes.** Appearance (Base or an era) has eight built-in styles
+(Parchment, Midnight, Forest, Ember, Ocean, Slate, Dusty rose, High contrast) and
+an accent-hue slider. "Save as theme" names the look you see, including its
+background picture; saved themes can be applied to Base or to the current era
+(through the same revision-checked save, so a stale form is refused), renamed,
+deleted after a confirmation, and exported or imported as .json (a bad file is
+refused with a plain message and changes nothing). Themes belong to the device:
+one app-wide settings row, carried by full backups but not by a single-project
+export. Bridge tools `wh_workspace_theme_list/save/apply/delete` (undoable):
+docs/AI-BRIDGE.md, section 31.
 
 **Duplicate project** creates one local project copy, remaps declared internal
 references and copies available managed Scrapper files. Global library and native
@@ -253,6 +337,31 @@ flow; `wh_genealogy_*` separately import and apply explicit family links.
 Existing references and project data are preserved by database upgrade v38.
 See [genealogy](docs/GENEALOGY_CONTRACT.md) for supported metadata, JSON shapes,
 session undo and other limits.
+
+**Import mixed documents** also takes pasted text (a line with only `---8<---`
+separates documents), text-layer PDFs and a destination Library folder, with
+export guides, "select all of this type" and a reason for every skipped file.
+**Import manuscript** in Writings reads ePub (book order, images reported) and
+PDF with text; a scanned PDF is refused with an OCR message. Bridge arguments
+`pasted` and `libraryFolderId`; see
+[world folder import](docs/world-folder-import.md).
+
+## Export a whole world as Markdown
+
+**Export as Markdown** (the file icon on a project card in the dashboard, and the
+button under *Export* in the project sidebar) writes the project as a folder of
+plain, readable files in a ZIP: one `.md` per Codex card (`Codex/<type>/`),
+chapter (`Writings/`), note (`Notes/`), timeline (`Timelines/`, a dated list),
+map (`Maps/`), outline and diary page, each with YAML frontmatter (type, title,
+aliases, tags, fields, id, updated date) and the body as Markdown. Links the
+author made between cards, and the first mention of each card in a document,
+become `[[Title]]` links; ambiguous names are left alone. Tables come out as CSV,
+and there is an `index.md` and a `world.json` with the project record minus
+embedded pictures. A checkbox adds pictures and sounds under `media/`; the dialog
+shows the size estimate with and without them, the phase it is in, and a Cancel
+button. The export only reads: it does not touch the ZIP backup. Bridge/MCP tool
+`wh_world_markdown_export` returns the same ZIP as base64 (up to 25 MB). Not
+included yet: era variants, boards, Kanban, storyboards and character sheets.
 
 ## World bible export
 

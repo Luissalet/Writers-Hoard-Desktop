@@ -1,6 +1,6 @@
 # Importar y revisar un manuscrito local
 
-En Escritos, **Importar un manuscrito** abre DOCX, Markdown y texto. Primero se lee el archivo y se muestra el plan: división por títulos, separador o archivo; nombres, selección, texto final de muestra y cambios conservados para revisar. Cada fila crea un borrador salvo que se elija explícitamente un capítulo existente como destino. Los nombres iguales no provocan reemplazos.
+En Escritos, **Importar un manuscrito** abre DOCX, ePub, PDF con texto, Markdown y texto. Primero se lee el archivo y se muestra el plan: división por títulos, separador o archivo; nombres, selección, texto final de muestra y cambios conservados para revisar. Cada fila crea un borrador salvo que se elija explícitamente un capítulo existente como destino. Los nombres iguales no provocan reemplazos.
 
 La importación completa se guarda en una transacción. Los reemplazos conservan su versión previa y los metadatos del capítulo; un destino cambiado o desaparecido cancela el lote. En una era, sólo se escribe su variante. Base y las otras eras permanecen independientes.
 
@@ -22,3 +22,11 @@ El archivo original se conserva byte a byte en el proyecto. Puede descargarse an
 Las tres herramientas de revisiones admiten `projectId`/`eraId`. La lectura devuelve `documentVersion` en una era, que puede enviarse junto a `expectedUpdatedAt` al proponer o resolver. La omisión de `eraId` conserva el comportamiento Base. El límite existente sigue siendo 32 MiB por archivo y 64 MiB por lote; el transporte nativo admite el correspondiente sobre base64.
 
 Los estilos y objetos que el editor no representa permanecen en el archivo original. No se implementa aquí exportación de los nuevos hilos locales a comentarios Word, persistencia del Undo nativo ni edición universal de objetos de Word.
+
+## ePub y PDF
+
+Un **ePub** se lee en el orden del libro (el «spine» de su paquete, no el orden de los nombres de archivo). Se omiten la portada, el índice y la navegación; los títulos de capítulo salen del texto o, si falta, del índice del propio libro. Las imágenes no se importan: el plan dice cuántas son y el original las conserva. Las tablas se aplanan a un párrafo por fila. Un libro con DRM se rechaza.
+
+Un **PDF** se lee solo por su capa de texto: los párrafos se reconstruyen por la posición de las líneas, se unen las palabras cortadas con guion, se descartan cabeceras y números de página repetidos y solo se toma como título una línea claramente mayor que el cuerpo. No reordena columnas ni recupera tablas, notas al pie o imágenes, y el plan lo avisa («revisa el resultado»). Un PDF sin texto (escaneado) se rechaza con «Este PDF es una imagen escaneada: necesita OCR» y no se importa nada.
+
+`wh_manuscript_import_inspect/apply` aceptan además `pasted: [{name?, text}]` (texto pegado como `.md`); las dos herramientas devuelven los códigos de rechazo `scanned-pdf`, `invalid-pdf`, `invalid-epub` y `protected`.

@@ -29,6 +29,7 @@ import { BookOpen, ChevronLeft, ExternalLink, Pencil, Pin, PinOff, Search, X } f
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { saveCodexDraft } from '@/engines/codex/operations';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
+import CodexRevealControl from '@/components/codex/CodexRevealControl';
 import Modal from '@/components/common/Modal';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { OPEN_CODEX_REFERENCE, type OpenCodexReferenceDetail } from '@/services/codexReference/inlineMentions';
@@ -415,6 +416,7 @@ export default function ReferencePanel({
           {pane?.openBeside && <button type="button" onMouseDown={keepEditorFocus} onClick={() => pane.openBeside!(`/project/${encodeURIComponent(entry.projectId)}/codex?entry=${encodeURIComponent(entry.id)}`)} data-testid="reference-open-beside" title={locale === 'es' ? 'Abrir en su propia pestaña al lado' : 'Open in its own tab beside'} className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-text-muted hover:bg-elevated hover:text-text-primary"><ExternalLink size={13} aria-hidden="true" />{locale === 'es' ? 'Abrir al lado' : 'Open beside'}</button>}
           <button type="button" onMouseDown={keepEditorFocus} onClick={() => { setEntryDirty(false); setEditingEntry(entry); }} data-testid="reference-edit-entry" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-text-primary hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50"><Pencil size={13} aria-hidden="true" />{t('codex.editEntry')}</button>
         </div>
+        <CodexRevealControl projectId={entry.projectId} entry={entry} compact keepFocus={keepEditorFocus} onChanged={refresh} />
         <div className="flex items-start gap-3">
           {entry.avatar && <img src={entry.avatar} alt="" className="h-16 w-16 flex-shrink-0 rounded object-cover" />}
           <div className="min-w-0">

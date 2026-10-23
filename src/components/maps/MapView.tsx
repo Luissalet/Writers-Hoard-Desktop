@@ -403,7 +403,7 @@ export default function MapView({
   };
 
   return (
-    <div className="space-y-4">
+    <div data-tour="maps-view" className="space-y-4">
       {/* Toolbar */}
       {!readOnly && <div className="flex items-center gap-3 flex-wrap">
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />

@@ -143,10 +143,11 @@ nodo de nota; en codex, diario y biografía `[^1]` sigue siendo texto literal.
 
 | Herramienta | Escribe | Notas |
 |---|---|---|
-| `wh_list_codex` | no | Filtra por tipo. |
-| `wh_get_codex_entry` | no | |
+| `wh_list_codex` | no | Filtra por tipo y, con `revealed`, por fichas reveladas o no a los jugadores; cada ficha trae `revealed` (booleano). |
+| `wh_get_codex_entry` | no | Trae `revealed` y, si la ficha está revelada, `reveal` ({at, note?, moment?}). |
 | `wh_create_codex_entry` | sí | `fields` es un mapa etiqueta→valor libre. |
 | `wh_update_codex_entry` | sí | `fields` se **fusiona**; `""` borra una clave; `replaceFields:true` sustituye el mapa entero. |
+| `wh_set_revealed` | sí | `{entryIds[], revealed, note?, moment?, eraId?}`: revela a los jugadores (o vuelve a ocultar) varias fichas de una vez; todo o nada, y una ficha que ya está en ese estado se deja como está (con `note` o `moment` renueva la marca). Con el Códex apagado devuelve `engine-disabled` antes de tocar nada. Se deshace con `__undo`, pero se rechaza (`cannot-undo`) si alguna ficha se editó, reveló u ocultó después; nunca se fuerza. |
 
 **Diario**: `wh_list_diary`, `wh_create_diary_entry`, `wh_update_diary_entry`.
 
@@ -2123,6 +2124,13 @@ Pruebas: `tests/publishing-{front-matter,book-style,chapter-images,inline-images
   (posada, tienda, persona, pueblo, casa noble; 13 estilos; `brief`, `seed`,
   `count`; `makeCard` crea la ficha con sus partes). Se hace en el equipo con
   tablas de palabras, sin modelo.
+- **Revelar a los jugadores** (Códex): `wh_set_revealed` marca fichas como
+  reveladas (con fecha, nota y momento opcionales) o las vuelve a ocultar; la
+  marca la leen la «Vista de jugadores» del Códex y la política de wiki
+  `onlyRevealed` (`wh_wiki_profile_save`, `wh_wiki_export`), que publica solo lo
+  revelado, sin mapas, sin fichas de tipos privados y con los bloques ocultos y
+  los campos excluidos fuera igual que siempre. `wh_list_codex` y
+  `wh_get_codex_entry` muestran `revealed`.
 - **Tareas y tableros** (Notas → Tareas / Tableros): `wh_todo_list`,
   `wh_todo_action` (add, update por `id` o `match`, remove; estado, urgencia,
   día, enlaces) y `wh_kanban` (tableros, columnas y tarjetas que se mueven).
@@ -2144,6 +2152,174 @@ Pruebas: `tests/publishing-{front-matter,book-style,chapter-images,inline-images
 - **Bloque de estadísticas**: el lanzamiento de conjuros va en `details`
   (`spellAbility`, `spellsAtWill`, `spellsPerDay`) de `wh_sheet_update`.
 
-Pruebas: `tests/compendium-encounter`, `table-tools`, `board-context-menu`,
+- **Reglas de la mesa** (Hojas → Reglas de la mesa): `wh_table_rules_get` (sistema,
+  cada regla con valor, valor habitual y si está cambiada, y las notas de la
+  velada en orden; devuelve `revision`) y `wh_table_rules_set` (`system`
+  5e-2024/5e-2014/daggerheart/coc7/free; `values` {regla: valor}, `null` vuelve
+  al valor habitual; `resetAll`; `infoOps` add/update/move/remove sobre las notas;
+  `expectedRevision` rechaza una escritura caducada; con el motor de hojas
+  apagado la escritura se rechaza y la lectura sigue). Solo se guardan las
+  diferencias respecto al sistema. Deshacer con `wh_undo`; si las reglas
+  cambiaron después, deshacer se rechaza (`cannot-undo`). Una escritura idéntica
+  no cambia nada ni deja rastro.
+
+Pruebas: `tests/compendium-encounter`, `table-tools`, `table-rules`, `board-context-menu`,
 `world-graph-settings`, `soundscape`, `kanban`, `codex-reference-panel` y
 `model-viewer`.
+
+## 31. Temas del espacio de trabajo (Ágora 1095, ola D2)
+
+Apariencia (Base o una era) guarda **temas con nombre** para todo el equipo: una
+sola fila de ajustes (`workspaceThemes.library`, con `revision`), que van en las
+copias completas y no en la exportación de un proyecto. Un tema es
+`{id, name, values, createdAt, updatedAt}` con los mismos campos que
+`wh_workspace_appearance_save` (la imagen de fondo, PNG/JPEG/WebP de hasta 8 MB,
+se valida igual). Hasta 40 temas y 32 MB; los nombres son únicos (1 a 60
+caracteres).
+
+- `wh_workspace_theme_list` (lectura): `revision`, los temas (la imagen se
+  informa como `hasBackgroundImage`, sin sus bytes) y los ocho estilos
+  predefinidos.
+- `wh_workspace_theme_save`: guarda `name` con `values` o, sin `values`, con la
+  apariencia efectiva de `projectId` (y `eraId`). `expectedRevision` opcional
+  (de la biblioteca). Un nombre repetido o valores no válidos se rechazan.
+  Deshacer quita el tema.
+- `wh_workspace_theme_apply`: `themeId`, `projectId`, `eraId` opcional (si no,
+  Base) y `expectedRevision` de la apariencia (el de `wh_workspace_appearance_get`).
+  Sustituye la apariencia propia de ese ámbito por la del tema con el mismo
+  guardado con revisión que el formulario; una revisión vieja se rechaza.
+  Deshacer devuelve la apariencia anterior.
+- `wh_workspace_theme_delete`: `themeId` y `expectedRevision` (de la
+  biblioteca). Los proyectos que ya usan ese look lo conservan. Deshacer
+  devuelve el tema.
+
+Deshacer es estricto: si la biblioteca (o la apariencia) cambió después de la
+entrada, se rechaza con `cannot-undo` en vez de forzar. En la interfaz,
+Apariencia añade los estilos, el tono del acento, «Guardar como tema», la lista
+(aplicar, renombrar, eliminar con confirmación, exportar) e importar `.json`
+(`{kind: "writer-workspace-themes", version: 1, themes: [{name, values}]}`); un
+archivo no válido se rechaza entero. `saveWorkspaceAppearance` con `reset` y un
+parche no vacío ahora **sustituye** los valores propios (con parche vacío sigue
+siendo el restablecimiento de siempre).
+
+Prueba: `tests/workspace-themes.browser.tsx` (`scripts/run-vvd-tests.cjs`).
+
+## 32. Exportar el mundo como Markdown (Ágora 1095, ola D2)
+
+El botón «Exportar como Markdown» (en la tarjeta del proyecto y en la barra
+lateral) y `wh_world_markdown_export`
+(solo lectura; `projectId`, `includeMedia`, `locale`). Devuelve
+`{fileName, files, bytes, includeMedia, summary, warnings?, base64}`: un ZIP
+con un `.md` por ficha (`Codex/<tipo>/`), capítulo (`Writings/`), nota
+(`Notes/`), cronología (`Timelines/`), mapa (`Maps/`), esquema (`Outlines/`) y
+página de diario (`Diary/`), con cabecera YAML y enlaces `[[Título]]`; tablas
+en CSV (`Tables/`), `index.md` y `world.json` (el proyecto sin imágenes
+incrustadas). `includeMedia: true` añade imágenes y sonidos en `media/`. Por
+encima de 25 MB responde `too-large` y aconseja `includeMedia: false`. No
+cambia datos ni toca el formato de las copias de seguridad
+(`src/services/worldMarkdownExport/`).
+
+Prueba: `tests/world-markdown-export.browser.tsx` (`scripts/run-vvd-tests.cjs`).
+
+## 33. Pestañas del espacio de trabajo (Ágora 1095, ola D2)
+
+Panel de consulta: `wh_workspace_tabs`
+(lectura): las pestañas abiertas del proyecto tal como el espacio de trabajo
+las guardó en esta ventana (posición, herramienta, ruta, título del
+documento, nombre puesto por la persona, fijada, activa) y cuántas cerradas
+se pueden reabrir. No abre, cierra ni renombra nada.
+Archivar y renombrar carpetas de la Biblioteca se deshacen desde el aviso o la barra del espacio de trabajo (en la interfaz, no por el puente).
+
+Prueba: `tests/workspace-tabs.browser.tsx`.
+
+## 34. Cambios de la wiki desde la última edición (Ágora 1095, ola D2)
+
+`wh_wiki_profile_changes` (lectura; `projectId`, `profileId`): `{changes: [{documentId, title, kind, change}], count, lastEditionAt, configChanged, sourceChanged, editionId}`. `wh_wiki_profile_save` acepta además paletas propias, extras de terminal y enlaces del pie (detalle en `docs/wiki-profiles.md` y `docs/wiki-appearance.md`).
+
+Prueba: `tests/wiki-look-changes.browser.tsx`.
+
+## 35. Revelar lore a los jugadores (Ágora 1095, ola B)
+
+Una ficha del Códex puede llevar la marca opcional `revealed` (`{at, note?,
+moment?}`): «el autor ya contó esto a los jugadores». Sin marca, la ficha no está
+revelada. La marca viaja con las copias de seguridad JSON/ZIP, el clonado y las
+épocas como cualquier otro campo opcional de la ficha.
+
+- `wh_set_revealed` (escribe; motor Códex): `{projectId?, entryIds[1..100],
+  revealed, note?, moment?, eraId?}`. Todo o nada: un id desconocido da
+  `not-found` sin tocar nada. Una ficha que ya está en el estado pedido se deja
+  como está (con `note` o `moment` se renueva la marca). `note` y `moment` solo
+  con `revealed:true`. Devuelve `{changed:[{id,title,revealed}], unchanged:[ids]}`.
+  Con el Códex apagado responde `engine-disabled` antes de leer nada.
+- Deshacer (`__undo`): devuelve cada marca a como estaba; se rechaza entero con
+  `cannot-undo` si alguna ficha se editó, reveló u ocultó después, o se borró.
+- Lectura: `wh_list_codex` (filtro `revealed`, campo `revealed`) y
+  `wh_get_codex_entry` (`revealed`, `reveal`).
+- Política de wiki: `onlyRevealed` en `wh_wiki_profile_save` y `wh_wiki_export`
+  (por defecto apagada; sin mapas mientras esté activa). Detalle en
+  `docs/wiki-profiles.md`.
+
+En la interfaz: «Revelar a los jugadores» / «Ocultar de nuevo» (diálogo de la
+ficha, editor y panel Consultar), insignia «Revelada», filtro «Solo reveladas /
+Sin revelar» y «Vista de jugadores» en el Códex (solo lo revelado, sin bloques
+ni campos secretos; no guarda nada).
+
+Prueba: `tests/codex-reveal.browser.tsx` (`scripts/run-vvd-tests.cjs`).
+
+
+## 36. Importar: texto pegado, ePub y PDF (Ágora 1095, ola D2)
+
+Ampliación aditiva de `wh_world_folder_import_preview/apply` y de
+`wh_manuscript_import_inspect/apply`; los nombres y los argumentos anteriores no
+cambian.
+
+- **`pasted`**: lista `[{name?, text}]` con texto escrito o pegado en lugar de
+  archivos (`files` puede omitirse si hay `pasted`). Una línea que contenga solo
+  `---8<---` separa documentos. En la importación del mundo cada trozo entra como
+  un archivo virtual (`pasted.md`, `pasted-2.md`, o el `name` dado), con su hash
+  dentro del digest del plan, así que cambiar el texto cambia el digest y el
+  mismo texto pegado otra vez se ve como «ya importado». Un nombre ya usado por
+  una importación anterior con otro texto pasa al siguiente número libre. En el
+  manuscrito, `pasted` se lee como un `.md` con ese nombre.
+- **`libraryFolderId`** (solo importación del mundo): carpeta de la biblioteca
+  donde se archivan los documentos creados en la misma transacción. La vista
+  previa devuelve `libraryFolder: {id, name, path}`; una carpeta que no existe da
+  `world_folder_library_folder_missing`. Deshacer el lote quita también las
+  colocaciones.
+- **PDF**: `.pdf` se lee en ambas herramientas (texto con `pdfjs-dist`;
+  párrafos reconstruidos por la posición de las líneas, títulos solo si son
+  claramente más grandes). Un PDF sin capa de texto no se importa: en el
+  manuscrito responde con el código `scanned-pdf` y el texto «Este PDF es una
+  imagen escaneada: necesita OCR»; en la importación del mundo queda como
+  hallazgo con `reason: "needs-ocr"`. Otros códigos del manuscrito: `invalid-pdf`,
+  `invalid-epub`, `protected` (contraseña o DRM).
+- **ePub** (solo manuscrito): capítulos en el orden del libro (el «spine», no el
+  orden de nombres), sin portada ni índice. Los hallazgos del plan dicen cuántas
+  imágenes no se importan (`epub-images-skipped`), qué páginas se omitieron
+  (`epub-pages-skipped`) y tablas aplanadas (`epub-tables-flattened`); en PDF,
+  `pdf-pages-without-text` y `pdf-layout-guess`. El original se conserva como con
+  cualquier otro archivo.
+- **`reason` en los hallazgos** de la vista previa del mundo: cada archivo que no
+  produce nada lleva `reason` (`unsupported-type`, `empty`, `too-large`,
+  `duplicate`, `encrypted`, `needs-ocr`, `unreadable`). El campo es opcional; el
+  resto del hallazgo no cambia.
+
+La interfaz añade tarjetas de guía de exportación, el cuadro «Pegar texto», el
+selector de carpeta de la biblioteca, «Seleccionar todo de este tipo» y la lista
+«Archivos omitidos y por qué» (`src/components/import/`).
+
+Límites: sin OCR, sin reordenar columnas de un PDF, ePub solo en el importador de
+manuscritos, sin planificador con modelo local.
+
+Prueba: `tests/import-paste-epub-pdf.browser.tsx` (`scripts/run-vvd-tests.cjs`).
+
+## 37. Biblioteca de recursos (Ágora 1095, ola D2)
+
+Dos herramientas de solo lectura sobre la pestaña Recursos del panel del proyecto, que reúne imágenes, sonidos, vídeos y modelos 3D:
+
+- `wh_list_assets` (`projectId`, `kind` all|image|audio|video|model, `query`, `sort` date-desc|date-asc|name-asc|name-desc|size-desc|size-asc, `limit` hasta 500, `eraId`): `{total, returned, assets: [{id, kind, name, size, createdAt, mime, tags}]}`. No incluye los bytes de las imágenes.
+- `wh_asset_usage` (`projectId`, `assetId` de `wh_list_assets`): `{assetId, kind, name, usedIn, places: [{kind, id, name}], warning?}` con los sitios que usan el recurso (avatares y enlaces de fichas, nodos de lienzo, viñetas, segmentos de vídeo, fondos de mapa, portada, banners de wiki, referencias visuales, bandas del paisaje sonoro y bloques dentro de capítulos) y el aviso «Se usa en N sitios: …». Las imágenes que se copian por valor se reconocen por tener los mismos bytes.
+
+Borrar, renombrar y comprimir se hacen desde la pestaña, no por el puente: el borrado pasa por la vía de cada herramienta y se deshace desde el aviso.
+
+Prueba: `tests/assets-library.browser.tsx`.

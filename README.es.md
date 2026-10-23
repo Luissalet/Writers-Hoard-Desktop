@@ -55,6 +55,75 @@ y reproducirse en orden. Cada capacidad tiene herramientas del puente
 El perfil opcional 5e (2014), SRD 5.1 conserva valores manuales y contadores
 jugados; no es un motor completo de reglas ni catálogo de conjuros.
 
+**Aspecto y publicación de la wiki (tarea 1095, ola D2).** El editor de aspecto
+de la wiki sin conexión trae un catálogo de 20 paletas con nombre (claras,
+oscuras, de libro y de alto contraste, todas legibles), una lista «Guardar mi
+paleta» que se renombra y se borra en el sitio y viaja con el perfil en copias
+de seguridad y clones, enlaces en el pie (solo direcciones web o de correo) con
+línea de firma, y extras de terminal para los diseños Terminal y Shell: colores
+de fósforo, líneas CRT, imágenes con tramado, una línea de arranque y una lista
+editable «¿Primera vez por aquí?». Los perfiles que no usan nada de esto exportan
+los mismos bytes que antes. El panel de exportación muestra qué cambió desde la
+última edición local («Publicar (3 cambios)» con documentos nuevos, cambiados y
+quitados); la herramienta de solo lectura `wh_wiki_profile_changes` del puente
+devuelve la misma lista.
+
+**Biblioteca de recursos (tarea 1095, ola D2).** La pestaña Recursos del proyecto
+reúne ahora imágenes, sonidos, vídeos y modelos 3D: búsqueda por nombre o
+etiqueta, seis órdenes, filtro por tipo, selección múltiple, descarga y cambio
+de nombre. Antes de borrar se lee dónde se usa («Se usa en N sitios: …») y el
+borrado pasa por la vía de cada herramienta, con Deshacer para imágenes y
+sonidos. En la aplicación de escritorio, un sonido o vídeo de 8 MB o más ofrece
+**Comprimir** (solo si lo pides, se puede cancelar, muestra el tamaño antes y
+después y se guarda como copia o en lugar del original). El recorte tiene marcos
+con nombre (avatar, fichas, banner, portada, fondo) con aviso de «demasiado
+pequeña», y el visor de la galería hace zoom y desplazamiento (rueda, arrastre,
+`+`/`-`, `0`, flechas). Herramientas del puente `wh_list_assets` y
+`wh_asset_usage` (docs/AI-BRIDGE.md, «Biblioteca de recursos»); matriz: tasks/vvd1095/D2-platform.md.
+
+**Pestañas del espacio de trabajo y Deshacer.** Las pestañas del panel de consulta
+se pueden renombrar (el documento conserva su título), fijar, duplicar, cerrar en
+bloque (las demás, o las de la derecha) y reabrir (`Ctrl/Cmd+Mayús+T`, las diez
+últimas); `Ctrl/Cmd+1-9` salta a una pestaña y un resumen las lista. Vuelven al
+reabrir el proyecto (se guardan por proyecto en el almacenamiento de esta
+ventana, no en el proyecto). Al cerrar una pestaña con una ficha o un capítulo
+recién creado y vacío se pregunta si conservarlo o borrarlo; borrar usa la vía de
+borrado de la propia herramienta. Archivar y renombrar una carpeta de la
+Biblioteca muestran un aviso con **Deshacer**, también desde la barra del espacio
+de trabajo; se rechaza («No se pudo deshacer: cambió desde entonces») si el
+documento o la Biblioteca han cambiado. Puente: `wh_workspace_tabs` (lectura).
+
+**Revelar el lore a los jugadores (tarea 1095, hueco 4).** Una ficha del Códex se
+puede marcar como «Revelada» («Revelar a los jugadores» / «Ocultar de nuevo» en
+el diálogo de la ficha, en el editor y en el panel Consultar; con un momento
+opcional como «Sesión 3»). Las fichas reveladas llevan una insignia, la lista se
+filtra por «Solo reveladas / Sin revelar» y una «Vista de jugadores» enseña solo
+las reveladas, sin bloques ocultos, texto de spoiler ni los campos excluidos del
+proyecto (no se guarda nada). Los perfiles de wiki tienen la política «Publicar
+solo lo revelado» (apagada por defecto; sin mapas mientras esté activa; las
+ediciones ya publicadas no cambian). Puente: `wh_set_revealed` (varias fichas,
+se deshace, y el deshacer se rechaza si una ficha cambió después), más
+`revealed` en `wh_list_codex` y `wh_get_codex_entry`. Sin hacer: la marca es por
+ficha (no por bloque), las entidades del motor de ficción tienen su propio
+interruptor de secretos y no están enlazadas con esta marca, y la lista del
+Códex aún no tiene un punto de «pendiente de publicar» por página.
+
+**Recorridos guiados (tarea 1095, ola D2).** El botón de brújula de la barra
+superior (y un enlace «Ver los recorridos guiados» bajo la tarjeta Primeros
+pasos, que se mantiene) abre una lista de nueve recorridos cortos sobre la
+pantalla real: tu primer mundo, tu primer capítulo, tu primera ficha, tu primer
+mapa, la cronología, el tablero, activar herramientas, publicar una edición de la
+wiki y las copias de seguridad. Cada paso oscurece la pantalla salvo el elemento
+del que habla y lo sigue si cambia el tamaño de la ventana; funcionan **Atrás**,
+**Siguiente**/**Terminar**, **Saltar**, las flechas y Esc (las flechas se respetan
+mientras escribes). Un paso cuyo elemento no está en pantalla, o que necesita un
+mundo o una herramienta que no tienes, se salta con un aviso en vez de romperse.
+La lista muestra cada recorrido como sin empezar, «Paso 2 de 4» (Continuar) o
+Hecho (Repetir). El progreso es de toda la aplicación, vive en una sola fila de
+ajustes y no forma parte de la copia de ningún mundo. Una instalación nueva sin
+mundos recibe una oferta única que se puede descartar. Español e inglés; sin
+herramienta del puente.
+
 **Escritura, publicación, Códex, cronologías y tablas (tarea 1095, ola C).** El
 menú «/» del editor ofrece 26 bloques (avisos, también «leer en voz alta» y
 recuadro, desplegables, listas de tareas, mensajes enviados y recibidos, carta,
@@ -88,6 +157,20 @@ mueven y una quitada da #REF!), orden múltiple y filtros. Todo tiene
 herramientas del puente (docs/AI-BRIDGE.md, sección 29); la matriz con pruebas
 está en tasks/vvd1095/C-writing.md.
 
+**Reglas de la mesa (tarea 1095, hueco 6 de B).** Hojas tiene una pestaña «Reglas
+de la mesa» (también desde los ajustes del proyecto): eliges el sistema (D&D 5e
+2024 o 2014, Daggerheart, La llamada de Cthulhu 7ª, sistema libre), ves las reglas
+de ese sistema con su valor habitual, cambias lo que vuestra mesa juega distinto
+(puntos de vida fijos o tirados, descansos, daño crítico, flanqueo, poción,
+carga, salvaciones de muerte, Miedo, Experiencias, oro y más) y guardas las
+notas de la velada (cuándo, dónde, reglas de la casa, comida, vestimenta, tus
+propias secciones) en el orden que quieras. Cada regla cambiada se marca y tiene
+su propio «Restablecer»; un botón las restablece todas. Se guarda con el
+proyecto (revisión con deshacer seguro, copia de seguridad JSON y ZIP, copias),
+responde al puente (`wh_table_rules_get`, `wh_table_rules_set`) y por ahora solo
+lo leen dos cosas: una nota en la vista previa de clase de 5e cuando los puntos de
+vida se tiran y otra en la bandeja de dados cuando la mesa usa dados propios.
+
 **Herramientas de mesa (tarea 1095, ola D1).** Las hojas de personaje suman un
 compendio SRD 5.2 sin conexión (341 monstruos, 339 conjuros, 262 objetos
 mágicos, 15 estados; búsqueda y filtros; «Añadir al mundo» crea una ficha del
@@ -110,6 +193,18 @@ mundo, ajustes de vista, fichas ocultas y grafos guardados; el ambiente del
 proyecto, un mezclador de paisajes sonoros; el selector de iconos, categorías,
 géneros y recientes. Herramientas del puente: docs/AI-BRIDGE.md, sección 30;
 matriz: tasks/vvd1095/D1-tools.md.
+
+**Temas del espacio.** Apariencia (Base o una era) trae ocho estilos
+predefinidos (Pergamino, Medianoche, Bosque, Brasa, Océano, Pizarra, Rosa antigua,
+Alto contraste) y un control del tono del acento. «Guardar como tema» da nombre a
+lo que ves, con su imagen de fondo; los temas guardados se aplican a Base o a la
+era actual (con el mismo guardado con revisión, así que un formulario obsoleto se
+rechaza), se renombran, se eliminan tras confirmar y se exportan o importan como
+.json (un archivo malo se rechaza con un mensaje claro y no cambia nada). Los
+temas son del equipo: una sola fila de ajustes de la aplicación, que van en las
+copias completas pero no en la exportación de un solo proyecto. Herramientas del
+puente `wh_workspace_theme_list/save/apply/delete` (con deshacer):
+docs/AI-BRIDGE.md, sección 31.
 
 **Duplicar proyecto** crea una copia local, remapea referencias internas
 declaradas y copia los archivos gestionados de Scrapper disponibles. Los
@@ -237,7 +332,34 @@ Las herramientas de puente/MCP `wh_codex_import_*` ofrecen este mismo flujo;
 `wh_genealogy_*` importan y aplican los enlaces familiares explícitos por separado.
 La actualización de base de datos v38 conserva las referencias y los datos del
 proyecto.
+
+**Importar documentos mixtos** admite además texto pegado (una línea con solo
+`---8<---` separa documentos), PDF con texto y una carpeta de destino de la
+biblioteca, con guías de exportación, «Seleccionar todo de este tipo» y el motivo
+de cada archivo omitido. **Importar manuscrito** en Escritos lee ePub (en el orden
+del libro, avisando de las imágenes) y PDF con texto; un PDF escaneado se rechaza
+con un mensaje de OCR. Argumentos de puente `pasted` y `libraryFolderId`; véase
+[importación de carpetas](docs/world-folder-import.md).
 [Contrato y límites](docs/GENEALOGY_CONTRACT.md).
+
+## Exportar un mundo entero como Markdown
+
+**Exportar como Markdown** (el icono de archivo en la tarjeta de cada proyecto
+del panel y el botón bajo *Exportar* en la barra lateral del proyecto) escribe el
+proyecto como una carpeta de archivos de texto legibles dentro de un ZIP: un
+`.md` por ficha del Codex (`Codex/<tipo>/`), capítulo (`Writings/`), nota
+(`Notes/`), cronología (`Timelines/`, como lista con fechas), mapa (`Maps/`),
+esquema y página de diario, cada uno con cabecera YAML (tipo, título, alias,
+etiquetas, campos, id, fecha de cambio) y el cuerpo en Markdown. Los enlaces que
+el autor puso entre fichas, y la primera mención de cada ficha en un documento,
+pasan a `[[Título]]`; los nombres ambiguos no se enlazan. Las tablas salen como
+CSV, y hay un `index.md` y un `world.json` con el proyecto sin las imágenes
+incrustadas. Una casilla añade imágenes y sonidos en `media/`; el diálogo
+muestra el tamaño estimado con y sin ellos, la fase en la que va y un botón
+Cancelar. Solo lee: no toca la copia de seguridad en ZIP. La herramienta de
+puente/MCP `wh_world_markdown_export` devuelve el mismo ZIP en base64 (hasta
+25 MB). Todavía no incluye variantes de era, tableros, Kanban, storyboards ni
+hojas de personaje.
 
 ## Biblia del mundo exportable
 

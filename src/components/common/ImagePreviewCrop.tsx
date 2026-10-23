@@ -5,6 +5,7 @@ import 'react-image-crop/dist/ReactCrop.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, RotateCw, ZoomIn, ZoomOut, Check, Maximize } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
+import { MEDIA_FRAMES, frameCrop, getMediaFrame, isTooSmall, sourcePixels, type MediaFrameId } from './mediaFrames';
 
 interface ImagePreviewCropProps {
   /** Base64 image source to preview/crop (should be the ORIGINAL, uncropped image) */
@@ -13,6 +14,8 @@ interface ImagePreviewCropProps {
   onConfirm: (croppedImage: string, originalImage: string) => void;
   /** Called when the user cancels */
   onCancel: () => void;
+  /** Frame selected when the dialog opens. Defaults to 'free' (any shape), as before. */
+  frame?: MediaFrameId;
 }
 
 /**
@@ -85,7 +88,7 @@ function getCroppedCanvas(
  * Freeform crop — drag any corner or edge to reshape the selection.
  * Includes zoom slider and 90° rotation.
  */
-export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: ImagePreviewCropProps) {
+export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel, frame: initialFrame = 'free' }: ImagePreviewCropProps) {
   const { t } = useTranslation();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -96,6 +99,8 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
   const [rotation, setRotation] = useState(0);
 
   const [processing, setProcessing] = useState(false);
+  const [frame, setFrame] = useState<MediaFrameId>(initialFrame);
+  const [dims, setDims] = useState<{ natural: { width: number; height: number }; displayed: { width: number; height: number } }>();
   const open = Boolean(imageSrc);
 
   useEffect(() => { onCancelRef.current = onCancel; }, [onCancel]);
@@ -126,16 +131,13 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
 
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     imgRef.current = e.currentTarget;
-    // Start with a default crop covering most of the image
-    const initial: Crop = {
-      unit: '%',
-      x: 5,
-      y: 5,
-      width: 90,
-      height: 90,
-    };
-    setCrop(initial);
-  }, []);
+    // Start with a default crop covering most of the image (in the frame's shape, if one is chosen)
+    setCrop(frameCrop(frame, e.currentTarget.width, e.currentTarget.height));
+    setDims({
+      natural: { width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight },
+      displayed: { width: e.currentTarget.width, height: e.currentTarget.height },
+    });
+  }, [frame]);
 
   const handleConfirm = async () => {
     if (!imageSrc) return;
@@ -162,8 +164,20 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
   };
 
   const handleResetCrop = () => {
-    setCrop({ unit: '%', x: 5, y: 5, width: 90, height: 90 });
+    const image = imgRef.current;
+    setCrop(image ? frameCrop(frame, image.width, image.height) : { unit: '%', x: 5, y: 5, width: 90, height: 90 });
   };
+
+  const chooseFrame = (next: MediaFrameId) => {
+    setFrame(next);
+    if (dims) setCrop(frameCrop(next, dims.displayed.width, dims.displayed.height));
+  };
+
+  // How many real pixels of the picture the selection covers, for the "too small" notice.
+  const selection = crop && dims ? convertToPixelCrop(crop, dims.displayed.width, dims.displayed.height) : undefined;
+  const area = selection && dims && selection.width > 0 ? sourcePixels(selection, dims.natural, dims.displayed, zoom) : undefined;
+  const tooSmall = Boolean(area) && isTooSmall(frame, area!);
+  const recommended = getMediaFrame(frame).recommended;
 
   return createPortal(
     <AnimatePresence>
@@ -217,6 +231,7 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
               crop={crop}
               onChange={(c) => setCrop(c)}
               className="image-crop-gold"
+              aspect={getMediaFrame(frame).aspect}
               style={{ maxHeight: '100%', maxWidth: '100%' }}
             >
               <img
@@ -236,6 +251,31 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
 
           {/* Controls */}
           <div className="px-6 py-4 bg-black/60 border-t border-white/5 space-y-3">
+            {/* Named frames: the shape the picture will be shown in */}
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('imageCrop.frames')} data-testid="crop-frames">
+              {MEDIA_FRAMES.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`crop-frame-${item.id}`}
+                  aria-pressed={frame === item.id}
+                  onClick={() => chooseFrame(item.id)}
+                  className={`px-3 py-1 rounded-full text-xs transition ${frame === item.id ? 'bg-accent-gold text-black font-semibold' : 'bg-white/10 text-white/70 hover:bg-white/15'}`}
+                >
+                  {t(`imageCrop.frame.${item.id}`)}
+                </button>
+              ))}
+              {recommended && (
+                <span className="text-xs text-white/50" data-testid="crop-frame-recommended">
+                  {t('imageCrop.recommended').replace('{size}', `${recommended.width} × ${recommended.height}`)}
+                </span>
+              )}
+            </div>
+            {tooSmall && area && recommended && (
+              <p role="alert" data-testid="crop-too-small" className="text-xs text-amber-300">
+                {t('imageCrop.tooSmall').replace('{size}', `${area.width} × ${area.height}`).replace('{recommended}', `${recommended.width} × ${recommended.height}`)}
+              </p>
+            )}
             {/* Zoom slider */}
             <div className="flex items-center gap-3">
               <ZoomOut size={14} className="text-white/40 flex-shrink-0" />

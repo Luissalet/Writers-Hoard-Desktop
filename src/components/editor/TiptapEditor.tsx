@@ -611,6 +611,7 @@ export default function TiptapEditor({
   return (
     <div
       ref={wrapperRef}
+      data-tour="editor-surface"
       // The reading preference is carried as data, and index.css turns it into
       // the custom properties the prose is set with.
       data-reading-face={reading.face}

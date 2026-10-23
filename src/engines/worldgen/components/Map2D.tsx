@@ -3307,15 +3307,16 @@ export default function Map2D({
     // the labels and is the only thing in this frame that a click can close.
     // Under blank paper nothing answers the pointer: the reader cannot point at what is not there.
     const fogLayer = annotations?.fog;
-    painted.current = fogLayer?.mode === 'reader'
-      ? hits.filter((h) => {
+    painted.current = hits;
+    if (fogLayer?.mode === 'reader') {
+      painted.current = hits.filter((h) => {
         if (h.storyId) return true;
         const raw = (h.x - view.ox) / mapW;
         const X = wraps ? ((raw % 1) + 1) % 1 : raw, Y = (h.y - view.oy) / mapH;
         const uv = X >= 0 && X <= 1 && Y >= 0 && Y <= 1 ? spec.inverse(X, Y) : null;
         return !uv || !fogHides(fogLayer, uv[0] * W, uv[1] * H);
-      })
-      : hits;
+      });
+    }
 
     // ---- la barra de escala --------------------------------------------------
     /**

@@ -8,6 +8,7 @@ import {readLibraryCreationContext} from '@/components/project/workspace/library
 import { WORLD_GRAPH_QUERY_HANDLERS } from '@/engines/codex/worldGraph/bridge';
 import { VISUAL_SEARCH_HANDLERS } from '@/services/visualSearch/bridge';
 import { WIKI_PROFILE_HANDLERS } from '@/services/wikiProfiles/bridge';
+import { CODEX_REVEAL_HANDLERS } from '@/engines/codex/revealBridge';
 import { ENTITY_DETECTION_HANDLERS } from '@/services/entityDetection/bridge';
 import { PARALLEL_DRAFT_HANDLERS } from '@/engines/writings/parallelDraftBridge';
 import { CODEX_OPTION_LIST_HANDLERS } from '@/engines/codex/optionListBridge';
@@ -30,6 +31,7 @@ import { PROOFING_HANDLERS } from './proofing';
 import { MODEL_HANDLERS } from '@/engines/model-viewer/bridge';
 import { RADAR_HANDLERS } from '@/engines/radar/bridge';
 import { SHEET_HANDLERS } from '@/engines/character-sheets/bridge';
+import { TABLE_RULES_HANDLERS } from '@/engines/character-sheets/tableRulesBridge';
 import { whAppendConversationTurn } from './dialog';
 import { whStylePlace } from './worldgenStyle';
 import { WORLD_ERA_HANDLERS } from '@/services/worldEras/bridge';
@@ -37,6 +39,7 @@ import { READER_HANDLERS } from './reader';
 import { VOICE_MEMO_HANDLERS } from '@/engines/media/voiceBridge';
 import { BOARD_CANVAS_HANDLERS } from '@/engines/board/canvasBridge';
 import { WORKSPACE_APPEARANCE_HANDLERS } from '@/services/workspaceAppearance/bridge';
+import { WORKSPACE_THEME_HANDLERS } from '@/services/workspaceAppearance/themeBridge';
 import { LOCAL_TOOL_HANDLERS } from '@/engines/local/bridge';
 import { RELATION_TREE_HANDLERS } from '@/engines/genealogy/treeBridge';
 import { DOCUMENT_HISTORY_HANDLERS } from '@/services/documentHistory/bridge';
@@ -58,6 +61,7 @@ import { effectiveCodexTemplate } from '@/engines/codex/templateHierarchy';
 import type { CodexEntry } from '@/types';
 import { htmlFromMarkdown, resolveProjectForEngine, resolveProjectId } from './shared';
 import { whBuildWorldBible, whExportWorldBible } from './worldBible';
+import { whWorldMarkdownExport } from './worldMarkdown';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
 import { whEnableEngine, whGetContext, whListProjects, whUpdateProjectDetails, whSearch } from './context';
 import {
@@ -90,9 +94,11 @@ import { whCompendiumAdd, whCompendiumGet, whCompendiumSearch, whEncounterAction
 import { whDiceRoll, whDiceTray } from './dice';
 import { whNameGenerate } from './names';
 import { whTodoAction, whTodoList } from './todos';
+import { whAssetUsage, whListAssets } from './assets';
 import { whSoundscape } from './soundscape';
 import { whKanban } from './kanban';
 import { whWorkspaceLibraryUpdate } from './workspaceLibrary';
+import { whWorkspaceTabs } from './workspaceTabs';
 import {
   whConnectEvents,
   whCreateEvent,
@@ -348,11 +354,13 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...MODEL_HANDLERS,
   ...RADAR_HANDLERS,
   ...SHEET_HANDLERS,
+  ...TABLE_RULES_HANDLERS,
   ...WORLD_ERA_HANDLERS,
   ...READER_HANDLERS,
   ...VOICE_MEMO_HANDLERS,
   ...BOARD_CANVAS_HANDLERS,
   ...WORKSPACE_APPEARANCE_HANDLERS,
+  ...WORKSPACE_THEME_HANDLERS,
   ...LOCAL_TOOL_HANDLERS,
   ...RELATION_TREE_HANDLERS,
   ...DOCUMENT_HISTORY_HANDLERS,
@@ -366,6 +374,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...CODEX_OPTION_LIST_HANDLERS,
   ...VISUAL_SEARCH_HANDLERS,
   ...WIKI_PROFILE_HANDLERS,
+  ...CODEX_REVEAL_HANDLERS,
   ...MANUSCRIPT_REVIEW_HANDLERS,
   ...PROJECT_GENRE_HANDLERS,
   ...WORLD_FOLDER_IMPORT_HANDLERS,
@@ -386,10 +395,12 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...genealogyHandlers,
   wh_build_world_bible: whBuildWorldBible,
   wh_export_world_bible: whExportWorldBible,
+  wh_world_markdown_export: whWorldMarkdownExport,
   wh_get_research_evidence: whGetResearchEvidence,
   wh_get_editorial_context: whGetEditorialContext,
   // Orientation
   wh_get_context: whGetContext,
+  wh_workspace_tabs: whWorkspaceTabs,
   wh_workspace_library_get: args=>readLibraryCreationContext({projectId:resolveProjectId(args),eraId:typeof args.eraId==='string'?args.eraId:undefined}),
   wh_list_projects: whListProjects,
   wh_update_project_details: whUpdateProjectDetails,
@@ -453,6 +464,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_name_generate: whNameGenerate,
   wh_todo_list: whTodoList,
   wh_todo_action: whTodoAction,
+  wh_list_assets: whListAssets,
+  wh_asset_usage: whAssetUsage,
   wh_soundscape: whSoundscape,
   wh_kanban: whKanban,
   wh_workspace_library_update: whWorkspaceLibraryUpdate,

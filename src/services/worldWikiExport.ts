@@ -2,7 +2,8 @@ import {voiceReadingMarkup,installVoiceReading,VOICE_READING_CSS} from '@/engine
 import { privateTemplateIds } from '@/engines/codex/templateHierarchy';
 import {mediaFilename} from '@/engines/media/types';
 import {composeWikiLayout,WIKI_PROFILE_CSS} from '@/services/wikiProfiles/layout';
-import {wikiAppearanceStyle,validateWikiAppearance} from '@/services/wikiProfiles/appearance';
+import {wikiAppearanceStyle,validateWikiAppearance,wikiFooterMarkup} from '@/services/wikiProfiles/appearance';
+import {wikiTerminalActive,wikiTerminalStyle,wikiTerminalBoot,wikiTerminalOpening,wikiTerminalScript} from '@/services/wikiProfiles/terminal';
 import {wikiConsoleMarkup,wikiConsoleScript,WIKI_CONSOLE_CSS} from '@/services/wikiProfiles/console';
 import {entryNames} from '@/services/codexReference/matcher';
 import { codexPropertyHtml, projectCodexEntry } from '@/engines/codex/properties';
@@ -308,32 +309,39 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   const presentation = `audio,video{display:block;width:100%;max-height:32rem}figcaption{margin-bottom:.5rem}.map-vectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.map-vectors a{pointer-events:all}.map-vectors polygon,.map-vectors polyline{stroke-width:2px}.map-vectors text{font:2px Georgia,serif;paint-order:stroke;stroke:#17191a;stroke-width:.25px}.map-vectors a:focus{outline:2px solid var(--accent)}:root{color-scheme:${options.theme === 'night' ? 'dark' : 'light'};--paper:${palette[0]};--ink:${palette[1]};--muted:${palette[2]};--line:${palette[3]};--accent:${accent}}button,input,select,header,.prose pre{background:var(--paper);color:var(--ink)}button:hover{background:color-mix(in srgb,var(--ink) 8%,var(--paper))}body{font-family:${options.font === 'sans' ? 'system-ui,sans-serif' : "Georgia,'Times New Roman',serif"}}.pin{background:var(--accent);color:var(--paper)}.cover{display:block;width:100%;max-height:320px;object-fit:cover;margin-bottom:24px}.wiki-spoiler{display:inline}.wiki-spoiler button{font:inherit;padding:1px 6px;min-height:0;margin-right:4px}.wiki-spoiler button[aria-expanded=true]{font-size:0}.wiki-spoiler button[aria-expanded=true]::after{content:'−';font-size:16px}button:focus-visible{outline:3px solid var(--accent)}${options.layout === 'journal' ? '.layout{display:block;max-width:900px}nav{position:static;max-height:none;margin-bottom:40px}#index{columns:2}#index li{break-inside:avoid}article{padding-top:20px}@media(max-width:600px){#index{columns:1}}' : ''}`;
   // Timelines: one article each, events in their order; an event kept out of the wiki never shows, and a saved view narrows the rest.
   const view = options.timelineViewId ? normalizeTimelineViews(data.project.timelineViews).find(item => item.id === options.timelineViewId) : undefined;
+  // With onlyRevealed an event shows only when it is tied to at least one card and every card it is tied to is admitted.
+  const shownEvents = () => scoped(data.timelineEvents ?? []).filter(event => {
+    if (event.hideFromWiki) return false;
+    if (!options.onlyRevealed) return true;
+    const linked = [...new Set([...(event.linkedEntryIds ?? []), ...(event.linkedEntryId ? [event.linkedEntryId] : [])])];
+    return linked.length > 0 && linked.every(id => entryMap.has(id));
+  });
   const timelineArticles = options.includeTimelines ? scoped(data.timelines ?? []).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).flatMap(timeline => {
-    const shown = scoped(data.timelineEvents ?? []).filter(event => event.timelineId === timeline.id && !event.hideFromWiki && (!view || eventMatches(event, view.filter))).sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    const shown = shownEvents().filter(event => event.timelineId === timeline.id && (!view || eventMatches(event, view.filter))).sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
     if (!shown.length) return [];
     const timelineKey = key('timeline', timeline.id), tagsHere = [...new Set(shown.flatMap(event => event.tags ?? []))];
     const color = (value: string) => /^#[0-9a-f]{6}$/i.test(value) ? value : '#d5b575';
     const rows = shown.map(event => `<li class="wiki-event" style="border-left:3px solid ${color(event.color)};padding-left:10px;margin:0 0 14px;list-style:none"><p class="meta">${esc(event.date)}${event.lane ? ` · ${esc(event.lane)}` : ''}</p><h3 style="margin:2px 0">${esc(event.title)}</h3>${event.description ? `<p>${esc(event.description)}</p>` : ''}${(event.tags ?? []).length ? `<p class="meta">${(event.tags ?? []).map(tag => `#${esc(tag)}`).join(' ')}</p>` : ''}${[...new Set([...(event.linkedEntryIds ?? []), ...(event.linkedEntryId ? [event.linkedEntryId] : [])])].filter(id => entryMap.has(id)).map(id => link(id, '')).join(' · ')}</li>`).join('');
     return [{ index: `<li data-article-id="${timelineKey}"><a href="#${timelineKey}">${esc(timeline.title)}<small>${copy.timelines}</small></a></li>`, html: `<article id="${timelineKey}" data-category="timelines" data-tags="${esc(JSON.stringify(tagsHere))}"><h2 tabindex="-1">${esc(timeline.title)}</h2><p class="meta">${copy.timelines} · ${shown.length} ${copy.events}${view ? ` · ${esc(view.name)}` : ''}</p>${timeline.description ? `<p>${esc(timeline.description)}</p>` : ''}<ol class="wiki-timeline" style="padding:0">${rows}</ol><footer><a href="#top">${copy.home}</a></footer></article>` }];
   }) : [];
-  const allTags = [...new Set([...tags, ...timelineArticles.length ? scoped(data.timelineEvents ?? []).filter(event => !event.hideFromWiki).flatMap(event => event.tags ?? []) : []])].sort((a, b) => a.localeCompare(b));
+  const allTags = [...new Set([...tags, ...timelineArticles.length ? shownEvents().flatMap(event => event.tags ?? []) : []])].sort((a, b) => a.localeCompare(b));
   const banner=options.home?.banner??(options.includeCover?data.project.coverImage:undefined);
   const cover = includeImages && raster(banner) ? `<img class="cover" src="${esc(banner)}" alt="">` : '';
   const hasModels = articles.join('').includes('data-wh-model-reader="true"');
   const branding=options.branding;
   const brand=branding?.name||includeImages&&raster(branding?.mark)?`<div class="wiki-brand">${includeImages&&raster(branding?.mark)?`<img class="wiki-mark" src="${esc(branding.mark)}" alt="">`:''}${branding?.name?`<span>${esc(branding.name)}</span>`:''}</div>`:'';
   const consoleDocuments=[...entries.map(entry=>({id:key('entry',entry.id),names:[entry.title,...entryNames({...entry,fields:Object.fromEntries(Object.entries(entry.fields).filter(([name])=>!excludedFields.has(name)))})].filter((name,i,all)=>all.indexOf(name)===i)})),...maps.map(map=>({id:key('map',map.id),names:[map.title]}))];
-  const console=options.layout==='shell';
+  const console=options.layout==='shell',terminal=wikiTerminalActive(options);
   const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${hasModels?' blob:':''}; media-src data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; connect-src ${hasModels?"data: blob:":"'none'"}">
-    <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(options.home?.title??data.project.title)} · ${copy.title}</title><style>${WIKI_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}${EDITORIAL_PROSE_CSS}${WIKI_PROFILE_CSS}${presentation}${wikiAppearanceStyle(options)}${console?WIKI_CONSOLE_CSS:''}</style></head>
-    <body id="top"><header>${brand}${cover}<h1>${esc(options.home?.title??data.project.title)}</h1><p>${esc(options.home?.intro??data.project.description)}</p><small>${copy.offline}</small></header>${composed.home}${console?wikiConsoleMarkup(locale):''}
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(options.home?.title??data.project.title)} · ${copy.title}</title><style>${WIKI_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}${EDITORIAL_PROSE_CSS}${WIKI_PROFILE_CSS}${presentation}${wikiAppearanceStyle(options)}${console?WIKI_CONSOLE_CSS:''}${terminal?wikiTerminalStyle(terminal):''}</style></head>
+    <body id="top"><header>${terminal?wikiTerminalBoot(terminal):''}${brand}${cover}<h1>${esc(options.home?.title??data.project.title)}</h1><p>${esc(options.home?.intro??data.project.description)}</p><small>${copy.offline}</small></header>${composed.home}${console?wikiConsoleMarkup(locale,terminal?wikiTerminalOpening(terminal,locale):''):''}
     <div class="layout"><nav aria-label="${copy.contents}"><h2>${copy.title}</h2>
       <label for="search">${copy.search}</label><input id="search" type="search" placeholder="${copy.search}">
       <label for="category">${copy.category}</label><select id="category"><option value="">${copy.all}</option>${[...new Set(entries.map(entry => entry.type))].map(type => `<option value="${type}">${copy.types[type]}</option>`).join('')}${maps.length ? `<option value="maps">${copy.maps}</option>` : ''}${timelineArticles.length ? `<option value="timelines">${copy.timelines}</option>` : ''}</select>
       <label for="tag">${copy.tag}</label><select id="tag"><option value="">${copy.all}</option>${allTags.map(tag => `<option value="${esc(tag)}">${esc(tag)}</option>`).join('')}</select>
       <p role="status" aria-live="polite"><span id="count">${articles.length + timelineArticles.length}</span> / ${articles.length + timelineArticles.length}</p><button id="print" type="button">${copy.print}</button><ol id="index">${composed.index}${timelineArticles.map(item => item.index).join('')}</ol></nav>
-      <main><p id="empty" hidden>${copy.noResults}</p><div id="wiki">${composed.html}${timelineArticles.map(item => item.html).join('')}</div></main></div>${branding?.footer?`<footer class="wiki-footer">${esc(branding.footer)}</footer>`:''}<script nonce="${nonce}">${WIKI_SCRIPT}${console?wikiConsoleScript(consoleDocuments,locale):''};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(articles.join(''),nonce)}</body></html>`;
+      <main><p id="empty" hidden>${copy.noResults}</p><div id="wiki">${composed.html}${timelineArticles.map(item => item.html).join('')}</div></main></div>${wikiFooterMarkup(branding)}<script nonce="${nonce}">${WIKI_SCRIPT}${console?wikiConsoleScript(consoleDocuments,locale):''}${terminal?wikiTerminalScript(terminal,console):''};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(articles.join(''),nonce)}</body></html>`;
   return { html, filename: `${sanitizeFilename(data.project.title)}-wiki.html`, counts: { entries: entries.length, maps: maps.length, timelines: timelineArticles.length } };
 }
 

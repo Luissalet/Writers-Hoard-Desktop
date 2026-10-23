@@ -72,3 +72,18 @@ export async function removeModelAsset(projectId: string, id: string, eraId?: st
     await (eraId ? (changes: Partial<Project>) => updateEraProjectMetadata({ projectId, eraId }, changes) : (changes: Partial<Project>) => updateProject(projectId, changes))( { modelAssets: (project.modelAssets ?? []).filter(asset => asset.id !== id) });
   }));
 }
+
+/** Give a stored model a new file name; its bytes and id stay. The extension is kept when the new name has none. */
+export async function renameModelAsset(projectId: string, id: string, name: string): Promise<string> {
+  await db.transaction('rw', [db.projects], async () => {
+    const project = await db.projects.get(projectId);
+    const asset = project?.modelAssets?.find(model => model.id === id);
+    if (!project || !asset) throw new ModelError('save');
+    const typed = name.trim();
+    if (!typed) throw new ModelError('invalid');
+    const extension = /\.[a-z0-9]{2,5}$/i.exec(asset.name)?.[0] ?? '';
+    const next = extension && !/\.[a-z0-9]{2,5}$/i.test(typed) ? `${typed}${extension}` : typed;
+    await updateProject(projectId, { modelAssets: (project.modelAssets ?? []).map(model => model.id === id ? { ...model, name: next } : model) });
+  });
+  return (await db.projects.get(projectId))!.modelAssets!.find(model => model.id === id)!.name;
+}

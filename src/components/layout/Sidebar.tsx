@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import {
   Home,
@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Settings2,
   Download,
+  FileText,
   StickyNote,
   LayoutDashboard,
   Bot,
@@ -19,6 +20,8 @@ import { getEngine, getEnginesByIds } from '@/engines';
 import { useInboxNoteCount } from '@/engines/notes/hooks';
 import { isDesktop } from '@/utils/platform';
 import { toast } from '@/components/common/toast';
+
+const WorldMarkdownExportModal = lazy(() => import('@/components/project/WorldMarkdownExportModal'));
 
 export default function Sidebar() {
   const { t, locale } = useTranslation();
@@ -36,6 +39,7 @@ export default function Sidebar() {
   const desktop = isDesktop();
   const inboxCount = useInboxNoteCount();
   const [exporting, setExporting] = useState(false);
+  const [markdownOpen, setMarkdownOpen] = useState(false);
 
   const navClass = (active: boolean, strong = false) =>
     `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
@@ -70,6 +74,7 @@ export default function Sidebar() {
     // (and Mod+Shift+B), because a button on a sidebar that is not there
     // is no button at all.
     <aside
+      data-tour="sidebar"
       inert={sidebarHidden}
       aria-hidden={sidebarHidden}
       className={`app-sidebar h-full shrink-0 bg-surface flex flex-col overflow-hidden transition-[width] duration-200 ${
@@ -144,7 +149,7 @@ export default function Sidebar() {
           </NavLink>
         )}
 
-        <NavLink to="/publishing" className={({ isActive }) => navClass(isActive)} title={locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'} aria-label={locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'}>
+        <NavLink to="/publishing" data-tour="nav-publishing" className={({ isActive }) => navClass(isActive)} title={locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'} aria-label={locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'}>
           <LibraryBig size={20} className="shrink-0" />{sidebarOpen && <span className="truncate">{locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'}</span>}
         </NavLink>
         <NavLink to="/fiction" className={({ isActive }) => navClass(isActive)} title={t('sidebar.fiction')} aria-label={t('sidebar.fiction')}>
@@ -189,6 +194,7 @@ export default function Sidebar() {
               return (
                 <NavLink
                   key={engine.id}
+                  data-tour={`nav-${engine.id}`}
                   to={`/project/${projectId}/${engine.id}`}
                   className={({ isActive }) => navClass(isActive, true)}
                   title={t(`engines.${engine.id}.name`)}
@@ -214,6 +220,7 @@ export default function Sidebar() {
           <button
             type="button"
             onClick={() => setShowEngineManager(true)}
+            data-tour="sidebar-manage-engines"
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
             title={t('project.manageEngines')}
           >
@@ -223,6 +230,7 @@ export default function Sidebar() {
           <button
             type="button"
             onClick={handleExport}
+            data-tour="sidebar-export"
             disabled={exporting}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
             title={t('project.exportProject')}
@@ -234,7 +242,22 @@ export default function Sidebar() {
               </span>
             )}
           </button>
+          <button
+            type="button"
+            onClick={() => setMarkdownOpen(true)}
+            data-testid="sidebar-export-markdown"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
+            title={t('project.exportMarkdownTitle')}
+          >
+            <FileText size={18} className="flex-shrink-0" />
+            {sidebarOpen && <span className="whitespace-nowrap">{t('project.exportMarkdown')}</span>}
+          </button>
         </div>
+      )}
+      {markdownOpen && projectId && (
+        <Suspense fallback={null}>
+          <WorldMarkdownExportModal projectId={projectId} onClose={() => setMarkdownOpen(false)} />
+        </Suspense>
       )}
 
       {/* Collapse toggle */}

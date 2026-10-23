@@ -138,6 +138,17 @@ lectura exacta del manual actualizado).
 
 ---
 
+## Exportar el mundo como Markdown (ola D2) — cosas a revisar (no requieren decisión de Luis)
+
+- `[~]` El vault de Markdown no incluye tableros, Kanban, storyboards, hojas de
+  personaje, diccionarios, árboles genealógicos ni variantes de era (siguen en la
+  copia ZIP normal). No hay sincronización viva con una carpeta.
+- `[~]` Las menciones por nombre se enlazan solo la primera vez por documento y
+  no cruzan etiquetas (`<em>Ana</em> Ruiz`); los nombres con `&` en el texto
+  original no se detectan.
+- `[~]` La herramienta de puente devuelve el ZIP en base64 (tope de 25 MB);
+  no hay variante que escriba directamente en una carpeta.
+
 ## Herramientas de mesa 1095 (ola D1) — cosas a revisar (no requieren decisión de Luis)
 
 - `[~]` Excel: se importan valores y fórmulas de cada hoja; el formato, las

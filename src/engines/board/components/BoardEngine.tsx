@@ -104,7 +104,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
           {(['cork', 'slate', 'grid', 'blueprint', 'white', 'lined', 'chalk'] as const).map((surface) => <option key={surface} value={surface}>{copy[surface]}</option>)}
         </select>}
 
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div data-tour="board-list" className="ml-auto flex flex-wrap items-center gap-1.5">
           {boards.map((board) => (
             <div key={board.id} className="group relative">
               {renamingId === board.id ? (

@@ -35,3 +35,4 @@ export const kanbansStamp = (list: { boards: unknown }) => contentStamp(list.boa
 export const soundscapesStamp = (list: { items: unknown }) => contentStamp(list.items);
 export const diceStamp = (tray: { log: unknown; formulas: unknown }) => contentStamp({ log: tray.log, formulas: tray.formulas });
 export const graphStamp = (settings: { display?: unknown; hiddenIds?: unknown; views?: unknown }) => contentStamp({ display: settings.display ?? null, hiddenIds: settings.hiddenIds ?? [], views: settings.views ?? [] });
+export const tableRulesStamp = (rules: { system: unknown; values: unknown; info: unknown }) => contentStamp({ system: rules.system, values: rules.values, info: rules.info });

@@ -23,6 +23,7 @@ import { applyCodexTemplate, type CodexTemplate } from '@/engines/codex/template
 import { effectiveCodexTemplate, effectiveTemplatePresentation, selectableCodexTemplates, templateIsWithin, templatePath } from '@/engines/codex/templateHierarchy';
 import { templatePresentationCopy } from '@/engines/codex/templatePresentationCopy';
 import { ProjectIcon } from '@/components/common/ProjectIcon';
+import CodexRevealControl from './CodexRevealControl';
 
 const typeConfig: Record<CodexEntryType, { icon: typeof User; labelKey: string; color: string }> = {
   character: { icon: User, labelKey: 'codex.types.character', color: '#c4973b' },
@@ -311,6 +312,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
           </button>
         </div>
       )}
+      {entry && <CodexRevealControl projectId={projectId} entry={codexEntries.find(item => item.id === entry.id) ?? entry} />}
       {(project?.codexTemplates?.length || templateId) ? (
         <div>
           <label htmlFor={`${aliasesInputId}-template`} className="block text-sm text-text-muted mb-1.5">{t('codex.templates.template')}</label>

@@ -36,6 +36,8 @@ const suites = [
   ['tool-document-blocks.browser.tsx', 'testToolDocumentBlocks'],
   ['wiki-export.browser.tsx', 'testWikiExport'],
   ['wiki-presentation.browser.tsx', 'testWikiPresentation'],
+  ['wiki-look-changes.browser.tsx', 'testWikiLookChanges'],
+  ['codex-reveal.browser.tsx', 'testCodexReveal'],
   ['reader-presentation.browser.tsx', 'testReaderPresentation'],
   ['reader-soundtrack.browser.tsx', 'testReaderSoundtrack'],
   ['project-soundtrack.browser.tsx', 'testProjectSoundtrack'],
@@ -90,6 +92,7 @@ const suites = [
   ['sprint-rounds.browser.ts', 'testSprintRounds'],
   ['codex-aliases.browser.tsx', 'testCodexAliases'],
   ['library-folders.browser.tsx', 'testLibraryFolders'],
+  ['workspace-tabs.browser.tsx', 'testWorkspaceTabs'],
   ['timeline-tags.browser.ts', 'testTimelineTags'],
   ['codex-genre-pack.browser.tsx', 'testCodexGenrePack'],
   ['writing-blocks.browser.tsx', 'testWritingBlocks'],
@@ -138,6 +141,12 @@ const suites = [
   ['world-graph-settings.browser.tsx', 'testWorldGraphSettings'],
   ['soundscape.browser.tsx', 'testSoundscape'],
   ['kanban.browser.tsx', 'testKanban'],
+  ['table-rules.browser.tsx', 'testTableRules'],
+  ['import-paste-epub-pdf.browser.tsx', 'testImportPasteEpubPdf'],
+  ['assets-library.browser.tsx', 'testAssetsLibrary'],
+  ['review-1095d2b.browser.tsx', 'testReview1095d2b'],
+  ['workspace-themes.browser.tsx', 'testWorkspaceThemes'],
+  ['review-1095d2a.browser.tsx', 'testReview1095d2a'],
   ['map-portraits.browser.ts', 'testMapPortraits'],
   ['world-economy.browser.ts', 'testWorldEconomy'],
   ['world-trade.browser.ts', 'testWorldTrade'],
@@ -145,6 +154,8 @@ const suites = [
   ['map-picker.browser.ts', 'testMapPicker'],
   ['map-scale.browser.ts', 'testMapScale'],
   ['map-ground.browser.ts', 'testMapGround'],
+  ['world-markdown-export.browser.tsx', 'testWorldMarkdownExport'],
+  ['guided-tours.browser.tsx', 'testGuidedTours'],
 ];
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });
 let checks = 0; const failed = [];

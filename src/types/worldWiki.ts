@@ -11,11 +11,17 @@ export interface WorldWikiOptions {
   headingFont?: import('@/services/wikiProfiles/appearance').WikiFont;
   bodyFont?: import('@/services/wikiProfiles/appearance').WikiFont;
   branding?: import('@/services/wikiProfiles/appearance').WikiBranding;
+  /** Palettes saved by the author; they ride on the options so profiles, backups and clones carry them. The export itself never reads them. */
+  customPalettes?: import('@/services/wikiProfiles/palettes').WikiCustomPalette[];
+  /** Phosphor palette, CRT scanlines, dither, boot line and opening commands; only used by the terminal and shell layouts. */
+  terminal?: import('@/services/wikiProfiles/terminal').WikiTerminalOptions;
   font?: 'serif' | 'sans'; accent?: string; includeCover?: boolean;
   includeMedia?: boolean;
   grouping?:'type'|'manual';sections?:WikiSection[];home?:WikiHome;
   /** Timelines as articles (events kept out of the wiki never are); a saved view narrows them. */
   includeTimelines?: boolean;
   timelineViewId?: string;
+  /** Publish only the cards the author revealed to the players (and no maps). Absent or false: the rest of the policy decides, as before. */
+  onlyRevealed?: boolean;
 }
 

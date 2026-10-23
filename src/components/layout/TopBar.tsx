@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Keyboard, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from 'lucide-react';
+import { Compass, Keyboard, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from 'lucide-react';
 import { openQuickNote } from '@/engines/notes/quickCapture';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -7,6 +7,8 @@ import SettingsModal from '@/components/settings/SettingsModal';
 import StorageStatus from '@/components/common/StorageStatus';
 import { PendingWriteStatus } from '@/components/common/PendingWritesHost';
 import { openShortcutsPanel } from '@/components/common/ShortcutsPanel';
+import { openToursPanel } from '@/components/tutorial/tourStore';
+import { tourCopy } from '@/components/tutorial/tourCopy';
 import { COMMAND_CENTRE_SHORTCUT, SIDEBAR_SHORTCUT, shortcutCaps } from '@/components/common/shortcuts';
 
 interface TopBarProps {
@@ -15,7 +17,7 @@ interface TopBarProps {
 }
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { setSearchOpen, sidebarHidden, toggleSidebarHidden } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
   // The ⌘/Ctrl label used to be worked out here. It now comes from the
@@ -52,7 +54,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={openQuickNote} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-accent-gold px-3 text-sm font-semibold text-deep hover:brightness-110" aria-label={t('creative.capture')}>
+          <button type="button" onClick={openQuickNote} data-tour="topbar-capture" className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-accent-gold px-3 text-sm font-semibold text-deep hover:brightness-110" aria-label={t('creative.capture')}>
             <Plus size={16} aria-hidden="true" />
             <span className="hidden sm:inline">{t('creative.capture')}</span>
           </button>
@@ -73,6 +75,17 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
           </button>
           <button
             type="button"
+            onClick={openToursPanel}
+            className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"
+            title={tourCopy[locale].open}
+            aria-label={tourCopy[locale].open}
+            aria-haspopup="dialog"
+            data-testid="topbar-tours"
+          >
+            <Compass size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
             onClick={() => setShowSettings(true)}
             className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"
             title={t('topbar.settings')}
@@ -84,6 +97,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
+            data-tour="topbar-search"
             aria-label={`${t('topbar.search')} (${commandShortcut})`}
             className="flex items-center gap-2 px-3 py-1.5 bg-elevated border border-border rounded-lg text-text-muted text-sm hover:border-accent-gold/50 transition"
           >

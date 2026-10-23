@@ -21,8 +21,18 @@ export interface WorldFolderDecision {
   csv?: CsvOptions & { encoding?: CsvEncoding; mapping?: WorldFolderCsvMapping };
   excludedRows?: number[];
 }
-export interface WorldFolderInput { format: CodexImportFormat; files: WorldFolderFile[]; decisions?: WorldFolderDecision[] }
-export interface WorldFolderFinding { path: string; code: string; message: string; blocking: boolean; row?: number }
+/** Why a file produced nothing. Shown per file in the review and returned by the bridge. */
+export type WorldFolderSkipReason = 'unsupported-type' | 'empty' | 'too-large' | 'duplicate' | 'encrypted' | 'needs-ocr' | 'unreadable';
+/** Text typed or pasted instead of a file. Enters the plan as a virtual `pasted.md` hashed like any file. */
+export interface WorldFolderPasted { name?: string; text: string }
+export interface WorldFolderInput {
+  format: CodexImportFormat; files: WorldFolderFile[]; decisions?: WorldFolderDecision[];
+  /** Optional pasted text; several documents can be separated by a line holding only `---8<---`. */
+  pasted?: WorldFolderPasted[];
+  /** Optional destination folder of the document Library: created documents are filed there. */
+  libraryFolderId?: string;
+}
+export interface WorldFolderFinding { path: string; code: string; message: string; blocking: boolean; row?: number; reason?: WorldFolderSkipReason }
 export interface WorldFolderEvent { id: string; title: string; description: string; date: string; dateMode: 'text' | 'calendar'; realDate?: string; realDateEnd?: string; lane: string }
 export interface WorldFolderPlanRow {
   path: string; sourcePath: string; title: string; target: WorldFolderTarget; id: string; reason: string;
@@ -33,5 +43,7 @@ export interface WorldFolderPlanRow {
 }
 export interface WorldFolderPlan {
   digest: string; contextVersion: string; rows: WorldFolderPlanRow[]; findings: WorldFolderFinding[];
+  /** Present when the input named a Library folder as destination. */
+  libraryFolder?: { id: string; name: string; path: string };
   files: { path: string; sha256: string }[]; assets: { path: string; kind: 'raster' | 'media' | 'unsupported'; used: boolean; id?: string; mime?: string; status?: 'new'|'duplicate'|'conflict'|'excluded' }[];
 }
