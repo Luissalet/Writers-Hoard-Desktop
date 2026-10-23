@@ -9,7 +9,7 @@ import {sourceBlockPreviewHtml} from '@/services/sourceBlockReading';
 /** Hydrate only the reader DOM; persisted host HTML and undo are untouched. */
 export function hydrateToolDocumentBlocks(container:HTMLElement,projectId:string,locale:'es'|'en',eraId?:string) {
   const subscriptions=[...container.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"]')].map(element=>{
-    const target=toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,label:element.dataset.label,namespace:element.dataset.namespace,presentation:element.dataset.presentation});
+    const target=toolTarget({projectId:element.dataset.projectId,kind:element.dataset.toolKind,documentId:element.dataset.documentId,label:element.dataset.label,namespace:element.dataset.namespace,presentation:element.dataset.presentation,sheetDisplay:element.dataset.sheetDisplay});
     let disposeModel:(()=>void)|undefined, generation=0;
     const clear=()=>{generation++;disposeModel?.();disposeModel=undefined;};
     const fallback=()=>{clear();element.replaceChildren(document.createTextNode(toolBlockCopy[locale].unavailable));};

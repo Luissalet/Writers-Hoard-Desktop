@@ -3,14 +3,17 @@ import { localToolNamespace } from '@/engines/local/stateTypes';
 export const TOOL_BLOCK_NAME = 'toolDocumentBlock';
 export const TOOL_KINDS = ['maps','board','timeline','relation-tree','dictionary','tables','character-sheets','radar','model-viewer','local-tool'] as const;
 export type ToolDocumentKind = typeof TOOL_KINDS[number];
-export interface ToolDocumentTarget { projectId: string; kind: ToolDocumentKind; documentId: string; label: string; namespace?:string; presentation?:'preview'|'editor' }
+export interface ToolDocumentTarget { projectId: string; kind: ToolDocumentKind; documentId: string; label: string; namespace?:string; presentation?:'preview'|'editor'; sheetDisplay?:'compact' }
 export const toolKind = (value: unknown): ToolDocumentKind | null => TOOL_KINDS.includes(value as ToolDocumentKind) ? value as ToolDocumentKind : null;
 export function toolTarget(value: Record<string, unknown>): ToolDocumentTarget | null {
   const kind=toolKind(value.kind),projectId=blockIdentifier(value.projectId),documentId=blockIdentifier(value.documentId);
   if(!kind||!projectId||!documentId||kind==='local-tool'&&!localToolNamespace(value.namespace))return null;
   if(value.presentation!==undefined&&value.presentation!=='preview'&&value.presentation!=='editor')return null;
-  return{kind,projectId,documentId,label:blockLabel(value.label),...(kind==='local-tool'?{namespace:value.namespace as string}:{}),...(value.presentation?{presentation:value.presentation as 'preview'|'editor'}:{})};
+  if(value.sheetDisplay!==undefined&&(kind!=='character-sheets'||value.sheetDisplay!=='compact'))return null;
+  return{kind,projectId,documentId,label:blockLabel(value.label),...(kind==='local-tool'?{namespace:value.namespace as string}:{}),...(value.presentation?{presentation:value.presentation as 'preview'|'editor'}:{}),...(value.sheetDisplay==='compact'?{sheetDisplay:'compact'}:{})};
 }
+/** Keep legacy keys unchanged; two displays of the same source have distinct projections. */
+export const toolPreviewKey=(target:ToolDocumentTarget)=>JSON.stringify([target.kind,target.documentId,...(target.kind==='local-tool'?[target.namespace]:[]),...(target.sheetDisplay?[target.sheetDisplay]:[])]);
 export const targetAllowed = (target:ToolDocumentTarget|null,context:CodexBlockContext) => !!target&&target.projectId===context.projectId;
 export const toolEngineId = (kind: ToolDocumentKind,namespace?:string) => kind==='relation-tree'?'genealogy':kind==='local-tool'&&localToolNamespace(namespace)?`local-tool-${namespace}`:kind;
 export function toolDocumentPath(target:ToolDocumentTarget) {
