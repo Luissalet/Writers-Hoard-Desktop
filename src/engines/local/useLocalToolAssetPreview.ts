@@ -1,0 +1,3 @@
+import {useLiveQuery} from 'dexie-react-hooks';
+/** Readonly hosts resolve the same declarative preview, without mounting authored controls. */
+export function useLocalToolAssetPreview(preview:import('./previewTypes').LocalToolSemanticPreview,projectId:string,namespace:string,eraId?:string){const key=JSON.stringify(preview);const value=useLiveQuery(async()=>{if(!namespace)return JSON.parse(key) as typeof preview;const {captureLocalAssetPreview}=await import('./assetBrowser');return captureLocalAssetPreview(JSON.parse(key),projectId,namespace,{eraId});},[key,projectId,namespace,eraId]);return value??preview;}

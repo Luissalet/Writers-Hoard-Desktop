@@ -1,4 +1,4 @@
-import {useLocalToolAssetPreview} from '../useLocalToolAsset';
+import {useLocalToolAssetPreview} from '../useLocalToolAssetPreview';
 import {useLocalToolAudioLifecycle} from '../useLocalToolAudioLifecycle';
 import {LocalToolUndoBoundary} from '../LocalToolUndoBoundary';
 import {LocalToolAtomPendingContext,setLocalToolAtomPending} from './pending';
