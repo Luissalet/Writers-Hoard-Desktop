@@ -8,6 +8,10 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['calendar-event-editor.browser.tsx', 'testCalendarEventEditorEntry', 180000],
+  ['review-calendar-reference.browser.tsx', 'reviewCalendarReference', 180000],
+  ['review-calendar-reference.browser.tsx', 'reviewCalendarDateEdit', 180000],
+  ['review-calendar-event-editor.browser.tsx', 'reviewCalendarEditorFocus', 180000],
   ['notes-rich.browser.tsx', 'testNotesRichContracts', 180000],
   ['notes-rich-ui.browser.tsx', 'testNotesRichUi', 180000],
   ['notes-rich-portability.browser.tsx', 'testNotesRichPortability', 180000],

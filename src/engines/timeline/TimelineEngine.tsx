@@ -1,7 +1,7 @@
 import { useWorldEraScope, useEraRows } from '@/services/worldEras/hooks';
 import type { Writing } from '@/types';
 import { useEraNavigate } from '@/services/worldEras/navigation';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { Clock, List, Layers, Globe, CalendarDays } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -30,6 +30,11 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const [activeTimelineId, setActiveTimelineId] = useState<string>('');
   const linkedView=useDeepLinkParam('view');
   const [viewMode, setViewMode] = useState<ViewMode>(linkedView==='list'?'list':linkedView==='calendar'?'calendar':'swimlane');
+  const contextKey = JSON.stringify([projectId, scope.eraId ?? null]);
+  const currentContext = useRef(contextKey);
+  useLayoutEffect(() => { currentContext.current = contextKey; }, [contextKey]);
+  const [calendarEditor, setCalendarEditor] = useState<{ id: string; context: string; trigger: HTMLButtonElement } | null>(null);
+  const calendarEditing = calendarEditor?.context === contextKey ? calendarEditor : null;
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarScope, setCalendarScope] = useState<'project' | 'timeline'>('project');
   const worldCalendar = useWorldCalendar(projectId);
@@ -289,9 +294,10 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
       {/* Active view */}
       <TimelineFilterBar filter={filter} onFilter={setFilter} tags={tagCounts} shown={viewMode === 'list' ? shownActive.length : shownAll.length} total={viewMode === 'list' ? activeEvents.length : allEvents.length} views={views} onSaveView={saveView} onRemoveView={removeView} onRetag={retag} tagColors={tagColors} onTagColor={setTagColor} />
       <TimelineBatchBar key={`${projectId}:${scope.eraId ?? 'base'}`} projectId={projectId} events={allEvents} onChanged={() => { refreshActiveEvents(); refreshAllEvents(); refreshConnections(); }} />
-      {viewMode === 'calendar' ? (
-        <CalendarView events={shownAll} timelines={activeTimeline ? [activeTimeline, ...timelines.filter(item => item.id !== activeTimeline.id)] : timelines} worldCalendar={worldCalendar?.calendar ?? null} onAddEvent={handleAddEventGlobal} />
-      ) : viewMode === 'swimlane' ? (
+      {(viewMode === 'calendar' || calendarEditing) && <div hidden={viewMode !== 'calendar'}>
+        <CalendarView events={shownAll} timelines={activeTimeline ? [activeTimeline, ...timelines.filter(item => item.id !== activeTimeline.id)] : timelines} worldCalendar={worldCalendar?.calendar ?? null} onAddEvent={handleAddEventGlobal} onOpenEvent={(event, trigger) => { setActiveTimelineId(event.timelineId); setCalendarEditor({ id: event.id, context: contextKey, trigger }); setViewMode('list'); }} />
+      </div>}
+      {viewMode === 'calendar' ? null : viewMode === 'swimlane' ? (
         <SwimLaneView
           projectId={projectId}
           timelines={timelines}
@@ -311,6 +317,9 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
       ) : (
         activeTimelineId && (
           <TimelineView
+            requestedEventId={calendarEditing?.id}
+            onEditorClosed={calendarEditing ? () => { if (currentContext.current !== contextKey) return; setCalendarEditor(null); setViewMode('calendar'); } : undefined}
+            restoreEditorFocus={calendarEditing ? () => { if (currentContext.current === contextKey && calendarEditing.trigger.isConnected) calendarEditing.trigger.focus(); } : undefined}
             projectId={projectId}
             timelineId={activeTimelineId}
             events={shownActive}
