@@ -44,6 +44,9 @@ export default function EventDetailsFields({ value, onChange, entries, mode, hou
       <label className="text-sm text-text-muted space-y-1.5">{t('timeline.banner.label')}<select data-testid="event-banner-pattern" className={field} value={value.bannerPattern} onChange={event => onChange({ ...value, bannerPattern: event.target.value as EventDetailDraft['bannerPattern'] })}>
         <option value="">{t('timeline.banner.solid')}</option><option value="stripes">{t('timeline.banner.stripes')}</option><option value="dots">{t('timeline.banner.dots')}</option><option value="checks">{t('timeline.banner.checks')}</option>
       </select></label>
+      <label className="text-sm text-text-muted space-y-1.5">{t('timeline.banner.shape')}<select data-testid="event-banner-shape" className={field} value={value.bannerShape} onChange={event => onChange({ ...value, bannerShape: event.target.value as EventDetailDraft['bannerShape'] })}>
+        <option value="plain">{t('timeline.banner.shape.plain')}</option><option value="ribbon">{t('timeline.banner.shape.ribbon')}</option><option value="bunting">{t('timeline.banner.shape.bunting')}</option><option value="scallop">{t('timeline.banner.shape.scallop')}</option>
+      </select></label>
       {value.repeat && <label className="text-sm text-text-muted space-y-1.5">{t('timeline.repeat.until')}<input data-testid="event-repeat-until" className={field} inputMode="numeric" placeholder={t('timeline.repeat.forever')} value={value.untilYear} onChange={event => onChange({ ...value, untilYear: event.target.value.replace(/[^\d-]/g, '') })} /></label>}
     </div>}
     {mode !== 'text' && <div className="space-y-2">

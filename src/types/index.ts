@@ -253,6 +253,8 @@ export interface TimelineEvent {
   repeat?: { every: 'year' | 'month' | 'week'; untilYear?: number };
   /** How a run of days is drawn on the Calendar view: a plain band, stripes, dots or checks. */
   bannerPattern?: 'stripes' | 'dots' | 'checks';
+  /** Optional silhouette of the calendar band, independent of its fill pattern. */
+  bannerShape?: 'plain' | 'ribbon' | 'bunting' | 'scallop';
   createdAt: number;
   updatedAt: number;
 }

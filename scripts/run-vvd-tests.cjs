@@ -8,6 +8,14 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeContract', 180000],
+  ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeRendering', 180000],
+  ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeEditor', 180000],
+  ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeUndoPortable', 180000],
+  ['calendar-banner-shapes.browser.tsx', 'testCalendarBannerShapeFields', 180000],
+  ['review-calendar-banner-shapes.browser.tsx', 'reviewBannerShapeErrors', 180000],
+  ['review-calendar-banner-shapes.browser.tsx', 'reviewBannerShapeWorldDom', 180000],
+  ['review-calendar-banner-shapes.browser.tsx', 'reviewBannerShapeEraPortable', 180000],
   ['local-tool-audio.browser.tsx', 'testLocalToolAudioEngine', 180000],
   ['local-tool-audio.browser.tsx', 'testLocalToolAudioClients', 180000],
   ['review-local-tool-audio.browser.tsx', 'reviewAudioSessionRegistry', 180000],
