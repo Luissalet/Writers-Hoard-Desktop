@@ -46,9 +46,8 @@ import {
   appendAudit,
   getAuditRecord,
   getBridgeConfig,
-  getBridgeToken,
+  bridgeKeys,
   readAudit,
-  tokenMatches,
   undoneIndices,
 } from './state';
 
@@ -131,19 +130,22 @@ function isLoopback(req: http.IncomingMessage): boolean {
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
-/** Bearer token, no Origin, loopback only. Returns an error code or null. */
-async function authorize(req: http.IncomingMessage): Promise<string | null> {
-  if (!isLoopback(req)) return 'not-loopback';
+/**
+ * Bearer token, no Origin, loopback only. Any non-revoked named key opens the
+ * door (the legacy token is the default key). Returns an error code, or the
+ * key that was presented so the audit can say who made a write.
+ */
+async function authorize(req: http.IncomingMessage): Promise<{ denied: string } | { keyLabel: string; keyId: string }> {
+  if (!isLoopback(req)) return { denied: 'not-loopback' };
   // A browser cannot omit Origin on a cross-origin request; a tool never sends one.
-  if (req.headers.origin) return 'browser-origin-refused';
+  if (req.headers.origin) return { denied: 'browser-origin-refused' };
   const header = req.headers.authorization ?? '';
   const presented = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim() ?? '';
-  if (!presented) return 'missing-token';
-  const expected = await getBridgeToken();
-  return tokenMatches(presented, expected) ? null : 'bad-token';
+  const verdict = await bridgeKeys.authenticate(presented);
+  return verdict.ok ? { keyLabel: verdict.label, keyId: verdict.id } : { denied: verdict.code };
 }
 
-async function handleCall(rawBody: string): Promise<{ status: number; body: unknown }> {
+async function handleCall(rawBody: string, keyLabel?: string): Promise<{ status: number; body: unknown }> {
   let parsed: { tool?: unknown; args?: unknown; client?: unknown };
   try {
     parsed = JSON.parse(rawBody || '{}') as typeof parsed;
@@ -176,7 +178,7 @@ async function handleCall(rawBody: string): Promise<{ status: number; body: unkn
   // in the executor, shared with the in-app copilot (tasks/lessons.md #23).
   const { args: _sent, ...outcome } = await executeTool(
     { tool: toolName, args },
-    { origin: 'bridge', clientLabel: client },
+    { origin: 'bridge', clientLabel: client, keyLabel },
   );
   void _sent;
   const status = outcome.code === 'writes-disabled' ? 403 : 200;
@@ -196,7 +198,7 @@ async function handleCall(rawBody: string): Promise<{ status: number; body: unkn
  * Shared by the HTTP route and the settings panel's undo button so both take
  * exactly the same path, including refusing to undo the same line twice.
  */
-export async function undoBridgeChange(index: number): Promise<BridgeCallResult> {
+export async function undoBridgeChange(index: number, keyLabel?: string): Promise<BridgeCallResult> {
   if (!Number.isInteger(index) || index < 0) {
     return { ok: false, code: 'bad-args', error: 'Pass the audit line number as `index`.' };
   }
@@ -212,6 +214,7 @@ export async function undoBridgeChange(index: number): Promise<BridgeCallResult>
   await appendAudit({
     at: Date.now(),
     tool: '__undo',
+    ...(keyLabel ? { keyLabel } : {}),
     kind: 'undo',
     undoOf: index,
     ok: outcome.ok,
@@ -245,7 +248,7 @@ export function familyDescription(description: string): string {
  * `{ ok:false, error, code }` when the tool is unknown or fails. The
  * `agent.call` event is posted by handleCall, once per call whatever the route.
  */
-async function handleFamilyCall(rawBody: string): Promise<{ status: number; body: unknown }> {
+async function handleFamilyCall(rawBody: string, keyLabel?: string): Promise<{ status: number; body: unknown }> {
   let parsed: { name?: unknown; tool?: unknown; arguments?: unknown; args?: unknown; caller?: unknown };
   try {
     parsed = JSON.parse(rawBody || '{}') as typeof parsed;
@@ -260,7 +263,7 @@ async function handleFamilyCall(rawBody: string): Promise<{ status: number; body
   }
   const args = parsed.arguments ?? parsed.args;
   const inner = JSON.stringify({ tool: name, args: args && typeof args === 'object' ? args : {}, client: caller });
-  const { status, body } = await handleCall(inner);
+  const { status, body } = await handleCall(inner, keyLabel);
   const outcome = body as { ok?: boolean; result?: unknown; error?: string; code?: string };
   if (status >= 400 || outcome.ok === false) {
     return { status: status >= 400 ? status : 400, body: { ok: false, code: outcome.code ?? 'failed', error: outcome.error ?? 'The tool failed.' } };
@@ -316,15 +319,19 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
-  const denied = await authorize(req);
-  if (denied) {
+  const auth = await authorize(req);
+  if ('denied' in auth) {
+    const denied = auth.denied;
     sendJson(res, denied === 'browser-origin-refused' ? 403 : 401, {
       ok: false,
       code: denied,
-      error: 'Unauthorized. The bridge needs the token shown in Writers Hoard → Settings → AI bridge.',
+      error: denied === 'revoked-token'
+        ? 'This key was revoked in Writers Hoard → Settings → AI bridge. Create or copy another one there.'
+        : 'Unauthorized. The bridge needs a key shown in Writers Hoard → Settings → AI bridge.',
     });
     return;
   }
+  const { keyLabel } = auth;
 
   const config = await getBridgeConfig();
   if (!config.enabled) {
@@ -503,6 +510,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       at: Date.now(),
       tool: '__selftest_cleanup',
       origin: 'bridge',
+      keyLabel,
       ok: outcome.ok,
       error: outcome.error,
       summary: outcome.ok
@@ -522,7 +530,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
     const body = await readJsonObject(req, res);
     if (!body) return;
-    sendJson(res, 200, await undoBridgeChange(Number(body.index)));
+    sendJson(res, 200, await undoBridgeChange(Number(body.index), keyLabel));
     return;
   }
 
@@ -534,7 +542,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       sendJson(res, 413, { ok: false, code: 'body-too-large', error: 'Request body too large.' });
       return;
     }
-    const { status, body } = await handleCall(rawBody);
+    const { status, body } = await handleCall(rawBody, keyLabel);
     sendJson(res, status, body);
     return;
   }
@@ -547,7 +555,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       sendJson(res, 413, { ok: false, code: 'body-too-large', error: 'Request body too large.' });
       return;
     }
-    const { status, body } = await handleFamilyCall(rawBody);
+    const { status, body } = await handleFamilyCall(rawBody, keyLabel);
     sendJson(res, status, body);
     return;
   }

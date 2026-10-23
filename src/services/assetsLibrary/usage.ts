@@ -14,7 +14,7 @@ import type { LibraryAsset } from './catalog';
 export type PlaceKind =
   | 'codex-avatar' | 'codex-link' | 'board-node' | 'storyboard-panel' | 'video-segment' | 'map-background'
   | 'project-cover' | 'wiki-banner' | 'visual-ref' | 'generation-ref' | 'writing-block' | 'soundscape-strip'
-  | 'codex-block' | 'diary-block' | 'board-text' | 'reader-audio' | 'published-edition' | 'image-recipe';
+  | 'codex-block' | 'diary-block' | 'board-text' | 'reader-audio' | 'published-edition' | 'image-recipe' | 'map-ambience';
 
 export interface AssetPlace { kind: PlaceKind; id: string; name: string }
 
@@ -111,6 +111,16 @@ function readerAudioPlaces(project: Project | undefined, assetId: string): Asset
   return places;
 }
 
+/** Wiki map ambience: the map's own loop and the loops of its pins point at an audio asset by id. */
+async function mapAmbiencePlaces(projectId: string, assetId: string): Promise<AssetPlace[]> {
+  const [maps, pins] = await Promise.all([db.worldMaps.where('projectId').equals(projectId).toArray(), db.mapPins.where('projectId').equals(projectId).toArray()]);
+  const names = new Map(maps.map(map => [map.id, clean(map.title, map.id)]));
+  return [
+    ...maps.filter(map => map.ambience?.assetId === assetId).map((map): AssetPlace => ({ kind: 'map-ambience', id: map.id, name: names.get(map.id)! })),
+    ...pins.filter(pin => pin.ambience?.assetId === assetId).map((pin): AssetPlace => ({ kind: 'map-ambience', id: pin.id, name: `${names.get(pin.mapId) ?? ''} › ${clean(pin.name, pin.id)}`.replace(/^ › /, '') })),
+  ];
+}
+
 async function mediaPlaces(projectId: string, asset: LibraryAsset): Promise<AssetPlace[]> {
   const places: AssetPlace[] = [];
   const [project, row, entries] = await Promise.all([db.projects.get(projectId), db.localMediaAssets.get(asset.id), db.codexEntries.where('projectId').equals(projectId).toArray()]);
@@ -120,6 +130,7 @@ async function mediaPlaces(projectId: string, asset: LibraryAsset): Promise<Asse
   const linked = new Set(row?.linkedEntryIds ?? []);
   for (const entry of entries) if (linked.has(entry.id)) places.push({ kind: 'codex-link', id: entry.id, name: clean(entry.title, entry.id) });
   places.push(...readerAudioPlaces(project, asset.id));
+  places.push(...await mapAmbiencePlaces(projectId, asset.id));
   places.push(...await writingPlaces(projectId, 'media', asset.id));
   return places;
 }

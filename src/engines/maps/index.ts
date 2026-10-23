@@ -4,6 +4,7 @@ import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import {
   registerAnchorAdapter,
+  registerPositionalAnchorAdapter,
   navigateTo,
   getCurrentProjectIdFromUrl,
 } from '@/engines/_shared/anchoring';
@@ -195,3 +196,13 @@ registerBackupStrategy({
 });
 
 export { mapsEngine };
+
+// A comment at a spot on the map picture, in percent of its width and height.
+const inPercent = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+registerPositionalAnchorAdapter({
+  engineId: 'maps',
+  anchorType: 'map_point',
+  space: 'percent',
+  toAnchor: (point) => (point && inPercent(point.x) && inPercent(point.y) ? { type: 'map_point', x: point.x, y: point.y } : null),
+  describe: (anchor, locale) => `${locale === 'es' ? 'En el mapa' : 'On the map'} · ${Math.round(anchor.x ?? 0)}%, ${Math.round(anchor.y ?? 0)}%`,
+});

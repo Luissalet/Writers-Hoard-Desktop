@@ -121,6 +121,12 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'aibridge:regenerateToken': ['main'],
   'aibridge:readAudit': ['main'],
   'aibridge:undo': ['main'],
+  // Named bridge keys: only the main window manages them; the token of a new key is
+  // returned once, to that window, and never stored in the clear.
+  'aibridge:listKeys': ['main'],
+  'aibridge:createKey': ['main'],
+  'aibridge:renameKey': ['main'],
+  'aibridge:revokeKey': ['main'],
   // AI runtime: connections by IP/URL, model discovery, streaming inference
   // and the in-app copilot. Main owns every URL and key; the renderer only
   // ever names a connection id. Push channels (ai:stream, ai:image-done,

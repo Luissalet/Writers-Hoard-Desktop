@@ -128,6 +128,8 @@ async function persistShell(
     position: props.position,
     createdAt: now,
     updatedAt: now,
+    // What the writer writes is read from the start.
+    readAt: now,
     ...body,
   };
   await createAnnotation(annotation,referenceTarget?{id:generateId('annref'),annotationId:id,targetEngineId:referenceTarget.engineId,targetEntityId:referenceTarget.entityId,createdAt:now}:undefined);

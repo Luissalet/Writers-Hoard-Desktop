@@ -280,6 +280,8 @@ interface AiBridgeAuditEntry {
   at: number;
   tool: string;
   client?: string;
+  /** Label of the named key that made the call. */
+  keyLabel?: string;
   projectId?: string;
   eraId?: string;
   entityId?: string;
@@ -289,6 +291,18 @@ interface AiBridgeAuditEntry {
   ok: boolean;
   error?: string;
 }
+
+interface AiBridgeKey {
+  id: string;
+  label: string;
+  createdAt: number;
+  lastUsedAt?: number;
+  revokedAt?: number;
+  isDefault: boolean;
+  status: 'active' | 'revoked';
+}
+
+type AiBridgeKeyResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; error: string };
 
 interface AiBridgeUndoResult {
   ok: boolean;
@@ -651,6 +665,13 @@ const api = {
       ipcRenderer.invoke('aibridge:readAudit', limit),
     undo: (index: number): Promise<AiBridgeUndoResult> =>
       ipcRenderer.invoke('aibridge:undo', index),
+    listKeys: (): Promise<AiBridgeKey[]> => ipcRenderer.invoke('aibridge:listKeys'),
+    createKey: (label: string): Promise<AiBridgeKeyResult<{ key: AiBridgeKey; token: string }>> =>
+      ipcRenderer.invoke('aibridge:createKey', label),
+    renameKey: (id: string, label: string): Promise<AiBridgeKeyResult<{ key: AiBridgeKey }>> =>
+      ipcRenderer.invoke('aibridge:renameKey', id, label),
+    revokeKey: (id: string): Promise<AiBridgeKeyResult<{ key: AiBridgeKey }>> =>
+      ipcRenderer.invoke('aibridge:revokeKey', id),
   },
   documents: {
     call: (request: { tool: string; args: Record<string, unknown> }) =>

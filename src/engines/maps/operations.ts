@@ -1,7 +1,10 @@
 import { listEraRows, readEraRow, mutateEraRows } from '@/services/worldEras/store';
 import type { EraRow, WorldEraScope } from '@/services/worldEras/types';
 import { makeTableOps } from '@/engines/_shared';
-import type { WorldMap, MapPin, MapVersion, MapFeature } from '@/types';
+import type { WorldMap, MapPin, MapVersion, MapFeature, MapExploration, MapArtwork } from '@/types';
+import { readExploration } from '@/components/maps/mapExploration';
+import { MAP_ARTWORK_LAYERS, validateMapArtwork, type MapArtworkLayer } from './mapArtwork';
+import { stashPicture, loadStashedPicture } from '@/services/workspaceAppearance/pictureStash';
 import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
@@ -329,4 +332,128 @@ export function renameMapPins(mapId: string, renames: MapPinRename[], scope?: Wo
 /** Give each pin its old name back, only where it still has the name the rename gave it; returns those restored. */
 export function undoRenameMapPins(mapId: string, renames: MapPinRename[], scope?: WorldEraScope): Promise<MapPinRename[]> {
   return applyPinNames(mapId, renames.map(rename => ({ pinId: rename.pinId, from: rename.to, to: rename.from })), scope);
+}
+
+// ---------------------------------------------------------------------------
+// Exploration (fog and the party marker): guarded by the record's own revision
+// ---------------------------------------------------------------------------
+
+/** Raised when the record is no longer at the revision the caller read. */
+export class ExplorationConflict extends Error {
+  current: number;
+  constructor(current: number) { super(`The exploration of this map is at revision ${current}; read it again.`); this.name = 'ExplorationConflict'; this.current = current; }
+}
+
+/** A map's exploration before and after one change; `null` is "no record". */
+export interface MapExplorationReceipt { mapId: string; before: MapExploration | null; after: MapExploration | null }
+
+/**
+ * Change the exploration record in one transaction. `change` gets the record as
+ * it is now (undefined when the map has none) and returns the new one, or null
+ * to remove it. With `expectedRevision` the write only happens while the record
+ * is still at that revision (0 means "no record yet").
+ */
+export function changeMapExploration(mapId: string, change: (current: MapExploration | undefined, map: WorldMap) => MapExploration | null, options: { expectedRevision?: number } = {}, scope?: WorldEraScope): Promise<MapExplorationReceipt> {
+  return runMapVersionWrite(mapId, async map => {
+    const current = readExploration(map.exploration);
+    const revision = current?.revision ?? 0;
+    if (options.expectedRevision !== undefined && options.expectedRevision !== revision) throw new ExplorationConflict(revision);
+    const next = change(current, map);
+    await scopedMapUpdate(mapId, scope, { exploration: next ?? undefined, updatedAt: Date.now() });
+    return { mapId, before: current ?? null, after: next };
+  }, scope);
+}
+
+/** What a record says about the map, without its revision: two records with the same content are the same fog. */
+const explorationContent = (record: MapExploration | undefined | null): string => JSON.stringify(record ? [record.enabled, record.cols, record.rows, record.mask, record.party ?? null, record.trail ?? []] : null);
+
+/** Put the previous record back; refuses when the fog is no longer as this change left it. */
+export function undoMapExploration(receipt: MapExplorationReceipt, scope?: WorldEraScope): Promise<void> {
+  return runMapVersionWrite(receipt.mapId, async map => {
+    const now = readExploration(map.exploration);
+    if (explorationContent(now) !== explorationContent(receipt.after)) throw new Error('The exploration of this map changed after this edit');
+    // The revision keeps growing, so a caller holding an older one is still refused after an undo.
+    const restored = receipt.before ? { ...receipt.before, revision: (now?.revision ?? receipt.before.revision) + 1 } : undefined;
+    await scopedMapUpdate(receipt.mapId, scope, { exploration: restored, updatedAt: Date.now() });
+  }, scope);
+}
+
+// ---------------------------------------------------------------------------
+// Map artwork: parallax picture layers, cloud overlay and ambience for the exported wiki
+// ---------------------------------------------------------------------------
+
+/** A layer value to set (a raster data URL), remove (null) or leave (absent). */
+export interface MapArtworkChange { background?: string | null; mid?: string | null; front?: string | null; clouds?: boolean; ambience?: import('@/types').MapAmbience | null }
+interface LayerMark { len: number; hash: string; ref?: string }
+export interface MapArtworkReceipt {
+  mapId: string;
+  layers: Partial<Record<MapArtworkLayer, { from: LayerMark | null; to: LayerMark | null }>>;
+  clouds?: { from: boolean | null; to: boolean | null };
+  ambience?: { from: import('@/types').MapAmbience | null; to: import('@/types').MapAmbience | null };
+}
+export interface MapArtworkResult { receipt: MapArtworkReceipt; updatedAt: number }
+
+const mark = (picture: string | undefined | null): LayerMark | null => picture ? { len: picture.length, hash: hashImage(picture) } : null;
+const sameMark = (a: LayerMark | null, b: LayerMark | null) => (a === null || b === null) ? a === b : a.len === b.len && a.hash === b.hash;
+async function readMapRow(mapId: string, scope?: WorldEraScope) { return scope?.eraId ? readEraRow<WorldMap>(scope, 'worldMaps', mapId) : db.worldMaps.get(mapId); }
+function artworkUpdate(map: WorldMap, layers: Partial<Record<MapArtworkLayer, string | null>>, clouds: boolean | null | undefined, ambience: import('@/types').MapAmbience | null | undefined): Partial<WorldMap> {
+  const next: MapArtwork = { ...(map.artwork ?? {}) };
+  for (const layer of MAP_ARTWORK_LAYERS) if (layer in layers) { if (layers[layer]) next[layer] = layers[layer]!; else delete next[layer]; }
+  if (clouds !== undefined) { if (clouds) next.clouds = true; else delete next.clouds; }
+  const changes: Partial<WorldMap> = { artwork: Object.keys(next).length ? next : undefined, updatedAt: Math.max(Date.now(), map.updatedAt + 1) };
+  if (ambience !== undefined) changes.ambience = ambience ?? undefined;
+  return changes;
+}
+
+/**
+ * Set or remove artwork layers, the cloud switch and the map ambience in one undoable write.
+ * `expectedUpdatedAt` refuses a map that changed since the caller read it (`map_artwork_conflict`).
+ * The previous pictures wait in the picture stash; the receipt carries only marks and stash hashes.
+ */
+export async function setMapArtwork(mapId: string, change: MapArtworkChange, scope?: WorldEraScope, expectedUpdatedAt?: number): Promise<MapArtworkResult> {
+  const map = await readMapRow(mapId, scope);
+  if (!map) throw new Error('Map no longer exists');
+  if (expectedUpdatedAt !== undefined && map.updatedAt !== expectedUpdatedAt) throw new Error('map_artwork_conflict');
+  const layers: Partial<Record<MapArtworkLayer, string | null>> = {};
+  const receipt: MapArtworkReceipt = { mapId, layers: {} };
+  const candidate: MapArtwork = { ...(map.artwork ?? {}) };
+  for (const layer of MAP_ARTWORK_LAYERS) {
+    if (change[layer] === undefined) continue;
+    const value = change[layer];
+    const before = map.artwork?.[layer] ?? null;
+    if ((value ?? null) === before) continue;
+    layers[layer] = value; if (value) candidate[layer] = value; else delete candidate[layer];
+    receipt.layers[layer] = { from: before ? { ...mark(before)!, ref: await stashPicture(before) } : null, to: mark(value) };
+  }
+  validateMapArtwork(candidate);
+  let clouds: boolean | undefined;
+  if (change.clouds !== undefined && change.clouds !== (map.artwork?.clouds === true)) { clouds = change.clouds; receipt.clouds = { from: map.artwork?.clouds === true ? true : null, to: change.clouds ? true : null }; }
+  let ambience: import('@/types').MapAmbience | null | undefined;
+  if (change.ambience !== undefined && JSON.stringify(change.ambience ?? null) !== JSON.stringify(map.ambience ?? null)) { ambience = change.ambience; receipt.ambience = { from: map.ambience ?? null, to: change.ambience }; }
+  if (!Object.keys(receipt.layers).length && !receipt.clouds && !receipt.ambience) throw new Error('map_artwork_unchanged');
+  return runMapVersionWrite(mapId, async current => {
+    if (current.updatedAt !== map.updatedAt) throw new Error('map_artwork_conflict');
+    const changes = artworkUpdate(current, layers, clouds, ambience);
+    await scopedMapUpdate(mapId, scope, changes);
+    return { receipt, updatedAt: changes.updatedAt! };
+  }, scope);
+}
+
+/** Put the earlier artwork back; refuses when any of the touched parts changed again after this edit or an earlier picture left the stash. */
+export async function undoMapArtwork(receipt: MapArtworkReceipt, scope?: WorldEraScope): Promise<void> {
+  const map = await readMapRow(receipt.mapId, scope);
+  if (!map) throw new Error('Map no longer exists');
+  const restore: Partial<Record<MapArtworkLayer, string | null>> = {};
+  for (const layer of MAP_ARTWORK_LAYERS) {
+    const step = receipt.layers[layer];
+    if (!step) continue;
+    if (!sameMark(mark(map.artwork?.[layer]), step.to)) throw new Error('The artwork of this map changed after this edit');
+    if (step.from) { const picture = await loadStashedPicture(step.from.ref ?? ''); if (!picture) throw new Error('The earlier picture is no longer available'); restore[layer] = picture; } else restore[layer] = null;
+  }
+  if (receipt.clouds && (map.artwork?.clouds === true ? true : null) !== receipt.clouds.to) throw new Error('The artwork of this map changed after this edit');
+  if (receipt.ambience && JSON.stringify(map.ambience ?? null) !== JSON.stringify(receipt.ambience.to)) throw new Error('The ambience of this map changed after this edit');
+  await runMapVersionWrite(receipt.mapId, async current => {
+    if (current.updatedAt !== map.updatedAt) throw new Error('The artwork of this map changed after this edit');
+    await scopedMapUpdate(receipt.mapId, scope, artworkUpdate(current, restore, receipt.clouds ? receipt.clouds.from === true : undefined, receipt.ambience ? receipt.ambience.from : undefined));
+  }, scope);
 }

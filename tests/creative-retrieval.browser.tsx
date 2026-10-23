@@ -108,7 +108,7 @@ export async function testCreativeRetrieval(): Promise<string[]> {
     await until(() => host.querySelectorAll('li').length === 2, 'Annotation list did not load');
     await act(async () => { input(host.querySelector('input[type="search"]')!, 'brujula'); });
     assert(host.querySelectorAll('li').length === 1 && host.textContent?.includes('Brújula'), 'Annotation body search failed to fold accents');
-    await act(async () => { input(host.querySelector('input[type="search"]')!, ''); host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+    await act(async () => { input(host.querySelector('input[type="search"]')!, ''); [...host.querySelectorAll('label')].find(label => label.textContent?.includes(t('annotations.onlyOrphans')))!.querySelector<HTMLInputElement>('input')!.click(); });
     assert(host.querySelectorAll('li').length === 1, 'Orphan filter did not narrow list');
     await act(async () => { await db.annotations.update('retrieve-a', { isOrphaned: false }); });
     await until(() => host.querySelectorAll('li').length === 0, 'Repaired annotation stayed in orphan filter');

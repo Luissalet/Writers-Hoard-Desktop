@@ -8,9 +8,11 @@
 // here so nothing has to be typed by hand.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plug, Copy, Check, RefreshCw, ShieldAlert, Undo2 } from 'lucide-react';
+import { Plug, RefreshCw, ShieldAlert, Undo2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { AiBridgeAuditEntry, AiBridgeInfo } from '@/electron-env';
+import CopyButton from './AiBridgeCopyButton';
+import AiBridgeKeys from './AiBridgeKeys';
 import { BRIDGE_CLIENT_DOCS, bridgeClientConfig, bridgeOnboardingPrompt, type BridgeClient } from '@/services/aiBridge/connectionGuide';
 
 function Toggle({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) {
@@ -31,34 +33,6 @@ function Toggle({ on, onClick, label, disabled }: { on: boolean; onClick: () => 
         }`}
       />
     </button>
-  );
-}
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const [failed, setFailed] = useState(false);
-  return (
-    <span className="flex items-center gap-1">
-    <button
-      onClick={() => {
-        setFailed(false);
-        setCopied(false);
-        void Promise.resolve().then(() => navigator.clipboard.writeText(value)).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }).catch(() => setFailed(true));
-      }}
-      title={label}
-      aria-label={copied ? t('settings.bridge.connect.copied') : label}
-      className="p-1.5 rounded border border-border hover:border-accent-gold/40 text-text-muted hover:text-accent-gold transition flex-shrink-0"
-    >
-      {copied ? <Check size={12} /> : <Copy size={12} />}
-    </button>
-    <span role="status" className={failed ? 'text-[10px] text-red-400' : 'sr-only'}>
-      {failed ? t('settings.bridge.connect.copyError') : copied ? t('settings.bridge.connect.copied') : ''}
-    </span>
-    </span>
   );
 }
 
@@ -232,6 +206,8 @@ export default function AiBridgePane() {
             <p className="text-[10px] text-text-dim mt-1">{t('settings.bridge.tokenNote')}</p>
           </div>
 
+          {typeof bridge.listKeys === 'function' && <AiBridgeKeys api={bridge} info={info} client={client} />}
+
           <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-border text-[10px] text-text-dim">
             <ShieldAlert size={12} className="text-accent-gold mt-0.5 flex-shrink-0" />
             <span>{t('settings.bridge.safetyNote')}</span>
@@ -261,6 +237,11 @@ export default function AiBridgePane() {
                         {entry.summary ?? entry.tool}
                         {entry.ok ? '' : ` — ${entry.error ?? ''}`}
                       </span>
+                      {entry.keyLabel && (
+                        <span data-testid={`bridge-audit-key-${entry.index}`} className="text-text-dim flex-shrink-0">
+                          ({t('settings.bridge.activity.byKey').replace('{name}', entry.keyLabel)})
+                        </span>
+                      )}
                       {/* Only a change that actually landed, is not already
                           reverted, and names a row to put back. Offering the
                           button on an entry with no entity was a button that

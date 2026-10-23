@@ -119,3 +119,15 @@ model inference, model downloads or GPU activation.
 The manual update used requiredRevisionId and exact content readback; see
 `tasks/evidence/worldcraft1041-manual-verification.json` and the remaining limits
 in [final verification](tasks/worldcraft1041-final-verification.md).
+
+## Session and picture-map preparation (2026-10-23)
+
+The outline planner groups table sessions by prep/next/live/played and exposes
+revision-checked status/date/note operations. Check, encounter and handout blocks
+use the same editor, gallery and combat operations as the UI. Comments expose
+read state and positioned pins on boards and maps. Picture-map exploration is
+a visual mask; the exported asset still contains the complete picture. Wiki
+map navigation, artwork and audio are opt-in. Named MCP keys support independent
+revocation while preserving the existing Principal token. See
+[tasks/vvd1095/verification-D345.md](tasks/vvd1095/verification-D345.md) and the
+D2/Bmatrices for proof, scope and remaining gaps.

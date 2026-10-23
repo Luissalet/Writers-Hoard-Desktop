@@ -60,8 +60,8 @@ export default function MarginPanel({
   // and no cascading effect render.
   if (pendingAnchor && !composing) {
     setComposing({ anchor: pendingAnchor, defaultType: 'text' });
-  } else if ((pendingAnchor?.type === 'map_point' || pendingAnchor?.elementId) && composing && composing.anchor !== pendingAnchor) {
-    // A second spot picked on the map while the composer is open moves the note there.
+  } else if ((pendingAnchor?.type === 'map_point' || pendingAnchor?.type === 'board_point' || pendingAnchor?.elementId) && composing && composing.anchor !== pendingAnchor) {
+    // A second spot picked on the map or board while the composer is open moves the note there.
     setComposing({ anchor: pendingAnchor, defaultType: composing.defaultType });
   }
 
@@ -122,7 +122,7 @@ export default function MarginPanel({
         />
       )}
 
-      <CommentThreadList key={JSON.stringify([scope.projectId,scope.eraId,engineId,entityId])} items={items} scope={scope}/>
+      <CommentThreadList key={`threads:${JSON.stringify([scope.projectId,scope.eraId,engineId,entityId])}`} items={items} scope={scope}/>
     </aside>
   );
 }

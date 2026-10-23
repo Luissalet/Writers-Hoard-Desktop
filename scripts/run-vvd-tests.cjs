@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const root = path.resolve(__dirname, '..');
+const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
   ['vvd-codex-aliases.browser.tsx', 'testVvdCodexAliases'],
   ['vvd-reference-edit.browser.tsx', 'testVvdReferenceEdit'],
@@ -38,6 +40,7 @@ const suites = [
   ['wiki-presentation.browser.tsx', 'testWikiPresentation'],
   ['wiki-look-changes.browser.tsx', 'testWikiLookChanges'],
   ['codex-reveal.browser.tsx', 'testCodexReveal'],
+  ['wiki-map-navigation.browser.tsx', 'testWikiMapNavigation'],
   ['reader-presentation.browser.tsx', 'testReaderPresentation'],
   ['reader-soundtrack.browser.tsx', 'testReaderSoundtrack'],
   ['project-soundtrack.browser.tsx', 'testProjectSoundtrack'],
@@ -96,6 +99,7 @@ const suites = [
   ['timeline-tags.browser.ts', 'testTimelineTags'],
   ['codex-genre-pack.browser.tsx', 'testCodexGenrePack'],
   ['writing-blocks.browser.tsx', 'testWritingBlocks'],
+  ['prep-blocks-handouts.browser.tsx', 'testPrepBlocksHandouts'],
   ['codex-guided.browser.tsx', 'testCodexGuided'],
   ['project-author.browser.ts', 'testProjectAuthor'],
   ['codex-freeze.browser.ts', 'testCodexFreeze'],
@@ -141,6 +145,8 @@ const suites = [
   ['world-graph-settings.browser.tsx', 'testWorldGraphSettings'],
   ['soundscape.browser.tsx', 'testSoundscape'],
   ['kanban.browser.tsx', 'testKanban'],
+  ['session-planner.browser.tsx', 'testSessionPlanner'],
+  ['review-1095d3.browser.tsx', 'testReview1095d3'],
   ['table-rules.browser.tsx', 'testTableRules'],
   ['import-paste-epub-pdf.browser.tsx', 'testImportPasteEpubPdf'],
   ['assets-library.browser.tsx', 'testAssetsLibrary'],
@@ -148,6 +154,7 @@ const suites = [
   ['workspace-themes.browser.tsx', 'testWorkspaceThemes'],
   ['review-1095d2a.browser.tsx', 'testReview1095d2a'],
   ['map-portraits.browser.ts', 'testMapPortraits'],
+  ['ai-bridge-keys.browser.tsx', 'testAiBridgeKeys'],
   ['world-economy.browser.ts', 'testWorldEconomy'],
   ['world-trade.browser.ts', 'testWorldTrade'],
   ['map-style.browser.ts', 'testMapStyle'],
@@ -156,6 +163,8 @@ const suites = [
   ['map-ground.browser.ts', 'testMapGround'],
   ['world-markdown-export.browser.tsx', 'testWorldMarkdownExport'],
   ['guided-tours.browser.tsx', 'testGuidedTours'],
+  ['comments-read-pins.browser.tsx', 'testCommentsReadPins'],
+  ['map-exploration.browser.tsx', 'testMapExploration'],
 ];
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });
 let checks = 0; const failed = [];

@@ -79,3 +79,37 @@ that was also edited may list documents whose text did not change; the count
 returns to zero after the next publish. `wh_wiki_profile_changes` (read-only)
 returns `{changes:[{documentId,title,kind,change}],count,lastEditionAt}` plus
 `configChanged`, `sourceChanged` and `editionId`.
+
+**Maps in the exported wiki (wave D2).** Four optional profile settings, all off by
+default (a profile that sets none exports the same bytes as before):
+
+- `mapNavigation` (`free` or `contained`): the map block gets pan and zoom. Drag with
+  the mouse or one finger, pinch with two, Ctrl/Cmd + wheel (or the plain wheel
+  while the map has keyboard focus) to zoom, arrows to move, `+`/`-` to zoom and `0`
+  to reset, plus on-screen zoom and reset buttons. `contained` keeps the picture
+  covering the frame (it cannot be dragged past an edge or zoomed out); `free` lets
+  it leave the frame (zoom 0.5 to 8). Pins and their numbers keep their size. A
+  plain wheel over an unfocused map scrolls the page, on purpose.
+- `mapArtwork`: draws the map's illustration layers, set in the map editor under
+  "Capas de ilustración" or with `wh_map_artwork`: a background (behind and around
+  the picture, visible when the map is panned or the picture is transparent), a
+  middle layer (over the picture, under the pins) and a foreground. They drift at
+  different depths while the reader pans and stay still when the reader prefers
+  reduced motion. Layers are raster data URLs (no SVG, no remote address); one layer
+  may be up to 8 million characters and the three together 16 million, otherwise
+  that layer is left out of the page.
+- `mapClouds`: a drifting CSS cloud overlay (also switched on per map by the map's
+  own cloud setting when `mapArtwork` is on); the reader can hide it with the
+  "Nubes" button, and it stands still under reduced motion.
+- `mapAmbience`: a map can loop a local audio asset and each pin can have its own
+  loop with a volume and a radius (percent of the map width). Nothing plays until
+  the reader presses the map's sound button; then the map loop plays and a pin loop
+  fades in as the centre of the view approaches the pin. Tracks are embedded once
+  each (12 MB per track, 24 MB in total) and need "Include linked audio and video".
+  Turning the sound button off pauses everything.
+
+The page keeps its content security policy: scripts carry the nonce, images and
+audio are `data:` URLs, nothing is fetched. Artwork and ambience belong to the map
+and pin rows, so JSON/ZIP backups and project copies keep them (a copy points
+the ambience at its own copy of the audio). Set the profile options in the export
+panel under "Mapas de la wiki" or with `wh_wiki_profile_save`.

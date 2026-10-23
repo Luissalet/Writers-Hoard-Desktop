@@ -3,8 +3,8 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2023", "DOM"],
-    "types": ["node"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
@@ -20,5 +20,5 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["."]
+  "include": [".", "../src/electron-env.d.ts"]
 }

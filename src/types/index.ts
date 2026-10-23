@@ -352,6 +352,26 @@ export interface MapLayerVisibility {
   names?: boolean;
 }
 
+/** The party's position on a picture map: percent of the picture, and how far it sees (percent of the picture's width). */
+export interface MapParty { x: number; y: number; sightRadius: number }
+/** One stop of the party's trail; `session` is the author's label for the play session. */
+export interface MapTrailStep { x: number; y: number; at: number; session?: string }
+/**
+ * What the party has explored on a picture map. `mask` is a run-length coded
+ * grid of `cols` x `rows` cells (see components/maps/mapExploration.ts); a cell
+ * is explored (1) or still fogged (0). `revision` guards every write.
+ */
+export interface MapExploration {
+  revision: number;
+  /** Fog is drawn for players while on; the mask is kept when off. */
+  enabled: boolean;
+  cols: number;
+  rows: number;
+  mask: string;
+  party?: MapParty;
+  trail?: MapTrailStep[];
+}
+
 export interface WorldMap {
   id: string;
   projectId: string;
@@ -368,8 +388,28 @@ export interface WorldMap {
   sourceRevision?: number;
   /** How many kilometres the picture spans from left to right; unset means the map has no scale. */
   widthKm?: number;
+  /** Fog of exploration and the party marker (optional; absent = the whole map is plain). */
+  exploration?: MapExploration;
+  /** Optional illustration layers drawn behind/over the map in an exported wiki (parallax on pan). Raster data URLs. */
+  artwork?: MapArtwork;
+  /** Optional looping ambience for the map in an exported wiki; plays only after the reader presses the sound toggle. */
+  ambience?: MapAmbience;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Three optional picture layers and a cloud-overlay switch; see `engines/maps/mapArtwork.ts` for the caps. */
+export interface MapArtwork {
+  background?: string;
+  mid?: string;
+  front?: string;
+  clouds?: boolean;
+}
+
+/** A local audio asset (Media engine) that loops as ambience; `volume` is 0-1 (default 0.5). */
+export interface MapAmbience {
+  assetId: string;
+  volume?: number;
 }
 
 export interface MapPin {
@@ -391,6 +431,8 @@ export interface MapPin {
   size?: 'S' | 'M' | 'L';
   /** Show only a dot, without the icon. */
   hideIcon?: boolean;
+  /** Local ambience that fades in as the exported wiki view centres on this pin; `radius` is a percentage of the map width (default 15). */
+  ambience?: MapAmbience & { radius?: number };
 }
 
 // Gallery
@@ -419,6 +461,18 @@ export interface InspirationImage {
   source?: 'uploaded' | 'generated';
   /** Provenance of a generated image: enough to regenerate or credit it. */
   generation?: ImageGenerationInfo;
+  /** Present on a picture made from a handout template: the editable text it is drawn from. */
+  handout?: HandoutSource;
+}
+
+/** The text a styled player handout (letter, case file, terminal screen, notice board) is drawn from. */
+export interface HandoutSource {
+  template: 'letter' | 'casefile' | 'terminal' | 'noticeboard';
+  title: string;
+  body: string;
+  signature: string;
+  extra: string;
+  lang: 'es' | 'en';
 }
 
 /**

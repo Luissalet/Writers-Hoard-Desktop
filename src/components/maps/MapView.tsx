@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useEmbeddedToolCloseGuard } from '@/components/editor/toolBlocks/EmbeddedToolCloseContext';
-import type { CodexEntry, CodexEntryType, MapPin, MapPoint } from '@/types';
+import type { CodexEntry, CodexEntryType, MapExploration, MapPin, MapPoint } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
@@ -35,6 +35,12 @@ import MapContextMenu, { type MapMenuAt } from './MapContextMenu';
 import MapCommentMarks from './MapCommentMarks';
 import MapScalePanel from './MapScalePanel';
 import MapScaleOverlay from './MapScaleOverlay';
+import MapFogCanvas from './MapFogCanvas';
+import MapPartyLayer from './MapPartyLayer';
+import MapExplorationPanel from './MapExplorationPanel';
+import { useMapExploration } from './useMapExploration';
+import { mapExplorationCopy } from './mapExplorationCopy';
+import { fogOf, pinRevealed, type ExplorationIntent } from './mapExploration';
 import { outlineOnPicture, pictureAspect } from './mapScale';
 import { loadBasemap } from '@/engines/real-atlas/basemap';
 import { referenceRings, SCALE_REFERENCES } from '@/engines/worldgen/core/scaleReference';
@@ -78,6 +84,9 @@ interface MapViewProps extends MapFeatureOptions {
   /** Kilometres the picture spans from left to right; unset means no scale. */
   widthKm?: number;
   onChangeScale?: (widthKm: number | undefined) => void | Promise<void>;
+  /** The map's fog of exploration and party marker; saved through onChangeExploration (absent = not editable here). */
+  exploration?: MapExploration;
+  onChangeExploration?: (intent: ExplorationIntent, aspect: number) => void | Promise<void>;
 }
 
 /** Pin icon for an entry created from the map, by the kind of entry. */
@@ -137,8 +146,10 @@ export default function MapView({
   onCommentAt,
   widthKm,
   onChangeScale,
+  exploration,
+  onChangeExploration,
 }: MapViewProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
   const [pinType, setPinType] = useState<MapPin['icon']>('city');
   const [showPinForm, setShowPinForm] = useState(false);
@@ -179,9 +190,13 @@ export default function MapView({
     return () => { live = false; };
   }, [realId]);
   const realOutline = widthKm && realRings && realRings.id === realId ? outlineOnPicture(realRings.rings, realCenter, widthKm, aspect) : null;
+  const fogLocale = locale === 'en' ? 'en' : 'es';
+  const fog = useMapExploration({ exploration, aspect, readOnly, onChange: onChangeExploration });
   const featureEditor = useMapFeatures({ features, layerVisibility, onChangeFeatures, onChangeLayers, namedLayers, onChangeNamedLayers, readOnly, featureDrafts });
 
   const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null;
+  /** What the player view lists: pins on explored ground only. */
+  const listedPins = fog.playersFog ? pins.filter(pin => pinRevealed(fog.playersFog!, pin)) : pins;
   useEmbeddedToolCloseGuard(()=>{
     if(readOnly)return true;
     if(savingPin||creatingPin||featureEditor.busy||showPinForm||featureEditor.dirty||featureEditor.drawing&&featureEditor.points.length>0)return false;
@@ -462,6 +477,8 @@ export default function MapView({
       {backgroundImage && <MapFeatureToolbar editor={featureEditor} onToolChange={() => { setPlacingPin(false); setMeasure(null); }} />}
       {backgroundImage && <MapScalePanel widthKm={widthKm} aspect={aspect} readOnly={readOnly} onSetScale={onChangeScale} measure={measure} onMeasure={points => { setMeasure(points); if (points) { setPlacingPin(false); if (featureEditor.drawing) featureEditor.changeTool('select'); } }} realId={realId} onRealId={id => { setRealId(id); setRealCenter({ x: 50, y: 50 }); }} realSize={realOutline ? { widthKm: realOutline.widthKm, heightKm: realOutline.heightKm } : null} pins={pins}
         onRenamePins={readOnly ? undefined : async matches => { for (const match of matches) { const pin = pins.find(item => item.id === match.pinId); if (pin) await onEditPin(pin.id, { name: match.to }, pin); } }} />}
+      {backgroundImage && (fog.record || (!readOnly && onChangeExploration)) && <MapExplorationPanel exp={fog} locale={fogLocale} />}
+      {backgroundImage && featureEditor.enabled && fog.record?.enabled && <button type="button" data-testid="map-export-fog" className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold" onClick={() => saveAs(new Blob([exportMapSvg(backgroundImage, imageSize.width, imageSize.height, featureEditor.features, pins, featureEditor.layers, featureEditor.namedLayers, widthKm, pinPortraits, fogOf(fog.record))], { type: 'image/svg+xml;charset=utf-8' }), `map-${mapId}-fog.svg`)}><Download size={14} />{mapExplorationCopy[fogLocale].exportSvg}</button>}
       {backgroundImage && featureEditor.enabled && <button type="button" className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold" onClick={() => saveAs(new Blob([exportMapSvg(backgroundImage, imageSize.width, imageSize.height, featureEditor.features, pins, featureEditor.layers, featureEditor.namedLayers, widthKm, pinPortraits)], { type: 'image/svg+xml;charset=utf-8' }), `map-${mapId}.svg`)}><Download size={14} />{featureEditor.copy.export}</button>}
 
       {/* Map Canvas */}
@@ -479,7 +496,7 @@ export default function MapView({
             initialScale={1}
             minScale={0.05}
             maxScale={5}
-            panning={{ disabled: placingPin || featureEditor.drawing || dragState !== null || outlineDragging }}
+            panning={{ disabled: placingPin || featureEditor.drawing || dragState !== null || outlineDragging || fog.brushActive || fog.placeActive || fog.drag !== null }}
             doubleClick={{ disabled: placingPin || featureEditor.drawing }}
           >
             <MapViewportControls mapRef={mapRef} imageWidth={imageSize.width} imageHeight={imageSize.height} />
@@ -487,9 +504,10 @@ export default function MapView({
               <div ref={mapRef} className="relative inline-block" onClick={handleMapClick} onContextMenu={event => { if (readOnly || featureEditor.busy) return; const at = getMapPosition(event.clientX, event.clientY); if (!at) return; event.preventDefault(); setMenu({ clientX: event.clientX, clientY: event.clientY, x: at.x, y: at.y }); }} data-testid="map-surface">
                 <img src={backgroundImage} alt={featureEditor.copy.mapAlt} draggable={false} onLoad={event => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} className="max-w-none block" style={{ maxHeight: '800px' }} />
                 <MapFeatureCanvas editor={featureEditor} aspectRatio={imageSize.width / imageSize.height} />
+                {fog.layerOn && <MapFogCanvas cells={fog.cells} cols={fog.cols} rows={fog.rows} opacity={fog.opacity} players={fog.players} />}
 
                 {/* Pins */}
-                {featureEditor.layers.pins && pins.filter(pin => mapItemVisible(pin, featureEditor.namedLayers)).map(pin => {
+                {featureEditor.layers.pins && pins.filter(pin => mapItemVisible(pin, featureEditor.namedLayers) && (!fog.playersFog || pinRevealed(fog.playersFog, pin))).map(pin => {
                   const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
                   const Icon = config.icon;
                   const portrait = pinPortraits[pin.id];
@@ -561,6 +579,7 @@ export default function MapView({
                     </div>
                   );
                 })}
+                <MapPartyLayer exp={fog} toPicture={getMapPosition} locale={fogLocale} />
                 {/* Comments sit on the current picture; an old era being previewed may not match it. */}
                 {!readOnly && <MapCommentMarks projectId={projectId} mapId={mapId} toPicture={getMapPosition} onDragging={setOutlineDragging} />}
                 <MapScaleOverlay aspect={aspect} widthKm={widthKm} measure={measure} outline={realOutline ? { rings: realOutline.rings, center: realCenter } : null} toPicture={getMapPosition} onMoveOutline={setRealCenter} onDragOutline={setOutlineDragging} />
@@ -575,14 +594,14 @@ export default function MapView({
       </div>
 
       {/* Pin sidebar */}
-      {pins.length > 0 && (
+      {listedPins.length > 0 && (
         <div className={`grid gap-4 ${selectedPin && pinDraft ? 'lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]' : ''}`}>
           <div className="bg-surface border border-border rounded-xl p-4 min-w-0">
             <h4 className="font-serif font-bold text-accent-gold text-sm mb-3">
-              {t('maps.markers')} ({pins.length})
+              {t('maps.markers')} ({listedPins.length})
             </h4>
             <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
-              {pins.map(pin => {
+              {listedPins.map(pin => {
                 const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
                 const Icon = config.icon;
                 const isSelected = selectedPinId === pin.id;
