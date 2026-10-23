@@ -101,9 +101,10 @@ solo.
 
 ## 4. Catálogo de herramientas
 
-Todas llevan prefijo `wh_`. `projectId` es opcional en todas: si lo omites, se
-usa **el proyecto que tengas abierto en la app**, que es lo que hace que
-«añade esto a mi codex» funcione sin resolver ids antes.
+Todas llevan prefijo `wh_`. Muchas aceptan `projectId` opcional: si lo omites,
+usan **el proyecto abierto en la app**, de modo que «añade esto a mi codex»
+funciona sin resolver ids antes. Consulta el schema de cada herramienta: algunas
+lo exigen explícito, como las tres de recursos locales descritas más abajo.
 
 **Orientación**
 
@@ -2534,3 +2535,21 @@ Prueba: `tests/wiki-map-navigation.browser.tsx`.
 See [offline preparation](OFFLINE-PREPARATION.md) for UI parity, argument semantics, privacy and remaining gaps. New core tools wh_project_home (read) and wh_project_quick_create (write) share normal document operations. New native fiction tools wh_story_session_list/create/update preserve the19 original contracts; list omits DM notes unless include_dm_notes:true. Planning is distinct from selecting current play; recap_posted:true is local ready-to-share plus played, not external publication. Full fiction backups preserve preparation/attendance and remap imported IDs.
 
 wh_wiki_profile_get includeDocuments:true exposes the captured effective catalogue. Profile options add additionalDocuments/excludedDocuments refs (entry/map plus notes,tables,board,timeline,character-sheets,dictionary,relation-tree,radar,model-viewer,local-tool with namespace), and sections.parentId. Existing policies and immutable edition CAS apply. Workspace appearance patches add effect none/snow/rain/embers/fireflies and effectIntensity0–100; performance/reduced motion suppress particles.
+
+## Recursos de herramientas locales (fuente d542365)
+
+Estas tres herramientas nativas comparten el resolver del SDK y sus selectores. `projectId` y `namespace` son obligatorios en sus schemas; `eraId` es opcional (omitido = Base). `documentId` opcional identifica un documento fuente independiente, no un bloque propio. No devuelven Blob, URL temporal ni código. [Estado, pruebas y límites](../tasks/vvd1095/verification-sdk-assets.md).
+
+| Herramienta | Campos y resultado |
+|---|---|
+| `wh_local_asset_slots` (lectura) | `projectId`, `namespace`, `eraId?`, `documentId?`. Devuelve `{slots,installation}`; instalación incluye `version` CAS, `overrides` efectivos, `own` del nivel actual y `provenance`. No crea estado. |
+| `wh_local_asset_resolve` (lectura) | Ámbito anterior + `slot` (nombre o alias), `overrides?` (mapa). Sin mapa explícito usa `data.assetOverrides` si hay `documentId`. Cascada documento → instalación → paquete. Devuelve `{available:false}` o `{available:true,kind,mime,size,version,origin,slot,ref}`. Un override presente inválido/ausente no cae a otra capa. |
+| `wh_local_asset_override` (escritura) | Ámbito + `slot`, `level:'installation'|'document'`, `expectedVersion` y `ref?`. Referencia `null` u omitida = Restablecer sólo este nivel. Instalación usa `installation.version` de slots y ofrece CAS+Restablecer, **sin Undo**. Documento exige `documentId`, mapa declarado en codec y `snapshot.document.version` de `wh_local_tool_read`; devuelve resultado de `state.apply` con receipt para `wh_local_tool_state_undo/redo`. Rechaza CAS viejo, contexto ajeno y aliases incoherentes; no reintentar inventando versión. |
+
+Las refs son `{kind:'image',id}`, `{kind:'media',id}` o `{kind:'source',namespace,slot,releaseHash?}`. Imágenes pertenecen a la galería local del proyecto; audio/vídeo usa sus medios efectivos. Hash omitido sigue el pin actual; hash explícito sólo resuelve esa release realmente compilada del mismo namespace, sin fallback. `replaceable:false`, tipo y MIME se validan por la operación compartida. Épocas guardan diferencias: Restablecer hereda Base, sin copiar otras ranuras.
+
+Los bloques propios mantienen `wh_local_tool_block_read/apply/undo/redo` y su mapa `assetOverrides`; el setter nuevo no acepta `blockId`. `wh_local_asset_resolve.overrides` permite resolver ese mapa explícitamente. Las escrituras requieren motor habilitado y ámbito/lease vigentes.
+
+`wh_local_audio_control` conserva `assetId` anterior y añade `ref` como alternativa de audio local (medio o source/slot/hash). `action:'play'` valida disponibilidad y devuelve **`started:false`, `queued:false`, `status:'gesture-required'`**: el usuario debe pulsar Play normal. No cola ni autoplay; fuente/hash ausente se rechaza sin simular reproducción. Status/Stop/buses siguen limitados a sonidos propios del SDK, sin unificar Soundscape/Reader.
+
+Fuente `d542365` aprobada por CAS15 e integrada FF exacta f44e387→d542365 bajo lock nuevo, con main limpio. Revisión técnica34 grupos distintos (18 autor +6 propios del revisor +10 legacy); verify:quick34 motores/64 tablas/6515 claves/22 locales/0 warnings, shipping lint0, Vite28.92s/Electron/Node937+schema2PASS y sesión raíz2655 exit0. Lock merge liberado. Manual Google actualizado588 UTF-16 con requiredRevision/relectura,198 párrafos,197 restantes y estilos intactos; ambos locks liberados. Dispatcher nativo probado; el host stdio abierto conserva fuente anterior y no acredita este lote. No prueba de altavoces ni escucha física. Font/data ofrecen defaults Blob sin selector genérico; lectura/export no monta reproductores y wiki conserva su política de marco SVG. La tarea1095 sigue abierta.
