@@ -6,6 +6,7 @@ import {
   formatFootnoteMarker,
   type ExtractedFootnote,
 } from '@/components/editor/footnotes/footnoteModel';
+import { BOOK_OPENING_CLASS, PAPER_COLORS, bookStyleCss, titleOrnamentHtml } from './bookStyle';
 import type { FootnoteMarkerStyle } from '@/types';
 import { xmlSafeText, type PublishingDocument } from './publishingDocument';
 import {formattingFromElement,formattingHtmlAttributes,INLINE_KEYS,BLOCK_KEYS,SCENE_BREAK_TEXT} from '@/components/editor/advanced/model';
@@ -53,11 +54,20 @@ function escapeXml(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
+/** The picture files written into the book for this build: only these may be referenced. */
+let bookImages: Set<string> | null = null;
+
 function serializeXhtmlNode(node: Node): string {
   if (node.nodeType === 3) return escapeXml(node.textContent ?? '');
   if (!(node instanceof Element)) return '';
   const sourceTag = node.tagName.toLowerCase();
-  if (sourceTag === 'img') return '';
+  if (sourceTag === 'img') {
+    const src = node.getAttribute('src') ?? '';
+    if (!bookImages?.has(src)) return '';
+    const width = Number(node.getAttribute('data-wh-width'));
+    const frame = node.getAttribute('data-wh-frame');
+    return `<img class="wh-inline-image${frame && /^(border|rounded|polaroid)$/.test(frame) ? ` wh-frame-${frame}` : ''}" src="${escapeXml(src)}" alt="${escapeXml(node.getAttribute('alt') ?? '')}"${node.getAttribute('data-wh-width') === 'page' ? ' style="width:100%"' : [25, 50, 75, 100].includes(width) ? ` style="width:${width}%"` : ''} />`;
+  }
   if (sourceTag === 'sup' && node.hasAttribute(FOOTNOTE_NUMBER_ATTR)) {
     // EPUB 3's own footnote vocabulary: a reader that knows `noteref` shows
     // the note in a pop-up and keeps the `aside` out of the flow.
@@ -83,6 +93,16 @@ function serializeXhtmlNode(node: Node): string {
   }
   const title = node.getAttribute('title');
   if (title) attributes.push(` title="${escapeXml(title)}"`);
+  if (tag === 'p' && node.classList.contains(BOOK_OPENING_CLASS)) attributes.push(` class="${BOOK_OPENING_CLASS}"`);
+  // A text effect keeps its class; the shared block CSS animates it where the reader allows.
+  const effect = tag === 'span' ? node.getAttribute('data-wh-effect') : null;
+  if (effect && /^(glow|shake|wave|rainbow|pulse|blur)$/.test(effect)) attributes.push(` class="wh-effect wh-effect-${effect}"`);
+  // Boxed text keeps its look and label (the shared block CSS draws both).
+  const callout = tag === 'aside' ? node.getAttribute('data-wh-callout') : null;
+  if (callout && /^(note|info|question|tip|warning|readaloud|sidebar)$/.test(callout)) attributes.push(` class="wh-callout wh-callout-${callout}"`);
+  if (tag === 'div' && /^(spell|item|creature)$/.test(node.getAttribute('data-wh-rules-card') ?? '')) attributes.push(` class="wh-rules-card wh-rules-card-${node.getAttribute('data-wh-rules-card')}"`);
+  // A column break means nothing in a reflowing book.
+  if (tag === 'div' && node.hasAttribute('data-wh-column-break')) return '';
   if (tag === 'br' || tag === 'hr') return `<${tag}${attributes.join('')} />`;
   return `<${tag}${attributes.join('')}>${[...node.childNodes].map(serializeXhtmlNode).join('')}</${tag}>`;
 }
@@ -188,11 +208,18 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
 
   if (document.includeTitlePage) {
     const href = 'title.xhtml';
-    const body = `<section class="title-page"><h1>${escapeXml(document.title)}</h1><p>${document.wordCount.toLocaleString(document.locale)} ${escapeXml(document.wordLabel)} · ${escapeXml(new Date(document.generatedAt).toLocaleDateString(document.locale))}</p></section>`;
+    const body = `<section class="title-page"><h1>${escapeXml(document.title)}</h1>${document.author ? `<p class="byline">${escapeXml(document.author)}</p>` : ''}<p>${document.wordCount.toLocaleString(document.locale)} ${escapeXml(document.wordLabel)} · ${escapeXml(new Date(document.generatedAt).toLocaleDateString(document.locale))}</p></section>`;
     zip.file(`EPUB/${href}`, xhtmlPage(document, document.title, body));
     manifest.push(`<item id="title" href="${href}" media-type="application/xhtml+xml" />`);
     spine.push('<itemref idref="title" />');
     navigation.push({ href, title: document.title });
+  }
+
+  if (document.copyright) {
+    const href = 'copyright.xhtml';
+    zip.file(`EPUB/${href}`, xhtmlPage(document, document.copyright, `<section class="copyright-page"><p>${escapeXml(document.copyright)}</p></section>`));
+    manifest.push(`<item id="copyright" href="${href}" media-type="application/xhtml+xml" />`);
+    spine.push('<itemref idref="copyright" />');
   }
 
   // The chapter list as a page of its own in the spine, after the title
@@ -215,12 +242,30 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
   // Each chapter's notes, for the one notes file after the last chapter.
   const notesBody: string[] = [];
   let nextNumber = 1;
+  // The manuscript's own pictures, when the profile keeps them, become files of the book.
+  bookImages = new Set();
+  const withFiles = document.sections.map((section, index) => {
+    if (!section.portableHtml.includes('<img')) return section.portableHtml;
+    const parsed = new DOMParser().parseFromString(section.portableHtml, 'text/html');
+    [...parsed.body.querySelectorAll('img')].forEach((image, n) => {
+      const match = /^data:image\/(png|jpe?g|gif|webp);base64,/i.exec(image.getAttribute('src') ?? '');
+      if (!match) { image.remove(); return; }
+      const ext = match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase();
+      const file = `images/inline-${index + 1}-${n + 1}.${ext}`;
+      const src = image.getAttribute('src')!;
+      zip.file(`EPUB/${file}`, src.slice(src.indexOf(',') + 1).replace(/\s+/g, ''), { base64: true });
+      manifest.push(`<item id="inline-${index + 1}-${n + 1}" href="${file}" media-type="image/${ext === 'jpg' ? 'jpeg' : ext}" />`);
+      bookImages!.add(file);
+      image.setAttribute('src', file);
+    });
+    return parsed.body.innerHTML;
+  });
   document.sections.forEach((section, index) => {
     const id = `section-${index + 1}`;
     const href = `${id}.xhtml`;
     const synopsis = section.synopsis ? `<p class="synopsis">${escapeXml(section.synopsis)}</p>` : '';
     const fragment = toXhtmlFragment(
-      section.portableHtml,
+      withFiles[index],
       document.footnoteStyle,
       index + 1,
       bookNotes ? nextNumber : 1,
@@ -233,7 +278,20 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
         + fragment.notes.map((note) => footnoteAside(note, document.footnoteStyle, index + 1, href)).join(''),
       );
     }
-    const body = `<section><h1>${escapeXml(section.title)}</h1>${synopsis}${fragment.xhtml}</section>`;
+    // The chapter's header image travels inside the book as its own file.
+    let header = { before: '', after: '' };
+    const picture = section.headerImage && /^data:image\/(png|jpe?g|gif|webp);base64,/i.exec(section.headerImage.src);
+    if (section.headerImage && picture) {
+      const ext = picture[1].toLowerCase() === 'jpg' ? 'jpeg' : picture[1].toLowerCase();
+      const file = `images/${id}.${ext === 'jpeg' ? 'jpg' : ext}`;
+      zip.file(`EPUB/${file}`, section.headerImage.src.slice(section.headerImage.src.indexOf(',') + 1).replace(/\s+/g, ''), { base64: true });
+      manifest.push(`<item id="${id}-image" href="${file}" media-type="image/${ext}" />`);
+      const img = `<img class="wh-chapter-image wh-chapter-image--${section.headerImage.layout}" src="${file}" alt="" />`;
+      header = section.headerImage.layout === 'beside'
+        ? { before: '', after: img }
+        : { before: `${section.headerImage.layout === 'banner' && section.headerImage.label ? `<p class="wh-chapter-label">${escapeXml(section.headerImage.label)}</p>` : ''}${img}`, after: '' };
+    }
+    const body = `<section class="chapter">${header.before}<h1>${escapeXml(section.title)}</h1>${titleOrnamentHtml(document.bookStyle)}${header.after}${synopsis}${fragment.xhtml}</section>`;
     zip.file(`EPUB/${href}`, xhtmlPage(document, section.title, body));
     manifest.push(`<item id="${id}" href="${href}" media-type="application/xhtml+xml" />`);
     spine.push(`<itemref idref="${id}" />`);
@@ -257,6 +315,14 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
     navigation.push({ href, title: document.bibliographyTitle });
   }
 
+  if (document.blurb) {
+    const href = 'blurb.xhtml';
+    zip.file(`EPUB/${href}`, xhtmlPage(document, document.blurb.title, `<section class="blurb"><h1>${escapeXml(document.blurb.title)}</h1>${document.blurb.text.split(/\n+/).map(line => `<p>${escapeXml(line)}</p>`).join('')}</section>`));
+    manifest.push(`<item id="blurb" href="${href}" media-type="application/xhtml+xml" />`);
+    spine.push('<itemref idref="blurb" />');
+    navigation.push({ href, title: document.blurb.title });
+  }
+
   const navBody = `<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc" id="toc"><h1>${escapeXml(document.title)}</h1><ol>${navigation.map(item => `<li><a href="${item.href}">${escapeXml(item.title)}</a></li>`).join('')}</ol></nav>`;
   zip.file('EPUB/nav.xhtml', xhtmlPage(document, document.title, navBody));
   zip.file('EPUB/styles.css', `${EDITORIAL_PROSE_CSS}\nbody { font-family: serif; line-height: 1.55; margin: 5%; }
@@ -274,14 +340,20 @@ pre, code { font-family: monospace; }
 .wh-endnotes h2 { text-align: left; font-size: 1em; margin: 1.5em 0 0.5em; }
 .wh-endnotes .wh-footnote { margin-top: 0; padding-top: 0; border-top: 0; font-size: 1em; }
 table { border-collapse: collapse; }
-td, th { border: 1px solid #777; padding: 0.25em; }`);
+td, th { border: 1px solid #777; padding: 0.25em; }
+.wh-inline-image { display: block; max-width: 100%; margin: 1em auto; }
+.wh-frame-border { border: 1px solid #888; padding: 4px; } .wh-frame-rounded { border-radius: 12px; } .wh-frame-polaroid { background: #fff; padding: 8px 8px 28px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.wh-chapter-image { display: block; max-width: 100%; max-height: 60vh; margin: 0 auto 1em; }
+.wh-chapter-image--banner { width: 100%; max-height: 30vh; object-fit: cover; }
+.wh-chapter-image--beside { float: left; max-width: 40%; margin: 0.3em 1em 0.8em 0; }
+.wh-chapter-label { text-align: center; font-size: 0.75em; letter-spacing: 0.24em; text-transform: uppercase; margin: 0 0 0.8em; }${document.bookStyle ? `\n${bookStyleCss(document.bookStyle, 'section.chapter', 'section.chapter > h1')}\nbody{background:${PAPER_COLORS[document.bookStyle.paper].background};color:${PAPER_COLORS[document.bookStyle.paper].ink}}` : ''}`);
 
   const modified = new Date(document.generatedAt).toISOString().replace(/\.\d{3}Z$/, 'Z');
   zip.file('EPUB/package.opf', `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="publication-id" xml:lang="${escapeXml(document.locale)}">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="publication-id">${escapeXml(document.identifier)}</dc:identifier>
-    <dc:title>${escapeXml(document.title)}</dc:title>
+    <dc:title>${escapeXml(document.title)}</dc:title>${document.author ? `\n    <dc:creator>${escapeXml(document.author)}</dc:creator>` : ''}
     <dc:language>${escapeXml(document.locale)}</dc:language>
     <meta property="dcterms:modified">${modified}</meta>
   </metadata>
@@ -289,6 +361,7 @@ td, th { border: 1px solid #777; padding: 0.25em; }`);
   <spine>${spine.join('')}</spine>
 </package>`);
 
+  bookImages = null;
   return zip.generateAsync({
     type: 'blob',
     mimeType: 'application/epub+zip',

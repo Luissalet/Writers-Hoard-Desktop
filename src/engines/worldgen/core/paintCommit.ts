@@ -13,7 +13,7 @@
 
 import { isStampGlyph } from '../cartography/stampGlyphs';
 import {
-  editKey, roadLook, type BrushTip, type EditTarget, type Falloff, type LandOp, type PaintFilter,
+  editKey, roadLook, TERRAIN_HEIGHT_M, type BrushTip, type EditTarget, type Falloff, type LandOp, type PaintFilter,
   type Pt, type Stroke, type TerrainOp, type WorldEdit,
 } from './edits';
 import type { HumanGeography, SettlementRank } from './settlements';
@@ -46,8 +46,10 @@ export interface PaintSpec {
   /** Where the stroke is allowed to land. Only the biome brush obeys it. */
   only: PaintFilter;
   riverWidth: number;
-  /** River tool: draw a river, or click to fill a lake (Ctrl drains one). */
-  riverMode?: 'draw' | 'lake';
+  /** River tool: draw a river freehand, put it down point by point, or click to fill a lake (Ctrl drains one). */
+  riverMode?: 'draw' | 'points' | 'lake';
+  /** The terrain tool's Height op: the ground it sets, in metres. */
+  heightM?: number;
   /** Lake mode: the least size in cells (the water rises until the lake is at least this big). */
   lakeSize?: number;
   marker: 'settlement' | 'ruin';
@@ -250,6 +252,7 @@ export function commitPaintStroke(
   if (!pts.length) return null;
   const stroke: Stroke = {
     pts, radius: p.radius, strength: p.strength, softness: p.softness, ...head(p),
+    ...(p.mode === 'terrain' && p.terrainOp === 'height' ? { heightM: p.heightM ?? TERRAIN_HEIGHT_M.default } : {}),
   };
   const at = pts[pts.length - 1];
 

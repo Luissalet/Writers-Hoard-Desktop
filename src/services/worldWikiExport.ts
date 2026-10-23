@@ -1,4 +1,5 @@
 import {voiceReadingMarkup,installVoiceReading,VOICE_READING_CSS} from '@/engines/media/voiceReading';
+import { privateTemplateIds } from '@/engines/codex/templateHierarchy';
 import {mediaFilename} from '@/engines/media/types';
 import {composeWikiLayout,WIKI_PROFILE_CSS} from '@/services/wikiProfiles/layout';
 import {wikiAppearanceStyle,validateWikiAppearance} from '@/services/wikiProfiles/appearance';
@@ -10,7 +11,8 @@ import {admittedWikiDocuments} from '@/services/wikiProfiles/policy';
 import type {ReaderSource} from '@/engines/writings/readerSource';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { downloadTextFile, sanitizeFilename } from '@/engines/writings/manuscriptExport';
-import type { CodexEntry, CodexEntryType, InspirationImage, MapPin, Project, WorldMap } from '@/types';
+import type { CodexEntry, CodexEntryType, InspirationImage, MapPin, Project, Timeline, TimelineEvent, WorldMap } from '@/types';
+import { eventMatches, normalizeTimelineViews } from '@/engines/timeline/timelineFilter';
 import es from '@/locales/es';
 import en from '@/locales/en';
 import { createMentionIndex, type MentionIndex } from '@/services/codexReference/indexedMentions';
@@ -34,18 +36,18 @@ export const wikiCopy = (locale: 'es' | 'en') => locale === 'es' ? {
   contents: 'Contenido', all: 'Todo', search: 'Buscar en esta wiki', category: 'Categoría', tag: 'Etiqueta', entries: 'entradas', maps: 'Mapas', images: 'Incluir imágenes locales',
   mapOption: 'Incluir mapas y marcadores', download: 'Descargar HTML', busy: 'Preparando wiki…', done: 'Wiki descargada. Puedes abrir el archivo HTML sin conexión.',
   error: 'No se pudo exportar la wiki. Vuelve a intentarlo.', emptySelection: 'Selecciona alguna categoría o incluye mapas.',
-  relations: 'Conexiones', backlinks: 'Enlaces a esta entrada', missing: 'Entrada no incluida', gallery: 'Imágenes vinculadas', noResults: 'No hay resultados con estos filtros.',
+  relations: 'Conexiones', timelines: 'Cronologías', events: 'sucesos', backlinks: 'Enlaces a esta entrada', missing: 'Entrada no incluida', gallery: 'Imágenes vinculadas', noResults: 'No hay resultados con estos filtros.',
   home: 'Inicio', print: 'Imprimir', offline: 'Archivo local · Sin conexión', close: 'Cerrar', types: { character: 'Personajes', location: 'Lugares', item: 'Objetos', faction: 'Facciones', concept: 'Conceptos', magic: 'Magia', custom: 'Otros' },
 } : {
   export: 'Export wiki', title: 'Offline wiki', description: 'Create a browsable HTML file with search, categories, tags and links. Open it in any browser without installing Writer.',
   contents: 'Contents', all: 'All', search: 'Search this wiki', category: 'Category', tag: 'Tag', entries: 'entries', maps: 'Maps', images: 'Include local images',
   mapOption: 'Include maps and markers', download: 'Download HTML', busy: 'Preparing wiki…', done: 'Wiki downloaded. You can open the HTML file offline.',
   error: 'The wiki could not be exported. Try again.', emptySelection: 'Select at least one category or include maps.',
-  relations: 'Connections', backlinks: 'Links to this entry', missing: 'Entry not included', gallery: 'Linked images', noResults: 'No results match these filters.',
+  relations: 'Connections', timelines: 'Timelines', events: 'events', backlinks: 'Links to this entry', missing: 'Entry not included', gallery: 'Linked images', noResults: 'No results match these filters.',
   home: 'Home', print: 'Print', offline: 'Local file · Offline', close: 'Close', types: { character: 'Characters', location: 'Locations', item: 'Items', faction: 'Factions', concept: 'Concepts', magic: 'Magic', custom: 'Other' },
 };
 
-export interface WorldWikiData { project: Project; entries: CodexEntry[]; maps: WorldMap[]; pins: MapPin[]; images: InspirationImage[]; media?: PortableLocalMedia[]; toolPreviews?: {policy:string;blocks:Record<string,ToolPreview>} }
+export interface WorldWikiData { project: Project; entries: CodexEntry[]; maps: WorldMap[]; pins: MapPin[]; images: InspirationImage[]; timelines?: Timeline[]; timelineEvents?: TimelineEvent[]; media?: PortableLocalMedia[]; toolPreviews?: {policy:string;blocks:Record<string,ToolPreview>} }
 import type { WorldWikiOptions } from '@/types/worldWiki';
 export type { WorldWikiOptions } from '@/types/worldWiki';
 export async function loadWorldWikiData(projectId:string,options:WorldWikiOptions={},captured?:ReaderSource&{images:InspirationImage[]}):Promise<WorldWikiData>{
@@ -61,11 +63,11 @@ export async function loadWorldWikiData(projectId:string,options:WorldWikiOption
  }
  const mediaRows=source.rows('localMediaAssets').filter(asset=>mediaIds.has(asset.id)&&asset.projectId===projectId);
  if(Object.values(blocks).some(preview=>preview.model))await prepareModelReaderRuntime();
- return{project,entries,maps,pins,images,media:await Promise.all(mediaRows.map(encodeLocalMedia)),toolPreviews:{policy:toolPolicyKey(projectId,admitted.entries,admitted.maps,options),blocks}};
+ return{project,entries,maps,pins,images,...(options.includeTimelines?{timelines:source.rows('timelines') as unknown as Timeline[],timelineEvents:source.rows('timelineEvents') as unknown as TimelineEvent[]}:{}),media:await Promise.all(mediaRows.map(encodeLocalMedia)),toolPreviews:{policy:toolPolicyKey(projectId,admitted.entries,admitted.maps,options),blocks}};
 }
 
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
-const key = (kind: 'entry' | 'map', id: string) => `${kind}-${[...new TextEncoder().encode(id)].map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
+const key = (kind: 'entry' | 'map' | 'timeline', id: string) => `${kind}-${[...new TextEncoder().encode(id)].map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
 const raster = (url: string | undefined): url is string => !!url && /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp);base64,[a-z0-9+/=\s]+$/i.test(url);
 const byTitle = <T extends { title: string; id: string }>(a: T, b: T) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
 const toolPolicyKey=(projectId:string,entries:{id:string}[],maps:{id:string}[],options:WorldWikiOptions)=>JSON.stringify([projectId,entries.map(row=>row.id).sort(),maps.map(row=>row.id).sort(),options.includeImages!==false,options.includeMaps!==false,options.includeMedia!==false,options.eraId??null,options.locale??'es',[...(options.excludedFields??[])].sort()]);
@@ -227,7 +229,9 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   const scoped = <T extends { projectId: string }>(rows: T[]) => rows.filter(row => row.projectId === data.project.id);
   const excludedFields = new Set(options.excludedFields ?? []);
   const admitted=admittedWikiDocuments(scoped(data.entries),scoped(data.maps),options);
-  const entries = admitted.entries.sort(byTitle);
+  // Cards of a private type never reach a published page.
+  const unpublished = privateTemplateIds(data.project.codexTemplates ?? []);
+  const entries = admitted.entries.filter(entry => !entry.templateId || !unpublished.has(entry.templateId)).sort(byTitle);
   const entryMap = new Map(entries.map(entry => [entry.id, entry]));
   const media = new Map((options.includeMedia === false ? [] : scoped(data.media ?? [])).map(asset => [asset.id, asset]));
   const mentionIndex = createMentionIndex(entries);
@@ -302,6 +306,17 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   const palette = palettes[options.theme ?? 'parchment'] ?? palettes.parchment;
   const accent = /^#[0-9a-f]{6}$/i.test(options.accent ?? '') ? options.accent : palette[4];
   const presentation = `audio,video{display:block;width:100%;max-height:32rem}figcaption{margin-bottom:.5rem}.map-vectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.map-vectors a{pointer-events:all}.map-vectors polygon,.map-vectors polyline{stroke-width:2px}.map-vectors text{font:2px Georgia,serif;paint-order:stroke;stroke:#17191a;stroke-width:.25px}.map-vectors a:focus{outline:2px solid var(--accent)}:root{color-scheme:${options.theme === 'night' ? 'dark' : 'light'};--paper:${palette[0]};--ink:${palette[1]};--muted:${palette[2]};--line:${palette[3]};--accent:${accent}}button,input,select,header,.prose pre{background:var(--paper);color:var(--ink)}button:hover{background:color-mix(in srgb,var(--ink) 8%,var(--paper))}body{font-family:${options.font === 'sans' ? 'system-ui,sans-serif' : "Georgia,'Times New Roman',serif"}}.pin{background:var(--accent);color:var(--paper)}.cover{display:block;width:100%;max-height:320px;object-fit:cover;margin-bottom:24px}.wiki-spoiler{display:inline}.wiki-spoiler button{font:inherit;padding:1px 6px;min-height:0;margin-right:4px}.wiki-spoiler button[aria-expanded=true]{font-size:0}.wiki-spoiler button[aria-expanded=true]::after{content:'−';font-size:16px}button:focus-visible{outline:3px solid var(--accent)}${options.layout === 'journal' ? '.layout{display:block;max-width:900px}nav{position:static;max-height:none;margin-bottom:40px}#index{columns:2}#index li{break-inside:avoid}article{padding-top:20px}@media(max-width:600px){#index{columns:1}}' : ''}`;
+  // Timelines: one article each, events in their order; an event kept out of the wiki never shows, and a saved view narrows the rest.
+  const view = options.timelineViewId ? normalizeTimelineViews(data.project.timelineViews).find(item => item.id === options.timelineViewId) : undefined;
+  const timelineArticles = options.includeTimelines ? scoped(data.timelines ?? []).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).flatMap(timeline => {
+    const shown = scoped(data.timelineEvents ?? []).filter(event => event.timelineId === timeline.id && !event.hideFromWiki && (!view || eventMatches(event, view.filter))).sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    if (!shown.length) return [];
+    const timelineKey = key('timeline', timeline.id), tagsHere = [...new Set(shown.flatMap(event => event.tags ?? []))];
+    const color = (value: string) => /^#[0-9a-f]{6}$/i.test(value) ? value : '#d5b575';
+    const rows = shown.map(event => `<li class="wiki-event" style="border-left:3px solid ${color(event.color)};padding-left:10px;margin:0 0 14px;list-style:none"><p class="meta">${esc(event.date)}${event.lane ? ` · ${esc(event.lane)}` : ''}</p><h3 style="margin:2px 0">${esc(event.title)}</h3>${event.description ? `<p>${esc(event.description)}</p>` : ''}${(event.tags ?? []).length ? `<p class="meta">${(event.tags ?? []).map(tag => `#${esc(tag)}`).join(' ')}</p>` : ''}${[...new Set([...(event.linkedEntryIds ?? []), ...(event.linkedEntryId ? [event.linkedEntryId] : [])])].filter(id => entryMap.has(id)).map(id => link(id, '')).join(' · ')}</li>`).join('');
+    return [{ index: `<li data-article-id="${timelineKey}"><a href="#${timelineKey}">${esc(timeline.title)}<small>${copy.timelines}</small></a></li>`, html: `<article id="${timelineKey}" data-category="timelines" data-tags="${esc(JSON.stringify(tagsHere))}"><h2 tabindex="-1">${esc(timeline.title)}</h2><p class="meta">${copy.timelines} · ${shown.length} ${copy.events}${view ? ` · ${esc(view.name)}` : ''}</p>${timeline.description ? `<p>${esc(timeline.description)}</p>` : ''}<ol class="wiki-timeline" style="padding:0">${rows}</ol><footer><a href="#top">${copy.home}</a></footer></article>` }];
+  }) : [];
+  const allTags = [...new Set([...tags, ...timelineArticles.length ? scoped(data.timelineEvents ?? []).filter(event => !event.hideFromWiki).flatMap(event => event.tags ?? []) : []])].sort((a, b) => a.localeCompare(b));
   const banner=options.home?.banner??(options.includeCover?data.project.coverImage:undefined);
   const cover = includeImages && raster(banner) ? `<img class="cover" src="${esc(banner)}" alt="">` : '';
   const hasModels = articles.join('').includes('data-wh-model-reader="true"');
@@ -315,11 +330,11 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
     <body id="top"><header>${brand}${cover}<h1>${esc(options.home?.title??data.project.title)}</h1><p>${esc(options.home?.intro??data.project.description)}</p><small>${copy.offline}</small></header>${composed.home}${console?wikiConsoleMarkup(locale):''}
     <div class="layout"><nav aria-label="${copy.contents}"><h2>${copy.title}</h2>
       <label for="search">${copy.search}</label><input id="search" type="search" placeholder="${copy.search}">
-      <label for="category">${copy.category}</label><select id="category"><option value="">${copy.all}</option>${[...new Set(entries.map(entry => entry.type))].map(type => `<option value="${type}">${copy.types[type]}</option>`).join('')}${maps.length ? `<option value="maps">${copy.maps}</option>` : ''}</select>
-      <label for="tag">${copy.tag}</label><select id="tag"><option value="">${copy.all}</option>${tags.map(tag => `<option value="${esc(tag)}">${esc(tag)}</option>`).join('')}</select>
-      <p role="status" aria-live="polite"><span id="count">${articles.length}</span> / ${articles.length}</p><button id="print" type="button">${copy.print}</button><ol id="index">${composed.index}</ol></nav>
-      <main><p id="empty" hidden>${copy.noResults}</p><div id="wiki">${composed.html}</div></main></div>${branding?.footer?`<footer class="wiki-footer">${esc(branding.footer)}</footer>`:''}<script nonce="${nonce}">${WIKI_SCRIPT}${console?wikiConsoleScript(consoleDocuments,locale):''};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(articles.join(''),nonce)}</body></html>`;
-  return { html, filename: `${sanitizeFilename(data.project.title)}-wiki.html`, counts: { entries: entries.length, maps: maps.length } };
+      <label for="category">${copy.category}</label><select id="category"><option value="">${copy.all}</option>${[...new Set(entries.map(entry => entry.type))].map(type => `<option value="${type}">${copy.types[type]}</option>`).join('')}${maps.length ? `<option value="maps">${copy.maps}</option>` : ''}${timelineArticles.length ? `<option value="timelines">${copy.timelines}</option>` : ''}</select>
+      <label for="tag">${copy.tag}</label><select id="tag"><option value="">${copy.all}</option>${allTags.map(tag => `<option value="${esc(tag)}">${esc(tag)}</option>`).join('')}</select>
+      <p role="status" aria-live="polite"><span id="count">${articles.length + timelineArticles.length}</span> / ${articles.length + timelineArticles.length}</p><button id="print" type="button">${copy.print}</button><ol id="index">${composed.index}${timelineArticles.map(item => item.index).join('')}</ol></nav>
+      <main><p id="empty" hidden>${copy.noResults}</p><div id="wiki">${composed.html}${timelineArticles.map(item => item.html).join('')}</div></main></div>${branding?.footer?`<footer class="wiki-footer">${esc(branding.footer)}</footer>`:''}<script nonce="${nonce}">${WIKI_SCRIPT}${console?wikiConsoleScript(consoleDocuments,locale):''};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(articles.join(''),nonce)}</body></html>`;
+  return { html, filename: `${sanitizeFilename(data.project.title)}-wiki.html`, counts: { entries: entries.length, maps: maps.length, timelines: timelineArticles.length } };
 }
 
 export async function exportWorldWiki(projectId: string, options: WorldWikiOptions = {}) {

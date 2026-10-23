@@ -8,6 +8,10 @@ function lines(e:CoverText){
 }
 export function coverElementSvg(e:CoverElement):string {
  let body='';if(e.kind==='image')body=`<image href="${esc(e.src)}" width="${e.width}" height="${e.height}" preserveAspectRatio="xMidYMid slice"/>`;
+ else if(e.kind==='text'&&e.vertical){
+  // Each line a column, right to left; each letter under the last.
+  const columns=e.text.split('\n'),step=e.size*1.15;
+  body=`<text xml:space="preserve" fill="${e.color}" font-family="${esc(COVER_FONT_STACKS[e.font])}" font-size="${e.size}" font-weight="${e.bold?700:400}" text-anchor="middle" data-cover-vertical="true">${columns.flatMap((column,c)=>{const x=e.width/2+(columns.length-1)*step/2-c*step,letters=Array.from(column),top=e.align==='left'?0:e.align==='center'?Math.max(0,(e.height-letters.length*e.size*1.05)/2):Math.max(0,e.height-letters.length*e.size*1.05);return letters.map((letter,i)=>`<tspan x="${x}" y="${top+e.size+i*e.size*1.05}">${esc(letter)}</tspan>`);}).join('')}</text>`;}
  else if(e.kind==='text'){const x=e.align==='left'?0:e.align==='center'?e.width/2:e.width;body=`<text xml:space="preserve" fill="${e.color}" font-family="${esc(COVER_FONT_STACKS[e.font])}" font-size="${e.size}" font-weight="${e.bold?700:400}" text-anchor="${e.align==='left'?'start':e.align==='center'?'middle':'end'}">${lines(e).map((line,i)=>`<tspan x="${x}" y="${e.size+i*e.size*1.2}">${esc(line)}</tspan>`).join('')}</text>`;}
  else{const points=e.points.map(p=>({x:p.x*e.width,y:p.y*e.height}));body=points.length===1?`<circle cx="${points[0].x}" cy="${points[0].y}" r="${e.weight/2}" fill="${e.color}"/>`:`<path d="${points.map((p,i)=>`${i?'L':'M'}${p.x} ${p.y}`).join(' ')}" fill="none" stroke="${e.color}" stroke-width="${e.weight}" stroke-linecap="round" stroke-linejoin="round"/>`;}
  return`<g data-cover-id="${esc(e.id)}" data-cover-kind="${e.kind}" transform="translate(${e.x} ${e.y}) rotate(${e.rotation} ${e.width/2} ${e.height/2})">${e.kind==='ink'?body:`<svg width="${e.width}" height="${e.height}" overflow="hidden">${body}</svg>`}</g>`;

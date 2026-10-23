@@ -467,6 +467,11 @@ export interface CartoCanvasOptions {
   fog?: import('./readerFogLayer').ReaderFogLayer | null;
   /** Story events to mark, over the fog. */
   story?: import('./storyMarks').StoryMark[] | null;
+  /** The author's named zones. */
+  zones?: import('../core/zones').WorldZone[] | null;
+  /** The party's trail and towns as dots, in the reader's view. */
+  trail?: import('./readerTrail').TrailPoint[] | null;
+  townDots?: { x: number; y: number }[] | null;
   /** GPU base pass, when the caller has one. */
   drawBase?: (w: number, h: number, view: CartoView) => CanvasImageSource | null;
   theme: CartoTheme;
@@ -499,6 +504,9 @@ export function renderCartoCanvas(world: WorldData, opts: CartoCanvasOptions): H
     contourIntervalM: opts.contourIntervalM,
     fog: opts.fog,
     story: opts.story,
+    zones: opts.zones,
+    trail: opts.trail,
+    townDots: opts.townDots,
     density: opts.density,
     reliefAmount: opts.reliefAmount,
     typeScale: opts.typeScale,

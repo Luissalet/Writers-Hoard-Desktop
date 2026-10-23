@@ -16,6 +16,8 @@ export const PRESENTATION_THEMES = ['wonder', 'antique', 'relief', 'survey'] as 
 export const PRESENTATION_SKINS = ['satelite', 'dibujado', 'arcilla', 'pintado'] as const;
 /** On the 3D plane: the world as a tabletop model with its cut showing, or as a landscape to the horizon. */
 export const PRESENTATION_STAGES = ['maqueta', 'paisaje'] as const;
+/** The tabletop model's block: cut rock, stacked paper (the land in paper sheets) or an engraving. */
+export const PRESENTATION_BLOCKS = ['roca', 'papel', 'grabado'] as const;
 export const PRESENTATION_LAYERS: readonly WorldPresentationLayer[] = ['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'];
 export const PRESENTATION_DEFAULTS = {
   theme: 'wonder',
@@ -26,6 +28,10 @@ export const PRESENTATION_DEFAULTS = {
   grid: null,
   readerStart: 'blank',
   contours: null,
+  clouds: false,
+  block3D: 'roca',
+  readerTowns: 'names',
+  readerTrail: false,
 } as const satisfies Required<Omit<WorldPresentation, 'layers'>> & { layers: Record<WorldPresentationLayer, boolean> };
 export const RELIEF_AMOUNT_RANGE = { min: 0.3, max: 2 } as const;
 
@@ -38,7 +44,7 @@ export class WorldPresentationError extends Error {
 export function normalizePresentationPatch(input: unknown): WorldPresentation {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new WorldPresentationError('bad-value', 'Presentation must be an object.');
   const raw = input as Record<string, unknown>, out: WorldPresentation = {};
-  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
+  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
   if (raw.theme !== undefined) {
     if (!PRESENTATION_THEMES.includes(raw.theme as never)) throw new WorldPresentationError('bad-value', `theme must be one of ${PRESENTATION_THEMES.join(', ')}.`);
     out.theme = raw.theme as WorldPresentation['theme'];
@@ -50,6 +56,22 @@ export function normalizePresentationPatch(input: unknown): WorldPresentation {
   if (raw.stage3D !== undefined) {
     if (!PRESENTATION_STAGES.includes(raw.stage3D as never)) throw new WorldPresentationError('bad-value', `stage3D must be one of ${PRESENTATION_STAGES.join(', ')}.`);
     out.stage3D = raw.stage3D as WorldPresentation['stage3D'];
+  }
+  if (raw.clouds !== undefined) {
+    if (typeof raw.clouds !== 'boolean') throw new WorldPresentationError('bad-value', 'clouds must be true or false.');
+    out.clouds = raw.clouds;
+  }
+  if (raw.readerTowns !== undefined) {
+    if (raw.readerTowns !== 'names' && raw.readerTowns !== 'dots') throw new WorldPresentationError('bad-value', 'readerTowns must be names or dots.');
+    out.readerTowns = raw.readerTowns;
+  }
+  if (raw.readerTrail !== undefined) {
+    if (typeof raw.readerTrail !== 'boolean') throw new WorldPresentationError('bad-value', 'readerTrail must be true or false.');
+    out.readerTrail = raw.readerTrail;
+  }
+  if (raw.block3D !== undefined) {
+    if (!PRESENTATION_BLOCKS.includes(raw.block3D as never)) throw new WorldPresentationError('bad-value', `block3D must be one of ${PRESENTATION_BLOCKS.join(', ')}.`);
+    out.block3D = raw.block3D as WorldPresentation['block3D'];
   }
   if (raw.reliefAmount !== undefined) {
     const value = raw.reliefAmount;
@@ -86,7 +108,7 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
   // Field by field: one damaged stored value falls back alone, never the whole look.
   const saved: WorldPresentation = {};
   const raw = presentation && typeof presentation === 'object' ? presentation as Record<string, unknown> : {};
-  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'grid', 'readerStart', 'contours'] as const) {
+  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail'] as const) {
     try { Object.assign(saved, normalizePresentationPatch({ [key]: raw[key] })); } catch { /* default for this field */ }
   }
   if (raw.layers && typeof raw.layers === 'object') {
@@ -102,6 +124,10 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
     grid: saved.grid ?? null,
     readerStart: saved.readerStart ?? PRESENTATION_DEFAULTS.readerStart,
     contours: saved.contours ?? null,
+    clouds: saved.clouds ?? PRESENTATION_DEFAULTS.clouds,
+    block3D: saved.block3D ?? PRESENTATION_DEFAULTS.block3D,
+    readerTowns: saved.readerTowns ?? PRESENTATION_DEFAULTS.readerTowns,
+    readerTrail: saved.readerTrail ?? PRESENTATION_DEFAULTS.readerTrail,
     layers: { ...PRESENTATION_DEFAULTS.layers, ...(saved.layers ?? {}) },
   };
 }
@@ -153,7 +179,7 @@ export async function revertWorldPresentation(requested: { projectId: string; er
     if (!current || current.projectId !== scope.projectId) throw new WorldPresentationError('not-found', 'World no longer belongs to this project.');
     const now: WorldPresentation = structuredClone(current.presentation ?? {}), reverted: string[] = [], kept: string[] = [];
     const from = receipt.from ?? {};
-    for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'readerStart', 'contours'] as const) {
+    for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail'] as const) {
       if (receipt.to[key] === from[key]) continue;
       if (now[key] !== receipt.to[key]) { kept.push(key); continue; }
       if (from[key] === undefined) delete now[key]; else (now as Record<string, unknown>)[key] = from[key];

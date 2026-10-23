@@ -13,10 +13,13 @@
 // low minutes, and it is the only way to get the coast rings to respect real
 // geodesic distance instead of a blurred alpha mask.
 
+import { cellKmOf, isSheet, worldKmOf } from '../core/geoScale';
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawContourLines } from './contourLayer';
-import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
+import { drawReaderFog, fogUnnamed, type ReaderFogLayer } from './readerFogLayer';
+import { drawTownDots, drawTrail } from './readerTrail';
 import { drawStoryMark, type StoryMark } from './storyMarks';
+import { drawZones } from './zoneMarks';
 import { scaleCount } from '@/utils/capacity';
 import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
@@ -85,6 +88,12 @@ export interface CartoOptions {
   fog?: ReaderFogLayer | null;
   /** Story events to mark, drawn over the fog. */
   story?: StoryMark[] | null;
+  /** The party's trail in the reader's view, over the fog. */
+  trail?: import('./readerTrail').TrailPoint[] | null;
+  /** Towns heard of, as unnamed dots over the fog (towns as dots). */
+  townDots?: { x: number; y: number }[] | null;
+  /** The author's named zones, under the lettering. */
+  zones?: import('../core/zones').WorldZone[] | null;
   theme: CartoTheme;
   /** Output size in pixels. */
   width: number;
@@ -498,7 +507,12 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
 
   // ---- stage 2b: the play grid, under the lettering ------------------------
   if (opts.grid) {
-    drawMapGrid(ctx, opts.grid, { width: OW, height: OH, cellPx: scale, originX: -view.x * scale, originY: -view.y * scale, kmPerCell: 40075 / world.width, color: theme.furniture.ink });
+    drawMapGrid(ctx, opts.grid, { width: OW, height: OH, cellPx: scale, originX: -view.x * scale, originY: -view.y * scale, kmPerCell: cellKmOf(world.params, world.width), color: theme.furniture.ink });
+  }
+
+  // ---- stage 2c: the author's zones, under the lettering ---------------------
+  if (opts.zones?.length) {
+    drawZones(ctx as unknown as CanvasRenderingContext2D, opts.zones, world.width, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, scale, [-world.width, 0, world.width]);
   }
 
   // ---- stage 3: culture layer, lettering and furniture --------------------
@@ -512,12 +526,18 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
       worldWidth: world.width,
       layers: { roads: L.roads, borders: L.borders, settlements: L.settlements, labels: L.labels },
       typeScale: opts.typeScale,
+      unnamed: fogUnnamed(opts.fog),
     });
   }
 
   // ---- stage 3b: what the reader has not seen yet --------------------------
   if (opts.fog) {
     drawReaderFog(ctx, opts.fog, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, true);
+  }
+  {
+    const markScale = Math.max(1, Math.min(3, OW / 1600));
+    if (opts.townDots?.length) drawTownDots(ctx, opts.townDots, -view.x * scale, (wy) => (wy - view.y) * scale, scale, world.width, markScale);
+    if (opts.trail?.length) drawTrail(ctx, opts.trail, -view.x * scale, (wy) => (wy - view.y) * scale, scale, world.width, markScale);
   }
   if (opts.story?.length) {
     const markScale = Math.max(1, Math.min(3, OW / 1600));
@@ -535,6 +555,8 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
     {
       theme, width: OW, height: OH, view, scale,
       worldWidth: world.width,
+      // The scale bar reads the map's own km: a sheet's, not the planet's.
+      ...(isSheet(world.params) ? { planetRadiusKm: worldKmOf(world.params) / (2 * Math.PI) } : {}),
       title: opts.title,
       subtitle: opts.subtitle,
       cardinals: opts.cardinals,

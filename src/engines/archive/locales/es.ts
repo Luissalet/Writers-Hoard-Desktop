@@ -20,5 +20,13 @@ export default {
   'archive.restored': 'Documento restaurado con su contenido y enlaces.',
   'archive.archived': 'Documento movido al archivo.',
   'archive.forgotten': 'Copia archivada eliminada para siempre.',
+  'archive.pick': 'Elegir',
+  'archive.pickAll': 'Elegir todos los que se ven',
+  'archive.bulkRestore': 'Restaurar ({count})',
+  'archive.bulkForget': 'Eliminar para siempre ({count})',
+  'archive.bulkForgetTitle': '¿Eliminar {count} copias archivadas para siempre?',
+  'archive.bulkForgetConfirm': 'Las {count} copias elegidas y sus datos de recuperación se eliminarán del archivo. Esta acción no se puede deshacer.',
+  'archive.bulkRestored': 'Restaurados: {done}. Con conflicto: {conflicts}. Con error: {failed}.',
+  'archive.bulkForgotten': 'Eliminados para siempre: {done}. Con error: {failed}.',
   'archive.rows': "Contenido y enlaces conservados",
 };

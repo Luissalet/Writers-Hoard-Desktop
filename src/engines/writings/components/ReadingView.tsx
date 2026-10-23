@@ -128,7 +128,8 @@ const ReadingPiece = memo(function ReadingPiece({
   return (
     <article data-piece-id={piece.id} data-reader-mode={presentation?.mode ?? 'flow'} style={theme} className={`px-6 pt-8 pb-2 ${themed ? 'wh-reader-themed' : ''} ${presentation?.mode === 'pages' ? 'wh-reader-pages' : ''}`}>
       {coverProject?.readerPresentation?.cover.showAtStart && <div className="mb-8"><ReaderBookCover title={coverProject.title} artwork={coverProject.coverImage} cover={coverProject.readerPresentation.cover} locale={locale} /></div>}
-      {presentation?.imageLayout !== 'none' && readerRaster(presentation?.image) && <img className={`wh-reader-chapter-image ${presentation?.imageLayout === 'beside' ? 'wh-reader-image-beside' : ''}`} src={presentation.image} alt="" />}
+      {presentation?.imageLayout === 'banner' && readerRaster(presentation?.image) && (piece.kicker?.trim() || piece.chapter !== undefined) && <p className="wh-reader-chapter-label" data-testid="reader-chapter-label">{piece.kicker?.trim() || `${t('writings.chapter')} ${piece.chapter}`}</p>}
+      {presentation?.imageLayout !== 'none' && readerRaster(presentation?.image) && <img className={`wh-reader-chapter-image ${presentation?.imageLayout === 'beside' ? 'wh-reader-image-beside' : presentation?.imageLayout === 'banner' ? 'wh-reader-image-banner' : ''}`} src={presentation.image} alt="" />}
       <header className="mx-auto flex items-start gap-3" style={column}>
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-text-dim font-medium">

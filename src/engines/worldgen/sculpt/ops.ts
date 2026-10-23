@@ -528,6 +528,8 @@ export interface GestureSpec {
   jitter?: number;
   aspect?: number;
   taper?: number;
+  /** The Height op's ground, in metres. */
+  heightM?: number;
   /** Mirror about the prime meridian, the equator, or both. */
   mirrorX?: boolean;
   mirrorY?: boolean;
@@ -595,6 +597,7 @@ export class SculptGesture {
           softness: spec.softness, curve: spec.curve,
           tip: spec.tip, angle: spec.angle, jitter: spec.jitter,
           aspect: spec.aspect, taper: spec.taper,
+          ...(spec.heightM !== undefined ? { heightM: spec.heightM } : {}),
         },
         cov: new Float32Array(N),
         x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity,
@@ -863,6 +866,7 @@ export class SculptGesture {
           jitter: this.spec.jitter,
           aspect: this.spec.aspect,
           taper: this.spec.taper,
+          ...(this.spec.heightM !== undefined ? { heightM: this.spec.heightM } : {}),
         },
       }));
   }
@@ -940,6 +944,8 @@ export function applyTerrainOp(
   brush: Brush,
   stroke: Stroke,
   seed: string,
+  /** The world grid wraps east to west; a region sheet does not. */
+  wrapX = true,
 ): void {
   const strength = stroke.strength;
   const amp = 0.9 * strength;
@@ -1052,6 +1058,47 @@ export function applyTerrainOp(
       const { dx, dy } = grabVector(stroke, W);
       brush.each((i, c, x, y) => {
         elev[i] = bilinearBase(base, W, H, x - dx * c, y - dy * c);
+      });
+      return;
+    }
+
+    case 'volcano': {
+      // A cone where the stroke starts, with a crater in its top. It rises from
+      // the ground there — or from the sea floor, so a strong one makes an
+      // island — and never digs: ground already higher stays as it is.
+      const c0 = stroke.pts[0];
+      if (!c0) return;
+      const R = Math.max(1.5, stroke.radius);
+      const cx = wrapX ? ((Math.floor(c0.x) % W) + W) % W : Math.min(W - 1, Math.max(0, Math.floor(c0.x)));
+      const cy = Math.min(H - 1, Math.max(0, Math.floor(c0.y)));
+      const ground = base.at(cy * W + cx);
+      const top = Math.max(0, ground) + 0.6 + 2.6 * strength;
+      const RIM = 0.2;
+      const rimH = Math.pow(1 - RIM, 1.4);
+      brush.each((i, _c, x, y) => {
+        let dx = x + 0.5 - c0.x;
+        if (wrapX) {
+          while (dx > W / 2) dx -= W;
+          while (dx < -W / 2) dx += W;
+        }
+        const r = Math.hypot(dx, y + 0.5 - c0.y) / R;
+        if (r >= 1) return;
+        // The flank, concave like a real stratovolcano; inside the rim, the crater's bowl.
+        const shape = r > RIM ? Math.pow(1 - r, 1.4) : rimH - 0.3 * (1 - (r / RIM) ** 2);
+        const b = base.at(i);
+        const h = b + (top - b) * shape;
+        elev[i] = Math.max(b, h);
+      });
+      return;
+    }
+
+    case 'height': {
+      // The ground to a height, in metres: what "make this a 2,000 m plateau" or
+      // "sink this to 200 m under the sea" means, feathered by the brush.
+      const target = (stroke.heightM ?? 0) / 1000;
+      brush.each((i, c) => {
+        const b = base.at(i);
+        elev[i] = b + (target - b) * Math.min(1, c * Math.max(0.05, strength) * 1.25);
       });
       return;
     }

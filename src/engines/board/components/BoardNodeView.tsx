@@ -2,7 +2,7 @@ import {getBoardCopy} from '../copy';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Handle, NodeResizer, Position, type Node, type NodeProps } from '@xyflow/react';
 import {
-  HelpCircle, Lightbulb, Link2, Lock, MapPin, Package, Pencil, Search,
+  Plus, HelpCircle, Lightbulb, Link2, Lock, MapPin, Package, Pencil, Search,
   Sparkles, StickyNote, Trash2, User, Users, Zap,
 } from 'lucide-react';
 import { MIN_SIZE, getNodeRole } from '../catalog';
@@ -38,6 +38,8 @@ export interface BoardNodeData extends Record<string, unknown> {
   onOpenRef: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onToggleFrame?:(id:string)=>void;
+  /** A new idea like this one on that side, joined to it. */
+  onQuickConnect?: (id: string, side: 'top' | 'right' | 'bottom' | 'left') => void;
   memberCount?:number;
 }
 
@@ -270,7 +272,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
 
       case 'shape':
         if (node.freehand) {const stroke=node.freehand;return <svg viewBox={`0 0 ${node.size.width} ${node.size.height}`} preserveAspectRatio="none" className="h-full w-full overflow-visible" data-testid={`board-stroke-${node.id}`}><title>{node.title}</title><path d={strokeOutline(stroke.points.map(p=>({...p,x:p.x*node.size.width/100,y:p.y*node.size.height/100})),stroke.width)} fill={node.color} opacity={stroke.opacity??(stroke.tool==='marker'?.32:1)} /></svg>;}
-        return <div className="relative flex h-full w-full items-center justify-center p-3 text-center"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full" aria-hidden="true"><path d={boardShapePath(node.shape??'rectangle')} fill={['line','arrow'].includes(node.shape??'')?'none':hexToRgba(node.color,.18)} stroke={node.color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/></svg><div className="relative">{titleNode??<span className="text-sm font-semibold text-text-primary">{node.title}</span>}</div></div>;
+        return <div className="relative flex h-full w-full items-center justify-center p-3 text-center" data-board-border={node.border ?? 'solid'}><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">{node.border === 'sketch' && <SketchFilter id={`sketch-${node.id}`} />}<path d={boardShapePath(node.shape??'rectangle')} fill={['line','arrow'].includes(node.shape??'')?'none':hexToRgba(node.color,.18)} stroke={node.color} strokeWidth={node.border === 'sketch' ? 2.4 : 2} strokeDasharray={node.border === 'dashed' ? '7 5' : undefined} filter={node.border === 'sketch' ? `url(#sketch-${node.id})` : undefined} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/>{node.border === 'sketch' && <path d={boardShapePath(node.shape??'rectangle')} fill="none" stroke={node.color} strokeOpacity={.55} strokeWidth="1.2" filter={`url(#sketch-${node.id})`} transform="translate(.8 -.6)" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/>}</svg><div className="relative">{titleNode??<span className="text-sm font-semibold text-text-primary">{node.title}</span>}</div></div>;
       case 'entity':
         return <BoardEntityTile node={node}/>;
 
@@ -279,8 +281,10 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
         return (
           <div
             className="relative flex h-full w-full flex-col overflow-hidden rounded-xl border-2 bg-elevated shadow-lg"
-            style={{ borderColor: node.color }}
+            data-board-border={node.border ?? 'solid'}
+            style={{ borderColor: node.border === 'sketch' ? 'transparent' : node.color, borderStyle: node.border === 'dashed' ? 'dashed' : 'solid' }}
           >
+            {node.border === 'sketch' && <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true"><SketchFilter id={`sketch-${node.id}`} /><rect x="1.5" y="1.5" style={{ width: 'calc(100% - 3px)', height: 'calc(100% - 3px)' }} rx="11" fill="none" stroke={node.color} strokeWidth="2.2" filter={`url(#sketch-${node.id})`} /><rect x="2.5" y="1" style={{ width: 'calc(100% - 4px)', height: 'calc(100% - 3px)' }} rx="12" fill="none" stroke={node.color} strokeOpacity=".5" strokeWidth="1.1" filter={`url(#sketch-${node.id})`} /></svg>}
             {node.image ? <img src={node.image} alt="" className="h-20 w-full object-cover" draggable={false} /> : null}
             <div className="flex min-h-0 flex-1 flex-col gap-1 p-2.5">
               {roleDef ? (
@@ -346,8 +350,23 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
 
       {body}
       {!data.layerLocked && <NodeChrome data={data} selected={Boolean(selected)} />}
+      {selected && !data.layerLocked && data.onQuickConnect && !node.freehand && node.kind !== 'frame' ? (['top', 'right', 'bottom', 'left'] as const).map(side => (
+        <button key={side} type="button" data-testid={`board-quick-${side}`} title={copy.quickConnect} aria-label={`${copy.quickConnect} · ${side}`}
+          onMouseDown={event => event.stopPropagation()}
+          onClick={event => { event.stopPropagation(); data.onQuickConnect?.(node.id, side); }}
+          className="nodrag nopan absolute z-20 flex h-5 w-5 items-center justify-center rounded-full border border-accent-gold/60 bg-surface text-accent-gold shadow hover:bg-accent-gold hover:text-deep"
+          style={side === 'top' ? { top: -34, left: '50%', marginLeft: -10 } : side === 'bottom' ? { bottom: -30, left: '50%', marginLeft: -10 } : side === 'left' ? { left: -30, top: '50%', marginTop: -10 } : { right: -30, top: '50%', marginTop: -10 }}>
+          <Plus size={12} aria-hidden="true" />
+        </button>
+      )) : null}
     </div>
   );
+}
+
+
+/** A hand-drawn outline: the stroke wobbles a little, as if traced by hand. */
+function SketchFilter({ id }: { id: string }) {
+  return <defs><filter id={id} x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="7" result="noise" /><feDisplacementMap in="SourceGraphic" in2="noise" scale="3.2" xChannelSelector="R" yChannelSelector="G" /></filter></defs>;
 }
 
 export default memo(BoardNodeView, (previous, next) =>

@@ -14,6 +14,7 @@ const EN: Record<string, string> = {
   'no hay vía de agua continua entre esos dos puntos': 'there is no continuous waterway between these points',
   'un carro no puede llegar hasta allí': 'a cart cannot reach that place',
   'no hay ruta transitable entre esos dos puntos': 'there is no traversable route between these points',
+  'esa vía no existe en este mundo': 'that way of travelling does not exist in this world',
 };
 
 /** Presentation only; names authored by the reader are never translated. */

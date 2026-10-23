@@ -40,7 +40,7 @@ revela el mapa capítulo a capítulo, sucesos de la historia por capítulo que s
 reproducen capítulo a capítulo o se recorren con una barra (con su orden dentro
 del capítulo, quién estaba y lo siguiente previsto), un menú de clic derecho (pueblo, nota, suceso y
 un manantial cuyo río baja solo, sin paso por el río / abrir de nuevo el paso), vados que cuestan tiempo al grupo (los puentes de los caminos no; un río helado en pleno invierno se cruza a pie), mundos de una sola isla, país o continente del tamaño que elijas (de 300 a 9.000 km), con el mapa y la maqueta 3D encuadrados en esa tierra, terrenos fantásticos, un pincel de meseta, curvas de nivel cada N metros, una herramienta de lagos que llena la
-hondonada hasta que rebosa, nivel del mar y línea de nieve de todo el mundo, una vista 3D del mundo entero como maqueta (con el corte de roca y mar a la vista, sobre una mesa con su sombra) o como paisaje hasta el horizonte, una piel «Pintado» (terrenos que se funden, mar con bajíos y orillas, bosques y dunas pintados, nombres rotulados como en un mapa), con los mismos iconos de accidentes que el 2D, y una
+hondonada hasta que rebosa, nivel del mar y línea de nieve de todo el mundo, una vista 3D del mundo entero como maqueta (con el corte de roca y mar a la vista, sobre una mesa con su sombra) o como paisaje hasta el horizonte, una piel «Pintado» (terrenos que se funden, mar con bajíos y orillas, bosques y dunas pintados, nombres rotulados como en un mapa), con los mismos iconos de accidentes que el 2D, nubes y un bloque de roca, papel apilado o grabado con árboles de pie en la maqueta, una sola tierra en su propia hoja plana a su medida, zonas con nombre, volcanes y alturas en metros, ríos trazados por puntos o invertidos, el mapa a una hora del día con el farol del grupo, vías de viaje propias del mundo (un grifo, un trineo), el comercio por mar de cada puerto, una vista del lector con la tierra a tinta, pueblos como puntos y el rastro del grupo, sucesos enlazados a su capítulo, y una
 lente de comercio mes a mes (explotaciones, escasez, precios, envíos); los mapas
 de imagen tienen figuras con estilo (contorno, trama, rotulación, orden, varias
 capas), marcadores de tres tamaños, marcadores que muestran la imagen de su ficha enmarcada en su color con el nombre debajo (y todos los nombres a la vista si se pide), un enlace al Códex con buscador que también
@@ -54,6 +54,39 @@ y reproducirse en orden. Cada capacidad tiene herramientas del puente
 (docs/AI-BRIDGE.md, sección 28).
 El perfil opcional 5e (2014), SRD 5.1 conserva valores manuales y contadores
 jugados; no es un motor completo de reglas ni catálogo de conjuros.
+
+**Escritura, publicación, Códex, cronologías y tablas (tarea 1095, ola C).** El
+menú «/» del editor ofrece 26 bloques (avisos, también «leer en voz alta» y
+recuadro, desplegables, listas de tareas, mensajes enviados y recibidos, carta,
+correo, salto de columna…), efectos de texto en pantalla (brillo, temblor,
+ondulación, arcoíris, pulso, desenfoque; quietos con movimiento reducido y al
+imprimir), imágenes a página completa y fichas de reglas: un recuadro de
+hechizo, objeto mágico o criatura rellenado con las propiedades de una ficha del
+Códex mediante una asignación de huecos que se puede actualizar. Los capítulos
+admiten una etiqueta (Prólogo, Interludio), pueden quedarse fuera del libro y
+moverse antes de cualquier otro; la imagen de cabecera va encima, al lado o como
+banda. Publicar añade autoría, portadilla, página de derechos y contracubierta,
+estilos de libro (clásico, moderno, épico y «manual de juego» a dos columnas con
+tablas rayadas) con papel, formato y recuento de páginas, vista previa por
+dispositivo y revisión por capítulo, en HTML/PDF, DOCX y ePub. El lector tiene
+tamaño de letra, tipografía y claro/oscuro, y una biblioteca de 12 sonidos
+hechos en el propio equipo; una señal de sonido puede durar hasta un párrafo
+posterior. El diseñador de cubiertas escribe en vertical y borra parte de un
+trazo; un proyecto nuevo puede diseñar su cubierta al crearse y una saga coloca
+sus libros en una estantería del panel. Las fichas del Códex suman selector de
+tipos, alias en chips, propiedades de lista y obligatorias, fichas congeladas,
+caras, asistente guiado, tipos privados, plegar/copiar/extraer bloques a una
+ficha y arrastrar fichas al manuscrito. Las cronologías suman duplicar y añadir
+con un clic, precisión, modos de semana, mes bisiesto, re-fechado al cambiar el
+calendario (con deshacer), colores y fases de lunas, calculadora y selector de
+fechas, rejilla de calendario, repeticiones y bandas, etiquetas, vistas guardadas
+y una correlación con el gregoriano que enseña los sucesos de los dos calendarios
+en cualquiera de las rejillas. Los árboles de relaciones suman catálogos de
+relaciones, grupos, variantes y selección múltiple; las tablas, buscar,
+insertar y duplicar filas y columnas (las referencias de las fórmulas se
+mueven y una quitada da #REF!), orden múltiple y filtros. Todo tiene
+herramientas del puente (docs/AI-BRIDGE.md, sección 29); la matriz con pruebas
+está en tasks/vvd1095/C-writing.md.
 
 **Duplicar proyecto** crea una copia local, remapea referencias internas
 declaradas y copia los archivos gestionados de Scrapper disponibles. Los

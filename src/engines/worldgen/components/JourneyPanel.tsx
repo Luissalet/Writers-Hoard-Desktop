@@ -1,4 +1,5 @@
 import RouteReveal from './RouteReveal';
+import { cellKmOf } from '../core/geoScale';
 import type { WorldEdit } from '../core/edits';
 import JourneyPlayback from './JourneyPlayback';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
@@ -7,7 +8,8 @@ import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
   describeDuration, effectiveHoursPerDay, GROUND_CLASSES, HARD_PACE_REST_EVERY, MODE_KEY, SEASON_KEY, TRAVEL_PACES,
-  type GroundClass, type Route, type Season, type TravelMode, type TravelPace, type TravelProfile,
+  TRAVEL_WAYS_MAX, TRAVEL_WAY_NAME_MAX,
+  type GroundClass, type Route, type Season, type TravelMode, type TravelPace, type TravelProfile, type TravelWay,
 } from '../core/travel';
 import { seaLevelForIce, type PaleoState } from '../core/paleo';
 import { useJourneyComputation, useJourneyPaleo } from '../useJourneyComputation';
@@ -51,7 +53,7 @@ interface JourneyPanelProps {
   /** The route to draw on the map, or null to draw none. */
   onRoute: (route: Route | null, color: string) => void;
   /** The party's banner while the journey is played, or null. */
-  onTraveller?: (traveller: { x: number; y: number; label: string; resting: boolean } | null) => void;
+  onTraveller?: (traveller: { x: number; y: number; label: string; resting: boolean; hour?: number } | null) => void;
   /** Mark the route as seen on the reader's-eye map (absent where the world cannot be painted). */
   onRevealRoute?: (edits: WorldEdit[]) => void;
   paleo: PaleoState | null;
@@ -76,6 +78,10 @@ function JourneyPanelContent({
   const { t, locale } = useTranslation();
   const scope = useWorldEraScope(worldRecord?.projectId);
   const [mode, setMode] = useState<TravelMode>('foot');
+  /** One of the world's own ways of travelling, chosen instead of a mode (it brings its own). */
+  const [wayId, setWayId] = useState<string | null>(null);
+  /** The new way being written in the settings. */
+  const [wayDraft, setWayDraft] = useState<{ name: string; base: TravelMode; speed: number; flies: boolean; night: boolean }>({ name: '', base: 'horse', speed: 1, flies: false, night: false });
   const [season, setSeason] = useState<Season>('summer');
   const [showAll, setShowAll] = useState(false);
   const [showStages, setShowStages] = useState(false);
@@ -116,15 +122,19 @@ function JourneyPanelContent({
     const sorted = (keys: string) => keys.split('|').sort().join('|');
     if (sorted(before) === sorted(viaOrder)) setLegModes([]);
   }, [viaOrder]);
+  const ways = profile.ways ?? [];
+  const way = wayId ? ways.find((candidate) => candidate.id === wayId) ?? null : null;
   const activeLegModes = legModes.slice(0, legCount);
   const mixedModes = activeLegModes.some(value => value && value !== mode);
   const planOptions: WorldJourney['options'] = {
-    ...customOptions, mode, season,
+    ...customOptions, mode: way ? way.base : mode, season,
+    ...(way ? { way: way.id } : {}),
     ...(pace !== 'steady' ? { pace } : {}),
-    ...(mixedModes ? { legModes: Array.from({ length: legCount }, (_, index) => activeLegModes[index] || mode) } : {}),
+    ...(mixedModes && !way ? { legModes: Array.from({ length: legCount }, (_, index) => activeLegModes[index] || mode) } : {}),
     ...(Object.keys(profile).length ? { profile } : {}),
   };
-  const hoursPerDay = effectiveHoursPerDay(planOptions);
+  // A way that keeps going through the night is on the move twenty-two hours a day, as the solver plans it.
+  const hoursPerDay = effectiveHoursPerDay(way?.night ? { ...planOptions, hoursPerDay: 22 } : planOptions);
   /** A hard pace rests a day after every few on the move: the clock's calendar counts them. */
   const restEvery = planOptions.pace === 'hard' ? HARD_PACE_REST_EVERY : 0;
   /**
@@ -134,7 +144,7 @@ function JourneyPanelContent({
    * what is stored, so opening an old trip never rewrites the world and an
    * agent's change to another factor survives.
    */
-  const pending = useRef<{ pace?: TravelPace; factors: Map<string, TravelFactorEdit> }>({ factors: new Map() });
+  const pending = useRef<{ pace?: TravelPace; factors: Map<string, TravelFactorEdit>; ways?: TravelWay[] | null }>({ factors: new Map() });
   const flushTimer = useRef(0);
   const flushSettings = () => {
     if (!worldRecord) return;
@@ -142,6 +152,7 @@ function JourneyPanelContent({
     const change: Parameters<typeof saveWorldTravelSettings>[2] = {};
     if (edits.pace) change.pace = edits.pace === 'steady' ? null : edits.pace;
     if (edits.factors.size) change.factors = [...edits.factors.values()];
+    if (edits.ways !== undefined) change.ways = edits.ways;
     if (!Object.keys(change).length) return;
     void saveWorldTravelSettings({ projectId: worldRecord.projectId, eraId: scope.eraId }, worldRecord.id, change)
       .then(() => setSettingsError(false))
@@ -155,7 +166,7 @@ function JourneyPanelContent({
   /** Adopt the world's settings when they change elsewhere, unless a trip is open or an edit is on its way. */
   useEffect(() => {
     if (!worldRecord || openedJourney) return;
-    if (pending.current.pace || pending.current.factors.size) return;
+    if (pending.current.pace || pending.current.factors.size || pending.current.ways !== undefined) return;
     setPace(worldRecord.travelPace ?? 'steady');
     setProfile(worldRecord.travelProfile ?? {});
   }, [worldRecord?.travelRevision, worldRecord?.id, openedJourney]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -163,7 +174,28 @@ function JourneyPanelContent({
   /** Back to the built-in physics for the factors shown here; others the world has stay. */
   const resetProfile = () => {
     for (const table of ['speed', 'ground'] as const) for (const key of Object.keys(profile[table] ?? {})) pending.current.factors.set(`${table}:${key}`, { table, key, value: 1 });
-    setProfile({}); scheduleSave();
+    setProfile((current) => (current.ways ? { ways: current.ways } : {})); scheduleSave();
+  };
+  /** The world's own ways: written whole, merged with the stored profile's other fields. */
+  const writeWays = (next: TravelWay[]) => {
+    pending.current.ways = next.length ? next : null;
+    scheduleSave();
+    setProfile((current) => { const out: TravelProfile = { ...current }; if (next.length) out.ways = next; else delete out.ways; return out; });
+  };
+  const addWay = () => {
+    const name = wayDraft.name.trim();
+    if (!name || ways.length >= TRAVEL_WAYS_MAX) return;
+    const base = name.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'way';
+    let id = base, n = 2;
+    while (ways.some((w) => w.id === id)) id = `${base}-${n++}`;
+    const added: TravelWay = { id, name, base: wayDraft.base, ...(Math.abs(wayDraft.speed - 1) > 0.001 ? { speed: Math.round(wayDraft.speed * 100) / 100 } : {}), ...(wayDraft.flies ? { flies: true } : {}), ...(wayDraft.night ? { night: true } : {}) };
+    writeWays([...ways, added]);
+    setWayDraft({ name: '', base: 'horse', speed: 1, flies: false, night: false });
+    setWayId(id);
+  };
+  const removeWay = (id: string) => {
+    writeWays(ways.filter((w) => w.id !== id));
+    if (wayId === id) setWayId(null);
   };
   const setFactor = (table: 'speed' | 'ground', key: TravelMode | GroundClass, value: number) => {
     pending.current.factors.set(`${table}:${key}`, { table, key, value });
@@ -268,7 +300,7 @@ function JourneyPanelContent({
               onChange={event => {
                 const journey = savedJourneys.find(row => row.id === event.target.value);
                 if (!journey) return;
-                setMode(journey.options.mode); setSeason(journey.options.season);
+                setMode(journey.options.mode); setWayId(journey.options.way ?? null); setSeason(journey.options.season);
                 setCustomOptions({ hoursPerDay: journey.options.hoursPerDay, planetRadiusKm: journey.options.planetRadiusKm });
                 // The trip's own snapshot, shown and planned with; the world is not touched.
                 setPace(journey.options.pace ?? 'steady'); setLegModes(journey.options.legModes ?? []);
@@ -376,7 +408,10 @@ function JourneyPanelContent({
         <>
           <div className="flex flex-wrap gap-1">
             {MODES.map((m) => (
-              <Chip key={m} on={mode === m} onClick={() => setMode(m)}>{t(MODE_KEY[m])}</Chip>
+              <Chip key={m} on={!way && mode === m} onClick={() => { setMode(m); setWayId(null); }}>{t(MODE_KEY[m])}</Chip>
+            ))}
+            {ways.map((w) => (
+              <Chip key={w.id} on={way?.id === w.id} onClick={() => setWayId(w.id)}>{w.flies ? '✈ ' : ''}{w.name}</Chip>
             ))}
           </div>
           <div className="flex flex-wrap gap-1">
@@ -435,6 +470,34 @@ function JourneyPanelContent({
               {MODES.map((m) => (
                 <Factor key={m} label={t(MODE_KEY[m])} value={profile.speed?.[m] ?? 1} onChange={(value) => setFactor('speed', m, value)} />
               ))}
+              <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.ways')}</span>
+              <div className="flex flex-col gap-1" data-testid="journey-ways">
+                {ways.map((w) => (
+                  <div key={w.id} className="flex items-center justify-between gap-2 rounded bg-white/5 px-1.5 py-1">
+                    <span className="min-w-0 truncate text-white/80">{w.name} <span className="text-white/45">· {t(MODE_KEY[w.base])}{w.flies ? ` · ${t('worldgen.journey.way.flies')}` : ''}{w.night ? ` · ${t('worldgen.journey.way.night')}` : ''} · {Math.round((w.speed ?? 1) * 100)}%</span></span>
+                    <button type="button" onClick={() => removeWay(w.id)} className="text-[10px] text-white/55 underline" aria-label={t('worldgen.journey.way.remove').replace('{name}', w.name)}>{t('worldgen.journey.way.removeShort')}</button>
+                  </div>
+                ))}
+                {ways.length < TRAVEL_WAYS_MAX && (
+                  <div className="flex flex-col gap-1 rounded border border-dashed border-white/15 p-1.5" data-testid="journey-way-new">
+                    <input value={wayDraft.name} maxLength={TRAVEL_WAY_NAME_MAX} placeholder={t('worldgen.journey.way.name')} aria-label={t('worldgen.journey.way.name')}
+                      onChange={(event) => setWayDraft((d) => ({ ...d, name: event.target.value }))}
+                      className="rounded border border-white/20 bg-white/5 px-1.5 py-0.5 text-white/90" />
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-white/60">{t('worldgen.journey.way.base')}</span>
+                      <select value={wayDraft.base} aria-label={t('worldgen.journey.way.base')} onChange={(event) => setWayDraft((d) => ({ ...d, base: event.target.value as TravelMode }))}
+                        className="rounded border border-white/20 bg-[#191d25] px-1.5 py-0.5 text-white/90">
+                        {MODES.map((m) => <option key={m} value={m}>{t(MODE_KEY[m])}</option>)}
+                      </select>
+                    </label>
+                    <Factor label={t('worldgen.journey.way.speed')} value={wayDraft.speed} onChange={(value) => setWayDraft((d) => ({ ...d, speed: value }))} />
+                    <label className="flex items-center gap-2 text-white/70"><input type="checkbox" checked={wayDraft.flies} onChange={(event) => setWayDraft((d) => ({ ...d, flies: event.target.checked }))} />{t('worldgen.journey.way.fliesLong')}</label>
+                    <label className="flex items-center gap-2 text-white/70"><input type="checkbox" checked={wayDraft.night} onChange={(event) => setWayDraft((d) => ({ ...d, night: event.target.checked }))} />{t('worldgen.journey.way.nightLong')}</label>
+                    <button type="button" disabled={!wayDraft.name.trim()} onClick={addWay}
+                      className="self-start rounded border border-amber-400/50 px-2 py-0.5 text-[10px] text-amber-200 disabled:opacity-40">{t('worldgen.journey.way.add')}</button>
+                  </div>
+                )}
+              </div>
               <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.ground')}</span>
               {GROUND_CLASSES.map((g) => (
                 <Factor key={g} label={t(`worldgen.journey.ground.${g}`)} value={profile.ground?.[g] ?? 1} onChange={(value) => setFactor('ground', g, value)} />
@@ -505,12 +568,12 @@ function JourneyPanelContent({
                   {route.realms.join(' → ')}
                 </div>
               )}
-              <JourneyPlayback route={route} worldWidth={world.width}
+              <JourneyPlayback route={route} worldWidth={world.width} setOffHour={setOffHour} hoursPerDay={hoursPerDay}
                 fromName={from?.name ?? openedJourney?.stops[0]?.name ?? ''}
                 toName={to?.name ?? openedJourney?.stops.at(-1)?.name ?? ''}
                 onTraveller={(traveller) => onTraveller?.(traveller)} />
               {onRevealRoute && route.cells.length > 1 && (
-                <RouteReveal cells={route.cells} worldWidth={world.width} onReveal={onRevealRoute} />
+                <RouteReveal cells={route.cells} worldWidth={world.width} cellKm={cellKmOf(world.params, world.width)} onReveal={onRevealRoute} />
               )}
               {route.stages.length > 0 && (
                 <>

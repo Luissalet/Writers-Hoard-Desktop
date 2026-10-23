@@ -108,7 +108,9 @@ export function bindPropertyFormulas(template: CodexTemplate, available?: readon
   const universe = available ?? definitions;
   const ids = new Set<string>(), keys = new Set<string>(), labels = new Set<string>();
   for (const definition of definitions) {
-    if (!definition.id || !definition.key.trim() || !definition.label.trim() || definition.label.includes(']') || ids.has(definition.id) || keys.has(foldAlias(definition.key)) || labels.has(foldAlias(definition.label)) || !['text', 'number', 'date', 'color', 'multiselect'].includes(definition.kind)) throw new Error('property_definition_invalid');
+    if (!definition.id || !definition.key.trim() || !definition.label.trim() || definition.label.includes(']') || ids.has(definition.id) || keys.has(foldAlias(definition.key)) || labels.has(foldAlias(definition.label)) || !['text', 'number', 'date', 'color', 'select', 'multiselect'].includes(definition.kind)) throw new Error('property_definition_invalid');
+    if (definition.required !== undefined && typeof definition.required !== 'boolean') throw new Error('property_required_invalid');
+    if (definition.description !== undefined && (typeof definition.description !== 'string' || definition.description.length > 500)) throw new Error('property_description_invalid');
     ids.add(definition.id); keys.add(foldAlias(definition.key)); labels.add(foldAlias(definition.label));
     if (definition.presets !== undefined && (!Array.isArray(definition.presets) || definition.presets.some(value => typeof value !== 'string'))) throw new Error('property_presets_invalid');
     if(definition.optionColors!==undefined){
@@ -172,12 +174,18 @@ export function projectCodexEntry(entry: CodexEntry, templates: readonly CodexTe
   };
   for (const definition of definitions) {
     let value = '', error: string | undefined, options:ProjectedPropertyOption[]|undefined;
-    try { const result = read(definition.id); value = String(result); if (definition.kind === 'multiselect') { options=(JSON.parse(value) as string[]).map(option=>codexOptionAppearance(definition,option));value=options.map(option=>option.value).join(', '); } } catch (reason) { error = reason instanceof Error ? reason.message : '#CALC!'; value = error; }
+    try { const result = read(definition.id); value = String(result); if (definition.kind === 'multiselect') { options=(JSON.parse(value) as string[]).map(option=>codexOptionAppearance(definition,option));value=options.map(option=>option.value).join(', '); } else if (definition.kind === 'select' && value) options=[codexOptionAppearance(definition,value)]; } catch (reason) { error = reason instanceof Error ? reason.message : '#CALC!'; value = error; }
     fields[definition.key] = value;
     properties[definition.key] = { label: definition.label, value, ...(definition.resultType?{displayValue:formatCalculationValue(value,definition.resultType)}:{}), status: error ? 'error' : value ? 'value' : 'empty', ...(error ? { error } : {}), calculated: Boolean(definition.formula),...(options?{options}:{}) };
   }
   for (const [key, value] of Object.entries(fields)) properties[key] ??= { label: key, value, status: value ? 'value' : 'empty', calculated: false };
   return { fields, properties };
+}
+
+/** The required properties a card leaves empty (calculated ones never count). */
+export function missingRequiredProperties(definitions: readonly CodexPropertyDefinition[], fields: Record<string, string>): CodexPropertyDefinition[] {
+  const empty = (definition: CodexPropertyDefinition) => { const value = (fields[definition.key] ?? '').trim(); return !value || (definition.kind === 'multiselect' && /^\[\s*\]$/.test(value)); };
+  return definitions.filter(definition => definition.required && !definition.formula && empty(definition));
 }
 
 /** Formatting is presentation only: callers continue calculating with the raw value. */

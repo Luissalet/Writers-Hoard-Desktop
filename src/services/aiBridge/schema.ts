@@ -102,7 +102,7 @@ export const PROJECT_ID = s(
 export const SCOPE_KEY = '__scopeProjectId';
 
 export const MARKDOWN_NOTE =
-  'Markdown. Supported: headings (#..######), **bold**, *italic*, `code`, [links](url), ![images](url), - and 1. lists, > quotes, --- rules. Anything else is stored as plain paragraphs.';
+  'Markdown. Supported: headings (#..######), **bold**, *italic*, `code`, [links](url), ![images](url), - and 1. lists, - [ ] / - [x] checklists, > quotes, > [!NOTE] / [!INFO] / [!QUESTION] / [!TIP] / [!WARNING] callouts and > [!READALOUD] / [!SIDEBAR] sourcebook boxes, --- rules. Anything else is stored as plain paragraphs.';
 
 /** Manuscript pieces only: the footnote syntax the writings tools read and write. */
 export const FOOTNOTE_NOTE =

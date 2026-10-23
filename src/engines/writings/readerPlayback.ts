@@ -35,7 +35,7 @@ export function installReaderPlayback(prose: HTMLElement, controls: HTMLElement,
     }, delay);
   };
   const refresh = () => {
-    const latest = Array.from(prose.children).filter((node): node is HTMLElement => node instanceof HTMLElement);
+    const latest = Array.from(prose.children).filter((node): node is HTMLElement => node instanceof HTMLElement && !/^(STYLE|SCRIPT|TEMPLATE|LINK)$/.test(node.tagName));
     if (latest.length === blocks.length && latest.every((node, index) => node === blocks[index])) return;
     blocks = latest;
     blocks.forEach(block => { if (!originalHidden.has(block)) originalHidden.set(block, block.hidden); });

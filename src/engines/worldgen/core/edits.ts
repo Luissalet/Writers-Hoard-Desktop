@@ -20,6 +20,7 @@
 
 import { normalizeLabelChange } from './labelShape';
 import { normalizeStoryEvent, type StoryEvent } from './storyEvents';
+import { normalizeZone } from './zones';
 import { normalizeTradeSite, type TradeSiteEdit, type TradeSiteRemoveEdit, type TradeSiteRestoreEdit } from './economy';
 import { isStampGlyph } from '../cartography/stampGlyphs';
 import { Biome, type BiomeId, type WorldData } from './types';
@@ -72,6 +73,8 @@ export interface Stroke {
   aspect?: number;
   /** 0–1, how far the stroke fades towards its two ends. */
   taper?: number;
+  /** The Height op: the ground the brush sets, in metres above (or below) the sea. */
+  heightM?: number;
 }
 
 /**
@@ -105,7 +108,14 @@ export type TerrainOp =
   /** Cut ridge-and-gully texture into slopes, proportional to how steep they are. */
   | 'gully'
   /** Take hold of the ground and move it. */
-  | 'grab';
+  | 'grab'
+  /** A volcano where the stroke starts: a cone with a crater, rising from the ground (or the sea floor) there. */
+  | 'volcano'
+  /** Set the ground to a height in metres (`Stroke.heightM`), feathered at the edge. */
+  | 'height';
+
+/** The height the Height op can set, in metres. */
+export const TERRAIN_HEIGHT_M = { min: -11000, max: 9000, default: 500 } as const;
 export type LandOp = 'land' | 'sea';
 
 // Both live in ./types: the ruin generator produces the same shapes from
@@ -256,6 +266,8 @@ export type WorldEdit =
   /** A hand-drawn watercourse. Carves a shallow channel so it also affects
    *  drainage and the biomes along it, not just the ink. */
   | { kind: 'river'; pts: Pt[]; width: number }
+  /** Turn round the drawn river running nearest this cell (within two cells): its spring becomes its mouth. */
+  | { kind: 'reverseRiver'; x: number; y: number }
   | {
     kind: 'marker';
     marker: MarkerKind;
@@ -310,6 +322,9 @@ export type WorldEdit =
   | ({ kind: 'story' } & StoryEvent)
   /** Take a story event off the map. */
   | { kind: 'storyRemove'; id: string }
+  /** A named zone drawn on the world (see core/zones.ts): the whole record under its id; a later one replaces it. */
+  | ({ kind: 'zone' } & import('./zones').WorldZone)
+  | { kind: 'zoneRemove'; id: string }
   /** A trade site placed by the author (`core/economy.ts`), whole, under its id. */
   | TradeSiteEdit
   /** Remove an author's trade site, or switch off a generated one by its id. */
@@ -504,6 +519,25 @@ export function riverCellsAfterEdits(world: Pick<WorldData, 'width' | 'height' |
   for (const r of world.rivers) if (!removed.has(riverKey(r.cells))) for (const cell of r.cells) out.add(cell);
   for (const cells of drawn) for (const cell of cells) out.add(cell);
   return out;
+}
+
+/**
+ * Which of these drawn rivers runs nearest a cell, within two cells (round the
+ * east/west seam); -1 when none does. Ties go to the river drawn last.
+ */
+export function drawnRiverNear(rivers: readonly ArrayLike<number>[], W: number, x: number, y: number, reach = 2): number {
+  let best = -1, bestD = reach * reach + 1e-9;
+  const cx = Math.floor(x), cy = Math.floor(y);
+  rivers.forEach((cells, k) => {
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i], rx = c % W, ry = (c / W) | 0;
+      let dx = Math.abs(rx - cx);
+      if (dx > W / 2) dx = W - dx;
+      const d = dx * dx + (ry - cy) ** 2;
+      if (d <= bestD) { bestD = d; best = k; }
+    }
+  });
+  return best;
 }
 
 export function riverKey(cells: ArrayLike<number>): string {
@@ -1058,13 +1092,32 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   }
 
   // ---- 4. hand-drawn rivers as polylines ---------------------------------
+  // In order, so turning a river round acts on the rivers drawn before it (and
+  // turning it round twice puts it back).
+  // A river the erasers take away is not one a reversal can find: it acts on the
+  // rivers the reader can see, as the map's menu and the bridge do.
+  const erasers = edits.filter((e): e is Extract<WorldEdit, { kind: 'eraseRivers' }> => e.kind === 'eraseRivers');
+  const erased = (cells: number[]): boolean => erasers.some((e) => {
+    const r2 = Math.max(1, e.radius) ** 2;
+    return cells.some((cell) => {
+      const x = cell % W, y = (cell / W) | 0;
+      let dx = Math.abs(x - e.x);
+      if (dx > W / 2) dx = W - dx;
+      return dx * dx + (y - e.y) ** 2 <= r2;
+    });
+  });
+  const drawnRivers: { cells: number[]; flow: number; gone: boolean }[] = [];
   for (const e of edits) {
-    if (e.kind !== 'river' || e.pts.length < 2) continue;
-    const cells = polylineCells(e.pts, W, H);
-    if (cells.length >= 2) {
-      out.rivers.push({ cells: Uint32Array.from(cells), flow: Math.min(1, e.width / 3) });
+    if (e.kind === 'river' && e.pts.length >= 2) {
+      const cells = polylineCells(e.pts, W, H);
+      if (cells.length >= 2) drawnRivers.push({ cells, flow: Math.min(1, e.width / 3), gone: erasers.length > 0 && erased(cells) });
+    } else if (e.kind === 'reverseRiver') {
+      const visible = drawnRivers.filter((r) => !r.gone);
+      const k = drawnRiverNear(visible.map((r) => r.cells), W, e.x, e.y);
+      if (k >= 0) visible[k].cells.reverse();
     }
   }
+  for (const r of drawnRivers) out.rivers.push({ cells: Uint32Array.from(r.cells), flow: r.flow });
 
   // ---- 4b. and unmaking them --------------------------------------------
   //
@@ -1557,6 +1610,12 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     try { normalizeStoryEvent(record); return true; } catch { return false; }
   }
   if ((e as { kind: string }).kind === 'storyRemove') return typeof (e as { id?: unknown }).id === 'string';
+  if ((e as { kind: string }).kind === 'zone') {
+    const record: Record<string, unknown> = { ...(e as Record<string, unknown>) };
+    delete record.kind;
+    try { normalizeZone(record); return true; } catch { return false; }
+  }
+  if ((e as { kind: string }).kind === 'zoneRemove') return typeof (e as { id?: unknown }).id === 'string';
   if ((e as { kind: string }).kind === 'crossing') {
     const c = e as { x?: unknown; y?: unknown; blocked?: unknown };
     return typeof c.x === 'number' && Number.isFinite(c.x) && typeof c.y === 'number' && Number.isFinite(c.y) && typeof c.blocked === 'boolean';
@@ -1579,7 +1638,10 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
   if ((e as { kind: string }).kind === 'tradeSiteRemove' || (e as { kind: string }).kind === 'tradeSiteRestore') return typeof (e as { id?: unknown }).id === 'string';
   if ('stroke' in e) {
     const stroke = (e as { stroke?: unknown }).stroke;
-    return !!stroke && typeof stroke === 'object' && points((stroke as { pts?: unknown }).pts);
+    if (!stroke || typeof stroke !== 'object' || !points((stroke as { pts?: unknown }).pts)) return false;
+    const heightM = (stroke as { heightM?: unknown }).heightM;
+    if (heightM !== undefined && !(typeof heightM === 'number' && Number.isFinite(heightM) && heightM >= TERRAIN_HEIGHT_M.min && heightM <= TERRAIN_HEIGHT_M.max)) return false;
+    return true;
   }
   const kind = (e as { kind: string }).kind;
   if (kind === 'relabel') {
@@ -1603,6 +1665,10 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
   }
   if (kind === 'river' || kind === 'realmArea' || kind === 'placesZone') {
     return points((e as { pts?: unknown }).pts);
+  }
+  if (kind === 'reverseRiver') {
+    const r = e as { x?: unknown; y?: unknown };
+    return typeof r.x === 'number' && Number.isFinite(r.x) && typeof r.y === 'number' && Number.isFinite(r.y);
   }
   return true;
 }

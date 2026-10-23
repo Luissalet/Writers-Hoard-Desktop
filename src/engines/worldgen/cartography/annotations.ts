@@ -7,11 +7,14 @@
 // dragged without paying for a re-render of the sheet, and — the real reason —
 // it is annotation, not cartography. A route drawn INTO the map would be a road.
 
+import { cellKmOf } from '../core/geoScale';
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawContourLines } from './contourLayer';
 import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
 import { drawStoryMark, type StoryMark } from './storyMarks';
+import { drawZones } from './zoneMarks';
 import { drawTradeLayer, type TradeLayer } from './tradeMarks';
+import { drawTownDots, drawTrail } from './readerTrail';
 import type { WorldData } from '../core/types';
 import type { PaleoMap } from '../core/paleo';
 import { marchingSquares, chaikin } from './contours';
@@ -27,10 +30,16 @@ export interface CartoAnnotations {
   contours?: { intervalM: number; color?: string };
   /** The trade lens: sites and this month's shipments. */
   trade?: TradeLayer;
+  /** The author's named zones (outline, wash or hatching, and the name). */
+  zones?: import('../core/zones').WorldZone[];
   /** Story events to show, already filtered for the view (drawn last, over the fog). */
   story?: StoryMark[];
+  /** The party's trail in the reader's view: the events that have happened, in order (over the fog). */
+  trail?: import('./readerTrail').TrailPoint[];
+  /** Towns as dots in the reader's view: the towns only heard of, as unnamed dots (over the fog). */
+  townDots?: { x: number; y: number }[];
   /** The party on its way along the route, when the journey is being played. */
-  traveller?: { x: number; y: number; label: string; resting: boolean };
+  traveller?: { x: number; y: number; label: string; resting: boolean; /** Clock hour of the party, for the map's light. */ hour?: number };
   /** Where the author closed a river crossing: a small cross on the water. */
   closedCrossings?: { x: number; y: number }[];
   /** Journey ends. */
@@ -90,6 +99,13 @@ export function drawAnnotations(
   // ---- the ground's own lines, under the reader's fog and everything else ---
   if (ann.contours) drawContourLines(ctx, world, ann.contours.intervalM, sx, sy, k, { color: ann.contours.color });
 
+  // ---- the author's zones -----------------------------------------------------
+  // `sx` may wrap round the seam: lay the outline out linearly from the origin, as the fog does.
+  if (ann.zones?.length) {
+    const x0 = sx(0);
+    drawZones(ctx, ann.zones, W, (wx) => x0 + wx * k, sy, k, [-W, 0, W]);
+  }
+
   // ---- what the reader has not seen yet -------------------------------------
   // `sx` may wrap round the seam (the Carta's does), which would fold the
   // sheet to nothing: lay it out linearly from the origin and let `copies`
@@ -103,7 +119,7 @@ export function drawAnnotations(
   if (ann.trade) drawTradeLayer(ctx, ann.trade, sx(0), sy, k, W);
 
   // ---- the play grid --------------------------------------------------------
-  if (ann.grid) drawMapGrid(ctx, ann.grid, { width: ctx.canvas.width, height: ctx.canvas.height, cellPx: k, originX: sx(0), originY: sy(0), kmPerCell: 40075 / W });
+  if (ann.grid) drawMapGrid(ctx, ann.grid, { width: ctx.canvas.width, height: ctx.canvas.height, cellPx: k, originX: sx(0), originY: sy(0), kmPerCell: cellKmOf(world.params, W) });
 
   // ---- the world at another sea level --------------------------------------
   if (ann.paleo) {
@@ -345,6 +361,9 @@ export function drawAnnotations(
     }
     ctx.restore();
   }
+  // ---- the reader's view: towns heard of, and the trail so far ---------------
+  if (ann.townDots?.length) drawTownDots(ctx, ann.townDots, sx(0), sy, k, W);
+  if (ann.trail?.length) drawTrail(ctx, ann.trail, sx(0), sy, k, W);
   // ---- what happens where, in which chapter: over everything, fog included --
   if (ann.story?.length) {
     const x0 = sx(0);

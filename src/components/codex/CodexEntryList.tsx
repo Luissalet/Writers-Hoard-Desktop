@@ -2,13 +2,14 @@ import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
 import { useEffect, useState } from 'react';
 import { liveQuery } from 'dexie';
-import { Plus, Search, User, HelpCircle, Image as ImageIcon, X } from 'lucide-react';
+import { Plus, Search, User, HelpCircle, Image as ImageIcon, Wand2, X } from 'lucide-react';
 import { db } from '@/db';
 import { loadCodexAppearances, type CodexAppearance } from '@/services/projectIntelligence';
 import type { CodexEntry, CodexEntryType, InspirationImage } from '@/types';
 import Modal from '@/components/common/Modal';
 import CodexEntryForm from './CodexEntryForm';
 import CharacterConnections from './CharacterConnections';
+import CodexCardFaces from './CodexCardFaces';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
@@ -22,6 +23,7 @@ import { searchEntries } from '@/services/codexReference/matcher';
 import { isAliasField, readAliases } from '@/services/codexReference/aliases';
 import { useProject } from '@/hooks/useProjects';
 import CodexTemplateManager from './CodexTemplateManager';
+import GuidedCardDialog from './GuidedCardDialog';
 import { templateFromEntry, type CodexTemplate } from '@/engines/codex/templates';
 import { effectiveCodexTemplate, effectiveTemplatePresentation,selectableCodexTemplates, templateIsWithin, templatePath } from '@/engines/codex/templateHierarchy';
 import {ProjectIcon} from '@/components/common/ProjectIcon';
@@ -104,6 +106,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const [filterTemplate, setFilterTemplate] = useState('');
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [savingForm, setSavingForm] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const scope = useWorldEraScope(projectId);
@@ -208,6 +211,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
         <ScheherazadeButtons projectId={projectId} />
         <button type="button" onClick={() => { setTemplateSeed(undefined); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.title')}</button>
         {!!project?.codexTemplates?.length && <select aria-label={t('codex.templates.template')} value={filterTemplate} onChange={event => setFilterTemplate(event.target.value)} className="px-2 py-2 rounded-lg border border-border bg-elevated text-sm text-text-primary"><option value="">{t('codex.types.all')}</option>{selectableCodexTemplates(project.codexTemplates,filterTemplate).map(template => <option key={template.id} value={template.id}>{templatePath(template, project.codexTemplates!)}{effectiveTemplatePresentation(template,project.codexTemplates??[]).hiddenFromPickers?` (${templatePresentationCopy[locale].hiddenTag})`:''}</option>)}</select>}
+        <button type="button" data-testid="codex-guided-open" onClick={() => setShowGuide(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated"><Wand2 size={15} />{locale === 'en' ? 'Guided card' : 'Ficha guiada'}</button>
         <button
           onClick={() => { setFormTemplate(undefined); setShowForm(true); }}
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
@@ -292,6 +296,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           onCancel={() => { setShowForm(false); setEditEntry(null); }}
         />
       </Modal>
+      <GuidedCardDialog projectId={projectId} open={showGuide} locale={locale} onClose={() => setShowGuide(false)} onCreate={onAdd} />
       <CodexTemplateManager key={templateSeed?.id ?? 'templates'} projectId={projectId} open={showTemplates} initial={templateSeed} onClose={() => setShowTemplates(false)} onUse={template => { setFormTemplate(template); setShowTemplates(false); setSelectedEntryId(null); setEditEntry(null); setShowForm(true); }} />
 
       {/* Detail View Modal */}
@@ -323,6 +328,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
               </div>
             </div>
 
+            <CodexCardFaces key={selectedEntry.id} entry={selectedEntry} project={project} about={<>
             {readAliases(selectedEntry.fields).length > 0 && (
               <p className="text-sm text-text-muted break-words"><span className="font-semibold">{t('codex.aliases')}:</span> {readAliases(selectedEntry.fields).join(' · ')}</p>
             )}
@@ -362,6 +368,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
               />
             )}
 
+            </>} notes={<>
             {/* Annotation surface — margin notes + backlinks */}
             <div className="pt-2 border-t border-border">
               <AnnotationSurface
@@ -371,6 +378,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
                 layout="stack"
               />
             </div>
+            </>} />
 
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => { const source = project?.codexTemplates?.find(template => template.id === selectedEntry.templateId); const seed = templateFromEntry(selectedEntry, generateId('codex-template'), selectedEntry.title, Date.now(), source ? propertyDefinitions(effectiveCodexTemplate(source, project?.codexTemplates ?? [])) : selectedEntry.propertyDefinitions); setTemplateSeed({ ...seed, ...effectiveTemplatePresentation(source,project?.codexTemplates??[]),referenceFieldDefinitions: source ? effectiveCodexTemplate(source, project?.codexTemplates ?? []).referenceFieldDefinitions : seed.referenceFieldDefinitions }); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.fromEntry')}</button>

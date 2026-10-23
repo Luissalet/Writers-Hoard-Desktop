@@ -192,6 +192,7 @@ function sanitizeActive(value: unknown): StoredSprint | null {
     baselineWords: Math.max(0, Math.round(row.baselineWords)),
   };
   if (typeof row.writingId === 'string') sprint.writingId = row.writingId;
+  if (isFiniteNumber(row.pausedAt) && row.pausedAt >= row.startedAt && row.pausedAt < row.endsAt) sprint.pausedAt = row.pausedAt;
   // An observation is only evidence about this sprint if it was taken between
   // its start and its scheduled end. Anything else is dropped, exactly like a
   // malformed number.
@@ -359,7 +360,7 @@ export async function endSprint(
   outcome: EndSprintOutcome,
 ): Promise<SprintRecord> {
   const endedAt = outcome.stopped
-    ? Math.max(sprint.startedAt, Math.min(Date.now(), sprint.endsAt))
+    ? Math.max(sprint.startedAt, Math.min(sprint.pausedAt ?? Date.now(), sprint.endsAt))
     : sprint.endsAt;
 
   const record: SprintRecord = {
@@ -379,6 +380,33 @@ export async function endSprint(
   // makes the history section refresh the moment a sprint is filed.
   notifyDataChanged({ source: 'other', table: 'settings', projectId: sprint.projectId });
   return record;
+}
+
+/** Time left on a sprint: standing still while it is paused. */
+export function sprintRemaining(sprint: Pick<ActiveSprint, 'endsAt' | 'pausedAt'>, now = Date.now()): number {
+  return sprint.endsAt - (sprint.pausedAt ?? now);
+}
+
+/** Stop the clock of the running sprint; its remaining time is kept. */
+export async function pauseSprint(projectId: string): Promise<StoredSprint | null> {
+  const active = await readActiveSprint(projectId);
+  if (!active || active.pausedAt !== undefined) return active;
+  const now = Date.now();
+  if (now >= active.endsAt) return active;
+  const paused: StoredSprint = { ...active, pausedAt: now };
+  await writeActiveSprint(projectId, paused);
+  return paused;
+}
+
+/** Start the clock again: the sprint ends as much later as it stood still. */
+export async function resumeSprint(projectId: string): Promise<StoredSprint | null> {
+  const active = await readActiveSprint(projectId);
+  if (!active || active.pausedAt === undefined) return active;
+  const now = Date.now();
+  const resumed: StoredSprint = { ...active, endsAt: active.endsAt + Math.max(0, now - active.pausedAt) };
+  delete resumed.pausedAt;
+  await writeActiveSprint(projectId, resumed);
+  return resumed;
 }
 
 /** Sum of every writing's stored word count for a project. */
@@ -442,6 +470,8 @@ export async function reconcileSprint(
   const active = await readActiveSprint(projectId);
   if (!active) return { active: null, finished: null };
   const now = Date.now();
+  // A paused sprint stands still: it is not over, whatever the clock says.
+  if (active.pausedAt !== undefined) return { active, finished: null };
   if (now < active.endsAt) {
     return { active: await observeWordTotal(active, currentWords, now), finished: null };
   }
@@ -496,4 +526,56 @@ export function summarizeSprints(sprints: SprintRecord[]): SprintTotals {
     if (sprint.actualWords > bestWords) bestWords = sprint.actualWords;
   }
   return { thisWeek, bestWords };
+}
+
+// ---------------------------------------------------------------------------
+// Rounds and breaks
+// ---------------------------------------------------------------------------
+
+/** A short break after a round, a long one after every fourth. */
+export const SHORT_BREAK_MINUTES = 5;
+export const LONG_BREAK_MINUTES = 15;
+export const ROUNDS_PER_LONG_BREAK = 4;
+
+/** Sprints run to the end today (a stopped one is not a round). */
+export function roundsToday(sprints: SprintRecord[], now = Date.now()): number {
+  const today = toLocalDateKey(new Date(now));
+  let rounds = 0;
+  for (const sprint of sprints) {
+    if (!sprint.stopped && toLocalDateKey(new Date(sprint.endedAt)) === today) rounds += 1;
+  }
+  return rounds;
+}
+
+/** The break that follows round `round` (1-based): long after every fourth. */
+export function breakMinutesAfter(round: number): number {
+  return round > 0 && round % ROUNDS_PER_LONG_BREAK === 0 ? LONG_BREAK_MINUTES : SHORT_BREAK_MINUTES;
+}
+
+/**
+ * A break taken in this window. Kept for the session only: walking from the
+ * list to a chapter remounts the toolbar and must not lose it, but a break is
+ * not worth a stored record.
+ */
+export interface SprintBreak {
+  endsAt: number;
+  minutes: number;
+  /** The round it follows. */
+  round: number;
+}
+const breaks = new Map<string, SprintBreak>();
+export function peekSprintBreak(projectId: string, now = Date.now()): SprintBreak | null {
+  const rest = breaks.get(projectId);
+  if (!rest) return null;
+  if (rest.endsAt <= now) { breaks.delete(projectId); return null; }
+  return rest;
+}
+export function beginSprintBreak(projectId: string, round: number, now = Date.now()): SprintBreak {
+  const minutes = breakMinutesAfter(round);
+  const rest = { endsAt: now + minutes * 60_000, minutes, round };
+  breaks.set(projectId, rest);
+  return rest;
+}
+export function endSprintBreak(projectId: string): void {
+  breaks.delete(projectId);
 }

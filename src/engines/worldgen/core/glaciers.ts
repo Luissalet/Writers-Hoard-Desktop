@@ -22,6 +22,7 @@
 //   4. lateral widening of the cut, which is what turns a V into a U
 //   5. cirques at the accumulation heads
 
+import { climateLatDeg } from './geoScale';
 import type { WorldParams } from './types';
 import { SphereNoise } from './noise';
 
@@ -62,7 +63,7 @@ export function applyGlaciers(
   const coolingC = 1.5 + 7.5 * g;
   let iceCells = 0;
   for (let y = 0; y < H; y++) {
-    const lat = Math.abs((0.5 - (y + 0.5) / H) * 180);
+    const lat = Math.abs(climateLatDeg((y + 0.5) / H, params));
     const baseT = 29 - 51 * Math.pow(lat / 90, 1.9) + params.temperature - coolingC;
     for (let x = 0; x < W; x++) {
       const i = y * W + x;

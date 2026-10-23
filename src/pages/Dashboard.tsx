@@ -85,9 +85,13 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
-  const filteredProjects = projects.filter(project =>
+  const matching = projects.filter(project =>
     `${project.title} ${project.description}`.toLocaleLowerCase().includes(projectQuery.trim().toLocaleLowerCase()),
   );
+  // A saga's books sit on a shelf inside the saga's card; a search shows every match on its own.
+  const sagaIds = new Set(projects.filter(project => project.type === 'saga').map(project => project.id));
+  const shelved = (project: Project) => !projectQuery.trim() && !!project.parentId && sagaIds.has(project.parentId);
+  const filteredProjects = matching.filter(project => !shelved(project));
   const [importing, setImporting] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const fullImportRef = useRef<HTMLInputElement>(null);
@@ -713,6 +717,8 @@ export default function Dashboard() {
                   daysSinceEdit={
                     stats?.lastWrittenAt != null ? localDaysSince(stats.lastWrittenAt) : null
                   }
+                  books={project.type === 'saga' && !projectQuery.trim() ? projects.filter(book => book.parentId === project.id).map(book => { const bookStats = progress.get(book.id); return { id: book.id, title: book.title, words: bookStats?.totalWords ?? 0, daysSinceEdit: bookStats?.lastWrittenAt != null ? localDaysSince(bookStats.lastWrittenAt) : null }; }) : undefined}
+                  onOpenBook={(id) => navigate(`/project/${id}`)}
                   resumeLabel={resume?.title}
                   onResume={resume ? () => openResume(project, resume) : undefined}
                 />

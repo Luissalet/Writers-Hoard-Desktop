@@ -37,6 +37,36 @@ Pruebas del cierre: [verificación final](tasks/worldcraft1041-final-verificatio
 y `tasks/evidence/worldcraft1041-manual-verification.json` (revisión requerida y
 lectura exacta del manual actualizado).
 
+## Escritura — catálogo de VVD, ola C (Ágora 1095)
+
+Hecho (matriz con pruebas en [tasks/vvd1095/C-writing.md](tasks/vvd1095/C-writing.md):
+107 de 113 filas PRESENT, 5 n/a por ser servicios en línea y 1 PARTIAL): menú
+«/» con 26 bloques, avisos «leer en voz alta» y recuadro, efectos de texto,
+fichas de reglas (hechizo, objeto, criatura) desde propiedades del Códex,
+etiqueta de capítulo y capítulos fuera del libro, imagen de cabecera en banda,
+estilos de libro con «manual de juego» a dos columnas, páginas de cortesía,
+revisión por capítulo y vista por dispositivo, biblioteca de sonidos propia,
+cubierta al crear el proyecto y estantería de sagas, fichas del Códex
+(selector de tipos, alias, propiedades obligatorias, caras, asistente, tipos
+privados, bloques plegables y extraíbles), cronologías (mes bisiesto,
+correlación con el gregoriano, re-fechado con deshacer, repeticiones, bandas,
+etiquetas, vistas), catálogos de relaciones y tablas con búsqueda, inserciones
+y filtros. Todo con interfaz, MCP, deshacer y ámbito de época.
+
+Siguiente, en este orden (ola D1, herramientas de mesa):
+- Compendio SRD 5.2 sin conexión (monstruos, conjuros, objetos, estados) con
+  «Añadir al mundo» y «Añadir al combate», y el combate en la mesa (iniciativa,
+  PG, estados que caducan, salvaciones contra muerte, concentración).
+- Bandeja de dados (ventaja, dificultad, 20 y 1 naturales, juegos de dados,
+  fórmulas guardadas), generador de nombres (posadas, tiendas, personas,
+  pueblos, casas; 13 estilos; «Crear ficha») y lista de tareas.
+- Hojas: funciones (SI, SUMAR.SI, BUSCARV…), pestañas de libro e importar y
+  exportar .xlsx; después el lienzo (menú contextual, fondos, audio) y el grafo
+  (ajustes de vista, grafos guardados).
+- Luego las olas D2 (plataforma) y B (campaña).
+- La fila C #1 sigue PARTIAL: un proyecto es un solo manuscrito; varias
+  historias dentro de un mismo mundo pediría un cambio de modelo.
+
 ## Mapas — continuación del catálogo de VVD (Ágora 1095)
 
 Hecho en esta continuación (revisión independiente en rondas, ver
@@ -59,25 +89,22 @@ nivel cada N metros; y la maqueta 3D (bloque con su corte, mesa y sombra; o
 paisaje), la piel «Pintado» con rótulos de mapa, iconos de accidentes en 3D y
 marcadores con el retrato de su ficha en los mapas de imagen; todo con interfaz, MCP, deshacer y ámbito de época.
 
-Siguiente, en este orden:
-- Huecos restantes del catálogo A1/A2 (filas PARTIAL y ABSENT en
-  tasks/vvd1095): una hoja plana acotada (ancho × alto en km), zona de inicio, modo de
-  puntos del río y flujo invertido, nubes, iluminación por hora en 2D, marcas
-  de grupo, vías propias, mercancías por puerto, operación volcán y altura en
-  metros.
-- 3D: nubes que se funden con el relieve, los árboles pintados de pie en la
-  maqueta (hoy están pintados en el suelo) y aspectos de bloque (papel apilado,
-  grabado) además de la roca.
-- Mundos de una sola tierra: una isla pequeña con poco detalle (400 km con
-  «Rápido» son unas 10 × 10 celdas) sale sin ríos ni pueblos; subir el detalle
-  al elegir una tierra pequeña o sembrar ríos y pueblos a su escala.
-- Comercio: rutas de envío que rodeen bahías por tierra y usen los ríos; la
-  lente también en proyecciones curvas.
-- Sucesos: enlace de un suceso a su escena del manuscrito; arrastrar para
-  reordenar (hoy flechas antes/después).
-- Niebla del lector también en la vista 3D (hoy: Mapa, Carta y exportaciones);
-  en la Carta en vivo, dejar a la vista el marco y la cartela (la exportación PNG
-  ya los conserva); arranque «tierra a tinta», poblaciones como puntos y rastro.
+Después, en la misma tarea: una sola tierra en su propia hoja plana a su
+medida (una isla de 300 km sale con sus ríos y pueblos), zonas con nombre,
+volcán y altura en metros, ríos por puntos e invertidos, nubes, bloque de papel
+o grabado y árboles de pie en la maqueta, el mapa a una hora con el farol del
+grupo, vías propias del mundo, comercio por mar de cada puerto, envíos que
+rodean bahías y siguen ríos (también en proyecciones curvas), vista del lector
+con tierra a tinta, pueblos como puntos y rastro (también en 3D, y el marco de
+la Carta a la vista), y sucesos enlazados a su capítulo y ordenados arrastrando.
+
+Siguiente en mapas (filas ABSENT o PARTIAL de tasks/vvd1095 A1/A2):
+- Hoja de ancho × alto distintos y crecer o recortar los bordes después.
+- Diseñador de terrenos propios, colores por icono, imagen como cara de un
+  lugar, volver a tirar el icono de un lugar y puente por camino.
+- Plantilla histórica (Mediterráneo romano), portada del mundo y prueba de
+  rendimiento dentro de la app.
+- Intensidad del relleno de zonas, ancho por río e icono de cada vía.
 - Oleadas posteriores según las listas priorizadas de C-writing, D1-tools,
   D2-platform y B-campaign.
 

@@ -9,6 +9,9 @@ import type { CartoTheme } from '../cartography/theme';
 import { CartoBaseGL } from '../cartography/glbase';
 import { computeFields, getTintFieldFor } from '../cartography/render';
 import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
+import { drawFurniture } from '../cartography/furniture';
+import { fogUnnamed } from '../cartography/readerFogLayer';
+import { isSheet, worldKmOf } from '../core/geoScale';
 import { LabelSpace, drawOverlay } from '../cartography/overlay';
 import { drawArrivalMark } from '../cartography/screenFurniture';
 import {
@@ -410,6 +413,8 @@ export default function CartoMap({
       layers: { roads: false, borders: false, settlements: wantMarks, labels: wantNames },
       territoryLabels: p.layers.borders === true,
       typeScale,
+      // Towns as dots in the reader's view: an unseen town keeps no name.
+      unnamed: fogUnnamed(annRef.current?.fog),
     });
     if (deep && wantNames) drawDeepNames(ctx, v, outW, outH, typeScale, z, space);
   }, [drawDeepNames]);
@@ -657,6 +662,16 @@ export default function CartoMap({
     };
     const sy = (wy: number) => (wy - v.y) * k;
     drawAnnotations(ctx, annRef.current, world, sx, sy, k);
+    // The reader's paper covers the ground, not the map's furniture: the frame,
+    // compass, scale and cartouche go back on top, as the PNG export keeps them.
+    const p = propsRef.current;
+    if (annRef.current?.fog?.mode === 'reader') {
+      drawFurniture(ctx, {
+        theme: p.theme, width: ink.width, height: ink.height, view: v, scale: k,
+        worldWidth: world.width, title: p.title, subtitle: p.subtitle, seed: String(world.params.seed),
+        ...(isSheet(world.params) ? { planetRadiusKm: worldKmOf(world.params) / (2 * Math.PI) } : {}),
+      }, { frame: p.layers.frame !== false, compass: p.layers.compass !== false, scaleBar: p.layers.scaleBar !== false, graticule: false });
+    }
   }, [viewFor, size.w, size.h, world]);
 
   /** Queue the two-tier settle. */
@@ -736,6 +751,15 @@ export default function CartoMap({
   // Annotations are cheap and change often (a slider drag), so they repaint on
   // their own rather than waiting for the map's debounced render.
   useEffect(() => { paintInk(); }, [annotations, paintInk, size.w, size.h]);
+  // Towns as dots: which towns keep a name is part of the lettering, so a new
+  // mask (another chapter) or the setting changing letters the sheet again.
+  const unnamedKey = annotations?.fog?.mode === 'reader' && annotations.fog.townDots ? annotations.fog.mask : null;
+  const letteredFor = useRef<Uint8Array | null>(unnamedKey);
+  useEffect(() => {
+    if (letteredFor.current === unnamedKey) return;
+    letteredFor.current = unnamedKey;
+    scheduleRender();
+  }, [unnamedKey, scheduleRender]);
 
   // Y la marca de llegada repinta por el camino BARATO. El repintado completo
   // de más abajo reconstruye la lámina del mundo entera (segundos, y con GL de

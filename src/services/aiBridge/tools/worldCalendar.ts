@@ -13,7 +13,9 @@ import {
   BridgeError, optBoolean, optNumber, optString, resolveProjectForEngine, resolveProjectId, withAudit, type ToolArgs,
 } from './shared';
 import { worldDateArg } from './worldDateArg';
+import { calendarLens, earthToWorld, worldToEarth } from '@/engines/timeline/calendarLens';
 import { saveTimelineSettings } from '@/engines/timeline/timelineSettings';
+import { applyRedate, projectCalendarEvents, redatePlan } from '@/engines/timeline/redate';
 
 export { worldDateArg };
 
@@ -58,7 +60,7 @@ export async function whWorldCalendarSet(args: ToolArgs): Promise<unknown> {
     const input = args.calendar;
     if (!remove && (!input || typeof input !== 'object' || Array.isArray(input))) throw new BridgeError('bad-args', 'calendar is required.');
     const calendar = remove ? undefined : { schema: WORLD_CALENDAR_SCHEMA, moons: [], holidays: [], ...(input as object) } as unknown as WorldCalendar;
-    try { await saveTimelineSettings(projectId, timelineId, { worldCalendar: calendar }, optString(args, 'eraId')); }
+    try { await saveTimelineSettings(projectId, timelineId, { worldCalendar: calendar }, optString(args, 'eraId'), { redate: optBoolean(args, 'redate') === true }); }
     catch (error) { throw new BridgeError('conflict', error instanceof Error ? error.message : String(error)); }
     return withAudit({ projectId, timelineId, saved: !remove, removed: !!remove }, { projectId, entityId: timelineId, summary: remove ? 'restored project calendar inheritance' : `set timeline calendar "${calendar!.name}"`, kind: 'update', before: { worldCalendar: timeline.worldCalendar } });
   }
@@ -100,6 +102,10 @@ export async function whWorldCalendarSet(args: ToolArgs): Promise<unknown> {
       return true;
     }
   });
+  // "Apply and re-date": events move to the nearest date the calendar has.
+  const redate = optBoolean(args, 'redate') === true;
+  const plan = redate ? redatePlan(await projectCalendarEvents(projectId, optString(args, 'eraId')), calendar) : [];
+  if (redate) { const moved = new Set(plan.map(change => change.id)); broken.splice(0, broken.length, ...broken.filter(event => !moved.has(event.id))); }
   if ((broken.length || brokenChapters.length) && !optBoolean(args, 'force')) {
     const names = [...broken.map((e) => e.title), ...brokenChapters.map((w) => w.title)];
     throw new BridgeError(
@@ -107,10 +113,13 @@ export async function whWorldCalendarSet(args: ToolArgs): Promise<unknown> {
       `${broken.length} event(s) and ${brokenChapters.length} chapter(s) would fall on dates this calendar does not have: ${names.slice(0, 5).map((n) => `"${n}"`).join(', ')}. Fix them first or pass force:true (they keep their label but leave the date axis).`,
     );
   }
+  // What the moved events were, so undo can put them back with the calendar.
+  const movedBefore = redate ? (await projectCalendarEvents(projectId, optString(args, 'eraId'))).filter(event => plan.some(change => change.id === event.id)).map(event => ({ id: event.id, worldDate: event.worldDate, worldDateEnd: event.worldDateEnd, time: event.time, endTime: event.endTime, date: event.date })) : [];
   await saveWorldCalendar(projectId, calendar, optString(args, 'eraId'));
+  await applyRedate(projectId, plan, optString(args, 'eraId'));
   return withAudit(
-    { projectId, saved: true, months: calendar.months.length, eras: calendar.eras.length, moons: calendar.moons.length, eventsLeftWithoutAValidDate: broken.length, chaptersLeftWithoutAValidDate: brokenChapters.length },
-    { projectId, entityId: projectId, summary: `set the world calendar "${calendar.name}"`, kind: 'update', before: project.worldCalendar ? { worldCalendar: project.worldCalendar } : undefined },
+    { projectId, saved: true, months: calendar.months.length, eras: calendar.eras.length, moons: calendar.moons.length, eventsLeftWithoutAValidDate: broken.length, chaptersLeftWithoutAValidDate: brokenChapters.length, redated: plan.map(change => ({ id: change.id, title: change.title, from: change.before, to: change.after })) },
+    { projectId, entityId: projectId, summary: `set the world calendar "${calendar.name}"`, kind: 'update', before: movedBefore.length ? { __calendarRedate: { worldCalendar: project.worldCalendar ?? null, events: movedBefore, eraId: optString(args, 'eraId') ?? null } } : project.worldCalendar ? { worldCalendar: project.worldCalendar } : undefined },
   );
 }
 
@@ -118,7 +127,12 @@ export async function whWorldDate(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const calendar = await requireWorldCalendar(projectId, optString(args, 'timelineId'), optString(args, 'eraId'));
   const dayNumber = optNumber(args, 'dayNumber');
-  let date = dayNumber !== undefined
+  const lens = calendarLens(calendar);
+  const earthDate = optString(args, 'earthDate');
+  if (earthDate && !lens) throw new BridgeError('bad-args', 'This calendar has no correlation with the Earth calendar: set calendar.correlation {date, earth} with wh_world_calendar_set.');
+  let date = earthDate && lens
+    ? (() => { try { return earthToWorld(lens, earthDate); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); } })()
+    : dayNumber !== undefined
     ? (() => {
       if (!Number.isInteger(dayNumber)) throw new BridgeError('bad-args', '"dayNumber" must be an integer.');
       return fromDayNumber(calendar, dayNumber);
@@ -136,6 +150,7 @@ export async function whWorldDate(args: ToolArgs): Promise<unknown> {
     projectId,
     calendar: calendar.name,
     ...info,
+    ...(lens && date.month && date.day ? { earth: worldToEarth(lens, date) } : {}),
     ...(to ? { to: describeWorldDate(calendar, to).label, daysBetween: toDayNumber(calendar, to) - info.dayNumber } : {}),
   };
 }

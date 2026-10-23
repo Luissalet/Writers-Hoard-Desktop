@@ -11,7 +11,7 @@ export function validateCoverJacket(value:unknown):asserts value is CoverJacket 
  if(!record(value)||value.version!==1||!Array.isArray(value.elements))throw Error('cover_jacket_invalid');
  const ids=new Set<string>();for(const e of value.elements){
   if(!record(e)||typeof e.id!=='string'||!e.id||ids.has(e.id)||!['text','image','ink'].includes(String(e.kind))||!['x','y','width','height','rotation'].every(k=>number(e[k]))||Number(e.width)<=0||Number(e.height)<=0)throw Error('cover_element_invalid');ids.add(e.id);
-  if(e.kind==='text'&&(typeof e.text!=='string'||!COVER_FONTS.includes(e.font as typeof COVER_FONTS[number])||!number(e.size)||e.size<=0||typeof e.bold!=='boolean'||!['left','center','right'].includes(String(e.align))||!color(e.color)))throw Error('cover_text_invalid');
+  if(e.kind==='text'&&(typeof e.text!=='string'||!COVER_FONTS.includes(e.font as typeof COVER_FONTS[number])||!number(e.size)||e.size<=0||typeof e.bold!=='boolean'||!['left','center','right'].includes(String(e.align))||!color(e.color)||e.vertical!==undefined&&typeof e.vertical!=='boolean'))throw Error('cover_text_invalid');
   if(e.kind==='image'&&!coverRaster(e.src))throw Error('cover_image_invalid');
   if(e.kind==='ink'&&(!color(e.color)||!number(e.weight)||e.weight<=0||!Array.isArray(e.points)||!e.points.length||e.points.some(p=>!record(p)||!number(p.x)||!number(p.y)||p.pressure!==undefined&&(!number(p.pressure)||p.pressure<0||p.pressure>1))))throw Error('cover_ink_invalid');
  }
@@ -40,3 +40,24 @@ export function initialCoverJacket(title:string,ink:string,frontTitle=true):Cove
  elements.push({id:crypto.randomUUID(),kind:'text',text:title,x:231,y:420,width:810,height:60,rotation:90,font:'georgia',size:30,bold:false,align:'center',color:ink});return{version:1,elements};
 }
 export function elementLabel(e:CoverElement){return e.kind==='text'?e.text||'Text':e.kind==='image'?'Artwork':'Ink';}
+
+/**
+ * Rub out ink under a round eraser: the points of every stroke within `radius`
+ * of `center` go, and what is left of a stroke becomes one stroke per unbroken
+ * run (a stroke rubbed through the middle becomes two). Text and artwork stay.
+ */
+export function eraseInk(elements:CoverElement[],center:{x:number;y:number},radius:number,newId:()=>string=()=>crypto.randomUUID()):CoverElement[]{
+ return elements.flatMap((e):CoverElement[]=>{
+  if(e.kind!=='ink')return[e];
+  // Where each point is drawn: turned with the stroke about its centre. The pieces left are kept upright with those positions.
+  const r=(e.rotation||0)*Math.PI/180,cx=e.x+e.width/2,cy=e.y+e.height/2,cos=Math.cos(r),sin=Math.sin(r);
+  const absolute=e.points.map(p=>{const x=e.x+p.x*e.width-cx,y=e.y+p.y*e.height-cy;return{x:cx+x*cos-y*sin,y:cy+x*sin+y*cos,pressure:p.pressure};});
+  const near=absolute.map(p=>Math.hypot(p.x-center.x,p.y-center.y)<=radius+e.weight/2);
+  if(!near.some(Boolean))return[e];
+  const runs:typeof absolute[]=[];let run:typeof absolute=[];
+  absolute.forEach((p,i)=>{if(near[i]){if(run.length)runs.push(run);run=[];}else run.push(p);});
+  if(run.length)runs.push(run);
+  return runs.map((points,i)=>{const xs=points.map(p=>p.x),ys=points.map(p=>p.y),x=Math.min(...xs),y=Math.min(...ys),width=Math.max(1,Math.max(...xs)-x),height=Math.max(1,Math.max(...ys)-y);
+   return{...e,id:i===0?e.id:newId(),x,y,width,height,rotation:0,points:points.map(p=>({x:(p.x-x)/width,y:(p.y-y)/height,...(p.pressure!==undefined?{pressure:p.pressure}:{})}))};});
+ });
+}

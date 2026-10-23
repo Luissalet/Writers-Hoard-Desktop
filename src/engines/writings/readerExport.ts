@@ -92,11 +92,64 @@ export async function buildReaderHtml(project: Project, writings: Writing[], pre
     else endnotes = renderEndnotesHtml(footnotes.notes, { heading: notesLabel, style: noteStyle, scope: noteScope });
     const chapter = safe.chapters[piece.id], background = readerColor(chapter?.background), ink = readerInk(background) || '#272820';
     const font = chapter?.font === 'sans' ? 'system-ui,sans-serif' : chapter?.font === 'mono' ? 'monospace' : 'Georgia,serif';
-    const image = chapter?.imageLayout !== 'none' && readerRaster(chapter?.image) ? `<img class="wh-reader-chapter-image ${chapter.imageLayout === 'beside' ? 'wh-reader-image-beside' : ''}" src="${esc(chapter.image)}" alt="">` : '';
+    const bannerLabel = piece.kicker?.trim() || (piece.chapter !== undefined ? `${locale === 'es' ? 'Capítulo' : 'Chapter'} ${piece.chapter}` : '');
+    const image = chapter?.imageLayout !== 'none' && readerRaster(chapter?.image) ? `${chapter.imageLayout === 'banner' && bannerLabel ? `<p class="wh-reader-chapter-label">${esc(bannerLabel)}</p>` : ''}<img class="wh-reader-chapter-image ${chapter.imageLayout === 'beside' ? 'wh-reader-image-beside' : chapter.imageLayout === 'banner' ? 'wh-reader-image-banner' : ''}" src="${esc(chapter.image)}" alt="">` : '';
     return `<section id="${chapterKey(piece.id)}" data-piece-id="${esc(piece.id)}" class="reader-section wh-reader-themed ${chapter?.mode === 'pages' ? 'wh-reader-pages' : ''}" style="background:${background || '#faf7ef'};color:${ink};--reader-ink:${ink};--reader-font:${font}">${image}<h2>${esc(piece.title)}</h2><div data-reader-playback-controls class="wh-reader-playback" role="group" aria-label="${locale === 'es' ? 'Lectura por bloques' : 'Block reading'}"></div><div class="ProseMirror" tabindex="0">${footnotes.html}</div>${endnotes}${chapter?.mode === 'pages' ? `<div class="pager"><button data-reader-turn="-1">${previous}</button><button data-reader-turn="1">${next}</button></div>` : ''}<a href="#top">${locale === 'es' ? 'Índice' : 'Contents'}</a></section>`;
   }).join('');
   const bookEndnotes = bookNotes ? renderBookEndnotesHtml(noteGroups, { heading: notesLabel, style: noteStyle }) : '';
   const hasModels = sections.includes('data-wh-model-reader="true"');
-  const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${hasModels?' blob:':''}; media-src data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${hasModels?"data: blob:":"'none'"}; base-uri 'none'; form-action 'none'"><title>${esc(project.title)}</title><style>${READER_PRESENTATION_CSS}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}*{box-sizing:border-box}body{margin:0;background:#eee9df;color:#272820;font:18px/1.75 Georgia,serif}header,nav,.reader-section{max-width:900px;margin:auto;padding:28px}header{text-align:center}h1{font-size:2.2rem}h2{font-size:1.5rem}nav a{display:block}.reader-section{margin:24px auto;overflow:auto}.ProseMirror img{max-width:100%;height:auto}.wh-endnotes{font-size:.85em;border-top:1px solid currentColor;margin:2em 0;padding-top:.6em}.wh-endnotes li{margin:.4em 0}.wh-endnotes-marked{list-style:none;padding-left:0}.wh-endnotes--book{max-width:900px;margin:24px auto;padding:28px}.wh-footnote-ref a{text-decoration:none}audio,video{display:block;width:100%;max-height:28rem}aside{border:1px solid currentColor;padding:16px;margin:20px 0}a{color:inherit}button{font:inherit;padding:8px 16px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}.pager{display:flex;justify-content:space-between;gap:12px;margin:20px 0}.angle{display:block;text-align:center;font:14px system-ui}input{accent-color:${safe.cover.color}}:focus-visible{outline:3px solid #805d1a;outline-offset:3px}@media(max-width:720px){header,nav,.reader-section{padding:20px}.reader-section{margin:12px 0}}</style></head><body id="top"><header>${safe.cover.showAtStart ? coverMarkup(project, safe.cover, locale) : ''}<h1>${esc(project.title)}</h1>${hasSound ? '<p><button data-reader-sound-toggle aria-pressed="false"></button><span data-reader-sound-status role="status"></span></p>' : ''}</header><nav aria-label="${locale === 'es' ? 'Índice' : 'Contents'}">${pieces.map(piece => `<a href="#${chapterKey(piece.id)}">${esc(piece.title)}</a>`).join('')}</nav><main>${sections}${bookEndnotes}${referenceAppendix}</main><script nonce="${nonce}">document.querySelectorAll('[data-cover-angle]').forEach(input=>input.addEventListener('input',()=>{input.closest('.wh-reader-cover').querySelector('.wh-reader-book').style.transform='rotateX(8deg) rotateY('+Number(input.value)+'deg)'}));document.querySelectorAll('[data-reader-turn]').forEach(button=>button.addEventListener('click',()=>{const prose=button.closest('section').querySelector('.ProseMirror');prose.scrollBy({left:Number(button.dataset.readerTurn)*prose.clientWidth,behavior:'instant'})}));${soundScript}${playbackScript};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(sections,nonce)}</body></html>`;
+  const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${hasModels?' blob:':''}; media-src data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${hasModels?"data: blob:":"'none'"}; base-uri 'none'; form-action 'none'"><title>${esc(project.title)}</title><style>${READER_PRESENTATION_CSS}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}*{box-sizing:border-box}body{margin:0;background:#eee9df;color:#272820;font:18px/1.75 Georgia,serif}header,nav,.reader-section{max-width:900px;margin:auto;padding:28px}header{text-align:center}h1{font-size:2.2rem}h2{font-size:1.5rem}nav a{display:block}.reader-section{margin:24px auto;overflow:auto}.ProseMirror img{max-width:100%;height:auto}.wh-endnotes{font-size:.85em;border-top:1px solid currentColor;margin:2em 0;padding-top:.6em}.wh-endnotes li{margin:.4em 0}.wh-endnotes-marked{list-style:none;padding-left:0}.wh-endnotes--book{max-width:900px;margin:24px auto;padding:28px}.wh-footnote-ref a{text-decoration:none}audio,video{display:block;width:100%;max-height:28rem}aside{border:1px solid currentColor;padding:16px;margin:20px 0}a{color:inherit}button{font:inherit;padding:8px 16px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}.pager{display:flex;justify-content:space-between;gap:12px;margin:20px 0}.angle{display:block;text-align:center;font:14px system-ui}input{accent-color:${safe.cover.color}}:focus-visible{outline:3px solid #805d1a;outline-offset:3px}@media(max-width:720px){header,nav,.reader-section{padding:20px}.reader-section{margin:12px 0}}${READER_CONTROLS_CSS}</style></head><body id="top"><header>${safe.cover.showAtStart ? coverMarkup(project, safe.cover, locale) : ''}<h1>${esc(project.title)}</h1>${project.author?.trim() ? `<p class="wh-reader-byline" data-reader-byline>${esc(project.author.trim().slice(0, 120))}</p>` : ''}${readerControlsMarkup(locale)}${hasSound ? '<p><button data-reader-sound-toggle aria-pressed="false"></button><span data-reader-sound-status role="status"></span></p>' : ''}</header><nav aria-label="${locale === 'es' ? 'Índice' : 'Contents'}">${pieces.map(piece => `<a href="#${chapterKey(piece.id)}">${esc(piece.title)}</a>`).join('')}</nav><main>${sections}${bookEndnotes}${referenceAppendix}</main><script nonce="${nonce}">(${installReaderControls.toString()})(document);document.querySelectorAll('[data-cover-angle]').forEach(input=>input.addEventListener('input',()=>{input.closest('.wh-reader-cover').querySelector('.wh-reader-book').style.transform='rotateX(8deg) rotateY('+Number(input.value)+'deg)'}));document.querySelectorAll('[data-reader-turn]').forEach(button=>button.addEventListener('click',()=>{const prose=button.closest('section').querySelector('.ProseMirror');prose.scrollBy({left:Number(button.dataset.readerTurn)*prose.clientWidth,behavior:'instant'})}));${soundScript}${playbackScript};(${installVoiceReading.toString()})(document);</script>${modelReaderExportScript(sections,nonce)}</body></html>`;
   return { html, filename: `${project.title.replace(/[<>:"/\\|?*]/g, '_') || 'book'}-reader.html` };
+}
+
+/**
+ * The reader's own text settings in a shared edition: size, typeface and
+ * light, kept in the reader's browser (never in the file), and "the book's
+ * own" to put the author's styling back.
+ */
+export const READER_CONTROLS_CSS = '.reader-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:0 auto 12px;font:13px system-ui,sans-serif}.reader-controls button{padding:4px 10px}.reader-controls [aria-pressed="true"]{background:currentColor}.reader-controls [aria-pressed="true"] span{filter:invert(1)}'
+  + 'body[data-reader-size="s"] .reader-section{font-size:15px}body[data-reader-size="l"] .reader-section{font-size:21px}body[data-reader-size="xl"] .reader-section{font-size:24px}'
+  + 'body[data-reader-face="sans"] .reader-section,body[data-reader-face="sans"] .reader-section *{font-family:system-ui,-apple-system,"Segoe UI",sans-serif!important}body[data-reader-face="mono"] .reader-section,body[data-reader-face="mono"] .reader-section *{font-family:ui-monospace,Menlo,Consolas,monospace!important}'
+  + 'body[data-reader-light="dark"]{background:#17171b;color:#e6e0d2}body[data-reader-light="dark"] .reader-section{background:#202027!important;color:#e6e0d2!important}body[data-reader-light="dark"] .reader-section *{color:inherit!important;background-color:transparent!important}'
+  + 'body[data-reader-light="sepia"]{background:#efe3c8;color:#3b2f1e}body[data-reader-light="sepia"] .reader-section{background:#f6ecd4!important;color:#3b2f1e!important}';
+
+const CONTROL_COPY = {
+  es: { group: 'Ajustes de lectura', size: 'Tamaño', s: 'A−', m: 'A', l: 'A+', xl: 'A++', face: 'Letra', serif: 'Serifa', sans: 'Sin serifa', mono: 'Mono', light: 'Luz', day: 'Día', sepia: 'Sepia', dark: 'Noche', own: 'Como el libro' },
+  en: { group: 'Reading settings', size: 'Size', s: 'A−', m: 'A', l: 'A+', xl: 'A++', face: 'Type', serif: 'Serif', sans: 'Sans', mono: 'Mono', light: 'Light', day: 'Day', sepia: 'Sepia', dark: 'Night', own: "The book's own" },
+} as const;
+
+export function readerControlsMarkup(locale: 'es' | 'en'): string {
+  const c = CONTROL_COPY[locale];
+  const button = (kind: string, value: string, label: string, title?: string) => `<button type="button" data-reader-set="${kind}" data-value="${value}" aria-pressed="false"${title ? ` title="${title}" aria-label="${title}"` : ''}><span>${label}</span></button>`;
+  return `<div class="reader-controls" role="group" aria-label="${c.group}">`
+    + button('size', 's', c.s, `${c.size} S`) + button('size', 'l', c.l, `${c.size} L`) + button('size', 'xl', c.xl, `${c.size} XL`)
+    + button('face', 'serif', c.serif) + button('face', 'sans', c.sans) + button('face', 'mono', c.mono)
+    + button('light', 'day', c.day) + button('light', 'sepia', c.sepia) + button('light', 'dark', c.dark)
+    + `<button type="button" data-reader-own><span>${c.own}</span></button></div>`;
+}
+
+/** Runs in the exported page: applies and remembers the reader's choices. Self-contained (serialised with toString). */
+export function installReaderControls(doc: Document): void {
+  const KEY = 'wh-reader-settings';
+  const body = doc.body;
+  let saved: Record<string, string> = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { saved = {}; }
+  const apply = () => {
+    for (const kind of ['size', 'face', 'light']) {
+      const value = saved[kind];
+      if (value && !(kind === 'light' && value === 'day')) body.setAttribute('data-reader-' + kind, value); else body.removeAttribute('data-reader-' + kind);
+    }
+    doc.querySelectorAll('[data-reader-set]').forEach((el) => {
+      const b = el as HTMLElement;
+      b.setAttribute('aria-pressed', String(saved[b.dataset.readerSet || ''] === b.dataset.value));
+    });
+    try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* the page still works without storage */ }
+  };
+  doc.querySelectorAll('[data-reader-set]').forEach((el) => el.addEventListener('click', () => {
+    const b = el as HTMLElement, kind = b.dataset.readerSet || '', value = b.dataset.value || '';
+    saved[kind] = saved[kind] === value ? '' : value;
+    apply();
+  }));
+  doc.querySelector('[data-reader-own]')?.addEventListener('click', () => { saved = {}; apply(); });
+  apply();
 }

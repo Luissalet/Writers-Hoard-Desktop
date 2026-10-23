@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
-import { GOODS, SITE_KINDS, SITE_SIZES, STAPLES, goodsSummary, type EconomyPlace, type EconomySnapshot, type Good, type SiteKind, type SiteSize, type TradeSite } from '../core/economy';
+import { GOODS, SITE_KINDS, SITE_SIZES, STAPLES, goodsSummary, portTrade, type EconomyPlace, type EconomySnapshot, type Good, type SiteKind, type SiteSize, type TradeSite } from '../core/economy';
 import { SITE_COLORS } from '../cartography/tradeMarks';
 
 const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString();
@@ -70,6 +70,25 @@ export default function TradePanel({ places, sites, snapshots, month, onMonth, p
             className={`rounded px-1.5 py-1 ${view === v ? 'bg-amber-400/85 text-black font-medium' : 'bg-white/10 hover:bg-white/20'}`}>{t(`worldgen.trade.view.${v}`)}</button>
         ))}
       </div>
+      {view === 'places' && placeId !== null && byId.get(placeId) && (() => {
+        // The chosen place's sea trade: what it has landed and shipped so far, and with whom.
+        const place = byId.get(placeId)!;
+        const sea = portTrade(snapshots, place, month);
+        const list = (goods: Partial<Record<Good, number>>) => (Object.entries(goods) as [Good, number][]).filter(([, n]) => n >= 0.05).sort((a, b) => b[1] - a[1]).map(([good, n]) => `${goodName(good)} ${fmt(n)}`).join(' · ');
+        return (
+          <div className="rounded border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[10px] text-white/65" data-testid="trade-port">
+            <div className="mb-0.5 flex items-center gap-1 font-medium text-white/85">{place.name} · {sea.port ? t('worldgen.trade.port.is') : t('worldgen.trade.port.none')}
+              <button type="button" onClick={() => setPlaceId(null)} className="ml-auto underline text-white/50">{t('worldgen.trade.port.close')}</button></div>
+            {sea.port && (
+              <>
+                <div data-testid="trade-port-landed">{t('worldgen.trade.port.landed')}: {list(sea.landed) || t('worldgen.trade.port.nothing')}</div>
+                <div data-testid="trade-port-shipped">{t('worldgen.trade.port.shipped')}: {list(sea.shipped) || t('worldgen.trade.port.nothing')}</div>
+                {sea.partners.length > 0 && <div>{t('worldgen.trade.port.partners')}: {sea.partners.slice(0, 5).map((p) => byId.get(p.id)?.name ?? String(p.id)).join(', ')}</div>}
+              </>
+            )}
+          </div>
+        );
+      })()}
       {view === 'places' && (
         <div className="flex flex-col gap-1" data-testid="trade-places">
           <span className="text-[10px] text-white/45">{t('worldgen.trade.fedCount').replace('{fed}', String(snap.places.filter((p) => p.fed).length)).replace('{n}', String(snap.places.length))}</span>

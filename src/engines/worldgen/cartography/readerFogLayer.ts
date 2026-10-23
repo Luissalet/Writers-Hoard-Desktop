@@ -6,7 +6,7 @@
 // from `core/readerFog`; this file only puts it on a canvas, for every view
 // that draws a flat map (atlas, Carta, exports).
 
-import { FOG_HEARD, FOG_HIDDEN } from '../core/readerFog';
+import { FOG_HEARD, FOG_HIDDEN, FOG_SEEN } from '../core/readerFog';
 
 export interface ReaderFogLayer {
   /** One byte per world cell: 0 hidden, 1 heard of, 2 seen. */
@@ -17,6 +17,27 @@ export interface ReaderFogLayer {
   mode: 'reader' | 'author';
   /** The paper colour for the reader's view. */
   paper?: string;
+  /** Towns as dots: a town the story has not shown is a dot with no name. */
+  townDots?: boolean;
+}
+
+/** The state of the world cell under a point: hidden, heard of or seen (seen when there is no layer). */
+export function fogStateAt(layer: ReaderFogLayer | null | undefined, wx: number, wy: number): number {
+  if (!layer) return FOG_SEEN;
+  const W = layer.width, H = layer.height;
+  const x = ((Math.floor(wx) % W) + W) % W, y = Math.floor(wy);
+  if (y < 0 || y >= H) return FOG_SEEN;
+  return layer.mask[y * W + x];
+}
+
+/**
+ * With towns as dots in the reader's view: whether a town at a cell goes
+ * unnamed (anywhere the story has not shown it). Null when every town keeps
+ * its name.
+ */
+export function fogUnnamed(layer: ReaderFogLayer | null | undefined): ((x: number, y: number) => boolean) | null {
+  if (!layer || layer.mode !== 'reader' || !layer.townDots) return null;
+  return (x, y) => fogStateAt(layer, x + 0.5, y + 0.5) !== FOG_SEEN;
 }
 
 /** The reader's blank paper. */

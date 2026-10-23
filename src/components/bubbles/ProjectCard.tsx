@@ -32,6 +32,9 @@ interface ProjectCardProps {
   /** Whole local calendar days since the last writing was saved; null when none. */
   daysSinceEdit?: number | null;
   /** What "continue" would open — a chapter title, or an engine name. */
+  /** A saga's books, shown as a shelf inside its card (each opens on its own). */
+  books?: { id: string; title: string; words: number; daysSinceEdit: number | null }[];
+  onOpenBook?: (id: string) => void;
   resumeLabel?: string;
   /** Opens `resumeLabel`. Omitted when there is nothing to resume. */
   onResume?: () => void;
@@ -49,6 +52,8 @@ export default function ProjectCard({
   daysSinceEdit = null,
   resumeLabel,
   onResume,
+  books,
+  onOpenBook,
 }: ProjectCardProps) {
   const { t, locale } = useTranslation();
   const colorInputRef = useRef<HTMLInputElement>(null);
@@ -136,6 +141,20 @@ export default function ProjectCard({
                 {t('projectCard.continue').replace('{name}', resumeLabel)}
               </span>
             </button>
+          )}
+
+          {books && books.length > 0 && (
+            <div data-testid="project-card-books" className="mb-3 space-y-1" aria-label={t('projectCard.books').replace('{count}', String(books.length))}>
+              <p className="text-[10px] uppercase tracking-wider text-text-dim">{t('projectCard.books').replace('{count}', String(books.length))}</p>
+              {books.slice(0, 6).map(book => (
+                <button key={book.id} type="button" data-testid={`project-card-book-${book.id}`} onClick={(e) => { e.stopPropagation(); onOpenBook?.(book.id); }}
+                  className="flex w-full items-center gap-2 rounded border border-border/60 px-2 py-1 text-left text-xs text-text-primary hover:border-accent-gold/50 hover:bg-elevated">
+                  <span className="min-w-0 flex-1 truncate">{book.title}</span>
+                  <span className="shrink-0 text-text-dim">{book.words.toLocaleString()} {t('projectCard.wordsShort')}{book.daysSinceEdit !== null ? ` · ${book.daysSinceEdit === 0 ? t('projectCard.today') : t('projectCard.daysAgo').replace('{n}', String(book.daysSinceEdit))}` : ''}</span>
+                </button>
+              ))}
+              {books.length > 6 && <p className="text-[10px] text-text-dim">+{books.length - 6}</p>}
+            </div>
           )}
 
           {/* Footer */}

@@ -12,6 +12,7 @@
 // grid could not resolve; slide the window one metre east and the ground does
 // not move, it just gets re-sampled.
 
+import { cellKmOf, isSheet, worldKmOf } from '../core/geoScale';
 import { resolveLakeSurface } from '../core/lakeSurface';
 import { SphereNoise } from '../core/noise';
 import { riverKey } from '../core/edits';
@@ -21,9 +22,17 @@ import type { RegionParams, RegionStream, RegionWindow } from './types';
 
 const EARTH_KM = 2 * Math.PI * 6371;
 
-/** How wide one world cell is on the ground. */
-export function kmPerWorldCell(world: WorldData): number {
-  return EARTH_KM / world.width;
+/** How wide one world cell is on the ground: a sheet's own scale, or the planet's. */
+export function kmPerWorldCell(world: Pick<WorldData, 'width'> & { params?: { worldKm?: number } }): number {
+  return isSheet(world.params) ? cellKmOf(world.params, world.width) : EARTH_KM / world.width;
+}
+
+/**
+ * The km once round the world the region noise counts its wavelengths in: the
+ * planet's (the number baked into every world ever generated) or a sheet's width.
+ */
+export function regionWorldKm(world: { params?: { worldKm?: number } }): number {
+  return isSheet(world.params) ? worldKmOf(world.params) : EARTH_KM;
 }
 
 export interface RegionGeometry {
@@ -426,7 +435,7 @@ export function buildElevation(
   // a coastline. The characteristic landform of a REGION is a valley a few
   // kilometres wide, and it is that size whether the world grid is 1024 cells
   // or 8192, so it has to be specified in kilometres and nothing else.
-  const cyc = (km: number) => EARTH_KM / km;
+  const cyc = (km: number) => regionWorldKm(world) / km;
   const cellKm = g.metresPerCell / 1000;
   // Down to twice the sheet cell — below that the detail is smaller than a pixel
   // and costs a noise evaluation to be invisible.

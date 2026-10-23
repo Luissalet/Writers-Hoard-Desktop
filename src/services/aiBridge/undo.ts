@@ -14,6 +14,7 @@
 // brings the scene back but not its dialog; saying so is better than a green
 // tick that hides it.
 
+import type { PublishingProfile } from '@/types/projectTools';
 import { db } from '@/db';
 import { DELETABLE } from './tools/deletion';
 import { undoEnrichment } from '@/engines/inquiry/enrichment';
@@ -247,6 +248,78 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     const {reverseLocalToolBlock}=await import('@/engines/local/blocks/operations');
     await reverseLocalToolBlock({projectId:entry.projectId,eraId:typeof entry.eraId==='string'?entry.eraId:undefined},{kind:owner.kind as 'codex'|'writings',documentId:owner.documentId},before.__localToolBlockReceipt,'undo');
     return{undone:true,kind,entityId:owner.documentId,what:summary};
+  }
+
+  if (entry.tool === 'wh_update_project_details' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
+    const before = (entry.before as Record<string, unknown>).__projectDetails as { title?: unknown; description?: unknown; author?: unknown; blurb?: unknown } | undefined;
+    if (!before || typeof before.title !== 'string') throw new BridgeError('cannot-undo', 'This change did not record the details before it.');
+    await db.projects.update(entry.projectId, { title: before.title, description: typeof before.description === 'string' ? before.description : '', author: typeof before.author === 'string' ? before.author : undefined, blurb: typeof before.blurb === 'string' ? before.blurb : undefined, updatedAt: Date.now() });
+    const { notifyProjectsChanged } = await import('@/db/operations');
+    notifyProjectsChanged();
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // A calendar saved with "re-date": the calendar and the moved events both go back.
+  if (entry.tool === 'wh_world_calendar_set' && entry.before && typeof entry.before === 'object' && '__calendarRedate' in (entry.before as Record<string, unknown>)) {
+    const recorded = (entry.before as Record<string, unknown>).__calendarRedate as { worldCalendar: import('@/engines/timeline/worldCalendar').WorldCalendar | null; events: { id: string; worldDate?: unknown; worldDateEnd?: unknown; time?: string; endTime?: string; date: string }[]; eraId: string | null };
+    const { saveWorldCalendar } = await import('@/engines/timeline/worldCalendarStore');
+    const { applyRedate } = await import('@/engines/timeline/redate');
+    await saveWorldCalendar(String(entry.projectId), recorded.worldCalendar, recorded.eraId ?? undefined);
+    await applyRedate(String(entry.projectId), recorded.events.map(event => ({ id: event.id, title: '', before: '', after: '', changes: { worldDate: event.worldDate, worldDateEnd: event.worldDateEnd, time: event.time, endTime: event.endTime, date: event.date } as never })), recorded.eraId ?? undefined);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // A timeline's settings go back as they were.
+  if (entry.tool === 'wh_timeline_settings' && entry.before && typeof entry.before === 'object' && '__timelineSettings' in (entry.before as Record<string, unknown>)) {
+    const before = (entry.before as Record<string, unknown>).__timelineSettings as { title: string; color: string; description: string | null; displayPrecision: string | null; yearRange: { start: number; end: number } | null };
+    const recordedEra = (entry.before as Record<string, unknown>).__eraId ?? entry.eraId;
+    const { restoreTimelineSettings } = await import('./tools/timeline');
+    await restoreTimelineSettings(String(entry.projectId), typeof recordedEra === 'string' ? recordedEra : undefined, entityId, before);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // A publishing profile goes back to what it was, or away if the bridge made it.
+  if (entry.tool === 'wh_publishing_profile_set' && entry.before && typeof entry.before === 'object' && '__publishingProfile' in (entry.before as Record<string, unknown>)) {
+    const recorded = entry.before as Record<string, unknown>;
+    const previous = recorded.__publishingProfile as PublishingProfile | null;
+    const id = recorded.__publishingProfileId;
+    if (previous) await db.publishingProfiles.put(previous);
+    else if (typeof id === 'string') await db.publishingProfiles.delete(id);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // Genre types added to the Codex: the ones not edited since go away again.
+  if (entry.tool === 'wh_codex_seed_genre_types' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
+    const ids = (entry.before as Record<string, unknown>).__seededTemplateIds;
+    if (!Array.isArray(ids)) throw new BridgeError('cannot-undo', 'This seeding did not record the types it added.');
+    const { deleteCodexTemplate } = await import('@/engines/codex/templates');
+    const templates = (await db.projects.get(entry.projectId))?.codexTemplates ?? [];
+    for (const template of templates) if (ids.includes(template.id) && template.revision === 1) await deleteCodexTemplate(entry.projectId, template.id, template.revision);
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // A tag renamed or removed on several timeline events: their tags go back.
+  if (entry.tool === 'wh_timeline_tags' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__eventTags' in entry.before) {
+    const rows = (entry.before as Record<string, unknown>).__eventTags;
+    if (!Array.isArray(rows)) throw new BridgeError('cannot-undo', 'This tag change did not record the tags before it.');
+    const { restoreEventTags } = await import('./tools/timeline');
+    await restoreEventTags({ projectId: entry.projectId, ...(typeof entry.eraId === 'string' ? { eraId: entry.eraId } : {}) }, rows.filter((row): row is { id: string; tags: string[] } => !!row && typeof (row as { id?: unknown }).id === 'string' && Array.isArray((row as { tags?: unknown }).tags)));
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.tool === 'wh_timeline_tags' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__timelineTagColors' in entry.before) {
+    const colors = (entry.before as Record<string, unknown>).__timelineTagColors as Record<string, string>;
+    await db.projects.update(entry.projectId, { timelineTagColors: colors && Object.keys(colors).length ? colors : undefined, updatedAt: Date.now() });
+    return { undone: true, kind, entityId, what: summary };
+  }
+  if (entry.tool === 'wh_timeline_views' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
+    const views = (entry.before as Record<string, unknown>).__timelineViews;
+    if (!Array.isArray(views)) throw new BridgeError('cannot-undo', 'This view change did not record the views before it.');
+    await db.projects.update(entry.projectId, { timelineViews: views.length ? views as never : undefined, updatedAt: Date.now() });
+    return { undone: true, kind, entityId, what: summary };
+  }
+  // A chapter moved in the manuscript renumbered several chapters: they all go back.
+  if (entry.tool === 'wh_move_chapter' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object') {
+    const chapters = (entry.before as Record<string, unknown>).__chapters;
+    if (!Array.isArray(chapters)) throw new BridgeError('cannot-undo', 'This chapter move did not record the numbers before it.');
+    const plan = chapters.filter((row): row is { id: string; chapter: number } => !!row && typeof (row as { id?: unknown }).id === 'string' && typeof (row as { chapter?: unknown }).chapter === 'number');
+    const { applyChapterNumbers } = await import('@/engines/writings/chapterOrderPersist');
+    await applyChapterNumbers(entry.projectId, plan, typeof entry.eraId === 'string' ? { projectId: entry.projectId, eraId: entry.eraId } : undefined);
+    return { undone: true, kind, entityId, what: summary };
   }
 
   if(entry.tool==='wh_project_genres_set'&&typeof entry.projectId==='string'&&entry.before&&typeof entry.before==='object'){

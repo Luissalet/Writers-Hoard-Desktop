@@ -5,7 +5,7 @@ import { BIOME_COLORS } from '../core/render';
 import { SculptGL, type ViewRect } from '../sculpt/gl';
 import { SculptGesture } from '../sculpt/ops';
 import { drawSculptFallback } from '../sculpt/fallback';
-import type { LandOp, Pt, TerrainOp, WorldEdit } from '../core/edits';
+import { TERRAIN_HEIGHT_M, type LandOp, type Pt, type TerrainOp, type WorldEdit } from '../core/edits';
 import type { PaintTool } from './PaintPanel';
 import { commitPaintStroke } from '../core/paintCommit';
 
@@ -349,6 +349,7 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
         kind: t.mode,
         op: t.mode === 'land' ? t.landOp : t.terrainOp,
         radius: t.radius, strength: t.strength, softness: t.softness,
+        ...(t.mode === 'terrain' && t.terrainOp === 'height' ? { heightM: t.heightM ?? TERRAIN_HEIGHT_M.default } : {}),
       },
     );
     return true;

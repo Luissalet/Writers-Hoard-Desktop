@@ -23,6 +23,7 @@
 // current — and a coastal desert behind it. Gyres are an emergent consequence of
 // incompressibility plus a wall, not something the code draws.
 
+import { climateLatDeg } from './geoScale';
 import type { WorldParams } from './types';
 import { windAt } from './climate';
 
@@ -104,7 +105,7 @@ export function computeCurrents(
 
   // ---- 1. wind forcing, rotated by the Ekman angle -----------------------
   for (let y = 0; y < h; y++) {
-    const lat = (0.5 - (y + 0.5) / h) * 180;
+    const lat = climateLatDeg((y + 0.5) / h, params);
     const [wx, wy] = windAt(lat);
     // Surface water moves at ~45° to the wind, to the right in the northern
     // hemisphere. In screen terms (+y south) that is a clockwise rotation north
@@ -212,7 +213,7 @@ export function computeCurrents(
   // against "what this latitude would be with no currents".
   const zonal = new Float32Array(h);
   for (let y = 0; y < h; y++) {
-    const lat = (0.5 - (y + 0.5) / h) * 180;
+    const lat = climateLatDeg((y + 0.5) / h, params);
     const a = Math.abs(lat) / 90;
     zonal[y] = 29 - 51 * Math.pow(a, 1.9) + params.temperature;
   }
@@ -267,7 +268,7 @@ export function computeCurrents(
   {
     const up = new Float32Array(n);
     for (let y = 1; y < h - 1; y++) {
-      const lat = (0.5 - (y + 0.5) / h) * 180;
+      const lat = climateLatDeg((y + 0.5) / h, params);
       const [wx, wy] = windAt(lat);
       // Ekman transport: 90° to the right of the wind in the northern
       // hemisphere. In screen coordinates (+y south) that is (−wy, wx) north of

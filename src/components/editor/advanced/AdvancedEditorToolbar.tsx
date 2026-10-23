@@ -3,6 +3,12 @@ import { useSyncExternalStore } from 'react';
 import { AlignLeft, AlignCenter, AlignRight, AlignJustify, IndentIncrease, IndentDecrease, Subscript, Superscript, Table2, Scissors, RemoveFormatting } from 'lucide-react';
 import { applyAdvancedFormatting,insertSceneBreak } from './extensions';
 import { FONT_FAMILIES, PARAGRAPH_STYLES,SCENE_BREAK_STYLES, type AdvancedFormatting,type SceneBreakStyle } from './model';
+import { TEXT_EFFECTS } from '../blocks/extensions';
+
+const TEXT_EFFECT_LABELS = {
+  es: { glow: 'Brillo', shake: 'Temblor', wave: 'Ondulación', rainbow: 'Arcoíris', pulse: 'Pulso', blur: 'Desenfoque (se ve al pasar)' },
+  en: { glow: 'Glow', shake: 'Shake', wave: 'Wave', rainbow: 'Rainbow', pulse: 'Pulse', blur: 'Blur (shows on hover)' },
+} as const;
 
 export const ADVANCED_EDITOR_COPY = {
   es: { toolbar: 'Formato avanzado', font: 'Fuente', size: 'Tamaño', style: 'Estilo de párrafo', line: 'Interlineado', color: 'Color de texto', highlight: 'Resaltado', clear: 'Quitar formato', left: 'Alinear a la izquierda', center: 'Centrar', right: 'Alinear a la derecha', justify: 'Justificar', indent: 'Aumentar sangría', outdent: 'Reducir sangría', sub: 'Subíndice', sup: 'Superíndice', page: 'Salto de página', table: 'Tabla', insert: 'Insertar tabla 3 × 3', row: 'Añadir fila', column: 'Añadir columna', deleteRow: 'Eliminar fila', deleteColumn: 'Eliminar columna', merge: 'Combinar celdas', split: 'Dividir celda', header: 'Alternar encabezado', deleteTable: 'Eliminar tabla', inherit: 'Predeterminada', serif: 'Serif', sans: 'Sans serif', mono: 'Monoespaciada', normal: 'Normal', lead: 'Entrada', quote: 'Cita', caption: 'Pie de figura', none: 'Predeterminado', noColor: 'Quitar color', noHighlight: 'Quitar resaltado' },
@@ -24,6 +30,7 @@ export default function AdvancedEditorToolbar({ editor, locale = 'es' }: { edito
   const state = useEditorState({ editor, selector: ({ editor: current }) => ({
     inline: current.getAttributes('advancedTextStyle'),
     block: current.getAttributes(current.isActive('heading') ? 'heading' : 'paragraph'),
+    effect: current.isActive('textEffect') ? String(current.getAttributes('textEffect').effect ?? '') : '',
     sub: current.isActive('subscript'), sup: current.isActive('superscript'), table: current.isActive('table'),
   }) });
   const apply = (format: AdvancedFormatting) => { applyAdvancedFormatting(editor, format); editor.commands.focus(); };
@@ -57,6 +64,10 @@ export default function AdvancedEditorToolbar({ editor, locale = 'es' }: { edito
       <option value="">{copy.line}</option>{LINE_HEIGHTS.map(value => <option key={value} value={value}>{value}</option>)}
       {state.block.lineHeight && !LINE_HEIGHTS.includes(state.block.lineHeight) && <option value={state.block.lineHeight}>{state.block.lineHeight}</option>}
     </select>
+    {editor.schema.marks.textEffect && <select data-testid="text-effect" className={control} aria-label={locale === 'es' ? 'Efecto de texto' : 'Text effect'} disabled={!editable} value={state.effect} onChange={event => { editor.chain().focus().setTextEffect((event.target.value || null) as never).run(); }}>
+      <option value="">{locale === 'es' ? 'Efecto…' : 'Effect…'}</option>
+      {TEXT_EFFECTS.map(effect => <option key={effect} value={effect}>{TEXT_EFFECT_LABELS[locale][effect]}</option>)}
+    </select>}
     <button type="button" className={`${button} px-2`} aria-label={editorial.caps} aria-pressed={state.inline.smallCaps===true} disabled={!editable} onMouseDown={event=>event.preventDefault()} onClick={()=>apply({smallCaps:state.inline.smallCaps!==true})}>{editorial.caps}</button>
     <button type="button" className={`${button} px-2`} aria-label={editorial.drop} aria-pressed={state.block.dropCap===true} disabled={!editable} onMouseDown={event=>event.preventDefault()} onClick={()=>apply({dropCap:state.block.dropCap!==true})}>{editorial.drop}</button>
     <label className="inline-flex items-center gap-1 text-xs text-text-primary">{editorial.first}<input type="number" min="0" step="0.25" className={`${control} w-16`} aria-label={editorial.first} disabled={!editable} value={state.block.firstLineIndent??''} placeholder="—" onChange={event=>{if(event.target.value===''||Number.isFinite(event.target.valueAsNumber))applyAdvancedFormatting(editor,{firstLineIndent:event.target.value===''?0:event.target.valueAsNumber});}}/></label>

@@ -8,6 +8,10 @@ import type { AnyExtension, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
+import { createWritingBlockExtensions } from './blocks/extensions';
+import SlashMenu from './blocks/SlashMenu';
+import ImageControls from './blocks/ImageControls';
+import BlockFieldControls from './blocks/BlockFieldControls';
 import { lazy, Suspense, useEffect,useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
@@ -53,7 +57,7 @@ import { createDictionaryGlossPlugin, createGlossMatcher, dictionaryGlossKey } f
 import { createInlineMentionsPlugin, inlineMentionsKey, OPEN_CODEX_REFERENCE, type OpenCodexReferenceDetail } from '@/services/codexReference/inlineMentions';
 import { navigateTo } from '@/engines/_shared/anchoring';
 import { WikiMarksControls } from './wiki/WikiMarks';
-import { WikiHidden, WikiSpoiler } from './wiki/marks';
+import { WikiHidden, WikiHiddenBlock, WikiSpoiler } from './wiki/marks';
 import { createEditorialExtensions } from '@/engines/writings/editorial';
 import EditorialControls from './editorial/EditorialControls';
 import ProofingControls from './proofing/ProofingControls';
@@ -306,9 +310,11 @@ export default function TiptapEditor({
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
       GhostText.configure({ host: () => ghostHost, delayMs: GHOST_DEBOUNCE_MS }),
       ...createAdvancedExtensions(),
+      ...createWritingBlockExtensions(),
       ...createRevisionExtensions(),
       ...createEditorialExtensions(),
       WikiHidden,
+      WikiHiddenBlock,
       WikiSpoiler,
       CodexBlock.configure(codexBlockHost),
       MediaBlock.configure(codexBlockHost),
@@ -742,7 +748,7 @@ export default function TiptapEditor({
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><EditorialControls editor={editor} locale={locale} references={editorialReferences ?? []} /></div>
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><HeadingNavigator editor={editor} locale={locale} /></div>
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ProofingControls editor={editor} locale={locale} projectId={editorialProjectId} /></div>
-        <div className="min-w-0 grow basis-40"><WikiMarksControls editor={editor} locale={locale} /></div>
+        <div className="min-w-0 grow basis-40"><WikiMarksControls editor={editor} locale={locale} extract={editorialProjectId ? { projectId: editorialProjectId, eraId: editorialEraId } : undefined} /></div>
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><CodexBlockControls editor={editor} projectId={editorialProjectId} entries={mentionEntries ?? []} locale={locale} /></div>}
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><MediaBlockControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ToolDocumentControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
@@ -797,6 +803,9 @@ export default function TiptapEditor({
 
       {/* Editor */}
       <EditorContent editor={editor} />
+      <SlashMenu editor={editor} wrapperRef={wrapperRef} locale={locale} />
+      <ImageControls editor={editor} wrapperRef={wrapperRef} locale={locale} />
+      <BlockFieldControls editor={editor} wrapperRef={wrapperRef} locale={locale} />
       {/* The suggestion is drawn over the text but is not in it, so assistive
           technology is told about it here, politely: it never interrupts what
           is being typed or read. */}

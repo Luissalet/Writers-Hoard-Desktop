@@ -74,6 +74,38 @@ JavaScript. See [local tool SDK](local-tool-sdk.md) for installation and develop
 The runtime has its own API and storage model; binary compatibility with another
 SDK, arbitrary app hosts and network collaboration are not claimed.
 
+## Writing blocks, book style and the calendar (task 1095, wave C)
+
+- **Blocks.** "/" opens the block menu: callouts (note, info, question, idea,
+  warning, read-aloud, sidebar), toggles, checklists, text messages, letters,
+  emails with a field bar, a column break, quotes with attribution. The
+  formatting bar adds text effects (glow, shake, wave, rainbow, pulse, blur:
+  still for reduced motion and print, plain in Word). Inside any block the wiki
+  menu folds it under a title, copies it with its formatting, hides it from the
+  wiki, or extracts it into a new Codex card that leaves a live reference. A
+  Codex card dragged from the library onto the text becomes a live block.
+- **Rules cards.** Codex block → "Insert as: rules card" turns a card into a
+  spell, magic item or creature box; each slot is filled from the property
+  mapped to it (guessed from the names, changeable) and the box can be filled
+  again after the card changes.
+- **Book style.** A publishing profile sets the whole book at compile time:
+  presets classic, modern, epic and *sourcebook* (two columns on Letter with
+  striped tables), or every value by hand — trim, paper, paragraphs, drop cap,
+  title size and ornament, columns. Copyright page, back cover, chapter header
+  images and the manuscript's own pictures can be included in every format.
+- **Calendar.** Weeks can run on or restart each month; moons have colours and
+  the phases shown are chosen; events repeat yearly, monthly or weekly and draw
+  banners. A *leap month* exists only in leap years ("Add a leap month"). A
+  *correlation* ("this day is that Gregorian day") lets one timeline be read
+  through either calendar: the calendar view shows the events of both and gives
+  each day's equivalent.
+- **Sound.** The chapter sound settings and the project soundtrack offer a sound
+  library made on this device (ambience, weather, effects); a paragraph cue can
+  keep playing through a later paragraph.
+- **Books and covers.** A saga shows its books on a shelf in its Dashboard card.
+  A new book can get its cover (format, colour, title on front and spine) when it
+  is created; the jacket designer adds vertical text and a real eraser.
+
 ## Maps, trees, tables and media
 
 Generated maps retain one geography across illustrated parchment, engraving,
@@ -270,6 +302,23 @@ on from its settlement's sites. The author can place sites on the map
 or switch generated ones off; both are undoable world edits that change
 nothing in the terrain. The atlas (equirectangular and Mercator) and the Carta
 draw the sites and that month's shipments.
+Single-landmass worlds can lie on their own flat sheet ("Mapa a la medida de
+la tierra", about 3.2 times the land's size, 1,000 to 40,074 km): distances,
+areas, the climate band and the cell size are those of the sheet, so a 300 km
+island gets its rivers and towns; unticking it lays the land on the planet
+again. Named zones (outline, wash or hatch, with their area) are drawn with the
+Zones tool or right-click "Empezar una zona aquí". The relief brush adds a
+volcano and a set height in metres; rivers can be drawn point by point and
+turned round. The 3D tabletop model takes clouds and a block of rock, stacked
+paper or an engraving; with the Painted skin its trees stand up. The map can be
+shown at an hour (dawn, dusk, night with the party's lantern) following the
+party's clock. The world can have its own ways (a griffin over the sea, a
+sledge day and night), a port says what lands there by sea, and shipments
+round bays and follow rivers on any projection. The reader's view can start
+with the land in ink, keep unshown towns as unnamed dots and draw the party's
+trail by chapter; in 3D the reader's paper lies on the ground. Story events can
+be linked to the chapter where they are told and dragged into order.
+
 
 Graph filters include concrete custom types and descendants. Relation trees
 create connected neighbors in four directions and reconnect edge endpoints;

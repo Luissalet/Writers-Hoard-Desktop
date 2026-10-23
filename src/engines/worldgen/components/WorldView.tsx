@@ -1,9 +1,14 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
+import { useNavigate } from 'react-router-dom';
+import { getAnchorAdapter } from '@/engines/_shared/anchoring/registry';
+import { useWritings } from '@/engines/writings/hooks';
+import { shipmentPath } from '../core/tradeRoutes';
+import { cellKmOf, isSheet, sheetScale } from '../core/geoScale';
 import { landmassWindow } from '../core/landmass';
 import { CONTOUR_INTERVALS_M } from '../cartography/contourLayer';
-import { fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
-import type { ReaderFogLayer } from '../cartography/readerFogLayer';
-import { newStoryId, nextStoryChapter, normalizeStoryEvent, reorderInChapter, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy, STORY_COLORS, type StoryEvent } from '../core/storyEvents';
+import { FOG_HEARD, fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
+import { fogStateAt, type ReaderFogLayer } from '../cartography/readerFogLayer';
+import { newStoryId, nextStoryChapter, normalizeStoryEvent, placeInChapter, reorderInChapter, previousStoryChapter, storyChapterFrames, storyEventsFrom, storyKnownBy, STORY_COLORS, type StoryEvent } from '../core/storyEvents';
 import type { StoryMark } from '../cartography/storyMarks';
 import { autoSites, normalizeTradeSite, placesFromSettlements, simulateEconomy, tradeSiteEdit, tradeSiteRemoveEdit, tradeSiteRestoreEdit, tradeSitesFrom, type SiteKind, type SiteSize } from '../core/economy';
 import type { TradeLayer } from '../cartography/tradeMarks';
@@ -22,13 +27,15 @@ import { forgeCrashText, worldWorkspaceCopy } from '../workspaceCopy';
 import RegenerateWorldDialog from './RegenerateWorldDialog';
 import WorldMapMenu from './WorldMapMenu';
 import { traceSpring } from '../core/spring';
+import { MAP_HOURS, drawHourLight, type MapHourName } from '../core/hourLight';
+import { zonesFrom, zoneShape } from '../core/zones';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { journeyStopsForWorld, journeyPoint } from '../journeyTypes';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
   Signpost, Compass, Flag, Search, Home, Ruler, PanelRightClose, PanelRightOpen,
-  Play, Pause, SkipBack, SkipForward, Type, Droplets, BookMarked, Ban,
+  Play, Pause, SkipBack, SkipForward, Type, Droplets, BookMarked, Ban, Cloud,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -72,7 +79,7 @@ import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { registerLiveWorld } from '../core/liveWorlds';
-import { deserializeEdits, duplicateName, duplicatePlaceEdit, duplicateSpot, editKey, keysInEdits, lockedPlaceKeys, lockViolation, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey, worldLevels } from '../core/edits';
+import { deserializeEdits, drawnRiverNear, duplicateName, duplicatePlaceEdit, duplicateSpot, editKey, keysInEdits, lockedPlaceKeys, lockViolation, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey, worldLevels } from '../core/edits';
 import { planRoute , riverCellNear } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import { fillLake, lakeAt } from '../core/lake';
@@ -179,7 +186,7 @@ interface WorldViewProps {
 /** A look as flat fields, so changes are compared and saved one field at a time. */
 function flattenLook(look: WorldPresentation): Record<string, unknown> {
   // The grid is compared and saved whole, as one field.
-  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, stage3D: look.stage3D ?? 'maqueta', reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null, readerStart: look.readerStart, contours: look.contours ?? null };
+  const out: Record<string, unknown> = { theme: look.theme, skin3D: look.skin3D, stage3D: look.stage3D ?? 'maqueta', reliefAmount: look.reliefAmount, grid: look.grid ? JSON.stringify(look.grid) : null, readerStart: look.readerStart, contours: look.contours ?? null, clouds: look.clouds ?? false, block3D: look.block3D ?? 'roca', readerTowns: look.readerTowns ?? 'names', readerTrail: look.readerTrail ?? false };
   for (const [key, value] of Object.entries(look.layers ?? {})) out[`layers.${key}`] = value;
   return out;
 }
@@ -237,12 +244,18 @@ export default function WorldView({
   const [skin3D, setSkin3D] = useState<Skin3D>(savedLook.skin3D);
   /** On the 3D plane: tabletop model or landscape, saved with the look. */
   const [stage3D, setStage3D] = useState<'maqueta' | 'paisaje'>(savedLook.stage3D);
+  /** The tabletop model's block (rock, stacked paper, engraving) and the clouds over the plane, saved with the look. */
+  const [block3D, setBlock3D] = useState<'roca' | 'papel' | 'grabado'>(savedLook.block3D);
+  const [clouds3D, setClouds3D] = useState<boolean>(savedLook.clouds);
   /** The play grid over the map (squares or hexes, in km), saved with the look. */
   const [mapGrid, setMapGrid] = useState<MapGrid | null>(savedLook.grid ?? null);
   /** Contour lines: as the look draws them (null), none, or every N metres; saved with the look. */
   const [contourLines, setContourLines] = useState<number | 'off' | null>(savedLook.contours ?? null);
   /** How the reader's-eye map starts before any fog stroke, saved with the look. */
   const [readerStart, setReaderStart] = useState<ReaderStart>(savedLook.readerStart);
+  /** In the reader's view: towns as dots where only heard of, and the party's trail; saved with the look. */
+  const [readerTowns, setReaderTowns] = useState<'names' | 'dots'>(savedLook.readerTowns);
+  const [readerTrail, setReaderTrail] = useState<boolean>(savedLook.readerTrail);
   /** The reader's-eye view: on/off, and up to which chapter (null = everything painted). */
   const [readerView, setReaderView] = useState(false);
   const [readerChapter, setReaderChapter] = useState<number | null>(null);
@@ -298,7 +311,11 @@ export default function WorldView({
     grid: mapGrid,
     readerStart,
     contours: contourLines,
-  }), [themeId, skin3D, stage3D, reliefSettled, cartoLayers, mapGrid, readerStart, contourLines]);
+    clouds: clouds3D,
+    block3D,
+    readerTowns,
+    readerTrail,
+  }), [themeId, skin3D, stage3D, reliefSettled, cartoLayers, mapGrid, readerStart, contourLines, clouds3D, block3D, readerTowns, readerTrail]);
   /** The stored look this view last knew, field by field (layers as "layers.x"). */
   const lookBaseline = useRef(flattenLook(lookToSave));
   const lookRevision = useRef(world.presentationRevision ?? 0);
@@ -309,7 +326,7 @@ export default function WorldView({
     if (revision <= lookRevision.current) return;
     lookRevision.current = revision;
     const resolved = resolvePresentation(world.presentation);
-    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, stage3D: resolved.stage3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid, readerStart: resolved.readerStart, contours: resolved.contours });
+    const incoming = flattenLook({ theme: resolved.theme, skin3D: resolved.skin3D, stage3D: resolved.stage3D, reliefAmount: resolved.reliefAmount, layers: resolved.layers, grid: resolved.grid, readerStart: resolved.readerStart, contours: resolved.contours, clouds: resolved.clouds, block3D: resolved.block3D, readerTowns: resolved.readerTowns, readerTrail: resolved.readerTrail });
     // Adopt what changed elsewhere, but only for fields this view has not
     // changed itself and not yet saved: that choice is still on its way.
     const local = flattenLook(lookLocal.current), base = lookBaseline.current, next: Record<string, unknown> = {};
@@ -317,6 +334,7 @@ export default function WorldView({
     lookBaseline.current = incoming;
     const look = unflattenLook(next);
     setThemeId(look.theme!); setSkin3D(look.skin3D!); setStage3D(look.stage3D ?? 'maqueta'); setReliefAmount(look.reliefAmount!); setReliefSettled(look.reliefAmount!); setMapGrid(look.grid ?? null); setReaderStart(look.readerStart ?? 'blank'); setContourLines(look.contours ?? null);
+    setClouds3D(look.clouds ?? false); setBlock3D(look.block3D ?? 'roca'); setReaderTowns(look.readerTowns ?? 'names'); setReaderTrail(look.readerTrail ?? false);
     setCartoLayers((current) => ({ ...current, ...look.layers }));
   }, [world.presentation, world.presentationRevision]);
   useEffect(() => {
@@ -367,6 +385,9 @@ export default function WorldView({
   const [journeyRoute, setJourneyRoute] = useState<{ route: TravelRoute | null; color: string }>({ route: null, color: '#a3261e' });
   /** The party's banner while a journey is being played. */
   const [traveller, setTraveller] = useState<CartoAnnotations['traveller'] | null>(null);
+  /** The map's light: plain day, a named hour, or the hour of the journey being played. */
+  const [mapHour, setMapHour] = useState<'off' | MapHourName | 'journey'>('off');
+  const mapHourValue = mapHour === 'off' ? null : mapHour === 'journey' ? (traveller?.hour ?? null) : MAP_HOURS[mapHour];
   const [paleoState, setPaleoState] = useState<PaleoState | null>(null);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<FlyTarget | null>(null);
@@ -456,6 +477,16 @@ export default function WorldView({
   }, [onThumbnail, locale]);
 
   const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(runtimeId, handleDone);
+  /** A sheet is a flat map of a piece of ground: it has no globe to turn. */
+  const sheetWorld = isSheet(world.params);
+  /**
+   * The camera's span is in planet kilometres (a whole map is 40075 across);
+   * a saved region's, like every number a reader sees, is in the map's own. On
+   * a sheet the two differ by the sheet's scale.
+   */
+  const kmScale = sheetScale(world.params);
+  const shapeShown: Shape3D = sheetWorld ? 'plane' : shape3D;
+  const chooseShape = useCallback((s: Shape3D) => { if (!sheetWorld || s === 'plane') setShape3D(s); }, [sheetWorld]);
   const generationBusyRef = useRef(false);
   generationBusyRef.current = gen.running;
   const globalSpatialEntities = useMemo(
@@ -487,9 +518,9 @@ export default function WorldView({
     setViewport({
       u: ((region.x / Math.max(1, width)) % 1 + 1) % 1,
       v: Math.min(1, Math.max(0, region.y / Math.max(1, height))),
-      spanKm: region.spanKm,
+      spanKm: region.spanKm / kmScale,
     });
-  }, [data, world.params.width]);
+  }, [data, world.params.width, kmScale]);
 
   const saveCurrentRegion = useCallback(() => {
     const now = Date.now();
@@ -498,7 +529,7 @@ export default function WorldView({
       title: t('worldgen.regions.defaultTitle').replace('{n}', String(savedRegions.length + 1)),
       x: viewport.u * (data?.width ?? world.params.width),
       y: viewport.v * (data?.height ?? Math.max(1, Math.round(world.params.width / 2))),
-      spanKm: Math.min(400, Math.max(30, viewport.spanKm)),
+      spanKm: Math.min(400, Math.max(30, viewport.spanKm * kmScale)),
       params: {
         res: 640,
         aspect: 1.55,
@@ -512,7 +543,7 @@ export default function WorldView({
     };
     saveRegion(region);
     openSavedRegion(region);
-  }, [data, openSavedRegion, saveRegion, savedRegions.length, viewport, world.params.width, t]);
+  }, [data, openSavedRegion, saveRegion, savedRegions.length, viewport, world.params.width, t, kmScale]);
 
   // First open (or cache miss): generate from stored params automatically.
   // Deliberately re-runnable — StrictMode's mount→unmount→mount cycle
@@ -552,8 +583,9 @@ export default function WorldView({
   /** The world the geography above was built for (it lags a regeneration by a moment). */
   const [geoWorld, setGeoWorld] = useState<WorldData | null>(null);
   const semanticProfile = useMemo(
-    () => semanticZoomProfile(viewport.spanKm),
-    [viewport.spanKm],
+    // The tiers are in the map's own kilometres: on a sheet, its scale.
+    () => semanticZoomProfile(viewport.spanKm * kmScale),
+    [viewport.spanKm, kmScale],
   );
 
   /**
@@ -748,7 +780,7 @@ export default function WorldView({
       setViewport({
         u: ((region.x / data.width) % 1 + 1) % 1,
         v: Math.min(1, Math.max(0, region.y / data.height)),
-        spanKm: region.spanKm,
+        spanKm: region.spanKm / kmScale,
       });
     }
   }
@@ -887,6 +919,14 @@ export default function WorldView({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
   }, [paintRev, data]);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  /** The author's named zones, from the same edit list. */
+  const zones = useMemo(() => {
+    void paintRev;
+    return zonesFrom(session.current?.edits ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
+  }, [paintRev, data]);
+  /** The first corner of a zone started from the map's menu. */
+  const [zoneStart, setZoneStart] = useState<{ x: number; y: number } | null>(null);
   const readerChapters = useMemo(() => [...new Set([...fogChapters(fogEdits), ...storyEvents.flatMap((event) => event.chapter === undefined ? [] : [event.chapter])])].sort((a, b) => a - b), [fogEdits, storyEvents]);
   /**
    * The trade lens, worked out only while its tab is open: generated sites
@@ -894,26 +934,61 @@ export default function WorldView({
    */
   const [tradeMonth, setTradeMonth] = useState(0);
   const [tradePlacing, setTradePlacing] = useState<{ kind: SiteKind; size: SiteSize } | null>(null);
-  const trade = useMemo(() => {
-    void paintRev;
-    if (panelTab !== 'trade' || !data || !geography?.settlements.length) return null;
-    const { manual, removed } = tradeSitesFrom(session.current?.edits ?? []);
-    const input = { world: data, places: placesFromSettlements(geography.settlements), seed: String(data.params.seed), manualSites: manual, removedSites: removed };
-    const sites = autoSites(input);
-    return { places: input.places, sites, removed, snapshots: simulateEconomy(input, 24, 0, sites) };
-  }, [panelTab, data, geography, paintRev]);
-  const tradeLayer = useMemo<TradeLayer | undefined>(() => {
-    if (!trade) return undefined;
+  /**
+   * Worked out off the click: a moment after the tab opens or the last stroke
+   * lands (the sites and the two years cost seconds on a big world), keeping
+   * the last answer on screen meanwhile, so painting with the lens open never
+   * freezes on every stroke.
+   */
+  const [tradeState, setTrade] = useState<{ world: WorldData; places: ReturnType<typeof placesFromSettlements>; sites: ReturnType<typeof autoSites>; removed: string[]; snapshots: ReturnType<typeof simulateEconomy> } | null>(null);
+  const tradeOpen = panelTab === 'trade' && !!data && !!geography?.settlements.length;
+  const trade = tradeOpen && tradeState?.world === data ? tradeState : null;
+  useEffect(() => {
+    if (!tradeOpen || !data || !geography) return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      if (!live) return;
+      const { manual, removed } = tradeSitesFrom(session.current?.edits ?? []);
+      const input = { world: data, places: placesFromSettlements(geography.settlements), seed: String(data.params.seed), manualSites: manual, removedSites: removed };
+      const sites = autoSites(input);
+      setTrade({ world: data, places: input.places, sites, removed, snapshots: simulateEconomy(input, 24, 0, sites) });
+    }, trade ? 450 : 30);
+    return () => { live = false; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `trade` only picks the delay; paintRev is the session's revision.
+  }, [tradeOpen, data, geography, paintRev]);
+  /** The ways shipments go (round bays, along rivers, round headlands), worked out once per pair while the lens is open, a few per frame. */
+  const tradePaths = useMemo(() => ({ trade, paths: new Map<string, { x: number; y: number }[]>() }), [trade]);
+  const [tradePathTick, setTradePathTick] = useState(0);
+  const tradeView = useMemo<{ layer: TradeLayer; pending: boolean } | undefined>(() => {
+    void tradePathTick;
+    if (!trade || !data) return undefined;
     const snap = trade.snapshots[Math.min(tradeMonth, trade.snapshots.length - 1)];
     const at = new Map(trade.places.map((place) => [place.id, place]));
-    return {
+    const seen = new Set<string>();
+    // Each new way can take a tenth of a second; past a few, the rest are drawn
+    // straight for a frame and filled in on the next.
+    let budget = 4, pending = false;
+    const layer: TradeLayer = {
       sites: trade.sites.map((site) => ({ x: site.x, y: site.y, kind: site.kind, manual: !site.auto })),
       movements: (snap?.movements ?? []).flatMap((m) => {
         const a = at.get(m.from), b = at.get(m.to);
-        return a && b ? [{ fromX: a.x, fromY: a.y, toX: b.x, toY: b.y, bySea: m.bySea }] : [];
+        const key = `${m.from}>${m.to}:${m.bySea ? 's' : 'l'}`;
+        if (!a || !b || seen.has(key)) return [];
+        seen.add(key);
+        let path = tradePaths.paths.get(key);
+        if (!path && budget > 0) { budget--; path = shipmentPath(data, a, b, m.bySea); tradePaths.paths.set(key, path); }
+        if (!path) { pending = true; path = [{ x: a.x, y: a.y }, { x: b.x, y: b.y }]; }
+        return [{ fromX: a.x, fromY: a.y, toX: b.x, toY: b.y, bySea: m.bySea, path }];
       }),
     };
-  }, [trade, tradeMonth]);
+    return { layer, pending };
+  }, [trade, tradeMonth, tradePaths, data, tradePathTick]);
+  const tradeLayer = tradeView?.layer;
+  useEffect(() => {
+    if (!tradeView?.pending) return;
+    const timer = window.setTimeout(() => setTradePathTick((n) => n + 1), 16);
+    return () => window.clearTimeout(timer);
+  }, [tradeView]);
   useEffect(() => { if (panelTab !== 'trade') setTradePlacing(null); }, [panelTab]);
   // The author sees every event while the Story tool is out; the reader, what has happened by the chosen chapter.
   const storyMarks = useMemo<StoryMark[] | undefined>(() => {
@@ -923,9 +998,21 @@ export default function WorldView({
   const fogMode: ReaderFogLayer['mode'] | null = readerView ? 'reader' : tool.mode === 'fog' ? 'author' : null;
   const fogLayer = useMemo<ReaderFogLayer | undefined>(() => {
     if (!fogMode || !data) return undefined;
-    const mask = fogMask(fogEdits, data.width, data.height, readerStart, fogMode === 'reader' ? readerChapter : null);
-    return { mask, width: data.width, height: data.height, mode: fogMode };
-  }, [fogMode, data, fogEdits, readerStart, readerChapter]);
+    const mask = fogMask(fogEdits, data.width, data.height, readerStart, fogMode === 'reader' ? readerChapter : null, data.elevation);
+    return { mask, width: data.width, height: data.height, mode: fogMode, ...(fogMode === 'reader' && readerTowns === 'dots' ? { townDots: true } : {}) };
+  }, [fogMode, data, fogEdits, readerStart, readerChapter, readerTowns]);
+  /** Towns as dots: the towns the reader has only heard of, as dots with no name. */
+  const townDots = useMemo(() => {
+    if (!fogLayer || fogLayer.mode !== 'reader' || !fogLayer.townDots || !geography) return undefined;
+    const dots = geography.settlements.filter((s) => fogStateAt(fogLayer, s.x + 0.5, s.y + 0.5) === FOG_HEARD).map((s) => ({ x: s.x, y: s.y }));
+    return dots.length ? dots : undefined;
+  }, [fogLayer, geography]);
+  /** The party's trail: what has happened by the chapter, in story order. */
+  const trail = useMemo(() => {
+    if (!readerView || !readerTrail) return undefined;
+    const done = storyKnownBy(storyEvents, readerChapter).filter((event) => event.status === 'happened');
+    return done.length >= 2 ? done.map((event) => ({ x: event.x - 0.5, y: event.y - 0.5, ...(event.chapter !== undefined ? { chapter: event.chapter } : {}) })) : undefined;
+  }, [readerView, readerTrail, storyEvents, readerChapter]);
 
   // The closed river crossings are replaced as a whole when one changes, so this reference tells when to redraw.
   const closedCrossingMarks = data?.painted?.blockedCrossingMarks;
@@ -936,7 +1023,7 @@ export default function WorldView({
     const look = themeById(themeId);
     const contours = typeof contourLines === 'number' ? { intervalM: contourLines, color: look.terrain?.contours.color ?? look.furniture.ink } : undefined;
     // The contour lines are ground: under the reader's fog they stay, so the screen and the export agree.
-    if (readerView) return { fog: fogLayer, story: storyMarks, grid: mapGrid ?? undefined, contours };
+    if (readerView) return { fog: fogLayer, story: storyMarks, grid: mapGrid ?? undefined, contours, townDots, trail };
     const pins: NonNullable<CartoAnnotations['pins']> = [];
     if (journeyFrom) pins.push({ x: journeyFrom.x, y: journeyFrom.y, label: journeyFrom.name, kind: 'from' });
     for (const v of journeyVia) pins.push({ x: v.x, y: v.y, label: v.name, kind: 'mark' });
@@ -946,15 +1033,16 @@ export default function WorldView({
     // valle y que la carta no sepa señalarlo era tener el marcapáginas en
     // otro libro.
     const regions: NonNullable<CartoAnnotations['regions']> = savedRegions.map((rg) => ({
-      x: rg.x, y: rg.y, spanKm: rg.spanKm,
+      x: rg.x, y: rg.y, spanKm: rg.spanKm / kmScale,
       aspect: rg.params?.aspect || 1.55,
       title: rg.title,
       active: rg.id === regionAt?.savedId,
     }));
     const closedCrossings = closedCrossingMarks;
-    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours && !closedCrossings?.length) return undefined;
+    if (!pins.length && !r && !paleoState && !linked && !regions.length && !traveller && !mapGrid && !fogLayer && !storyMarks && !tradeLayer && !contours && !closedCrossings?.length && !zones.length) return undefined;
     return {
       contours,
+      zones: zones.length ? zones : undefined,
       closedCrossings,
       fog: fogLayer,
       story: storyMarks,
@@ -974,7 +1062,7 @@ export default function WorldView({
       })() : undefined,
     };
   }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
-    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId, closedCrossingMarks]);
+    savedRegions, regionAt?.savedId, traveller, mapGrid, fogLayer, storyMarks, readerView, tradeLayer, contourLines, themeId, closedCrossingMarks, zones, kmScale, townDots, trail]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1246,6 +1334,25 @@ export default function WorldView({
     if (!applyEditGroup(changed.map((event) => ({ kind: 'story' as const, ...event })))) return;
     for (const event of changed) storyWritten.current.set(event.id, event);
   }, [storyEvents, applyEditGroup]);
+  /** Dragged to a place in its chapter: the chapter's events take their new places in one undo step. */
+  const placeStoryInChapter = useCallback((id: string, index: number) => {
+    const current = storyEvents.map((event) => storyWritten.current.get(event.id) ?? event);
+    const changed = placeInChapter(current, id, index).map((event) => normalizeStoryEvent(event));
+    // Nothing moved: no undo step.
+    if (!changed.length || changed.every((event) => current.find((other) => other.id === event.id)?.order === event.order)) return;
+    if (!applyEditGroup(changed.map((event) => ({ kind: 'story' as const, ...event })))) return;
+    for (const event of changed) storyWritten.current.set(event.id, event);
+  }, [storyEvents, applyEditGroup]);
+  // The manuscript's chapters and scenes, to say where an event is told.
+  const { writings } = useWritings(projectId);
+  const storyWritings = useMemo(() => writings.map((w) => ({ id: w.id, title: w.title || '—', ...(typeof w.chapter === 'number' ? { chapter: w.chapter } : {}) }))
+    .sort((a, b) => (a.chapter ?? 1e9) - (b.chapter ?? 1e9) || a.title.localeCompare(b.title)), [writings]);
+  const navigate = useNavigate();
+  const openWriting = useCallback((id: string) => {
+    const adapter = getAnchorAdapter('writings');
+    if (adapter) adapter.navigateToEntity(id, projectId, navigate);
+    else navigate(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(id)}`);
+  }, [navigate, projectId]);
   // Who can be marked as there: the Codex's characters and factions.
   const { items: codexEntries } = useCodexEntries(projectId);
   const storyPeople = useMemo(() => codexEntries.filter((entry) => entry.type === 'character' || entry.type === 'faction').map((entry) => ({ id: entry.id, title: entry.title })).sort((a, b) => a.title.localeCompare(b.title)), [codexEntries]);
@@ -1844,7 +1951,16 @@ export default function WorldView({
         grid: mapGrid,
         fog: fogLayer?.mode === 'reader' ? fogLayer : null,
         story: storyMarks?.map((mark) => ({ ...mark, selected: false })) ?? null,
+        trail: readerView ? trail ?? null : null,
+        townDots: readerView ? townDots ?? null : null,
+        // The author's zones are the author's map, not what the reader has seen.
+        zones: readerView ? null : zones,
       });
+      // The map's light, as on screen.
+      if (mapHourValue !== null && Number.isFinite(mapHourValue)) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) drawHourLight(ctx, 0, 0, canvas.width, canvas.height, mapHourValue);
+      }
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
       // A 4K canvas is where `toBlob` runs out of memory. Returning quietly
       // left the reader waiting for a download that was never coming.
@@ -1853,7 +1969,7 @@ export default function WorldView({
     } finally {
       setExporting(false);
     }
-  }, [data, theme, drawnLayers, contourLines, reliefSettled, geography, world.title, t, mapGrid, fogLayer, storyMarks]);
+  }, [data, theme, drawnLayers, contourLines, reliefSettled, geography, world.title, t, mapGrid, fogLayer, storyMarks, readerView, zones, mapHourValue, trail, townDots]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -1989,6 +2105,7 @@ export default function WorldView({
               ))}
             </select>
             <select
+              data-testid="worldgen-projection"
               value={projection}
               onChange={(e) => setProjection(e.target.value as Projection)}
               title={t('worldgen.projection.title')}
@@ -2050,6 +2167,17 @@ export default function WorldView({
             ))}
           </select>
         )}
+        {/* The map's light: the world seen at an hour, or following the journey's clock. */}
+        {view === 'map' && (
+          <select data-testid="worldgen-map-hour" aria-label={t('worldgen.hour.title')} title={t('worldgen.hour.title')}
+            value={mapHour}
+            onChange={(e) => setMapHour(e.target.value as typeof mapHour)}
+            className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${mapHour !== 'off' ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
+            <option value="off">{t('worldgen.hour.off')}</option>
+            {(Object.keys(MAP_HOURS) as MapHourName[]).map((h) => <option key={h} value={h}>{t(`worldgen.hour.${h}`)}</option>)}
+            <option value="journey">{t('worldgen.hour.journey')}</option>
+          </select>
+        )}
         {/* 3D skin switch */}
         {view === '3d' && (
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -2071,7 +2199,7 @@ export default function WorldView({
         )}
 
         {/* 3D shape switch */}
-        {view === '3d' && (
+        {view === '3d' && !sheetWorld && (
           <div className="flex rounded-lg border border-border overflow-hidden">
             {SHAPES_3D.map((s) => (
               <button
@@ -2089,7 +2217,7 @@ export default function WorldView({
           </div>
         )}
         {/* 3D stage switch: tabletop model or landscape (the plane only) */}
-        {view === '3d' && shape3D === 'plane' && (
+        {view === '3d' && shapeShown === 'plane' && (
           <div className="flex rounded-lg border border-border overflow-hidden" role="group" aria-label={t('worldgen.threeD.stage.label')}>
             {(['maqueta', 'paisaje'] as const).map((s) => (
               <button
@@ -2109,6 +2237,23 @@ export default function WorldView({
               </button>
             ))}
           </div>
+        )}
+        {/* The tabletop model's block: cut rock, stacked paper or an engraving */}
+        {view === '3d' && shapeShown === 'plane' && stage3D === 'maqueta' && (
+          <select data-testid="worldgen-block3d" aria-label={t('worldgen.threeD.block.label')} title={t('worldgen.threeD.block.title')}
+            value={block3D}
+            onChange={(e) => setBlock3D(e.target.value as 'roca' | 'papel' | 'grabado')}
+            className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${block3D !== 'roca' ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
+            {(['roca', 'papel', 'grabado'] as const).map((b) => (
+              <option key={b} value={b}>{t(`worldgen.threeD.block.${b}`)}</option>
+            ))}
+          </select>
+        )}
+        {/* Clouds over the plane, with their shadows on the ground */}
+        {view === '3d' && shapeShown === 'plane' && (
+          <span data-testid="worldgen-clouds">
+            <OverlayToggle active={clouds3D} onClick={() => setClouds3D((c) => !c)} icon={Cloud} title={t('worldgen.threeD.clouds')} />
+          </span>
         )}
 
         {/* Overlay toggles */}
@@ -2214,7 +2359,7 @@ export default function WorldView({
               )}
             </div>
           )}
-          {(view === 'map' || view === 'carta') && (
+          {(view === 'map' || view === 'carta' || view === '3d') && (
             <div className="flex items-center gap-1" data-testid="worldgen-reader">
               <button type="button" data-testid="worldgen-reader-toggle" aria-pressed={readerView}
                 title={t('worldgen.reader.hint')}
@@ -2260,6 +2405,17 @@ export default function WorldView({
                     className="bg-elevated border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60 disabled:opacity-40">
                     {READER_STARTS.map((start) => <option key={start} value={start}>{t(`worldgen.reader.start.${start}`)}</option>)}
                   </select>
+                  <select data-testid="worldgen-reader-towns" disabled={!readerView} aria-label={t('worldgen.reader.towns')} title={t('worldgen.reader.towns')}
+                    value={readerTowns}
+                    onChange={(e) => setReaderTowns(e.target.value as 'names' | 'dots')}
+                    className="bg-elevated border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60 disabled:opacity-40">
+                    <option value="names">{t('worldgen.reader.towns.names')}</option>
+                    <option value="dots">{t('worldgen.reader.towns.dots')}</option>
+                  </select>
+                  <label className={`flex items-center gap-1 text-xs ${readerView ? 'text-text-primary' : 'text-text-muted opacity-40'}`} title={t('worldgen.reader.trailHint')}>
+                    <input type="checkbox" data-testid="worldgen-reader-trail" disabled={!readerView} checked={readerTrail} onChange={(e) => setReaderTrail(e.target.checked)} />
+                    {t('worldgen.reader.trail')}
+                  </label>
             </div>
           )}
         </div>
@@ -2343,6 +2499,21 @@ export default function WorldView({
               toast.success(t(closed ? 'worldgen.menu.crossingOpened' : 'worldgen.menu.crossingBlocked'));
             } }];
         })(),
+        // A river drawn by hand within two cells: turn it round (its spring becomes its mouth).
+        ...(drawnRiverNear((data.painted?.rivers ?? []).map((r) => r.cells), data.width, worldMenu.x, worldMenu.y) >= 0 ? [{
+          id: 'river-reverse', label: t('worldgen.menu.riverReverse'), icon: <Waves size={14} />,
+          run: () => {
+            if (!applyEdit({ kind: 'reverseRiver', x: Math.floor(worldMenu.x), y: Math.floor(worldMenu.y) })) { toast.error(t('worldgen.story.busy')); return false; }
+            toast.success(t('worldgen.menu.riverReversed'));
+          } }] : []),
+        // A zone from here: the Zones tool comes out with its first corner where the menu was opened.
+        { id: 'zone-start', label: t('worldgen.menu.zoneStart'), icon: <Flag size={14} />,
+          run: () => {
+            setPanelTab('paint'); setToolsOpen(true);
+            setTool((prev) => ({ ...prev, mode: 'zone' }));
+            setZoneStart({ x: worldMenu.x, y: worldMenu.y });
+            toast.info(t('worldgen.menu.zoneStarted'));
+          } },
         { id: 'story', label: t('worldgen.menu.story'), icon: <BookMarked size={14} />, ask: t('worldgen.menu.storyTitle'),
           run: (title) => {
             const chapter = readerView && readerChapter !== null ? readerChapter : undefined;
@@ -2356,7 +2527,7 @@ export default function WorldView({
           {data && view === 'map' && (
             // How much of the world the view takes in: the band (world, continent, region, local) and its width on the ground.
             <div className="pointer-events-none absolute left-2 top-2 z-10 rounded bg-surface/80 px-2 py-0.5 text-[10px] text-text-muted" data-testid="worldgen-view-band" data-tier={semanticProfile.tier}>
-              {t(`worldgen.band.${semanticProfile.tier}`)} · {t('worldgen.band.across').replace('{n}', Math.round(viewport.spanKm).toLocaleString(locale === 'en' ? 'en-GB' : 'es-ES'))}
+              {t(`worldgen.band.${semanticProfile.tier}`)} · {t('worldgen.band.across').replace('{n}', Math.round(viewport.spanKm * sheetScale(world.params)).toLocaleString(locale === 'en' ? 'en-GB' : 'es-ES'))}
             </div>
           )}
           {readerView && readerChapter !== null && (view === 'map' || view === 'carta') && (() => {
@@ -2455,6 +2626,8 @@ export default function WorldView({
               // puntas del viaje y los sitios que nombra el manuscrito se
               // dibujan aquí también.
               annotations={annotations}
+              hour={mapHourValue}
+              zoneStart={zoneStart}
               />
           )}
           {data && view === 'carta' && (
@@ -2513,9 +2686,13 @@ export default function WorldView({
                 viewport={viewport}
                 onViewportChange={setViewport}
                 skin={skin3D}
-                shape={shape3D}
+                shape={shapeShown}
                 stage={stage3D}
-                onShape={setShape3D}
+                block={block3D}
+                clouds={clouds3D}
+                readerFog={fogLayer}
+                onShape={chooseShape}
+                noGlobe={sheetWorld}
                 exaggeration={exaggeration}
                 // The reader's-eye tools draw on flat maps only; the globe gets the hand.
                 tool={brush.mode === 'fog' || brush.mode === 'story' ? DEFAULT_PAINT_TOOL : brush}
@@ -2550,7 +2727,7 @@ export default function WorldView({
                 // Volar SIN cambiar de vista, y aterrizar a escala comarcal si
                 // se venía de más lejos — encontrar un pueblo desde el globo
                 // entero debe dejarte viéndolo, no a 40.000 km de él.
-                const span = Math.min(viewportRef.current?.spanKm ?? EARTH_KM, 240);
+                const span = Math.min(viewportRef.current?.spanKm ?? EARTH_KM, 240 / kmScale);
                 flyCamera(x / data.width, y / data.height, span);
                 setFlyMark({ x, y, name });
               }}
@@ -2756,7 +2933,7 @@ export default function WorldView({
                     setViewport({
                       u: selectedSpatialEntity.x / data.width,
                       v: selectedSpatialEntity.y / data.height,
-                      spanKm: Math.min(400, viewport.spanKm),
+                      spanKm: Math.min(400 / kmScale, viewport.spanKm),
                     });
                     setView('map');
                   }}
@@ -2885,13 +3062,13 @@ export default function WorldView({
                   void navigator.clipboard?.writeText(json);
                   toast.success(t('worldgen.paint.editsCopied'));
                 }}
-                cellKm={Math.round(40075 / (data?.width ?? 1024))}
+                cellKm={Math.round(cellKmOf(data?.params, data?.width ?? 1024) * 10) / 10}
                 realms={realmChoices}
                 busy={painting || environment.busy}
                 selectedLabel={selectedLabel}
                 onRelabel={(change, key) => applyEdit({ kind: 'relabel', key, ...change })}
                 onRemoveLabel={() => { if (selectedLabelKey) { applyEdit({ kind: 'remove', target: 'label', key: selectedLabelKey }); setSelectedLabelKey(null); } }}
-                flatOnlyNote={view === '3d' && (tool.mode === 'fog' || tool.mode === 'story')}
+                flatOnlyNote={view === '3d' && (tool.mode === 'fog' || tool.mode === 'story' || tool.mode === 'zone')}
                 storyEvents={storyEvents}
                 selectedStoryId={selectedStoryId}
                 onSelectStory={setSelectedStoryId}
@@ -2900,6 +3077,13 @@ export default function WorldView({
                 onFocusStory={(event) => zoomToPoint(event.x, event.y)}
                 storyPeople={storyPeople}
                 onReorderStory={reorderStory}
+                onPlaceStoryInChapter={placeStoryInChapter}
+                storyWritings={storyWritings}
+                onOpenWriting={openWriting}
+                zones={zones}
+                onUpdateZone={(zone) => { if (!applyEdit({ kind: 'zone', ...zone })) toast.error(t('worldgen.story.busy')); }}
+                onRemoveZone={(id) => { if (!applyEdit({ kind: 'zoneRemove', id })) toast.error(t('worldgen.story.busy')); }}
+                onFocusZone={(zone) => { const c = zoneShape(zone, data?.width ?? 1); zoomToPoint(c.cx, c.cy); }}
                 worldLevels={levels}
                 onRollName={(style, roll) => (geography && data ? rollLabelName(geography, String(data.params.seed), style, roll, undefined, { painted: paintedNames(data.painted) }) : null)}
                 onWorldLevel={(kind, m) => {
@@ -3042,7 +3226,7 @@ export default function WorldView({
               flyCamera(
                 ((x / data.width) % 1 + 1) % 1,
                 Math.min(1, Math.max(0, y / data.height)),
-                spanKm,
+                spanKm === undefined ? undefined : spanKm / kmScale,
               );
             }
           }}

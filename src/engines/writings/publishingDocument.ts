@@ -6,6 +6,7 @@ import {
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { countWords } from '@/utils/text';
 import { projectWritingHtml } from './revisionProjection';
+import { applyBookStyle, normalizeBookStyle, type BookStyle } from './bookStyle';
 
 /**
  * Portable exports deliberately omit every image. In particular, they never
@@ -55,11 +56,25 @@ export interface PublishingDocumentSection {
   portableHtml: string;
   wordCount: number;
   omittedImageCount: number;
+  /**
+   * The chapter's header image from its Reader presentation, when the profile
+   * prints them: a local raster data URL (never fetched), its layout, and the
+   * label a banner prints over it.
+   */
+  headerImage?: { src: string; layout: 'above' | 'beside' | 'banner'; label?: string };
 }
 
 export interface PublishingDocument {
   identifier: string;
   title: string;
+  /** The byline under the title, when the project has one. */
+  author?: string;
+  /** A copyright line on a page of its own after the title page. */
+  copyright?: string;
+  /** The back-cover text, as the book's last page. */
+  blurb?: { title: string; text: string };
+  /** How the whole book is set, when the profile picks a style. */
+  bookStyle?: BookStyle;
   locale: string;
   generatedAt: number;
   includeTitlePage: boolean;
@@ -94,6 +109,20 @@ export interface PublishingDocument {
 export interface PublishingDocumentOptions {
   identifier?: string;
   projectTitle: string;
+  /** The project's author, printed as a byline on the title page. */
+  author?: string;
+  copyright?: string;
+  blurb?: { title: string; text: string };
+  bookStyle?: BookStyle;
+  /**
+   * Keep the manuscript's own pictures in DOCX and ePub. Off by default: the
+   * portable formats then carry no image at all (`PORTABLE_PUBLISHING_IMAGE_POLICY`).
+   * On, only pictures stored in the manuscript itself (PNG, JPEG, GIF, WebP data,
+   * up to 3 MB each) travel; anything else is still left out and counted.
+   */
+  includeInlineImages?: boolean;
+  /** Header images by writing id, from the Reader presentation; only local rasters are used. */
+  chapterImages?: Record<string, { image?: string; imageLayout: string }>;
   includeTitlePage: boolean;
   /** Print a list of the chapters before the first one. Off when absent. */
   includeToc?: boolean;
@@ -133,6 +162,9 @@ export interface PublishingDocumentOptions {
  */
 function chapterHeading(writing: Writing, options: PublishingDocumentOptions): string {
   const title = writing.title.trim() || options.untitledLabel?.trim() || 'Untitled';
+  // A kicker ("Prologue", "Interlude") is read in place of the number.
+  const kicker = writing.kicker?.trim();
+  if (kicker) return kicker === title ? title : `${kicker} — ${title}`;
   return writing.chapter !== undefined
     ? `${options.chapterLabel} ${writing.chapter} — ${title}`
     : title;
@@ -146,6 +178,62 @@ function chapterHeading(writing: Writing, options: PublishingDocumentOptions): s
 export function publishingSectionWordCount(writing: Writing): number {
   if (writing.content.includes('data-wh-revision-')) return countWords(projectWritingHtml(writing.content));
   return writing.wordCount || countWords(writing.content);
+}
+
+const HEADER_RASTER = /^data:image\/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i;
+
+function headerImageFor(writing: Writing, options: PublishingDocumentOptions): { headerImage?: PublishingDocumentSection['headerImage'] } {
+  const chosen = options.chapterImages?.[writing.id];
+  if (!chosen?.image || !HEADER_RASTER.test(chosen.image) || chosen.image.length > 3_000_000) return {};
+  const layout = chosen.imageLayout === 'beside' || chosen.imageLayout === 'banner' ? chosen.imageLayout : chosen.imageLayout === 'above' ? 'above' : null;
+  if (!layout) return {};
+  const kicker = writing.kicker?.trim();
+  const label = kicker || (writing.chapter !== undefined ? `${options.chapterLabel} ${writing.chapter}` : undefined);
+  return { headerImage: { src: chosen.image, layout, ...(layout === 'banner' && label ? { label: xmlSafeText(label) } : {}) } };
+}
+
+const INLINE_RASTER = /^data:image\/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i;
+
+/** The pictures stored in the manuscript stay (with their width and frame); every other image goes and is counted. */
+function keepLocalImages(html: string): { html: string; count: number } {
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  let count = 0;
+  for (const image of [...document.body.querySelectorAll('img')]) {
+    const src = image.getAttribute('src') ?? '';
+    if (!INLINE_RASTER.test(src) || src.length > 3_000_000) { image.remove(); count++; continue; }
+    for (const attribute of [...image.attributes]) if (!['src', 'alt', 'data-wh-width', 'data-wh-frame'].includes(attribute.name)) image.removeAttribute(attribute.name);
+  }
+  return { html: document.body.innerHTML, count };
+}
+
+/**
+ * A story email's header and a text message's sender are drawn from their
+ * attributes in the editor; a compiled book writes them as text, so Word,
+ * ePub and Markdown — which read no attributes — keep who wrote to whom.
+ */
+function materializeStoryBlocks(html: string): string {
+  if (!html.includes('data-wh-email') && !html.includes('data-wh-sender')) return html;
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  for (const email of [...document.body.querySelectorAll('div[data-wh-email]')]) {
+    const from = email.getAttribute('data-wh-from') ?? '', to = email.getAttribute('data-wh-to') ?? '', subject = email.getAttribute('data-wh-subject') ?? '', date = email.getAttribute('data-wh-date') ?? '';
+    if (!from && !to && !subject && !date) continue;
+    const head = document.createElement('p');
+    head.className = 'wh-email-head';
+    const line = (text: string) => { if (head.childNodes.length) head.appendChild(document.createElement('br')); head.appendChild(document.createTextNode(text)); };
+    if (from || to) line(`✉ ${from}${to ? ` → ${to}` : ''}`);
+    if (subject || date) { if (head.childNodes.length) head.appendChild(document.createElement('br')); const strong = document.createElement('strong'); strong.textContent = subject; head.appendChild(strong); if (date) head.appendChild(document.createTextNode(`${subject ? ' · ' : ''}${date}`)); }
+    email.prepend(head);
+    email.setAttribute('data-wh-email-rendered', 'true');
+  }
+  for (const message of [...document.body.querySelectorAll('div[data-wh-message][data-wh-sender]')]) {
+    const sender = document.createElement('p');
+    sender.className = 'wh-message-sender';
+    const strong = document.createElement('strong'); strong.textContent = message.getAttribute('data-wh-sender') ?? '';
+    sender.appendChild(strong);
+    message.prepend(sender);
+    message.setAttribute('data-wh-sender-rendered', 'true');
+  }
+  return document.body.innerHTML;
 }
 
 function omitImages(html: string): { html: string; count: number } {
@@ -167,9 +255,11 @@ export function composePublishingDocument(
   writings: readonly Writing[],
   options: PublishingDocumentOptions,
 ): PublishingDocument {
+  const bookStyle = normalizeBookStyle(options.bookStyle);
   const sections = writings.map((writing) => {
-    const html = xmlSafeText(sanitizeRichHtml(projectWritingHtml(writing.content)));
-    const portable = omitImages(html);
+    const clean = materializeStoryBlocks(xmlSafeText(sanitizeRichHtml(projectWritingHtml(writing.content))));
+    const html = bookStyle ? applyBookStyle(clean, bookStyle) : clean;
+    const portable = options.includeInlineImages ? keepLocalImages(html) : omitImages(html);
     // A synopsis of nothing but spaces is not a synopsis: it would print an
     // empty centred italic line above the chapter and read as a layout fault.
     const synopsis = options.includeSynopsis ? writing.synopsis?.trim() : undefined;
@@ -181,11 +271,16 @@ export function composePublishingDocument(
       portableHtml: portable.html,
       wordCount: publishingSectionWordCount(writing),
       omittedImageCount: portable.count,
+      ...headerImageFor(writing, options),
     };
   });
   return {
     identifier: options.identifier ?? `urn:writers-hoard:${encodeURIComponent(options.projectTitle)}`,
     title: xmlSafeText(options.projectTitle),
+    ...(options.author?.trim() ? { author: xmlSafeText(options.author.trim().slice(0, 120)) } : {}),
+    ...(options.copyright?.trim() ? { copyright: xmlSafeText(options.copyright.trim()) } : {}),
+    ...(options.blurb?.text.trim() ? { blurb: { title: xmlSafeText(options.blurb.title), text: xmlSafeText(options.blurb.text.trim()) } } : {}),
+    ...(bookStyle ? { bookStyle } : {}),
     locale: options.locale ?? 'en-US',
     generatedAt: options.generatedAt ?? Date.now(),
     includeTitlePage: options.includeTitlePage,

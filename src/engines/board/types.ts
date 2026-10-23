@@ -151,6 +151,8 @@ export interface BoardNode {
   expandedSize?:BoardSize;
   /** Excluded from auto-layout — the node stays where the author put it. */
   pinned?: boolean;
+  /** How the outline of a card or shape is drawn: solid (default), dashed, or sketched by hand. */
+  border?: BoardNodeBorder;
   tags: string[];
   /** Arbitrary attributes, queryable with `prop:key=value` and `key>3`. */
   props?: Record<string, string | number | boolean>;
@@ -180,6 +182,8 @@ export interface BoardEndpoint {
 }
 
 export type BoardEdgeStyle = 'solid' | 'dashed' | 'dotted';
+export const BOARD_NODE_BORDERS = ['solid', 'dashed', 'sketch'] as const;
+export type BoardNodeBorder = typeof BOARD_NODE_BORDERS[number];
 export type BoardEdgeDirection = 'none' | 'forward' | 'backward' | 'both';
 export type BoardEdgeCurvature = 'straight' | 'curved' | 'step' | 'arc';
 

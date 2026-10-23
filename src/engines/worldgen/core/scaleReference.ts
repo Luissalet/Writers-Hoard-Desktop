@@ -8,6 +8,7 @@
 // the outline's centre, then lands that far from the point the reader is
 // looking at on this planet.
 
+import { isSheet, worldKmOf } from './geoScale';
 import type { Basemap } from '@/engines/real-atlas/basemap';
 import { PLANET_RADIUS_KM } from './measure';
 
@@ -64,10 +65,22 @@ export interface PlacedReference {
  * and laid out the same kilometres from the target, so its size is true at the
  * target's latitude whatever the projection then does to it.
  */
-export function placeReference(rings: number[][][], u: number, v: number, earthRadiusKm = 6371, planetRadiusKm = PLANET_RADIUS_KM): PlacedReference {
+export function placeReference(rings: number[][][], u: number, v: number, earthRadiusKm = 6371, planetRadiusKm = PLANET_RADIUS_KM, sheet?: { worldKm?: number }): PlacedReference {
   let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
   for (const ring of rings) for (const [lon, lat] of ring) { minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); }
   const lon0 = (minLon + maxLon) / 2, lat0 = (minLat + maxLat) / 2;
+  // A sheet is flat and worldKm wide (half as tall): the same kilometres laid straight out.
+  if (isSheet(sheet)) {
+    const km = worldKmOf(sheet);
+    return {
+      rings: rings.map((ring) => ring.map(([lon, lat]) => [
+        u + earthRadiusKm * (lon - lon0) * DEG * Math.cos(lat * DEG) / km,
+        v - earthRadiusKm * (lat - lat0) * DEG / (km / 2),
+      ] as [number, number])),
+      widthKm: earthRadiusKm * (maxLon - minLon) * DEG * Math.cos(lat0 * DEG),
+      heightKm: earthRadiusKm * (maxLat - minLat) * DEG,
+    };
+  }
   const targetLat = 90 - v * 180, targetLon = u * 360 - 180;
   const placed = rings.map((ring) => ring.map(([lon, lat]) => {
     const eastKm = earthRadiusKm * (lon - lon0) * DEG * Math.cos(lat * DEG);

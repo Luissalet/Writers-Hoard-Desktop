@@ -138,6 +138,21 @@ lectura exacta del manual actualizado).
 
 ---
 
+## Escritura 1095 (ola C) — cosas a revisar (no requieren decisión de Luis)
+
+- `[~]` Word (DOCX) del «manual de juego»: las dos columnas empiezan después de
+  la portadilla, pero un título de capítulo no puede ocupar las dos columnas
+  dentro de una sección de Word (lo hace en HTML/PDF y ePub). Hacerlo pediría
+  una sección por capítulo.
+- `[~]` Word: la imagen de cabecera WebP o AVIF no entra en DOCX (Word no las
+  lee); PNG, JPEG y GIF sí. Las versalitas de apertura salen en mayúsculas
+  normales en DOCX.
+- `[?]` `library-create-ui` agota el tiempo también con el arnés de
+  redimensionado; el flujo que prueba (crear ficha desde la Biblioteca) pasa en
+  `run-workspace-library-qa`. Revisar el arnés.
+- `[~]` Restaurar desde el Archivo no se puede deshacer con `wh_undo` (es una
+  operación del Archivo con su propia confirmación).
+
 ## Mapas 1095 — cosas a revisar (no requieren decisión de Luis)
 
 - `test:critical`: la prueba de notas al pie («a new note did not open its

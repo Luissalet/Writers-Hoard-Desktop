@@ -30,9 +30,9 @@ export function columnCalculation(table:WorldTable,column:DataColumn,templates:r
 }
 /** One effective, uncached projection for UI, API, CSV and image export. */
 export function projectWorldTable(table:WorldTable,entries:readonly CodexEntry[],templates:readonly CodexTemplate[]=[]):{columns:DataColumn[];rows:DataRow[];displayRows:DataRow[];calculatedColumnIds:string[]}{
- const columns=effectiveTableColumns(table,templates),definitions=tableDefinitions(table,templates),live=Boolean(table.codexType||table.codexTemplateId),selected=entries.filter(entry=>table.codexTemplateId?entry.templateId===table.codexTemplateId:entry.type===table.codexType);
+ const columns=effectiveTableColumns(table,templates),definitions=tableDefinitions(table,templates),live=Boolean(table.codexType||table.codexTemplateId||table.codexAllTypes),selected=entries.filter(entry=>table.codexAllTypes?true:table.codexTemplateId?entry.templateId===table.codexTemplateId:entry.type===table.codexType);
  const projections=new Map(selected.map(entry=>[entry.id,projectCodexEntry(entry,templates)]));
- const source:DataRow[]=live?selected.map(entry=>({id:entry.id,cells:Object.fromEntries(columns.map(column=>[column.id,column.field==='title'?entry.title:projections.get(entry.id)?.fields[column.field??column.name]??'']))})):table.rows;
+ const source:DataRow[]=live?selected.map(entry=>({id:entry.id,cells:Object.fromEntries(columns.map(column=>[column.id,column.field==='title'?entry.title:column.field==='__type'?entry.type:projections.get(entry.id)?.fields[column.field??column.name]??'']))})):table.rows;
  const calculatedColumnIds=columns.filter(column=>column.calculation||live&&selected.some(entry=>projections.get(entry.id)?.properties[column.field??column.name]?.calculated)||definitions.some(definition=>definition.id===column.propertyId&&definition.formula)).map(column=>column.id);
  const asts=new Map<string,FormulaNode>(),aggregateMemo=new Map<FormulaNode,FormulaValue>(),cache=new Map<string,FormulaValue>(),visiting=new Set<string>();const fail=(code:string):never=>{throw Error(code);};
  const read=(row:DataRow,id:string):FormulaValue=>{const key=JSON.stringify([row.id,id]);if(cache.has(key))return cache.get(key)!;if(visiting.has(key))return fail('#CIRCULAR!');const column=columns.find(column=>column.id===id);if(!column)return fail('#REF!');visiting.add(key);try{

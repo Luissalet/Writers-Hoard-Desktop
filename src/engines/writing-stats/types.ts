@@ -81,6 +81,12 @@ export interface ActiveSprint {
   /** The project's total word count at the moment the sprint started. */
   baselineWords: number;
   writingId?: string;
+  /**
+   * Set while the sprint is paused: the clock stands still at `endsAt - pausedAt`,
+   * and resuming pushes `endsAt` on by the time it stood. A paused sprint never
+   * runs out, however long the app is shut.
+   */
+  pausedAt?: number;
 }
 
 /** Last sprint setup, so starting the next one is a single click. */

@@ -9,7 +9,7 @@
 // match only says the NAME occurs in the text: it is not presence, point of
 // view or any claim about the scene.
 
-import { foldAlias, isAliasField, readAliases } from './aliases';
+import { foldAlias, isAliasField, isLinkingAlias, readAliases } from './aliases';
 
 export interface MatchableEntry {
   id: string;
@@ -44,7 +44,8 @@ export function entryNames(entry: MatchableEntry): string[] {
     names.push(name);
   };
   add(entry.title ?? '');
-  for (const alias of readAliases(entry.fields)) add(alias);
+  // A common word kept as an alias ("el", "the") would link every page.
+  for (const alias of readAliases(entry.fields)) if (isLinkingAlias(alias)) add(alias);
   return names;
 }
 

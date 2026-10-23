@@ -11,6 +11,7 @@
 // defensibility — weighted, not ranked, because a great harbour beats mediocre
 // soil and vice versa.
 
+import { isSheet } from './geoScale';
 import { Biome, type WorldData } from './types';
 import { createRng, type Rng } from './rng';
 import { cultureMap, NameRegistry, type CultureId, type FeatureKind } from './naming';
@@ -511,15 +512,23 @@ export function buildHumanGeography(
   }
 
   // ---- pick sites with rank-dependent spacing -----------------------------
+  // A sheet is a map of a smaller piece of ground, drawn bigger: it is peopled
+  // by its land, not by the size of the grid — or a lone island on a sheet gets
+  // the handful of towns a planet's island would, set a continent apart.
+  const sheet = isSheet(world.params);
+  let landCells = 0;
+  if (sheet) for (let i = 0; i < W * H; i++) if (elevation[i] > 0 && !lake[i]) landCells++;
   const targetTotal = Math.round(
-    Math.min(260, Math.max(24, (W * H) / 5200) * params.settlementDensity),
+    Math.min(260, Math.max(24, sheet ? landCells / 400 : (W * H) / 5200) * params.settlementDensity),
   );
   const order: number[] = [];
   for (let i = 0; i < W * H; i++) if (score[i] > 0.35) order.push(i);
   order.sort((a, b) => score[b] - score[a]);
 
   const settlements: Settlement[] = [];
-  const minSpacing = Math.max(6, Math.sqrt((W * H) / Math.max(1, targetTotal)) * 0.55);
+  const minSpacing = sheet
+    ? Math.max(4, Math.sqrt(landCells / Math.max(1, targetTotal)) * 0.55)
+    : Math.max(6, Math.sqrt((W * H) / Math.max(1, targetTotal)) * 0.55);
   const grid = new Map<string, Settlement[]>();
   const cellSize = Math.max(4, Math.round(minSpacing * 2));
   const gkey = (x: number, y: number) => `${Math.floor(x / cellSize)},${Math.floor(y / cellSize)}`;

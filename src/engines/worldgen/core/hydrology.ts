@@ -7,6 +7,7 @@
 //     density-controlled threshold (so rivers are born in wet highlands and
 //     grow as tributaries join — dry basins get few or none).
 
+import { cellKmOf, isSheet, sheetScale } from './geoScale';
 import { FlowSolver } from './erosion';
 import type { RiverPath, WorldParams } from './types';
 
@@ -39,7 +40,9 @@ export function annualRunoff(precipitation: number, temperature: number): number
 }
 
 /** Exact spherical strip area, unlike the grid solver's latitude approximation. */
-export function hydrologyCellArea(width: number, height: number, row: number): number {
+export function hydrologyCellArea(width: number, height: number, row: number, sheet?: { worldKm?: number }): number {
+  // A sheet is flat: every cell has the same area, at the sheet's own scale.
+  if (isSheet(sheet)) return cellKmOf(sheet, width) ** 2;
   const north = (0.5 - row / height) * Math.PI;
   const south = (0.5 - (row + 1) / height) * Math.PI;
   return EARTH_RADIUS_KM ** 2 * (2 * Math.PI / width) * (Math.sin(north) - Math.sin(south));
@@ -60,7 +63,7 @@ export function computeHydrology(
   const volumePerRunoff = new Float64Array(H);
   const solverArea = new Float64Array(H);
   if (absolute) for (let y = 0; y < H; y++) {
-    volumePerRunoff[y] = hydrologyCellArea(W, H, y) * MM_KM2_TO_CUBIC_METRES_PER_SECOND;
+    volumePerRunoff[y] = hydrologyCellArea(W, H, y, params) * MM_KM2_TO_CUBIC_METRES_PER_SECOND;
     solverArea[y] = Math.fround(Math.max(0.02, Math.cos((0.5 - (y + 0.5) / H) * Math.PI)));
   }
   // Legacy recipes retain their relative field. New worlds pass m³/s, with
@@ -172,7 +175,9 @@ export function computeHydrology(
   const flowMap = new Float32Array(N);
   let aMax = 0;
   for (let i = 0; i < N; i++) if (elevation[i] > 0 && acc[i] > aMax) aMax = acc[i];
-  const logMax = Math.log1p(absolute ? FLOW_REFERENCE : aMax || 1);
+  // A sheet shows smaller rivers: what a map of its size draws scales with it.
+  const shown = sheetScale(params);
+  const logMax = Math.log1p(absolute ? FLOW_REFERENCE * shown : aMax || 1);
   for (let i = 0; i < N; i++) {
     flowMap[i] = elevation[i] > 0 ? Math.min(1, Math.log1p(acc[i]) / logMax) : 0;
   }
@@ -189,7 +194,7 @@ export function computeHydrology(
   landAcc.sort((a, b) => b - a);
   const thresholdIdx = Math.min(landAcc.length - 1, Math.max(8, Math.floor(landAcc.length * keepFrac)));
   const threshold = absolute
-    ? 4000 * Math.exp(-3 * Math.max(0, Math.min(1, params.riverDensity)))
+    ? 4000 * shown * Math.exp(-3 * Math.max(0, Math.min(1, params.riverDensity)))
     : landAcc.length ? landAcc[thresholdIdx] : Infinity;
 
   const isRiver = new Uint8Array(N);

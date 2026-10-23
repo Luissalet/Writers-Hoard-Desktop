@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { TITLE_ORNAMENT_TEXT, TRIM_SIZES, bookStyleCss } from '@/engines/writings/bookStyle';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
@@ -7,6 +8,7 @@ import {
   buildPublishingPreview,
   getCitations,
   PUBLISHING_WORDS_PER_PAGE,
+  READING_WORDS_PER_MINUTE,
   type PublishingOutput,
   type PublishingPreviewContent,
 } from '@/services/projectTools';
@@ -14,7 +16,7 @@ import type { Project, Writing } from '@/types';
 import type { Citation, PublishingProfile } from '@/types/projectTools';
 
 export interface PublishingPreviewPaneProps {
-  project: Pick<Project, 'id' | 'title'>;
+  project: Pick<Project, 'id' | 'title' | 'author'> & Partial<Pick<Project, 'blurb' | 'readerPresentation'>>;
   /** The live profile draft. Recompiles are debounced, never per keystroke. */
   profile: PublishingProfile;
   /** Already scoped to the project, exactly as the export path resolves them. */
@@ -40,6 +42,8 @@ interface FormatCaveat {
   /** Named `t` so the locale conformance gate sees these keys as literals. */
   text: (t: (key: string) => string) => string;
   applies: (content: PublishingPreviewContent) => boolean;
+  /** A caveat about pictures, which a profile keeping them answers. */
+  images?: true;
 }
 
 /**
@@ -64,7 +68,7 @@ const FORMAT_CAVEATS: Partial<Record<PublishingOutput, FormatCaveat[]>> = {
   // centred `'* * *'`; `headingFor` maps `h1` to HEADING_2 because the piece
   // title already holds HEADING_1.
   docx: [
-    { text: t => t('projectTools.publishing.preview.caveat.docx.images'), applies: content => content.images },
+    { text: t => t('projectTools.publishing.preview.caveat.docx.images'), applies: content => content.images, images: true },
     { text: t => t('projectTools.publishing.preview.caveat.docx.links'), applies: content => content.links },
     { text: t => t('projectTools.publishing.preview.caveat.docx.sceneBreaks'), applies: content => content.sceneBreaks },
     { text: t => t('projectTools.publishing.preview.caveat.docx.headings'), applies: content => content.headings },
@@ -74,7 +78,7 @@ const FORMAT_CAVEATS: Partial<Record<PublishingOutput, FormatCaveat[]>> = {
   // rowspan never reach the book. Links keep their address here; tables keep
   // their rows.
   epub: [
-    { text: t => t('projectTools.publishing.preview.caveat.epub.images'), applies: content => content.images },
+    { text: t => t('projectTools.publishing.preview.caveat.epub.images'), applies: content => content.images, images: true },
     { text: t => t('projectTools.publishing.preview.caveat.epub.attributes'), applies: content => content.mergedCells },
   ],
 };
@@ -113,6 +117,8 @@ export default function PublishingPreviewPane({
   );
   const [target, setTarget] = useState<PublishingOutput>(() => (canExportPdf() ? 'pdf' : 'html'));
   const [citations, setCitations] = useState<Citation[]>([]);
+  // How the page would look on a phone or an e-reader: the width of the screen, and grey ink on paper for e-ink.
+  const [device, setDevice] = useState<'web' | 'mobile' | 'ereader'>('web');
   // Compiling on every keystroke of the profile name would sanitize and parse
   // the manuscript once per letter, so the draft is followed at a distance.
   const [compiled, setCompiled] = useState<PublishingProfile>(profile);
@@ -139,8 +145,8 @@ export default function PublishingPreviewPane({
   // `project` arrives as a fresh literal from the Writings shortcut, so the
   // compile is keyed on its fields instead of its identity.
   const previewProject = useMemo(
-    () => ({ id: project.id, title: project.title }),
-    [project.id, project.title],
+    () => ({ id: project.id, title: project.title, author: project.author, blurb: project.blurb, readerPresentation: project.readerPresentation }),
+    [project.id, project.title, project.author, project.blurb, project.readerPresentation],
   );
   const preview = useMemo(
     () => buildPublishingPreview(previewProject, compiled, writings, citations, { titleOverride }),
@@ -158,12 +164,15 @@ export default function PublishingPreviewPane({
   const caveats = outputs
     .map(output => ({
       output,
-      lines: (FORMAT_CAVEATS[output] ?? []).filter(caveat => caveat.applies(preview.content)),
+      // A profile that keeps the manuscript's pictures takes them into Word and ePub too.
+      lines: (FORMAT_CAVEATS[output] ?? []).filter(caveat => caveat.applies(preview.content) && !(caveat.images && profile.includeInlineImages)),
     }))
     .filter(entry => entry.lines.length > 0);
   const portable = isPortableOutput(target);
   const stale = compiled !== profile;
   const documentLocale = preview.document.locale;
+  // A book style prints at a trim, and a trim holds its own number of words a page.
+  const perPage = preview.document.bookStyle ? TRIM_SIZES[preview.document.bookStyle.trim].wordsPerPage : PUBLISHING_WORDS_PER_PAGE;
 
   return (
     <section aria-busy={stale} className="rounded-lg border border-border bg-deep/40 p-3">
@@ -195,7 +204,8 @@ export default function PublishingPreviewPane({
             .replace('{pieces}', preview.pieceCount.toLocaleString(locale))
             .replace('{words}', preview.wordCount.toLocaleString(locale))
             .replace('{pages}', preview.pageEstimate.toLocaleString(locale))
-            .replace('{perPage}', PUBLISHING_WORDS_PER_PAGE.toLocaleString(locale))}
+            .replace('{perPage}', perPage.toLocaleString(locale))}
+          {' · '}{t('projectTools.publishing.preview.readingTime').replace('{minutes}', Math.max(1, Math.ceil(preview.wordCount / READING_WORDS_PER_MINUTE)).toLocaleString(locale))}
         </p>
       </div>
 
@@ -246,8 +256,19 @@ export default function PublishingPreviewPane({
         </p>
       )}
 
+      <div role="group" aria-label={t('projectTools.publishing.preview.device')} className="mb-2 flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-text-dim">{t('projectTools.publishing.preview.device')}</span>
+        {(['web', 'mobile', 'ereader'] as const).map(value => (
+          <button key={value} type="button" data-testid={`publishing-device-${value}`} aria-pressed={device === value} onClick={() => setDevice(value)} className={`${chipClass} ${device === value ? activeChip : idleChip}`}>
+            {t(`projectTools.publishing.preview.device.${value}`)}
+          </button>
+        ))}
+      </div>
       <div
-        className={`max-h-96 overflow-y-auto rounded-lg border border-border bg-surface px-4 py-4 font-serif transition-opacity ${stale ? 'opacity-60' : ''}`}
+        data-testid="publishing-preview-page"
+        data-device={device}
+        className={`mx-auto max-h-96 overflow-y-auto rounded-lg border px-4 py-4 font-serif transition-all ${stale ? 'opacity-60' : ''} ${device === 'ereader' ? 'border-neutral-400 bg-[#f2efe6] text-neutral-900 [&_*]:!text-neutral-800' : 'border-border bg-surface'} ${device === 'mobile' ? 'rounded-[1.5rem] border-4' : ''}`}
+        style={{ maxWidth: device === 'mobile' ? 390 : device === 'ereader' ? 600 : undefined, filter: device === 'ereader' ? 'grayscale(1)' : undefined }}
       >
         {preview.pieces.length === 0 ? (
           <p className="py-6 text-center font-sans text-sm text-text-dim">
@@ -260,12 +281,17 @@ export default function PublishingPreviewPane({
             {preview.document.includeTitlePage && (
               <div className="mb-6 border-b border-border pb-5 text-center">
                 <p className="text-lg text-text-primary">{preview.document.title}</p>
+                {preview.document.author && <p className="mt-1 text-sm text-text-primary" data-testid="publishing-preview-byline">{preview.document.author}</p>}
                 {/* The whole selection's total, because that is what the file's
                     title page will add up — the preview compiles fewer bodies. */}
                 <p className="mt-1 text-xs italic text-text-muted">
                   {`${preview.wordCount.toLocaleString(documentLocale)} ${preview.document.wordLabel} · ${new Date(preview.document.generatedAt).toLocaleDateString(documentLocale)}`}
                 </p>
               </div>
+            )}
+
+            {preview.document.copyright && (
+              <p className="mb-6 border-b border-border pb-5 text-center text-xs italic text-text-muted" data-testid="publishing-preview-copyright">{preview.document.copyright}</p>
             )}
 
             {/* The file's contents page, so ticking the box shows something
@@ -282,15 +308,30 @@ export default function PublishingPreviewPane({
               </nav>
             )}
 
+            {preview.document.bookStyle && (
+              <style data-testid="publishing-preview-book-css">{bookStyleCss(preview.document.bookStyle, '[data-wh-book-preview] .wh-preview-prose', '[data-wh-book-preview] .wh-preview-title')}</style>
+            )}
             {preview.pieces.map(piece => (
-              <article key={piece.id} className="mb-6 last:mb-0">
-                <h4 className="text-center text-base text-text-primary">{piece.title}</h4>
+              <article key={piece.id} className="mb-6 last:mb-0" {...(preview.document.bookStyle ? { 'data-wh-book-preview': preview.document.bookStyle.preset } : {})}>
+                {piece.headerImage?.layout === 'banner' && piece.headerImage.label && <p className="text-center text-[10px] uppercase tracking-[0.24em] text-text-muted">{piece.headerImage.label}</p>}
+                {piece.headerImage && piece.headerImage.layout !== 'beside' && <img data-testid="publishing-preview-chapter-image" data-layout={piece.headerImage.layout} src={piece.headerImage.src} alt="" style={piece.headerImage.layout === 'banner' ? { width: '100%', height: 96, objectFit: 'cover', borderRadius: 4, marginBottom: 8 } : { display: 'block', maxHeight: 140, maxWidth: '100%', margin: '0 auto 8px' }} />}
+                <h4 className="wh-preview-title text-center text-base text-text-primary">{piece.title}</h4>
+                {piece.headerImage?.layout === 'beside' && <img data-testid="publishing-preview-chapter-image" data-layout="beside" src={piece.headerImage.src} alt="" style={{ float: 'left', maxWidth: '35%', maxHeight: 120, margin: '4px 12px 6px 0' }} />}
+                {preview.document.bookStyle && preview.document.bookStyle.titleOrnament !== 'none' && (
+                  <p className="text-center text-xs tracking-[0.2em] text-text-muted" data-testid="publishing-preview-ornament" aria-hidden="true">{TITLE_ORNAMENT_TEXT[preview.document.bookStyle.titleOrnament]}</p>
+                )}
+                <p className="text-center font-sans text-[10px] text-text-dim" data-testid="publishing-piece-stats">
+                  {t('projectTools.publishing.preview.pieceStats')
+                    .replace('{words}', piece.wordCount.toLocaleString(locale))
+                    .replace('{pages}', Math.max(1, Math.ceil(piece.wordCount / perPage)).toLocaleString(locale))
+                    .replace('{minutes}', Math.max(1, Math.ceil(piece.wordCount / READING_WORDS_PER_MINUTE)).toLocaleString(locale))}
+                </p>
                 {piece.synopsis && (
                   <p className="mt-1 text-center text-xs italic text-text-muted">{piece.synopsis}</p>
                 )}
                 {piece.bodyCompiled ? (
                   <div
-                    className={bodyClass}
+                    className={`wh-preview-prose ${bodyClass}`}
                     dangerouslySetInnerHTML={sanitizedHtml(portable ? piece.portableHtml : piece.html)}
                   />
                 ) : (
@@ -324,6 +365,17 @@ export default function PublishingPreviewPane({
                   <p key={`citation-${index}`} className="mt-2 text-xs text-text-muted">{citation}</p>
                 ))}
               </section>
+            )}
+            {preview.document.blurb && (
+              <section className="mt-6 border-t border-border pt-4" data-testid="publishing-preview-blurb">
+                <h4 className="text-center text-base text-text-primary">{preview.document.blurb.title}</h4>
+                {preview.document.blurb.text.split(/\n+/).map((line, index) => (
+                  <p key={`blurb-${index}`} className="mt-2 text-xs text-text-muted">{line}</p>
+                ))}
+              </section>
+            )}
+            {profile.includeBlurb && !preview.document.blurb && (
+              <p className="mt-6 text-center font-sans text-[11px] text-warning" data-testid="publishing-preview-no-blurb">{t('projectTools.publishing.noBlurb')}</p>
             )}
           </>
         )}

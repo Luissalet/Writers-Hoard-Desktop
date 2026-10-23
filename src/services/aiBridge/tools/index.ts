@@ -59,7 +59,7 @@ import type { CodexEntry } from '@/types';
 import { htmlFromMarkdown, resolveProjectForEngine, resolveProjectId } from './shared';
 import { whBuildWorldBible, whExportWorldBible } from './worldBible';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
-import { whEnableEngine, whGetContext, whListProjects, whSearch } from './context';
+import { whEnableEngine, whGetContext, whListProjects, whUpdateProjectDetails, whSearch } from './context';
 import {
   whAppendWriting,
   whCreateWriting,
@@ -69,18 +69,31 @@ import {
   whListWritings,
   whRestoreWritingVersion,
   whUpdateWriting,
+  whMoveChapter,
 } from './writings';
 import {
-  whCodexTemplates, whSaveCodexTemplate, whDeleteCodexTemplate, whPreviewCodexSync, whApplyCodexSync,
+  whCodexTemplates, whSaveCodexTemplate, whDeleteCodexTemplate, whPreviewCodexSync, whApplyCodexSync, whCodexSeedGenreTypes, whCodexGuides, whCodexGuidedCreate,
   whCreateCodexEntry,
   whGetCodexEntry,
   whListCodex,
   whUpdateCodexEntry,
 } from './codex';
 import { whCreateDiaryEntry, whListDiary, whUpdateDiaryEntry } from './diary';
+import { whArchiveList, whArchiveRestore } from './archive';
+import { whSprintLog } from './sprints';
+import { whPublishingCompile, whPublishingProfileSet, whPublishingProfiles } from './publishingProfiles';
+import { whCodexRulesCard } from './rulesCards';
+import { whExtractBlockToCard } from './blockExtract';
+import { whTextEffect } from './textEffects';
+import { whSoundLibrary } from './soundLibrary';
+import { whWorkspaceLibraryUpdate } from './workspaceLibrary';
 import {
   whConnectEvents,
   whCreateEvent,
+  whDuplicateEvent,
+  whTimelineTags,
+  whTimelineViews, whTimelineSettings,
+  whTimelineCalendar,
   whCreateTimeline,
   whListEvents,
   whListTimelines,
@@ -161,6 +174,13 @@ import {
   whStoryChapters,
   whRollName,
   whAddSpringRiver,
+  whShapeTerrain,
+  whListZones,
+  whAddZone,
+  whUpdateZone,
+  whRemoveZone,
+  whDrawRiver,
+  whReverseRiver,
   whAddWorldRoad,
   whPaintBiome,
   whSetRiverCrossing,
@@ -366,6 +386,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_get_context: whGetContext,
   wh_workspace_library_get: args=>readLibraryCreationContext({projectId:resolveProjectId(args),eraId:typeof args.eraId==='string'?args.eraId:undefined}),
   wh_list_projects: whListProjects,
+  wh_update_project_details: whUpdateProjectDetails,
   wh_enable_engine: whEnableEngine,
   wh_search: whSearch,
   wh_delete: whDelete,
@@ -375,6 +396,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_create_writing: whCreateWriting,
   wh_import_story_session: whImportStorySession,
   wh_update_writing: whUpdateWriting,
+  wh_move_chapter: whMoveChapter,
   wh_append_writing: whAppendWriting,
   wh_list_writing_versions: whListWritingVersions,
   wh_restore_writing_version: whRestoreWritingVersion,
@@ -387,6 +409,9 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_list_codex: whListCodex,
   wh_get_codex_entry: whGetCodexEntry,
   wh_codex_templates: whCodexTemplates,
+  wh_codex_seed_genre_types: whCodexSeedGenreTypes,
+  wh_codex_guides: whCodexGuides,
+  wh_codex_guided_create: whCodexGuidedCreate,
   wh_save_codex_template: whSaveCodexTemplate,
   wh_delete_codex_template: whDeleteCodexTemplate,
   wh_preview_codex_sync: whPreviewCodexSync,
@@ -402,6 +427,22 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_create_timeline: whCreateTimeline,
   wh_list_events: whListEvents,
   wh_create_event: whCreateEvent,
+  wh_archive_list: whArchiveList,
+  wh_archive_restore: whArchiveRestore,
+  wh_sprint_log: whSprintLog,
+  wh_publishing_profiles: whPublishingProfiles,
+  wh_publishing_profile_set: whPublishingProfileSet,
+  wh_publishing_compile: whPublishingCompile,
+  wh_codex_rules_card: whCodexRulesCard,
+  wh_extract_block_to_card: whExtractBlockToCard,
+  wh_text_effect: whTextEffect,
+  wh_sound_library: whSoundLibrary,
+  wh_workspace_library_update: whWorkspaceLibraryUpdate,
+  wh_duplicate_event: whDuplicateEvent,
+  wh_timeline_tags: whTimelineTags,
+  wh_timeline_views: whTimelineViews,
+  wh_timeline_settings: whTimelineSettings,
+  wh_timeline_calendar: whTimelineCalendar,
   wh_world_calendar_get: whWorldCalendarGet,
   wh_world_calendar_set: whWorldCalendarSet,
   wh_world_date: whWorldDate,
@@ -513,6 +554,13 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_story_chapters: whStoryChapters,
   wh_roll_name: whRollName,
   wh_add_spring_river: whAddSpringRiver,
+  wh_shape_terrain: whShapeTerrain,
+  wh_list_zones: whListZones,
+  wh_add_zone: whAddZone,
+  wh_update_zone: whUpdateZone,
+  wh_remove_zone: whRemoveZone,
+  wh_draw_river: whDrawRiver,
+  wh_reverse_river: whReverseRiver,
   wh_add_world_road: whAddWorldRoad,
   wh_paint_biome: whPaintBiome,
   wh_set_river_crossing: whSetRiverCrossing,

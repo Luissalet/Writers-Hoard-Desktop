@@ -14,7 +14,7 @@ import { db } from '@/db';
 import { saveCodexDraft } from '@/engines/codex/operations';
 import { listEraRows, readEraRow, saveEraDocument } from '@/services/worldEras/store';
 import type { EraRow } from '@/services/worldEras/types';
-import { projectCodexEntry } from '@/engines/codex/properties';
+import { missingRequiredProperties, projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
 import { applyCodexTemplate, saveCodexTemplate, deleteCodexTemplate, type CodexTemplate } from '@/engines/codex/templates';
 import { effectiveCodexTemplate } from '@/engines/codex/templateHierarchy';
 import {createLibraryCodex} from '@/components/project/workspace/library/createCodex';
@@ -27,6 +27,10 @@ import {
   updateCodexEntry,
 } from '@/db/operations';
 import { generateId } from '@/utils/idGenerator';
+import { aliasProblem, readAliases, replaceAliases, suggestAliases } from '@/services/codexReference/aliases';
+import { genrePackTemplates, seedGenrePack } from '@/engines/codex/genrePacks';
+import { CARD_GUIDES, cardGuide, guideAnswers } from '@/engines/codex/guides';
+import { freezeCodexEntry } from '@/engines/codex/freeze';
 import {
   assertEngineEnabled,
   assertRowInScope,
@@ -79,6 +83,20 @@ export async function whListCodex(args: ToolArgs): Promise<unknown> {
   };
 }
 
+/**
+ * The `aliases` argument, checked like the card's alias chips: a common word,
+ * a one-letter name or the card's own name is refused with the reason.
+ */
+function aliasesArg(args: ToolArgs, title: string): string[] | undefined {
+  const aliases = optStringArray(args, 'aliases');
+  if (aliases === undefined) return undefined;
+  for (const alias of aliases) {
+    const problem = aliasProblem(alias, title);
+    if (problem) throw new BridgeError('bad-args', `Alias "${alias}" refused: ${problem === 'common' ? 'too common a word, it would link every page' : problem === 'short' ? 'too short to be a name' : 'it is already the card\'s name'}.`);
+  }
+  return aliases;
+}
+
 export async function whGetCodexEntry(args: ToolArgs): Promise<unknown> {
   const entry = await mustGetEntry(requireString(args, 'id'), args);
   assertRowInScope(args, entry.projectId);
@@ -93,6 +111,10 @@ export async function whGetCodexEntry(args: ToolArgs): Promise<unknown> {
     templateId: entry.templateId,
     referenceFields: entry.referenceFields,
     tags: entry.tags,
+    aliases: readAliases(entry.fields),
+    aliasSuggestions: suggestAliases(entry.title, readAliases(entry.fields), { person: entry.type === 'character' }),
+    // Required properties of its type left empty: the app will not save the card until they are filled.
+    missingRequired: (() => { const raw = templates.find(item => item.id === entry.templateId); return raw ? missingRequiredProperties(propertyDefinitions(effectiveCodexTemplate(raw, templates)), entry.fields).map(definition => definition.label) : []; })(),
     updatedAt: entry.updatedAt,
     content: markdownFromHtml(entry.content),
   };
@@ -108,7 +130,8 @@ export async function whCreateCodexEntry(args: ToolArgs): Promise<unknown> {
   const templates = (await db.projects.get(projectId))?.codexTemplates ?? [];
   const template = templates.find(item => item.id === templateId);
   if (templateId && !template) throw new BridgeError('bad-args', 'Template not found in this project.');
-  const fields = optStringMap(args, 'fields') ?? {};
+  const aliases = aliasesArg(args, title);
+  const fields = aliases ? replaceAliases(optStringMap(args, 'fields') ?? {}, aliases) : optStringMap(args, 'fields') ?? {};
   if (template && effectiveCodexTemplate(template, templates).propertyDefinitions?.some(item => item.formula && Object.hasOwn(fields, item.key))) throw new BridgeError('bad-args', 'Calculated properties cannot be written.');
   const applied = template ? applyCodexTemplate(template, fields, markdown ? htmlFromMarkdown(markdown) : '', templates) : undefined;
   const entry: CodexEntry = {
@@ -172,6 +195,14 @@ export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
   }
   const tags = optStringArray(args, 'tags');
   if (tags !== undefined) changes.tags = tags;
+  const aliases = aliasesArg(args, changes.title ?? entry.title);
+  if (aliases !== undefined) changes.fields = replaceAliases(changes.fields ?? entry.fields, aliases);
+  if (args.freeze !== undefined) {
+    if (args.freeze !== true) throw new BridgeError('bad-args', 'freeze is true: to link a card to a type again, use the card form or wh_create_codex_entry templateId.');
+    if (!entry.templateId) throw new BridgeError('bad-args', 'This card has no type to freeze it from.');
+    const frozen = freezeCodexEntry({ ...entry, ...changes }, (await db.projects.get(entry.projectId))?.codexTemplates ?? []);
+    changes.fields = frozen.fields; changes.propertyDefinitions = frozen.propertyDefinitions; changes.templateId = undefined;
+  }
 
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
@@ -181,6 +212,7 @@ export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
     type: entry.type,
     fields: entry.fields,
     tags: entry.tags,
+    ...('templateId' in changes ? { templateId: entry.templateId, propertyDefinitions: entry.propertyDefinitions } : {}),
   };
   // The body is replaced whole and there is no snapshot table behind the codex,
   // so it goes into the log or it is gone.
@@ -230,4 +262,48 @@ export async function whApplyCodexSync(args: ToolArgs): Promise<unknown> {
   const preview = args.preview as TemplateSyncPreview;
   if (!preview || preview.projectId !== projectId || !Array.isArray(preview.changes)) throw new BridgeError('bad-args', 'Pass the complete preview returned for this project.');
   return applyTemplateSync(preview);
+}
+
+/** Ready-made types for the project's genres: those whose name it lacks, or a dry list. */
+export async function whCodexSeedGenreTypes(args: ToolArgs): Promise<unknown> {
+  const projectId = await resolveProjectForEngine(args, 'codex');
+  const project = await db.projects.get(projectId);
+  if (!project) throw new BridgeError('not-found', 'Project not found.');
+  const locale = optEnum(args, 'locale', ['es', 'en'] as const) ?? 'es';
+  const genres = optStringArray(args, 'genres') ?? project.genres ?? [];
+  if (!genres.length) throw new BridgeError('bad-args', 'The project has no genres; set them with wh_project_genres_set or pass genres.');
+  const planned = genrePackTemplates(genres, project.codexTemplates ?? [], locale);
+  if (optBoolean(args, 'dryRun') === true) return { projectId, genres, wouldAdd: planned.map(template => ({ name: template.name, category: template.category, icon: template.icon, fields: Object.keys(template.fields) })) };
+  const added = await seedGenrePack(projectId, genres, project.codexTemplates ?? [], locale);
+  const after = (await db.projects.get(projectId))?.codexTemplates ?? [];
+  return withAudit(
+    { projectId, genres, added, templates: after.filter(template => added.includes(template.name)).map(template => ({ id: template.id, name: template.name, category: template.category })) },
+    { projectId, entityId: projectId, summary: `added ${added.length} genre type(s)`, before: { __seededTemplateIds: after.filter(template => added.includes(template.name)).map(template => template.id) } },
+  );
+}
+
+/** The guided-card questions, for one kind of card or all of them. */
+export async function whCodexGuides(args: ToolArgs): Promise<unknown> {
+  const locale = optEnum(args, 'locale', ['es', 'en'] as const) ?? 'es';
+  const type = optEnum(args, 'type', TYPES);
+  const guides = type ? CARD_GUIDES.filter(guide => guide.type === type) : CARD_GUIDES;
+  if (type && !guides.length) throw new BridgeError('not-found', `No guide for "${type}"; guides exist for ${CARD_GUIDES.map(guide => guide.type).join(', ')}.`);
+  return { guides: guides.map(guide => ({ type: guide.type, name: guide.name[locale], steps: guide.steps.map(step => ({ field: step.field[locale], question: step.question[locale], hint: step.hint[locale] })) })) };
+}
+
+/** A card made from guide answers, as "Ficha guiada" does: each answer fills its field, the first opens the description. */
+export async function whCodexGuidedCreate(args: ToolArgs): Promise<unknown> {
+  await resolveProjectForEngine(args, 'codex');
+  const locale = optEnum(args, 'locale', ['es', 'en'] as const) ?? 'es';
+  const type = optEnum(args, 'type', TYPES);
+  const guide = type ? cardGuide(type) : undefined;
+  if (!guide) throw new BridgeError('bad-args', `type must be one of ${CARD_GUIDES.map(item => item.type).join(', ')}.`);
+  const answers = args.answers;
+  if (!Array.isArray(answers) || answers.length > guide.steps.length || answers.some(answer => typeof answer !== 'string')) throw new BridgeError('bad-args', `answers is a list of up to ${guide.steps.length} strings, in the order of wh_codex_guides.`);
+  const { fields } = guideAnswers(guide, answers as string[], locale);
+  const gist = String(answers[0] ?? '').trim();
+  const created = await whCreateCodexEntry({ ...(args.projectId ? { projectId: args.projectId } : {}), ...(args.eraId ? { eraId: args.eraId } : {}), type: guide.type, title: requireString(args, 'title'), fields, ...(gist ? { content: gist } : {}) }) as { __audit?: { table?: string } };
+  // Undone as the card it creates, in the base or in an era.
+  if (created.__audit && !created.__audit.table) created.__audit.table = 'codexEntries';
+  return created;
 }

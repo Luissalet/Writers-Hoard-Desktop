@@ -1,5 +1,5 @@
 import type { Project } from '@/types';
-import { workspaceDocumentKey, isWorkspaceEngineId, type WorkspaceDocument, type WorkspaceFolder, type WorkspaceLibrary, type WorkspacePlacement } from './types';
+import { workspaceDocumentKey, isWorkspaceEngineId, isFolderColor, isFolderIcon, type WorkspaceDocument, type WorkspaceFolder, type WorkspaceLibrary, type WorkspacePlacement } from './types';
 
 export class WorkspaceLibraryConflict extends Error {}
 export class WorkspaceLibraryInvalidAction extends Error {}
@@ -8,7 +8,7 @@ export function readWorkspaceLibrary(project: Pick<Project, 'workspaceFolders' |
   const folders: WorkspaceFolder[] = [], seen = new Set<string>();
   for (const folder of Array.isArray(project.workspaceFolders) ? project.workspaceFolders : []) {
     if (!folder || !validId(folder.id) || seen.has(folder.id) || typeof folder.name !== 'string' || !folder.name.trim()) continue;
-    seen.add(folder.id); folders.push({ id: folder.id, name: folder.name.trim().slice(0, 120), parentId: validId(folder.parentId) ? folder.parentId : undefined, order: Number.isFinite(folder.order) ? folder.order : folders.length });
+    seen.add(folder.id); folders.push({ id: folder.id, name: folder.name.trim().slice(0, 120), parentId: validId(folder.parentId) ? folder.parentId : undefined, order: Number.isFinite(folder.order) ? folder.order : folders.length, ...(isFolderIcon(folder.icon) ? { icon: folder.icon } : {}), ...(isFolderColor(folder.color) ? { color: folder.color.toLowerCase() } : {}) });
   }
   const byId = new Map(folders.map(folder => [folder.id, folder]));
   for (const folder of folders) {
@@ -18,7 +18,7 @@ export function readWorkspaceLibrary(project: Pick<Project, 'workspaceFolders' |
   const placements = new Map<string, WorkspacePlacement>();
   for (const placement of Array.isArray(project.workspacePlacements) ? project.workspacePlacements : []) {
     if (!placement || !isWorkspaceEngineId(placement.engineId) || !validId(placement.entityId)) continue;
-    placements.set(workspaceDocumentKey(placement), { engineId: placement.engineId, entityId: placement.entityId, folderId: placement.folderId && byId.has(placement.folderId) ? placement.folderId : undefined, order: Number.isFinite(placement.order) ? placement.order : 0 });
+    placements.set(workspaceDocumentKey(placement), { engineId: placement.engineId, entityId: placement.entityId, folderId: placement.folderId && byId.has(placement.folderId) ? placement.folderId : undefined, order: Number.isFinite(placement.order) ? placement.order : 0, ...(placement.pinned === true ? { pinned: true as const } : {}) });
   }
   return { folders, placements: [...placements.values()], revision: Number.isSafeInteger(project.workspaceRevision) && (project.workspaceRevision ?? 0) >= 0 ? project.workspaceRevision! : 0 };
 }
@@ -49,6 +49,12 @@ export type WorkspaceLibraryAction =
   | { kind: 'order-folder'; id: string; direction: -1 | 1 }
   | { kind: 'place'; documents: Array<Pick<WorkspaceDocument, 'engineId' | 'entityId'>>; folderId?: string }
   | { kind: 'order-document'; document: Pick<WorkspaceDocument, 'engineId' | 'entityId'>; direction: -1 | 1 }
+  /** Icon and colour: undefined keeps, null clears. */
+  | { kind: 'style-folder'; id: string; icon?: string | null; color?: string | null }
+  /** Pinned documents lead the Library, wherever they are filed. */
+  | { kind: 'pin'; documents: Array<Pick<WorkspaceDocument, 'engineId' | 'entityId'>>; pinned: boolean }
+  /** A new folder holding the documents chosen, in one step. */
+  | { kind: 'group'; id: string; name: string; parentId?: string; documents: Array<Pick<WorkspaceDocument, 'engineId' | 'entityId'>> }
   | { kind: 'prune' };
 
 /** Pure folder/placement mutation. Its caller supplies the authoritative scoped
@@ -60,18 +66,34 @@ export function applyWorkspaceLibraryAction(library: WorkspaceLibrary, action: W
   const requireFolder = (id: string | undefined) => { if (id !== undefined && !folders.has(id)) invalid(); };
   const name = (value: string, parentId: string | undefined, ignoreId?: string) => { const result = value.trim(); if (!result || result.length > 120 || next.folders.some(folder => folder.id !== ignoreId && folder.parentId === parentId && folder.name.toLocaleLowerCase() === result.toLocaleLowerCase())) invalid(); return result; };
   const reorderFolders = (parentId: string | undefined) => sortedFolders(next.folders, parentId).forEach((folder, order) => { folder.order = order; });
-  const catalog = new Map(documents.map(document => [workspaceDocumentKey(document), document]));
+  const catalog = new Map(documents.map(document => [workspaceDocumentKey(document), document])), allDocuments = documents;
   const placements = new Map(next.placements.map(placement => [workspaceDocumentKey(placement), placement]));
   const inFolder = (document: WorkspaceDocument, folderId?: string) => placements.get(workspaceDocumentKey(document))?.folderId === folderId;
-  const setOrder = (ordered: WorkspaceDocument[], folderId?: string) => ordered.forEach((document, order) => placements.set(workspaceDocumentKey(document), { engineId: document.engineId, entityId: document.entityId, folderId, order }));
+  const setOrder = (ordered: WorkspaceDocument[], folderId?: string) => ordered.forEach((document, order) => { const key = workspaceDocumentKey(document), pinned = placements.get(key)?.pinned; placements.set(key, { engineId: document.engineId, entityId: document.entityId, folderId, order, ...(pinned ? { pinned } : {}) }); });
+  const place = (documents: Array<Pick<WorkspaceDocument, 'engineId' | 'entityId'>>, folderId: string | undefined) => {
+    if (!documents.length) invalid();
+    const keys = new Set(documents.map(workspaceDocumentKey)); if ([...keys].some(key => !catalog.has(key))) invalid();
+    const siblings = sortWorkspaceDocuments(allDocuments.filter(document => inFolder(document, folderId) && !keys.has(workspaceDocumentKey(document))), next.placements);
+    setOrder([...siblings, ...[...keys].map(key => catalog.get(key)!)], folderId);
+  };
   if (action.kind === 'create-folder') {
     requireFolder(action.parentId); if (!validId(action.id) || folders.has(action.id)) invalid();
     next.folders.push({ id: action.id, name: name(action.name, action.parentId), parentId: action.parentId, order: sortedFolders(next.folders, action.parentId).length });
   } else if (action.kind === 'place') {
-    requireFolder(action.folderId); if (!action.documents.length) invalid();
-    const keys = new Set(action.documents.map(workspaceDocumentKey)); if ([...keys].some(key => !catalog.has(key))) invalid();
-    const siblings = sortWorkspaceDocuments(documents.filter(document => inFolder(document, action.folderId) && !keys.has(workspaceDocumentKey(document))), next.placements);
-    setOrder([...siblings, ...[...keys].map(key => catalog.get(key)!)], action.folderId);
+    requireFolder(action.folderId); place(action.documents, action.folderId);
+  } else if (action.kind === 'group') {
+    requireFolder(action.parentId); if (!validId(action.id) || folders.has(action.id)) invalid();
+    const folder: WorkspaceFolder = { id: action.id, name: name(action.name, action.parentId), parentId: action.parentId, order: sortedFolders(next.folders, action.parentId).length };
+    next.folders.push(folder); folders.set(folder.id, folder);
+    place(action.documents, folder.id);
+  } else if (action.kind === 'pin') {
+    if (!action.documents.length || typeof action.pinned !== 'boolean') invalid();
+    for (const document of action.documents) {
+      const key = workspaceDocumentKey(document); if (!catalog.has(key)) invalid();
+      const current = placements.get(key) ?? { engineId: document.engineId, entityId: document.entityId, order: Number.MAX_SAFE_INTEGER };
+      const rest: WorkspacePlacement = { ...current }; delete rest.pinned;
+      placements.set(key, action.pinned ? { ...rest, pinned: true } : rest);
+    }
   } else if (action.kind === 'order-document') {
     const key = workspaceDocumentKey(action.document), document = catalog.get(key); if (!document) invalid();
     const folderId = placements.get(key)?.folderId, siblings = sortWorkspaceDocuments(documents.filter(document => inFolder(document, folderId)), next.placements);
@@ -83,6 +105,13 @@ export function applyWorkspaceLibraryAction(library: WorkspaceLibrary, action: W
   } else {
     const folder = folders.get(action.id); if (!folder) invalid();
     if (action.kind === 'rename-folder') folder!.name = name(action.name, folder!.parentId, folder!.id);
+    else if (action.kind === 'style-folder') {
+      if (action.icon !== undefined && action.icon !== null && !isFolderIcon(action.icon)) invalid();
+      if (action.color !== undefined && action.color !== null && !isFolderColor(action.color)) invalid();
+      if (action.icon === undefined && action.color === undefined) invalid();
+      if (action.icon === null) delete folder!.icon; else if (action.icon !== undefined) folder!.icon = action.icon as WorkspaceFolder['icon'];
+      if (action.color === null) delete folder!.color; else if (action.color !== undefined) folder!.color = action.color.toLowerCase();
+    }
     else if (action.kind === 'move-folder') {
       requireFolder(action.parentId); let cursor = action.parentId;
       while (cursor) { if (cursor === folder!.id) invalid(); cursor = folders.get(cursor)?.parentId; }

@@ -1,6 +1,6 @@
 import {createCanvasPile,setPileCollapsed} from '../graph/piles';
 import {hiddenCanvasNodeIds,pileSelection,pileItemCount} from '../graph/membership';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Background, BackgroundVariant, ConnectionLineType, ConnectionMode, Controls, MiniMap,
@@ -18,6 +18,7 @@ import { DEFAULT_SIZE, EDGE_KINDS, GRID_STEP, SURFACE_PALETTE } from '../catalog
 import { useBoardGraph, useBoardLayers, useBoardViews, type BoardPendingReview } from '../hooks';
 import { boundsOfNodes } from '../graph/geometry';
 import { cloneSelection, makeEdge, makeNode, nodesInsideFrame } from '../graph/mutations';
+import { quickConnected } from '../graph/quickConnect';
 import { runLayout, type LayoutKind } from '../graph/layout';
 import { computeMetrics } from '../graph/metrics';
 import { evaluateQuery } from '../graph/query';
@@ -276,6 +277,18 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
     [graph.nodeById, projectId, navigateTo,worldScope],
   );
 
+  // A new idea like the selected one on the side clicked, joined to it, in one undo step.
+  const quickConnectRef = useRef<(id: string, side: 'top' | 'right' | 'bottom' | 'left') => void>(() => undefined);
+  const quickConnectNow = (id: string, side: 'top' | 'right' | 'bottom' | 'left') => {
+    const from = graph.nodeById.get(id);
+    if (!from || graph.loading || (from.layerId && layerById.get(from.layerId)?.locked)) return;
+    const { node, edge } = quickConnected(from, side, graph.nodes, { layerId: activeLayerId && !layerById.get(activeLayerId)?.locked ? activeLayerId : from.layerId });
+    graph.batch(t('board.history.add'), { addNodes: [node], addEdges: [edge] });
+    setSelectedNodeIds(new Set([node.id]));
+    setSelectedEdgeIds(new Set());
+  };
+  useLayoutEffect(() => { quickConnectRef.current = quickConnectNow; });
+  const quickConnect = useCallback((id: string, side: 'top' | 'right' | 'bottom' | 'left') => quickConnectRef.current(id, side), []);
   const togglePile=useCallback((id:string)=>{const frame=graph.nodeById.get(id);if(!frame||!canMoveNode(frame,layerById))return;graph.patchNodes([{id,changes:setPileCollapsed(frame,graph.nodes,!frame.collapsed)}],frame.collapsed?copy.openPile:copy.collapsePile);},[graph,layerById,copy.openPile,copy.collapsePile]);
 
   // ---- React Flow nodes ------------------------------------------------
@@ -312,6 +325,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
           onOpenRef: openRef,
           onRename: renameNode,
           onToggleFrame:togglePile,
+          onQuickConnect: quickConnect,
           memberCount:node.kind==='frame'?pileItemCount(node,graph.nodes):0,
         },
       };
@@ -319,7 +333,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasPro
   }, [
     visibleNodes, positionOf, sizeOf, layerById, selectedNodeIds, queryMode,
     queryResult.passthrough, queryResult.nodeIds, pathIds, link,
-    openInspector, requestDelete, startLink, openRef, renameNode,togglePile,graph.nodes,
+    openInspector, requestDelete, startLink, openRef, renameNode,togglePile,graph.nodes, quickConnect,
   ]);
 
   // ---- drag / resize ---------------------------------------------------
