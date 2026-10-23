@@ -79,3 +79,9 @@ Main completó `verify:quick`: tipos de renderer/Electron, shipping lint con cer
 El manual Google se actualizó con 412 unidades UTF-16 bajo `requiredRevision` y posterior relectura. El recibo `_stage/player-attacks-next/manual-receipt.json` identifica la fuente final y registra 198 párrafos, los otros 197 textos sin cambios y todos los estilos de párrafo preservados. Esa escritura pertenece a raíz; este pase sólo actualiza documentación del repositorio.
 
 Esta entrega de ataques queda integrada y documentada. Los niveles/espacialización y pan del SDK siguen como frentes separados en curso; este recibo no certifica su fuente WIP. Los recuentos de matrices y entregas anteriores siguen siendo históricos; 1095 continúa. Se mantienen los límites de referencia, reglas manuales, transportes y cobertura descritos arriba.
+
+## Contraste adicional del perfil de clase existente, 23 de octubre
+
+Root probó en Brave la ficha5e0.1.11 de referencia: Fighter3/CON10 calcula máximo22; conservar7actuales y subir a4 calcula28 y mantiene7 al volver a abrir. En Writer, la previsualización del perfil optativo2014 ya ofrecía esos mismos22/28, aplicados expresamente con sus casillas, sin curar al cambiar de nivel. Tras guardar, seleccionar Nora y regresar a Jugar, la QA conservó Fighter4, competencia+2 y7/28. `QA Spear`/+4/`1d6+2`/piercing/cantidad1 permaneció intacta. Capturas inspeccionadas en `_stage/live-next/writer-five-e-class-level4-hp7.png` y `writer-five-e-class-hp-preserved.png`; la segunda se mostró a Luis.
+
+Este contraste no requirió código nuevo ni acredita multiclase o rasgos automáticos de subclase. La observación del bloque5e separado de referencia mostró una descripción de acción libre; no se deduce que todos sus recorridos carezcan de campos estructurados. Los niveles/pan del SDK se integraron después en `fcf94f6`, según su recibo propio; la frase de cierre anterior describe el momento de la entrega de ataques.

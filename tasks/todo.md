@@ -1353,3 +1353,17 @@ See [resources verification](vvd1095/verification-sdk-assets.md). Installation o
 - [x] Root updated the Google manual with its own requiredRevision/readback: 412 UTF-16 units, 198 paragraphs, 197 other texts unchanged and all paragraph styles preserved. `_stage/player-attacks-next/manual-receipt.json` names source `112f1fc`; this documentation pass did not write the manual.
 
 See [player-attack verification](vvd1095/verification-player-attacks.md). Task 1095 remains open, historical counts stay unchanged, and the cached stdio host is not final-source transport proof.
+
+## Shared-world manuscripts — task1095
+
+- [x] Add an optional catalogue and structural chapter ownership while preserving the implicit original manuscript and world identities.
+- [x] Scope the library, book editor, imports, Reader/presentation/positions, profiles and captured editions; preserve independent panes and pending text.
+- [x] Carry ownership through JSON/Duplicate/ZIP/eras, including archived same-ID origins and atomic rejection of incompatible restored catalogues.
+- [x] Exercise normal Brave with original+A+B, separate text/chapters/covers, archive/restore, dirty pane navigation and the same exact Codex ID.
+- [x] Preserve REDs and close independent restore/capture findings and earlier SDK/selftest/clock-sensitive fixture regressions without weakening their assertions.
+- [x] Record complete critical pass4/396, technical review65, source83fc744 and fresh formal CAS21 approval of that exact commit.
+- [x] Final complete VVD4 on the unchanged65-route freeze:971 groups/295 suites/0 failures, exit0.
+- [x] Integrate83fc744 ff-only under a fresh merge lock; actual clean-main verify:quick/build/Electron/Node939 and original author-kit checks pass.
+- [x] Update the Google manual with requiredRevision/readback198/197 texts/styles preserved, plus prefix-preserving MEMORY and own-node-only graph continuity; separate source-bound receipts retained.
+
+See [shared-manuscript verification](vvd1095/verification-shared-manuscripts.md). Next agreed front: local font/data importing for source tools, implementation still pending. Task1095 stays open; no push.
