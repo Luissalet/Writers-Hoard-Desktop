@@ -8,6 +8,17 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['local-tool-audio-levels.browser.tsx', 'testAudioLevelsCapability', 180000],
+  ['local-tool-audio-levels.browser.tsx', 'testAudioMeasuredPcm', 180000],
+  ['local-tool-audio-levels.browser.tsx', 'testAudioNativeLevels', 180000],
+  ['local-tool-audio-levels.browser.tsx', 'testAudioLevelsLifecycle', 180000],
+  ['local-tool-audio-levels.browser.tsx', 'testAudioPreparedCleanup', 180000],
+  ['local-tool-audio-spatial.browser.tsx', 'testAudioStereoPcm', 180000],
+  ['local-tool-audio-spatial.browser.tsx', 'testAudioLegacyBackendPan', 180000],
+  ['review-local-tool-audio-levels.browser.tsx', 'reviewAudioVariablePcm', 180000],
+  ['review-local-tool-audio-levels.browser.tsx', 'reviewAudioNodeFallback', 180000],
+  ['review-local-tool-audio-levels.browser.tsx', 'reviewAudioMeterVisibility', 180000],
+  ['review-local-tool-audio-levels.browser.tsx', 'reviewAudioSuspendedRead', 180000],
   ['player-attacks.browser.tsx', 'testPlayerAttackEntry', 180000],
   ['player-attacks.browser.tsx', 'testPlayerAttackContract', 180000],
   ['player-attacks.browser.tsx', 'testPlayerAttackValidation', 180000],
