@@ -8,6 +8,19 @@ const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const suites = [
+  ['player-attacks.browser.tsx', 'testPlayerAttackEntry', 180000],
+  ['player-attacks.browser.tsx', 'testPlayerAttackContract', 180000],
+  ['player-attacks.browser.tsx', 'testPlayerAttackValidation', 180000],
+  ['player-attacks.browser.tsx', 'testPlayerAttackPaper', 180000],
+  ['player-attacks.browser.tsx', 'testPlayerAttackDepth', 180000],
+  ['player-attacks.browser.tsx', 'testPlayerAttackSpanishHistory', 180000],
+  ['player-attacks.browser.tsx', 'testPlayerAttackConfirmations', 180000],
+  ['player-attacks.browser.tsx', 'testPlayerAttackUnicodeContext', 180000],
+  ['review-player-attacks.browser.tsx', 'reviewPlayerAttackHistoryIdentity', 180000],
+  ['review-player-attacks.browser.tsx', 'reviewPlayerAttackConcurrentCas', 180000],
+  ['review-player-attacks.browser.tsx', 'reviewPlayerAttackReadonlyRefresh', 180000],
+  ['review-player-attacks.browser.tsx', 'reviewPlayerAttackSpanishDraft', 180000],
+  ['review-player-attacks.browser.tsx', 'reviewPlayerAttackLongContext', 180000],
   ['world-graph-display-next.browser.tsx', 'testGraphDisplayLegacySvg', 180000],
   ['world-graph-display-next.browser.tsx', 'testGraphDisplayControls', 180000],
   ['world-graph-display-next.browser.tsx', 'testGraphDisplayContract', 180000],

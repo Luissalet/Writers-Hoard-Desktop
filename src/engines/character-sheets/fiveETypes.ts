@@ -12,6 +12,7 @@ export interface FiveEState {
  castingAbilityId?:FiveEAbilityId;spellSaveDcOverride?:number;spellAttackOverride?:number;
 }
 export interface FiveESpellRow {version:1;level:number;prepared:boolean}
+export interface FiveEAttackRow {version:1;bonus:number;damageType:string}
 const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 export function validFiveE(value:unknown):value is FiveEState {
  if(!record(value)||value.version!==1||value.ruleset!==FIVE_E_RULESET||!FIVE_E_CLASS_IDS.includes(value.classId as FiveEClassId)||!Array.isArray(value.auto)||new Set(value.auto).size!==value.auto.length||value.auto.some(key=>!FIVE_E_AUTO_FIELDS.includes(key))||!record(value.applied))return false;
@@ -20,3 +21,4 @@ export function validFiveE(value:unknown):value is FiveEState {
  return ['spellSaveDcOverride','spellAttackOverride'].every(key=>value[key]===undefined||typeof value[key]==='number'&&Number.isFinite(value[key])&&Math.abs(value[key])<=1000000);
 }
 export function validFiveESpell(value:unknown):value is FiveESpellRow{return record(value)&&value.version===1&&Number.isInteger(value.level)&&Number(value.level)>=0&&Number(value.level)<=9&&typeof value.prepared==='boolean';}
+export function validFiveEAttack(value:unknown):value is FiveEAttackRow{return record(value)&&value.version===1&&Number.isSafeInteger(value.bonus)&&typeof value.damageType==='string'&&value.damageType.length<=100000;}
