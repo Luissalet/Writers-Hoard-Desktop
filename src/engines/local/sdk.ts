@@ -1,3 +1,4 @@
+export {useLocalToolAudioLevels} from './useLocalToolAudioLevels';
 export {localAssetFile} from './assets';
 export {useLocalToolAsset} from './useLocalToolAsset';
 export type {LocalAssetRef,LocalAssetSpec,LocalAssetManifest,LocalAssetResolved,LocalAssetOverrides,LocalToolAssets} from './assets';
@@ -5,7 +6,7 @@ import {HOST_ASSET_NAMESPACE,validateLocalAssetManifest,type LocalAssetManifest,
 export {defineLocalToolBlock} from './blocks/definitions';
 export {useLocalToolWorldList,useLocalToolWorldRead} from './useLocalToolWorld';
 export {useSound,useAudioPlayer} from './useLocalToolAudio';
-export type {LocalToolAudio,LocalAudioRef,LocalAudioOptions,LocalAudioUpdate,LocalAudioState,LocalAudioBus,LocalAudioFocus} from './audio';
+export type {LocalToolAudio,LocalAudioLevels,LocalAudioChannelLevels,LocalAudioRef,LocalAudioOptions,LocalAudioUpdate,LocalAudioState,LocalAudioBus,LocalAudioFocus} from './audio';
 export type {LocalToolWorldClient} from './useLocalToolWorld';
 export type {LocalToolBlockDefinition,LocalToolOwnedBlockDefinition,LocalToolWorldBlockDefinition,LocalToolWorldBlockProps} from './blocks/definitions';
 export type {LocalToolBlockEnvelope,LocalToolOwnedBlockEnvelope,LocalToolWorldBlockEnvelope,LocalToolBlockOwner,LocalToolBlockDataOwner} from './blocks/types';
