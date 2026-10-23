@@ -101,7 +101,7 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
   const templateIds = new Set(project.codexTemplates?.map(template => template.id));
   const templateLink = (id: string | undefined) => id && templateIds.has(id) ? remap(id, 'template') : undefined;
   const track = (audio: ReaderAudioTrack | undefined): ReaderAudioTrack | undefined => audio && mediaIds.has(audio.assetId) ? { ...audio, assetId: remap(audio.assetId, 'media') } : undefined;
-  const localStates=(states:Project['localToolStates'])=>{const cloned=cloneLocalToolStates(states);if(cloned)for(const [namespace,state]of Object.entries(cloned)){const codec=project.localToolContracts?.[namespace];if(codec)state.data=remapLocalToolReferences(state.data,codec,(kind,id)=>remap(id,worldDocumentPrefixes[kind]));}return cloned;};
+  const localStates=(states:Project['localToolStates'])=>{const cloned=cloneLocalToolStates(states);if(cloned)for(const [namespace,state]of Object.entries(cloned)){const codec=project.localToolContracts?.[namespace];if(codec)state.data=remapLocalToolReferences(state.data,codec,(kind,id)=>remap(id,worldDocumentPrefixes[kind]),(kind,id)=>remap(id,kind==='image'?'img':'media'));}return cloned;};
   return {
     sourceToolDocuments: remapSourceToolDocuments(project.sourceToolDocuments, remap),
     writingToolDock: remapToolDockLayout(project.writingToolDock, remap),

@@ -39,7 +39,7 @@ export async function buildReaderHtml(project: Project, writings: Writing[], pre
   for (const chapter of soundChapters) for (const track of [chapter.audio, ...chapter.cues.map(cue => cue.track)]) if (track) mediaIds.add(track.assetId);
   const contents = await Promise.all(pieces.map(async piece => {
     const policy={eraId:scope.eraId,source};
-    const template = document.createElement('template'); template.innerHTML = await prepareToolDocumentBlocksForExport(await prepareSourceBlocksForExport(sanitizeRichHtml(piece.content),project.id,locale,policy), project.id, locale, policy);
+    const template = document.createElement('template'); template.innerHTML = await prepareSourceBlocksForExport(await prepareToolDocumentBlocksForExport(sanitizeRichHtml(piece.content),project.id,locale,policy), project.id, locale, policy);
     for (const block of template.content.querySelectorAll('[data-wh-media-block="true"], [data-wh-codex-block="true"]')) {
       if (block.getAttribute('data-project-id') !== project.id) { block.remove(); continue; }
       const media = block.hasAttribute('data-wh-media-block'); const id = block.getAttribute(media ? 'data-asset-id' : 'data-entry-id');

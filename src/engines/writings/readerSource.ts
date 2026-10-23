@@ -1,4 +1,4 @@
-import type {Project,CodexEntry,WorldMap,MapPin,Timeline,TimelineEvent} from '@/types';
+import type {Project,CodexEntry,InspirationImage,WorldMap,MapPin,Timeline,TimelineEvent} from '@/types';
 import type {Board,BoardNode} from '@/engines/board/types';
 import type {LocalMediaAsset} from '@/engines/media/types';
 import type {ResolvedWorldCalendar} from '@/engines/timeline/worldCalendarStore';
@@ -7,6 +7,7 @@ export interface ReaderSourceRows{codexEntries:CodexEntry;localMediaAssets:Local
 /** Only the data consumed by the existing standalone Reader renderer. No live fallback. */
 export interface ReaderSource{
  readonly project:Project;
+ capturedImages?():InspirationImage[];
  rows<K extends keyof ReaderSourceRows>(table:K):ReaderSourceRows[K][];
  calendar(timelineId?:string):ResolvedWorldCalendar|null;
  /** Optional on legacy snapshots; never fall back to live data when absent. */
