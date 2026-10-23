@@ -1274,4 +1274,4 @@ Baseline main e75aabe. In Brave's real Table0.1.37 preview, numeric sort yields9
 - [x] Observe the actual reference controls/results and reproduce Writer's current normal flow, using synthetic data and Browser only.
 - [x] Add gte/lte/notContains/startsWith/endsWith to shared filtering, UI EN/ES and normal MCP schema/handler without changing existing operators.
 - [x] RED/GREEN real CSV/UI/dispatcher tests, numeric equality boundary, current suites and independent review; author/reviewer11groups each, root7legacy area groups, types/lint/conformance pass.
-- [ ] Browser proof, exact transport limits, scoped commit/review/integration under merge lock, no push.
+- [x] Browser proof, exact transport limits, scoped commit8f90c68/CAS5/ff-only integration under merge lock, clean-main build25.43s/Electron/Node931; no push. Native manual updated without changing197other paragraphs. Task1095 stays open for actual card-linked row editing and compact CoC roster comparisons.
