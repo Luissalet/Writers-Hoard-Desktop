@@ -1,5 +1,7 @@
 # Writers Hoard — Escritorio
 
+El audio del SDK `fcf94f6` está integrado tras CAS20 independiente: niveles digitales RMS/pico por voz y canales, y panorama estéreo sobre el grafo real de reproducción. Sonidos locales ofrece sus controles normales; MCP consulta niveles y modifica el mismo panorama por ámbito. Brave probó paneo, silencio medido, Detener y guardar/reabrir sin reproducción automática. La revisión registra29 grupos focales distintos (7 autor +4 propios +18 legacy), con capacidades solapadas. Verify/build de main limpio pasó: Vite43.33s, Electron, Node937/esquema y el kit de autor original sin dependencias de base de datos. El manual tiene su recibo propio415UTF16/revisión/relectura. La regresión headless de previews de recursos se corrigió aparte en043e906/CAS19. Siguen siendo firmas propias y reproducción del SDK, con panorama estéreo; no3D, medición del altavoz ni transporte stdio final nuevo. [Evidencia y límites](tasks/vvd1095/verification-sdk-audio-levels.md). La comparación1095 continúa.
+
 [English](README.md)
 
 El grafo del mundo añade separación ajustable y áreas opcionales por tipo de tarjeta, conservando posiciones fijadas y vistas guardadas. Las copias JSON y Duplicar conservan sus ajustes y remapean las referencias a tarjetas y plantillas. La fuente `ecb1703` está integrada tras CAS16 independiente; [verificación y límites](tasks/vvd1095/verification-graph-display.md) registra esta entrega. La comparación1095 continúa.
