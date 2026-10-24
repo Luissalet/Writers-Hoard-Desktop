@@ -115,7 +115,7 @@ codec: {version: 1, fields: {
 }}
 ```
 
-Initialize map/list fields as objects/arrays in your state. A reference is `{kind,documentId}` using a normal world document kind; nullable references are allowed. The list's `idKey` identifies an item independently of its position. Optional `referenceKey` declares a reference inside each item; map `referenceValues:true` declares reference values. Other item text, scalar JSON and prose are opaque. Definitions with no codec keep the original `save(data,revision)` API and have no `client.state` actions.
+Initialize map/list fields as objects/arrays in your state. A reference is `{kind,documentId}` using a normal world document kind; nullable references are allowed. The list's `idKey` identifies an item independently of its position. Optional `referenceKey` declares a reference inside each item; map `referenceValues:true` declares reference values. Other item text, scalar JSON and prose without format remain opaque; opt-in rich prose declares semantic links through the stored codec. Definitions with no codec keep the original `save(data,revision)` API and have no `client.state` actions.
 
 The initial state, every read and every write still use the author validator. A successful explicit save of a codec source also stores its descriptor in `Project.localToolContracts`, after validating all stored Base/own-era payloads for that namespace. Opening a tool does not create a descriptor or copy state. Once a descriptor is stored, a source without a codec cannot save a payload that breaks its declared identities. Codecs travel without source in project/full JSON and ZIP; cloning remaps only declared document references in Base/era payloads. Stable local list IDs and opaque strings remain byte-identical. Legacy imports with no descriptors preserve an existing collection; an explicit empty object replaces it.
 
@@ -246,7 +246,7 @@ Normal native tools `wh_local_tool_block_types/list/read/insert/apply/remove/und
 
 Linked Codex, Map, Board, Timeline and relationship-tree references offer focused inline editing of the referenced document. They mount one real editor rather than an engine's collection. Existing nine semantic previews and modal access remain. Map marker/event forms capture their baseline before editing and compare only modified fields. Vector features and named layers merge stable identities and changed fields; visibility merges map keys. Conflicts preserve the winning data and pending draft. Rejected pin drag positions remain in the existing local draft journal. Background upload, ordinary add/delete controls and other standalone interactions retain their existing domain operations; D2 is not a claim that every interaction in those engines has acquired a new merge policy.
 
-Rich-content JSON/project/full/ZIP validation rejects foreign owner scopes before replacement. Clone remaps the atom identity and only codec-declared references (revision resets to0), including Board richContent, own-era and retained history. Opaque source prose and stable local item IDs remain exact. Release pin validation includes retained/restorable owned atom payloads as well as D1 documents.
+Rich-content JSON/project/full/ZIP validation rejects foreign owner scopes before replacement. Clone remaps the atom identity and only codec-declared references (revision resets to0), including Board richContent, own-era and retained history. Opaque legacy source prose and stable local item IDs remain exact; the later opt-in rich field remaps only its admitted semantic links. Release pin validation includes retained/restorable owned atom payloads as well as D1 documents.
 
 D2 checks use the normal Electron CSS runner with `tests/local-tool-{host.ui,focused.ui,focused-conflicts,focused-vectors,book,block-lifetime,blocks.portability}.browser.*`, service `local-tool-blocks.browser.ts`, and real stdio/HTTP/executor/IPC transport `tests/local-tool-blocks.transport.cjs`. `tasks/local-sdk-host1041.md` records exact results and the source proof. The lateral block compositor, persisted order/heights and chapter/general dock remain D3; no D2 test closes those gaps.
 
@@ -415,3 +415,28 @@ AssetPad's normal Document/Installation pickers import, explicitly select, save/
 Project/full JSON and ZIP preserve actual file bytes and preflight size/MIME/SHA before writes; old backups without files remain accepted. Duplicate/clone keep file/image/media remap domains distinct even for equal literal IDs. Captured readonly previews use only their admitted snapshot/accessor, without live-DB fallback or authored controls. Missing bytes stay unavailable. Reader/wiki emit generated font CSS only for markers surviving final sanitization and add `font-src data:` to CSP only when that CSS is nonempty; author CSS is not admitted. Published retains frozen HTML. The existing wiki SVG frame and manuscript SVG policy remain unchanged.
 
 These are Writer's own additive signatures. The primary [AssetManifest](https://docs.beta.vvd.world/workshop/reference/sdk#assetmanifest) and [useAsset](https://docs.beta.vvd.world/workshop/reference/sdk#useasset) describe typed slots/cascade; no upstream font/data picker was observed. The native hook uses [CSS Font Loading](https://drafts.csswg.org/css-font-loading/#fontface-interface). No binary SDK equivalence, universal font coverage, new stdio proof, hardware/audio autoplay or external paid service is claimed.
+
+## Opt-in rich prose fields
+
+`{kind:'prose',format:'rich'}` stores a rich HTML string using the same state budgets. Without format, prose remains opaque/literal, including text that looks like HTML. Do not change an existing Owned codec/key to opt it in: declare a new compatible block key or a new definition. The example `examples.rich-prose` supplies its own Source document and Owned `briefing`; it does not enable itself in user projects or modify Initiative.
+
+```tsx
+import {LocalToolRichProseEditor,type LocalToolProps} from '@/engines/local/sdk';
+type Briefing={briefing:string};
+function BriefingField({client,context}:LocalToolProps<Briefing>){
+  return <LocalToolRichProseEditor client={client} context={context} field="briefing"/>;
+}
+// In the definition:
+// codec:{version:1,fields:{briefing:{kind:'prose',format:'rich'}}}
+// initialState:{briefing:'<p>Write a briefing.</p>'}
+```
+
+The public wrapper remains Node-pure. The normal application supplies an ephemeral stable `context.renderRichProse` factory which mounts the native host component. Source tools can import the public SDK and their REAL module through the normal author CLI; they do not import RichProseEditor/Tiptap/DB privately. Missing host capability reports unavailable rather than faking DOM in the memory host. Rebuild and enable the example explicitly, then run `node scripts/test-local-tool.mjs --id examples.rich-prose` for its data-only author scenario.
+
+The additive sdk-prose profile admits core headings/lists/emphasis/quotation/code, safe links and copied local raster files. Slash commands are filtered; the scoped Codex picker inserts text links. This is not the full HTML editor: no operational Source/Tool/Media/preparation/editorial widgets, SVG, arbitrary CSS, checklists, footnotes or forms inside the field. Imported markup is sanitized for projection without rewriting stored data on read. The default full editor and literal prose retain their behavior.
+
+Save/Discard are explicit. Baseline is captured at the first edit; disjoint changes use the existing merge and conflict preserves the draft. `useLocalToolState.apply(actions, baseline?)` accepts an optional captured baseline and retains its existing receipt/Undo path. The editor registers pending work only for draft/reading/busy. Parent guards are scoped to their own editor. Owned Save updates its atom; save the parent document afterwards. In the dock, Save/Discard the child before leaving: the first parent exit may remain blocked, and there is no global autoflush of another pane. Ctrl+Z inside text remains native; receipt Undo/Redo applies outside it. Late FileReader/save results cannot retarget another owner/era/field.
+
+The saved codec drives Source/Owned/dock/Reader/wiki/documentImage HTML previews even without the module. `includeImages` governs raster separately from `includeMedia`. Wiki converts only admitted same-project Codex targets; excluded/foreign links retain readable selected text. Search derives plain text only for the rich field. Clone/import uses host semantic-link remap callbacks; the pure kernel imports no DOM/DB. A rich remap without its callback fails before mutation; literal legacy prose does not acquire that requirement.
+
+Published editions keep frozen chapter/Reader HTML/hash, not a historical copy of every Source tool. Editable snapshots remap links; restore inspects the current captured target world and reports missing references, without reconstructing a deleted briefing from published HTML. Folder-import Undo also sees rich codec references in Source/Owned/dock/Base/era. General SDK coverage remains partial; no character CRDT, online collaboration or new stdio session follows from this field. [Final evidence and limits](../tasks/vvd1095/verification-sdk-rich-prose.md).
