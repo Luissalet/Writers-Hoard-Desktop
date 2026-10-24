@@ -469,3 +469,41 @@ Use `client.state.apply` for scoped action Undo/Redo. The first evolution receip
 Normal example: enable `examples.evolving-owned` in Engine Manager and explicitly select v1, insert Owned “Evolving notebook” and save its parent. Select v2, then reopen that same block. Existing prose remains; new lists/maps start empty. Add an objective or label, use its scoped Undo/Redo, save rich child changes, save the parent and reopen. The two compiled releases are v1 `6e9497a1dc78416297de1001a7293ea70836553c42d7c8a30ad73d0ff2e1e78e` and v2 `108a6673ba6f038994341dbf03078ef15797d74e937ad6d321aba3a5b98a782c`. Engine enablement and version selection are separate explicit controls. Source notes in this example retain their prior contract.
 
 Captures, history/Archive, hidden eras and frozen Published readers retain their stored descriptor/data/preview. JSON/Duplicate/ZIP remap declared identities in editable snapshots, including historical plain Owned hosts, without regenerating frozen reader HTML/hash or recovering deleted source. The primary [field documentation](https://docs.beta.vvd.world/workshop/reference/sdk#field) and [defineDocumentCodec](https://docs.beta.vvd.world/workshop/reference/sdk#definedocumentcodec) distinguish field additions from format migration. Writer's per-envelope opt-in is its own JSON/CAS contract: upstream `defineBlock` uses a host document codec and collaborative prose. Official CLI scaffold execution does not prove upstream runtime, binary compatibility or character collaboration. [Evidence, delivery status and limits](../tasks/vvd1095/verification-sdk-owned-evolution.md).
+
+
+## Own locale catalogs and host language
+
+A definition may add optional `locales:{defaultLocale,catalogs}`. Import the hooks and pure constructors from the public SDK; names/descriptions/default titles retain their existing EN/ES contracts. For example, add this declaration to your own tool:
+
+```ts
+locales: {
+  defaultLocale: 'en',
+  catalogs: {
+    en: {hello: 'Hello {name}', items: {'0': 'No items', one: '{count} item', other: '{count} items'}},
+    es: {hello: 'Hola {name}', items: {'0': 'Sin elementos', one: '{count} elemento', other: '{count} elementos'}},
+  },
+},
+```
+
+Inside its component, pass the received client rather than importing application stores:
+
+```tsx
+import {useLocalToolT, type LocalToolProps} from '@/engines/local/sdk';
+
+function Summary({client}: LocalToolProps<{notes: string}>) {
+  const messages = useLocalToolT(client);
+  return <p>{messages('hello', {name: 'Nora'})} · {messages.plural('items', 0)}</p>;
+}
+```
+
+Use a local binding such as `messages` for tool-owned catalogs. The repository's static global-key scanner treats literal `t('key')` calls as application-global copy; own catalog keys are separate and do not belong in the global dictionaries.
+
+`useLocalToolLocale(client)` returns the immutable locale snapshot; `useLocalToolT(client)` returns a callable translator with `.plural(key,count,params?)`, `.number(number,options?)`, `.date(Date|number|string,options?)` and `.locale`. For non-React code use `resolveLocalToolLocale({locale,defaultLocale,catalogs})` then `createLocalToolTranslator(snapshot)`. `client.locale` is an optional readonly port: `declaration`, `getSnapshot():string`, `subscribe(changed):unsubscribe`; no preference setter. Source, Owned and the public world-block client type can pass it. Without a client/port the hooks explicitly remain fixed English. The normal app settings still offer EN/ES; the pure helper can resolve other valid catalog language tags.
+
+Lookup is per key: exact language → base language → declared default → key. Empty/whitespace messages inherit; literal keys precede dotted traversal. Named interpolation preserves `0` and `false`, while absent/null values keep their placeholder. Plural lookup tries exact numeric string (including `'0'`), the supplying catalog language's Intl category, then `other` before falling back to another catalog. Number/date formatting uses the requested locale and caller options; invalid values/options return readable input text rather than silently inventing zero or an epoch date. Specify `timeZone:'UTC'` where exact dates matter. Results depend on runtime Intl/ICU support.
+
+Partial/empty catalogs or a missing default translation are valid; invalid JSON/container/message shapes are not. Preparation clones and deeply freezes its own finite tree without freezing caller input or retaining mutable aliases. Hooks prepare by port identity and derive by locale, without cloning the catalog on every render/getSnapshot. This is package-owned UI copy, never translation of authored notes, HTML or state. No global string registration, Provider, persistent catalog collection or database dependency enters the public pure constructors/author kit. In the memory host, `createFakeLocalToolHost(definition,fixtures,{locale:'en'})` and host-only `setLocale('es')` exercise the same port without changing authored state.
+
+The normal `examples.localized-notebook` is compiled source, not automatically enabled. Enable Localized notebook / Libreta traducida in Engine Manager, create/open its source document, type and switch the normal Settings language, then Save explicitly. For an Owned example, save the Codex card first, reopen its editor, place the cursor in the body and use Source blocks. Save the child's briefing and then Save Changes in the parent. A refused insertion now reports that prerequisite; a message does not claim a block was inserted. Reopen verifies authored words, not translated copies. The existing author command is `node scripts/test-local-tool.mjs --id examples.localized-notebook`.
+
+`wh_local_tool_describe` reports default/supported locale metadata only when declared; `includeLocaleCatalogs:true` explicitly requests own JSON catalogs. Selected/exact-hash releases retain their existing resolution; no new tool/permission. Catalogs belong to compiled source packages, not project data backups. Reader/wiki/Published keep their captured authored projections when live code changes or is absent. [Verification, evidence boundaries and delivery status](../tasks/vvd1095/verification-sdk-locale.md). These are additive Writer signatures, not universal upstream compatibility.

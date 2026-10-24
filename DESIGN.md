@@ -223,6 +223,14 @@ Los bloques de herramienta y las referencias de Códex muestran contenido y acce
 
 Los diálogos comunes conservan título serif dorado, superficie tonal, borde y esquinas de 12px. El modal grande usa anchura `min(96vw, 100rem)` y altura máxima de 94vh; los diálogos normal y ancho conservan sus medidas existentes. El foco queda atrapado, el fondo es inerte y al cerrar se restaura el foco previo. Los cambios pendientes o fallos de guardado se comunican en el diálogo y requieren una salida explícita; no se disimulan con un cierre exitoso. Los formularios sin enviar conservan su acción propia antes de cerrar.
 
+### Localized notebook and insertion feedback
+
+La libreta localizada reutiliza el editor de prosa rico compartido tanto en el documento de fuente como en el bloque propio del documento anfitrión. El título, la ayuda breve, la etiqueta de notas y el editor conservan esa jerarquía; la fecha de último guardado aparece cuando está disponible. Las etiquetas siguen el idioma global elegido en Ajustes, sin un selector duplicado dentro de la libreta. Cambiar ese idioma no traduce las notas ni los títulos escritos por el autor.
+
+El guardado y el descarte siguen siendo acciones explícitas del editor. En un bloque propio, guardar la edición hija no sustituye Guardar cambios del documento padre. La superficie mantiene el ancho flexible sin imponer un mínimo que desborde; los controles y acciones pasan a varias filas cuando falta espacio. La diferencia tipográfica entre Source y Owned conserva el contexto de cada anfitrión y no introduce otra familia ni escala global.
+
+Si el comando de inserción no añade el bloque, un estado textual neutro junto a las opciones explica que no se ha insertado e indica guardar el documento y situar el cursor en su texto antes de repetir. El mensaje usa `role=status`, se limpia al reabrir el selector o insertar correctamente y no crea ni guarda el documento por su cuenta.
+
 ### Spatial tools and canvas controls
 
 Árboles y Board usan los controles nativos de ReactFlow dentro de un ámbito común: superficie `surface`, texto `text-primary`, borde `border`; al hover cambian a `elevated` y oro. El foco es un contorno dorado de 2px hacia el interior, para seguir visible en la pila de botones. La biblioteca conserva sus operaciones de zoom y encuadre. El grafo de mundo tiene su tratamiento oscuro equivalente. Tipos de conexión, leyendas, títulos y evidencia acompañan el color; la selección de nodos usa borde/anillo dorado.
