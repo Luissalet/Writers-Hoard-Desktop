@@ -27,7 +27,8 @@ import type { EditTarget, Pt, Stroke, WorldEdit } from '../core/edits';
 import { editKey, filterFor, TERRAIN_HEIGHT_M } from '../core/edits';
 import { settlementStyle, placeFont, labelScale, symbolScale } from '../core/placeStyle';
 import { drawPlaceBuilding } from '../cartography/placeSymbol';
-import { placeImageRadius, type PlaceImagePainter } from '../cartography/placeImages';
+import type { PlaceImagePainter } from '../cartography/placeImages';
+import {drawPlaceCatalogIcon,placeMarkerRadius,hasPlaceMarkerOverride} from '../cartography/placeIcon';
 import { strokeMask } from '../sculpt/ops';
 import { Biome } from '../core/types';
 import { settlementCellCenter, type HumanGeography, type Road, type Settlement } from '../core/settlements';
@@ -1555,7 +1556,7 @@ export default function Map2D({
     const movedAt = (key: string): Pt | undefined => moves?.[key];
     const imageFrames: { x: number; y: number; radius: number }[] = [];
     const reserveImage = (style: import('../core/spatialEntities').WorldSpatialStyle, x: number, y: number, radius: number) => {
-      if (placeImages?.has(style)) imageFrames.push({ x, y, radius });
+      if (hasPlaceMarkerOverride(style,placeImages)) imageFrames.push({ x, y, radius });
     };
     const mapLabels: Array<{
       value: { text: string; color: string; size: number; weight: number; font: string; glyphs?: LabelGlyph[] };
@@ -2197,19 +2198,19 @@ export default function Map2D({
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
           hits.push({
             kind: 'entity', x: sx, y: sy, entity: lm,
-            reach: 9 * Math.max(0.75, lm.style.size ?? 1), bias: 0.9,
+            reach: hasPlaceMarkerOverride(lm.style,placeImages)?placeMarkerRadius(lm.style,7*symbolScale(lm.style),placeImages)+3:9 * Math.max(0.75, lm.style.size ?? 1), bias: 0.9,
             // Ya viene movido — `resolveWorldLandmarks` aplica `moves` — así
             // que aquí sólo hace falta la llave para escribir el siguiente.
             mover: { target: 'landmark', key: lm.key, label: lm.name },
           });
           drawLandmark(ctx, lm, sx, sy, lm.key === selectedSpatialKey, placeImages);
-          reserveImage(lm.style, sx, sy, placeImageRadius(lm.style, 7 * symbolScale(lm.style), placeImages));
+          reserveImage(lm.style, sx, sy, placeMarkerRadius(lm.style, 7 * symbolScale(lm.style), placeImages));
           if ((lm.style.labelVisible ?? false)
               || lm.key === selectedSpatialKey
               || semantic.tier === 'local') {
             queueLabel(
               lm.name,
-              sx + (placeImages?.has(lm.style) ? placeImageRadius(lm.style, 7 * symbolScale(lm.style), placeImages) + 4 : 8),
+              sx + (hasPlaceMarkerOverride(lm.style,placeImages) ? placeMarkerRadius(lm.style, 7 * symbolScale(lm.style), placeImages) + 4 : 8),
               sy,
               lm.style.color ?? '#f6efe0',
               10 * labelScale(lm.style),
@@ -2261,17 +2262,17 @@ export default function Map2D({
           if (sx < -30 || sx > cw + 30 || sy < -20 || sy > ch + 20) continue;
           hits.push({
             kind: 'entity', x: sx, y: sy, entity,
-            reach: 9 * Math.max(0.75, entity.style.size ?? 1), bias: 0.85,
+            reach: hasPlaceMarkerOverride(entity.style,placeImages)?placeMarkerRadius(entity.style,(natural?7:4)*symbolScale(entity.style),placeImages)+3:9 * Math.max(0.75, entity.style.size ?? 1), bias: 0.85,
             // Resuelto contra `data.painted` en el padre, igual que los hitos.
             mover: { target: entity.kind, key: entity.key, label: entity.name },
           });
           drawRegionalEntity(ctx, entity, sx, sy, entity.key === selectedSpatialKey, placeImages);
-          reserveImage(entity.style, sx, sy, placeImageRadius(entity.style, (natural ? 7 : 4) * symbolScale(entity.style), placeImages));
+          reserveImage(entity.style, sx, sy, placeMarkerRadius(entity.style, (natural ? 7 : 4) * symbolScale(entity.style), placeImages));
           if (semantic.tier === 'local' || entity.importance > 0.55
               || entity.style.labelVisible || entity.key === selectedSpatialKey) {
             queueLabel(
               entity.name,
-              sx + (placeImages?.has(entity.style) ? placeImageRadius(entity.style, 4 * symbolScale(entity.style), placeImages) + 4 : 7),
+              sx + (hasPlaceMarkerOverride(entity.style,placeImages) ? placeMarkerRadius(entity.style, 4 * symbolScale(entity.style), placeImages) + 4 : 7),
               sy,
               entity.style.color ?? '#f6efe0',
               10 * labelScale(entity.style),
@@ -2299,7 +2300,7 @@ export default function Map2D({
           const style = world.painted?.styles?.[ruKey] ?? {};
           const [sx, sy] = toScreen((ru.x + 0.5) / W, (ru.y + 0.5) / H, copyOx);
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
-          const r = placeImageRadius(style, (ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2) * symbolScale(style), placeImages);
+          const r = placeMarkerRadius(style, (ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2) * symbolScale(style), placeImages);
           ctx.save(); ctx.translate(sx, sy);
           const custom = drawPlaceBuilding(ctx, style, undefined, r, ru.kind, placeImages, style.color ?? '#f0dfbc'); ctx.restore();
           reserveImage(style, sx, sy, r);
@@ -2332,16 +2333,16 @@ export default function Map2D({
     // lie about where it is. Sized by importance, gated on the feature actually
     // being big enough on screen to carry its own name — the classic way a
     // generated map betrays itself is a continent label wider than its continent.
-    if (showFeatures && geography && placeImages) {
+    if (showFeatures && geography) {
       for (const copyOx of copies) for (const f of geography.features) {
         const key = f.sourceKey ?? editKey('feature', f.x, f.y, `${f.kind}:`);
         const style = world.painted?.styles?.[key] ?? {};
-        if (!placeImages.has(style)) continue;
+        if (!hasPlaceMarkerOverride(style,placeImages)) continue;
         const [x, y] = toScreen((f.x + .5) / W, (f.y + .5) / H, copyOx);
         if (x < -30 || x > cw + 30 || y < -30 || y > ch + 30) continue;
-        const radius = placeImageRadius(style, 5 * symbolScale(style), placeImages);
+        const radius = placeMarkerRadius(style, 5 * symbolScale(style), placeImages);
         ctx.save(); ctx.translate(x, y);
-        placeImages.draw(ctx, style, radius, style.color ?? 'rgba(238,228,205,0.9)'); ctx.restore();
+        if(!placeImages?.draw(ctx,style,radius,style.color??'rgba(238,228,205,0.9)'))drawPlaceCatalogIcon(ctx,style,radius,style.color??'rgba(238,228,205,0.9)'); ctx.restore();
         reserveImage(style, x, y, radius);
         hits.push({ kind: 'note', x, y, reach: Math.max(14, radius), bias: 1.6,
           note: f.name, mover: { target: 'feature', key, label: f.name } });
@@ -2399,7 +2400,7 @@ export default function Map2D({
           });
           queueLabel(
             f.kind === 'continent' || f.kind === 'ocean' ? f.name.toUpperCase() : f.name,
-            sx, sy + (placeImages?.has(style) ? placeImageRadius(style, 5 * symbolScale(style), placeImages) + 12 * labelScale(style) : 0),
+            sx, sy + (hasPlaceMarkerOverride(style,placeImages) ? placeMarkerRadius(style, 5 * symbolScale(style), placeImages) + 12 * labelScale(style) : 0),
             style.color ?? (water ? 'rgba(178,214,236,0.92)' : 'rgba(238,228,205,0.9)'),
             (river
               ? Math.max(9, Math.min(12, 8 + f.importance * 5))
@@ -2530,7 +2531,7 @@ export default function Map2D({
           const centre = settlementCellCenter(s);
           const [sx, sy] = toScreen(centre.x / W, centre.y / H, copyOx);
           if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
-          const r = placeImageRadius(style, (rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2) * symbolScale(style), placeImages);
+          const r = placeMarkerRadius(style, (rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2) * symbolScale(style), placeImages);
           // The reach is the DOT plus a finger's worth, not a flat 14 px over
           // every town in the world — see the note on `painted`.
           hits.push({
@@ -2645,8 +2646,8 @@ export default function Map2D({
             const [sx, sy] = toScreen(p.worldX / W, p.worldY / H, copyOx);
             if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
             const big = p.kind === 'town' || p.kind === 'village';
-            const imageRadius = placeImageRadius(style, 4 * symbolScale(style), placeImages);
-            hits.push({ kind: 'place', x: sx, y: sy, place: p, reach: placeImages?.has(style) ? Math.max(big ? 10 : 8, imageRadius + 3) : big ? 10 : 8, bias: 1.1 });
+            const imageRadius = placeMarkerRadius(style, 4 * symbolScale(style), placeImages);
+            hits.push({ kind: 'place', x: sx, y: sy, place: p, reach: hasPlaceMarkerOverride(style,placeImages) ? Math.max(big ? 10 : 8, imageRadius + 3) : big ? 10 : 8, bias: 1.1 });
             ctx.save(); ctx.translate(sx, sy);
             const custom = drawPlaceBuilding(ctx, style, undefined, imageRadius, p.kind, placeImages, style.color ?? '#f0dfbc'); ctx.restore();
             reserveImage(style, sx, sy, imageRadius);
@@ -2660,7 +2661,7 @@ export default function Map2D({
               // La misma regla que el rótulo del mundo: crece con el zoom.
               const boost = Math.max(0, Math.min(8, (Math.log2((PW * scale) / W) - 1) * 2));
               queueLabel(
-                p.name, sx + (placeImages?.has(style) ? imageRadius + 5 : 5), sy, style.color ?? '#f2ecdd',
+                p.name, sx + (hasPlaceMarkerOverride(style,placeImages) ? imageRadius + 5 : 5), sy, style.color ?? '#f2ecdd',
                 Math.round(((big ? 11 : 9.5) + (big ? boost : boost * 0.75)) * labelScale(style)),
                 big ? 600 : 500,
                 40 + p.importance * 30, undefined, placeFont(style, '"Source Sans 3", sans-serif'),
@@ -5592,13 +5593,15 @@ function drawLandmark(
   };
   ctx.save();
   ctx.translate(x, y);
-  const radius = placeImageRadius(entity.style, 7 * scale, placeImages);
-  if (!placeImages?.draw(ctx, entity.style, radius, entity.style.color ?? '#e4a853')) {
+  const radius = placeMarkerRadius(entity.style, 7 * scale, placeImages);
+  const imageDrawn=placeImages?.draw(ctx,entity.style,radius,entity.style.color??'#e4a853');
+  const catalogDrawn=!imageDrawn&&drawPlaceCatalogIcon(ctx,entity.style,radius,entity.style.color??'#e4a853');
+  if (!imageDrawn&&!catalogDrawn) {
     ctx.scale(scale, scale);
     drawLandmarkGlyph(ctx, lm.type);
   }
   ctx.restore();
-  if (entity.style.color) {
+  if (entity.style.color&&!catalogDrawn) {
     ctx.beginPath();
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
     ctx.lineWidth = 1.5;
@@ -5607,7 +5610,7 @@ function drawLandmark(
   }
   if (selected) {
     ctx.beginPath();
-    ctx.arc(screenX, screenY, placeImages?.has(entity.style) ? radius + 2 : 9 * scale, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, hasPlaceMarkerOverride(entity.style,placeImages) ? radius + 2 : 9 * scale, 0, Math.PI * 2);
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#f5c66a';
     ctx.stroke();

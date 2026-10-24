@@ -26,7 +26,8 @@ import { Biome, type BiomeId } from '../core/types';
 import { Cover, COVER_LABEL_ES, type RegionData, type RegionPlace } from './types';
 import { placeFont, labelScale, symbolScale } from '../core/placeStyle';
 import { drawPlaceBuilding } from '../cartography/placeSymbol';
-import { placeImageRadius, type PlaceImagePainter } from '../cartography/placeImages';
+import type { PlaceImagePainter } from '../cartography/placeImages';
+import {drawPlaceCatalogIcon,placeMarkerRadius,hasPlaceMarkerOverride} from '../cartography/placeIcon';
 
 export interface RegionRenderOptions {
   placeImages?: PlaceImagePainter;
@@ -973,7 +974,7 @@ function drawPlaces(
   for (const p of sorted) {
     const x = px(p.x), y = py(p.y);
     const style = p.style ?? {}, scale = symbolScale(style);
-    const frame=(strictPlaceImages&&style.iconImage!=null)||placeImages?.has(style)?regionPlaceImageFrame(r,p,width,height,typeScale):undefined;
+    const frame=(strictPlaceImages&&style.iconImage!=null)||hasPlaceMarkerOverride(style,placeImages)?regionPlaceImageFrame(r,p,width,height,typeScale):undefined;
     if(frame&&!frame.visible)continue;
     if(strictPlaceImages&&style.iconImage!=null&&!placeImages?.has(style))throw new Error('A visible regional place image is unavailable.');
     // Tile mode: every place scatters its buildings from a stream seeded by
@@ -983,10 +984,11 @@ function drawPlaces(
     const pr = tink ? createRng(tink.seed, `place:${p.sourceKey}`) : rng;
     ctx.save();
     ctx.translate(x, y);
-    const radius = frame?.radius??placeImageRadius(style, u * 2 * scale, placeImages, typeScale);
+    const radius = frame?.radius??placeMarkerRadius(style, u * 2 * scale, placeImages, typeScale);
     // Images use screen-sized frames; draw before the legacy local size
     // transform so its authored size is applied exactly once.
     if (placeImages?.draw(ctx, style, radius, style.color ?? ink)) { ctx.restore(); continue; }
+    if(drawPlaceCatalogIcon(ctx,style,radius,style.color??ink)){ctx.restore();continue;}
     ctx.scale(scale, scale);
     if (drawPlaceBuilding(ctx, style, p.culture, u * 2, p.kind)) { ctx.restore(); continue; }
     ctx.strokeStyle = p.style?.color ?? ink;
@@ -1269,8 +1271,8 @@ function drawLabels(
   const taken: Rect[] = [];
   for (const place of r.places) {
     const style = place.style ?? {};
-    if (!placeImages?.has(style)) continue;
-    const radius = placeImageRadius(style, Math.max(1.6, s * 1.5) * 2 * symbolScale(style), placeImages, typeScale);
+    if (!hasPlaceMarkerOverride(style,placeImages)) continue;
+    const radius = placeMarkerRadius(style, Math.max(1.6, s * 1.5) * 2 * symbolScale(style), placeImages, typeScale);
     taken.push({ x: px(place.x) - radius, y: py(place.y) - radius, w: radius * 2, h: radius * 2 });
   }
   const fits = (rect: Rect): boolean => {
@@ -1347,8 +1349,8 @@ function drawLabels(
     const anchorX = px(p.x), anchorY = py(p.y);
     const baseOff = Math.max(3, s * (rank === 0 ? 4.4 : rank <= 2 ? 3 : 2.2));
     const style = p.style ?? {};
-    const off = placeImages?.has(style)
-      ? Math.max(baseOff, placeImageRadius(style, Math.max(1.6, s * 1.5) * 2 * symbolScale(style), placeImages, typeScale) + Math.max(3, 2 * typeScale))
+    const off = hasPlaceMarkerOverride(style,placeImages)
+      ? Math.max(baseOff, placeMarkerRadius(style, Math.max(1.6, s * 1.5) * 2 * symbolScale(style), placeImages, typeScale) + Math.max(3, 2 * typeScale))
       : baseOff;
 
     // Four candidate positions, in the order a cartographer prefers them.
