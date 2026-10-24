@@ -16,7 +16,7 @@ npm run dev
 
 The CLI creates `src/engines/local/installed/me.world-notes/module.tsx` plus a README and a runnable `module.test.ts` author fixture. It refuses existing destinations, traversal and symlink installation paths. The module is a working local notebook: save notes, reload the saved version, and query only the current project’s Codex. The same verified scaffold is the runnable example; its template is `scripts/templates/local-tool.tsx.txt`.
 
-Only `installed/*/module.tsx` modules explicitly present in the source tree enter Vite’s eager build glob. The installed directory ships empty. Scaffolding and registration do not enable a tool in any project: after recompiling/restarting, open the project’s engine manager and enable its translated name manually. Desktop packaging uses the normal `npm run build:desktop` workflow and required platform dependencies. A rebuilt app must pass its normal gates. Installing/removing source is a developer action; project backups never install code.
+The eager build globs compile explicitly present development `installed/*/module.tsx` modules and immutable installed releases under `installed/*/versions/*/module.tsx`. The source tree includes the two compiled `examples.evolving-owned` releases used below; compiled availability does not select a project version, enable an engine or create authored data. Scaffolding and registration do not enable a tool in any project: after recompiling/restarting, open the project’s engine manager and enable its translated name manually. Desktop packaging uses the normal `npm run build:desktop` workflow and required platform dependencies. A rebuilt app must pass its normal gates. Installing/removing source is a developer action; project backups never install code.
 
 ## Typed local API
 
@@ -60,7 +60,7 @@ operations: [{
 
 Schemas are returned in full by `wh_local_tool_describe`. The supported validation vocabulary is types (including nullable unions/integer), nested object properties/required/additionalProperties, arrays/items/uniqueItems/minItems/maxItems, enum/const, number bounds, Unicode string lengths/pattern, and anyOf/oneOf/allOf. Descriptive title/description/default/examples/readOnly/writeOnly/deprecated/$schema annotations are accepted. Unsupported assertion keywords, including `$ref` and `format`, are refused when registering a definition. This is the product's explicit schema vocabulary, not a complete JSON Schema implementation.
 
-The ordinary native MCP transport exposes sixteen static tools: `wh_local_tool_list`, `wh_local_tool_describe`, `wh_local_tool_read`, `wh_local_tool_save`, `wh_local_tool_query`, `wh_local_tool_call`, `wh_local_tool_pin`, `wh_local_tool_state_apply`, `wh_local_tool_state_undo`, `wh_local_tool_state_redo` `wh_local_tool_reference_resolve`, `wh_local_tool_document_list`, `wh_local_tool_document_query`, `wh_local_tool_document_create`, `wh_local_tool_document_rename` and `wh_local_tool_document_archive`. Read/save/query/call accept `projectId`, `namespace` and optional `eraId`; operations additionally take `operation` and object `input`. Save takes `data` and nullable `expectedRevision`. `wh_enable_engine` accepts an actually registered `local-tool-*` engine; an invented ID is rejected. The default installation contains no source tools.
+The ordinary native MCP transport exposes sixteen static tools: `wh_local_tool_list`, `wh_local_tool_describe`, `wh_local_tool_read`, `wh_local_tool_save`, `wh_local_tool_query`, `wh_local_tool_call`, `wh_local_tool_pin`, `wh_local_tool_state_apply`, `wh_local_tool_state_undo`, `wh_local_tool_state_redo` `wh_local_tool_reference_resolve`, `wh_local_tool_document_list`, `wh_local_tool_document_query`, `wh_local_tool_document_create`, `wh_local_tool_document_rename` and `wh_local_tool_document_archive`. Read/save/query/call accept `projectId`, `namespace` and optional `eraId`; operations additionally take `operation` and object `input`. Save takes `data` and nullable `expectedRevision`. `wh_enable_engine` accepts an actually registered `local-tool-*` engine; an invented ID is rejected. Compiled examples are available in the build, but packaged-only examples require an explicit project version selection and manual engine enablement; they do not create or upgrade user blocks automatically.
 
 Use query for `writes:false`, call for `writes:true`. Queries receive a read-only client: namespace save, variant writes, media import and writing `callTool` invocations reject. Calls require the existing native writes switch and an enabled source engine. Writing operations run in one database transaction; an exception or invalid JSON return rolls back database edits. Keep them to local database work and await every edit. Network/filesystem effects, navigation and arbitrary trusted source code cannot be rolled back by this transaction. Input schema validation happens before running the operation. Operation implementations remain renderer-side; Electron's generic manifest is pure data and never imports React or source functions.
 
@@ -418,7 +418,7 @@ These are Writer's own additive signatures. The primary [AssetManifest](https://
 
 ## Opt-in rich prose fields
 
-`{kind:'prose',format:'rich'}` stores a rich HTML string using the same state budgets. Without format, prose remains opaque/literal, including text that looks like HTML. Do not change an existing Owned codec/key to opt it in: declare a new compatible block key or a new definition. The example `examples.rich-prose` supplies its own Source document and Owned `briefing`; it does not enable itself in user projects or modify Initiative.
+`{kind:'prose',format:'rich'}` stores a rich HTML string using the same state budgets. Without format, prose remains opaque/literal, including text that looks like HTML. Do not change the format of an existing Owned field to opt it in. A new block key remains valid; alternatively, the additive Owned contract below permits adding a new rich field while preserving every existing field descriptor. The example `examples.rich-prose` supplies its own Source document and Owned `briefing`; it does not enable itself in user projects or modify Initiative.
 
 ```tsx
 import {LocalToolRichProseEditor,type LocalToolProps} from '@/engines/local/sdk';
@@ -440,3 +440,32 @@ Save/Discard are explicit. Baseline is captured at the first edit; disjoint chan
 The saved codec drives Source/Owned/dock/Reader/wiki/documentImage HTML previews even without the module. `includeImages` governs raster separately from `includeMedia`. Wiki converts only admitted same-project Codex targets; excluded/foreign links retain readable selected text. Search derives plain text only for the rich field. Clone/import uses host semantic-link remap callbacks; the pure kernel imports no DOM/DB. A rich remap without its callback fails before mutation; literal legacy prose does not acquire that requirement.
 
 Published editions keep frozen chapter/Reader HTML/hash, not a historical copy of every Source tool. Editable snapshots remap links; restore inspects the current captured target world and reports missing references, without reconstructing a deleted briefing from published HTML. Folder-import Undo also sees rich codec references in Source/Owned/dock/Base/era. General SDK coverage remains partial; no character CRDT, online collaboration or new stdio session follows from this field. [Final evidence and limits](../tasks/vvd1095/verification-sdk-rich-prose.md).
+
+## Add fields to an existing Owned block
+
+An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.
+
+```ts
+const notebook = defineLocalToolBlock({
+  key: 'notebook', scope: 'host', codecEvolution: 'additive',
+  name: {en: 'Notebook', es: 'Cuaderno'},
+  // Keep every old field descriptor. New fields may be optional in the guard.
+  codec: {version: 1, fields: {
+    notes: {kind: 'prose'},
+    objectives: {kind: 'list', idKey: 'id'},
+    labels: {kind: 'map'},
+    briefing: {kind: 'prose', format: 'rich'},
+  }},
+  initialState, validateState, component: Notebook,
+});
+```
+
+Import `defineLocalToolBlock` from `@/engines/local/sdk`; the fragment assumes your own valid initialState, type guard and component. In an older compatible block, missing newly added lists/maps appear as `[]`/`{}`; other new fields use their declared initial values. Nonempty list/map creation seeds belong only to fresh blocks. Existing opaque values are retained and validated, never replaced by a convenient default. Reordering descriptor keys or changing only preview does not itself trigger adoption.
+
+Selection, read, mount and cancel preserve the RAW envelope. The editable client shows the projected view while `snapshot.block.version` remains the complete RAW token. Native reads/baselines and readonly captures remain RAW. The first semantic data effect saves data, codec and preview together, including preview absence. A pending net-zero UI action has no receipt or adoption. An equal direct `client.save` retains its ordinary revision/write behavior but preserves the old body, and creates no state receipt. Native block/dock no-ops retain their normal revision, receipt and audit behavior without adoption. Explicit replacement or `unset` is not silently refilled afterwards.
+
+Use `client.state.apply` for scoped action Undo/Redo. The first evolution receipt shares the existing runtime receipt map and restores the complete prior envelope, including codec/preview and absent fields. It checks the current body except its increasing revision, then writes with current CAS; stale metadata/owner/release and overlapping changes refuse. Normal non-evolution actions keep their existing inverses. Receipt availability follows the existing commit/abort boundary. A Tiptap receipt confirms the parent draft, so save the parent afterwards; it does not certify a database commit or arbitrary nesting of the UI port inside an outer database transaction.
+
+Normal example: enable `examples.evolving-owned` in Engine Manager and explicitly select v1, insert Owned “Evolving notebook” and save its parent. Select v2, then reopen that same block. Existing prose remains; new lists/maps start empty. Add an objective or label, use its scoped Undo/Redo, save rich child changes, save the parent and reopen. The two compiled releases are v1 `6e9497a1dc78416297de1001a7293ea70836553c42d7c8a30ad73d0ff2e1e78e` and v2 `108a6673ba6f038994341dbf03078ef15797d74e937ad6d321aba3a5b98a782c`. Engine enablement and version selection are separate explicit controls. Source notes in this example retain their prior contract.
+
+Captures, history/Archive, hidden eras and frozen Published readers retain their stored descriptor/data/preview. JSON/Duplicate/ZIP remap declared identities in editable snapshots, including historical plain Owned hosts, without regenerating frozen reader HTML/hash or recovering deleted source. The primary [field documentation](https://docs.beta.vvd.world/workshop/reference/sdk#field) and [defineDocumentCodec](https://docs.beta.vvd.world/workshop/reference/sdk#definedocumentcodec) distinguish field additions from format migration. Writer's per-envelope opt-in is its own JSON/CAS contract: upstream `defineBlock` uses a host document codec and collaborative prose. Official CLI scaffold execution does not prove upstream runtime, binary compatibility or character collaboration. [Evidence, delivery status and limits](../tasks/vvd1095/verification-sdk-owned-evolution.md).

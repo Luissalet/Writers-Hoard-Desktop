@@ -1,5 +1,7 @@
 # Writer consolidation #931
 
+Owned source blocks can opt into additive codec evolution: a compatible version can add fields to the same saved block without changing it on selection or read. The first meaningful edit saves data, codec and portable preview together; scoped action Undo restores the complete prior envelope. Strict compatibility remains the default, Source state keeps its existing migration contract, and the general SDK remains partial. [Contract, example and evidence](vvd1095/verification-sdk-owned-evolution.md).
+
 Notes inline images are integrated in source d1860db8 after CAS 27, with six clean-main checks, the native Notes manual and continuity completed. Historical global 1125/431/1 plus unchanged audio focal PASS and final 22-path gates form explicit composed evidence, not a full global-zero rerun. This separate nine-file documentation delivery preserves ICONS and the historical Notes plan. [Evidence and limits](vvd1095/verification-note-inline-images.md).
 
 Source-tool fields can opt into rich prose: headings, lists, text links and copied local raster images use the native editor and remain readable without the author module. Save the briefing explicitly; an Owned block then needs its parent document saved, and the dock requires child Save/Discard before leaving. This is local string-and-CAS editing, without character collaboration; the general SDK remains a partial local subset. [Use and limits](vvd1095/verification-sdk-rich-prose.md).
@@ -1428,13 +1430,14 @@ No generic SDK editor, Gallery picker, slash-command, prose-style or manuscript-
 
 ## Owned block evolution — task 1095, research 1428 / Agora 1536
 
-Success: a compatible author release adds fields to an existing Owned block; its original prose and identity survive. Reading and pinning preserve the stored envelope. One explicit edit adopts data, codec and portable preview together, and normal scoped Undo/Redo restores the complete prior envelope.
+Success: a compatible author release adds fields to the same Owned block while retaining its prose and identity. Read and pin preserve RAW; one explicit meaningful edit adopts data, codec and preview together, with complete-envelope scoped Undo/Redo.
 
-- [x] Resolve the independent R1 changes with a coherent editable view, absent fields and no-op contract; close canonical example hashes and exact implementation paths before product edits.
-- [x] Preserve a real failing pin/host/native case, then implement only the agreed opt-in transition, complete-envelope versions and scoped evolution receipts; keep default strict, Source/legacy and portable reads intact.
-- [x] Test missing list/map/rich fields, nonempty fresh seeds, net-zero actions, opaque values, concurrent owners, abort, Base/era and exact Undo/Redo metadata/absence, plus affected original SDK and capture/backup tests.
-- [ ] Install the two own example releases through the normal CLI and verify actual versions, saved block, rich/list editing, Undo/Redo and reopen in real Brave; register independent tests and run the appropriate final gates.
-- [ ] Commit explicit reviewed paths as Luissalet, obtain fresh formal review and integrate exact approved source into main under its merge lock; validate main without push.
-- [ ] Update SDK/MCP/product documentation, the native Google manual and own continuity from actual results, preserving historical evidence and leaving parent task 1095 open for remaining gaps.
+- [x] Resolve R1/R2 and preserve the strict default; implement the coherent editable view, missing-field and no-op contract without a new history store.
+- [x] Preserve real pin/host/native REDs, complete the opt-in transition, and verify RAW CAS, net-zero actions, unset, opaque values, abort, Base/era, metadata and scoped Undo/Redo.
+- [x] Install the two own immutable example releases through the normal CLI; independently review client/portability and NativeExecutor→IPC→audit→RPC Undo, and verify the same block through normal Brave save/reload.
+- [x] Bind explicit source, fresh formal approval, final gates and exact main integration to the final receipts linked below; no push.
+- [x] Include SDK/MCP/product documentation, native Google manual and continuity from their final receipts; preserve historical evidence and leave parent task1095 open.
 
-The additive candidate is implemented and author-tested; independent review, normal Brave, native executor and final gates are pending. A causal Published plain remap fix extends the author whitelist to20 paths. Both example releases were repackaged with only their Source-module ESLint boundary comment corrected. Official CLI0.8.13 local scaffold is separately executed; that is not evidence of upstream host-injected codec runtime, collaborative text or universal parity.
+The example opts in only its Owned declaration. Source state, legacy definitions and stored-codec portable captures keep their existing contracts. The narrow Published plain-host clone correction remaps editable identities through the existing helper without regenerating frozen reader HTML/hash. The two immutable packages include the Source-module ESLint boundary comment; earlier package/RED history is preserved in stage. Official CLI0.8.13 scaffold execution is separate evidence from upstream host runtime or collaborative text.
+
+[Final source, CAS, gates, main, manual and continuity receipts](vvd1095/verification-sdk-owned-evolution.md#delivery-status). General SDK coverage remains PARTIAL; task1095 remains open.
