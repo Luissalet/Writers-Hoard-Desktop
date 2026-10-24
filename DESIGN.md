@@ -231,6 +231,8 @@ Los diálogos comunes conservan título serif dorado, superficie tonal, borde y 
 
 Los mapas con capas e historial, hojas físicas de Worldgen, calendarios de cronología, diccionarios y fuentes, tablas, hojas RPG, radar, GLB y medios conservan la forma del contenido y sus herramientas contextuales. No se deriva de una visualización especializada un patrón obligatorio para las demás herramientas.
 
+El selector gráfico de lugares es una opción acotada del inspector carbón/oro: controles de 36px, seis columnas y portal anclado al viewport con cierre/foco explícitos. Las miniaturas y la selección reutilizan la geometría numérica del contenido, no otro proveedor de iconos. El neutro cálido `#b3a48e` es intencional para esas celdas secundarias; no sustituye los tokens globales. El resto de consumidores de IconPicker mantiene sus defaults y no se amplía aquí la tipografía ni se refactorizan los 21 avisos heredados de fuentes.
+
 ### Reader, wiki and parallel text
 
 El estudio del lector separa cubierta, ajustes de capítulo y audio. Fondo, familia de lectura, imagen y modo de páginas son opciones del documento. La cubierta puede usar la imagen local del proyecto, y el audio conserva controles explícitos. La exportación de lector o wiki autónomo ofrece navegación y referencias para leer fuera del editor; no arrastra la barra de autoría. Las marcas de contenido oculto y spoiler del editor usan subrayado discontinuo/punteado y fondo tonal, además del color. Las vistas de conversación y borradores paralelos conservan su contexto de lectura y edición, con estado de guardado por borrador.
