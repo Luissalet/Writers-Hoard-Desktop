@@ -23,6 +23,7 @@ import type { WorldData } from '../core/types';
 import type { HumanGeography } from '../core/settlements';
 import { renderCartography, type CartoLayers, type CartoView } from './render';
 import type { CartoTheme } from './theme';
+import type { PlaceImagePainter } from './placeImages';
 
 export const TILE_PX = 256;
 /** Lowest useful level: 4 tiles across ≈ the whole-world view. */
@@ -130,6 +131,7 @@ export function tileLayers(layers: Partial<CartoLayers>): Partial<CartoLayers> {
 }
 
 export interface CartaTileRequest {
+  placeImages?: PlaceImagePainter;
   key: TileKey;
   theme: CartoTheme;
   layers: Partial<CartoLayers>;
@@ -150,6 +152,7 @@ export function renderCartaTile(
   req: CartaTileRequest,
 ): void {
   renderCartography(world, ctx, {
+    placeImages: req.placeImages,
     theme: req.theme,
     width: TILE_PX,
     height: TILE_PX,

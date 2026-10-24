@@ -19,7 +19,11 @@ import {
 import { canonMetresPerCell, canonRefinement } from '../region/tiles';
 import { worldRiverWidthMetres } from '../region/riverScale';
 import { marchingSquares } from './contours';
-import { renderCartography, type CartoLayers, type CartoView } from './render';
+import { renderCartography, DEFAULT_LAYERS, type CartoLayers, type CartoView } from './render';
+import {drawOverlay} from './overlay';
+import {fogUnnamed} from './readerFogLayer';
+import type {WorldSpatialStyle} from '../core/spatialEntities';
+import { placeImageGeneration, type PlaceImagePainter } from './placeImages';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
 import { geographyContentKey } from '../region/contentIdentity';
@@ -459,6 +463,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
 }
 
 export interface CartoCanvasOptions {
+  placeImages?: PlaceImagePainter;
   /** A square or hex play grid in km. */
   grid?: import('./mapGrid').MapGrid | null;
   /** The author's contour lines every N metres, in place of the look's own. */
@@ -487,6 +492,17 @@ export interface CartoCanvasOptions {
   geography?: HumanGeography;
 }
 
+/** Discover only markers consumed by the same layout, without decoding or drawing terrain. */
+export function collectCartoPlaceImageStyles(world:WorldData,opts:CartoCanvasOptions):WorldSpatialStyle[]{
+  if(!opts.geography||opts.layers?.settlements===false||!Object.values(world.painted?.styles??{}).some(style=>style.iconImage!=null))return[];
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
+  const ctx=canvas.getContext('2d');if(!ctx)throw new Error('No local marker layout surface is available.');
+  const used=new Set<WorldSpatialStyle>(),layers={...DEFAULT_LAYERS,...opts.layers},view=opts.view??{x:0,y:0,w:world.width,h:world.height};
+  const collector:PlaceImagePainter={errors:[],has:style=>style.iconImage!=null,draw:(_ctx,style)=>{if(style.iconImage==null)return false;used.add(style);return true;},dispose(){}};
+  try{drawOverlay(ctx,world,opts.geography,{placeImages:collector,theme:opts.theme,view,scale:opts.width/view.w,width:opts.width,height:opts.height,worldWidth:world.width,layers:{roads:layers.roads,borders:layers.borders,settlements:layers.settlements,labels:layers.labels},typeScale:opts.typeScale,unnamed:fogUnnamed(opts.fog)});return[...used];}
+  finally{canvas.width=canvas.height=0;}
+}
+
 /** Render the cartographic map into a fresh canvas. */
 export function renderCartoCanvas(world: WorldData, opts: CartoCanvasOptions): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -495,6 +511,7 @@ export function renderCartoCanvas(world: WorldData, opts: CartoCanvasOptions): H
   const ctx = canvas.getContext('2d');
   if (!ctx) return canvas;
   renderCartography(world, ctx as unknown as Ctx, {
+    placeImages: opts.placeImages,
     theme: opts.theme,
     width: canvas.width,
     height: canvas.height,
@@ -537,16 +554,28 @@ export function getCartoTexture(
   geography: HumanGeography | undefined,
   size = 2048,
   visibility: Pick<Partial<CartoLayers>, 'rivers' | 'roads' | 'borders'> = {},
+  placeImages?: PlaceImagePainter,
 ): HTMLCanvasElement {
   const rev = world.revision ?? 0;
   let entry = TEX_CACHE.get(world);
   if (!entry || entry.rev !== rev) TEX_CACHE.set(world, (entry = { rev, map: new Map() }));
   const per = entry.map;
-  const key = `${theme.id}:${size}:${geography ? geographyContentKey(geography) : 'bare'}:${visibility.rivers !== false}:${visibility.roads !== false}:${visibility.borders === true}`;
+  const key = `${theme.id}:${size}:${geography ? geographyContentKey(geography) : 'bare'}:${visibility.rivers !== false}:${visibility.roads !== false}:${visibility.borders === true}`
+    + (placeImages ? `:images:${placeImageGeneration(placeImages)}` : '');
   const hit = per.get(key);
   if (hit) return hit;
 
+  // Prepared place images belong to World3D's projected, screen-sized overlay.
+  // Reserve their normal mark here without baking either the image or its old
+  // construction into the ground; every other place keeps the legacy texture.
+  const textureImages: PlaceImagePainter | undefined = placeImages && {
+    errors: placeImages.errors,
+    has: style => placeImages.has(style),
+    draw: (_ctx, style) => placeImages.has(style),
+    dispose() {},
+  };
   const canvas = renderCartoCanvas(world, {
+    placeImages: textureImages,
     theme,
     width: size,
     height: size / 2,

@@ -11,9 +11,11 @@
 // Bundled to CommonJS for node by electron/build.mjs — never imported by the
 // renderer bundle.
 
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { createRegionWorkerCore, type RegionWorkerHost } from '../region/workerCore';
 import type { RegionWorkerRequest } from '../region/workerProtocol';
+import { preparePlaceImages } from '../cartography/placeImages';
+import type { Ctx } from '../cartography/symbols';
 
 interface ForgePortEvent { data: unknown; ports?: ForgePort[] }
 interface ForgePort {
@@ -35,6 +37,17 @@ parentPort.on('message', (e) => {
     // structured-cloned across the process boundary, which is the honest
     // cost of true isolation.
     post: (message) => port.postMessage(message),
+    preparePlaceImages: (styles, signal) => preparePlaceImages(styles, {
+      async decode(bytes) {
+        const image = await loadImage(bytes);
+        return { image: image as unknown as CanvasImageSource, width: image.width, height: image.height };
+      },
+      canvas(width, height) {
+        const canvas = createCanvas(width, height);
+        return { canvas: canvas as unknown as CanvasImageSource, ctx: canvas.getContext('2d') as unknown as Ctx,
+          dispose: () => { canvas.width = 0; canvas.height = 0; } };
+      },
+    }, { signal, strict: true }),
     renderTile: (px, draw) => {
       const surface = createCanvas(px, px);
       const c2d = surface.getContext('2d');

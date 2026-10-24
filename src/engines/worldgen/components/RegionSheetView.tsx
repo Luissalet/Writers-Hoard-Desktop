@@ -27,7 +27,7 @@ import {
   regionCellToCanvas,
   regionVisibleRect,
 } from '../region/coordinates';
-import { renderRegion } from '../region/render';
+import { collectRegionPlaceImageStyles, renderRegion } from '../region/render';
 import {
   DEFAULT_REGION_PARAMS,
   type RegionData,
@@ -38,6 +38,7 @@ import {
 import { kmPerWorldCell } from '../region/terrain';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
+import { preparePlaceImages, webPlaceImageAdapter, type PlaceImagePainter } from '../cartography/placeImages';
 import type { SavedWorldRegion } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { sheetCopy } from '../sheets/copy';
@@ -123,6 +124,9 @@ export default function RegionSheetView({
   const [stage, setStage] = useState(() => t('worldgen.sheet.stageRelief'));
   const [region, setRegion] = useState<RegionData | null>(null);
   const [busy, setBusy] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [preparedImages, setPreparedImages] = useState<PlaceImagePainter>();
+  const imageLease = useRef<{ promise: Promise<PlaceImagePainter>; controller: AbortController } | null>(null);
 
   const win: RegionWindow = useMemo(
     () => ({ cx: centre.x, cy: centre.y, spanKm: SPANS[spanIdx] }),
@@ -213,8 +217,28 @@ export default function RegionSheetView({
     : null;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !displayRegion || size.w < 8 || size.h < 8) return;
+    const controller = new AbortController();
+    const promise = preparePlaceImages(entities.map(entity => entity.style), webPlaceImageAdapter(), { signal: controller.signal });
+    const lease = { promise, controller };
+    imageLease.current = lease;
+    setPreparedImages(undefined);
+    setImageError('');
+    void promise.then(painter => {
+      if (controller.signal.aborted || imageLease.current !== lease) { painter.dispose(); return; }
+      setPreparedImages(painter);
+      setImageError(painter.errors.join('; '));
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setImageError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      controller.abort();
+      if (imageLease.current === lease) imageLease.current = null;
+      void promise.then(painter => painter.dispose(), () => undefined);
+    };
+  }, [entities]);
+
+  const drawSheet = useCallback((canvas: HTMLCanvasElement, placeImages?: PlaceImagePainter, strictPlaceImages=false) => {
+    if (!displayRegion || size.w < 8 || size.h < 8) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(size.w * dpr);
     canvas.height = Math.round(size.h * dpr);
@@ -223,6 +247,8 @@ export default function RegionSheetView({
     const context = canvas.getContext('2d');
     if (!context) return;
     renderRegion(displayRegion, context as unknown as Ctx, {
+      placeImages,
+      strictPlaceImages,
       theme,
       width: canvas.width,
       height: canvas.height,
@@ -244,6 +270,17 @@ export default function RegionSheetView({
       context.restore();
     }
   }, [displayRegion, selectedEntity?.hidden, selectedPlace, size.h, size.w, theme]);
+
+  const downloadScope=useRef<AbortController|null>(null);
+  useEffect(()=>{
+    const scope=new AbortController();downloadScope.current=scope;
+    return()=>{scope.abort();if(downloadScope.current===scope)downloadScope.current=null;};
+  },[drawSheet]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) drawSheet(canvas, preparedImages);
+  }, [drawSheet, preparedImages]);
 
   const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
   const kmCell = kmPerWorldCell(world);
@@ -321,15 +358,30 @@ export default function RegionSheetView({
     ));
   }, []);
 
-  const download = useCallback(() => {
+  const download = useCallback(async () => {
     const canvas = canvasRef.current;
-    if (!canvas || !displayRegion) return;
-    canvas.toBlob((blob) => {
-      if (blob) {
-        saveAs(blob, `${displayRegion.title.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}.png`);
-      }
-    }, 'image/png');
-  }, [displayRegion]);
+    const lease=imageLease.current,scope=downloadScope.current;
+    if (!canvas || !displayRegion || !lease || !scope || size.w<8 || size.h<8) return;
+    const current=()=>!scope.signal.aborted&&downloadScope.current===scope&&!lease.controller.signal.aborted&&imageLease.current===lease&&canvasRef.current===canvas&&canvas.isConnected;
+    let painter:PlaceImagePainter|undefined,drawStarted=false,drawCompleted=false;
+    try {
+      const dpr=Math.min(2,window.devicePixelRatio||1);
+      const styles=collectRegionPlaceImageStyles(displayRegion,{width:Math.round(size.w*dpr),height:Math.round(size.h*dpr),typeScale:dpr});
+      painter=await preparePlaceImages(styles,webPlaceImageAdapter(),{signal:scope.signal,strict:true});
+      if(!current())return;
+      drawStarted=true;drawSheet(canvas,painter,true);drawCompleted=true;
+      const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/png'));
+      if(!current())return;
+      if(!blob)throw new Error(t('worldgen.export.failed'));
+      saveAs(blob,`${displayRegion.title.replace(/[^\p{L}\p{N}]+/gu,'-').toLowerCase()}.png`);
+      setImageError('');
+    } catch (error) {
+      if(current())setImageError(error instanceof Error?error.message:String(error));
+    } finally {
+      painter?.dispose();
+      if(drawStarted&&!drawCompleted&&current())drawSheet(canvas,preparedImages);
+    }
+  }, [displayRegion,drawSheet,preparedImages,size.w,size.h,t]);
 
   const save = useCallback(() => {
     if (!onSaveRegion) return;
@@ -358,6 +410,7 @@ export default function RegionSheetView({
           aria-label={t('worldgen.sheet.nameLabel')}
         />
         <span className="text-[11px] text-white/45">{displayRegion?.subtitle ?? ''}</span>
+        {imageError && <span role="alert" className="text-[11px] text-red-300">{imageError}</span>}
         {busy && (
           <span className="flex items-center gap-1 text-[11px] text-accent-gold/90">
             <Loader2 size={12} className="animate-spin" /> {stage}…

@@ -1,5 +1,6 @@
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { DEFAULT_PARAMS, type WorldData } from '@/engines/worldgen/core/types';
 import { applyWorldPreset, WORLD_PRESETS } from '@/engines/worldgen/core/presets';
@@ -107,7 +108,7 @@ export async function testWorldgenPlaceStyle() {
   await db.projects.add({ id: 'qa-ui', title: 'Place inspector QA', mode: 'novelist', type: 'standalone', color: '#34493e', description: '', status: 'draft', enabledEngines: ['worldgen'], engineOrder: ['worldgen'], createdAt: inspectorNow, updatedAt: inspectorNow });
   await db.generatedWorlds.add({ id: 'qa-world', projectId: 'qa-ui', title: 'Place inspector QA', params: world.params, createdAt: inspectorNow, updatedAt: inspectorNow });
   try {
-    await act(async () => inspectorRoot.render(createElement(SpatialEntityInspector, { projectId: 'qa-ui', worldId: 'qa-world', entity: buildAtlas(world, getGeography(world)).byKey.get(key)!, onRename: () => {}, onRemove: () => {}, onRestore: () => {}, onMove: () => {}, onStyle: change => changes.push(change), onOpenRegion: () => {}, onReveal2D: () => {}, onReveal3D: () => {} })));
+    await act(async () => inspectorRoot.render(createElement(MemoryRouter, null, createElement(SpatialEntityInspector, { projectId: 'qa-ui', worldId: 'qa-world', entity: buildAtlas(world, getGeography(world)).byKey.get(key)!, onRename: () => {}, onRemove: () => {}, onRestore: () => {}, onMove: () => {}, onStyle: change => changes.push(change), onOpenRegion: () => {}, onReveal2D: () => {}, onReveal3D: () => {} }))));
     for (const [option, value] of [['keep', 'house'], ['sylvan', 'nordic'], ['mono', 'sans']]) {
       const select = [...inspectorHost.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === option));
       assert(select && !select.disabled, `Inspector lacks enabled ${option} control`);
@@ -232,9 +233,9 @@ export async function captureWorldgenPlaceEditor() {
     const map = mode === '3d'
       ? createElement(World3D, { world, geography: geo, theme: THEME_RELIEF, waypoints: [], showWaypoints: false, showSettlements: true, showLandmarks: true, showBorders: true, skin: 'dibujado', shape: 'plane', onShape: noop, exaggeration, tool: DEFAULT_PAINT_TOOL, onEdit: noop, revision: world.revision ?? 0, flyTarget: { ...viewport, spanKm, token: spanKm }, viewport: { ...viewport, spanKm } })
       : createElement(CartoMap, { world, geography: geo, theme: THEME_RELIEF, viewport: { ...viewport, spanKm }, layers: { frame: false, compass: false }, density: 1, reliefAmount: 1 });
-    await act(async () => root.render(createElement('div', { style: { display: 'flex', width: '100%', height: '100%' } },
+    await act(async () => root.render(createElement(MemoryRouter, null, createElement('div', { style: { display: 'flex', width: '100%', height: '100%' } },
       createElement('aside', { style: { width: 286, padding: 14, overflow: 'auto', flexShrink: 0, borderRight: '1px solid #39434b' } }, createElement(SpatialEntityInspector, { projectId: 'qa-editor', worldId: 'qa-world', entity, onRename: noop, onRemove: noop, onRestore: noop, onMove: noop, onStyle: noop, onOpenRegion: noop, onReveal2D: noop, onReveal3D: noop })),
-      createElement('main', { style: { position: 'relative', flex: 1, minWidth: 0, height: '100%' } }, map))));
+      createElement('main', { style: { position: 'relative', flex: 1, minWidth: 0, height: '100%' } }, map)))));
     if (mode === '3d') {
       const appearance = [...host.querySelectorAll('button')].find(b => b.title === translate('worldgen.threeD.appearance'));
       assert(appearance, 'Full shipping 3D appearance control is missing');

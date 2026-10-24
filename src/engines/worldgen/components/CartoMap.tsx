@@ -13,6 +13,8 @@ import { drawFurniture } from '../cartography/furniture';
 import { fogUnnamed } from '../cartography/readerFogLayer';
 import { isSheet, worldKmOf } from '../core/geoScale';
 import { LabelSpace, drawOverlay } from '../cartography/overlay';
+import type { PlaceImagePainter } from '../cartography/placeImages';
+import type { WorldSpatialEntity } from '../core/spatialEntities';
 import { drawArrivalMark } from '../cartography/screenFurniture';
 import {
   cartaViewToViewport, viewportToCartaCamera, clampViewport, sameViewport,
@@ -48,6 +50,8 @@ import { placeFont, labelScale } from '../core/placeStyle';
  */
 
 interface CartoMapProps {
+  placeImages?: PlaceImagePainter;
+  regionalEntities?: readonly WorldSpatialEntity[];
   world: WorldData;
   theme: CartoTheme;
   geography?: HumanGeography;
@@ -138,6 +142,7 @@ const QUICK_SCALE = 0.58;
 interface LiveView { zoom: number; cu: number; cv: number }
 
 export default function CartoMap({
+  placeImages, regionalEntities,
   world, theme, geography, layers, density, reliefAmount, title, subtitle,
   onPickSettlement, onZoomTo, onInspect, onViewChange, annotations,
   viewport, onViewportChange, flyTarget, flyMark = null, canonWorld, canonEdits,
@@ -220,8 +225,8 @@ export default function CartoMap({
 
   // Props the render needs, read through a ref so the event handlers never have
   // to be rebuilt when a prop changes.
-  const propsRef = useRef({ world, theme, geography, layers, density, reliefAmount, title, subtitle, canonWorld, canonEdits });
-  propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle, canonWorld, canonEdits };
+  const propsRef = useRef({ world, theme, geography, layers, density, reliefAmount, title, subtitle, canonWorld, canonEdits, placeImages, regionalEntities });
+  propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle, canonWorld, canonEdits, placeImages, regionalEntities };
   const annRef = useRef<CartoAnnotations | undefined>(annotations);
   annRef.current = annotations;
   const markRef = useRef<FlyMark | null>(flyMark);
@@ -402,6 +407,9 @@ export default function CartoMap({
     const z = levelFor(p.world, outW / v.w, p.canonWorld ? MAX_TILE_Z : MAX_WORLD_TILE_Z);
     const deep = z >= DEEP_TILE_Z && !!p.canonWorld && geo.depth === 'full';
     const space = drawOverlay(ctx, p.world, geo, {
+      placeImages: p.placeImages,
+      // Deep carta tiles already carry these marks once, at their canon anchors.
+      regionalEntities: deep ? undefined : p.regionalEntities,
       theme: p.theme,
       view: v,
       scale: outW / v.w,
@@ -778,7 +786,7 @@ export default function CartoMap({
     base.current = null;
     render(1, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, world.revision, theme, geography, JSON.stringify(layers), density, reliefAmount, size.w, size.h]);
+  }, [world, world.revision, theme, geography, JSON.stringify(layers), density, reliefAmount, size.w, size.h, placeImages, regionalEntities]);
 
   useEffect(() => () => {
     window.clearTimeout(quickTimer.current);

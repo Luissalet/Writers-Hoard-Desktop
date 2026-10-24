@@ -1,4 +1,5 @@
 import { MAP_GRID_KM, type MapGrid } from '../cartography/mapGrid';
+import {preparePlaceImages,webPlaceImageAdapter,type PlaceImagePainter} from '../cartography/placeImages';
 import { useNavigate } from 'react-router-dom';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring/registry';
 import { useWritings } from '@/engines/writings/hooks';
@@ -86,7 +87,7 @@ import { fillLake, lakeAt } from '../core/lake';
 import type { WorldEdit } from '../core/edits';
 import { THEMES, themeById } from '../cartography/theme';
 import {
-  adoptGeographyBase, cachedGeographyDepth, getGeography, geographyIsStale, patchCachedGeography, renderCartoCanvas,
+  adoptGeographyBase, cachedGeographyDepth, collectCartoPlaceImageStyles, getGeography, geographyIsStale, patchCachedGeography, renderCartoCanvas,
 } from '../cartography/texture';
 import { requestGeographyBase } from '../cartography/geographyClient';
 import type { GeoDepth } from '../core/settlements';
@@ -477,6 +478,28 @@ export default function WorldView({
   }, [onThumbnail, locale]);
 
   const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(runtimeId, handleDone);
+  const imageBinding=JSON.stringify([projectId,runtimeId,paintRev,data?.revision??0]);
+  const imageBindingRef=useRef(imageBinding);imageBindingRef.current=imageBinding;
+  const [imageLease,setImageLease]=useState<{binding:string;painter:PlaceImagePainter}|null>(null);
+  const imageReady=useRef<{binding:string;promise:Promise<PlaceImagePainter>}|null>(null);
+  useEffect(()=>{
+    if(!data){imageReady.current=null;setImageLease(null);return;}
+    const abort=new AbortController();let prepared:PlaceImagePainter|undefined;
+    const promise=preparePlaceImages(Object.values(data.painted?.styles??{}),webPlaceImageAdapter(),{signal:abort.signal}).then(painter=>{
+      if(abort.signal.aborted||imageBindingRef.current!==imageBinding){painter.dispose();throw new Error('Place image owner changed.');}
+      prepared=painter;setImageLease({binding:imageBinding,painter});return painter;
+    });imageReady.current={binding:imageBinding,promise};void promise.catch(()=>{});
+    return()=>{abort.abort();prepared?.dispose();};
+  },[data,imageBinding]);
+  const hasImages=Object.values(data?.painted?.styles??{}).some(style=>style.iconImage!=null);
+  const placeImages=hasImages&&imageLease?.binding===imageBinding?imageLease.painter:undefined;
+  const awaitPlaceImages=useCallback(async()=>{
+    const owner=imageBinding,lease=imageReady.current;
+    if(!lease||lease.binding!==owner)throw new Error('Place images are not ready.');
+    const painter=await lease.promise;
+    if(imageBindingRef.current!==owner)throw new Error('Place image owner changed.');
+    return painter;
+  },[imageBinding]);
   /** A sheet is a flat map of a piece of ground: it has no globe to turn. */
   const sheetWorld = isSheet(world.params);
   /**
@@ -1862,7 +1885,7 @@ export default function WorldView({
    * at — a session spent siting towns and laying roads came out as a green
    * rectangle. Only the map knows what the map drew, so the map renders it.
    */
-  const mapExportRef = useRef<((scale: number) => Promise<Blob | null>) | null>(null);
+  const mapExportRef = useRef<((scale: number, strictPlaceImages?: boolean) => Promise<Blob | null>) | null>(null);
 
   /** An export is seconds of synchronous canvas work on the main thread. With
    *  nothing on screen to say so, the tab just stops answering and the reader
@@ -1892,8 +1915,12 @@ export default function WorldView({
     setExporting(true);
     await yieldToPaint();
     try {
-      const blob = await render(scale);
+      await awaitPlaceImages();await yieldToPaint();
+      if(imageBindingRef.current!==imageBinding)throw new Error('Place image owner changed.');
+      const currentRender=mapExportRef.current;if(!currentRender)throw new Error('Map was closed.');
+      const blob = await currentRender(scale,true);
       if (!blob) { toast.error(t('worldgen.export.failed')); return; }
+      if(imageBindingRef.current!==imageBinding)throw new Error('Place image owner changed.');
       saveAs(blob, `${safeName(world.title)}-mapa${scale > 1 ? `-${scale}x` : ''}.png`);
     } catch {
       // A tainted canvas (satellite tiles from another origin) throws out of
@@ -1903,7 +1930,7 @@ export default function WorldView({
     } finally {
       setExporting(false);
     }
-  }, [world.title, t]);
+  }, [world.title, t,awaitPlaceImages,imageBinding]);
 
   const exportPng = useCallback(() => {
     if (!data) return;
@@ -1927,6 +1954,8 @@ export default function WorldView({
 
   const exportCarta = useCallback(async () => {
     if (!data) return;
+    const owner=imageBinding;
+    let preparedImages:PlaceImagePainter|undefined;
     // 4096×2048 of carta is a second or more of blocking canvas work, and it
     // used to run straight inside the click handler: the menu stayed open over
     // a tab that had stopped answering, with nothing anywhere on screen to say
@@ -1936,7 +1965,7 @@ export default function WorldView({
     setExporting(true);
     await yieldToPaint();
     try {
-      const canvas = renderCartoCanvas(data, {
+      const options = {
         theme,
         width: 4096,
         height: 2048,
@@ -1956,7 +1985,10 @@ export default function WorldView({
         townDots: readerView ? townDots ?? null : null,
         // The author's zones are the author's map, not what the reader has seen.
         zones: readerView ? null : zones,
-      });
+      };
+      preparedImages=await preparePlaceImages(collectCartoPlaceImageStyles(data,options),webPlaceImageAdapter(),{strict:true});
+      if(imageBindingRef.current!==owner)throw new Error('Place image owner changed.');
+      const canvas=renderCartoCanvas(data,{...options,placeImages:preparedImages});
       // The map's light, as on screen.
       if (mapHourValue !== null && Number.isFinite(mapHourValue)) {
         const ctx = canvas.getContext('2d');
@@ -1966,11 +1998,13 @@ export default function WorldView({
       // A 4K canvas is where `toBlob` runs out of memory. Returning quietly
       // left the reader waiting for a download that was never coming.
       if (!blob) { toast.error(t('worldgen.export.failed')); return; }
+      if(imageBindingRef.current!==owner)throw new Error('Place image owner changed.');
       saveAs(blob, `${safeName(world.title)}-carta.png`);
-    } finally {
+    } catch {toast.error(t('worldgen.export.failed'));} finally {
+      preparedImages?.dispose();
       setExporting(false);
     }
-  }, [data, theme, drawnLayers, contourLines, reliefSettled, geography, world.title, t, mapGrid, fogLayer, storyMarks, readerView, zones, mapHourValue, trail, townDots]);
+  }, [data, theme, drawnLayers, contourLines, reliefSettled, geography, world.title, t, mapGrid, fogLayer, storyMarks, readerView, zones, mapHourValue, trail, townDots,imageBinding]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -2547,6 +2581,7 @@ export default function WorldView({
           })()}
           {data && view === 'map' && (
               <Map2D
+              placeImages={placeImages}
               world={data}
               viewMode={viewMode}
               projection={projection}
@@ -2634,6 +2669,8 @@ export default function WorldView({
           {data && view === 'carta' && (
             !geography ? <EngineSpinner /> : (
               <CartoMap
+                placeImages={placeImages}
+                regionalEntities={regionalSpatialEntities}
                 world={data}
                 theme={theme}
                 geography={geography}
@@ -2666,6 +2703,7 @@ export default function WorldView({
           {data && view === '3d' && (
             <Suspense fallback={<EngineSpinner />}>
               <World3D
+                placeImages={placeImages}
                 world={data}
                 geography={geography}
                 canonWorld={canonSource?.world}

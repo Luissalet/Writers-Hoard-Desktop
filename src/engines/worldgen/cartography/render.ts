@@ -31,6 +31,7 @@ import { renderPaper } from './paper';
 import { drawBroadleaf, drawCactus, drawConifer, drawDune, drawIce, drawMarsh, drawMountain, drawPalm, type Ctx } from './symbols';
 import type { CartoTheme } from './theme';
 import { drawOverlay } from './overlay';
+import type { PlaceImagePainter } from './placeImages';
 import { drawFurniture } from './furniture';
 import type { HumanGeography } from '../core/settlements';
 
@@ -80,6 +81,7 @@ export const DEFAULT_LAYERS: CartoLayers = {
 };
 
 export interface CartoOptions {
+  placeImages?: PlaceImagePainter;
   /** A square or hex play grid in km, drawn under the lettering. */
   grid?: MapGrid | null;
   /** The author's contour lines, every N metres, in place of the look's own. */
@@ -518,6 +520,7 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   // ---- stage 3: culture layer, lettering and furniture --------------------
   if (opts.geography) {
     drawOverlay(ctx, world, opts.geography, {
+      placeImages: opts.placeImages,
       theme,
       view,
       scale,

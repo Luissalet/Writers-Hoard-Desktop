@@ -21,6 +21,7 @@ export type WorldSpatialEntityKind =
 
 /** Presentation overrides deliberately contain no semantic type information. */
 export interface WorldSpatialStyle {
+  iconImage?: import('./placeImage').PlaceImageDescriptor | null;
   model?: import('./placeStyle').PlaceModel;
   buildingStyle?: import('./placeStyle').BuildingStyle;
   labelFont?: import('./placeStyle').PlaceLabelFont;

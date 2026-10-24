@@ -374,7 +374,7 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   const width = optNumber(args, 'width') ?? 1600;
   const height = optNumber(args, 'height') ?? Math.round(width * (view?.h ?? opened.world.data.height) / (view?.w ?? opened.world.data.width));
   if (!Number.isSafeInteger(width) || width < 1 || !Number.isSafeInteger(height) || height < 1) throw new BridgeError('bad-args', 'Image width and height must be positive integers.');
-  const { renderCartoCanvas } = await import('@/engines/worldgen/cartography/texture');
+  const { renderCartoCanvas,collectCartoPlaceImageStyles } = await import('@/engines/worldgen/cartography/texture');
   const { themeById } = await import('@/engines/worldgen/cartography/theme');
   const { DEFAULT_LAYERS } = await import('@/engines/worldgen/cartography/render');
   // The reader's-eye map: blank paper where the story has not been yet (up to a chapter, if given).
@@ -421,13 +421,19 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   }
   // The author's zones are part of the author's map, not of what the reader has seen.
   const zones = readerView ? null : (await import('@/engines/worldgen/core/zones')).zonesFrom(deserializeEdits(world.edits ?? '[]'));
-  const canvas = renderCartoCanvas(opened.world.data, { theme: themeById(themeId), width, height, view, geography: opened.world.geo, title: world.title, grid: look.grid, fog, story, zones, trail, townDots, layers: { ...DEFAULT_LAYERS, ...look.layers, ...(look.contours === null ? {} : { contours: false }) }, contourIntervalM: typeof look.contours === 'number' ? look.contours : null, reliefAmount: look.reliefAmount });
+  const {preparePlaceImages,webPlaceImageAdapter}=await import('@/engines/worldgen/cartography/placeImages');
+  const canvasOptions={theme:themeById(themeId),width,height,view,geography:opened.world.geo,title:world.title,grid:look.grid,fog,story,zones,trail,townDots,layers:{...DEFAULT_LAYERS,...look.layers,...(look.contours===null?{}:{contours:false})},contourIntervalM:typeof look.contours==='number'?look.contours:null,reliefAmount:look.reliefAmount};
+  const imageStyles=collectCartoPlaceImageStyles(opened.world.data,canvasOptions);
+  const placeImages=await preparePlaceImages(imageStyles,webPlaceImageAdapter(),{strict:true});
+  try{
+  const canvas = renderCartoCanvas(opened.world.data,{...canvasOptions,placeImages});
   if (hour !== null) {
     const { drawHourLight } = await import('@/engines/worldgen/core/hourLight');
     const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
     if (ctx) drawHourLight(ctx, 0, 0, canvas.width, canvas.height, hour);
   }
   return { worldId: world.id, theme: themeId, ...(readerView ? { readerView: true } : {}), ...(hour !== null ? { hour } : {}), view: view ?? { x: 0, y: 0, w: opened.world.data.width, h: opened.world.data.height }, width: canvas.width, height: canvas.height, mime: 'image/png', filename: `${world.title.replace(/[<>:"/\\|?*]/g, '_') || 'world'}-${themeId}.png`, dataUrl: canvas.toDataURL('image/png') };
+  }finally{placeImages.dispose();}
 }
 
 export async function whListPlaces(args: ToolArgs): Promise<unknown> {
