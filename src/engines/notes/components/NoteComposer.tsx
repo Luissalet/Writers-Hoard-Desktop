@@ -3,6 +3,7 @@ import { Loader2, Plus, Tag as TagIcon, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { NOTE_KINDS, NOTE_KIND_META, type NoteKind } from '../types';
 import NoteRichEditor from './NoteRichEditor';
+import type { NoteImageActivity } from './NoteImageControls';
 import { hasNoteContent, plainNoteHtml } from '../content';
 
 export interface NoteDraft {
@@ -14,6 +15,8 @@ export interface NoteDraft {
 }
 
 interface NoteComposerProps {
+  projectId?: string;
+  eraId?: string;
   onSubmit: (draft: NoteDraft) => Promise<void | boolean>;
   onPendingChange?: (pending: boolean) => void;
   /** Tags already used in this scope — offered as quick picks. */
@@ -29,6 +32,8 @@ interface NoteComposerProps {
  * optional and never block the primary path.
  */
 export default function NoteComposer({
+  projectId,
+  eraId,
   onSubmit,
   onPendingChange,
   tagSuggestions = [],
@@ -46,10 +51,12 @@ export default function NoteComposer({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const submittingRef = useRef(false);
+  const imageActivity = useRef<NoteImageActivity>({ epoch: 0, blocked: false });
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = async () => {
     if (!hasNoteContent(text,richHtml) || submittingRef.current) return;
+    imageActivity.current.epoch++; imageActivity.current.blocked = true;
     submittingRef.current = true;
     setSaving(true);
     setSaveError(false);
@@ -70,6 +77,7 @@ export default function NoteComposer({
       // The thought stays editable and retryable until storage confirms it.
       setSaveError(true);
     } finally {
+      imageActivity.current.blocked = false;
       submittingRef.current = false;
       setSaving(false);
       onPendingChange?.(false);
@@ -134,8 +142,8 @@ export default function NoteComposer({
         })}
       </div>
 
-      {!bare&&<label className="flex min-h-9 items-center gap-2 text-xs text-text-muted"><input type="checkbox" data-testid="note-rich-toggle" checked={richHtml!==undefined} onChange={event=>setRichHtml(event.target.checked?plainNoteHtml(text):undefined)}/>{locale==='es'?'Texto enriquecido':'Rich text'}</label>}
-      {richHtml!==undefined?<NoteRichEditor html={richHtml} onChange={(plain,html)=>{setText(plain);setRichHtml(html);}}/>:<textarea
+      {!bare&&<label className="flex min-h-9 items-center gap-2 text-xs text-text-muted"><input type="checkbox" data-testid="note-rich-toggle" checked={richHtml!==undefined} onChange={event=>{imageActivity.current.epoch++;setRichHtml(event.target.checked?plainNoteHtml(text):undefined);}}/>{locale==='es'?'Texto enriquecido':'Rich text'}</label>}
+      {richHtml!==undefined?<NoteRichEditor html={richHtml} projectId={projectId} eraId={eraId} activity={imageActivity} onChange={(plain,html)=>{setText(plain);setRichHtml(html);}}/>:<textarea
         ref={textRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
