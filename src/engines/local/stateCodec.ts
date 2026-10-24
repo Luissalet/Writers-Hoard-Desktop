@@ -15,6 +15,16 @@ export function validateLocalToolCodec(value:unknown):asserts value is LocalTool
  const safe=cloneLocalToolJson(value as LocalToolJson);if(!object(safe)||safe.version!==1||Object.keys(safe).length!==2||!object(safe.fields))throw Error('local_tool_codec_invalid');
  for(const [key,field]of Object.entries(safe.fields)){if(!localToolFieldKey(key)||!object(field))throw Error('local_tool_codec_invalid');const keys=Object.keys(field);if(field.kind==='prose'){if(keys.some(key=>!['kind','format'].includes(key))||field.format!==undefined&&field.format!=='rich')throw Error('local_tool_codec_invalid');}else if(field.kind==='scalar'||field.kind==='reference'||field.kind==='asset-reference'){if(keys.length!==1)throw Error('local_tool_codec_invalid');}else if(field.kind==='map'){if(keys.some(key=>!['kind','referenceValues','assetReferenceValues'].includes(key))||field.referenceValues!==undefined&&field.referenceValues!==true||field.assetReferenceValues!==undefined&&field.assetReferenceValues!==true||field.referenceValues&&field.assetReferenceValues)throw Error('local_tool_codec_invalid');}else if(field.kind==='list'){if(!localToolFieldKey(field.idKey)||field.referenceKey!==undefined&&(!localToolFieldKey(field.referenceKey)||field.referenceKey===field.idKey)||keys.some(key=>!['kind','idKey','referenceKey'].includes(key)))throw Error('local_tool_codec_invalid');}else throw Error('local_tool_codec_invalid');}
 }
+/** Compatible additions only; descriptor properties are primitives, and their order is immaterial. */
+export function localToolCodecAdditions(stored:LocalToolStateCodec,current:LocalToolStateCodec):string[]|null{
+ validateLocalToolCodec(stored);validateLocalToolCodec(current);
+ for(const[key,field]of Object.entries(stored.fields)){
+  const next=current.fields[key];if(!next)return null;
+  const before=Object.entries(field),after=Object.entries(next);
+  if(before.length!==after.length||before.some(([name,value])=>!Object.hasOwn(next,name)||(next as unknown as Record<string,unknown>)[name]!==value))return null;
+ }
+ return Object.keys(current.fields).filter(key=>!Object.hasOwn(stored.fields,key));
+}
 export function validateLocalToolContracts(value:unknown):asserts value is LocalToolContracts|undefined{if(value===undefined)return;const safe=cloneLocalToolJson(value as LocalToolJson);if(!object(safe))throw Error('local_tool_contracts_invalid');for(const [namespace,codec]of Object.entries(safe)){if(!localToolNamespace(namespace))throw Error('local_tool_contracts_invalid');validateLocalToolCodec(codec);}}
 export function validateLocalToolCodecState(data:LocalToolJson,codec:LocalToolStateCodec):void{
  validateLocalToolCodec(codec);const safe=cloneLocalToolJson(data);if(!object(safe))throw Error('local_tool_codec_state_invalid');

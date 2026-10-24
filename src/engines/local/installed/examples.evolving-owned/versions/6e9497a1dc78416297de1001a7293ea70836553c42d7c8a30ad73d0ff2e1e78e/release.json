@@ -1,0 +1,14 @@
+{
+  "format": "writers-hoard-local-tool-source/1",
+  "apiVersion": 1,
+  "namespace": "examples.evolving-owned",
+  "version": "1.0.0",
+  "files": [
+    {
+      "path": "module.tsx",
+      "sha256": "434979902042ac0112eae3cf9d12ee3f72a5dcef97f2e77c95b29dfb62ff5ca0",
+      "bytes": 3801
+    }
+  ],
+  "contentHash": "6e9497a1dc78416297de1001a7293ea70836553c42d7c8a30ad73d0ff2e1e78e"
+}

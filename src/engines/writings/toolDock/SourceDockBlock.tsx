@@ -42,6 +42,6 @@ export default function SourceDockBlock({scope,owner,read,envelope,locale,readOn
  const worldClient=useMemo(()=>source&&definition?.scope==='world'?createLocalToolClient(projectId,source,{eraId,readOnly:true,navigate}):undefined,[projectId,eraId,source,definition,navigate]);
  const WorldComponent=definition?.scope==='world'?definition.component:undefined;
  const preview=useMemo(()=>localToolBlockPreview(envelope,locale,documents),[envelope,locale,documents]);
- const context=useRichProseHostContext({view:'embed',canEdit,scope},client,envelope.scope==='host'?envelope.codec:undefined);
+ const context=useRichProseHostContext({view:'embed',canEdit,scope},client,envelope.scope==='host'?(canEdit&&definition?.scope==='host'?definition.codec:envelope.codec):undefined);
  return <div data-tool-editor-surface onKeyDown={event=>event.stopPropagation()}><style>{LOCAL_TOOL_PREVIEW_CSS}</style>{(!source||!compatible)&&<p className="mb-2 text-xs text-text-muted">{locale==='es'?'Fuente no disponible; contenido guardado.':'Source unavailable; saved content.'}</p>}{WorldComponent&&worldClient&&compatible?<WorldComponent projectId={projectId} client={worldClient}/>:Component&&client&&canEdit?<Component projectId={projectId} client={client} context={context}/>:<div className="prose prose-sm max-w-none break-words" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>}</div>;
 }

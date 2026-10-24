@@ -17,7 +17,24 @@ const placeImageAuditCheck = spawnSync(electron, ['tests/worldgen-place-icons.no
 if (placeImageAuditCheck.status !== 0 || placeImageAuditCheck.error) process.exit(placeImageAuditCheck.status ?? 1);
 const placeImageSheetCheck = spawnSync(electron, ['tests/review-worldgen-place-icons.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (placeImageSheetCheck.status !== 0 || placeImageSheetCheck.error) process.exit(placeImageSheetCheck.status ?? 1);
+const ownedEvolutionCheck = spawnSync(process.execPath, ['tests/local-tool-block-evolution.node.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (ownedEvolutionCheck.status !== 0) process.exit(ownedEvolutionCheck.status ?? 1);
 const suites = [
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionPin', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionNative', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionHost', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionClientUndo', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionClientConflicts', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionNativeTransactions', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionDock', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionRetainedPin', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionPortability', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-local-tool-block-evolution.browser.tsx', 'reviewOwnedEvolutionReadAndNoops', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['review-local-tool-block-evolution.browser.tsx', 'reviewOwnedEvolutionReceiptChain', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['review-local-tool-block-evolution.browser.tsx', 'reviewOwnedEvolutionMetadataCas', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['review-local-tool-block-evolution.browser.tsx', 'reviewOwnedEvolutionAbortAndRetarget', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['review-local-tool-block-evolution.browser.tsx', 'reviewOwnedEvolutionUnsetOpaqueAndViewGuard', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['review-local-tool-block-evolution.browser.tsx', 'reviewOwnedEvolutionCapturedRaw', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['note-inline-image-ui.browser.tsx', 'testNoteInlineImageUi', 120000],
   ['note-inline-image-ui.browser.tsx', 'testNoteInlineImageUiMountControls', 120000],
   ['note-inline-image-ui.browser.tsx', 'testNoteInlineImageAcquisition', 120000],

@@ -1424,3 +1424,17 @@ Architecture Agora1530 r2 is resolved. The implementation follows _stage/note-me
 - [x] Verify actual File/Gallery UI, lifecycle failures, legacy regression fixtures, MCP, reopen and portability, then independent review, exact commit/CAS and guarded main integration.
 
 No generic SDK editor, Gallery picker, slash-command, prose-style or manuscript-export redesign is included. Parent1095 remains open; no push.
+
+
+## Owned block evolution — task 1095, research 1428 / Agora 1536
+
+Success: a compatible author release adds fields to an existing Owned block; its original prose and identity survive. Reading and pinning preserve the stored envelope. One explicit edit adopts data, codec and portable preview together, and normal scoped Undo/Redo restores the complete prior envelope.
+
+- [x] Resolve the independent R1 changes with a coherent editable view, absent fields and no-op contract; close canonical example hashes and exact implementation paths before product edits.
+- [x] Preserve a real failing pin/host/native case, then implement only the agreed opt-in transition, complete-envelope versions and scoped evolution receipts; keep default strict, Source/legacy and portable reads intact.
+- [x] Test missing list/map/rich fields, nonempty fresh seeds, net-zero actions, opaque values, concurrent owners, abort, Base/era and exact Undo/Redo metadata/absence, plus affected original SDK and capture/backup tests.
+- [ ] Install the two own example releases through the normal CLI and verify actual versions, saved block, rich/list editing, Undo/Redo and reopen in real Brave; register independent tests and run the appropriate final gates.
+- [ ] Commit explicit reviewed paths as Luissalet, obtain fresh formal review and integrate exact approved source into main under its merge lock; validate main without push.
+- [ ] Update SDK/MCP/product documentation, the native Google manual and own continuity from actual results, preserving historical evidence and leaving parent task 1095 open for remaining gaps.
+
+The additive candidate is implemented and author-tested; independent review, normal Brave, native executor and final gates are pending. A causal Published plain remap fix extends the author whitelist to20 paths. Both example releases were repackaged with only their Source-module ESLint boundary comment corrected. Official CLI0.8.13 local scaffold is separately executed; that is not evidence of upstream host-injected codec runtime, collaborative text or universal parity.
