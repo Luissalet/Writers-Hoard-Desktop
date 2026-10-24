@@ -1,14 +1,8 @@
+import {matchesFontSignature as matchesSignature} from '../local/assetFileFormat';
 export type DictionaryFontFormat = 'ttf' | 'otf' | 'woff' | 'woff2';
 export interface DictionaryFont { name: string; format: DictionaryFontFormat; dataUrl: string }
 export const MAX_DICTIONARY_FONT_BYTES = 512 * 1024;
 const mimeByFormat = { ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2' } as const;
-
-function matchesSignature(bytes: Uint8Array, format: DictionaryFontFormat): boolean {
-  if (bytes.length < 12) return false;
-  const signature = String.fromCharCode(...bytes.slice(0, 4));
-  return format === 'ttf' ? bytes[0] === 0 && bytes[1] === 1 && bytes[2] === 0 && bytes[3] === 0 || signature === 'true'
-    : signature === ({ otf: 'OTTO', woff: 'wOFF', woff2: 'wOF2' } as const)[format];
-}
 
 /** Fonts are embedded bytes only. Never accept a local path, URL or CSS source. */
 export function decodeDictionaryFont(value: unknown): { font: DictionaryFont; bytes: Uint8Array<ArrayBuffer> } {

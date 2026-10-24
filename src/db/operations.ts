@@ -1,3 +1,4 @@
+import {encodeAssetFile,decodeAssetFiles,type PortableLocalAssetFile,type LocalAssetFile} from '@/engines/local/assetFileFormat';
 import {validateManuscriptContents,writingSelection,structuralManuscriptOwners} from '@/engines/writings/manuscripts';
 import {validateWritingOwner,assertWritingOwnerUnchanged} from '@/engines/writings/manuscriptStore';
 import { encodeManuscriptSource, decodeManuscriptSources, cloneManuscriptSource, cloneManuscriptWritingSource } from '@/engines/writings/manuscriptReview/portability';
@@ -711,6 +712,7 @@ export async function exportProjectData(projectId: string) {
     imageCollections: collections,
     inspirationImages: images,
     manuscriptSources: await Promise.all((await db.manuscriptSources.where('projectId').equals(projectId).toArray()).map(encodeManuscriptSource)),
+    localToolAssetFiles: await Promise.all((await db.localToolAssetFiles.where('projectId').equals(projectId).toArray()).map(encodeAssetFile)),
     localMediaAssets: await Promise.all((await db.localMediaAssets.where('projectId').equals(projectId).toArray()).map(encodeLocalMedia)),
     documentHistory: await encodeEraValue(await db.documentHistory.where('projectId').equals(projectId).toArray()),
     scenes: await db.scenes.where('projectId').equals(projectId).toArray(),
@@ -733,14 +735,15 @@ export async function exportProjectData(projectId: string) {
  * Scrapper snapshots on the way in (see engines/scrapper/legacyLinks.ts).
  */
 export async function importProjectData(
-  data: Omit<Awaited<ReturnType<typeof exportProjectData>>, 'manuscriptSources' | 'localMediaAssets' | 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'worldEraVariants' | 'worldEraAssets' | 'writingSnapshots' | 'notes' | 'timelineConnections' | 'generatedWorlds' | 'worldWaypoints'> & Partial<Pick<Awaited<ReturnType<typeof exportProjectData>>, 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'worldEraVariants' | 'worldEraAssets' | 'writingSnapshots' | 'notes' | 'timelineConnections' | 'generatedWorlds' | 'worldWaypoints'>> & { manuscriptSources?: import('@/engines/writings/manuscriptReview/portability').PortableManuscriptSource[]; localMediaAssets?: PortableLocalMedia[]; externalLinks?: LegacyExternalLink[] },
+  data: Omit<Awaited<ReturnType<typeof exportProjectData>>, 'localToolAssetFiles' | 'manuscriptSources' | 'localMediaAssets' | 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'worldEraVariants' | 'worldEraAssets' | 'writingSnapshots' | 'notes' | 'timelineConnections' | 'generatedWorlds' | 'worldWaypoints'> & Partial<Pick<Awaited<ReturnType<typeof exportProjectData>>, 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'worldEraVariants' | 'worldEraAssets' | 'writingSnapshots' | 'notes' | 'timelineConnections' | 'generatedWorlds' | 'worldWaypoints'>> & { manuscriptSources?: import('@/engines/writings/manuscriptReview/portability').PortableManuscriptSource[]; localToolAssetFiles?: PortableLocalAssetFile[]; localMediaAssets?: PortableLocalMedia[]; externalLinks?: LegacyExternalLink[] },
 ): Promise<string> {
   const idMap = new Map<string, string>();
   const remap = (oldId: string, prefix: string): string => {
-    if (!idMap.has(oldId)) {
-      idMap.set(oldId, `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const key=['asset-file','img','media'].includes(prefix)?JSON.stringify([prefix,oldId]):oldId;
+    if (!idMap.has(key)) {
+      idMap.set(key, `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
     }
-    return idMap.get(oldId)!;
+    return idMap.get(key)!;
   };
 
   const newProjectId = remap(data.project!.id, 'proj');
@@ -757,6 +760,7 @@ export async function importProjectData(
   const annotationData = decodeAnnotationData(data, data.project!.id, new Set(data.project!.worldEras?.map(era => era.id)));
   const sources = await decodeManuscriptSources(data.manuscriptSources, data.project!.id, new Set(data.project!.worldEras?.map(era => era.id)));
   const clonedAnnotations = cloneAnnotationData(annotationData, newProjectId, remap, annotationSourceIds(data));
+  const assetFiles=await decodeAssetFiles(data.localToolAssetFiles??[],data.project!.id);
   const media = decodeLocalMedia(data.localMediaAssets ?? [], data.project!.id);
   const eraAssets = await decodeEraAssets(data.worldEraAssets, data.project!.id);
   const eraVariants = decodeEraVariants(data.worldEraVariants, data.project!.id, eraAssets);
@@ -777,7 +781,7 @@ export async function importProjectData(
     db.projects, db.codexEntries, db.writings, db.publishingProfiles, db.manuscriptSources, db.timelines, db.timelineEvents, db.documentHistory, db.annotations, db.annotationReferences, db.scenes, db.sceneCasts, db.dialogBlocks,
     db.boards, db.boardNodes, db.boardEdges, db.boardLayers, db.boardViews,
     db.worldMaps, db.mapPins, db.entityLinks,
-    db.imageCollections, db.inspirationImages, db.snapshots, db.localMediaAssets, db.worldEraVariants, db.worldEraAssets, db.notes, db.writingSnapshots, db.timelineConnections, db.generatedWorlds, db.worldWaypoints,
+    db.imageCollections, db.inspirationImages, db.snapshots, db.localMediaAssets, db.localToolAssetFiles, db.worldEraVariants, db.worldEraAssets, db.notes, db.writingSnapshots, db.timelineConnections, db.generatedWorlds, db.worldWaypoints,
   ], async () => {
     suppressDocumentHistoryForTransaction();
     // Project
@@ -823,6 +827,7 @@ export async function importProjectData(
       await db.writings.add({ ...w,...(w.manuscriptId?{manuscriptId:remap(w.manuscriptId,'manuscript')}:{}), toolDock:remapToolDockLayout(w.toolDock,remap), id: remap(w.id, 'wr'), projectId: newProjectId, manuscriptSource: cloneManuscriptWritingSource(w.manuscriptSource, remap), content: richContent(w.content) });
     }
 
+    for(const asset of assetFiles)await db.localToolAssetFiles.add({...asset,id:remap(asset.id,'asset-file'),projectId:newProjectId});
     for (const asset of media) await db.localMediaAssets.add({ ...asset, id: remap(asset.id, 'media'), projectId: newProjectId, linkedEntryIds: asset.linkedEntryIds.filter(id => codexIds.has(id)).map(id => remap(id, 'codex')) });
 
     // Timelines
@@ -997,6 +1002,7 @@ export async function exportFullDatabase() {
     scenes: await db.scenes.toArray(), sceneCasts: await db.sceneCasts.toArray(), dialogBlocks: await db.dialogBlocks.toArray(),
     notes: await db.notes.toArray(), generatedWorlds: await db.generatedWorlds.toArray(), worldWaypoints: await db.worldWaypoints.toArray(), writingSnapshots: await db.writingSnapshots.toArray(), timelineConnections: await db.timelineConnections.toArray(),
     manuscriptSources: await Promise.all((await db.manuscriptSources.toArray()).map(encodeManuscriptSource)),
+    localToolAssetFiles: await Promise.all((await db.localToolAssetFiles.toArray()).map(encodeAssetFile)),
     localMediaAssets: await Promise.all((await db.localMediaAssets.toArray()).map(encodeLocalMedia)),
     worldEraVariants: await encodeEraValue(await db.worldEraVariants.toArray()),
     worldEraAssets: await encodeEraValue(await db.worldEraAssets.toArray()),
@@ -1027,7 +1033,7 @@ export async function exportFullDatabase() {
  */
 const LEGACY_FULL_EXPORT_TABLES: Record<string, string> = {
   annotations: 'annotations', annotationReferences: 'annotationReferences',
-  manuscriptSources: 'manuscriptSources', documentHistory: 'documentHistory', scenes: 'scenes', sceneCasts: 'sceneCasts', dialogBlocks: 'dialogBlocks', notes: 'notes', generatedWorlds: 'generatedWorlds', worldWaypoints: 'worldWaypoints', writingSnapshots: 'writingSnapshots', timelineConnections: 'timelineConnections', localMediaAssets: 'localMediaAssets',
+  manuscriptSources: 'manuscriptSources', documentHistory: 'documentHistory', scenes: 'scenes', sceneCasts: 'sceneCasts', dialogBlocks: 'dialogBlocks', notes: 'notes', generatedWorlds: 'generatedWorlds', worldWaypoints: 'worldWaypoints', writingSnapshots: 'writingSnapshots', timelineConnections: 'timelineConnections', localMediaAssets: 'localMediaAssets', localToolAssetFiles:'localToolAssetFiles',
   worldEraVariants: 'worldEraVariants',
   worldEraAssets: 'worldEraAssets',
   projects: 'projects',
@@ -1071,7 +1077,7 @@ const LEGACY_CHILD_TABLES: Record<string, string[]> = {
  * rather than replacing the `snapshots` table.
  */
 export async function importFullDatabase(
-  data: Omit<Awaited<ReturnType<typeof exportFullDatabase>>, 'manuscriptSources' | 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'> & Partial<Pick<Awaited<ReturnType<typeof exportFullDatabase>>, 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'>> & { manuscriptSources?: import('@/engines/writings/manuscriptReview/portability').PortableManuscriptSource[]; externalLinks?: LegacyExternalLink[] },
+  data: Omit<Awaited<ReturnType<typeof exportFullDatabase>>, 'manuscriptSources' | 'localToolAssetFiles' | 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'> & Partial<Pick<Awaited<ReturnType<typeof exportFullDatabase>>, 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'>> & { localToolAssetFiles?:PortableLocalAssetFile[]; manuscriptSources?: import('@/engines/writings/manuscriptReview/portability').PortableManuscriptSource[]; externalLinks?: LegacyExternalLink[] },
 ): Promise<void> {
   const payload = data as unknown as Record<string, unknown>;
   for(const writing of data.writings??[])validateToolDockWritingMetadata(writing);
@@ -1080,6 +1086,7 @@ export async function importFullDatabase(
   const history: DocumentHistoryEntry[] = [];
   const annotations: import('@/engines/annotations/types').Annotation[] = [], annotationReferences: import('@/engines/annotations/types').AnnotationReference[] = [];
   const manuscriptSources: import('@/engines/writings/manuscriptReview/types').ManuscriptSourceRow[] = [];
+  const assetFiles:LocalAssetFile[]=[];
   const media: import('@/engines/media/types').LocalMediaAsset[] = [];
   for (const project of data.projects ?? []) {
     manuscriptSources.push(...await decodeManuscriptSources((data.manuscriptSources ?? []).filter(row => row.projectId === project.id), project.id, new Set(project.worldEras?.map(era => era.id))));
@@ -1096,9 +1103,11 @@ export async function importFullDatabase(
     const assets = await decodeEraAssets(Array.isArray(data.worldEraAssets) ? data.worldEraAssets.filter(row => row && typeof row === 'object' && row.projectId === project.id) : [], project.id);
     eraAssets.push(...assets);
     history.push(...await decodeDocumentHistory(Array.isArray(data.documentHistory)?data.documentHistory.filter(row=>row && typeof row==='object' && row.projectId===project.id):[],project.id,assets));
+    assetFiles.push(...await decodeAssetFiles((data.localToolAssetFiles??[]).filter(row=>row.projectId===project.id),project.id));
     media.push(...decodeLocalMedia((data.localMediaAssets ?? []).filter(row=>row.projectId===project.id),project.id));
     eraVariants.push(...decodeEraVariants(Array.isArray(data.worldEraVariants) ? data.worldEraVariants.filter(row => row && typeof row === 'object' && row.projectId === project.id) : [], project.id, assets));
   }
+  if(assetFiles.length!==(data.localToolAssetFiles?.length??0))throw Error('local_asset_import_scope_invalid');
   if (annotations.length !== (data.annotations?.length ?? 0) || annotationReferences.length !== (data.annotationReferences?.length ?? 0)) throw Error('annotation_import_scope_invalid');
   // An older full JSON may carry era assets but predate Base history. Keep
   // retained history's binary references valid when that legacy asset table is replaced.
@@ -1145,6 +1154,7 @@ export async function importFullDatabase(
     if (annotationReferences.length) await db.annotationReferences.bulkAdd(annotationReferences);
     if(retainedHistory.length)await db.documentHistory.bulkPut(retainedHistory);
     if(manuscriptSources.length)await db.manuscriptSources.bulkAdd(manuscriptSources);
+    if(assetFiles.length)await db.localToolAssetFiles.bulkAdd(assetFiles);
     if(media.length)await db.localMediaAssets.bulkAdd(media);
     for(const name of ['scenes','sceneCasts','dialogBlocks','notes','generatedWorlds','worldWaypoints','writingSnapshots','timelineConnections'] as const){const rows=data[name];if(rows?.length)await db.table(name).bulkAdd(rows);}
     if (data.codexEntries?.length) await db.codexEntries.bulkAdd(data.codexEntries);

@@ -15,7 +15,7 @@ import type {CodexEntry} from '@/types';
 import {localToolNamespace,LocalToolStateError,type LocalToolJson} from './stateTypes';
 import {readLocalToolState,prepareLocalToolSave,projectLocalToolCodex} from './clientContract';
 import type {LocalToolClient,LocalToolCodexQuery,LocalToolDefinition} from './sdk';
-export interface LocalToolClientOptions{assetDefaultsWritable?:()=>boolean;/** Injectable silent backend coordinator for host contract tests. */audioEngine?:ReturnType<typeof import('./audio').createLocalAudioEngine>;documentId?:string;eraId?:string;navigate?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
+export interface LocalToolClientOptions{/** Editable Owned host port only; world/media/query facilities remain readonly. */assetImportWritable?:()=>boolean;assetDefaultsWritable?:()=>boolean;/** Injectable silent backend coordinator for host contract tests. */audioEngine?:ReturnType<typeof import('./audio').createLocalAudioEngine>;documentId?:string;eraId?:string;navigate?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
 function announce(projectId:string){const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});let transaction=Dexie.currentTransaction;if(!transaction){emit();return;}while(transaction.parent)transaction=transaction.parent;transaction.on('complete',emit);}
 export function createLocalToolClient<T extends LocalToolJson>(projectId:string,definition:LocalToolDefinition<T>,options:LocalToolClientOptions={}):LocalToolClient<T>{
  if(typeof projectId!=='string'||!projectId||projectId.length>500||Array.from(projectId).some(character=>character.charCodeAt(0)<32))throw new LocalToolStateError('missing-project');
@@ -23,10 +23,11 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  const namespace=definition.namespace,scope={projectId,eraId:options.eraId};
  const current=()=>{if(options.isCurrent&&!options.isCurrent())throw Error('local_tool_context_expired');};
  const writable=()=>{current();if(options.readOnly)throw new Error('local_tool_query_is_read_only');};
+ const importWritable=()=>{current();if(options.readOnly&&!options.assetImportWritable?.())throw new Error('local_tool_query_is_read_only');};
  const kind=(value:EraDocumentKind)=>{if(!eraDocumentKinds.includes(value))throw new Error('world_document_kind_invalid');return value;};
  const project=async()=>{current();const row=await db.projects.get(projectId);current();if(!row)throw new LocalToolStateError('missing-project');if(scope.eraId&&!row.worldEras?.some(era=>era.id===scope.eraId))throw Error('world_era_missing');if(options.requireSelectedRelease&&(row.localToolInstallations?.[namespace]?.contentHash??null)!==(options.releaseHash??null))throw Error('local_tool_pin_conflict');return row;};
  const projected=async(documentKind:EraDocumentKind,read:EraDocumentRead)=>documentKind==='codex'?{...read,projection:{fields:projectCodexEntry(read.document.root as unknown as CodexEntry,(await getEraProject(scope)).codexTemplates).fields}}:read;
- const assets=createBrowserLocalToolAssets(scope,definition,project,()=>{current();if(options.readOnly&&!options.assetDefaultsWritable?.())throw Error('local_tool_query_is_read_only');});
+ const assets=createBrowserLocalToolAssets(scope,definition,project,()=>{current();if(options.readOnly&&!options.assetDefaultsWritable?.())throw Error('local_tool_query_is_read_only');},importWritable);
  const audio=createBrowserLocalToolAudio(scope,project,()=>{try{current();return true;}catch{return false;}},options.audioEngine,ref=>ref.kind==='source'&&!ref.releaseHash?assets.slot(ref.slot):assets.resolve(ref));
  const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,assets,
   subscribe:(changed:()=>void)=>{

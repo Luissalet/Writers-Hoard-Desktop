@@ -27,7 +27,7 @@ const assert=(value:unknown,message:string):asserts value=>{if(!value)throw Erro
 const reject=async(run:()=>unknown)=>{let refused=false;try{await run();}catch{refused=true;}assert(refused,'Expected rejection');};
 const wait=async(check:()=>boolean)=>{for(let i=0;i<160;i++){if(check())return;await act(()=>new Promise(resolve=>setTimeout(resolve,15)));}throw Error('Index UI did not settle');};
 // Pinned fixture releases retain the complete asset pack inherited from Initiative.
-const assetReleaseFiles=[{path:'assets/tick.wav',sha256:'0dedef12f69aab98e8bed581766ea57b2505b16438ce02eb8738740e1dd957c4',bytes:4844},{path:'assets/portrait.svg',sha256:'2ce288f9a252ab457087f43a0de6957c8b18d15519abd8f9879f31acbf89ce3f',bytes:288}];
+import assetReleaseFiles from './fixtures/local-tools/initiative-asset-release-files.json';
 export async function testLocalToolIndex(){
  const P='local-source-index',F='local-source-index-foreign';registerLocalToolModules({'./installed/examples.initiative/module.tsx':{default:initiative}});
  const host=document.createElement('div'),root=createRoot(host);document.body.append(host);

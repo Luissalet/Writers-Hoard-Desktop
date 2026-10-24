@@ -1,3 +1,5 @@
+import {registerLocalAssetFileBackup} from './assetFiles';
+registerLocalAssetFileBackup();
 import {registerLocalToolModules} from './registry';
 // Vite resolves this literal glob at build time. Runtime/test environments
 // without Vite MODE intentionally load nothing; they may register own fixtures.

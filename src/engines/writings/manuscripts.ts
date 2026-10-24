@@ -1,4 +1,4 @@
-import type {Project} from '@/types';
+import type {Project,Writing} from '@/types';
 import type {ReaderPresentation} from './readerPresentationTypes';
 import {defaultReaderPresentation} from './readerPresentationTypes';
 import {applyEraReaderCover,cloneCoverJacket,validateReaderCover} from './coverDesign/model';
@@ -26,6 +26,21 @@ export function selectManuscriptWritings<T extends {manuscriptId?:unknown}>(rows
 export function manuscriptMetadata(project:Pick<Project,'title'|'author'|'blurb'|'manuscriptCatalog'>,id=MAIN_MANUSCRIPT):MainManuscriptMetadata{
  if(id===MAIN_MANUSCRIPT)return{title:project.title,author:project.author,blurb:project.blurb,...project.manuscriptCatalog?.main};
  const entry=project.manuscriptCatalog?.entries.find(row=>row.id===id);if(!entry)throw Error('manuscript_missing');return entry;
+}
+export interface ManuscriptSummary {chapterCount:number;wordCount:number;lastChapterUpdatedAt:number|null;lastChapterId:string|null}
+/** Invalid legacy timestamps stay data; only their date presentation is unavailable. */
+export function manuscriptChapterUpdatedIso(timestamp:number|null):string|null{
+ if(timestamp===null)return null;const date=new Date(timestamp);return Number.isFinite(date.getTime())?date.toISOString():null;
+}
+/** Available effective chapter rows, not world activity or catalogue changes. */
+export function manuscriptSummary(project:Pick<Project,'id'|'title'|'author'|'blurb'|'manuscriptCatalog'>,writings:readonly Writing[],id=MAIN_MANUSCRIPT):ManuscriptSummary{
+ manuscriptMetadata(project,id);
+ let chapterCount=0,wordCount=0,last:Writing|undefined;
+ for(const row of writings)if(row.projectId===project.id&&writingManuscriptId(row)===id){
+  chapterCount++;wordCount+=row.wordCount;
+  if(!last||row.updatedAt>last.updatedAt||row.updatedAt===last.updatedAt&&row.id<last.id)last=row;
+ }
+ return{chapterCount,wordCount,lastChapterUpdatedAt:last?.updatedAt??null,lastChapterId:last?.id??null};
 }
 export function validateManuscriptProject(project:{manuscriptCatalog?:unknown}):void{
  const catalog=project.manuscriptCatalog;if(catalog===undefined)return;
