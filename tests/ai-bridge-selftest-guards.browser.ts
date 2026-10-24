@@ -10,6 +10,7 @@ function assert(value: unknown, message: string): asserts value { if (!value) th
 async function call(name:string,args:ToolArgs):Promise<any>{const tool=BRIDGE_TOOLS.find(x=>x.name===name)!;assert(validateToolArgs(tool.schema,args).ok,'invalid fixture '+name);return TOOL_HANDLERS[name](args);}
 export async function testSelfTestGuardContract(){
  const failures:string[]=[],passed:string[]=[],proof:unknown[]=[];
+ const bannerPlan=selfTestGuardPlan();assert(['wh_timeline_banner_presets','wh_timeline_banner_preset_set'].every(name=>bannerPlan.parentFixtures.includes(name)),'Both banner catalog tools require real parent probes');
  const plan=selfTestGuardPlan();console.log('GUARD_CLASSIFICATION '+JSON.stringify(plan));assert(plan.parentFixtures.includes('wh_update_writing')&&!plan.projectFirst.includes('wh_update_writing')&&plan.projectFirst.includes('wh_create_writing'),'optional project scope cannot reclassify known parent validation');
  assert(plan.parentFixtures.includes('wh_create_place_card')&&!plan.projectFirst.includes('wh_create_place_card')&&!plan.uncovered.includes('wh_create_place_card'),'Atlas card creation must be probed with its real world parent, not projectId alone');
  const uncovered=selfTestGuardPlan([...BRIDGE_TOOLS,{name:'wh_new_unprobed_engine_write',description:'Fixture',writes:true,engineId:'writings',schema:{type:'object',properties:{id:{type:'string'}},required:['id']}}]).uncovered;

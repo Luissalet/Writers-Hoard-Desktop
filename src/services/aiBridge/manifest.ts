@@ -1,3 +1,4 @@
+import {TIMELINE_BANNER_TOOLS,BANNER_EVENT_SCHEMA} from '@/engines/timeline/bannerManifest';
 import {WRITING_MANUSCRIPT_TOOLS} from '@/engines/writings/manuscriptManifest';
 import { HOME_TOOLS } from './manifestHome';
 import { VISUAL_SEARCH_TOOLS } from '@/services/visualSearch/bridgeManifest';
@@ -930,6 +931,7 @@ List events. Pass timelineId for one timeline, or only projectId for every event
       type: 'object',
       properties: {
         timelineId: s('Timeline to read. Omit to read the whole project.'),
+        includeBannerStyle: b('Include raw banner fields and resolved effective style/availability.'),
         projectId: PROJECT_ID,
         tags: arr('Only events carrying any of these tags.'),
         types: { type: 'array', items: { type: 'string', enum: ['point', 'range', 'milestone'] }, description: 'Only these event shapes.' },
@@ -969,7 +971,8 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
         image: s('Embedded raster image data URL, at most 5 MB. No remote URL or SVG.'),
         tags: arr('Free tags (battle, prophecy…), up to 20 of 40 characters; a leading # is dropped.'),
         hideFromWiki: b('Keep it out of the world wiki and the reader export.'),
-        bannerPattern: { type: 'string', enum: ['solid', 'stripes', 'dots', 'checks'], description: 'How a run of days is drawn as one band on the Calendar view.' },
+        ...BANNER_EVENT_SCHEMA,
+        bannerPattern: { type: 'string', enum: ['solid', 'stripes', 'dots', 'checks', 'crosshatch', 'grid', 'image'], description: 'How a run of days is drawn as one band on the Calendar view.' },
         bannerShape: { type: 'string', enum: ['plain', 'ribbon', 'bunting', 'scallop'], description: 'Calendar band silhouette, independent of bannerPattern. Default plain preserves the existing band.' },
         repeat: { type: 'object', properties: { every: { type: 'string', enum: ['year', 'month', 'week'] }, untilYear: { type: 'integer' } }, required: ['every'], additionalProperties: false, description: 'A festival or a market day: the event comes back every year (same month and day), month (same day) or week on the Calendar view, from its date until untilYear.' },
       },
@@ -1009,6 +1012,7 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
       type: 'object',
       properties: {
         id: s('Event id.'),
+        destinationTimelineId: s('Move to this timeline atomically, preserving live banner ownership. Requires expectedTargets.'),
         title: s('New title.'),
         description: s('New description.'),
         date: s('New displayed date.'),
@@ -1029,7 +1033,8 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"). 
         image: s('Embedded raster data URL under 5 MB; an empty string removes it.'),
         tags: arr('Replace the tags; [] removes them all.'),
         hideFromWiki: b('true keeps it out of the wiki and the reader export, false shows it.'),
-        bannerPattern: { type: 'string', enum: ['solid', 'stripes', 'dots', 'checks'], description: 'How a run of days is drawn as one band on the Calendar view.' },
+        ...BANNER_EVENT_SCHEMA,
+        bannerPattern: { type: 'string', enum: ['solid', 'stripes', 'dots', 'checks', 'crosshatch', 'grid', 'image'], description: 'How a run of days is drawn as one band on the Calendar view.' },
         bannerShape: { type: 'string', enum: ['plain', 'ribbon', 'bunting', 'scallop'], description: 'Calendar band silhouette, independent of bannerPattern. plain clears a decorative shape.' },
         repeat: { anyOf: [{ type: 'object', properties: { every: { type: 'string', enum: ['year', 'month', 'week'] }, untilYear: { type: 'integer' } }, required: ['every'], additionalProperties: false }, { type: 'null' }], description: 'Make it come back every year, month or week on the Calendar view; null stops it repeating.' },
       },
@@ -1505,6 +1510,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...DOCUMENT_HISTORY_TOOLS,
   ...MODEL_READER_WIKI_TOOLS,
   ...grouped('story', inEngine('timeline', TIMELINE_BATCH_TOOLS)),
+  ...grouped('story', inEngine('timeline', TIMELINE_BANNER_TOOLS)),
   ...ANNOTATION_THREAD_TOOLS,
   ...DOCUMENT_IMAGE_TOOLS,
   ...PREP_BLOCK_TOOLS,

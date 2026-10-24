@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import {BannerPaintFields} from './BannerPresetEditor';
+import {manualBannerStyle,resolveBannerStyle,type BannerCatalogContext,type BannerStyle,type BannerIntent} from '../bannerStyles';
+import { useEffect,useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, Flag, Star, Swords, Crown, Heart, BookOpen, Sun, Moon, Ship, Mountain, X } from 'lucide-react';
 import { useTranslation, registerLocaleStrings } from '@/i18n/useTranslation';
@@ -17,8 +19,20 @@ export function EventIcon({ icon, size = 16, x, y }: { icon?: TimelineEvent['ico
 }
 const field = 'w-full px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold';
 
-export default function EventDetailsFields({ value, onChange, entries, mode, hours = 24, tagSuggestions = [] }: { value: EventDetailDraft; onChange: (value: Partial<EventDetailDraft>) => void; entries: CodexEntry[]; mode: TimelineEvent['dateMode']; hours?: number; /** Tags already used in the project. */ tagSuggestions?: string[] }) {
+export default function EventDetailsFields({ value, onChange, entries, mode, hours = 24, tagSuggestions = [], banners, event:storedEvent, projectId, eventColor }: { value: EventDetailDraft; onChange: (value: Partial<EventDetailDraft>) => void; entries: CodexEntry[]; mode: TimelineEvent['dateMode']; hours?: number; /** Tags already used in the project. */ tagSuggestions?: string[];banners?:BannerCatalogContext;event?:TimelineEvent;projectId?:string;eventColor?:string }) {
   const { t } = useTranslation();
+  const [openedBanners,setOpenedBanners]=useState(banners);
+  useEffect(()=>{if(!openedBanners&&banners)setOpenedBanners(banners);},[banners,openedBanners]);
+  const action=value.bannerIntent?.action;
+  const selected=action?.mode==='live'?banners?.timelines.find(owner=>owner.id===action.ownerTimelineId)?.bannerPresets?.find(p=>p.id===action.presetId):undefined;
+  const link=action?.mode==='manual'?undefined:action?.mode==='live'&&selected?{ownerTimelineId:action.ownerTimelineId!,id:selected.id,fallback:selected.style,colorMode:action.colorMode}:storedEvent?.bannerPreset;
+  const locked=!!link||action?.mode==='live'||action?.mode==='copy';
+  const choose=(next:NonNullable<BannerIntent['action']>)=>onChange({bannerIntent:{action:next,targets:openedBanners?.targets??[]}});
+  const manual=manualBannerStyle({...storedEvent,bannerShape:value.bannerShape,bannerPattern:value.bannerPattern||undefined,bannerImage:value.bannerImage,bannerPatternParams:value.bannerPatternParams,color:eventColor??storedEvent?.color});
+  const previewEvent={...storedEvent,projectId:projectId??storedEvent?.projectId??'',bannerPreset:link,color:eventColor??storedEvent?.color??manual.color} as TimelineEvent;
+  const projected=banners?resolveBannerStyle(previewEvent,banners.timelines):{style:manual,unavailable:false};
+  const paintStyle=link?projected.style:manual;
+  const changePaint=(style:BannerStyle)=>onChange({bannerImage:style.image,bannerPatternParams:style.patternParams});
   const [search, setSearch] = useState('');
   const [imageError, setImageError] = useState(false);
   const visible = entries.filter(entry => entry.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
@@ -41,10 +55,10 @@ export default function EventDetailsFields({ value, onChange, entries, mode, hou
       <label className="text-sm text-text-muted space-y-1.5">{t('timeline.repeat.label')}<select data-testid="event-repeat" className={field} value={value.repeat} onChange={event => onChange({ ...value, repeat: event.target.value as EventDetailDraft['repeat'] })}>
         <option value="">{t('timeline.repeat.never')}</option><option value="year">{t('timeline.repeat.year')}</option><option value="month">{t('timeline.repeat.month')}</option><option value="week">{t('timeline.repeat.week')}</option>
       </select></label>
-      <label className="text-sm text-text-muted space-y-1.5">{t('timeline.banner.label')}<select data-testid="event-banner-pattern" className={field} value={value.bannerPattern} onChange={event => onChange({ ...value, bannerPattern: event.target.value as EventDetailDraft['bannerPattern'] })}>
-        <option value="">{t('timeline.banner.solid')}</option><option value="stripes">{t('timeline.banner.stripes')}</option><option value="dots">{t('timeline.banner.dots')}</option><option value="checks">{t('timeline.banner.checks')}</option>
+      <label className="text-sm text-text-muted space-y-1.5">{t('timeline.banner.label')}<select disabled={locked} data-testid="event-banner-pattern" className={field} value={value.bannerPattern} onChange={event => onChange({ ...value, bannerPattern: event.target.value as EventDetailDraft['bannerPattern'] })}>
+        <option value="">{t('timeline.banner.solid')}</option><option value="stripes">{t('timeline.banner.stripes')}</option><option value="dots">{t('timeline.banner.dots')}</option><option value="checks">{t('timeline.banner.checks')}</option>{['crosshatch','grid','image'].map(pattern=><option key={pattern} value={pattern}>{t('timeline.banners.'+pattern)}</option>)}
       </select></label>
-      <label className="text-sm text-text-muted space-y-1.5">{t('timeline.banner.shape')}<select data-testid="event-banner-shape" className={field} value={value.bannerShape} onChange={event => onChange({ ...value, bannerShape: event.target.value as EventDetailDraft['bannerShape'] })}>
+      <label className="text-sm text-text-muted space-y-1.5">{t('timeline.banner.shape')}<select disabled={locked} data-testid="event-banner-shape" className={field} value={value.bannerShape} onChange={event => onChange({ ...value, bannerShape: event.target.value as EventDetailDraft['bannerShape'] })}>
         <option value="plain">{t('timeline.banner.shape.plain')}</option><option value="ribbon">{t('timeline.banner.shape.ribbon')}</option><option value="bunting">{t('timeline.banner.shape.bunting')}</option><option value="scallop">{t('timeline.banner.shape.scallop')}</option>
       </select></label>
       {value.repeat && <label className="text-sm text-text-muted space-y-1.5">{t('timeline.repeat.until')}<input data-testid="event-repeat-until" className={field} inputMode="numeric" placeholder={t('timeline.repeat.forever')} value={value.untilYear} onChange={event => onChange({ ...value, untilYear: event.target.value.replace(/[^\d-]/g, '') })} /></label>}
@@ -56,6 +70,15 @@ export default function EventDetailsFields({ value, onChange, entries, mode, hou
       </div>
       <p className="text-xs text-text-muted">{t('timeline.details.clockHelp').replace('{hours}', String(hours))}</p>
     </div>}
+    {banners&&<section className="space-y-2 rounded-lg border border-border p-3" data-testid="event-banner-presets">
+      <label className="block space-y-1 text-sm text-text-muted">{t('timeline.banners.live')}<select disabled={!openedBanners} data-testid="event-banner-preset" className={field} value={action?.mode==='live'?JSON.stringify([action.ownerTimelineId,action.presetId]):link?JSON.stringify([link.ownerTimelineId,link.id]):''} onChange={e=>{if(e.target.value){const[ownerTimelineId,presetId]=JSON.parse(e.target.value) as string[];choose({mode:'live',ownerTimelineId,presetId});}}}><option value="">{t('timeline.banners.none')}</option>{banners.timelines.map(owner=><optgroup key={owner.id} label={owner.title}>{owner.bannerPresets?.filter(p=>!p.archivedAt||link?.id===p.id&&link.ownerTimelineId===owner.id).map(p=><option key={p.id} value={JSON.stringify([owner.id,p.id])}>{p.name}</option>)}</optgroup>)}</select></label>
+      {link&&<p className="break-words text-xs text-text-muted">{t('timeline.banners.linked')} {projected.ownerTitle??link.ownerTimelineId} / {projected.presetName??link.id}</p>}
+      {link&&projected.unavailable&&<p role="status" className="text-sm text-text-muted">{t('timeline.banners.unavailable')}</p>}
+      {locked&&<div className="flex flex-wrap gap-2"><button type="button" data-testid="event-banner-copy" className="min-h-9 rounded-lg border border-border px-3 py-2 text-xs" onClick={()=>choose({mode:'copy',...(action?.mode==='live'?{ownerTimelineId:action.ownerTimelineId,presetId:action.presetId,colorMode:action.colorMode}:{})})}>{t('timeline.banners.copy')}</button><button type="button" data-testid="event-banner-manual" className="min-h-9 rounded-lg border border-border px-3 py-2 text-xs" onClick={()=>choose({mode:'manual'})}>{t('timeline.banners.manual')}</button></div>}
+      {action?.mode==='copy'&&<p className="text-xs text-text-muted">{t('timeline.banners.copyHelp')}</p>}
+      {(link||action?.mode==='live')&&<label className="flex items-center gap-2 text-sm text-text-muted"><input data-testid="event-banner-preset-color" type="checkbox" checked={(action?.colorMode??link?.colorMode)==='preset'} onChange={e=>choose({mode:'live',ownerTimelineId:action?.ownerTimelineId??link!.ownerTimelineId,presetId:action?.presetId??link!.id,colorMode:e.target.checked?'preset':'event'})}/>{t('timeline.banners.usePresetColor')}</label>}
+    </section>}
+    {projectId&&(value.bannerPattern||locked)&&<BannerPaintFields key={(storedEvent?.id??'new')+':'+(action?.mode??'manual')} projectId={projectId} style={paintStyle} disabled={locked} onChange={changePaint}/>}
     <label className="block text-sm text-text-muted space-y-1.5">{t('timeline.details.icon')}
       <select className={field} value={value.icon} onChange={event => onChange({ ...value, icon: event.target.value as EventDetailDraft['icon'] })} data-testid="event-icon"><option value="">{t('timeline.details.noIcon')}</option>{EVENT_ICONS.map(icon => <option key={icon} value={icon}>{t(`timeline.details.icon.${icon}`)}</option>)}</select>
     </label>

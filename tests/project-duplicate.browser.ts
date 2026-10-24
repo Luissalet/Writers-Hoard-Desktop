@@ -29,7 +29,7 @@ async function cleanup(id:string,parent:string,clones:string[]){for(const clone 
 export async function testProjectDuplicateCore(){
  const {id,parent}=await seedDuplicateCore(),clones:string[]=[],out:string[]=[];
  try{
-  const coverage=duplicateSchemaCoverage();assert(coverage.declared.length===87&&!coverage.missing.length&&!coverage.obsolete.length,'87-table classification mismatch '+JSON.stringify(coverage));out.push('All87 live schema tables have an explicit copy/global/cache/parent/key policy;64 engine tables are not confused with complete DB coverage');
+  const coverage=duplicateSchemaCoverage();assert(coverage.declared.length===88&&!coverage.missing.length&&!coverage.obsolete.length,'88-table classification mismatch '+JSON.stringify(coverage));out.push('All88 live schema tables have an explicit copy/global/cache/parent/key policy;64 engine tables are not confused with complete DB coverage');
   const unordered=await readProjectDuplicate(id),reversed={...unordered,tables:Object.fromEntries(Object.entries(unordered.tables).map(([table,rows])=>[table,[...rows].reverse()]))};assert(await duplicateSnapshotVersion(unordered)===await duplicateSnapshotVersion(reversed),'row-set scan order changes pristine version');
   const before=await duplicateSnapshotVersion({...await readProjectDuplicate(id),parent:undefined}),preview=await previewProjectDuplicate({projectId:id}),operationId=crypto.randomUUID();
   let notifications=0;const stop=subscribeProjects(()=>notifications++);let result;try{result=await duplicateProject({projectId:id,title:'Independent copy',operationId,expectedSourceVersion:preview.sourceVersion});}finally{stop();}

@@ -1,3 +1,5 @@
+import {useWorldEraScope} from '@/services/worldEras/hooks';
+import type {BannerCatalogContext,BannerIntent} from '../bannerStyles';
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { ZoomIn, ZoomOut, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, ChevronRight, ArrowRightLeft, Globe, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -42,12 +44,13 @@ import { isManuscriptEventId, MANUSCRIPT_EVENT_PREFIX, MANUSCRIPT_LANE_ID } from
 // ============================================
 
 interface SwimLaneViewProps {
+  banners?:BannerCatalogContext;
   projectId: string;
   timelines: Timeline[];
   events: TimelineEvent[];
   connections: TimelineConnection[];
-  onAddEvent: (event: TimelineEvent) => void | Promise<void>;
-  onEditEvent: (id: string, changes: Partial<TimelineEvent>) => void | Promise<void>;
+  onAddEvent: (event: TimelineEvent,intent?:BannerIntent) => void | Promise<void>;
+  onEditEvent: (id: string, changes: Partial<TimelineEvent>,baseline?:TimelineEvent,intent?:BannerIntent) => void | Promise<void>;
   onDeleteEvent: (id: string) => void;
   onAddConnection: (conn: TimelineConnection) => void | Promise<void>;
   onEditConnection: (id: string, changes: Partial<TimelineConnection>) => void | Promise<void>;
@@ -398,8 +401,11 @@ export default function SwimLaneView({
   projectId, timelines, events: storedEvents, connections,
   onAddEvent, onEditEvent, onDeleteEvent,
   onAddConnection, onEditConnection, onDeleteConnection,
-  onEditTimeline, manuscript, tagSuggestions = [], unfilteredEvents,
+  onEditTimeline, manuscript, tagSuggestions = [], unfilteredEvents,banners,
 }: SwimLaneViewProps) {
+  const dragBannerBaseline=useRef<{event:TimelineEvent;intent:BannerIntent}|null>(null);
+  const [formBannerBaseline,setFormBannerBaseline]=useState<BannerIntent>();
+  const bannerScope=useWorldEraScope(projectId);
   const reorderLocked = !!unfilteredEvents;
   const { t, locale } = useTranslation();
   const calendarSource = useWorldCalendar(projectId);
@@ -471,10 +477,12 @@ export default function SwimLaneView({
   const [formOpenedWith, setFormOpenedWith] = useState(form);
   const worldCalendar = calendarFor(form.timelineId);
   const loadForm = (next: typeof form) => {
+    setFormBannerBaseline(banners?{targets:structuredClone(banners.targets)}:undefined);
     setForm(next);
     setFormOpenedWith(next);
   };
   const formDirty = (Object.keys(form) as (keyof typeof form)[]).some((key) => form[key] !== formOpenedWith[key]);
+  useEffect(()=>{if(showEventForm&&banners&&!formBannerBaseline)setFormBannerBaseline({targets:structuredClone(banners.targets)});},[showEventForm,banners,formBannerBaseline]);
 
   const boundaries = useMemo(() => timelines.flatMap(timeline => {
     if (!timeline.yearRange) return [];
@@ -619,10 +627,13 @@ export default function SwimLaneView({
     if (isManuscriptEventId(evtId)) return; // chapters are read-only here
     if (connectingFromId) return; // don't drag while connecting
     if (reorderLocked) return; // a filtered lane is not renumbered
+    const original=storedEvents.find(row=>row.id===evtId);
+    if(original?.bannerPreset&&!banners)return;
+    dragBannerBaseline.current=original&&banners?{event:structuredClone(original),intent:{targets:structuredClone(banners.targets)}}:null;
     dragStartPos.current = { x: e.clientX, y: e.clientY };
     dragStarted.current = false;
     setDraggingId(evtId);
-  }, [connectingFromId, reorderLocked]);
+  }, [connectingFromId, reorderLocked,storedEvents,banners]);
 
   useEffect(() => {
     if (!draggingId) return;
@@ -686,7 +697,10 @@ export default function SwimLaneView({
 
           // Reorder: insert at targetIdx
           laneEvts.splice(targetIdx, 0, evt);
-          laneEvts.forEach((e, i) => {
+          if(evt.bannerPreset&&evt.timelineId!==targetTlId&&dragBannerBaseline.current){
+            const captured=dragBannerBaseline.current;
+            void Promise.resolve(onEditEvent(evt.id,{timelineId:targetTlId,order:targetIdx,...(evt.dateMode==='world'?{date:timelineEventLabel(evt,destinationCalendar)}:{})},captured.event,captured.intent)).catch(()=>setMoveFailed(true));
+          }else laneEvts.forEach((e, i) => {
             if (e.id === draggingId) {
               // Move to new timeline + new order
               void Promise.resolve(onEditEvent(e.id, { timelineId: targetTlId, order: i, ...(e.dateMode === 'world' ? { date: timelineEventLabel(e, destinationCalendar) } : {}) })).catch(() => setMoveFailed(true));
@@ -700,6 +714,7 @@ export default function SwimLaneView({
       setDragTargetIdx(null);
       setDragTargetLane(null);
       dragStartPos.current = null;
+      dragBannerBaseline.current=null;
       // Reset dragStarted after a frame so click handler can check it
       requestAnimationFrame(() => { dragStarted.current = false; });
     };
@@ -779,7 +794,8 @@ export default function SwimLaneView({
       lane: evt.lane, color: evt.color, timelineId: evt.timelineId,
       ...editEventDetails(evt),
     });
-    setEditingEvent(evt);
+    // ViewEvent carries a live date label. CAS must retain the raw row at open.
+    setEditingEvent(structuredClone(storedEvents.find(row=>row.id===evt.id)??evt));
     setShowEventForm(true);
     setContextMenu(null);
   };
@@ -815,7 +831,7 @@ export default function SwimLaneView({
         lane: form.lane, color: form.color,
         ...eventDetailFields(form, form.dateMode),
         ...(timelineChanged ? { timelineId: form.timelineId, order: newOrder } : {}),
-      });
+      },editingEvent,form.bannerIntent??formBannerBaseline);
     } else {
       await onAddEvent({
         id: generateId('evt'), projectId, timelineId: form.timelineId,
@@ -827,7 +843,7 @@ export default function SwimLaneView({
         order: nextOrderInLane(unfilteredEvents ?? events, form.timelineId), lane: form.lane, color: form.color,
         ...eventDetailFields(form, form.dateMode),
         createdAt: Date.now(), updatedAt: Date.now(),
-      });
+      },form.bannerIntent);
     }
     setShowEventForm(false);
     setEditingEvent(null);
@@ -1403,6 +1419,7 @@ export default function SwimLaneView({
                 <ArrowRightLeft size={13} /> {t('timeline.labelTimeline')}
               </label>
               <select
+                data-testid="event-timeline" disabled={!!editingEvent?.bannerPreset&&!formBannerBaseline} aria-label={t('timeline.labelTimeline')}
                 value={form.timelineId}
                 onChange={(e) => {
                   const parsed = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
@@ -1505,7 +1522,7 @@ export default function SwimLaneView({
             <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} size="sm" />
           </div>
 
-          <EventDetailsFields tagSuggestions={tagSuggestions} value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
+          <EventDetailsFields key={`${projectId}:${bannerScope.eraId??'base'}:${editingEvent?.timelineId??form.timelineId}:${editingEvent?.id??'new'}`} projectId={projectId} eventColor={form.color} event={editingEvent??undefined} banners={banners} tagSuggestions={tagSuggestions} value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
 
           {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
           {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}

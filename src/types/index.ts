@@ -1,3 +1,4 @@
+import type {BannerPreset,BannerPresetLink,BannerImage,BannerPatternParams} from '@/engines/timeline/bannerStyles';
 // ============================================
 // Writer's Hoard — Core Data Types
 // ============================================
@@ -197,6 +198,7 @@ export interface Relation {
 
 // Timeline
 export interface Timeline {
+  bannerPresets?: BannerPreset[];
   id: string;
   projectId: string;
   title: string;
@@ -253,7 +255,10 @@ export interface TimelineEvent {
   /** A festival, a market day: the event comes back every year, month or week on the Calendar view, until an optional year. */
   repeat?: { every: 'year' | 'month' | 'week'; untilYear?: number };
   /** How a run of days is drawn on the Calendar view: a plain band, stripes, dots or checks. */
-  bannerPattern?: 'stripes' | 'dots' | 'checks';
+  bannerPattern?: 'stripes' | 'dots' | 'checks' | 'crosshatch' | 'grid' | 'image';
+  bannerPatternParams?: BannerPatternParams;
+  bannerImage?: BannerImage;
+  bannerPreset?: BannerPresetLink;
   /** Optional silhouette of the calendar band, independent of its fill pattern. */
   bannerShape?: 'plain' | 'ribbon' | 'bunting' | 'scallop';
   createdAt: number;

@@ -1,3 +1,4 @@
+import type {BannerCatalogContext,BannerIntent} from '../bannerStyles';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { readEraRow } from '@/services/worldEras/store';
 import type { Timeline } from '@/types';
@@ -24,11 +25,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { compactTimelineLabel, eventWithinYearRange, saveTimelineSettings } from '../timelineSettings';
 
 interface TimelineViewProps {
+  banners?:BannerCatalogContext;
   projectId: string;
   timelineId: string;
   events: TimelineEvent[];
-  onAddEvent: (event: TimelineEvent) => void | Promise<void>;
-  onEditEvent: (id: string, changes: Partial<TimelineEvent>, baseline?:TimelineEvent) => void | Promise<void>;
+  onAddEvent: (event: TimelineEvent,intent?:BannerIntent) => void | Promise<void>;
+  onEditEvent: (id: string, changes: Partial<TimelineEvent>, baseline?:TimelineEvent,intent?:BannerIntent) => void | Promise<void>;
   onDeleteEvent: (id: string) => void;
   tagSuggestions?: string[];
   /** Every event of the timeline when `events` is filtered: a new one is numbered after all of them. */
@@ -43,7 +45,7 @@ function getDisplayDate(evt: TimelineEvent, calendar?: WorldCalendar | null, loc
 
 type SortMode = 'manual' | 'chronological';
 
-export default function TimelineView({ projectId, timelineId, events: storedEvents, onAddEvent, onEditEvent, onDeleteEvent, tagSuggestions = [], unfilteredEvents, requestedEventId, onEditorClosed, restoreEditorFocus }: TimelineViewProps) {
+export default function TimelineView({ projectId, timelineId, events: storedEvents, onAddEvent, onEditEvent, onDeleteEvent, tagSuggestions = [], unfilteredEvents, requestedEventId, onEditorClosed, restoreEditorFocus,banners }: TimelineViewProps) {
   const { t, locale } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -110,7 +112,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
 
     if (editingEvent) {
       const current=editableFields(form),initial=editableFields(formOpenedWith),changes=Object.fromEntries(Object.entries(current).filter(([key,value])=>JSON.stringify(value)!==JSON.stringify(initial[key as keyof TimelineEvent])));
-      await onEditEvent(editingEvent.id,changes,editingEvent);
+      await onEditEvent(editingEvent.id,changes,editingEvent,form.bannerIntent);
     } else {
       const now = Date.now();
       await onAddEvent({
@@ -134,7 +136,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
         color: form.color,
         createdAt: now,
         updatedAt: now,
-      });
+      },form.bannerIntent);
     }
 
     setShowForm(false);
@@ -463,7 +465,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
               size="sm"
             />
           </div>
-          <EventDetailsFields tagSuggestions={tagSuggestions} value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
+          <EventDetailsFields key={`${projectId}:${scope.eraId??'base'}:${timelineId}:${editingEvent?.id??'new'}`} projectId={projectId} eventColor={form.color} event={editingEvent??undefined} banners={banners} tagSuggestions={tagSuggestions} value={form} onChange={details => setForm(current => ({ ...current, ...details }))} entries={codexEntries} mode={form.dateMode} hours={form.dateMode === 'world' ? worldCalendar?.hoursPerDay ?? 24 : 24} />
           {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
           {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
           <div className="flex gap-3 pt-2">

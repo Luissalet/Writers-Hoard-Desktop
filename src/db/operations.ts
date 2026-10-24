@@ -1,3 +1,4 @@
+import {remapBannerLink} from '@/engines/timeline/bannerStyles';
 import {encodeAssetFile,decodeAssetFiles,type PortableLocalAssetFile,type LocalAssetFile} from '@/engines/local/assetFileFormat';
 import {validateManuscriptContents,writingSelection,structuralManuscriptOwners} from '@/engines/writings/manuscripts';
 import {validateWritingOwner,assertWritingOwnerUnchanged} from '@/engines/writings/manuscriptStore';
@@ -839,7 +840,7 @@ export async function importProjectData(
     for (const ev of data.timelineEvents || []) {
       const links = eventEntryIds(ev).filter(id => data.codexEntries?.some(entry => entry.id === id)).map(id => remap(id, 'codex'));
       await db.timelineEvents.add({
-        ...ev,
+        ...remapBannerLink(ev,remap),
         linkedEntryIds: links,
         linkedEntryId: links[0],
         id: remap(ev.id, 'evt'),
