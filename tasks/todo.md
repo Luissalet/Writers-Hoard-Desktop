@@ -1341,7 +1341,7 @@ Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item 
 - [x] Complete independent CAS15 for source d542365; integrate FF-only exact f44e387→d542365 under a fresh merge lock, main clean. Final verify:quick34 engines/64 tables/6515 keys/22 locales/0 warnings, shipping lint0; Vite28.92s/Electron/Node937+schema2PASS; root session2655 exit0. Merge lock released. Earlier audio/calendar builds remain separate receipts.
 - [x] Root updated the Google manual through its separately locked workflow:588 UTF-16 units, requiredRevision/readback,198 paragraphs,197 others unchanged and all styles preserved. manual-receipt.json records source d542365; both manual locks released. This documentation pass did not write the manual.
 
-See [resources verification](vvd1095/verification-sdk-assets.md). Installation offers CAS+Revert without Undo; documents/owned blocks retain native receipts/history. Font/data have Blob defaults without generic picking. Wiki's sanitizer retains its own SVG frame. Task1095 remains open; no universal SDK parity claim.
+See [resources verification](vvd1095/verification-sdk-assets.md). Installation offers CAS+Revert without Undo; documents/owned blocks retain native receipts/history. That d542 cut had font/data Blob defaults without generic picking; [the later file-import contract](vvd1095/verification-sdk-asset-files.md) adds local choices. Wiki's sanitizer retains its own SVG frame. Task1095 remains open; no universal SDK parity claim.
 
 
 ## Manual player 5e attacks — source 112f1fc integrated, CAS 18
@@ -1366,4 +1366,4 @@ See [player-attack verification](vvd1095/verification-player-attacks.md). Task 1
 - [x] Integrate83fc744 ff-only under a fresh merge lock; actual clean-main verify:quick/build/Electron/Node939 and original author-kit checks pass.
 - [x] Update the Google manual with requiredRevision/readback198/197 texts/styles preserved, plus prefix-preserving MEMORY and own-node-only graph continuity; separate source-bound receipts retained.
 
-See [shared-manuscript verification](vvd1095/verification-shared-manuscripts.md). Next agreed front: local font/data importing for source tools, implementation still pending. Task1095 stays open; no push.
+See [shared-manuscript verification](vvd1095/verification-shared-manuscripts.md). Local SDK font/data import and Book home are integrated in delivery `416be426337f22f128c5f4d0875167d48738e05c` (feature source `c2b7cb0dba116485264a8ae86e48635c82706e72`) after independent CAS23 and final root checks. Project files can be chosen per document or installation and preserved in offline reading/backups; manuscript covers, summaries and chapter-update dates are visible in the library and book overview. [Contract, evidence and limits](vvd1095/verification-sdk-asset-files.md). Task1095 continues.
