@@ -1,6 +1,21 @@
 # Writer consolidation #931
 
-Calendar banners now have timeline-owned presets with live links, independent copies and a preserved manual style. Crosshatch, Grid and local raster fills have optional repeat size and opacity; changing a linked preset repaints its events without reapplying it. Moves retain the original preset owner. Normal controls, native MCP, scoped Undo, eras and portable backups use the same contract. Source `101ada925f6f8a41d0226e52298a55a7ce43e73b`; delivery/review: _stage/sdk-following-research/delivery-banners30-final.json / _stage/banner-preliminary-review/review-cas24-approve.txt. Final global/main/Browser/manual receipts: _stage/sdk-following-research/banners30-global-final-receipt.json; _stage/sdk-following-research/main-fontdata-101ada9-20261024-035156-receipt.json; _stage/sdk-following-research/banners-root-window3-receipt.json; _stage/sdk-following-research/manual-banners-receipt.json. [Usage, verification and limits](vvd1095/verification-calendar-banners.md). This establishes the bounded offline workflow in C-writing row83; task1095 continues, and rich prose remains research.
+Source-tool fields can opt into rich prose: headings, lists, text links and copied local raster images use the native editor and remain readable without the author module. Save the briefing explicitly; an Owned block then needs its parent document saved, and the dock requires child Save/Discard before leaving. This is local string-and-CAS editing, without character collaboration; the general SDK remains a partial local subset. [Use and limits](vvd1095/verification-sdk-rich-prose.md).
+
+## Local tool rich prose — task1095 / architecture1504
+
+Baseline: main/worktree `0b6219ac04a7e54de4d59eee5803595b261336e2`, after the verified banner delivery. Architecture1504 is resolved by root after the independent technical agreement16110; implementation is authorized within the original39 causal paths plus CodexEntryForm, BookEditor and WritingsView for independently reproduced child-draft loss at parent Save/Back (42 author paths; source-baseline42.json and paths-authorized42.txt). The proposed39 source/test paths and material oracles are recorded in `_stage/sdk-prose-next/PLAN-peer.md` (SHA256 `d8b06574a61615a86a73f3d953640cbe16f5ecd118d609813ca7abbe8ad9dcce`) and `paths-proposed-peer.txt` (SHA256 `89179ba9021c31a526d0678afbf408aef34fade4b0397c8d04dcd18bc9e5959d1`).
+
+- [ ] Add portable prose `format:rich`, pure SDK wrapper and normal document/Owned example; keep old codecs/keys and Node043 exact.
+- [ ] Reuse the existing Tiptap editor with a real opt-in schema profile, native slash/link controls, local raster picker and captured-baseline CAS/Undo/pending.
+- [ ] Project rich fields through the shared host renderer and all actual reading sinks; preserve legacy literal HTML, CSP and frozen published HTML/hash.
+- [ ] Remap and inspect semantic refs through existing JSON/Duplicate/era/history/archive/Published/import paths without adding tables or a second snapshot store.
+- [ ] Verify normal source/Owned parent Save and reopen, two panes/conflicts/flush/Undo, file retarget, module absent/DB closed and portable image/ref policies. Dock keeps explicit child Save/Discard; Published restore reads the current captured world and cannot reconstruct deleted source documents.
+- [ ] Freeze exact paths, run original and new affected oracles, obtain independent review, exercise registered MCP and real Brave, then integrate under the merge lock without push.
+- [ ] Update product docs/manual/continuity with actual receipts; keep1095 open and do not claim universal SDK parity.
+
+
+Calendar banners now have timeline-owned presets with live links, independent copies and a preserved manual style. Crosshatch, Grid and local raster fills have optional repeat size and opacity; changing a linked preset repaints its events without reapplying it. Moves retain the original preset owner. Normal controls, native MCP, scoped Undo, eras and portable backups use the same contract. Source `101ada925f6f8a41d0226e52298a55a7ce43e73b`; delivery/review: _stage/sdk-following-research/delivery-banners30-final.json / _stage/banner-preliminary-review/review-cas24-approve.txt. Final global/main/Browser/manual receipts: _stage/sdk-following-research/banners30-global-final-receipt.json; _stage/sdk-following-research/main-fontdata-101ada9-20261024-035156-receipt.json; _stage/sdk-following-research/banners-root-window3-receipt.json; _stage/sdk-following-research/manual-banners-receipt.json. [Usage, verification and limits](vvd1095/verification-calendar-banners.md). This establishes the bounded offline workflow in C-writing row83; task1095 continues. Rich prose was still research at that banner delivery; its later scoped extension has separate [evidence](vvd1095/verification-sdk-rich-prose.md).
 
 ## Writer1095: audio medido integrado y siguiente comparación
 
@@ -1369,3 +1384,25 @@ See [player-attack verification](vvd1095/verification-player-attacks.md). Task 1
 - [x] Update the Google manual with requiredRevision/readback198/197 texts/styles preserved, plus prefix-preserving MEMORY and own-node-only graph continuity; separate source-bound receipts retained.
 
 See [shared-manuscript verification](vvd1095/verification-shared-manuscripts.md). Local SDK font/data import and Book home are integrated in delivery `416be426337f22f128c5f4d0875167d48738e05c` (feature source `c2b7cb0dba116485264a8ae86e48635c82706e72`) after independent CAS23 and final root checks. Project files can be chosen per document or installation and preserved in offline reading/backups; manuscript covers, summaries and chapter-update dates are visible in the library and book overview. [Contract, evidence and limits](vvd1095/verification-sdk-asset-files.md). Task1095 continues.
+
+## SDK rich prose — bounded local contract
+
+- [x] Implement opt-in stored codec, public Node-pure wrapper, native profile and example Source/Owned briefing; retain literal legacy prose.
+- [x] Preserve scoped parent pending guards and explicit child Save/Discard, including dock; retain CAS/Undo/retarget boundaries.
+- [x] Cover rich readonly projections, semantic-link portability, current-capture Published restore and import Undo without new storage.
+- [x] Bind final44-route source f93bb50873b1ffbf341ee46293823a14b2db060c to independent CAS25, final Brave and composed r3 full1077/386/0 plus r4 affected checks; root quick/critical396 PASS (`delivery-rich-final.json`).
+- [x] Record exact clean main integration and8 gates including build47.86s/manifest941/REAL module CLI, native manual449 UTF16 and continuity completion (`main-rich-f93bb50-20261024-054153-receipt.json`, `manual-rich-receipt.json`, `continuity-rich-receipt.json`, under `_stage/sdk-prose-next/`).
+
+SDK general coverage remains PARTIAL and task1095 remains open. [Evidence and limits](vvd1095/verification-sdk-rich-prose.md).
+
+## Worldgen place images — agreed design, implementation not started
+
+Architecture1514 is resolved for PLAN-IMPLEMENTATION-r1.md plus PLAN-IMPLEMENTATION-r2-ADDENDUM.md, with30 proposed routes (26 product/4 tests) in `_stage/icons-next/`. This is a plan awaiting root GO after the rich documentation delivery; no image capability or test result is claimed here. Preserve Maps/Codex portraits and the existing move/remove-only position lock. Raster5MiB is per image; audit Undo remains aggregate with existing rotation/retention and framing limits.
+
+- [ ] Implement optional copied raster iconImage colour/inked/null through the normal File/Gallery inspector and existing MCP style tool; retain legacy/model/symbol and target rules.
+- [ ] Bind decode/read/cancel and cache leases to the actual owner/world/era; validate before mutation and revalidate after awaits.
+- [ ] Render prepared images reversibly in Map2D, Carto/export/documentImage and anchored World3D overlay, retaining fallback/model/labels/hitboxes.
+- [ ] Prepare regional sheet/deep tiles with existing WEB/Forge adapters; verify the final visible/exportable carta/satellite pass and the actual transport observed.
+- [ ] Verify real executor→audit/readback→immediate Undo for an aggregate before larger than the audit rotation threshold, including Base/era and later retention limits; retain UI PaintSession Undo separately.
+- [ ] Verify normal JSON/ZIP/Duplicate/era/history/Archive portability, legacy and failure paths with independent review and source hashes.
+- [ ] Complete final Browser, relevant gates, fresh commit/CAS, main build and product/manual/continuity documentation before recording delivery.
