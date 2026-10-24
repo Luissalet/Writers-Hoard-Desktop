@@ -21,6 +21,7 @@ export async function whStylePlace(args: ToolArgs): Promise<unknown> {
   if (target !== 'realm' && (style.areaStyle !== undefined || style.areaOpacity !== undefined)) throw new BridgeError('bad-args', 'Area styles apply to realm keys.');
   if (target === 'realm' && (style.model !== undefined || style.buildingStyle !== undefined || style.icon !== undefined)) throw new BridgeError('bad-args', 'Building styles apply to places, not territories.');
   if ('iconImage' in style && !['settlement','ruin','feature','landmark','region'].includes(target)) throw new BridgeError('bad-args','Place images apply only to places, not territories, roads, labels or stamps.');
+  if ('catalogIcon' in style && !['settlement','ruin','feature','landmark','region'].includes(target)) throw new BridgeError('bad-args','Map symbols apply only to places, not territories, roads, labels or stamps.');
   const depth=target==='realm'||target==='feature'?'full':'places';
   const opened = await openWorldForReading(world, depth, scope?.eraId);
   if (!opened.ok) return { worldId, pending: true, code: opened.code, message: opened.message };

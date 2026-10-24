@@ -43,7 +43,8 @@ import { createScatter, type Scatter } from '../sculpt/scatter';
 import { createPlaceModels } from '../sculpt/places';
 import { settlementStyle, placeFont, labelScale, symbolScale, hasPlaceModel } from '../core/placeStyle';
 import { drawPlaceBuilding } from '../cartography/placeSymbol';
-import { placeImageRadius, type PlaceImagePainter } from '../cartography/placeImages';
+import type { PlaceImagePainter } from '../cartography/placeImages';
+import {drawPlaceCatalogIcon,placeMarkerRadius} from '../cartography/placeIcon';
 import type { Pt, Stroke, TerrainOp, WorldEdit } from '../core/edits';
 import {
   commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
@@ -1564,13 +1565,14 @@ export default function World3D({
         const symbolScale = Math.min(2.4, Math.max(0.65, entity.style.size ?? 1));
         ctx.save();
         ctx.translate(m.x, m.y);
-        const imageRadius = placeImageRadius(entity.style, 5 * symbolScale, propsRef.current.placeImages);
+        const imageRadius = placeMarkerRadius(entity.style, 5 * symbolScale, propsRef.current.placeImages);
         const imageDrawn = propsRef.current.placeImages?.draw(ctx, entity.style, imageRadius, entity.style.color ?? m.color);
+        const markerDrawn=imageDrawn||drawPlaceCatalogIcon(ctx,entity.style,imageRadius,entity.style.color??m.color);
         ctx.scale(symbolScale, symbolScale);
         const modeled = R.current?.placeModels.group.visible && hasPlaceModel(entity.style);
         // A volcano, a cave, a waterfall, a gorge and a hot spring keep the 2D map's own marks.
         const glyph = entity.style.icon && entity.style.icon !== 'auto' ? entity.style.icon : entity.type;
-        const custom = imageDrawn || modeled || (isNaturalLandmark(glyph) ? drawLandmarkGlyph(ctx, glyph) : drawPlaceBuilding(ctx, entity.style, undefined, 5, entity.type));
+        const custom = markerDrawn || modeled || (isNaturalLandmark(glyph) ? drawLandmarkGlyph(ctx, glyph) : drawPlaceBuilding(ctx, entity.style, undefined, 5, entity.type));
         if (!custom) {
         ctx.beginPath();
         if ((entity.style.icon ?? entity.type) === 'volcano') {
@@ -1597,10 +1599,10 @@ export default function World3D({
         ctx.stroke();
         }
         ctx.restore();
-        if (imageDrawn) taken.push({ x0: m.x - imageRadius, y0: m.y - imageRadius, x1: m.x + imageRadius, y1: m.y + imageRadius });
+        if (markerDrawn) taken.push({ x0: m.x - imageRadius, y0: m.y - imageRadius, x1: m.x + imageRadius, y1: m.y + imageRadius });
         if (selected) {
           ctx.beginPath();
-          ctx.arc(m.x, m.y, imageDrawn ? imageRadius + 2 : 9 * symbolScale, 0, Math.PI * 2);
+          ctx.arc(m.x, m.y, markerDrawn ? imageRadius + 2 : 9 * symbolScale, 0, Math.PI * 2);
           ctx.strokeStyle = '#f5c66a';
           ctx.lineWidth = 2;
           ctx.stroke();
@@ -1619,11 +1621,11 @@ export default function World3D({
           const size = 11 * labelScale(entity.style), font = placeFont(entity.style, '"Source Sans 3", system-ui, sans-serif');
           ctx.font = letterFont(size >= 12 ? 600 : 500, size, font);
           const tw = ctx.measureText(m.label).width;
-          const offset = imageDrawn ? imageRadius + 4 : 8 * symbolScale;
+          const offset = markerDrawn ? imageRadius + 4 : 8 * symbolScale;
           const lx = m.x + offset + tw + 3 < w ? m.x + offset : m.x - offset - tw;
           if (fits(lx - 2, m.y - size * .7, lx + tw + 2, m.y + size * .7)) {
             label(ctx, m.label, lx, m.y, size, entity.style.color ?? '#f6efe0', font);
-            m.hit = imageDrawn
+            m.hit = markerDrawn
               ? { x0: Math.min(m.x - imageRadius, lx - 3), y0: Math.min(m.y - imageRadius, m.y - size), x1: Math.max(m.x + imageRadius, lx + tw + 3), y1: Math.max(m.y + imageRadius, m.y + size) }
               : { x0: m.x - 8, y0: m.y - 10, x1: lx + tw + 3, y1: m.y + 10 };
           }
@@ -1632,13 +1634,14 @@ export default function World3D({
       }
       const big = m.rank <= 1;
       const style = m.settlement ? settlementStyle(world, m.settlement) : {};
-      const r = placeImageRadius(style, (m.rank === 0 ? 5 : m.rank === 1 ? 4 : m.rank === 2 ? 3 : 2.2) * symbolScale(style), propsRef.current.placeImages);
+      const r = placeMarkerRadius(style, (m.rank === 0 ? 5 : m.rank === 1 ? 4 : m.rank === 2 ? 3 : 2.2) * symbolScale(style), propsRef.current.placeImages);
       ctx.save(); ctx.translate(m.x, m.y);
       const modeled = R.current?.placeModels.group.visible && hasPlaceModel(style);
       const imageDrawn = propsRef.current.placeImages?.draw(ctx, style, r, style.color ?? m.color);
-      const custom = imageDrawn
+      const markerDrawn=imageDrawn||drawPlaceCatalogIcon(ctx,style,r,style.color??m.color);
+      const custom = markerDrawn
         || modeled || drawPlaceBuilding(ctx, style, m.settlement?.culture, r, m.settlement?.rank); ctx.restore();
-      if (imageDrawn) taken.push({ x0: m.x - r, y0: m.y - r, x1: m.x + r, y1: m.y + r });
+      if (markerDrawn) taken.push({ x0: m.x - r, y0: m.y - r, x1: m.x + r, y1: m.y + r });
       if (!custom) {
       ctx.beginPath();
       ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
@@ -1660,10 +1663,10 @@ export default function World3D({
       ctx.font = letterFont(size >= 12 ? 600 : 500, size, font);
       const tw = ctx.measureText(m.label).width;
       const lx = m.x + r + 5 + tw + 3 < w ? m.x + r + 5 : m.x - r - 5 - tw;
-      m.hit = imageDrawn ? { x0: m.x - r, y0: m.y - r, x1: m.x + r, y1: m.y + r } : undefined;
+      m.hit = markerDrawn ? { x0: m.x - r, y0: m.y - r, x1: m.x + r, y1: m.y + r } : undefined;
       if (fits(lx - 2, m.y - size * 0.7, lx + tw + 2, m.y + size * 0.7)) {
         label(ctx, m.label, lx, m.y, size, style.color ?? '#f6efe0', font);
-        m.hit = imageDrawn
+        m.hit = markerDrawn
           ? { x0: Math.min(m.x - r, lx - 3), y0: Math.min(m.y - r, m.y - size), x1: Math.max(m.x + r, lx + tw + 3), y1: Math.max(m.y + r, m.y + size) }
           : { x0: lx - 3, y0: m.y - size, x1: lx + tw + 3, y1: m.y + size };
       }

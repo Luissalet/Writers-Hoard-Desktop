@@ -17,9 +17,29 @@ const placeImageAuditCheck = spawnSync(electron, ['tests/worldgen-place-icons.no
 if (placeImageAuditCheck.status !== 0 || placeImageAuditCheck.error) process.exit(placeImageAuditCheck.status ?? 1);
 const placeImageSheetCheck = spawnSync(electron, ['tests/review-worldgen-place-icons.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (placeImageSheetCheck.status !== 0 || placeImageSheetCheck.error) process.exit(placeImageSheetCheck.status ?? 1);
+const placeCatalogCheck = spawnSync(process.execPath, ['tests/worldgen-place-icon-catalog.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (placeCatalogCheck.status !== 0 || placeCatalogCheck.error) process.exit(placeCatalogCheck.status ?? 1);
+const placeCatalogAuditCheck = spawnSync(electron, ['tests/worldgen-place-icon-catalog.node.cjs', '--audit'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (placeCatalogAuditCheck.status !== 0 || placeCatalogAuditCheck.error) process.exit(placeCatalogAuditCheck.status ?? 1);
+const placeCatalogWorkerCheck = spawnSync(electron, ['tests/worldgen-place-icon-catalog.node.cjs', '--worker'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (placeCatalogWorkerCheck.status !== 0 || placeCatalogWorkerCheck.error) process.exit(placeCatalogWorkerCheck.status ?? 1);
+const reviewPlaceCatalogCheck = spawnSync(process.execPath, ['tests/review-place-icon-catalog-pure.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (reviewPlaceCatalogCheck.status !== 0 || reviewPlaceCatalogCheck.error) process.exit(reviewPlaceCatalogCheck.status ?? 1);
 const ownedEvolutionCheck = spawnSync(process.execPath, ['tests/local-tool-block-evolution.node.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (ownedEvolutionCheck.status !== 0) process.exit(ownedEvolutionCheck.status ?? 1);
 const suites = [
+  ['review-place-icon-catalog-thumbnail.browser.tsx', 'testReviewPlaceCatalogThumbnailReplay', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogInspector', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogViews', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogDpr2', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalog3D', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogPortal', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogLegacyLabels', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogBridge', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['worldgen-place-icon-catalog-worker.browser.ts', 'testWorldgenPlaceCatalogRegion', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['worldgen-place-icon-catalog-worker.browser.ts', 'testWorldgenPlaceCatalogWorker', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['worldgen-place-icon-catalog-worker.browser.ts', 'testWorldgenPlaceCatalogTexture', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['worldgen-place-icon-catalog-portability.browser.ts', 'testWorldgenPlaceCatalogPortability', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionPin', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionNative', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-block-evolution.browser.tsx', 'testOwnedEvolutionHost', 180000, 'scripts/run-codex-properties-ui.cjs'],

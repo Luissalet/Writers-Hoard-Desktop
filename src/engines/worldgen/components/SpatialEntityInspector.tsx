@@ -2,7 +2,7 @@ import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { listEraRows } from '@/services/worldEras/store';
 import type { CodexEntry, CodexEntryType, Writing, TimelineEvent } from '@/types';
 import { listWorldLinks, saveWorldLink, deleteWorldLink } from '../era';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 import { useEraNavigate } from '@/services/worldEras/navigation';
 import { createPlaceCard } from '../placeCards';
@@ -28,8 +28,28 @@ import type {
 import { useTranslation } from '@/i18n/useTranslation';
 import { PLACE_MODELS, BUILDING_STYLES, PLACE_LABEL_FONTS, AREA_STYLES } from '../core/placeStyle';
 import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
+import {InlineIconPicker} from '@/components/common/IconPicker';
+import {PLACE_CATALOG_ID, PLACE_CATALOG_PICKER_NAMES, canonicalPlaceCatalogName, hasCatalogPlaceIcon} from '../core/placeIconCatalog';
+import {drawPlaceCatalogIcon} from '../cartography/placeIcon';
 import {normalizePlaceImage,PLACE_IMAGE_MAX_BYTES} from '../core/placeImage';
 import {preparePlaceImages,webPlaceImageAdapter} from '../cartography/placeImages';
+
+/** The picker and every map replay the same detached numeric geometry. */
+function PlaceCatalogThumbnail({name, size, color}: {name: string; size: number; color: string}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(size * ratio); canvas.height = Math.round(size * ratio);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(ratio, ratio); ctx.translate(size / 2, size / 2);
+    const canonical = canonicalPlaceCatalogName(name);
+    if (canonical) drawPlaceCatalogIcon(ctx, {catalogIcon: {catalog: PLACE_CATALOG_ID, name: canonical}, color}, size / 2);
+  }, [name, size, color]);
+  return <canvas ref={ref} width={size} height={size} style={{width: size, height: size}} aria-hidden="true"/>;
+}
 
 const ICONS = [
   ['volcano', 'worldgen.place.icon.volcano'],
@@ -99,7 +119,7 @@ export default function SpatialEntityInspector({
   const imageGeneration=useRef(0),imageReader=useRef<FileReader|null>(null);
   const cancelImageRead=useCallback(()=>{imageGeneration.current++;imageReader.current?.abort();},[]);
   let currentImage:ReturnType<typeof normalizePlaceImage>=null;try{if(entity.style.iconImage)currentImage=normalizePlaceImage(entity.style.iconImage);}catch{/* Imported invalid descriptors use the saved symbol/model. */}
-  const choosePresentation=(style:WorldSpatialStyleOverride)=>{imageGeneration.current++;imageReader.current?.abort();setImageBusy(false);setImageError(false);onStyle({...style,...(entity.style.iconImage?{iconImage:null}:{})});};
+  const choosePresentation=(style:WorldSpatialStyleOverride)=>{imageGeneration.current++;imageReader.current?.abort();setImageBusy(false);setImageError(false);onStyle({...style,...(entity.style.iconImage?{iconImage:null}:{}),...(('model'in style||'icon'in style)&&entity.style.catalogIcon?{catalogIcon:null}:{})});};
   useEffect(()=>{setImageGallery(false);setImageBusy(false);setImageError(false);return cancelImageRead;},[binding,cancelImageRead]);
   const selectImage=async(dataUrl:string)=>{
     if(currentBinding.current!==binding||!mounted.current)return;
@@ -115,6 +135,13 @@ export default function SpatialEntityInspector({
     const reader=new FileReader();imageReader.current=reader;setImageBusy(true);setImageError(false);
     reader.onload=()=>{if(currentBinding.current===owner&&imageGeneration.current===generation&&mounted.current)void selectImage(String(reader.result));};
     reader.onerror=()=>{if(currentBinding.current===owner&&imageGeneration.current===generation&&mounted.current){setImageError(true);setImageBusy(false);}};reader.readAsDataURL(file);
+  };
+  const catalog = useMemo(() => ({names: PLACE_CATALOG_PICKER_NAMES, renderIcon: (name: string, props: {size: number; color: string}) => <PlaceCatalogThumbnail name={name} {...props}/>}), []);
+  const selectCatalog = (name: string) => {
+    if (currentBinding.current !== binding || !mounted.current) return;
+    if (!name) {onStyle({catalogIcon: null}); return;}
+    const canonical = canonicalPlaceCatalogName(name);
+    if (canonical) choosePresentation({catalogIcon: {catalog: PLACE_CATALOG_ID, name: canonical}});
   };
   const [cardType, setCardType] = useState<CodexEntryType>('location');
   const [previousKey, setPreviousKey] = useState(entity.key);
@@ -345,6 +372,18 @@ export default function SpatialEntityInspector({
           </label>
         </fieldset>
       )}
+
+      {entity.kind !== 'realm' && <fieldset className="space-y-2 rounded-lg border border-border p-2" data-testid="place-catalog-controls">
+        <legend className="px-1 text-xs text-text-muted">{t('worldgen.place.catalog.title')}</legend>
+        <div className="flex items-center gap-3">
+          <InlineIconPicker key={binding} catalog={catalog} viewportAnchored ariaLabel={t('worldgen.place.catalog.choose')} value={hasCatalogPlaceIcon(entity.style) ? entity.style.catalogIcon!.name : undefined} onChange={selectCatalog} color={entity.style.color ?? '#c4973b'}/>
+          <span className="min-w-0 flex-1 truncate text-xs text-text-primary">{hasCatalogPlaceIcon(entity.style) ? entity.style.catalogIcon!.name : t('worldgen.place.catalog.choose')}</span>
+          {entity.style.catalogIcon && <button type="button" className="min-h-9 rounded border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-elevated" onClick={() => selectCatalog('')}>{t('worldgen.place.catalog.remove')}</button>}
+        </div>
+        {entity.style.catalogIcon && currentImage && <p className="text-xs text-text-muted">{t('worldgen.place.catalog.imagePriority')}</p>}
+        {(entity.style.catalogIcon || currentImage) && ['settlement','region','ruin','landmark'].includes(entity.kind) && <p className="text-xs text-text-muted">{t('worldgen.place.catalog.modelChoice')}</p>}
+        {entity.style.catalogIcon && !hasCatalogPlaceIcon(entity.style) && <p className="text-xs text-text-muted">{t('worldgen.place.catalog.unavailable')}</p>}
+      </fieldset>}
 
       {entity.kind!=='realm'&&<fieldset className="space-y-2 rounded-lg border border-border p-2" data-testid="place-image-controls">
         <legend className="px-1 text-xs text-text-muted">{t('worldgen.place.image.title')}</legend>
