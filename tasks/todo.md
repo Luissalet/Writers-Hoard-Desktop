@@ -1441,3 +1441,15 @@ Success: a compatible author release adds fields to the same Owned block while r
 The example opts in only its Owned declaration. Source state, legacy definitions and stored-codec portable captures keep their existing contracts. The narrow Published plain-host clone correction remaps editable identities through the existing helper without regenerating frozen reader HTML/hash. The two immutable packages include the Source-module ESLint boundary comment; earlier package/RED history is preserved in stage. Official CLI0.8.13 scaffold execution is separate evidence from upstream host runtime or collaborative text.
 
 [Final source, CAS, gates, main, manual and continuity receipts](vvd1095/verification-sdk-owned-evolution.md#delivery-status). General SDK coverage remains PARTIAL; task1095 remains open.
+
+
+## Searchable map symbol catalog - task 1095, research 1452 / Agora 1561
+
+Success: choose a real graphic by search/category in a normal place inspector, persist the same detached geometry in map/region/PNG and recover the saved presentation on removal. Existing sparse styles, image precedence, scope and aggregate Undo remain coherent.
+
+- [x] Compare VVD and Writer in real Brave; preserve real Canvas and NativeExecutor REDs; agree own identity, numeric artifact, paint and scoped picker in debate 1566.
+- [x] Freeze and independently review exact public-data provenance, all 1688 symbols, sample raster differences, cost and 21 implementation paths before edits.
+- [ ] Implement the bounded descriptor, own thumbnails/picker, shared renderers and existing MCP contract, keeping legacy and images intact.
+- [ ] Verify real UI/Worker/PNG/native audit and Undo, Base/era, portability, build graph/budget and affected original tests; preserve all failures.
+- [ ] Complete independent review, root Brave/gates and fresh formal CAS; commit explicit paths as Luissalet and integrate exact source under merge lock without push.
+- [ ] Record actual delivery in product/SDK/MCP documentation, native Google manual and continuity; leave task1095 open for remaining gaps.

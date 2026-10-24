@@ -4,7 +4,7 @@
 // Renders a searchable grid of every Lucide icon.
 // Selected icon is stored by name string (e.g. 'BookOpen').
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Sparkles, X, type LucideIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -18,10 +18,10 @@ import IconGroupChips, { type IconFilter } from './IconGroupChips';
 import { ICON_CATEGORIES, ICON_GENRES, inGroup, recentIcons, rememberIcon } from './iconCategories';
 
 /** Icons of a category, genre or the recent list, then narrowed by the search. */
-function groupedIcons(entries: [string, LucideIcon][], icons: ProjectIconCatalog, group: IconFilter, query: string): [string, LucideIcon][] | null {
+function groupedIcons<T>(entries: [string, T][], icons: Record<string, T>, group: IconFilter, query: string): [string, T][] | null {
   if (!group) return null;
-  const list: [string, LucideIcon][] = group.kind === 'recent'
-    ? recentIcons().flatMap(name => icons[name] ? [[name, icons[name]] as [string, LucideIcon]] : [])
+  const list: [string, T][] = group.kind === 'recent'
+    ? recentIcons().flatMap(name => icons[name] ? [[name, icons[name]] as [string, T]] : [])
     : (() => { const found = (group.kind === 'category' ? ICON_CATEGORIES : ICON_GENRES).find(item => item.id === group.id); return found ? entries.filter(([name]) => inGroup(name, found)) : []; })();
   return (query ? list.filter(([name]) => iconNameToWords(name).includes(query) || name.toLowerCase().includes(query)) : list).slice(0, 240);
 }
@@ -247,9 +247,13 @@ interface InlineIconPickerProps {
   value?: string;
   onChange: (iconName: string) => void;
   color?: string;
+  /** Optional detached catalog. Its thumbnails and names do not load Lucide React. */
+  catalog?: {names: readonly string[]; renderIcon: (name: string, props: {size: number; color: string}) => ReactNode};
+  viewportAnchored?: boolean;
+  ariaLabel?: string;
 }
 
-export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineIconPickerProps) {
+export function InlineIconPicker({ value, onChange, color = '#c4973b', catalog, viewportAnchored = false, ariaLabel }: InlineIconPickerProps) {
   const { t, locale } = useTranslation();
   const [group, setGroup] = useState<IconFilter>(null);
   const [open, setOpen] = useState(false);
@@ -257,22 +261,39 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-  const availableIcons = useDeferredIconCatalog(open);
+  const [pos, setPos] = useState({ top: 0, left: 0, above: true, width: 280, maxHeight: 420 });
+  const deferredIcons = useDeferredIconCatalog(open && !catalog);
+  const availableIcons = useMemo<Record<string, LucideIcon | true>>(
+    () => catalog ? Object.fromEntries(catalog.names.map(name => [name, true as const])) : deferredIcons,
+    [catalog, deferredIcons],
+  );
   const iconEntries = useMemo(
-    () => Object.entries(availableIcons) as [string, LucideIcon][],
+    () => Object.entries(availableIcons) as [string, LucideIcon | true][],
     [availableIcons],
   );
 
   // Calculate position from button rect — dropdown renders above via portal
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || !buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    setPos({
-      top: rect.top + window.scrollY - 8, // 8px gap above button
-      left: rect.right + window.scrollX,   // align right edge
-    });
-  }, [open]);
+    const update = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      if (!viewportAnchored) {
+        setPos({top: rect.top + window.scrollY - 8, left: rect.right + window.scrollX, above: true, width: 280, maxHeight: 420});
+        return;
+      }
+      if (rect.bottom < 8 || rect.top > window.innerHeight - 8 || rect.right < 0 || rect.left > window.innerWidth) {setOpen(false); return;}
+      const width = Math.min(280, window.innerWidth - 16);
+      const above = rect.top > window.innerHeight - rect.bottom;
+      const available = above ? rect.top - 16 : window.innerHeight - rect.bottom - 16;
+      setPos({top: above ? rect.top - 8 : rect.bottom + 8, left: Math.min(window.innerWidth - 8, Math.max(width + 8, rect.right)), above, width, maxHeight: Math.max(80, Math.min(420, available))});
+    };
+    update();
+    if (!viewportAnchored) return;
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {window.removeEventListener('resize', update);window.removeEventListener('scroll', update, true);};
+  }, [open, viewportAnchored]);
 
   // Close on outside click
   useEffect(() => {
@@ -311,7 +332,7 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
       const featuredSet = new Set<string>(featuredProjectIconNames);
       const featured = featuredProjectIconNames
         .filter(name => availableIcons[name])
-        .map(name => [name, availableIcons[name]] as [string, LucideIcon]);
+        .map(name => [name, availableIcons[name]] as [string, LucideIcon | true]);
       const rest = iconEntries
         .filter(([name]) => !featuredSet.has(name))
         .slice(0, 200);
@@ -336,7 +357,8 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
       style={{
         top: pos.top,
         left: pos.left,
-        transform: 'translate(-100%, -100%)', // anchor bottom-right to the position
+        transform: pos.above ? 'translate(-100%, -100%)' : 'translateX(-100%)',
+        ...(viewportAnchored ? {width: pos.width, maxHeight: pos.maxHeight, overflowY: 'auto' as const} : {}),
       }}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
@@ -371,7 +393,7 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
       </div>
 
       <IconGroupChips value={group} onChange={setGroup} locale={locale} hasRecent={recentIcons().length > 0} />
-      <div className="grid grid-cols-7 gap-1 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin">
+      <div className={`grid ${catalog ? 'grid-cols-6' : 'grid-cols-7'} gap-1 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin`}>
         {filtered.map(([name, Icon]) => {
           const isSelected = name === value;
           return (
@@ -379,14 +401,16 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
               key={name}
               type="button"
               onClick={(e) => { e.stopPropagation(); handleSelect(name); }}
-              className={`p-1.5 rounded-md flex items-center justify-center transition ${
+              className={`${catalog ? 'min-h-9' : ''} p-1.5 rounded-md flex items-center justify-center transition ${
                 isSelected
                   ? 'bg-accent-gold/20 ring-1 ring-accent-gold/50'
                   : 'hover:bg-elevated'
               }`}
               title={name}
+              aria-label={name}
+              aria-pressed={isSelected}
             >
-              <Icon size={16} style={{ color: isSelected ? color : undefined }} className={isSelected ? '' : 'text-text-muted'} />
+              {catalog ? catalog.renderIcon(name, {size: 20, color: isSelected ? color : '#b3a48e'}) : Icon !== true && <Icon size={16} style={{ color: isSelected ? color : undefined }} className={isSelected ? '' : 'text-text-muted'} />}
             </button>
           );
         })}
@@ -413,11 +437,14 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
     <>
       <button
         ref={buttonRef}
+        type="button"
+        aria-label={ariaLabel}
+        aria-expanded={open}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
-        className="p-1.5 rounded-lg hover:bg-accent-gold/20 transition"
+        className={catalog ? "min-h-9 min-w-9 flex items-center justify-center rounded-lg border border-border bg-deep hover:bg-accent-gold/20 transition" : "p-1.5 rounded-lg hover:bg-accent-gold/20 transition"}
         title={t('common.changeIcon')}
       >
-        <Sparkles size={14} className="text-accent-gold" />
+        {catalog && value ? catalog.renderIcon(value, {size: 22, color}) : <Sparkles size={14} className="text-accent-gold" />}
       </button>
       {dropdown}
     </>

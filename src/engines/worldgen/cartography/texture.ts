@@ -24,6 +24,7 @@ import {drawOverlay} from './overlay';
 import {fogUnnamed} from './readerFogLayer';
 import type {WorldSpatialStyle} from '../core/spatialEntities';
 import { placeImageGeneration, type PlaceImagePainter } from './placeImages';
+import {hasCatalogPlaceIcon} from '../core/placeIconCatalog';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
 import { geographyContentKey } from '../region/contentIdentity';
@@ -568,12 +569,14 @@ export function getCartoTexture(
   // Prepared place images belong to World3D's projected, screen-sized overlay.
   // Reserve their normal mark here without baking either the image or its old
   // construction into the ground; every other place keeps the legacy texture.
-  const textureImages: PlaceImagePainter | undefined = placeImages && {
-    errors: placeImages.errors,
-    has: style => placeImages.has(style),
-    draw: (_ctx, style) => placeImages.has(style),
+  const hasCatalog = Object.values(world.painted?.styles ?? {}).some(hasCatalogPlaceIcon);
+  const markerReserved = (style: WorldSpatialStyle) => !!placeImages?.has(style) || hasCatalogPlaceIcon(style);
+  const textureImages: PlaceImagePainter | undefined = placeImages || hasCatalog ? {
+    errors: placeImages?.errors ?? [],
+    has: markerReserved,
+    draw: (_ctx, style) => markerReserved(style),
     dispose() {},
-  };
+  } : undefined;
   const canvas = renderCartoCanvas(world, {
     placeImages: textureImages,
     theme,
