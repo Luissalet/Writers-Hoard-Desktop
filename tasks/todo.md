@@ -1,5 +1,7 @@
 # Writer consolidation #931
 
+Calendar banners now have timeline-owned presets with live links, independent copies and a preserved manual style. Crosshatch, Grid and local raster fills have optional repeat size and opacity; changing a linked preset repaints its events without reapplying it. Moves retain the original preset owner. Normal controls, native MCP, scoped Undo, eras and portable backups use the same contract. Source `101ada925f6f8a41d0226e52298a55a7ce43e73b`; delivery/review: _stage/sdk-following-research/delivery-banners30-final.json / _stage/banner-preliminary-review/review-cas24-approve.txt. Final global/main/Browser/manual receipts: _stage/sdk-following-research/banners30-global-final-receipt.json; _stage/sdk-following-research/main-fontdata-101ada9-20261024-035156-receipt.json; _stage/sdk-following-research/banners-root-window3-receipt.json; _stage/sdk-following-research/manual-banners-receipt.json. [Usage, verification and limits](vvd1095/verification-calendar-banners.md). This establishes the bounded offline workflow in C-writing row83; task1095 continues, and rich prose remains research.
+
 ## Writer1095: audio medido integrado y siguiente comparación
 
 - [x] Fuente fcf94f6 por13rutas; CAS20 nuevo;29grupos focales7autor+4peer+18legacy.
@@ -1321,7 +1323,7 @@ Reference Notes0.1.6 in Brave: a synthetic note retains Heading2 and a two-item 
 
 - [x] Integrate `2f21eed73c87d9c3af1e6b7f7a191f2be939b591` after independent CAS 14. Shape/fill remain separate; Plain preserves earlier behavior. Root Brave confirmed combinations, save/reopen, single-day and week/month boundaries. Author six focal groups and peer sixteen overlapping groups remain separate from legacy runs. `vvd1095/verification-calendar-shapes.md`.
 - [x] Record final main verify/build for this source: renderer/Electron types and lint pass; conformance 34 engines / 64 tables / 6515 keys / 22 locale files / zero warnings; Vite 27.77s, Electron bundles and two Node checks with 934 tools. Root session 36816 exited 0; exact main source and clean status confirmed, merge lock released. No new global suite or stdio-host claim.
-- [x] Update the native manual for banner shapes under the required acquired/released locks: receipt names source 2f21eed, 314 added characters, 198 paragraphs, 197 other paragraphs unchanged and all styles preserved after CAS/readback. Calendar/audio's 610-character receipt is separate. C #83 remains PARTIAL for image/saved-banner workflows, year remains points and wiki remains a list; no full-reference parity or task 1095 closure.
+- [x] Update the native manual for banner shapes under the required acquired/released locks: receipt names source 2f21eed, 314 added characters, 198 paragraphs, 197 other paragraphs unchanged and all styles preserved after CAS/readback. Calendar/audio's 610-character receipt is separate. That shape-only cut left C #83 PARTIAL for image/saved-banner workflows. The later bounded offline workflow is recorded in verification-calendar-banners.md; year remains points and wiki remains a list, without full-reference parity or task1095 closure.
 
 
 ## Graph spacing and type areas — source ecb1703, CAS16
