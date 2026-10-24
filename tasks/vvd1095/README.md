@@ -218,3 +218,8 @@ chapters, text, entries and PDF pages; pasted text counts in the import budgets;
 compression releases its slot on failure, times out, runs quiet and bounded,
 accepts one job at a time and is cancelled when the assets panel closes; the
 export settings no longer count maps while only revealed cards are published.
+
+
+## Tool-owned interface translations
+
+Source tools can declare their own catalogs and use `useLocalToolT(client)` for translated labels, interpolation, plurals and Intl formats. Changing the normal app language preserves authored notes; the Localized notebook example supports Source and Owned editing with explicit saves. Save a new Codex card before inserting its Owned block, then save the child and parent separately. This is a bounded offline SDK extension; [evidence, delivery status and limits](verification-sdk-locale.md) distinguish technical verification from integration.

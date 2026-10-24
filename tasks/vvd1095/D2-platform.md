@@ -145,3 +145,8 @@ Ranking weighs user value for a worldbuilding/writing desktop app, how much VVD 
 - Not verified, marked UNKNOWN: standalone wiki not-found state (row 36), whether every document table stores `createdAt` (row 11), gallery picker URL/inline-upload (row 46), launcher pagination (row 6), Compendium equivalent (row 24), screenplay mode and corkboard (row 85).
 - Playback of VVD video tutorials, hosted dashboards, community feed and marketplace were treated as ONLINE by nature; the only offline reflection suggested is optional (bundled stock images, client-side password gate).
 - Row 24 and rows 82-88 bundle multiple VVD sub-claims; sub-claims are itemised in their Gap cell and the same code paths are cited in the group C/D1 reports.
+
+
+## Own locale catalogs: scoped continuation
+
+The local SDK optionally declares immutable tool-owned catalogs and exposes `useLocalToolT(client)` / `useLocalToolLocale(client)` through the readonly host-locale port, including the public world-block client type. Lookup, interpolation, plurals and Intl formatting do not translate authored state or rewrite captured previews. The app still offers its existing EN/ES preferences; helper locale tags can be broader. The Localized notebook and describe opt-in have [separate evidence and delivery status](verification-sdk-locale.md). Historical row73 and counts remain unchanged; no general Workshop/runtime/collaboration parity follows.

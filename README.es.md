@@ -614,3 +614,8 @@ Las instrucciones anteriores de adopción in-place describen una importación op
 
 
 Corrección931 CAS5 de cierre: ante un fallo se conservan app/recursos y worker; se rechazan ON y peticiones nuevas y se ofrece Reintentar cierre. Cada fábrica recuerda pasos completados; EOF reintenta limpieza sin repetir escrituras. Pruebas con las cuatro fábricas reales y el worker frozen reconstruido, sólo perfiles sintéticos. `node scripts/build-publishing-runtime.mjs --worker-only` reutiliza binarios nativos sin recompilar Rust. Evidencia y límites en tasks/submission931-cas5.md.
+
+
+## Textos propios de las herramientas
+
+Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(client)` para etiquetas, interpolación, plurales y formatos Intl. Cambiar el idioma normal de la aplicación conserva las notas escritas; el ejemplo Libreta traducida permite edición Source y Propio con guardado explícito. Guarda una tarjeta nueva del Códex antes de insertar su bloque propio y guarda después el hijo y el documento padre por separado. Es una ampliación offline acotada del SDK; [evidencia, estado de entrega y límites](tasks/vvd1095/verification-sdk-locale.md) separan comprobación técnica e integración.

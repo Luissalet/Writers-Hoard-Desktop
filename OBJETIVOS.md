@@ -169,3 +169,8 @@ Los errores de tipos de Electron están corregidos en esta entrega.
 
 ## Writer1095 continuation scope
 Implemented in source: supported standalone wiki pages/curation, Home creation-date counts/3engine quick creation/manual tips, native fiction session preparation/attendance/manual recap, and scoped B11bookmarks/effects/retired. Verification/review/integration recorded in tasks/vvd1095/verification-next.md. Remaining: soundscape and other unprojected wiki pages/spatial boards, other quick-create engines and word/connection history, ICS/RSVP/statistics/outline-fiction convergence, arbitrary editor/rules bookmarks, additional effect families and banner crop. Matrices remain PARTIAL where those subclaims remain.
+
+
+## Textos propios de las herramientas
+
+Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(client)` para etiquetas, interpolación, plurales y formatos Intl. Cambiar el idioma normal de la aplicación conserva las notas escritas; el ejemplo Libreta traducida permite edición Source y Propio con guardado explícito. Guarda una tarjeta nueva del Códex antes de insertar su bloque propio y guarda después el hijo y el documento padre por separado. Es una ampliación offline acotada del SDK; [evidencia, estado de entrega y límites](tasks/vvd1095/verification-sdk-locale.md) separan comprobación técnica e integración.
