@@ -1,15 +1,50 @@
 import type {LocalToolClient,LocalToolSnapshot} from './sdk';
 import type {LocalToolStateCodec} from './stateCodec';
 import {cloneLocalToolJson,type LocalToolJson} from './stateTypes';
-import {mergeLocalToolActions,type LocalToolStateAction} from './stateActions';
+import {localToolStateEqual,mergeLocalToolActions,type LocalToolStateAction} from './stateActions';
+import type {LocalToolOwnedBlockEnvelope} from './blocks/types';
 export interface LocalToolActionResult<T extends LocalToolJson>{snapshot:LocalToolSnapshot<T>;receiptId:string|null}
 export interface LocalToolStateActions<T extends LocalToolJson>{apply(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[]):Promise<LocalToolActionResult<T>>;undo(receiptId:string):Promise<LocalToolActionResult<T>>;redo(receiptId:string):Promise<LocalToolActionResult<T>>}
-export interface LocalToolActionTransaction<T extends LocalToolJson>{client:LocalToolClient<T>;identity?:string;onCommit(callback:()=>void):void;onAbort(callback:()=>void):void}
-interface Receipt {identity:string;mode:'undo'|'redo';baseline:LocalToolSnapshot<LocalToolJson>;actions:LocalToolStateAction[];claimed:boolean}
+/** Host-only port. Package clients cannot supply envelopes to this receipt mechanism. */
+export interface LocalToolOwnedEvolutionPort<T extends LocalToolJson>{pending():boolean;capture():LocalToolOwnedBlockEnvelope;apply(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[]):Promise<{snapshot:LocalToolSnapshot<T>;changed:boolean}>;restore(expectedVersion:string,envelope:LocalToolOwnedBlockEnvelope):Promise<LocalToolSnapshot<T>>}
+export interface LocalToolActionTransaction<T extends LocalToolJson>{client:LocalToolClient<T>;identity?:string;ownedEvolution?:LocalToolOwnedEvolutionPort<T>;onCommit(callback:()=>void):void;onAbort(callback:()=>void):void}
+interface ReceiptBase {identity:string;mode:'undo'|'redo';claimed:boolean}
+type Receipt=(ReceiptBase&{kind:'actions';baseline:LocalToolSnapshot<LocalToolJson>;actions:LocalToolStateAction[]})|(ReceiptBase&{kind:'owned-evolution';before:LocalToolOwnedBlockEnvelope;after:LocalToolOwnedBlockEnvelope});
 const receipts=new Map<string,Receipt>();let nextReceipt=0;
 /** Session receipts become available/consumed only with the outer transaction. */
 export function createLocalToolStateActions<T extends LocalToolJson>(codec:LocalToolStateCodec,identity:string,atomic:<R>(run:(transaction:LocalToolActionTransaction<T>)=>Promise<R>)=>Promise<R>):LocalToolStateActions<T>{
- const applyIn=async(transaction:LocalToolActionTransaction<T>,baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],mode:'undo'|'redo'):Promise<LocalToolActionResult<T>>=>{if(!baseline||baseline.revision!==null&&(!Number.isSafeInteger(baseline.revision)||baseline.revision<0))throw Error('local_tool_actions_baseline_invalid');const current=await transaction.client.read();if(current.block&&(!baseline.block||baseline.block.id!==current.block.id||baseline.block.lineage!==current.block.lineage))throw Error('local_tool_block_lineage_conflict');if(current.document&&(!baseline.document||baseline.document.id!==current.document.id||baseline.document.lineage!==current.document.lineage))throw Error('source_tool_document_lineage_conflict');if(baseline.revision!==null&&(current.revision===null||baseline.revision>current.revision))throw Error('local_tool_actions_baseline_invalid');const merged=mergeLocalToolActions(codec,baseline.data,current.data,actions);if(!merged.inverse.length)return{snapshot:current,receiptId:null};const snapshot=await transaction.client.save(merged.data,current.revision,current.document?.version??current.block?.version),receiptId='local-state-'+(++nextReceipt)+'-'+Math.random().toString(36).slice(2);transaction.onCommit(()=>receipts.set(receiptId,{identity:JSON.stringify([transaction.identity??identity,current.document?.lineage??current.block?.lineage??null]),mode,baseline:structuredClone(snapshot),actions:cloneLocalToolJson(merged.inverse as unknown as LocalToolJson) as unknown as LocalToolStateAction[],claimed:false}));return{snapshot,receiptId};};
- const reverse=(mode:'undo'|'redo',receiptId:string)=>atomic(async transaction=>{const receipt=receipts.get(receiptId),current=await transaction.client.read();if(!receipt||receipt.identity!==JSON.stringify([transaction.identity??identity,current.document?.lineage??current.block?.lineage??null])||receipt.mode!==mode||receipt.claimed)throw Error('local_tool_state_receipt_unavailable');receipt.claimed=true;transaction.onAbort(()=>{receipt.claimed=false;});transaction.onCommit(()=>receipts.delete(receiptId));return applyIn(transaction,receipt.baseline as LocalToolSnapshot<T>,receipt.actions,mode==='undo'?'redo':'undo');});
+ const recordEvolution=(transaction:LocalToolActionTransaction<T>,current:LocalToolSnapshot<T>,before:LocalToolOwnedBlockEnvelope,after:LocalToolOwnedBlockEnvelope,mode:'undo'|'redo')=>{
+  const receiptId='local-state-'+(++nextReceipt)+'-'+Math.random().toString(36).slice(2),record:Receipt={kind:'owned-evolution',identity:JSON.stringify([transaction.identity??identity,current.block?.lineage??null]),mode,before:structuredClone(before),after:structuredClone(after),claimed:false};
+  transaction.onCommit(()=>receipts.set(receiptId,record));return receiptId;
+ };
+ const applyIn=async(transaction:LocalToolActionTransaction<T>,baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],mode:'undo'|'redo'):Promise<LocalToolActionResult<T>>=>{
+  if(!baseline||baseline.revision!==null&&(!Number.isSafeInteger(baseline.revision)||baseline.revision<0))throw Error('local_tool_actions_baseline_invalid');
+  const current=await transaction.client.read();
+  if(current.block&&(!baseline.block||baseline.block.id!==current.block.id||baseline.block.lineage!==current.block.lineage))throw Error('local_tool_block_lineage_conflict');
+  if(current.document&&(!baseline.document||baseline.document.id!==current.document.id||baseline.document.lineage!==current.document.lineage))throw Error('source_tool_document_lineage_conflict');
+  if(baseline.revision!==null&&(current.revision===null||baseline.revision>current.revision))throw Error('local_tool_actions_baseline_invalid');
+  const owned=transaction.ownedEvolution;
+  if(owned?.pending()){
+   const before=owned.capture(),result=await owned.apply(baseline,actions);
+   if(!result.changed)return{snapshot:result.snapshot,receiptId:null};
+   return{snapshot:result.snapshot,receiptId:recordEvolution(transaction,current,before,owned.capture(),mode)};
+  }
+  const merged=mergeLocalToolActions(codec,baseline.data,current.data,actions);if(!merged.inverse.length)return{snapshot:current,receiptId:null};
+  const snapshot=await transaction.client.save(merged.data,current.revision,current.document?.version??current.block?.version),receiptId='local-state-'+(++nextReceipt)+'-'+Math.random().toString(36).slice(2);
+  transaction.onCommit(()=>receipts.set(receiptId,{kind:'actions',identity:JSON.stringify([transaction.identity??identity,current.document?.lineage??current.block?.lineage??null]),mode,baseline:structuredClone(snapshot),actions:cloneLocalToolJson(merged.inverse as unknown as LocalToolJson) as unknown as LocalToolStateAction[],claimed:false}));return{snapshot,receiptId};
+ };
+ const reverse=(mode:'undo'|'redo',receiptId:string)=>atomic(async transaction=>{
+  const receipt=receipts.get(receiptId),current=await transaction.client.read();
+  if(!receipt||receipt.identity!==JSON.stringify([transaction.identity??identity,current.document?.lineage??current.block?.lineage??null])||receipt.mode!==mode||receipt.claimed)throw Error('local_tool_state_receipt_unavailable');
+  receipt.claimed=true;transaction.onAbort(()=>{receipt.claimed=false;});transaction.onCommit(()=>receipts.delete(receiptId));
+  if(receipt.kind==='owned-evolution'){
+   const owned=transaction.ownedEvolution;if(!owned||!current.block)throw Error('local_tool_state_receipt_unavailable');
+   const before=owned.capture(),{revision:actualRevision,...actualBody}=before,{revision:storedRevision,...storedBody}=receipt.after;void actualRevision;void storedRevision;
+   if(!localToolStateEqual(actualBody,storedBody))throw Error('local_tool_block_conflict');
+   const snapshot=await owned.restore(current.block.version,receipt.before);
+   return{snapshot,receiptId:recordEvolution(transaction,current,before,owned.capture(),mode==='undo'?'redo':'undo')};
+  }
+  return applyIn(transaction,receipt.baseline as LocalToolSnapshot<T>,receipt.actions,mode==='undo'?'redo':'undo');
+ });
  return Object.freeze({apply:(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[])=>atomic(transaction=>applyIn(transaction,baseline,actions,'undo')),undo:(receiptId:string)=>reverse('undo',receiptId),redo:(receiptId:string)=>reverse('redo',receiptId)});
 }
