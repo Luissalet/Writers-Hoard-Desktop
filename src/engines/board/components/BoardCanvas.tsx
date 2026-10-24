@@ -12,6 +12,7 @@ import { GitBranch, Plus, Route, Search, Trash2, X } from 'lucide-react';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import {useWorldEraScope} from '@/services/worldEras/hooks';
 import {boardReferenceRoute,resolveBoardTile} from '../entityTiles';
+import {useEnginePane} from '@/engines/_shared/EnginePaneContext';
 import { usePaneNavigate } from '@/engines/_shared/usePaneNavigate';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -28,7 +29,7 @@ import { canMoveNode, findOpenPosition, isCanvasShortcutTarget } from '../graph/
 import { getBoardCopy } from '../copy';
 import { rememberProjectRoute } from '@/services/projectIntelligence';
 import type {
-  Board, BoardBox, BoardEdge, BoardEndpoint, BoardLayer, BoardNode,
+  BoardEntityRef, Board, BoardBox, BoardEdge, BoardEndpoint, BoardLayer, BoardNode,
   BoardNodeKind, BoardSide, BoardView, BoardViewport,
 } from '../types';
 import BoardNodeView, { type BoardFlowNode } from './BoardNodeView';
@@ -42,7 +43,7 @@ import { erasedNodeIds,makeFreehandNode } from '../freehand';
 import {arrangeCanvasNodes,expandFrameMoves} from '../canvasGeometry';
 import { freehandCopy } from '../freehandCopy';
 import AssetsRail from './AssetsRail';
-import { BOARD_ASSET_MIME, imageFile } from './boardAssets';
+import { BOARD_ASSET_MIME, BOARD_MEDIA_MIME, imageFile, isBoardMediaRef, readBoardMedia } from './boardAssets';
 import { db } from '@/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -104,6 +105,7 @@ export default function BoardCanvas(props: BoardCanvasProps) {
 function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, onCommentAt }: BoardCanvasProps) {
   const { t, locale } = useTranslation();
   const worldScope=useWorldEraScope(projectId);
+  const pane=useEnginePane(),paneVisible=pane?.visible!==false;
   const navigateTo = usePaneNavigate();
   const copy = getBoardCopy(locale);
   const [searchParams] = useSearchParams();
@@ -192,6 +194,11 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
   );
 
   const layerById = useMemo(() => new Map(layers.map((layer) => [layer.id, layer])), [layers]);
+  const [referenceError,setReferenceError]=useState('');
+  const referenceEpoch=useRef({active:true}),referenceRequest=useRef(0);
+  const referenceHost=useRef({graph,layerById,activeLayerId,pickerFor,panel,paneVisible});
+  useLayoutEffect(()=>{referenceHost.current={graph,layerById,activeLayerId,pickerFor,panel,paneVisible};},[graph,layerById,activeLayerId,pickerFor,panel,paneVisible]);
+  useLayoutEffect(()=>{const owner={active:true};referenceEpoch.current=owner;return()=>{owner.active=false;};},[projectId,boardId,worldScope.eraId]);
 
   const queryResult = useMemo(
     () => evaluateQuery(query, { nodes: graph.nodes, edges: graph.edges, layers, metrics }),
@@ -523,6 +530,39 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
     },
     [viewportCenter, projectId, boardId, activeLayerId, graph, t],
   );
+
+  // Every normal acquisition uses the same effective-media admission before its graph command.
+  const pinReference=useCallback(async(ref:BoardEntityRef,target:string|'new',fromAssets:boolean|'drop'=false,at?:{x:number;y:number})=>{
+    const epoch=referenceEpoch.current,request=++referenceRequest.current,initial=referenceHost.current;
+    const previous=target==='new'?undefined:initial.graph.nodeById.get(target),layerId=target==='new'?initial.activeLayerId:previous?.layerId;
+    if(initial.graph.loading||!initial.paneVisible)return;
+    setReferenceError('');
+    try{
+      let title=ref.title;
+      if(isBoardMediaRef(ref)){
+        const asset=await readBoardMedia({projectId,eraId:worldScope.eraId},ref.entityId);
+        if(!asset)throw Error('unavailable');title=asset.title;
+      }
+      if(!epoch.active||epoch!==referenceEpoch.current||request!==referenceRequest.current)return;
+      const current=referenceHost.current;
+      if(current.graph.loading||!current.paneVisible||fromAssets===true&&current.panel!=='assets'||fromAssets===false&&current.pickerFor!==target)return;
+      if(isBoardMediaRef(ref)){
+        const layer=layerId?current.layerById.get(layerId):undefined;
+        if(layerId&&(!layer||layer.locked||!layer.visible)||target==='new'&&current.activeLayerId!==layerId)throw Error('unavailable');
+        if(target!=='new'){
+          const destination=current.graph.nodeById.get(target);
+          if(!previous||!destination||!canMoveNode(destination,current.layerById)||destination.kind!==previous.kind||destination.layerId!==previous.layerId||JSON.stringify(destination.ref)!==JSON.stringify(previous.ref))throw Error('unavailable');
+        }
+      }
+      const ownedRef={...ref,title,missing:false,checkedAt:Date.now()};
+      if(target==='new'){
+        const center=at??viewportCenter(),size=isBoardMediaRef(ref)?{width:320,height:240}:ref.engineId==='maps'?{width:360,height:260}:{width:280,height:220};
+        const node=makeNode({projectId,boardId,kind:'entity',size,position:center,title,color:ref.color??'#4a9e6d',ref:ownedRef,layerId:layerId??undefined});
+        current.graph.addNodes([node],t('board.history.add'));setSelectedNodeIds(new Set([node.id]));
+      }else current.graph.patchNodes([{id:target,changes:{ref:ownedRef}}],t('board.history.bind'));
+      setPickerFor(null);
+    }catch{if(epoch.active&&epoch===referenceEpoch.current&&request===referenceRequest.current)setReferenceError(copy.mediaUnavailable);}
+  },[projectId,boardId,worldScope.eraId,viewportCenter,t,copy.mediaUnavailable]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -930,6 +970,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
       filter: (domNode) =>
         !(domNode instanceof HTMLElement) ||
         (!domNode.classList.contains('board-chrome') &&
+           !domNode.matches('audio, video, [data-board-media-controls]') &&
           !domNode.classList.contains('react-flow__minimap') &&
           !domNode.classList.contains('react-flow__controls') &&
           !domNode.classList.contains('react-flow__panel')),
@@ -1025,10 +1066,13 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
         if (event.dataTransfer.files.length > 0) {
           addImagesFromFiles(event.dataTransfer.files, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
         }
+        const media = event.dataTransfer.getData(BOARD_MEDIA_MIME);
+        if(media){try{const source=JSON.parse(media) as {projectId?:string;eraId?:string;entityId?:string};if(source.projectId===projectId&&source.eraId===worldScope.eraId&&typeof source.entityId==='string')void pinReference({engineId:'media',entityType:'local-media',entityId:source.entityId,title:''},'new','drop',flow.screenToFlowPosition({x:event.clientX,y:event.clientY}));}catch{/* Not a local media reference. */}}
         const assetId = event.dataTransfer.getData(BOARD_ASSET_MIME);
         if (assetId) { const at = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }); void db.inspirationImages.get(assetId).then(picture => picture ? imageFile(picture.imageData, 'imagen') : undefined).then(file => { if (file) addImagesFromFiles([file], at); }); }
       }}
     >
+      {referenceError&&<p role="alert" className="board-chrome absolute left-4 top-4 z-50 max-w-sm rounded-lg border border-border bg-surface p-3 text-sm text-text-primary">{referenceError}</p>}
       <ReactFlow
         nodes={flowNodes}
         edges={[]}
@@ -1379,7 +1423,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
             />
           ) : null}
 
-          {panel === 'assets' ? <AssetsRail projectId={projectId} locale={locale} onAdd={file => addImagesFromFiles([file])} /> : null}
+          {panel === 'assets' ? <AssetsRail projectId={projectId} locale={locale} onAdd={file => addImagesFromFiles([file])} onMediaAdd={id=>void pinReference({engineId:'media',entityType:'local-media',entityId:id,title:''},'new',true)} onImport={()=>navigateTo(`/project/${encodeURIComponent(projectId)}/media${worldScope.eraId?`?era=${encodeURIComponent(worldScope.eraId)}`:''}`)} /> : null}
 
           {panel === 'metrics' ? (
             <MetricsPanel
@@ -1473,41 +1517,11 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
       />
 
       <EntityPicker
+        key={`${projectId}:${boardId}:${worldScope.eraId??'base'}`}
         open={pickerFor !== null}
         projectId={projectId}
-        onClose={() => setPickerFor(null)}
-        onPick={(preview) => {
-          const ref = {
-            engineId: preview.engineId,
-            entityType: preview.type,
-            entityId: preview.id,
-            title: preview.title,
-            subtitle: preview.subtitle,
-            thumbnail: preview.thumbnail,
-            color: preview.color,
-            missing: false,
-            checkedAt: Date.now(),
-          };
-          if (pickerFor === 'new') {
-            const center = viewportCenter();
-            const node = makeNode({
-              projectId,
-              boardId,
-              kind: 'entity',
-              size:preview.engineId==='maps'?{width:360,height:260}:{width:280,height:220},
-              position: center,
-              title: preview.title,
-              color: preview.color ?? '#4a9e6d',
-              ref,
-              layerId: activeLayerId ?? undefined,
-            });
-            graph.addNodes([node], t('board.history.add'));
-            setSelectedNodeIds(new Set([node.id]));
-          } else if (pickerFor) {
-            graph.patchNodes([{ id: pickerFor, changes: { ref } }], t('board.history.bind'));
-          }
-          setPickerFor(null);
-        }}
+        onClose={() => {referenceRequest.current++;setPickerFor(null);}}
+        onPick={preview=>{if(pickerFor)void pinReference({engineId:preview.engineId,entityType:preview.type,entityId:preview.id,title:preview.title,subtitle:preview.subtitle,thumbnail:preview.thumbnail,color:preview.color},pickerFor);}}
       />
 
       <ConfirmDialog
