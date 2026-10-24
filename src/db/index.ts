@@ -1,3 +1,4 @@
+import type {LocalAssetFile} from '@/engines/local/assetFileFormat';
 import Dexie, { type Table } from 'dexie';
 import { installDocumentHistory } from '@/services/documentHistory/capture';
 import type { DocumentHistoryEntry } from '@/services/documentHistory/types';
@@ -73,7 +74,7 @@ import { migrateLegacyBoards } from './legacyBoardMigration';
 import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 44;
+export const CURRENT_DB_VERSION = 45;
 
 export class WritersHoardDB extends Dexie {
   manuscriptSources!: Table<import('@/engines/writings/manuscriptReview/sourceTypes').ManuscriptSourceRow>;
@@ -162,6 +163,7 @@ export class WritersHoardDB extends Dexie {
   betaComments!: Table<BetaCommentRow>;
   referencePins!: Table<ReferencePinRow>;
   genealogyLinks!: Table<GenealogyLinkRow>;
+  localToolAssetFiles!: Table<LocalAssetFile>;
   localMediaAssets!: Table<LocalMediaAsset>;
 
   constructor() {
@@ -1044,6 +1046,8 @@ export class WritersHoardDB extends Dexie {
     this.version(42).stores({ worldEraAssets: 'id, projectId, &[projectId+sha256]' });
     this.version(43).stores({ documentHistory: 'id, projectId, [projectId+kind+entityId], createdAt, *assetIds' });
     this.version(44).stores({ manuscriptSources: 'id, projectId, [projectId+sha256]' });
+    this.version(45).stores({localToolAssetFiles:'id, projectId, [projectId+kind], &[projectId+kind+sha256+mime]'});
+
     installDocumentHistory(this);
   }
 }

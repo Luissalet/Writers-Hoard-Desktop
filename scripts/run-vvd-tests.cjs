@@ -7,7 +7,51 @@ const electron = require('electron');
 const root = path.resolve(__dirname, '..');
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
+const assetFileCheck = spawnSync(process.execPath, ['tests/local-tool-asset-files.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (assetFileCheck.status !== 0) process.exit(assetFileCheck.status ?? 1);
 const suites = [
+  ['manuscript-review-migration.browser.ts', 'testManuscriptReviewMigration'],
+  ['writing-manuscript-home.browser.tsx', 'testManuscriptHomeSummaryIsolation'],
+  ['writing-manuscript-home.browser.tsx', 'testManuscriptHomeEraAndSnapshot'],
+  ['writing-manuscript-home.browser.tsx', 'testManuscriptHomeArchiveAndEmpty'],
+  ['writing-manuscript-home.browser.tsx', 'testManuscriptHomeEngineUi'],
+  ['writing-manuscript-home.browser.tsx', 'testManuscriptHomeLibraryRetarget'],
+  ['writing-manuscript-home.browser.tsx', 'testManuscriptHomeUnavailableDate'],
+  ['review-writing-manuscript-home.browser.tsx', 'reviewManuscriptHomePublicReadContract'],
+  ['review-writing-manuscript-home.browser.tsx', 'reviewManuscriptHomeAtomicReadAndErrors'],
+  ['review-writing-manuscript-home.browser.tsx', 'reviewManuscriptHomeEraAndArchivedOrigin'],
+  ['review-writing-manuscript-home.browser.tsx', 'reviewManuscriptHomeArchiveTieAndFuture'],
+  ['review-writing-manuscript-home.browser.tsx', 'reviewManuscriptHomeLibraryRetargetAndIso'],
+  ['review-writing-manuscript-home.browser.tsx', 'reviewManuscriptHomeLatestChapterUi'],
+  ['local-tool-asset-files.browser.tsx', 'testLocalToolAssetFiles'],
+  ['local-tool-asset-files.browser.tsx', 'testLocalToolAssetFileTransactions'],
+  ['local-tool-asset-files.browser.tsx', 'testLocalToolAssetFileMigration'],
+  ['local-tool-asset-files.browser.tsx', 'testLocalToolAssetFileUi'],
+  ['local-tool-asset-files.browser.tsx', 'testLocalToolFontFaceLifecycle'],
+  ['local-tool-asset-files.browser.tsx', 'testLocalToolFontFaceLate'],
+  ['local-tool-owned-asset-import.browser.tsx', 'testOwnedLocalAssetImport'],
+  ['local-tool-owned-asset-import.browser.tsx', 'testOwnedLocalAssetPickerPersistence'],
+  ['local-tool-owned-asset-import.browser.tsx', 'testLocalAssetResolvedTransactions'],
+  ['local-tool-asset-files-portability.browser.tsx', 'testLocalToolAssetFilePortability'],
+  ['local-tool-asset-files-portability.browser.tsx', 'testLocalToolAssetFileDuplicate'],
+  ['local-tool-asset-files-portability.browser.tsx', 'testLocalToolAssetFileFullBackup'],
+  ['review-local-tool-asset-files.browser.tsx', 'reviewAssetFilesInventoryAndDomainIsolation'],
+  ['review-local-tool-asset-files.browser.tsx', 'reviewAssetFilesCompositeCasAndImportOnly'],
+  ['review-local-tool-asset-files.browser.tsx', 'reviewAssetFilesOuterCommitAndAbort'],
+  ['review-local-tool-asset-files.browser.tsx', 'reviewAssetFilesCloneAndDuplicateDomains'],
+  ['review-local-tool-asset-files.browser.tsx', 'reviewAssetFilesBackupPreflightAndLegacy'],
+  ['review-local-tool-asset-files.browser.tsx', 'reviewAssetFilesOwnedWritableImport'],
+  ['review-local-tool-asset-files.browser.tsx', 'reviewAssetFilesSourceReferenceTransaction'],
+  ['review-local-tool-asset-exports.browser.tsx', 'reviewLocalFontFaceBinding'],
+  ['review-local-tool-asset-exports.browser.tsx', 'reviewLocalAssetFinalCsp'],
+  ['review-local-tool-asset-exports.browser.tsx', 'reviewLocalAssetPoliciesAndMissingCapture'],
+  ['review-local-tool-asset-exports.browser.tsx', 'reviewLocalAssetWikiFinalVisibility'],
+  ['review-local-tool-asset-exports.browser.tsx', 'reviewLocalAssetPublishedFreeze'],
+  ['local-tool-blocks-retained.browser.ts', 'testRetainedSourceBlockPin'],
+  ['tool-dock-retained.browser.ts', 'testDockRetainedPins'],
+  ['library-create.browser.ts', 'testLibraryCreate'],
+  ['local-tool-book.browser.tsx', 'testSourceBlocksBook', undefined, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-host.ui.browser.tsx', 'testLocalToolHostUi', undefined, 'scripts/run-codex-properties-ui.cjs'],
   ['writing-manuscripts.browser.tsx', 'testWritingManuscripts'],
   ['writing-manuscripts-portability.browser.tsx', 'testWritingManuscriptsPortability'],
   ['writing-manuscripts-ui.browser.tsx', 'testManuscriptEngineFlow'],
@@ -307,12 +351,13 @@ const suites = [
 ];
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });
 let checks = 0; const failed = [];
-for (const [file, exported] of suites) {
-  const result = spawnSync(electron, ['scripts/run-focused-browser-tests.cjs', `tests/${file}`, exported, '300000'], { cwd: root, encoding: 'utf8', timeout: 330000, maxBuffer: 20 * 1024 * 1024, windowsHide: true });
+for (const [file, exported, , runner = 'scripts/run-focused-browser-tests.cjs'] of suites) {
+  const result = spawnSync(electron, [runner, `tests/${file}`, exported, '300000'], { cwd: root, encoding: 'utf8', timeout: 330000, maxBuffer: 20 * 1024 * 1024, windowsHide: true });
   const log = `${result.stdout ?? ''}${result.stderr ?? ''}${result.error ? '\n' + result.error.stack : ''}`;
-  fs.writeFileSync(path.join(output, file + '.log'), log);
+  const logPath = path.join(output, `${file}--${exported}.log`);
+  fs.writeFileSync(logPath, log);
   const count = (log.match(/^PASS /gm) ?? []).length; checks += count;
-  if (result.status !== 0 || result.error) { failed.push(file); console.error(`FAIL ${file} — ${path.join(output, file + '.log')}`); }
+  if (result.status !== 0 || result.error) { failed.push(`${file}:${exported}`); console.error(`FAIL ${file}:${exported} — ${logPath}`); }
   else console.log(`PASS ${file}: ${count} groups`);
 }
 console.log(`VVD offline workflows: ${checks} groups, ${suites.length} suites, ${failed.length} failed. Logs: ${output}`);

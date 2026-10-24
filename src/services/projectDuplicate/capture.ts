@@ -16,7 +16,7 @@ export const DUPLICATE_PROJECT_TABLES = [
   'generatedWorlds','worldWaypoints','notes','entityLinks','citations','publishingProfiles','conversionReceipts','aiThreads','aiMessages','aiProjectSettings',
   'visualRefs','imageRecipes','projectReferenceLinks','judgeRuns','judgeFindings','creativeBranches','creativeBranchDeltas','branchPromotionReceipts',
   'narrativeMoments','storyClaims','sharedEntityBindings','inquiryCases','inquiryClaims','inquiryHypotheses','inquiryRatings','enrichmentRuns',
-  'betaPackages','betaResponses','betaComments','referencePins','genealogyLinks','localMediaAssets',
+  'betaPackages','betaResponses','betaComments','referencePins','genealogyLinks','localMediaAssets','localToolAssetFiles',
 ] as const;
 export const DUPLICATE_CHILD_TABLES = { annotationReferences:['annotations','annotationId'], sceneCasts:['scenes','sceneId'], storyboardConnectors:['storyboards','storyboardId'] } as const;
 export const DUPLICATE_SHARED_TABLES = ['tags','referenceDocuments','referenceSections','referenceLenses'] as const;

@@ -2,7 +2,7 @@ import {validateLocalAssetRef,type LocalAssetRef} from './assets';
 export const LOCAL_AUDIO_BUSES=['music','ambience','sfx','voice','ui'] as const;
 export type LocalAudioBus=typeof LOCAL_AUDIO_BUSES[number];
 export type LocalAudioFocus='mix'|'duck'|'exclusive';
-export type LocalAudioRef=Exclude<LocalAssetRef,{kind:'media'|'image'}>|{kind:'media';id:string}
+export type LocalAudioRef=Extract<LocalAssetRef,{kind:'source'}>|{kind:'media';id:string}
 export interface LocalAudioOptions {bus?:LocalAudioBus;focus?:LocalAudioFocus;volume?:number;pan?:number;loop?:boolean;fadeInMs?:number;signal?:AbortSignal}
 export interface LocalAudioUpdate {volume?:number;pan?:number;loop?:boolean;bus?:LocalAudioBus;focus?:LocalAudioFocus;fadeMs?:number}
 export interface LocalAudioState {id:string;ref:LocalAudioRef;bus:LocalAudioBus;focus:LocalAudioFocus;volume:number;pan:number;loop:boolean;status:'loading'|'playing';effectiveVolume:number}
@@ -26,7 +26,7 @@ const pan=(value:number|undefined,fallback=0)=>{const next=value??fallback;if(!N
 const duration=(value:number|undefined)=>{if(value===undefined)return 0;if(!Number.isFinite(value)||value<0)throw Error('local_audio_fade_invalid');return value;};
 const bus=(value:LocalAudioBus|undefined,fallback:LocalAudioBus)=>{if(value!==undefined&&!LOCAL_AUDIO_BUSES.includes(value))throw Error('local_audio_bus_invalid');return value??fallback;};
 const focus=(value:LocalAudioFocus|undefined,fallback:LocalAudioFocus)=>{if(value!==undefined&&!['mix','duck','exclusive'].includes(value))throw Error('local_audio_focus_invalid');return value??fallback;};
-export function validateLocalAudioRef(ref:LocalAudioRef){try{validateLocalAssetRef(ref);if((ref as LocalAssetRef).kind==='image')throw Error();}catch{throw Error('local_audio_ref_invalid');}}
+export function validateLocalAudioRef(ref:LocalAudioRef){try{validateLocalAssetRef(ref);if((ref as LocalAssetRef).kind!=='source'&&(ref as LocalAssetRef).kind!=='media')throw Error();}catch{throw Error('local_audio_ref_invalid');}}
 interface RecordEntry extends LocalAudioState {owner:symbol;voice?:LocalAudioVoice}
 /** One coordinator per host. Backend injection enables silent deterministic contract tests. */
 export function createLocalAudioEngine(backend:LocalAudioBackend){
