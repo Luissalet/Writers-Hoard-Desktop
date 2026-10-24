@@ -1,5 +1,7 @@
 # Writer consolidation #931
 
+Notes inline images are integrated in source d1860db8 after CAS 27, with six clean-main checks, the native Notes manual and continuity completed. Historical global 1125/431/1 plus unchanged audio focal PASS and final 22-path gates form explicit composed evidence, not a full global-zero rerun. This separate nine-file documentation delivery preserves ICONS and the historical Notes plan. [Evidence and limits](vvd1095/verification-note-inline-images.md).
+
 Source-tool fields can opt into rich prose: headings, lists, text links and copied local raster images use the native editor and remain readable without the author module. Save the briefing explicitly; an Owned block then needs its parent document saved, and the dock requires child Save/Discard before leaving. This is local string-and-CAS editing, without character collaboration; the general SDK remains a partial local subset. [Use and limits](vvd1095/verification-sdk-rich-prose.md).
 
 ## Local tool rich prose — task1095 / architecture1504
@@ -1414,11 +1416,11 @@ Source 0e2ba76144c8837d8e5da6b5f99cfb88064876d6 is independently approved at CAS
 
 Architecture Agora1530 r2 is resolved. The implementation follows _stage/note-media-next/PLAN-proposed.md and its19-path proposal; the two new tests already preserve three material REDs (missing File/Gallery entry, lost alignment and rejected image-only MCP creation). ICONS source0e2ba761 is integrated after CAS26, global1106/415/0 and seven clean-main checks. Its native manual/continuity/product documentation are still pending shared-resource release; this note work does not claim those complete.
 
-- [ ] Add File/Gallery acquisition to the existing rich note card and composer through their native toolbar hooks, preserving heading/list content and original raster bytes.
-- [ ] Add optional validated image alignment; preserve widths/frames and exact legacy CSS/output when alignment is absent, including mixed legacy/new images.
-- [ ] Bind async acquisition to the actual note/editor/project/era and mapped selection; invalidate pending work synchronously before Save and preserve drafts on failure.
-- [ ] Replace only source bytes, preserve current attributes, and use normal image transactions with exact Remove/Undo/Redo.
-- [ ] Share the representation through existing note MCP operations, conditional captured wiki/document-image CSS and normal JSON/ZIP/Duplicate/era flows.
-- [ ] Verify actual File/Gallery UI, lifecycle failures, legacy regression fixtures, MCP, reopen and portability, then independent review, exact commit/CAS and guarded main integration.
+- [x] Add File/Gallery acquisition to the existing rich note card and composer through their native toolbar hooks, preserving heading/list content and original raster bytes.
+- [x] Add optional validated image alignment; preserve widths/frames and exact legacy CSS/output when alignment is absent, including mixed legacy/new images.
+- [x] Bind async acquisition to the actual note/editor/project/era and mapped selection; invalidate pending work synchronously before Save and preserve drafts on failure.
+- [x] Replace only source bytes, preserve current attributes, and use normal image transactions with exact Remove/Undo/Redo.
+- [x] Share the representation through existing note MCP operations, conditional captured wiki/document-image CSS and normal JSON/ZIP/Duplicate/era flows.
+- [x] Verify actual File/Gallery UI, lifecycle failures, legacy regression fixtures, MCP, reopen and portability, then independent review, exact commit/CAS and guarded main integration.
 
 No generic SDK editor, Gallery picker, slash-command, prose-style or manuscript-export redesign is included. Parent1095 remains open; no push.
