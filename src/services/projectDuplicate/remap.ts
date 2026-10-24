@@ -19,7 +19,7 @@ const prefixes: Record<string,string> = {
   projects:'proj',codexEntries:'codex',writings:'wr',manuscriptSources:'msource',timelines:'tl',timelineEvents:'evt',timelineConnections:'tconn',
   boards:'board',boardNodes:'bnode',boardEdges:'bedge',boardLayers:'blayer',boardViews:'bview',worldMaps:'map',mapPins:'pin',
   imageCollections:'col',inspirationImages:'img',scenes:'scene',sceneCasts:'cast',dialogBlocks:'block',writingSnapshots:'wsnap',notes:'note',
-  generatedWorlds:'world',worldWaypoints:'waypoint',localMediaAssets:'media',annotations:'ann',annotationReferences:'annref',
+  generatedWorlds:'world',worldWaypoints:'waypoint',localMediaAssets:'media',localToolAssetFiles:'asset-file',annotations:'ann',annotationReferences:'annref',
   worldEraAssets:'era-asset',worldEraVariants:'era-variant',documentHistory:'history',documentArchives:'archive',
   snapshots:'snap',outlines:'outline',outlineBeats:'beat',seeds:'seed',payoffs:'payoff',characterArcs:'arc',arcBeats:'arcbeat',
   biographies:'bio',biographyFacts:'fact',storyboards:'storyboard',storyboardPanels:'panel',storyboardConnectors:'connector',

@@ -30,7 +30,7 @@ import { prepareModelReaderRuntime } from '@/engines/model-viewer/offlineExport'
 import { escapeToolText as esc, targetAllowed, toolTarget, type ToolDocumentTarget } from './model';
 
 export interface ToolPreview { title: string; html: string; truncated: boolean; model?: ModelAsset;sheet?:CharacterSheet;summary?:CocSummary }
-export interface ToolExportPolicy { page?:boolean; excludedDocuments?:readonly {kind:string;id:string;namespace?:string}[]; source?:ReaderSource; eraId?: string; includeMaps?: boolean; includeImages?: boolean; includeMedia?: boolean; excludedMapIds?: ReadonlySet<string>|readonly string[]; excludedEntryIds?: ReadonlySet<string>|readonly string[]; excludedImageIds?:readonly string[]; excludedFields?:readonly string[] }
+export interface ToolExportPolicy { assetFontCollector?:import('@/engines/local/localAssetFonts').LocalAssetFont[]; page?:boolean; excludedDocuments?:readonly {kind:string;id:string;namespace?:string}[]; source?:ReaderSource; eraId?: string; includeMaps?: boolean; includeImages?: boolean; includeMedia?: boolean; excludedMapIds?: ReadonlySet<string>|readonly string[]; excludedEntryIds?: ReadonlySet<string>|readonly string[]; excludedImageIds?:readonly string[]; excludedFields?:readonly string[] }
 const excluded = (ids:ReadonlySet<string>|readonly string[]|undefined,id:string|undefined) => Boolean(id && (Array.isArray(ids)?ids.includes(id):(ids as ReadonlySet<string>|undefined)?.has(id)));
 const text = (value: unknown, max = 400) => esc(String(value ?? '').slice(0, max));
 const list = (items: string[]) => `<ul>${items.map(item => `<li>${item}</li>`).join('')}</ul>`;
@@ -76,6 +76,7 @@ export function sanitizeToolPreviewHtml(source:string,stablePrefix?:string,allow
     const element=document.createElement(node.tagName.toLowerCase());parent.append(element);
     if(node.tagName==='SECTION'&&node.hasAttribute('data-coc-summary'))element.setAttribute('data-coc-summary',node.getAttribute('data-coc-summary')!);
     if(node.tagName==='SECTION'&&node.hasAttribute('data-wh-local-tool-preview'))element.setAttribute('data-wh-local-tool-preview','true');
+    if(node.tagName==='SECTION'&&node.hasAttribute('data-wh-local-tool-preview')&&/^[a-f0-9]{64}$/.test(node.getAttribute('data-wh-asset-font')??''))element.setAttribute('data-wh-asset-font',node.getAttribute('data-wh-asset-font')!);
     for(const child of node.childNodes)visit(child,element);
   };
   for(const child of doc.body.childNodes)visit(child,out);return out.innerHTML;

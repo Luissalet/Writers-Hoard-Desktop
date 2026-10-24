@@ -4,10 +4,22 @@ import {notifyProjectsChanged} from '@/db/operations';
 import {resolveEraDocumentAssets} from '@/services/worldEras/assets';
 import type {Writing} from '@/types';
 import type {EraDocument} from '@/services/worldEras/types';
-import {structuralManuscriptOwners,assertManuscriptOwner,MAIN_MANUSCRIPT,manuscriptMetadata,validateManuscriptProject,writingManuscriptId,type Manuscript,type MainManuscriptMetadata,type ManuscriptCatalog} from './manuscripts';
+import {structuralManuscriptOwners,assertManuscriptOwner,MAIN_MANUSCRIPT,manuscriptMetadata,manuscriptSummary,validateManuscriptProject,writingManuscriptId,type Manuscript,type MainManuscriptMetadata,type ManuscriptCatalog} from './manuscripts';
 
 export interface ManuscriptReceipt {id:string;before:Manuscript|MainManuscriptMetadata|null;after:Manuscript|MainManuscriptMetadata}
-export async function listManuscripts(projectId:string){const project=await db.projects.get(projectId);if(!project)throw Error('project_missing');validateManuscriptProject(project);return{projectId,revision:project.manuscriptCatalog?.revision??0,manuscripts:[{...manuscriptMetadata(project),id:MAIN_MANUSCRIPT},...project.manuscriptCatalog?.entries??[]]};}
+export async function listManuscripts(projectId:string,options:{includeSummary?:boolean;eraId?:string}={}){
+ // Keep the metadata-only response and read path unchanged for existing clients.
+ if(!options.includeSummary){const project=await db.projects.get(projectId);if(!project)throw Error('project_missing');validateManuscriptProject(project);return{projectId,revision:project.manuscriptCatalog?.revision??0,manuscripts:[{...manuscriptMetadata(project),id:MAIN_MANUSCRIPT},...project.manuscriptCatalog?.entries??[]]};}
+ // Load the era resolver before opening the read transaction, then keep its
+ // chapter/owner/history reads in the same snapshot as the catalogue.
+ const {listEraRows}=await import('@/services/worldEras/store');
+ return db.transaction('r',[db.projects,db.writings,db.writingSnapshots,db.worldEraVariants,db.worldEraAssets,db.documentArchives],async()=>{
+  const project=await db.projects.get(projectId);if(!project)throw Error('project_missing');validateManuscriptProject(project);
+  if(options.eraId&&!project.worldEras?.some(era=>era.id===options.eraId))throw Error('world_era_missing');
+  const writings=options.eraId?await listEraRows<Writing>({projectId,eraId:options.eraId},'writings'):await db.writings.where('projectId').equals(projectId).toArray();
+  return{projectId,revision:project.manuscriptCatalog?.revision??0,manuscripts:[{...manuscriptMetadata(project),id:MAIN_MANUSCRIPT},...project.manuscriptCatalog?.entries??[]].map(row=>({...row,summary:manuscriptSummary(project,writings,row.id)}))};
+ });
+}
 export async function setManuscript(projectId:string,id:string,action:'create'|'update'|'archive'|'restore',patch:Partial<Manuscript>,expectedRevision:number){
  if(id===MAIN_MANUSCRIPT&&Object.keys(patch).some(key=>!['title','author','blurb'].includes(key)))throw Error('manuscript_main_invalid');
  const result=await db.transaction('rw',db.projects,async()=>{

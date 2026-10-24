@@ -1,5 +1,7 @@
+import ReaderBookCover from './ReaderBookCover';
+import {safeReaderPresentation} from '../readerPresentation';
 import ManuscriptsPanel from './ManuscriptsPanel';
-import {manuscriptProject,manuscriptMetadata,selectManuscriptWritings,writingManuscriptId} from '../manuscripts';
+import {manuscriptProject,manuscriptMetadata,manuscriptSummary,manuscriptChapterUpdatedIso,selectManuscriptWritings,writingManuscriptId} from '../manuscripts';
 import {saveAuthoredWriting,dockMetadataAdvance} from '../toolDock/authoredSave';
 import ToolDockPanel from '../toolDock/ToolDockPanel';
 import {canLeaveToolDocks} from '../toolDock/pending';
@@ -628,6 +630,8 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   const { project:worldProject } = useProject(projectId);
   const project=useMemo(()=>{if(!worldProject)return undefined;try{return manuscriptProject(worldProject,writingScope,scope.eraId);}catch{return undefined;}},[worldProject,writingScope,scope.eraId]);
   const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
+  const homeSummary=useMemo(()=>worldProject&&project?manuscriptSummary(worldProject,worldWritings,manuscriptId):undefined,[worldProject,project,worldWritings,manuscriptId]);
+  const homeUpdatedIso=manuscriptChapterUpdatedIso(homeSummary?.lastChapterUpdatedAt??null);
   const projectTitle = project?.title || t('writings.compile.untitledProject');
   // Footnote marker style is a property of the manuscript, kept on the project row.
   const footnoteStyle = normalizeFootnoteStyle(project?.footnoteStyle);
@@ -2154,7 +2158,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   );
 
   const openManuscript=(id:string)=>{navigate(`/project/${encodeURIComponent(projectId)}/writings?manuscript=${encodeURIComponent(id)}`);};
-  if(manuscriptQuery==='library'&&!linkedOwner)return <ManuscriptsPanel projectId={projectId} writings={worldWritings} onOpen={openManuscript} onClose={()=>openManuscript('main')}/>;
+  if(manuscriptQuery==='library'&&!linkedOwner)return <ManuscriptsPanel projectId={projectId} writings={worldWritings} eraId={scope.eraId} onOpen={openManuscript} onClose={()=>openManuscript('main')}/>;
   if(worldProject&&!project)return <div role="alert" className="space-y-3"><p>{locale==='es'?'El relato no está disponible.':'The manuscript is unavailable.'}</p><button className="rounded-lg border border-border px-3 py-2" onClick={()=>openManuscript('library')}>{locale==='es'?'Relatos':'Manuscripts'}</button></div>;
 
   // ---- Whole book ----
@@ -2986,6 +2990,16 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-center gap-3"><h1 className="mr-auto min-w-0 break-words font-serif text-2xl text-text-primary">{projectTitle}</h1><button className="min-h-9 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:border-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={()=>openManuscript('library')}>{locale==='es'?'Relatos':'Manuscripts'}</button></header>
+      {project&&homeSummary&&<section aria-label={locale==='es'?'Resumen del relato':'Manuscript overview'} className="flex flex-col gap-5 border-b border-border pb-5 sm:flex-row sm:items-center">
+        <div className="w-full shrink-0 sm:w-64"><ReaderBookCover title={projectTitle} artwork={project.coverImage} cover={safeReaderPresentation(project.readerPresentation).cover} locale={locale}/></div>
+        <div className="min-w-0 flex-1 space-y-3">
+          {project.author&&<p className="break-words text-sm text-text-primary">{project.author}</p>}
+          {project.blurb&&<p className="max-w-prose whitespace-pre-wrap break-words text-sm leading-relaxed text-text-muted">{project.blurb}</p>}
+          <p className="text-sm text-text-muted">{homeSummary.chapterCount.toLocaleString(locale)} {homeSummary.chapterCount===1?(locale==='es'?'capítulo':'chapter'):(locale==='es'?'capítulos':'chapters')} · {homeSummary.wordCount.toLocaleString(locale)} {locale==='es'?'palabras':'words'}</p>
+          <p className="text-xs text-text-muted">{locale==='es'?'Última edición de capítulos':'Chapters last updated'}: {homeSummary.lastChapterUpdatedAt===null?(locale==='es'?'Sin capítulos disponibles':'No available chapters'):!homeUpdatedIso?(locale==='es'?'Fecha no disponible':'Date unavailable'):<time dateTime={homeUpdatedIso}>{new Date(homeSummary.lastChapterUpdatedAt).toLocaleString(locale,{dateStyle:'medium',timeStyle:'short'})}</time>}</p>
+          {homeSummary.lastChapterId&&<button type="button" className="min-h-9 rounded-lg border border-border px-3 py-2 text-sm text-text-primary transition hover:border-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={()=>{const last=writings.find(row=>row.id===homeSummary.lastChapterId);if(last)handleOpenRecent(last);}}>{locale==='es'?'Abrir último capítulo editado':'Open last edited chapter'}</button>}
+        </div>
+      </section>}
       {worldProject&&manuscriptMetadata(worldProject,manuscriptId).archivedAt&&<p className="text-sm text-text-muted">{locale==='es'?'Relato archivado. Sus capítulos siguen disponibles; puedes restaurarlo desde Relatos.':'Archived manuscript. Its chapters remain available; restore it from Manuscripts.'}</p>}
       {/* Getting Started checklist — auto-hides outside essentials mode */}
       <GettingStartedChecklist projectId={projectId} />

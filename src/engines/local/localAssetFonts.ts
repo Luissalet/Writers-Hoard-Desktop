@@ -1,0 +1,5 @@
+import {FONT_MIMES,assetBytes,matchesFontSignature} from './assetFileFormat';
+export interface LocalAssetFont {token:string;mime:string;base64:string}
+export function validAssetFont(font:LocalAssetFont){try{const format=(Object.keys(FONT_MIMES) as (keyof typeof FONT_MIMES)[]).find(key=>FONT_MIMES[key]===font.mime);return /^[a-f0-9]{64}$/.test(font.token)&&!!format&&matchesFontSignature(assetBytes(font.base64),format);}catch{return false;}}
+/** Only generated tokens and admitted embedded bytes enter this CSS. */
+export function localAssetFontCss(fonts:readonly LocalAssetFont[],html?:string){const unique=new Map(fonts.filter(font=>validAssetFont(font)&&(html===undefined||html.includes(`data-wh-asset-font="${font.token}"`))).map(font=>[font.token,font]));return[...unique.values()].map(font=>`@font-face{font-family:wh-asset-${font.token};src:url(data:${font.mime};base64,${font.base64})}section[data-wh-asset-font="${font.token}"]{font-family:wh-asset-${font.token},sans-serif}`).join('\n');}

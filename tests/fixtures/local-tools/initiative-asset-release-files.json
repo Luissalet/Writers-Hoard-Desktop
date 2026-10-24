@@ -1,0 +1,22 @@
+[
+  {
+    "path": "assets/tick.wav",
+    "bytes": 4844,
+    "sha256": "0dedef12f69aab98e8bed581766ea57b2505b16438ce02eb8738740e1dd957c4"
+  },
+  {
+    "path": "assets/portrait.svg",
+    "bytes": 288,
+    "sha256": "2ce288f9a252ab457087f43a0de6957c8b18d15519abd8f9879f31acbf89ce3f"
+  },
+  {
+    "path": "assets/glyph-sample.ttf",
+    "bytes": 968,
+    "sha256": "48053549c41ea9f0a8db0dc514906c60551fd911c03f4731fe2e647a432dc232"
+  },
+  {
+    "path": "assets/rules.json",
+    "bytes": 58,
+    "sha256": "36b34e6f62bcfec66bec432024a5a302096fa39f442c1f563f0b220ca545b9d7"
+  }
+]

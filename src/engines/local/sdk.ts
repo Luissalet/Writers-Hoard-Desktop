@@ -80,3 +80,6 @@ export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalTo
   });
   return Object.freeze({...definition,...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(definition.codec?{codec:cloneLocalToolJson(definition.codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
 }
+
+export {useLocalToolFontFace} from './useLocalToolFontFace';
+export type {LocalAssetFileInfo,LocalAssetFileKind} from './assetFileFormat';
