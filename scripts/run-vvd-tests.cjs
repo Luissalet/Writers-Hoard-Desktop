@@ -11,7 +11,42 @@ const assetFileCheck = spawnSync(process.execPath, ['tests/local-tool-asset-file
 if (assetFileCheck.status !== 0) process.exit(assetFileCheck.status ?? 1);
 const richProseCheck = spawnSync(process.execPath, ['tests/local-tool-rich-prose.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (richProseCheck.status !== 0) process.exit(richProseCheck.status ?? 1);
+const placeImageCheck = spawnSync(process.execPath, ['tests/worldgen-place-icons.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (placeImageCheck.status !== 0) process.exit(placeImageCheck.status ?? 1);
+const placeImageAuditCheck = spawnSync(electron, ['tests/worldgen-place-icons.node.cjs', '--audit'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (placeImageAuditCheck.status !== 0 || placeImageAuditCheck.error) process.exit(placeImageAuditCheck.status ?? 1);
+const placeImageSheetCheck = spawnSync(electron, ['tests/review-worldgen-place-icons.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (placeImageSheetCheck.status !== 0 || placeImageSheetCheck.error) process.exit(placeImageSheetCheck.status ?? 1);
 const suites = [
+  ['review-worldgen-place-icons.browser.tsx', 'reviewPlaceIconRegionalResourceParticipation', 180000],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsDescriptor', 180000],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsRaster', 180000],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsInspector', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsGalleryRetarget', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsBridge', 180000],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsLease', 180000],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsFeature', 180000],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsImageDocument', 180000],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsView2D', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsTexture', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsViewDpr2', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsFrameHit', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsView3D', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsSatelliteOverlay', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['worldgen-place-icons-portability.browser.ts', 'testWorldgenPlaceIconsPortability', 180000],
+  ['worldgen-place-icons-worker.browser.ts', 'testWorldgenPlaceIconsWorkerPreparation', 180000],
+  ['worldgen-place-icons-worker.browser.ts', 'testWorldgenPlaceIconsRegionPixels', 180000],
+  ['worldgen-place-icons-worker.browser.ts', 'testWorldgenPlaceIconsWorkerPixels', 180000],
+  ['worldgen-place-icons-worker.browser.ts', 'testWorldgenPlaceIconsDeepTilePixels', 180000],
+  ['worldgen-place-icons-worker.browser.ts', 'testWorldgenPlaceIconsWorkerRetarget', 180000],
+  ['worldgen-place-icons-worker.browser.ts', 'testWorldgenPlaceIconsRegionLegacy', 180000],
+  ['worldgen-place-icons-worker.browser.ts', 'testWorldgenPlaceIconsRegionFootprint', 180000],
+  ['review-worldgen-place-icons.browser.tsx', 'reviewPlaceIconExportResources', 180000],
+  ['review-worldgen-place-icons.browser.tsx', 'reviewPlaceIconVisibleCorruption', 180000],
+  ['review-worldgen-place-icons.browser.tsx', 'reviewPlaceIconHiddenAndOffViewResources', 180000],
+  ['review-worldgen-place-icons.browser.tsx', 'testReviewPlaceIconInspectorLateDecode', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-worldgen-place-icons.browser.tsx', 'testReviewPlaceIconWorldViewExportResources', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-worldgen-place-icons.browser.tsx', 'testReviewPlaceIconWorldViewMapExportResources', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseSource', 180000],
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseOwned', 180000],
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseParentPending', 180000],

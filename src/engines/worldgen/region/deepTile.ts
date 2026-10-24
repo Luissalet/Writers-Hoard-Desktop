@@ -17,12 +17,13 @@ import type { WorldEdit } from '../core/edits';
 import type { HumanGeography } from '../core/settlements';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
+import type { PlaceImagePainter } from '../cartography/placeImages';
 import type { RegionData } from './types';
 import { generateCanonTile, canonTileKey } from './generate';
 import { quantizeCanonTile } from './canonStore';
 import { canonRefinement, type TileId } from './tiles';
 import { canonWindowCover, composeCanonWindow, type CanonWindowSpec } from './composeWindow';
-import { renderRegion, type RegionLayers } from './render';
+import { collectRegionPlaceImageStyles, renderRegion, type RegionLayers } from './render';
 import {
   TILE_PX, tileCountX, tileCountY, wrapTileX, type TileKey,
 } from '../cartography/tiles';
@@ -170,6 +171,7 @@ export function canonCoverFor(
 }
 
 export interface DeepTileOptions {
+  placeImages?: PlaceImagePainter;
   theme: CartoTheme;
   /** Carta layer flags, translated to the pliego vocabulary here. */
   layers: Record<string, boolean | undefined>;
@@ -203,14 +205,13 @@ export function styledRegionPlaces(region: RegionData, world: WorldData, edits?:
  * Render one deep display tile. Generates (or reuses) the canon supertiles
  * under it, composes the exact window, and inks it pliego-style.
  */
-export function renderDeepTile(
+export function prepareDeepTile(
   world: WorldData,
   geography: HumanGeography,
   cache: CanonCache,
-  ctx: Ctx,
   key: TileKey,
   opts: DeepTileOptions,
-): DeepTileResult {
+) {
   const spec = deepTileSpec(world, key);
   const cover = canonWindowCover(world, spec);
   const built: { key: string; data: RegionData }[] = [];
@@ -240,7 +241,7 @@ export function renderDeepTile(
     legend: false,
     scaleBar: false,
   };
-  renderRegion(region, ctx, {
+  const renderOptions={
     theme: opts.theme,
     width: TILE_PX,
     height: TILE_PX,
@@ -259,8 +260,19 @@ export function renderDeepTile(
       extentX: TILE_PX * tileCountX(key.z),
       extentY: TILE_PX * tileCountY(key.z),
     },
-  });
-  return { generated: built.length, built, places };
+  };
+  return{
+    result:{generated:built.length,built,places},
+    imageStyles:collectRegionPlaceImageStyles(region,renderOptions),
+    draw(ctx:Ctx,placeImages=opts.placeImages,strictPlaceImages=false){renderRegion(region,ctx,{...renderOptions,placeImages,strictPlaceImages});},
+  };
+}
+
+/** Existing synchronous callers retain one composition and one paint. */
+export function renderDeepTile(world:WorldData,geography:HumanGeography,cache:CanonCache,ctx:Ctx,key:TileKey,opts:DeepTileOptions):DeepTileResult{
+  const prepared=prepareDeepTile(world,geography,cache,key,opts);
+  prepared.draw(ctx);
+  return prepared.result;
 }
 
 /** Guard used by the worker: deep rendering needs the canon lattice to divide

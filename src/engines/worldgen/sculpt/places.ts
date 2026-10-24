@@ -8,6 +8,7 @@ import { SIZE_X, R_GLOBE, GLOBE_RELIEF, type SculptSurface } from './scene3d';
 import type { WorldSpatialEntity } from '../core/spatialEntities';
 import type { WorldSpatialStyle } from '../core/spatialEntities';
 import type { CultureId } from '../core/naming';
+import type { PlaceImagePainter } from '../cartography/placeImages';
 
 /** Explicit per-place constructions. Existing worlds keep their overlay-only
  * presentation until a reader chooses a model/finish. Geometry is rebuilt only
@@ -18,14 +19,14 @@ export function createPlaceModels() {
   const ambient = new THREE.AmbientLight('#ffffff', 1.5);
   const sun = new THREE.DirectionalLight('#ffffff', 2); group.add(ambient, sun);
   const entries = new Map<string, { signature: string; object: THREE.Group }>();
-  let inputs: { world: WorldData; geo: HumanGeography; revision: number; entities?: readonly WorldSpatialEntity[] } | undefined;
+  let inputs: { world: WorldData; geo: HumanGeography; revision: number; entities?: readonly WorldSpatialEntity[]; placeImages?: PlaceImagePainter } | undefined;
   let candidates: { x: number; y: number; sourceKey: string; rank: string; culture?: CultureId; style: WorldSpatialStyle }[] = [];
   const up = new THREE.Vector3(0, 1, 0), normal = new THREE.Vector3();
   const disposeObject = (object: THREE.Group) => {
     group.remove(object); object.traverse(child => { if (child instanceof THREE.Mesh) { child.geometry.dispose(); (child.material as THREE.Material).dispose(); } });
   };
   function update(world: WorldData, geo: HumanGeography | null, surface: SculptSurface, opts: {
-    shape: 'plane' | 'globe'; spanKm: number; visible: boolean; sun: THREE.Vector3; sunColor: THREE.Color; sunIntensity: number; ambient: THREE.Color; entities?: readonly WorldSpatialEntity[];
+    shape: 'plane' | 'globe'; spanKm: number; visible: boolean; sun: THREE.Vector3; sunColor: THREE.Color; sunIntensity: number; ambient: THREE.Color; entities?: readonly WorldSpatialEntity[]; placeImages?: PlaceImagePainter;
   }) {
     group.visible = opts.visible && opts.spanKm < 2500;
     if (!group.visible || !geo) return;
@@ -34,13 +35,13 @@ export function createPlaceModels() {
     const keep = new Set<string>();
     const window = surface.uvWindow;
     const revision = world.revision ?? 0;
-    if (inputs?.world !== world || inputs.geo !== geo || inputs.revision !== revision || inputs.entities !== opts.entities) {
+    if (inputs?.world !== world || inputs.geo !== geo || inputs.revision !== revision || inputs.entities !== opts.entities || inputs.placeImages !== opts.placeImages) {
       candidates = [
         ...geo.settlements.map(s => ({ x: s.x + .5, y: s.y + .5, sourceKey: s.sourceKey ?? `settlement:${Math.round(s.x)},${Math.round(s.y)}`, rank: s.rank, culture: s.culture, style: settlementStyle(world, s) })),
         ...geo.ruins.map(s => { const key = s.sourceKey ?? `ruin:${Math.round(s.x)},${Math.round(s.y)}`; return { x: s.x, y: s.y, sourceKey: key, rank: 'village', style: world.painted?.styles?.[key] ?? {} }; }),
         ...(opts.entities ?? []).filter(e => e.source === 'regional').map(e => ({ x: e.x, y: e.y, sourceKey: e.key, rank: e.type, style: e.style })),
-      ].filter(s => hasPlaceModel(s.style));
-      inputs = { world, geo, revision, entities: opts.entities };
+      ].filter(s => hasPlaceModel(s.style) && !opts.placeImages?.has(s.style));
+      inputs = { world, geo, revision, entities: opts.entities, placeImages: opts.placeImages };
     }
     for (const s of candidates) {
       const style = s.style;

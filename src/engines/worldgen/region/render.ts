@@ -23,11 +23,15 @@ import { drawBroadleaf, drawConifer, drawCactus, drawDune, drawMarsh, drawPalm, 
 import { marchingSquares, chaikin as smoothContour } from '../cartography/contours';
 import type { CartoTheme } from '../cartography/theme';
 import { Biome, type BiomeId } from '../core/types';
-import { Cover, COVER_LABEL_ES, type RegionData } from './types';
+import { Cover, COVER_LABEL_ES, type RegionData, type RegionPlace } from './types';
 import { placeFont, labelScale, symbolScale } from '../core/placeStyle';
 import { drawPlaceBuilding } from '../cartography/placeSymbol';
+import { placeImageRadius, type PlaceImagePainter } from '../cartography/placeImages';
 
 export interface RegionRenderOptions {
+  placeImages?: PlaceImagePainter;
+  /** Internal deep-tile export: a consumed explicit image must not fall back. */
+  strictPlaceImages?: boolean;
   theme: CartoTheme;
   width: number;
   height: number;
@@ -176,6 +180,19 @@ function hexToRgb(c: string): [number, number, number] {
 
 // ---------------------------------------------------------------------------
 
+function regionPlaceImageFrame(r:RegionData,p:RegionPlace,width:number,height:number,typeScale=1){
+  const sx=width/(r.width-r.margin*2),sy=height/(r.height-r.margin*2),s=Math.min(sx,sy);
+  const scale=symbolScale(p.style??{}),radius=Math.max(Math.max(1.6,s*1.5)*2*scale,8*scale*typeScale);
+  const x=(p.x-r.margin)*sx,y=(p.y-r.margin)*sy;
+  return{radius,visible:x+radius>0&&x-radius<width&&y+radius>0&&y-radius<height};
+}
+
+/** The same prepared-image frames admitted by drawPlaces; no decoder or terrain pass. */
+export function collectRegionPlaceImageStyles(r:RegionData,opts:Pick<RegionRenderOptions,'width'|'height'|'typeScale'|'layers'>){
+  if(opts.layers?.places===false)return[];
+  return[...new Set(r.places.filter(p=>p.style?.iconImage!=null&&regionPlaceImageFrame(r,p,opts.width,opts.height,opts.typeScale).visible).map(p=>p.style!))];
+}
+
 export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions): void {
   const L: RegionLayers = { ...DEFAULT_LAYERS, ...opts.layers };
   const theme = opts.theme;
@@ -238,10 +255,10 @@ export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions)
   if (L.tracks) drawTracks(r, ctx, theme, px, py, s);
 
   // ---- buildings -----------------------------------------------------------
-  if (L.places) drawPlaces(r, ctx, theme, px, py, s, rng, ink);
+  if (L.places) drawPlaces(r, ctx, theme, px, py, s, rng, ink, opts.placeImages, typeScale,W,H,opts.strictPlaceImages);
 
   // ---- type ----------------------------------------------------------------
-  if (L.labels) drawLabels(r, ctx, theme, px, py, s, W, H, typeScale);
+  if (L.labels) drawLabels(r, ctx, theme, px, py, s, W, H, typeScale, L.places ? opts.placeImages : undefined);
 
   // ---- furniture -----------------------------------------------------------
   if (L.legend !== false) drawLegend(r, ctx, theme, W, H);
@@ -944,6 +961,8 @@ function drawPlaces(
   r: RegionData, ctx: Ctx, theme: CartoTheme,
   px: (x: number) => number, py: (y: number) => number, s: number, rng: Rng,
   tink?: TileInk,
+  placeImages?: PlaceImagePainter,
+  typeScale = 1, width = Infinity, height = Infinity, strictPlaceImages = false,
 ): void {
   ctx.save();
   const ink = theme.settlement.ink;
@@ -953,6 +972,10 @@ function drawPlaces(
   const sorted = [...r.places].sort((a, b) => a.y - b.y);
   for (const p of sorted) {
     const x = px(p.x), y = py(p.y);
+    const style = p.style ?? {}, scale = symbolScale(style);
+    const frame=(strictPlaceImages&&style.iconImage!=null)||placeImages?.has(style)?regionPlaceImageFrame(r,p,width,height,typeScale):undefined;
+    if(frame&&!frame.visible)continue;
+    if(strictPlaceImages&&style.iconImage!=null&&!placeImages?.has(style))throw new Error('A visible regional place image is unavailable.');
     // Tile mode: every place scatters its buildings from a stream seeded by
     // its own stable identity, so a hamlet keeps its exact yard layout in
     // every window that shows it — including the one where it straddles a
@@ -960,8 +983,12 @@ function drawPlaces(
     const pr = tink ? createRng(tink.seed, `place:${p.sourceKey}`) : rng;
     ctx.save();
     ctx.translate(x, y);
-    ctx.scale(symbolScale(p.style ?? {}), symbolScale(p.style ?? {}));
-    if (drawPlaceBuilding(ctx, p.style ?? {}, p.culture, u * 2, p.kind)) { ctx.restore(); continue; }
+    const radius = frame?.radius??placeImageRadius(style, u * 2 * scale, placeImages, typeScale);
+    // Images use screen-sized frames; draw before the legacy local size
+    // transform so its authored size is applied exactly once.
+    if (placeImages?.draw(ctx, style, radius, style.color ?? ink)) { ctx.restore(); continue; }
+    ctx.scale(scale, scale);
+    if (drawPlaceBuilding(ctx, style, p.culture, u * 2, p.kind)) { ctx.restore(); continue; }
     ctx.strokeStyle = p.style?.color ?? ink;
     ctx.fillStyle = fill;
     ctx.lineWidth = Math.max(0.4, s * 0.2);
@@ -1237,8 +1264,15 @@ function drawLabels(
   r: RegionData, ctx: Ctx, theme: CartoTheme,
   px: (x: number) => number, py: (y: number) => number, s: number,
   W: number, H: number, typeScale: number,
+  placeImages?: PlaceImagePainter,
 ): void {
   const taken: Rect[] = [];
+  for (const place of r.places) {
+    const style = place.style ?? {};
+    if (!placeImages?.has(style)) continue;
+    const radius = placeImageRadius(style, Math.max(1.6, s * 1.5) * 2 * symbolScale(style), placeImages, typeScale);
+    taken.push({ x: px(place.x) - radius, y: py(place.y) - radius, w: radius * 2, h: radius * 2 });
+  }
   const fits = (rect: Rect): boolean => {
     if (rect.x < 4 || rect.y < 4 || rect.x + rect.w > W - 4 || rect.y + rect.h > H - 4) return false;
     for (const o of taken) {
@@ -1311,7 +1345,11 @@ function drawLabels(
     const text = caps ? p.name.toUpperCase() : p.name;
     const w = ctx.measureText(text).width;
     const anchorX = px(p.x), anchorY = py(p.y);
-    const off = Math.max(3, s * (rank === 0 ? 4.4 : rank <= 2 ? 3 : 2.2));
+    const baseOff = Math.max(3, s * (rank === 0 ? 4.4 : rank <= 2 ? 3 : 2.2));
+    const style = p.style ?? {};
+    const off = placeImages?.has(style)
+      ? Math.max(baseOff, placeImageRadius(style, Math.max(1.6, s * 1.5) * 2 * symbolScale(style), placeImages, typeScale) + Math.max(3, 2 * typeScale))
+      : baseOff;
 
     // Four candidate positions, in the order a cartographer prefers them.
     const cands: Rect[] = [

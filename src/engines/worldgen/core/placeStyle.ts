@@ -2,6 +2,7 @@ import type { WorldData } from './types';
 import type { WorldSpatialStyle } from './spatialEntities';
 import type { CultureId } from './naming';
 import { editKey } from './edits';
+import { normalizePlaceImage } from './placeImage';
 
 export { PLACE_MODELS, BUILDING_STYLES, PLACE_LABEL_FONTS, AREA_STYLES } from './placeStyleCatalog';
 export type { PlaceModel, BuildingStyle, PlaceLabelFont } from './placeStyleCatalog';
@@ -35,6 +36,7 @@ export function validatePlaceStyle(input: Record<string, unknown>): WorldSpatial
   const enums = { model: PLACE_MODELS, buildingStyle: BUILDING_STYLES, labelFont: PLACE_LABEL_FONTS, areaStyle: AREA_STYLES };
   const numbers: Record<string, [number, number]> = { size: [.65, 2.4], labelSize: [.6, 2], areaOpacity: [0, 1] };
   for (const [key, value] of Object.entries(input)) {
+    if (key === 'iconImage') { out[key] = normalizePlaceImage(value); continue; }
     if (key in enums) {
       if (!(enums[key as keyof typeof enums] as readonly unknown[]).includes(value)) throw new Error(`Invalid ${key}.`);
     } else if (key in numbers) {

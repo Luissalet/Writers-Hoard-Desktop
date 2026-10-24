@@ -27,6 +27,7 @@ import type { EditTarget, Pt, Stroke, WorldEdit } from '../core/edits';
 import { editKey, filterFor, TERRAIN_HEIGHT_M } from '../core/edits';
 import { settlementStyle, placeFont, labelScale, symbolScale } from '../core/placeStyle';
 import { drawPlaceBuilding } from '../cartography/placeSymbol';
+import { placeImageRadius, type PlaceImagePainter } from '../cartography/placeImages';
 import { strokeMask } from '../sculpt/ops';
 import { Biome } from '../core/types';
 import { settlementCellCenter, type HumanGeography, type Road, type Settlement } from '../core/settlements';
@@ -134,6 +135,7 @@ const DEBUG_HUD = false;
  */
 
 interface Map2DProps {
+  placeImages?: PlaceImagePainter;
   world: WorldData;
   viewMode: ViewMode;
   projection: Projection;
@@ -241,7 +243,7 @@ interface Map2DProps {
   canonEdits?: string;
   /** Set by the parent; this view assigns a renderer to it. `scale` multiplies
    *  the on-screen resolution. Returns null if there is nothing to draw. */
-  exportRef?: { current: ((scale: number) => Promise<Blob | null>) | null };
+  exportRef?: { current: ((scale: number, strictPlaceImages?: boolean) => Promise<Blob | null>) | null };
   /**
    * Change the brush the panel owns. The wheel resizes it and Alt picks a
    * biome up off the ground; without this the only way to set either is the
@@ -822,6 +824,7 @@ function projectedRealmTint(
 }
 
 export default function Map2D({
+  placeImages,
   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
   waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onMoveWaypoint,
   onSelectWaypoint,
@@ -892,6 +895,7 @@ export default function Map2D({
    * the map in its top-left corner with black around it.
    */
   const exportScale = useRef(0);
+  const strictExportImages = useRef(false);
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
   /**
    * The ruler's points, in world cells (x wrapped to [0, W)).
@@ -1463,7 +1467,19 @@ export default function Map2D({
   }, [computeViewport, onViewportChange]);
 
   // ---- drawing --------------------------------------------------------------
+  const viewportImages = placeImages;
   const draw = () => {
+    // Export uses this same visibility/layout path. A failed resource matters
+    // only if this frame actually consumes its explicit image descriptor.
+    const placeImages:PlaceImagePainter|undefined=strictExportImages.current?{
+      errors:viewportImages?.errors??[],
+      has:style=>style.iconImage!=null||!!viewportImages?.has(style),
+      draw(ctx,style,radius,ink){
+        if(style.iconImage!=null&&!viewportImages?.has(style))throw new Error('A visible place image is unavailable.');
+        return viewportImages?.draw(ctx,style,radius,ink)??false;
+      },
+      dispose(){},
+    }:viewportImages;
     const canvas = canvasRef.current;
     const view = viewRef.current;
     if (!canvas || !view) return;
@@ -1537,6 +1553,10 @@ export default function Map2D({
      */
     const moves = world.painted?.moves;
     const movedAt = (key: string): Pt | undefined => moves?.[key];
+    const imageFrames: { x: number; y: number; radius: number }[] = [];
+    const reserveImage = (style: import('../core/spatialEntities').WorldSpatialStyle, x: number, y: number, radius: number) => {
+      if (placeImages?.has(style)) imageFrames.push({ x, y, radius });
+    };
     const mapLabels: Array<{
       value: { text: string; color: string; size: number; weight: number; font: string; glyphs?: LabelGlyph[] };
       x: number;
@@ -2182,13 +2202,14 @@ export default function Map2D({
             // que aquí sólo hace falta la llave para escribir el siguiente.
             mover: { target: 'landmark', key: lm.key, label: lm.name },
           });
-          drawLandmark(ctx, lm, sx, sy, lm.key === selectedSpatialKey);
+          drawLandmark(ctx, lm, sx, sy, lm.key === selectedSpatialKey, placeImages);
+          reserveImage(lm.style, sx, sy, placeImageRadius(lm.style, 7 * symbolScale(lm.style), placeImages));
           if ((lm.style.labelVisible ?? false)
               || lm.key === selectedSpatialKey
               || semantic.tier === 'local') {
             queueLabel(
               lm.name,
-              sx + 8,
+              sx + (placeImages?.has(lm.style) ? placeImageRadius(lm.style, 7 * symbolScale(lm.style), placeImages) + 4 : 8),
               sy,
               lm.style.color ?? '#f6efe0',
               10 * labelScale(lm.style),
@@ -2244,12 +2265,13 @@ export default function Map2D({
             // Resuelto contra `data.painted` en el padre, igual que los hitos.
             mover: { target: entity.kind, key: entity.key, label: entity.name },
           });
-          drawRegionalEntity(ctx, entity, sx, sy, entity.key === selectedSpatialKey);
+          drawRegionalEntity(ctx, entity, sx, sy, entity.key === selectedSpatialKey, placeImages);
+          reserveImage(entity.style, sx, sy, placeImageRadius(entity.style, (natural ? 7 : 4) * symbolScale(entity.style), placeImages));
           if (semantic.tier === 'local' || entity.importance > 0.55
               || entity.style.labelVisible || entity.key === selectedSpatialKey) {
             queueLabel(
               entity.name,
-              sx + 7,
+              sx + (placeImages?.has(entity.style) ? placeImageRadius(entity.style, 4 * symbolScale(entity.style), placeImages) + 4 : 7),
               sy,
               entity.style.color ?? '#f6efe0',
               10 * labelScale(entity.style),
@@ -2277,9 +2299,10 @@ export default function Map2D({
           const style = world.painted?.styles?.[ruKey] ?? {};
           const [sx, sy] = toScreen((ru.x + 0.5) / W, (ru.y + 0.5) / H, copyOx);
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
-          const r = (ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2) * symbolScale(style);
+          const r = placeImageRadius(style, (ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2) * symbolScale(style), placeImages);
           ctx.save(); ctx.translate(sx, sy);
-          const custom = drawPlaceBuilding(ctx, style, undefined, r, ru.kind); ctx.restore();
+          const custom = drawPlaceBuilding(ctx, style, undefined, r, ru.kind, placeImages, style.color ?? '#f0dfbc'); ctx.restore();
+          reserveImage(style, sx, sy, r);
           if (!custom) {
           // A broken square: the universal "this was a building and is not any
           // more", and legible at four pixels where a drawn ruin symbol is mud.
@@ -2309,6 +2332,21 @@ export default function Map2D({
     // lie about where it is. Sized by importance, gated on the feature actually
     // being big enough on screen to carry its own name — the classic way a
     // generated map betrays itself is a continent label wider than its continent.
+    if (showFeatures && geography && placeImages) {
+      for (const copyOx of copies) for (const f of geography.features) {
+        const key = f.sourceKey ?? editKey('feature', f.x, f.y, `${f.kind}:`);
+        const style = world.painted?.styles?.[key] ?? {};
+        if (!placeImages.has(style)) continue;
+        const [x, y] = toScreen((f.x + .5) / W, (f.y + .5) / H, copyOx);
+        if (x < -30 || x > cw + 30 || y < -30 || y > ch + 30) continue;
+        const radius = placeImageRadius(style, 5 * symbolScale(style), placeImages);
+        ctx.save(); ctx.translate(x, y);
+        placeImages.draw(ctx, style, radius, style.color ?? 'rgba(238,228,205,0.9)'); ctx.restore();
+        reserveImage(style, x, y, radius);
+        hits.push({ kind: 'note', x, y, reach: Math.max(14, radius), bias: 1.6,
+          note: f.name, mover: { target: 'feature', key, label: f.name } });
+      }
+    }
     if (showFeatures && geography && geography.features.length) {
       for (const copyOx of copies) {
         for (const f of geography.features) {
@@ -2361,7 +2399,7 @@ export default function Map2D({
           });
           queueLabel(
             f.kind === 'continent' || f.kind === 'ocean' ? f.name.toUpperCase() : f.name,
-            sx, sy,
+            sx, sy + (placeImages?.has(style) ? placeImageRadius(style, 5 * symbolScale(style), placeImages) + 12 * labelScale(style) : 0),
             style.color ?? (water ? 'rgba(178,214,236,0.92)' : 'rgba(238,228,205,0.9)'),
             (river
               ? Math.max(9, Math.min(12, 8 + f.importance * 5))
@@ -2492,7 +2530,7 @@ export default function Map2D({
           const centre = settlementCellCenter(s);
           const [sx, sy] = toScreen(centre.x / W, centre.y / H, copyOx);
           if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
-          const r = (rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2) * symbolScale(style);
+          const r = placeImageRadius(style, (rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2) * symbolScale(style), placeImages);
           // The reach is the DOT plus a finger's worth, not a flat 14 px over
           // every town in the world — see the note on `painted`.
           hits.push({
@@ -2514,7 +2552,8 @@ export default function Map2D({
           // tile-owned marks without changing hit testing.
           if (deepMarks && tileZ >= SAT_DEEP_Z + 2) continue;
           ctx.save(); ctx.translate(sx, sy);
-          const custom = drawPlaceBuilding(ctx, style, s.culture, r, s.rank); ctx.restore();
+          const custom = drawPlaceBuilding(ctx, style, s.culture, r, s.rank, placeImages, style.color ?? '#f4ead4'); ctx.restore();
+          reserveImage(style, sx, sy, r);
           if (!custom) {
           ctx.beginPath();
           ctx.arc(sx, sy, r, 0, Math.PI * 2);
@@ -2606,9 +2645,11 @@ export default function Map2D({
             const [sx, sy] = toScreen(p.worldX / W, p.worldY / H, copyOx);
             if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
             const big = p.kind === 'town' || p.kind === 'village';
-            hits.push({ kind: 'place', x: sx, y: sy, place: p, reach: big ? 10 : 8, bias: 1.1 });
+            const imageRadius = placeImageRadius(style, 4 * symbolScale(style), placeImages);
+            hits.push({ kind: 'place', x: sx, y: sy, place: p, reach: placeImages?.has(style) ? Math.max(big ? 10 : 8, imageRadius + 3) : big ? 10 : 8, bias: 1.1 });
             ctx.save(); ctx.translate(sx, sy);
-            const custom = drawPlaceBuilding(ctx, style, undefined, 4 * symbolScale(style), p.kind); ctx.restore();
+            const custom = drawPlaceBuilding(ctx, style, undefined, imageRadius, p.kind, placeImages, style.color ?? '#f0dfbc'); ctx.restore();
+            reserveImage(style, sx, sy, imageRadius);
             if (!custom) {
             ctx.beginPath();
             ctx.arc(sx, sy, big ? 3 : 2, 0, Math.PI * 2);
@@ -2619,7 +2660,7 @@ export default function Map2D({
               // La misma regla que el rótulo del mundo: crece con el zoom.
               const boost = Math.max(0, Math.min(8, (Math.log2((PW * scale) / W) - 1) * 2));
               queueLabel(
-                p.name, sx + 5, sy, style.color ?? '#f2ecdd',
+                p.name, sx + (placeImages?.has(style) ? imageRadius + 5 : 5), sy, style.color ?? '#f2ecdd',
                 Math.round(((big ? 11 : 9.5) + (big ? boost : boost * 0.75)) * labelScale(style)),
                 big ? 600 : 500,
                 40 + p.importance * 30, undefined, placeFont(style, '"Source Sans 3", sans-serif'),
@@ -2843,7 +2884,10 @@ export default function Map2D({
       drawHourLight(ctx, 0, 0, cw, ch, hour, lights, 54);
     }
 
-    for (const candidate of declutterLabels(mapLabels, Math.max(8, Math.round(semantic.labelBudget * Math.min(1, cw * ch / 400000))), 4)) {
+    const visibleLabels = imageFrames.length ? mapLabels.filter(label => !imageFrames.some(frame =>
+      label.x < frame.x + frame.radius + 2 && label.x + label.width > frame.x - frame.radius - 2
+      && label.y - label.height / 2 < frame.y + frame.radius + 2 && label.y + label.height / 2 > frame.y - frame.radius - 2)) : mapLabels;
+    for (const candidate of declutterLabels(visibleLabels, Math.max(8, Math.round(semantic.labelBudget * Math.min(1, cw * ch / 400000))), 4)) {
       const item = candidate.value;
       ctx.font = `${item.weight} ${item.size}px ${item.font}`;
       ctx.lineWidth = 3;
@@ -3639,7 +3683,7 @@ export default function Map2D({
   useEffect(() => {
     scheduleDraw();
   }, [
-    scheduleDraw, world, revision, viewMode, projection, geography,
+    scheduleDraw, world, revision, viewMode, projection, geography, placeImages,
     showRivers, showLandmarks, showWaypoints, showGrid, showSettlements,
     showRoads, showBorders, showFeatures, roadFrom, tool,
     waypoints, selectedWaypointId, selectedSpatialKey, regionalEntities,
@@ -3663,7 +3707,7 @@ export default function Map2D({
    */
   useEffect(() => {
     if (!exportRef) return;
-    exportRef.current = async (scale: number): Promise<Blob | null> => {
+    exportRef.current = async (scale: number, strictPlaceImages=false): Promise<Blob | null> => {
       const canvas = canvasRef.current;
       // No camera yet means no frame: the first `fit` has not run. And one
       // export at a time — a second one starting inside the first would
@@ -3682,6 +3726,7 @@ export default function Map2D({
       canvas.width = Math.max(1, Math.round(rect.width * s));
       canvas.height = Math.max(1, Math.round(rect.height * s));
       exportScale.current = s;
+      strictExportImages.current = strictPlaceImages;
       try {
         // SYNCHRONOUSLY. Through `scheduleDraw` the frame would land on the
         // next animation frame, by which time the backing store is back to
@@ -3695,6 +3740,7 @@ export default function Map2D({
         // looking at a canvas drawn at the wrong ratio — the map in a corner —
         // until something resized the container.
         exportScale.current = 0;
+        strictExportImages.current = false;
         canvas.width = w0;
         canvas.height = h0;
         drawRef.current?.();
@@ -5504,14 +5550,15 @@ function drawRegionalEntity(
   x: number,
   y: number,
   selected: boolean,
+  placeImages?: PlaceImagePainter,
 ): void {
   const natural = ['volcano', 'cave', 'waterfall', 'gorge', 'hotspring'].includes(entity.type);
   if (natural) {
-    drawLandmark(ctx, entity, x, y, selected);
+    drawLandmark(ctx, entity, x, y, selected, placeImages);
     return;
   }
   ctx.save(); ctx.translate(x, y);
-  const custom = drawPlaceBuilding(ctx, entity.style, undefined, 4 * symbolScale(entity.style), entity.type); ctx.restore();
+  const custom = drawPlaceBuilding(ctx, entity.style, undefined, 4 * symbolScale(entity.style), entity.type, placeImages, entity.style.color ?? '#f0dfbc'); ctx.restore();
   if (custom) return;
   const size = Math.min(2, Math.max(0.7, entity.style.size ?? 1));
   const important = entity.type === 'town' || entity.type === 'village'
@@ -5535,6 +5582,7 @@ function drawLandmark(
   x: number,
   y: number,
   selected: boolean,
+  placeImages?: PlaceImagePainter,
 ): void {
   const scale = Math.min(2.4, Math.max(0.65, entity.style.size ?? 1));
   const screenX = x;
@@ -5544,19 +5592,22 @@ function drawLandmark(
   };
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(scale, scale);
-  drawLandmarkGlyph(ctx, lm.type);
+  const radius = placeImageRadius(entity.style, 7 * scale, placeImages);
+  if (!placeImages?.draw(ctx, entity.style, radius, entity.style.color ?? '#e4a853')) {
+    ctx.scale(scale, scale);
+    drawLandmarkGlyph(ctx, lm.type);
+  }
   ctx.restore();
   if (entity.style.color) {
     ctx.beginPath();
-    ctx.arc(screenX, screenY, 7 * scale, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = entity.style.color;
     ctx.stroke();
   }
   if (selected) {
     ctx.beginPath();
-    ctx.arc(screenX, screenY, 9 * scale, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, placeImages?.has(entity.style) ? radius + 2 : 9 * scale, 0, Math.PI * 2);
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#f5c66a';
     ctx.stroke();
