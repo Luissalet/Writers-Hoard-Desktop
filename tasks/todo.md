@@ -1467,3 +1467,16 @@ Independent UI review preserved a real late-reference race after the destination
 
 - [x] Freeze exact source and complete independent review, ROOT Brave/gates and formal CAS before explicit-path commit and main integration. Source08024c/CAS30 approved; global1210/481/0 and nine clean-main checks passed; no push.
 - [x] Update product/MCP documentation, manual and continuity from actual receipts; keep1095 open for remaining web/SDK gaps. Native Google manual416UTF16 and MEMORY/own graph readbacks are complete. Documentation commit/main are recorded after they occur in ROOT-delivery-final.json.
+
+
+## Local tool locale catalogs - task1095 / research1469
+
+Success: own offline catalogs and plural/Intl messages follow host language without changing authored content, draft, focus or stored captures. Architecture1584 r2 resolved; 14 causal author paths after public world-client TS2559 RED (ROOT17492), ROOT owns runner/docs integration.
+
+- [x] Preserve material missing-contract RED and implement pure finite owned catalog snapshots, per-key fallback/interpolation/plurals/Intl with unchanged oracles. Initial absence, invalid Intl coercion and malformed catalog containers retain RED→same-oracle GREEN; world public client TS2559 is closed by one causal type member.
+- [x] Add readonly client locale facilities and public hooks without violating043/headless; verify Source and Owned EN/ES with stable DOM/focus/draft and zero document writes. Author real hosts and original043 pass; ROOT normal Brave Source draft/save/cold and Owned child+parent save/reopen are separate observations.
+- [x] Demonstrate exact-release MCP describe, native IPC read, normal own CLI packages, portability and immutable frozen captures with live code changed/absent. Native readonly IPC and author CLI pass. Own package/hash validation and registry fixture pin/describe are composition evidence, not installed two-package execution. Reader/wiki comparisons use controlled CSP nonce entropy; Published actual saved HTML/SHA stays exact.
+- [ ] Review the normal Brave flow and bounded CSS captures independently, register affected tests and complete final gates, formal CAS and exact main integration without push.
+- [ ] Update SDK/MCP/product/design docs, native manual and continuity from actual receipts; keep parent1095 open for remaining gaps.
+
+ROOT normal Brave also found silent block insertion on a new unsaved parent. SourceToolBlockControls now explains the existing save/body precondition (feedback only, no new guard); a fresh unsaved form showed the message and was cancelled without creating another entry.
