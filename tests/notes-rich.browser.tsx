@@ -3,6 +3,8 @@ import { runBridgeTool } from '@/services/aiBridge/dispatch';
 import { deleteProject } from '@/db/operations';
 import { undoAuditEntry } from '@/services/aiBridge/undo';
 import { SCOPE_KEY } from '@/services/aiBridge/schema';
+import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
+import { noteImageLayoutCss, NOTE_IMAGE_LAYOUT_CSS } from '@/components/editor/blocks/imageLayout';
 const P='notes-rich-regression';
 function assert(value:unknown,message:string):asserts value{if(!value)throw Error(message);}
 export async function testNotesRichContracts():Promise<string[]>{
@@ -25,4 +27,15 @@ export async function testNotesRichContracts():Promise<string[]>{
   let inboxId='';try{const inbox=await call('wh_create_note',{inbox:true,text:'fallback',richHtml:'<h2>Inbox note</h2>'});inboxId=inbox.id as string;assert((await db.notes.get(inboxId))?.projectId==='__inbox__'&&(await db.notes.get(inboxId))?.text==='Inbox note','Inbox rich note crossed into project');}finally{if(inboxId)await db.notes.delete(inboxId);}
   return['Registered note create/list/update preserve optional rich formatting, coherent plain text, metadata-only changes, explicit plain replacement and sanitized content','Native Undo restores rich/plain pair and absent option; era normalizes without changing Base, foreign update fails, inbox remains separate'];
  }finally{if(await db.projects.get(P))await deleteProject(P);}
+}
+
+export async function testNoteInlineImageSanitizer(): Promise<string[]> {
+ const source=`<p data-wh-align="justify">Paragraph legacy</p><h2 data-wh-align="right">Heading legacy</h2><span data-wh-align="right">No inline align</span><img src="${'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='}" data-wh-align="right" data-wh-width="50" data-wh-frame="polaroid" style="position:fixed" onerror="BAD_HANDLER"><img data-wh-align="justify"><div data-wh-align="right">No block align</div>`;
+ const sanitized=sanitizeRichHtml(source),doc=new DOMParser().parseFromString(sanitized,'text/html');
+ assert(doc.querySelector('p')?.getAttribute('data-wh-align')==='justify'&&doc.querySelector('h2')?.getAttribute('data-wh-align')==='right','Image sanitizer changed legacy paragraph/heading alignment');
+ assert(doc.querySelector('img')?.getAttribute('data-wh-align')==='right'&&doc.querySelector('img')?.getAttribute('data-wh-width')==='50'&&doc.querySelector('img')?.getAttribute('data-wh-frame')==='polaroid','Native image sanitizer lost admitted layout');
+ assert(!doc.querySelector('span[data-wh-align],div[data-wh-align],img[data-wh-align="justify"],[onerror],img[style]'),'Invalid image align, active attributes or arbitrary style survived: '+sanitized);
+ assert(noteImageLayoutCss(sanitized)===NOTE_IMAGE_LAYOUT_CSS&&noteImageLayoutCss('<p data-wh-align="right">text</p>')===''&&noteImageLayoutCss('<img data-wh-align="right">')===''&&noteImageLayoutCss('<img alt="data-wh-align=right">')==='','Image CSS feature detection used text, paragraph, missing raster or invalid tag');
+ assert(noteImageLayoutCss(sanitizeRichHtml('<img src="data:image/svg+xml;base64,PHN2Zy8+" data-wh-align="right">'))==='','Removed SVG activated image CSS');
+ return['Sanitizer preserves P justify/H right legacy and valid IMG width/frame/right while removing invalid tags/enums, events/style; conditional CSS requires a real admitted raster IMG'];
 }

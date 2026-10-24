@@ -1282,8 +1282,8 @@ List notes: single thoughts, quotes, ideas and words the writer liked. Plain tex
       properties: {
         projectId: PROJECT_ID,
         inbox: b('Capture into the project-less inbox instead of a project.'),
-        text: s('The note itself, as plain text. Its first line doubles as the title.'),
-        richHtml: s('Optional native editor HTML. Sanitized; when supplied it determines the saved plain text projection.'),
+        text: s('Required string. Empty only when richHtml contains normalized text or an admitted embedded raster image.', { minLength: 0 }),
+        richHtml: s('Optional native editor HTML. Sanitized; determines the plain projection. Images support data-wh-width/frame and optional data-wh-align left/center/right.'),
         kind: s('Default "note".', { enum: ['note', 'quote', 'idea', 'word'] }),
         title: s('Optional title shown over the note.'),
         source: s('Who said it, or where it came from.'),

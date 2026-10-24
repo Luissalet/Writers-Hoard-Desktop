@@ -171,7 +171,10 @@ export function validateToolArgs(
 
   for (const key of schema.required ?? []) {
     const value = input[key];
-    if (value === undefined || value === null && !acceptsNull(props[key]) || (typeof value === 'string' && !value.trim())) {
+    // Required strings retain their legacy nonempty default. A schema may
+    // explicitly admit empty text while its handler validates the rich body.
+    const allowsEmpty = props[key]?.type === 'string' && props[key]?.minLength === 0;
+    if (value === undefined || value === null && !acceptsNull(props[key]) || (typeof value === 'string' && !value.trim() && !allowsEmpty)) {
       problems.push(`"${key}" is required`);
     }
   }

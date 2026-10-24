@@ -1,3 +1,4 @@
+import { noteImageLayoutCss } from '@/components/editor/blocks/style';
 import { getEraProject,listEraRows,readWorldDocument } from '@/services/worldEras/store';
 import { eraDocumentKinds,type EraDocumentKind,type EraDocument,type WorldEraScope } from '@/services/worldEras/types';
 import type { CodexEntry,Project,WorldMap,MapPin,Timeline,TimelineEvent,TimelineConnection } from '@/types';
@@ -161,6 +162,6 @@ export async function buildDocumentImage(request:DocumentImageRequest){
   if(request.view&&(!Object.values(request.view).every(Number.isFinite)||request.view.w<=0||request.view.h<=0))throw new Error('invalid_image_view');
   const scope={projectId:request.projectId,eraId:request.eraId},project=await getEraProject(scope),ctx:Context={scope,project,width,locale:request.locale??'en',active:new Set(),versions:new Map()};
   const part=await renderPart(ctx,request.kind,request.entityId,request.view),nonce=crypto.randomUUID().replaceAll('-','');
-  const html=`<!doctype html><html lang="${ctx.locale}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';img-src data: blob:;media-src data: blob:;font-src data:;style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src data: blob:;base-uri 'none'"><title>${esc(part.title)}</title><style>${IMAGE_STYLE}${LOCAL_TOOL_PREVIEW_CSS}</style></head><body><header><h1>${esc(part.title)}</h1><p class="meta">${esc(project.title)} · ${esc(request.kind)} · ${esc(request.eraId??'Shared base')}</p></header>${part.html}${modelReaderExportScript(part.html,nonce)}</body></html>`;
+  const html=`<!doctype html><html lang="${ctx.locale}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';img-src data: blob:;media-src data: blob:;font-src data:;style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src data: blob:;base-uri 'none'"><title>${esc(part.title)}</title><style>${IMAGE_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${noteImageLayoutCss(part.html)}</style></head><body><header><h1>${esc(part.title)}</h1><p class="meta">${esc(project.title)} · ${esc(request.kind)} · ${esc(request.eraId??'Shared base')}</p></header>${part.html}${modelReaderExportScript(part.html,nonce)}</body></html>`;
   return{html,width,pixelRatio,pageHeight,title:part.title,framing:part.framing,sourceVersion:ctx.versions.get(JSON.stringify([request.kind,request.entityId]))!,dependencies:Object.fromEntries(ctx.versions)};
 }

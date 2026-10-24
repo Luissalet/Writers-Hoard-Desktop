@@ -18,6 +18,22 @@ if (placeImageAuditCheck.status !== 0 || placeImageAuditCheck.error) process.exi
 const placeImageSheetCheck = spawnSync(electron, ['tests/review-worldgen-place-icons.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (placeImageSheetCheck.status !== 0 || placeImageSheetCheck.error) process.exit(placeImageSheetCheck.status ?? 1);
 const suites = [
+  ['note-inline-image-ui.browser.tsx', 'testNoteInlineImageUi', 120000],
+  ['note-inline-image-ui.browser.tsx', 'testNoteInlineImageUiMountControls', 120000],
+  ['note-inline-image-ui.browser.tsx', 'testNoteInlineImageAcquisition', 120000],
+  ['note-inline-image-lifecycle.browser.tsx', 'testNoteInlineImageExistingControls', 120000],
+  ['note-inline-image-lifecycle.browser.tsx', 'testNoteInlineImageParserAlignment', 120000],
+  ['note-inline-image-lifecycle.browser.tsx', 'testNoteInlineImageMcpImageOnly', 120000],
+  ['note-inline-image-lifecycle.browser.tsx', 'testNoteInlineImageAsyncLifecycle', 120000],
+  ['notes-rich.browser.tsx', 'testNoteInlineImageSanitizer', 120000],
+  ['notes-rich-portability.browser.tsx', 'testNoteInlineImageLayoutPortability', 120000],
+  ['review-note-inline-images.browser.tsx', 'testReviewNoteReplaceDeletedTwin', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-note-inline-images.browser.tsx', 'testReviewNoteSaveInvalidatesDecode', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-note-inline-images.browser.tsx', 'testReviewNoteReplaceMappedLayout', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-note-inline-images.browser.tsx', 'testReviewNoteGalleryScope', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-note-inline-images.browser.tsx', 'testReviewNoteImageColdPresentation', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-note-inline-images.browser.tsx', 'testReviewNoteImageMcpContracts', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-note-inline-images.browser.tsx', 'testReviewNoteImageCapturedExports', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['review-worldgen-place-icons.browser.tsx', 'reviewPlaceIconRegionalResourceParticipation', 180000],
   ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsDescriptor', 180000],
   ['worldgen-place-icons.browser.tsx', 'testWorldgenPlaceIconsRaster', 180000],

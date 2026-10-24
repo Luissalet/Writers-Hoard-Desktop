@@ -3,6 +3,7 @@
 // data attributes, so the reader, the wiki and every export keep them.
 import { Extension, Mark, Node, mergeAttributes, type AnyExtension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { imageAlign } from './imageLayout';
 
 export const CALLOUT_KINDS = ['note', 'info', 'question', 'tip', 'warning', 'readaloud', 'sidebar'] as const;
 export type CalloutKind = typeof CALLOUT_KINDS[number];
@@ -249,6 +250,7 @@ export const ImageLayout = Extension.create({
     return [{ types: ['image'], attributes: {
       width: { default: null, parseHTML: element => { const value = element.getAttribute('data-wh-width'); return (IMAGE_WIDTHS as readonly (string | null)[]).includes(value) ? value : null; }, renderHTML: attributes => (attributes.width ? { 'data-wh-width': attributes.width } : {}) },
       frame: { default: null, parseHTML: element => { const value = element.getAttribute('data-wh-frame'); return (IMAGE_FRAMES as readonly (string | null)[]).includes(value) && value !== 'none' ? value : null; }, renderHTML: attributes => (attributes.frame ? { 'data-wh-frame': attributes.frame } : {}) },
+      align: { default: null, parseHTML: element => imageAlign(element.getAttribute('data-wh-align')), renderHTML: attributes => { const align = imageAlign(attributes.align); return align ? { 'data-wh-align': align } : {}; } },
     } }];
   },
 });
