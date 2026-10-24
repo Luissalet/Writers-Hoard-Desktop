@@ -1,4 +1,6 @@
 import {useLocalToolAssetPreview} from '../useLocalToolAssetPreview';
+import {useRichProseHostContext} from '../RichProseEditor';
+import {renderRichProsePreview} from '../richProseHtml';
 import {useLocalToolAudioLifecycle} from '../useLocalToolAudioLifecycle';
 import {useContext,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
@@ -13,7 +15,7 @@ import {resolveProjectLocalTool} from '../releases';
 import {createLocalToolClient} from '../storage';
 import type {LocalToolHostContext,LocalToolDefinition,LocalToolClient,LocalToolJson} from '../sdk';
 import {readSourceToolDocument} from './store';
-import {sourceDocumentPreview,renderLocalToolPreview} from './preview';
+import {sourceDocumentPreview} from './preview';
 import {LocalToolHostAncestors} from './hostContext';
 import {LocalToolUndoBoundary} from '../LocalToolUndoBoundary';
 export interface LocalToolDocumentHostProps {projectId:string;eraId?:string;documentId:string;namespace?:string;view?:LocalToolHostContext['view'];interactive?:boolean;readOnly?:boolean;chrome?:boolean}
@@ -40,17 +42,18 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  useEffect(()=>registerEnginePaneScope(instanceId,{projectId,eraId,navigate}),[instanceId,projectId,eraId,navigate]);
  const changeFullscreen=async(next:boolean)=>{if(busy)return;setBusy(true);setBlocked(false);try{const result=await flushPendingWrites();if(alive.current){if(result.ok)setFullscreen(next);else setBlocked(true);}}finally{if(alive.current)setBusy(false);}};
  const semantic=document?sourceDocumentPreview(document,locale):{title:'',fields:[]},preview=useLocalToolAssetPreview(semantic,projectId,document?.namespace??'',eraId);
+ const context=useRichProseHostContext({view,canEdit,scope:{projectId,eraId},...(document?{document:{id:documentId,namespace:document.namespace,title:document.title}}:{})},client,document?.codec);
  if(ancestors.includes(identity))return <p className="text-sm text-text-muted">{es?'Referencia circular al documento abierto.':'Circular reference to the open document.'}</p>;
  if(!record)return <p role="status">{es?'Cargando documento…':'Loading document…'}</p>;
  if(!document)return <p role="alert">{es?'El documento no está disponible en este contexto.':'This document is unavailable in this context.'}</p>;
- const Component=definition?.component,context:LocalToolHostContext={view,canEdit,scope:{projectId,eraId},document:{id:documentId,namespace:document.namespace,title:document.title}};
+ const Component=definition?.component;
  const fallback=!canEdit||!client||!Component;
  return <section className="min-w-0 space-y-3 text-text-primary" data-source-document-host={documentId} data-source-document-view={view}>
   {chrome&&<header className="flex flex-wrap items-center gap-3"><h3 className="min-w-0 flex-1 break-words font-display text-lg">{document.title}</h3>{view!=='fullscreen'&&<button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-elevated disabled:opacity-50" disabled={busy} onClick={()=>void changeFullscreen(true)}><Maximize2 size={15}/>{es?'Pantalla completa':'Fullscreen'}</button>}</header>}
   {blocked&&<p role="alert" className="text-sm text-danger">{es?'Guarda o revisa el borrador pendiente antes de cambiar de vista.':'Save or review the pending draft before changing views.'}</p>}
   {error&&<p role="status" className="text-sm text-text-muted">{es?'Fuente no disponible. Se conserva el contenido guardado.':'Source unavailable. Saved content is preserved.'}</p>}
   <LocalToolHostAncestors.Provider value={[...ancestors,identity]}><EnginePaneContext.Provider value={pane}><LocalToolUndoBoundary data-tool-editor-surface data-engine-pane-id={instanceId} onFocusCapture={()=>activateEnginePane(instanceId)} onPointerDownCapture={()=>activateEnginePane(instanceId)}>
-   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderLocalToolPreview(preview,false)}}/>:<Component key={`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={context}/>}
+   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:<Component key={`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={context}/>}
   </LocalToolUndoBoundary></EnginePaneContext.Provider></LocalToolHostAncestors.Provider>
   {fullscreen&&<Modal open fullscreen title={document.title} busy={busy} dismissible={false} onClose={()=>void changeFullscreen(false)}><div className="space-y-3 p-5"><button type="button" className="min-h-10 rounded-lg border border-border px-3 text-sm" disabled={busy} onClick={()=>void changeFullscreen(false)}>{es?'Guardar y volver':'Save and return'}</button>{blocked&&<p role="alert">{es?'El borrador sigue pendiente.':'The draft is still pending.'}</p>}<LocalToolDocumentHost projectId={projectId} eraId={eraId} documentId={documentId} namespace={namespace} view="fullscreen" readOnly={readOnly} chrome={false}/></div></Modal>}
  </section>;

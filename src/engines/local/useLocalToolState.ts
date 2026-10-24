@@ -54,9 +54,9 @@ export function useLocalToolState<T extends LocalToolJson>(client:LocalToolClien
  useLocalToolUndoController({undoStep:ready?undo.at(-1)?.step:undefined,redoStep:ready?redo.at(-1)?.step:undefined,undo:undoState,redo:redoState});
  return{snapshot:loadedClient===client?snapshot:undefined,error,busy,canUndo:loadedClient===client&&!!undo.length,canRedo:loadedClient===client&&!!redo.length,
   reload:()=>run(async current=>{const next=await client.read();if(current()){setSnapshot(next);setLoadedClient(client);}}),
-  apply:(actions:readonly LocalToolStateAction[])=>run(async current=>{
+  apply:(actions:readonly LocalToolStateAction[],baseline?:LocalToolSnapshot<T>)=>run(async current=>{
    if(loadedClient!==client||!snapshot||!client.state)throw Error('local_tool_codec_required');
-   const result=await client.state.apply(snapshot,actions);if(!current())return;
+   const result=await client.state.apply(baseline??snapshot,actions);if(!current())return;
    setSnapshot(result.snapshot);if(result.receiptId)setUndo(rows=>[...rows,{id:result.receiptId!,step:nextLocalToolUndoStep()}]);setRedo([]);
   }),undo:undoState,redo:redoState};
 }

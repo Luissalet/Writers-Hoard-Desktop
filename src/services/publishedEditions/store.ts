@@ -1,3 +1,4 @@
+import {inspectRichProseLinks} from '@/engines/local/richProseHtml';
 import {manuscriptProject,selectManuscriptWritings,writingSelection,assertManuscriptOwner,writingManuscriptId,type WritingSelection} from '@/engines/writings/manuscripts';
 import Dexie from 'dexie';
 import {db} from '@/db';
@@ -67,7 +68,11 @@ function missingReferences(scope:WorldEraScope,writings:Writing[],source:ReturnT
    if(node.getAttribute('data-project-id')!==scope.projectId)continue;const kind=node.hasAttribute('data-wh-codex-block')?'codex':node.hasAttribute('data-wh-media-block')?'media':toolKinds[node.getAttribute('data-tool-kind')??''],id=node.getAttribute(kind==='codex'?'data-entry-id':kind==='media'?'data-asset-id':'data-document-id');if(kind&&id){const namespace=kind==='local-tool'?node.getAttribute('data-namespace')??'':undefined;requested.set(kind==='local-tool'?JSON.stringify([kind,id,namespace]):`${kind}:${id}`,{kind,id,...(namespace!==undefined?{namespace}:{})});}
   }
   for(const anchor of template.content.querySelectorAll('a[href]')){const id=codexTextLinkTarget(anchor.getAttribute('href')!,scope.projectId);if(id)requested.set('codex:'+id,{kind:'codex',id});}
-  for(const span of findLocalToolBlocksInHtml(writing.content)){if(span.projectId!==scope.projectId||span.envelope.scope!=='host')continue;remapLocalToolReferences(span.envelope.data,span.envelope.codec,(kind,id)=>{requested.set(`${kind}:${id}`,{kind,id});return id;},(kind,id)=>{if(kind==='media')requested.set(`media:${id}`,{kind:'media',id});return id;});}
+  const rich=(html:string)=>{inspectRichProseLinks(html,href=>{const id=codexTextLinkTarget(href,scope.projectId);if(id)requested.set('codex:'+id,{kind:'codex',id});});return html;};
+  for(const span of findLocalToolBlocksInHtml(writing.content)){if(span.projectId!==scope.projectId||span.envelope.scope!=='host')continue;remapLocalToolReferences(span.envelope.data,span.envelope.codec,(kind,id)=>{requested.set(`${kind}:${id}`,{kind,id});return id;},(kind,id)=>{if(kind==='media')requested.set(`media:${id}`,{kind:'media',id});return id;},rich);}
+  const inspect=(data:import('@/engines/local/stateTypes').LocalToolJson,codec:import('@/engines/local/stateCodec').LocalToolStateCodec)=>remapLocalToolReferences(data,codec,(kind,id)=>{requested.set(`${kind}:${id}`,{kind,id});return id;},(_kind,id)=>id,rich);
+  const dock=writing.toolDock===undefined?source.project.writingToolDock:writing.toolDock;for(const block of dock?.blocks??[])if(block.kind==='owned')inspect(block.envelope.data,block.envelope.codec);
+  for(const ref of [...requested.values()])if(ref.kind==='local-tool'){const document=source.project.sourceToolDocuments?.find(row=>row.id===ref.id&&(ref.namespace===undefined||ref.namespace===row.namespace));if(document?.codec)inspect(document.data,document.codec);}
   for(const ref of requested.values()){const present=source.hasDocument(ref.kind,ref.id)&&(ref.namespace===undefined||source.project.sourceToolDocuments?.some(row=>row.id===ref.id&&row.namespace===ref.namespace));if(!present&&!refs.some(missing=>missing.kind===ref.kind&&missing.id===ref.id&&missing.chapterId===writing.id))refs.push({kind:ref.kind,id:ref.id,chapterId:writing.id});}
  }return refs;
 }

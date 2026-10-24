@@ -1,3 +1,4 @@
+import {localToolAtomKey,localToolAtomPending} from '@/engines/local/blocks/pending';
 import ReaderBookCover from './ReaderBookCover';
 import {safeReaderPresentation} from '../readerPresentation';
 import ManuscriptsPanel from './ManuscriptsPanel';
@@ -595,6 +596,15 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   // (footnotes) and the page count. The setter is what TiptapEditor gets:
   // it is stable, so its effect does not re-run per render.
   const [liveEditor, setLiveEditor] = useState<Editor | null>(null);
+  const pendingEditor = useRef<Editor|null>(null);
+  const acceptEditor = useCallback((editor:Editor|null)=>{pendingEditor.current=editor;setLiveEditor(editor);},[]);
+  const canLeaveOwned = useCallback(() => {
+    const editor=pendingEditor.current;let pending=false;
+    if(editor&&!editor.isDestroyed)editor.state.doc.descendants(node=>{const key=localToolAtomKey(node);if(key&&localToolAtomPending(editor,key))pending=true;});
+    if(pending)toast.info(locale==='es'?'Guarda o descarta los cambios del bloque antes de salir.':'Save or discard the block changes before leaving.');
+    return !pending;
+  }, [locale]);
+
   useEffect(() => {
     const position = parallelReturnSelection.current;
     if (!liveEditor || !position || openWriting?.id !== position.writingId) return;
@@ -958,6 +968,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   // ---------------------------------------------------------------------
   useEffect(() => {
     return registerCloseGuard(async () => {
+      if(!canLeaveOwned())return false;
       const s = editorRef.current;
       if (!s.openId) return true;
       const dirty = s.content !== s.savedContent || s.title !== s.savedTitle;
@@ -968,7 +979,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
       setPendingClose(true);
       return false;
     });
-  }, [flushSave, persistRecoveryDraft]);
+  }, [flushSave, persistRecoveryDraft,canLeaveOwned]);
 
   // What main is allowed to say if this renderer stops answering. Reported on
   // the transition rather than per keystroke, and cleared the moment the write
@@ -1003,16 +1014,16 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
       } else if (matchesShortcut(e, FOCUS_MODE_SHORTCUT)) {
         if (e.repeat) return;
         e.preventDefault();
-        setFocusMode((on) => !on);
+        if(canLeaveOwned())setFocusMode((on) => !on);
       } else if (e.key === 'Escape') {
         // A consult drawer open over the page closes first; focus mode stays.
         if (referencePrefs.consult) referencePrefs.setConsult(false);
-        else setFocusMode(false);
+        else if(canLeaveOwned())setFocusMode(false);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [openWriting, flushSave, pane, referencePrefs]);
+  }, [openWriting, flushSave, pane, referencePrefs,canLeaveOwned]);
 
   // Focus mode is the page and nothing else: the overlay below hides the
   // app's own furniture, and the window goes to full screen for the rest —
@@ -1032,14 +1043,14 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
       });
     }
     const onChange = () => {
-      if (!document.fullscreenElement) setFocusMode(false);
+      if (!document.fullscreenElement&&canLeaveOwned()) setFocusMode(false);
     };
     document.addEventListener('fullscreenchange', onChange);
     return () => {
       document.removeEventListener('fullscreenchange', onChange);
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     };
-  }, [focusMode]);
+  }, [focusMode,canLeaveOwned]);
 
   const filtered = useMemo(
     () => writings
@@ -1156,6 +1167,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   const deepLinkedCompareDraft = useDeepLinkParam('compareDraft');
 
   const handleOpenWriting = useCallback((writing: Writing) => {
+    if(!canLeaveOwned())return;
     // The chapter on screen is where the writer is: the dashboard's "Continue"
     // is only as current as whatever records that.
     rememberProjectRoute(projectId, { engineId: 'writings', entityId: writing.id });
@@ -1226,7 +1238,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
       );
       if (filed) clearWritingRecoveryDraft(writing.projectId, writing.id, recoveryOwner);
     });
-  }, [projectId, recoveryOwner, takeSnapshot]);
+  }, [projectId, recoveryOwner, takeSnapshot,canLeaveOwned]);
 
   // A new linked chapter takes precedence over its surrounding book query.
   // Repeated params do nothing; a genuine retarget flushes the current draft
@@ -1241,12 +1253,12 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
     let live=true;
     const open=()=>{if(!live)return;deepLinkOpened.current=target.id;setActiveStatus(target.status);handleOpenWriting(target);};
     if(!openWriting)open();
-    else if(canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId))void flushSave().then(saved=>{
+    else if(canLeaveOwned()&&canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId))void flushSave().then(saved=>{
       if(!live)return;
       if(saved)open();else setPendingLeave(true);
     });
     return()=>{live=false;};
-  }, [deepLinkedWritingId, writings, openWriting, handleOpenWriting, parallelWorkspace,flushSave,projectId,scope.eraId,pane?.instanceId]);
+  }, [deepLinkedWritingId, writings, openWriting, handleOpenWriting, parallelWorkspace,flushSave,projectId,scope.eraId,pane?.instanceId,canLeaveOwned]);
 
   // The writer's answer to a draft whose chapter moved on. Both answers are
   // safe by the time they are offered — the draft is already a version — so
@@ -1497,7 +1509,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   }, []);
 
   const handleOpenParallelWorkspace = useCallback(async (start: ParallelWorkspaceStart) => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!await flushSave()) { setPendingLeave(true); return; }
     const position = liveEditor && !liveEditor.isDestroyed ? { from: liveEditor.state.selection.from, to: liveEditor.state.selection.to } : undefined;
     if (position) parallelReturnSelection.current = { writingId: start.writingId, ...position };
@@ -1508,7 +1520,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
     if (start.compareWritingId || start.split) params.set('compareWriting', start.compareWritingId ?? start.writingId);
     if (start.compareDraftId) params.set('compareDraft', start.compareDraftId);
     navigate(`/project/${encodeURIComponent(projectId)}/writings?${params}`, { replace: true });
-  }, [flushSave, leaveEditor, liveEditor, navigate, projectId, scope.eraId, pane?.instanceId]);
+  }, [flushSave, leaveEditor, liveEditor, navigate, projectId, scope.eraId, pane?.instanceId,canLeaveOwned]);
   const appliedParallelLink = useRef('');
   useEffect(() => {
     if (deepLinkedWorkspace !== 'drafts' || !deepLinkedWritingId || parallelWorkspace || !writings.some(writing => writing.id === deepLinkedWritingId && !writing.isGoogleDoc)) return;
@@ -1522,14 +1534,14 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   // button simply did nothing, with nothing on screen to say why. Ask instead:
   // the recovery journal already holds the draft, so leaving is safe.
   const handleCloseWriting = useCallback(async () => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
       return;
     }
     leaveEditor();
-  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId]);
+  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId,canLeaveOwned]);
 
   // Retry closes the editor if the write finally lands; if it fails again the
   // author stays put with the error indicator, rather than in a dialog loop.
@@ -1565,14 +1577,14 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   // when the write fails take exactly the Back button's path — the unsaved
   // dialog, never a chevron that silently does nothing.
   const handleNavigateWriting = useCallback(async (target: Writing) => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
       return;
     }
     handleOpenWriting(target);
-  }, [flushSave, handleOpenWriting, projectId, scope.eraId, pane?.instanceId]);
+  }, [flushSave, handleOpenWriting, projectId, scope.eraId, pane?.instanceId,canLeaveOwned]);
 
   const stageJudgeAnnotation = useCallback((finding: JudgeFinding, body: string) => {
     let start = finding.anchor.start;
@@ -1742,7 +1754,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   // surface that cannot save it.
   const handleReadFromHere = useCallback(async () => {
     const startId = editorRef.current.openId;
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
@@ -1751,7 +1763,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
     leaveEditor();
     setReadingStartId(startId);
     setReading(true);
-  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId]);
+  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId,canLeaveOwned]);
 
   // Leaving reading mode for the editor: one piece, at the point it was read.
   const handleReadingOpenInEditor = useCallback((writing: Writing) => {
@@ -1768,7 +1780,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   // The whole book from the editor: the open chapter is flushed and closed
   // first, because the book loads every chapter from Dexie and edits it there.
   const handleOpenBookFromEditor = useCallback(async () => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved) {
       setPendingLeave(true);
@@ -1776,7 +1788,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
     }
     leaveEditor();
     setBookMode(true);
-  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId]);
+  }, [flushSave, leaveEditor, projectId, scope.eraId, pane?.instanceId,canLeaveOwned]);
 
   // From the row on disk, not from the list: the book flushed the chapter a
   // moment ago, and the list is the refetch BEFORE that write — opening what
@@ -1823,7 +1835,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
   };
 
   const handleSaveContent = async () => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     // A Save button that quietly does nothing is the failure mode this editor
     // has been bitten by before (see the Back button). While the chapter is
@@ -2595,7 +2607,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
               and this click is one; the effect that calls it runs right
               after the state lands, well inside the gesture's window. */}
           <button
-            onClick={() => setFocusMode(!focusMode)}
+            onClick={() => {if(canLeaveOwned())setFocusMode(!focusMode);}}
             className={`p-1.5 rounded-lg transition border ${
               focusMode
                 ? 'text-accent-gold border-accent-gold/40 bg-accent-gold/10'
@@ -2775,7 +2787,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
             placeholder={t('writings.startWriting')}
             onGenerateImage={(sel) => void generateImageFromSelection(projectId, sel)}
             extensions={CHAPTER_EDITOR_EXTENSIONS}
-            onEditorReady={setLiveEditor}
+            onEditorReady={acceptEditor}
             layout={readingPrefs.layout}
             pageLayout={pageLayout}
             footnoteStyle={footnoteStyle}
@@ -2824,7 +2836,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
               onAnnotate={(anchor) => setPendingAnchor(anchor)}
               onGenerateImage={(sel) => void generateImageFromSelection(projectId, sel)}
               extensions={CHAPTER_EDITOR_EXTENSIONS}
-              onEditorReady={setLiveEditor}
+              onEditorReady={acceptEditor}
               layout={readingPrefs.layout}
               pageLayout={pageLayout}
               footnoteStyle={footnoteStyle}

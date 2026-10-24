@@ -9,7 +9,33 @@ const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.nod
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const assetFileCheck = spawnSync(process.execPath, ['tests/local-tool-asset-files.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (assetFileCheck.status !== 0) process.exit(assetFileCheck.status ?? 1);
+const richProseCheck = spawnSync(process.execPath, ['tests/local-tool-rich-prose.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (richProseCheck.status !== 0) process.exit(richProseCheck.status ?? 1);
 const suites = [
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseSource', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseOwned', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseParentPending', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseRetarget', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseFocusPending', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseListMarkers', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProsePendingLedger', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseDockAndLegacy', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseDraftCas', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseProfileAndRaster', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseBridge', 180000],
+  ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseProjection', 180000],
+  ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseRemap', 180000],
+  ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseCaptured', 180000],
+  ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProsePublished', 180000],
+  ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseArchives', 180000],
+  ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseFolderUndo', 180000],
+  ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseEraHistory', 180000],
+  ['review-local-tool-rich-prose.browser.tsx', 'reviewRichProseParentSavePending', 180000],
+  ['review-local-tool-rich-prose.browser.tsx', 'reviewRichProseExplicitBaseAndLateRaster', 180000],
+  ['review-local-tool-rich-prose.browser.tsx', 'reviewRichProseCapturedCodecAndPolicies', 180000],
+  ['review-local-tool-rich-prose.browser.tsx', 'reviewRichProseBookExitPending', 180000],
+  ['review-local-tool-rich-prose.browser.tsx', 'reviewRichProseWritingExitPending', 180000],
+  ['review-local-tool-rich-prose.browser.tsx', 'reviewRichProseFrozenEditionAndMissingReferences', 180000],
   ['calendar-banner-images.browser.tsx', 'testCalendarBannerPatternContract'],
   ['calendar-banner-images.browser.tsx', 'testCalendarBannerNormalEditor'],
   ['calendar-banner-images.browser.tsx', 'testCalendarBannerMoveGestures'],

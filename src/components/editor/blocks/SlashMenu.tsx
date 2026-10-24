@@ -6,7 +6,7 @@ import type { Editor } from '@tiptap/react';
 import { createSlashMenuPlugin, INACTIVE, slashMatches, slashMenuKey, type SlashItem, type SlashState } from './slashCommands';
 
 /** The menu itself, drawn over the editor at the slash. */
-export default function SlashMenu({ editor, wrapperRef, locale }: { editor: Editor | null; wrapperRef: RefObject<HTMLDivElement | null>; locale: string }) {
+export default function SlashMenu({ editor, wrapperRef, locale,allowedIds }: { editor: Editor | null; wrapperRef: RefObject<HTMLDivElement | null>; locale: string;allowedIds?:readonly string[] }) {
   const [state, setState] = useState<SlashState>(INACTIVE);
   // Where the menu sits, measured when the editor changes (never during render).
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
@@ -15,7 +15,7 @@ export default function SlashMenu({ editor, wrapperRef, locale }: { editor: Edit
   const key = `${state.from}:${state.query}`;
   const index = pick.key === key ? pick.index : 0;
   const setIndex = (value: number) => setPick({ key, index: value });
-  const items = state.active ? slashMatches(state.query, locale) : [];
+  const items = state.active ? slashMatches(state.query, locale).filter(item=>!allowedIds||allowedIds.includes(item.id)) : [];
   const at = Math.min(index, Math.max(0, items.length - 1));
   const choose = (item: SlashItem | undefined) => {
     if (!editor || !item) return;
