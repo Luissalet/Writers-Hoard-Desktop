@@ -29,7 +29,18 @@ const ownedEvolutionCheck = spawnSync(process.execPath, ['tests/local-tool-block
 if (ownedEvolutionCheck.status !== 0) process.exit(ownedEvolutionCheck.status ?? 1);
 const boardMediaAuditCheck = spawnSync(electron, ['tests/board-media.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (boardMediaAuditCheck.status !== 0 || boardMediaAuditCheck.error) process.exit(boardMediaAuditCheck.status ?? 1);
+const localePureCheck = spawnSync(process.execPath, ['tests/local-tool-locale.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (localePureCheck.status !== 0 || localePureCheck.error) process.exit(localePureCheck.status ?? 1);
+const localeNativeCheck = spawnSync(electron, ['tests/local-tool-locale.node.cjs', '--native'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (localeNativeCheck.status !== 0 || localeNativeCheck.error) process.exit(localeNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-locale.browser.tsx', 'testLocalToolLocaleSourceOwned', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-locale.browser.tsx', 'testLocalToolLocaleHooks', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-locale.browser.tsx', 'testLocalToolLocaleDescribe', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-locale-portability.browser.tsx', 'testLocalToolLocaleCaptured', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-locale-portability.browser.tsx', 'testLocalToolLocaleFormats', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-locale-portability.browser.tsx', 'testLocalToolLocaleReleases', 180000, 'scripts/run-focused-browser-tests.cjs'],
+
   ['review-board-media-destination.browser.tsx', 'testReviewBoardMediaDestination', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['board-media.browser.tsx', 'testBoardMediaMetadata', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['board-media.browser.tsx', 'testBoardMediaReferenceValidation', 180000, 'scripts/run-focused-browser-tests.cjs'],
@@ -510,7 +521,7 @@ const suites = [
   ['map-ground.browser.ts', 'testMapGround'],
   ['world-markdown-export.browser.tsx', 'testWorldMarkdownExport'],
   ['guided-tours.browser.tsx', 'testGuidedTours'],
-  ['comments-read-pins.browser.tsx', 'testCommentsReadPins'],
+  ['comments-read-pins.browser.tsx', 'testCommentsReadPins', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['map-exploration.browser.tsx', 'testMapExploration'],
 ];
 const output = path.join(root, 'work', 'vvd-suite'); fs.mkdirSync(output, { recursive: true });
