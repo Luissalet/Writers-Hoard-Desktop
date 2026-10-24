@@ -1,3 +1,7 @@
+import BannerPresetEditor from './components/BannerPresetEditor';
+import {bannerContext,writeBannerEvent,undoBannerChange} from './bannerPresets';
+import type {BannerIntent} from './bannerStyles';
+import type {TimelineEvent} from '@/types';
 import { useWorldEraScope, useEraRows } from '@/services/worldEras/hooks';
 import type { Writing } from '@/types';
 import { useEraNavigate } from '@/services/worldEras/navigation';
@@ -40,6 +44,13 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const worldCalendar = useWorldCalendar(projectId);
   const timelineCalendar = useWorldCalendar(projectId, activeTimelineId || undefined);
   const activeTimeline = timelines.find(timeline => timeline.id === activeTimelineId);
+  const [bannerTimelineId,setBannerTimelineId]=useState<string|null>(null);
+  const [bannerReceipt,setBannerReceipt]=useState<string>();
+  const [bannerError,setBannerError]=useState(false);
+  const bannerRead=useLiveQuery(()=>bannerContext(scope).then(value=>({value,error:false})).catch(()=>({value:undefined,error:true})),[projectId,scope.eraId]);
+  const bannerData=bannerRead?.value;
+  const [bannerContextKey,setBannerContextKey]=useState(contextKey);
+  if(bannerContextKey!==contextKey){setBannerContextKey(contextKey);setBannerTimelineId(null);setBannerReceipt(undefined);setBannerError(false);}
   const navigate = useEraNavigate();
   // Dated chapters ride along as a read-only lane; opening one goes to the editor.
   const writings = useEraRows<Writing>('writings', projectId);
@@ -150,15 +161,18 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
     }
   };
 
+  // Full forms include unchanged manual values; only actual edits override a copy.
+  const copyOverrides=(original:TimelineEvent,changes:Partial<TimelineEvent>):Partial<TimelineEvent>=>Object.fromEntries(Object.entries(changes).filter(([key,value])=>['color','bannerShape','bannerPattern','bannerImage','bannerPatternParams'].includes(key)&&JSON.stringify(value)!==JSON.stringify(original[key as keyof TimelineEvent])));
   // Wrap global mutations to also refresh the active events hook
-  const handleAddEventGlobal = async (event: Parameters<typeof addEventGlobal>[0]) => {
-    await addEventGlobal(event);
+  const handleAddEventGlobal = async (event: Parameters<typeof addEventGlobal>[0],intent?:BannerIntent) => {
+    if(intent?.action){const result=await writeBannerEvent(scope,{event,create:true,...intent});setBannerReceipt(result.receiptId);}else await addEventGlobal(event);
     refreshActiveEvents();
   };
 
-  const handleEditEventGlobal = async (id: string, changes: Parameters<typeof editEventGlobal>[1]) => {
-    await editEventGlobal(id, changes);
-    refreshActiveEvents();
+  const handleEditEventGlobal = async (id: string, changes: Parameters<typeof editEventGlobal>[1],baseline?:TimelineEvent,intent?:BannerIntent) => {
+    const original=baseline??allEvents.find(e=>e.id===id);
+    if(original&&(intent?.action||original.bannerPreset&&changes.timelineId&&changes.timelineId!==original.timelineId)){const result=await writeBannerEvent(scope,{event:{...original,...changes},baseline:original,targets:intent?.targets??[],action:intent?.action,overrides:intent?.action?.mode==='copy'?copyOverrides(original,changes):undefined});setBannerReceipt(result.receiptId);}else await editEventGlobal(id, changes);
+    refreshActiveEvents();refreshAllEvents();
   };
 
   const handleRemoveEventGlobal = async (id: string) => {
@@ -168,13 +182,14 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   };
 
   // Wrap list-view mutations to also refresh all-events
-  const handleAddEvent = async (event: Parameters<typeof addEvent>[0]) => {
-    await addEvent(event);
+  const handleAddEvent = async (event: Parameters<typeof addEvent>[0],intent?:BannerIntent) => {
+    if(intent?.action){const result=await writeBannerEvent(scope,{event,create:true,...intent});setBannerReceipt(result.receiptId);}else await addEvent(event);
     refreshAllEvents();
   };
 
-  const handleEditEvent = async (id: string, changes: Parameters<typeof editEvent>[1]) => {
-    await editEvent(id, changes);
+  const handleEditEvent = async (id: string, changes: Parameters<typeof editEvent>[1],baseline?:TimelineEvent,intent?:BannerIntent) => {
+    const original=baseline??activeEvents.find(e=>e.id===id);
+    if(original&&intent?.action){const result=await writeBannerEvent(scope,{event:{...original,...changes},baseline:original,...intent,overrides:intent.action?.mode==='copy'?copyOverrides(original,changes):undefined});setBannerReceipt(result.receiptId);refreshActiveEvents();}else await editEvent(id, changes);
     refreshAllEvents();
   };
 
@@ -291,14 +306,17 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
         )}
       </div>
 
+      {activeTimeline&&<div className="flex flex-wrap items-center gap-2"><button type="button" data-testid="timeline-banners-open" className="min-h-9 rounded-lg border border-border px-3 py-2 text-sm text-accent-gold" onClick={()=>setBannerTimelineId(activeTimeline.id)}>{t('timeline.banners.catalog')} · {activeTimeline.title}</button>{bannerReceipt&&<button type="button" className="min-h-9 rounded-lg border border-border px-3 py-2 text-sm" onClick={async()=>{try{await undoBannerChange(scope,bannerReceipt);setBannerReceipt(undefined);setBannerError(false);refreshActiveEvents();refreshAllEvents();}catch{setBannerError(true);}}}>{t('timeline.banners.undo')}</button>}</div>}
+      {(bannerError||bannerRead?.error)&&<p role="alert" className="text-sm text-danger">{t('timeline.banners.error')}</p>}
+      {bannerTimelineId&&timelines.find(row=>row.id===bannerTimelineId)&&<BannerPresetEditor key={contextKey+bannerTimelineId} scope={scope} timeline={timelines.find(row=>row.id===bannerTimelineId)!} timelines={timelines} onTimelineChange={setBannerTimelineId} onClose={()=>setBannerTimelineId(null)} onChanged={()=>{refreshActiveEvents();refreshAllEvents();}}/>}
       {/* Active view */}
       <TimelineFilterBar filter={filter} onFilter={setFilter} tags={tagCounts} shown={viewMode === 'list' ? shownActive.length : shownAll.length} total={viewMode === 'list' ? activeEvents.length : allEvents.length} views={views} onSaveView={saveView} onRemoveView={removeView} onRetag={retag} tagColors={tagColors} onTagColor={setTagColor} />
       <TimelineBatchBar key={`${projectId}:${scope.eraId ?? 'base'}`} projectId={projectId} events={allEvents} onChanged={() => { refreshActiveEvents(); refreshAllEvents(); refreshConnections(); }} />
       {(viewMode === 'calendar' || calendarEditing) && <div hidden={viewMode !== 'calendar'}>
-        <CalendarView events={shownAll} timelines={activeTimeline ? [activeTimeline, ...timelines.filter(item => item.id !== activeTimeline.id)] : timelines} worldCalendar={worldCalendar?.calendar ?? null} onAddEvent={handleAddEventGlobal} onOpenEvent={(event, trigger) => { setActiveTimelineId(event.timelineId); setCalendarEditor({ id: event.id, context: contextKey, trigger }); setViewMode('list'); }} />
+        <CalendarView bannerTimelines={bannerData?.timelines} events={shownAll} timelines={activeTimeline ? [activeTimeline, ...timelines.filter(item => item.id !== activeTimeline.id)] : timelines} worldCalendar={worldCalendar?.calendar ?? null} onAddEvent={handleAddEventGlobal} onOpenEvent={(event, trigger) => { setActiveTimelineId(event.timelineId); setCalendarEditor({ id: event.id, context: contextKey, trigger }); setViewMode('list'); }} />
       </div>}
       {viewMode === 'calendar' ? null : viewMode === 'swimlane' ? (
-        <SwimLaneView
+        <SwimLaneView banners={bannerData}
           projectId={projectId}
           timelines={timelines}
           events={shownAll}
@@ -316,7 +334,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
         />
       ) : (
         activeTimelineId && (
-          <TimelineView
+          <TimelineView banners={bannerData}
             requestedEventId={calendarEditing?.id}
             onEditorClosed={calendarEditing ? () => { if (currentContext.current !== contextKey) return; setCalendarEditor(null); setViewMode('calendar'); } : undefined}
             restoreEditorFocus={calendarEditing ? () => { if (currentContext.current === contextKey && calendarEditing.trigger.isConnected) calendarEditing.trigger.focus(); } : undefined}

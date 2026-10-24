@@ -1,3 +1,4 @@
+import {resolveBannerStyle,bannerBackground,bannerPaint} from '../bannerStyles';
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, Calculator } from 'lucide-react';
@@ -15,15 +16,6 @@ import { calendarLens, earthToWorld, isoDate, toIso, worldToEarth } from '../cal
 const clock = (): number => Date.now();
 function currentDate(): WorldDate { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }; }
 
-/** The band of an event on the calendar: its colour, plain or patterned. */
-function bannerBackground(event: TimelineEvent): string {
-  const color = event.color || '#c4973b';
-  if (event.bannerPattern === 'stripes') return `repeating-linear-gradient(135deg, ${color} 0 6px, color-mix(in srgb, ${color} 70%, black) 6px 9px)`;
-  if (event.bannerPattern === 'dots') return `radial-gradient(circle, rgba(255,255,255,.35) 1.2px, transparent 1.6px) 0 0 / 6px 6px, ${color}`;
-  if (event.bannerPattern === 'checks') return `conic-gradient(rgba(0,0,0,.22) 25%, transparent 0 50%, rgba(0,0,0,.22) 0 75%, transparent 0) 0 0 / 8px 8px, ${color}`;
-  return color;
-}
-
 const MOON = { new: '🌑', waxingCrescent: '🌒', firstQuarter: '🌓', waxingGibbous: '🌔', full: '🌕', waningGibbous: '🌖', lastQuarter: '🌗', waningCrescent: '🌘' } as Record<string, string>;
 const button = 'inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-text-primary hover:bg-elevated disabled:opacity-40';
 const input = 'rounded-lg border border-border bg-elevated px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-gold';
@@ -33,7 +25,7 @@ const input = 'rounded-lg border border-border bg-elevated px-2 py-1 text-xs tex
  * the whole year, on the project's world calendar or the Gregorian one, with
  * go-to-date and a small date calculator.
  */
-export default function CalendarView({ events, timelines, worldCalendar, onAddEvent, onOpenEvent }: { events: TimelineEvent[]; timelines: Timeline[]; worldCalendar: WorldCalendar | null; onAddEvent: (event: TimelineEvent) => void | Promise<void>; onOpenEvent?: (event: TimelineEvent, trigger: HTMLButtonElement) => void }) {
+export default function CalendarView({ events, timelines, worldCalendar, onAddEvent, onOpenEvent,bannerTimelines }: { events: TimelineEvent[]; timelines: Timeline[];bannerTimelines?:Timeline[]; worldCalendar: WorldCalendar | null; onAddEvent: (event: TimelineEvent) => void | Promise<void>; onOpenEvent?: (event: TimelineEvent, trigger: HTMLButtonElement) => void }) {
   const { t, locale } = useTranslation();
   const lang = locale === 'en' ? 'en' : 'es';
   const [kind, setKind] = useState<CalendarKind>(worldCalendar ? 'world' : 'earth');
@@ -84,7 +76,9 @@ export default function CalendarView({ events, timelines, worldCalendar, onAddEv
       {day.bars.slice(0, 3).map(({ event, start, end }) => {
         // A run of days reads as one banner: square where it carries on, its title where it starts (or on a week's first day).
         const span = !(start && end);
-        const shape = event.bannerShape === 'ribbon' || event.bannerShape === 'bunting' || event.bannerShape === 'scallop' ? event.bannerShape : 'plain';
+        const effective=resolveBannerStyle(event,bannerTimelines??timelines).style;
+        const paint=bannerPaint(effective);
+        const shape = effective.shape === 'ribbon' || effective.shape === 'bunting' || effective.shape === 'scallop' ? effective.shape : 'plain';
         const decorative = shape !== 'plain';
         const silhouette: CSSProperties = shape === 'ribbon'
           ? { clipPath: `polygon(0 0, 100% 0, ${end ? 'calc(100% - 6px)' : '100%'} 50%, 100% 100%, 0 100%, ${start ? '6px' : '0'} 50%)`, paddingLeft: start ? 8 : 4, paddingRight: end ? 8 : 4 }
@@ -92,8 +86,8 @@ export default function CalendarView({ events, timelines, worldCalendar, onAddEv
             ? { paddingBottom: 4, maskImage: `linear-gradient(#000 0 0), ${shape === 'bunting' ? 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'8\' height=\'4\'%3E%3Cpath fill=\'black\' d=\'M0 0H8L4 4Z\'/%3E%3C/svg%3E")' : 'radial-gradient(ellipse 4px 4px at 50% 0, #000 98%, transparent 100%)'}`, maskSize: '100% calc(100% - 4px), 8px 4px', maskPosition: 'top, bottom', maskRepeat: 'no-repeat, repeat-x' }
             : {};
         const showTitle = !decorative || start || day.day === 1 || (month.lead + day.day - 1) % (calendar.weekdays.length || 7) === 0;
-        return <span key={event.id} data-testid="calendar-event" data-banner={span ? (start ? 'start' : end ? 'end' : 'middle') : 'single'} data-pattern={event.bannerPattern ?? 'solid'} data-shape={shape} className="mt-0.5 truncate px-1 text-[10px] text-white"
-          style={{ background: bannerBackground(event), borderRadius: `${start ? 4 : 0}px ${end ? 4 : 0}px ${end ? 4 : 0}px ${start ? 4 : 0}px`, marginLeft: start || small ? 0 : -5, marginRight: end || small ? 0 : -5, ...(decorative ? { minHeight: 20, lineHeight: '16px', ...silhouette } : {}) }}>{showTitle ? event.title : <span className="sr-only">{event.title}</span>}</span>;
+        return <span key={event.id} data-testid="calendar-event" data-banner={span ? (start ? 'start' : end ? 'end' : 'middle') : 'single'} data-pattern={effective.pattern} data-shape={shape} className="relative mt-0.5 truncate px-1 text-[10px] text-white"
+          style={{ background: bannerBackground(effective), borderRadius: `${start ? 4 : 0}px ${end ? 4 : 0}px ${end ? 4 : 0}px ${start ? 4 : 0}px`, marginLeft: start || small ? 0 : -5, marginRight: end || small ? 0 : -5, ...(decorative ? { minHeight: 20, lineHeight: '16px', ...silhouette } : {}) }}>{paint?<><span aria-hidden="true" data-testid="calendar-banner-paint" className="pointer-events-none absolute inset-0" style={paint}/><span className="relative">{showTitle ? event.title : <span className="sr-only">{event.title}</span>}</span></>:showTitle?event.title:<span className="sr-only">{event.title}</span>}</span>;
       })}
       {day.events.length > 3 && <span className="text-[10px] text-text-dim">+{day.events.length - 3}</span>}
     </>}

@@ -1,3 +1,4 @@
+import {TIMELINE_BANNER_HANDLERS} from '@/engines/timeline/bannerBridge';
 import {WRITING_MANUSCRIPT_HANDLERS} from '@/engines/writings/manuscriptBridge';
 import { HOME_HANDLERS } from './projectHome';
 import {MANUSCRIPT_REVIEW_HANDLERS} from '@/engines/writings/manuscriptReview/bridge';
@@ -372,6 +373,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...DOCUMENT_HISTORY_HANDLERS,
   ...MODEL_READER_WIKI_HANDLERS,
   ...TIMELINE_BATCH_HANDLERS,
+  ...TIMELINE_BANNER_HANDLERS,
   ...ANNOTATION_THREAD_HANDLERS,
   ...DOCUMENT_IMAGE_HANDLERS,
   ...PREP_BLOCK_HANDLERS,
