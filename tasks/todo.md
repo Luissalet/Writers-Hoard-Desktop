@@ -1395,14 +1395,30 @@ See [shared-manuscript verification](vvd1095/verification-shared-manuscripts.md)
 
 SDK general coverage remains PARTIAL and task1095 remains open. [Evidence and limits](vvd1095/verification-sdk-rich-prose.md).
 
-## Worldgen place images — agreed design, implementation not started
+## Worldgen place images — integrated code and completed documentation
 
-Architecture1514 is resolved for PLAN-IMPLEMENTATION-r1.md plus PLAN-IMPLEMENTATION-r2-ADDENDUM.md, with30 proposed routes (26 product/4 tests) in `_stage/icons-next/`. This is a plan awaiting root GO after the rich documentation delivery; no image capability or test result is claimed here. Preserve Maps/Codex portraits and the existing move/remove-only position lock. Raster5MiB is per image; audit Undo remains aggregate with existing rotation/retention and framing limits.
+Source 0e2ba76144c8837d8e5da6b5f99cfb88064876d6 is independently approved at CAS 26 and integrated ff-only. The exact final global passed 1106 groups/415 suites/0 failures on 34 quiet paths; all seven main controls passed with a clean checkout. Author 31-r5, peer seven regular plus native 8 and composed root gates retain separate attribution. Root completed the native manual and continuity with preservation/readback receipts; repository documentation is included in this documentation commit. General SDK remains PARTIAL; task 1095 stays open.
 
-- [ ] Implement optional copied raster iconImage colour/inked/null through the normal File/Gallery inspector and existing MCP style tool; retain legacy/model/symbol and target rules.
-- [ ] Bind decode/read/cancel and cache leases to the actual owner/world/era; validate before mutation and revalidate after awaits.
-- [ ] Render prepared images reversibly in Map2D, Carto/export/documentImage and anchored World3D overlay, retaining fallback/model/labels/hitboxes.
-- [ ] Prepare regional sheet/deep tiles with existing WEB/Forge adapters; verify the final visible/exportable carta/satellite pass and the actual transport observed.
-- [ ] Verify real executor→audit/readback→immediate Undo for an aggregate before larger than the audit rotation threshold, including Base/era and later retention limits; retain UI PaintSession Undo separately.
-- [ ] Verify normal JSON/ZIP/Duplicate/era/history/Archive portability, legacy and failure paths with independent review and source hashes.
-- [ ] Complete final Browser, relevant gates, fresh commit/CAS, main build and product/manual/continuity documentation before recording delivery.
+- [x] Complete copied iconImage colour/inked/null, File/Gallery and existing MCP style semantics with exact5 MiB per-raster budget and unchanged legacy/model/symbol/targets.
+- [x] Verify real decode/read/cancel/retarget and owner/world/era rechecks; keep the existing move/remove position lock while allowing style.
+- [x] Verify prepared nominal16 CSS px×size framing, contain/alpha/DPR/labels/hit reach and reversible fallback across Map2D, Carto and projected World3D, preserving the4.4px RED.
+- [x] Verify shallow Carta/satellite zero decode, deep Carta single composition/real admission and the strict DownloadSheet lease; root WEB and independent native 8 PNG/RGB are separate from the unconfirmed normal Brave download and Forge process.
+- [x] Verify real executor→filesystem audit/readback→immediate aggregate Undo above the rotation threshold, Base/era and finite retention; keep UI PaintSession Undo separate.
+- [x] Verify normal portability/legacy/failure controls and bind independent CAS 26, final1106/415/0, exact source and seven clean-main gates to their receipts.
+- [x] Include the reviewed product documentation in this documentation commit; root completed the native manual (321 UTF16, other texts/styles preserved) and continuity (prefix/other nodes/edges preserved), with `manual-icons-receipt.json` and `continuity-icons-receipt.json`. The combined delivery record follows the documentation commit; no rich operation is replayed.
+
+[Contract and final receipts](vvd1095/verification-place-images.md). Notes 1530 proceeds independently under its own open checklist; no new note feature is claimed here. The root-authored Notes planning snapshot below is preserved unchanged; its earlier ICONS native-documentation wait is historical and superseded by the completed receipts above.
+
+
+## Inline images in notes — agreed implementation plan
+
+Architecture Agora1530 r2 is resolved. The implementation follows _stage/note-media-next/PLAN-proposed.md and its19-path proposal; the two new tests already preserve three material REDs (missing File/Gallery entry, lost alignment and rejected image-only MCP creation). ICONS source0e2ba761 is integrated after CAS26, global1106/415/0 and seven clean-main checks. Its native manual/continuity/product documentation are still pending shared-resource release; this note work does not claim those complete.
+
+- [ ] Add File/Gallery acquisition to the existing rich note card and composer through their native toolbar hooks, preserving heading/list content and original raster bytes.
+- [ ] Add optional validated image alignment; preserve widths/frames and exact legacy CSS/output when alignment is absent, including mixed legacy/new images.
+- [ ] Bind async acquisition to the actual note/editor/project/era and mapped selection; invalidate pending work synchronously before Save and preserve drafts on failure.
+- [ ] Replace only source bytes, preserve current attributes, and use normal image transactions with exact Remove/Undo/Redo.
+- [ ] Share the representation through existing note MCP operations, conditional captured wiki/document-image CSS and normal JSON/ZIP/Duplicate/era flows.
+- [ ] Verify actual File/Gallery UI, lifecycle failures, legacy regression fixtures, MCP, reopen and portability, then independent review, exact commit/CAS and guarded main integration.
+
+No generic SDK editor, Gallery picker, slash-command, prose-style or manuscript-export redesign is included. Parent1095 remains open; no push.
