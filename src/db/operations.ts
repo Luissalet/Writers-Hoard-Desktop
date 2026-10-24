@@ -774,9 +774,11 @@ export async function importProjectData(
   const eraRoots = (kind: string) => eraVariants.filter(row => row.kind === kind).flatMap(row => row.document ? [row.document.root] : []);
   const codexIds = new Set([...(data.codexEntries ?? []).map(entry => entry.id), ...eraRoots('codex').map(row => row.id)]), mediaIds = new Set([...media.map(asset => asset.id), ...eraRoots('media').map(row => row.id)]);
   const referenceProject = { ...data.project! };
+  const richSources=[...data.project!.sourceToolDocuments??[],...eraVariants.filter(row=>row.kind==='local-tool').flatMap(row=>[row.document,...row.history?.map(state=>state.document)??[]]).flatMap(document=>document?[document.root]:[]),...history.filter(row=>row.kind==='local-tool').map(row=>row.document.root)] as unknown as Project['sourceToolDocuments'];
   for (const [kind, adapter] of Object.entries(eraAdapters)) if (adapter.metadata) Object.assign(referenceProject, { [adapter.metadata]: [...(data.project![adapter.metadata] as { id: string }[] | undefined) ?? [], ...eraRoots(kind)] });
   const toolIds = projectToolIds(referenceProject, { writings:[...data.writings??[],...eraRoots('writings')],scenes:data.scenes,generatedWorlds:data.generatedWorlds,worldMaps: [...data.worldMaps ?? [], ...eraRoots('maps')], boards: [...data.boards ?? [], ...eraRoots('board')], timelines: [...data.timelines ?? [], ...eraRoots('timeline')] });
   const richContent = (content: string) => remapWorldRichContent(content, data.project!.id, newProjectId, remap, codexIds, mediaIds, toolIds);
+  const richProse=(content:string)=>remapWorldRichContent(content,data.project!.id,newProjectId,remap,codexIds,mediaIds,toolIds,{linksOnly:true});
 
   await db.transaction('rw', [
     db.projects, db.codexEntries, db.writings, db.publishingProfiles, db.manuscriptSources, db.timelines, db.timelineEvents, db.documentHistory, db.annotations, db.annotationReferences, db.scenes, db.sceneCasts, db.dialogBlocks,
@@ -789,7 +791,7 @@ export async function importProjectData(
     await db.projects.add({
       ...data.project!,
       id: newProjectId,
-      ...remapWorldMetadata(data.project!, remap, codexIds, mediaIds, new Set([...(data.writings ?? []).map(writing => writing.id), ...eraRoots('writings').map(row => row.id)]), toolIds),
+      ...remapWorldMetadata(data.project!, remap, codexIds, mediaIds, new Set([...(data.writings ?? []).map(writing => writing.id), ...eraRoots('writings').map(row => row.id)]), toolIds,richSources),
       title: `${data.project!.title} (Imported)`,
       // JSON imports clone IDs. Keep workflow pointers inside the new project;
       // unlike ZIP, this legacy format does not carry notes or citations.
@@ -825,7 +827,7 @@ export async function importProjectData(
     for (const source of sources) await db.manuscriptSources.add(cloneManuscriptSource(source, newProjectId, remap));
     // Writings
     for (const w of data.writings || []) {
-      await db.writings.add({ ...w,...(w.manuscriptId?{manuscriptId:remap(w.manuscriptId,'manuscript')}:{}), toolDock:remapToolDockLayout(w.toolDock,remap), id: remap(w.id, 'wr'), projectId: newProjectId, manuscriptSource: cloneManuscriptWritingSource(w.manuscriptSource, remap), content: richContent(w.content) });
+      await db.writings.add({ ...w,...(w.manuscriptId?{manuscriptId:remap(w.manuscriptId,'manuscript')}:{}), toolDock:remapToolDockLayout(w.toolDock,remap,richProse), id: remap(w.id, 'wr'), projectId: newProjectId, manuscriptSource: cloneManuscriptWritingSource(w.manuscriptSource, remap), content: richContent(w.content) });
     }
 
     for(const asset of assetFiles)await db.localToolAssetFiles.add({...asset,id:remap(asset.id,'asset-file'),projectId:newProjectId});

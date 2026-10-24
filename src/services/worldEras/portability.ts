@@ -79,9 +79,10 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
     }
   }
   const tools = projectToolIds(projectWithVariants, {writings:[...base.writings??[],...allRoots('writings')],scenes:[...base.scenes??[],...allRoots('dialog-scene')],generatedWorlds:[...base.generatedWorlds??[],...allRoots('worldgen')],worldMaps: [...base.worldMaps ?? [], ...allRoots('maps')], boards: [...base.boards ?? [], ...allRoots('board')], timelines: [...base.timelines ?? [], ...allRoots('timeline')] });
+  const richProse=(html:string)=>remapWorldRichContent(html,project.id,targetProjectId,remap,codexIds,mediaIds,tools,{linksOnly:true});
   const referenceFields = new Set(['id', 'projectId', 'eraId', '__worldEraAssetId', '__documentHistoryAsset', 'templateId', 'writingId', 'sourceDraftId', 'sceneId', 'characterId', 'mapId', 'worldId', 'sourceWorldId', 'originWorldId', 'boardId', 'timelineId', 'layerId', 'layerIds', 'memberNodeIds', 'entityId', 'entryId', 'linkedEntryId', 'linkedEntryIds', 'targetId', 'sourceId', 'targetEntityId', 'sourceEntityId', 'sourceEventId', 'targetEventId', 'timelineEventId', 'referenceFields']);
   const rewrite = (value: unknown, key = ''): unknown => {
-    if(key==='toolDock')return remapToolDockLayout(value as ToolDockValue,remap);
+    if(key==='toolDock')return remapToolDockLayout(value as ToolDockValue,remap,richProse);
     if (typeof value === 'string' && key === 'sourceDraftId') return remap(value, 'wsnap');
     if (typeof value === 'string' && key === 'sourceEntityId' && value.includes('::')) { const split = value.indexOf('::'); return `${ids.get(value.slice(0, split)) ?? value.slice(0, split)}${value.slice(split)}`; }
     if (typeof value === 'string') return referenceFields.has(key) ? ids.get(value) ?? value : ['content', 'html', 'body', 'richContent'].includes(key) ? remapWorldRichContent(value, project.id, targetProjectId, remap, codexIds, mediaIds, tools) : value;
@@ -92,7 +93,7 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
   };
   return (kind: EraDocumentKind, document: import('./types').EraDocument): import('./types').EraDocument => {
     // Tool-owned JSON is opaque except for its explicit reference codec.
-    if (kind === 'local-tool') return { root: remapSourceToolDocument(document.root as unknown as SourceToolDocument, remap) as unknown as EraRow, children: {} };
+    if (kind === 'local-tool') return { root: remapSourceToolDocument(document.root as unknown as SourceToolDocument, remap,richProse) as unknown as EraRow, children: {} };
     const field = eraAdapters[kind].metadata;
     const root = rewrite(field ? (remapWorldMetadata({ ...projectWithVariants, [field]: [document.root] }, remap, codexIds, mediaIds, writingIds, tools)[field] as EraRow[])[0] : document.root) as EraRow;
     if(kind==='writings'&&typeof document.root.manuscriptId==='string')root.manuscriptId=remap(document.root.manuscriptId,'manuscript');

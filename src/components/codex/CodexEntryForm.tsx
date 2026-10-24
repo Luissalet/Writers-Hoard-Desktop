@@ -8,6 +8,8 @@ import type { CodexEntry, CodexEntryType } from '@/types';
 import { getTemplateFields } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import TiptapEditor from '@/components/editor/TiptapEditor';
+import type {Editor} from '@tiptap/core';
+import {localToolAtomKey,localToolAtomPending} from '@/engines/local/blocks/pending';
 import TagInput from '@/components/common/TagInput';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus, Plus, X } from 'lucide-react';
@@ -131,6 +133,8 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
   const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [pendingBlock, setPendingBlock] = useState(false);
+  const contentEditor = useRef<Editor|null>(null);
   const savingRef = useRef(false);
   // The entry this edit started from, advanced field by field as conflicts are resolved.
   const [base, setBase] = useState(initial.base);
@@ -264,6 +268,11 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
 
   const handleSave = async () => {
     if (!title.trim() || savingRef.current || conflict) return;
+    let pending=false;
+    const editor=contentEditor.current;
+    if(editor&&!editor.isDestroyed)editor.state.doc.descendants(node=>{const key=localToolAtomKey(node);if(key&&localToolAtomPending(editor,key))pending=true;});
+    setPendingBlock(pending);
+    if(pending)return;
     const missing = missingRequiredProperties(valueDefinitions, fields);
     setRequiredMissing(missing.map(definition => definition.label));
     if (missing.length) return;
@@ -524,7 +533,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
           <BookOpen size={14} />
           {t('codex.extendedNotes')}
         </label>
-        <TiptapEditor documentOwner={entry?{kind:'codex',documentId:entry.id}:undefined} prepareExternal={async()=>!dirty} canAcceptExternalBlock={()=>!dirty&&!saving} onExternalBlockCommit={(_owner,root)=>{const updated=root as unknown as CodexEntry;setExternalEntry(updated);setBase(updated);setContent(updated.content);}} content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
+        <TiptapEditor onEditorReady={editor=>{contentEditor.current=editor;}} documentOwner={entry?{kind:'codex',documentId:entry.id}:undefined} prepareExternal={async()=>!dirty} canAcceptExternalBlock={()=>!dirty&&!saving} onExternalBlockCommit={(_owner,root)=>{const updated=root as unknown as CodexEntry;setExternalEntry(updated);setBase(updated);setContent(updated.content);}} content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
       </div>
 
       {/* Tags */}
@@ -562,6 +571,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
       )}
       {requiredMissing.length > 0 && <p role="alert" data-testid="codex-required-missing" className="text-sm text-danger">{t('codex.property.requiredMissing').replace('{names}', requiredMissing.join(', '))}</p>}
       {saveError && <p role="alert" className="text-sm text-red-400">{t('codex.saveError')}</p>}
+      {pendingBlock && <p role="alert" className="text-sm text-danger">{locale==='es'?'Guarda o descarta los cambios del bloque antes de guardar la tarjeta.':'Save or discard the block changes before saving the card.'}</p>}
       <div className="flex gap-3 pt-2">
         <button
           onClick={() => void handleSave()}

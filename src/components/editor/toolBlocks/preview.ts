@@ -1,4 +1,5 @@
 import {renderLocalAssetPreview} from '@/engines/local/assetBrowser';
+import {richProsePreviewHtml,type RichProsePolicy} from '@/engines/local/richProseHtml';
 import {wikiDocumentExcluded} from '@/services/wikiProfiles/policy';
 import {eraDocumentKinds,type EraDocumentKind} from '@/services/worldEras/types';
 import type {ReaderSource} from '@/engines/writings/readerSource';
@@ -64,12 +65,15 @@ export function safeToolSvg(source: string, stablePrefix?:string): string {
 
 /** The public wiki builder can receive imported/test data. Rebuild its cached
  * semantic preview rather than trusting a supposedly prepared HTML string. */
-export function sanitizeToolPreviewHtml(source:string,stablePrefix?:string,allowImages=false):string {
+export function sanitizeToolPreviewHtml(source:string,stablePrefix?:string,allowImages=false,richPolicy?:RichProsePolicy):string {
   const doc=new DOMParser().parseFromString(source,'text/html'),out=document.createElement('div');
   const tags=new Set(['P','H1','H2','H3','H4','H5','H6','STRONG','B','EM','UL','OL','LI','TABLE','THEAD','TBODY','TR','TD','TH','DIV','SPAN','SECTION','DL','DT','DD']);
   const visit=(node:Node,parent:Element)=>{
     if(node.nodeType===Node.TEXT_NODE){parent.append(document.createTextNode(node.textContent??''));return;}
     if(!(node instanceof Element))return;
+    if(node.getAttribute('data-wh-rich-prose')==='true'){
+      const element=document.createElement('div');element.setAttribute('data-wh-rich-prose','true');element.innerHTML=richProsePreviewHtml(node.innerHTML,{includeImages:allowImages,...richPolicy});parent.append(element);return;
+    }
     if(node.localName==='svg'){const safe=safeToolSvg(node.outerHTML,stablePrefix);if(safe){const fragment=document.createElement('template');fragment.innerHTML=safe;parent.append(fragment.content);}return;}
     if(allowImages&&node.tagName==='IMG'&&raster(node.getAttribute('src')??'')){const img=document.createElement('img');img.src=node.getAttribute('src')!;img.alt=node.getAttribute('alt')??'';parent.append(img);return;}
     if(!tags.has(node.tagName))return;

@@ -54,18 +54,18 @@ export function projectToolIds(project: Project, core: { writings?:{id:string}[]
   for (const row of project.sourceToolDocuments ?? []) (localDocuments[`local-tool-${row.namespace}`] ??= new Set()).add(row.id);
   return { ...localDocuments, writings:ids(core.writings), 'dialog-scene':ids(core.scenes),worldgen:ids(core.generatedWorlds),maps: ids(core.worldMaps), board: ids(core.boards), timeline: ids(core.timelines), 'relation-tree': ids(project.relationTrees), dictionary: ids(project.dictionaries), tables: ids(project.dataTables), 'character-sheets': ids(project.characterSheets), radar: ids(project.radarCharts), 'model-viewer': ids(project.modelAssets) };
 }
-export function remapWorldRichContent(content: string, sourceProjectId: string, targetProjectId: string, remap: (id: string, prefix: string) => string, codexIds: ReadonlySet<string>, mediaIds: ReadonlySet<string> = new Set(), toolIds: WorldToolIds = {}): string {
-  if(content.includes('data-wh-source-block')){validateLocalToolBlocksInHtml(content,sourceProjectId);content=remapLocalToolBlocksInHtml(content,remap,targetProjectId);}
-  if (content.includes('data-wh-prep')) content = remapPrepBlocks(content, remap, codexIds);
+export function remapWorldRichContent(content: string, sourceProjectId: string, targetProjectId: string, remap: (id: string, prefix: string) => string, codexIds: ReadonlySet<string>, mediaIds: ReadonlySet<string> = new Set(), toolIds: WorldToolIds = {},options:{linksOnly?:boolean}={}): string {
+  if(!options.linksOnly&&content.includes('data-wh-source-block')){validateLocalToolBlocksInHtml(content,sourceProjectId);content=remapLocalToolBlocksInHtml(content,remap,targetProjectId,html=>remapWorldRichContent(html,sourceProjectId,targetProjectId,remap,codexIds,mediaIds,toolIds,{linksOnly:true}));}
+  if (!options.linksOnly&&content.includes('data-wh-prep')) content = remapPrepBlocks(content, remap, codexIds);
   if (!content.includes('data-wh-codex-block') && !content.includes('data-wh-media-block') && !content.includes('data-wh-tool-block') && !/\/(?:codex|writings|tables|timeline)\?/.test(content)) return content;
   const template = document.createElement('template'); template.innerHTML = content;
-  for (const block of template.content.querySelectorAll('[data-wh-codex-block="true"], [data-wh-media-block="true"]')) {
+  if(!options.linksOnly)for (const block of template.content.querySelectorAll('[data-wh-codex-block="true"], [data-wh-media-block="true"]')) {
     if (block.getAttribute('data-project-id') !== sourceProjectId) continue;
     const media = block.hasAttribute('data-wh-media-block'), attribute = media ? 'data-asset-id' : 'data-entry-id';
     const id = block.getAttribute(attribute) ?? ''; const admitted = (media ? mediaIds : codexIds).has(id);
     block.setAttribute('data-project-id', targetProjectId); block.setAttribute(attribute, admitted ? remap(id, media ? 'media' : 'codex') : '');
   }
-  for (const block of template.content.querySelectorAll('[data-wh-tool-block="true"]')) {
+  if(!options.linksOnly)for (const block of template.content.querySelectorAll('[data-wh-tool-block="true"]')) {
     if (block.getAttribute('data-project-id') !== sourceProjectId) continue;
     const kind = block.getAttribute('data-tool-kind') ?? '', id = block.getAttribute('data-document-id') ?? '';
     const catalogKey=kind==='local-tool'?`local-tool-${block.getAttribute('data-namespace')??''}`:kind,prefix=kind==='local-tool'?'source-tool':toolPrefixes[kind];
@@ -96,24 +96,26 @@ export function remapWorldRichContent(content: string, sourceProjectId: string, 
 }
 
 /** Clone project-owned world documents without retaining links into the source project. */
-export function remapWorldMetadata(project: Project, remap: (id: string, prefix: string) => string, codexIds: ReadonlySet<string>, mediaIds: ReadonlySet<string> = new Set(), writingIds: ReadonlySet<string> = new Set(), toolIds: WorldToolIds = projectToolIds(project)): Partial<Project> {
+export function remapWorldMetadata(project: Project, remap: (id: string, prefix: string) => string, codexIds: ReadonlySet<string>, mediaIds: ReadonlySet<string> = new Set(), writingIds: ReadonlySet<string> = new Set(), toolIds: WorldToolIds = projectToolIds(project),richSources:Project['sourceToolDocuments']=project.sourceToolDocuments): Partial<Project> {
   validateProjectArchiveMetadata(project);
   validateLocalToolProjectStates(project);validateWorkspaceAppearanceProject(project);validatePublishedEditionsProject(project);validateCodexOptionLists(project.codexOptionLists);
   const entry = (id: string | undefined) => id && codexIds.has(id) ? remap(id, 'codex') : undefined;
   const templateIds = new Set(project.codexTemplates?.map(template => template.id));
   const templateLink = (id: string | undefined) => id && templateIds.has(id) ? remap(id, 'template') : undefined;
   const track = (audio: ReaderAudioTrack | undefined): ReaderAudioTrack | undefined => audio && mediaIds.has(audio.assetId) ? { ...audio, assetId: remap(audio.assetId, 'media') } : undefined;
-  const localStates=(states:Project['localToolStates'])=>{const cloned=cloneLocalToolStates(states);if(cloned)for(const [namespace,state]of Object.entries(cloned)){const codec=project.localToolContracts?.[namespace];if(codec)state.data=remapLocalToolReferences(state.data,codec,(kind,id)=>remap(id,worldDocumentPrefixes[kind]),(kind,id)=>remap(id,kind==='image'?'img':kind==='file'?'asset-file':'media'));}return cloned;};
+  const richProse=(html:string)=>remapWorldRichContent(html,project.id,remap(project.id,'proj'),remap,codexIds,mediaIds,toolIds,{linksOnly:true});
+  const richSourceIds=new Set((richSources??[]).filter(row=>Object.values(row.codec?.fields??{}).some(field=>field.kind==='prose'&&field.format==='rich')).map(row=>row.id));
+  const localStates=(states:Project['localToolStates'])=>{const cloned=cloneLocalToolStates(states);if(cloned)for(const [namespace,state]of Object.entries(cloned)){const codec=project.localToolContracts?.[namespace];if(codec)state.data=remapLocalToolReferences(state.data,codec,(kind,id)=>remap(id,worldDocumentPrefixes[kind]),(kind,id)=>remap(id,kind==='image'?'img':kind==='file'?'asset-file':'media'),richProse);}return cloned;};
   return {
     ...(project.manuscriptCatalog?{manuscriptCatalog:remapManuscriptCatalog(project.manuscriptCatalog,remap)}:{}),
-    sourceToolDocuments: remapSourceToolDocuments(project.sourceToolDocuments, remap),
-    writingToolDock: remapToolDockLayout(project.writingToolDock, remap),
+    sourceToolDocuments: remapSourceToolDocuments(project.sourceToolDocuments, remap,richProse),
+    writingToolDock: remapToolDockLayout(project.writingToolDock, remap,richProse),
     worldFolderImports: remapWorldFolderImports(project.worldFolderImports, (id,kind)=>remap(id,kind==='import'?WORLD_FOLDER_IMPORT_ID_PREFIX:kind==='era'?'era':worldDocumentPrefixes[kind])),
     localToolContracts: project.localToolContracts ? structuredClone(project.localToolContracts) : undefined,
     ...remapWikiProfiles(project, remap),
     localToolInstallations: cloneLocalToolInstallations(project.localToolInstallations),
     entityDetectionPreferences: project.entityDetectionPreferences ? { ...project.entityDetectionPreferences, revision: 0 } : undefined,
-    ...remapPublishedEditions(project, remap, content => remapPublishedEditionContent(project.id, remap(project.id, 'proj'), content, remap), id => remap(id, 'media')),
+    ...remapPublishedEditions(project, remap, content => remapPublishedEditionContent(project.id, remap(project.id, 'proj'), content, remap,{richSourceIds}), id => remap(id, 'media'),html=>remapPublishedEditionContent(project.id,remap(project.id,'proj'),html,remap,{linksOnly:true})),
     worldEras: project.worldEras?.map(era => {
       const defaults = era.defaults;
       const mapped = defaults ? remapWorldMetadata({ ...project, ...defaults, worldEras: undefined }, remap, codexIds, mediaIds, writingIds, toolIds) : undefined;
