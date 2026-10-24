@@ -327,10 +327,11 @@ These are fields of `defineLocalTool({...})`, not a complete definition. URLs co
 | `resolve(ref)` | Resolve a typed local ref to `Blob`, `kind`, `mime`, `version`, `ref`, `slot`, `origin`, or `null`. |
 | `slot(slot, overrides?)` | Resolve document override → effective installation override → shipped default. Returns `origin: document|installation|default`; a present unavailable/invalid override does not silently fall through. |
 | `validate(slot, refOrNull)` | Validate replacement and return canonical `slot` plus its `aliases` for the caller's normal state action. |
-| `choices(kind)` | Local project image choices or effective audio/video media choices. |
+| `choices(kind)` | Project images, effective audio/video media, or immutable project font/data files; returns ref/title, not bytes. |
+| `import(file, kind)` | Import a `File` as `font` or `data`; returns `LocalAssetFileInfo` (id/projectId/kind/title/mime/size/sha256/createdAt/ref), without Blob. Project+kind+SHA+MIME deduplication preserves the original title. |
 | `installation.read()` / `.set(slot, refOrNull, version)` | Read CAS token and effective/own selections; set or Revert the current Base/era layer. Readonly or revoked clients reject writes. |
 
-Refs are `{kind:'image',id}`, `{kind:'media',id}` or `{kind:'source',namespace,slot,releaseHash?}`. An omitted hash follows the effective project pin; an explicit hash selects exactly that compiled release of the same namespace, even if another release is the current pin. There is no fallback to an uncompiled release. The current client lease remains checked. No temporary URL or Blob belongs in JSON state.
+Refs are `{kind:'image',id}`, `{kind:'media',id}`, `{kind:'file',id}` for imported font/data, or `{kind:'source',namespace,slot,releaseHash?}`. An omitted hash follows the effective project pin; an explicit hash selects exactly that compiled release of the same namespace, even if another release is the current pin. There is no fallback to an uncompiled release. The current client lease remains checked. No temporary URL or Blob belongs in JSON state.
 
 A document or owned block can declare its optional selection map:
 
@@ -346,9 +347,9 @@ preview: {version: 1, fields: [], assets: [{
 
 In its React component, `useLocalToolAsset(client, 'portrait', overrides)` returns `{asset,url,loading,error}`; render `url` as an image. The hook owns/revokes its ObjectURLs, ignores late former-binding results and observes commits. Use `assets.validate` to canonicalize a chosen slot and remove its aliases through the existing `state.apply` map actions; those actions keep normal document/block Undo receipts. The shipped `examples/AssetPad.tsx` shows both selectors, Revert and explicit `useSound` Play/Stop. Its audio volume is15%; mounting never plays.
 
-Installation selections reuse portable project/era state; eras store only their differences and Revert restores inheritance. **Installation offers CAS+Revert, without Undo.** Font/data can supply shipped Blob defaults, but there is no generic replacement picker for them. No new permission or global media store is introduced. The author kit shares resolution/cascade logic and accepts explicit fixture media/images.
+Installation selections reuse portable project/era state; eras store only their differences and Revert restores inheritance. **Installation offers CAS+Revert, without Undo.** Font/data retain shipped Blob defaults and also accept local project-file import/choices. Era overrides store selections, not duplicate file bytes. No new permission or global media store is introduced. The author kit shares resolution/cascade logic and accepts explicit fixture media/images/assetFiles.
 
-Declarative readonly previews resolve captured bytes without mounting authored controls or writing state. Captures include only referenced gallery images, including nested draft blocks, and never fall back to live DB when a snapshot exists. Images obey `includeImages`/image exclusions; media obeys `includeMedia`. JSON/ZIP/clone remap image/media reference domains separately. Normal SVG/raster preview frames are96×96; wiki resanitizes SVG with its own full-width/max360px frame. Global manuscript SVG policy is unchanged. Asset-backed audio still uses the existing gesture-gated SDK graph; native MCP play does not start or queue it.
+Declarative readonly previews resolve captured bytes without mounting authored controls or writing state. Captures include only referenced gallery images, including nested draft blocks, and never fall back to live DB when a snapshot exists. Images obey `includeImages`/image exclusions independently of `includeMedia`; `includeMedia:false` omits font/data and other media, without suppressing admitted gallery images. JSON/ZIP/clone remap file/image/media reference domains separately. Normal SVG/raster preview frames are96×96; wiki resanitizes SVG with its own full-width/max360px frame. Global manuscript SVG policy is unchanged. Asset-backed audio still uses the existing gesture-gated SDK graph; native MCP play does not start or queue it.
 
 Verification:18 author groups +6 independent groups +10 relevant legacy groups,34 distinct focused groups, not a global suite. Root's normal Brave imports/selection/Revert/save/reopen and readonly96px evidence are separate from dispatcher tests; no final-source stdio or hardware-listening claim. See the linked verification for source receipts, final integration/build and the separate manual receipt.
 
@@ -384,3 +385,33 @@ const levels = useLocalToolAudioLevels(client.audio, activeHandleId);
 This opt-in hook samples while that handle is active and the view is visible. Retargeting/unmount removes its RAF/subscription; the first frame of a new binding never shows the old samples. It does not stop other playback. `examples/SoundPad.tsx` uses the normal Local sounds Owned block: low-volume music loop, L/R metrics, pan and Stop. These controls are runtime only: saving the parent retains the block, reopening starts Stopped at15%/pan0 without autoplay. Readonly previews remain inert.
 
 Native agent correspondence reuses `wh_local_audio_status` with optional `includeLevels:true`, returning per-handle `levels` or null in the same project/era; without it the levels field is absent. `wh_local_audio_control` adds `action:'pan'`, required `handleId` and finite `pan`. It changes that existing scoped voice only. Native play remains `started:false`, `queued:false`, `gesture-required` for both media and source-slot refs. No final-source stdio or hardware evidence follows from a dispatcher test. The linked verification separates29 focused groups, real OfflineAudioContext/Analyser checks, controlled backend-state tests, root Browser, CAS20/manual receipts and the final main verification still in progress.
+
+## Project font/data files and font loading
+
+Feature source `c2b7cb0dba116485264a8ae86e48635c82706e72` is carried by delivery `416be426337f22f128c5f4d0875167d48738e05c`, approved CAS23 and verified on main. It extends the resource baseline above without replacing its historical receipts. [Detailed verification](../tasks/vvd1095/verification-sdk-asset-files.md).
+
+```ts
+// The File comes from a normal file input; the slot must accept its kind/MIME.
+const imported = await client.assets.import(file, 'font');
+const installation = await client.assets.installation.read();
+await client.assets.installation.set('font', imported.ref, installation.version);
+```
+
+Import and selection are separate UI operations. A refused/stale selection retains the draft and imported choice; explicitly reselect or Revert using the newly observed token, without an automatic CAS retry. Document/Owned choices use the declared `assetOverrides` map and native state/block Undo/Redo receipts. Installation has CAS+Revert, without Undo; Undo does not delete immutable file bytes. Readonly/query imports reject. An editable Owned host has a separately leased import capability; its general world/media facilities remain readonly.
+
+```tsx
+import {useLocalToolAsset, useLocalToolFontFace} from '@/engines/local/sdk';
+
+const resource = useLocalToolAsset(client, 'font', overrides);
+const face = useLocalToolFontFace(resource.asset);
+// At the top level of the existing component; show loading/error as appropriate.
+return <span style={face.family ? {fontFamily: `"${face.family}", sans-serif`} : undefined}>AA AA</span>;
+```
+
+`useLocalToolFontFace(assetOrNull)` returns `family/loading/error`. Each caller owns its FontFace; cleanup removes only that face and late former bindings cannot publish after retarget/unmount. The public import stays headless-safe; the effect performs browser work. It creates no ObjectURL (the asset hook owns its own URLs). Loading, an error or a system fallback does not prove that the requested font rendered.
+
+AssetPad's normal Document/Installation pickers import, explicitly select, save/reopen and Revert both kinds. Its procedural TTF covers only A and space; this is a developer sample, not a general writing font. Its JSON example reads a labels list; data resources themselves remain opaque bytes, never evaluated as code. Inventory admission uses 50MiB/file and 500MiB/project, without changing Dictionary's separate 512KiB contract. No new inventory editor, deletion or garbage collection is provided.
+
+Project/full JSON and ZIP preserve actual file bytes and preflight size/MIME/SHA before writes; old backups without files remain accepted. Duplicate/clone keep file/image/media remap domains distinct even for equal literal IDs. Captured readonly previews use only their admitted snapshot/accessor, without live-DB fallback or authored controls. Missing bytes stay unavailable. Reader/wiki emit generated font CSS only for markers surviving final sanitization and add `font-src data:` to CSP only when that CSS is nonempty; author CSS is not admitted. Published retains frozen HTML. The existing wiki SVG frame and manuscript SVG policy remain unchanged.
+
+These are Writer's own additive signatures. The primary [AssetManifest](https://docs.beta.vvd.world/workshop/reference/sdk#assetmanifest) and [useAsset](https://docs.beta.vvd.world/workshop/reference/sdk#useasset) describe typed slots/cascade; no upstream font/data picker was observed. The native hook uses [CSS Font Loading](https://drafts.csswg.org/css-font-loading/#fontface-interface). No binary SDK equivalence, universal font coverage, new stdio proof, hardware/audio autoplay or external paid service is claimed.
