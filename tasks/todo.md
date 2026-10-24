@@ -1453,3 +1453,17 @@ Success: choose a real graphic by search/category in a normal place inspector, p
 - [x] Verify real UI/Worker/PNG/native audit and Undo, Base/era, portability, build graph/budget and affected original tests; preserve all failures. Functional evidence and accepted byte cost remain distinct from budget FAIL; original label/preset RED→GREEN is preserved.
 - [x] Complete independent review, root Brave/gates and fresh formal CAS; commit explicit paths as Luissalet and integrate exact source under merge lock without push. Source fb63670/CAS29 approved17221, exact FF and Main8PASS. Original global1159/458/1observer FAIL plus R6 normal formalPASS are composed honestly; no new global0.
 - [x] Record actual delivery in product/MCP documentation, native Google manual and continuity; leave task1095 open for remaining gaps. This documentation commit records the bounded feature; Google397 and MEMORY/own graph readbacks are complete. The ROOT delivery receipt records the documentation commit and main integration after they occur. Task1095 stays open.
+
+
+## Local audio and video inside Board references - task 1095, research 1460
+
+Success: an existing entity/local-media reference plays its own effective local audio/video through native controls, survives reopen and uses the normal scoped UI/MCP Undo and portable formats without copying bytes into nodes.
+
+- [x] Compare own WAV/MP4 in real Brave and preserve existing Reference/Undo/cold persistence; agree minimal15path design in debate1577.
+- [x] Preserve real focused REDs, implement the existing-reference vertical and shared valid-media contract, with read-only legacy fallback. Author17 and the one-line visual F1 correction retain the original RED and observer history.
+- [x] Verify native playback/cleanup/gestures, normal Reference/rail/drop, scoped MCP/get/receipt Undo and original Board tests. Author NativeExecutor audit/RPC Undo is separate from independent dispatcher/Dexie four-group coverage; ROOT Brave played and paused both own files and retained references after Undo/Redo and cold reload.
+- [x] Verify JSON/ZIP/Duplicate/eras/history/archive and domain collision; request any extra causal route only after an actual RED. Exact media-domain remap and backupScope registration follow actual failures; ROOT adds the missing canonical asset-file fixture without weakening original duplicate assertions.
+Independent UI review preserved a real late-reference race after the destination moved to a hidden layer. The existing admission now rejects destination layer changes; its exact RED oracle is retained for final regression coverage.
+
+- [ ] Freeze exact source and complete independent review, ROOT Brave/gates and formal CAS before explicit-path commit and main integration.
+- [ ] Update product/MCP documentation, manual and continuity from actual receipts; keep1095 open for remaining web/SDK gaps.

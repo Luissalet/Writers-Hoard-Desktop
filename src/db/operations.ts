@@ -869,6 +869,7 @@ export async function importProjectData(
       await db.boardNodes.add({
         ...n,
         richContent: n.richContent ? richContent(n.richContent) : n.richContent,
+        ...(n.ref?.engineId === 'media' && n.ref.entityType === 'local-media' && n.ref.entityId ? { ref: { ...n.ref, entityId: remap(n.ref.entityId, 'media') } } : {}),
         id: remap(n.id, 'bnode'),
         memberNodeIds: n.memberNodeIds?.map(id => remap(id, 'bnode')),
         projectId: newProjectId,

@@ -27,7 +27,32 @@ const reviewPlaceCatalogCheck = spawnSync(process.execPath, ['tests/review-place
 if (reviewPlaceCatalogCheck.status !== 0 || reviewPlaceCatalogCheck.error) process.exit(reviewPlaceCatalogCheck.status ?? 1);
 const ownedEvolutionCheck = spawnSync(process.execPath, ['tests/local-tool-block-evolution.node.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (ownedEvolutionCheck.status !== 0) process.exit(ownedEvolutionCheck.status ?? 1);
+const boardMediaAuditCheck = spawnSync(electron, ['tests/board-media.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (boardMediaAuditCheck.status !== 0 || boardMediaAuditCheck.error) process.exit(boardMediaAuditCheck.status ?? 1);
 const suites = [
+  ['review-board-media-destination.browser.tsx', 'testReviewBoardMediaDestination', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media.browser.tsx', 'testBoardMediaMetadata', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media.browser.tsx', 'testBoardMediaReferenceValidation', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media.browser.tsx', 'testBoardMediaReceipts', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media-ui.browser.tsx', 'testBoardMediaPlayer', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media-ui.browser.tsx', 'testBoardMediaRail', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media-ui.browser.tsx', 'testBoardMediaCanvasFlow', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media-ui.browser.tsx', 'testBoardMediaLayers', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media-ui.browser.tsx', 'testBoardMediaReadLifecycle', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media-ui.browser.tsx', 'testBoardMediaLateAdmission', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media-ui.browser.tsx', 'testBoardMediaReferenceAndDrop', 180000, 'scripts/run-codex-properties-ui.cjs'],
+  ['board-media-portability.browser.tsx', 'testBoardMediaJson', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media-portability.browser.tsx', 'testBoardMediaDomainCollision', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media-portability.browser.tsx', 'testBoardMediaPortableFormats', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media-portability.browser.tsx', 'testBoardMediaEraRootCollision', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media-portability.browser.tsx', 'testBoardMediaStaticCopy', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['board-media-portability.browser.tsx', 'testBoardMediaArchiveGuard', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['review-board-media-contracts.browser.ts', 'testReviewBoardMediaContracts', 180000],
+  ['board-canvas-undo.browser.ts', 'testBoardCanvasUndo', 180000],
+  ['board-piles.browser.tsx', 'testBoardPiles', 180000],
+  ['world-eras-adapters.browser.tsx', 'testWorldEraAdapters', 180000],
+  ['project-duplicate-independent.browser.ts', 'testProjectDuplicateIndependent', 180000],
+  ['project-duplicate-full.browser.ts', 'testProjectDuplicateAllFamilies', 180000],
   ['review-place-icon-catalog-thumbnail.browser.tsx', 'testReviewPlaceCatalogThumbnailReplay', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogInspector', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['worldgen-place-icon-catalog.browser.tsx', 'testWorldgenPlaceCatalogViews', 180000, 'scripts/run-codex-properties-ui.cjs'],

@@ -4,6 +4,7 @@ import { sha256Hex } from '@/services/judge/text';
 import { saveEraDocument, readWorldDocument } from '@/services/worldEras/store';
 import { deleteCodexEntry } from '@/db/operations';
 import { genealogyLinkKey } from '@/engines/genealogy/genealogyStore';
+import { prepareAssetFile } from '@/engines/local/assetFileFormat';
 import type { DuplicateRow } from '@/services/projectDuplicate/types';
 import type { ReaderPresentation } from '@/engines/writings/readerPresentationTypes';
 
@@ -43,6 +44,8 @@ export async function seedDuplicateFamilies(projectId:string){
   betaPackages:{version:1,title:'Private beta',locale:'es',chapters:[{chapterId:W,title:'Chapter',contentHash:'a'.repeat(64),paragraphs:1,html:'<p>Immutable beta artifact same</p>'}]},betaResponses:{packageId:id('betaPackages'),packageVersion:1,reader:'Synthetic reader',exportedAt:1,importedAt:1,reactions:{[W]:['like']},chapterHashes:{[W]:'a'.repeat(64)}},betaComments:{responseId:id('betaResponses'),packageId:id('betaPackages'),packageVersion:1,reader:'Synthetic reader',writingId:W,anchor:{paragraph:0,quote:'Literal',prefix:'',suffix:''},text:'Reader comment',importedAt:1,anchorState:'attached',matchParagraph:0,matchStart:0,matchEnd:7,evaluatedHash:'a'.repeat(64),resolved:false},
   referencePins:{scopeId:`book:${projectId}`,entryIds:[C]},genealogyLinks:{linkId:'family-link',from:C,to:C,kind:'partner'},
  };
+ const resource=await prepareAssetFile(new File(['{"fixture":true}'],'Fixture.json',{type:'application/json'}),'data',projectId);
+ rows.localToolAssetFiles={...resource,id:id('localToolAssetFiles'),createdAt:1};
  const bytes=new TextEncoder().encode('Original portable manuscript'),sourceHash=await sha256Hex(bytes);
  const globalBytes=new TextEncoder().encode('Global fixture reference.'),globalHash=await sha256Hex(globalBytes);
  await db.transaction('rw',db.tables,async()=>{
