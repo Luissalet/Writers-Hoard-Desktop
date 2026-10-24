@@ -1,5 +1,7 @@
 # Writers Hoard — Desktop
 
+Owned source blocks can opt into additive codec evolution: a compatible version can add fields to the same saved block without changing it on selection or read. The first meaningful edit saves data, codec and portable preview together; scoped action Undo restores the complete prior envelope. Strict compatibility remains the default, Source state keeps its existing migration contract, and the general SDK remains partial. [Contract, example and evidence](tasks/vvd1095/verification-sdk-owned-evolution.md).
+
 Rich notes support inline images from File or project Gallery. Set width, frame and left/centre/right alignment, replace an image while keeping its layout, or remove it and use Undo/Redo. Image-only notes can also be saved and reopened. [Use, evidence and limits](tasks/vvd1095/verification-note-inline-images.md).
 
 Worldgen places can use a copied local image from File or Gallery, in its original colours or the map’s ink. Remove it to reveal the saved symbol or building; changing or deleting the Gallery original does not alter the copy. Maps and Codex-linked portraits keep their existing behaviour. [Contract and verification](tasks/vvd1095/verification-place-images.md).
