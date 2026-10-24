@@ -96,9 +96,16 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
     if (kind === 'local-tool') return { root: remapSourceToolDocument(document.root as unknown as SourceToolDocument, remap,richProse) as unknown as EraRow, children: {} };
     const field = eraAdapters[kind].metadata;
     const root = rewrite(field ? (remapWorldMetadata({ ...projectWithVariants, [field]: [document.root] }, remap, codexIds, mediaIds, writingIds, tools)[field] as EraRow[])[0] : document.root) as EraRow;
+    if(kind==='media')root.id=remap(document.root.id,'media');
     if(kind==='writings'&&typeof document.root.manuscriptId==='string')root.manuscriptId=remap(document.root.manuscriptId,'manuscript');
     if (kind === 'writings' && document.root.manuscriptSource) root.manuscriptSource = cloneManuscriptWritingSource(document.root.manuscriptSource as import('@/engines/writings/manuscriptReview/types').ManuscriptWritingSource, remap);
     const children=rewrite(document.children) as Record<string,EraRow[]>;
+    if(kind==='board'&&document.children.boardNodes)children.boardNodes=document.children.boardNodes.map((original,index)=>{
+      const ref=original.ref as {engineId?:unknown;entityType?:unknown;entityId?:unknown}|undefined,copied=children.boardNodes[index];
+      // A media ID belongs to its engine even if another table uses the same literal ID.
+      return ref?.engineId==='media'&&ref.entityType==='local-media'&&typeof ref.entityId==='string'&&ref.entityId
+        ?{...copied,ref:{...(copied.ref as object),entityId:remap(ref.entityId,'media')}}:copied;
+    });
     if(kind==='timeline'){
       // Preset IDs are local keys, even when their literal equals a document ID.
       if('bannerPresets' in document.root)root.bannerPresets=structuredClone(document.root.bannerPresets);

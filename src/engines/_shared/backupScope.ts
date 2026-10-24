@@ -72,6 +72,7 @@ const ENGINE_TABLES: Readonly<Record<string, readonly string[]>> = {
   inquiry: ['inquiryCases', 'inquiryClaims', 'inquiryHypotheses', 'inquiryRatings', 'enrichmentRuns'],
   links: ['snapshots'],
   maps: ['worldMaps', 'mapPins'],
+  media: ['localMediaAssets'],
   notes: ['notes'],
   outline: ['outlines', 'outlineBeats'],
   'project-tools': [

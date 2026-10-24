@@ -187,6 +187,7 @@ export function cloneSelection(
     idMap.set(node.id, id);
     return {
       ...node,
+      ...(node.projectId !== projectId && node.ref?.engineId === 'media' && node.ref.entityType === 'local-media' ? { ref: undefined } : {}),
       id,
       boardId,
       projectId,

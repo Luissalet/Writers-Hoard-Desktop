@@ -5,6 +5,7 @@ import {
   Plus, HelpCircle, Lightbulb, Link2, Lock, MapPin, Package, Pencil, Search,
   Sparkles, StickyNote, Trash2, User, Users, Zap,
 } from 'lucide-react';
+import {isBoardMediaRef} from './boardAssets';
 import { MIN_SIZE, getNodeRole } from '../catalog';
 import type { BoardNode } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -315,7 +316,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
     }
   })();
 
-  const min = MIN_SIZE[node.kind];
+  const min = node.kind==='entity'&&isBoardMediaRef(node.ref)?{width:280,height:96}:MIN_SIZE[node.kind];
 
   return (
     <div className="group relative" style={wrapper} onDoubleClick={handleDoubleClick}>

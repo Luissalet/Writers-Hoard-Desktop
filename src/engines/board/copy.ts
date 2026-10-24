@@ -1,5 +1,6 @@
 /** Copy stays injectable and bilingual while this surface evolves independently. */
 const es = {
+  mediaAdd: 'Añadir al tablero', mediaImport: 'Importar en biblioteca', mediaEmpty: 'Las imágenes de la Galería y el audio y vídeo del proyecto aparecen aquí.', mediaUnavailable: 'Medio no disponible en este contexto. Elige otro archivo desde Referencia.', mediaFailed: 'No se pudo reproducir este archivo en este navegador.',
   capture: 'Captura una idea…', add: 'Añadir idea', branch: 'Ramificar',
   branchHint: 'Crear una idea conectada a la selección',
   emptyTitle: 'Una idea es suficiente para empezar',
@@ -13,6 +14,7 @@ const es = {
 };
 export type BoardCopy = typeof es;
 const en: BoardCopy = {
+  mediaAdd: 'Add to board', mediaImport: 'Import in library', mediaEmpty: 'Gallery pictures and project audio and video appear here.', mediaUnavailable: 'Media unavailable in this context. Choose another file using Reference.', mediaFailed: 'This browser could not play this file.',
   capture: 'Capture an idea…', add: 'Add idea', branch: 'Branch out',
   branchHint: 'Create an idea connected to the selection',
   emptyTitle: 'One idea is enough to begin',
