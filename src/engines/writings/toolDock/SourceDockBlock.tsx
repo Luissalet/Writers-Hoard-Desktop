@@ -1,4 +1,6 @@
 import {useLayoutEffect,useMemo,useRef,useSyncExternalStore} from 'react';
+import {useRichProseHostContext} from '@/engines/local/RichProseEditor';
+import {renderRichProsePreview} from '@/engines/local/richProseHtml';
 import {useLiveQuery} from 'dexie-react-hooks';
 import {db} from '@/db';
 import {listWorldDocuments} from '@/services/worldEras/store';
@@ -8,7 +10,7 @@ import {LOCAL_TOOL_PREVIEW_CSS} from '@/engines/local/previewTypes';
 import {resolveProjectLocalTool} from '@/engines/local/releases';
 import {createOwnedBlockClient} from '@/engines/local/blocks/client';
 import {validateBlockForDefinition} from '@/engines/local/blocks/definitions';
-import {localToolBlockPreview,renderLocalToolPreview} from '@/engines/local/blocks/preview';
+import {localToolBlockPreview} from '@/engines/local/blocks/preview';
 import type {LocalToolBlockEnvelope,LocalToolOwnedBlockEnvelope} from '@/engines/local/blocks/types';
 import type {LocalToolClient,LocalToolJson} from '@/engines/local/sdk';
 import {useEnginePane} from '@/engines/_shared/EnginePaneContext';
@@ -40,5 +42,6 @@ export default function SourceDockBlock({scope,owner,read,envelope,locale,readOn
  const worldClient=useMemo(()=>source&&definition?.scope==='world'?createLocalToolClient(projectId,source,{eraId,readOnly:true,navigate}):undefined,[projectId,eraId,source,definition,navigate]);
  const WorldComponent=definition?.scope==='world'?definition.component:undefined;
  const preview=useMemo(()=>localToolBlockPreview(envelope,locale,documents),[envelope,locale,documents]);
- return <div data-tool-editor-surface onKeyDown={event=>event.stopPropagation()}><style>{LOCAL_TOOL_PREVIEW_CSS}</style>{(!source||!compatible)&&<p className="mb-2 text-xs text-text-muted">{locale==='es'?'Fuente no disponible; contenido guardado.':'Source unavailable; saved content.'}</p>}{WorldComponent&&worldClient&&compatible?<WorldComponent projectId={projectId} client={worldClient}/>:Component&&client&&canEdit?<Component projectId={projectId} client={client} context={{view:'embed',canEdit:true,scope}}/>:<div className="prose prose-sm max-w-none break-words" dangerouslySetInnerHTML={{__html:renderLocalToolPreview(preview,false)}}/>}</div>;
+ const context=useRichProseHostContext({view:'embed',canEdit,scope},client,envelope.scope==='host'?envelope.codec:undefined);
+ return <div data-tool-editor-surface onKeyDown={event=>event.stopPropagation()}><style>{LOCAL_TOOL_PREVIEW_CSS}</style>{(!source||!compatible)&&<p className="mb-2 text-xs text-text-muted">{locale==='es'?'Fuente no disponible; contenido guardado.':'Source unavailable; saved content.'}</p>}{WorldComponent&&worldClient&&compatible?<WorldComponent projectId={projectId} client={worldClient}/>:Component&&client&&canEdit?<Component projectId={projectId} client={client} context={context}/>:<div className="prose prose-sm max-w-none break-words" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>}</div>;
 }

@@ -1,3 +1,4 @@
+import {localToolAtomKey,localToolAtomPending} from '@/engines/local/blocks/pending';
 import {selectManuscriptWritings} from '../manuscripts';
 import {dockMetadataAdvance} from '../toolDock/authoredSave';
 import ToolDockPanel from '../toolDock/ToolDockPanel';
@@ -358,6 +359,13 @@ export default function BookEditor({
 
   const sessionRef = useRef<BookSession>(newSession());
   const editorRef = useRef<Editor | null>(null);
+  const canLeaveOwned = useCallback(() => {
+    const editor=editorRef.current;let pending=false;
+    if(editor&&!editor.isDestroyed)editor.state.doc.descendants(node=>{const key=localToolAtomKey(node);if(key&&localToolAtomPending(editor,key))pending=true;});
+    if(pending)toast.info(locale==='es'?'Guarda o descarta los cambios del bloque antes de salir.':'Save or discard the block changes before leaving.');
+    return !pending;
+  }, [locale]);
+
   const loadedRef = useRef<LoadedBook | null>(null);
   const acceptEditor = useCallback((next: Editor | null) => {
     // An edit can arrive before React commits the state update and its effects.
@@ -792,6 +800,7 @@ export default function BookEditor({
   // the dialog, and the dialog always has a way out.
   useEffect(() => {
     return registerCloseGuard(async () => {
+      if(!canLeaveOwned())return false;
       const session = sessionRef.current;
       if (!session.dirty && session.contested.size === 0) return true;
       journalRef.current();
@@ -799,7 +808,7 @@ export default function BookEditor({
       setPendingClose(true);
       return false;
     });
-  }, []);
+  }, [canLeaveOwned]);
 
   const unsaved = saveState !== 'saved';
   useEffect(() => { if (unsaved) return registerPendingFlusher(saveOwner, () => flushSaveRef.current()); }, [saveOwner, unsaved]);
@@ -927,7 +936,7 @@ export default function BookEditor({
   // Heading actions.
   // ---------------------------------------------------------------------
   const handleOpenChapter = async (writingId: string) => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!(await flushSave())) {
       setPendingLeave(() => () => onOpenChapter(writingId));
       return;
@@ -1083,7 +1092,7 @@ export default function BookEditor({
   // that silently does nothing.
   // ---------------------------------------------------------------------
   const handleClose = async () => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!(await flushSave())) {
       setPendingLeave(() => onClose);
       return;
@@ -1092,7 +1101,7 @@ export default function BookEditor({
   };
 
   const handleRangeChange = async (next: BookRange) => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     if (!(await flushSave())) {
       toast.info(
         sessionRef.current.contested.size > 0
@@ -1105,7 +1114,7 @@ export default function BookEditor({
   };
 
   const handleSaveClick = async () => {
-    if (!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
+    if (!canLeaveOwned()||!canLeaveToolDocks(projectId,scope.eraId,pane?.instanceId)) return;
     const saved = await flushSave();
     if (!saved && sessionRef.current.contested.size > 0) toast.info(t('writings.externalChange.hint'));
   };

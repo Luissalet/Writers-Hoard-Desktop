@@ -13,7 +13,8 @@ import { resolveRadarSeries } from '@/engines/radar/model';
 import type { RadarChartDocument } from '@/engines/radar/types';
 import type { CharacterSheet } from '@/engines/character-sheets/types';
 import { sheetPaper } from '@/engines/character-sheets/paper';
-import { sourceDocumentPreview,renderLocalToolPreview } from '@/engines/local/documents/preview';
+import { sourceDocumentPreview } from '@/engines/local/documents/preview';
+import {renderRichProsePreview} from '@/engines/local/richProseHtml';
 import type { SourceToolDocument } from '@/engines/local/documents/types';
 import {prepareSourceBlocksForExport} from '@/services/sourceBlockReading';
 import {LOCAL_TOOL_PREVIEW_CSS} from '@/engines/local/previewTypes';
@@ -90,7 +91,7 @@ async function renderPart(ctx:Context,kind:EraDocumentKind,id:string,view?:Docum
         break;
       }
       case 'writings':html=await prose(String(root.content??''),ctx);break;
-      case 'local-tool':html=renderLocalToolPreview(sourceDocumentPreview(root as unknown as SourceToolDocument,ctx.locale),false);break;
+      case 'local-tool':html=renderRichProsePreview(sourceDocumentPreview(root as unknown as SourceToolDocument,ctx.locale),false);break;
       case 'notes':{const note=root as unknown as Note;html=(note.richHtml!==undefined?await prose(note.richHtml,ctx):`<div style="white-space:pre-wrap">${esc(note.text)}</div>`)+fields({kind:note.kind,source:note.source,tags:note.tags.join(', ')});break;}
       case 'dialog-scene':{
         const scene=root as unknown as Scene,blocks=rows<DialogBlock>(document,'dialogBlocks').sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id)),seen=new Set<string>();

@@ -65,6 +65,7 @@ import ProofingControls from './proofing/ProofingControls';
 import HeadingNavigator from './navigation/HeadingNavigator';
 import { CodexBlock } from './codexBlocks/CodexBlock';
 import CodexBlockControls from './codexBlocks/CodexBlockControls';
+import {richProseHtml} from '@/engines/local/richProseHtml';
 import { createCodexBlockHost } from './codexBlocks/model';
 import { MediaBlock } from './mediaBlocks/MediaBlock';
 import { PrepCheck, PrepEncounter, PrepHandout } from './prepBlocks/PrepNodes';
@@ -98,6 +99,8 @@ export type EditorLayout = 'flow' | 'page';
 
 interface TiptapEditorProps {
   content: string;
+  /** Fixed for this editor session. The SDK profile contains no application atoms. */
+  contentProfile?:'full'|'sdk-prose';
   /**
    * The document as HTML after every edit. Serialising the document costs a
    * pass over all of it on each keystroke (≈15 ms for a 120 000-word book), so
@@ -126,7 +129,7 @@ interface TiptapEditorProps {
   canAcceptExternalBlock?:()=>boolean;
   onExternalBlockCommit?:(owner:LocalToolBlockOwner,root:Record<string,unknown>)=>void;
   /** World references also work in combined documents without registering an AI editor. */
-  referenceContext?: { projectId: string; scopeId: string; entryId?: string };
+  referenceContext?: { projectId: string; scopeId: string; entryId?: string;eraId?:string };
   /** Optional. Extra buttons rendered at the end of the toolbar's left group. */
   toolbarExtra?: React.ReactNode;
   /**
@@ -229,6 +232,7 @@ function ToolButton({ active, onClick, title, pressed, children }: {
 
 export default function TiptapEditor({
   content,
+  contentProfile='full',
   onChange,
   onDocumentChange,
   placeholder,
@@ -246,15 +250,16 @@ export default function TiptapEditor({
   documentOwner,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,
 }: TiptapEditorProps) {
   const { t, locale } = useTranslation();
+  const richProfile=contentProfile==='sdk-prose';
   const pane = useEnginePane();
   const editorialProjectId = referenceContext?.projectId ?? copilotIdentity?.projectId;
-  const editorialEraId = pane?.projectId === editorialProjectId ? pane?.eraId : undefined;
+  const editorialEraId = referenceContext&&Object.hasOwn(referenceContext,'eraId')?referenceContext.eraId:pane?.projectId === editorialProjectId ? pane?.eraId : undefined;
   const blockScopeId = paneReferenceScope(referenceContext?.scopeId ?? copilotIdentity?.objectId, pane);
   const emittedHtmlRef=useRef<string|null>(null);
   const sourceEditorRef=useRef<Editor|null>(null),sourceContext=useRef<LocalToolEditorContext>({projectId:editorialProjectId??'',owner:()=>undefined});
   useLayoutEffect(()=>{sourceContext.current={projectId:editorialProjectId??'',eraId:editorialEraId,prepareExternal,acceptExternal:canAcceptExternalBlock,committed:(owner,root)=>{if(typeof documentOwner!=='function'&&typeof root.content==='string')emittedHtmlRef.current=root.content;onExternalBlockCommit?.(owner,root);},owner:(editor,position)=>typeof documentOwner==='function'?documentOwner(editor,position):documentOwner??(copilotIdentity?.kind==='writings'?{kind:'writings',documentId:copilotIdentity.objectId}:undefined)};},[editorialProjectId,editorialEraId,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,documentOwner,copilotIdentity]);
   const [sourceHost]=useState<LocalToolEditorHost>(()=>({context:()=>sourceContext.current,editor:()=>sourceEditorRef.current}));
-  useEffect(()=>registerLocalToolEditor(sourceHost),[sourceHost]);
+  useEffect(()=>richProfile?undefined:registerLocalToolEditor(sourceHost),[sourceHost,richProfile]);
   const [codexBlockHost] = useState(() => createCodexBlockHost({ projectId: editorialProjectId, scopeId: blockScopeId }));
   useEffect(() => { codexBlockHost.setContext({ projectId: editorialProjectId, scopeId: blockScopeId }); }, [codexBlockHost, editorialProjectId, blockScopeId]);
   const mentionEntries = useLiveQuery(async () => {
@@ -263,18 +268,18 @@ export default function TiptapEditor({
     return project?.enabledEngines.includes('codex') ? editorialEraId ? listEraRows<CodexEntry>({ projectId: editorialProjectId, eraId: editorialEraId }, 'codexEntries') : db.codexEntries.where('projectId').equals(editorialProjectId).toArray() : [];
   }, [editorialProjectId, editorialEraId]);
   const projectDictionaries = useLiveQuery(async () => {
-    if (!editorialProjectId) return undefined;
+    if (!editorialProjectId||richProfile) return undefined;
     const project = editorialEraId ? await getEraProject({ projectId: editorialProjectId, eraId: editorialEraId }) : await db.projects.get(editorialProjectId);
     return project?.enabledEngines.includes('dictionary') ? project.dictionaries : undefined;
-  }, [editorialProjectId, editorialEraId]);
+  }, [editorialProjectId, editorialEraId,richProfile]);
   const entityDetectionPreferences = useLiveQuery(async () => {
     if (!editorialProjectId) return undefined;
     const project = await db.projects.get(editorialProjectId);
     return project?.enabledEngines.includes('codex') ? entityPreferences(project) : undefined;
   }, [editorialProjectId]);
-  const editorialReferences = useLiveQuery<Citation[]>(async () => editorialProjectId
+  const editorialReferences = useLiveQuery<Citation[]>(async () => editorialProjectId&&!richProfile
     ? await db.citations.where('projectId').equals(editorialProjectId).toArray()
-    : [], [editorialProjectId]);
+    : [], [editorialProjectId,richProfile]);
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<FloatingMenuState>(HIDDEN_MENU);
@@ -288,7 +293,7 @@ export default function TiptapEditor({
   // A host that brings its own `doc` node (the book, whose top level holds
   // chapters as well as blocks) takes StarterKit's out of the schema: two
   // nodes of one name would both be registered, and the last one would win.
-  const ownDocument = extensions?.some((extension) => extension.name === 'doc') ?? false;
+  const ownDocument = !richProfile&&(extensions?.some((extension) => extension.name === 'doc') ?? false);
   // The HTML last handed to `onChange`. The host hands it straight back as
   // `content`, and the sync effect below can skip serialising the document a
   // second time to find out that nothing came from outside.
@@ -310,6 +315,7 @@ export default function TiptapEditor({
       StarterKit.configure({ link: { openOnClick: false }, document: ownDocument ? false : undefined }),
       Image.configure({ allowBase64: true }),
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
+      ...(!richProfile?[
       GhostText.configure({ host: () => ghostHost, delayMs: GHOST_DEBOUNCE_MS }),
       ...createAdvancedExtensions(),
       ...createWritingBlockExtensions(),
@@ -326,8 +332,9 @@ export default function TiptapEditor({
       ToolDocumentBlock.configure(codexBlockHost),
       SourceToolBlock.configure({host:sourceHost}),
       ...(extensions ?? []),
+      ]:[]),
     ],
-    content,
+    content:richProfile?richProseHtml(content):content,
     onUpdate: ({ editor }) => {
       if (onChange) {
         const html = editor.getHTML();
@@ -337,6 +344,7 @@ export default function TiptapEditor({
       onDocumentChange?.();
     },
     editorProps: {
+      ...(richProfile?{transformPastedHTML:(html:string)=>richProseHtml(html)}:{}),
       attributes: {
         class: 'prose prose-invert max-w-none focus:outline-none',
       },
@@ -485,12 +493,13 @@ export default function TiptapEditor({
     // Its destroy() clears the schema; the live replacement will sync next render.
     if (!editor || editor.isDestroyed) return;
     if (content === emittedHtmlRef.current) return;
-    if (editor.getHTML() !== content) {
-      editor.commands.setContent(content, { emitUpdate: false });
+    const incoming=richProfile?richProseHtml(content):content;
+    if (editor.getHTML() !== incoming) {
+      editor.commands.setContent(incoming, { emitUpdate: false });
       // What was emitted is no longer what the editor holds.
       emittedHtmlRef.current = null;
     }
-  }, [content, editor]);
+  }, [content, editor,richProfile]);
 
   // Track selection → position the floating "Annotate" button over the
   // active range. Hidden when no editor, no callback, or selection collapses.
@@ -613,6 +622,19 @@ export default function TiptapEditor({
     const href = /^(https?:|mailto:)/i.test(url) ? url : `https://${url}`;
     editor.chain().focus().setLink({ href }).run();
   };
+
+  if(richProfile)return <div ref={wrapperRef} className="tiptap-editor relative min-w-0 rounded-lg border border-border bg-elevated" data-sdk-prose-editor>
+    <div className="flex flex-wrap items-center gap-2 border-b border-border p-2">
+      <button type="button" className="min-h-9 rounded border border-border px-3 text-sm hover:bg-surface" aria-pressed={editor.isActive('bold')} onMouseDown={event=>event.preventDefault()} onClick={()=>editor.chain().focus().toggleBold().run()}>{locale==='es'?'Negrita':'Bold'}</button>
+      <button type="button" className="min-h-9 rounded border border-border px-3 text-sm hover:bg-surface" aria-pressed={editor.isActive('italic')} onMouseDown={event=>event.preventDefault()} onClick={()=>editor.chain().focus().toggleItalic().run()}>{locale==='es'?'Cursiva':'Italic'}</button>
+      <button type="button" className="min-h-9 rounded border border-border px-3 text-sm hover:bg-surface" aria-pressed={editor.isActive('strike')} onMouseDown={event=>event.preventDefault()} onClick={()=>editor.chain().focus().toggleStrike().run()}>{locale==='es'?'Tachado':'Strike'}</button>
+      <button type="button" className="min-h-9 rounded border border-border px-3 text-sm hover:bg-surface" onMouseDown={event=>event.preventDefault()} onClick={openLinkForm}>{locale==='es'?'Enlace':'Link'}</button>
+      {editorialProjectId&&<CodexBlockControls textOnly editor={editor} projectId={editorialProjectId} entries={mentionEntries??[]} locale={locale}/>}
+    </div>
+    {showLinkForm&&<form className="flex flex-wrap gap-2 border-b border-border p-2" onSubmit={event=>{event.preventDefault();applyLink();}}><input aria-label={locale==='es'?'Dirección del enlace':'Link address'} className="min-h-9 min-w-0 flex-1 rounded border border-border bg-surface px-3" value={linkUrl} onChange={event=>setLinkUrl(event.target.value)}/><button className="min-h-9 rounded border border-border px-3" type="submit">{locale==='es'?'Insertar':'Insert'}</button><button className="min-h-9 rounded border border-border px-3" type="button" onClick={()=>setShowLinkForm(false)}>{locale==='es'?'Cancelar':'Cancel'}</button></form>}
+    <EditorContent editor={editor} className="min-h-36 p-3 [&_.tiptap_ul]:list-disc [&_.tiptap_ol]:list-decimal [&_.tiptap_ul]:pl-6 [&_.tiptap_ol]:pl-6"/>
+    <SlashMenu editor={editor} wrapperRef={wrapperRef} locale={locale} allowedIds={['text','h1','h2','h3','bullet','ordered','quote','scene','code']}/>
+  </div>;
 
   return (
     <div

@@ -1,3 +1,4 @@
+import {htmlToText} from '@/services/betaReading/text';
 import {localToolIndexSearchText} from '@/engines/local/documentIndex';
 import Dexie, { type Table } from 'dexie';
 import { db } from '@/db';
@@ -182,7 +183,7 @@ async function projectRows<T, D>(
  * fixed once. Their titles remain searchable through the entity resolvers.
  */
 const SLICES: Record<string, IndexSlice> = {
-  sourceToolDocuments:{tables:['projects'],get engines(){return getAllEngines().filter(engine=>engine.id.startsWith('local-tool-')).map(engine=>engine.id);},async build(scope){const {resolveProjectLocalTool}=await import('@/engines/local/releases');const indexFor=(row:import('@/engines/local/documents/types').SourceToolDocument,project:import('@/types').Project)=>{try{return resolveProjectLocalTool(row.namespace,project).index;}catch{return row.index;}};const projects=scope?[typeof scope==='object'?await getEraProject(scope):await db.projects.get(scope)]:await db.projects.toArray();return projects.flatMap(project=>(project?.sourceToolDocuments??[]).map(row=>({id:row.id,projectId:project!.id,engineId:'local-tool-'+row.namespace,title:row.title,subtitle:row.namespace,type:'local-tool',body:[row.codec?Object.entries(row.codec.fields).filter(([,field])=>field.kind==='scalar'||field.kind==='prose').map(([key])=>JSON.stringify((row.data as Record<string,unknown>)[key])??'').join('\n'):'',localToolIndexSearchText(row.data,indexFor(row,project!))].join('\n'),updatedAt:row.updatedAt})));}},
+  sourceToolDocuments:{tables:['projects'],get engines(){return getAllEngines().filter(engine=>engine.id.startsWith('local-tool-')).map(engine=>engine.id);},async build(scope){const {resolveProjectLocalTool}=await import('@/engines/local/releases');const indexFor=(row:import('@/engines/local/documents/types').SourceToolDocument,project:import('@/types').Project)=>{try{return resolveProjectLocalTool(row.namespace,project).index;}catch{return row.index;}};const projects=scope?[typeof scope==='object'?await getEraProject(scope):await db.projects.get(scope)]:await db.projects.toArray();return projects.flatMap(project=>(project?.sourceToolDocuments??[]).map(row=>({id:row.id,projectId:project!.id,engineId:'local-tool-'+row.namespace,title:row.title,subtitle:row.namespace,type:'local-tool',body:[row.codec?Object.entries(row.codec.fields).filter(([,field])=>field.kind==='scalar'||field.kind==='prose').map(([key,field])=>{const value=(row.data as Record<string,unknown>)[key];return field.kind==='prose'&&field.format==='rich'&&typeof value==='string'?htmlToText(value):JSON.stringify(value)??'';}).join('\n'):'',localToolIndexSearchText(row.data,indexFor(row,project!))].join('\n'),updatedAt:row.updatedAt})));}},
   writings: {
     tables: ['writings'],
     engines: ['writings'],

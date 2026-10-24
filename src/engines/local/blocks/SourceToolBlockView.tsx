@@ -1,4 +1,6 @@
 import {useLocalToolAssetPreview} from '../useLocalToolAssetPreview';
+import {useRichProseHostContext} from '../RichProseEditor';
+import {renderRichProsePreview} from '../richProseHtml';
 import {useLocalToolAudioLifecycle} from '../useLocalToolAudioLifecycle';
 import {LocalToolUndoBoundary} from '../LocalToolUndoBoundary';
 import {LocalToolAtomPendingContext,setLocalToolAtomPending} from './pending';
@@ -12,7 +14,7 @@ import {useEnginePane} from '@/engines/_shared/EnginePaneContext';
 import {resolveProjectLocalTool} from '../releases';
 import {createLocalToolClient} from '../storage';
 import {LocalToolHostAncestors} from '../documents/hostContext';
-import {localToolBlockPreview,renderLocalToolPreview} from './preview';
+import {localToolBlockPreview} from './preview';
 import {validateLocalToolBlockEnvelope,type LocalToolOwnedBlockEnvelope,type LocalToolBlockEnvelope} from './types';
 import {validateBlockForDefinition} from './definitions';
 import {createOwnedBlockClient} from './client';
@@ -31,5 +33,6 @@ function SourceBlockSession({node,editor,extension,getPos,selected}:NodeViewProp
  useLocalToolAudioLifecycle(client?.audio);
  const report=useMemo(()=>(token:string,pending:boolean)=>setLocalToolAtomPending(editor,'owned:'+envelope.id,token,pending),[editor,envelope.id]),[leaveBlocked,setLeaveBlocked]=useState(false);useEffect(()=>{const notify=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail.editor===editor&&detail.key==='owned:'+envelope.id)setLeaveBlocked(true);};window.addEventListener('wh-source-block-pending',notify);return()=>window.removeEventListener('wh-source-block-pending',notify);},[editor,envelope.id]);
  const semantic=localToolBlockPreview(envelope,locale,documents),preview=useLocalToolAssetPreview(semantic,projectId,envelope.namespace,eraId),Component=definition?.component;
- return <NodeViewWrapper as="figure" contentEditable={false} data-wh-source-live-view data-source-block-id={envelope.id} className={`not-prose my-4 min-w-0 rounded-xl border bg-surface p-4 ${selected?'border-accent-gold ring-1 ring-accent-gold':'border-border'}`}><h3 className="mb-3 break-words font-display text-lg text-text-primary">{envelope.name[locale]}</h3>{error&&<p className="mb-3 text-xs text-text-muted">{locale==='es'?'Fuente no disponible; se conserva el contenido guardado.':'Source unavailable; saved content is preserved.'}</p>}{leaveBlocked&&<p role="alert" className="mb-3 text-sm text-danger">{locale==='es'?'Guarda o descarta el borrador del bloque antes de quitarlo.':'Save or discard the block draft before removing it.'}</p>}<LocalToolAtomPendingContext.Provider value={report}><LocalToolHostAncestors.Provider value={[...ancestors,identity]}><LocalToolUndoBoundary data-tool-editor-surface>{Component&&client&&canEdit?<Component projectId={projectId} client={client} context={{view:'embed',canEdit,scope:{projectId,eraId}}}/>:<div className="prose prose-sm max-w-none break-words" dangerouslySetInnerHTML={{__html:renderLocalToolPreview(preview,false)}}/>}</LocalToolUndoBoundary></LocalToolHostAncestors.Provider></LocalToolAtomPendingContext.Provider></NodeViewWrapper>;
+ const richContext=useRichProseHostContext({view:'embed',canEdit,scope:{projectId,eraId}},client,envelope.scope==='host'?envelope.codec:undefined);
+ return <NodeViewWrapper as="figure" contentEditable={false} data-wh-source-live-view data-source-block-id={envelope.id} className={`not-prose my-4 min-w-0 rounded-xl border bg-surface p-4 ${selected?'border-accent-gold ring-1 ring-accent-gold':'border-border'}`}><h3 className="mb-3 break-words font-display text-lg text-text-primary">{envelope.name[locale]}</h3>{error&&<p className="mb-3 text-xs text-text-muted">{locale==='es'?'Fuente no disponible; se conserva el contenido guardado.':'Source unavailable; saved content is preserved.'}</p>}{leaveBlocked&&<p role="alert" className="mb-3 text-sm text-danger">{locale==='es'?'Guarda o descarta el borrador del bloque antes de quitarlo.':'Save or discard the block draft before removing it.'}</p>}<LocalToolAtomPendingContext.Provider value={report}><LocalToolHostAncestors.Provider value={[...ancestors,identity]}><LocalToolUndoBoundary data-tool-editor-surface>{Component&&client&&canEdit?<Component projectId={projectId} client={client} context={richContext}/>:<div className="prose prose-sm max-w-none break-words" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>}</LocalToolUndoBoundary></LocalToolHostAncestors.Provider></LocalToolAtomPendingContext.Provider></NodeViewWrapper>;
 }

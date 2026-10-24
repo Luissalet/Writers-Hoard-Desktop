@@ -94,6 +94,7 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
   const referenceProject={...sourceProject};for(const kind of Object.keys(eraAdapters) as EraDocumentKind[]){const field=eraAdapters[kind].metadata;if(field)Object.assign(referenceProject,{[field]:[...new Map(roots(kind).map(row=>[row.id,row])).values()]});}
   const tools=projectToolIds(referenceProject,{writings:roots('writings') as {id:string}[],scenes:roots('dialog-scene') as {id:string}[],generatedWorlds:roots('worldgen') as {id:string}[],worldMaps:roots('maps') as {id:string}[],boards:roots('board') as {id:string}[],timelines:roots('timeline') as {id:string}[]});
   for(const placement of sourceProject.workspacePlacements??[]){const kind=placement.engineId==='genealogy'?'relation-tree':placement.engineId;if(kind==='codex')codexIds.add(placement.entityId);else if(kind==='writings')writingIds.add(placement.entityId);else if(kind==='media')mediaIds.add(placement.entityId);else (tools[kind] as Set<string>|undefined)?.add(placement.entityId);}
+  const richProse=(html:string)=>remapWorldRichContent(html,sourceProject.id,targetProjectId,remap,codexIds,mediaIds,tools,{linksOnly:true});
   const rich=(html:string)=>{
     if(/<a\b|wh-media:\/\//i.test(html)){
       const parsed=new DOMParser().parseFromString(html,'text/html');
@@ -124,7 +125,7 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     if(value.projectId===sourceProject.id)value.projectId=targetProjectId;
     for(const[path,target]of Object.entries(refs[table]??{}))at(value,path.split('.'),id=>typeof id==='string'&&id?remap(id,target):id);
     for(const field of richFields[table]??[])if(typeof value[field]==='string')value[field]=rich(value[field]);
-    if(table==='writings'){if(typeof input.manuscriptId==='string')value.manuscriptId=remap(input.manuscriptId,'manuscript');value.manuscriptSource=cloneManuscriptWritingSource(input.manuscriptSource as Writing['manuscriptSource'],remap);value.toolDock=remapToolDockLayout(input.toolDock as Writing['toolDock'],remap);}
+    if(table==='writings'){if(typeof input.manuscriptId==='string')value.manuscriptId=remap(input.manuscriptId,'manuscript');value.manuscriptSource=cloneManuscriptWritingSource(input.manuscriptSource as Writing['manuscriptSource'],remap);value.toolDock=remapToolDockLayout(input.toolDock as Writing['toolDock'],remap,richProse);}
     if(table==='publishingProfiles'&&input.writingScope){const scope=writingSelection(input.writingScope);value.writingScope=scope.kind==='manuscript'&&scope.id!=='main'?{kind:'manuscript',id:remap(scope.id,'manuscript')}:scope;}
     if(table==='manuscriptSources')value=cloneManuscriptSource(input as unknown as ManuscriptSourceRow,targetProjectId,remap) as unknown as Row;
     if(table==='worldMaps')value=remapImportedWorldMap(input as unknown as WorldMap,targetProjectId,remap,codexIds,eventIds,mediaIds) as unknown as Row;
@@ -193,7 +194,7 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     at(value,['mutations','*'],item=>{if(!object(item))return item;const table=String(item.table),patch={...item,key:remap(String(item.key),table)};for(const field of ['beforeRow','afterRow','beforeValues','afterValues'])if(object(item[field]))(patch as Row)[field]=row(table,item[field]);return patch;});return value;
   }
   function metadataFor(project:Project):Partial<Project>{
-    const copied=remapWorldMetadata(project,remap,codexIds,mediaIds,writingIds,tools);
+    const copied=remapWorldMetadata(project,remap,codexIds,mediaIds,writingIds,tools,roots('local-tool') as unknown as Project['sourceToolDocuments']);
     // Synced property columns are stable schema keys, not independent column document IDs.
     if(copied.dataTables)copied.dataTables=copied.dataTables.map((table,index)=>({...table,rows:table.rows.map((item,rowIndex)=>({...item,cells:Object.fromEntries(project.dataTables![index].columns.map(column=>{const value=project.dataTables![index].rows[rowIndex].cells[column.id]??'';return[column.id.startsWith('property:')?column.id:remap(column.id,'column'),column.kind==='reference'&&value&&!value.startsWith('=')?remap(value,'codex'):value];}))}))}));
     return copied;

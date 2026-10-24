@@ -88,16 +88,16 @@ export async function applyWorldFolderImport(scope:WorldEraScope,input:WorldFold
   return{created:result.refs,receiptId,batchId,undoPersistence:'session' as const,...(plan.libraryFolder?{libraryFolder:plan.libraryFolder}:{})};
 }
 
-function referencesCreated(value:unknown,ids:Set<string>,projectId:string,key='',targetEra?:string,referenceEra?:string,visible=ids):boolean{
+function referencesCreated(value:unknown,ids:Set<string>,projectId:string,key='',targetEra?:string,referenceEra?:string,visible=ids,linksOnly=false):boolean{
   if(Array.isArray(value))return value.some(item=>referencesCreated(item,ids,projectId,key,targetEra,referenceEra,visible));
   if(value&&typeof value==='object')return Object.entries(value).some(([field,child])=>referencesCreated(child,ids,projectId,field,targetEra,referenceEra,visible));
   if(typeof value!=='string')return false;
   if(/^(?:entryId|entityId|assetId|linkedEntryId|linkedEntryIds|sourceEntityId|targetEntityId|referenceId|targetId)$/.test(key)&&visible.has(value))return true;
   if(!/^(?:content|description|notes|body|richContent|html)$/.test(key)||!/[<>]/.test(value))return false;
-  for(const span of findLocalToolBlocksInHtml(value))if(span.projectId===projectId&&span.envelope.scope==='host'){let linked=false;remapLocalToolReferences(span.envelope.data,span.envelope.codec,(_kind,id)=>{if(visible.has(id))linked=true;return id;},(_kind,id)=>{if(visible.has(id))linked=true;return id;});if(linked)return true;}
+  if(!linksOnly)for(const span of findLocalToolBlocksInHtml(value))if(span.projectId===projectId&&span.envelope.scope==='host'){let linked=false;remapLocalToolReferences(span.envelope.data,span.envelope.codec,(_kind,id)=>{if(visible.has(id))linked=true;return id;},(_kind,id)=>{if(visible.has(id))linked=true;return id;},html=>{if(referencesCreated(html,visible,projectId,'content',targetEra,referenceEra,visible,true))linked=true;return html;});if(linked)return true;}
   const host=new DOMParser().parseFromString(value,'text/html');
-  for(const block of host.querySelectorAll('[data-entry-id],[data-asset-id],[data-entity-id],[data-document-id]'))if(block.getAttribute('data-project-id')===projectId&&['data-entry-id','data-asset-id','data-entity-id','data-document-id'].some(attr=>visible.has(block.getAttribute(attr)??'')))return true;
-  for(const anchor of host.querySelectorAll('a[href]'))try{const url=new URL(anchor.getAttribute('href')!,'https://writer.invalid'),era=url.searchParams.has('era')?url.searchParams.get('era')||undefined:referenceEra;if(targetEra&&targetEra!==era)continue;if(url.origin==='https://writer.invalid'&&url.pathname.startsWith(`/project/${encodeURIComponent(projectId)}/`)&&['entry','entity','writing'].some(key=>ids.has(url.searchParams.get(key)??'')))return true;}catch{/* unrelated href */}
+  if(!linksOnly)for(const block of host.querySelectorAll('[data-entry-id],[data-asset-id],[data-entity-id],[data-document-id]'))if(block.getAttribute('data-project-id')===projectId&&['data-entry-id','data-asset-id','data-entity-id','data-document-id'].some(attr=>visible.has(block.getAttribute(attr)??'')))return true;
+  for(const anchor of host.querySelectorAll('a[href]'))try{const url=new URL(anchor.getAttribute('href')!,'https://writer.invalid'),era=url.searchParams.has('era')?url.searchParams.get('era')||undefined:referenceEra;if(targetEra&&targetEra!==era||linksOnly&&era!==referenceEra)continue;if(url.origin==='https://writer.invalid'&&url.pathname.startsWith(`/project/${encodeURIComponent(projectId)}/`)&&['entry','entity','writing'].some(key=>ids.has(url.searchParams.get(key)??'')))return true;}catch{/* unrelated href */}
   return false;
 }
 export async function undoWorldFolderImport(scope:WorldEraScope,receiptId:string){
@@ -113,10 +113,14 @@ export async function undoWorldFolderImport(scope:WorldEraScope,receiptId:string
     const scopes:WorldEraScope[]=[{projectId:scope.projectId},...(project.worldEras??[]).map(era=>({projectId:scope.projectId,eraId:era.id}))];
     for(const referenceScope of scopes){
       const visible=new Set<string>();for(const saved of receipt.versions)if(await readWorldDocument(referenceScope,saved.ref.kind,saved.ref.id))visible.add(saved.ref.id);
+      const richLinked=(data:import('@/engines/local/stateTypes').LocalToolJson,codec:import('@/engines/local/stateCodec').LocalToolStateCodec)=>{let linked=false;remapLocalToolReferences(data,codec,(_kind,id)=>id,(_kind,id)=>id,html=>{if(referencesCreated(html,visible,scope.projectId,'content',scope.eraId,referenceScope.eraId,visible,true))linked=true;return html;});return linked;};
+      const era=project.worldEras?.find(row=>row.id===referenceScope.eraId),states={...project.localToolStates,...era?.localToolStates};for(const[namespace,state]of Object.entries(states)){const codec=project.localToolContracts?.[namespace];if(codec&&richLinked(state.data,codec))throw Error('world_folder_undo_referenced');}
+      const dock=era?.defaults?.writingToolDock===undefined?project.writingToolDock:era.defaults.writingToolDock;for(const block of dock?.blocks??[])if(block.kind==='owned'&&richLinked(block.envelope.data,block.envelope.codec))throw Error('world_folder_undo_referenced');
       for(const kind of Object.keys(eraAdapters) as EraDocumentKind[]){
       for(const read of await listWorldDocuments(referenceScope,kind))if(!ids.has(read.document.root.id)){
-        if(kind==='local-tool'){const source=read.document.root as unknown as SourceToolDocument;let linked=false;if(source.codec)remapLocalToolReferences(source.data,source.codec,(_kind,id)=>{if(visible.has(id))linked=true;return id;},(_kind,id)=>{if(visible.has(id))linked=true;return id;});if(linked)throw Error('world_folder_undo_referenced');continue;}
+        if(kind==='local-tool'){const source=read.document.root as unknown as SourceToolDocument;let linked=false;if(source.codec)remapLocalToolReferences(source.data,source.codec,(_kind,id)=>{if(visible.has(id))linked=true;return id;},(_kind,id)=>{if(visible.has(id))linked=true;return id;},html=>{if(referencesCreated(html,visible,scope.projectId,'content',scope.eraId,referenceScope.eraId,visible,true))linked=true;return html;});if(linked)throw Error('world_folder_undo_referenced');continue;}
         if(referencesCreated(read.document,ids,scope.projectId,'',scope.eraId,referenceScope.eraId,visible))throw Error('world_folder_undo_referenced');
+        if(kind==='writings'){const dock=(read.document.root as unknown as Writing).toolDock;for(const block of dock?.blocks??[])if(block.kind==='owned'&&richLinked(block.envelope.data,block.envelope.codec))throw Error('world_folder_undo_referenced');}
         if(kind==='tables'){const table=read.document.root as unknown as import('@/engines/tables/types').WorldTable;if(table.columns.some(column=>column.kind==='reference'&&table.rows.some(row=>visible.has(row.cells[column.id]))))throw Error('world_folder_undo_referenced');}
       }
     }}
