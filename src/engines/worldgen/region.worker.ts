@@ -9,6 +9,7 @@
 
 import { createRegionWorkerCore, type RegionWorkerHost } from './region/workerCore';
 import type { RegionWorkerReply, RegionWorkerRequest } from './region/workerProtocol';
+import { preparePlaceImages, webPlaceImageAdapter } from './cartography/placeImages';
 
 const ctx = self as unknown as {
   postMessage(message: RegionWorkerReply, transfer?: Transferable[]): void;
@@ -17,6 +18,7 @@ const ctx = self as unknown as {
 
 const host: RegionWorkerHost = {
   post: (message, transfer) => ctx.postMessage(message, transfer),
+  preparePlaceImages: (styles, signal) => preparePlaceImages(styles, webPlaceImageAdapter(), { signal, strict: true }),
   renderTile: (px, draw) => {
     const surface = new OffscreenCanvas(px, px);
     const c2d = surface.getContext('2d');

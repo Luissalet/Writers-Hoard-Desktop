@@ -27,6 +27,9 @@ import type {
 } from '../core/spatialEntities';
 import { useTranslation } from '@/i18n/useTranslation';
 import { PLACE_MODELS, BUILDING_STYLES, PLACE_LABEL_FONTS, AREA_STYLES } from '../core/placeStyle';
+import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
+import {normalizePlaceImage,PLACE_IMAGE_MAX_BYTES} from '../core/placeImage';
+import {preparePlaceImages,webPlaceImageAdapter} from '../cartography/placeImages';
 
 const ICONS = [
   ['volcano', 'worldgen.place.icon.volcano'],
@@ -92,6 +95,27 @@ export default function SpatialEntityInspector({
   const creatingBindings = useRef(new Set<string>());
   currentBinding.current = binding;
   const [creatingCard, setCreatingCard] = useState(false), [linkError, setLinkError] = useState('');
+  const [imageGallery,setImageGallery]=useState(false),[imageBusy,setImageBusy]=useState(false),[imageError,setImageError]=useState(false);
+  const imageGeneration=useRef(0),imageReader=useRef<FileReader|null>(null);
+  const cancelImageRead=useCallback(()=>{imageGeneration.current++;imageReader.current?.abort();},[]);
+  let currentImage:ReturnType<typeof normalizePlaceImage>=null;try{if(entity.style.iconImage)currentImage=normalizePlaceImage(entity.style.iconImage);}catch{/* Imported invalid descriptors use the saved symbol/model. */}
+  const choosePresentation=(style:WorldSpatialStyleOverride)=>{imageGeneration.current++;imageReader.current?.abort();setImageBusy(false);setImageError(false);onStyle({...style,...(entity.style.iconImage?{iconImage:null}:{})});};
+  useEffect(()=>{setImageGallery(false);setImageBusy(false);setImageError(false);return cancelImageRead;},[binding,cancelImageRead]);
+  const selectImage=async(dataUrl:string)=>{
+    if(currentBinding.current!==binding||!mounted.current)return;
+    const generation=++imageGeneration.current,owner=binding;setImageBusy(true);setImageError(false);
+    try{const image=normalizePlaceImage({dataUrl,mode:'colour'})!;const prepared=await preparePlaceImages([{iconImage:image}],webPlaceImageAdapter(),{strict:true});prepared.dispose();
+      if(currentBinding.current===owner&&imageGeneration.current===generation&&mounted.current)onStyle({iconImage:image});
+    }catch{if(currentBinding.current===owner&&imageGeneration.current===generation&&mounted.current)setImageError(true);}
+    finally{if(currentBinding.current===owner&&imageGeneration.current===generation&&mounted.current)setImageBusy(false);}
+  };
+  const uploadImage=(file:File|undefined)=>{
+    if(!file)return;const generation=++imageGeneration.current,owner=binding;imageReader.current?.abort();
+    if(file.size>PLACE_IMAGE_MAX_BYTES){setImageError(true);setImageBusy(false);return;}
+    const reader=new FileReader();imageReader.current=reader;setImageBusy(true);setImageError(false);
+    reader.onload=()=>{if(currentBinding.current===owner&&imageGeneration.current===generation&&mounted.current)void selectImage(String(reader.result));};
+    reader.onerror=()=>{if(currentBinding.current===owner&&imageGeneration.current===generation&&mounted.current){setImageError(true);setImageBusy(false);}};reader.readAsDataURL(file);
+  };
   const [cardType, setCardType] = useState<CodexEntryType>('location');
   const [previousKey, setPreviousKey] = useState(entity.key);
   const [name, setName] = useState(entity.name);
@@ -281,7 +305,7 @@ export default function SpatialEntityInspector({
           {t('worldgen.place.symbol')}
           <select
             value={entity.style.icon ?? entity.type}
-            onChange={(event) => onStyle({ icon: event.target.value })}
+            onChange={(event) => choosePresentation({ icon: event.target.value })}
             className="mt-0.5 w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
           >
             {ICONS.map(([id, label]) => <option key={id} value={id}>{t(label)}</option>)}
@@ -293,7 +317,7 @@ export default function SpatialEntityInspector({
         <fieldset className="grid grid-cols-2 gap-2 rounded-lg border border-border p-2">
           <legend className="px-1 text-[10px] uppercase tracking-wide text-text-muted">{t('worldgen.place.appearance')}</legend>
           <label className="text-[10px] text-text-muted">{t('worldgen.place.buildingModel')}
-            <select aria-label={t('worldgen.place.buildingModel')} value={entity.style.model ?? 'auto'} onChange={e => onStyle({ model: e.target.value as typeof PLACE_MODELS[number] })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary">
+            <select aria-label={t('worldgen.place.buildingModel')} value={entity.style.model ?? 'auto'} onChange={e => choosePresentation({ model: e.target.value as typeof PLACE_MODELS[number] })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary">
               {PLACE_MODELS.map(id => <option value={id} key={id}>{t(`worldgen.place.model.${id}`)}</option>)}
             </select>
           </label>
@@ -303,7 +327,7 @@ export default function SpatialEntityInspector({
             </select>
           </label>
           <label className="col-span-2 text-[10px] text-text-muted">{t('worldgen.place.customSymbol')}
-            <input aria-label={t('worldgen.place.customSymbol')} value={entity.style.icon === 'auto' ? '' : entity.style.icon ?? ''} maxLength={16} placeholder="city · town · fort · place · ◆" onChange={e => onStyle({ icon: e.target.value || 'auto' })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary" />
+            <input aria-label={t('worldgen.place.customSymbol')} value={entity.style.icon === 'auto' ? '' : entity.style.icon ?? ''} maxLength={16} placeholder="city · town · fort · place · ◆" onChange={e => choosePresentation({ icon: e.target.value || 'auto' })} className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary" />
           </label>
         </fieldset>
       )}
@@ -321,6 +345,18 @@ export default function SpatialEntityInspector({
           </label>
         </fieldset>
       )}
+
+      {entity.kind!=='realm'&&<fieldset className="space-y-2 rounded-lg border border-border p-2" data-testid="place-image-controls">
+        <legend className="px-1 text-xs text-text-muted">{t('worldgen.place.image.title')}</legend>
+        {currentImage&&<img src={currentImage.dataUrl} alt={t('worldgen.place.image.preview')} className="h-16 w-16 object-contain"/>}
+        <label className="block text-xs text-text-muted">{t('worldgen.place.image.file')}<input data-testid="place-image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp" className="mt-1 block w-full min-w-0 rounded border border-border bg-deep p-1.5 text-xs text-text-primary" onChange={e=>{uploadImage(e.target.files?.[0]);e.target.value='';}}/></label>
+        <div className="flex flex-wrap gap-2"><button type="button" className="min-h-9 rounded border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-elevated" onClick={()=>setImageGallery(true)}>{t('worldgen.place.image.gallery')}</button>
+        {entity.style.iconImage&&<button type="button" className="min-h-9 rounded border border-border px-3 py-1.5 text-xs text-text-primary hover:bg-elevated" onClick={()=>{imageGeneration.current++;imageReader.current?.abort();setImageBusy(false);setImageError(false);onStyle({iconImage:null});}}>{t('worldgen.place.image.remove')}</button>}</div>
+        {currentImage&&<label className="block text-xs text-text-muted">{t('worldgen.place.image.mode')}<select data-testid="place-image-mode" className="mt-1 w-full rounded border border-border bg-deep p-1.5 text-xs text-text-primary" value={currentImage.mode} onChange={e=>{imageGeneration.current++;imageReader.current?.abort();setImageBusy(false);onStyle({iconImage:{...currentImage!,mode:e.target.value as 'colour'|'inked'}});}}><option value="colour">{t('worldgen.place.image.colour')}</option><option value="inked">{t('worldgen.place.image.inked')}</option></select></label>}
+        {imageBusy&&<p role="status" className="text-xs text-text-muted">{t('worldgen.place.image.loading')}</p>}
+        {imageError&&<p role="alert" className="text-xs text-danger">{t('worldgen.place.image.error')}</p>}
+        {imageGallery&&<GalleryAssetPicker key={binding} projectId={projectId} open onClose={()=>setImageGallery(false)} onSelect={selection=>{if(currentBinding.current!==binding)return;setImageGallery(false);void selectImage(selection.imageDataOriginal);}}/>}
+      </fieldset>}
 
       <div className="grid grid-cols-2 gap-2">
         <label className="text-[10px] text-text-muted">{t('worldgen.place.labelFont')}

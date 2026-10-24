@@ -2,9 +2,11 @@ import type { Ctx } from './symbols';
 import type { CultureId } from '../core/naming';
 import type { WorldSpatialStyle } from '../core/spatialEntities';
 import { buildingPalette, placeParts } from '../core/placeStyle';
+import { placeImageRadius, type PlaceImagePainter } from './placeImages';
 
 /** Own construction vocabulary shared by maps and sculpt/places; no image assets. */
-export function drawPlaceBuilding(ctx: Ctx, style: WorldSpatialStyle, culture: CultureId | undefined, radius: number, rank = 'town'): boolean {
+export function drawPlaceBuilding(ctx: Ctx, style: WorldSpatialStyle, culture: CultureId | undefined, radius: number, rank = 'town', placeImages?: PlaceImagePainter, ink?: string, imageScale = 1): boolean {
+  if (placeImages?.draw(ctx, style, placeImageRadius(style, radius, placeImages, imageScale), ink)) return true;
   // An icon that is a lower-case kind word ("volcano", "tower") is a kind, not a glyph: the caller draws its own mark for it.
   // A short code or a capitalised word the author typed ("X", "HQ", "Inn") is still lettered.
   if (style.icon && style.icon !== 'auto' && (!style.model || style.model === 'auto') && !(/^[a-z][a-z0-9_-]{2,}$/.test(style.icon) && !['fort', 'city', 'town', 'place'].includes(style.icon))) {

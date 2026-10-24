@@ -19,7 +19,7 @@ import {
 import { canonBytes, canonCoverFor, deepTileSpec, installCanon } from './deepTile';
 import { canonWindowCover } from './composeWindow';
 import { CANON_CACHE_CAP, CANON_CACHE_BYTES } from './deepTile';
-import { deepTileSupported, makeCanonCache, renderDeepTile, type CanonCache, type TilePlace } from './deepTile';
+import { deepTileSupported, makeCanonCache, prepareDeepTile, type CanonCache, type TilePlace } from './deepTile';
 import { encodeCanonTile, decodeCanonTile, quantizeCanonTile } from './canonStore';
 import { THEMES } from '../cartography/theme';
 import {
@@ -30,6 +30,8 @@ import { buildLanguageFamily } from '../core/language';
 import type { HumanGeography } from '../core/settlements';
 import type { WorldData } from '../core/types';
 import type { RegionData } from './types';
+import type { WorldSpatialStyle } from '../core/spatialEntities';
+import type { PlaceImagePainter } from '../cartography/placeImages';
 
 /** What a finished tile hands back: either a zero-copy bitmap (web worker,
  *  same process) or raw pixels (forge, crossing a process boundary). */
@@ -45,10 +47,16 @@ export interface RegionWorkerHost {
   post(message: RegionWorkerReply, transfer?: Transferable[]): void;
   /** Draw one tile with `draw`, then package the pixels for this host. */
   renderTile(px: number, draw: (ctx: CanvasRenderingContext2D) => void): TileResult;
+  /** This host owns its decoder and the returned lease; core owns its lifetime. */
+  preparePlaceImages?(styles: Iterable<WorldSpatialStyle>, signal: AbortSignal): Promise<PlaceImagePainter>;
 }
 
 export function createRegionWorkerCore(host: RegionWorkerHost): (message: RegionWorkerRequest) => void {
   const cancelled = new Set<string>();
+  const preparing = new Map<string, AbortController>();
+  // A reconfigure must retire queued work too: its handler waits behind the
+  // decoder it is replacing, so comparing only `context` after await is late.
+  let requestedContextId: string | null = null;
   let context: {
     id: string;
     world: WorldData;
@@ -162,7 +170,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
     }
 
     const { requestId } = message;
-    if (!context || context.id !== message.contextId) {
+    if (!context || context.id !== message.contextId || requestedContextId !== message.contextId) {
       host.post({ type: 'error', requestId, message: 'Regional worker context is not configured.' });
       return;
     }
@@ -205,9 +213,14 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
     }
 
     if (message.type === 'renderTile') {
+      let placeImages: PlaceImagePainter | undefined;
+      let result: TileResult | undefined;
+      const controller = new AbortController();
+      preparing.set(requestId, controller);
       try {
         const theme = THEMES.find((t) => t.id === message.themeId) ?? THEMES[0];
         const live = context;
+        const edits = message.edits ? deserializeEdits(message.edits) : undefined;
         let places: TilePlace[] | undefined;
         const built: { key: string; data: RegionData }[] = [];
         const satellite = message.ink === 'satellite';
@@ -259,7 +272,6 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
           const cover = canonWindowCover(live.world, spec);
           const missing = cover.filter((id) => !live.canon.map.has(canonTileKey(id)));
           if (missing.length) {
-            const edits = message.edits ? deserializeEdits(message.edits) : undefined;
             let done = 0;
             for (const id of missing) {
               host.post({
@@ -274,7 +286,17 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
             }
           }
         }
-        const result = host.renderTile(TILE_PX, (c2d) => {
+        // Only deep carta burns images into its tile. Shallow carta and all
+        // satellite tiles leave those resources to the main-thread overlay.
+        const deepCartaPlan=deepCarta?prepareDeepTile(live.world,live.geography,live.canon,
+          {z:message.z,tx:message.tx,ty:message.ty},{theme,layers:message.layers,density:message.density,edits,quantizeCanon:live.persistCanon}):undefined;
+        if(deepCartaPlan?.imageStyles.length){
+          if(!host.preparePlaceImages)throw new Error('Regional host has no local image decoder.');
+          placeImages=await host.preparePlaceImages(deepCartaPlan.imageStyles,controller.signal);
+          if(controller.signal.aborted||cancelled.delete(requestId)||context!==live||requestedContextId!==live.id)return;
+          if(placeImages.errors.length)throw new Error(placeImages.errors.join('; '));
+        }
+        result = host.renderTile(TILE_PX, (c2d) => {
           if (satellite) {
             if (satelliteDeepSupported(live.world, message.z)) {
               const deep = renderSatelliteDeepTile(
@@ -283,7 +305,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
                 {
                   layers: message.layers,
                   density: message.density,
-                  edits: message.edits ? deserializeEdits(message.edits) : undefined,
+                  edits,
                   quantizeCanon: live.persistCanon,
                 },
                 { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES },
@@ -306,24 +328,13 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
             // Deep levels draw the canon COUNTRYSIDE pliego-style. The session
             // world here is the pristine one; strokes ride the request and are
             // re-applied at canon resolution inside generation.
-            const deep = renderDeepTile(
-              live.world,
-              live.geography,
-              live.canon,
-              c2d,
-              { z: message.z, tx: message.tx, ty: message.ty },
-              {
-                theme,
-                layers: message.layers,
-                density: message.density,
-                edits: message.edits ? deserializeEdits(message.edits) : undefined,
-                quantizeCanon: live.persistCanon,
-              },
-            );
+            deepCartaPlan!.draw(c2d,placeImages,true);
+            const deep=deepCartaPlan!.result;
             if (deep.places.length) places = deep.places;
             built.push(...deep.built);
           } else {
             renderCartaTile(live.world, live.geography, c2d, {
+              placeImages,
               key: { z: message.z, tx: message.tx, ty: message.ty },
               theme,
               layers: message.layers,
@@ -341,6 +352,10 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
           const editsHash = hashEditsString(message.edits ?? '');
           for (const b of built) {
             const bytes = await withDeadline(encodeCanonTile(b.data), 15_000);
+            if (controller.signal.aborted || cancelled.delete(requestId) || context !== live) {
+              result.bitmap?.close();
+              return;
+            }
             if (!bytes) continue; // session-local only; the tile still ships
             try {
               host.post(
@@ -368,11 +383,17 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
           evictedCanon,
         }, result.transfer);
       } catch (error) {
+        result?.bitmap?.close();
+        if (controller.signal.aborted) return;
         host.post({
           type: 'error',
           requestId,
           message: error instanceof Error ? error.message : String(error),
         });
+      } finally {
+        preparing.delete(requestId);
+        cancelled.delete(requestId);
+        placeImages?.dispose();
       }
       return;
     }
@@ -463,8 +484,16 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
   return (message: RegionWorkerRequest) => {
     if (message.type === 'cancel') {
       cancelled.add(message.requestId);
+      preparing.get(message.requestId)?.abort();
       host.post({ type: 'cancelled', requestId: message.requestId });
       return;
+    }
+    if (message.type === 'configure') {
+      requestedContextId = message.contextId;
+      for (const [requestId, controller] of preparing) {
+        controller.abort();
+        host.post({ type: 'cancelled', requestId });
+      }
     }
     queue = queue.then(() => handle(message)).catch(() => undefined);
   };

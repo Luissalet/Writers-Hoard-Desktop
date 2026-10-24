@@ -43,6 +43,7 @@ import { createScatter, type Scatter } from '../sculpt/scatter';
 import { createPlaceModels } from '../sculpt/places';
 import { settlementStyle, placeFont, labelScale, symbolScale, hasPlaceModel } from '../core/placeStyle';
 import { drawPlaceBuilding } from '../cartography/placeSymbol';
+import { placeImageRadius, type PlaceImagePainter } from '../cartography/placeImages';
 import type { Pt, Stroke, TerrainOp, WorldEdit } from '../core/edits';
 import {
   commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
@@ -144,6 +145,7 @@ export type Skin3D = 'satelite' | 'dibujado' | 'arcilla' | 'pintado';
 export type Shape3D = SculptShape;
 
 interface World3DProps {
+  placeImages?: PlaceImagePainter;
   world: WorldData;
   geography?: HumanGeography | null;
   /** El mundo PRÍSTINO del canon y sus ediciones serializadas — la identidad
@@ -510,6 +512,7 @@ interface ScreenMark {
 }
 
 export default function World3D({
+  placeImages,
   world, geography, canonWorld, canonEdits, theme, waypoints, showWaypoints, showSettlements,
   showLandmarks, showRivers = true, showRoads = true, showBorders = false,
   selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
@@ -726,6 +729,7 @@ export default function World3D({
   const over = useRef(false);
   const readerFogRef = useRef<ReaderFogLayer | undefined>(readerFog);
   const propsRef = useRef({
+    placeImages,
     geography,
     waypoints,
     showWaypoints,
@@ -745,6 +749,7 @@ export default function World3D({
     onZoomTo,
   });
   propsRef.current = {
+    placeImages,
     geography,
     waypoints,
     showWaypoints,
@@ -1347,6 +1352,17 @@ export default function World3D({
       const at = place(ruin.x, ruin.y); if (!at) continue;
       out.push({ x: at.x, y: at.y, kind: 'spatial', rank: 3, label: ruin.name, color: style.color ?? '#f2e3c4', spatial: resolveWorldSpatialEntity({ key, kind: 'ruin', type: ruin.kind, name: ruin.name, x: ruin.x, y: ruin.y, extent: 1, importance: ruin.importance, style }) });
     }
+    if (geo && sl && propsRef.current.placeImages) for (const feature of geo.features) {
+      const key = feature.sourceKey ?? editKey('feature', feature.x, feature.y, `${feature.kind}:`);
+      const style = world.painted?.styles?.[key] ?? {};
+      if (!propsRef.current.placeImages.has(style)) continue;
+      const at = place(feature.x + .5, feature.y + .5); if (!at) continue;
+      out.push({ x: at.x, y: at.y, kind: 'spatial', rank: 2, label: feature.name,
+        color: style.color ?? '#f2e3c4', spatial: resolveWorldSpatialEntity({
+          key, kind: 'feature', type: feature.kind, name: feature.name, x: feature.x, y: feature.y,
+          extent: feature.extent, importance: feature.importance, style,
+        }) });
+    }
     if (ss && geo) {
       // How much of the world is on screen decides how much of the gazetteer
       // is worth drawing: every village at full zoom is a grey smear, and only
@@ -1548,11 +1564,13 @@ export default function World3D({
         const symbolScale = Math.min(2.4, Math.max(0.65, entity.style.size ?? 1));
         ctx.save();
         ctx.translate(m.x, m.y);
+        const imageRadius = placeImageRadius(entity.style, 5 * symbolScale, propsRef.current.placeImages);
+        const imageDrawn = propsRef.current.placeImages?.draw(ctx, entity.style, imageRadius, entity.style.color ?? m.color);
         ctx.scale(symbolScale, symbolScale);
         const modeled = R.current?.placeModels.group.visible && hasPlaceModel(entity.style);
         // A volcano, a cave, a waterfall, a gorge and a hot spring keep the 2D map's own marks.
         const glyph = entity.style.icon && entity.style.icon !== 'auto' ? entity.style.icon : entity.type;
-        const custom = modeled || (isNaturalLandmark(glyph) ? drawLandmarkGlyph(ctx, glyph) : drawPlaceBuilding(ctx, entity.style, undefined, 5, entity.type));
+        const custom = imageDrawn || modeled || (isNaturalLandmark(glyph) ? drawLandmarkGlyph(ctx, glyph) : drawPlaceBuilding(ctx, entity.style, undefined, 5, entity.type));
         if (!custom) {
         ctx.beginPath();
         if ((entity.style.icon ?? entity.type) === 'volcano') {
@@ -1579,17 +1597,18 @@ export default function World3D({
         ctx.stroke();
         }
         ctx.restore();
+        if (imageDrawn) taken.push({ x0: m.x - imageRadius, y0: m.y - imageRadius, x1: m.x + imageRadius, y1: m.y + imageRadius });
         if (selected) {
           ctx.beginPath();
-          ctx.arc(m.x, m.y, 9 * symbolScale, 0, Math.PI * 2);
+          ctx.arc(m.x, m.y, imageDrawn ? imageRadius + 2 : 9 * symbolScale, 0, Math.PI * 2);
           ctx.strokeStyle = '#f5c66a';
           ctx.lineWidth = 2;
           ctx.stroke();
         }
-        const alwaysLabel = entity.style.labelVisible
+        const alwaysLabel = entity.kind !== 'feature' && (entity.style.labelVisible
           || selected
           || entity.source !== 'regional'
-          || R.current!.surface.uvWindow.size < 0.035;
+          || R.current!.surface.uvWindow.size < 0.035);
         m.hit = {
           x0: m.x - 10 * symbolScale,
           y0: m.y - 10 * symbolScale,
@@ -1600,20 +1619,26 @@ export default function World3D({
           const size = 11 * labelScale(entity.style), font = placeFont(entity.style, '"Source Sans 3", system-ui, sans-serif');
           ctx.font = letterFont(size >= 12 ? 600 : 500, size, font);
           const tw = ctx.measureText(m.label).width;
-          const lx = m.x + 8 * symbolScale + tw + 3 < w ? m.x + 8 * symbolScale : m.x - 8 * symbolScale - tw;
+          const offset = imageDrawn ? imageRadius + 4 : 8 * symbolScale;
+          const lx = m.x + offset + tw + 3 < w ? m.x + offset : m.x - offset - tw;
           if (fits(lx - 2, m.y - size * .7, lx + tw + 2, m.y + size * .7)) {
             label(ctx, m.label, lx, m.y, size, entity.style.color ?? '#f6efe0', font);
-            m.hit = { x0: m.x - 8, y0: m.y - 10, x1: lx + tw + 3, y1: m.y + 10 };
+            m.hit = imageDrawn
+              ? { x0: Math.min(m.x - imageRadius, lx - 3), y0: Math.min(m.y - imageRadius, m.y - size), x1: Math.max(m.x + imageRadius, lx + tw + 3), y1: Math.max(m.y + imageRadius, m.y + size) }
+              : { x0: m.x - 8, y0: m.y - 10, x1: lx + tw + 3, y1: m.y + 10 };
           }
         }
         continue;
       }
       const big = m.rank <= 1;
       const style = m.settlement ? settlementStyle(world, m.settlement) : {};
-      const r = (m.rank === 0 ? 5 : m.rank === 1 ? 4 : m.rank === 2 ? 3 : 2.2) * symbolScale(style);
+      const r = placeImageRadius(style, (m.rank === 0 ? 5 : m.rank === 1 ? 4 : m.rank === 2 ? 3 : 2.2) * symbolScale(style), propsRef.current.placeImages);
       ctx.save(); ctx.translate(m.x, m.y);
       const modeled = R.current?.placeModels.group.visible && hasPlaceModel(style);
-      const custom = modeled || drawPlaceBuilding(ctx, style, m.settlement?.culture, r, m.settlement?.rank); ctx.restore();
+      const imageDrawn = propsRef.current.placeImages?.draw(ctx, style, r, style.color ?? m.color);
+      const custom = imageDrawn
+        || modeled || drawPlaceBuilding(ctx, style, m.settlement?.culture, r, m.settlement?.rank); ctx.restore();
+      if (imageDrawn) taken.push({ x0: m.x - r, y0: m.y - r, x1: m.x + r, y1: m.y + r });
       if (!custom) {
       ctx.beginPath();
       ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
@@ -1635,10 +1660,12 @@ export default function World3D({
       ctx.font = letterFont(size >= 12 ? 600 : 500, size, font);
       const tw = ctx.measureText(m.label).width;
       const lx = m.x + r + 5 + tw + 3 < w ? m.x + r + 5 : m.x - r - 5 - tw;
-      m.hit = undefined;
+      m.hit = imageDrawn ? { x0: m.x - r, y0: m.y - r, x1: m.x + r, y1: m.y + r } : undefined;
       if (fits(lx - 2, m.y - size * 0.7, lx + tw + 2, m.y + size * 0.7)) {
         label(ctx, m.label, lx, m.y, size, style.color ?? '#f6efe0', font);
-        m.hit = { x0: lx - 3, y0: m.y - size, x1: lx + tw + 3, y1: m.y + size };
+        m.hit = imageDrawn
+          ? { x0: Math.min(m.x - r, lx - 3), y0: Math.min(m.y - r, m.y - size), x1: Math.max(m.x + r, lx + tw + 3), y1: Math.max(m.y + r, m.y + size) }
+          : { x0: lx - 3, y0: m.y - size, x1: lx + tw + 3, y1: m.y + size };
       }
     }
 
@@ -2447,6 +2474,7 @@ export default function World3D({
     st.placeModels.update(st.zoomInputs.world, st.zoomInputs.geography, st.surface, {
       shape: shapeRef.current, spanKm: st.focusKm, visible: propsRef.current.showSettlements, sun: st.sun,
       entities: propsRef.current.spatialEntities,
+      placeImages: propsRef.current.placeImages,
       sunColor: light.color, sunIntensity: light.intensity, ambient: light.ambient,
     });
     // The model's trees replace the landscape's plants on the tabletop stage.
@@ -2822,7 +2850,7 @@ export default function World3D({
     if (skin === 'dibujado') {
       canvas = getCartoTexture(world, theme, geography ?? undefined,
         Math.min(4096, Math.max(2048, world.width)),
-        { rivers: showRivers, roads: false, borders: showBorders });
+        { rivers: showRivers, roads: false, borders: showBorders }, placeImages);
       // La carta trae sus ríos dibujados en su propia lámina: el relleno de la
       // piel de cerca usa la misma imagen y no necesita base aparte.
       st.albedoBase = null;
@@ -2911,7 +2939,7 @@ export default function World3D({
     st.surface.setShading(false, cavity, headlight, shadow);
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders, paintTick, shape, stage, modelShown]);
+  }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders, paintTick, shape, stage, modelShown, placeImages]);
 
   // ---- the stage: a frame is enough, the draw reads `stageRef` ---------------
   useEffect(() => {
@@ -3033,6 +3061,7 @@ export default function World3D({
     flyMark,
     spatialEntities,
     selectedSpatialKey,
+    placeImages,
     request,
   ]);
 
