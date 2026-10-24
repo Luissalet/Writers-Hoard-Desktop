@@ -694,3 +694,8 @@ Legacy in-place adoption scripts are optional import helpers; keeping the old re
 
 
 Publishing shutdown correction931 CAS5: a failed native close retains the app/resources and worker, rejects ON/new native work and offers Retry OFF. Per-factory cleanup checkpoints preserve completed steps; EOF retries closure without replaying writes. Four real factories and the rebuilt frozen worker were exercised with synthetic profiles. `node scripts/build-publishing-runtime.mjs --worker-only` reuses existing native binaries without Rust builds. See tasks/submission931-cas5.md for exact evidence/limits.
+
+
+## Tool-owned interface translations
+
+Source tools can declare their own catalogs and use `useLocalToolT(client)` for translated labels, interpolation, plurals and Intl formats. Changing the normal app language preserves authored notes; the Localized notebook example supports Source and Owned editing with explicit saves. Save a new Codex card before inserting its Owned block, then save the child and parent separately. This is a bounded offline SDK extension; [evidence, delivery status and limits](tasks/vvd1095/verification-sdk-locale.md) distinguish technical verification from integration.

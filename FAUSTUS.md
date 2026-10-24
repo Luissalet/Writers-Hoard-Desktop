@@ -177,3 +177,8 @@ D2/Bmatrices for proof, scope and remaining gaps.
 
 ## Writer1095 continuation — offline preparation
 Source extends named wiki profiles with10additional page kinds, explicit/bulk/nested curation and immutable captured source policy. Home adds real monthly document counts, normal-operation quick creation and contextual guidance. Native fiction uses a companion preparation table, original19contracts intact,3additive tools, attendance/manual recap and explicit retired status; private notes stay out of default agent/context/recap. Library context bookmarks use CAS Undo/session opens;4appearance effects obey motion/performance. See docs/OFFLINE-PREPARATION.md and tasks/vvd1095/verification-next.md for exact tests and narrower gaps. Existing installed executables/profiles are not updated by source integration.
+
+
+## Textos propios de las herramientas
+
+Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(client)` para etiquetas, interpolación, plurales y formatos Intl. Cambiar el idioma normal de la aplicación conserva las notas escritas; el ejemplo Libreta traducida permite edición Source y Propio con guardado explícito. Guarda una tarjeta nueva del Códex antes de insertar su bloque propio y guarda después el hijo y el documento padre por separado. Es una ampliación offline acotada del SDK; [evidencia, estado de entrega y límites](tasks/vvd1095/verification-sdk-locale.md) separan comprobación técnica e integración.
