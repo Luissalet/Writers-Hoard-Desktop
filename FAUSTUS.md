@@ -1,5 +1,7 @@
 # Writer publishing workspace
 
+Las notas enriquecidas admiten imágenes de Archivo o Galería del proyecto. Puede ajustar ancho, marco y alineación, sustituir una imagen conservando sus ajustes o quitarla y usar Deshacer/Rehacer. También puede guardar y reabrir notas formadas sólo por una imagen. [Uso, pruebas y límites](tasks/vvd1095/verification-note-inline-images.md).
+
 Los lugares de Worldgen admiten una imagen local copiada de archivo o Galería, con sus colores o con la tinta del mapa. Al retirarla vuelve el símbolo o edificio guardado; cambiar o borrar el original de Galería no altera la copia. Maps y los retratos vinculados al Códex conservan su comportamiento. [Contrato y verificación](tasks/vvd1095/verification-place-images.md).
 
 Los campos de una herramienta fuente pueden optar por prosa enriquecida: títulos, listas, enlaces textuales e imágenes raster locales copiadas usan el editor nativo y siguen legibles sin el módulo de autor. El informe se guarda explícitamente; un bloque propio requiere después guardar su documento padre y el dock exige Guardar/Descartar el hijo antes de salir. Es edición local string+CAS, sin colaboración por caracteres; el SDK general sigue siendo un subconjunto parcial. [Uso y límites](tasks/vvd1095/verification-sdk-rich-prose.md).
