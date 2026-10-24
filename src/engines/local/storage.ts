@@ -1,3 +1,5 @@
+import {useLocaleStore} from '@/stores/localeStore';
+import {createLocalToolLocaleSource} from './locales';
 import {createBrowserLocalToolAssets} from './assetBrowser';
 import {createBrowserLocalToolAudio} from './audioBrowser';
 import {queryLocalToolDocuments} from './queryDocuments';
@@ -29,7 +31,8 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  const projected=async(documentKind:EraDocumentKind,read:EraDocumentRead)=>documentKind==='codex'?{...read,projection:{fields:projectCodexEntry(read.document.root as unknown as CodexEntry,(await getEraProject(scope)).codexTemplates).fields}}:read;
  const assets=createBrowserLocalToolAssets(scope,definition,project,()=>{current();if(options.readOnly&&!options.assetDefaultsWritable?.())throw Error('local_tool_query_is_read_only');},importWritable);
  const audio=createBrowserLocalToolAudio(scope,project,()=>{try{current();return true;}catch{return false;}},options.audioEngine,ref=>ref.kind==='source'&&!ref.releaseHash?assets.slot(ref.slot):assets.resolve(ref));
- const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,assets,
+ const locale=createLocalToolLocaleSource(definition.locales,()=>useLocaleStore.getState().locale,changed=>useLocaleStore.subscribe((next,previous)=>{if(next.locale!==previous.locale)changed();}));
+ const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,assets,locale,
   subscribe:(changed:()=>void)=>{
    let active=true,pending:ReturnType<typeof setTimeout>|undefined;
    const schedule=()=>{if(!active||pending!==undefined)return;pending=setTimeout(()=>{pending=undefined;if(active)changed();},0);};
