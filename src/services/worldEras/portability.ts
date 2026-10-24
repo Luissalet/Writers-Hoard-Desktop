@@ -1,3 +1,4 @@
+import {remapBannerLink} from '@/engines/timeline/bannerStyles';
 import { cloneManuscriptWritingSource } from '@/engines/writings/manuscriptReview/portability';
 import { remapSourceToolDocument, type SourceToolDocument } from '@/engines/local/documents/types';
 import {remapToolDockLayout,type ToolDockValue} from '@/engines/writings/toolDock/types';
@@ -96,7 +97,17 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
     const root = rewrite(field ? (remapWorldMetadata({ ...projectWithVariants, [field]: [document.root] }, remap, codexIds, mediaIds, writingIds, tools)[field] as EraRow[])[0] : document.root) as EraRow;
     if(kind==='writings'&&typeof document.root.manuscriptId==='string')root.manuscriptId=remap(document.root.manuscriptId,'manuscript');
     if (kind === 'writings' && document.root.manuscriptSource) root.manuscriptSource = cloneManuscriptWritingSource(document.root.manuscriptSource as import('@/engines/writings/manuscriptReview/types').ManuscriptWritingSource, remap);
-    return { root, children: rewrite(document.children) as Record<string, EraRow[]> };
+    const children=rewrite(document.children) as Record<string,EraRow[]>;
+    if(kind==='timeline'){
+      // Preset IDs are local keys, even when their literal equals a document ID.
+      if('bannerPresets' in document.root)root.bannerPresets=structuredClone(document.root.bannerPresets);
+      if(document.children.timelineEvents)children.timelineEvents=document.children.timelineEvents.map((original,index)=>{
+        const copied=children.timelineEvents[index];
+        if('bannerPreset' in original)copied.bannerPreset=remapBannerLink(original as unknown as import('@/types').TimelineEvent,remap).bannerPreset;
+        return copied;
+      });
+    }
+    return {root,children};
   };
 }
 /** IDs stay shared between a cloned Base and every era; era-only roots also remap. */

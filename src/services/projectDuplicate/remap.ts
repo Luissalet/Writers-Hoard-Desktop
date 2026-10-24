@@ -31,7 +31,7 @@ const engineTables:Record<string,string>={codex:'codexEntries','codex-entry':'co
   'board-node':'boardNodes','outline-beat':'outlineBeats','timeline-event':'timelineEvents','timeline-connection':'timelineConnections'};
 const refs:Record<string,Record<string,string>>={
   codexEntries:{templateId:'template','referenceFields.*.*':'codexEntries','relations.*.targetId':'codexEntries'},
-  timelineEvents:{timelineId:'timelines',linkedEntryId:'codexEntries','linkedEntryIds.*':'codexEntries'},
+  timelineEvents:{timelineId:'timelines','bannerPreset.ownerTimelineId':'timelines',linkedEntryId:'codexEntries','linkedEntryIds.*':'codexEntries'},
   timelineConnections:{timelineId:'timelines',sourceEventId:'timelineEvents',targetEventId:'timelineEvents'},
   boardNodes:{boardId:'boards',layerId:'boardLayers','memberNodeIds.*':'boardNodes'},boardLayers:{boardId:'boards'},
   boardEdges:{boardId:'boards',layerId:'boardLayers'},boardViews:{boardId:'boards','layerIds.*':'boardLayers'},

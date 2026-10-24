@@ -1,3 +1,5 @@
+import {BANNER_PATTERNS,normalizeBannerParams,normalizeBannerImage,resolveBannerStyle,type BannerAction,type BannerTarget} from '@/engines/timeline/bannerStyles';
+import {writeBannerEvent,bannerContext} from '@/engines/timeline/bannerPresets';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
 import { worldEraToolScope, checkEraLinkedRow } from '@/services/worldEras/toolScope';
 import { listEraRows } from '@/services/worldEras/store';
@@ -124,9 +126,11 @@ async function extraEventFields(projectId: string, args: ToolArgs, current?: Tim
     fields.hideFromWiki = args.hideFromWiki ? true : undefined;
   }
   if (args.bannerPattern !== undefined) {
-    if (!['solid', 'stripes', 'dots', 'checks'].includes(String(args.bannerPattern))) throw new BridgeError('bad-args', 'bannerPattern is solid, stripes, dots or checks.');
+    if (!BANNER_PATTERNS.includes(args.bannerPattern as typeof BANNER_PATTERNS[number])) throw new BridgeError('bad-args', 'bannerPattern is solid, stripes, dots or checks.');
     fields.bannerPattern = args.bannerPattern === 'solid' ? undefined : args.bannerPattern as TimelineEvent['bannerPattern'];
   }
+  if(args.bannerPatternParams!==undefined)fields.bannerPatternParams=normalizeBannerParams(args.bannerPatternParams);
+  if(args.bannerImage!==undefined)fields.bannerImage=normalizeBannerImage(args.bannerImage);
   if (args.bannerShape !== undefined) {
     if (typeof args.bannerShape !== 'string' || !['plain', 'ribbon', 'bunting', 'scallop'].includes(args.bannerShape)) throw new BridgeError('bad-args', 'bannerShape is plain, ribbon, bunting or scallop.');
     fields.bannerShape = args.bannerShape === 'plain' ? undefined : args.bannerShape as TimelineEvent['bannerShape'];
@@ -198,6 +202,8 @@ function filterArg(args: ToolArgs) {
 
 export async function whListEvents(args: ToolArgs): Promise<unknown> {
   const filter = filterArg(args);
+  let contextRead:ReturnType<typeof bannerContext>|undefined;
+  const serialize=async(event:TimelineEvent)=>{if(args.includeBannerStyle!==true)return serializeEvent(event);const context=await (contextRead??=bannerContext({projectId:event.projectId,eraId:optString(args,'eraId')}));return {...serializeEvent(event),bannerPreset:event.bannerPreset,bannerImage:event.bannerImage,bannerPatternParams:event.bannerPatternParams,effectiveBanner:resolveBannerStyle(event,context.timelines)};};
   const timelineId = optString(args, 'timelineId');
   if (timelineId) {
     const timeline = await timelineOperations(args).timelines.getOne(timelineId);
@@ -205,12 +211,12 @@ export async function whListEvents(args: ToolArgs): Promise<unknown> {
     assertRowInScope(args, timeline.projectId);
     const events = await timelineOperations(args).events.getAll(timelineId);
     const calendar = (await resolveWorldCalendar(timeline.projectId, timelineId, optString(args, 'eraId')))?.calendar;
-    return { timelineId, events: filterTimelineEvents(events, filter).map(event => serializeEvent({ ...event, date: timelineEventLabel(event, calendar) })) };
+    return { timelineId, events: await Promise.all(filterTimelineEvents(events, filter).map(event => serialize({ ...event, date: timelineEventLabel(event, calendar) }))) };
   }
   const projectId = resolveProjectId(args);
   const events = worldEraToolScope(args) ? await listEraRows<TimelineEvent>(worldEraToolScope(args)!, 'timelineEvents') : await timelineBase.getAllProjectEvents(projectId);
   const calendars = new Map(await Promise.all([...new Set(events.map(event => event.timelineId))].map(async id => [id, (await resolveWorldCalendar(projectId, id, optString(args, 'eraId')))?.calendar] as const)));
-  return { projectId, events: filterTimelineEvents(events, filter).map(event => serializeEvent({ ...event, date: timelineEventLabel(event, calendars.get(event.timelineId)) })) };
+  return { projectId, events: await Promise.all(filterTimelineEvents(events, filter).map(event => serialize({ ...event, date: timelineEventLabel(event, calendars.get(event.timelineId)) }))) };
 }
 
 export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
@@ -253,12 +259,14 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
   Object.assign(event, await extraEventFields(timeline.projectId, args));
   await validateEventDating(event, optString(args, 'eraId'));
   if (event.endTime && !args.eventType) event.eventType = 'range';
-  await timelineOperations(args).events.create(event);
+  const bannerResult=args.banner?await writeBannerEvent({projectId:timeline.projectId,eraId:optString(args,'eraId')},{event,create:true,targets:(args.expectedTargets??[]) as BannerTarget[],action:args.banner as BannerAction}):undefined;
+  if(!bannerResult)await timelineOperations(args).events.create(event);
   return withAudit(
     { id: event.id, title: event.title, timelineId, created: true },
     {
       projectId: timeline.projectId,
       entityId: event.id,
+      ...(bannerResult?{before:{__bannerReceipt:bannerResult.receiptId}}:{}),
       summary: `created event "${event.title}" on "${timeline.title}"`,
     },
   );
@@ -292,21 +300,25 @@ export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
     throw new BridgeError('bad-args', 'worldDate/worldDateEnd need dateMode "world".');
   }
 
+  if(args.destinationTimelineId!==undefined)changes.timelineId=requireString(args,'destinationTimelineId');
   Object.assign(changes, await extraEventFields(existing.projectId, args, existing));
-  if (!Object.keys(changes).length) {
+  if (!Object.keys(changes).length&&!args.banner) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
   const next = { ...existing, ...changes };
   await validateEventDating(next, optString(args, 'eraId'));
   if (next.dateMode !== 'text') changes.date = next.date;
-  await timelineOperations(args).events.update(id, changes);
+  const paintChanged=args.bannerPatternParams!==undefined||args.bannerImage!==undefined;
+  const paintTargets=paintChanged&&!args.banner&&!args.destinationTimelineId?(await bannerContext({projectId:existing.projectId,eraId:optString(args,'eraId')})).targets:[];
+  const bannerResult=args.banner||args.destinationTimelineId||paintChanged?await writeBannerEvent({projectId:existing.projectId,eraId:optString(args,'eraId')},{event:next,baseline:existing,targets:(args.expectedTargets??paintTargets) as BannerTarget[],action:args.banner as BannerAction|undefined,overrides:changes}):undefined;
+  if(!bannerResult)await timelineOperations(args).events.update(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
     {
       projectId: existing.projectId,
       entityId: id,
       summary: `updated event "${existing.title}"`,
-      before: { ...serializeEvent(existing), ...(existing.bannerShape === undefined ? { __absent: ['bannerShape'] } : {}) },
+      before: bannerResult?{__bannerReceipt:bannerResult.receiptId}:{ ...serializeEvent(existing), ...(existing.bannerShape === undefined ? { __absent: ['bannerShape'] } : {}) },
     },
   );
 }

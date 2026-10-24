@@ -186,7 +186,7 @@ export async function testCalendarBannerShapeFields(): Promise<string[]> {
     assert([...shape.options].map(option => option.value).join(',') === 'plain,ribbon,bunting,scallop', 'Four observed shapes missing');
     assert(shape.labels?.length && shape.labels[0].textContent?.includes('shape'), 'Shape selector has no accessible label');
     const pattern = document.querySelector<HTMLSelectElement>('[data-testid="event-banner-pattern"]')!;
-    assert([...pattern.options].map(option => option.value).join(',') === ',stripes,dots,checks', 'Shape replaced an existing fill pattern');
+    assert([...pattern.options].map(option => option.value).join(',') === ',stripes,dots,checks,crosshatch,grid,image', 'Shape replaced an existing fill pattern');
     await act(async () => { shape.value = 'ribbon'; shape.dispatchEvent(new Event('change', { bubbles: true })); });
     await act(async () => { pattern.value = 'dots'; pattern.dispatchEvent(new Event('change', { bubbles: true })); });
     assert(shape.value === 'ribbon' && pattern.value === 'dots', 'Changing the fill lost the selected shape');
