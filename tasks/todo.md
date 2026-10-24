@@ -1449,7 +1449,7 @@ Success: choose a real graphic by search/category in a normal place inspector, p
 
 - [x] Compare VVD and Writer in real Brave; preserve real Canvas and NativeExecutor REDs; agree own identity, numeric artifact, paint and scoped picker in debate 1566.
 - [x] Freeze and independently review exact public-data provenance, all 1688 symbols, sample raster differences, cost and 21 implementation paths before edits.
-- [ ] Implement the bounded descriptor, own thumbnails/picker, shared renderers and existing MCP contract, keeping legacy and images intact.
-- [ ] Verify real UI/Worker/PNG/native audit and Undo, Base/era, portability, build graph/budget and affected original tests; preserve all failures.
-- [ ] Complete independent review, root Brave/gates and fresh formal CAS; commit explicit paths as Luissalet and integrate exact source under merge lock without push.
-- [ ] Record actual delivery in product/SDK/MCP documentation, native Google manual and continuity; leave task1095 open for remaining gaps.
+- [x] Implement the bounded descriptor, own thumbnails/picker, shared renderers and existing MCP contract, keeping legacy and images intact. Source22/r2 preserves20 untouched paths after the causal overlay fix; see vvd1095/verification-map-symbol-catalog.md.
+- [x] Verify real UI/Worker/PNG/native audit and Undo, Base/era, portability, build graph/budget and affected original tests; preserve all failures. Functional evidence and accepted byte cost remain distinct from budget FAIL; original label/preset RED→GREEN is preserved.
+- [x] Complete independent review, root Brave/gates and fresh formal CAS; commit explicit paths as Luissalet and integrate exact source under merge lock without push. Source fb63670/CAS29 approved17221, exact FF and Main8PASS. Original global1159/458/1observer FAIL plus R6 normal formalPASS are composed honestly; no new global0.
+- [x] Record actual delivery in product/MCP documentation, native Google manual and continuity; leave task1095 open for remaining gaps. This documentation commit records the bounded feature; Google397 and MEMORY/own graph readbacks are complete. The ROOT delivery receipt records the documentation commit and main integration after they occur. Task1095 stays open.

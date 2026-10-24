@@ -45,3 +45,9 @@ three destinations. Hidden or removed readers stop/release their rendering.
 No raster poster, remote service, user-cache dependency or reference asset is
 substituted for interactive geometry. Evidence and honest build/transport
 limits are recorded in `.impeccable/review/model-reader1041/EVIDENCE.md`.
+
+## Own place-graphic picker
+
+The bounded place inspector adds search/categories and the same numeric drawing in each cell, selected preview and map/export. Prepared raster → available graphic → retained model/symbol is explicit; selecting a model restores it by clearing active overrides. The charcoal/gold surface,36px controls, six-column own grid and opt-in viewport portal preserve the existing desktop. Warm secondary ink `#b3a48e` is scoped to those cells, not a global palette replacement; other IconPicker consumers retain defaults.
+
+ROOT normal Brave verified selection, cold reopen, Undo/Redo, model restoration, category and Escape/focus at desktop. Its viewport call did not establish390px; author Electron390 evidence is separate. Browser PNG download remains unconfirmed; public renderer/export and real built WEB-worker proofs are attributed separately. Existing21 font advisories remain inherited and are not repaired by this feature. Delivery/gates are tracked in tasks/vvd1095/verification-map-symbol-catalog.md; the later local overlay guard preserves legacy label-only worlds without changing this UI. No universal catalogue parity follows.
