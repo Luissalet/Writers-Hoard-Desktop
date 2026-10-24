@@ -1,3 +1,5 @@
+import { noteImageLayoutCss } from '@/components/editor/blocks/style';
+import { imageAlign, isInlineRaster } from '@/components/editor/blocks/imageLayout';
 import {codexTextLinkTarget} from '@/components/editor/codexBlocks/inlineLinks';
 import {localAssetFontCss,type LocalAssetFont} from '@/engines/local/localAssetFonts';
 import {voiceReadingMarkup,installVoiceReading,VOICE_READING_CSS} from '@/engines/media/voiceReading';
@@ -342,7 +344,16 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   const extraPages=(data.standalone?.policy===toolPolicyKey(data.project.id,entries,maps,options)?data.standalone.pages:[]).filter(page=>selectedRefs.has(wikiRefKey(page.ref))&&page.ref.kind!=='entry'&&page.ref.kind!=='map'&&(!options.onlyRevealed||page.ref.kind==='timeline')&&!wikiDocumentHidden(page.ref,page.ref.kind,options));
   const extraDocuments=extraPages.map(page=>{
     const id=wikiDocumentArticleId(page.ref),preview=page.preview;
-    const body=preview.model?modelReaderMarkup(preview.model,locale):preview.sheet?sheetPaper(preview.sheet,locale).svg.replace(/sheet-ink-[0-9a-f-]{36}/g,'sheet-ink-'+id):sanitizeToolPreviewHtml(preview.html,'wiki-'+id+'-',(page.ref.kind==='notes'||page.ref.kind==='local-tool')&&includeImages,richPreviewPolicy(data.project.id,entryMap,includeImages));
+    let body=preview.model?modelReaderMarkup(preview.model,locale):preview.sheet?sheetPaper(preview.sheet,locale).svg.replace(/sheet-ink-[0-9a-f-]{36}/g,'sheet-ink-'+id):sanitizeToolPreviewHtml(preview.html,'wiki-'+id+'-',(page.ref.kind==='notes'||page.ref.kind==='local-tool')&&includeImages,richPreviewPolicy(data.project.id,entryMap,includeImages));
+    // The generic preview sanitizer deliberately discards application attrs.
+    // Restore only new, admitted note-image layout after its URL/privacy policy;
+    // no-align notes and siblings retain the exact legacy projection.
+    if(page.ref.kind==='notes'&&includeImages&&noteImageLayoutCss(preview.html)){
+      const source=document.createElement('template'),target=document.createElement('template');source.innerHTML=sanitizeRichHtml(preview.html);target.innerHTML=body;
+      const originals=[...source.content.querySelectorAll('img')].filter(image=>isInlineRaster(image.getAttribute('src'))),images=[...target.content.querySelectorAll('img')].filter(image=>isInlineRaster(image.getAttribute('src')));
+      images.forEach((image,index)=>{const original=originals[index],align=original&&imageAlign(original.getAttribute('data-wh-align'));if(!align||original.getAttribute('src')!==image.getAttribute('src'))return;image.setAttribute('data-wh-align',align);for(const [attr,values]of [['data-wh-width',['25','50','75','100','page']],['data-wh-frame',['border','rounded','polaroid']]] as const){const value=original.getAttribute(attr);if(value&&values.some(allowed=>allowed===value))image.setAttribute(attr,value);}});
+      body=target.innerHTML;
+    }
     const html=`<article id="${id}" data-category="${esc(page.ref.kind)}" data-tags="[]"><h2 tabindex="-1">${esc(page.title)}</h2><p class="meta">${esc(extraLabels[page.ref.kind]??page.ref.kind)}</p><div class="prose">${body}</div>${preview.truncated?`<p>${locale==='es'?'Vista parcial del documento.':'Partial document view.'}</p>`:''}<footer><a href="#top">${copy.home}</a></footer></article>`;
     articles.push(html);
     return{ref:page.ref,id,title:page.title,html,index:`<li data-article-id="${id}"><a href="#${id}">${esc(page.title)}<small>${esc(extraLabels[page.ref.kind]??page.ref.kind)}</small></a></li>`};
@@ -384,7 +395,7 @@ export function buildWorldWiki(data: WorldWikiData, options: WorldWikiOptions = 
   const resourceFontsCss=localAssetFontCss(data.assetFonts??[],composed.home+composed.html+tailTimelines.map(item=>item.html).join(''));
   const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${hasModels?' blob:':''}; media-src data:; ${resourceFontsCss?'font-src data:; ':''}style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; connect-src ${hasModels?"data: blob:":"'none'"}">
-    <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(options.home?.title??data.project.title)} · ${copy.title}</title><style>${resourceFontsCss}${WIKI_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}${EDITORIAL_PROSE_BASE_CSS}${hasPrepBlocks?PREP_BLOCKS_CSS:''}${WIKI_PROFILE_CSS}${presentation}${wikiAppearanceStyle(options)}${console?WIKI_CONSOLE_CSS:''}${terminal?wikiTerminalStyle(terminal):''}</style></head>
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(options.home?.title??data.project.title)} · ${copy.title}</title><style>${resourceFontsCss}${WIKI_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${VOICE_READING_CSS}${EDITORIAL_PROSE_BASE_CSS}${noteImageLayoutCss(composed.home+composed.html+tailTimelines.map(item=>item.html).join(''))}${hasPrepBlocks?PREP_BLOCKS_CSS:''}${WIKI_PROFILE_CSS}${presentation}${wikiAppearanceStyle(options)}${console?WIKI_CONSOLE_CSS:''}${terminal?wikiTerminalStyle(terminal):''}</style></head>
     <body id="top"><header>${terminal?wikiTerminalBoot(terminal):''}${brand}${cover}<h1>${esc(options.home?.title??data.project.title)}</h1><p>${esc(options.home?.intro??data.project.description)}</p><small>${copy.offline}</small></header>${composed.home}${console?wikiConsoleMarkup(locale,terminal?wikiTerminalOpening(terminal,locale):''):''}
     <div class="layout"><nav aria-label="${copy.contents}"><h2>${copy.title}</h2>
       <label for="search">${copy.search}</label><input id="search" type="search" placeholder="${copy.search}">

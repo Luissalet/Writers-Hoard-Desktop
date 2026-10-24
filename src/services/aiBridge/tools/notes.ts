@@ -7,6 +7,7 @@
 // table and ops serve both.
 
 import { normalizeNoteContent } from '@/engines/notes/content';
+import { isInlineRaster } from '@/components/editor/blocks/imageLayout';
 import type { Note, NoteKind } from '@/engines/notes/types';
 import { GLOBAL_NOTES_SCOPE, noteTitle } from '@/engines/notes/types';
 import { createNote, getNote, getNotes, updateNote, deleteNote } from '@/engines/notes/operations';
@@ -70,11 +71,12 @@ export async function whCreateNote(args: ToolArgs): Promise<unknown> {
     ? GLOBAL_NOTES_SCOPE
     : await resolveProjectForEngine(args, 'notes');
   const now = Date.now();
+  if (typeof args.text !== 'string') throw new BridgeError('bad-args', '"text" is required and must be a string.');
   const note: Note = normalizeNoteContent({
     id: generateId('note'),
     projectId: scope,
     kind: optEnum(args, 'kind', KINDS) ?? 'note',
-    text: requireString(args, 'text'),
+    text: args.text,
     ...(args.richHtml!==undefined?{richHtml:requireString(args,'richHtml')}:{}),
     source: optString(args, 'source'),
     ...(optString(args, 'title')?.trim() ? { title: optString(args, 'title')!.trim().slice(0, 200) } : {}),
@@ -83,6 +85,10 @@ export async function whCreateNote(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   });
+  if (!args.text.trim()) {
+    const html = new DOMParser().parseFromString(note.richHtml ?? '', 'text/html');
+    if (!note.text.trim() && ![...html.querySelectorAll('img')].some(image => isInlineRaster(image.getAttribute('src')))) throw new BridgeError('bad-args', 'Empty "text" requires normalized rich content or an embedded raster image.');
+  }
   await noteOps(args).create(note);
   return withAudit(
     { id: note.id, title: noteTitle(note), created: true },

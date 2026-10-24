@@ -1,4 +1,5 @@
 import DOMPurify, { type Config } from 'dompurify';
+import { imageAlign } from '@/components/editor/blocks/imageLayout';
 import { FORMAT_ATTRIBUTES, formattingFromElement, formattingHtmlAttributes, INLINE_KEYS, BLOCK_KEYS, SCENE_BREAK_KEYS, normalizeColumnWidths } from '@/components/editor/advanced/model';
 import { REVISION_ATTRIBUTES, REVISION_BREAK_ATTRIBUTES, revisionMetadataFromElement, revisionHtmlAttributes } from '@/engines/writings/revisions/model';
 import { EDITORIAL_ATTRIBUTES, normalizeEditorialStyle, normalizeEditorialSection, normalizeEditorialCitation, parseEditorialAttribute, serializeEditorialMetadata } from '@/components/editor/editorial/model';
@@ -32,6 +33,9 @@ DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
 // after arbitrary incoming style attributes have been removed as before.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (!(node instanceof Element)) return;
+  // Paragraphs/headings already own this attribute in the prose vocabulary.
+  // Preserve that legacy path and restore only an image's admitted enum below.
+  const inlineImageAlign = node.tagName === 'IMG' ? imageAlign(node.getAttribute('data-wh-align')) : null;
   const semantic = [
     { attribute: EDITORIAL_ATTRIBUTES.styleDefinition, tag: 'DIV', value: parseEditorialAttribute(node, EDITORIAL_ATTRIBUTES.styleDefinition, normalizeEditorialStyle) },
     { attribute: EDITORIAL_ATTRIBUTES.section, tag: 'DIV', value: parseEditorialAttribute(node, EDITORIAL_ATTRIBUTES.section, normalizeEditorialSection) },
@@ -61,6 +65,7 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   const attrs = formattingHtmlAttributes(formattingFromElement(node), keys);
   for (const attr of Object.values(FORMAT_ATTRIBUTES)) node.removeAttribute(attr);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (inlineImageAlign) node.setAttribute('data-wh-align', inlineImageAlign);
   if (node.hasAttribute('data-wh-colwidth')) {
     const widths = /^(TD|TH)$/.test(node.tagName) ? normalizeColumnWidths(node.getAttribute('data-wh-colwidth')) : null;
     if (widths) node.setAttribute('data-wh-colwidth', widths.join(','));

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Check, Copy, FolderInput, Palette, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
@@ -6,6 +6,9 @@ import { NOTE_COLORS, NOTE_KIND_META, type Note } from '../types';
 import NoteRichEditor from './NoteRichEditor';
 import { hasNoteContent, plainNoteHtml } from '../content';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
+import type { NoteImageActivity } from './NoteImageControls';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { ensureNoteImageLayout, noteImageLayoutCss } from '@/components/editor/blocks/imageLayout';
 
 interface NoteCardProps {
   note: Note;
@@ -45,6 +48,8 @@ export default function NoteCard({
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const saveLock = useRef(false);
+  const imageActivity = useRef<NoteImageActivity>({ epoch: 0, blocked: false }), scope = useWorldEraScope(note.projectId), richRead = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (!editing && note.richHtml && noteImageLayoutCss(note.richHtml) && richRead.current) ensureNoteImageLayout(richRead.current.ownerDocument); }, [editing, note.richHtml]);
 
   const { icon: KindIcon, color: kindColor } = NOTE_KIND_META[note.kind];
   const accent = note.color ?? kindColor;
@@ -61,6 +66,7 @@ export default function NoteCard({
   }
 
   const startEdit = () => {
+    imageActivity.current.epoch++;
     setDraft(note.text);
     setDraftRich(note.richHtml);
     setDraftSource(note.source ?? '');
@@ -70,6 +76,7 @@ export default function NoteCard({
 
   const update = async (changes: Partial<Note>): Promise<boolean> => {
     if (saveLock.current) return false;
+    imageActivity.current.epoch++; imageActivity.current.blocked = true;
     saveLock.current = true;
     setSaving(true);
     setSaveFailed(false);
@@ -80,12 +87,14 @@ export default function NoteCard({
       setSaveFailed(true);
       return false;
     } finally {
+      imageActivity.current.blocked = false;
       saveLock.current = false;
       setSaving(false);
     }
   };
 
   const commit = async () => {
+    imageActivity.current.epoch++;
     const text = draft.trim();
     if (!hasNoteContent(text,draftRich)) {
       setEditing(false);
@@ -236,8 +245,8 @@ export default function NoteCard({
             <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} placeholder={es ? 'Título (opcional)' : 'Title (optional)'} aria-label={es ? 'Título' : 'Title'} data-testid="note-title" maxLength={200} className="w-full px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-sm font-semibold text-text-primary placeholder:text-text-dim outline-none focus:border-accent-gold transition" />
             <label className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-text-muted hover:text-text-primary">{draftCover ? (es ? 'Cambiar portada' : 'Change cover') : (es ? 'Añadir portada' : 'Add cover')}<input type="file" className="sr-only" accept="image/png,image/jpeg,image/gif,image/webp" data-testid="note-cover" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (!file) return; if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 1_500_000) { setCoverError(true); return; } const reader = new FileReader(); reader.onload = () => { if (typeof reader.result === 'string') { setDraftCover(reader.result); setCoverError(false); } }; reader.readAsDataURL(file); }} /></label>
             {coverError && <p role="alert" className="text-[11px] text-danger">{es ? 'La portada debe ser PNG, JPEG, GIF o WebP de hasta 1,5 MB.' : 'The cover must be a PNG, JPEG, GIF or WebP up to 1.5 MB.'}</p>}
-            <label className="flex min-h-9 items-center gap-2 text-xs text-text-muted"><input type="checkbox" data-testid="note-rich-toggle" checked={draftRich!==undefined} onChange={event=>setDraftRich(event.target.checked?plainNoteHtml(draft):undefined)}/>{es?'Texto enriquecido':'Rich text'}</label>
-            {draftRich!==undefined?<NoteRichEditor key={note.id} html={draftRich} onChange={(plain,html)=>{setDraft(plain);setDraftRich(html);}}/>:<textarea
+            <label className="flex min-h-9 items-center gap-2 text-xs text-text-muted"><input type="checkbox" data-testid="note-rich-toggle" checked={draftRich!==undefined} onChange={event=>{imageActivity.current.epoch++;setDraftRich(event.target.checked?plainNoteHtml(draft):undefined);}}/>{es?'Texto enriquecido':'Rich text'}</label>
+            {draftRich!==undefined?<NoteRichEditor key={`${note.projectId}:${scope.eraId ?? ''}:${note.id}`} html={draftRich} projectId={note.projectId} eraId={scope.eraId} noteId={note.id} activity={imageActivity} onChange={(plain,html)=>{setDraft(plain);setDraftRich(html);}}/>:<textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -262,7 +271,7 @@ export default function NoteCard({
                 {t('common.save')}
               </button>
               <button
-                onClick={() => setEditing(false)}
+                onClick={() => { imageActivity.current.epoch++; setEditing(false); }}
                 className="p-1 text-text-muted hover:text-text-primary transition"
                 title={t('common.cancel')}
               >
@@ -278,7 +287,7 @@ export default function NoteCard({
           >
             {note.cover && <img src={note.cover} alt="" className="mb-2 max-h-40 w-full rounded-lg object-cover" data-testid="note-cover-image" />}
             {note.title && <p className="mb-1 text-base font-semibold text-text-primary" data-testid="note-title-shown">{note.title}</p>}
-            {note.richHtml!==undefined?<div className="tiptap-editor prose prose-sm max-w-none break-words text-text-primary" data-note-rich-read dangerouslySetInnerHTML={sanitizedHtml(note.richHtml)}/>:<p
+            {note.richHtml!==undefined?<div ref={richRead} className="tiptap-editor prose prose-sm max-w-none break-words text-text-primary" data-note-rich-read dangerouslySetInnerHTML={sanitizedHtml(note.richHtml)}/>:<p
               className={`text-sm text-text-primary whitespace-pre-wrap leading-relaxed ${
                 note.kind === 'quote' ? 'font-serif italic' : ''
               }`}

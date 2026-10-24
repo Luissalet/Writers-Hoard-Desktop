@@ -19,6 +19,7 @@ import KanbanPanel from '@/engines/kanban/KanbanPanel';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
 import { isOpen } from '@/engines/todos/model';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
 
 type KindFilter = NoteKind | 'all';
 
@@ -29,6 +30,7 @@ type KindFilter = NoteKind | 'all';
  *    additionally offers "move to project" on every card.
  */
 export default function NotesEngine({ projectId }: EngineComponentProps) {
+  const scope = useWorldEraScope(projectId);
   const { t } = useTranslation();
   const navigate = useEraNavigate();
   const isInbox = projectId === GLOBAL_NOTES_SCOPE;
@@ -122,7 +124,7 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
       {tabs}
       {error && <ReadErrorNotice onRetry={refresh} retrying={refetching} />}
       <div className="p-4 pb-0">
-        <NoteComposer onSubmit={handleCreate} tagSuggestions={allTags} />
+        <NoteComposer key={`${projectId}:${scope.eraId ?? ''}`} projectId={projectId} eraId={scope.eraId} onSubmit={handleCreate} tagSuggestions={allTags} />
       </div>
 
       {/* Filters */}
