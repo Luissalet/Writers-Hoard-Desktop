@@ -1,5 +1,7 @@
 # Writers Hoard — Escritorio
 
+Los bloques propios de una herramienta fuente pueden optar por evolución aditiva del codec: una versión compatible añade campos al mismo bloque sin modificarlo al elegirla o leerlo. La primera edición efectiva guarda datos, codec y preview portable juntos; Deshacer de acciones restaura el envelope anterior completo. La compatibilidad estricta sigue siendo predeterminada, el estado Source conserva su migración existente y el SDK general sigue siendo parcial. [Contrato, ejemplo y evidencia](tasks/vvd1095/verification-sdk-owned-evolution.md).
+
 Las notas enriquecidas admiten imágenes de Archivo o Galería del proyecto. Puede ajustar ancho, marco y alineación, sustituir una imagen conservando sus ajustes o quitarla y usar Deshacer/Rehacer. También puede guardar y reabrir notas formadas sólo por una imagen. [Uso, pruebas y límites](tasks/vvd1095/verification-note-inline-images.md).
 
 Los lugares de Worldgen admiten una imagen local copiada de archivo o Galería, con sus colores o con la tinta del mapa. Al retirarla vuelve el símbolo o edificio guardado; cambiar o borrar el original de Galería no altera la copia. Maps y los retratos vinculados al Códex conservan su comportamiento. [Contrato y verificación](tasks/vvd1095/verification-place-images.md).
