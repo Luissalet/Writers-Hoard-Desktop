@@ -233,6 +233,14 @@ Los mapas con capas e historial, hojas físicas de Worldgen, calendarios de cron
 
 El selector gráfico de lugares es una opción acotada del inspector carbón/oro: controles de 36px, seis columnas y portal anclado al viewport con cierre/foco explícitos. Las miniaturas y la selección reutilizan la geometría numérica del contenido, no otro proveedor de iconos. El neutro cálido `#b3a48e` es intencional para esas celdas secundarias; no sustituye los tokens globales. El resto de consumidores de IconPicker mantiene sus defaults y no se amplía aquí la tipografía ni se refactorizan los 21 avisos heredados de fuentes.
 
+### Board media references and assets
+
+La referencia de audio o vídeo del Board conserva la tarjeta elevada, el borde fino y el relleno compacto de las referencias existentes. La encabeza el título serif; debajo aparecen los controles nativos del reproductor local compartido. La carga y la falta de disponibilidad se expresan con texto, y un fallo de reproducción añade su estado junto al control. Este componente no incorpora un rótulo de tipo por encima del título.
+
+Recursos mantiene su panel flotante carbón, búsqueda y cierre explícito. Cada audio o vídeo local disponible reúne título y acción Añadir con icono SVG; admite también arrastre al lienzo. El audio conserva la acción Escuchar/Parar independiente de Añadir. Importar abre la biblioteca del proyecto y era efectivos. Los botones reutilizan borde, altura mínima de 36px, hover tonal y foco dorado del escritorio. El panel sigue superponiéndose al lienzo en una ventana estrecha; no se convierte en una composición móvil nueva.
+
+Los gestos y teclas del reproductor quedan dentro de sus controles para conservar el trabajo espacial del lienzo. La reproducción comienza por una acción explícita; el player de la tarjeta se monta sólo mientras su referencia está visible en el panel y el lienzo. Al desmontarse pausa y libera su recurso local. Este comportamiento pertenece a estas referencias y no redefine las demás tarjetas ni los reproductores de otras herramientas.
+
 ### Reader, wiki and parallel text
 
 El estudio del lector separa cubierta, ajustes de capítulo y audio. Fondo, familia de lectura, imagen y modo de páginas son opciones del documento. La cubierta puede usar la imagen local del proyecto, y el audio conserva controles explícitos. La exportación de lector o wiki autónomo ofrece navegación y referencias para leer fuera del editor; no arrastra la barra de autoría. Las marcas de contenido oculto y spoiler del editor usan subrayado discontinuo/punteado y fondo tonal, además del color. Las vistas de conversación y borradores paralelos conservan su contexto de lectura y edición, con estado de guardado por borrador.
