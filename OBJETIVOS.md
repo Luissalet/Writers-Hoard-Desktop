@@ -1,5 +1,7 @@
 # Objetivos de autoría local
 
+Tablero: audio y vídeo locales dentro de la referencia entity existente, con Recursos Añadir/drag y Referencia normal; biblioteca y archivo compartidos, controles nativos sin autoplay, Undo de nodo sin borrar archivo y cleanup al ocultar/cerrar. MCP amplía includeMedia y reference existentes, sin nuevo tool/kind/tabla. [Contrato, evidencia y estado de entrega](tasks/vvd1095/verification-board-local-media.md). File→nodo directo sigue pendiente; no implica paridad general Board/SDK ni nuevos stdio, claves o salida acústica medida.
+
 Los bloques propios de una herramienta fuente pueden optar por evolución aditiva del codec: una versión compatible añade campos al mismo bloque sin modificarlo al elegirla o leerlo. La primera edición efectiva guarda datos, codec y preview portable juntos; Deshacer de acciones restaura el envelope anterior completo. La compatibilidad estricta sigue siendo predeterminada, el estado Source conserva su migración existente y el SDK general sigue siendo parcial. [Contrato, ejemplo y evidencia](tasks/vvd1095/verification-sdk-owned-evolution.md).
 
 Las notas enriquecidas admiten imágenes de Archivo o Galería del proyecto. Puede ajustar ancho, marco y alineación, sustituir una imagen conservando sus ajustes o quitarla y usar Deshacer/Rehacer. También puede guardar y reabrir notas formadas sólo por una imagen. [Uso, pruebas y límites](tasks/vvd1095/verification-note-inline-images.md).

@@ -1465,5 +1465,5 @@ Success: an existing entity/local-media reference plays its own effective local 
 - [x] Verify JSON/ZIP/Duplicate/eras/history/archive and domain collision; request any extra causal route only after an actual RED. Exact media-domain remap and backupScope registration follow actual failures; ROOT adds the missing canonical asset-file fixture without weakening original duplicate assertions.
 Independent UI review preserved a real late-reference race after the destination moved to a hidden layer. The existing admission now rejects destination layer changes; its exact RED oracle is retained for final regression coverage.
 
-- [ ] Freeze exact source and complete independent review, ROOT Brave/gates and formal CAS before explicit-path commit and main integration.
-- [ ] Update product/MCP documentation, manual and continuity from actual receipts; keep1095 open for remaining web/SDK gaps.
+- [x] Freeze exact source and complete independent review, ROOT Brave/gates and formal CAS before explicit-path commit and main integration. Source08024c/CAS30 approved; global1210/481/0 and nine clean-main checks passed; no push.
+- [x] Update product/MCP documentation, manual and continuity from actual receipts; keep1095 open for remaining web/SDK gaps. Native Google manual416UTF16 and MEMORY/own graph readbacks are complete. Documentation commit/main are recorded after they occur in ROOT-delivery-final.json.

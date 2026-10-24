@@ -51,3 +51,19 @@ limits are recorded in `.impeccable/review/model-reader1041/EVIDENCE.md`.
 The bounded place inspector adds search/categories and the same numeric drawing in each cell, selected preview and map/export. Prepared raster → available graphic → retained model/symbol is explicit; selecting a model restores it by clearing active overrides. The charcoal/gold surface,36px controls, six-column own grid and opt-in viewport portal preserve the existing desktop. Warm secondary ink `#b3a48e` is scoped to those cells, not a global palette replacement; other IconPicker consumers retain defaults.
 
 ROOT normal Brave verified selection, cold reopen, Undo/Redo, model restoration, category and Escape/focus at desktop. Its viewport call did not establish390px; author Electron390 evidence is separate. Browser PNG download remains unconfirmed; public renderer/export and real built WEB-worker proofs are attributed separately. Existing21 font advisories remain inherited and are not repaired by this feature. Delivery/gates are tracked in tasks/vvd1095/verification-map-symbol-catalog.md; the later local overlay guard preserves legacy label-only worlds without changing this UI. No universal catalogue parity follows.
+
+## Board local audio/video references — final F1
+
+THESIS: Put native audio/video controls inside the existing Board media reference and Add beside each local asset, preserving the working canvas.
+
+OWN-WORLD: Operate within the incumbent charcoal/gold desktop. The reference keeps its serif title, tonal card and shared native player. No new palette, font or global player style is introduced.
+
+STORY: Open the local library, choose Reference or use Assets Add/drag, play within the card and continue working. Undo of the Board node keeps the library asset. Assets retains the separate audio Listen/Stop action; Import opens the effective project/era library.
+
+FIRST VIEWPORT: The reference title leads directly into its controls. Assets keeps search, Import and nearby Add/Listen actions. Player and rail captures represent separate states; the floating rail can overlap the canvas at 390px under the incumbent layout.
+
+FORM: Keep the spatial canvas, pan/zoom and floating contextual panel. Native controls contain their own pointer and keyboard interactions. There is no autoplay. Hidden layers, collapsed piles and a hidden pane remove or unmount the player; unmount pauses playback and releases the local URL. These are media-reference rules, not a redesign of static references.
+
+EVIDENCE: Visual captures belong to FREEZE17-F1 (17 author paths), SHA256 7e345374c8c72bc8b4d0dd38277c077246aa36701bd87cf7d46e7f8593831908. Final source23, commit08024c, adds a destination-layer admission guard without changing appearance. The supplied visual review resolves F1 and gives a local ship verdict for that finding. The initial review's image-order incident remains declared. The documenter read the supplied code and reviews; it did not rerun visual review, tests or rendering. The audio-player/rail captures cover 1280px and 390px in Electron; they do not show open video or transitional states. ROOT separately verified native audio/video Play/Pause, Add and Undo/Redo in real Brave on17-F1, then cold-reopened the same two references on committed23 with both players ready and paused. Brave390px was not established.
+
+LIMITS: WAV/MP4 fixtures and supplied receipts support their stated cases only. Native controls do not imply universal codecs, hardware compatibility, acoustic output or product/mobile parity. F1 removed the new internal type eyebrow. Neither that removed label nor the raw local-media label remaining on incumbent static references is a pattern for new surfaces. PRODUCT platform metadata drift and inherited typography advisories remain outside this addition. No new raster ships and no new design token or sidecar change is required.

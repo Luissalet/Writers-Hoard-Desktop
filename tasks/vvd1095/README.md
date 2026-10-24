@@ -1,5 +1,7 @@
 # VVD catalogue cross-reference (Agora 1095, continuation of 1041)
 
+Board references can play project audio and video using native controls. Add an existing file through Assets or Reference, or drag it from Assets; import new files in the normal media library. Nodes share the library file, start paused and release playback when hidden or closed. Normal Undo/Redo affects the reference, preserving the file. Static PNG remains a caption/frame without playback controls. [Usage, delivery evidence and limits](verification-board-local-media.md).
+
 Owned source blocks can opt into additive codec evolution: a compatible version can add fields to the same saved block without changing it on selection or read. The first meaningful edit saves data, codec and portable preview together; scoped action Undo restores the complete prior envelope. Strict compatibility remains the default, Source state keeps its existing migration contract, and the general SDK remains partial. [Contract, example and evidence](verification-sdk-owned-evolution.md).
 
 Rich notes support inline images from File or project Gallery. Set width, frame and left/centre/right alignment, replace an image while keeping its layout, or remove it and use Undo/Redo. Image-only notes can also be saved and reopened. [Use, evidence and limits](verification-note-inline-images.md).
