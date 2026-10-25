@@ -1499,3 +1499,12 @@ Review: source r2 has eleven exit0 checks including 396 critical checks; the ind
 - [x] Update functional/design docs, manual and continuity; close research1487 only, keep task1095 open. Contract: _stage/board-file-next/ROOT-GO.md.
 
 Review: source a5fc1b5/CAS33 approved; ROOT27 and Main7 exit0, independent 19+2+4+1 groups, fresh visual SHIP5 and design documenter. Native manual/readback and MEMORY/own-graph continuity complete. Final documentation integration and research1487 closure are recorded after they occur; task1095 remains open.
+
+## VVD1095 - SDK tool tutorials (25Oct2026, research1491)
+
+Success: the selected Source tool can describe and start its own tour in its live host, using the existing overlay and progress without saving authored content. Anchors and result events belong to that instance; the nine global tours remain available.
+
+- [ ] Agree the small public descriptor/host contract and preserve a real missing-capability RED before implementation.
+- [ ] Implement selected-release tutorial data, explicit Help, manual/result advancement and root/lifetime binding through the existing tour runner; expose exact data through describe and the pure fake.
+- [ ] Verify normal Source/legacy hosts, cancellation and duplicate anchors, original tours and headless SDK, real native MCP and Brave; obtain independent technical/visual/formal review.
+- [ ] Commit explicit paths as Luissalet, integrate under the merge lock without push, verify main and update manual, product docs and continuity. Close research1491 only; task1095 continues.

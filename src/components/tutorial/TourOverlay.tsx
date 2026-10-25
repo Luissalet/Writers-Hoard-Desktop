@@ -5,11 +5,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from '@/i18n/useTranslation';
-import { backStep, closeTour, finishTour, findAnchor, nextStep } from './tourController';
+import { activeTourDefinition, activeTourRoot, manualTourStep, backStep, closeTour, finishTour, findAnchor, nextStep } from './tourController';
 import { tourCopy, fill } from './tourCopy';
 import { dimStrips, placePopover, spotlightBox, usableRect, type Box } from './tourGeometry';
 import { useTourStore } from './tourStore';
-import { findTour } from './tours';
 
 const DIM = 'rgba(8, 8, 12, 0.62)';
 
@@ -24,10 +23,11 @@ export default function TourOverlay() {
   const words = tourCopy[locale];
   const active = useTourStore(state => state.active);
   const resolving = useTourStore(state => state.resolving);
-  const tour = active ? findTour(active.tourId) : undefined;
+  const tour = activeTourDefinition(active);
   const step = tour && active ? tour.steps[active.index] : undefined;
   const visible = !!active && active.shown > 0 && !!tour && !!step;
   const anchor = visible ? active.anchor : undefined;
+  const root=activeTourRoot(active),manual=manualTourStep(active);
 
   const [target, setTarget] = useState<Box | null>(null);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -37,7 +37,7 @@ export default function TourOverlay() {
 
   const measure = useCallback(() => {
     setViewport(previous => (previous.width === window.innerWidth && previous.height === window.innerHeight ? previous : { width: window.innerWidth, height: window.innerHeight }));
-    const element = anchor ? findAnchor(anchor) : null;
+    const element = anchor ? findAnchor(anchor,root) : null;
     const rect = element?.getBoundingClientRect();
     const next = rect && usableRect(rect) ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null;
     setTarget(previous => (sameBox(previous, next) ? previous : next));
@@ -45,15 +45,15 @@ export default function TourOverlay() {
     if (popover && popover.width > 0) {
       setSize(previous => (previous.width === popover.width && previous.height === popover.height ? previous : { width: popover.width, height: popover.height }));
     }
-  }, [anchor]);
+  }, [anchor,root]);
 
   // Bring the element into view, then measure on the next frame.
   useLayoutEffect(() => {
     if (!visible) return;
-    if (anchor) findAnchor(anchor)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (anchor) findAnchor(anchor,root)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const frame = requestAnimationFrame(measure);
     return () => cancelAnimationFrame(frame);
-  }, [visible, anchor, active?.index, measure]);
+  }, [visible, anchor, active?.index, measure,root]);
 
   // Follow the element: resize, any scroll (capture, so inner scrollers count),
   // the element's own size, and a slow tick for layout changes nothing announces.
@@ -62,7 +62,7 @@ export default function TourOverlay() {
     const onMove = () => measure();
     window.addEventListener('resize', onMove);
     window.addEventListener('scroll', onMove, true);
-    const element = anchor ? findAnchor(anchor) : null;
+    const element = anchor ? findAnchor(anchor,root) : null;
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onMove);
     if (element) observer?.observe(element);
     const tick = window.setInterval(onMove, 250);
@@ -72,7 +72,7 @@ export default function TourOverlay() {
       observer?.disconnect();
       window.clearInterval(tick);
     };
-  }, [visible, anchor, active?.index, measure]);
+  }, [visible, anchor, active?.index, measure,root]);
 
   // Keyboard focus lands on the primary button of each step.
   useEffect(() => {
@@ -123,7 +123,7 @@ export default function TourOverlay() {
         <h2 id="tour-popover-title" data-testid="tour-title" className="mb-1 font-serif text-base font-semibold text-accent-gold">{step.title[locale]}</h2>
         <p data-testid="tour-text" aria-live="polite" className="text-sm leading-relaxed text-text-muted">{step.text[locale]}</p>
         <div className="mt-4 flex items-center gap-2">
-          <button type="button" data-testid="tour-skip" onClick={closeTour} className="rounded-lg px-2 py-1.5 text-xs text-text-dim hover:text-text-primary hover:bg-elevated">
+          <button ref={manual?undefined:primaryRef} type="button" data-testid="tour-skip" onClick={closeTour} className="rounded-lg px-2 py-1.5 text-xs text-text-dim hover:text-text-primary hover:bg-elevated">
             {words.skip}
           </button>
           <span className="ml-auto" />
@@ -136,7 +136,7 @@ export default function TourOverlay() {
           >
             {words.back}
           </button>
-          <button
+          {manual&&<button
             ref={primaryRef}
             type="button"
             data-testid={last ? 'tour-finish' : 'tour-next'}
@@ -145,7 +145,7 @@ export default function TourOverlay() {
             className="rounded-lg bg-accent-gold px-3 py-1.5 text-sm font-semibold text-deep hover:brightness-110 disabled:opacity-60"
           >
             {last ? words.finish : words.next}
-          </button>
+          </button>}
         </div>
       </div>
     </div>,

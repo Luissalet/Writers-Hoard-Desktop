@@ -5,12 +5,11 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { db } from '@/db';
-import { backStep, closeTour, finishTour, installTourRouter, loadTourProgress, nextStep } from './tourController';
+import { activeTourDefinition, backStep, closeTour, finishTour, installTourRouter, loadTourProgress, nextStep } from './tourController';
 import TourOffer from './TourOffer';
 import TourOverlay from './TourOverlay';
 import ToursPanel from './ToursPanel';
 import { useTourStore } from './tourStore';
-import { findTour } from './tours';
 
 /** Typing into a field must keep its arrow keys. */
 function isEditable(target: EventTarget | null): boolean {
@@ -48,7 +47,7 @@ export default function TourHost() {
       const state = useTourStore.getState();
       const current = state.active;
       if (!current) return;
-      const tour = findTour(current.tourId);
+      const tour = activeTourDefinition(current);
       if (!tour) return;
       const swallow = () => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); };
       if (event.key === 'Escape') { swallow(); closeTour(); return; }

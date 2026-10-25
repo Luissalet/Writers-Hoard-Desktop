@@ -35,7 +35,12 @@ const localePureCheck = spawnSync(process.execPath, ['tests/local-tool-locale.no
 if (localePureCheck.status !== 0 || localePureCheck.error) process.exit(localePureCheck.status ?? 1);
 const localeNativeCheck = spawnSync(electron, ['tests/local-tool-locale.node.cjs', '--native'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (localeNativeCheck.status !== 0 || localeNativeCheck.error) process.exit(localeNativeCheck.status ?? 1);
+const tutorialPureCheck = spawnSync(process.execPath, ['tests/local-tool-tutorials.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (tutorialPureCheck.status !== 0 || tutorialPureCheck.error) process.exit(tutorialPureCheck.status ?? 1);
+const tutorialNativeCheck = spawnSync(electron, ['tests/local-tool-tutorials.node.cjs', '--native'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (tutorialNativeCheck.status !== 0 || tutorialNativeCheck.error) process.exit(tutorialNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-tutorials.browser.tsx', 'testLocalToolTutorials', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['board-file-import.browser.tsx', 'testBoardFileContracts', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-locale.browser.tsx', 'testLocalToolLocaleSourceOwned', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-locale.browser.tsx', 'testLocalToolLocaleHooks', 180000, 'scripts/run-codex-properties-ui.cjs'],

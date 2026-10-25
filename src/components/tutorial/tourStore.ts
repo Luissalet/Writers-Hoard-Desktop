@@ -3,9 +3,10 @@
 
 import { create } from 'zustand';
 import { emptyProgress } from './tourProgress';
-import type { TourProgress } from './tourTypes';
+import type { TourProgress, TourBinding } from './tourTypes';
 
 export interface ActiveTour {
+  binding?: TourBinding;
   tourId: string;
   /** Index in the tour's `steps` of the step on screen. */
   index: number;

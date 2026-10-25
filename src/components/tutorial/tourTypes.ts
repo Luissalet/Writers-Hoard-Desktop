@@ -1,3 +1,4 @@
+import type {LocalToolTourAdvance} from '@/engines/local/tutorials';
 // Guided tours — shared types. A tour is plain data: the controller, the
 // overlay and the list never know what any particular tour says.
 
@@ -14,6 +15,7 @@ export interface Bilingual {
 export type TourRoute = 'home' | 'overview' | 'publishing' | `engine:${string}`;
 
 export interface TourStep {
+  advanceOn?: LocalToolTourAdvance;
   /** Stable within the tour (used by tests and the bridge listing). */
   id: string;
   /** The `data-tour="…"` value to spotlight. No anchor = a card in the middle of the screen. */
@@ -54,3 +56,6 @@ export interface TourProgress {
 }
 
 export type TourStatus = 'not-started' | 'in-progress' | 'done';
+
+/** A mounted instance owns its root and a revocable, committed lease. */
+export interface TourBinding {root:HTMLElement;progressKey:string;definition:()=>TourDefinition;isCurrent:()=>boolean}
