@@ -2195,6 +2195,7 @@ const en = {
   'worldgen.threeD.block.papel': 'Block: paper',
   'worldgen.threeD.block.grabado': 'Block: engraving',
   'worldgen.threeD.clouds': 'Clouds over the world, with their shadows on the ground',
+  'worldgen.mapHour.conflict': 'Map settings changed while the lighting was being saved. Saved changes are kept; choose the lighting again.',
   'worldgen.hour.title': 'Map light: the world at an hour of the day, or at the hour of the journey being played',
   'worldgen.hour.off': 'Light: daytime',
   'worldgen.hour.dawn': 'Light: dawn',

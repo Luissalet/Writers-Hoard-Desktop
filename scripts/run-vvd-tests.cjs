@@ -436,6 +436,8 @@ const suites = [
   ['local-tool-sdk.browser.tsx', 'testLocalToolSdk'],
   // Map wave (Ágora 1095).
   ['world-presentation.browser.tsx', 'testWorldPresentationCore'],
+  ['world-persistent-hour.browser.tsx', 'testWorldPersistentHour', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-world-persistent-hour.browser.tsx', 'testReviewWorldPersistentHour', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['world-blank-starters.browser.ts', 'testWorldBlankStarters'],
   ['world-measure-area.browser.ts', 'testWorldMeasureArea'],
   ['world-travel-profile.browser.ts', 'testWorldTravelProfile'],

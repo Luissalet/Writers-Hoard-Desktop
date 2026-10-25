@@ -1570,3 +1570,17 @@ Success: preserve flat menu actions and add finite nested entries in the existin
 Contract: _stage/sdk-submenus-next/PROPOSAL.md, ROOT-addendum-r1.md and ROOT-resolution.txt. Additive submenu(id,label,disabled?,entries); unique IDs across the tree. Preserve flat Increment/Reset; nested IDs differ while callbacks/operations are shared. No new hosts, services, schemas, permissions, package or cancellation of arbitrary already-started effects. ROOT handles this plan, runner if causally needed and final documentation.
 
 Review: ROOT12 ALL_PASS (critical396), Main9 exit0 and exact approval38; author15/7/1 and independent CSS4 remain separately attributed. Real Brave, final ship after documentary F1, native manual/readback and continuity confirmed. No source change or repeated runtime checks for F1 prose; see verification-local-tool-submenus.md and _stage/sdk-submenus-next/ROOT-delivery-final.json.
+
+
+## Persistent map lighting (1095 / research1506)
+
+Success: the existing map light selector persists its named mode per world through normal close/reopen and MCP, preserving off/journey, current light values and old documents without writes on mount. Scope/CAS/Undo, other fields and full portable documents remain intact; ticks never persist a clock.
+
+- [x] Agree architecture1624/F1/F2, read author plan and copy addendum; record fresh baseline, exact seven product routes and three new test paths before RED.
+- [x] Record first real WorldView Night RED with a usable map and changed Canvas2D positive before remount loses selection; ROOT reads full file/log/hash before product GO, then same full oracle GREEN before expansion.
+- [x] Verify defaults/ack/single-flight/pending close, idle external/CAS conflict, real storage failure/explicit Retry and irreversible owner; no general save-helper refactor.
+- [x] Verify Base/era/absence/fork Undo, existing MCP get/set/render and explicit-hour priority0/24, journey without tick writes, complete JSON/ZIP/duplicate and reversible era archive/history.
+- [ ] Freeze source, prepare independent oracle, real Brave persistence/export, one bounded visual batch and fresh finish/documenter, then applicable ROOT gates and exact formal revision.
+- [ ] Commit explicit paths as Luissalet and FF Main under actual merge lock/fresh HEAD; verify Main, native manual/readback, memory prefix/own graph, final documentation and close only1506 after actual delivery. Keep1095/WT open, no push.
+
+Contract: _stage/map-lens-next-gap/PERSISTENT-HOUR-FOLLOWUP.md, architecture-review/REVIEW.md, ROOT-resolution.txt, implementation/PLAN.md, ROOT-addendum-r1-copy.md and ROOT-check-plan.md. Seven product + author Browser test, ROOT Native wrapper/peer oracle/runner/todo = maximum12 source routes. Mode only, existing WorldPresentation/save/CAS/Undo/MCP/ledger; no lens host, new service/table/permission/dependency or recoverable deletion of Base world promised. First GO is RED-only; no product implemented at this checkpoint.

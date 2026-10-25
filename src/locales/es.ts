@@ -2195,6 +2195,7 @@ const es = {
   'worldgen.threeD.block.papel': 'Bloque: papel',
   'worldgen.threeD.block.grabado': 'Bloque: grabado',
   'worldgen.threeD.clouds': 'Nubes sobre el mundo, con su sombra en el suelo',
+  'worldgen.mapHour.conflict': 'Los ajustes del mapa cambiaron mientras se guardaba la iluminación. Se conservan los cambios guardados; vuelve a elegir la luz.',
   'worldgen.hour.title': 'Luz del mapa: el mundo a una hora del día, o a la hora del viaje que se reproduce',
   'worldgen.hour.off': 'Luz: de día',
   'worldgen.hour.dawn': 'Luz: amanecer',
