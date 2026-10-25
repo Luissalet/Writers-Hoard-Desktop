@@ -1561,10 +1561,12 @@ Preparation: author5 quiet, independent peer CSS3 without material findings and 
 
 Success: preserve flat menu actions and add finite nested entries in the existing Source/legacy host, with complete owned copies, inert recording metadata, scoped branch revocation and real keyboard/pointer navigation. Select a leaf only after all popup DOM is closed and focus restored. Normal buttons and MCP operations/receipts stay available.
 
-- [ ] Agree architecture1622 and exact author5 paths before implementation; preserve original SDK/tour tests and existing counter actions.
-- [ ] Record a material nested-menu RED in real Source with positive flat/button controls; implement only after ROOT reads the complete first receipt, then repeat the same complete oracle GREEN.
-- [ ] Verify recursion/copies/fake without DOM, normal nested UI/lifecycle/realm/tour, scoped Native operations/receipts and persistence; extend aggregates once without duplicating cases.
-- [ ] Freeze, inspect one settled desktop/narrow/EN/ES batch, test real Brave, obtain independent technical/finish/formal review and applicable ROOT/Main checks.
-- [ ] Commit explicit paths as Luissalet and integrate under actual merge lock/fresh HEAD without push; maintain docs/manual/memory/own graph and close only research1505 after delivery, leaving1095 open.
+- [x] Agree architecture1622 and exact author5 paths before implementation; preserve original SDK/tour tests and existing counter actions.
+- [x] Record a material nested-menu RED in real Source with positive flat/button controls; implement only after ROOT reads the complete first receipt, then repeat the same complete oracle GREEN.
+- [x] Verify recursion/copies/fake without DOM, normal nested UI/lifecycle/realm/tour, scoped Native operations/receipts and persistence; extend aggregates once without duplicating cases.
+- [x] Freeze, inspect one settled desktop/narrow/EN/ES batch, test real Brave, obtain independent technical/finish/formal review and applicable ROOT/Main checks.
+- [x] Commit source8 dc10fc31 as Luissalet, exact CAS38, FF Main9 under merge lock/fresh HEAD without push; native manual and memory/own graph confirmed. Documentation and research1505 closure follow in the final delivery receipt; keep1095 open.
 
-Contract: _stage/sdk-submenus-next/PROPOSAL.md, ROOT-addendum-r1.md and eventual ROOT-resolution.txt. Additive submenu(id,label,disabled?,entries); unique IDs across the tree. Preserve flat Increment/Reset; nested IDs differ while callbacks/operations are shared. No new hosts, services, schemas, permissions, package or cancellation of arbitrary already-started effects. ROOT handles this plan, runner if causally needed and final documentation.
+Contract: _stage/sdk-submenus-next/PROPOSAL.md, ROOT-addendum-r1.md and ROOT-resolution.txt. Additive submenu(id,label,disabled?,entries); unique IDs across the tree. Preserve flat Increment/Reset; nested IDs differ while callbacks/operations are shared. No new hosts, services, schemas, permissions, package or cancellation of arbitrary already-started effects. ROOT handles this plan, runner if causally needed and final documentation.
+
+Review: ROOT12 ALL_PASS (critical396), Main9 exit0 and exact approval38; author15/7/1 and independent CSS4 remain separately attributed. Real Brave, final ship after documentary F1, native manual/readback and continuity confirmed. No source change or repeated runtime checks for F1 prose; see verification-local-tool-submenus.md and _stage/sdk-submenus-next/ROOT-delivery-final.json.
