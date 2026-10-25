@@ -150,3 +150,9 @@ Ranking weighs user value for a worldbuilding/writing desktop app, how much VVD 
 ## Own locale catalogs: scoped continuation
 
 The local SDK optionally declares immutable tool-owned catalogs and exposes `useLocalToolT(client)` / `useLocalToolLocale(client)` through the readonly host-locale port, including the public world-block client type. Lookup, interpolation, plurals and Intl formatting do not translate authored state or rewrite captured previews. The app still offers its existing EN/ES preferences; helper locale tags can be broader. The Localized notebook and describe opt-in have [separate evidence and delivery status](verification-sdk-locale.md). Historical row73 and counts remain unchanged; no general Workshop/runtime/collaboration parity follows.
+
+## Own Source-tool tutorials: scoped continuation
+
+Optional `LocalToolDefinition.tours` and the mounted Source/legacy editor's `context.tutorial` reuse the existing overlay, keyboard and app-wide progress. Manual, confirmed-action event and visible-element modes are implemented within the instance root; automatic modes cannot be skipped with Next/Finish. Help is explicit. The structural progress key separates changed steps without resetting copy-only/repacked tutorials, and runtime leases still require the selected release. Describe returns exact detached descriptors and optional matching mounted snapshots. The Guided counter is a real source example; fake/Node remain inert without DOM. [API, evidence and delivery status](verification-sdk-tours.md).
+
+This extends the bounded host API of row73 and the authoring surface adjacent to row66. It does not increase the historical nine global tours, supply every reference mini-lesson/video/glowing dot, add a headless show tool, or change those historical counts/statuses. Owned/world/readonly/fullscreen do not receive this port. General Workshop/collaboration parity remains unproven.
