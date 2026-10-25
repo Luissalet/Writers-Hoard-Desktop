@@ -931,6 +931,7 @@ const en = {
   'common.copy': 'Copy',
   'common.open': 'Open',
   'common.today': 'Today',
+  'localTool.contextMenu.actionFailed': 'The action could not be completed. Try again.',
   'common.close': 'Close',
   'common.searchIcons': 'Search icons...',
   'common.noIconsFound': 'No icons found',

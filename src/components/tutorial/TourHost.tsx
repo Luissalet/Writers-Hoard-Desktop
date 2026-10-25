@@ -17,6 +17,16 @@ function isEditable(target: EventTarget | null): boolean {
   return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
 
+/** A visible SDK popup is above the tour; its focused keys belong there. */
+function isSdkMenuTarget(target: EventTarget | null): boolean {
+  const element = target as Element | null;
+  if (typeof element?.closest !== 'function') return false;
+  const menu = element.closest<HTMLElement>('[data-local-tool-context-menu][data-state="open"][role="menu"]');
+  if (!menu?.isConnected || menu.hidden) return false;
+  const rect = menu.getBoundingClientRect(), style = menu.ownerDocument.defaultView?.getComputedStyle(menu);
+  return rect.width > 0 && rect.height > 0 && style?.display !== 'none' && style?.visibility !== 'hidden' && style?.visibility !== 'collapse' && style?.opacity !== '0';
+}
+
 export default function TourHost() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -49,6 +59,7 @@ export default function TourHost() {
       if (!current) return;
       const tour = activeTourDefinition(current);
       if (!tour) return;
+      if (isSdkMenuTarget(event.target) || isSdkMenuTarget(document.activeElement)) return;
       const swallow = () => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); };
       if (event.key === 'Escape') { swallow(); closeTour(); return; }
       if (current.shown === 0 || state.resolving || isEditable(event.target)) return;
