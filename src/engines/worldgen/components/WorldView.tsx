@@ -16,11 +16,12 @@ import type { TradeLayer } from '../cartography/tradeMarks';
 import TradePanel from './TradePanel';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { scopedTableOps } from '@/services/worldEras/tableOps';
-import { worldRuntimeKey } from '../era';
-import { PRESENTATION_LAYERS, resolvePresentation, saveWorldPresentation } from '../presentation';
+import { worldRuntimeKey, worldgenScopeOperations } from '../era';
+import { PRESENTATION_LAYERS, resolvePresentation, saveWorldPresentation, WorldPresentationError } from '../presentation';
 import { SCALE_REFERENCES } from '../core/scaleReference';
-import type { WorldPresentation } from '../types';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { WorldPresentation, WorldMapHour } from '../types';
+import { trackPendingWrite, discardPendingOwner } from '@/services/pendingWrites';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { randomSeed } from '../randomSeed';
 import { createWorldEditWriter } from '../editWriter';
 import { commitRegeneration, prepareRegeneration, WorldRecipeConflict, type LocationPolicy, type RegenerationPlan } from '../recipe';
@@ -387,7 +388,73 @@ export default function WorldView({
   /** The party's banner while a journey is being played. */
   const [traveller, setTraveller] = useState<CartoAnnotations['traveller'] | null>(null);
   /** The map's light: plain day, a named hour, or the hour of the journey being played. */
-  const [mapHour, setMapHour] = useState<'off' | MapHourName | 'journey'>('off');
+  // This discrete choice commits immediately, independently of the look's
+  // debounced fields. A lease never becomes current again after hide/retarget.
+  const hourBinding = JSON.stringify([projectId, world.id, scope.eraId, pane?.instanceId, pane?.visible ?? true]);
+  const hourOwner = useMemo(() => ({
+    id: JSON.stringify([hourBinding, generateId('map-hour')]), active: false, generation: 0, busy: false,
+    flight: null as Promise<void> | null,
+    confirmed: null as { mode: WorldMapHour; revision: number } | null,
+  }), [hourBinding]);
+  useLayoutEffect(() => {
+    hourOwner.active = true; hourOwner.generation++;
+    return () => { hourOwner.active = false; hourOwner.generation++; };
+  }, [hourOwner]);
+  const [hourChoice, setHourChoice] = useState<{
+    owner: typeof hourOwner; mode: WorldMapHour; revision: number; busy: boolean; failed: boolean;
+  } | null>(null);
+  const ownHour = hourChoice?.owner === hourOwner ? hourChoice : null;
+  const mapHour = ownHour && (ownHour.busy || ownHour.failed || ownHour.revision > (world.presentationRevision ?? 0))
+    ? ownHour.mode : savedLook.mapHour;
+  const chooseMapHour = (mode: WorldMapHour) => {
+    if (hourOwner.busy || !hourOwner.active || pane?.visible === false) return;
+    const requested = { projectId, eraId: scope.eraId }, worldId = world.id;
+    const revision = Math.max(world.presentationRevision ?? 0, hourOwner.confirmed?.revision ?? 0);
+    const execute = (): Promise<void> => {
+      if (hourOwner.busy) return hourOwner.flight ?? Promise.resolve();
+      hourOwner.busy = true;
+      const generation = hourOwner.generation;
+      const current = () => hourOwner.active && hourOwner.generation === generation;
+      if (current()) setHourChoice({ owner: hourOwner, mode, revision, busy: true, failed: false });
+      const flight = (async () => {
+        try {
+          const receipt = await trackPendingWrite(saveWorldPresentation(requested, worldId, { mapHour: mode }, revision), execute, hourOwner.id);
+          hourOwner.confirmed = { mode, revision: receipt.revision };
+          if (current()) setHourChoice({ owner: hourOwner, mode, revision: receipt.revision, busy: true, failed: false });
+        } catch (error) {
+          if (error instanceof WorldPresentationError && error.code === 'conflict') {
+            try {
+              const winner = await worldgenScopeOperations(requested).worlds.getOne(worldId);
+              if (!winner || winner.projectId !== requested.projectId) throw error;
+              const confirmed = { mode: resolvePresentation(winner.presentation).mapHour, revision: winner.presentationRevision ?? 0 };
+              hourOwner.confirmed = confirmed;
+              // trackPendingWrite has now recorded the rejection. Abandon only
+              // this control's stale intention while its single-flight is held.
+              discardPendingOwner(hourOwner.id);
+              if (current()) {
+                setHourChoice({ owner: hourOwner, ...confirmed, busy: true, failed: false });
+                toast.error(t('worldgen.mapHour.conflict'));
+              }
+            } catch {
+              if (current()) {
+                setHourChoice({ owner: hourOwner, mode, revision, busy: true, failed: true });
+                toast.error(t('common.saveFailed'));
+              }
+            }
+          } else if (current()) {
+            setHourChoice({ owner: hourOwner, mode, revision, busy: true, failed: true });
+            toast.error(t('common.saveFailed'));
+          }
+        } finally {
+          hourOwner.busy = false; hourOwner.flight = null;
+          if (current()) setHourChoice(previous => previous?.owner === hourOwner ? { ...previous, busy: false } : previous);
+        }
+      })();
+      hourOwner.flight = flight;
+      return flight;
+    };
+    void execute();
+  };
   const mapHourValue = mapHour === 'off' ? null : mapHour === 'journey' ? (traveller?.hour ?? null) : MAP_HOURS[mapHour];
   const [paleoState, setPaleoState] = useState<PaleoState | null>(null);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
@@ -2206,8 +2273,9 @@ export default function WorldView({
         {view === 'map' && (
           <select data-testid="worldgen-map-hour" aria-label={t('worldgen.hour.title')} title={t('worldgen.hour.title')}
             value={mapHour}
-            onChange={(e) => setMapHour(e.target.value as typeof mapHour)}
-            className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 ${mapHour !== 'off' ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
+            disabled={ownHour?.busy === true}
+            onChange={(e) => chooseMapHour(e.target.value as WorldMapHour)}
+            className={`bg-elevated border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent-gold/60 disabled:opacity-50 disabled:cursor-wait ${mapHour !== 'off' ? 'border-accent-gold/60 text-accent-gold' : 'border-border text-text-primary'}`}>
             <option value="off">{t('worldgen.hour.off')}</option>
             {(Object.keys(MAP_HOURS) as MapHourName[]).map((h) => <option key={h} value={h}>{t(`worldgen.hour.${h}`)}</option>)}
             <option value="journey">{t('worldgen.hour.journey')}</option>

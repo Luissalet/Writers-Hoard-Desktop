@@ -6,6 +6,7 @@
 // cached in memory. This keeps Dexie light and makes backups tiny.
 
 import type { WorldParams } from './core/types';
+import type { MapHourName } from './core/hourLight';
 import type { RegionParams } from './region/types';
 import type { WorldJourney } from './journeyTypes';
 
@@ -88,7 +89,11 @@ export interface GeneratedWorld {
 export type WorldPresentationLayer = 'relief' | 'forests' | 'labels' | 'settlements' | 'roads' | 'borders' | 'frame' | 'compass' | 'scaleBar';
 
 /** How a world is shown to everyone who opens it, flat and in 3D, and in its exports. */
+export type WorldMapHour = 'off' | MapHourName | 'journey';
+
 export interface WorldPresentation {
+  /** Named map light; journey follows playback without storing its frames. Absent = off. */
+  mapHour?: WorldMapHour;
   theme?: 'wonder' | 'antique' | 'relief' | 'survey';
   skin3D?: 'satelite' | 'dibujado' | 'arcilla' | 'pintado';
   /** On the 3D plane with the whole world in view: a tabletop model (default) or a landscape to the horizon. */
