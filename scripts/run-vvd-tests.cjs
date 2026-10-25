@@ -29,11 +29,14 @@ const ownedEvolutionCheck = spawnSync(process.execPath, ['tests/local-tool-block
 if (ownedEvolutionCheck.status !== 0) process.exit(ownedEvolutionCheck.status ?? 1);
 const boardMediaAuditCheck = spawnSync(electron, ['tests/board-media.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (boardMediaAuditCheck.status !== 0 || boardMediaAuditCheck.error) process.exit(boardMediaAuditCheck.status ?? 1);
+const boardFileAuditCheck = spawnSync(electron, ['tests/board-file-import.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (boardFileAuditCheck.status !== 0 || boardFileAuditCheck.error) process.exit(boardFileAuditCheck.status ?? 1);
 const localePureCheck = spawnSync(process.execPath, ['tests/local-tool-locale.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (localePureCheck.status !== 0 || localePureCheck.error) process.exit(localePureCheck.status ?? 1);
 const localeNativeCheck = spawnSync(electron, ['tests/local-tool-locale.node.cjs', '--native'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (localeNativeCheck.status !== 0 || localeNativeCheck.error) process.exit(localeNativeCheck.status ?? 1);
 const suites = [
+  ['board-file-import.browser.tsx', 'testBoardFileContracts', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-locale.browser.tsx', 'testLocalToolLocaleSourceOwned', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-locale.browser.tsx', 'testLocalToolLocaleHooks', 180000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-locale.browser.tsx', 'testLocalToolLocaleDescribe', 180000, 'scripts/run-focused-browser-tests.cjs'],

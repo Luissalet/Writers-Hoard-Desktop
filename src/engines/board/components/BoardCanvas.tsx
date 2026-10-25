@@ -45,6 +45,8 @@ import { freehandCopy } from '../freehandCopy';
 import AssetsRail from './AssetsRail';
 import { BOARD_ASSET_MIME, BOARD_MEDIA_MIME, imageFile, isBoardMediaRef, readBoardMedia } from './boardAssets';
 import { db } from '@/db';
+import {importLocalMedia} from '@/engines/media/operations';
+import {mediaKind,mediaMime} from '@/engines/media/types';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 const nodeTypes = { board: BoardNodeView };
@@ -122,6 +124,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
   const flow = useReactFlow();
   const containerRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const mediaFileRef = useRef<HTMLInputElement>(null);
 
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(() => new Set());
@@ -199,6 +202,10 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
   const referenceHost=useRef({graph,layerById,activeLayerId,pickerFor,panel,paneVisible});
   useLayoutEffect(()=>{referenceHost.current={graph,layerById,activeLayerId,pickerFor,panel,paneVisible};},[graph,layerById,activeLayerId,pickerFor,panel,paneVisible]);
   useLayoutEffect(()=>{const owner={active:true};referenceEpoch.current=owner;return()=>{owner.active=false;};},[projectId,boardId,worldScope.eraId]);
+  const fileEpoch=useRef({active:true,layer:0});
+  const fileLayer=activeLayerId?layerById.get(activeLayerId):undefined;
+  useLayoutEffect(()=>{const owner={active:true,layer:0};fileEpoch.current=owner;return()=>{owner.active=false;};},[projectId,boardId,worldScope.eraId,paneVisible]);
+  useLayoutEffect(()=>{fileEpoch.current.layer++;},[activeLayerId,fileLayer?.locked,fileLayer?.visible]);
 
   const queryResult = useMemo(
     () => evaluateQuery(query, { nodes: graph.nodes, edges: graph.edges, layers, metrics }),
@@ -532,8 +539,8 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
   );
 
   // Every normal acquisition uses the same effective-media admission before its graph command.
-  const pinReference=useCallback(async(ref:BoardEntityRef,target:string|'new',fromAssets:boolean|'drop'=false,at?:{x:number;y:number})=>{
-    const epoch=referenceEpoch.current,request=++referenceRequest.current,initial=referenceHost.current;
+  const pinReference=useCallback(async(ref:BoardEntityRef,target:string|'new',fromAssets:boolean|'drop'|'files'=false,at?:{x:number;y:number},accept?:()=>boolean)=>{
+    const epoch=referenceEpoch.current,request=fromAssets==='files'?referenceRequest.current:++referenceRequest.current,initial=referenceHost.current;
     const previous=target==='new'?undefined:initial.graph.nodeById.get(target),layerId=target==='new'?initial.activeLayerId:previous?.layerId;
     if(initial.graph.loading||!initial.paneVisible)return;
     setReferenceError('');
@@ -543,7 +550,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
         const asset=await readBoardMedia({projectId,eraId:worldScope.eraId},ref.entityId);
         if(!asset)throw Error('unavailable');title=asset.title;
       }
-      if(!epoch.active||epoch!==referenceEpoch.current||request!==referenceRequest.current)return;
+      if(!epoch.active||epoch!==referenceEpoch.current||fromAssets!=='files'&&request!==referenceRequest.current||accept&&!accept())return false;
       const current=referenceHost.current;
       if(current.graph.loading||!current.paneVisible||fromAssets===true&&current.panel!=='assets'||fromAssets===false&&current.pickerFor!==target)return;
       if(isBoardMediaRef(ref)){
@@ -560,9 +567,40 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
         const node=makeNode({projectId,boardId,kind:'entity',size,position:center,title,color:ref.color??'#4a9e6d',ref:ownedRef,layerId:layerId??undefined});
         current.graph.addNodes([node],t('board.history.add'));setSelectedNodeIds(new Set([node.id]));
       }else current.graph.patchNodes([{id:target,changes:{ref:ownedRef}}],t('board.history.bind'));
-      setPickerFor(null);
-    }catch{if(epoch.active&&epoch===referenceEpoch.current&&request===referenceRequest.current)setReferenceError(copy.mediaUnavailable);}
+      if(fromAssets!=='files')setPickerFor(null);
+      return true;
+    }catch{if(fromAssets!=='files'&&epoch.active&&epoch===referenceEpoch.current&&request===referenceRequest.current)setReferenceError(copy.mediaUnavailable);return false;}
   },[projectId,boardId,worldScope.eraId,viewportCenter,t,copy.mediaUnavailable]);
+
+  const addFiles=useCallback(async(files:FileList|File[],at?:{x:number;y:number})=>{
+    const epoch=fileEpoch.current,layerVersion=epoch.layer,host=referenceHost.current,layerId=host.activeLayerId,center=at??viewportCenter();
+    const current=()=>{const live=referenceHost.current,layer=layerId?live.layerById.get(layerId):undefined;return epoch.active&&epoch===fileEpoch.current&&epoch.layer===layerVersion&&!live.graph.loading&&live.paneVisible&&live.activeLayerId===layerId&&(!layerId||!!layer&&!layer.locked&&layer.visible);};
+    if(!current())return;
+    setReferenceError('');
+    let offset=0,failed=false,savedNotAdded=false;
+    for(const file of Array.from(files)){
+      if(!current())break;
+      const position={x:center.x+offset,y:center.y+offset};
+      if(file.type.startsWith('image/')){
+        offset+=40;
+        try{
+          const image=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.onabort=()=>reject(Error('canceled'));reader.readAsDataURL(file);});
+          if(!current())break;
+          const node=makeNode({projectId,boardId,kind:'image',position,image,imageOriginal:image,title:file.name.replace(/\.[^.]+$/,''),layerId:layerId??undefined});
+          referenceHost.current.graph.addNodes([node],t('board.history.add'));
+        }catch{failed=true;}
+      }else if(mediaKind(mediaMime(file))){
+        offset+=40;
+        try{
+          const asset=await importLocalMedia(projectId,file,worldScope.eraId);
+          if(!current()){savedNotAdded=true;break;}
+          if(!await pinReference({engineId:'media',entityType:'local-media',entityId:asset.id,title:asset.title},'new','files',position,current))savedNotAdded=true;
+        }catch{failed=true;}
+      }else failed=true;
+    }
+    const live=referenceHost.current;
+    if(epoch===fileEpoch.current&&epoch.active&&live.paneVisible)setReferenceError([failed?copy.fileImportFailed:'',savedNotAdded?copy.fileSavedNotAdded:''].filter(Boolean).join(' '));
+  },[viewportCenter,projectId,boardId,worldScope.eraId,t,pinReference,copy.fileImportFailed,copy.fileSavedNotAdded]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -1064,7 +1102,8 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
       onDrop={(event) => {
         event.preventDefault();
         if (event.dataTransfer.files.length > 0) {
-          addImagesFromFiles(event.dataTransfer.files, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+          void addFiles(event.dataTransfer.files, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+          return;
         }
         const media = event.dataTransfer.getData(BOARD_MEDIA_MIME);
         if(media){try{const source=JSON.parse(media) as {projectId?:string;eraId?:string;entityId?:string};if(source.projectId===projectId&&source.eraId===worldScope.eraId&&typeof source.entityId==='string')void pinReference({engineId:'media',entityType:'local-media',entityId:source.entityId,title:''},'new','drop',flow.screenToFlowPosition({x:event.clientX,y:event.clientY}));}catch{/* Not a local media reference. */}}
@@ -1423,7 +1462,7 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
             />
           ) : null}
 
-          {panel === 'assets' ? <AssetsRail projectId={projectId} locale={locale} onAdd={file => addImagesFromFiles([file])} onMediaAdd={id=>void pinReference({engineId:'media',entityType:'local-media',entityId:id,title:''},'new',true)} onImport={()=>navigateTo(`/project/${encodeURIComponent(projectId)}/media${worldScope.eraId?`?era=${encodeURIComponent(worldScope.eraId)}`:''}`)} /> : null}
+          {panel === 'assets' ? <AssetsRail projectId={projectId} locale={locale} onAdd={file => addImagesFromFiles([file])} onMediaAdd={id=>void pinReference({engineId:'media',entityType:'local-media',entityId:id,title:''},'new',true)} onFiles={()=>mediaFileRef.current?.click()} onImport={()=>navigateTo(`/project/${encodeURIComponent(projectId)}/media${worldScope.eraId?`?era=${encodeURIComponent(worldScope.eraId)}`:''}`)} /> : null}
 
           {panel === 'metrics' ? (
             <MetricsPanel
@@ -1515,6 +1554,8 @@ function BoardCanvasInner({ projectId, board, onViewportChange, onCommentNode, o
           event.target.value = '';
         }}
       />
+
+      <input ref={mediaFileRef} type="file" accept="image/*,audio/*,video/*" multiple hidden aria-label={copy.files} data-testid="board-files-input" onChange={event=>{const files=Array.from(event.target.files??[]);event.target.value='';void addFiles(files);}} />
 
       <EntityPicker
         key={`${projectId}:${boardId}:${worldScope.eraId??'base'}`}
