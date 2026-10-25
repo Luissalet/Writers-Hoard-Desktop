@@ -1596,7 +1596,10 @@ Success: an explicit beside intent from a normal Source primary editor keeps the
 - [x] Read research and independent architecture1632, resolve primary/companion/fullscreen/dispatch boundaries, approve the concrete plan and preserve exact baseline before tests.
 - [x] Record passing real-host Open/Library/Owned/companion positives and a material ignored-placement RED with the real client/router; ROOT reads complete first oracle/log/hash before product GO, then same whole oracle GREEN.
 - [x] Implement at most six agreed source paths, add the existing picker action and verify scope, draft recovery, dedupe, revocation, fallback, fake and unchanged hosts/MCP resolution.
-- [ ] Exercise real Brave and native MCP, inspect one bounded EN/ES desktop/narrow batch, obtain independent technical/finish/formal review and applicable ROOT checks.
-- [ ] Commit explicit paths as Luissalet, exact review revision and FF Main under merge lock/fresh HEAD; verify Main, manual/readback, continuity and documentation, then close only1512. Keep1095/WT open, no push.
+- [x] Exercise real Brave and native MCP, inspect one bounded EN/ES desktop/narrow batch, obtain independent technical/finish/formal review and applicable ROOT checks.
+- [x] Commit explicit paths as Luissalet, exact review revision and FF Main under merge lock/fresh HEAD; verify Main, manual/readback, continuity and documentation, then close only1512. Keep1095/WT open, no push.
 
 Contract: _stage/sdk-selection-next/ROOT-resolution.txt, architecture-review/REVIEW.md, implementation/PLAN.md and ROOT-before-red.json. Six product paths under local: sdk/storage/testing/registry/documents/LocalToolDocumentHost/ReferencePicker. First GO is RED-only in tests/local-tool-beside.browser.tsx. No original tests/harness changes, symlinks, additional hosts/services/permissions/dependencies or automatic fullscreen close. Companion keeps source mounted/returnable, without promising simultaneous extra panels. SDK general remains partial.
+
+
+Review: source11 6a39b5a6 plus test-only F1 correction 4068c11f263a86e5bac2c5cf87c4b752ff3b943c, exact CAS41 approve after independent aggregate9/CSS3/Node4; original ROOT critical396R3 and other receipts preserved, Main11 exit0. Real Brave, technical4 and finish SHIP12 images; native manual/readback, memory prefix and own graph confirmed. Final docs11 integration and research1512 closure are confirmed by _stage/sdk-selection-next/ROOT-delivery-final.json. Parent1095/WT and general SDK parity remain open/partial; no push. See vvd1095/verification-sdk-placement.md.
