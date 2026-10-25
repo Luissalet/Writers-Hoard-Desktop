@@ -1493,7 +1493,9 @@ Review: source r2 has eleven exit0 checks including 396 critical checks; the ind
 
 ## VVD1095 - direct Board files (25Oct2026, research1487)
 
-- [ ] Reproduce direct audio/video Files input/drop absence, then reuse scoped library import and Board references while preserving images and the chosen destination.
-- [ ] Verify mixed files, lifetime/layer races, errors, Undo, actual portable bytes and existing MCP import/reference composition; preserve original area oracles.
-- [ ] Verify normal Brave and bounded EN/ES views, independent reviews, explicit-path source commit, main integration and applicable checks without push.
-- [ ] Update functional/design docs, manual and continuity; close research1487 only, keep task1095 open. Contract: _stage/board-file-next/ROOT-GO.md.
+- [x] Reproduce direct audio/video Files input/drop absence, then reuse scoped library import and Board references while preserving images and the chosen destination.
+- [x] Verify mixed files, lifetime/layer races, errors, Undo, actual portable bytes and existing MCP import/reference composition; preserve original area oracles.
+- [x] Verify normal Brave and bounded EN/ES views, independent reviews, explicit-path source commit, main integration and applicable checks without push.
+- [x] Update functional/design docs, manual and continuity; close research1487 only, keep task1095 open. Contract: _stage/board-file-next/ROOT-GO.md.
+
+Review: source a5fc1b5/CAS33 approved; ROOT27 and Main7 exit0, independent 19+2+4+1 groups, fresh visual SHIP5 and design documenter. Native manual/readback and MEMORY/own-graph continuity complete. Final documentation integration and research1487 closure are recorded after they occur; task1095 remains open.

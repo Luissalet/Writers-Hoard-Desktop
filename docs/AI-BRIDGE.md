@@ -2,7 +2,20 @@
 
 `wh_board_canvas_get` admite `includeMedia:true` para listar en `mediaAssets` audio/vídeo efectivos del proyecto/era como `{id,title,kind,mime,size}`, sin Blob ni URL temporal; omitirlo conserva la respuesta anterior. `wh_board_canvas_action` conserva `action:"reference"` y acepta la misma ref `{engineId:"media",entityType:"local-media",entityId:"<id>"}`: sin `nodeId` crea un nodo y con él reasigna uno existente. Usa `boardId`, el ámbito normal y `expectedVersion` observado para CAS; devuelve el recibo existente para `wh_board_canvas_undo`. No añade herramientas ni inicia reproducción.
 
-La pareja exacta media/local-media relee identidad, propietario efectivo, audio|video y Blob no vacío antes de batch/recibo; inválido no deja escritura parcial. Lectura de una referencia histórica ausente conserva el documento como unavailable. El executor nativo→IPC→handler→auditoría en disco→RPC Undo Base/era se acredita por separado del dispatcher/outer-abort y no equivale a un nuevo stdio externo o segunda clave. [Contrato, evidencia y estado de entrega](../tasks/vvd1095/verification-board-local-media.md).
+La pareja exacta media/local-media relee identidad, propietario efectivo, audio|video y Blob no vacío antes de batch/recibo; inválido no deja escritura parcial. Lectura de una referencia histórica ausente conserva el documento como unavailable. El executor nativo→IPC→handler→auditoría en disco→RPC Undo Base/era se acredita por separado del dispatcher/outer-abort y no equivale a un nuevo stdio externo o segunda clave. [Contrato de reproducción anterior](../tasks/vvd1095/verification-board-local-media.md).
+
+Para un archivo nuevo, componga `wh_world_folder_import_preview` y
+`wh_world_folder_import_apply` con `files:[{path,dataBase64}]`, las decisiones
+de inclusión y el digest del preview. Tome el `id` realmente devuelto en
+`created` con `kind:"media"`; consulte `wh_board_canvas_get(includeMedia:true)`
+y cree la referencia existente mediante `wh_board_canvas_action`, con ámbito
+y `expectedVersion` observados. Importación y referencia tienen recibos
+separados: deshacer el nodo conserva el archivo y no es una transacción atómica
+file→node. No hay un nuevo upload MCP. ROOT probó la composición por executor
+nativo→IPC→importación→ID→referencia→auditoría filesystem→RPC Undo en Base/era,
+con bytes exactos, recurso conservado y consumo único. Es independiente de
+la prueba del dispatcher y no acredita una segunda clave o un stdio nuevo.
+[Entrada directa de UI, evidencia y límites](../tasks/vvd1095/verification-board-file-import.md).
 
 Los bloques propios pueden declarar `codecEvolution:'additive'`; el default sigue estricto y no se añade otra herramienta, schema ni permiso. `wh_local_tool_block_read` devuelve el envelope RAW y su versión real. Pase ese baseline observado a `wh_local_tool_block_apply`: una definición compatible calcula la vista de campos nuevos y la primera acción efectiva adopta datos/codec/preview juntos. Un no-op pendiente conserva RAW y sus recibos, revisión y auditoría nativos normales. Las variantes del dock usan el mismo contrato de ámbito/CAS. Los recibos de bloque/dock y RPC Undo siguen su canal existente; el cliente editable usa `client.state.apply` y su mismo mapa de recibos para restaurar el envelope completo. `client.save` directo no crea un receipt de estado; un receipt del editor padre tampoco acredita que éste ya se guardó en base de datos. La prueba independiente NativeExecutor→IPC→handler→auditoría filesystem→RPC Undo en Base/era se distingue del dispatcher y del transporte stdio externo. [Contrato, atribución y estado final](../tasks/vvd1095/verification-sdk-owned-evolution.md).
 
