@@ -144,6 +144,44 @@ Native methods use the same source/pin and engine checks: `wh_local_tool_state_a
 
 `client.refs.resolve({kind,documentId})` reads current effective title/provenance and availability; a removed document returns `available:false`. `client.refs.open(reference)` uses normal pane navigation with the current era. `wh_local_tool_reference_resolve` exposes the same metadata path. Stored labels are never the reference identity.
 
+### Inspect an opening destination without opening it
+
+Use the optional second argument on the same reference API:
+
+```ts
+const reference = {kind: 'codex' as const, documentId: savedCardId};
+const resolved = await client.refs.resolve(reference, {includePath: true});
+// resolved.reference, available, title and optional provenance retain their meaning.
+// resolved.path is string | null when includePath is true.
+```
+
+`LocalToolReferenceResolveOptions` and `LocalToolResolvedReference` are public SDK types. The result type declares `path?:string|null` because the option is optional. Omitting options, passing `{}`, or passing `{includePath:false}` preserves the previous JSON shape exactly: no `path` property and no additional destination resolution. `refs.open`, `acceptDrag`, ordinary `openDocument` and its optional beside placement keep their existing contracts.
+
+The true branch uses the same internal destination resolver as `openDocument`: the caller's captured project/Base-or-era, the target Source document's effective namespace, a Worldgen root, and the registered anchor adapter or existing tool fallback. It does not open B to discover its route. Renaming changes the current effective title, while the reference's logical ID and identity-based destination stay stable. The path contains no title-derived identity. A missing, foreign or era-hidden document returns `available:false` and `path:null`. An available document can also have `path:null` when an adapter emits no destination; availability remains a document-read result, not an engine-enabled/editability/navigation-permission test. Invalid reference/project/era and normal resolver errors remain errors.
+
+Reading the path does not dispatch main/beside navigation, flush notes, save data or create workspace state. The production opt-in checks its existing client's current lease before and after asynchronous resolution; it does not extend that policy to the old `world.read` or default `refs.resolve` path. The adapter receives only a local synchronous path collector. Normal application engine imports register adapters before B needs to be opened. An isolated storage import without that registration retains the old fallback, which can differ from the registered adapter's query parameters; this is not a universal cold-router destination guarantee.
+
+`path` is a scoped application destination such as `/project/...`, not a hosted or native href: no domain, port, deployment basename, hash/file adaptation or published URL is supplied. A consumer under the application's **principal BrowserRouter**, with a known basename, may pass it to that router's ordinary Link. Save buffered notes explicitly through their normal UI flow **before** activating the link. For example, this fragment belongs beneath that known principal router, and `notesSaved` must reflect the real completed save:
+
+```tsx
+import {Link} from 'react-router-dom';
+import type {LocalToolResolvedReference} from '@/engines/local/sdk';
+
+function SavedDocumentLink({resolved, notesSaved}: {
+  resolved: LocalToolResolvedReference;
+  notesSaved: boolean;
+}) {
+  if (!notesSaved || !resolved.available || !resolved.path) return null;
+  return <Link to={resolved.path}>{resolved.title}</Link>;
+}
+```
+
+This fragment adds no flush or departure guard. Do not infer the same href semantics beneath `PaneRouter`, in HashRouter/file hosts, for Ctrl/Meta/new-window behavior or for a public URL. Existing Open and Open beside remain the normal product navigation facilities; help, editor and other SDK ports are unchanged.
+
+The existing readonly `wh_local_tool_reference_resolve` accepts optional boolean `includePath` with its ordinary project/era/namespace/reference arguments. True returns the same projection; omitted/false retains the old response. Its `writes:false` flag and tool identity remain unchanged. It does not open panes, enable engines or install packages.
+
+The memory author host remains pure and does not copy the production route map. Add explicit `fixtures.referencePaths` entries of `{projectId,eraId?,kind,id,path:string|null}` for an exact scope, or an asynchronous `overrides.referencePath(kind,id,scope)` returning `string|null`. These values describe an available fixture document's destination; they are not inferred from IDs. The override takes precedence when supplied, and no configured path means null. A missing/hidden document remains unavailable/null even with path metadata. Resolving records no navigation command and does not require a database, app registry or network. [Contract, attributed verification and delivery status](../tasks/vvd1095/verification-sdk-document-path.md).
+
 The normal Library document icon emits `application/x-writers-hoard-document+json`. `writeLocalToolDocumentDrag` and `decodeLocalToolDocumentDrag` from `@/engines/local/references` provide the same strictly checked payload for source tools. It includes source project/era; `client.refs.acceptDrag(text)` refuses foreign projects and resolves against the destination era, so dropping a Base reference in an era reads that era's variant. Missing documents remain unavailable. A source can use `useLocalToolReferenceDrop` for normal React drag events and `LocalToolReferencePicker` for the equivalent native keyboard selection/Open flow. The picker refreshes effective metadata after ordinary product data-change events. HTML5 local document transfer is the supported drag channel; this does not claim a global touch/pointer morph system, arbitrary extension document embeds or a generic document host.
 
 The memory author kit shares codec validation, three-way merge, scoped reference resolution and commit/abort receipt behavior with production. Its explicit fixture/index/domain limitations still apply; it does not simulate every production history/asset adapter.
