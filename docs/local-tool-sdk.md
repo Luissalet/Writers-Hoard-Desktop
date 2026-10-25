@@ -550,3 +550,33 @@ Progress uses the existing app-wide settings row, separate from authored data an
 Enable **Guided counter / Contador guiado** through Engine Manager after compiling its source, then create/open a Counter document and press Help. Next reaches the action step; Increment saves the real count and then finishes. To exercise the legacy host, use its existing legacy view. No compiled example is enabled automatically. The normal author command is `node scripts/test-local-tool.mjs --id examples.guided-counter`.
 
 `createFakeLocalToolHost` exposes inert `host.tutorial` and `host.tutorialCommands`; show/signal records intention and show returns unavailable rather than fabricating an overlay. Pure descriptor helpers, fake and real author module remain usable without DOM/DB. `wh_local_tool_describe` returns detached `tours` only when declared. With `projectId` and `includeTutorialState:true`, optional `eraId` selects matching currently mounted editor snapshots; an exact candidate cannot borrow the selected release's state. No new MCP tool or headless show operation is added. [Verification, reference boundaries and delivery status](../tasks/vvd1095/verification-sdk-tours.md).
+
+## Optional host context menus
+
+`useLocalToolContextMenu(context)` returns `LocalToolContextMenuPort` for a mounted editable Source or legacy editor. Its own flat contract is `open(event, entries, {label}): boolean` and `close(): void`. Entries are `{kind:'item', id, label, onSelect, disabled?, variant?:'default'|'destructive'}`, `{kind:'label', label}` or `{kind:'separator'}`. Labels are plain text; submenus, icons and HTML are outside this API.
+
+```tsx
+const menu = useLocalToolContextMenu(context);
+const messages = useLocalToolT(client);
+const entries: LocalToolMenuEntry[] = [
+  {kind: 'item', id: 'increment', label: messages('increment'), onSelect: increment},
+  {kind: 'separator'},
+  {kind: 'item', id: 'reset', label: messages('reset'),
+    disabled: count === 0, variant: 'destructive', onSelect: reset},
+];
+const openMenu = (event: LocalToolMenuTrigger) =>
+  menu.open(event, entries, {label: messages('actions')});
+// Attach onContextMenu={openMenu}; for onKeyDown, call only for
+// event.key === 'ContextMenu' or (event.shiftKey && event.key === 'F10').
+// An Actions button can also pass its click event to openMenu.
+```
+
+Use the public types/hooks from the SDK. Here `increment` and `reset` are the same scoped functions used by normal buttons and declared operations; the runnable `examples.context-counter` shows `client.read()` plus `client.state.apply()` and receipt-based `client.state.undo/redo()`. Its Undo/Redo buttons retain only receipts produced in that mount. This does not register keyboard Undo or expose the private state hook. `messages` is an author-catalog translator, separate from the application's global `t`.
+
+The host validates entries and options, captures the label and makes its own frozen copy of entries without freezing the caller's input; the options object itself is not frozen. Callbacks stay in memory. A valid presentation consumes the trigger; unavailable or rejected requests return `false` without consuming it or replacing an admitted menu. Pointer, Shift+F10/ContextMenu and Actions use the trigger's own document, including same-origin iframe realms. Arrow/Home/End navigation skips disabled entries; Escape closes and restores the trigger, while Tab closes and permits normal focus continuation. Selecting removes the popup DOM and restores focus before invoking once.
+
+The port belongs to its mounted instance, selected release and scope. Hiding, retargeting, changing release/era/readonly or unmounting revokes it; old selections cannot adopt a replacement. One SDK popup is active per document. A visible SDK popup receives the first Escape even while a tour is open; the next Escape retains the tour's normal behavior. Already-started arbitrary callback effects cannot be canceled or rolled back by the menu host. A rejection is reported generically only while its host is still current.
+
+Without a host the hook is inert. `createRecordingLocalToolContextMenu()` returns `{port, requests}`: valid requests record detached labels/entry metadata without events, DOM or callbacks; `open` returns `false`, does not consume the event and never invokes a callback. The author fake exposes `contextMenu` and `contextMenuRequests` with the same behavior. No popup is serialized into state, JSON/ZIP, Published or MCP describe.
+
+This port is not supplied to Owned/world blocks, readonly readers or fullscreen. The example is compiled from `installed/examples.context-counter`; enable it normally, then create/open a Source document. Compilation and CLI pack/check are not project enablement or a package-installation E2E proof. There is no new tool or permission: existing describe/call/state Undo/Redo expose the example's normal operations, not live menu callbacks. [Evidence, limits and delivery receipts](../tasks/vvd1095/verification-sdk-context-menus.md).
