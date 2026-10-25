@@ -7,12 +7,12 @@ import {useWorldEraScope} from '@/services/worldEras/hooks';
 import {mediaRows} from '@/engines/media/scope';
 import {getBoardCopy} from '../copy';
 import {BOARD_ASSET_MIME,BOARD_MEDIA_MIME,imageFile,isUsableBoardMedia} from './boardAssets';
-interface Props {projectId:string;locale:string;onAdd:(file:File)=>void;onMediaAdd:(id:string)=>void;onImport:()=>void}
+interface Props {projectId:string;locale:string;onAdd:(file:File)=>void;onMediaAdd:(id:string)=>void;onImport:()=>void;onFiles:()=>void}
 export default function AssetsRail(props:Props){
  const scope=useWorldEraScope(props.projectId);
  return <ScopedAssetsRail key={`${scope.projectId}:${scope.eraId??'base'}`} {...props} eraId={scope.eraId}/>;
 }
-function ScopedAssetsRail({projectId,eraId,locale,onAdd,onMediaAdd,onImport}:Props&{eraId?:string}){
+function ScopedAssetsRail({projectId,eraId,locale,onAdd,onMediaAdd,onImport,onFiles}:Props&{eraId?:string}){
  const es=locale!=='en',copy=getBoardCopy(locale);
  const pictures=useLiveQuery(()=>db.inspirationImages.where('projectId').equals(projectId).toArray(),[projectId]);
  const assets=useLiveQuery(()=>mediaRows(projectId,eraId),[projectId,eraId]);
@@ -28,7 +28,7 @@ function ScopedAssetsRail({projectId,eraId,locale,onAdd,onMediaAdd,onImport}:Pro
  const shownMedia=(assets??[]).filter(isUsableBoardMedia).filter(asset=>match(`${asset.title} ${asset.tags.join(' ')}`));
  const button='min-h-9 rounded-lg border border-border px-2 text-xs text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold';
  return <section className="space-y-2" data-testid="board-assets" aria-label={es?'Recursos del proyecto':'Project assets'}>
-  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium text-text-primary">{es?'Recursos':'Assets'}</h3><button type="button" className={button} onClick={onImport}>{copy.mediaImport}</button></div>
+  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium text-text-primary">{es?'Recursos':'Assets'}</h3><div className="flex flex-wrap gap-2"><button type="button" className={button} onClick={onFiles} data-testid="board-files-open">{copy.files}</button><button type="button" className={button} onClick={onImport}>{copy.mediaImport}</button></div></div>
   <input className="w-full rounded border border-border bg-deep px-2 py-1 text-xs text-text-primary" placeholder={es?'Buscar…':'Search…'} aria-label={es?'Buscar recursos':'Search assets'} data-testid="board-assets-search" value={query} onChange={event=>setQuery(event.target.value)}/>
   {!shownPictures.length&&!shownMedia.length&&<p className="text-xs text-text-muted">{copy.mediaEmpty}</p>}
   <ul className="grid grid-cols-2 gap-2">{shownPictures.map(picture=><li key={picture.id} className="rounded border border-border p-1 text-[11px] text-text-primary" data-testid={`board-asset-${label(picture)}`}>

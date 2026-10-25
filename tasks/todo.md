@@ -1489,3 +1489,11 @@ ROOT normal Brave also found silent block insertion on a new unsaved parent. Sou
 - [x] Finish final main checks (6 exit0), manual/readback610 and MEMORY/own-graph continuity; documentation and research1484 delivery receipts are recorded in the verification. Task1095 continues.
 
 Review: source r2 has eleven exit0 checks including 396 critical checks; the independent reviewer passed 9 controls + 4 persistence + 1 original-picker groups. Preserve its Chapter act warning and three Network-service warnings. Browser r1 and static r2 appearance equivalence remain separately attributed. [Verification and remaining delivery receipts](vvd1095/verification-date-controls.md).
+
+
+## VVD1095 - direct Board files (25Oct2026, research1487)
+
+- [ ] Reproduce direct audio/video Files input/drop absence, then reuse scoped library import and Board references while preserving images and the chosen destination.
+- [ ] Verify mixed files, lifetime/layer races, errors, Undo, actual portable bytes and existing MCP import/reference composition; preserve original area oracles.
+- [ ] Verify normal Brave and bounded EN/ES views, independent reviews, explicit-path source commit, main integration and applicable checks without push.
+- [ ] Update functional/design docs, manual and continuity; close research1487 only, keep task1095 open. Contract: _stage/board-file-next/ROOT-GO.md.
