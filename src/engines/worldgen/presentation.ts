@@ -4,6 +4,7 @@ import { worldgenScopeOperations } from './era';
 import { worldSettingsScope } from './settingsScope';
 import { normalizeMapGrid } from './cartography/mapGrid';
 import { READER_STARTS } from './core/readerFog';
+import { MAP_HOURS } from './core/hourLight';
 import { CONTOUR_INTERVAL_RANGE_M } from './cartography/contourLayer';
 import type { GeneratedWorld, WorldPresentation, WorldPresentationLayer } from './types';
 
@@ -20,6 +21,7 @@ export const PRESENTATION_STAGES = ['maqueta', 'paisaje'] as const;
 export const PRESENTATION_BLOCKS = ['roca', 'papel', 'grabado'] as const;
 export const PRESENTATION_LAYERS: readonly WorldPresentationLayer[] = ['relief', 'forests', 'labels', 'settlements', 'roads', 'borders', 'frame', 'compass', 'scaleBar'];
 export const PRESENTATION_DEFAULTS = {
+  mapHour: 'off',
   theme: 'wonder',
   skin3D: 'satelite',
   stage3D: 'maqueta',
@@ -44,7 +46,11 @@ export class WorldPresentationError extends Error {
 export function normalizePresentationPatch(input: unknown): WorldPresentation {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new WorldPresentationError('bad-value', 'Presentation must be an object.');
   const raw = input as Record<string, unknown>, out: WorldPresentation = {};
-  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
+  for (const key of Object.keys(raw)) if (!['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail', 'mapHour'].includes(key)) throw new WorldPresentationError('bad-value', `Unknown presentation field "${key}".`);
+  if (raw.mapHour !== undefined) {
+    if (typeof raw.mapHour !== 'string' || (raw.mapHour !== 'off' && raw.mapHour !== 'journey' && !Object.hasOwn(MAP_HOURS, raw.mapHour))) throw new WorldPresentationError('bad-value', 'mapHour must be off, journey or a named map hour.');
+    out.mapHour = raw.mapHour as WorldPresentation['mapHour'];
+  }
   if (raw.theme !== undefined) {
     if (!PRESENTATION_THEMES.includes(raw.theme as never)) throw new WorldPresentationError('bad-value', `theme must be one of ${PRESENTATION_THEMES.join(', ')}.`);
     out.theme = raw.theme as WorldPresentation['theme'];
@@ -108,7 +114,7 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
   // Field by field: one damaged stored value falls back alone, never the whole look.
   const saved: WorldPresentation = {};
   const raw = presentation && typeof presentation === 'object' ? presentation as Record<string, unknown> : {};
-  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail'] as const) {
+  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail', 'mapHour'] as const) {
     try { Object.assign(saved, normalizePresentationPatch({ [key]: raw[key] })); } catch { /* default for this field */ }
   }
   if (raw.layers && typeof raw.layers === 'object') {
@@ -117,6 +123,7 @@ export function resolvePresentation(presentation: WorldPresentation | undefined)
     saved.layers = layers;
   }
   return {
+    mapHour: saved.mapHour ?? PRESENTATION_DEFAULTS.mapHour,
     theme: saved.theme ?? PRESENTATION_DEFAULTS.theme,
     skin3D: saved.skin3D ?? PRESENTATION_DEFAULTS.skin3D,
     stage3D: saved.stage3D ?? PRESENTATION_DEFAULTS.stage3D,
@@ -179,7 +186,7 @@ export async function revertWorldPresentation(requested: { projectId: string; er
     if (!current || current.projectId !== scope.projectId) throw new WorldPresentationError('not-found', 'World no longer belongs to this project.');
     const now: WorldPresentation = structuredClone(current.presentation ?? {}), reverted: string[] = [], kept: string[] = [];
     const from = receipt.from ?? {};
-    for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail'] as const) {
+    for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail', 'mapHour'] as const) {
       if (receipt.to[key] === from[key]) continue;
       if (now[key] !== receipt.to[key]) { kept.push(key); continue; }
       if (from[key] === undefined) delete now[key]; else (now as Record<string, unknown>)[key] = from[key];

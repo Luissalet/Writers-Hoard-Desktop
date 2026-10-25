@@ -412,9 +412,9 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
   }
   if (args.storyEvents !== undefined && typeof args.storyEvents !== 'boolean') throw new BridgeError('bad-args', 'storyEvents must be true or false.');
   // The hour: a name from the map's light menu or a clock hour.
-  let hour: number | null = null;
+  const { MAP_HOURS } = await import('@/engines/worldgen/core/hourLight');
+  let hour: number | null = args.hour === undefined && look.mapHour !== 'off' && look.mapHour !== 'journey' ? MAP_HOURS[look.mapHour] : null;
   if (args.hour !== undefined && args.hour !== null) {
-    const { MAP_HOURS } = await import('@/engines/worldgen/core/hourLight');
     if (typeof args.hour === 'string' && Object.hasOwn(MAP_HOURS, args.hour)) hour = MAP_HOURS[args.hour as keyof typeof MAP_HOURS];
     else if (typeof args.hour === 'number' && Number.isFinite(args.hour) && args.hour >= 0 && args.hour <= 24) hour = args.hour;
     else throw new BridgeError('bad-args', `hour must be a clock hour from 0 to 24 or one of ${Object.keys(MAP_HOURS).join(', ')}.`);
@@ -1087,8 +1087,8 @@ export async function whSetWorldPresentation(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { saveWorldPresentation, resolvePresentation, WorldPresentationError } = await import('@/engines/worldgen/presentation');
   const patch: Record<string, unknown> = {};
-  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail']) if (args[key] !== undefined) patch[key] = args[key];
-  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, stage3D, reliefAmount, layers, grid, readerStart, contours, clouds, block3D, readerTowns or readerTrail.');
+  for (const key of ['theme', 'skin3D', 'stage3D', 'reliefAmount', 'layers', 'grid', 'readerStart', 'contours', 'clouds', 'block3D', 'readerTowns', 'readerTrail', 'mapHour']) if (args[key] !== undefined) patch[key] = args[key];
+  if (!Object.keys(patch).length) throw new BridgeError('bad-args', 'Nothing to change: pass theme, skin3D, stage3D, reliefAmount, layers, grid, readerStart, contours, clouds, block3D, readerTowns, readerTrail or mapHour.');
   const expected = optNumber(args, 'expectedRevision');
   const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
   try {
