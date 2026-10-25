@@ -255,6 +255,12 @@ Recursos mantiene su panel flotante carbón, búsqueda y cierre explícito. Cada
 
 Los gestos y teclas del reproductor quedan dentro de sus controles para conservar el trabajo espacial del lienzo. La reproducción comienza por una acción explícita; el player de la tarjeta se monta sólo mientras su referencia está visible en el panel y el lienzo. Al desmontarse pausa y libera su recurso local. Este comportamiento pertenece a estas referencias y no redefine las demás tarjetas ni los reproductores de otras herramientas.
 
+### Board Files input
+
+Archivos/Files añade selección local múltiple junto a Importar en biblioteca, dentro de Recursos. Abre el selector nativo para imágenes, audio y vídeo; Imagen conserva su entrada sólo para imágenes. El botón reutiliza los secundarios del panel: borde fino, altura mínima de 36px, hover tonal y foco dorado. Cabecera y acciones envuelven en ES/EN cuando falta anchura, conservando búsqueda y lista debajo.
+
+Elegir o soltar audio/vídeo crea un recurso en la biblioteca y su referencia normal en el lienzo; la tarjeta mantiene título serif y reproductor nativo compartido, sin autoplay. Los errores parciales se comunican con texto; si el medio quedó guardado sin nodo, el aviso indica añadirlo desde Recursos en una capa visible y desbloqueada. Esta entrada no añade un diálogo de producto, estilo de reproductor ni patrón para la superposición heredada del panel en ventanas estrechas.
+
 ### Reader, wiki and parallel text
 
 El estudio del lector separa cubierta, ajustes de capítulo y audio. Fondo, familia de lectura, imagen y modo de páginas son opciones del documento. La cubierta puede usar la imagen local del proyecto, y el audio conserva controles explícitos. La exportación de lector o wiki autónomo ofrece navegación y referencias para leer fuera del editor; no arrastra la barra de autoría. Las marcas de contenido oculto y spoiler del editor usan subrayado discontinuo/punteado y fondo tonal, además del color. Las vistas de conversación y borradores paralelos conservan su contexto de lectura y edición, con estado de guardado por borrador.
