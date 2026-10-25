@@ -30,6 +30,27 @@ async function main(){
  noLive(recording.requests);recording.port.close();assert.deepEqual([prevented,stopped,selected],[0,0,0]);
  console.log('PASS Public SDK/fallback imports without DOM, DB, presenter or network; unavailable port leaves events and actions untouched');
  console.log('PASS Recorder retains detached menu metadata without callbacks, event or DOM; requests do not claim presentation');
+ const nestedRecorder=api.createRecordingLocalToolContextMenu(),nested=[{kind:'item',id:'flat',label:'Flat',onSelect(){selected++;}},{kind:'submenu',id:'more',label:'More',entries:[{kind:'label',label:'Own count'},{kind:'item',id:'more-increment',label:'Increment',onSelect(){selected++;}},{kind:'submenu',id:'count',label:'Count',disabled:false,entries:[{kind:'item',id:'count-reset',label:'Reset',disabled:true,variant:'destructive',onSelect(){selected++;}}]}]}];
+ assert.equal(nestedRecorder.port.open(trigger,nested,{label:'Nested actions'}),false);assert.equal(nestedRecorder.requests.length,1);
+ const nestedRecorded=JSON.stringify(nestedRecorder.requests);noLive(nestedRecorder.requests);
+ assert.equal(nestedRecorder.requests[0].entries[1].entries[2].entries[0].id,'count-reset');
+ assert(!Object.isFrozen(nested)&&!Object.isFrozen(nested[1])&&!Object.isFrozen(nested[1].entries),'Host froze author input');
+ nested[1].label='Changed';nested[1].entries[2].entries[0].label='Changed leaf';nested[1].entries.push({kind:'separator'});
+ assert.equal(JSON.stringify(nestedRecorder.requests),nestedRecorded,'Recursive recorder retained an author alias');
+ const leaf=id=>({kind:'item',id,label:id,onSelect(){selected++;}}),bad=[
+  [{kind:'submenu',id:'branch',label:'Branch',entries:[]}],
+  [{kind:'submenu',id:'branch',label:'Branch',entries:[{kind:'label',label:'Only a label'}]}],
+  [{kind:'submenu',id:'branch',label:'Branch',entries:[{kind:'item',id:'missing-callback',label:'Missing'}]}],
+  [leaf('duplicate'),{kind:'submenu',id:'branch',label:'Branch',entries:[leaf('duplicate')]}],
+  [{kind:'submenu',id:'branch',label:'Branch',entries:[leaf('branch')]}],
+  [{kind:'submenu',id:'branch',label:'Branch',disabled:'false',entries:[leaf('valid')]}],
+ ];
+ const cycle=[];cycle.push({kind:'submenu',id:'cycle',label:'Cycle',entries:cycle});bad.push(cycle);
+ for(const invalid of bad){assert.equal(nestedRecorder.port.open(trigger,invalid,{label:'Invalid'}),false);assert.equal(nestedRecorder.requests.length,1,'Invalid deep input entered recorder');}
+ let deep=[leaf('deep-leaf')];for(let i=0;i<400;i++)deep=[{kind:'submenu',id:'level-'+i,label:'Level '+i,entries:deep}];
+ assert.equal(nestedRecorder.port.open(trigger,deep,{label:'Finite deep tree'}),false);assert.equal(nestedRecorder.requests.length,2,'Finite tree acquired an arbitrary depth cap');noLive(nestedRecorder.requests);
+ assert.deepEqual([prevented,stopped,selected],[0,0,0]);
+ console.log('PASS Recursive public recorder detaches all branches without callbacks or input freezing; cycles, empty branches, deep malformed input and globally duplicate IDs are rejected without events');
  const host=api.createFakeLocalToolHost(api.actualDefinition,{projects:[{id:'context-pure',updatedAt:1}]}),before=JSON.stringify(host.inspect());
  assert.equal(api.useLocalToolContextMenu({contextMenu:host.contextMenu}),host.contextMenu);
  assert.equal(host.contextMenu.open(trigger,entries,{label:'Own actions'}),false);host.contextMenu.close();
