@@ -47,6 +47,10 @@ function ContextCounter({client,context}:LocalToolProps<Count>){
    {kind:'item',id:'increment',label:messages('counter.increment'),disabled:busy||count===null,onSelect:()=>act('increment')},
    {kind:'separator'},
    {kind:'item',id:'reset',label:messages('counter.reset'),variant:'destructive',disabled:busy||count===null||count===0,onSelect:()=>act('reset')},
+   {kind:'submenu',id:'more',label:messages('counter.more'),entries:[
+    {kind:'item',id:'more-increment',label:messages('counter.increment'),disabled:busy||count===null,onSelect:()=>act('increment')},
+    {kind:'submenu',id:'count',label:messages('counter.count'),entries:[{kind:'item',id:'count-reset',label:messages('counter.reset'),variant:'destructive',disabled:busy||count===null||count===0,onSelect:()=>act('reset')}]},
+   ]},
   ];
   return menu.open(event,entries,{label:messages('counter.actions')});
  };
@@ -76,8 +80,8 @@ const definition=defineLocalTool({
  preview:{version:1,fields:[{key:'count',label:{en:'Count',es:'Cuenta'}}]},
  document:{defaultTitle:{en:'Counter',es:'Contador'}},
  locales:{defaultLocale:'en',catalogs:{
-  en:{counter:{title:'Contextual counter',help:'Use the buttons or open Actions on the count. Undo and Redo apply to changes made here.',count:'Count',increment:'Increment',reset:'Reset',actions:'Actions',undo:'Undo',redo:'Redo',error:'The change could not be saved or reversed. Check the current count and try again.'}},
-  es:{counter:{title:'Contador contextual',help:'Usa los botones o abre Acciones sobre la cuenta. Deshacer y Rehacer se aplican a los cambios realizados aquí.',count:'Cuenta',increment:'Incrementar',reset:'Restablecer',actions:'Acciones',undo:'Deshacer',redo:'Rehacer',error:'No se ha podido guardar o revertir el cambio. Comprueba la cuenta actual e inténtalo de nuevo.'}},
+  en:{counter:{title:'Contextual counter',help:'Use the buttons or open Actions on the count. Undo and Redo apply to changes made here.',count:'Count',increment:'Increment',reset:'Reset',actions:'Actions',more:'More actions',undo:'Undo',redo:'Redo',error:'The change could not be saved or reversed. Check the current count and try again.'}},
+  es:{counter:{title:'Contador contextual',help:'Usa los botones o abre Acciones sobre la cuenta. Deshacer y Rehacer se aplican a los cambios realizados aquí.',count:'Cuenta',increment:'Incrementar',reset:'Restablecer',actions:'Acciones',more:'Más acciones',undo:'Deshacer',redo:'Rehacer',error:'No se ha podido guardar o revertir el cambio. Comprueba la cuenta actual e inténtalo de nuevo.'}},
  }},
  operations:['increment','reset'].map(action=>({
   id:action,description:action==='increment'?{en:'Increment this counter by one.',es:'Incrementa esta cuenta en uno.'}:{en:'Reset this counter to zero.',es:'Restablece esta cuenta a cero.'},

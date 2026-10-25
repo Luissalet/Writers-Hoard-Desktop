@@ -49,6 +49,7 @@ const suites = [
   ['local-tool-context-menus.browser.tsx', 'testLocalToolContextMenus', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-context-menus.browser.tsx', 'testLocalToolContextMenuVisual', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['review-local-tool-context-menus.browser.tsx', 'testReviewLocalToolContextMenus', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-local-tool-context-submenus.browser.tsx', 'testReviewLocalToolContextSubmenus', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['codex-entry-export.browser.tsx', 'testCodexEntryExports', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['codex-entry-export.browser.tsx', 'testCodexEntryExportVisual', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['review-codex-entry-export.browser.tsx', 'testReviewCodexEntryExports', 240000, 'scripts/run-codex-properties-ui.cjs'],
