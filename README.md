@@ -1,5 +1,7 @@
 # Writers Hoard — Desktop
 
+Source and legacy tool editors can offer an optional flat context menu through right-click, Shift+F10/ContextMenu or an Actions button. The Contextual counter shares Increment/Reset with normal buttons and named MCP operations, and offers explicit receipt Undo/Redo. Opening a menu does not save data. Compiled examples still need enabling; Owned/world/readonly/fullscreen do not receive this port. [API, evidence and delivery status](tasks/vvd1095/verification-sdk-context-menus.md).
+
 Source tools can declare optional tutorials in their normal Source or legacy editor. Use **Help** to start or resume; steps advance manually, after a confirmed tool action, or when an element appears in that instance. Progress follows the ordered tutorial structure, while language changes only its copy. The Guided counter is a runnable example. Owned blocks, world blocks, readonly views and fullscreen do not receive this tutorial port. [API, evidence and delivery status](tasks/vvd1095/verification-sdk-tours.md).
 
 World dates now offer Previous/Next month, Clear and separate exact-year/month/day fields with Apply/Cancel, alongside free text and the existing grid. Browsing leaves the authored date unchanged. Today uses the computer's local day only when the world calendar has a complete usable Earth correlation. Event and chapter saves retain their existing rules. [Use, verification and limits](tasks/vvd1095/verification-date-controls.md).
