@@ -1480,3 +1480,9 @@ Success: own offline catalogs and plural/Intl messages follow host language with
 - [x] Update SDK/MCP/product/design docs, native manual and continuity from actual receipts; keep parent1095 open for remaining gaps. Manual+672UTF16/readback, MEMORY exact prefix and own graph node verified. Final docs commit/main are recorded after they occur;1095 remains open.
 
 ROOT normal Brave also found silent block insertion on a new unsaved parent. SourceToolBlockControls now explains the existing save/body precondition (feedback only, no new guard); a fresh unsaved form showed the message and was cancelled without creating another entry.
+
+## VVD1095 — custom date controls (25Oct2026, research1484)
+
+- [ ] Complete the existing WorldDateField with existing-month navigation, Clear, exact separate fields with explicit Apply/Cancel and correlated local Today; preserve partial/approximate dates and consumer saves.
+- [ ] Preserve REDs, run original calendar oracles and actual MCP/persistence checks, verify real Brave custom calendar, and obtain independent technical/visual/formal reviews.
+- [ ] Commit explicit paths, integrate with fresh merge lock without push, verify main, update manual/continuity and close research1484 only. Plan/evidence: _stage/date-controls-next/ROOT-PLAN.md.
