@@ -1,5 +1,7 @@
 # Objetivos de autoría local
 
+La subcapacidad 1504 añade preview inline de audio/vídeo en Archivo de recursos, con el reproductor local existente, selección detenida y limpieza al cerrar o retirar su fuente. No convierte la biblioteca en editable por época ni añade preview 3D, formatos de archivo nuevos o API de reproducción remota. D2 fila44 y la paridad general mantienen sus límites parciales. [Uso y evidencia separada](tasks/vvd1095/verification-assets-media-preview.md).
+
 La subcapacidad de menús del SDK añade un contrato propio plano para Source/legacy editable, un fake grabador inerte y el ejemplo Contador contextual con operaciones y Undo/Redo por recibos. El SDK y la paridad general siguen parciales: este añadido no cubre submenús, iconos, otros hosts ni cancelación de efectos arbitrarios ya iniciados. [Contrato, pruebas y recibos de entrega](tasks/vvd1095/verification-sdk-context-menus.md).
 
 La implementación de la tarea 1496 cubre la exportación individual de una ficha guardada del Códex: Markdown/ZIP acotado, PDF/PNG Desktop y vista imprimible Browser, para Base o la época efectiva. Conserva los defaults MCP y el vault/Biblia existentes. El SDK y la paridad general siguen parciales; los borradores, las notas laterales y exportación de jugadores quedan fuera. [Contrato, evidencia y recibos de cierre](tasks/vvd1095/verification-card-export.md).

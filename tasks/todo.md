@@ -1535,11 +1535,11 @@ Success: a saved Source/legacy tool offers a host-owned flat context menu throug
 - [x] Record actual missing-menu RED with positive normal Source/menu controls, then implement the agreed public port, presenter and example; repeat the same oracle GREEN.
 - [x] Before editing TourHost, reproduce real tour/menu keyboard conflict; apply only the visible-popup DOM guard and confirm the same oracle plus original guided/SDK tour regressions.
 - [x] Verify public fake/headless/package, normal UI and actual Native MCP operations/receipts, owner changes, viewport states and no popup data persistence; exercise real Brave after UI freeze.
-- [ ] Finish documentation commit/integration and record closure of research1501 after they occur; keep parent1095 open. Technical/formal review, the single visual F1, source commit, exact Main checks, manual and continuity are complete; no push.
+- [x] Finish documentation commit/integration and record closure of research1501: docs1b62a7e and ROOT-delivery-final.json confirm actual delivery. Parent1095 remains open; no push.
 
 Contract: _stage/sdk-context-menus-next/ROOT-resolution.txt, proposal/addendum r2 and ROOT-check-plan.md. Flat menus only; no submenu/upstream parity, automatic callback cancellation or counter keyboard Undo claim. Source controller/store/TOURS and protected original oracles remain exact.
 
-Review: source d6d2e1b4 / exact CAS36 approved. ROOT15 gates remain attributed to r1; postF1 lint0/CSS10/visual1 and six opened PNG close only the local enabled-color correction. Independent technical CSS2/Native1 and formal CSS2 remain separate. Real Brave cold confirms A2/B1; F1 confirmation A2→Reset0→Undo2 and companion close did not delete data. Main7 exit0, native manual readback and continuity are complete according to actual receipts. Documentation integration and research1501 closure will be recorded after they occur; parent1095 remains open. [Evidence and receipts](vvd1095/verification-sdk-context-menus.md).
+Review: source d6d2e1b4 / exact CAS36 approved. ROOT15 gates remain attributed to r1; postF1 lint0/CSS10/visual1 and six opened PNG close only the local enabled-color correction. Independent technical CSS2/Native1 and formal CSS2 remain separate. Real Brave cold confirms A2/B1; F1 confirmation A2→Reset0→Undo2 and companion close did not delete data. Main7 exit0, native manual readback and continuity are complete according to actual receipts. Documentation1b62a7e integration and research1501 closure are confirmed in ROOT-delivery-final.json; parent1095 remains open. [Evidence and receipts](vvd1095/verification-sdk-context-menus.md).
 
 
 ## Local asset media preview (1095 / research1504)
@@ -1549,7 +1549,9 @@ Success: open a project Base audio/video from the asset library, use the existin
 - [x] Observe real Brave reference and Writer gap, verify the original player with valid WAV/MP4, agree architecture1620 and image/media late-read condition before implementation.
 - [x] Record material disabled-audio RED with positive image/player controls, implement author5, and repeat the same oracle GREEN.
 - [x] Verify valid media, canonical-version replacement, close/filter/owner/pane lifecycle, delayed image, no writes and existing MCP data agreement; preserve original tests and protected paths.
-- [ ] Exercise normal Brave, inspect one settled EN/ES desktop/narrow batch, obtain independent technical/finish/formal review, and complete applicable checks.
-- [ ] Commit explicit paths as Luissalet, integrate under merge lock/fresh HEAD without push; update documentation/manual/continuity and close only research1504 after actual delivery, leaving1095 open.
+- [x] Exercise normal Brave, inspect one settled EN/ES desktop/narrow batch, obtain independent technical/finish/formal review, and complete applicable checks.
+- [x] Commit eight explicit paths as Luissalet, obtain exact CAS37 and integrate source under merge lock/fresh HEAD without push; verify Main6, native manual and continuity. Final documentation/closure receipts follow after they occur; keep1095 open.
 
 Contract: _stage/assets-preview-next-gap/PROPOSAL.md, ROOT-addendum-r1/r2.md and ROOT-resolution.txt. Author5 plus ROOT runner/todo and the independent test =8 (causal runner-path addendum r3). Base only; not a new era-aware library or remote player. Metadata/rename may restart paused; other audio consumers remain independent.
+
+Preparation: author5 quiet, independent peer CSS3 without material findings and normal Brave WAV/MP4/close/filter/cold checks complete. Fresh visual ship covers six captures only (four fixture PNG, two Brave JPEG with historical .png names). Source8 a58c4128, ROOT7 ALL_PASS, exact CAS37, Main6, native manual and continuity are confirmed. Final documentation integration and research1504 closure are recorded in the later delivery receipt. Original focused9PASS and confirmed incumbent CSS failure remain separate. [Evidence and pending delivery receipts](vvd1095/verification-assets-media-preview.md).
