@@ -36,8 +36,10 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  // Every committed setup owns a new irrevocable lease. StrictMode cleanup
  // cannot reactivate an older emitted client when the surface sets up again.
  const [binding,setBinding]=useState<{client:LocalToolClient<LocalToolJson>;definition:LocalToolDefinition;namespace:string;hash:string|null;canEdit:boolean;navigate:typeof navigate}>();
- useLayoutEffect(()=>{let active=true;if(!definition||!documentNamespace){setBinding(undefined);return()=>{active=false;};}const client=createLocalToolClient(projectId,definition,{eraId,documentId,navigate,requireSelectedRelease:true,releaseHash:hash,readOnly:!canEdit,isCurrent:()=>active});setBinding({client,definition,namespace:documentNamespace,hash,canEdit,navigate});return()=>{active=false;};},[projectId,definition,eraId,documentId,navigate,hash,canEdit,documentNamespace]);
- const client=binding&&binding.definition===definition&&binding.namespace===documentNamespace&&binding.hash===hash&&binding.canEdit===canEdit&&binding.navigate===navigate?binding.client:undefined;
+ useLayoutEffect(()=>{let active=true;if(!definition||!documentNamespace){setBinding(undefined);return()=>{active=false;};}const client=createLocalToolClient(projectId,definition,{eraId,documentId,navigate,openBeside:parentOpenBeside,requireSelectedRelease:true,releaseHash:hash,readOnly:!canEdit,isCurrent:()=>active});setBinding({client,definition,namespace:documentNamespace,hash,canEdit,navigate});return()=>{active=false;};},[projectId,definition,eraId,documentId,navigate,parentOpenBeside,hash,canEdit,documentNamespace]);
+ // A navigation-only rebind retains the editor draft while the layout effect issues a new client.
+ // Cleanup still permanently revokes the previous emitted client.
+ const client=binding&&binding.definition===definition&&binding.namespace===documentNamespace&&binding.hash===hash&&binding.canEdit===canEdit?binding.client:undefined;
  useLocalToolAudioLifecycle(client?.audio);
  const visible=parent?.visible??true;
  const pane=useMemo(()=>({instanceId,projectId,eraId,visible,primary:false,navigate,openBeside:parentOpenBeside}),[instanceId,projectId,eraId,visible,navigate,parentOpenBeside]);
