@@ -107,6 +107,7 @@ import { registerFaustusIpc } from './ai/faustusIpc';
 import { registerDocumentIpc } from './documents/register';
 import { registerProofingIpc } from './proofing/register';
 import { registerDocumentImageIpc } from './documentImage';
+import { registerScriptPdfIpc, saveBytesViaDialog } from './scriptPdf';
 import { configureProjectDuplicate, registerProjectDuplicateIpc } from './projectDuplicate/register';
 import { registerVisualSearchIpc } from './visualSearch/ipc';
 import { registerEntityDetectionIpc } from './entityDetection/ipc';
@@ -1065,50 +1066,6 @@ function initAutoUpdates(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Export helpers (teleprompter MP4, script PDF)
-// ---------------------------------------------------------------------------
-
-/** Prompt for a destination and write `bytes` there. */
-async function saveBytesViaDialog(
-  bytes: Buffer,
-  suggestedName: string,
-  filters: Electron.FileFilter[],
-): Promise<SaveResult> {
-  if (!mainWindow) return { ok: false, error: 'no window' };
-  const result = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: suggestedName,
-    filters,
-  });
-  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
-  try {
-    await fs.writeFile(result.filePath, bytes);
-    return { ok: true, filePath: result.filePath };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/** Render a standalone HTML string to PDF bytes via a hidden, script-free window. */
-async function htmlToPdf(html: string): Promise<Buffer> {
-  const win = new BrowserWindow({
-    show: false,
-    webPreferences: { sandbox: true, javascript: false, contextIsolation: true },
-  });
-  const tmpdir = await fs.mkdtemp(path.join(os.tmpdir(), 'wh-script-'));
-  const htmlPath = path.join(tmpdir, 'script.html');
-  try {
-    await fs.writeFile(htmlPath, html, 'utf8');
-    await win.loadFile(htmlPath);
-    // A document that sets its own page (`@page { size }` — a book trim) is
-    // printed at that size; anything else stays on A4.
-    return await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4', preferCSSPageSize: true });
-  } finally {
-    win.destroy();
-    await fs.rm(tmpdir, { recursive: true, force: true });
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Automatic backup — the renderer's archive, given a home under userData
 // ---------------------------------------------------------------------------
 // The manuscript lives in IndexedDB: invisible to the writer, and evictable by
@@ -1424,7 +1381,7 @@ function registerIpc(): void {
       assertIpcSender(event, 'media:saveTeleprompterMp4');
       try {
         const mp4 = await transcodeWebmToMp4(Buffer.from(webm));
-        return await saveBytesViaDialog(mp4, suggestedName, [
+        return await saveBytesViaDialog(mainWindow, mp4, suggestedName, [
           { name: 'MP4 Video', extensions: ['mp4'] },
         ]);
       } catch (err) {
@@ -1451,20 +1408,7 @@ function registerIpc(): void {
   });
 
   // Script: render styled HTML to a real PDF and save it.
-  ipcMain.handle(
-    'export:scriptToPdf',
-    async (event, html: string, suggestedName: string): Promise<SaveResult> => {
-      assertIpcSender(event, 'export:scriptToPdf');
-      try {
-        const pdf = await htmlToPdf(html);
-        return await saveBytesViaDialog(pdf, suggestedName, [
-          { name: 'PDF Document', extensions: ['pdf'] },
-        ]);
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  );
+  registerScriptPdfIpc(assertIpcSender, () => mainWindow);
 
   // Beta reading: the package is one HTML page the renderer built. Main owns
   // the folder (<userData>/exports/beta-reading) and reduces the name to a

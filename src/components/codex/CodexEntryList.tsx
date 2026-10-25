@@ -24,6 +24,7 @@ import { isAliasField, readAliases } from '@/services/codexReference/aliases';
 import { useProject } from '@/hooks/useProjects';
 import CodexTemplateManager from './CodexTemplateManager';
 import GuidedCardDialog from './GuidedCardDialog';
+import CodexEntryExportDialog from './CodexEntryExportDialog';
 import { templateFromEntry, type CodexTemplate } from '@/engines/codex/templates';
 import { effectiveCodexTemplate, effectiveTemplatePresentation,selectableCodexTemplates, templateIsWithin, templatePath } from '@/engines/codex/templateHierarchy';
 import {ProjectIcon} from '@/components/common/ProjectIcon';
@@ -122,6 +123,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const [revealFilter, setRevealFilter] = useState<RevealFilter>('all');
   // The player view is a way of looking, never saved: it only shows revealed cards and hides what the wiki hides.
   const [playerView, setPlayerView] = useState(false);
+  const [exportEntryId,setExportEntryId]=useState<string|null>(null);
   const reveal = revealCopy[locale === 'en' ? 'en' : 'es'];
   const selectedEntry = entries.find(entry => entry.id === selectedEntryId && entry.projectId === projectId && (!playerView || playerVisibleEntries([entry], project?.codexTemplates, project ?? undefined).length > 0)) ?? null;
 
@@ -424,7 +426,8 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             </div>
             </>} />}
 
-            {!playerView && <div className="flex gap-3 pt-2">
+            {!playerView && <div className="flex flex-wrap gap-3 pt-2">
+              <button type="button" onClick={()=>setExportEntryId(selectedEntry.id)} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.export.action')}</button>
               <button type="button" onClick={() => { const source = project?.codexTemplates?.find(template => template.id === selectedEntry.templateId); const seed = templateFromEntry(selectedEntry, generateId('codex-template'), selectedEntry.title, Date.now(), source ? propertyDefinitions(effectiveCodexTemplate(source, project?.codexTemplates ?? [])) : selectedEntry.propertyDefinitions); setTemplateSeed({ ...seed, ...effectiveTemplatePresentation(source,project?.codexTemplates??[]),referenceFieldDefinitions: source ? effectiveCodexTemplate(source, project?.codexTemplates ?? []).referenceFieldDefinitions : seed.referenceFieldDefinitions }); setShowTemplates(true); }} className="px-3 py-2 rounded-lg border border-border text-sm text-text-primary hover:bg-elevated">{t('codex.templates.fromEntry')}</button>
               <button
                 onClick={() => { setSelectedEntryId(null); setEditEntry(selectedEntry); }}
@@ -445,6 +448,8 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           </div>
         )}
       </Modal>
+
+      {!playerView&&selectedEntry&&exportEntryId===selectedEntry.id&&<CodexEntryExportDialog key={JSON.stringify([projectId,scope.eraId,selectedEntry.id,locale])} title={selectedEntry.title} eraName={project?.worldEras?.find(era=>era.id===scope.eraId)?.name} request={{projectId,eraId:scope.eraId,entryId:selectedEntry.id,locale:locale==='es'?'es':'en'}} onClose={()=>setExportEntryId(null)}/>}
 
       <ConfirmDialog
         open={pendingDeleteEntry !== null}

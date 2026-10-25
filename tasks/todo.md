@@ -1510,3 +1510,16 @@ Success: the selected Source tool can describe and start its own tour in its liv
 - [x] Commit explicit paths as Luissalet, integrate under the merge lock without push, verify main and update manual, product docs and continuity. Close research1491 only; task1095 continues.
 
 Review: source55cbba2 approved at CAS34; ROOT13 before copy and6 after copy all exit0, Main7 exit0. Independent10+15+1+4 groups, normal Brave and scoped visual F1 resolved. Manual577 UTF-16/198 paragraphs, MEMORY/own-graph continuity complete. Separate documentation integration and research1491 closure are recorded after they occur in _stage/sdk-tours-next/ROOT-delivery-final.json; task1095 continues.
+
+
+## VVD1095 - individual card export (25Oct2026, research1496)
+
+Success: export one saved author card as Markdown, a printable view/PDF or native image, preserving effective era, property projection and admitted local resources from one coherent captured read. Existing global exports remain available.
+
+- [x] Resolve architecture1611 and preserve the real missing individual-action RED before implementation. The real saved modal, incumbent Edit and saved prose passed their positive controls; RED-action-first.log retains the absent Export failure and its Network service warning.
+- [ ] Reuse captured ReaderSource and existing renderers/compositor; add scoped author UI and opt-in MCP formats, preserving default bytes and native PDF/MP4 save behavior.
+- [ ] Verify artifact bytes/resources, Base/era, source/pin mutations, lifetime/navigation races and unchanged original area oracles; exercise real Native IPC and normal Brave flow.
+- [ ] Complete independent technical/visual/formal reviews, explicit-path commit, guarded main integration and applicable main checks without push.
+- [ ] Update product/design/MCP docs, native manual and continuity; close research1496 only and continue parent1095.
+
+Contract: _stage/card-export-next/ROOT-GO.md, agreed proposal/addendum and actual architecture resolution. Browser printable view is not a downloaded PDF; native image availability is explained when no desktop bridge is present. No claim of general parity.
