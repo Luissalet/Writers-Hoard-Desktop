@@ -531,6 +531,8 @@ const suites = [
   ['table-rules.browser.tsx', 'testTableRules'],
   ['import-paste-epub-pdf.browser.tsx', 'testImportPasteEpubPdf'],
   ['assets-library.browser.tsx', 'testAssetsLibrary'],
+  ['assets-library-media-preview.browser.tsx', 'testAssetsLibraryMediaPreview', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-assets-library-media-preview.browser.tsx', 'testReviewAssetsLibraryMediaPreview', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['review-1095d2b.browser.tsx', 'testReview1095d2b'],
   ['workspace-themes.browser.tsx', 'testWorkspaceThemes'],
   ['review-1095d2a.browser.tsx', 'testReview1095d2a'],

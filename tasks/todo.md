@@ -1540,3 +1540,16 @@ Success: a saved Source/legacy tool offers a host-owned flat context menu throug
 Contract: _stage/sdk-context-menus-next/ROOT-resolution.txt, proposal/addendum r2 and ROOT-check-plan.md. Flat menus only; no submenu/upstream parity, automatic callback cancellation or counter keyboard Undo claim. Source controller/store/TOURS and protected original oracles remain exact.
 
 Review: source d6d2e1b4 / exact CAS36 approved. ROOT15 gates remain attributed to r1; postF1 lint0/CSS10/visual1 and six opened PNG close only the local enabled-color correction. Independent technical CSS2/Native1 and formal CSS2 remain separate. Real Brave cold confirms A2/B1; F1 confirmation A2→Reset0→Undo2 and companion close did not delete data. Main7 exit0, native manual readback and continuity are complete according to actual receipts. Documentation integration and research1501 closure will be recorded after they occur; parent1095 remains open. [Evidence and receipts](vvd1095/verification-sdk-context-menus.md).
+
+
+## Local asset media preview (1095 / research1504)
+
+Success: open a project Base audio/video from the asset library, use the existing native player without autoplay, and release its source on close, replacement, filtering, owner change or unmount. No stored preview, duplicate file or new MCP tool.
+
+- [x] Observe real Brave reference and Writer gap, verify the original player with valid WAV/MP4, agree architecture1620 and image/media late-read condition before implementation.
+- [x] Record material disabled-audio RED with positive image/player controls, implement author5, and repeat the same oracle GREEN.
+- [x] Verify valid media, canonical-version replacement, close/filter/owner/pane lifecycle, delayed image, no writes and existing MCP data agreement; preserve original tests and protected paths.
+- [ ] Exercise normal Brave, inspect one settled EN/ES desktop/narrow batch, obtain independent technical/finish/formal review, and complete applicable checks.
+- [ ] Commit explicit paths as Luissalet, integrate under merge lock/fresh HEAD without push; update documentation/manual/continuity and close only research1504 after actual delivery, leaving1095 open.
+
+Contract: _stage/assets-preview-next-gap/PROPOSAL.md, ROOT-addendum-r1/r2.md and ROOT-resolution.txt. Author5 plus ROOT runner/todo and the independent test =8 (causal runner-path addendum r3). Base only; not a new era-aware library or remote player. Metadata/rename may restart paused; other audio consumers remain independent.
