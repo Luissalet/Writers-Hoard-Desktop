@@ -373,7 +373,7 @@ async function pickerFlow(css: boolean): Promise<string[]> {
       const sourceAfter = afterData.project.sourceToolDocuments.find((document: {id: string}) => document.id === fixture.sourceId);
       assert(sourceBefore && sourceAfter, 'Flush lost the logical Source document');
       assert(sourceAfter.data.notes === draft && sourceAfter.revision === sourceBefore.revision + 1, 'Normal beside flush did not persist exactly the pending notes in one revision');
-      assert(sourceAfter.updatedAt === afterData.project.updatedAt && sourceAfter.updatedAt >= sourceBefore.updatedAt && afterData.project.updatedAt >= beforeData.project.updatedAt, 'Normal flush timestamps diverged or moved backwards');
+      assert(sourceAfter.updatedAt > sourceBefore.updatedAt && afterData.project.updatedAt > beforeData.project.updatedAt, 'Normal flush timestamps did not each advance');
       const normalized = structuredClone(afterData), normalizedSource = normalized.project.sourceToolDocuments.find((document: {id: string}) => document.id === fixture.sourceId);
       normalizedSource.data.notes = sourceBefore.data.notes; normalizedSource.revision = sourceBefore.revision;
       normalizedSource.updatedAt = sourceBefore.updatedAt; normalized.project.updatedAt = beforeData.project.updatedAt;
