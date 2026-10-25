@@ -1,3 +1,4 @@
+import {createLocalToolIcons} from './icons';
 import {localToolTutorialSnapshots} from './LocalToolTutorialHost';
 import {LOCAL_ASSET_HANDLERS} from './assetBridge';
 import {LOCAL_AUDIO_HANDLERS} from './audioBridge';
@@ -20,6 +21,7 @@ async function client(args:ToolArgs,readOnly=false){const selected=await sourceF
 async function invoke(args:ToolArgs,writes:boolean){const {source,releaseHash}=await sourceFor(args),scoped=createLocalToolClient(resolveProjectId(args),source,{documentId:optString(args,'documentId'),eraId:optString(args,'eraId'),readOnly:!writes,requireSelectedRelease:true,releaseHash});await assertEngineEnabled(scoped.projectId,localToolEngineId(source.namespace));try{return await runLocalToolOperation(source,requireString(args,'operation'),args.input??{},writes,scoped,run=>db.transaction('rw',db.tables,async()=>{const row=await db.projects.get(scoped.projectId);if((row?.localToolInstallations?.[source.namespace]?.contentHash??null)!==releaseHash)throw Error('local_tool_pin_conflict');return await run(scoped);}));}catch(error){if(error instanceof LocalToolOperationError)throw new BridgeError(error.code,error.message);throw error;}}
 async function stateClient(args:ToolArgs){const scoped=await client(args);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.state)throw new BridgeError('bad-args','This source has no declarative state codec.');return scoped;}
 export const LOCAL_TOOL_HANDLERS={
+ async wh_local_tool_icons(args:ToolArgs){const icons=createLocalToolIcons();if(args.action==='packs')return icons.packs();if(args.action==='get'){if(typeof args.id!=='string')throw new BridgeError('bad-args','id is required for get.');return icons.get(args.id);}if(args.action==='search'){if(args.query!==undefined&&typeof args.query!=='string')throw new BridgeError('bad-args','query must be a string.');return icons.search(args.query as string|undefined??'',{offset:args.offset as number|undefined,limit:args.limit as number|undefined});}throw new BridgeError('bad-args','Choose packs, get or search.');},
  ...LOCAL_AUDIO_HANDLERS,
  ...LOCAL_ASSET_HANDLERS,
  ...LOCAL_TOOL_BLOCK_HANDLERS,

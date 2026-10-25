@@ -1,3 +1,4 @@
+import {createLocalToolIcons} from './icons';
 import {useLocaleStore} from '@/stores/localeStore';
 import {createLocalToolLocaleSource} from './locales';
 import {createBrowserLocalToolAssets} from './assetBrowser';
@@ -54,7 +55,7 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   }
   check();return{read,path};
  };
- const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,assets,locale,
+ const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,assets,locale,icons:createLocalToolIcons(),
   subscribe:(changed:()=>void)=>{
    let active=true,pending:ReturnType<typeof setTimeout>|undefined;
    const schedule=()=>{if(!active||pending!==undefined)return;pending=setTimeout(()=>{pending=undefined;if(active)changed();},0);};
