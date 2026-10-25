@@ -1532,9 +1532,11 @@ Review: source e21211f / exact CAS35 approved; ROOT13 and Main7 all exit0, indep
 Success: a saved Source/legacy tool offers a host-owned flat context menu through pointer, keyboard or Actions, with no write on open/close. Selection shares normal operations and receipt Undo/Redo with MCP; absent/fake hosts retain native Browser behavior. Existing tours, rich prose, scope and portable data remain intact.
 
 - [x] Read live reference and SDK docs, agree architecture1616 and causal TourHost route15 before implementation; preserve the exact proposal/addendum and baseline.
-- [ ] Record actual missing-menu RED with positive normal Source/menu controls, then implement the agreed public port, presenter and example; repeat the same oracle GREEN.
-- [ ] Before editing TourHost, reproduce real tour/menu keyboard conflict; apply only the visible-popup DOM guard and confirm the same oracle plus original guided/SDK tour regressions.
-- [ ] Verify public fake/headless/package, normal UI and actual Native MCP operations/receipts, owner changes, viewport states and no popup data persistence; exercise real Brave after UI freeze.
-- [ ] Complete independent technical/visual/formal review, explicit-path commit, guarded Main and applicable checks, manual/docs/continuity; close only research1501 and continue1095, without push.
+- [x] Record actual missing-menu RED with positive normal Source/menu controls, then implement the agreed public port, presenter and example; repeat the same oracle GREEN.
+- [x] Before editing TourHost, reproduce real tour/menu keyboard conflict; apply only the visible-popup DOM guard and confirm the same oracle plus original guided/SDK tour regressions.
+- [x] Verify public fake/headless/package, normal UI and actual Native MCP operations/receipts, owner changes, viewport states and no popup data persistence; exercise real Brave after UI freeze.
+- [ ] Finish documentation commit/integration and record closure of research1501 after they occur; keep parent1095 open. Technical/formal review, the single visual F1, source commit, exact Main checks, manual and continuity are complete; no push.
 
 Contract: _stage/sdk-context-menus-next/ROOT-resolution.txt, proposal/addendum r2 and ROOT-check-plan.md. Flat menus only; no submenu/upstream parity, automatic callback cancellation or counter keyboard Undo claim. Source controller/store/TOURS and protected original oracles remain exact.
+
+Review: source d6d2e1b4 / exact CAS36 approved. ROOT15 gates remain attributed to r1; postF1 lint0/CSS10/visual1 and six opened PNG close only the local enabled-color correction. Independent technical CSS2/Native1 and formal CSS2 remain separate. Real Brave cold confirms A2/B1; F1 confirmation A2→Reset0→Undo2 and companion close did not delete data. Main7 exit0, native manual readback and continuity are complete according to actual receipts. Documentation integration and research1501 closure will be recorded after they occur; parent1095 remains open. [Evidence and receipts](vvd1095/verification-sdk-context-menus.md).

@@ -2655,3 +2655,15 @@ La selección individual reutiliza tres herramientas existentes; no añade tools
 Build devuelve HTML de sólo lectura. Export conserva `writes:true` por la salida de archivo: acepta `format:"html"` o `"pdf"`; PDF necesita Desktop y usa el diálogo y escritura productivos. Cancelar el PDF individual devuelve un fallo explícito con `code:"canceled"`, sin afirmar que se haya guardado. La acción normal de Browser abre una vista imprimible mediante un gesto; no demuestra bytes PDF descargados. PNG usa el compositor Desktop existente y puede producir mosaicos; `wh_export_document_image` conserva su contrato genérico anterior.
 
 Los focos Native cubren ejecutor local→IPC→handlers productivos y PDF/PNG reales con atribución separada; no acreditan una nueva sesión stdio externa, nueva clave ni servidor. [Contrato, evidencia y recibos de entrega](../tasks/vvd1095/verification-card-export.md).
+
+## Operaciones del ejemplo de menú contextual
+
+Los menús del host son efímeros y no añaden herramienta MCP ni callbacks a `wh_local_tool_describe`. La definición seleccionada de `examples.context-counter` declara `increment` y `reset`; los botones normales, el menú y `wh_local_tool_call` comparten esas funciones. Describe conserva sus esquemas habituales y no abre una interfaz headless.
+
+```json
+{"projectId":"project-id","namespace":"examples.context-counter","documentId":"document-id","operation":"increment","input":{}}
+```
+
+El resultado contiene `count` y `receiptId`. `wh_local_tool_state_undo` y `wh_local_tool_state_redo` aceptan ese recibo con el mismo proyecto, namespace, documento y época; conservan los conflictos, readonly y reglas de ámbito existentes. Describe usa proyecto/namespace y sus opciones propias, sin añadir `documentId` por analogía con call. El ejemplo no promete Ctrl+Z ni un historial universal de otros montajes.
+
+Las pruebas Native comprueban ejecutor local→IPC→handlers productivos; no acreditan un nuevo transporte stdio externo, servidor, clave o instalación de paquete. Sin host editable, la API de menú devuelve `false` y deja el evento al navegador; el fake registra sólo metadatos. [API, pruebas y estado de entrega](../tasks/vvd1095/verification-sdk-context-menus.md).

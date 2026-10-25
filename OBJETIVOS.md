@@ -1,5 +1,7 @@
 # Objetivos de autoría local
 
+La subcapacidad de menús del SDK añade un contrato propio plano para Source/legacy editable, un fake grabador inerte y el ejemplo Contador contextual con operaciones y Undo/Redo por recibos. El SDK y la paridad general siguen parciales: este añadido no cubre submenús, iconos, otros hosts ni cancelación de efectos arbitrarios ya iniciados. [Contrato, pruebas y recibos de entrega](tasks/vvd1095/verification-sdk-context-menus.md).
+
 La implementación de la tarea 1496 cubre la exportación individual de una ficha guardada del Códex: Markdown/ZIP acotado, PDF/PNG Desktop y vista imprimible Browser, para Base o la época efectiva. Conserva los defaults MCP y el vault/Biblia existentes. El SDK y la paridad general siguen parciales; los borradores, las notas laterales y exportación de jugadores quedan fuera. [Contrato, evidencia y recibos de cierre](tasks/vvd1095/verification-card-export.md).
 
 Las herramientas fuente pueden declarar recorridos opcionales en su editor Source o antiguo. **Ayuda** permite iniciarlos o reanudarlos; los pasos avanzan manualmente, tras una acción confirmada o cuando aparece un elemento en esa instancia. El progreso sigue la estructura ordenada del recorrido y el idioma sólo cambia sus textos. Contador guiado es el ejemplo ejecutable. Los bloques propios, bloques mundiales, vistas de sólo lectura y pantalla completa no reciben este puerto. [API, pruebas y estado de entrega](tasks/vvd1095/verification-sdk-tours.md).
