@@ -486,6 +486,10 @@ PDF with text; a scanned PDF is refused with an OCR message. Bridge arguments
 `pasted` and `libraryFolderId`; see
 [world folder import](docs/world-folder-import.md).
 
+## Exportar una ficha del Códex
+
+La ficha guardada del Códex incorpora **Exportar**: Markdown individual, ZIP opcional con los adjuntos locales consumidos, PDF/PNG en Desktop y vista imprimible en Browser. La copia de autor se captura en sólo lectura para Base o la época efectiva; no incluye borradores, anotaciones ni toda la galería. Las herramientas MCP existentes añaden selección individual optativa y conservan sus formatos predeterminados. [Uso, pruebas r1/r2 y estado de entrega](tasks/vvd1095/verification-card-export.md). No se atribuye una descarga confirmada en Brave ni paridad completa con VVD.
+
 ## Export a whole world as Markdown
 
 **Export as Markdown** (the file icon on a project card in the dashboard, and the
