@@ -2050,10 +2050,21 @@ deshecho.
 - **Aspecto 3D y luz.** `wh_set_world_presentation` guarda `clouds` (nubes con
   sombra, más donde llueve) y `block3D` (`roca`, `papel`, `grabado`) de la
   maqueta; con Pintado los árboles se ponen de pie en la maqueta.
-  `wh_render_world_map` acepta `hour` (amanecer rosa, anochecer rojo, noche azul
-  con el farol del grupo) y la vista del lector con `readerStart: "land"`
-  (tierra a tinta), `readerTowns` (pueblos como puntos) y `readerTrail` (rastro
-  numerado por capítulo).
+  Getter/setter de presentación incluyen `mapHour` opcional: `off`, `dawn`,
+  `morning`, `noon`, `afternoon`, `dusk`, `night` o `journey`. Los nombres conservan
+  sus horas locales (6.25, 9, 13, 16.5, 19.5 y 23); `noon` sigue siendo 13.
+  Ausencia antigua resuelve `off` sin escritura. El setter modifica sólo campos
+  enviados y acepta `expectedRevision`; Deshacer conserva el ámbito capturado
+  Base/época y restaura la preimagen, incluida ausencia, sólo si sigue vigente
+  el valor escrito. Una época heredada guarda en Base sin crear variante.
+  `wh_render_world_map` sin `hour` usa la luz guardada; `hour` explícito entre
+  0 y 24 (incluidos ambos extremos) o con nombre prevalece. `off` y `journey`
+  sin reproducción no añaden lavado; `journey` guarda sólo el modo, sin frames
+  persistidos ni reloj compartido entre runtimes. No añade ABI host de lenses,
+  herramienta de itinerarios ni lavado 3D/Carta.
+  La vista del lector conserva `readerStart: "land"` (tierra a tinta),
+  `readerTowns` (pueblos como puntos) y `readerTrail` (rastro numerado por capítulo).
+  [Uso, pruebas de transporte y límites](../tasks/vvd1095/verification-map-lighting.md).
 - **Viaje y comercio.** `wh_set_world_travel_settings` admite `ways` (las vías
   propias del mundo: velocidad, día y noche, por mar, tierra o ambos, como un
   grifo o un trineo) y `wh_plan_journey` las usa con `way`. `wh_world_economy`
