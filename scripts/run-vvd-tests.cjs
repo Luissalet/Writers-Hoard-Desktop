@@ -45,7 +45,12 @@ const contextMenuNativeCheck = spawnSync(electron, ['tests/local-tool-context-me
 if (contextMenuNativeCheck.status !== 0 || contextMenuNativeCheck.error) process.exit(contextMenuNativeCheck.status ?? 1);
 const cardExportNativeCheck = spawnSync(electron, ['tests/codex-entry-export.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (cardExportNativeCheck.status !== 0 || cardExportNativeCheck.error) process.exit(cardExportNativeCheck.status ?? 1);
+const besideAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-beside.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (besideAuthorCheck.status !== 0 || besideAuthorCheck.error) process.exit(besideAuthorCheck.status ?? 1);
 const suites = [
+  ['local-tool-beside.browser.tsx', 'testLocalToolBesideAll', 240000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-beside.browser.tsx', 'testLocalToolBesideCssUi', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-beside-review.browser.tsx', 'testReviewLocalToolBesideDispatch', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-context-menus.browser.tsx', 'testLocalToolContextMenus', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-context-menus.browser.tsx', 'testLocalToolContextMenuVisual', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['review-local-tool-context-menus.browser.tsx', 'testReviewLocalToolContextMenus', 240000, 'scripts/run-codex-properties-ui.cjs'],
