@@ -1525,3 +1525,16 @@ Success: export one saved author card as Markdown, a printable view/PDF or nativ
 Contract: _stage/card-export-next/ROOT-GO.md, agreed proposal/addendum and actual architecture resolution. Browser printable view is not a downloaded PDF; native image availability is explained when no desktop bridge is present. No claim of general parity.
 
 Review: source e21211f / exact CAS35 approved; ROOT13 and Main7 all exit0, independent CSS2/Native1/F1ENES1, real Brave EN/ES print and F1 resolved. Native manual and own-node continuity verified. Separate documentation commit/integration and research1496 closure are recorded after they occur in _stage/card-export-next/ROOT-delivery-final.json; task1095 continues. No push.
+
+
+## VVD1095 - optional SDK context menus (25Oct2026, research1501)
+
+Success: a saved Source/legacy tool offers a host-owned flat context menu through pointer, keyboard or Actions, with no write on open/close. Selection shares normal operations and receipt Undo/Redo with MCP; absent/fake hosts retain native Browser behavior. Existing tours, rich prose, scope and portable data remain intact.
+
+- [x] Read live reference and SDK docs, agree architecture1616 and causal TourHost route15 before implementation; preserve the exact proposal/addendum and baseline.
+- [ ] Record actual missing-menu RED with positive normal Source/menu controls, then implement the agreed public port, presenter and example; repeat the same oracle GREEN.
+- [ ] Before editing TourHost, reproduce real tour/menu keyboard conflict; apply only the visible-popup DOM guard and confirm the same oracle plus original guided/SDK tour regressions.
+- [ ] Verify public fake/headless/package, normal UI and actual Native MCP operations/receipts, owner changes, viewport states and no popup data persistence; exercise real Brave after UI freeze.
+- [ ] Complete independent technical/visual/formal review, explicit-path commit, guarded Main and applicable checks, manual/docs/continuity; close only research1501 and continue1095, without push.
+
+Contract: _stage/sdk-context-menus-next/ROOT-resolution.txt, proposal/addendum r2 and ROOT-check-plan.md. Flat menus only; no submenu/upstream parity, automatic callback cancellation or counter keyboard Undo claim. Source controller/store/TOURS and protected original oracles remain exact.

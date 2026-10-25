@@ -39,9 +39,16 @@ const tutorialPureCheck = spawnSync(process.execPath, ['tests/local-tool-tutoria
 if (tutorialPureCheck.status !== 0 || tutorialPureCheck.error) process.exit(tutorialPureCheck.status ?? 1);
 const tutorialNativeCheck = spawnSync(electron, ['tests/local-tool-tutorials.node.cjs', '--native'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (tutorialNativeCheck.status !== 0 || tutorialNativeCheck.error) process.exit(tutorialNativeCheck.status ?? 1);
+const contextMenuPureCheck = spawnSync(process.execPath, ['tests/local-tool-context-menus.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (contextMenuPureCheck.status !== 0 || contextMenuPureCheck.error) process.exit(contextMenuPureCheck.status ?? 1);
+const contextMenuNativeCheck = spawnSync(electron, ['tests/local-tool-context-menus.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (contextMenuNativeCheck.status !== 0 || contextMenuNativeCheck.error) process.exit(contextMenuNativeCheck.status ?? 1);
 const cardExportNativeCheck = spawnSync(electron, ['tests/codex-entry-export.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (cardExportNativeCheck.status !== 0 || cardExportNativeCheck.error) process.exit(cardExportNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-context-menus.browser.tsx', 'testLocalToolContextMenus', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-context-menus.browser.tsx', 'testLocalToolContextMenuVisual', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-local-tool-context-menus.browser.tsx', 'testReviewLocalToolContextMenus', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['codex-entry-export.browser.tsx', 'testCodexEntryExports', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['codex-entry-export.browser.tsx', 'testCodexEntryExportVisual', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['review-codex-entry-export.browser.tsx', 'testReviewCodexEntryExports', 240000, 'scripts/run-codex-properties-ui.cjs'],
