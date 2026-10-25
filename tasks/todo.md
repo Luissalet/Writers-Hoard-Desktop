@@ -1483,6 +1483,9 @@ ROOT normal Brave also found silent block insertion on a new unsaved parent. Sou
 
 ## VVD1095 — custom date controls (25Oct2026, research1484)
 
-- [ ] Complete the existing WorldDateField with existing-month navigation, Clear, exact separate fields with explicit Apply/Cancel and correlated local Today; preserve partial/approximate dates and consumer saves.
-- [ ] Preserve REDs, run original calendar oracles and actual MCP/persistence checks, verify real Brave custom calendar, and obtain independent technical/visual/formal reviews.
-- [ ] Commit explicit paths, integrate with fresh merge lock without push, verify main, update manual/continuity and close research1484 only. Plan/evidence: _stage/date-controls-next/ROOT-PLAN.md.
+- [x] Complete the existing WorldDateField with existing-month navigation, Clear, exact separate fields with explicit Apply/Cancel and correlated local Today; preserve partial/approximate dates and consumer saves.
+- [x] Preserve REDs, run original calendar oracles and actual MCP/persistence checks, verify real Brave custom calendar, and obtain independent technical/visual/formal reviews.
+- [x] Commit the seven explicit source paths and integrate exact 2878f66 after independent CAS32 approval, with the merge lock and no push.
+- [x] Finish final main checks (6 exit0), manual/readback610 and MEMORY/own-graph continuity; documentation and research1484 delivery receipts are recorded in the verification. Task1095 continues.
+
+Review: source r2 has eleven exit0 checks including 396 critical checks; the independent reviewer passed 9 controls + 4 persistence + 1 original-picker groups. Preserve its Chapter act warning and three Network-service warnings. Browser r1 and static r2 appearance equivalence remain separately attributed. [Verification and remaining delivery receipts](vvd1095/verification-date-controls.md).

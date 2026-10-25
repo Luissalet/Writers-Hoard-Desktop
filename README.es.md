@@ -1,5 +1,7 @@
 # Writers Hoard — Escritorio
 
+Las fechas del mundo añaden mes anterior/siguiente, Borrar y campos separados de año/mes/día con Aplicar/Cancelar, junto al texto libre y la cuadrícula existente. Navegar conserva la fecha escrita. Hoy usa el día civil local del ordenador sólo con una correlación terrestre completa y utilizable; eventos y capítulos mantienen sus reglas de guardado. [Uso, pruebas y límites](tasks/vvd1095/verification-date-controls.md).
+
 Las referencias del tablero reproducen audio y vídeo locales con controles nativos. Añade un archivo existente desde Recursos o Referencia, o arrástralo desde Recursos; importa archivos nuevos en la biblioteca multimedia normal. Los nodos comparten el archivo, se abren detenidos y liberan la reproducción al ocultarse o cerrarse. Deshacer/Rehacer afecta a la referencia y conserva el archivo. El PNG estático mantiene título/marco sin controles. [Uso, estado de entrega y límites](tasks/vvd1095/verification-board-local-media.md).
 
 Los bloques propios de una herramienta fuente pueden optar por evolución aditiva del codec: una versión compatible añade campos al mismo bloque sin modificarlo al elegirla o leerlo. La primera edición efectiva guarda datos, codec y preview portable juntos; Deshacer de acciones restaura el envelope anterior completo. La compatibilidad estricta sigue siendo predeterminada, el estado Source conserva su migración existente y el SDK general sigue siendo parcial. [Contrato, ejemplo y evidencia](tasks/vvd1095/verification-sdk-owned-evolution.md).

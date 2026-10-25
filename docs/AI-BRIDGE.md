@@ -1787,6 +1787,14 @@ devuelve día de la semana, fases de luna, festivos y número de día absoluto.
 `plusDays` la desplaza (cruza meses y años) y `to` añade `daysBetween`, la
 distancia en días hasta otra fecha. Sin calendario responde `not-found`.
 
+El selector normal de eventos y capítulos añade navegación de meses, Borrar y
+campos exactos con Aplicar/Cancelar. Navegar o cancelar no escribe; el consumidor
+mantiene su Guardar/debounce habitual. Hoy convierte el día civil local sólo
+con correlación terrestre completa. Reutiliza `wh_world_date`, `wh_update_event`
+y `wh_update_writing`: no añade herramientas, argumentos ni un reloj MCP.
+Las pruebas usan el dispatcher registrado y ZIP real; no acreditan un nuevo
+transporte Native/HTTP/stdio. [Contrato y evidencia](../tasks/vvd1095/verification-date-controls.md).
+
 ### Fechas en eventos: `dateMode: "world"`
 
 `wh_create_event` y `wh_update_event` aceptan `dateMode: "world"` con
