@@ -1,5 +1,7 @@
 # D1-tools: VVD smaller tools vs Writer (capability cross-reference)
 
+Document selection/navigation already had identity-based references, the native picker, drag/drop and normal Open. The bounded1512 addition is optional `openDocument(kind,id,{placement:'beside'})` plus Open beside in that picker, using the existing workspace. It preserves ordinary departure and fallback, effective scope and recoverable Source content; Codex retains its global modal. This does not change historical matrix counts or establish general SDK/ABI parity. [Contract, evidence and delivery status](verification-sdk-placement.md).
+
 Owned source blocks can opt into additive codec evolution: a compatible version can add fields to the same saved block without changing it on selection or read. The first meaningful edit saves data, codec and portable preview together; scoped action Undo restores the complete prior envelope. Strict compatibility remains the default, Source state keeps its existing migration contract, and the general SDK remains partial. [Contract, example and evidence](verification-sdk-owned-evolution.md).
 
 Rows 28–29 distinguish the earlier rich-note delivery from the integrated File/Gallery inline-raster extension, source d1860db8/CAS 27. Audio/video and general SDK parity remain partial. [Contract and composed verification](verification-note-inline-images.md).
