@@ -46,6 +46,7 @@ export interface LocalToolSnapshot<T extends LocalToolJson>{revision:number|null
 export interface LocalToolWorldRead extends EraDocumentRead{projection?:{fields:Record<string,string>}}
 export interface LocalToolCodexCard{id:string;title:string;type:CodexEntryType;tags:string[];fields:Record<string,string>;truncated:boolean}
 export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:readonly string[];limit?:number}
+export interface LocalToolOpenDocumentOptions{placement?:'beside'}
 export interface LocalToolClient<T extends LocalToolJson>{
   readonly locale?:import('./locales').LocalToolLocaleSource;
   readonly assets:import('./assets').LocalToolAssets;
@@ -61,7 +62,7 @@ export interface LocalToolClient<T extends LocalToolJson>{
   media:{list():Promise<LocalMediaAsset[]>;import(file:File):Promise<LocalMediaAsset>};
   search(query:string,limit?:number):Promise<ContentSearchHit[]>;
   queryDocuments(query?:LocalToolDocumentQuery):Promise<LocalToolIndexRow[]>;
-  openDocument(kind:EraDocumentKind,id:string):Promise<void>;
+  openDocument(kind:EraDocumentKind,id:string,options?:LocalToolOpenDocumentOptions):Promise<void>;
 }
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostContext {contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode}
