@@ -6,12 +6,13 @@
 // engine; this panel only puts them side by side.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Download, Film, Image as ImageIcon, Loader2, Minimize2, Music, Pencil, Search, Trash2 } from 'lucide-react';
 import { db } from '@/db';
 import { toast } from '@/components/common/toast';
 import GalleryLightbox from '@/components/gallery/GalleryLightbox';
 import { onDataChanged } from '@/engines/_shared/dataChanged';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 import { mediaAsset } from '@/engines/media/scope';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ASSET_KINDS, ASSET_SORTS, filterAssets, formatBytes, listProjectAssets, type AssetKind, type AssetSort, type LibraryAsset } from '@/services/assetsLibrary/catalog';
@@ -19,6 +20,7 @@ import { canCompress, savedPercent, startCompress, type CompressOutcome, type Co
 import { deleteAssets, downloadAsset, renameAsset, replaceWithCompressed, saveCompressedCopy, usageWarning } from '@/services/assetsLibrary/operations';
 import { findAssetUsage, type AssetPlace } from '@/services/assetsLibrary/usage';
 import type { InspirationImage } from '@/types';
+import AssetsMediaPreview from './AssetsMediaPreview';
 
 const PAGE = 60;
 const fill = (template: string, values: Record<string, string>) => template.replace(/\{(\w+)\}/g, (_, key: string) => values[key] ?? '');
@@ -40,9 +42,15 @@ function Thumb({ asset }: { asset: LibraryAsset }) {
 
 interface DeletePrompt { assets: LibraryAsset[]; used: Array<{ asset: LibraryAsset; places: AssetPlace[] }> }
 interface CompressState { asset: LibraryAsset; preset: CompressPreset; run?: CompressRun; outcome?: CompressOutcome }
+interface PreviewTarget { id: string; kind: 'image' | 'audio' | 'video'; name: string; generation: number }
 
 export default function AssetsLibrary({ projectId }: { projectId: string }) {
+  return <ProjectAssetsLibrary key={projectId} projectId={projectId} />;
+}
+
+function ProjectAssetsLibrary({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
+  const pane = useEnginePane();
   const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<AssetKind | 'all'>('all');
@@ -53,6 +61,10 @@ export default function AssetsLibrary({ projectId }: { projectId: string }) {
   const [prompt, setPrompt] = useState<DeletePrompt | null>(null);
   const [compress, setCompress] = useState<CompressState | null>(null);
   const [preview, setPreview] = useState<InspirationImage | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  const previewGeneration = useRef(0);
+  const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const [busy, setBusy] = useState(false);
   const desktop = canCompress();
   const alive = useRef(true);
@@ -79,6 +91,17 @@ export default function AssetsLibrary({ projectId }: { projectId: string }) {
     return out;
   }, [assets]);
   const chosen = (assets ?? []).filter(asset => selected.has(asset.id));
+
+  const closePreview = useCallback((restoreFocus = false) => {
+    previewGeneration.current++;
+    setPreviewTarget(null); setPreview(null); setPreviewError(false);
+    const trigger = previewTrigger.current; previewTrigger.current = null;
+    if (restoreFocus && trigger?.isConnected && !trigger.disabled) trigger.focus();
+  }, []);
+  useLayoutEffect(() => () => { previewGeneration.current++; }, []);
+  useLayoutEffect(() => {
+    if (previewTarget && (pane?.visible === false || !rows.some(asset => asset.id === previewTarget.id && asset.kind === previewTarget.kind))) closePreview();
+  }, [previewTarget, rows, pane?.visible, closePreview]);
 
   const toggle = (id: string) => setSelected(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const guarded = async (action: () => Promise<void>) => {
@@ -142,9 +165,18 @@ export default function AssetsLibrary({ projectId }: { projectId: string }) {
     });
   };
 
-  const openPreview = (asset: LibraryAsset) => {
+  const openPreview = (asset: LibraryAsset, trigger: HTMLButtonElement) => {
+    if (asset.kind === 'model' || pane?.visible === false) return;
+    const generation = ++previewGeneration.current;
+    previewTrigger.current = trigger;
+    setPreview(null); setPreviewError(false);
+    setPreviewTarget({ id: asset.id, kind: asset.kind, name: asset.name, generation });
     if (asset.kind !== 'image') return;
-    void db.inspirationImages.get(asset.id).then(row => { if (row && alive.current) setPreview(row); });
+    void db.inspirationImages.get(asset.id).then(row => {
+      if (!alive.current || previewGeneration.current !== generation) return;
+      if (row?.projectId === projectId) setPreview(row);
+      else setPreviewError(true);
+    }).catch(() => { if (alive.current && previewGeneration.current === generation) setPreviewError(true); });
   };
 
   const sizeTotal = rows.reduce((sum, asset) => sum + asset.size, 0);
@@ -240,6 +272,17 @@ export default function AssetsLibrary({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {previewTarget && pane?.visible !== false && (previewTarget.kind === 'image' ? !preview && (
+        <section data-testid="assets-image-preview-pending" className="space-y-3 border-y border-border py-3" aria-label={t('assetsLibrary.preview')}>
+          <div className="flex items-start gap-3">
+            <h4 className="min-w-0 flex-1 break-words text-sm font-semibold text-text-primary">{previewTarget.name}</h4>
+            <button type="button" data-testid="assets-preview-close" onClick={() => closePreview(true)} className="min-h-9 shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold">{t('assetsLibrary.close')}</button>
+          </div>
+          <p role="status" className="text-sm text-text-muted">{t(previewError ? 'assetsLibrary.previewFailed' : 'assetsLibrary.previewLoading')}</p>
+        </section>
+      ) : <AssetsMediaPreview key={`${projectId}:${previewTarget.kind}:${previewTarget.id}:${previewTarget.generation}`}
+        projectId={projectId} id={previewTarget.id} kind={previewTarget.kind} name={previewTarget.name} onClose={() => closePreview(true)} />)}
+
       {assets === null ? (
         <p className="text-sm text-text-dim" data-testid="assets-loading">{t('assetsLibrary.loading')}</p>
       ) : rows.length === 0 ? (
@@ -251,7 +294,7 @@ export default function AssetsLibrary({ projectId }: { projectId: string }) {
             {visible.map(asset => (
               <li key={asset.id} data-testid="assets-row" data-asset-id={asset.id} data-asset-kind={asset.kind} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
                 <input type="checkbox" data-testid="assets-select" checked={selected.has(asset.id)} onChange={() => toggle(asset.id)} aria-label={fill(t('assetsLibrary.select'), { name: asset.name })} />
-                <button type="button" onClick={() => openPreview(asset)} disabled={asset.kind !== 'image'} aria-label={fill(t('assetsLibrary.open'), { name: asset.name })} className="flex-none disabled:cursor-default"><Thumb asset={asset} /></button>
+                <button type="button" onClick={event => openPreview(asset, event.currentTarget)} disabled={asset.kind === 'model'} aria-label={fill(t('assetsLibrary.open'), { name: asset.name })} className="flex-none rounded focus-visible:outline-2 focus-visible:outline-accent-gold disabled:cursor-default"><Thumb asset={asset} /></button>
                 <div className="min-w-0 flex-1">
                   {renaming?.id === asset.id ? (
                     <input data-testid="assets-rename-input" autoFocus value={renaming.value} onChange={event => setRenaming({ id: asset.id, value: event.target.value })} onBlur={commitRename}
@@ -280,7 +323,7 @@ export default function AssetsLibrary({ projectId }: { projectId: string }) {
           )}
         </>
       )}
-      {preview && <GalleryLightbox image={preview} linkedEntries={[]} onClose={() => setPreview(null)} />}
+      {preview && pane?.visible !== false && <GalleryLightbox image={preview} linkedEntries={[]} onClose={() => closePreview(true)} />}
     </section>
   );
 }
