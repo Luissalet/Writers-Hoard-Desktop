@@ -1,5 +1,23 @@
 # Puente IA — puerto local para modelos externos
 
+## Catálogo compartido de símbolos locales
+
+`wh_local_tool_icons` es una herramienta nueva de sólo lectura (`writes:false`). Consulta el mismo catálogo estático que `client.icons`, sin necesitar proyecto, época, motor habilitado o documento Source. `projectId` y `eraId` son opcionales y se ignoran: se admiten para que `client.callTool` pueda inyectar su ámbito habitual, sin convertir el catálogo en una lectura de datos de otro proyecto.
+
+| Acción | Argumentos | Resultado |
+| --- | --- | --- |
+| `packs` | `action:"packs"` | Lista desprendida `{id,label,count}[]` del pack propio existente. |
+| `get` | `action:"get", id` | `{id,pack,name,label}` o **`null` JSON** cuando el identificador no está disponible. |
+| `search` | `action:"search", query?, offset?, limit?` | `{items,total}`, búsqueda literal sin distinguir mayúsculas por nombre/etiqueta; consulta vacía enumera. Defaults offset0/limit50. Total previo a paginación; fuera de rango conserva total y devuelve items vacío. |
+
+```json
+{"action":"get","id":"writer-map-symbols/1:Castle"}
+```
+
+Los IDs devueltos usan `writer-map-symbols/1:Nombre`; `Wand2` es entrada compatible para `WandSparkles`, sin migrar los iconos de proyectos. Una URL o prefijo ajeno no se interpreta como otro pack ni inicia una petición. Offset debe ser entero finito no negativo y limit entero finito positivo. Los argumentos inválidos se rechazan; una consulta válida posterior sigue disponible. No hay operación de dibujo, escritura, reproducción, SVG ni recibo de Deshacer para estas lecturas.
+
+La corrección causal del adaptador stdio conserva un `null` explícito en vez de sustituirlo por `{}`; sólo `result` omitido/`undefined` mantiene el fallback `{}` previo. `false`, `0`, cadena vacía, objetos, arrays y los recibos `_undo` de objetos conservan su comportamiento anterior. No se cambia el resultado del handler para ocultar el fallo de transporte. El primer Native FAIL queda registrado; el segundo confirma `null` de extremo a extremo. [Contrato, casos independientes y atribución](../tasks/vvd1095/verification-sdk-icons.md).
+
 `wh_local_tool_reference_resolve` añade el booleano opcional `includePath`. Con true conserva `reference`, `available`, `title` y la procedencia efectiva, añadiendo `path:string|null` de aplicación en el proyecto/época solicitados. Omitido o false conserva la respuesta anterior, sin propiedad path. Sigue `writes:false`: consultar no abre el destino, guarda notas ni cambia paneles. Ausente, ajeno u oculto en la época devuelve unavailable/ruta nula; un documento disponible también puede tener ruta nula si su adaptador no emite. Los errores normales no se convierten en ausencia. No es un href de alojamiento ni una nueva herramienta de navegación. [Contrato SDK y atribución de pruebas](../tasks/vvd1095/verification-sdk-document-path.md).
 
 La colocación lateral opcional del SDK (`openDocument(kind,id,{placement:'beside'})`) reutiliza el workspace y no añade una herramienta de navegación headless. `wh_local_tool_reference_resolve` conserva su resolución por identidad, título y procedencia efectivos; el focal CSS correlaciona su respuesta real registrada con B visible y el ámbito Source/Base. Estado, consulta, operaciones y recibos existentes permanecen disponibles. La prueba Native original conserva su escenario de estado; no constituye un nuevo transporte stdio, segunda clave ni apertura remota de la UI. [Contrato y atribución de pruebas](../tasks/vvd1095/verification-sdk-placement.md).

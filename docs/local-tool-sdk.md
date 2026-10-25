@@ -40,6 +40,53 @@ In a named era, `world.variants.save(kind,document,version)` and `.hide(kind,id,
 
 `media.list()` reads effective local assets and `media.import(file)` uses the normal scoped import. `search(query,limit?)` uses project content search. `openDocument(kind,id)` checks existence and uses the built-in anchor/world navigation adapter with the pane's era. None of these local flows requires a server. Normal tools that themselves use online capabilities retain their own requirements; `callTool` does not turn those capabilities into offline tools.
 
+## Shared local icon catalogue
+
+`client.icons?: LocalToolIcons` is a readonly optional service. Production and author-fake clients supply it; keeping the property optional preserves older structural clients. The normal World block client exposes the same readonly property and Owned clients inherit it. Metadata queries are global static reads: no project, era, enabled engine, database write, navigation or network request is needed. This does not add icons to the separate context-menu entry schema.
+
+| Method | Result and behavior |
+| --- | --- |
+| `packs()` | Promise of detached `{id,label,count}[]`; currently the existing own `writer-map-symbols/1` pack, with 1,688 canonical names. |
+| `get(id)` | Promise of detached `{id,pack,name,label}` or `null`. Accepts the own canonical ID, such as `writer-map-symbols/1:Castle`, or a supported PascalCase short name. `Wand2` resolves to canonical `WandSparkles`; an unknown prefix, URL or name stays unavailable. |
+| `search(query,{offset?,limit?})` | Promise of `{items,total}`. Literal, case-insensitive matching against names and their spaced labels; empty query enumerates the catalogue. Stable name order, offset0/limit50 by default; total is measured before paging and an outside offset returns no items. Offset must be a finite nonnegative integer and limit a finite positive integer; there is no added safe-integer maximum. |
+
+Labels come from the existing names; search does not promise translated synonyms or thematic equivalence to another library. Every response is detached. The standalone `icons` implementation module behind `createLocalToolIcons()` emits no DB/DOM/React or drawing data. Importing the full SDK may retain its existing React graph. Geometry remains in the existing painter and is loaded dynamically only by rendering.
+
+```tsx
+import {LocalToolIcon, type LocalToolClient, type LocalToolProps} from '@/engines/local/sdk';
+
+type State = {version: 1; iconId: string | null; notes: string};
+
+async function inspectSymbols(client: LocalToolClient<State>) {
+  if (!client.icons) return null; // an older host can omit this optional service
+  return {
+    packs: await client.icons.packs(),
+    page: await client.icons.search('castle', {offset: 0, limit: 50}),
+    castle: await client.icons.get('writer-map-symbols/1:Castle'),
+  };
+}
+
+function Symbol({client}: LocalToolProps<State>) {
+  return <LocalToolIcon client={client} icon="writer-map-symbols/1:Castle"
+    fallback="BookOpen" size={20} label="Castle"/>;
+}
+```
+
+`LocalToolIcon` takes an explicit narrow client with the optional `icons` property. Its other props are `icon?`, `fallback?` (default `BookOpen`, `null` disables that semantic fallback), `size?` (default20), `color?`, `label?` and `className?`. It replays the existing numeric map-symbol painter on Canvas; it never accepts author SVG markup. An unavailable ID uses an available fallback; an absent/failing provider or unavailable fallback leaves a neutral drawn mark. A label supplies an accessible image name; without it the icon is decorative. Retargeting a client, including a different client with the same icons service, invalidates late work. Unmounting cannot paint back into the old binding. This is a renderer, not `resolveSvg`.
+
+The importable product example `@/engines/local/examples/iconNotebookDefinition` combines the catalogue and normal state actions. In your own trusted source module, choose a unique namespace:
+
+```tsx
+import {defineLocalTool} from '@/engines/local/sdk';
+import notebook from '@/engines/local/examples/iconNotebookDefinition';
+
+export default defineLocalTool({...notebook, namespace: 'me.icon-notebook'});
+```
+
+Importing this definition does not install, compile, select or enable a project tool. Use the existing source workflow and enable the compiled engine normally. The example searches/pages without writing, saves only `iconId` when a result is selected, and preserves an independent notes draft. **Save notes** applies only notes against its captured baseline; conflicts retain the draft and saved remote notes. Existing receipt Undo/Redo remain explicit. The icon ID is an ordinary scalar string; unknown stored strings survive with fallback. Prose and portable previews remain literal/escaped text, without a new icon atom, SVG payload or graphical preview format. No new ZIP roundtrip is claimed for this extension.
+
+The readonly MCP tool `wh_local_tool_icons` exposes the same metadata, in addition to the existing state/document tools described below. Source and transport verification are separated in [the icon verification guide](../tasks/vvd1095/verification-sdk-icons.md). The broader SDK remains partial: no `resolveSvg`, uploaded/third-party packs, upstream ABI compatibility or general parity is established.
+
 ## Named operations and native MCP
 
 A definition can optionally include operations. Each has a stable lowercase `id`, bilingual `description`, `writes`, an object `inputSchema` and async `run(input,client)` returning JSON. Existing definitions without operations work unchanged:

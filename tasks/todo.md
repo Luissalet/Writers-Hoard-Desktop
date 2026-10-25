@@ -1630,6 +1630,6 @@ Review: source12 1fab01c827bfe45c3f1fb4a4860ca34f6a7b5540, actual CAS42 approve 
 - [x] Preserve the public Source author RED: normal reads pass, then the missing icons service fails.
 - [x] Expose the existing catalogue and lazy Canvas renderer to local tools and readonly MCP.
 - [x] Verify Source notes, selection, Base/era, normal Browser and the native bridge; preserve existing data.
-- [ ] Run applicable checks, independent review and exact integration; update usage documentation and the manual.
+- [x] Run applicable checks, independent review and exact integration; update usage documentation and the manual.
 
-Review: architecture agreed in Agora 1644; public author RED retained before implementation. General SDK parity remains partial.
+Review: source18 f82e621a9552a534f5f0f686f811362a959cc899 approved at exact CAS43 and fast-forwarded to Main. ROOT9 passes include original critical396 and manifest942; Main four focused checks pass on exact blobs. Native23calls/21IPC/88tables and adapter9values preserve null/data; first failures retained. Brave Base/era and finish F1 resolved, manual315UTF16/readback and continuity complete. Documentation integration and research1523 closure are recorded separately in _stage/sdk-icons-next/ROOT-delivery-final.json; parent1095/WT and general parity remain open/partial, no push.
