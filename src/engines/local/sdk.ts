@@ -1,3 +1,5 @@
+export {useLocalToolContextMenu,createRecordingLocalToolContextMenu} from './contextMenus';
+export type {LocalToolMenuEntry,LocalToolMenuTrigger,LocalToolContextMenuPort,LocalToolRecordedMenuRequest} from './contextMenus';
 import {prepareLocalToolTours,type LocalToolTourSpec,type LocalToolTutorialPort} from './tutorials';
 export * from './tutorials';
 export {resolveLocalToolLocale,createLocalToolTranslator} from './locales';
@@ -62,7 +64,7 @@ export interface LocalToolClient<T extends LocalToolJson>{
   openDocument(kind:EraDocumentKind,id:string):Promise<void>;
 }
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
-export interface LocalToolHostContext {tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode}
+export interface LocalToolHostContext {contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
 export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{
