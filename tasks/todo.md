@@ -1555,3 +1555,16 @@ Success: open a project Base audio/video from the asset library, use the existin
 Contract: _stage/assets-preview-next-gap/PROPOSAL.md, ROOT-addendum-r1/r2.md and ROOT-resolution.txt. Author5 plus ROOT runner/todo and the independent test =8 (causal runner-path addendum r3). Base only; not a new era-aware library or remote player. Metadata/rename may restart paused; other audio consumers remain independent.
 
 Preparation: author5 quiet, independent peer CSS3 without material findings and normal Brave WAV/MP4/close/filter/cold checks complete. Fresh visual ship covers six captures only (four fixture PNG, two Brave JPEG with historical .png names). Source8 a58c4128, ROOT7 ALL_PASS, exact CAS37, Main6, native manual and continuity are confirmed. Final documentation integration and research1504 closure are recorded in the later delivery receipt. Original focused9PASS and confirmed incumbent CSS failure remain separate. [Evidence and pending delivery receipts](vvd1095/verification-assets-media-preview.md).
+
+
+## Local SDK submenus (1095 / research1505)
+
+Success: preserve flat menu actions and add finite nested entries in the existing Source/legacy host, with complete owned copies, inert recording metadata, scoped branch revocation and real keyboard/pointer navigation. Select a leaf only after all popup DOM is closed and focus restored. Normal buttons and MCP operations/receipts stay available.
+
+- [ ] Agree architecture1622 and exact author5 paths before implementation; preserve original SDK/tour tests and existing counter actions.
+- [ ] Record a material nested-menu RED in real Source with positive flat/button controls; implement only after ROOT reads the complete first receipt, then repeat the same complete oracle GREEN.
+- [ ] Verify recursion/copies/fake without DOM, normal nested UI/lifecycle/realm/tour, scoped Native operations/receipts and persistence; extend aggregates once without duplicating cases.
+- [ ] Freeze, inspect one settled desktop/narrow/EN/ES batch, test real Brave, obtain independent technical/finish/formal review and applicable ROOT/Main checks.
+- [ ] Commit explicit paths as Luissalet and integrate under actual merge lock/fresh HEAD without push; maintain docs/manual/memory/own graph and close only research1505 after delivery, leaving1095 open.
+
+Contract: _stage/sdk-submenus-next/PROPOSAL.md, ROOT-addendum-r1.md and eventual ROOT-resolution.txt. Additive submenu(id,label,disabled?,entries); unique IDs across the tree. Preserve flat Increment/Reset; nested IDs differ while callbacks/operations are shared. No new hosts, services, schemas, permissions, package or cancellation of arbitrary already-started effects. ROOT handles this plan, runner if causally needed and final documentation.
