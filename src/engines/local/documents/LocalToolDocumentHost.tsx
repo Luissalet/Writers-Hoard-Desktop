@@ -1,3 +1,4 @@
+import LocalToolTutorialHost from '../LocalToolTutorialHost';
 import {useLocalToolAssetPreview} from '../useLocalToolAssetPreview';
 import {useRichProseHostContext} from '../RichProseEditor';
 import {renderRichProsePreview} from '../richProseHtml';
@@ -53,7 +54,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
   {blocked&&<p role="alert" className="text-sm text-danger">{es?'Guarda o revisa el borrador pendiente antes de cambiar de vista.':'Save or review the pending draft before changing views.'}</p>}
   {error&&<p role="status" className="text-sm text-text-muted">{es?'Fuente no disponible. Se conserva el contenido guardado.':'Source unavailable. Saved content is preserved.'}</p>}
   <LocalToolHostAncestors.Provider value={[...ancestors,identity]}><EnginePaneContext.Provider value={pane}><LocalToolUndoBoundary data-tool-editor-surface data-engine-pane-id={instanceId} onFocusCapture={()=>activateEnginePane(instanceId)} onPointerDownCapture={()=>activateEnginePane(instanceId)}>
-   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:<Component key={`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={context}/>}
+   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:<LocalToolTutorialHost definition={definition!} context={context} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{tutorialContext=><Component key={`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={tutorialContext}/>}</LocalToolTutorialHost>}
   </LocalToolUndoBoundary></EnginePaneContext.Provider></LocalToolHostAncestors.Provider>
   {fullscreen&&<Modal open fullscreen title={document.title} busy={busy} dismissible={false} onClose={()=>void changeFullscreen(false)}><div className="space-y-3 p-5"><button type="button" className="min-h-10 rounded-lg border border-border px-3 text-sm" disabled={busy} onClick={()=>void changeFullscreen(false)}>{es?'Guardar y volver':'Save and return'}</button>{blocked&&<p role="alert">{es?'El borrador sigue pendiente.':'The draft is still pending.'}</p>}<LocalToolDocumentHost projectId={projectId} eraId={eraId} documentId={documentId} namespace={namespace} view="fullscreen" readOnly={readOnly} chrome={false}/></div></Modal>}
  </section>;
