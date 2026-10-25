@@ -1,6 +1,8 @@
 import { arr, b, PROJECT_ID, s, type BridgeTool } from './schema';
 const properties = {
   projectId: PROJECT_ID,
+  presentation:s('Optional saved author card presentation. Requires entryIds with exactly one ID, sections omitted or [codex], no other nonempty selections. Omitted preserves world bible.',{enum:['card']}),
+  eraId:s('Effective era for presentation card only.',{minLength:1}),
   sections: { ...arr('Sections to include; omitted means all, [] means none.'), items: { type: 'string', enum: ['codex', 'timeline', 'maps', 'relationships'] } },
   entryIds: arr('Codex IDs; omitted means all, [] none. Rejects unknown or foreign IDs.'),
   timelineIds: arr('Timeline IDs; omitted means all, [] none.'),

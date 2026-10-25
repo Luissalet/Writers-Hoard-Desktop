@@ -7,6 +7,10 @@ import { cellKey } from '@/engines/tables/types';
 import { sheetValues } from '@/engines/tables/formulas';
 import { projectWorldTable } from '@/engines/tables/projection';
 import { projectCodexEntry,codexPropertyHtml } from '@/engines/codex/properties';
+import {effectiveCodexTemplate} from '@/engines/codex/templateHierarchy';
+import {isAliasField,parseAliasValue} from '@/services/codexReference/aliases';
+import en from '@/locales/en';
+import es from '@/locales/es';
 import { exportMapSvg,DEFAULT_MAP_LAYERS } from '@/components/maps/mapGeometry';
 import { exportRelationTreeSvg,type RelationTreeDocument } from '@/engines/genealogy/relationTrees';
 import { exportRadarSvgComplete } from '@/engines/radar/interchange';
@@ -16,6 +20,10 @@ import type { CharacterSheet } from '@/engines/character-sheets/types';
 import { sheetPaper } from '@/engines/character-sheets/paper';
 import { sourceDocumentPreview } from '@/engines/local/documents/preview';
 import {renderRichProsePreview} from '@/engines/local/richProseHtml';
+import type {ReaderSource} from '@/engines/writings/readerSource';
+import {eraDocumentVersion} from '@/services/worldEras/adapters';
+import {prepareToolDocumentBlocksForExport} from '@/components/editor/toolBlocks/preview';
+import {localAssetFontCss,type LocalAssetFont} from '@/engines/local/localAssetFonts';
 import type { SourceToolDocument } from '@/engines/local/documents/types';
 import {prepareSourceBlocksForExport} from '@/services/sourceBlockReading';
 import {LOCAL_TOOL_PREVIEW_CSS} from '@/engines/local/previewTypes';
@@ -38,14 +46,19 @@ import { esc,fields,image,raster,safeProse,svg,table,IMAGE_STYLE } from './marku
 import type { DocumentImageRequest,DocumentImageResult } from './types';
 
 type Framing=DocumentImageResult['framing'];
-interface Context {scope:WorldEraScope;project:Project;width:number;locale:'es'|'en';active:Set<string>;versions:Map<string,string>;entries?:CodexEntry[]}
+interface Context {scope:WorldEraScope;project:Project;width:number;locale:'es'|'en';active:Set<string>;versions:Map<string,string>;entries?:CodexEntry[];source?:ReaderSource;fonts?:LocalAssetFont[];mediaAttachments?:Map<string,LocalMediaAsset>}
 const rows=<T>(document:EraDocument,key:string)=>document.children[key] as unknown as T[]??[];
 const title=(root:Record<string,unknown>)=>String(root.title??root.name??String(root.text??'').split('\n')[0]??'');
 const heading=(name:string,body:string)=>`<section><h2>${esc(name)}</h2>${body}</section>`;
-async function entries(ctx:Context){return ctx.entries??=await listEraRows<CodexEntry>(ctx.scope,'codexEntries');}
+async function entries(ctx:Context){return ctx.entries??=ctx.source?ctx.source.rows('codexEntries'):await listEraRows<CodexEntry>(ctx.scope,'codexEntries');}
 
 async function prose(source:string,ctx:Context):Promise<string>{
-  const doc=safeProse(await prepareSourceBlocksForExport(source,ctx.scope.projectId,ctx.locale,{eraId:ctx.scope.eraId}));
+  let doc:Document;
+  if(ctx.source){
+    doc=safeProse(source);
+    const policy={eraId:ctx.scope.eraId,source:ctx.source,page:true,assetFontCollector:ctx.fonts};
+    doc.body.innerHTML=await prepareSourceBlocksForExport(await prepareToolDocumentBlocksForExport(doc.body.innerHTML,ctx.scope.projectId,ctx.locale,policy),ctx.scope.projectId,ctx.locale,policy);
+  }else doc=safeProse(await prepareSourceBlocksForExport(source,ctx.scope.projectId,ctx.locale,{eraId:ctx.scope.eraId}));
   for(const block of doc.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"], [data-wh-codex-block="true"], [data-wh-media-block="true"]')){
     if(!doc.body.contains(block))continue;
     const target=block.dataset.whToolBlock?toolTarget({projectId:block.dataset.projectId,kind:block.dataset.toolKind,documentId:block.dataset.documentId,namespace:block.dataset.namespace,presentation:block.dataset.presentation}):{projectId:block.dataset.projectId,kind:block.dataset.whMediaBlock?'media':'codex',documentId:block.dataset.assetId??block.dataset.entryId,namespace:undefined};
@@ -77,7 +90,8 @@ async function media(asset:LocalMediaAsset,ctx:Context):Promise<string>{
 
 async function renderPart(ctx:Context,kind:EraDocumentKind,id:string,view?:DocumentImageRequest['view'],namespace?:string):Promise<{title:string;html:string;framing:Framing}>{
   const key=JSON.stringify([kind,id]);
-  const read=await readWorldDocument(ctx.scope,kind,id);if(!read)throw new Error('document_not_found');
+  const captured=ctx.source?.documents?.(kind).find(document=>document.root.id===id);
+  const read=ctx.source?(captured?{document:captured,version:await eraDocumentVersion(captured)}:undefined):await readWorldDocument(ctx.scope,kind,id);if(!read)throw new Error('document_not_found');
   if(kind==='local-tool'&&namespace!==undefined&&read.document.root.namespace!==namespace)throw new Error('document_not_found');
   const document={...read.document,children:Object.fromEntries(Object.entries(read.document.children).map(([table,data])=>[table,data.filter(row=>row.projectId===undefined||row.projectId===ctx.scope.projectId)]))},root=document.root,name=title(root);ctx.versions.set(key,read.version);
   if(ctx.active.has(key))return{title:name,html:`<p>${ctx.locale==='es'?'Enlace circular a un documento ya incluido.':'Circular link to a document already included.'}</p>`,framing:{mode:'complete-flow'}};
@@ -88,7 +102,19 @@ async function renderPart(ctx:Context,kind:EraDocumentKind,id:string,view?:Docum
     switch(kind){
       case 'codex':{
         const entry=root as unknown as CodexEntry,projected=projectCodexEntry(entry,ctx.project.codexTemplates),names=new Map((await entries(ctx)).map(row=>[row.id,row.title]));
-        html=image(entry.avatar,entry.title)+`<dl>${Object.values(projected.properties).map(property=>`<div><dt>${esc(property.label)}</dt><dd>${codexPropertyHtml(property)}</dd></div>`).join('')}</dl>`+await prose(entry.content,ctx)+fields({tags:entry.tags.join(', ')})+table(['Relation','Target'],entry.relations.map(relation=>[relation.type,names.get(relation.targetId)??'Unavailable']));
+        let references='',properties=Object.values(projected.properties).map(property=>`<div><dt>${esc(property.label)}</dt><dd>${codexPropertyHtml(property)}</dd></div>`).join('');
+        if(ctx.source){
+          const labels:Readonly<Record<string,string>>=ctx.locale==='es'?es:en,template=ctx.project.codexTemplates?.find(row=>row.id===entry.templateId),effective=template?effectiveCodexTemplate(template,ctx.project.codexTemplates??[]):undefined;
+          const label=(key:string)=>labels[`codex.field.${key}`]??key.replace(/([a-z\d])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/^./,char=>char.toUpperCase());
+          const definitions=effective?.propertyDefinitions??entry.propertyDefinitions??[];
+          properties=Object.entries(projected.properties).map(([key,property])=>{
+            const explicit=definitions.find(definition=>definition.key===key),alias=isAliasField(key),name=explicit?.label??(alias?labels['codex.aliases']:label(key));
+            const value=alias?esc(parseAliasValue(property.value).join(' · ')):codexPropertyHtml(property);
+            return`<div><dt>${esc(name)}</dt><dd>${value}</dd></div>`;
+          }).join('');
+          references=`<dl>${Object.entries(entry.referenceFields??{}).map(([key,ids])=>`<div><dt>${esc(effective?.referenceFieldDefinitions?.find(row=>row.key===key)?.label??label(key))}</dt><dd>${ids.map(id=>esc(names.get(id)??`Unavailable (${id})`)).join(', ')}</dd></div>`).join('')}</dl>`;
+        }
+        html=image(entry.avatar,entry.title)+`<dl>${properties}</dl>`+references+await prose(entry.content,ctx)+fields({tags:entry.tags.join(', ')})+table(['Relation','Target'],entry.relations.map(relation=>[relation.type,names.get(relation.targetId)??'Unavailable']));
         break;
       }
       case 'writings':html=await prose(String(root.content??''),ctx);break;
@@ -150,18 +176,21 @@ async function renderPart(ctx:Context,kind:EraDocumentKind,id:string,view?:Docum
       }
       case 'board':{const board=await boardImage(ctx.scope,rows<BoardNode>(document,'boardNodes'),rows<BoardEdge>(document,'boardEdges'),rows<BoardLayer>(document,'boardLayers'),ctx.width,view,String(root.surface??'cork'),ctx.locale);html=board.html;framing={mode:view?'view':'fit-content',coordinateSpace:'board-flow',view:board.view};break;}
       case 'model-viewer':await prepareModelReaderRuntime();html=modelReaderMarkup(root as unknown as ModelAsset,ctx.locale)+`<p class="meta">Framed orbit camera · rest pose · animation paused</p>`;break;
-      case 'media':html=await media(root as unknown as LocalMediaAsset,ctx);break;
+      case 'media':if(ctx.mediaAttachments)ctx.mediaAttachments.set(id,root as unknown as LocalMediaAsset);html=await media(root as unknown as LocalMediaAsset,ctx);break;
     }
     return{title:name,html,framing};
   }finally{ctx.active.delete(key);}
 }
 
-export async function buildDocumentImage(request:DocumentImageRequest){
+/** The optional source is internal to saved-card export. Omitted preserves the incumbent live builder. */
+export async function buildDocumentImage(request:DocumentImageRequest,source?:ReaderSource){
   const width=request.width??1440,pixelRatio=request.pixelRatio??1,pageHeight=request.pageHeight??2048;
   if(!(eraDocumentKinds as readonly string[]).includes(request.kind)||!Number.isInteger(width)||width<320||!Number.isInteger(pageHeight)||pageHeight<320||![1,2,3,4].includes(pixelRatio)||width*pixelRatio>16000||pageHeight*pixelRatio>16000)throw new Error('invalid_image_geometry');
   if(request.view&&(!Object.values(request.view).every(Number.isFinite)||request.view.w<=0||request.view.h<=0))throw new Error('invalid_image_view');
-  const scope={projectId:request.projectId,eraId:request.eraId},project=await getEraProject(scope),ctx:Context={scope,project,width,locale:request.locale??'en',active:new Set(),versions:new Map()};
+  if(source&&(request.kind!=='codex'||source.project.id!==request.projectId))throw Error('captured_card_scope_mismatch');
+  const scope={projectId:request.projectId,eraId:request.eraId},project=source?source.project:await getEraProject(scope),ctx:Context={scope,project,width,locale:request.locale??'en',active:new Set(),versions:new Map(),...(source?{source,fonts:[],mediaAttachments:new Map()}: {})};
   const part=await renderPart(ctx,request.kind,request.entityId,request.view),nonce=crypto.randomUUID().replaceAll('-','');
   const html=`<!doctype html><html lang="${ctx.locale}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';img-src data: blob:;media-src data: blob:;font-src data:;style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src data: blob:;base-uri 'none'"><title>${esc(part.title)}</title><style>${IMAGE_STYLE}${LOCAL_TOOL_PREVIEW_CSS}${noteImageLayoutCss(part.html)}</style></head><body><header><h1>${esc(part.title)}</h1><p class="meta">${esc(project.title)} · ${esc(request.kind)} · ${esc(request.eraId??'Shared base')}</p></header>${part.html}${modelReaderExportScript(part.html,nonce)}</body></html>`;
-  return{html,width,pixelRatio,pageHeight,title:part.title,framing:part.framing,sourceVersion:ctx.versions.get(JSON.stringify([request.kind,request.entityId]))!,dependencies:Object.fromEntries(ctx.versions)};
+  const preparedHtml=ctx.fonts?.length?html.replace('<style>',`<style>${localAssetFontCss(ctx.fonts,part.html)}`):html;
+  return{html:preparedHtml,width,pixelRatio,pageHeight,title:part.title,framing:part.framing,sourceVersion:ctx.versions.get(JSON.stringify([request.kind,request.entityId]))!,dependencies:Object.fromEntries(ctx.versions),...(source?{mediaAttachments:[...ctx.mediaAttachments!.values()]}:{})};
 }
