@@ -25,6 +25,7 @@ import {validateLocalToolBlockDefinition,type LocalToolBlockDefinition} from './
 import {validateLocalToolPreviewSpec,type LocalToolPreviewSpec} from './previewTypes';
 import {validateLocalToolCodec,validateLocalToolCodecState,type LocalToolStateCodec} from './stateCodec';
 import type {createLocalToolReferences} from './references';
+export type {LocalToolReferenceResolveOptions,LocalToolResolvedReference} from './references';
 import type {LocalToolStateActions} from './stateRuntime';
 export type {LocalToolStateCodec,LocalToolContracts,LocalToolDocumentReference} from './stateCodec';
 export type {LocalToolStateAction} from './stateActions';

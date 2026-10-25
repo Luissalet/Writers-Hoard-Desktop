@@ -5,7 +5,7 @@ import {createBrowserLocalToolAudio} from './audioBrowser';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {readSourceToolState,saveSourceToolState,readSourceToolDocument} from './documents/store';
 import {createLocalToolStateActions} from './stateRuntime';
-import {createLocalToolReferences} from './references';
+import {createLocalToolReferences,type LocalToolReferenceDestination} from './references';
 import Dexie,{type Transaction} from 'dexie';
 import {db} from '@/db';
 import {notifyProjectsChanged} from '@/db/operations';
@@ -32,6 +32,28 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  const assets=createBrowserLocalToolAssets(scope,definition,project,()=>{current();if(options.readOnly&&!options.assetDefaultsWritable?.())throw Error('local_tool_query_is_read_only');},importWritable);
  const audio=createBrowserLocalToolAudio(scope,project,()=>{try{current();return true;}catch{return false;}},options.audioEngine,ref=>ref.kind==='source'&&!ref.releaseHash?assets.slot(ref.slot):assets.resolve(ref));
  const locale=createLocalToolLocaleSource(definition.locales,()=>useLocaleStore.getState().locale,changed=>useLocaleStore.subscribe((next,previous)=>{if(next.locale!==previous.locale)changed();}));
+ // One destination resolver serves both opening and opt-in reference inspection.
+ // Adapters receive only a synchronous local collector, never a navigation port.
+ const destination=async(documentKind:EraDocumentKind,id:string,inspect=false):Promise<LocalToolReferenceDestination>=>{
+  const check=()=>{if(inspect)current();};check();
+  const read=await readWorldDocument(scope,kind(documentKind),id);check();
+  if(!read)return{read:undefined,path:null};
+  const {getAnchorAdapter}=await import('@/engines/_shared/anchoring');check();
+  let path:string|null=null;
+  const collect=(value:string)=>{if(scope.eraId){const [pathname,search='']=value.split('?'),query=new URLSearchParams(search);query.set('era',scope.eraId);value=pathname+'?'+query;}path=value;};
+  if(documentKind==='local-tool'){
+   const source=await readSourceToolDocument(scope,id);check();if(!source)throw Error('source_tool_document_missing');
+   const query=new URLSearchParams({document:id});collect(`/project/${encodeURIComponent(projectId)}/local-tool-${source.document.namespace}?${query}`);
+  }else if(documentKind==='worldgen'){
+   const {resolveWorldgenRoute}=await import('@/engines/worldgen/navigation');check();const route=await resolveWorldgenRoute(projectId,id,scope.eraId);check();
+   if(!route)throw new Error('world_document_missing');collect(route);
+  }else{
+   const adapter=getAnchorAdapter(documentKind);
+   if(adapter)adapter.navigateToEntity(id,projectId,collect);
+   else{const {toolDocumentPath,toolKind}=await import('@/components/editor/toolBlocks/model');check();const targetKind=toolKind(documentKind==='genealogy'?'relation-tree':documentKind);collect(targetKind?toolDocumentPath({projectId,kind:targetKind,documentId:id,label:''}):`/project/${encodeURIComponent(projectId)}/${documentKind}?entity=${encodeURIComponent(id)}`);}
+  }
+  check();return{read,path};
+ };
  const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,assets,locale,
   subscribe:(changed:()=>void)=>{
    let active=true,pending:ReturnType<typeof setTimeout>|undefined;
@@ -50,8 +72,8 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   async queryDocuments(query:import('./documentIndex').LocalToolDocumentQuery={}){await project();const rows=await queryLocalToolDocuments(scope,query);current();return rows;},
   async tools(){const {BRIDGE_TOOLS}=await import('@/services/aiBridge/manifest');return structuredClone(BRIDGE_TOOLS);},
   async callTool(name:string,args:Record<string,LocalToolJson>={}){const {getBridgeTool}=await import('@/services/aiBridge/manifest'),tool=getBridgeTool(name);if(!tool)throw new Error('unknown_tool');current();if(tool.writes)writable();if(scope.eraId&&tool.writes&&!Object.hasOwn(tool.schema.properties,'eraId')&&!['wh_enable_engine','wh_local_tool_pin'].includes(name))throw new Error('tool_does_not_support_era');const {applyProjectScope,validateToolArgs}=await import('@/services/aiRuntime/toolPolicy');const validated=validateToolArgs(tool.schema,{...args,projectId,eraId:scope.eraId});if(!validated.ok)throw new Error(validated.error);const pinned=applyProjectScope(tool,validated.args,{origin:'copilot',projectId});if(!pinned.ok)throw new Error(pinned.error);const {runBridgeTool}=await import('@/services/aiBridge/dispatch');current();if(tool.writes)writable();const reply=await runBridgeTool(name,{...pinned.args,...(scope.eraId?{eraId:scope.eraId}:{})});if(!reply.ok)throw new Error(reply.error);return JSON.parse(JSON.stringify(reply.result)??'null')as LocalToolJson;},
-  async openDocument(documentKind:EraDocumentKind,id:string,openOptions?:LocalToolOpenDocumentOptions){current();if(!await readWorldDocument(scope,kind(documentKind),id))throw new Error('world_document_missing');const {navigateTo,getAnchorAdapter}=await import('@/engines/_shared/anchoring');const navigate=(path:string)=>{current();if(scope.eraId){const [pathname,search='']=path.split('?'),query=new URLSearchParams(search);query.set('era',scope.eraId);path=pathname+'?'+query;}(openOptions?.placement==='beside'&&options.openBeside?options.openBeside:options.navigate??navigateTo)(path);};if(documentKind==='local-tool'){const read=await readSourceToolDocument(scope,id);if(!read)throw Error('source_tool_document_missing');const query=new URLSearchParams({document:id});navigate(`/project/${encodeURIComponent(projectId)}/local-tool-${read.document.namespace}?${query}`);return;}if(documentKind==='worldgen'){const {resolveWorldgenRoute}=await import('@/engines/worldgen/navigation');const route=await resolveWorldgenRoute(projectId,id,scope.eraId);if(!route)throw new Error('world_document_missing');navigate(route);return;}const adapter=getAnchorAdapter(documentKind);if(adapter){adapter.navigateToEntity(id,projectId,navigate);return;}const {toolDocumentPath,toolKind}=await import('@/components/editor/toolBlocks/model'),targetKind=toolKind(documentKind==='genealogy'?'relation-tree':documentKind);navigate(targetKind?toolDocumentPath({projectId,kind:targetKind,documentId:id,label:''}):`/project/${encodeURIComponent(projectId)}/${documentKind}?entity=${encodeURIComponent(id)}`);},
+  async openDocument(documentKind:EraDocumentKind,id:string,openOptions?:LocalToolOpenDocumentOptions){current();const resolved=await destination(documentKind,id);if(!resolved.read)throw new Error('world_document_missing');if(resolved.path!==null){current();const {navigateTo}=await import('@/engines/_shared/anchoring');current();(openOptions?.placement==='beside'&&options.openBeside?options.openBeside:options.navigate??navigateTo)(resolved.path);}},
  } satisfies Omit<LocalToolClient<T>,'refs'|'state'>;
- const client:LocalToolClient<T>={...base,refs:createLocalToolReferences(base),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();const result=await run({client,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});writable();return result;});})}:{})};
+ const client:LocalToolClient<T>={...base,refs:createLocalToolReferences(base,reference=>destination(reference.kind,reference.documentId,true)),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();const result=await run({client,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});writable();return result;});})}:{})};
  return Object.freeze(client);
 }

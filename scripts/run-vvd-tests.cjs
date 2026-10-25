@@ -47,7 +47,12 @@ const cardExportNativeCheck = spawnSync(electron, ['tests/codex-entry-export.nat
 if (cardExportNativeCheck.status !== 0 || cardExportNativeCheck.error) process.exit(cardExportNativeCheck.status ?? 1);
 const besideAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-beside.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (besideAuthorCheck.status !== 0 || besideAuthorCheck.error) process.exit(besideAuthorCheck.status ?? 1);
+const referencePathAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-reference-path.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (referencePathAuthorCheck.status !== 0 || referencePathAuthorCheck.error) process.exit(referencePathAuthorCheck.status ?? 1);
+const referencePathNativeCheck = spawnSync(electron, ['tests/local-tool-reference-path.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
+if (referencePathNativeCheck.status !== 0 || referencePathNativeCheck.error) process.exit(referencePathNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-reference-path.browser.tsx', 'testLocalToolReferencePathAll', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-beside.browser.tsx', 'testLocalToolBesideAll', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-beside.browser.tsx', 'testLocalToolBesideCssUi', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-beside-review.browser.tsx', 'testReviewLocalToolBesideDispatch', 240000, 'scripts/run-focused-browser-tests.cjs'],

@@ -1603,3 +1603,19 @@ Contract: _stage/sdk-selection-next/ROOT-resolution.txt, architecture-review/REV
 
 
 Review: source11 6a39b5a6 plus test-only F1 correction 4068c11f263a86e5bac2c5cf87c4b752ff3b943c, exact CAS41 approve after independent aggregate9/CSS3/Node4; original ROOT critical396R3 and other receipts preserved, Main11 exit0. Real Brave, technical4 and finish SHIP12 images; native manual/readback, memory prefix and own graph confirmed. Final docs11 integration and research1512 closure are confirmed by _stage/sdk-selection-next/ROOT-delivery-final.json. Parent1095/WT and general SDK parity remain open/partial; no push. See vvd1095/verification-sdk-placement.md.
+
+
+## SDK contextual document paths (1095 / research1518)
+
+Success: a scoped public reference query can return the existing application path of an effective target without opening it, changing the source draft or writing business data. Preserve old reference shapes and imperative navigation; application paths do not claim native href/router/guard behavior.
+
+- [x] Read current web/SDK evidence and independent architecture1638, resolve exact opt-in contract, admit plan and record fresh baseline before a material real-client RED.
+- [x] Read complete first oracle/log/hash, then implement at most six agreed paths and obtain GREEN with the same whole oracle before expanding.
+- [x] Verify old shapes, Base/era/current title/stable ID, Source/anchor/worldgen root, unavailable/foreign/hidden, no emitted route, revocation, fake purity and real MCP correlation without query writes/dispatch.
+- [x] Prove application-path consumption in a known principal BrowserRouter after explicit note save; actual Browser SDK preview and native MCP, independent review and applicable ROOT checks.
+- [ ] Commit explicit paths as Luissalet, approve exact submission and FF Main with merge lock/fresh HEAD; verify Main/manual/continuity/docs and close only1518. Parent1095/WT remains open, no push.
+
+Contract: _stage/sdk-document-links-next/ROOT-resolution.txt, architecture-review/FULL.md and implementation/PLAN.md. refs.resolve(reference,{includePath:true}) adds path:string|null; omitted/empty/false forms stay exact. Six sources: references/storage/testing/sdk/bridge/manifest. One internal resolver in storage, no second routing map, bootstrap import, new endpoint, permission, Router, global guard or product UI. Initial GO was oracle-only; the unchanged first oracle and subsequent evidence are recorded in _stage/sdk-document-links-next.
+
+
+Verification: same first oracle GREEN; expanded4 after test-only dispatch-counter correction; ROOT aggregate7, Node4, old beside9/SDK6/author kit5 and manifest2 pass. Independent native transport1 passes after correcting the normal boolean-string coercion expectation; 88 private tables and pending/navigation state remain exact. Real Brave Base/era queries agree and Links reach actual effective targets after explicit saved-note confirmation. First unconfirmed Save activations and build watchdog interruption remain separate historical evidence. ROOT quick/build/electron and original critical396 pass. Exact formal submission, Main integration and documentation/manual delivery are still pending.
