@@ -2625,3 +2625,13 @@ MCP Undo remains the existing aggregate `before.edits`, read through the real au
 `wh_local_tool_describe` conserva su herramienta y permiso de sólo lectura. Cuando la definición seleccionada declara `locales`, devuelve `locales:{defaultLocale,supported}`; `includeLocaleCatalogs:true` añade `catalogs` JSON propio. Sin declaración, omite `locales`, preservando la salida heredada. `projectId` sigue la versión elegida y `contentHash` inspecciona una candidata compilada exacta sin seleccionarla. No traduce contenido escrito ni cambia estado, pin o idioma de la aplicación.
 
 Ejemplo de argumentos: `{"projectId":"project-id","namespace":"examples.localized-notebook","includeLocaleCatalogs":true}`. No se añade tool, permiso ni comando CLI. La comprobación NativeExecutor→IPC→handler del autor usa un modo especial de sólo lectura; no acredita nuevo transporte stdio externo. [Contrato, atribución y estado de entrega](../tasks/vvd1095/verification-sdk-locale.md).
+
+## Recorridos opcionales de herramientas fuente
+
+`wh_local_tool_describe` conserva la herramienta de sólo lectura y devuelve `tours` detached exacto sólo si la definición lo declara. `projectId` resuelve la versión seleccionada y `contentHash` inspecciona una candidata compilada exacta sin seleccionarla. `includeTutorialState:true` exige `projectId` y admite `eraId`; añade `tutorialState` con snapshots de editores Source/legacy actualmente montados que coincidan con ese proyecto, época y release seleccionada. Una candidata distinta devuelve la lista de montajes vacía. El estado no contiene DOM, funciones ni contenido escrito.
+
+```json
+{"projectId":"project-id","namespace":"examples.guided-counter","includeTutorialState":true}
+```
+
+El snapshot ofrece `available`, `active?:{id,step}` y `tours:[{id,revision,status,step}]`. Es una lectura de la ayuda disponible, no una orden para mostrarla. Help y `context.tutorial.show/signal` requieren el host montado; el fake devuelve unavailable sin DOM. No añade tool, permisos, tablas, escrituras de documentos ni reproducción headless de la interfaz. Los tres modos y sus condiciones pertenecen al SDK propio; no implican compatibilidad universal. [API, pruebas Native y recibos de entrega](../tasks/vvd1095/verification-sdk-tours.md).

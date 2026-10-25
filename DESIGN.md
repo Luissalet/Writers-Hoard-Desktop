@@ -237,6 +237,14 @@ El guardado y el descarte siguen siendo acciones explícitas del editor. En un b
 
 Si el comando de inserción no añade el bloque, un estado textual neutro junto a las opciones explica que no se ha insertado e indica guardar el documento y situar el cursor en su texto antes de repetir. El mensaje usa `role=status`, se limpia al reabrir el selector o insertar correctamente y no crea ni guarda el documento por su cuenta.
 
+### Optional local-tool tutorials
+
+La Ayuda/Help del anfitrión aparece antes del contenido de las herramientas locales que declaran recorridos, en su editor Source o heredado. Conserva el botón secundario de Writer y ofrece un selector cuando hay más de un recorrido. Es una entrada explícita; las herramientas que no declaran recorridos conservan su interfaz. Esta extensión no añade ayuda en bloques propios, vistas de lectura, exportación o pantalla completa.
+
+El recorrido reutiliza el spotlight y el popover compartidos: oscurecimiento alrededor de un objetivo accionable, contorno dorado, superficie carbón, borde fino y sombra. El título serif dorado, cuerpo sans, contador de posición y acciones mantienen sus roles existentes. El popover limita su ancho al espacio de la ventana; el español puede aumentar su altura sin truncar texto ni expulsar las acciones. Las vistas estrechas muestran ese reflujo del anfitrión, sin establecer una composición móvil.
+
+Los pasos manuales ofrecen Siguiente o Terminar. Los pasos que esperan una acción confirmada o la aparición de un elemento omiten ese avance; Atrás y Saltar permanecen. El ejemplo del contador señala Incrementar como acción normal de guardado. Al terminar, el aviso de una herramienta remite a su Ayuda/Help para repetir; el aviso de los recorridos globales conserva su destino propio. Cambiar el idioma adapta la ayuda, sin traducir el contenido del autor. Esta ampliación conserva los colores y la tipografía del overlay y no crea tokens nuevos.
+
 ### Spatial tools and canvas controls
 
 Árboles y Board usan los controles nativos de ReactFlow dentro de un ámbito común: superficie `surface`, texto `text-primary`, borde `border`; al hover cambian a `elevated` y oro. El foco es un contorno dorado de 2px hacia el interior, para seguir visible en la pila de botones. La biblioteca conserva sus operaciones de zoom y encuadre. El grafo de mundo tiene su tratamiento oscuro equivalente. Tipos de conexión, leyendas, títulos y evidencia acompañan el color; la selección de nodos usa borde/anillo dorado.

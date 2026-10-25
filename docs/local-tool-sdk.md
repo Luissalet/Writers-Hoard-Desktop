@@ -507,3 +507,46 @@ Partial/empty catalogs or a missing default translation are valid; invalid JSON/
 The normal `examples.localized-notebook` is compiled source, not automatically enabled. Enable Localized notebook / Libreta traducida in Engine Manager, create/open its source document, type and switch the normal Settings language, then Save explicitly. For an Owned example, save the Codex card first, reopen its editor, place the cursor in the body and use Source blocks. Save the child's briefing and then Save Changes in the parent. A refused insertion now reports that prerequisite; a message does not claim a block was inserted. Reopen verifies authored words, not translated copies. The existing author command is `node scripts/test-local-tool.mjs --id examples.localized-notebook`.
 
 `wh_local_tool_describe` reports default/supported locale metadata only when declared; `includeLocaleCatalogs:true` explicitly requests own JSON catalogs. Selected/exact-hash releases retain their existing resolution; no new tool/permission. Catalogs belong to compiled source packages, not project data backups. Reader/wiki/Published keep their captured authored projections when live code changes or is absent. [Verification, evidence boundaries and delivery status](../tasks/vvd1095/verification-sdk-locale.md). These are additive Writer signatures, not universal upstream compatibility.
+
+## Optional tutorials for Source and legacy editors
+
+Declare `tours?: readonly LocalToolTourSpec[]` on `defineLocalTool`. Each tour has `id`, positive integer `revision`, `title` and ordered `steps`; each step has `id`, `target`, `title`, `body` and optional `advanceOn`. Text is `{en,es}` or `{key}` from the tool's own locale catalogs, with their existing fallback. Targets are `data-tour` values inside that mounted tool root. Descriptors are captured as detached, deeply frozen finite JSON; the author input is not frozen.
+
+```tsx
+import type {LocalToolClient, LocalToolHostContext, LocalToolTourSpec} from '@/engines/local/sdk';
+
+const tours: readonly LocalToolTourSpec[] = [{
+  id: 'first-count', revision: 1,
+  title: {en: 'Using the counter', es: 'Uso del contador'},
+  steps: [
+    {id: 'meet', target: 'counter',
+     title: {en: 'Your counter', es: 'Tu contador'},
+     body: {en: 'Each document has its own count.', es: 'Cada documento tiene su cuenta.'}},
+    {id: 'increment', target: 'increment',
+     title: {en: 'Increment once', es: 'Incrementa una vez'},
+     body: {en: 'Press Increment.', es: 'Pulsa Incrementar.'},
+     advanceOn: {type: 'event' as const, name: 'incremented'}}
+  ]
+}]; // pass tours in the ordinary defineLocalTool definition
+
+async function increment(client: LocalToolClient<{count:number}>, context?: LocalToolHostContext) {
+  const before = await client.read();
+  await client.state!.apply(before, [{type: 'set', field: 'count', value: before.data.count + 1}]);
+  context?.tutorial?.signal('incremented'); // after the real action commits
+}
+```
+
+The ordinary editable Source-document and legacy hosts add **Help/Ayuda** when tours are declared. No autooffer or implicit document save occurs. `context.tutorial` is optional and instance-bound:
+
+- `show(id,{resume?})` resolves `{shown:boolean,reason?:'unavailable'|'cancelled'|'missing'}`; it does not queue UI without a mounted host.
+- `signal(name)` reports a confirmed author action to the currently armed step in this instance. Signals from another root or an abandoned step cannot advance it; earlier signals are not queued.
+- `getSnapshot()` returns detached `{available,active?:{id,step},tours:[{id,revision,status,step}]}`.
+- `subscribe(changed)` returns an unsubscribe. Retarget/unmount revokes the old port and releases its listeners.
+
+Omitted `advanceOn` and `{type:'manual'}` use Next/Finish. `{type:'event',name}` and `{type:'element-appears',target}` wait for the matching signal or visible element in this root. They have no Next/Finish bypass, including controller/ArrowRight; Back, Skip and Escape remain available. Conditions are armed before progress persistence waits. The host lease includes the selected release, client, project, era, document and instance; hide/pin/retarget/unmount/StrictMode cancels it. A language change updates labels without resetting the step. Opening fullscreen revokes the underlying tutorial; fullscreen, Owned/world blocks, readonly and exports do not receive this port.
+
+Progress uses the existing app-wide settings row, separate from authored data and world backups. Its canonical key includes namespace, tour ID/revision and the ordered step ID/target/condition tuples. Text, locale and package hash are excluded: copy/repack keeps progress, while a structural change starts separately even if revision is unchanged. Omitted/manual are equivalent only for this key; describe preserves the exact declaration. Previous records and the nine global tutorials remain intact.
+
+Enable **Guided counter / Contador guiado** through Engine Manager after compiling its source, then create/open a Counter document and press Help. Next reaches the action step; Increment saves the real count and then finishes. To exercise the legacy host, use its existing legacy view. No compiled example is enabled automatically. The normal author command is `node scripts/test-local-tool.mjs --id examples.guided-counter`.
+
+`createFakeLocalToolHost` exposes inert `host.tutorial` and `host.tutorialCommands`; show/signal records intention and show returns unavailable rather than fabricating an overlay. Pure descriptor helpers, fake and real author module remain usable without DOM/DB. `wh_local_tool_describe` returns detached `tours` only when declared. With `projectId` and `includeTutorialState:true`, optional `eraId` selects matching currently mounted editor snapshots; an exact candidate cannot borrow the selected release's state. No new MCP tool or headless show operation is added. [Verification, reference boundaries and delivery status](../tasks/vvd1095/verification-sdk-tours.md).
