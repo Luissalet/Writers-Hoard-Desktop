@@ -1,5 +1,7 @@
 # Writers Hoard — Desktop
 
+World dates now offer Previous/Next month, Clear and separate exact-year/month/day fields with Apply/Cancel, alongside free text and the existing grid. Browsing leaves the authored date unchanged. Today uses the computer's local day only when the world calendar has a complete usable Earth correlation. Event and chapter saves retain their existing rules. [Use, verification and limits](tasks/vvd1095/verification-date-controls.md).
+
 Board references can play project audio and video using native controls. Add an existing file through Assets or Reference, or drag it from Assets; import new files in the normal media library. Nodes share the library file, start paused and release playback when hidden or closed. Normal Undo/Redo affects the reference, preserving the file. Static PNG remains a caption/frame without playback controls. [Usage, delivery evidence and limits](tasks/vvd1095/verification-board-local-media.md).
 
 Owned source blocks can opt into additive codec evolution: a compatible version can add fields to the same saved block without changing it on selection or read. The first meaningful edit saves data, codec and portable preview together; scoped action Undo restores the complete prior envelope. Strict compatibility remains the default, Source state keeps its existing migration contract, and the general SDK remains partial. [Contract, example and evidence](tasks/vvd1095/verification-sdk-owned-evolution.md).

@@ -209,6 +209,12 @@ En las herramientas de mundo, los secundarios comparten borde fino, texto claro,
 
 La carpeta se despliega con `details`; etiqueta accesible, campo flexible y botón de confirmación comparten una línea adaptable. Campo y botón se deshabilitan mientras Mundos y juego está activo o hay una operación pendiente. El espacio nativo conserva campos con relleno 8px/10px, borde tonal, superficie oscura y foco de acento. El compositor usa textarea flexible de altura mínima 44px; el borrador propuesto se presenta con acciones explícitas de aceptación o rechazo.
 
+### World calendar dates
+
+El campo de fecha del mundo conserva la entrada libre, Limpiar junto al texto y el botón de calendario. El panel se expande debajo, dentro del formulario existente. La cuadrícula mantiene selección dorada, meses y elección de todo el mes; anterior/siguiente y año absoluto permiten recorrerla sin sustituir el texto escrito. Hoy aparece cuando el calendario dispone de una correlación terrestre completa y aplica su conversión al día local.
+
+Introducir fecha exacta abre un borrador separado con etiquetas visibles de año absoluto, mes y día opcional. Aplicar fecha confirma un borrador válido; Cancelar lo descarta sin cambiar el texto del autor. Los errores locales se presentan como estado textual. Las acciones conservan una altura mínima de 36px, bordes finos, esquinas redondeadas y foco dorado; los campos exactos se apilan y las filas de acciones se ajustan cuando falta anchura. Este comportamiento pertenece al componente y no establece una composición móvil ni una escala tipográfica nueva.
+
 ### Navigation
 
 El lateral exterior usa entradas de 14px, iconos de 18px, relleno 10px/12px y esquinas de 8px. La activa combina oro y fondo dorado al 15%. El lateral interno mantiene entradas de 40px de altura y su estado seleccionado tonal, con icono de acento. Las secciones pertenecen al mundo abierto; las globales conservan mundos, backends, actividad y ajustes. La marca de Faustus se abre desde su botón canónico explícito.
