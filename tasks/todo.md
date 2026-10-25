@@ -1622,3 +1622,14 @@ Verification: same first oracle GREEN; expanded4 after test-only dispatch-counte
 
 
 Review: source12 1fab01c827bfe45c3f1fb4a4860ca34f6a7b5540, actual CAS42 approve after independent aggregate7/Node4 and native technical1. Source Main FF and five focused integration checks passed on exact blobs; ROOT original critical396 and other globals remain separately attributed to the identical product bytes. Native manual +268UTF16/readback and memory prefix/own graph confirmed, all ten common locks released. Documentation10 and research1518 closure are recorded by _stage/sdk-document-links-next/ROOT-delivery-final.json. Parent1095/WT and general SDK parity remain open/partial; no push. See vvd1095/verification-sdk-document-path.md.
+
+
+## Writer SDK icons (1523)
+
+- [x] Compare the reference icon picker and public SDK contract; agree on the bounded catalogue API.
+- [x] Preserve the public Source author RED: normal reads pass, then the missing icons service fails.
+- [x] Expose the existing catalogue and lazy Canvas renderer to local tools and readonly MCP.
+- [x] Verify Source notes, selection, Base/era, normal Browser and the native bridge; preserve existing data.
+- [ ] Run applicable checks, independent review and exact integration; update usage documentation and the manual.
+
+Review: architecture agreed in Agora 1644; public author RED retained before implementation. General SDK parity remains partial.

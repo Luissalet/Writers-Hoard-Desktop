@@ -270,7 +270,7 @@ async function callTool(name: string, args: Record<string, unknown>, meta: Recor
     return toolResult(transportFailure(response, name, declaredTool ? toolAnnotations(declaredTool).readOnlyHint : false), true);
   }
   if (body.ok === true) {
-    const result = body.result ?? {};
+    const result = body.result === undefined ? {} : body.result;
     if (typeof body.auditIndex === 'number' && result && typeof result === 'object' && !Array.isArray(result)) {
       return toolResult({ ...result, _undo: { app_id: 'writer', audit_index: body.auditIndex } });
     }

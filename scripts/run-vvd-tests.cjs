@@ -51,7 +51,14 @@ const referencePathAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-
 if (referencePathAuthorCheck.status !== 0 || referencePathAuthorCheck.error) process.exit(referencePathAuthorCheck.status ?? 1);
 const referencePathNativeCheck = spawnSync(electron, ['tests/local-tool-reference-path.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (referencePathNativeCheck.status !== 0 || referencePathNativeCheck.error) process.exit(referencePathNativeCheck.status ?? 1);
+const iconAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-icons.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (iconAuthorCheck.status !== 0 || iconAuthorCheck.error) process.exit(iconAuthorCheck.status ?? 1);
+const mcpResultValuesCheck = spawnSync(process.execPath, ['tests/mcp-result-values.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
+if (mcpResultValuesCheck.status !== 0 || mcpResultValuesCheck.error) process.exit(mcpResultValuesCheck.status ?? 1);
+const iconNativeCheck = spawnSync(electron, ['tests/local-tool-icons.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
+if (iconNativeCheck.status !== 0 || iconNativeCheck.error) process.exit(iconNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-icons.browser.tsx', 'testLocalToolIconsAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-reference-path.browser.tsx', 'testLocalToolReferencePathAll', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-beside.browser.tsx', 'testLocalToolBesideAll', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-beside.browser.tsx', 'testLocalToolBesideCssUi', 240000, 'scripts/run-codex-properties-ui.cjs'],
