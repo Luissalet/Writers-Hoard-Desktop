@@ -1,5 +1,7 @@
 # Writers Hoard — Desktop
 
+In **Overview → Produce → Asset vault**, local audio and video open directly above the file list. Open a resource, then press Play in its native controls; selecting it never starts playback or copies the file. Close, filtering out the resource, changing owner or replacing its stored version releases the old player. Metadata edits may restart it paused. This library remains Base-only; image zoom and other file actions remain available. [Use, evidence and delivery status](tasks/vvd1095/verification-assets-media-preview.md).
+
 Source and legacy tool editors can offer an optional flat context menu through right-click, Shift+F10/ContextMenu or an Actions button. The Contextual counter shares Increment/Reset with normal buttons and named MCP operations, and offers explicit receipt Undo/Redo. Opening a menu does not save data. Compiled examples still need enabling; Owned/world/readonly/fullscreen do not receive this port. [API, evidence and delivery status](tasks/vvd1095/verification-sdk-context-menus.md).
 
 Source tools can declare optional tutorials in their normal Source or legacy editor. Use **Help** to start or resume; steps advance manually, after a confirmed tool action, or when an element appears in that instance. Progress follows the ordered tutorial structure, while language changes only its copy. The Guided counter is a runnable example. Owned blocks, world blocks, readonly views and fullscreen do not receive this tutorial port. [API, evidence and delivery status](tasks/vvd1095/verification-sdk-tours.md).

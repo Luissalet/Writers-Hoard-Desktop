@@ -291,6 +291,10 @@ Archivos/Files añade selección local múltiple junto a Importar en biblioteca,
 
 Elegir o soltar audio/vídeo crea un recurso en la biblioteca y su referencia normal en el lienzo; la tarjeta mantiene título serif y reproductor nativo compartido, sin autoplay. Los errores parciales se comunican con texto; si el medio quedó guardado sin nodo, el aviso indica añadirlo desde Recursos en una capa visible y desbloqueada. Esta entrada no añade un diálogo de producto, estilo de reproductor ni patrón para la superposición heredada del panel en ventanas estrechas.
 
+### Assets library media preview
+
+La Biblioteca de recursos añade la apertura de audio y vídeo en una región inline sobre la lista, separada por bordes finos y con la superficie carbón heredada. El nombre completo y los controles conservan la sans de interfaz de 14px; el nombre tiene mayor peso y envuelve sin elipsis cuando falta anchura. Cerrar permanece a su lado con altura mínima de 36px, borde, hover tonal y foco dorado. El reproductor HTML nativo compartido mantiene sus controles, sin autoplay; carga, archivo no disponible y error usan estados textuales localizados, y un formato no reproducible remite a descargar una copia. Búsqueda, orden, filtros, selección y operaciones siguen presentes; las imágenes conservan su lightbox. El reflujo estrecho pertenece a este componente y no crea una composición móvil, otra identidad, un estilo global de reproductor ni tokens nuevos.
+
 ### Reader, wiki and parallel text
 
 El estudio del lector separa cubierta, ajustes de capítulo y audio. Fondo, familia de lectura, imagen y modo de páginas son opciones del documento. La cubierta puede usar la imagen local del proyecto, y el audio conserva controles explícitos. La exportación de lector o wiki autónomo ofrece navegación y referencias para leer fuera del editor; no arrastra la barra de autoría. Las marcas de contenido oculto y spoiler del editor usan subrayado discontinuo/punteado y fondo tonal, además del color. Las vistas de conversación y borradores paralelos conservan su contexto de lectura y edición, con estado de guardado por borrador.
