@@ -2660,6 +2660,8 @@ Los focos Native cubren ejecutor local→IPC→handlers productivos y PDF/PNG re
 
 Los menús del host son efímeros y no añaden herramienta MCP ni callbacks a `wh_local_tool_describe`. La definición seleccionada de `examples.context-counter` declara `increment` y `reset`; los botones normales, el menú y `wh_local_tool_call` comparten esas funciones. Describe conserva sus esquemas habituales y no abre una interfaz headless.
 
+La ampliación de submenús conserva esos contratos: `submenu` pertenece sólo a la petición efímera del host. Más acciones → Incrementar y Cuenta → Restablecer reutilizan las funciones y recibos existentes, con IDs de hoja propios (`more-increment`, `count-reset`) que no se convierten en nuevas operaciones MCP. Las acciones planas siguen disponibles. El grabador/fake devuelve `false` y copia metadata anidada sin callbacks; no abre, selecciona ni publica el árbol en describe. [API propia y evidencia separada de UI/Native](../tasks/vvd1095/verification-local-tool-submenus.md).
+
 ```json
 {"projectId":"project-id","namespace":"examples.context-counter","documentId":"document-id","operation":"increment","input":{}}
 ```
