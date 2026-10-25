@@ -1,5 +1,7 @@
 # Writers Hoard — Escritorio
 
+En **Resumen → Producir → Archivo de recursos**, Abrir un audio o vídeo local presenta sus controles nativos sobre la lista. Pulsa Play para reproducir: seleccionar no inicia sonido ni copia el archivo. Cerrar, excluirlo con un filtro, cambiar de proyecto o sustituir su versión libera el reproductor anterior; editar metadatos puede reiniciarlo pausado. La biblioteca sigue siendo Base y conserva imágenes/zoom y las acciones anteriores. [Uso, pruebas y estado de entrega](tasks/vvd1095/verification-assets-media-preview.md).
+
 Las herramientas fuente pueden declarar recorridos opcionales en su editor Source o antiguo. **Ayuda** permite iniciarlos o reanudarlos; los pasos avanzan manualmente, tras una acción confirmada o cuando aparece un elemento en esa instancia. El progreso sigue la estructura ordenada del recorrido y el idioma sólo cambia sus textos. Contador guiado es el ejemplo ejecutable. Los bloques propios, bloques mundiales, vistas de sólo lectura y pantalla completa no reciben este puerto. [API, pruebas y estado de entrega](tasks/vvd1095/verification-sdk-tours.md).
 
 Las fechas del mundo añaden mes anterior/siguiente, Borrar y campos separados de año/mes/día con Aplicar/Cancelar, junto al texto libre y la cuadrícula existente. Navegar conserva la fecha escrita. Hoy usa el día civil local del ordenador sólo con una correlación terrestre completa y utilizable; eventos y capítulos mantienen sus reglas de guardado. [Uso, pruebas y límites](tasks/vvd1095/verification-date-controls.md).

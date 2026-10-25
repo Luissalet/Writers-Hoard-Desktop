@@ -2667,3 +2667,15 @@ Los menús del host son efímeros y no añaden herramienta MCP ni callbacks a `w
 El resultado contiene `count` y `receiptId`. `wh_local_tool_state_undo` y `wh_local_tool_state_redo` aceptan ese recibo con el mismo proyecto, namespace, documento y época; conservan los conflictos, readonly y reglas de ámbito existentes. Describe usa proyecto/namespace y sus opciones propias, sin añadir `documentId` por analogía con call. El ejemplo no promete Ctrl+Z ni un historial universal de otros montajes.
 
 Las pruebas Native comprueban ejecutor local→IPC→handlers productivos; no acreditan un nuevo transporte stdio externo, servidor, clave o instalación de paquete. Sin host editable, la API de menú devuelve `false` y deja el evento al navegador; el fake registra sólo metadatos. [API, pruebas y estado de entrega](../tasks/vvd1095/verification-sdk-context-menus.md).
+
+## Archivo de recursos: datos y reproducción local
+
+El preview de audio/vídeo de Archivo de recursos usa las mismas filas Base que su biblioteca normal. `wh_list_assets` sigue devolviendo los IDs, tipo, nombre, tamaño, fecha, MIME y tags del catálogo; `wh_asset_usage` mantiene las referencias guardadas. Abrir o cerrar un preview no añade un uso, archivo, recibo Undo ni nuevo descriptor. Los schemas y DTO predeterminados de ambas herramientas permanecen intactos.
+
+```json
+{"projectId":"project-id","kind":"audio","sort":"name-asc"}
+```
+
+La persona navega por Resumen → Producir → Archivo de recursos, pulsa Abrir y después Play en el player nativo visible. No hay tool nuevo para abrirlo o reproducirlo remotamente. `wh_local_audio_control`/status siguen perteneciendo al audio SDK y excluyen este player HTML; su respuesta gesture-required no acredita reproducción en la biblioteca. El soporte de `eraId` ya existente en la lectura de catálogo no transforma esta UI Base en biblioteca por época.
+
+La comprobación de concordancia de IDs/usos usa el dispatcher real, sin nueva ejecución Native, transporte externo o reproducción headless atribuida. [Uso, límites y evidencia](../tasks/vvd1095/verification-assets-media-preview.md).
