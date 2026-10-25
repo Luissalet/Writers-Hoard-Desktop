@@ -2635,3 +2635,23 @@ Ejemplo de argumentos: `{"projectId":"project-id","namespace":"examples.localize
 ```
 
 El snapshot ofrece `available`, `active?:{id,step}` y `tours:[{id,revision,status,step}]`. Es una lectura de la ayuda disponible, no una orden para mostrarla. Help y `context.tutorial.show/signal` requieren el host montado; el fake devuelve unavailable sin DOM. No añade tool, permisos, tablas, escrituras de documentos ni reproducción headless de la interfaz. Los tres modos y sus condiciones pertenecen al SDK propio; no implican compatibilidad universal. [API, pruebas Native y recibos de entrega](../tasks/vvd1095/verification-sdk-tours.md).
+
+## Exportar una ficha guardada del Códex
+
+La selección individual reutiliza tres herramientas existentes; no añade tools ni cambia sus permisos o formatos predeterminados. Captura una copia de autor en sólo lectura, en Base o la época efectiva, y compone desde esa captura. Puede contener información privada: no es una exportación de jugadores ni una prueba de visibilidad pública. No incluye borradores, anotaciones ni los cuerpos de las fichas referenciadas.
+
+`wh_world_markdown_export` admite `entryId` y, con él, `eraId`. Con `includeMedia:false` (predeterminado) devuelve un `.md` UTF-8; con `true`, un ZIP con ese Markdown y sólo los recursos locales consumidos. Devuelve `fileName`, `mime`, `bytes`, `base64`, `sourceVersion`, `dependencies` y posibles `warnings`. Conserva el límite existente de 25 MiB, aplicado al artefacto individual antes de base64. `eraId` sin `entryId` se rechaza. Sin ambas opciones continúa el vault completo histórico y su respuesta anterior.
+
+```json
+{"projectId":"project-id","entryId":"entry-id","eraId":"era-id","includeMedia":true,"locale":"es"}
+```
+
+`wh_build_world_bible` y `wh_export_world_bible` admiten `presentation:"card"`, `entryIds` con exactamente un ID y `eraId` opcional. `sections` debe omitirse o ser `["codex"]`; las demás selecciones deben omitirse o estar vacías. Una selección duplicada tampoco cumple el singleton. Sin `presentation` mantienen la Biblia normal. `includeSecrets` conserva su significado en la Biblia normal. La presentación individual es siempre una copia de autor; ese argumento no filtra sus secretos ni la convierte en una exportación pública.
+
+```json
+{"projectId":"project-id","presentation":"card","entryIds":["entry-id"],"sections":["codex"],"locale":"es"}
+```
+
+Build devuelve HTML de sólo lectura. Export conserva `writes:true` por la salida de archivo: acepta `format:"html"` o `"pdf"`; PDF necesita Desktop y usa el diálogo y escritura productivos. Cancelar el PDF individual devuelve un fallo explícito con `code:"canceled"`, sin afirmar que se haya guardado. La acción normal de Browser abre una vista imprimible mediante un gesto; no demuestra bytes PDF descargados. PNG usa el compositor Desktop existente y puede producir mosaicos; `wh_export_document_image` conserva su contrato genérico anterior.
+
+Los focos Native cubren ejecutor local→IPC→handlers productivos y PDF/PNG reales con atribución separada; no acreditan una nueva sesión stdio externa, nueva clave ni servidor. [Contrato, evidencia y recibos de entrega](../tasks/vvd1095/verification-card-export.md).
