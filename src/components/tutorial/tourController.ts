@@ -8,7 +8,7 @@ import { useAppStore } from '@/stores/appStore';
 import { useLocaleStore } from '@/stores/localeStore';
 import { findTour } from './tours';
 import { tourCopy } from './tourCopy';
-import { useTourStore } from './tourStore';
+import { useTourStore, type ActiveTour } from './tourStore';
 import {
   readTourProgress,
   tourStatus,
@@ -18,7 +18,7 @@ import {
   withStep,
 } from './tourProgress';
 import { usableRect } from './tourGeometry';
-import type { TourDefinition, TourRoute, TourStep } from './tourTypes';
+import type { TourBinding, TourDefinition, TourRoute, TourStep } from './tourTypes';
 
 // ----- The app's router, handed in by the host -------------------------------
 
@@ -53,6 +53,30 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 
 /** Bumped by every start/move/close; an older, still-waiting resolution drops out. */
 let generation = 0;
+let disarm: (()=>void) | undefined;
+let armedEvent:{run:number;binding:TourBinding;index:number;name:string}|undefined;
+export function activeTourDefinition(active:ActiveTour|null):TourDefinition|undefined{return active?.binding?active.binding.definition():active?findTour(active.tourId):undefined;}
+export function activeTourRoot(active:ActiveTour|null):ParentNode{return active?.binding?.root??document;}
+function current(run:number,binding?:TourBinding):boolean{return run===generation&&(!binding||binding.isCurrent()&&binding.root.isConnected);}
+export function manualTourStep(active:ActiveTour|null):boolean{const step=activeTourDefinition(active)?.steps[active?.index??0];return !step?.advanceOn||step.advanceOn.type==='manual';}
+function clearCondition():void{disarm?.();disarm=undefined;armedEvent=undefined;}
+function armCondition(run:number,binding:TourBinding|undefined,step:TourStep):void{
+ clearCondition();if(!binding||!step.advanceOn)return;
+ if(step.advanceOn.type==='event'){armedEvent={run,binding,index:useTourStore.getState().active!.index,name:step.advanceOn.name};return;}
+ if(step.advanceOn.type!=='element-appears')return;
+ const target=step.advanceOn.target;let fired=false;
+ const check=()=>{if(!fired&&current(run,binding)&&findAnchor(target,binding.root)){fired=true;void advanceCondition(run,binding);}};
+ const observer=new MutationObserver(check);observer.observe(binding.root,{childList:true,subtree:true,attributes:true});
+ const tick=window.setInterval(check,60);disarm=()=>{observer.disconnect();window.clearInterval(tick);};check();
+}
+async function advanceCondition(run:number,binding:TourBinding):Promise<void>{if(!current(run,binding))return;const active=useTourStore.getState().active;if(active?.binding!==binding)return;const tour=activeTourDefinition(active);if(tour)await showFrom(tour,active.index+1,1,binding);}
+export function signalBoundTour(binding:TourBinding,name:string):void{const armed=armedEvent,active=useTourStore.getState().active;if(armed&&armed.binding===binding&&armed.name===name&&active?.binding===binding&&active.index===armed.index&&current(armed.run,binding)){armedEvent=undefined;void advanceCondition(armed.run,binding);}}
+export async function startBoundTour(binding:TourBinding,options:{resume?:boolean}={}):Promise<boolean>{
+ if(!binding.isCurrent()||!binding.root.isConnected)return false;
+ const tour=binding.definition(),store=useTourStore.getState(),saved=tourStatus(store.progress,binding.progressKey),index=options.resume&&saved.status==='in-progress'?Math.min(saved.step,tour.steps.length-1):0;
+ clearCondition();store.setActive({tourId:tour.id,index,shown:0,binding});await showFrom(tour,index,1,binding);
+ const active=useTourStore.getState().active;return active?.binding===binding&&active.shown>0&&binding.isCurrent();
+}
 type SkipReason = 'no-project' | 'tool-off' | 'missing';
 let skipped = new Set<SkipReason>();
 
@@ -77,11 +101,11 @@ export function routePath(route: TourRoute, projectId: string | undefined): stri
   return route === 'overview' ? `${base}/overview` : `${base}/${route.slice('engine:'.length)}`;
 }
 
-async function waitForAnchor(name: string, timeoutMs: number, run: number): Promise<HTMLElement | null> {
+async function waitForAnchor(name: string, timeoutMs: number, run: number, binding?:TourBinding): Promise<HTMLElement | null> {
   const end = Date.now() + timeoutMs;
   for (;;) {
-    if (run !== generation) return null;
-    const found = findAnchor(name);
+    if (!current(run,binding)) return null;
+    const found = findAnchor(name,binding?.root??document);
     if (found) return found;
     if (Date.now() >= end) return null;
     await sleep(60);
@@ -91,7 +115,7 @@ async function waitForAnchor(name: string, timeoutMs: number, run: number): Prom
 type Outcome = { ok: true } | { ok: false; reason: SkipReason };
 
 /** Bring the app to the state the step needs. Resolves `ok` only when its element is on screen. */
-async function prepare(step: TourStep, run: number): Promise<Outcome> {
+async function prepare(step: TourStep, run: number,binding?:TourBinding): Promise<Outcome> {
   let patient = false;
   if (step.route) {
     const open = projectInPath(readPathname());
@@ -103,7 +127,7 @@ async function prepare(step: TourStep, run: number): Promise<Outcome> {
       if (!project) return { ok: false, reason: 'no-project' };
       if (!project.enabledEngines.includes(step.route.slice('engine:'.length))) return { ok: false, reason: 'tool-off' };
     }
-    if (run !== generation) return { ok: false, reason: 'missing' };
+    if (!current(run,binding)) return { ok: false, reason: 'missing' };
     if (readPathname() !== target) { navigateTo(target); patient = true; }
   }
   if (step.toolManager !== undefined) {
@@ -113,14 +137,14 @@ async function prepare(step: TourStep, run: number): Promise<Outcome> {
     patient = patient || step.toolManager;
   }
   if (step.openDetails) {
-    const summary = await waitForAnchor(step.openDetails, patient ? 3000 : 1000, run);
+    const summary = await waitForAnchor(step.openDetails, patient ? 3000 : 1000, run,binding);
     const details = summary?.closest('details');
     if (details && !details.open) details.open = true;
     patient = true;
   }
   if (!step.anchor) return { ok: true };
-  const found = await waitForAnchor(step.anchor, patient ? 3000 : 800, run);
-  if (run !== generation) return { ok: false, reason: 'missing' };
+  const found = await waitForAnchor(step.anchor, patient ? 3000 : 800, run,binding);
+  if (!current(run,binding)) return { ok: false, reason: 'missing' };
   if (!found) {
     const needsWorld = !projectInPath(readPathname()) && !!step.route && step.route !== 'home' && step.route !== 'publishing';
     return { ok: false, reason: needsWorld ? 'no-project' : 'missing' };
@@ -141,9 +165,9 @@ function releaseToolManager(tour: TourDefinition): void {
   if (tour.steps.some(step => step.toolManager === true)) useAppStore.getState().setShowEngineManager(false);
 }
 
-async function savePosition(tourId: string, index: number): Promise<void> {
-  const next = await updateTourProgress(current => withStep(current, tourId, index, Date.now()));
-  useTourStore.getState().setProgress(next);
+async function savePosition(tourId: string, index: number,run:number,binding?:TourBinding): Promise<void> {
+  const next = await updateTourProgress(progress => current(run,binding)?withStep(progress, tourId, index, Date.now()):progress);
+  if(current(run,binding))useTourStore.getState().setProgress(next);
 }
 
 /**
@@ -151,32 +175,35 @@ async function savePosition(tourId: string, index: number): Promise<void> {
  * Steps whose element cannot be found are skipped. Running off the end finishes
  * the tour if it showed anything, and gives up with a notice if it never did.
  */
-async function showFrom(tour: TourDefinition, from: number, direction: 1 | -1): Promise<void> {
+async function showFrom(tour: TourDefinition, from: number, direction: 1 | -1,binding?:TourBinding): Promise<void> {
+  clearCondition();
   const run = ++generation;
   const store = useTourStore.getState();
   store.setResolving(true);
   try {
     for (let index = from; index >= 0 && index < tour.steps.length; index += direction) {
       const step = tour.steps[index];
-      const outcome = await prepare(step, run);
-      if (run !== generation) return;
+      const outcome = await prepare(step, run,binding);
+      if (!current(run,binding)) return;
       if (outcome.ok) {
         const previous = useTourStore.getState().active;
         useTourStore.getState().setActive({
           tourId: tour.id,
+          ...(binding?{binding}:{}),
           index,
           shown: (previous?.tourId === tour.id ? previous.shown : 0) + 1,
           anchor: step.anchor,
         });
-        await savePosition(tour.id, index);
+        armCondition(run,binding,step);
+        await savePosition(binding?.progressKey??tour.id, index,run,binding);
         return;
       }
       skipped.add(outcome.reason);
     }
     // Ran off an end.
-    const current = useTourStore.getState().active;
+    const shownActive = useTourStore.getState().active;
     if (direction > 0) {
-      if (current && current.shown > 0) await finishTour();
+      if (shownActive && shownActive.shown > 0) await completeTour(true);
       else {
         toast.info(copy().nothingToShow);
         reportSkips();
@@ -192,8 +219,10 @@ async function showFrom(tour: TourDefinition, from: number, direction: 1 | -1): 
 // ----- Public actions --------------------------------------------------------
 
 export async function loadTourProgress(): Promise<void> {
+  const run=generation;
   try {
-    useTourStore.getState().setProgress(await readTourProgress());
+    const progress=await readTourProgress();
+    if(run===generation)useTourStore.getState().setProgress(progress);
   } catch (error) {
     console.error('Tour progress could not be read', error);
     useTourStore.getState().setProgress(useTourStore.getState().progress);
@@ -223,23 +252,24 @@ export async function startTour(tourId: string, options: { resume?: boolean } = 
 
 export async function nextStep(): Promise<void> {
   const active = useTourStore.getState().active;
-  const tour = active && findTour(active.tourId);
-  if (!active || !tour) return;
-  await showFrom(tour, active.index + 1, 1);
+  const tour = activeTourDefinition(active);
+  if (!active || !tour || !manualTourStep(active)) return;
+  await showFrom(tour, active.index + 1, 1,active.binding);
 }
 
 export async function backStep(): Promise<void> {
   const active = useTourStore.getState().active;
-  const tour = active && findTour(active.tourId);
+  const tour = activeTourDefinition(active);
   if (!active || !tour || active.index === 0) return;
-  await showFrom(tour, active.index - 1, -1);
+  await showFrom(tour, active.index - 1, -1,active.binding);
 }
 
 /** Close without finishing (Saltar, Esc, the list): the position stays saved. */
 export function closeTour(): void {
+  clearCondition();
   generation++;
   const active = useTourStore.getState().active;
-  const tour = active && findTour(active.tourId);
+  const tour = activeTourDefinition(active);
   useTourStore.getState().setResolving(false);
   useTourStore.getState().setActive(null);
   if (tour) releaseToolManager(tour);
@@ -247,18 +277,14 @@ export function closeTour(): void {
 }
 
 /** The last step's Terminar, or running off the end of a tour that showed something. */
-export async function finishTour(): Promise<void> {
-  const active = useTourStore.getState().active;
-  const tour = active && findTour(active.tourId);
-  if (!active || !tour) return;
-  generation++;
-  const next = await updateTourProgress(current => withDone(current, tour.id, Date.now()));
-  useTourStore.getState().setProgress(next);
-  useTourStore.getState().setResolving(false);
-  useTourStore.getState().setActive(null);
-  releaseToolManager(tour);
-  toast.success(copy().doneToast);
-  reportSkips();
+export async function finishTour(): Promise<void> {await completeTour(false);}
+async function completeTour(condition:boolean):Promise<void>{
+ const active=useTourStore.getState().active,tour=activeTourDefinition(active);
+ if(!active||!tour||!condition&&!manualTourStep(active))return;
+ clearCondition();const run=++generation,binding=active.binding,key=binding?.progressKey??tour.id;
+ const next=await updateTourProgress(progress=>current(run,binding)?withDone(progress,key,Date.now()):progress);
+ if(!current(run,binding))return;
+ useTourStore.getState().setProgress(next);useTourStore.getState().setResolving(false);useTourStore.getState().setActive(null);releaseToolManager(tour);toast.success(binding?copy().doneToolToast:copy().doneToast);reportSkips();
 }
 
 /** Remember that the one-time offer was answered, whichever way. */
