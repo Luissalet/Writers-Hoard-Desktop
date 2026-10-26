@@ -641,3 +641,7 @@ Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(cli
 ## Preferencias compartidas de herramientas
 
 Las herramientas Source pueden usar el servicio opcional `client.defaults` y el hook `useLocalToolDefaults` para preferencias JSON por mundo, herramienta y clave. En Cuaderno de iconos, Guardar favorito cambia la preferencia y Usar favorito cambia explícitamente sólo el símbolo de ese cuaderno. Ninguna acción guarda notas pendientes; el favorito tiene Deshacer/Rehacer propios y recuperación de conflictos. SDK, MCP y Source normal tienen comprobaciones separadas, incluidas dos claves Native autenticadas. [Uso, entrega y límites](tasks/vvd1095/verification-sdk-defaults.md). La paridad general del SDK sigue siendo parcial.
+
+## Colores resueltos para herramientas locales
+
+El servicio opcional `client.theme` y el hook `useLocalToolTheme` ofrecen nueve colores resueltos y el modo claro/oscuro efectivo del contexto Base o época de la herramienta. Apariencia sigue siendo el editor. Los iconos del espacio normal se repintan cuando su panel aplica el aspecto, conservando el Canvas, el documento y las notas pendientes. [Contrato, pruebas atribuidas y estado de entrega](tasks/vvd1095/verification-sdk-theme.md). La paridad general de web y SDK sigue siendo parcial.
