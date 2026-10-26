@@ -2760,3 +2760,17 @@ Rename rejects `position`, move rejects `label`, and reset rejects clip argument
 Use `version` as opaque: Base/inherited uses `sha256:…`, own era variants use `variant:N`. Stale edits preserve the winner; read it and deliberately reapply. Native Undo uses the existing authenticated `POST /api/undo {index}` with `_undo.audit_index`, then normal IPC `__undo`. There is **no new `wh_undo` MCP tool**. The session receipt retains only presentation/provenance/version data, without a binary/full document snapshot. A later model change or consumed receipt can make Undo stale; Undo of a first era override returns to current Base inheritance. These are two own native tools, not a facade for another SDK. [Contract, evidence and delivery status](../tasks/vvd1095/verification-model-animation-presentation.md).
 
 Source31c5598664c4f4de14880ae71d65c45530cc78f7 is approved exactly at CAS47 and integrated in Main. Formal and Main runs independently exercised actual two-key stdio transport and normal HTTP Undo; they remain separate from Browser and renderer-abort proofs. Manual/common updates are complete; the separate documentation commit/FF is recorded in ROOT-delivery-final.json.
+
+## Calibración física de un mapa generado
+
+`wh_get_world_scale` es readonly: requiere `worldId`, con `projectId`/`eraId` opcionales del ámbito normal. Devuelve `width`,`height` de la rejilla, `widthKm`,`heightKm`,`cellKm`,`sourceWidthKm`,`revision`,`overridden`,`sheet`,`requestedScope` y `scope` efectivo. Leer no forja terreno. Una época heredada devuelve el dueño Base; una variante propia devuelve su época.
+
+`wh_set_world_scale` requiere `worldId`,`widthKm` y `expectedRevision` del getter. `widthKm` es positivo finito con dimensiones/celda/área representables; `null` elimina el override y vuelve a la receta. Alto y celda siguen el aspecto existente. El resultado añade `changed`. No cambia params, semilla, grid, terreno o coordenadas, ni convierte un planeta en hoja. Conflicto conserva el estado ganador; vuelve a leer antes de reaplicar deliberadamente.
+
+```json
+{"worldId":"world_id","projectId":"project_id","widthKm":604.8,"expectedRevision":0}
+```
+
+El mismo writer sirve a UI/MCP y drena escritores pendientes antes de resolver propietario y CAS. Undo normal restaura sólo una calibración todavía actual y conserva metadata concurrente; no hay herramienta MCP wh_undo nueva. Native usa el audit_index y POST /api/undo existentes. Un noop no añade before/recibo de escala ni altera authored/history/revision; el adaptador previo puede adjuntar su puntero genérico _undo a la línea de llamada, cuya Undo se rechaza sin cambiar el mapa. Cancelar el draft UI no llama al writer.
+
+JSON/ZIP/Duplicar conservan estos metadatos y su ausencia tras reset. El canon y los snapshots de generación mantienen su receta; sus datos runtime rehidratan la escala por separado. Las guardas normales de escritura/motor no cambian. [Pruebas y límites de transporte](../tasks/vvd1095/verification-world-scale.md).

@@ -764,3 +764,9 @@ These bounded changes are integrated in Main07d868d with exact CAS51 approval an
 Publishing profiles can opt into a captured front cover before the book in HTML, EPUB, DOCX and the existing native PDF path. The selected manuscript/era, labels and content are captured together; later edits do not replace that export's cover. Leaving the option off preserves prior output.
 
 The cover designer separately exports a complete print jacket as a one-sheet PDF, PNG or JPEG with editable cover dimensions, spine, outer bleed and resolution. Its 72 dpi preview is distinct from export sampling. The PDF is raster RGB with physical boxes; Browser book PDF and batch multiformat export remain open. [Usage, attributed evidence and current delivery limits](tasks/vvd1095/verification-cover-exports.md).
+
+## Calibrate an existing generated sheet
+
+Open Scale of this map in the saved map's controls to set its physical width. Height and cell size follow the existing grid. Apply keeps terrain, places and authored positions; Cancel discards the draft, Reset returns to the recipe's scale and Undo restores the last compatible calibration.
+
+Distances, areas, journeys and physical comparison outlines use the new scale. An inherited era shares Base settings until it has its own map variant. This changes measurements, not the number of cells: independent rectangular creation, growing or cropping the world and anchor handles remain separate work. [Usage, API, evidence and limits](tasks/vvd1095/verification-world-scale.md).
