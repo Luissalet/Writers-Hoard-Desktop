@@ -50,7 +50,7 @@ In a named era, `world.variants.save(kind,document,version)` and `.hide(kind,id,
 | `get(id)` | Promise of detached `{id,pack,name,label}` or `null`. Accepts the own canonical ID, such as `writer-map-symbols/1:Castle`, or a supported PascalCase short name. `Wand2` resolves to canonical `WandSparkles`; an unknown prefix, URL or name stays unavailable. |
 | `search(query,{offset?,limit?})` | Promise of `{items,total}`. Literal, case-insensitive matching against names and their spaced labels; empty query enumerates the catalogue. Stable name order, offset0/limit50 by default; total is measured before paging and an outside offset returns no items. Offset must be a finite nonnegative integer and limit a finite positive integer; there is no added safe-integer maximum. |
 
-Labels come from the existing names; search does not promise translated synonyms or thematic equivalence to another library. Every response is detached. The standalone `icons` implementation module behind `createLocalToolIcons()` emits no DB/DOM/React or drawing data. Importing the full SDK may retain its existing React graph. Geometry remains in the existing painter and is loaded dynamically only by rendering.
+Labels come from the existing names; search does not promise translated synonyms or thematic equivalence to another library. Every response is detached. The standalone `icons` implementation module behind `createLocalToolIcons()` emits no DB/DOM/React or drawing data. Importing the full SDK may retain its existing React graph. Metadata does not acquire geometry; the existing painter and the explicit SVG runtime load graphics only when requested.
 
 ```tsx
 import {LocalToolIcon, type LocalToolClient, type LocalToolProps} from '@/engines/local/sdk';
@@ -72,7 +72,7 @@ function Symbol({client}: LocalToolProps<State>) {
 }
 ```
 
-`LocalToolIcon` takes an explicit narrow client with the optional `icons` property. Its other props are `icon?`, `fallback?` (default `BookOpen`, `null` disables that semantic fallback), `size?` (default20), `color?`, `label?` and `className?`. It replays the existing numeric map-symbol painter on Canvas; it never accepts author SVG markup. An unavailable ID uses an available fallback; an absent/failing provider or unavailable fallback leaves a neutral drawn mark. A label supplies an accessible image name; without it the icon is decorative. Retargeting a client, including a different client with the same icons service, invalidates late work. Unmounting cannot paint back into the old binding. This is a renderer, not `resolveSvg`.
+`LocalToolIcon` takes an explicit narrow client with the optional `icons` property. Its other props are `icon?`, `fallback?` (default `BookOpen`, `null` disables that semantic fallback), `size?` (default20), `color?`, `label?` and `className?`. It replays the existing numeric map-symbol painter on Canvas; it never accepts author SVG markup. An unavailable ID uses an available fallback; an absent/failing provider or unavailable fallback leaves a neutral drawn mark. A label supplies an accessible image name; without it the icon is decorative. Retargeting a client, including a different client with the same icons service, invalidates late work. Unmounting cannot paint back into the old binding. This component is a Canvas renderer; SVG resolution is a separate optional method described below.
 
 The importable product example `@/engines/local/examples/iconNotebookDefinition` combines the catalogue and normal state actions. In your own trusted source module, choose a unique namespace:
 
@@ -85,7 +85,57 @@ export default defineLocalTool({...notebook, namespace: 'me.icon-notebook'});
 
 Importing this definition does not install, compile, select or enable a project tool. Use the existing source workflow and enable the compiled engine normally. The example searches/pages without writing, saves only `iconId` when a result is selected, and preserves an independent notes draft. **Save notes** applies only notes against its captured baseline; conflicts retain the draft and saved remote notes. Existing receipt Undo/Redo remain explicit. The icon ID is an ordinary scalar string; unknown stored strings survive with fallback. Prose and portable previews remain literal/escaped text, without a new icon atom, SVG payload or graphical preview format. No new ZIP roundtrip is claimed for this extension.
 
-The readonly MCP tool `wh_local_tool_icons` exposes the same metadata, in addition to the existing state/document tools described below. Source and transport verification are separated in [the icon verification guide](../tasks/vvd1095/verification-sdk-icons.md). The broader SDK remains partial: no `resolveSvg`, uploaded/third-party packs, upstream ABI compatibility or general parity is established.
+The readonly MCP tool `wh_local_tool_icons` exposes the same metadata, in addition to the existing state/document tools described below. Source and transport verification are separated in [the icon verification guide](../tasks/vvd1095/verification-sdk-icons.md). That1523 metadata cut did not include `resolveSvg`; the additive1526 section below documents it. Uploaded/third-party packs, upstream ABI compatibility and general SDK parity remain outside this bounded contract.
+
+## Local icon SVG resolution
+
+The additive 1526 method is optional even when `client.icons` is present:
+
+```ts
+const resolve = client.icons?.resolveSvg;
+const svg = resolve ? await resolve('writer-map-symbols/1:Castle') : null;
+```
+
+`resolveSvg?: (id: string) => Promise<string | null>` accepts the same canonical IDs and short names as `get`; `Wand2` canonicalizes to `WandSparkles`. Unknown names, empty strings, URLs and foreign prefixes return null without fetching or loading another pack. A renderer port may also return null; its rejection propagates. Absence of the method denotes an older or metadata-only host, distinct from a known provider returning null. This is Writer's own signature: the reference documentation listed a capability name, without establishing an exact upstream ABI or authenticated runtime behavior.
+
+The real application binds a shared runtime service which dynamically loads the existing geometry only for a known SVG request. `LocalToolIcon` continues to use its existing Canvas painter. The metadata factory remains a separate pure entry with an explicit optional port:
+
+```ts
+import {createLocalToolIcons} from '@/engines/local/icons';
+
+const metadataOnly = createLocalToolIcons(); // no resolveSvg member or graphic import
+```
+
+When the author explicitly needs graphics, use the companion entry:
+
+```ts
+import {createLocalToolIcons} from '@/engines/local/icons';
+import {resolveLocalToolIconSvg} from '@/engines/local/iconSvg';
+
+const graphical = createLocalToolIcons(resolveLocalToolIconSvg); // explicit graphics entry
+const svg = await graphical.resolveSvg?.('Castle');
+```
+
+The explicit `iconSvg` entry is headless-capable: it serializes the existing numeric catalogue, without DB, React, DOM or network. Import it when graphics are needed; do not add it to a metadata-only fake just to query names. The public SDK exports the `LocalToolIconSvgResolver` type, without eagerly exporting the graphics implementation.
+
+An author fake accepts its function through the existing third `LocalToolHostOverrides` argument, outside structured JSON fixtures. Given a normal definition and fixture aggregate:
+
+```ts
+import {createFakeLocalToolHost} from '@/engines/local/testing';
+import {resolveLocalToolIconSvg} from '@/engines/local/iconSvg';
+
+const host = createFakeLocalToolHost(definition, fixtures, {
+  iconSvg: resolveLocalToolIconSvg,
+});
+```
+
+Omitting the override keeps the fake metadata-only. Tests can supply an explicit fixture port instead; that proves the port contract, not the production serializer.
+
+Output is standalone SVG with a 24×24 viewBox, currentColor stroke, width 2, round caps/joins, nonzero fill and overflow clipping. Each existing shape keeps its own path; ellipse operations become standard SVG arcs. Full source license notices are retained as escaped text in metadata. The scope agreed in thread 1650 is faithful standard geometry: the independent verifier covers all 1688 symbols, 6717 shapes, 7334 ellipse operations and 10722 SVG arcs, plus 15 special fixtures and 25 rejected mutations. It does **not** promise identical Canvas rasterization: the preserved24/96px census has 2158 exact and 1218 different pairs of 3376, including LoaderCircle24 alpha mass+10.28% and five 96px interior opacity differences. No AA threshold or pixel PASS is claimed.
+
+The same normal importable Icon notebook definition now includes **Download SVG / Descargar SVG**. Import/compilation/enablement follow the existing source workflow above; nothing is installed automatically. Download uses the selected icon's canonical filename and SVG MIME type, preserving the notes draft, saved snapshot and ledger without flushing or calling Save notes. Notes remain editable during the request. Changing selection, changing the client even with the same service, or unmounting permanently invalidates that request; switching A→B→A cannot revive it. Editing notes alone does not cancel the captured icon request. Busy, unavailable and retryable-error feedback belongs to this action. An unknown saved ID stays stored and cannot silently export the visual fallback. Existing Save notes, conflict recovery and Undo/Redo remain separate actions.
+
+SVG is a returned/downloaded value, not a new saved icon format, asset import, prose atom or portable preview. The separate readonly MCP `wh_local_tool_icon_svg` returns the same string/null. [Evidence, raster limits and delivery status](../tasks/vvd1095/verification-sdk-icon-svg.md).
 
 ## Named operations and native MCP
 
