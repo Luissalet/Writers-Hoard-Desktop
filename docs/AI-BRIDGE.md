@@ -1,5 +1,19 @@
 # Puente IA — puerto local para modelos externos
 
+## SVG de un símbolo local
+
+`wh_local_tool_icon_svg` es una herramienta gráfica separada de sólo lectura (`writes:false`). Reutiliza el mismo runtime/serializador que `client.icons.resolveSvg`; conserva exactamente las acciones `packs/get/search` de `wh_local_tool_icons`. No necesita proyecto, época, motor habilitado o Source. `projectId` y `eraId` son opcionales y se ignoran, admitiendo la inyección habitual de ámbito de `client.callTool`.
+
+```json
+{"id":"writer-map-symbols/1:Castle"}
+```
+
+El argumento `id` es requerido y de tipo string. Admite los mismos nombres cortos, IDs canónicos y alias que `get`: `Wand2` resuelve `WandSparkles`. Devuelve el string SVG estándar completo con avisos de licencia, o **null JSON** para nombre desconocido, cadena vacía, URL o prefijo ajeno. No descarga ni interpreta SVG remoto; los errores reales se propagan. No devuelve un wrapper `{svg:...}` ni el dibujo fallback. El adaptador stdio existente conserva null explícito; no hay cambio nuevo de transporte para esta ampliación.
+
+La validación común conserva su comportamiento: puede normalizar un número a string y descarta claves no declaradas; un ID ausente u objeto se rechaza en esa frontera. El handler directo no ejecuta por sí mismo la validación del manifiesto. No se presenta una expectativa distinta del dispatcher como una garantía nueva.
+
+La lectura no modifica documentos, notas, revisiones, ledger o navegación y no produce un recibo de Deshacer. Entrega bytes SVG al consumidor; no inicia por MCP una descarga del navegador. La geometría estándar está verificada para 1688 símbolos, sin afirmar igualdad fotométrica con Canvas ni firma/ABI upstream. [Contrato, pruebas atribuidas, límites raster y estado de entrega](../tasks/vvd1095/verification-sdk-icon-svg.md).
+
 ## Catálogo compartido de símbolos locales
 
 `wh_local_tool_icons` es una herramienta nueva de sólo lectura (`writes:false`). Consulta el mismo catálogo estático que `client.icons`, sin necesitar proyecto, época, motor habilitado o documento Source. `projectId` y `eraId` son opcionales y se ignoran: se admiten para que `client.callTool` pueda inyectar su ámbito habitual, sin convertir el catálogo en una lectura de datos de otro proyecto.

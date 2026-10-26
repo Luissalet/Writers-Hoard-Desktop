@@ -1637,12 +1637,14 @@ Review: source18 f82e621a9552a534f5f0f686f811362a959cc899 approved at exact CAS4
 
 ## Writer SDK icon SVG (1095 / research1526)
 
-Success: resolve the existing local symbols as standalone SVG through an optional SDK capability and a readonly MCP tool, with geometry faithful to the unchanged Canvas painter. Preserve metadata-only author bundles, existing icon queries, Source notes and all project data.
+Success: resolve the existing local symbols as standalone SVG through an optional SDK capability and a readonly MCP tool, with verified standard geometry from the unchanged symbol data; exact raster diagnostics remain separate FAIL. Preserve metadata-only author bundles, existing icon queries, Source notes and all project data.
 
 - [x] Complete independent architecture1648 review of the explicit graphic port, license notices, separate MCP endpoint and raster criterion before product changes.
 - [x] Record a public Source-positive RED for the missing SVG capability; ROOT reads the complete oracle and receipt before product GO, then require the complete oracle GREEN (one authorized async-callback harness correction, original/inverse proof retained).
-- [ ] Verify every symbol at24/96, structural arc/fill/closure cases, negative controls, pure author bundles and normal Source download without saving notes.
-- [ ] Exercise real Brave and native MCP, obtain independent technical/finish/formal review, and run applicable checks on frozen source.
-- [ ] Commit explicit paths as Luissalet, integrate under the merge lock without push, verify Main and update documentation/manual/continuity. Keep1095/WT open and general parity partial.
+- [x] Verify every symbol at24/96, structural arc/fill/closure cases, negative controls, pure author bundles and normal Source download without saving notes.
+- [x] Exercise real Brave and native MCP, obtain independent technical/finish/formal review, and run applicable checks on frozen source.
+- [x] Commit explicit paths as Luissalet, integrate under the merge lock without push, verify Main and update documentation/manual/continuity. Keep1095/WT open and general parity partial.
 
-Plan: _stage/sdk-icon-svg-next/FULL.md and PLAN.md. The first GO is test-only in tests/local-tool-icon-svg.node.cjs; product remains unchanged until the independent architecture review and material RED are read. Existing metadata and Native oracles, catalogue/data/painter and foreign files remain untouched. ROOT owns runner/todo, Browser, gates, Git/Main and delivery.
+Initial plan (historical): _stage/sdk-icon-svg-next/FULL.md and PLAN.md. The first GO is test-only in tests/local-tool-icon-svg.node.cjs; product remains unchanged until the independent architecture review and material RED are read. Existing metadata and Native oracles, catalogue/data/painter and foreign files remain untouched. ROOT owns runner/todo, Browser, gates, Git/Main and delivery.
+
+Review: source17 547665ca46805527461569881f60ac5d772959de approved at exact CAS44 and fast-forwarded to Main. ROOT13 passes include original critical396/manifest943; Main five focused checks pass on exact blobs. Independent geometry1688 and Native23MCP/19IPC/88tables, normal Source drafts/Blob and RootBrave start feedback retain their measured limits; exact raster2158/1218 remains FAIL. Fresh finish0findings/9views, manual259UTF16/full readback, documentation/common continuity and research1526 closure have separate receipts in _stage/sdk-icon-svg-next/ROOT-delivery-final.json. Parent1095/WT and general parity remain open/partial, no push.
