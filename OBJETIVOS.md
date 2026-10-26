@@ -126,7 +126,7 @@ PRESENT).
 Siguiente:
 - D1 pendiente: elegir reglamento y un compendio 5e 2014 (SRD 5.1); editor de
   bloque de estadísticas con acciones estructuradas; notas con texto rico y
-  tamaños de imagen; renombrar y ordenar clips guardados con el modelo; búsqueda
+  tamaños de imagen; búsqueda
   de imágenes en la web (en línea) fuera de alcance.
 - Olas D2 (plataforma) y B (campaña), por sus listas priorizadas.
 - La fila C #1 sigue PARTIAL: un proyecto es un solo manuscrito; varias
@@ -202,3 +202,7 @@ Defaults locales y favorito explícito del Cuaderno de iconos están implementad
 ## Continuación SDK: tema resuelto y colecciones
 
 El contraste1532 sucede al candidato de tema vivo de la sección1528: implementa un lector propio de nueve colores/modo, su hook opcional, la lectura MCP ampliada y el repintado del mismo icono Canvas tras aplicar Apariencia. [Evidencia y estado de entrega](tasks/vvd1095/verification-sdk-theme.md). Las colecciones ya tienen `world.list/read`, `media.list`, consultas y `useLocalToolWorld` vivos; no se duplica esa capacidad por una diferencia de nombres. Continúan los huecos offline de las matrices1095 y el contraste de web/SDK. No se ha probado el ABI/runtime de la referencia ni cerrado la paridad general.
+
+## Etiquetas y orden de clips 3D — continuación1095
+
+La implementación actual añade nombres de presentación y orden persistentes sobre todos los clips originales, con edición propietaria, MCP por ámbito, CAS y Deshacer; las salidas compactas/Reader/wiki sólo los leen. El campo opcional no reescribe GLB ni originales, y la ausencia antigua sigue sin migración. La fuente31c5598664c4f4de14880ae71d65c45530cc78f7 está aprobada exactamente en CAS47 e integrada en Main con cuatro focos PASS; el manual y la continuidad común también están actualizados. El commit/FF documental tiene su recibo posterior ROOT-delivery-final.json: [contrato, evidencia y estado](tasks/vvd1095/verification-model-animation-presentation.md). La fila D1#56 conserva PARTIAL para lo no acreditado, incluida eliminación de clips y edición de rigs; la tarea1095 y la paridad general permanecen abiertas. Los recuentos históricos no se recalculan por esta adición.

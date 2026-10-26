@@ -2742,3 +2742,21 @@ Same-key incompatible changes fail without automatic overwrite; disjoint keys su
 `wh_workspace_appearance_get` conserva `own`, `effective`, `revision` e `inherited` y añade `resolved:{mode,tokens}`. `mode` es `light|dark` según el contraste efectivo, no necesariamente `effective.mode`. `tokens` contiene exactamente nueve claves CSS: `--color-deep`, `--color-surface`, `--color-elevated`, `--color-border`, `--color-border-hover`, `--color-text-primary`, `--color-text-muted`, `--color-text-dim` y `--color-accent-gold`. Proyecto/`eraId` mantienen su significado; una época sin perfil propio hereda Base.
 
 Es la misma lectura readonly: no persiste un predeterminado ni incorpora nueva herramienta o escritor. Save/reset continúan por las operaciones de Apariencia existentes con su CAS. Los avisos explícitos de guardado y despacho se emiten tras confirmar la transacción raíz; una transacción exterior abortada no anuncia un tema provisional. El dato resuelto no acredita que un panel visual ya haya aplicado CSS. [Contrato y pruebas separadas SDK/MCP/Canvas/Native](../tasks/vvd1095/verification-sdk-theme.md).
+
+## Persistent model animation presentation
+
+`wh_model_animation_get` is read-only. Supply `modelId`, optionally `projectId` and `eraId`; omit `eraId` for Shared base. It returns `{projectId,eraId?,modelId,version,order,clips:[{index,name,label}]}` without model binaries. `index` identifies an original source clip; position in `order` is its presentation position. Duplicate/empty original names remain valid, and an unnamed clip keeps the existing `animation_N` fallback unless overridden.
+
+`wh_model_animation_action` requires the same scope/model, exact observed `expectedVersion` and one action:
+
+| Action | Additional arguments | Effect |
+| --- | --- | --- |
+| `rename` | `index`, `label` | Trim and save an override; empty text removes only that override. |
+| `move` | `index`, `position` | Move the source clip to a zero-based presentation position while retaining every clip. |
+| `reset` | None | Remove the optional presentation and restore natural order/names. |
+
+Rename rejects `position`, move rejects `label`, and reset rejects clip arguments. Indices/positions must refer to the existing complete inventory. Changed actions return the updated inventory/version and a session receipt. A no-op returns no domain receipt or journal entry; the existing executor still records `writes:true` calls, so generic audit/dispatch behavior remains.
+
+Use `version` as opaque: Base/inherited uses `sha256:…`, own era variants use `variant:N`. Stale edits preserve the winner; read it and deliberately reapply. Native Undo uses the existing authenticated `POST /api/undo {index}` with `_undo.audit_index`, then normal IPC `__undo`. There is **no new `wh_undo` MCP tool**. The session receipt retains only presentation/provenance/version data, without a binary/full document snapshot. A later model change or consumed receipt can make Undo stale; Undo of a first era override returns to current Base inheritance. These are two own native tools, not a facade for another SDK. [Contract, evidence and delivery status](../tasks/vvd1095/verification-model-animation-presentation.md).
+
+Source31c5598664c4f4de14880ae71d65c45530cc78f7 is approved exactly at CAS47 and integrated in Main. Formal and Main runs independently exercised actual two-key stdio transport and normal HTTP Undo; they remain separate from Browser and renderer-abort proofs. Manual/common updates are complete; the separate documentation commit/FF is recorded in ROOT-delivery-final.json.
