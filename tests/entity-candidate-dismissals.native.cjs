@@ -106,11 +106,12 @@ async function drive() {
     {...codex,context:{...codex.context,draftId:'invalid-for-codex'}},
   ]){const prior=await snapshot();assert((await call(a,LIST,args)).isError);assert.deepEqual(await snapshot(),prior);}
   for(const candidate of [span('La Guía'),{...span('Rowan'),from:0}]){const prior=await snapshot();assert((await call(b,ACTION,{...base,action:'dismiss',text:fixture.text,candidate,expectedVersion:''})).isError);assert.deepEqual(await snapshot(),prior);}
-  // No detector API is installed. Check the legacy unavailability contract through
-  // the real transport, without pretending metadata spans are model output.
+  // No native detector API or model assets are installed in this private profile.
+  // Browser selection is real: missing cache must fail before pipeline creation.
+  // Metadata action spans above are explicit inputs, never model output.
   const detectBefore=await snapshot();
-  for(const session of [a,b]){const unavailable=await call(session,'wh_entity_detect',{projectId:base.projectId,text:fixture.text});assert(unavailable.isError);assert(JSON.stringify(unavailable.value).includes('entity_detection_desktop_required'));}
-  assert.deepEqual(await snapshot(),detectBefore);checks.push({foreignScopeDraftAndAliasRejected:true,legacyDetectContextOptional:true,legacyDetectUnavailableErrorRetained:true,positiveInferenceClaim:false});
+  for(const session of [a,b]){const unavailable=await call(session,'wh_entity_detect',{projectId:base.projectId,text:fixture.text});assert(unavailable.isError);assert(JSON.stringify(unavailable.value).includes('entity_model_assets_missing_or_damaged'));}
+  assert.deepEqual(await snapshot(),detectBefore);checks.push({foreignScopeDraftAndAliasRejected:true,legacyDetectContextOptional:true,browserDetectMissingAssetsBeforePipeline:true,positiveInferenceClaim:false});
   const probe=await renderer('__nerNativeRootProbe');assert.deepEqual(probe,{awaitedOuterCommit:true,rootAbortExact:true,abortedReceiptUnavailable:true,undoAbortReservationReleased:true,undoRetryExact:true,transportClaim:'separate renderer domain transaction probe, not stdio/HTTP transaction'});await conserve();save('root-transaction-probe.json',probe);
   const prior=replies.length,denied=await fetch(`http://127.0.0.1:${port}/api/call`,{method:'POST',headers:{Authorization:'Bearer deliberately-invalid-native-key','Content-Type':'application/json'},body:JSON.stringify({tool:LIST,args:base}),signal:AbortSignal.timeout(10000)});unauthorizedStatus=denied.status;assert.equal(unauthorizedStatus,401);assert.equal(replies.length,prior,'Unauthorized request reached renderer');await conserve();
   const usedKeys=await bridge.bridgeKeys.list(),audit=await bridge.readAudit(200);

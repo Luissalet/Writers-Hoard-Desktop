@@ -1,5 +1,6 @@
 const { app, BrowserWindow } = require('electron');
 const esbuild = require('esbuild');
+const { viteCssTextPlugin } = require('./esbuild-vite-css.cjs');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const os = require('node:os');
@@ -71,13 +72,13 @@ async function main() {
         'import.meta.url': '"file:///writers-hoard-startup.js"',
       },
       plugins: name === 'startup'
-        ? [{
+        ? [viteCssTextPlugin(), {
             name: 'ignore-renderer-css',
             setup(build) {
               build.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'css' }));
             },
           }]
-        : [],
+        : [viteCssTextPlugin()],
       logLevel: 'warning',
     });
     await fs.writeFile(

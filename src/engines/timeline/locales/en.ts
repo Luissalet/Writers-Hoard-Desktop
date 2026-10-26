@@ -1,4 +1,5 @@
 export default {
+  'timeline.fitView': 'Fit timeline to view',
   'timeline.details.links': 'Linked Codex cards',
   'timeline.details.searchCards': 'Find cards to link',
   'timeline.details.noCards': 'No matching cards.',

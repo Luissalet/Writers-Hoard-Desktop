@@ -183,7 +183,7 @@ export default function TimelineView({ projectId, timelineId, events: storedEven
 
   return (
     <div className="space-y-6">
-      {timeline?.yearRange && <div className="text-xs text-text-muted flex flex-wrap items-center gap-3" data-testid="timeline-range-note"><span>{t('timeline.settings.rangeNote').replace('{start}', String(timeline.yearRange.start)).replace('{end}', String(timeline.yearRange.end)).replace('{count}', String(storedEvents.length - events.length))}</span><button type="button" className="text-accent-gold hover:underline" onClick={() => void saveTimelineSettings(projectId, timelineId, { yearRange: undefined })}>{t('timeline.settings.allYears')}</button></div>}
+      {timeline?.yearRange && <div className="text-xs text-text-muted flex flex-wrap items-center gap-3" data-testid="timeline-range-note"><span>{t('timeline.settings.rangeNote').replace('{start}', String(timeline.yearRange.start)).replace('{end}', String(timeline.yearRange.end)).replace('{count}', String(storedEvents.length - events.length))}</span><button type="button" className="text-accent-gold hover:underline" onClick={() => void saveTimelineSettings(projectId, timelineId, { yearRange: undefined }, scope.eraId)}>{t('timeline.settings.allYears')}</button></div>}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-serif font-bold text-accent-gold">{t('timeline.timelineHeading')}</h3>
         <div className="flex items-center gap-2">
