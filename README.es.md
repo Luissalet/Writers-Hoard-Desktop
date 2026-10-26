@@ -667,3 +667,9 @@ El editor Browser puede preparar el mismo clasificador multilingüe fijado o imp
 Timeline añade Ajustar línea temporal a la vista junto al zoom. Ajusta el lienzo horizontal actual y sigue el ancho del panel, sin cambiar fechas, rango o precisión del contenido. Usar zoom vuelve a modo manual; la vista es efímera. Mostrar todos los años sigue siendo una edición separada del rango y ahora respeta la época elegida en carriles y lista.
 
 Estos cambios acotados están integrados en Main07d868d, con aprobación exacta CAS51 y verificación en Main. [Uso, pruebas atribuidas y límites restantes](tasks/vvd1095/verification-browser-ner-timeline.md). La paridad general web/SDK permanece abierta.
+
+## Portada capturada del libro y cubierta física para imprimir
+
+Los perfiles de publicación pueden incluir una portada frontal capturada antes del libro en HTML, EPUB, DOCX y la ruta PDF nativa existente. Se capturan juntos manuscrito/época, etiquetas y contenido; una edición posterior no sustituye la portada de esa exportación. Dejar la opción apagada conserva la salida anterior.
+
+El diseñador de cubierta exporta por separado el jacket completo en un PDF de una hoja, PNG o JPEG, con medidas de tapa, lomo, sangrado exterior y resolución editables. La vista previa a 72 ppp se distingue del muestreo de exportación. El PDF es raster RGB con cajas físicas; siguen abiertos el PDF de libro en Browser y el lote multiformato. [Uso, pruebas atribuidas y límites de entrega actuales](tasks/vvd1095/verification-cover-exports.md).
