@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Native Directions own fixture</title></head><body class="bg-deep text-text-primary"><div id="root"></div><script type="module">
+import '/src/index.css';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+window.addEventListener('error', event => { window.__result = {ok:false,error:event.error?.stack || event.message}; });
+try { const {testWorldPlaceDirectionsNative} = await import('/tests/world-place-directions.native.renderer.ts'); const tests = await testWorldPlaceDirectionsNative(); window.__result = {ok:true,tests}; } catch(error) { window.__result = {ok:false,error:error.stack || String(error)}; }
+</script></body></html>

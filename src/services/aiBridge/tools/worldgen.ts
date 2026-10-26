@@ -115,6 +115,10 @@ async function loadWorld(args: ToolArgs): Promise<GeneratedWorld> {
   const world = await worldgenScopeOperations(worldEraToolScope(args)).worlds.getOne(worldId);
   if (!world) throw new BridgeError('not-found', `No generated world with id "${worldId}".`);
   assertRowInScope(args, world.projectId);
+  const projectId = optString(args, 'projectId');
+  if (projectId && world.projectId !== projectId) {
+    throw new BridgeError('bad-args', `World "${worldId}" does not belong to project "${projectId}".`);
+  }
   return world;
 }
 

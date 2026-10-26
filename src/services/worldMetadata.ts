@@ -1,3 +1,4 @@
+import { renewCandidateDismissals } from '@/services/entityDetection/dismissals';
 import {remapManuscriptCatalog} from '@/engines/writings/manuscripts';
 import {remapLocalToolBlocksInHtml,validateLocalToolBlocksInHtml} from '@/engines/local/blocks/types';
 import { remapPrepBlocks } from '@/engines/prepBlocks/remap';
@@ -114,6 +115,7 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
     localToolContracts: project.localToolContracts ? structuredClone(project.localToolContracts) : undefined,
     ...remapWikiProfiles(project, remap),
     localToolInstallations: cloneLocalToolInstallations(project.localToolInstallations),
+    entityCandidateDismissals: project.entityCandidateDismissals ? renewCandidateDismissals(project.entityCandidateDismissals, remap) : undefined,
     entityDetectionPreferences: project.entityDetectionPreferences ? { ...project.entityDetectionPreferences, revision: 0 } : undefined,
     ...remapPublishedEditions(project, remap, content => remapPublishedEditionContent(project.id, remap(project.id, 'proj'), content, remap,{richSourceIds}), id => remap(id, 'media'),html=>remapPublishedEditionContent(project.id,remap(project.id,'proj'),html,remap,{linksOnly:true})),
     worldEras: project.worldEras?.map(era => {

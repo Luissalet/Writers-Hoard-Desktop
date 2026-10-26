@@ -108,6 +108,7 @@ interface ProjectRecord {
   pinned?: boolean;
   workspaceAppearance?: unknown;
   codexOptionLists?: import('@/engines/codex/optionListTypes').CodexOptionList[];
+  entityCandidateDismissals?: import('@/services/entityDetection/dismissalTypes').EntityCandidateDismissalLedger;
   entityDetectionPreferences?: import('@/services/entityDetection/types').EntityDetectionPreferences;
   wikiProfiles?: import('@/services/wikiProfiles/types').WikiProfile[];
   localToolContracts?: import('@/engines/local/stateCodec').LocalToolContracts;

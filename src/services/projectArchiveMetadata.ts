@@ -1,3 +1,5 @@
+import { validateEntityCandidateDismissals } from '@/services/entityDetection/dismissalTypes';
+import { renewCandidateDismissals } from '@/services/entityDetection/dismissals';
 import {validateManuscriptProject} from '@/engines/writings/manuscripts';
 import {validateLocalToolContractStates} from '@/engines/local/stateCodec';
 import type { Project } from '@/types';
@@ -14,7 +16,7 @@ import {validateToolDockProjectMetadata} from '@/engines/writings/toolDock/types
 import type {WorldEraVariant,WorldEraVariantState} from '@/services/worldEras/types';
 import {validateProjectAnimationPresentations} from '@/engines/model-viewer/portable';
 
-export function validateProjectArchiveMetadata(project: { modelAssets?:unknown; manuscriptCatalog?:unknown; writingToolDock?:unknown; pinned?:unknown; worldFolderImports?:unknown; genres?:unknown; sourceToolDocuments?: unknown; entityDetectionPreferences?: unknown; wikiProfiles?: unknown; localToolInstallations?: unknown; localToolContracts?:unknown; localToolStates?:Project['localToolStates']; worldEras?:Project['worldEras'] } & Parameters<typeof validateProjectCoverMetadata>[0]): void {
+export function validateProjectArchiveMetadata(project: { modelAssets?:unknown; manuscriptCatalog?:unknown; writingToolDock?:unknown; pinned?:unknown; worldFolderImports?:unknown; genres?:unknown; sourceToolDocuments?: unknown; entityDetectionPreferences?: unknown; entityCandidateDismissals?: unknown; wikiProfiles?: unknown; localToolInstallations?: unknown; localToolContracts?:unknown; localToolStates?:Project['localToolStates']; worldEras?:Project['worldEras'] } & Parameters<typeof validateProjectCoverMetadata>[0]): void {
   validateManuscriptProject(project);
   validateToolDockProjectMetadata(project);
   normalizeProjectGenres(project.genres);
@@ -23,6 +25,7 @@ export function validateProjectArchiveMetadata(project: { modelAssets?:unknown; 
   validateLocalToolBlockRichContent(project, 'id' in project && typeof project.id === 'string' ? project.id : undefined);
   validateSourceToolDocuments(project.sourceToolDocuments);
   validateEntityDetectionPreferences(project.entityDetectionPreferences);
+  validateEntityCandidateDismissals(project.entityCandidateDismissals);
   validateWikiProfilesProject(project);
   validateLocalToolInstallations(project.localToolInstallations);
   validateLocalToolContractStates(project);
@@ -31,12 +34,13 @@ export function validateProjectArchiveMetadata(project: { modelAssets?:unknown; 
 }
 
 /** Absence in a legacy archive cannot erase settings its format did not carry. */
-type PortableMetadata = Pick<Project, 'manuscriptCatalog' | 'worldEras' | 'writingToolDock' | 'pinned' | 'worldFolderImports' | 'genres' | 'sourceToolDocuments' | 'codexOptionLists' | 'entityDetectionPreferences' | 'wikiProfiles' | 'localToolInstallations' | 'localToolContracts'>;
+type PortableMetadata = Pick<Project, 'manuscriptCatalog' | 'worldEras' | 'writingToolDock' | 'pinned' | 'worldFolderImports' | 'genres' | 'sourceToolDocuments' | 'codexOptionLists' | 'entityCandidateDismissals' | 'entityDetectionPreferences' | 'wikiProfiles' | 'localToolInstallations' | 'localToolContracts'>;
 export function preserveLegacyProjectMetadata<T extends PortableMetadata>(incoming: T, existing?: PortableMetadata): T {
   const result = { ...incoming };
-  for (const key of ['manuscriptCatalog', 'writingToolDock', 'pinned', 'worldFolderImports', 'genres', 'sourceToolDocuments', 'codexOptionLists', 'entityDetectionPreferences', 'wikiProfiles', 'localToolInstallations', 'localToolContracts'] as const) {
+  for (const key of ['manuscriptCatalog', 'writingToolDock', 'pinned', 'worldFolderImports', 'genres', 'sourceToolDocuments', 'codexOptionLists', 'entityCandidateDismissals', 'entityDetectionPreferences', 'wikiProfiles', 'localToolInstallations', 'localToolContracts'] as const) {
     if (incoming[key] === undefined && existing?.[key] !== undefined) Object.assign(result, { [key]: structuredClone(existing[key]) });
   }
+  if (incoming.entityCandidateDismissals !== undefined) result.entityCandidateDismissals = renewCandidateDismissals(incoming.entityCandidateDismissals);
   if(incoming.worldEras&&existing?.worldEras)result.worldEras=incoming.worldEras.map(era=>{
     const previous=existing.worldEras!.find(row=>row.id===era.id)?.defaults?.writingToolDock;
     return era.defaults?.writingToolDock===undefined&&previous!==undefined?{...era,defaults:{...era.defaults,writingToolDock:structuredClone(previous)}}:era;

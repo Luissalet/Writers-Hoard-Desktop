@@ -86,6 +86,8 @@ interface SpatialEntityInspectorProps {
   onOpenRegion: () => void;
   onReveal2D: () => void;
   onReveal3D: () => void;
+  /** Open a fresh journey draft with this place at the chosen end. */
+  onJourney?: (end: 'from' | 'to') => void;
 }
 
 function spatialEntityId(worldId: string, key: string): string {
@@ -107,6 +109,7 @@ export default function SpatialEntityInspector({
   onOpenRegion,
   onReveal2D,
   onReveal3D,
+  onJourney,
 }: SpatialEntityInspectorProps) {
   const { t, locale } = useTranslation();
   const scope = useWorldEraScope(projectId);
@@ -323,6 +326,11 @@ export default function SpatialEntityInspector({
           aria-label={t('worldgen.place.nameLabel')}
         />
       </div>
+
+      {onJourney && <div className="flex flex-col gap-1.5">
+        <button type="button" onClick={() => onJourney('from')} className="min-h-9 rounded-lg border border-border bg-elevated px-3 py-2 text-left text-xs text-text-primary hover:border-accent-gold/60 focus-visible:outline-2 focus-visible:outline-accent-gold">{t('worldgen.place.travelFrom')}</button>
+        <button type="button" onClick={() => onJourney('to')} className="min-h-9 rounded-lg border border-border bg-elevated px-3 py-2 text-left text-xs text-text-primary hover:border-accent-gold/60 focus-visible:outline-2 focus-visible:outline-accent-gold">{t('worldgen.place.directionsTo')}</button>
+      </div>}
 
       <div className="grid grid-cols-2 gap-2">
         <label className="text-[10px] text-text-muted">

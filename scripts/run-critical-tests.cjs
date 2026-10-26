@@ -166,7 +166,9 @@ async function main() {
     );
     const { createServer } = await import('vite');
     const projectRoot = path.resolve(__dirname, '..');
-    const devServer = await createServer({
+    // A caller may reuse its existing QA server; never close a server we do not own.
+    const existingDevUrl = process.env.WH_TEST_BASE_URL;
+    const devServer = existingDevUrl ? null : await createServer({
       root: projectRoot,
       configFile: path.join(projectRoot, 'vite.config.ts'),
       logLevel: 'error',
@@ -180,8 +182,8 @@ async function main() {
     });
     let devStartupCount = 0;
     try {
-      await devServer.listen();
-      const devUrl = devServer.resolvedUrls?.local[0];
+      if (devServer) await devServer.listen();
+      const devUrl = existingDevUrl || devServer.resolvedUrls?.local[0];
       if (!devUrl) throw new Error('Vite did not expose a local development URL.');
       const rendererErrors = [];
       const onConsoleMessage = details => {
@@ -275,7 +277,7 @@ async function main() {
         testWindow.webContents.removeListener('render-process-gone', onRendererGone);
       }
     } finally {
-      await devServer.close();
+      if (devServer) await devServer.close();
     }
     console.log(
       `Critical tests passed: ${nativeTests.length + criticalCount + worldgenCount + startupCount + devStartupCount}`,
