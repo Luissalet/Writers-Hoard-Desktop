@@ -1656,5 +1656,7 @@ Success: optional world/tool/key preferences through SDK and MCP, with explicit 
 - [x] Complete Source-positive public RED and read the full oracle/first log before product GO.
 - [x] Implement pure defaults on existing transactions/actions; verify isolation, concurrency, absence Undo, rollback and readonly.
 - [x] Add normal MCP and explicit consumer with live updates, stale response protection and independent notes.
-- [ ] Verify Brave, real native bridge, portability and appropriate original suites; obtain fresh independent reviews.
-- [ ] Commit explicit paths as Luissalet, integrate under merge lock without push, and update docs/manual/continuity. Keep1095 open.
+- [x] Verify Brave, real native bridge, portability and appropriate original suites; obtain fresh independent reviews.
+- [x] Commit explicit paths as Luissalet, integrate under merge lock without push, and update docs/manual/continuity. Keep1095 open.
+
+Review: source19 da4b9e9fd0de24b55687d68ac02b3fe59726f30d approved at exact CAS45, Main six focused checks pass on canonical blobs. Root broad current source passes critical396/build/types/lint and twelve gates; original catalogue selector correction independently agreed, exact inverse and first FAIL preserved, corrected aggregate4PASS. Native two actual keys/10MCP/9IPC/88tables repeated on Main; real Brave Base two Sources/drafts and cleanup, layout7/portability1 and fresh finish ship8 captures retain their stated scopes. Manual +382UTF16 fully read back; documentation/common/research1528 closure in _stage/sdk-next-after-svg/ROOT-delivery-final.json. Parent1095/WT and general parity remain open/partial. No push.

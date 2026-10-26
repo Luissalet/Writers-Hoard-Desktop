@@ -202,3 +202,7 @@ Source extends named wiki profiles with10additional page kinds, explicit/bulk/ne
 ## Textos propios de las herramientas
 
 Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(client)` para etiquetas, interpolación, plurales y formatos Intl. Cambiar el idioma normal de la aplicación conserva las notas escritas; el ejemplo Libreta traducida permite edición Source y Propio con guardado explícito. Guarda una tarjeta nueva del Códex antes de insertar su bloque propio y guarda después el hijo y el documento padre por separado. Es una ampliación offline acotada del SDK; [evidencia, estado de entrega y límites](tasks/vvd1095/verification-sdk-locale.md) separan comprobación técnica e integración.
+
+## Preferencias compartidas de herramientas locales
+
+El SDK opcional `client.defaults` y `useLocalToolDefaults` separa preferencias JSON por mundo/herramienta/clave del estado de los documentos. `wh_local_tool_default_get` consulta y `wh_local_tool_default_update` ejecuta set/undo/redo con snapshots y recibos propios. Base y épocas comparten el dato mundial, manteniendo las comprobaciones de contexto. Cuaderno de iconos distingue Guardar favorito de Usar favorito; las notas se guardan aparte. Ausencia y null son distintos; conflictos conservan propuesta y permiten recarga/reintento explícitos. [Pruebas, entrega y límites](tasks/vvd1095/verification-sdk-defaults.md). No certifica Owned/WorldPick, runtime upstream, instalación fría o paridad global.

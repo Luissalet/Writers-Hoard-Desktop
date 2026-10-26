@@ -2728,3 +2728,11 @@ El preview de audio/vídeo de Archivo de recursos usa las mismas filas Base que 
 La persona navega por Resumen → Producir → Archivo de recursos, pulsa Abrir y después Play en el player nativo visible. No hay tool nuevo para abrirlo o reproducirlo remotamente. `wh_local_audio_control`/status siguen perteneciendo al audio SDK y excluyen este player HTML; su respuesta gesture-required no acredita reproducción en la biblioteca. El soporte de `eraId` ya existente en la lectura de catálogo no transforma esta UI Base en biblioteca por época.
 
 La comprobación de concordancia de IDs/usos usa el dispatcher real, sin nueva ejecución Native, transporte externo o reproducción headless atribuida. [Uso, límites y evidencia](../tasks/vvd1095/verification-assets-media-preview.md).
+
+## Shared local-tool defaults
+
+`wh_local_tool_default_get` is readonly and returns `{projectId,namespace,key,revision,entry}`. `entry` is `{present:false}` or `{present:true,value:JSON}`; stored null, false, zero and empty string remain present. Supply a normal project, compiled tool namespace and key. An optional era checks the context while the preference itself is shared throughout that world. No Source document ID forms part of the preference identity.
+
+`wh_local_tool_default_update` declares writes and accepts `action: set|undo|redo`. Set requires `value` and the complete `expected` snapshot from get. Undo/Redo require the same key and an exact session `receiptId` returned by the opposite successful preference action. The result is `{snapshot,receiptId}`. The MCP transport may add its normal `_undo` envelope; that is distinct from a preference receipt.
+
+Same-key incompatible changes fail without automatic overwrite; disjoint keys survive and an already-equal desired value is idempotent. A first-set Undo restores absence, even when the internal revisioned record remains. Neither endpoint saves Source notes or applies a favorite automatically. Normal engine/context/readonly checks remain. [Usage, two-key native transport evidence and limits](../tasks/vvd1095/verification-sdk-defaults.md).

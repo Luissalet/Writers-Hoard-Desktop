@@ -721,3 +721,7 @@ Publishing shutdown correction931 CAS5: a failed native close retains the app/re
 ## Tool-owned interface translations
 
 Source tools can declare their own catalogs and use `useLocalToolT(client)` for translated labels, interpolation, plurals and Intl formats. Changing the normal app language preserves authored notes; the Localized notebook example supports Source and Owned editing with explicit saves. Save a new Codex card before inserting its Owned block, then save the child and parent separately. This is a bounded offline SDK extension; [evidence, delivery status and limits](tasks/vvd1095/verification-sdk-locale.md) distinguish technical verification from integration.
+
+## Shared tool preferences
+
+Local Source tools can use the optional `client.defaults` service and `useLocalToolDefaults` hook for JSON preferences shared by world, tool and key. In Icon notebook, Save favorite changes the preference and Use favorite explicitly changes only that notebook's symbol. Neither saves pending notes; preferences have their own Undo/Redo and conflict recovery. SDK, MCP and normal Source paths have separate verification, including two authenticated native keys. [Usage, delivery and limits](tasks/vvd1095/verification-sdk-defaults.md). General SDK parity remains partial.

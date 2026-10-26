@@ -637,3 +637,7 @@ Corrección931 CAS5 de cierre: ante un fallo se conservan app/recursos y worker;
 ## Textos propios de las herramientas
 
 Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(client)` para etiquetas, interpolación, plurales y formatos Intl. Cambiar el idioma normal de la aplicación conserva las notas escritas; el ejemplo Libreta traducida permite edición Source y Propio con guardado explícito. Guarda una tarjeta nueva del Códex antes de insertar su bloque propio y guarda después el hijo y el documento padre por separado. Es una ampliación offline acotada del SDK; [evidencia, estado de entrega y límites](tasks/vvd1095/verification-sdk-locale.md) separan comprobación técnica e integración.
+
+## Preferencias compartidas de herramientas
+
+Las herramientas Source pueden usar el servicio opcional `client.defaults` y el hook `useLocalToolDefaults` para preferencias JSON por mundo, herramienta y clave. En Cuaderno de iconos, Guardar favorito cambia la preferencia y Usar favorito cambia explícitamente sólo el símbolo de ese cuaderno. Ninguna acción guarda notas pendientes; el favorito tiene Deshacer/Rehacer propios y recuperación de conflictos. SDK, MCP y Source normal tienen comprobaciones separadas, incluidas dos claves Native autenticadas. [Uso, entrega y límites](tasks/vvd1095/verification-sdk-defaults.md). La paridad general del SDK sigue siendo parcial.
