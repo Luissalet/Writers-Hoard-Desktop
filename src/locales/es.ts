@@ -1,4 +1,6 @@
 const es = {
+  'localTool.focus.enter': 'Concentración',
+  'localTool.focus.exit': 'Salir de concentración',
   'notes.image': 'Imagen',
   'notes.imageFile': 'Archivo',
   'notes.imageGallery': 'Galería',
@@ -3161,6 +3163,7 @@ const es = {
   'worldgen.zone.list': 'Zonas del mundo ({n})',
   'worldgen.zone.rename': 'Nombre de la zona',
   'worldgen.zone.nextPattern': 'Cambiar cómo se rellena',
+  'worldgen.zone.intensity': 'Intensidad',
   'worldgen.zone.show': 'Ver',
   'worldgen.zone.remove': 'Quitar',
   'worldgen.map.labelsToolHint': 'Clic en un rótulo para elegirlo · arrastra para moverlo · tiradores: ámbar gira, azul separa letras, verde curva (Mayús ajusta el giro de 15 en 15°)',

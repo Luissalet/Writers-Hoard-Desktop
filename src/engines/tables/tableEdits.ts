@@ -37,6 +37,18 @@ export function shiftSheetReferences(table: WorldTable, axis: 'row' | 'column', 
 }
 const inserted = (at: number) => (index: number) => (index >= at ? index + 1 : index);
 
+/** Move a saved row before another, or to the end. Sheet addresses stay literal coordinates. */
+export function moveRow(table: WorldTable, rowId: string, beforeRowId?: string): boolean {
+  if (table.codexType || table.codexTemplateId || table.codexAllTypes) throw Error('table_live_order_requires_view');
+  const from = table.rows.findIndex(row => row.id === rowId);
+  const anchor = beforeRowId === undefined ? table.rows.length : table.rows.findIndex(row => row.id === beforeRowId);
+  if (from < 0 || anchor < 0) throw Error('table_row_missing');
+  if (from === anchor || from + 1 === anchor) return false;
+  const [row] = table.rows.splice(from, 1);
+  table.rows.splice(anchor > from ? anchor - 1 : anchor, 0, row);
+  return true;
+}
+
 /** A new empty row at `index` (0 = first; past the end appends). */
 export function insertRow(table: WorldTable, index: number, cells: Record<string, string> = {}): DataRow {
   if (table.codexType) throw new Error('table_live_codex_requires_entry');

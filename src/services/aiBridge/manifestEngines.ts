@@ -1467,7 +1467,7 @@ From the spot the water runs a few cells down to the bottom of its hollow and fi
       points: { type: 'array', minItems: 3, maxItems: 400, description: 'Corners in order, in world cells.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
       color: s('Colour as #RRGGBB (default a deep red).'),
       pattern: s('How it is filled.', { enum: ['outline', 'wash', 'hatch'] }),
-      opacity: { type: 'number', minimum: 0.05, maximum: 1, description: 'How strongly it is drawn (default 1).' },
+      opacity: { type: 'number', minimum: 0, maximum: 1, description: 'How strongly it is drawn (default 1; zero keeps only the name).' },
     }, required: ['worldId', 'name', 'points'], additionalProperties: false },
   },
   {
@@ -1476,7 +1476,7 @@ From the spot the water runs a few cells down to the bottom of its hollow and fi
     schema: { type: 'object', properties: {
       worldId: WORLD_ID, id: s('Zone id from wh_list_zones.'),
       name: s('New name.'), color: s('#RRGGBB.'), pattern: s('Fill.', { enum: ['outline', 'wash', 'hatch'] }),
-      opacity: { type: 'number', minimum: 0.05, maximum: 1 },
+      opacity: { type: 'number', minimum: 0, maximum: 1 },
       points: { type: 'array', minItems: 3, maxItems: 400, description: 'New corners, in world cells.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } },
     }, required: ['worldId', 'id'], additionalProperties: false },
   },

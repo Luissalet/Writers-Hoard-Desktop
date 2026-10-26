@@ -4210,7 +4210,7 @@ export default function Map2D({
       if (open.pts.length < 3 || !bt || bt.mode !== 'zone' || !commit) return false;
       realmPoly.current = null;
       const id = `zone-${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
-      commit({ kind: 'zone', id, name: (bt.zoneName ?? '').trim() || t('worldgen.zone.defaultName'), pts: open.pts, color: bt.zoneColor ?? ZONE_COLORS[0], pattern: bt.zonePattern ?? 'wash' });
+      commit({ kind: 'zone', id, name: (bt.zoneName ?? '').trim() || t('worldgen.zone.defaultName'), pts: open.pts, color: bt.zoneColor ?? ZONE_COLORS[0], pattern: bt.zonePattern ?? 'wash', ...(bt.zoneOpacity === undefined ? {} : { opacity: bt.zoneOpacity }) });
       scheduleDraw();
       return true;
     }

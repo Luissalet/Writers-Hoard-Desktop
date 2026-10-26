@@ -1,3 +1,4 @@
+import {createRecordingLocalToolFocusMode,type LocalToolFocusMode} from './focusMode';
 import {createLocalToolIcons,type LocalToolIconSvgResolver} from './icons';
 import {createRecordingLocalToolContextMenu} from './contextMenus';
 import {createRecordingLocalToolTutorial} from './tutorials';
@@ -37,6 +38,7 @@ export interface LocalToolHostFixtures {referencePaths?:LocalToolReferencePathFi
 export interface LocalToolRecordedCommand {kind:'navigate'|'search'|'tool'|'media-import';scope:WorldEraScope;name?:string;args?:LocalToolJson;query?:string;documentKind?:EraDocumentKind;documentId?:string;placement?:'beside';filename?:string}
 export interface LocalToolFakeTool<T extends LocalToolJson> {tool:BridgeTool;run:(args:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostOverrides<T extends LocalToolJson> {
+ focusMode?:LocalToolFocusMode;
  locale?:string;
  /** Explicit readonly host fixture; no application palette is loaded implicitly. */
  theme?:LocalToolThemeSource;
@@ -105,6 +107,6 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
   }});
   return Object.freeze({...client,defaults});
  };
- const tutorial=createRecordingLocalToolTutorial(definition.tours),contextMenu=createRecordingLocalToolContextMenu();
- return Object.freeze({contextMenu:contextMenu.port,contextMenuRequests:contextMenu.requests,tutorial:tutorial.port,tutorialCommands:tutorial.commands,commands,setLocale:(code:string)=>{if(locale===code)return;locale=code;for(const changed of localeListeners)changed();},createClient:(scope:WorldEraScope,readOnly=false,documentId?:string)=>{project(scope,memory);return createClient({...scope},readOnly,undefined,documentId);},inspect:()=>structuredClone({projects:[...memory.projects.values()],documents:[...memory.documents.values()],assetFiles:[...memory.assetFiles.values()]}),runOperation:(scope:WorldEraScope,operationId:string,input:unknown={},writes=false,documentId?:string)=>runLocalToolOperation(definition,operationId,input,writes,createClient(scope,!writes,undefined,documentId),run=>transaction(draft=>run(createClient(scope,false,draft,documentId)),scope.projectId))});
+ const tutorial=createRecordingLocalToolTutorial(definition.tours),contextMenu=createRecordingLocalToolContextMenu(),focus=createRecordingLocalToolFocusMode();
+ return Object.freeze({focusMode:overrides.focusMode??focus.port,focusModeCommands:focus.commands,contextMenu:contextMenu.port,contextMenuRequests:contextMenu.requests,tutorial:tutorial.port,tutorialCommands:tutorial.commands,commands,setLocale:(code:string)=>{if(locale===code)return;locale=code;for(const changed of localeListeners)changed();},createClient:(scope:WorldEraScope,readOnly=false,documentId?:string)=>{project(scope,memory);return createClient({...scope},readOnly,undefined,documentId);},inspect:()=>structuredClone({projects:[...memory.projects.values()],documents:[...memory.documents.values()],assetFiles:[...memory.assetFiles.values()]}),runOperation:(scope:WorldEraScope,operationId:string,input:unknown={},writes=false,documentId?:string)=>runLocalToolOperation(definition,operationId,input,writes,createClient(scope,!writes,undefined,documentId),run=>transaction(draft=>run(createClient(scope,false,draft,documentId)),scope.projectId))});
 }

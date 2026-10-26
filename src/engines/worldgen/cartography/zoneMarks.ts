@@ -55,7 +55,7 @@ export function drawZones(ctx: Ctx, zones: readonly WorldZone[], W: number, sx: 
       ctx.lineJoin = 'round';
       ctx.setLineDash(zone.pattern === 'outline' ? [] : [7, 4]);
       ctx.lineWidth = zone.id === selectedId ? 3.2 : 2;
-      ctx.strokeStyle = rgba(zone.color, Math.min(1, 0.85 * strength + 0.15));
+      ctx.strokeStyle = rgba(zone.color, strength === 0 ? 0 : Math.min(1, 0.85 * strength + 0.15));
       ctx.stroke();
       ctx.setLineDash([]);
       // The name across the middle, sized by the zone and readable over any ground.

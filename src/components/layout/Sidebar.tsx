@@ -14,6 +14,7 @@ import {
   LibraryBig,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import {useWorkspaceFocusChrome} from '@/components/project/workspace/workspaceFocus';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useProject } from '@/hooks/useProjects';
 import { getEngine, getEnginesByIds } from '@/engines';
@@ -24,6 +25,7 @@ import { toast } from '@/components/common/toast';
 const WorldMarkdownExportModal = lazy(() => import('@/components/project/WorldMarkdownExportModal'));
 
 export default function Sidebar() {
+  const focusChrome=useWorkspaceFocusChrome();
   const { t, locale } = useTranslation();
   const { sidebarOpen, sidebarHidden, toggleSidebar, setShowEngineManager } = useAppStore();
   const { id: projectId } = useParams<{ id?: string }>();
@@ -75,8 +77,9 @@ export default function Sidebar() {
     // is no button at all.
     <aside
       data-tour="sidebar"
-      inert={sidebarHidden}
-      aria-hidden={sidebarHidden}
+      {...focusChrome}
+      inert={sidebarHidden || focusChrome.inert}
+      aria-hidden={sidebarHidden || focusChrome['aria-hidden']}
       className={`app-sidebar h-full shrink-0 bg-surface flex flex-col overflow-hidden transition-[width] duration-200 ${
         sidebarHidden ? 'w-0' : sidebarOpen ? 'w-[220px] border-r border-border' : 'w-[60px] border-r border-border'
       }`}

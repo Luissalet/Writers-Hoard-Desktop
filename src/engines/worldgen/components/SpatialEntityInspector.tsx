@@ -7,6 +7,7 @@ import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 import { useEraNavigate } from '@/services/worldEras/navigation';
 import { createPlaceCard } from '../placeCards';
 import { PICKER_TYPES } from '@/components/maps/codexSearch';
+import CodexEntryPicker from '@/components/maps/CodexEntryPicker';
 import {
   Eye,
   EyeOff,
@@ -112,9 +113,17 @@ export default function SpatialEntityInspector({
   const pane = useEnginePane(), navigate = useEraNavigate(), es = locale !== 'en';
   const binding = JSON.stringify([projectId, scope.eraId ?? null, worldId, entity.key]);
   const currentBinding = useRef(binding), mounted = useRef(true);
+  const linkOwner = useMemo(() => ({ binding, paneId: pane?.instanceId }), [binding, pane?.instanceId]);
+  const currentLinkOwner = useRef(linkOwner);
+  currentLinkOwner.current = linkOwner;
   const creatingBindings = useRef(new Set<string>());
+  const linkingBindings = useRef(new Set<string>());
   currentBinding.current = binding;
-  const [creatingCard, setCreatingCard] = useState(false), [linkError, setLinkError] = useState('');
+  const [creatingCard, setCreatingCard] = useState(false);
+  const [linkMessage, setLinkMessage] = useState({ owner: linkOwner, text: '' });
+  const linkError = linkMessage.owner === linkOwner ? linkMessage.text : '';
+  const setLinkError = (text: string) => setLinkMessage({ owner: linkOwner, text });
+  const [savingLinkOwner, setSavingLinkOwner] = useState<object | null>(null);
   const [imageGallery,setImageGallery]=useState(false),[imageBusy,setImageBusy]=useState(false),[imageError,setImageError]=useState(false);
   const imageGeneration=useRef(0),imageReader=useRef<FileReader|null>(null);
   const cancelImageRead=useCallback(()=>{imageGeneration.current++;imageReader.current?.abort();},[]);
@@ -155,8 +164,11 @@ export default function SpatialEntityInspector({
     setY(String(Math.round(entity.y * 100) / 100));
   }
 
-  const [linkTargets, setLinkTargets] = useState<SpatialLinkTarget[]>([]);
-  const [links, setLinks] = useState<EntityLink[]>([]);
+  const [linkState, setLinkState] = useState<{ owner: object; targets: SpatialLinkTarget[]; cards: CodexEntry[]; links: EntityLink[] }>({ owner: linkOwner, targets: [], cards: [], links: [] });
+  const linkReady = linkState.owner === linkOwner;
+  const linkTargets = linkReady ? linkState.targets : [];
+  const links = linkReady ? linkState.links : [];
+  const cards = linkReady ? linkState.cards : [];
   const sourceEntityId = spatialEntityId(worldId, entity.key);
 
   const loadLinkState = useCallback(async () => {
@@ -203,46 +215,46 @@ export default function SpatialEntityInspector({
     ];
     return {
       targets,
+      cards: locations,
       links: currentLinks.filter((link) => link.projectId === projectId),
     };
   }, [projectId, sourceEntityId, scope, worldId]);
 
   const refreshLinks = async () => {
-    const started = binding;
+    const started = linkOwner;
     const state = await loadLinkState();
-    if (!mounted.current || currentBinding.current !== started) return;
-    setLinkTargets(state.targets);
-    setLinks(state.links);
+    if (!mounted.current || currentLinkOwner.current !== started) return;
+    setLinkState({ owner: started, ...state });
   };
 
   useEffect(() => {
     let active = true;
     mounted.current = true;
-    setLinks([]); setLinkTargets([]); setLinkError(''); setCreatingCard(false);
+    setLinkState({ owner: linkOwner, targets: [], cards: [], links: [] }); setLinkMessage({ owner: linkOwner, text: '' }); setCreatingCard(false);
     loadLinkState().then((state) => {
-      if (!active) return;
-      setLinkTargets(state.targets);
-      setLinks(state.links);
-    }).catch(() => { if (active) setLinkError(es ? 'No se pudieron leer los vínculos.' : 'Could not read links.'); });
+      if (!active || currentLinkOwner.current !== linkOwner) return;
+      setLinkState({ owner: linkOwner, ...state });
+    }).catch(() => { if (active && currentLinkOwner.current === linkOwner) setLinkMessage({ owner: linkOwner, text: es ? 'No se pudieron leer los vínculos.' : 'Could not read links.' }); });
     return () => {
       active = false;
       mounted.current = false;
     };
-  }, [loadLinkState, es]);
+  }, [loadLinkState, es, linkOwner]);
 
   const createCard = async () => {
     if (creatingBindings.current.has(binding)) return;
     const started = binding;
+    const owner = linkOwner;
     creatingBindings.current.add(started);
     setCreatingCard(true); setLinkError('');
     try {
       await createPlaceCard(scope, worldId, { key: entity.key, name: name.trim() || entity.name }, cardType);
       await refreshLinks();
     } catch {
-      if (mounted.current && currentBinding.current === started) setLinkError(es ? 'No se pudo crear y vincular la tarjeta. Reintenta.' : 'Could not create and link the card. Try again.');
+      if (mounted.current && currentLinkOwner.current === owner) setLinkError(es ? 'No se pudo crear y vincular la tarjeta. Reintenta.' : 'Could not create and link the card. Try again.');
     } finally {
       creatingBindings.current.delete(started);
-      if (mounted.current && currentBinding.current === started) setCreatingCard(false);
+      if (mounted.current && currentLinkOwner.current === owner) setCreatingCard(false);
     }
   };
 
@@ -256,29 +268,39 @@ export default function SpatialEntityInspector({
   };
 
   const addLink = async (targetKey: string) => {
-    setLinkError('');
+    const owner = linkOwner, pendingKey = JSON.stringify([binding, targetKey]);
+    if (!mounted.current || currentLinkOwner.current !== owner || linkingBindings.current.has(pendingKey)) return;
     const target = linkTargets.find((candidate) => candidate.key === targetKey);
     if (!target || links.some((link) => (
       link.targetEntityType === target.entityType && link.targetEntityId === target.id
     ))) return;
+    linkingBindings.current.add(pendingKey);
+    setLinkError(''); setSavingLinkOwner(owner);
     const now = Date.now();
-    await saveWorldLink(scope, worldId, {
-      id: generateId('entity-link'),
-      projectId,
-      sourceEngineId: 'worldgen',
-      sourceEntityType: 'world-spatial',
-      sourceEntityId,
-      sourceTitle: entity.name,
-      targetEngineId: target.engineId,
-      targetEntityType: target.entityType,
-      targetEntityId: target.id,
-      targetTitle: target.title,
-      relation: target.entityType === 'codex-entry' ? 'represents' : 'takes-place-at',
-      provenance: 'manual',
-      createdAt: now,
-      updatedAt: now,
-    });
-    await refreshLinks();
+    try {
+      await saveWorldLink(scope, worldId, {
+        id: generateId('entity-link'),
+        projectId,
+        sourceEngineId: 'worldgen',
+        sourceEntityType: 'world-spatial',
+        sourceEntityId,
+        sourceTitle: entity.name,
+        targetEngineId: target.engineId,
+        targetEntityType: target.entityType,
+        targetEntityId: target.id,
+        targetTitle: target.title,
+        relation: target.entityType === 'codex-entry' ? 'represents' : 'takes-place-at',
+        provenance: 'manual',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await refreshLinks();
+    } catch {
+      if (mounted.current && currentLinkOwner.current === owner) setLinkError(es ? 'No se pudo guardar el vínculo. Reintenta.' : 'Could not save the link. Try again.');
+    } finally {
+      linkingBindings.current.delete(pendingKey);
+      if (mounted.current && currentLinkOwner.current === owner) setSavingLinkOwner(null);
+    }
   };
 
   return (
@@ -508,17 +530,19 @@ export default function SpatialEntityInspector({
         <div className="mb-1.5 flex items-center gap-1 text-[10px] uppercase tracking-wide text-text-muted">
           <Link2 size={11} /> {t('worldgen.place.links')}
         </div>
+        <CodexEntryPicker key={JSON.stringify([binding, pane?.instanceId])} entries={cards.filter(card => !links.some(link => link.targetEntityType === 'codex-entry' && link.targetEntityId === card.id))} onChange={id => { if (id) void addLink(`codex-entry:${id}`); }} testId="place-card-link" disabled={!linkReady || savingLinkOwner === linkOwner} />
         <select
           data-testid="place-link-target"
           aria-label={t('worldgen.place.linkPlaceholder')}
           value=""
           onChange={(event) => {
-            void addLink(event.target.value).catch(() => setLinkError(es ? 'No se pudo guardar el vínculo.' : 'Could not save the link.'));
+            void addLink(event.target.value);
           }}
-          className="w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
+          disabled={!linkReady || savingLinkOwner === linkOwner}
+          className="mt-2 w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
         >
           <option value="">{t('worldgen.place.linkPlaceholder')}</option>
-          {Array.from(new Set(linkTargets.map((target) => target.group))).map((group) => (
+          {Array.from(new Set(linkTargets.filter(target => target.entityType !== 'codex-entry').map((target) => target.group))).map((group) => (
             <optgroup key={group} label={t(group)}>
               {linkTargets
                 .filter((target) => target.group === group)

@@ -1,0 +1,6 @@
+import {b,PROJECT_ID,s,type BridgeTool} from './schema';
+const scope={projectId:PROJECT_ID,eraId:s('Optional exact era of a mounted Source host.'),namespace:s('Optional Source namespace.'),documentId:s('Optional Source document id.')};
+export const WORKSPACE_FOCUS_TOOLS:BridgeTool[]=[
+ {name:'wh_workspace_focus_get',writes:false,group:'core',description:'Read visible Source hosts that can control focus mode in the current real workspace. Returns ephemeral hostIds and logical available/active state, without changing notes or UI. No mounted shell returns an empty targets list.',schema:{type:'object',properties:scope,required:['projectId'],additionalProperties:false}},
+ {name:'wh_workspace_focus_set',writes:true,group:'core',description:'Set focus mode for one currently mounted Source host identified by hostId from wh_workspace_focus_get. Hides or restores shell chrome without saving notes, navigating, or entering browser fullscreen. An absent or revoked host returns unavailable; no request is queued. Returned state is logical, not a painting acknowledgment.',schema:{type:'object',properties:{...scope,hostId:s('Ephemeral exact hostId from wh_workspace_focus_get.'),active:b('true hides shell chrome; false restores it.')},required:['projectId','hostId','active'],additionalProperties:false}},
+];

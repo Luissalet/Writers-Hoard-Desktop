@@ -77,7 +77,31 @@ const modelPresentationNativeCheck = spawnSync(electron, ['tests/model-animation
 if (modelPresentationNativeCheck.status !== 0 || modelPresentationNativeCheck.error) process.exit(modelPresentationNativeCheck.status ?? 1);
 const modelPresentationExtraCheck = spawnSync(electron, ['tests/model-animation-presentation-extra.runner.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 360000 });
 if (modelPresentationExtraCheck.status !== 0 || modelPresentationExtraCheck.error) process.exit(modelPresentationExtraCheck.status ?? 1);
+const focusAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-focus.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (focusAuthorCheck.status !== 0 || focusAuthorCheck.error) process.exit(focusAuthorCheck.status ?? 1);
+const focusControllerCheck = spawnSync(process.execPath, ['tests/local-tool-focus-controller.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (focusControllerCheck.status !== 0 || focusControllerCheck.error) process.exit(focusControllerCheck.status ?? 1);
+const focusNativeCheck = spawnSync(electron, ['tests/local-tool-focus.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (focusNativeCheck.status !== 0 || focusNativeCheck.error) process.exit(focusNativeCheck.status ?? 1);
+const tableRowsNativeCheck = spawnSync(electron, ['tests/table-row-order.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
+if (tableRowsNativeCheck.status !== 0 || tableRowsNativeCheck.error) process.exit(tableRowsNativeCheck.status ?? 1);
 const suites = [
+  ['table-row-order.pure.ts', 'testTableRowOrderPure', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['table-row-order.browser.tsx', 'testTableRowOrderContracts', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['table-row-order.browser.tsx', 'testTableRowOrderUi', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['table-row-order-portability.browser.ts', 'testTableRowOrderPortable', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['table-row-order.native.renderer.ts', 'testTableRowOrderTrustedPointer', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['review-parity-batch.browser.tsx', 'testParityQueuedTableUndo', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-focus.browser.tsx', 'testLocalToolFocusShell', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-focus.browser.tsx', 'testLocalToolFocusHook', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['place-link-search.browser.tsx', 'testPlaceLinkSearchMatching', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['place-link-search.browser.tsx', 'testPlaceLinkSearchUi', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['place-link-search.browser.tsx', 'testPlaceLinkSearchScopes', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['world-zone-intensity.browser.tsx', 'testWorldZoneIntensityModel', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['world-zone-intensity.browser.tsx', 'testWorldZoneIntensityCanvas', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['world-zone-intensity.browser.tsx', 'testWorldZoneIntensityUi', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['world-zone-intensity.browser.tsx', 'testWorldZoneIntensityMapCommit', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['world-zone-intensity.browser.tsx', 'testWorldZoneIntensityBridge', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-theme.browser.tsx', 'testLocalToolThemeAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-defaults.browser.tsx', 'testLocalToolDefaultsAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-defaults-hook.browser.tsx', 'testLocalToolDefaultsHookAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
