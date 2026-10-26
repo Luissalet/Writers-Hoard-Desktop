@@ -1,5 +1,5 @@
 export {createLocalToolIcons} from './icons';
-export type {LocalToolIcons,LocalToolIconDescriptor,LocalToolIconPack,LocalToolIconPage,LocalToolIconSearchOptions} from './icons';
+export type {LocalToolIcons,LocalToolIconDescriptor,LocalToolIconPack,LocalToolIconPage,LocalToolIconSearchOptions,LocalToolIconSvgResolver} from './icons';
 export {LocalToolIcon} from './LocalToolIcon';
 export type {LocalToolIconProps} from './LocalToolIcon';
 export {useLocalToolContextMenu,createRecordingLocalToolContextMenu} from './contextMenus';
