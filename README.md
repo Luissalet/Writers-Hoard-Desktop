@@ -725,3 +725,7 @@ Source tools can declare their own catalogs and use `useLocalToolT(client)` for 
 ## Shared tool preferences
 
 Local Source tools can use the optional `client.defaults` service and `useLocalToolDefaults` hook for JSON preferences shared by world, tool and key. In Icon notebook, Save favorite changes the preference and Use favorite explicitly changes only that notebook's symbol. Neither saves pending notes; preferences have their own Undo/Redo and conflict recovery. SDK, MCP and normal Source paths have separate verification, including two authenticated native keys. [Usage, delivery and limits](tasks/vvd1095/verification-sdk-defaults.md). General SDK parity remains partial.
+
+## Resolved colors for local tools
+
+The optional `client.theme` service and `useLocalToolTheme` hook expose nine resolved workspace colors and the effective light/dark mode for the tool's Base or era context. Existing Appearance controls remain the editor. Icons in the normal workspace repaint after that pane applies its appearance, preserving the Canvas, document and pending notes. [Contract, attributed verification and delivery status](tasks/vvd1095/verification-sdk-theme.md). Overall web/SDK parity remains partial.

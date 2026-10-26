@@ -198,3 +198,7 @@ Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(cli
 ## Continuación SDK: preferencias por mundo/herramienta/clave
 
 Defaults locales y favorito explícito del Cuaderno de iconos están implementados con SDK, MCP, Source, recibos y portabilidad propios; [evidencia y estado de integración](tasks/vvd1095/verification-sdk-defaults.md). La investigación de HostServices documentó también tema vivo y colecciones de mundo como siguientes contrastes, todavía sin nueva implementación ni prueba upstream atribuida. Se mantiene la meta de igualar o superar las capacidades offline; esta entrega no cierra1095 ni convierte documentación primaria en una prueba de ABI/runtime ajenos.
+
+## Continuación SDK: tema resuelto y colecciones
+
+El contraste1532 sucede al candidato de tema vivo de la sección1528: implementa un lector propio de nueve colores/modo, su hook opcional, la lectura MCP ampliada y el repintado del mismo icono Canvas tras aplicar Apariencia. [Evidencia y estado de entrega](tasks/vvd1095/verification-sdk-theme.md). Las colecciones ya tienen `world.list/read`, `media.list`, consultas y `useLocalToolWorld` vivos; no se duplica esa capacidad por una diferencia de nombres. Continúan los huecos offline de las matrices1095 y el contraste de web/SDK. No se ha probado el ABI/runtime de la referencia ni cerrado la paridad general.
