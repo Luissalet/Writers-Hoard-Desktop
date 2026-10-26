@@ -3017,6 +3017,8 @@ const en = {
   'worldgen.place.group.writings': 'Writings',
   'worldgen.place.group.timeline': 'Timeline',
   'worldgen.place.nameLabel': 'Place name',
+  'worldgen.place.travelFrom': 'Travel from here',
+  'worldgen.place.directionsTo': 'Directions to here',
   'worldgen.place.worldX': 'World X',
   'worldgen.place.worldY': 'World Y',
   'worldgen.place.symbol': 'Symbol',

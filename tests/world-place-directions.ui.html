@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Directions causal QA</title></head><body class="bg-deep text-text-primary"><div id="root"></div><script type="module">
+import '/src/index.css';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+window.addEventListener('error', event => {
+  if (event.message === 'ResizeObserver loop completed with undelivered notifications.') { window.__resizeObserverWarnings = (window.__resizeObserverWarnings || 0) + 1; event.preventDefault(); return; }
+  window.__result = { ok: false, error: event.error?.stack || event.message };
+});
+const exported = new URLSearchParams(location.search).get('test');
+try {
+  if (!['testWorldPlaceDirections', 'testWorldPlaceDirectionsEra'].includes(exported)) throw Error('Expected an explicit Directions test export');
+  const module = await import('/tests/world-place-directions.browser.tsx');
+  const tests = await module[exported](); window.__result = { ok: true, tests };
+} catch (error) { window.__result = { ok: false, error: error.stack || String(error) }; }
+</script></body></html>

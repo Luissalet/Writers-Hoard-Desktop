@@ -91,6 +91,8 @@ const worldReplacer = (_key: string, value: unknown) => (typeof value === 'strin
  */
 function slimProject(project: Project, cover: string | null): Record<string, unknown> {
   const slim = { ...project, coverImage: cover ?? undefined } as Record<string, unknown>;
+  // Reading exports omit private authoring decisions; backups retain them.
+  delete slim.entityCandidateDismissals;
   if (Array.isArray(project.publishedEditions)) slim.publishedEditions = { omitted: true, count: project.publishedEditions.length };
   if (Array.isArray(project.wikiProfiles)) {
     slim.wikiProfiles = project.wikiProfiles.map(profile => Array.isArray(profile.editions)

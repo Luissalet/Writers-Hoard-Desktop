@@ -533,7 +533,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
           <BookOpen size={14} />
           {t('codex.extendedNotes')}
         </label>
-        <TiptapEditor onEditorReady={editor=>{contentEditor.current=editor;}} documentOwner={entry?{kind:'codex',documentId:entry.id}:undefined} prepareExternal={async()=>!dirty} canAcceptExternalBlock={()=>!dirty&&!saving} onExternalBlockCommit={(_owner,root)=>{const updated=root as unknown as CodexEntry;setExternalEntry(updated);setBase(updated);setContent(updated.content);}} content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
+        <TiptapEditor entityCandidateContext={entry ? { kind: 'codex', documentId: entry.id } : undefined} onEditorReady={editor=>{contentEditor.current=editor;}} documentOwner={entry?{kind:'codex',documentId:entry.id}:undefined} prepareExternal={async()=>!dirty} canAcceptExternalBlock={()=>!dirty&&!saving} onExternalBlockCommit={(_owner,root)=>{const updated=root as unknown as CodexEntry;setExternalEntry(updated);setBase(updated);setContent(updated.content);}} content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
       </div>
 
       {/* Tags */}

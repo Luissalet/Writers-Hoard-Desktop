@@ -2779,7 +2779,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
           <>
           <TiptapEditor
             key={`focus-editor-${openWriting.id}`}
-            copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
+            entityCandidateContext={{ kind: 'writings', documentId: openWriting.id }} copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
             prepareExternal={flushSave}
             canAcceptExternalBlock={()=>{const session=editorRef.current;return !session.savePromise&&session.content===session.savedContent&&session.title===session.savedTitle;}}
             content={editedContent}
@@ -2827,7 +2827,7 @@ export default function WritingsView({ projectId, writings:worldWritings, onAdd,
           >
             <TiptapEditor
               key={`editor-${openWriting.id}`}
-              copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
+              entityCandidateContext={{ kind: 'writings', documentId: openWriting.id }} copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
             prepareExternal={flushSave}
             canAcceptExternalBlock={()=>{const session=editorRef.current;return !session.savePromise&&session.content===session.savedContent&&session.title===session.savedTitle;}}
               content={editedContent}

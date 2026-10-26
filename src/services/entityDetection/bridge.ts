@@ -2,10 +2,12 @@ import { db } from '@/db';
 import type { CodexEntry, CodexEntryType } from '@/types';
 import { assertWorldEra, listEraRows } from '@/services/worldEras/store';
 import { optString, requireString, resolveProjectForEngine, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
-import { createEntityCandidate, entityPreferences, newEntityCandidates, updateEntityDetectionPreferences } from './service';
+import { actOnEntityCandidateDismissal, getEntityCandidateDismissals, createEntityCandidate, entityPreferences, newEntityCandidates, updateEntityDetectionPreferences, type EntityCandidateDismissalAction } from './service';
+import { candidateKey, validateEntityCandidateContext } from './dismissalTypes';
 import type { EntityDetectionPreferences, EntitySpan } from './types';
 function api() { const value = window.electronAPI?.entityDetection; if (!value) throw Error('entity_detection_desktop_required'); return value; }
 async function scopeFor(args: ToolArgs) { const scope = { projectId: await resolveProjectForEngine(args, 'codex'), eraId: optString(args, 'eraId') }; await assertWorldEra(scope); return scope; }
+function dismissalScope(args: ToolArgs) { return { projectId: requireString(args, 'projectId'), eraId: optString(args, 'eraId') }; }
 export const ENTITY_DETECTION_HANDLERS = {
   wh_entity_detection_status: () => api().status(),
   wh_entity_detection_prepare: () => api().prepare(),
@@ -21,7 +23,28 @@ export const ENTITY_DETECTION_HANDLERS = {
     // Resolve current names after inference: a card created while the worker ran is already known.
     await assertWorldEra(scope);
     const entries = scope.eraId ? await listEraRows<CodexEntry>(scope, 'codexEntries') : await db.codexEntries.where('projectId').equals(scope.projectId).toArray();
-    return { ...scope, candidates: newEntityCandidates(text, spans, entries) };
+    const candidates = newEntityCandidates(text, spans, entries);
+    if (args.context === undefined) return { ...scope, candidates };
+    validateEntityCandidateContext(args.context);
+    const state = await getEntityCandidateDismissals({ ...scope, context: args.context });
+    return { ...scope, context: state.context, lifetime: state.lifetime, dismissalRevision: state.revision, candidates: candidates.filter(row => !state.decisions.some(decision => decision.discarded && decision.key === candidateKey(row.text))) };
+  },
+  async wh_entity_candidate_dismissals(args: ToolArgs) {
+    requireString(args, 'projectId'); validateEntityCandidateContext(args.context);
+    return getEntityCandidateDismissals({ ...dismissalScope(args), context: args.context });
+  },
+  async wh_entity_candidate_dismissal_action(args: ToolArgs) {
+    requireString(args, 'projectId'); validateEntityCandidateContext(args.context);
+    const action = requireString(args, 'action'); let input: EntityCandidateDismissalAction;
+    const reject = (fields: string[]) => { if (fields.some(key => args[key] !== undefined)) throw Error('entity_candidate_dismissal_action_invalid'); };
+    if (action === 'undo') { reject(['text', 'candidate', 'key', 'expectedVersion']); input = { action, receiptId: requireString(args, 'receiptId') }; }
+    else {
+      if (typeof args.expectedVersion !== 'string') throw Error('entity_candidate_dismissal_version_required');
+      if (action === 'dismiss') { reject(['key', 'receiptId']); input = { action, text: requireString(args, 'text'), candidate: args.candidate as EntitySpan, expectedVersion: args.expectedVersion }; }
+      else if (action === 'restore') { reject(['text', 'candidate', 'receiptId']); input = { action, key: requireString(args, 'key'), expectedVersion: args.expectedVersion }; }
+      else throw Error('entity_candidate_dismissal_action_invalid');
+    }
+    return actOnEntityCandidateDismissal({ ...dismissalScope(args), context: args.context }, input);
   },
   async wh_entity_candidate_create(args: ToolArgs) {
     const scope = await scopeFor(args), entry = await createEntityCandidate({ ...scope, text: requireString(args, 'text'), candidate: args.candidate as EntitySpan, type: requireString(args, 'type') as CodexEntryType });

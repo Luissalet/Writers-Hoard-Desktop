@@ -123,6 +123,7 @@ interface TiptapEditorProps {
    * a chapter toolbar — against the live document.
    */
   onEditorReady?: (editor: Editor | null) => void;
+  entityCandidateContext?: import('@/services/entityDetection/dismissalTypes').EntityCandidateContext;
   copilotIdentity?: WriterEditorIdentity;
   documentOwner?:LocalToolBlockOwner|((editor:Editor,position:number)=>LocalToolBlockOwner|undefined);
   prepareExternal?:()=>Promise<boolean>;
@@ -240,7 +241,7 @@ export default function TiptapEditor({
   onGenerateImage,
   extensions,
   onEditorReady,
-  copilotIdentity,
+  copilotIdentity, entityCandidateContext,
   toolbarExtra,
   layout = 'flow',
   pageLayout,
@@ -783,7 +784,7 @@ export default function TiptapEditor({
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><MediaBlockControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ToolDocumentControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><SourceToolBlockControls editor={editor} projectId={editorialProjectId} locale={locale}/></div>}
-        {editorialProjectId && entityDetectionPreferences && <div className="min-w-0 basis-full"><EntityDetectionControls key={`${editorialProjectId}:${editorialEraId ?? 'base'}`} editor={editor} projectId={editorialProjectId} eraId={editorialEraId} entries={mentionEntries ?? []} preferences={entityDetectionPreferences} /></div>}
+        {editorialProjectId && entityDetectionPreferences && <div className="min-w-0 basis-full"><EntityDetectionControls key={`${editorialProjectId}:${editorialEraId ?? 'base'}`} editor={editor} projectId={editorialProjectId} eraId={editorialEraId} context={entityCandidateContext} entries={mentionEntries ?? []} preferences={entityDetectionPreferences} /></div>}
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><DocumentTools editor={editor} locale={locale} /></div>
       </div>
       </details>

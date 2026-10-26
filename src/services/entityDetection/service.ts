@@ -1,4 +1,9 @@
 import { db } from '@/db';
+import Dexie, { type Transaction } from 'dexie';
+import { loadPaneDocument } from '@/engines/writings/parallelDrafts';
+import { readEraRow } from '@/services/worldEras/store';
+import { candidateKey, candidateOwnerKey, validateEntityCandidateContext, type EntityCandidateScope, type EntityCandidateDecision, type EntityCandidateDismissalLedger, type EntityCandidateDismissalResult } from './dismissalTypes';
+import { changeCandidateDecision, dismissalSnapshot } from './dismissals';
 import { createCodexEntry, notifyProjectsChanged } from '@/db/operations';
 import { announceEraChange, assertWorldEra, listEraRows, saveEraDocument } from '@/services/worldEras/store';
 import { createMentionIndex } from '@/services/codexReference/indexedMentions';
@@ -51,4 +56,71 @@ export async function createEntityCandidate(input: CreateEntityCandidateInput, a
     if (scope.eraId) await saveEraDocument(scope, 'codex', { root: entry as unknown as EraRow, children: {} }, null); else await createCodexEntry(entry);
     announceEraChange(scope.projectId); return entry;
   });
+}
+
+async function dismissalProject(scope: EntityCandidateScope) {
+  validateEntityCandidateContext(scope.context);
+  const project = await assertWorldEra(scope);
+  if (scope.context.kind === 'writings') await loadPaneDocument(scope.projectId, { writingId: scope.context.documentId, draftId: scope.context.draftId }, scope.eraId);
+  else {
+    const entry = scope.eraId ? await readEraRow<CodexEntry>(scope, 'codexEntries', scope.context.documentId) : await db.codexEntries.get(scope.context.documentId);
+    if (!entry || entry.projectId !== scope.projectId) throw Error('entity_candidate_owner_missing');
+  }
+  return project;
+}
+export async function getEntityCandidateDismissals(scope: EntityCandidateScope) {
+  return dismissalSnapshot((await dismissalProject(scope)).entityCandidateDismissals, scope);
+}
+interface DismissalReceipt { scope: EntityCandidateScope; key: string; before?: EntityCandidateDecision; after: string; ownerExisted: boolean; ledgerExisted: boolean; reserved: boolean }
+// Only committed Undo receipts live in memory. Decisions always come from IDB.
+const dismissalReceipts = new Map<string, DismissalReceipt>();
+function rootTransaction(): Transaction { let tx = Dexie.currentTransaction!; while (tx.parent) tx = tx.parent; return tx; }
+export type EntityCandidateDismissalAction = { action: 'dismiss'; text: string; candidate: EntitySpan; expectedVersion: string } | { action: 'restore'; key: string; expectedVersion: string } | { action: 'undo'; receiptId: string };
+export async function actOnEntityCandidateDismissal(scope: EntityCandidateScope, action: EntityCandidateDismissalAction, assertCurrent?: () => void): Promise<EntityCandidateDismissalResult> {
+  let reservation: DismissalReceipt | undefined;
+  try {
+    return await db.transaction('rw', db.tables, async () => {
+      const project = await dismissalProject(scope), ledger = project.entityCandidateDismissals;
+      const before = dismissalSnapshot(ledger, scope), tx = rootTransaction();
+      let next: EntityCandidateDismissalLedger | undefined, receiptId: string | undefined;
+      if (action.action === 'undo') {
+        const receipt = dismissalReceipts.get(action.receiptId);
+        if (!receipt || receipt.reserved || receipt.scope.projectId !== scope.projectId || candidateOwnerKey(receipt.scope) !== candidateOwnerKey(scope)) throw Error('entity_candidate_dismissal_receipt_invalid');
+        const current = before.decisions.find(row => row.key === receipt.key);
+        if (!current || current.version !== receipt.after) throw Error('entity_candidate_dismissal_conflict');
+        receipt.reserved = true; reservation = receipt;
+        tx.on('abort', () => { receipt.reserved = false; });
+        next = structuredClone(ledger!);
+        const owner = next.owners.find(row => candidateOwnerKey(row) === candidateOwnerKey(scope))!;
+        if (owner.revision === Number.MAX_SAFE_INTEGER) throw Error('entity_candidate_dismissal_revision_invalid');
+        owner.decisions = owner.decisions.filter(row => row.key !== receipt.key);
+        if (receipt.before) owner.decisions.push({ ...receipt.before, version: crypto.randomUUID() });
+        owner.revision++;
+        if (!owner.decisions.length && !receipt.ownerExisted) next.owners = next.owners.filter(row => row !== owner);
+        if (!next.owners.length && !receipt.ledgerExisted) next = undefined;
+        tx.on('complete', () => { dismissalReceipts.delete(action.receiptId); });
+      } else {
+        if (typeof action.expectedVersion !== 'string') throw Error('entity_candidate_dismissal_version_required');
+        let name: string, key: string;
+        if (action.action === 'dismiss') {
+          const entries = scope.eraId ? await listEraRows<CodexEntry>(scope, 'codexEntries') : await db.codexEntries.where('projectId').equals(scope.projectId).toArray();
+          if (!action.candidate || !newEntityCandidates(action.text, [action.candidate], entries).length) throw Error('entity_candidate_stale_or_existing');
+          name = action.candidate.text.trim(); key = candidateKey(name);
+        } else {
+          key = action.key; const current = before.decisions.find(row => row.key === key);
+          if (!key) throw Error('entity_candidate_dismissal_key_invalid');
+          name = current?.name ?? key;
+        }
+        const change = changeCandidateDecision(ledger, scope, name, key, action.action === 'dismiss', action.expectedVersion);
+        if (!change.changed) return { ...before, changed: false };
+        next = change.ledger; receiptId = crypto.randomUUID();
+        const receipt: DismissalReceipt = { scope: structuredClone(scope), key, before: change.current, after: change.decision.version, ownerExisted: !!ledger?.owners.some(row => candidateOwnerKey(row) === candidateOwnerKey(scope)), ledgerExisted: ledger !== undefined, reserved: false };
+        const id = receiptId; tx.on('complete', () => { dismissalReceipts.set(id, receipt); });
+      }
+      assertCurrent?.();
+      await db.projects.where('id').equals(scope.projectId).modify(row => { if (next === undefined) delete row.entityCandidateDismissals; else row.entityCandidateDismissals = next; });
+      announceEraChange(scope.projectId, true);
+      return { ...dismissalSnapshot(next, scope), changed: true, ...(receiptId ? { receiptId } : {}) };
+    });
+  } catch (cause) { if (reservation) reservation.reserved = false; throw cause; }
 }

@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { entryNames } from '@/services/codexReference/matcher';
+import { candidateKey, type EntityCandidateContext } from '@/services/entityDetection/dismissalTypes';
+import { actOnEntityCandidateDismissal, getEntityCandidateDismissals } from '@/services/entityDetection/service';
 import type { Editor } from '@tiptap/react';
 import type { CodexEntry, CodexEntryType } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -8,19 +12,39 @@ import { createEntityCandidatesPlugin, entityCandidatesKey, entitySnapshot, type
 import { ScanSearch } from 'lucide-react';
 import './entityDetection.css';
 
-interface Props { editor: Editor; projectId: string; eraId?: string; entries: CodexEntry[]; preferences: EntityDetectionPreferences }
-export default function EntityDetectionControls({ editor, projectId, eraId, entries, preferences }: Props) {
+interface Props { editor: Editor; projectId: string; eraId?: string; context?: EntityCandidateContext; entries: CodexEntry[]; preferences: EntityDetectionPreferences }
+export default function EntityDetectionControls({ editor, projectId, eraId, context, entries, preferences }: Props) {
   const { locale, t } = useTranslation(), es = locale === 'es';
   const api = window.electronAPI?.entityDetection;
   const [status, setStatus] = useState<EntityDetectionStatus>();
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [candidates, setCandidates] = useState<EntitySpan[]>([]), [types, setTypes] = useState<Record<string, CodexEntryType>>({});
   const [selected, setSelected] = useState<number>();
+  const [receipt, setReceipt] = useState<string>();
+  const [undoRestore, setUndoRestore] = useState(false);
+  const [provisional, setProvisional] = useState<string[]>([]);
+  const contextKey = JSON.stringify(context), namesKey = JSON.stringify(entries.map(entry => [entry.id, entryNames(entry)]));
+  const dismissalRead = useLiveQuery(async () => {
+    try { return { value: context ? await getEntityCandidateDismissals({ projectId, eraId, context }) : undefined, error: '' }; }
+    catch (cause) { return { value: undefined, error: String(cause) }; }
+  }, [projectId, eraId, contextKey]);
+  const decisions = dismissalRead?.value;
+  const raw = useRef<EntitySpan[]>([]);
   const details = useRef<HTMLDetailsElement>(null), panel = useRef<HTMLDivElement>(null);
   const active = useRef(0), mounted = useRef(true), snapshot = useRef<EntitySnapshot | undefined>(undefined);
-  const latest = useRef({ projectId, eraId, entries, preferences }); latest.current = { projectId, eraId, entries, preferences };
+  const latest = useRef({ projectId, eraId, entries, preferences, contextKey }); latest.current = { projectId, eraId, entries, preferences, contextKey };
+  const hidden = new Set(context ? decisions?.decisions.filter(row => row.discarded).map(row => row.key) : provisional);
+  const hiddenRef = useRef(hidden); hiddenRef.current = hidden;
   const invalidate = useCallback(() => { active.current++; }, []);
-  const clear = useCallback(() => { invalidate(); snapshot.current = undefined; setCandidates([]); setBusy(false); if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(entityCandidatesKey, { snapshot: entitySnapshot(editor.state.doc), candidates: [] }).setMeta('addToHistory', false)); }, [editor, invalidate]);
+  const clear = useCallback(() => { invalidate(); snapshot.current = undefined; raw.current = []; setCandidates([]); setBusy(false); if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(entityCandidatesKey, { snapshot: entitySnapshot(editor.state.doc), candidates: [] }).setMeta('addToHistory', false)); }, [editor, invalidate]);
+  useEffect(() => {
+    const captured = snapshot.current;
+    if (!captured || editor.isDestroyed || captured.doc !== editor.state.doc) return;
+    const next = raw.current.filter(row => !hiddenRef.current.has(candidateKey(row.text)));
+    setCandidates(next);
+    editor.view.dispatch(editor.state.tr.setMeta(entityCandidatesKey, { snapshot: captured, candidates: next }).setMeta('addToHistory', false));
+  }, [editor, decisions, provisional]);
+  useEffect(() => { setReceipt(undefined); setProvisional([]); }, [projectId, eraId, contextKey]);
   useEffect(() => {
     mounted.current = true;
     editor.registerPlugin(createEntityCandidatesPlugin(index => { if (details.current) { details.current.open = true; let ancestor = details.current.parentElement?.closest('details'); while (ancestor) { ancestor.open = true; ancestor = ancestor.parentElement?.closest('details'); } } setSelected(index); panel.current?.querySelector<HTMLButtonElement>(`[data-create-entity="${index}"]`)?.focus(); }));
@@ -29,12 +53,15 @@ export default function EntityDetectionControls({ editor, projectId, eraId, entr
   useEffect(() => { let cancelled = false; void api?.status().then(value => { if (!cancelled) setStatus(value); }).catch(cause => { if (!cancelled) setError(String(cause)); }); return () => { cancelled = true; }; }, [api]);
   const scan = async () => {
     if (!api || !latest.current.preferences.detectNewEntities || status?.state !== 'ready') return;
-    const token = ++active.current, captured = entitySnapshot(editor.state.doc), context = latest.current;
+    const token = ++active.current, captured = entitySnapshot(editor.state.doc), binding = latest.current;
     setBusy(true); setError('');
     try {
       const spans = await api.detect(captured.text);
-      if (token !== active.current || editor.isDestroyed || editor.state.doc !== captured.doc || context.projectId !== latest.current.projectId || context.eraId !== latest.current.eraId) return;
-      const next = newEntityCandidates(captured.text, spans, latest.current.entries); snapshot.current = captured; setCandidates(next);
+      const saved = context ? await getEntityCandidateDismissals({ projectId, eraId, context }) : undefined;
+      if (token !== active.current || editor.isDestroyed || editor.state.doc !== captured.doc || binding.projectId !== latest.current.projectId || binding.eraId !== latest.current.eraId || binding.contextKey !== latest.current.contextKey) return;
+      const filtered = new Set(saved ? saved.decisions.filter(row => row.discarded).map(row => row.key) : hiddenRef.current);
+      raw.current = newEntityCandidates(captured.text, spans, latest.current.entries);
+      const next = raw.current.filter(row => !filtered.has(candidateKey(row.text))); snapshot.current = captured; setCandidates(next);
       editor.view.dispatch(editor.state.tr.setMeta(entityCandidatesKey, { snapshot: captured, candidates: next }).setMeta('addToHistory', false));
     } catch (cause) { if (token === active.current) { setError(String(cause)); void api.status().then(value => { if (token === active.current) setStatus(value); }).catch(() => {}); } } finally { if (token === active.current) setBusy(false); }
   };
@@ -45,7 +72,22 @@ export default function EntityDetectionControls({ editor, projectId, eraId, entr
     editor.on('update', changed);
     if (preferences.detectNewEntities && status?.state === 'ready') timer = setTimeout(() => { void scanRef.current(); }, 200);
     return () => { invalidate(); clearTimeout(timer); editor.off('update', changed); };
-  }, [editor, projectId, eraId, preferences.detectNewEntities, status?.state, entries, clear, invalidate]);
+  }, [editor, projectId, eraId, contextKey, preferences.detectNewEntities, status?.state, namesKey, clear, invalidate]);
+  const decide = async (candidate?: EntitySpan, restoreKey?: string, undo?: string) => {
+    const captured = snapshot.current, token = active.current, binding = contextKey;
+    if (!context) { if (candidate) setProvisional(previous => [...previous, candidateKey(candidate.text)]); else if (restoreKey) setProvisional(previous => previous.filter(key => key !== restoreKey)); return; }
+    setBusy(true); setError('');
+    try {
+      const current = await getEntityCandidateDismissals({ projectId, eraId, context });
+      const key = candidate ? candidateKey(candidate.text) : restoreKey!;
+      const expectedVersion = current.decisions.find(row => row.key === key)?.version ?? '';
+      const action = undo ? { action: 'undo' as const, receiptId: undo } : candidate ? { action: 'dismiss' as const, candidate, text: captured?.text ?? '', expectedVersion } : { action: 'restore' as const, key, expectedVersion };
+      const result = await actOnEntityCandidateDismissal({ projectId, eraId, context }, action, () => {
+        if (!mounted.current || editor.isDestroyed || token !== active.current || binding !== latest.current.contextKey || projectId !== latest.current.projectId || eraId !== latest.current.eraId || (candidate && (!captured || captured.doc !== editor.state.doc))) throw Error('entity_candidate_stale_or_existing');
+      });
+      if (mounted.current && token === active.current) { setReceipt(result.receiptId); setUndoRestore(!candidate && !undo); }
+    } catch (cause) { if (mounted.current && token === active.current) setError(String(cause)); } finally { if (mounted.current && token === active.current) setBusy(false); }
+  };
   const toggle = async (key: 'detectNewEntities' | 'autoLinkMentions' | 'animateNewLinks') => {
     setError(''); try { await updateEntityDetectionPreferences(projectId, { [key]: !preferences[key] }, preferences.revision); } catch (cause) { setError(String(cause)); }
   };
@@ -71,8 +113,11 @@ export default function EntityDetectionControls({ editor, projectId, eraId, entr
     {preferences.detectNewEntities && <>
       <p>{es ? 'El clasificador local sugiere personas, lugares y organizaciones. Puede omitir nombres o equivocarse, especialmente en ficción. Tú eliges el tipo y creas cada ficha.' : 'The local classifier suggests people, places and organizations. It can miss names or be wrong, especially in fiction. You choose the type and create each card.'}</p>
       {!api ? <p>{es ? 'Disponible en la aplicación de escritorio.' : 'Available in the desktop application.'}</p> : status?.state !== 'ready' ? <div><p role="status">{status?.state === 'preparing' ? `${es ? 'Preparando clasificador' : 'Preparing classifier'} ${status.progress ?? 0}%` : es ? 'Descarga única de 182 MB. Después funciona sin conexión, en CPU.' : 'One-time 182 MB download. Then works offline on CPU.'}</p><button type="button" disabled={busy} onClick={() => { void prepare(); }}>{status?.state === 'error' ? es ? 'Reintentar preparación' : 'Retry preparation' : es ? 'Preparar clasificador local' : 'Prepare local classifier'}</button></div> : <><div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => { void scan(); }}>{busy ? es ? 'Analizando…' : 'Scanning…' : es ? 'Analizar documento' : 'Scan document'}</button>{busy && <button type="button" onClick={clear}>{es ? 'Cancelar análisis' : 'Cancel scan'}</button>}</div><p role="status">{!busy && !candidates.length ? es ? 'No hay candidatos nuevos. Puedes crear fichas manualmente en Códex.' : 'No new candidates. You can create cards manually in Codex.' : es ? `${candidates.length} candidatos nuevos · destino: ${eraId ? 'era actual' : 'Base'}` : `${candidates.length} new candidates · destination: ${eraId ? 'current era' : 'Base'}`}</p></>}
-      <ul>{candidates.map((candidate, index) => <li key={`${candidate.from}:${candidate.text}`} data-selected={selected === index || undefined}><span>{candidate.text}</span><label><span className="sr-only">{es ? 'Tipo de' : 'Type of'} {candidate.text}</span><select value={types[candidate.text] ?? suggestedEntityType(candidate.label)} onChange={event => setTypes(previous => ({ ...previous, [candidate.text]: event.target.value as CodexEntryType }))}>{(['character', 'location', 'faction', 'item', 'concept', 'magic', 'custom'] as const).map(type => <option key={type} value={type}>{t(`codex.types.${type}`)}</option>)}</select></label><button type="button" data-create-entity={index} disabled={busy} onClick={() => { void create(candidate); }}>{es ? 'Crear ficha' : 'Create card'}</button></li>)}</ul>
+      <ul>{candidates.map((candidate, index) => <li key={`${candidate.from}:${candidate.text}`} data-selected={selected === index || undefined}><span>{candidate.text}</span><label><span className="sr-only">{es ? 'Tipo de' : 'Type of'} {candidate.text}</span><select value={types[candidate.text] ?? suggestedEntityType(candidate.label)} onChange={event => setTypes(previous => ({ ...previous, [candidate.text]: event.target.value as CodexEntryType }))}>{(['character', 'location', 'faction', 'item', 'concept', 'magic', 'custom'] as const).map(type => <option key={type} value={type}>{t(`codex.types.${type}`)}</option>)}</select></label><button type="button" data-create-entity={index} disabled={busy} onClick={() => { void create(candidate); }}>{es ? 'Crear ficha' : 'Create card'}</button><button type="button" disabled={busy} aria-label={`${es ? 'Descartar' : 'Dismiss'} ${candidate.text}`} onClick={() => { void decide(candidate); }}>{es ? 'Descartar' : 'Dismiss'}</button></li>)}</ul>
+      {!context && <p>{es ? 'Los descartes de este formulario son provisionales hasta cerrarlo.' : 'Dismissals in this form last until it closes.'}</p>}
+      {(decisions?.decisions.filter(row => row.discarded) ?? provisional.map(key => ({ key, name: raw.current.find(row => candidateKey(row.text) === key)?.text ?? key }))).map(row => <button type="button" key={row.key} disabled={busy} onClick={() => { void decide(undefined, row.key); }}>{es ? 'Recuperar' : 'Restore'} {row.name}</button>)}
+      {receipt && <button type="button" disabled={busy} onClick={() => { void decide(undefined, undefined, receipt); }}>{undoRestore ? es ? 'Deshacer recuperación' : 'Undo restoration' : es ? 'Deshacer descarte' : 'Undo dismissal'}</button>}
     </>}
-    {error && <p role="alert">{es ? 'No se ha completado la operación. Reintenta; si las preferencias cambiaron, vuelve a abrirlas.' : 'The operation did not complete. Retry; if preferences changed, reopen them.'} <span>{error}</span></p>}
+    {(error || dismissalRead?.error) && <p role="alert">{es ? 'No se ha completado la operación. Reintenta; si las preferencias cambiaron, vuelve a abrirlas.' : 'The operation did not complete. Retry; if preferences changed, reopen them.'} <span>{error || dismissalRead?.error}</span></p>}
   </div></details>;
 }

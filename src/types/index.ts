@@ -80,6 +80,7 @@ export interface Project {
   codexTemplates?: import('@/engines/codex/templateTypes').CodexTemplate[];
   /** Named option palettes shared by this project and its eras. */
   codexOptionLists?: import('@/engines/codex/optionListTypes').CodexOptionList[];
+  entityCandidateDismissals?: import('@/services/entityDetection/dismissalTypes').EntityCandidateDismissalLedger;
   entityDetectionPreferences?: import('@/services/entityDetection/types').EntityDetectionPreferences;
   /** Typed records and formula sheets, kept with portable project metadata. */
   dataTables?: import('@/engines/tables/types').WorldTable[];

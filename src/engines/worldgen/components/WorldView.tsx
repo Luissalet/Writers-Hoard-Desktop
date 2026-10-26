@@ -71,7 +71,7 @@ import type { Shape3D, Skin3D } from './World3D';
 import CartoMap from './CartoMap';
 import CityPlanView from './CityPlanView';
 import RegionSheetView from './RegionSheetView';
-import JourneyPanel from './JourneyPanel';
+import JourneyPanel, { type JourneySelection } from './JourneyPanel';
 import AtlasPanel from './AtlasPanel';
 import LocatorPanel from './LocatorPanel';
 import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
@@ -384,6 +384,10 @@ export default function WorldView({
   const [journeyTo, setJourneyTo] = useState<Settlement | null>(null);
   const [journeyPick, setJourneyPick] = useState<'from' | 'to' | 'via' | null>(null);
   const [journeyVia, setJourneyVia] = useState<Settlement[]>([]);
+  const journeySelectionKey = JSON.stringify([projectId, world.id, scope.eraId, pane?.instanceId]);
+  const journeySelection = useRef<{ key: string; value?: JourneySelection }>({ key: journeySelectionKey });
+  if (journeySelection.current.key !== journeySelectionKey) journeySelection.current = { key: journeySelectionKey };
+  const selectionOwner = journeySelection.current;
   const [journeyRoute, setJourneyRoute] = useState<{ route: TravelRoute | null; color: string }>({ route: null, color: '#a3261e' });
   /** The party's banner while a journey is being played. */
   const [traveller, setTraveller] = useState<CartoAnnotations['traveller'] | null>(null);
@@ -1646,14 +1650,14 @@ export default function WorldView({
       });
       return;
     }
-    if (journeyPick === 'from') { setJourneyFrom(s); setJourneyPick('to'); return; }
+    if (journeyPick === 'from') { setJourneyFrom(s); setJourneyPick(journeyTo ? null : 'to'); return; }
     if (journeyPick === 'to') { setJourneyTo(s); setJourneyPick(null); return; }
     if (journeyPick === 'via') {
       setJourneyVia((v) => (v.some((q) => q.id === s.id) ? v : [...v, s]));
       return;
     }
     descendToTown(s);
-  }, [brushIsOut, brush.mode, brush.roadMajor, brush.roadWidth, brush.roadPattern, roadFrom, data, geography, journeyPick, applyEdit, descendToTown, t]);
+  }, [brushIsOut, brush.mode, brush.roadMajor, brush.roadWidth, brush.roadPattern, roadFrom, data, geography, journeyPick, journeyTo, applyEdit, descendToTown, t]);
 
   /** A journey end or stop on open ground: a point of the map, named by its cell. */
   const journeyPointSeq = useRef(0);
@@ -1662,10 +1666,23 @@ export default function WorldView({
     const cell = { x: ((Math.floor(x) % data.width) + data.width) % data.width, y: Math.min(data.height - 1, Math.max(0, Math.floor(y))) };
     if (data.elevation[cell.y * data.width + cell.x] <= 0 && journeyPick !== 'via') { toast.info(t('worldgen.journey.pointAtSea')); return; }
     const point = journeyPoint(cell.x, cell.y, t('worldgen.journey.point').replace('{x}', String(cell.x)).replace('{y}', String(cell.y)), journeyPointSeq.current++);
-    if (journeyPick === 'from') { setJourneyFrom(point); setJourneyPick('to'); return; }
+    if (journeyPick === 'from') { setJourneyFrom(point); setJourneyPick(journeyTo ? null : 'to'); return; }
     if (journeyPick === 'to') { setJourneyTo(point); setJourneyPick(null); return; }
     if (journeyPick === 'via') setJourneyVia((v) => [...v, point]);
-  }, [data, journeyPick, t]);
+  }, [data, journeyPick, journeyTo, t]);
+
+  const startJourneyAt = (entity: WorldSpatialEntity, end: 'from' | 'to') => {
+    const stop = { ...journeyPoint(entity.x, entity.y, entity.name, journeyPointSeq.current++), x: entity.x, y: entity.y };
+    setJourneyFrom(end === 'from' ? stop : null);
+    setJourneyTo(end === 'to' ? stop : null);
+    setJourneyVia([]);
+    setJourneyRoute({ route: null, color: '#a3261e' });
+    setTraveller(null);
+    setTool(current => current.mode === 'off' ? current : { ...current, mode: 'off' });
+    setRoadFrom(null);
+    setJourneyPick(end === 'from' ? 'to' : 'from');
+    setPanelTab('journey'); setView('map');
+  };
 
   /**
    * Putting the TOOL away abandons a half-drawn road. Changing panel does not.
@@ -1708,6 +1725,7 @@ export default function WorldView({
     setJourneyVia([]);
     setJourneyRoute({ route: null, color: '#a3261e' });
     setJourneyPick(null);
+    journeySelection.current.value = undefined;
     setPaleoState(null);
     setAtlasKey(null);
     setSelectedSpatialKey(null);
@@ -2999,6 +3017,7 @@ export default function WorldView({
                   projectId={projectId}
                   worldId={world.id}
                   entity={selectedSpatialEntity}
+                  onJourney={(end) => startJourneyAt(selectedSpatialEntity, end)}
                   onRename={(name) => renameByKey(selectedSpatialEntity.key, name)}
                   onRemove={() => removeByKey(selectedSpatialEntity.key)}
                   locked={lockedKeys.has(selectedSpatialEntity.key)}
@@ -3097,6 +3116,9 @@ export default function WorldView({
             ) : panelTab === 'journey' ? (
               data && geography ? (
               <JourneyPanel
+                  key={journeySelectionKey}
+                  initialSelection={selectionOwner.value}
+                  onSelectionChange={(selection) => { if (journeySelection.current === selectionOwner) selectionOwner.value = selection; }}
                   worldRecord={world}
                   onJourneysChanged={onRefreshWorld}
                   onOpenJourney={(journey) => {

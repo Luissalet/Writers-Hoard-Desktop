@@ -34,7 +34,19 @@ import { clockAt, clockText, DEFAULT_SET_OFF_HOUR, groundsCrossed, kmOnWater, le
  * peoples, no dates, just the shape of the ground when the sea was lower.
  */
 
+/** Session choices only; the world's pace/profile continue to follow its travel revision. */
+export interface JourneySelection {
+  mode: TravelMode;
+  wayId: string | null;
+  season: Season;
+  hoursPerDay?: number;
+  planetRadiusKm?: number;
+  setOffHour: number;
+}
+
 interface JourneyPanelProps {
+  initialSelection?: JourneySelection;
+  onSelectionChange?: (selection: JourneySelection) => void;
   worldRecord?: GeneratedWorld;
   onOpenJourney?: (journey: WorldJourney) => void;
   onJourneysChanged?: () => void | Promise<void>;
@@ -74,20 +86,23 @@ export default function JourneyPanel(props: JourneyPanelProps) {
 function JourneyPanelContent({
   world, geography, from, to, picking, onPick, onSwap, onClear, onRoute, onTraveller, onRevealRoute,
   via, onClearVia, onViaChange, paleo, onPaleo, worldRecord, onOpenJourney, onJourneysChanged,
+  initialSelection, onSelectionChange,
 }: JourneyPanelProps) {
   const { t, locale } = useTranslation();
   const scope = useWorldEraScope(worldRecord?.projectId);
-  const [mode, setMode] = useState<TravelMode>('foot');
+  const [mode, setMode] = useState<TravelMode>(initialSelection?.mode ?? 'foot');
   /** One of the world's own ways of travelling, chosen instead of a mode (it brings its own). */
-  const [wayId, setWayId] = useState<string | null>(null);
+  const [wayId, setWayId] = useState<string | null>(initialSelection?.wayId ?? null);
   /** The new way being written in the settings. */
   const [wayDraft, setWayDraft] = useState<{ name: string; base: TravelMode; speed: number; flies: boolean; night: boolean }>({ name: '', base: 'horse', speed: 1, flies: false, night: false });
-  const [season, setSeason] = useState<Season>('summer');
+  const [season, setSeason] = useState<Season>(initialSelection?.season ?? 'summer');
   const [showAll, setShowAll] = useState(false);
   const [showStages, setShowStages] = useState(false);
   /** When the party sets off each day: only how the journey is told, never the route. */
-  const [setOffHour, setSetOffHour] = useState(DEFAULT_SET_OFF_HOUR);
-  const [customOptions, setCustomOptions] = useState<Pick<WorldJourney['options'], 'hoursPerDay' | 'planetRadiusKm'>>({});
+  const [setOffHour, setSetOffHour] = useState(initialSelection?.setOffHour ?? DEFAULT_SET_OFF_HOUR);
+  const [customOptions, setCustomOptions] = useState<Pick<WorldJourney['options'], 'hoursPerDay' | 'planetRadiusKm'>>({ hoursPerDay: initialSelection?.hoursPerDay, planetRadiusKm: initialSelection?.planetRadiusKm });
+  const publishSelection = useEffectEvent((selection: JourneySelection) => onSelectionChange?.(selection));
+  useEffect(() => { publishSelection({ mode, wayId, season, ...customOptions, setOffHour }); }, [mode, wayId, season, customOptions, setOffHour]);
   /** How hard the party pushes; the world remembers the author's usual pace. */
   const [pace, setPace] = useState<TravelPace>(worldRecord?.travelPace ?? 'steady');
   /** One mode per leg between stops; empty entries follow the journey's mode. */

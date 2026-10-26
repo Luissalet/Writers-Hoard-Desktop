@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Native NER metadata own fixture</title></head><body><div id="root"></div><script type="module">
+import '/src/index.css';
+window.addEventListener('error', event => {window.__result={ok:false,error:event.error?.stack||event.message};});
+try {const {testEntityCandidateDismissalsNative}=await import('/tests/entity-candidate-dismissals.native.renderer.ts');window.__result={ok:true,tests:await testEntityCandidateDismissalsNative()};}catch(error){window.__result={ok:false,error:error.stack||String(error)};}
+</script></body></html>
