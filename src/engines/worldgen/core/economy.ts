@@ -1,5 +1,5 @@
 import { Biome } from './types';
-import { cellKmOf } from './geoScale';
+import { cellKmOf, mapMetric, metricCellKmOf } from './geoScale';
 import { landReach } from './tradeRoutes';
 import { createRng } from './rng';
 import type { Settlement, SettlementRank } from './settlements';
@@ -96,6 +96,7 @@ export interface TradeSite {
   placeId: number | null; auto: boolean;
 }
 export interface EconomyWorld {
+  mapWidthKm?: number;
   width: number; height: number;
   /** Km; <= 0 is sea. */
   elevation: Float32Array;
@@ -652,7 +653,7 @@ function overLand(world: EconomyWorld, a: EconomyPlace, b: EconomyPlace): boolea
  */
 function buildLinks(world: EconomyWorld, places: readonly EconomyPlace[]): Links {
   const w = world.width;
-  const range = Math.max(12, Math.round(LAND_RANGE_KM / cellKmOf(world.params, w)));
+  const range = Math.max(12, Math.round(LAND_RANGE_KM / metricCellKmOf(mapMetric(world), w)));
   const range2 = range * range;
   const ports: number[] = [];
   places.forEach((p, i) => { if (p.port) ports.push(i); });

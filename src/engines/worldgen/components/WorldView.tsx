@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring/registry';
 import { useWritings } from '@/engines/writings/hooks';
 import { shipmentPath } from '../core/tradeRoutes';
-import { cellKmOf, isSheet, sheetScale } from '../core/geoScale';
+import { isSheet, mapMetric, metricCellKmOf, metricSheetScale } from '../core/geoScale';
 import { landmassWindow } from '../core/landmass';
 import { CONTOUR_INTERVALS_M } from '../cartography/contourLayer';
 import { FOG_HEARD, fogChapters, fogMask, READER_STARTS, type ReaderStart } from '../core/readerFog';
@@ -66,6 +66,8 @@ import { useWorldEnvironment } from '../useWorldEnvironment';
 import { useWorldWaypoints } from '../hooks';
 import Map2D from './Map2D';
 import ParamsPanel from './ParamsPanel';
+import WorldScalePanel from './WorldScalePanel';
+import { applyWorldScaleMetadata } from '../core/geoScale';
 import WaypointsPanel from './WaypointsPanel';
 import type { Shape3D, Skin3D } from './World3D';
 import CartoMap from './CartoMap';
@@ -549,6 +551,7 @@ export default function WorldView({
   }, [onThumbnail, locale]);
 
   const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(runtimeId, handleDone);
+  if (data) applyWorldScaleMetadata(data, world);
   const imageBinding=JSON.stringify([projectId,runtimeId,paintRev,data?.revision??0]);
   const imageBindingRef=useRef(imageBinding);imageBindingRef.current=imageBinding;
   const [imageLease,setImageLease]=useState<{binding:string;painter:PlaceImagePainter}|null>(null);
@@ -578,7 +581,7 @@ export default function WorldView({
    * a saved region's, like every number a reader sees, is in the map's own. On
    * a sheet the two differ by the sheet's scale.
    */
-  const kmScale = sheetScale(world.params);
+  const kmScale = metricSheetScale(mapMetric(world));
   const shapeShown: Shape3D = sheetWorld ? 'plane' : shape3D;
   const chooseShape = useCallback((s: Shape3D) => { if (!sheetWorld || s === 'plane') setShape3D(s); }, [sheetWorld]);
   const generationBusyRef = useRef(false);
@@ -776,6 +779,7 @@ export default function WorldView({
     canonPrev.current = { source: data, key, value };
     return value;
   }, [data, paintRev, runtimeId]);
+  if (canonSource) applyWorldScaleMetadata(canonSource.world, world);
 
   /** La política de sembrado vigente (tick + zonas), deserializada UNA vez por
    *  cambio de ediciones — no en cada render — para la hoja libre y la de
@@ -1050,7 +1054,7 @@ export default function WorldView({
     }, trade ? 450 : 30);
     return () => { live = false; window.clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `trade` only picks the delay; paintRev is the session's revision.
-  }, [tradeOpen, data, geography, paintRev]);
+  }, [tradeOpen, data, data?.mapWidthKm, geography, paintRev]);
   /** The ways shipments go (round bays, along rivers, round headlands), worked out once per pair while the lens is open, a few per frame. */
   const tradePaths = useMemo(() => ({ trade, paths: new Map<string, { x: number; y: number }[]>() }), [trade]);
   const [tradePathTick, setTradePathTick] = useState(0);
@@ -2648,7 +2652,7 @@ export default function WorldView({
           {data && view === 'map' && (
             // How much of the world the view takes in: the band (world, continent, region, local) and its width on the ground.
             <div className="pointer-events-none absolute left-2 top-2 z-10 rounded bg-surface/80 px-2 py-0.5 text-[10px] text-text-muted" data-testid="worldgen-view-band" data-tier={semanticProfile.tier}>
-              {t(`worldgen.band.${semanticProfile.tier}`)} · {t('worldgen.band.across').replace('{n}', Math.round(viewport.spanKm * sheetScale(world.params)).toLocaleString(locale === 'en' ? 'en-GB' : 'es-ES'))}
+              {t(`worldgen.band.${semanticProfile.tier}`)} · {t('worldgen.band.across').replace('{n}', Math.round(viewport.spanKm * metricSheetScale(mapMetric(world))).toLocaleString(locale === 'en' ? 'en-GB' : 'es-ES'))}
             </div>
           )}
           {readerView && readerChapter !== null && (view === 'map' || view === 'carta') && (() => {
@@ -3192,7 +3196,7 @@ export default function WorldView({
                   void navigator.clipboard?.writeText(json);
                   toast.success(t('worldgen.paint.editsCopied'));
                 }}
-                cellKm={Math.round(cellKmOf(data?.params, data?.width ?? 1024) * 10) / 10}
+                cellKm={Math.round(metricCellKmOf(data ? mapMetric(data) : undefined, data?.width ?? 1024) * 10) / 10}
                 realms={realmChoices}
                 busy={painting || environment.busy}
                 selectedLabel={selectedLabel}
@@ -3223,7 +3227,7 @@ export default function WorldView({
                 }}
               />
             ) : panelTab === 'params' ? (
-              <ParamsPanel
+              <><WorldScalePanel key={runtimeId} world={world} eraId={scope.eraId} onChanged={onRefreshWorld} /><ParamsPanel
                 params={params}
                 onChange={setParams}
                 onGenerate={handleGenerate}
@@ -3232,7 +3236,7 @@ export default function WorldView({
                 hasWorld={!!data}
                 onCreateAlternative={() => void createAlternative()}
                 onReset={() => setParams(normalizeParams(world.params))}
-              />
+              /></>
             ) : (
               <WaypointsPanel
                 waypoints={waypoints}

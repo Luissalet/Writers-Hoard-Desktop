@@ -22,6 +22,7 @@
 // Waypoints and entity links are ordinary rows and follow the maps.ts pattern.
 
 import { db } from '@/db';
+import { mapMetric, resolveWorldScale } from '@/engines/worldgen/core/geoScale';
 import type { EntityLink } from '@/types/projectTools';
 import {
   WAYPOINT_COLORS,
@@ -75,6 +76,25 @@ import {
 } from './shared';
 
 const ENGINE = 'worldgen';
+
+export async function whGetWorldScale(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { getWorldScale } = await import('@/engines/worldgen/worldScale');
+  return getWorldScale({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id);
+}
+export async function whSetWorldScale(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args); await assertEngineEnabled(world.projectId, ENGINE);
+  const { saveWorldScale, getWorldScale, WorldScaleError } = await import('@/engines/worldgen/worldScale');
+  try {
+    const scope = { projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId };
+    const receipt = await saveWorldScale(scope, world.id, args.widthKm as number | null, args.expectedRevision as number);
+    const result = { ...await getWorldScale(scope, world.id), changed: receipt.changed };
+    return receipt.changed ? withAudit(result, { projectId: world.projectId, entityId: world.id, summary: `calibrated map "${world.title}"`, before: { __worldScale: receipt } }) : result;
+  } catch (error) {
+    if (error instanceof WorldScaleError) throw new BridgeError(error.code === 'bad-value' ? 'bad-args' : error.code, error.message);
+    throw error;
+  }
+}
 
 type MarkerEdit = Extract<WorldEdit, { kind: 'marker' }>;
 type LabelEdit = Extract<WorldEdit, { kind: 'label' }>;
@@ -292,8 +312,9 @@ function worldDigest(world: GeneratedWorld, waypoints: WorldWaypoint[]): Record<
     height,
     // How big the map is: a sheet of worldKm across, or the planet (40075 km round).
     sheet: typeof world.params.worldKm === 'number' && world.params.worldKm < 40075,
-    worldKm: typeof world.params.worldKm === 'number' && world.params.worldKm >= 1000 && world.params.worldKm < 40075 ? world.params.worldKm : 40075,
-    cellKm: Math.round(((typeof world.params.worldKm === 'number' && world.params.worldKm >= 1000 && world.params.worldKm < 40075 ? world.params.worldKm : 40075) / width) * 1000) / 1000,
+    worldKm: resolveWorldScale(world).widthKm,
+    cellKm: Math.round(resolveWorldScale(world).cellKm * 1000) / 1000,
+    physicalScale: resolveWorldScale(world),
     ...editDigest(world),
     regions: (world.regions ?? []).map((region) => ({ id: region.id, title: region.title })),
     waypointCount: waypoints.length,
@@ -1164,7 +1185,7 @@ export async function whMeasureWorld(args: ToolArgs): Promise<unknown> {
     if (p.y < 0 || p.y > height) throw new BridgeError('bad-args', `points[${index}].y must be within 0..${height}.`);
     return { x: ((p.x % width) + width) % width, y: p.y };
   });
-  const sheet = normalizeParams(world.params);
+  const sheet = mapMetric(world);
   const reading = measurePolyline(points, width, height, sheet);
   const round = (value: number) => Math.round(value * 100) / 100;
   return {
@@ -1987,9 +2008,9 @@ export async function whWorldEconomy(args: ToolArgs): Promise<unknown> {
       if (args.routes !== undefined && typeof args.routes !== 'boolean') throw new BridgeError('bad-args', 'routes must be true or false.');
       const ways = args.routes === true ? await import('@/engines/worldgen/core/tradeRoutes') : null;
       const cache = new Map<string, { x: number; y: number }[]>();
-      const { mapDistanceKm } = await import('@/engines/worldgen/core/geoScale');
+      const { metricDistanceKm } = await import('@/engines/worldgen/core/geoScale');
       const W = input.world.width, H = input.world.height;
-      const km = (path: { x: number; y: number }[]) => path.reduce((sum, q, i) => i ? sum + mapDistanceKm(input.world.params, W, H, path[i - 1].x + 0.5, path[i - 1].y + 0.5, q.x + 0.5, q.y + 0.5) : 0, 0);
+      const km = (path: { x: number; y: number }[]) => path.reduce((sum, q, i) => i ? sum + metricDistanceKm(mapMetric(input.world), W, H, path[i - 1].x + 0.5, path[i - 1].y + 0.5, q.x + 0.5, q.y + 0.5) : 0, 0);
       return snap.movements.slice(0, 40).map((m) => {
         const a = names.get(m.from), b = names.get(m.to);
         let path: { x: number; y: number }[] | undefined;

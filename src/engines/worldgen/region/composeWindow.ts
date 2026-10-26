@@ -14,7 +14,7 @@
 
 import type { WorldData } from '../core/types';
 import { chaikin } from '../cartography/contours';
-import { kmPerWorldCell } from './terrain';
+import { physicalKmPerWorldCell } from './terrain';
 import type { FieldParcel, RegionData, RegionPlace, RegionStream, RegionTrack } from './types';
 import {
   canonParams, canonRefinement, tileGeometry, tileInterior,
@@ -104,7 +104,7 @@ export function composeCanonWindow(
   spec: CanonWindowSpec,
 ): RegionData {
   const W = world.width;
-  const kmCell = kmPerWorldCell(world);
+  const kmCell = physicalKmPerWorldCell(world);
   const per = 1 / canonRefinement(world);
   const interior = tileInterior(world);
   const m = spec.margin;

@@ -12,7 +12,7 @@
 // grid could not resolve; slide the window one metre east and the ground does
 // not move, it just gets re-sampled.
 
-import { cellKmOf, isSheet, worldKmOf } from '../core/geoScale';
+import { cellKmOf, isSheet, worldKmOf, mapMetric, metricCellKmOf } from '../core/geoScale';
 import { resolveLakeSurface } from '../core/lakeSurface';
 import { SphereNoise } from '../core/noise';
 import { riverKey } from '../core/edits';
@@ -25,6 +25,11 @@ const EARTH_KM = 2 * Math.PI * 6371;
 /** How wide one world cell is on the ground: a sheet's own scale, or the planet's. */
 export function kmPerWorldCell(world: Pick<WorldData, 'width'> & { params?: { worldKm?: number } }): number {
   return isSheet(world.params) ? cellKmOf(world.params, world.width) : EARTH_KM / world.width;
+}
+
+/** Physical readouts/frames only. Canon generation continues using kmPerWorldCell. */
+export function physicalKmPerWorldCell(world: Pick<WorldData, 'width'> & { params?: { worldKm?: number }; mapWidthKm?: number }): number {
+  return isSheet(world.params) ? metricCellKmOf(mapMetric(world), world.width) : EARTH_KM / world.width;
 }
 
 /**

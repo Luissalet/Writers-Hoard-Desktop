@@ -1,0 +1,5 @@
+<!doctype html><meta charset="utf-8"><title>Physical map scale regression</title><div id="root"></div><script type="module">
+import '/src/index.css';import '/src/engines/worldgen/index.ts';globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+const mode=new URL(location.href).searchParams.get('case');
+try{const test=mode==='ui'?(await import('./worldgen-scale-ui.browser')).testWorldScaleNormalUI:mode==='advanced'?(await import('./worldgen-scale-advanced.browser')).testAdvanced:mode==='worker'?(await import('./worldgen-scale-worker.browser')).testWorker:mode==='portable'?(await import('./worldgen-scale-portable.browser')).testPortable:(await import('./worldgen-scale-contract.browser')).testWorldScaleContracts;window.__result={ok:true,tests:await test()};}catch(error){window.__result={ok:false,error:error.stack||String(error)};}
+</script>

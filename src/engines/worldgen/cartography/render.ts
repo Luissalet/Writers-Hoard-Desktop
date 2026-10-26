@@ -13,7 +13,7 @@
 // low minutes, and it is the only way to get the coast rings to respect real
 // geodesic distance instead of a blurred alpha mask.
 
-import { cellKmOf, isSheet, worldKmOf } from '../core/geoScale';
+import { isSheet, mapMetric, metricCellKmOf, metricWidthKmOf} from '../core/geoScale';
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawContourLines } from './contourLayer';
 import { drawReaderFog, fogUnnamed, type ReaderFogLayer } from './readerFogLayer';
@@ -509,7 +509,7 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
 
   // ---- stage 2b: the play grid, under the lettering ------------------------
   if (opts.grid) {
-    drawMapGrid(ctx, opts.grid, { width: OW, height: OH, cellPx: scale, originX: -view.x * scale, originY: -view.y * scale, kmPerCell: cellKmOf(world.params, world.width), color: theme.furniture.ink });
+    drawMapGrid(ctx, opts.grid, { width: OW, height: OH, cellPx: scale, originX: -view.x * scale, originY: -view.y * scale, kmPerCell: metricCellKmOf(mapMetric(world), world.width), color: theme.furniture.ink });
   }
 
   // ---- stage 2c: the author's zones, under the lettering ---------------------
@@ -559,7 +559,7 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
       theme, width: OW, height: OH, view, scale,
       worldWidth: world.width,
       // The scale bar reads the map's own km: a sheet's, not the planet's.
-      ...(isSheet(world.params) ? { planetRadiusKm: worldKmOf(world.params) / (2 * Math.PI) } : {}),
+      ...(isSheet(world.params) ? { planetRadiusKm: metricWidthKmOf(mapMetric(world)) / (2 * Math.PI) } : {}),
       title: opts.title,
       subtitle: opts.subtitle,
       cardinals: opts.cardinals,

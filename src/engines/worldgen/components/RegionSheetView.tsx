@@ -35,7 +35,7 @@ import {
   type RegionPlace,
   type RegionWindow,
 } from '../region/types';
-import { kmPerWorldCell } from '../region/terrain';
+import { physicalKmPerWorldCell } from '../region/terrain';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
 import { preparePlaceImages, webPlaceImageAdapter, type PlaceImagePainter } from '../cartography/placeImages';
@@ -176,7 +176,7 @@ export default function RegionSheetView({
       controller.abort();
       handle?.cancel();
     };
-  }, [geography, regionParams, win, world, sitesPolicy]);
+  }, [geography, regionParams, win, world, world.mapWidthKm, sitesPolicy]);
 
   const entities = useMemo(
     () => region?.places.map((place) => placeEntity(place, world)) ?? [],
@@ -283,7 +283,7 @@ export default function RegionSheetView({
   }, [drawSheet, preparedImages]);
 
   const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
-  const kmCell = kmPerWorldCell(world);
+  const kmCell = physicalKmPerWorldCell(world);
 
   const onPointerDown = useCallback((event: React.PointerEvent) => {
     (event.target as Element).setPointerCapture?.(event.pointerId);

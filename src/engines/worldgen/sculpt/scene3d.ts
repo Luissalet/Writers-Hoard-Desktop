@@ -1315,8 +1315,8 @@ export class SculptSurface {
     this.setWindow(this.window);
   }
 
-  setExaggeration(exag: number): void {
-    this.material.uniforms.uYMul.value = elevKmToY(exag, this.W);
+  setExaggeration(exag: number, physicalRatio = 1): void {
+    this.material.uniforms.uYMul.value = elevKmToY(exag, this.W) * physicalRatio;
   }
 
   /**

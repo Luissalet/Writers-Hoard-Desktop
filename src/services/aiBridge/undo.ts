@@ -110,6 +110,12 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     return { undone: true, kind, entityId: id, what: summary };
   }
 
+  if (entry.tool === 'wh_set_world_scale' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__worldScale' in entry.before) {
+    const { revertWorldScale } = await import('@/engines/worldgen/worldScale');
+    const receipt = (entry.before as { __worldScale: import('@/engines/worldgen/worldScale').WorldScaleReceipt }).__worldScale;
+    const result = await revertWorldScale({ projectId: entry.projectId }, entityId, receipt);
+    return { undone: result.reverted.length > 0, kind, entityId, what: summary };
+  }
   if (entry.tool === 'wh_set_world_presentation' && typeof entry.projectId === 'string' && entry.before && typeof entry.before === 'object' && '__worldPresentation' in entry.before) {
     const { revertWorldPresentation } = await import('@/engines/worldgen/presentation');
     const receipt = (entry.before as { __worldPresentation: import('@/engines/worldgen/presentation').PresentationReceipt }).__worldPresentation;

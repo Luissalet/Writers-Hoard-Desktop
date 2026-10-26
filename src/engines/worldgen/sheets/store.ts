@@ -21,7 +21,7 @@ export async function saveWorldRegionChanges(projectId: string, worldId: string,
       if (stableStringify(current.get(id)) !== stableStringify(before)) throw new WorldRegionConflict('Region changed');
       if (after) {
         if (!after.id || !after.title.trim() || !Number.isFinite(after.x) || !Number.isFinite(after.y) || !Number.isFinite(after.spanKm) || after.spanKm <= 0 || !Number.isFinite(after.params.aspect) || after.params.aspect <= 0) throw new Error('Invalid region');
-        if (after.frameMode === 'canon') sheetSpec({ width: world.params.width, height: world.params.width / 2 } as WorldData, savedSheetFrame(after));
+        if (after.frameMode === 'canon') sheetSpec({ width: world.params.width, height: world.params.width / 2, params: world.params, mapWidthKm: world.mapWidthKm } as WorldData, savedSheetFrame(after));
         current.set(id, structuredClone(after));
       } else current.delete(id);
     }
