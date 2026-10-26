@@ -6,7 +6,7 @@ const esc = (value: string) => value.replace(/[&<>"']/g, char => ({ '&':'&amp;',
 export function readerModel(asset: ModelAsset): ModelAsset {
   const bytes = assetBytes(asset);
   if (bytes.byteLength !== asset.size || typeof asset.name !== 'string' || typeof asset.id !== 'string') throw new Error('invalid_model');
-  return { id: asset.id, name: asset.name, size: asset.size, dataUrl: asset.dataUrl, createdAt: asset.createdAt };
+  return { id: asset.id, name: asset.name, size: asset.size, dataUrl: asset.dataUrl, createdAt: asset.createdAt, ...(asset.animationPresentation!==undefined?{animationPresentation:structuredClone(asset.animationPresentation)}:{}) };
 }
 
 export function modelReaderMarkup(asset: ModelAsset, locale: 'es'|'en'): string {

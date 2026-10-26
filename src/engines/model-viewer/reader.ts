@@ -2,8 +2,9 @@ import { createModelViewport, type ModelViewport, type Lighting, type CameraMode
 import { ModelError } from './portable';
 import { readerModel } from './readerMarkup';
 import { modelCopy } from './locales';
+import { animationPresentationRows } from './animationPresentation';
 
-const styles = `[data-wh-model-reader]{display:block;min-width:0;max-width:100%;margin:1rem 0;font:13px/1.5 system-ui,sans-serif;color:inherit;break-inside:avoid}[data-model-controls]{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}[data-model-controls] button,[data-model-controls] select{font:inherit;width:auto;min-height:36px;padding:6px 10px;background:transparent;color:inherit;border:1px solid currentColor;border-radius:4px}[data-model-controls] label{display:inline-flex;align-items:center;gap:6px;margin:0;font:inherit}[data-model-controls] input{width:auto;accent-color:currentColor}[data-model-controls] button:disabled{opacity:.5}[data-model-controls] :focus-visible{outline:2px solid currentColor;outline-offset:3px}[data-model-surface]{position:relative;width:100%;height:clamp(240px,42vw,420px);background:#202223;overflow:hidden;border-radius:6px}[data-model-status]{margin:8px 0}[data-model-status]:empty{display:none}@media(max-width:480px){[data-model-controls]{gap:6px}[data-model-controls] button{padding:6px 8px}}`;
+const styles = `[data-wh-model-reader]{display:block;min-width:0;max-width:100%;margin:1rem 0;font:13px/1.5 system-ui,sans-serif;color:inherit;break-inside:avoid}[data-model-controls]{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}[data-model-controls] button,[data-model-controls] select{font:inherit;width:auto;min-height:36px;padding:6px 10px;background:transparent;color:inherit;border:1px solid currentColor;border-radius:4px}[data-model-controls] label{display:inline-flex;min-width:0;max-width:100%;align-items:center;gap:6px;margin:0;font:inherit}[data-model-controls] select{min-width:0;max-width:100%}[data-model-controls] input{width:auto;accent-color:currentColor}[data-model-controls] button:disabled{opacity:.5}[data-model-controls] :focus-visible{outline:2px solid currentColor;outline-offset:3px}[data-model-surface]{position:relative;width:100%;height:clamp(240px,42vw,420px);background:#202223;overflow:hidden;border-radius:6px}[data-model-status]{margin:8px 0}[data-model-status]:empty{display:none}@media(max-width:480px){[data-model-controls]{gap:6px}[data-model-controls] button{padding:6px 8px}}`;
 
 /** One DOM mount shared by normal reading and the standalone local runtime. */
 export function mountModelReader(element: HTMLElement): () => void {
@@ -61,7 +62,8 @@ export function mountModelReader(element: HTMLElement): () => void {
       const moves=document.createElement('span');moves.dataset.modelMoves='true';moves.hidden=true;controls.append(moves);
       for(const direction of ['forward','back','left','right','up','down'] as CameraDirection[]) moves.append(button(copy[direction],()=>{camera.value='fly';next.setCameraMode('fly');next.move(direction);},direction));
       if (next.animations.length) {
-        select(copy.animation,next.animations.map((name,index)=>[String(index),name]),value=>{animation=Number(value);next.setAnimation(animation,playing);},'animation');
+        const presentation=animationPresentationRows(next.animations,asset.animationPresentation);animation=presentation.order[0];
+        select(copy.animation,presentation.clips.map(clip=>[String(clip.index),clip.label]),value=>{animation=Number(value);next.setAnimation(animation,playing);},'animation');
         const play=button(copy.play,()=>{playing=!playing;next.setAnimation(animation,playing);play.textContent=playing?copy.pause:copy.play;play.setAttribute('aria-pressed',String(playing));},'play');
         play.setAttribute('aria-pressed','false');
       }

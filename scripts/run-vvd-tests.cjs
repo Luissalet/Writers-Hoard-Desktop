@@ -71,6 +71,12 @@ const defaultsNativeCheck = spawnSync(electron, ['tests/local-tool-defaults.nati
 if (defaultsNativeCheck.status !== 0 || defaultsNativeCheck.error) process.exit(defaultsNativeCheck.status ?? 1);
 const themeNativeCheck = spawnSync(electron, ['tests/local-tool-theme.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (themeNativeCheck.status !== 0 || themeNativeCheck.error) process.exit(themeNativeCheck.status ?? 1);
+const modelPresentationCheck = spawnSync(electron, ['tests/model-animation-presentation.runner.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });
+if (modelPresentationCheck.status !== 0 || modelPresentationCheck.error) process.exit(modelPresentationCheck.status ?? 1);
+const modelPresentationNativeCheck = spawnSync(electron, ['tests/model-animation-presentation.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });
+if (modelPresentationNativeCheck.status !== 0 || modelPresentationNativeCheck.error) process.exit(modelPresentationNativeCheck.status ?? 1);
+const modelPresentationExtraCheck = spawnSync(electron, ['tests/model-animation-presentation-extra.runner.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 360000 });
+if (modelPresentationExtraCheck.status !== 0 || modelPresentationExtraCheck.error) process.exit(modelPresentationExtraCheck.status ?? 1);
 const suites = [
   ['local-tool-theme.browser.tsx', 'testLocalToolThemeAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-defaults.browser.tsx', 'testLocalToolDefaultsAll', 240000, 'scripts/run-codex-properties-ui.cjs'],

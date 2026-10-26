@@ -4,6 +4,7 @@ import { PROJECT_SETTING_PREFIXES } from '@/db/operations';
 import { projectToolIds, remapWorldMetadata, remapWorldRichContent, remapProjectDuplicateExtras } from '@/services/worldMetadata';
 import { eraAdapters } from '@/services/worldEras/registry';
 import { eraDocumentVersion } from '@/services/worldEras/adapters';
+import { resolveEraDocumentAssetPayload } from '@/services/worldEras/assets';
 import type { EraDocument, EraDocumentKind, WorldEraAsset } from '@/services/worldEras/types';
 import { decodeHistoryAssets } from '@/services/documentHistory/assets';
 import { cloneManuscriptSource, cloneManuscriptWritingSource } from '@/engines/writings/manuscriptReview/sourceMetadata';
@@ -194,7 +195,21 @@ export function createDuplicateRemapper(snapshot:ProjectDuplicateSnapshot,target
     at(value,['mutations','*'],item=>{if(!object(item))return item;const table=String(item.table),patch={...item,key:remap(String(item.key),table)};for(const field of ['beforeRow','afterRow','beforeValues','afterValues'])if(object(item[field]))(patch as Row)[field]=row(table,item[field]);return patch;});return value;
   }
   function metadataFor(project:Project):Partial<Project>{
-    const copied=remapWorldMetadata(project,remap,codexIds,mediaIds,writingIds,tools,roots('local-tool') as unknown as Project['sourceToolDocuments']);
+    // Retained roots reference immutable local bytes. Hydrate only the validation
+    // catalogue, then keep the copied document's existing thin asset shape.
+    const assets=(snapshot.tables.worldEraAssets??[]) as unknown as WorldEraAsset[];
+    const modelAssets=project.modelAssets?.map(model=>{
+      const root=model as unknown as EraDocument['root'];
+      return resolveEraDocumentAssetPayload(sourceProject.id,{root,children:{}},assets.find(asset=>asset.id===root.__worldEraAssetId)).root as unknown as typeof model;
+    });
+    const copied=remapWorldMetadata(modelAssets?{...project,modelAssets}:project,remap,codexIds,mediaIds,writingIds,tools,roots('local-tool') as unknown as Project['sourceToolDocuments']);
+    copied.modelAssets?.forEach((model,index)=>{
+      const original=project.modelAssets![index] as unknown as EraDocument['root'];
+      if(typeof original.__worldEraAssetId!=='string')return;
+      const asset=assets.find(item=>item.id===original.__worldEraAssetId)!,root=model as unknown as EraDocument['root'];
+      for(const key of Object.keys(asset.payload))if(!Object.hasOwn(original,key))delete root[key];
+      root.__worldEraAssetId=original.__worldEraAssetId;
+    });
     // Synced property columns are stable schema keys, not independent column document IDs.
     if(copied.dataTables)copied.dataTables=copied.dataTables.map((table,index)=>({...table,rows:table.rows.map((item,rowIndex)=>({...item,cells:Object.fromEntries(project.dataTables![index].columns.map(column=>{const value=project.dataTables![index].rows[rowIndex].cells[column.id]??'';return[column.id.startsWith('property:')?column.id:remap(column.id,'column'),column.kind==='reference'&&value&&!value.startsWith('=')?remap(value,'codex'):value];}))}))}));
     return copied;

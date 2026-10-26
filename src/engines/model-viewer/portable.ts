@@ -1,4 +1,5 @@
 import type { Project } from '@/types';
+import { validateAnimationPresentation } from './animationPresentation';
 
 export interface ModelSourceFile { name: string; dataUrl: string; size: number }
 /** Old GLB records remain valid. Source files travel with normal project backups. */
@@ -122,6 +123,23 @@ export function assetBytes(asset: ModelAsset): ArrayBuffer {
   let binary: string;
   try { binary = atob(match[1]); } catch { throw new ModelError('invalid'); }
   const bytes = Uint8Array.from(binary, character => character.charCodeAt(0)).buffer;
-  validateGlb(bytes);
+  const json = validateGlb(bytes);
+  if (asset.animationPresentation !== undefined) validateAnimationPresentation(asset.animationPresentation, Array.isArray(json.animations) ? json.animations.length : 0);
   return bytes;
+}
+
+/** The canonical GLB is the authority; querying clips does not instantiate Three. */
+export function modelAnimationNames(asset: ModelAsset): string[] {
+  const json = validateGlb(assetBytes(asset));
+  return Array.isArray(json.animations) ? json.animations.map(value => record(value) && typeof value.name === 'string' ? value.name : '') : [];
+}
+
+/** Legacy projects incur no new GLB validation when the optional field is absent. */
+export function validateProjectAnimationPresentations(project: { modelAssets?: unknown; worldEras?: readonly { defaults?: unknown }[] }): void {
+  const models = (value: unknown) => {
+    if (!Array.isArray(value)) return;
+    for (const asset of value) if (record(asset) && asset.animationPresentation !== undefined) assetBytes(asset as unknown as ModelAsset);
+  };
+  models(project.modelAssets);
+  for (const era of project.worldEras ?? []) if (record(era.defaults)) models(era.defaults.modelAssets);
 }
