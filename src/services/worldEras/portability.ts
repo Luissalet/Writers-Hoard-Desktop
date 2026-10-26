@@ -6,6 +6,7 @@ import {worldDocumentPrefixes as prefixes} from './documentPrefixes';
 import type { Project } from '@/types';
 import { projectToolIds, remapWorldMetadata, remapWorldRichContent } from '@/services/worldMetadata';
 import { eraAdapters, eraDocumentVersion, validateEraDocument } from './adapters';
+import { resolveEraDocumentAssetPayload } from './assets';
 import { eraDocumentKinds, type EraDocumentKind, type EraRow, type WorldEraVariant, type WorldEraAsset } from './types';
 
 /** JSON and ZIP use the same recursive binary codec, including retained versions. */
@@ -70,12 +71,15 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
   for (const variant of sources) for (const document of [variant.document, ...variant.history?.map(state => state.document) ?? []]) for (const [table, children] of Object.entries(document?.children ?? {})) for (const row of children) known(row.id, childPrefixes[table]);
   const codexIds = new Set([...(base.codexEntries ?? []).map(row => row.id), ...allRoots('codex').map(row => row.id)]), mediaIds = new Set([...(base.localMediaAssets ?? []).map(row => row.id), ...allRoots('media').map(row => row.id)]), writingIds = new Set([...(base.writings ?? []).map(row => row.id), ...allRoots('writings').map(row => row.id)]);
   const projectWithVariants = { ...project };
+  // Project validation needs actual model bytes, while retained documents keep
+  // their existing immutable asset references in the cloned output.
+  const hydrateModel = (root: EraRow) => resolveEraDocumentAssetPayload(project.id, { root, children: {} }, assets.find(asset => asset.id === root.__worldEraAssetId)).root;
   for (const kind of eraDocumentKinds) {
     const field = eraAdapters[kind].metadata;
     if (field) {
       const roots = [...(project[field] as EraRow[] | undefined) ?? [], ...allRoots(kind)];
       // This aggregate is a reference catalogue, not several versions of a document.
-      Object.assign(projectWithVariants, { [field]: kind === 'local-tool' ? [...new Map(roots.map(row => [row.id, row])).values()] : roots });
+      Object.assign(projectWithVariants, { [field]: kind === 'local-tool' ? [...new Map(roots.map(row => [row.id, row])).values()] : kind === 'model-viewer' ? roots.map(hydrateModel) : roots });
     }
   }
   const tools = projectToolIds(projectWithVariants, {writings:[...base.writings??[],...allRoots('writings')],scenes:[...base.scenes??[],...allRoots('dialog-scene')],generatedWorlds:[...base.generatedWorlds??[],...allRoots('worldgen')],worldMaps: [...base.worldMaps ?? [], ...allRoots('maps')], boards: [...base.boards ?? [], ...allRoots('board')], timelines: [...base.timelines ?? [], ...allRoots('timeline')] });
@@ -95,7 +99,14 @@ export function worldDocumentCloner(sources: CloneDocumentSource[], project: Pro
     // Tool-owned JSON is opaque except for its explicit reference codec.
     if (kind === 'local-tool') return { root: remapSourceToolDocument(document.root as unknown as SourceToolDocument, remap,richProse) as unknown as EraRow, children: {} };
     const field = eraAdapters[kind].metadata;
-    const root = rewrite(field ? (remapWorldMetadata({ ...projectWithVariants, [field]: [document.root] }, remap, codexIds, mediaIds, writingIds, tools)[field] as EraRow[])[0] : document.root) as EraRow;
+    const modelAsset = kind === 'model-viewer' && typeof document.root.__worldEraAssetId === 'string' ? assets.find(asset => asset.id === document.root.__worldEraAssetId) : undefined;
+    const metadataRoot = kind === 'model-viewer' ? hydrateModel(document.root) : document.root;
+    const mapped = field ? (remapWorldMetadata({ ...projectWithVariants, [field]: [metadataRoot] }, remap, codexIds, mediaIds, writingIds, tools)[field] as EraRow[])[0] : document.root;
+    if (modelAsset) {
+      for (const key of Object.keys(modelAsset.payload)) if (!Object.hasOwn(document.root, key)) delete mapped[key];
+      mapped.__worldEraAssetId = document.root.__worldEraAssetId;
+    }
+    const root = rewrite(mapped) as EraRow;
     if(kind==='media')root.id=remap(document.root.id,'media');
     if(kind==='writings'&&typeof document.root.manuscriptId==='string')root.manuscriptId=remap(document.root.manuscriptId,'manuscript');
     if (kind === 'writings' && document.root.manuscriptSource) root.manuscriptSource = cloneManuscriptWritingSource(document.root.manuscriptSource as import('@/engines/writings/manuscriptReview/types').ManuscriptWritingSource, remap);

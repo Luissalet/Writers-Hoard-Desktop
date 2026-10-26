@@ -58,7 +58,7 @@ export interface Project {
   /** Local language dictionaries; included in the project's portable backup. */
   dictionaries?: import('@/engines/dictionary/types').WorldDictionary[];
   /** Self-contained local GLB references, portable with the project backup. */
-  modelAssets?: Array<{ id: string; name: string; dataUrl: string; size: number; createdAt: number }>;
+  modelAssets?: Array<{ id: string; name: string; dataUrl: string; size: number; createdAt: number; animationPresentation?: { order?: number[]; labels?: Record<string, string> } }>;
   /** Independent authored relation trees and variants; canonical genealogy remains separate. */
   relationTrees?: import('@/engines/genealogy/relationTrees').RelationTreeDocument[];
   /** Offline RPG sheets with local checks and portable roll history. */

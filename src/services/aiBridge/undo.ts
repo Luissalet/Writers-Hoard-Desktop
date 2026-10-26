@@ -279,6 +279,16 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     }
   }
 
+  if (entry.tool === 'wh_model_animation_action' && entry.before && typeof entry.before === 'object') {
+    const receiptId = (entry.before as Record<string, unknown>).__modelAnimationReceipt;
+    if (typeof receiptId === 'string' && typeof entry.projectId === 'string') {
+      const { undoModelAnimationPresentation } = await import('@/engines/model-viewer/animationActions');
+      const id = await undoModelAnimationPresentation({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined }, receiptId);
+      return { undone: true, kind, entityId: id, what: summary };
+    }
+    throw new BridgeError('cannot-undo', 'This animation edit has no valid receipt.');
+  }
+
   if (entry.tool === 'wh_relation_tree_action' && entry.before && typeof entry.before === 'object') {
     const receiptId = (entry.before as Record<string, unknown>).__treeReceipt;
     if (typeof receiptId === 'string' && typeof entry.projectId === 'string') {

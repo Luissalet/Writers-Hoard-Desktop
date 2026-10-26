@@ -12,8 +12,9 @@ import {validateWorldFolderImportsProject} from '@/services/worldFolderImport/po
 import {validateProjectPin} from '@/services/projectPin/types';
 import {validateToolDockProjectMetadata} from '@/engines/writings/toolDock/types';
 import type {WorldEraVariant,WorldEraVariantState} from '@/services/worldEras/types';
+import {validateProjectAnimationPresentations} from '@/engines/model-viewer/portable';
 
-export function validateProjectArchiveMetadata(project: { manuscriptCatalog?:unknown; writingToolDock?:unknown; pinned?:unknown; worldFolderImports?:unknown; genres?:unknown; sourceToolDocuments?: unknown; entityDetectionPreferences?: unknown; wikiProfiles?: unknown; localToolInstallations?: unknown; localToolContracts?:unknown; localToolStates?:Project['localToolStates']; worldEras?:Project['worldEras'] } & Parameters<typeof validateProjectCoverMetadata>[0]): void {
+export function validateProjectArchiveMetadata(project: { modelAssets?:unknown; manuscriptCatalog?:unknown; writingToolDock?:unknown; pinned?:unknown; worldFolderImports?:unknown; genres?:unknown; sourceToolDocuments?: unknown; entityDetectionPreferences?: unknown; wikiProfiles?: unknown; localToolInstallations?: unknown; localToolContracts?:unknown; localToolStates?:Project['localToolStates']; worldEras?:Project['worldEras'] } & Parameters<typeof validateProjectCoverMetadata>[0]): void {
   validateManuscriptProject(project);
   validateToolDockProjectMetadata(project);
   normalizeProjectGenres(project.genres);
@@ -26,6 +27,7 @@ export function validateProjectArchiveMetadata(project: { manuscriptCatalog?:unk
   validateLocalToolInstallations(project.localToolInstallations);
   validateLocalToolContractStates(project);
   validateProjectCoverMetadata(project);
+  validateProjectAnimationPresentations(project);
 }
 
 /** Absence in a legacy archive cannot erase settings its format did not carry. */
