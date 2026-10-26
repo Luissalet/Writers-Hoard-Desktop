@@ -729,3 +729,9 @@ Local Source tools can use the optional `client.defaults` service and `useLocalT
 ## Resolved colors for local tools
 
 The optional `client.theme` service and `useLocalToolTheme` hook expose nine resolved workspace colors and the effective light/dark mode for the tool's Base or era context. Existing Appearance controls remain the editor. Icons in the normal workspace repaint after that pane applies its appearance, preserving the Canvas, document and pending notes. [Contract, attributed verification and delivery status](tasks/vvd1095/verification-sdk-theme.md). Overall web/SDK parity remains partial.
+
+## Model animation labels and order
+
+The local 3D viewer saves labels and presentation order for all original animation clips. Choose a clip, edit its label and save, or move it earlier/later. Clearing a label restores its original name/fallback; Reset removes the optional presentation. Previous/next follows the saved order while identity remains the source index, including duplicate or unnamed clips. Owner editing and two scoped MCP tools share version checks and normal Undo; compact views and Reader/wiki remain read-only. Model binaries and original files are preserved. [Contract, attributed evidence and delivery status](tasks/vvd1095/verification-model-animation-presentation.md). Task1095 and overall parity remain open/partial.
+
+Source31c5598664c4f4de14880ae71d65c45530cc78f7 was approved exactly at submission47 and integrated into Main; four focused Main checks passed, including two-key Native. The manual and common continuity are updated. The separate documentation commit/FF is recorded by ROOT-delivery-final.json; overall parity and task1095 remain open.

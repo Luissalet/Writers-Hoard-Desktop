@@ -645,3 +645,9 @@ Las herramientas Source pueden usar el servicio opcional `client.defaults` y el 
 ## Colores resueltos para herramientas locales
 
 El servicio opcional `client.theme` y el hook `useLocalToolTheme` ofrecen nueve colores resueltos y el modo claro/oscuro efectivo del contexto Base o época de la herramienta. Apariencia sigue siendo el editor. Los iconos del espacio normal se repintan cuando su panel aplica el aspecto, conservando el Canvas, el documento y las notas pendientes. [Contrato, pruebas atribuidas y estado de entrega](tasks/vvd1095/verification-sdk-theme.md). La paridad general de web y SDK sigue siendo parcial.
+
+## Etiquetas y orden de animaciones
+
+El visor 3D local guarda etiquetas y orden de presentación de todos los clips originales. Elige una animación, escribe su etiqueta y guarda, o muévela antes/después. Vaciar la etiqueta recupera su nombre original o fallback; Restablecer retira la presentación opcional. Anterior/siguiente recorre el orden guardado y conserva la identidad por índice de origen, incluidos nombres repetidos o vacíos. La edición propietaria y dos herramientas MCP por ámbito comparten control de versión y Deshacer normal; las vistas compactas y Reader/wiki son de sólo lectura. Los binarios y originales del modelo se conservan. [Contrato, pruebas atribuidas y estado de entrega](tasks/vvd1095/verification-model-animation-presentation.md). La tarea1095 y la paridad general siguen abiertas/parciales.
+
+La fuente31c5598664c4f4de14880ae71d65c45530cc78f7 quedó aprobada exactamente en la entrega47 e integrada en Main, con cuatro focos aprobados, incluido Native con dos claves. El manual y la continuidad común están actualizados. El commit/FF documental separado se acredita en ROOT-delivery-final.json; la paridad general y la tarea1095 siguen abiertas.
