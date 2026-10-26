@@ -90,7 +90,7 @@ import {
 import { whCreateDiaryEntry, whListDiary, whUpdateDiaryEntry } from './diary';
 import { whArchiveList, whArchiveRestore } from './archive';
 import { whSprintLog } from './sprints';
-import { whPublishingCompile, whPublishingProfileSet, whPublishingProfiles } from './publishingProfiles';
+import { whPublishingCompile, whPublishingProfileSet, whPublishingProfiles, whPublishingExport, whPublishingCancelExport } from './publishingProfiles';
 import { whCodexRulesCard } from './rulesCards';
 import { whExtractBlockToCard } from './blockExtract';
 import { whTextEffect } from './textEffects';
@@ -468,6 +468,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_publishing_profiles: whPublishingProfiles,
   wh_publishing_profile_set: whPublishingProfileSet,
   wh_publishing_compile: whPublishingCompile,
+  wh_publishing_export: whPublishingExport,
+  wh_publishing_cancel_export: whPublishingCancelExport,
   wh_codex_rules_card: whCodexRulesCard,
   wh_extract_block_to_card: whExtractBlockToCard,
   wh_text_effect: whTextEffect,

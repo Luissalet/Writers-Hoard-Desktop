@@ -20,10 +20,13 @@ import {
   resolvePublishingWritings,
   getCitations,
   savePublishingProfile,
+  validatePublishingLayout,
 } from '@/services/projectTools';
+import { capturePublishingBatch, encodePublishingBatch, PUBLISHING_BATCH_OUTPUTS, type PublishingBatchOutput } from '@/engines/writings/publishingBatch';
+import { PUBLISHING_EXPORT_TIMEOUT_MS } from '../manifest';
 import { BOOK_PRESETS, bookPreset, normalizeBookStyle, type BookPreset } from '@/engines/writings/bookStyle';
 import { BridgeError } from './bridgeError';
-import { resolveProjectId, withAudit, type ToolArgs } from './shared';
+import { assertRowInScope, resolveProjectId, withAudit, type ToolArgs } from './shared';
 
 const FORMATS: readonly PublishingFormat[] = ['manuscript', 'screenplay', 'research', 'biography', 'video'];
 const FLAGS = ['includeTitlePage', 'includeCover', 'includeToc', 'includeCopyright', 'includeBlurb', 'includeChapterImages', 'includeInlineImages', 'includeSynopsis', 'includeBibliography'] as const;
@@ -47,6 +50,8 @@ function summary(profile: PublishingProfile, writingCount: number) {
     includeBibliography: profile.includeBibliography,
     citationStyle: profile.citationStyle,
     bookStyle: profile.bookStyle ?? null,
+    ...(profile.marginsMm ? { marginsMm: profile.marginsMm } : {}),
+    ...(profile.initialPageNumber !== undefined ? { initialPageNumber: profile.initialPageNumber } : {}),
     selectionMode: normal.selectionMode,
     selectedWritingIds: normal.selectedWritingIds,
     writingOrder: normal.writingOrder,
@@ -128,6 +133,9 @@ export async function whPublishingProfileSet(args: ToolArgs): Promise<unknown> {
     }
   }
   if (existing) next.id = existing.id;
+  if (args.marginsMm !== undefined) next.marginsMm = args.marginsMm === null ? undefined : args.marginsMm as PublishingProfile['marginsMm'];
+  if (args.initialPageNumber !== undefined) next.initialPageNumber = args.initialPageNumber === null ? undefined : args.initialPageNumber as number;
+  try { validatePublishingLayout(next); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
   let saved: PublishingProfile;
   try { saved = await savePublishingProfile(next); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
   notifyProjectsChanged();
@@ -136,6 +144,100 @@ export async function whPublishingProfileSet(args: ToolArgs): Promise<unknown> {
     { projectId, created: !existing, profile: summary(saved, resolvePublishingWritings(writings, saved).writings.length) },
     { projectId, entityId: saved.id, kind: existing ? 'update' : 'create', summary: `${existing ? 'updated' : 'created'} publishing profile "${saved.name}"`, before: { __publishingProfile: existing ?? null, __publishingProfileId: saved.id } },
   );
+}
+
+const activeExports = new Map<string, AbortController>();
+
+function exportJob(args: ToolArgs) {
+  const projectId = resolveProjectId(args);
+  assertRowInScope(args, projectId);
+  if (typeof args.jobId !== 'string' || !args.jobId.trim()) throw new BridgeError('bad-args', 'jobId must be a nonempty client-generated id, known before starting the call.');
+  return { projectId, jobId: args.jobId, key: JSON.stringify([projectId, args.jobId]) };
+}
+
+function inlineProfile(value: unknown, projectId: string, jobId: string): PublishingProfile {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BridgeError('bad-args', 'draft must be a publishing profile object.');
+  const draft = structuredClone(value) as Partial<PublishingProfile>;
+  if (draft.projectId !== undefined && draft.projectId !== projectId) throw new BridgeError('scope', 'The draft belongs to another project.');
+  if (typeof draft.name !== 'string' || !draft.name.trim()) throw new BridgeError('bad-args', 'draft.name is required.');
+  if (draft.format !== undefined && !FORMATS.includes(draft.format)) throw new BridgeError('bad-args', 'Invalid publishing format.');
+  for (const flag of FLAGS) if (draft[flag] !== undefined && typeof draft[flag] !== 'boolean') throw new BridgeError('bad-args', `${flag} is true or false.`);
+  if (draft.citationStyle !== undefined && !STYLES.includes(draft.citationStyle)) throw new BridgeError('bad-args', 'Invalid citation style.');
+  if (draft.selectionMode !== undefined && draft.selectionMode !== 'all' && draft.selectionMode !== 'selected') throw new BridgeError('bad-args', 'Invalid selectionMode.');
+  for (const key of ['selectedWritingIds', 'writingOrder'] as const) if (draft[key] !== undefined && (!Array.isArray(draft[key]) || draft[key]!.some(id => typeof id !== 'string'))) throw new BridgeError('bad-args', `${key} is a list of writing ids.`);
+  const result: PublishingProfile = {
+    id: jobId, projectId, name: draft.name.trim(), format: 'manuscript',
+    includeTitlePage: true, includeSynopsis: false, includeBibliography: false,
+    citationStyle: 'chicago', selectedWritingIds: [], createdAt: 0, updatedAt: 0,
+    ...draft, writingScope: writingSelection(draft.writingScope),
+  };
+  // Use the same style normalization as the saved-profile entry point.
+  const style: unknown = draft.bookStyle;
+  if (style === null || style === 'none') result.bookStyle = undefined;
+  else if (typeof style === 'string') {
+    if (!BOOK_PRESETS.includes(style as BookPreset)) throw new BridgeError('bad-args', 'Invalid bookStyle preset.');
+    result.bookStyle = bookPreset(style as BookPreset);
+  } else if (style !== undefined) {
+    result.bookStyle = normalizeBookStyle(style);
+    if (!result.bookStyle) throw new BridgeError('bad-args', 'bookStyle must be a preset, an object or none.');
+  }
+  if (draft.marginsMm === null) result.marginsMm = undefined;
+  if (draft.initialPageNumber === null) result.initialPageNumber = undefined;
+  try { return normalizePublishingProfile(result); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
+}
+
+function base64Bytes(bytes: Uint8Array): string {
+  let binary = '';
+  for (let at = 0; at < bytes.length; at += 16384) binary += String.fromCharCode(...bytes.subarray(at, at + 16384));
+  return btoa(binary);
+}
+
+/** Stateless by design: a new call always captures current persisted data. */
+export async function whPublishingExport(args: ToolArgs): Promise<unknown> {
+  const { projectId, jobId, key } = exportJob(args);
+  if (activeExports.has(key)) throw new BridgeError('busy', 'This export jobId is already active in this project.');
+  if (!Array.isArray(args.outputs) || !args.outputs.length || args.outputs.some(output => !PUBLISHING_BATCH_OUTPUTS.includes(output as PublishingBatchOutput))) throw new BridgeError('bad-args', `outputs is a nonempty list of ${PUBLISHING_BATCH_OUTPUTS.join(', ')}.`);
+  const outputs = [...new Set(args.outputs as PublishingBatchOutput[])];
+  if ((typeof args.profileId === 'string' && !!args.profileId) === (args.draft !== undefined)) throw new BridgeError('bad-args', 'Provide exactly one of profileId or draft.');
+  if (args.eraId !== undefined && typeof args.eraId !== 'string') throw new BridgeError('bad-args', 'eraId is a string.');
+  const request = structuredClone({
+    projectId, profileId: typeof args.profileId === 'string' ? args.profileId : undefined,
+    profile: args.draft === undefined ? undefined : inlineProfile(args.draft, projectId, jobId),
+    eraId: args.eraId as string | undefined,
+    titleOverride: typeof args.titleOverride === 'string' ? args.titleOverride : undefined,
+    printLayout: args.printLayout as Parameters<typeof capturePublishingBatch>[0]['printLayout'],
+  });
+  const controller = new AbortController();
+  activeExports.set(key, controller);
+  // Leave cleanup time before the existing executor's declared tool timeout.
+  const timer = setTimeout(() => controller.abort(new DOMException('Export deadline exceeded', 'TimeoutError')), PUBLISHING_EXPORT_TIMEOUT_MS - 5000);
+  let stage = 'capture';
+  try {
+    const capture = await capturePublishingBatch(request, { signal: controller.signal });
+    stage = 'encode';
+    const files = await encodePublishingBatch(capture, outputs, { signal: controller.signal });
+    return {
+      projectId, jobId, profileId: capture.profileId, capturedAt: capture.capturedAt,
+      stage, canceled: controller.signal.aborted, deadlineExceeded: controller.signal.reason?.name === 'TimeoutError',
+      retry: 'A new call recaptures persisted data; completed jobIds do not retain a snapshot.',
+      pieces: capture.pieces, wordCount: capture.wordCount, missingWritingIds: capture.missingWritingIds,
+      files: files.map(({ bytes, ...file }) => ({ ...file, ...(bytes ? { byteLength: bytes.length, base64: base64Bytes(bytes) } : {}) })),
+    };
+  } catch (error) {
+    if (controller.signal.aborted) throw new BridgeError(controller.signal.reason?.name === 'TimeoutError' ? 'timeout' : 'canceled', `${controller.signal.reason?.message ?? 'Export canceled'} during ${stage}.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    activeExports.delete(key);
+  }
+}
+
+/** A sibling call can stop a blocked WASM worker using the id known beforehand. */
+export async function whPublishingCancelExport(args: ToolArgs): Promise<unknown> {
+  const { projectId, jobId, key } = exportJob(args);
+  const controller = activeExports.get(key);
+  controller?.abort(new DOMException('Export canceled', 'AbortError'));
+  return { projectId, jobId, active: !!controller, canceled: !!controller };
 }
 
 const MAX_TEXT = 200_000;

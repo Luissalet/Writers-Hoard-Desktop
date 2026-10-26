@@ -689,6 +689,9 @@ const SPRINT_TOOLS: BridgeTool[] = [
 ];
 
 const PROFILE_FLAG = (what: string) => ({ type: 'boolean', description: what });
+// The renderer aborts owned export resources five seconds before this deadline.
+export const PUBLISHING_EXPORT_TIMEOUT_MS = 180_000;
+const PUBLISHING_MARGINS = { type: 'object', properties: { top: { type: 'number', minimum: 0 }, bottom: { type: 'number', minimum: 0 }, inside: { type: 'number', minimum: 0 }, outside: { type: 'number', minimum: 0 } }, required: ['top', 'bottom', 'inside', 'outside'], additionalProperties: false };
 const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
   {
     name: 'wh_publishing_profiles',
@@ -706,6 +709,8 @@ const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
         projectId: PROJECT_ID,
         writingScope:{type:'object',properties:{kind:{type:'string',enum:['world','manuscript']},id:{type:'string'}},required:['kind'],additionalProperties:false},
         profileId: s('Profile to change; leave out to create one.'),
+        marginsMm: { description: 'Physical margins in millimetres, for PDF and Word; must leave positive body geometry. null restores the format defaults. EPUB reflows.', anyOf: [PUBLISHING_MARGINS, { type: 'null' }] },
+        initialPageNumber: { description: 'First numbered page in PDF/Word, representable as u32; the cover has no number. null restores the default. EPUB reflows.', anyOf: [{ type: 'integer', minimum: 1, maximum: 4294967295 }, { type: 'null' }] },
         name: s('Profile name, 1 to 120 characters.'),
         format: { type: 'string', enum: ['manuscript', 'screenplay', 'research', 'biography', 'video'] },
         includeTitlePage: PROFILE_FLAG('Title page with the byline.'),
@@ -884,6 +889,26 @@ const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
     description: 'Compile a publishing profile using the same captured inputs as export. Returns filename, Markdown/HTML text, full character count and explicit truncated status. Default is a 200,000-character preview; complete:true returns the complete file text. HTML with includeCover automatically returns the complete file so the captured front PNG is never cut. The cover is independent of Reader showAtStart. Read only; this tool does not save or download files.',
     writes: false,
     schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId:{type:'string'}, profileId: s('Profile id from wh_publishing_profiles.'), output: { type: 'string', enum: ['markdown', 'html'] }, complete: { type: 'boolean', description: 'Return the full file text instead of the bounded preview. Automatically true for HTML with a captured cover.' } }, required: ['profileId'], additionalProperties: false },
+  },
+  {
+    name: 'wh_publishing_export',
+    description: 'Prepare complete Markdown, HTML, EPUB, DOCX, searchable book PDF and/or separate print-cover PDF from one readonly persisted capture. Supply exactly one saved profileId or inline draft profile, outputs, and a client jobId known before calling; wh_publishing_cancel_export can cancel that active job. Returns files with output/status/filename/mime/byteLength/base64 (full bytes), or a per-format error. No file is saved/downloaded and no draft is stored. A new call always recaptures current data; a completed jobId does not retain a snapshot. print-cover needs explicit printLayout including dpi, spine and bleed; no page-count spine estimate. PDF/Word physical options do not imply fixed EPUB pagination.',
+    writes: false,
+    timeoutMs: PUBLISHING_EXPORT_TIMEOUT_MS,
+    schema: { type: 'object', properties: {
+      projectId: PROJECT_ID, eraId: s('Explicit era; omit for Base.'), jobId: s('Client-generated active export id, known before calling.'),
+      profileId: s('Saved profile; mutually exclusive with draft.'),
+      draft: { type: 'object', description: 'Inline publishing profile fields as wh_publishing_profile_set accepts; name is required. Never saved. Mutually exclusive with profileId.', properties: { name: { type: 'string' }, format: { type: 'string', enum: ['manuscript', 'screenplay', 'research', 'biography', 'video'] }, marginsMm: PUBLISHING_MARGINS, initialPageNumber: { type: 'integer', minimum: 1, maximum: 4294967295 } }, required: ['name'], additionalProperties: true },
+      outputs: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['markdown', 'html', 'epub', 'docx', 'pdf', 'print-cover'] } },
+      titleOverride: s('Optional compiled book title.'),
+      printLayout: { type: 'object', properties: { trimWidthMm: { type: 'number', exclusiveMinimum: 0 }, trimHeightMm: { type: 'number', exclusiveMinimum: 0 }, spineMm: { type: 'number', minimum: 0 }, bleedMm: { type: 'number', minimum: 0 }, dpi: { type: 'number', exclusiveMinimum: 0 } }, required: ['trimWidthMm', 'trimHeightMm', 'spineMm', 'bleedMm', 'dpi'], additionalProperties: false },
+    }, required: ['jobId', 'outputs'], additionalProperties: false },
+  },
+  {
+    name: 'wh_publishing_cancel_export',
+    description: 'Cancel only the active publishing export with this projectId/jobId. Stops its owned PDF Worker; does not affect another job or completed ready files. Unknown/finished ids return active:false. No project data is changed.',
+    writes: false,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, jobId: s('Client-generated id passed to wh_publishing_export.') }, required: ['jobId'], additionalProperties: false },
   },
 ];
 

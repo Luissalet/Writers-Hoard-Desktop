@@ -1028,3 +1028,173 @@ fn only_english_text_gets_english_hyphenation() {
     st.format_chars(0..n, |f| f.over.language = Some("French".into()));
     assert_eq!(hyphenated(&d2, sid), 0, "French isn't hyphenated with English rules");
 }
+
+
+// A full-width heading or figure reserves its occupied height in every covered
+// column. These assertions inspect placed geometry, not cursor implementation.
+fn span_columns_doc(text: &str, height: f64) -> (Document, StoryId, ItemId) {
+    let (mut d, sid, first) = doc_with(text, Rect::new(0.0, 0.0, 400.0, height), ParaAttrs::default());
+    let layer = d.default_layer();
+    let (next, _) = d.add_text_frame(SpreadRef::Doc(0), Rect::new(0.0, 0.0, 400.0, 2000.0), layer, "", ParaFormat::default()).unwrap();
+    for id in [first, next] {
+        d.item_mut(id).unwrap().text_frame_mut().unwrap().options.columns = 2;
+    }
+    d.thread(first, next).unwrap();
+    (d, sid, first)
+}
+
+fn span_columns_ranges_once(cs: &ComposedStory, text: &str) {
+    assert!(!cs.is_overset(), "the whole fixture must fit its threaded frames");
+    let mut end = 0;
+    for line in all_lines(cs) {
+        assert!(line.range.start == end || line.range.start == end + 1, "lost or repeated text at {end}: {:?}", line.range);
+        end = line.range.end;
+    }
+    assert_eq!(end, text.len(), "the final authored word must survive");
+}
+
+fn span_columns_figure(d: &mut Document, sid: StoryId, width: f64, height: f64) {
+    use gutenberg_doc::{AnchorPosition, AnchoredObject, Asset, AssetId, Content, Fitting, Graphic, Item, LayerId, Shape};
+    let asset = AssetId(d.alloc());
+    d.assets.insert(asset, Arc::new(Asset { id: asset, name: "Owned layout-only figure".into(), mime: "image/png".into(), link: None, data: Arc::new(Vec::new()), pixels: Some((360, 70)), page: 0 }));
+    let mut item = Item::new(ItemId(d.alloc()), LayerId(0), Shape::Rectangle, gutenberg_geom::shapes::rectangle(Rect::new(0.0, 0.0, width, height)));
+    item.content = Content::Graphic(Graphic { asset, size: (width, height), xf: gutenberg_geom::Affine::IDENTITY, auto_fit: Fitting::FitProportionally, fit_align: 4, crop: [0.0; 4] });
+    let story = d.story_mut(sid).unwrap();
+    story.insert_object(0, AnchoredObject::new(item, AnchorPosition::AboveLine { align: gutenberg_doc::anchored::AnchorAlign::Center, space_before: 4.0, space_after: 6.0 }));
+    story.paras[0].para.span_columns = Some(SpanColumns::Span(0));
+}
+
+#[test]
+fn span_columns_heading_reserves_height_in_the_right_column() {
+    let text = format!("Full-width heading\n{}", [LOREM; 6].join(" "));
+    let (mut d, sid, _) = span_columns_doc(&text, 210.0);
+    let heading_end = "Full-width heading".len();
+    {
+        let story = d.story_mut(sid).unwrap();
+        story.paras[0].para.span_columns = Some(SpanColumns::Span(0));
+        story.paras[0].para.space_after = Some(8.0);
+        story.format_chars(0..heading_end, |format| { format.over.size = Some(30.0); format.over.leading = Some(gutenberg_doc::Leading::Points(36.0)); });
+    }
+    let cs = compose_story(&d, sid, &ComposeOptions::default());
+    let frame = &cs.frames[0];
+    let heading = frame.lines.iter().find(|line| line.para == 0).unwrap();
+    assert!((heading.x1 - heading.x0 - 400.0).abs() < 0.01, "heading must actually span both columns");
+    let bottom = heading.baseline + heading.descent;
+    let right: Vec<_> = frame.lines.iter().filter(|line| line.column == 1).collect();
+    assert!(!right.is_empty(), "fixture must reach the right column");
+    for line in right { assert!(line.baseline - line.ascent >= bottom - 0.01, "right text overlaps the heading: {:?}", line.range); }
+    span_columns_ranges_once(&cs, &d.story(sid).unwrap().text);
+}
+
+#[test]
+fn span_columns_above_line_graphic_reserves_height_for_both_columns() {
+    let text = format!("\n{}", [LOREM; 6].join(" "));
+    let (mut d, sid, _) = span_columns_doc(&text, 240.0);
+    span_columns_figure(&mut d, sid, 360.0, 70.0);
+    d.check().unwrap();
+    let cs = compose_story(&d, sid, &ComposeOptions::default());
+    let frame = &cs.frames[0];
+    assert_eq!(frame.objects.len(), 1);
+    let figure = &frame.objects[0];
+    let bottom = figure.origin.y + figure.size.1;
+    assert!((figure.size.0 - 360.0).abs() < 0.01 && bottom >= 70.0, "the page-wide graphic must be placed at its real size");
+    let body: Vec<_> = frame.lines.iter().filter(|line| line.para == 1).collect();
+    assert!(body.iter().any(|line| line.column == 0) && body.iter().any(|line| line.column == 1), "body must occupy both columns");
+    for line in body { assert!(line.baseline - line.ascent >= bottom - 0.01, "body overlaps the full-width figure: column {} {:?}", line.column, line.range); }
+    span_columns_ranges_once(&cs, &d.story(sid).unwrap().text);
+}
+
+#[test]
+fn span_columns_above_line_graphic_keeps_a_right_column_table_below_it() {
+    let (mut d, sid, _) = span_columns_doc("\nBefore table", 300.0);
+    span_columns_figure(&mut d, sid, 360.0, 70.0);
+    let story = d.story_mut(sid).unwrap();
+    let anchor = story.len();
+    story.insert_table(anchor, filled(2, 2, 0, 150.0));
+    let table_para = story.text[..anchor].matches('\n').count() + 1;
+    story.paras[table_para].para.span_columns = Some(SpanColumns::Span(1));
+    story.paras[table_para].para.start_paragraph = Some(StartParagraph::NextColumn);
+    let end = story.len(); story.insert(end, "After table");
+    d.check().unwrap();
+    let cs = compose_story(&d, sid, &ComposeOptions::default());
+    assert!(!cs.is_overset());
+    let frame = &cs.frames[0];
+    assert_eq!(frame.objects.len(), 1); assert_eq!(frame.tables.len(), 1);
+    let figure = &frame.objects[0]; let table = &frame.tables[0];
+    assert_eq!(table.column, 1, "fixture must put the table in the right column");
+    assert!(table.rect.y0 >= figure.origin.y + figure.size.1 - 0.01, "right table overlaps the page-wide figure: table {:?}, figure {:?} {:?}", table.rect, figure.origin, figure.size);
+    assert_eq!(table.cells.len(), 4, "all table cells remain present");
+    assert!(all_lines(&cs).iter().any(|line| d.story(sid).unwrap().text[line.range.clone()].contains("After table")), "text after the table survives");
+}
+
+#[test]
+fn span_columns_heading_after_right_column_text_starts_the_next_frame() {
+    let text = format!("Left text.{}Right text.\nFull-width next heading\nFollowing body.", gutenberg_doc::story::COLUMN_BREAK);
+    let (mut d, sid, _) = span_columns_doc(&text, 180.0);
+    d.story_mut(sid).unwrap().paras[1].para.span_columns = Some(SpanColumns::Span(0));
+    let cs = compose_story(&d, sid, &ComposeOptions::default());
+    assert!(cs.frames[0].lines.iter().any(|line| line.column == 1 && line.para == 0), "positive control: prose already occupies column 1");
+    assert!(cs.frames[0].lines.iter().all(|line| line.para != 1), "a wide heading cannot cover text already placed on the page");
+    let heading = cs.frames[1].lines.iter().find(|line| line.para == 1).unwrap();
+    assert_eq!(heading.column, 0);
+    assert!((heading.x1 - heading.x0 - 400.0).abs() < 0.01);
+    assert!(heading.baseline - heading.ascent < 1.0, "new frame starts at its top");
+    span_columns_ranges_once(&cs, &d.story(sid).unwrap().text);
+}
+
+#[test]
+fn span_columns_one_preserves_the_current_right_column() {
+    let text = format!("Left text.{}Right text.\nOne-column heading\nFollowing body.", gutenberg_doc::story::COLUMN_BREAK);
+    let (mut d, sid, _) = span_columns_doc(&text, 180.0);
+    d.story_mut(sid).unwrap().paras[1].para.span_columns = Some(SpanColumns::Span(1));
+    let cs = compose_story(&d, sid, &ComposeOptions::default());
+    let heading = cs.frames[0].lines.iter().find(|line| line.para == 1).unwrap();
+    assert_eq!(heading.column, 1, "a one-column span is not a page-wide break");
+    assert!(heading.x0 > 200.0 && heading.x1 - heading.x0 < 200.0);
+    assert!(cs.frames[1].lines.is_empty(), "the legacy one-column heading stays on this frame");
+    span_columns_ranges_once(&cs, &d.story(sid).unwrap().text);
+}
+
+#[test]
+fn span_columns_keep_with_next_retains_the_heading_floor_on_retry() {
+    let height = 210.0;
+    let build = |fillers: usize, extra: &[&str]| {
+        let mut parts = vec!["Page-wide heading".to_string()];
+        parts.extend((0..fillers).map(|i| format!("Filler {i}")));
+        parts.extend(extra.iter().map(|s| s.to_string()));
+        let (mut d, sid, fid) = span_columns_doc(&parts.join("\n"), height);
+        d.story_mut(sid).unwrap().paras[0].para.span_columns = Some(SpanColumns::Span(0));
+        (d, sid, fid)
+    };
+    let (d, sid, _) = build(60, &[]);
+    let probe = compose_story(&d, sid, &ComposeOptions::default());
+    let capacity = probe.frames[0].lines.iter().filter(|line| line.para > 0 && line.column == 0).count();
+    assert!(capacity > 3);
+    let (mut d, sid, _) = build(capacity - 1, &["Keep heading", LOREM]);
+    let heading_para = capacity;
+    let plain = compose_story(&d, sid, &ComposeOptions::default());
+    assert_eq!(column_of_para(&plain, heading_para), vec![0], "positive control: heading alone fits at column end");
+    d.story_mut(sid).unwrap().paras[heading_para].para.keep_with_next = Some(1);
+    let kept = compose_story(&d, sid, &ComposeOptions::default());
+    assert_eq!(column_of_para(&kept, heading_para), vec![1], "keep must cause an actual relocation");
+    let header = kept.frames[0].lines.iter().find(|line| line.para == 0).unwrap();
+    for line in kept.frames[0].lines.iter().filter(|line| line.column == 1) {
+        assert!(line.baseline - line.ascent >= header.baseline + header.descent - 0.01, "keep retry lost the existing span floor");
+    }
+    span_columns_ranges_once(&kept, &d.story(sid).unwrap().text);
+}
+
+
+#[test]
+fn span_columns_overflow_continues_in_the_next_frame_at_full_width() {
+    let text = [LOREM; 4].join(" ");
+    let (mut d, sid, _) = span_columns_doc(&text, 40.0);
+    d.story_mut(sid).unwrap().paras[0].para.span_columns = Some(SpanColumns::Span(0));
+    let cs = compose_story(&d, sid, &ComposeOptions::default());
+    assert!(!cs.frames[0].lines.is_empty() && !cs.frames[1].lines.is_empty(), "fixture must overflow its first frame");
+    for line in all_lines(&cs) {
+        assert_eq!(line.column, 0, "a continued full-width paragraph cannot shrink into the right column");
+        assert!((line.x1 - line.x0 - 400.0).abs() < 0.01, "the continued paragraph retains its full width");
+    }
+    span_columns_ranges_once(&cs, &d.story(sid).unwrap().text);
+}
