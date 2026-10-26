@@ -6,9 +6,12 @@ import {projectWorldTable,columnCalculation,displayTableFormula} from './project
 import {createTypeTable,saveTableCalculation,removeTableColumn,updateTableColumn,type SaveTableCalculation} from './calculations';
 import TableCalculationEditor from './TableCalculationEditor';
 import { projectCodexEntry } from '@/engines/codex/properties';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useDeepLinkParam } from '@/engines/_shared';
-import { ArrowDownUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, ExternalLink, Filter, Plus, Settings2, Table2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDownUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, ExternalLink, Filter, GripVertical, Plus, Settings2, Table2, Trash2, Upload, X } from 'lucide-react';
+import { editTableRows, undoTableRows, type TableRowAction } from './rowActions';
+import { WorldEraConflict } from '@/services/worldEras/types';
+import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
 import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, removeRows, sortRows, toggleSort, type TableCondition, type TableSort } from './tableEdits';
 import CsvDialog from './CsvDialog';
 import WorkbookTabs from './WorkbookTabs';
@@ -64,6 +67,76 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const deepLink=useDeepLinkParam('entity'); const [appliedLink,setAppliedLink]=useState<string|null>(null);
   if(deepLink&&deepLink!==appliedLink&&tables.some(table=>table.id===deepLink)){setSelectedId(deepLink);setAppliedLink(deepLink);}
   const storedTable = tables.find(item => item.id === selectedId) ?? tables[0];
+  const rowKey = JSON.stringify([scope.projectId, scope.eraId, storedTable?.id]);
+  const rowOwner = useRef({ key: rowKey, epoch: 0, mounted: true });
+  if (rowOwner.current.key !== rowKey) rowOwner.current = { key: rowKey, epoch: rowOwner.current.epoch + 1, mounted: true };
+  const [rowRead, setRowRead] = useState<{ key: string; table: WorldTable; version: string }>();
+  const [rowPending, setRowPending] = useState<number | null>(null);
+  const draggedRow = useRef<{ id: string; epoch: number; version: string; pointerId: number; x: number; y: number; moved: boolean; handle: HTMLButtonElement; table: HTMLTableElement; end: Element | null } | undefined>(undefined);
+  const [rowDrop, setRowDrop] = useState<{ epoch: number; id: string | undefined }>();
+  useEffect(() => { rowOwner.current.mounted = true; return () => { rowOwner.current.mounted = false; }; }, []);
+  useEffect(() => () => {
+    const dragged = draggedRow.current; draggedRow.current = undefined;
+    if (dragged?.handle.hasPointerCapture(dragged.pointerId)) dragged.handle.releasePointerCapture(dragged.pointerId);
+  }, [rowKey]);
+  useEffect(() => {
+    let active = true;
+    if (storedTable) void readWorldDocument(scope, 'tables', storedTable.id).then(read => {
+      if (active && read && JSON.stringify(read.document.root) === JSON.stringify(storedTable)) setRowRead({ key: rowKey, table: storedTable, version: read.version });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [storedTable, scope, rowKey]);
+  const rowReady = rowRead?.key === rowKey && rowRead.table === storedTable;
+  const rowWorking = rowPending === rowOwner.current.epoch;
+  async function changeRows(action: TableRowAction, version = rowReady ? rowRead!.version : undefined) {
+    if (!storedTable || !version || rowWorking || busy) return;
+    const owner = rowOwner.current, epoch = owner.epoch, target = { ...scope }, tableId = storedTable.id;
+    const current = () => rowOwner.current === owner && owner.mounted && owner.epoch === epoch;
+    setRowPending(epoch); setError('');
+    try {
+      await editTableRows(target, tableId, action, version, result => {
+        if (!result.receiptId) return;
+        const receiptId = result.receiptId;
+        recordUndoable({ projectId: target.projectId, kind: 'asset', label: action.action === 'move-row' ? copy.rowMoved : copy.rowInserted, notice: action.action === 'move-row' ? copy.rowMoved : copy.rowInserted, undo: async () => {
+          try { await undoTableRows(target, receiptId); }
+          catch (failure) { if (failure instanceof WorldEraConflict || failure instanceof Error && failure.message === 'table_row_receipt_missing') throw new UndoStaleError(); throw failure; }
+        } });
+        if (current()) setNotice(sorts.length || group ? copy.manualOrderNotice : action.action === 'move-row' ? copy.rowMoved : copy.rowInserted);
+      });
+    } catch (failure) { if (current()) setError(`${copy.error} ${failure instanceof WorldEraConflict ? copy.rowConflict : failure instanceof Error ? failure.message : ''}`); }
+    finally { if (current()) setRowPending(null); }
+  }
+  const beginRowDrag = (id: string, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!event.isPrimary || event.button !== 0 || !rowReady || rowWorking || busy) return;
+    const handle = event.currentTarget, table = handle.closest('table');
+    if (!table) return;
+    event.preventDefault(); handle.focus({ preventScroll: true });
+    try { handle.setPointerCapture(event.pointerId); } catch { return; }
+    draggedRow.current = { id, epoch: rowOwner.current.epoch, version: rowRead!.version, pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false, handle, table, end: table.closest('section')?.querySelector('[data-table-row-end]') ?? null };
+  };
+  const pointerRowTarget = (event: ReactPointerEvent<HTMLButtonElement>, dragged: NonNullable<typeof draggedRow.current>): { id: string | undefined } | undefined => {
+    const hit = document.elementFromPoint(event.clientX, event.clientY), row = hit?.closest<HTMLElement>('tr[data-row-id]');
+    if (row?.closest('table') === dragged.table) return { id: row.dataset.rowId! };
+    if (dragged.end && hit?.closest('[data-table-row-end]') === dragged.end) return { id: undefined };
+    return undefined;
+  };
+  const moveRowPointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const dragged = draggedRow.current;
+    if (!dragged || dragged.pointerId !== event.pointerId || dragged.epoch !== rowOwner.current.epoch) return;
+    if (!dragged.moved && Math.hypot(event.clientX - dragged.x, event.clientY - dragged.y) < 5) return;
+    dragged.moved = true; event.preventDefault();
+    const target = pointerRowTarget(event, dragged);
+    setRowDrop(previous => target ? previous?.epoch === dragged.epoch && previous.id === target.id ? previous : { epoch: dragged.epoch, id: target.id } : undefined);
+  };
+  const endRowPointer = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
+    const dragged = draggedRow.current;
+    if (!dragged || dragged.pointerId !== event.pointerId) return;
+    draggedRow.current = undefined; setRowDrop(undefined);
+    if (dragged.handle.hasPointerCapture(event.pointerId)) dragged.handle.releasePointerCapture(event.pointerId);
+    if (cancelled || !dragged.moved || dragged.epoch !== rowOwner.current.epoch) return;
+    const target = pointerRowTarget(event, dragged);
+    if (target) void changeRows({ action: 'move-row', rowId: dragged.id, beforeRowId: target.id }, dragged.version);
+  };
   const projected=storedTable?projectWorldTable(storedTable,entries,project?.codexTemplates??[]):undefined;
   const table=storedTable?{...storedTable,columns:projected!.columns}:undefined;
   const run = async (work: () => Promise<void>, done?: () => void) => { if (busy) return; setBusy(true); setError(''); try { await work(); done?.(); } catch (reason) { setError(`${copy.error} ${reason instanceof Error?reason.message:''}`); } finally { setBusy(false); } };
@@ -148,7 +221,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     {csvInput&&<CsvDialog locale={locale} input={csvInput} onClose={()=>setCsvInput(undefined)} onImport={async imported=>{await addTable(projectId,imported);setSelectedId(imported.id);}}/>}
     {csvExport&&table&&<CsvDialog locale={locale} output={{table,rows,value:displayValue}} onClose={()=>setCsvExport(false)}/>}
     {error && <p role="alert" className="p-4 text-sm text-danger">{error}</p>}
-    {notice && <p role="status" data-testid="table-import-report" className="flex items-start gap-2 p-4 text-sm text-text-muted">{notice}<button type="button" className="underline" onClick={() => setNotice('')}>{locale === 'es' ? 'Cerrar' : 'Close'}</button></p>}
+    {notice && <p role="status" data-testid="table-import-report" className="flex flex-wrap items-start gap-2 p-4 text-sm text-text-muted">{notice}{(sorts.length > 0 || group) && <button type="button" className="underline underline-offset-2" onClick={() => { setSorts([]); setGroup(''); }}>{copy.manualOrder}</button>}<button type="button" className="underline" onClick={() => setNotice('')}>{locale === 'es' ? 'Cerrar' : 'Close'}</button></p>}
     {creating && <form className="flex flex-wrap items-end gap-3 border-b border-border p-4" onSubmit={event => { event.preventDefault(); void createDocument(); }}><label className="flex flex-col gap-1 text-sm text-text-primary">{copy.name}<input required maxLength={200} autoFocus className={control} value={name} onChange={event => setName(event.target.value)} /></label><select aria-label={copy.newTable} className={control} value={mode} onChange={event => setMode(event.target.value as typeof mode)}><option value="table">{copy.table}</option><option value="sheet">{copy.sheet}</option><option value="live">{copy.live}</option></select>{mode === 'live' && <select className={control} aria-label={copy.live} data-testid="table-live-source" value={allSources?'__all':sourceTemplateId?`template:${sourceTemplateId}`:sourceType} onChange={event => {if(event.target.value==='__all'){setAllSources(true);setSourceTemplateId('');}else if(event.target.value.startsWith('template:')){setAllSources(false);setSourceTemplateId(event.target.value.slice(9));}else{setAllSources(false);setSourceTemplateId('');setSourceType(event.target.value as CodexEntryType);}}}><option value="__all">{copy.allTypes}</option><optgroup label={locale==='es'?'Tipos del Códice':'Codex types'}>{project.codexTemplates?.map(template=><option key={template.id} value={`template:${template.id}`}>{template.name}</option>)}</optgroup><optgroup label={locale==='es'?'Categorías existentes':'Existing categories'}>{codexTypes.map(type => <option key={type} value={type}>{t(`codex.types.${type}`)}</option>)}</optgroup></select>}<button disabled={busy} className={`${button} bg-accent-gold text-deep`} type="submit">{copy.create}</button><button className={button} type="button" onClick={() => setCreating(false)}>{copy.cancel}</button></form>}
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <nav className="shrink-0 overflow-auto border-b border-border p-3 md:w-52 md:border-r md:border-b-0" aria-label={copy.title}>{tables.length === 0 && <p className="p-2 text-sm text-text-muted">{copy.empty}</p>}{navTables.map(item => <button key={item.id} disabled={busy || Boolean(columnDraft)||Boolean(formulaDraft)} aria-current={item.id === table?.id || (item.workbook && item.workbook.id === table?.workbook?.id) ? 'page' : undefined} className={`mb-1 block w-full break-words rounded-lg p-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-accent-gold ${item.id === table?.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} onClick={() => { setSelectedId(item.id); setQuery(''); setGroup(''); setSort(null); }}>{item.workbook ? item.workbook.name : item.title}<span className="mt-1 block text-xs text-text-muted">{item.codexType ? copy.live : item.workbook ? (locale === 'es' ? `Libro · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} pestañas` : `Workbook · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} tabs`) : item.mode === 'sheet' ? copy.sheet : copy.table}</span></button>)}</nav>
@@ -205,12 +278,12 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
               const savedIndex = live ? rows.indexOf(row) : table.rows.findIndex(item => item.id === row.id);
               const groupColumn = table.columns.find(column => column.id === group); const groupValue = groupColumn ? displayValue(row, groupColumn) : '';
               const showGroup = groupColumn && (index === 0 || displayValue(visible[index - 1], groupColumn) !== groupValue);
-              return <TableRow key={row.id} row={row} savedIndex={savedIndex} columns={table.columns} calculatedColumnIds={allTypes ? table.columns.map(column => column.id) : projected?.calculatedColumnIds??[]} display={displayValue} calculatedFields={live ? Object.entries(projectedEntries.get(row.id)?.properties ?? {}).filter(([, value]) => value.calculated).map(([key]) => key) : []} entries={entries} sheet={table.mode === 'sheet'} disabled={busy || allTypes} copy={copy} showGroup={Boolean(showGroup)} groupValue={groupValue} value={rowValue} save={saveValue} openEntry={id => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(id)}`)} selected={selectedRows.includes(row.id)} onSelect={live ? undefined : checked => setSelectedRows(checked ? [...selectedRows, row.id] : selectedRows.filter(id => id !== row.id))} matchColumnId={currentMatch?.rowId === row.id ? currentMatch.columnId : undefined} onDuplicate={live ? undefined : () => change(current => { duplicateRow(current, row.id); })} onInsertBelow={live ? undefined : () => change(current => { const at = current.rows.findIndex(item => item.id === row.id); insertRow(current, at + 1); })} action={live ? () => setEntryDraft(entries.find(entry => entry.id === row.id)!) : () => requestDelete(copy.removeRow, () => changeTable(projectId, table.id, current => { current.rows = current.rows.filter(item => item.id !== row.id); }))} live={live} />;
+              return <TableRow key={row.id} row={row} savedIndex={savedIndex} columns={table.columns} calculatedColumnIds={allTypes ? table.columns.map(column => column.id) : projected?.calculatedColumnIds??[]} display={displayValue} calculatedFields={live ? Object.entries(projectedEntries.get(row.id)?.properties ?? {}).filter(([, value]) => value.calculated).map(([key]) => key) : []} entries={entries} sheet={table.mode === 'sheet'} disabled={busy || allTypes} copy={copy} showGroup={Boolean(showGroup)} groupValue={groupValue} value={rowValue} save={saveValue} openEntry={id => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(id)}`)} selected={selectedRows.includes(row.id)} onSelect={live ? undefined : checked => setSelectedRows(checked ? [...selectedRows, row.id] : selectedRows.filter(id => id !== row.id))} matchColumnId={currentMatch?.rowId === row.id ? currentMatch.columnId : undefined} onDuplicate={live ? undefined : () => change(current => { duplicateRow(current, row.id); })} onInsertBelow={live ? undefined : () => change(current => { const at = current.rows.findIndex(item => item.id === row.id); insertRow(current, at + 1); })} rowOrderDisabled={!rowReady || rowWorking} onInsertAbove={live ? undefined : () => void changeRows({ action: 'insert-row', beforeRowId: row.id })} onMoveUp={live || index === 0 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index - 1].id })} onMoveDown={live || index === visible.length - 1 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index + 2]?.id })} onRowPointerDown={live ? undefined : event => beginRowDrag(row.id, event)} onRowPointerMove={moveRowPointer} onRowPointerEnd={endRowPointer} dropBefore={rowDrop?.epoch === rowOwner.current.epoch && rowDrop.id === row.id} action={live ? () => setEntryDraft(entries.find(entry => entry.id === row.id)!) : () => requestDelete(copy.removeRow, () => changeTable(projectId, table.id, current => { current.rows = current.rows.filter(item => item.id !== row.id); }))} live={live} />;
             })}</tbody>
           </table>
           {visible.length === 0 && <p className="p-5 text-sm text-text-muted">{copy.noRows}</p>}
         </div>
-        <footer className="flex flex-wrap items-center justify-between gap-3 p-4">{allTypes ? <p className="text-xs text-text-muted" data-testid="table-all-types-note">{copy.allTypesNote}</p> : <button className={button} disabled={busy || rows.length >= 20000} onClick={() => {
+        <footer className="flex flex-wrap items-center justify-between gap-3 p-4" data-table-row-end={storedTable?.id}>{allTypes ? <p className="text-xs text-text-muted" data-testid="table-all-types-note">{copy.allTypesNote}</p> : <button className={button} disabled={busy || rows.length >= 20000} onClick={() => {
           if (table.codexType) { const now = Date.now(); setEntryDraft({ id: crypto.randomUUID(), projectId, type: table.codexType, templateId:table.codexTemplateId, title: '', fields: {}, content: '', tags: [], relations: [], createdAt: now, updatedAt: now }); }
           else change(current => { current.rows.push({ id: crypto.randomUUID(), cells: {} }); });
         }}><Plus size={16} />{table.codexType ? copy.newCard : copy.addRow}</button>}<p className="text-xs text-text-muted">{copy.cellHint}</p></footer>
@@ -221,18 +294,18 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   </section>;
 }
 
-function TableRow({ row, savedIndex, columns, calculatedColumnIds,display,calculatedFields, entries, sheet, disabled, copy, showGroup, groupValue, value, save, openEntry, action, live, selected, onSelect, matchColumnId, onDuplicate, onInsertBelow }: {
+function TableRow({ row, savedIndex, columns, calculatedColumnIds,display,calculatedFields, entries, sheet, disabled, copy, showGroup, groupValue, value, save, openEntry, action, live, selected, onSelect, matchColumnId, onDuplicate, onInsertBelow, rowOrderDisabled, onInsertAbove, onMoveUp, onMoveDown, onRowPointerDown, onRowPointerMove, onRowPointerEnd, dropBefore }: {
   row: DataRow; savedIndex: number; columns: DataColumn[];calculatedColumnIds:string[];display:(row:DataRow,column:DataColumn)=>string; calculatedFields: string[]; entries: CodexEntry[]; sheet: boolean; disabled: boolean; copy: typeof tableCopy.en; showGroup: boolean; groupValue: string;
   value: (row: DataRow, column: DataColumn) => string; save: (row: DataRow, column: DataColumn, value: string) => Promise<void>; openEntry: (id: string) => void; action: () => void; live: boolean;
-  selected?: boolean; onSelect?: (checked: boolean) => void; matchColumnId?: string; onDuplicate?: () => void; onInsertBelow?: () => void;
+  selected?: boolean; onSelect?: (checked: boolean) => void; matchColumnId?: string; onDuplicate?: () => void; onInsertBelow?: () => void; rowOrderDisabled?: boolean; onInsertAbove?: () => void; onMoveUp?: () => void; onMoveDown?: () => void; onRowPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerEnd?: (event: ReactPointerEvent<HTMLButtonElement>, cancelled?: boolean) => void; dropBefore?: boolean;
 }) {
-  return <>{showGroup && <tr><th colSpan={columns.length + 2} className="bg-elevated px-4 py-2 text-left font-medium">{groupValue || copy.none}</th></tr>}<tr className={selected ? 'bg-accent-gold/10' : 'hover:bg-surface/50'} data-row-id={row.id}><th className="border-r border-b border-border px-3 text-xs font-normal tabular-nums text-text-muted">{onSelect && <input type="checkbox" data-testid={`table-select-row-${savedIndex + 1}`} aria-label={`${copy.selectRow} ${savedIndex + 1}`} className="mr-2 accent-accent-gold" checked={!!selected} onChange={event => onSelect(event.target.checked)} />}{savedIndex + 1}</th>{columns.map((column, columnIndex) => {
+  return <>{showGroup && <tr><th colSpan={columns.length + 2} className="bg-elevated px-4 py-2 text-left font-medium">{groupValue || copy.none}</th></tr>}<tr className={selected ? 'bg-accent-gold/10' : 'hover:bg-surface/50'} data-row-id={row.id} style={dropBefore ? { boxShadow: 'inset 0 2px 0 var(--color-accent-gold)' } : undefined}><th className="border-r border-b border-border px-3 text-xs font-normal tabular-nums text-text-muted">{onRowPointerDown && <button type="button" data-table-row-handle disabled={disabled || rowOrderDisabled} aria-label={`${copy.dragRow} ${savedIndex + 1}`} title={copy.dragRow} className="inline-flex h-9 w-9 items-center justify-center rounded text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40" style={{ touchAction: 'none' }} onPointerDown={onRowPointerDown} onPointerMove={onRowPointerMove} onPointerUp={event => onRowPointerEnd?.(event)} onPointerCancel={event => onRowPointerEnd?.(event, true)} onLostPointerCapture={event => onRowPointerEnd?.(event, true)}><GripVertical size={15} /></button>}{onSelect && <input type="checkbox" data-testid={`table-select-row-${savedIndex + 1}`} aria-label={`${copy.selectRow} ${savedIndex + 1}`} className="mr-2 accent-accent-gold" checked={!!selected} onChange={event => onSelect(event.target.checked)} />}{savedIndex + 1}</th>{columns.map((column, columnIndex) => {
     const raw = row.cells[column.id] ?? ''; const computed = value(row, column); const label = `${cellKey(columnIndex, savedIndex)} ${column.name}`;
     return <td key={column.id} data-cell={`${row.id}:${column.id}`} data-match={matchColumnId === column.id ? 'current' : undefined} className="border-r border-b border-border p-0 align-top" style={{ maxWidth: column.width ?? 180, ...(matchColumnId === column.id ? { outline: '2px solid #c4973b', outlineOffset: -2 } : {}) }}>
       {calculatedColumnIds.includes(column.id)?<output className={`block min-h-11 break-words px-3 py-2 ${computed.startsWith('#')?'text-danger':'text-text-primary'}`} aria-label={label}>{display(row,column)||'—'}</output>:<TableCell raw={raw} label={label} column={column} entries={entries} sheet={sheet} disabled={disabled || calculatedFields.includes(column.field ?? column.name)} copy={copy} save={value => save(row, column, value)} openEntry={openEntry} />}
       {sheet && raw.startsWith('=') && <output className={`block px-3 pb-2 text-xs ${computed.startsWith('#') ? 'text-danger' : 'text-accent-gold'}`} aria-label={`${copy.value} ${label}`}>{computed}</output>}
     </td>;
-  })}<td className="border-b border-border px-2 whitespace-nowrap">{onInsertBelow && <button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={`${copy.insertBelow} ${savedIndex + 1}`} title={copy.insertBelow} onClick={onInsertBelow}><Plus size={15} /></button>}{onDuplicate && <button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={`${copy.duplicateRow} ${savedIndex + 1}`} title={copy.duplicateRow} onClick={onDuplicate}><Copy size={15} /></button>}<button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={live ? copy.editCard : `${copy.remove} ${savedIndex + 1}`} onClick={action}>{live ? <Settings2 size={15} /> : <Trash2 size={15} />}</button></td></tr></>;
+  })}<td className="border-b border-border px-2 whitespace-nowrap">{onInsertAbove && <details className="relative inline-block"><summary aria-label={`${copy.rowActions} ${savedIndex + 1}`} className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold"><Settings2 size={15}/></summary><div className="absolute right-0 z-20 flex w-48 flex-col gap-1 rounded-lg border border-border bg-surface p-1 shadow-lg" onClick={event => { if ((event.target as Element).closest('button')) event.currentTarget.parentElement?.removeAttribute('open'); }}><button type="button" disabled={disabled || rowOrderDisabled} className={`${button} w-full justify-start`} onClick={onInsertAbove}>{copy.insertAbove}</button><button type="button" disabled={disabled || rowOrderDisabled || !onMoveUp} className={`${button} w-full justify-start`} onClick={onMoveUp}>{copy.moveRowUp}</button><button type="button" disabled={disabled || rowOrderDisabled || !onMoveDown} className={`${button} w-full justify-start`} onClick={onMoveDown}>{copy.moveRowDown}</button></div></details>}{onInsertBelow && <button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={`${copy.insertBelow} ${savedIndex + 1}`} title={copy.insertBelow} onClick={onInsertBelow}><Plus size={15} /></button>}{onDuplicate && <button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={`${copy.duplicateRow} ${savedIndex + 1}`} title={copy.duplicateRow} onClick={onDuplicate}><Copy size={15} /></button>}<button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={live ? copy.editCard : `${copy.remove} ${savedIndex + 1}`} onClick={action}>{live ? <Settings2 size={15} /> : <Trash2 size={15} />}</button></td></tr></>;
 }
 
 function TableCell({ raw, label, column, entries, sheet, disabled, copy, save, openEntry }: { raw: string; label: string; column: DataColumn; entries: CodexEntry[]; sheet: boolean; disabled: boolean; copy: typeof tableCopy.en; save: (value: string) => Promise<void>; openEntry: (id: string) => void }) {

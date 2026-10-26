@@ -103,6 +103,7 @@ import { whSoundscape } from './soundscape';
 import { whKanban } from './kanban';
 import { whWorkspaceLibraryUpdate } from './workspaceLibrary';
 import { whWorkspaceTabs } from './workspaceTabs';
+import { whWorkspaceFocusGet, whWorkspaceFocusSet } from './workspaceFocus';
 import {
   whConnectEvents,
   whCreateEvent,
@@ -411,6 +412,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   // Orientation
   wh_get_context: whGetContext,
   wh_workspace_tabs: whWorkspaceTabs,
+  wh_workspace_focus_get: whWorkspaceFocusGet,
+  wh_workspace_focus_set: whWorkspaceFocusSet,
   wh_workspace_library_get: args=>readLibraryCreationContext({projectId:resolveProjectId(args),eraId:typeof args.eraId==='string'?args.eraId:undefined}),
   wh_list_projects: whListProjects,
   wh_update_project_details: whUpdateProjectDetails,

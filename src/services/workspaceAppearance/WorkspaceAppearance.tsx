@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import {useWorkspaceFocusChrome} from '@/components/project/workspace/workspaceFocus';
 import { ChevronDown, Palette, Save } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useWorkspaceAppearance } from './useWorkspaceAppearance';
@@ -14,6 +15,7 @@ const field = 'mt-1 min-h-9 w-full rounded-lg border border-border bg-elevated p
 const button = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated disabled:opacity-50';
 interface Draft { read: AppearanceRead; patch: WorkspaceAppearanceValues; error?: string; saved?: boolean }
 export default function WorkspaceAppearance(scope: AppearanceScope) {
+  const focusChrome=useWorkspaceFocusChrome();
   const { locale } = useTranslation(), es = locale === 'es', id = useId();
   const { appearance } = useWorkspaceAppearance(scope), key = JSON.stringify([scope.projectId, scope.eraId ?? null]);
   const { appearance: baseAppearance } = useWorkspaceAppearance({ projectId: scope.projectId });
@@ -69,7 +71,7 @@ export default function WorkspaceAppearance(scope: AppearanceScope) {
     } catch { setDrafts(previous => ({ ...previous, [targetKey]: { ...(previous[targetKey] ?? { read, patch: {} }), error: es ? 'Elige una imagen PNG, JPEG o WebP válida de hasta 8 MB.' : 'Choose a valid PNG, JPEG or WebP image up to 8 MB.' } })); }
     finally { setBusy(false); }
   };
-  return <details className="workspace-appearance-form max-h-[70%] shrink-0 overflow-auto border-b border-border bg-surface px-4 py-2 text-sm" data-testid="workspace-appearance" onToggle={event => { if (event.currentTarget.open && !draft) load(); }}>
+  return <details {...focusChrome} className="workspace-appearance-form max-h-[70%] shrink-0 overflow-auto border-b border-border bg-surface px-4 py-2 text-sm" data-testid="workspace-appearance" onToggle={event => { if (event.currentTarget.open && !draft) load(); }}>
     <summary className="flex min-h-9 cursor-pointer items-center gap-2 rounded text-text-primary"><Palette size={16} aria-hidden="true" />{es ? 'Apariencia' : 'Appearance'}<span className="text-xs text-text-muted">{scope.eraId ? es ? 'Esta era' : 'This era' : es ? 'Base del proyecto' : 'Project base'}</span><ChevronDown size={14} aria-hidden="true" className="appearance-disclosure" /></summary>
     {draft && <fieldset disabled={busy} className="mt-3 space-y-4 pb-2">
       <p className="max-w-prose text-xs text-text-muted">{es ? 'Se aplica al guardar. La imagen se guarda en el proyecto, sin conexión. Las paletas del lector permanecen independientes.' : 'Applied when saved. The image is stored in the project offline. Reader palettes remain independent.'}{scope.eraId && (es ? ' Los campos sin personalizar heredan Base.' : ' Unchanged fields inherit Base.')}</p>

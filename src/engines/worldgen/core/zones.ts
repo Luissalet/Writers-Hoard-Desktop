@@ -22,7 +22,7 @@ export interface WorldZone {
   pts: Pt[];
   color: string;
   pattern: ZonePattern;
-  /** 0.05–1: how strongly it is drawn. */
+  /** 0–1: how strongly it is drawn; zero keeps only its name. */
   opacity?: number;
 }
 
@@ -38,7 +38,7 @@ export function normalizeZone(input: unknown): WorldZone {
   }
   if (raw.color !== undefined && !(typeof raw.color === 'string' && /^#[0-9a-f]{6}$/i.test(raw.color))) throw new Error('color must be #RRGGBB.');
   if (raw.pattern !== undefined && !ZONE_PATTERNS.includes(raw.pattern as ZonePattern)) throw new Error(`pattern must be one of ${ZONE_PATTERNS.join(', ')}.`);
-  if (raw.opacity !== undefined && !(typeof raw.opacity === 'number' && raw.opacity >= 0.05 && raw.opacity <= 1)) throw new Error('opacity must be from 0.05 to 1.');
+  if (raw.opacity !== undefined && !(typeof raw.opacity === 'number' && raw.opacity >= 0 && raw.opacity <= 1)) throw new Error('opacity must be from 0 to 1.');
   return {
     id: raw.id.trim(),
     name: raw.name.trim(),

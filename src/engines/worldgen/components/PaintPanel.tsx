@@ -145,6 +145,8 @@ export interface PaintTool {
   zoneName?: string;
   zoneColor?: string;
   zonePattern?: ZonePattern;
+  /** The next zone's intensity; absent keeps the existing full-strength default. */
+  zoneOpacity?: number;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- Shared by the paint canvas and panel as one tool contract.
@@ -712,11 +714,12 @@ export default function PaintPanel({
               <Chip key={p} on={(tool.zonePattern ?? 'wash') === p} onClick={() => set('zonePattern', p)}>{t(`worldgen.zone.pattern.${p}`)}</Chip>
             ))}
           </div>
+          <ZoneIntensityControl testId="zone-intensity" label={t('worldgen.zone.intensity')} value={Math.round((tool.zoneOpacity ?? 1) * 100)} onCommit={percent => set('zoneOpacity', percent / 100)} disabled={busy} />
           {zones.length > 0 && (
             <div className="flex flex-col gap-1" data-testid="zone-list">
               <span className="text-[10px] uppercase tracking-wider text-white/35">{t('worldgen.zone.list').replace('{n}', String(zones.length))}</span>
               {zones.map((z) => (
-                <div key={z.id} className="flex items-center gap-1.5 rounded bg-white/5 px-1.5 py-1" data-testid={`zone-${z.id}`}>
+                <div key={z.id} className="flex flex-wrap items-center gap-1.5 rounded bg-white/5 px-1.5 py-1" data-testid={`zone-${z.id}`}>
                   <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: z.color }} />
                   <input key={`${z.id}:${z.name}`} defaultValue={z.name} maxLength={ZONE_NAME_MAX} aria-label={t('worldgen.zone.rename')}
                     onBlur={(e) => { const name = e.target.value.trim(); if (name && name !== z.name) onUpdateZone?.({ ...z, name }); }}
@@ -726,6 +729,7 @@ export default function PaintPanel({
                     title={t('worldgen.zone.nextPattern')} className="text-[10px] text-white/55 underline">{t(`worldgen.zone.pattern.${z.pattern}`)}</button>
                   <button type="button" onClick={() => onFocusZone?.(z)} className="text-[10px] text-white/55 underline">{t('worldgen.zone.show')}</button>
                   <button type="button" onClick={() => onRemoveZone?.(z.id)} data-testid={`zone-remove-${z.id}`} className="text-[10px] text-red-300 hover:text-red-200">{t('worldgen.zone.remove')}</button>
+                  <ZoneIntensityControl testId={`zone-intensity-${z.id}`} label={`${t('worldgen.zone.intensity')} · ${z.name}`} value={Math.round((z.opacity ?? 1) * 100)} onCommit={percent => onUpdateZone?.({ ...z, opacity: percent / 100 })} disabled={busy || !onUpdateZone} />
                 </div>
               ))}
             </div>
@@ -1293,6 +1297,27 @@ function filterSummary(f: PaintFilter, t: (key: string) => string): string {
  * is a wall. Folded, each section still shows what it is currently doing — a
  * closed panel that hides an active rule is worse than no panel.
  */
+/** One zone edit on release or confirmation, rather than one undo step per slider pixel. */
+function ZoneIntensityControl({ testId, label, value, onCommit, disabled }: {
+  testId: string; label: string; value: number; onCommit: (percent: number) => void; disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+  const commit = () => {
+    if (draft === null) return;
+    const percent = Math.max(0, Math.min(100, Math.round(Number(draft))));
+    if (draft.trim() && Number.isFinite(percent) && percent !== value) onCommit(percent);
+    setDraft(null);
+  };
+  return <div className="flex w-full flex-col gap-1">
+    <div className="flex items-center justify-between gap-2 text-xs text-white/70">
+      <label htmlFor={testId} className="min-w-0 break-words">{label}</label>
+      <span className="inline-flex shrink-0 items-center gap-1"><input data-testid={`${testId}-value`} aria-label={`${label} (%)`} type="number" min={0} max={100} step={5} value={shown} disabled={disabled} onChange={event => setDraft(event.target.value)} onBlur={commit} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } }} className="min-h-8 w-16 rounded border border-white/15 bg-black/40 px-1.5 text-right tabular-nums text-white" />%</span>
+    </div>
+    <input id={testId} data-testid={testId} type="range" min={0} max={100} step={5} value={shown} disabled={disabled} onChange={event => setDraft(event.target.value)} onPointerUp={commit} onKeyUp={commit} onBlur={commit} onPointerCancel={() => setDraft(null)} className="min-h-8 w-full accent-amber-400" />
+  </div>;
+}
+
 function signedM(m: number): string {
   return `${m > 0 ? '+' : m < 0 ? '−' : ''}${Math.abs(m).toLocaleString()} m`;
 }

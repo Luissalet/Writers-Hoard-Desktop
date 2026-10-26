@@ -1,4 +1,6 @@
 const en = {
+  'localTool.focus.enter': 'Focus mode',
+  'localTool.focus.exit': 'Exit focus mode',
   'notes.image': 'Image',
   'notes.imageFile': 'File',
   'notes.imageGallery': 'Gallery',
@@ -3161,6 +3163,7 @@ const en = {
   'worldgen.zone.list': 'Zones of the world ({n})',
   'worldgen.zone.rename': 'Zone name',
   'worldgen.zone.nextPattern': 'Change how it is filled',
+  'worldgen.zone.intensity': 'Intensity',
   'worldgen.zone.show': 'Show',
   'worldgen.zone.remove': 'Remove',
   'worldgen.map.labelsToolHint': 'Click a label to pick it · drag to move it · handles: amber turns, blue spaces letters, green curves (Shift snaps the turn to 15°)',

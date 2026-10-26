@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import { getEraProject, listEraRows, readWorldDocument } from '@/services/worldEras/store';
-import { resolveProjectForEngine, requireString, optString, type ToolArgs } from '@/services/aiBridge/tools/shared';
+import { resolveProjectForEngine, requireString, optString, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
+import { editTableRows } from './rowActions';
 import {projectWorldTable} from './projection';
 import {createTypeTable,saveTableCalculation,removeTableColumn,type SaveTableCalculation} from './calculations';
 import type { CodexEntry } from '@/types';
@@ -10,7 +11,7 @@ import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
 import { sheetValues } from './formulas';
 import { cellKey, tableCsv, validateCell, type WorldTable } from './types';
-import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, insertColumn, insertRow, removeRows, sortRows, type TableCondition, type TableSort } from './tableEdits';
+import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, insertColumn, removeRows, sortRows, type TableCondition, type TableSort } from './tableEdits';
 const scope = async (args: ToolArgs) => ({ projectId: await resolveProjectForEngine(args, 'tables'), eraId: optString(args, 'eraId') });
 async function read(args: ToolArgs) {
   const target = await scope(args), project = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId);
@@ -49,13 +50,19 @@ export const TABLE_HANDLERS = {
   async wh_table_append_row(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType || table.codexAllTypes) throw Error('table_live_codex_requires_entry'); const values = await valuesFor(table, args.values, target), row = { id: crypto.randomUUID(), cells: Object.fromEntries(values.map((value, index) => [table.columns[index].id, value])) }; await db.transaction('rw', db.tables, async () => { if ((await readWorldDocument(target, 'tables', table.id))?.version !== requireString(args, 'expectedVersion')) throw Error('table_conflict'); await changeTable(target.projectId, table.id, current => { current.rows.push(row); }, target.eraId); }); return { row }; },
   async wh_table_edit(args: ToolArgs) {
     const { table, target } = await read(args), action = requireString(args, 'action'), expected = requireString(args, 'expectedVersion');
+    if (action === 'move-row' || action === 'insert-row') {
+      if (action === 'move-row' && (args.at !== undefined || args.columnId !== undefined || args.rowIds !== undefined || args.name !== undefined || args.kind !== undefined || args.copyLabel !== undefined)) throw Error('table_row_action_invalid');
+      if (args.beforeRowId !== undefined && (typeof args.beforeRowId !== 'string' || !args.beforeRowId)) throw Error('table_row_position_invalid');
+      const change = action === 'move-row' ? { action, rowId: requireString(args, 'rowId'), beforeRowId: optString(args, 'beforeRowId') } as const : { action, ...(typeof args.at === 'number' ? { at: args.at } : {}), ...(args.beforeRowId !== undefined ? { beforeRowId: String(args.beforeRowId) } : {}) } as const;
+      const result = await editTableRows(target, table.id, change, expected);
+      return result.receiptId ? withAudit(result, { projectId: target.projectId, entityId: table.id, kind: 'update', summary: action === 'move-row' ? 'Moved table row' : 'Inserted table row', before: { __tableRowReceipt: result.receiptId } }) : result;
+    }
     if (table.codexAllTypes) throw Error('table_all_types_read_only');
     let result: Record<string, unknown> = {};
     await db.transaction('rw', db.tables, async () => {
       if ((await readWorldDocument(target, 'tables', table.id))?.version !== expected) throw Error('table_conflict');
       await changeTable(target.projectId, table.id, current => {
-        if (action === 'insert-row') { const at = typeof args.at === 'number' ? args.at : current.rows.length; result = { row: insertRow(current, at) }; }
-        else if (action === 'duplicate-row') result = { row: duplicateRow(current, requireString(args, 'rowId')) };
+        if (action === 'duplicate-row') result = { row: duplicateRow(current, requireString(args, 'rowId')) };
         else if (action === 'remove-rows') { const ids = args.rowIds; if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw Error('table_rows_invalid'); result = { removed: removeRows(current, ids as string[]) }; }
         else if (action === 'insert-column') {
           if (current.codexType) throw Error('table_live_codex_column_needs_field');

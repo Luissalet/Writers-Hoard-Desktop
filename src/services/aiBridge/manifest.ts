@@ -1,6 +1,7 @@
 import {TIMELINE_BANNER_TOOLS,BANNER_EVENT_SCHEMA} from '@/engines/timeline/bannerManifest';
 import {WRITING_MANUSCRIPT_TOOLS} from '@/engines/writings/manuscriptManifest';
 import { HOME_TOOLS } from './manifestHome';
+import { WORKSPACE_FOCUS_TOOLS } from './manifestWorkspaceFocus';
 import { VISUAL_SEARCH_TOOLS } from '@/services/visualSearch/bridgeManifest';
 import {MANUSCRIPT_REVIEW_TOOLS} from '@/engines/writings/manuscriptReview/bridgeManifest';
 import {PROJECT_GENRE_TOOLS} from '@/services/projectGenres/bridgeManifest';
@@ -1503,6 +1504,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('script', inEngine('dialog-scene', inEra(DIALOG_TOOLS))),
   ...grouped('visual', inEngine('board', [...inEra(BOARD_TOOLS), ...BOARD_CANVAS_TOOLS])),
   ...grouped('core', HOME_TOOLS),
+  ...grouped('core', WORKSPACE_FOCUS_TOOLS),
   ...grouped('core', WORKSPACE_APPEARANCE_TOOLS),
   ...grouped('core', WORKSPACE_THEME_TOOLS),
   ...LOCAL_TOOL_TOOLS,

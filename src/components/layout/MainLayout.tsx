@@ -1,4 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import {createWorkspaceFocusController,WorkspaceFocusContext} from '@/components/project/workspace/workspaceFocus';
+import {useTourStore} from '@/components/tutorial/tourStore';
 import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import WindowTitleBar from './WindowTitleBar';
@@ -25,6 +27,19 @@ export default function MainLayout() {
   const loadLocale = useLocaleStore(state => state.loadLocale);
   const loadMotion = useAppStore(state => state.loadMotion);
   const loadSidebar = useAppStore(state => state.loadSidebar);
+  const [focus] = useState(createWorkspaceFocusController);
+  const focusState = useSyncExternalStore(focus.subscribe, focus.getState, focus.getState);
+
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.repeat || event.isComposing || event.defaultPrevented || !focus.getState().active) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"], [data-local-tool-context-menu]') || useTourStore.getState().active) return;
+      if (!focus.ownsEvent(event)) return;
+      event.preventDefault(); focus.clear();
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [focus]);
 
   // Expose the router's navigate to module-scoped anchor adapters so they
   // can jump to entities without reloading the page.
@@ -56,7 +71,7 @@ export default function MainLayout() {
   }, []);
 
   return (
-    <div className="h-dvh w-full flex flex-col overflow-hidden relative">
+    <WorkspaceFocusContext.Provider value={focus}><div className="h-dvh w-full flex flex-col overflow-hidden relative" data-workspace-focus={focusState.active || undefined}>
       <WindowTitleBar />
       <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Moves focus by hand: under the desktop HashRouter, following the
@@ -74,6 +89,7 @@ export default function MainLayout() {
       </a>
       <Sidebar />
       <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col overflow-hidden min-w-0 outline-none">
+        {focusState.active && <div className="flex shrink-0 justify-end border-b border-border bg-surface px-4 py-2"><button type="button" data-workspace-focus-exit className="min-h-10 rounded-lg border border-border px-3 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={() => focus.clear(true)}>{t('localTool.focus.exit')}</button></div>}
         <Outlet />
       </main>
       {/* Right-hand copilot; renders only inside a project (desktop). */}
@@ -91,6 +107,6 @@ export default function MainLayout() {
       {/* Renders the confirmation an AI bridge deletion has to get past. */}
       <BridgeConfirmHost />
       </div>
-    </div>
+    </div></WorkspaceFocusContext.Provider>
   );
 }

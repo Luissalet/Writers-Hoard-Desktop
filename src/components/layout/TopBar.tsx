@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import {useWorkspaceFocusChrome} from '@/components/project/workspace/workspaceFocus';
 import { Compass, Keyboard, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from 'lucide-react';
 import { openQuickNote } from '@/engines/notes/quickCapture';
 import { useAppStore } from '@/stores/appStore';
@@ -17,6 +18,7 @@ interface TopBarProps {
 }
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
+  const focusChrome=useWorkspaceFocusChrome();
   const { t, locale } = useTranslation();
   const { setSearchOpen, sidebarHidden, toggleSidebarHidden } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
@@ -31,7 +33,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
 
   return (
     <>
-      <header className="min-h-16 bg-surface border-b border-border flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6 flex-shrink-0">
+      <header {...focusChrome} className="min-h-16 bg-surface border-b border-border flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6 flex-shrink-0">
         <div className="flex min-w-40 flex-1 items-center gap-3">
           {/* The sidebar's way back lives here, where it is still on screen
               once the sidebar is not. */}
