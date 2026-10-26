@@ -302,6 +302,10 @@ export default function PublishingProfileModal({
             <input type="checkbox" data-testid="publishing-include-blurb" checked={draft.includeBlurb ?? false} onChange={event => update('includeBlurb', event.target.checked)} className="accent-accent-gold" />
             {t('projectTools.publishing.includeBlurb')}
           </label>
+          <label className="flex cursor-pointer items-center gap-2" title={t('projectTools.publishing.includeCoverHint')}>
+            <input type="checkbox" data-testid="publishing-include-cover" checked={draft.includeCover ?? false} onChange={event => update('includeCover', event.target.checked)} className="accent-accent-gold" />
+            {t('projectTools.publishing.includeCover')}
+          </label>
           <label className="flex cursor-pointer items-center gap-2">
             <input type="checkbox" data-testid="publishing-include-chapter-images" checked={draft.includeChapterImages ?? false} onChange={event => update('includeChapterImages', event.target.checked)} className="accent-accent-gold" />
             {t('projectTools.publishing.includeChapterImages')}

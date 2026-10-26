@@ -64,7 +64,16 @@ export interface PublishingDocumentSection {
   headerImage?: { src: string; layout: 'above' | 'beside' | 'banner'; label?: string };
 }
 
+/** An already-rendered front cover; every writer reads these same captured bytes. */
+export interface PublishingCover {
+  readonly src: string;
+  readonly width: 1200;
+  readonly height: 1800;
+  readonly alt: string;
+}
+
 export interface PublishingDocument {
+  cover?: PublishingCover;
   identifier: string;
   title: string;
   /** The byline under the title, when the project has one. */
@@ -107,6 +116,7 @@ export interface PublishingDocument {
 }
 
 export interface PublishingDocumentOptions {
+  cover?: PublishingCover;
   identifier?: string;
   projectTitle: string;
   /** The project's author, printed as a byline on the title page. */
@@ -275,6 +285,7 @@ export function composePublishingDocument(
     };
   });
   return {
+    ...(options.cover ? { cover: Object.freeze({ ...options.cover, alt: xmlSafeText(options.cover.alt) }) } : {}),
     identifier: options.identifier ?? `urn:writers-hoard:${encodeURIComponent(options.projectTitle)}`,
     title: xmlSafeText(options.projectTitle),
     ...(options.author?.trim() ? { author: xmlSafeText(options.author.trim().slice(0, 120)) } : {}),

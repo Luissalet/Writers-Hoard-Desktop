@@ -1,0 +1,85 @@
+// Two actual MCP stdio keys -> private normal Mainbridge HTTP -> Native executor -> IPC -> real Vite renderer.
+// Read-only normal cover exports. No synthetic tool response, authored writes, file truncation or inference API.
+const { app, BrowserWindow, ipcMain } = require('electron'), { build } = require('esbuild');
+const assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path'), net = require('node:net');
+const { spawn } = require('node:child_process'), { createInterface } = require('node:readline');
+const root = path.resolve(__dirname, '..'), directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-print-cover-native-'));
+app.setPath('userData', path.join(directory, 'profile')); app.commandLine.appendSwitch('use-angle', 'swiftshader'); app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+process.env.HOARD_EVENTS = '0';
+const evidence = path.join(directory, 'evidence'); fs.mkdirSync(evidence, { recursive: true });
+const preloadFile = path.join(directory, 'preload.cjs'), adapterFile = path.join(directory, 'stdio.cjs');
+// Complete imperative shape for this surface; QuickNote is explicit inert and opens no window.
+fs.writeFileSync(preloadFile, "const{contextBridge,ipcRenderer}=require('electron');const api={platform:process.platform};api.quickNote={setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}};api.aiBridge={onRequest:callback=>{const listener=(_,payload)=>callback(payload);ipcRenderer.on('aibridge:request',listener);return()=>ipcRenderer.removeListener('aibridge:request',listener);},reply:payload=>ipcRenderer.invoke('aibridge:reply',payload)};contextBridge.exposeInMainWorld('electronAPI',api);");
+let bridge, win, port, keys = [], driver, failure, closing = false, serverStarted = false, serverClosed = false, toolCalls = 0, rpcCalls = 0, unauthorizedStatus;
+const sessions = [], replies = [], transcript = [], checks = [];
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const scrub = value => { let text = String(value); for (const key of keys) if (key.token) text = text.split(key.token).join('[REDACTED]'); return text; };
+const save = (name, value) => fs.writeFileSync(path.join(evidence, name), scrub(JSON.stringify(value, null, 2)) + '\n');
+async function bounded(promise, ms, label) { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error(label)), ms); })]); } finally { clearTimeout(timer); } }
+async function close() {
+  if (closing) return; closing = true; const errors = [];
+  for (const session of sessions) try { await session.close(); } catch (error) { errors.push(scrub(error)); }
+  if (bridge) bridge.stopAiBridge();
+  if (serverStarted) {
+    for (let i = 0; i < 100 && !serverClosed; i++) { serverClosed = await new Promise(resolve => { const socket = net.connect({ host: '127.0.0.1', port }); socket.once('connect', () => { socket.destroy(); resolve(false); }); socket.once('error', error => resolve(error.code === 'ECONNREFUSED')); }); if (!serverClosed) await sleep(50); }
+    if (!serverClosed) errors.push('Private Mainbridge port remains open');
+  }
+  ipcMain.removeHandler('aibridge:reply'); if (bridge) bridge.setBridgeWindowResolver(() => null);
+  const result = { ok: !failure && errors.length === 0, toolCalls, rpcCalls, ipcReplies: replies.length, sessions: sessions.map(session => session.report()), checks, unauthorizedStatus, serverStarted, serverClosed, privateProfile: directory, errors, failure: failure && scrub(failure), rendererTransport: 'existing Vite63395; real cover renderer and physical file encoder, normal renderer dispatch', printedTokens: false };
+  save('RESULT.json', result); save('mcp-transcript.json', transcript); save('ipc-replies.json', replies);
+  console.log('PRINT_COVER_NATIVE_EVIDENCE ' + evidence); console.log('PRINT_COVER_NATIVE_RESULT ' + JSON.stringify(result)); assert.equal(errors.length, 0, errors.join('\n'));
+}
+async function adapter(token, label) {
+  const child = spawn(process.execPath, [adapterFile], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', WH_BRIDGE_TOKEN: token, WH_BRIDGE_TOKEN_FILE: '', WH_BRIDGE_URL: `http://127.0.0.1:${port}`, WH_BRIDGE_GROUPS: '', WH_PUBLISHING_MODULE: '', WH_MCP_NO_AUTOSTART: '0', HOARD_EVENTS: '0' } });
+  const waiting = new Map(); let sequence = 0, stderr = '', ended = false, actualExit = null;
+  const exit = new Promise(resolve => { child.once('close', (code, signal) => resolve({ code, signal })); child.once('error', error => resolve({ error: scrub(error) })); });
+  child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+  const lines = createInterface({ input: child.stdout });
+  lines.on('line', line => { try { const value = JSON.parse(line), pending = waiting.get(value.id); assert(pending, 'Unexpected stdio reply'); clearTimeout(pending.timer); waiting.delete(value.id); pending.resolve(value); } catch (error) { failure = scrub(error); for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(error); } waiting.clear(); } });
+  child.once('close', () => { for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(Error('Print Cover stdio closed before reply')); } waiting.clear(); });
+  const session = {
+    rpc: (method, params) => new Promise((resolve, reject) => { rpcCalls++; const id = ++sequence, timer = setTimeout(() => { waiting.delete(id); reject(Error('Print Cover RPC deadline')); }, 30000); waiting.set(id, { resolve, reject, timer }); child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'); }),
+    close: async () => { if (ended) return; ended = true; child.stdin.end(); try { actualExit = await bounded(exit, 5000, 'Print Cover stdio EOF deadline'); } catch (error) { child.kill(); actualExit = await bounded(exit, 3000, 'Print Cover stdio termination deadline'); throw error; } finally { lines.close(); fs.writeFileSync(path.join(evidence, label + '.stderr.log'), scrub(stderr)); } assert.deepEqual(actualExit, { code: 0, signal: null }); },
+    report: () => ({ label, exit: actualExit, pending: waiting.size, stderrBytes: Buffer.byteLength(stderr) }),
+  };
+  sessions.push(session); const initialized = await session.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'print-cover-native', version: '1' } }); assert(!initialized.error); assert.equal(initialized.result.serverInfo.name, 'writers-hoard'); return session;
+}
+async function setup() {
+  const reservation = net.createServer(); await new Promise((resolve, reject) => { reservation.once('error', reject); reservation.listen(0, '127.0.0.1', resolve); }); port = reservation.address().port; await new Promise(resolve => reservation.close(resolve)); process.env.WH_AIBRIDGE_PORT = String(port);
+  const common = { bundle: true, platform: 'node', format: 'cjs', alias: { '@': path.join(root, 'src') }, logLevel: 'warning' }, bridgeFile = path.join(directory, 'bridge.cjs');
+  await build({ ...common, stdin: { contents: "export * from './electron/aibridge/server';export * from './electron/aibridge/state';export * from './electron/aibridge/rpc';", resolveDir: root }, external: ['electron'], outfile: bridgeFile });
+  await build({ ...common, entryPoints: [path.join(root, 'electron/aibridge/mcpStdio.ts')], outfile: adapterFile });
+  bridge = require(bridgeFile); await bridge.setBridgeConfig({ enabled: true, writesEnabled: true });
+  keys = [await bridge.bridgeKeys.create('Print Cover Native A'), await bridge.bridgeKeys.create('Print Cover Native B')]; for (const key of keys) assert.equal(key.ok, true); assert(keys[0].key.id !== keys[1].key.id && keys[0].token !== keys[1].token, 'Two distinct real keys required');
+  ipcMain.handle('aibridge:reply', (event, payload) => { assert.equal(event.sender, win.webContents); assert.equal(event.senderFrame, event.sender.mainFrame); replies.push({ id: payload.id, ok: payload.ok, code: payload.code }); bridge.resolveBridgeReply(payload); });
+}
+async function drive(){
+ const renderer=(name)=>win.webContents.executeJavaScript(`window.${name}()`);let fixture;
+ for(let i=0;i<1800&&!fixture;i++){const state=await win.webContents.executeJavaScript('({ready:window.__printNativeReady??null,result:window.__result??null})');if(state.result?.ok===false)throw Error(state.result.error);fixture=state.ready;if(!fixture)await sleep(50);}assert(fixture,'Native print renderer readiness');save('fixture.json',fixture);
+ const snapshot=()=>renderer('__printNativeSnapshot'),baseline=await snapshot();save('before.json',baseline);await bridge.startAiBridge({version:'private-print-cover-native',hasWindow:()=>true});serverStarted=true;
+ const a=await adapter(keys[0].token,'A'),b=await adapter(keys[1].token,'B'),TOOL='wh_reader_cover_export';
+ for(const session of[a,b]){const listed=await session.rpc('tools/list',{});assert(!listed.error);const tools=listed.result.tools.filter(tool=>tool.name===TOOL);assert.equal(tools.length,1);assert.equal(tools[0].annotations.readOnlyHint,true);assert(tools[0].inputSchema.properties.format.enum.includes('pdf'));assert(tools[0].inputSchema.properties.printLayout);save('manifest-'+session.report().label+'.json',tools[0]);}
+ const crypto=require('node:crypto');let largest=0;
+ async function call(session,args,expected=true){const prior=replies.length,response=await session.rpc('tools/call',{name:TOOL,arguments:args});toolCalls++;assert(!response.error);assert.equal(replies.length-prior,1,'Each export must cross actual Native IPC');const outcome={isError:response.result.isError===true,value:JSON.parse(response.result.content[0].text)};assert.equal(await snapshot(),baseline,'Export changed any business table/field/date');assert.equal(outcome.isError,!expected,JSON.stringify(outcome).slice(0,400));const value=outcome.value;
+  if(value.dataUrl){const buffer=Buffer.from(value.dataUrl.split(',')[1],'base64'),digest=crypto.createHash('sha256').update(buffer).digest('hex');largest=Math.max(largest,buffer.length);transcript.push({key:session.report().label,args,result:{...value,dataUrl:undefined,bytes:buffer.length,sha256:digest},ipcReplies:1});}else transcript.push({key:session.report().label,args,outcome,ipcReplies:1});return value;}
+ const layout={trimWidthMm:50,trimHeightMm:75,spineMm:5,bleedMm:3};
+ for(const[name,scope]of Object.entries(fixture.scopes)){const args={...scope,format:'pdf',printLayout:layout,dpi:144},one=await call(a,args),two=await call(b,args);assert.equal(one.dataUrl,two.dataUrl,'Two real keys returned different captured scope bytes');assert.equal(one.mimeType,'application/pdf');assert(one.dataUrl.startsWith('data:application/pdf;base64,JVBER'));assert.deepEqual(one.layoutMm,layout);fs.writeFileSync(path.join(evidence,name+'.pdf'),Buffer.from(one.dataUrl.split(',')[1],'base64'));save(name+'.json',{...one,dataUrl:undefined});}
+ for(const format of['png','jpeg']){const args={...fixture.scopes.base,format,printLayout:layout,dpi:144},one=await call(a,args),two=await call(b,args);assert.equal(one.dataUrl,two.dataUrl);assert.equal(one.mimeType,'image/'+format);assert(Math.abs(one.metadataDpi-144)<.02);fs.writeFileSync(path.join(evidence,'base.'+(format==='jpeg'?'jpg':format)),Buffer.from(one.dataUrl.split(',')[1],'base64'));}
+ const legacy=await call(a,{...fixture.scopes.base,format:'svg'});assert(legacy.svg&&legacy.width===1272&&legacy.height===900);
+ await call(b,{...fixture.scopes.base,format:'pdf',printLayout:layout,pixelRatio:1},false);await call(a,{...fixture.scopes.base,format:'png',dpi:144},false);assert(largest>200000,'Large file baseline must exceed compile text truncation threshold');
+ const prior=replies.length,response=await fetch(`http://127.0.0.1:${port}/api/call`,{method:'POST',headers:{Authorization:'Bearer invalid-print-key','Content-Type':'application/json'},body:JSON.stringify({tool:TOOL,args:fixture.scopes.base}),signal:AbortSignal.timeout(10000)});unauthorizedStatus=response.status;assert.equal(unauthorizedStatus,401);assert.equal(replies.length,prior);
+ const audit=await bridge.readAudit(200),used=await bridge.bridgeKeys.list();for(const key of keys){assert.equal(typeof used.find(row=>row.id===key.key.id).lastUsedAt,'number');}save('audit.json',audit);save('after.json',await snapshot());checks.push({twoRealKeys:true,fourEffectiveScopes:true,completeBytes:true,largestBytes:largest,physicalImagesDpi:true,legacyPreserved:true,allBusinessBytesExact:true});
+ const cleanup=await renderer('__printNativeCleanup');assert.deepEqual(cleanup,{projects:0,variants:0,history:0});save('cleanup.json',cleanup);await a.close();await b.close();await close();await win.webContents.executeJavaScript('window.__printNativeComplete={ok:true};0');
+}
+(async () => {
+  await app.whenReady(); await setup();
+  win = new BrowserWindow({ show: false, width: 1280, height: 800, useContentSize: true, webPreferences: { preload: preloadFile, contextIsolation: true, sandbox: true, backgroundThrottling: false } }); win.removeMenu(); bridge.setBridgeWindowResolver(() => win);
+  win.webContents.on('console-message', details => { if (details.level === 'error') console.error(scrub(details.message)); });
+  win.webContents.on('render-process-gone', (_event, details) => { failure = 'Print Cover renderer gone ' + details.reason; void close().finally(() => app.exit(1)); });
+  const baseURL = process.env.WH_TEST_BASE_URL || 'http://127.0.0.1:63395';
+  await win.loadURL(new URL('/tests/print-cover.native.html', baseURL).href);
+  driver = drive().catch(async error => { failure = scrub(error.stack || error); console.error(failure); await win.webContents.executeJavaScript(`window.__printNativeComplete=${JSON.stringify({ ok: false, error: failure })};0`).catch(() => {}); });
+  const deadline = Date.now() + 360000;
+  while (Date.now() < deadline) { const result = await win.webContents.executeJavaScript('window.__result??null'); if (result) { await driver; if (!result.ok) throw Error(result.error); if (failure) throw Error(failure); for (const test of result.tests) console.log('PASS ' + test); await close(); win.destroy(); app.exit(0); return; } await sleep(40); }
+  throw Error('Native Print Cover completion deadline');
+})().catch(async error => { failure = scrub(error.stack || error); console.error(failure); try { await close(); } finally { if (win && !win.isDestroyed()) win.destroy(); app.exit(1); } });

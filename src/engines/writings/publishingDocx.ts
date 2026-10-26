@@ -485,6 +485,15 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
     kind: document.footnotePlacement === 'book' ? 'endnotes' : 'footnotes',
     bodies: {},
   };
+  if (document.cover) {
+    const cover = document.cover;
+    const trim = document.bookStyle ? TRIM_SIZES[document.bookStyle.trim] : { width: 210, height: 297, margin: 25.4 };
+    const px = (mm: number) => mm * 96 / 25.4;
+    const scale = Math.min(px(trim.width - trim.margin * 2) / cover.width, (px(trim.height - trim.margin * 2) - 32) / cover.height);
+    const binary = atob(cover.src.slice(cover.src.indexOf(',') + 1));
+    const data = Uint8Array.from(binary, letter => letter.charCodeAt(0));
+    children.push(new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, spacing: { before: 0, after: 0 }, children: [new docx.ImageRun({ type: 'png', data, transformation: { width: Math.round(cover.width * scale), height: Math.round(cover.height * scale) }, altText: { name: 'Front cover', title: cover.alt, description: cover.alt } })] }), new docx.Paragraph({ children: [new docx.PageBreak()] }));
+  }
   if (document.includeTitlePage) {
     children.push(
       new docx.Paragraph({

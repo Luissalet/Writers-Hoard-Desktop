@@ -22,6 +22,8 @@ import {
   type PublishingDocumentSection,
 } from '@/engines/writings/publishingDocument';
 import { compareManuscriptOrder } from '@/engines/writings/chapterOrder';
+import { capturePublishingCover } from '@/engines/writings/publishingCover';
+import type { PublishingCover } from '@/engines/writings/publishingDocument';
 import { toLocalDateKey } from '@/engines/writing-stats/date';
 import { generateId } from '@/utils/idGenerator';
 import { stripHtml } from '@/utils/text';
@@ -542,8 +544,10 @@ export function buildPublishingArtifacts(
     labels?: PublishingArtifactLabels;
     titleOverride?: string;
     generatedAt?: number;
+    cover?: PublishingCover;
   } = {},
 ): PublishingArtifacts {
+  if (profile.includeCover && !artifactOptions.cover) throw Error('publishing_cover_not_prepared');
   const labels = artifactOptions.labels ?? currentPublishingLabels(profile.format);
   const documentTitle = artifactOptions.titleOverride ?? `${project.title} — ${profile.name}`;
   const compileOptions = {
@@ -572,6 +576,7 @@ export function buildPublishingArtifacts(
     : [];
   const document = composePublishingDocument(writings, {
     ...compileOptions,
+    ...(profile.includeCover ? { cover: artifactOptions.cover } : {}),
     identifier: `urn:writers-hoard:${encodeURIComponent(project.id)}:${encodeURIComponent(profile.id || profile.name)}`,
     bibliographyTitle: bibliography.length ? labels.bibliographyTitle : undefined,
     bibliography,
@@ -589,6 +594,27 @@ export function buildPublishingArtifacts(
     docxFilename: `${stem}.docx`,
     epubFilename: `${stem}.epub`,
   };
+}
+
+/** Async sibling of the compatible synchronous compositor. Captures all inputs before rendering. */
+export async function preparePublishingArtifacts(
+  project: Parameters<typeof buildPublishingArtifacts>[0] & Pick<Project, 'coverImage'>,
+  profile: PublishingProfile,
+  writings: readonly Writing[],
+  citations: readonly Citation[],
+  options: Parameters<typeof buildPublishingArtifacts>[4] = {},
+): Promise<PublishingArtifacts> {
+  if (!profile.includeCover) return buildPublishingArtifacts(project, profile, writings, citations, options);
+  const captured = structuredClone({ project, profile, writings, citations, options: { ...options, labels: options.labels ?? currentPublishingLabels(profile.format), generatedAt: options.generatedAt ?? Date.now() } });
+  const cover = await capturePublishingCover(captured.project);
+  const artifacts = buildPublishingArtifacts(captured.project, captured.profile, captured.writings, captured.citations, { ...captured.options, cover });
+  // A captured compilation is read-only; no later caller or writer can replace its bytes.
+  const freeze = (value: unknown): void => {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return;
+    Object.values(value).forEach(freeze); Object.freeze(value);
+  };
+  freeze(artifacts);
+  return artifacts;
 }
 
 /**
@@ -640,7 +666,7 @@ export async function exportPublishingProfile(
     return { ok: false, reason: 'google-docs-without-content', ...baseResult };
   }
   const citations = profile.includeBibliography ? await getCitations(project.id) : [];
-  const artifacts = buildPublishingArtifacts(
+  const artifacts = await preparePublishingArtifacts(
     book,
     profile,
     resolved.writings,
@@ -815,7 +841,7 @@ export function buildPublishingPreview(
   profile: PublishingProfile,
   writings: readonly Writing[],
   citations: readonly Citation[],
-  previewOptions: { titleOverride?: string; generatedAt?: number } = {},
+  previewOptions: { titleOverride?: string; generatedAt?: number; labels?: PublishingArtifactLabels; cover?: PublishingCover } = {},
 ): PublishingPreview {
   const resolved = resolvePublishingWritings(writings, profile);
   const listed = resolved.writings.slice(0, PUBLISHING_PREVIEW_OUTLINE_LIMIT);
@@ -854,6 +880,20 @@ export function buildPublishingPreview(
     missingWritingIds: resolved.missingWritingIds,
     googleDocsWithoutContent: resolved.googleDocsWithoutContent.map(({ id, title }) => ({ id, title })),
   };
+}
+
+/** Same bounded preview, with an actual cover captured from its effective inputs. */
+export async function preparePublishingPreview(
+  project: Parameters<typeof buildPublishingPreview>[0] & Pick<Project, 'coverImage'>,
+  profile: PublishingProfile,
+  writings: readonly Writing[],
+  citations: readonly Citation[],
+  options: Parameters<typeof buildPublishingPreview>[4] = {},
+): Promise<PublishingPreview> {
+  if (!profile.includeCover) return buildPublishingPreview(project, profile, writings, citations, options);
+  const captured = structuredClone({ project, profile, writings, citations, options: { ...options, labels: options.labels ?? currentPublishingLabels(profile.format), generatedAt: options.generatedAt ?? Date.now() } });
+  const cover = await capturePublishingCover(captured.project);
+  return buildPublishingPreview(captured.project, captured.profile, captured.writings, captured.citations, { ...captured.options, cover });
 }
 
 async function createConversion(

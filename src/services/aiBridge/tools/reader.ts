@@ -8,6 +8,7 @@ import type { Writing } from '@/types';
 import { assertEngineEnabled, BridgeError, optString, resolveProjectId, withAudit, type ToolArgs } from './shared';
 import {exportCoverImage} from '@/engines/writings/coverDesign/export';
 import type {CoverFace} from '@/engines/writings/coverDesign/types';
+import {assertPrintPdfPage,printCoverGeometry,capturePrintCover,encodePrintCover,type PrintCoverLayout,type PrintCoverFormat} from '@/engines/writings/coverDesign/print';
 async function readerProject(args:ToolArgs){const projectId=resolveProjectId(args),project=await db.projects.get(projectId);if(!project)throw new BridgeError('not-found','Project not found.');const eraId=optString(args,'eraId'),era=eraId?project.worldEras?.find(item=>item.id===eraId):undefined;if(eraId&&!era)throw new BridgeError('not-found','Source era not found.');return manuscriptProject(project,{kind:'manuscript',id:optString(args,'manuscriptId')??'main'},era?.id);}
 
 export const READER_HANDLERS = {
@@ -30,5 +31,15 @@ export const READER_HANDLERS = {
     const writings = selectManuscriptWritings(await listEraRows<Writing>(scope, 'writings'),selection); writings.sort((a, b) => (a.chapter ?? Infinity) - (b.chapter ?? Infinity) || a.createdAt - b.createdAt);
     return { projectId: project.id, eraId: scope.eraId ?? null, ...await buildReaderHtml(project, writings, safeReaderPresentation(project.readerPresentation), args.locale === 'es' ? 'es' : 'en', scope,undefined,selection) };
   },
-  async wh_reader_cover_export(args:ToolArgs){const project=await readerProject(args);return{projectId:project.id,eraId:optString(args,'eraId')??null,...await exportCoverImage(project.title,project.coverImage,safeReaderPresentation(project.readerPresentation).cover,(optString(args,'face')??'spread')as CoverFace,(optString(args,'format')??'png')as 'png'|'svg',typeof args.pixelRatio==='number'?args.pixelRatio:1)};},
+  async wh_reader_cover_export(args:ToolArgs){
+    const project=await readerProject(args),face=optString(args,'face')??'spread',format=optString(args,'format')??'png';
+    if(args.printLayout!==undefined||format==='pdf'||format==='jpeg'){
+      if(face!=='spread'||!['pdf','png','jpeg'].includes(format)||args.printLayout===undefined||args.pixelRatio!==undefined||args.dpi!==undefined&&typeof args.dpi!=='number')throw new BridgeError('bad-args','Physical export requires printLayout, face spread and format pdf/png/jpeg; use dpi instead of pixelRatio.');
+      if(format==='pdf')assertPrintPdfPage(printCoverGeometry(args.printLayout,typeof args.dpi==='number'?args.dpi:300).boxesPt.media);
+      const raster=await capturePrintCover(project.title,project.coverImage,safeReaderPresentation(project.readerPresentation).cover,args.printLayout as PrintCoverLayout,typeof args.dpi==='number'?args.dpi:300);
+      return{projectId:project.id,eraId:optString(args,'eraId')??null,...await encodePrintCover(raster,format as PrintCoverFormat)};
+    }
+    if(args.dpi!==undefined)throw new BridgeError('bad-args','dpi requires printLayout. Canonical SVG/PNG uses pixelRatio.');
+    return{projectId:project.id,eraId:optString(args,'eraId')??null,...await exportCoverImage(project.title,project.coverImage,safeReaderPresentation(project.readerPresentation).cover,face as CoverFace,format as 'png'|'svg',typeof args.pixelRatio==='number'?args.pixelRatio:1)};
+  },
 };
