@@ -1660,3 +1660,15 @@ Success: optional world/tool/key preferences through SDK and MCP, with explicit 
 - [x] Commit explicit paths as Luissalet, integrate under merge lock without push, and update docs/manual/continuity. Keep1095 open.
 
 Review: source19 da4b9e9fd0de24b55687d68ac02b3fe59726f30d approved at exact CAS45, Main six focused checks pass on canonical blobs. Root broad current source passes critical396/build/types/lint and twelve gates; original catalogue selector correction independently agreed, exact inverse and first FAIL preserved, corrected aggregate4PASS. Native two actual keys/10MCP/9IPC/88tables repeated on Main; real Brave Base two Sources/drafts and cleanup, layout7/portability1 and fresh finish ship8 captures retain their stated scopes. Manual +382UTF16 fully read back; documentation/common/research1528 closure in _stage/sdk-next-after-svg/ROOT-delivery-final.json. Parent1095/WT and general parity remain open/partial. No push.
+
+## Resolved tool theme and applied Canvas ink (1095 / research1532)
+
+Success: expose nine existing resolved colors and effective mode through an optional SDK reader/hook and the existing readonly MCP. Keep one authoritative default CSS palette and the current contrast/cascade. Canvas follows the style actually committed by its own pane, preserving client, nodes, notes and per-era identity. General parity remains partial.
+
+- [x] Contrast real Brave/primary beta docs and current APIs; resolve architecture1657 with independent agree18764 and the r2 applied-appearance ordering amendment.
+- [x] Write Source-positive public and stable-client Canvas oracles first; Root reads complete files and first causal RED logs before product GO.
+- [x] Implement the agreed small readonly service and applied context; repeat unchanged oracles and headless/late-binding/absence tests.
+- [ ] Verify real Brave and Native MCP, exact original area suites and appropriate builds; obtain independent technical/visual/formal review.
+- [ ] Commit explicit paths as Luissalet, integrate under merge lock without push, verify Main, and update docs/manual/memory/graph. Keep1095 open.
+
+Review checkpoint: first Source-positive SDK and causal stale-Canvas REDs retained. API, Node4, current Canvas and fourteen remaining gates pass, including original critical396 and builds. Independent Native19MCP/two keys passed before the later notification/hook/context deltas; Main will verify final bytes. Fixture-only CSS and conformance reader amendments preserve expectations and exact inverse. Static/visual review passed on26 paths. Real Brave post-change confirmation, formal submission, integration and common records remain pending; see _stage/sdk-theme-world-next/.

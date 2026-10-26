@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./services/workspaceAppearance/defaultTheme.css";
 
 /* Shared by the tree and Board controls; preserve native ReactFlow behavior. */
 .wh-canvas-controls.react-flow__controls {
@@ -66,15 +67,6 @@
    invalid missing-asset responses in Chromium. */
 
 @theme {
-  --color-deep: #17191a;
-  --color-surface: #202223;
-  --color-elevated: #2a2d2e;
-  --color-border: #3b3e3e;
-  --color-border-hover: #626560;
-  --color-text-primary: #eeeae2;
-  --color-text-muted: #babcb6;
-  --color-text-dim: #a1a49e;
-  --color-accent-gold: #d5b575;
   /* Compatibility names used by existing engine controls. */
   --color-background: var(--color-deep);
   --color-bg-elevated: var(--color-elevated);
@@ -114,7 +106,6 @@
    design. `--wh-face-sans` and `--wh-face-mono` still name the bundled families
    first, which now resolve from `public/fonts/` rather than from the network. */
 :root {
-  color-scheme: dark;
   --wh-face-serif: 'Iowan Old Style', Charter, 'Bitstream Charter', Georgia,
     'Liberation Serif', 'Noto Serif', 'DejaVu Serif', 'Times New Roman', serif;
   --wh-face-sans: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,

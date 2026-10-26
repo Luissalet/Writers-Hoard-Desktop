@@ -1,0 +1,13 @@
+/* One default palette for Tailwind and the readonly resolved-theme reader. */
+@theme {
+  --color-deep: #17191a;
+  --color-surface: #202223;
+  --color-elevated: #2a2d2e;
+  --color-border: #3b3e3e;
+  --color-border-hover: #626560;
+  --color-text-primary: #eeeae2;
+  --color-text-muted: #babcb6;
+  --color-text-dim: #a1a49e;
+  --color-accent-gold: #d5b575;
+}
+:root { color-scheme: dark; }
