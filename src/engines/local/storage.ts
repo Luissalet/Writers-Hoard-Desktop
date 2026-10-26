@@ -6,6 +6,7 @@ import {createBrowserLocalToolAudio} from './audioBrowser';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {readSourceToolState,saveSourceToolState,readSourceToolDocument} from './documents/store';
 import {createLocalToolStateActions} from './stateRuntime';
+import {createLocalToolDefaults,readDefaultsState,prepareDefaultsSave} from './defaults';
 import {createLocalToolReferences,type LocalToolReferenceDestination} from './references';
 import Dexie,{type Transaction} from 'dexie';
 import {db} from '@/db';
@@ -76,5 +77,15 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   async openDocument(documentKind:EraDocumentKind,id:string,openOptions?:LocalToolOpenDocumentOptions){current();const resolved=await destination(documentKind,id);if(!resolved.read)throw new Error('world_document_missing');if(resolved.path!==null){current();const {navigateTo}=await import('@/engines/_shared/anchoring');current();(openOptions?.placement==='beside'&&options.openBeside?options.openBeside:options.navigate??navigateTo)(resolved.path);}},
  } satisfies Omit<LocalToolClient<T>,'refs'|'state'>;
  const client:LocalToolClient<T>={...base,refs:createLocalToolReferences(base,reference=>destination(reference.kind,reference.documentId,true)),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();const result=await run({client,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});writable();return result;});})}:{})};
- return Object.freeze(client);
+ const defaults=createLocalToolDefaults(client,{receiptScope:'writer-runtime',read:async()=>readDefaultsState(await project()),atomic:run=>{
+  writable();return db.transaction('rw',db.projects,async tx=>{
+   let outer:Transaction=tx;while(outer.parent)outer=outer.parent;
+   const result=await run({read:async()=>readDefaultsState(await project()),save:async(data,expectedRevision)=>{
+    writable();const row=await project();writable();const prepared=prepareDefaultsSave(row,data,expectedRevision);
+    await db.projects.update(projectId,prepared.changes);writable();announce(projectId);return prepared.snapshot;
+   },onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});
+   writable();return result;
+  });
+ }});
+ return Object.freeze({...client,defaults});
 }

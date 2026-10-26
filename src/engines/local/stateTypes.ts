@@ -5,6 +5,8 @@ export type LocalToolStates=Record<string,LocalToolState>;
 export const MAX_LOCAL_TOOL_STATE_BYTES=2*1024*1024;
 export const MAX_PROJECT_TOOL_STATE_BYTES=20*1024*1024;
 export const MAX_LOCAL_TOOL_NAMESPACES=128;
+/** Exact storage identity only; never a valid author/tool namespace. */
+export const HOST_DEFAULTS_NAMESPACE='@writers/tool-defaults';
 export const localToolNamespace=(value:unknown):value is string=>typeof value==='string'&&value.length<=80&&/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/.test(value);
 export type LocalToolErrorCode='invalid-json'|'state-too-large'|'project-too-large'|'invalid-namespace'|'missing-project'|'conflict'|'invalid-state'|'invalid-query';
 export class LocalToolStateError extends Error{readonly code:LocalToolErrorCode;constructor(code:LocalToolErrorCode){super(code);this.code=code;this.name='LocalToolStateError';}}
@@ -35,7 +37,7 @@ export function validateLocalToolStates(value:unknown):asserts value is LocalToo
   if(value===undefined)return;
   if(!value||typeof value!=='object'||Array.isArray(value)||!plain(value)||Reflect.ownKeys(value).length>MAX_LOCAL_TOOL_NAMESPACES)throw new LocalToolStateError('invalid-json');
   let bytes=2;for(const key of Reflect.ownKeys(value)){
-    if(!localToolNamespace(key))throw new LocalToolStateError('invalid-namespace');
+    if(key!==HOST_DEFAULTS_NAMESPACE&&!localToolNamespace(key))throw new LocalToolStateError('invalid-namespace');
     const property=Object.getOwnPropertyDescriptor(value,key)!;if(!('value'in property)||!property.enumerable)throw new LocalToolStateError('invalid-json');
     const record=property.value;if(!record||typeof record!=='object'||Array.isArray(record)||!plain(record))throw new LocalToolStateError('invalid-json');
     const text=localToolJsonText(record);bytes+=new TextEncoder().encode(JSON.stringify(key)).byteLength+new TextEncoder().encode(text).byteLength+2;

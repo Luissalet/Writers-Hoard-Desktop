@@ -1648,3 +1648,13 @@ Success: resolve the existing local symbols as standalone SVG through an optiona
 Initial plan (historical): _stage/sdk-icon-svg-next/FULL.md and PLAN.md. The first GO is test-only in tests/local-tool-icon-svg.node.cjs; product remains unchanged until the independent architecture review and material RED are read. Existing metadata and Native oracles, catalogue/data/painter and foreign files remain untouched. ROOT owns runner/todo, Browser, gates, Git/Main and delivery.
 
 Review: source17 547665ca46805527461569881f60ac5d772959de approved at exact CAS44 and fast-forwarded to Main. ROOT13 passes include original critical396/manifest943; Main five focused checks pass on exact blobs. Independent geometry1688 and Native23MCP/19IPC/88tables, normal Source drafts/Blob and RootBrave start feedback retain their measured limits; exact raster2158/1218 remains FAIL. Fresh finish0findings/9views, manual259UTF16/full readback, documentation/common continuity and research1526 closure have separate receipts in _stage/sdk-icon-svg-next/ROOT-delivery-final.json. Parent1095/WT and general parity remain open/partial, no push.
+
+## Shared tool defaults (1095 / research1528)
+
+Success: optional world/tool/key preferences through SDK and MCP, with explicit favorite save/use in Icon notebook, separate Source notes and existing receipt semantics. Architecture1654 agreed before the public oracle; signatures are our own and upstream runtime remains unverified.
+
+- [x] Complete Source-positive public RED and read the full oracle/first log before product GO.
+- [x] Implement pure defaults on existing transactions/actions; verify isolation, concurrency, absence Undo, rollback and readonly.
+- [x] Add normal MCP and explicit consumer with live updates, stale response protection and independent notes.
+- [ ] Verify Brave, real native bridge, portability and appropriate original suites; obtain fresh independent reviews.
+- [ ] Commit explicit paths as Luissalet, integrate under merge lock without push, and update docs/manual/continuity. Keep1095 open.

@@ -34,6 +34,8 @@ import type {LocalToolStateActions} from './stateRuntime';
 export type {LocalToolStateCodec,LocalToolContracts,LocalToolDocumentReference} from './stateCodec';
 export type {LocalToolStateAction} from './stateActions';
 export type {LocalToolActionResult,LocalToolStateActions} from './stateRuntime';
+export type {LocalToolDefaults,LocalToolDefaultEntry,LocalToolDefaultSnapshot,LocalToolDefaultResult} from './defaults';
+export {useLocalToolDefaults} from './useLocalToolDefaults';
 import type {ComponentType} from 'react';
 import type {CodexEntryType} from '@/types';
 import {cloneLocalToolJson,localToolNamespace,LocalToolStateError,type LocalToolJson} from './stateTypes';
@@ -53,6 +55,7 @@ export interface LocalToolCodexCard{id:string;title:string;type:CodexEntryType;t
 export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:readonly string[];limit?:number}
 export interface LocalToolOpenDocumentOptions{placement?:'beside'}
 export interface LocalToolClient<T extends LocalToolJson>{
+  readonly defaults?:import('./defaults').LocalToolDefaults;
   readonly icons?:import('./icons').LocalToolIcons;
   readonly locale?:import('./locales').LocalToolLocaleSource;
   readonly assets:import('./assets').LocalToolAssets;

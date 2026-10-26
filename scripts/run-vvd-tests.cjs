@@ -57,13 +57,21 @@ const iconSvgCheck = spawnSync(process.execPath, ['tests/local-tool-icon-svg.nod
 if (iconSvgCheck.status !== 0 || iconSvgCheck.error) process.exit(iconSvgCheck.status ?? 1);
 const iconSvgGeometryCheck = spawnSync(process.execPath, ['tests/local-tool-icon-svg-geometry.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (iconSvgGeometryCheck.status !== 0 || iconSvgGeometryCheck.error) process.exit(iconSvgGeometryCheck.status ?? 1);
+const defaultsAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-defaults.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (defaultsAuthorCheck.status !== 0 || defaultsAuthorCheck.error) process.exit(defaultsAuthorCheck.status ?? 1);
 const mcpResultValuesCheck = spawnSync(process.execPath, ['tests/mcp-result-values.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (mcpResultValuesCheck.status !== 0 || mcpResultValuesCheck.error) process.exit(mcpResultValuesCheck.status ?? 1);
 const iconNativeCheck = spawnSync(electron, ['tests/local-tool-icons.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (iconNativeCheck.status !== 0 || iconNativeCheck.error) process.exit(iconNativeCheck.status ?? 1);
 const iconSvgNativeCheck = spawnSync(electron, ['tests/local-tool-icon-svg.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (iconSvgNativeCheck.status !== 0 || iconSvgNativeCheck.error) process.exit(iconSvgNativeCheck.status ?? 1);
+const defaultsNativeCheck = spawnSync(electron, ['tests/local-tool-defaults.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
+if (defaultsNativeCheck.status !== 0 || defaultsNativeCheck.error) process.exit(defaultsNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-defaults.browser.tsx', 'testLocalToolDefaultsAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-defaults-hook.browser.tsx', 'testLocalToolDefaultsHookAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-defaults-layout.browser.tsx', 'testLocalToolDefaultsLayout', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-defaults-portability.browser.ts', 'testLocalToolDefaultsPortability', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-icon-svg.browser.tsx', 'testLocalToolIconSvgAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-icons.browser.tsx', 'testLocalToolIconsAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-reference-path.browser.tsx', 'testLocalToolReferencePathAll', 240000, 'scripts/run-focused-browser-tests.cjs'],
