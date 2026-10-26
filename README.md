@@ -758,3 +758,9 @@ The Browser editor can now prepare the same pinned multilingual entity classifie
 Timeline adds Fit timeline to view beside zoom. It adjusts the current horizontal canvas and follows panel resizing without changing authored dates, range or precision. Zoom returns to manual mode; the viewport is ephemeral. Show all years remains a separate range edit and now uses the selected era in both swim-lane and list views.
 
 These bounded changes are integrated in Main07d868d with exact CAS51 approval and Main verification. [Usage, attributed evidence and remaining limits](tasks/vvd1095/verification-browser-ner-timeline.md). General web/SDK parity remains open.
+
+## Captured book fronts and physical print jackets
+
+Publishing profiles can opt into a captured front cover before the book in HTML, EPUB, DOCX and the existing native PDF path. The selected manuscript/era, labels and content are captured together; later edits do not replace that export's cover. Leaving the option off preserves prior output.
+
+The cover designer separately exports a complete print jacket as a one-sheet PDF, PNG or JPEG with editable cover dimensions, spine, outer bleed and resolution. Its 72 dpi preview is distinct from export sampling. The PDF is raster RGB with physical boxes; Browser book PDF and batch multiformat export remain open. [Usage, attributed evidence and current delivery limits](tasks/vvd1095/verification-cover-exports.md).

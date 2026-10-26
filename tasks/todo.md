@@ -1767,3 +1767,23 @@ El estado final de aplicación/commit documental y continuidad común se consult
 - [ ] Continuar todos los residuos de remaining-parity.md. La UI Cancelar preparación no se ejecutó en Brave; no convertir prueba del puerto en esa interacción ni afirmar paridad global.
 
 [Evidencia y límites del lote](vvd1095/verification-browser-ner-timeline.md). El borrador del ensayo SDK es React independiente; no un Source host.
+
+### Checkpoint C41 Front + Print — producto entregado y registro documental separado
+
+Se preservan todos los bytes y tareas anteriores. Fuente congelada 40 rutas sobre ab522c4: 22 producto y 18 tests/harness. La fuente fc3ed49d tiene aprobación exacta CAS52 y FF verificado en Main; manifest 954 y Native Print Main pasan. El checkpoint documental/manual/común sigue separado de la entrega de producto.
+
+- [x] Implementar front in-book opt-in y captura efectiva manuscrito/era/etiquetas/reloj; writers HTML/EPUB/DOCX y PDF nativo consumen la misma imagen. Mantener legacy ausente/false y separar Reader.showAtStart.
+- [x] Implementar Print cover independiente: medidas mm, lomo/sangrado 0, DPI y PDF/PNG/JPEG de una hoja; mantener imagen canónica anterior y datos authored.
+- [x] Leer independiente FINAL-PRE-CAS completo: cero defectos materiales pendientes de fuente 40; allocation y stale-download tienen RED/GREEN propios inalterados, sin voto CAS anticipado.
+- [x] Leer Front Brave cold receipt: perfil/imagen exactos, 390 sin overflow, coveroff, limpieza de 77 contadores a 0 y cierre. No bytes de descarga HTML capturados por Browser.
+- [x] Registrar acciones Print Brave normales PDF 300/PNG 72, estado Descarga iniciada y 390 sin overflow según ROOT; distinguirlas de bytes descargados inspeccionados.
+- [x] Preparar documentos, mapping, patch y borrador corto de manual sólo en stage; conservar sidecar/prefijos y todos los FAIL/límites.
+- [x] Leer Print cold/cleanup final: 77 tablas RAW exactas, recarga normal y limpieza propia a 0; PDF/PNG con estado de descarga, sin bytes Browser confirmados. Build combinado code 0 / 444212 ms con fuente 40/foreign estables.
+- [x] Registrar commit fuente fc3ed49d82807e8c14b394391fb5b24dfc9af1de y envío CAS52 aceptado, con índice vacío y archivos ajenos exactos según recibo ROOT.
+- [x] Leer FORMAL completo y voto CAS52 approve exacto sobre fc3ed49d; Native formal fresco Front OaD1D1 y Print hMlwfL sobre guardas finales, sin reciclar el transporte anterior.
+- [x] Registrar FF Main fc3ed49d con 40 blobs exactos e índice limpio, instalación normal pdf-lib 1.17.1 sin cambio de lock/fuente, manifest 954 y Native Print 15/19/15 de dos claves con bytes/RAW/EOF/cleanup exactos.
+- [ ] Acreditar aplicación/commit documental y manual/continuidad por sus recibos propios de ROOT; los candidatos siguen sin aplicar en este checkpoint.
+- [ ] Actualizar manual/comunes de este lote por ROOT después de su cierre; no repetir inserciones previas ni anticipar continuidad.
+- [ ] Continuar C42 Browser book PDF/batch y demás remaining-parity; no cerrar filas agrupadas, paridad general o tarea 1095 por el jacket de una hoja.
+
+[Pruebas, fallos y límites C41](vvd1095/verification-cover-exports.md). El render DOCX retenido tiene una desviación de método QA; no se repite ni se declara nuevo render bundled conforme.
