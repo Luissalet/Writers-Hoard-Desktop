@@ -29,3 +29,11 @@ From the normal designer, Print cover uses the visible draft without Apply. Set 
 The existing wh_reader_cover_export query accepts printLayout={trimWidthMm,trimHeightMm,spineMm,bleedMm}, face:spread and format pdf/png/jpeg. dpi is optional and defaults to 300. It returns the whole dataURL with filename/MIME/pixels, dpi/metadataDpi, layoutMm and boxesPt. Canonical PNG/SVG without printLayout keeps its prior options. Physical SVG, pixelRatio mixed with physical layout, dpi without layout and PDF without layout are rejected. PNG/JPEG embed density in their own units; metadataDpi reports rounding.
 
 Print PDF is one raster RGB sheet: Media/Crop/Bleed cover the exterior, Trim is inset by outer bleed. The chosen PDF compatibility limit is 14400 pt per side at UserUnit=1; it is not a global PNG/JPEG/canvas quota. Export can fail if an image size is not representable/allocatable while preserving the design. No PDF/X, CMYK, ICC, searchable/vector text or arbitrary printer compliance is certified. Browser book PDF and batch remain separate C42 work. [Attributed source, QA method and current delivery state](../tasks/vvd1095/verification-cover-exports.md).
+
+## Book PDF and captured publishing batch — C42 continuation
+
+The earlier Browser-book-PDF/batch paragraph records the C41 boundary. Publishing profiles now add a searchable book PDF in Browser and can prepare six outputs from one captured manuscript/era, including a separate print-cover PDF. The book has text pages; the jacket remains one raster RGB physical sheet with its own trim/spine/bleed/resolution. They are distinct results, not two names for the same PDF.
+
+Use Prepare files in the normal publishing profile, then Download or the optional ready-files ZIP. Retry pending files uses the captured design/content; preparing again captures current data. Batch `print-cover` requires explicit DPI as part of printLayout, while the standalone C41 `wh_reader_cover_export` keeps its optional DPI/default 300 contract. [Usage, evidence and limits](../tasks/vvd1095/verification-publishing-batch.md). No PDF/X, CMYK or printer conformity is implied.
+
+The bounded C42 flow is delivered in Main with exact CAS54 approval and a fresh Main transport check. This does not extend the historical C41 jacket/reader/printer guarantees.

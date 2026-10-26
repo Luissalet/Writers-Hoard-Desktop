@@ -207,3 +207,11 @@ lectura exacta del manual actualizado).
 ## Estado del lote1095 de filas, vínculos, intensidad y concentración
 
 Los fallos de producto detectados en este lote (reserva de Undo tras abort, journal al salir del editor y gesto/menú de filas) están corregidos y verificados; sus FAIL históricos se conservan en [tasks/vvd1095/verification-rows-places-zones-focus.md](tasks/vvd1095/verification-rows-places-zones-focus.md). No requieren decisión de Luis. Los residuos implementables y observaciones aún desconocidas se trabajan en el [registro de paridad](tasks/vvd1095/remaining-parity.md), sin convertirlos en bloqueos del usuario ni declarar paridad completa. Se conserva el resto de este documento y su historia.
+
+## C42: fallos corregidos y límites de verificación
+
+Los defectos causales de fuente localizados en este frente están corregidos: imágenes DOCX entre builds concurrentes, unidades de fecha PDF, caracteres reservados/assets ausentes, recursos Worker tras postMessage fallido, bloques anchos/continuación de tabla/saltos/PRE, receta con espacios/integridad binaria y ownership de un ZIP antiguo. Sus RED y los mismos oráculos GREEN se conservan en [la verificación C42](tasks/vvd1095/verification-publishing-batch.md); no requieren una decisión de Luis.
+
+La descarga ZIP en disco de Brave y un diálogo de guardado de la fachada Native no quedaron probados. Son límites de evidencia, no fallos reproducidos ni preguntas al usuario. El contraste de bytes de referencia, los contratos más amplios y el estado de entrega se mantienen en sus registros correspondientes, sin convertir UNKNOWN en ausencia.
+
+La fuente C42 ya está aprobada exactamente en CAS54 e integrada en Main con comprobación focal propia; estos límites no son pendientes de implementación de PDF Browser o lote. El manual está actualizado y verificado. Documentos y continuidad mantienen sus recibos separados.

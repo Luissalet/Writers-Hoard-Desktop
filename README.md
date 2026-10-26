@@ -770,3 +770,11 @@ The cover designer separately exports a complete print jacket as a one-sheet PDF
 Open Scale of this map in the saved map's controls to set its physical width. Height and cell size follow the existing grid. Apply keeps terrain, places and authored positions; Cancel discards the draft, Reset returns to the recipe's scale and Undo restores the last compatible calibration.
 
 Distances, areas, journeys and physical comparison outlines use the new scale. An inherited era shares Base settings until it has its own map variant. This changes measurements, not the number of cells: independent rectangular creation, growing or cropping the world and anchor handles remain separate work. [Usage, API, evidence and limits](tasks/vvd1095/verification-world-scale.md).
+
+## Prepare several publishing files from one captured book
+
+Publishing profiles offer Markdown, HTML, EPUB, Word (DOCX), a searchable book PDF in Browser, and a separate print-cover PDF. Select the outputs and choose Prepare files; this keeps one captured manuscript/era, content and local assets while each writer runs. Preparation does not save the profile or start a download. Ready files have explicit Download actions and an optional ZIP.
+
+Retry pending files uses the same prepared copy, including after the live book changes. Preparing again captures current data. PDF and Word accept optional facing margins in mm and an initial page number; EPUB remains reflowable. The print-cover PDF uses its own trim, manual spine, bleed and resolution. [Usage, API, delivery state and attributed limits](tasks/vvd1095/verification-publishing-batch.md). This extends the earlier C41 checkpoint; overall web/SDK parity remains open.
+
+This bounded C42 workflow is delivered in Main after exact CAS54 approval; the linked verification separates final checks from the earlier C41 and pre-fix evidence.
