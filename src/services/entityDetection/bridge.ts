@@ -5,12 +5,20 @@ import { optString, requireString, resolveProjectForEngine, withAudit, type Tool
 import { actOnEntityCandidateDismissal, getEntityCandidateDismissals, createEntityCandidate, entityPreferences, newEntityCandidates, updateEntityDetectionPreferences, type EntityCandidateDismissalAction } from './service';
 import { candidateKey, validateEntityCandidateContext } from './dismissalTypes';
 import type { EntityDetectionPreferences, EntitySpan } from './types';
-function api() { const value = window.electronAPI?.entityDetection; if (!value) throw Error('entity_detection_desktop_required'); return value; }
+import { getEntityDetectionAPI as api } from './api';
+function jobOptions(args: ToolArgs) {
+  if (args.jobId !== undefined && (typeof args.jobId !== 'string' || !args.jobId.trim())) throw Error('entity_job_id_invalid');
+  return { jobId: optString(args, 'jobId') };
+}
 async function scopeFor(args: ToolArgs) { const scope = { projectId: await resolveProjectForEngine(args, 'codex'), eraId: optString(args, 'eraId') }; await assertWorldEra(scope); return scope; }
 function dismissalScope(args: ToolArgs) { return { projectId: requireString(args, 'projectId'), eraId: optString(args, 'eraId') }; }
 export const ENTITY_DETECTION_HANDLERS = {
   wh_entity_detection_status: () => api().status(),
-  wh_entity_detection_prepare: () => api().prepare(),
+  wh_entity_detection_prepare: (args: ToolArgs = {}) => api().prepare(jobOptions(args)),
+  async wh_entity_detection_cancel(args: ToolArgs) {
+    const port = api(), jobId = requireString(args, 'jobId');
+    return port.cancel ? port.cancel(jobId) : { supported: false, cancelled: false };
+  },
   async wh_entity_preferences(args: ToolArgs) { const scope = await scopeFor(args); return { projectId: scope.projectId, scope: 'shared-project', preferences: entityPreferences((await db.projects.get(scope.projectId))!) }; },
   async wh_entity_preferences_save(args: ToolArgs) {
     const scope = await scopeFor(args), patch: Partial<Omit<EntityDetectionPreferences, 'revision'>> = {};
@@ -19,7 +27,7 @@ export const ENTITY_DETECTION_HANDLERS = {
     return { projectId: scope.projectId, scope: 'shared-project', preferences: await updateEntityDetectionPreferences(scope.projectId, patch, args.expectedRevision as number) };
   },
   async wh_entity_detect(args: ToolArgs) {
-    const scope = await scopeFor(args), text = requireString(args, 'text'), spans = await api().detect(text);
+    const scope = await scopeFor(args), text = requireString(args, 'text'), spans = await api().detect(text, jobOptions(args));
     // Resolve current names after inference: a card created while the worker ran is already known.
     await assertWorldEra(scope);
     const entries = scope.eraId ? await listEraRows<CodexEntry>(scope, 'codexEntries') : await db.codexEntries.where('projectId').equals(scope.projectId).toArray();

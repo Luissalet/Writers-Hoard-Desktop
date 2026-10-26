@@ -1,3 +1,4 @@
+import { whTimelineViewGet, whTimelineViewFit } from '@/engines/timeline/viewportBridge';
 import {TIMELINE_BANNER_HANDLERS} from '@/engines/timeline/bannerBridge';
 import {WRITING_MANUSCRIPT_HANDLERS} from '@/engines/writings/manuscriptBridge';
 import { HOME_HANDLERS } from './projectHome';
@@ -412,6 +413,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   // Orientation
   wh_get_context: whGetContext,
   wh_workspace_tabs: whWorkspaceTabs,
+  wh_timeline_view_get: whTimelineViewGet,
+  wh_timeline_view_fit: whTimelineViewFit,
   wh_workspace_focus_get: whWorkspaceFocusGet,
   wh_workspace_focus_set: whWorkspaceFocusSet,
   wh_workspace_library_get: args=>readLibraryCreationContext({projectId:resolveProjectId(args),eraId:typeof args.eraId==='string'?args.eraId:undefined}),

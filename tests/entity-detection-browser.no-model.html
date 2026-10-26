@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/src/index.css"><title>Entity Browser port — isolated no-model verification</title></head><body class="bg-deep text-text-primary"><div id="root"></div><script>window.addEventListener('error', event => { window.__probeResult={ok:false,stage:window.__probeStage,error:event.error?.stack||event.message}; });</script><script type="module">
+import { testBrowserEntityEditorPreparationPort, testBrowserEntityBridgeReadinessPort } from '/tests/entity-detection-browser-port.browser.tsx';
+import { testBrowserEntityControlsPreparationOwnership } from '/tests/entity-detection-browser-controls.browser.tsx';
+import { getEntityDetectionAPI } from '/src/services/entityDetection/api.ts';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+window.__probeStage = 'module-loaded';
+const watchdog = setTimeout(() => { window.__probeResult={ok:false,stage:window.__probeStage,error:'Renderer no-model oracle deadline60s'}; },60000);
+try {
+  if (window.electronAPI) throw Error('No-model Browser probe unexpectedly has Electron API');
+  const result = [];
+  window.__probeStage = 'actual-editor-oracle';
+  result.push(...await testBrowserEntityEditorPreparationPort());
+  window.__probeStage = 'normal-handler-oracle';
+  result.push(...await testBrowserEntityBridgeReadinessPort());
+  window.__probeStage = 'controlled-preparation-ui';
+  result.push(...await testBrowserEntityControlsPreparationOwnership());
+  window.__probeStage = 'real-worker-missing-assets';
+  const port = getEntityDetectionAPI();
+  let failure;
+  try { await port.detect('Synthetic readiness probe. No prepared model exists.', { jobId: 'qa-no-model-missing-assets' }); }
+  catch (cause) { failure = String(cause); }
+  if (!failure?.includes('entity_model_assets_missing_or_damaged')) throw Error('Real worker did not stop before pipeline on missing assets: ' + failure);
+  result.push('Actual module worker rejects missing cached assets before pipeline creation; this is not provider execution or inference');
+  window.__probeStage = 'worker-close';
+  const cancelled = await port.cancel?.('qa-no-model-missing-assets');
+  if (cancelled?.cancelled) throw Error('Completed failed job remained pending');
+  // Exposed Browser port has close through the runtime; it is global here
+  // because this private page owns every job and is about to end.
+  await port.close?.();
+  const status = await port.status();
+  if (status.state !== 'missing') throw Error('Closed private Browser runtime did not retain missing-cache status');
+  window.__probeStage = 'complete';
+  window.__probeResult = { ok: true, attribution: 'HTTP Vite actual editor/handler/worker failure path only. No model assets, pipeline or inference.', result, status };
+} catch (cause) { window.__probeResult = { ok: false, stage: window.__probeStage, error: cause?.stack || String(cause) }; }
+finally { clearTimeout(watchdog); }
+</script></body></html>

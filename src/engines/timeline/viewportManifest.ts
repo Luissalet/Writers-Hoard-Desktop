@@ -1,0 +1,6 @@
+import { PROJECT_ID, s, type BridgeTool } from '@/services/aiBridge/schema';
+const scope = { projectId: PROJECT_ID, eraId: s('Exact named era; omit for Base only.') };
+export const TIMELINE_VIEWPORT_TOOLS: BridgeTool[] = [
+  { name: 'wh_timeline_view_get', writes: false, group: 'story', description: 'Read currently mounted, visible Timeline swim-lane hosts in this renderer and exact project/era, with ephemeral hostIds and viewport state. List/calendar or absent hosts return no targets. Never opens a view or saves dates.', schema: { type: 'object', properties: scope, required: ['projectId'], additionalProperties: false } },
+  { name: 'wh_timeline_view_fit', writes: true, group: 'story', description: 'Fit the existing canvas width of one real Timeline swim-lane host from wh_timeline_view_get. Uses the same Fit action as its UI without changing dates, range, precision, filters or drafts. Hidden, revoked or absent hosts return unavailable; nothing is queued. Reports logical state, not painting acknowledgment.', schema: { type: 'object', properties: { ...scope, hostId: s('Exact ephemeral hostId from wh_timeline_view_get.') }, required: ['projectId', 'hostId'], additionalProperties: false } },
+];

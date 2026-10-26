@@ -1,7 +1,9 @@
 import {useWorldEraScope} from '@/services/worldEras/hooks';
 import type {BannerCatalogContext,BannerIntent} from '../bannerStyles';
-import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import { ZoomIn, ZoomOut, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, ChevronRight, ArrowRightLeft, Globe, Copy } from 'lucide-react';
+import { useState, useRef, useMemo, useCallback, useEffect, useLayoutEffect, useId } from 'react';
+import { ZoomIn, ZoomOut, Minimize2, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, ChevronRight, ArrowRightLeft, Globe, Copy } from 'lucide-react';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
+import { registerTimelineViewport, timelineFitScale, type TimelineViewportState } from '../viewport';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Timeline, TimelineEvent, TimelineConnection, TimelineEventType, DateMode } from '@/types';
 import { generateId } from '@/utils/idGenerator';
@@ -161,6 +163,8 @@ function buildEventPositions(
     const slotMap = new Map<number, number>();
     sortedTimestamps.forEach((ts, i) => slotMap.set(ts, i));
     const totalSlots = sortedTimestamps.length;
+    // Configured range boundaries remain part of the axis even with no events.
+    maxX = Math.max(maxX, START_X + (totalSlots - 1) * EVENT_SPACING);
 
     timelines.forEach((tl) => {
       const laneEvents = getEventsForTimeline(events, tl.id);
@@ -424,6 +428,9 @@ export default function SwimLaneView({
   }), [t]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [viewportWidth, setViewportWidth] = useState(0), [viewportMode, setViewportMode] = useState<'manual' | 'fit'>('manual');
+  const zoomRef = useRef(zoom), modeRef = useRef(viewportMode); zoomRef.current = zoom; modeRef.current = viewportMode;
+  const pane = useEnginePane(), ownInstance = useId(), viewportVisible = pane?.visible ?? true;
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [connectingFromId, setConnectingFromId] = useState<string | null>(null);
   const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
@@ -501,6 +508,35 @@ export default function SwimLaneView({
 
   const svgWidth = Math.max(800, totalWidth + 80);
   const svgHeight = Math.max(300, TOP_PADDING + lanes.length * LANE_HEIGHT + 40);
+  const viewportState = (): TimelineViewportState => {
+    const container = containerRef.current, width = container?.clientWidth ?? 0;
+    const available = viewportVisible && !!container?.isConnected && timelineFitScale(width, svgWidth) !== undefined;
+    return { available, ...(!available ? { reason: 'not-visible' as const } : {}), mode: modeRef.current, zoom: zoomRef.current, viewportWidth: width, canvasWidth: svgWidth, canFit: available };
+  };
+  const fitViewport = (): TimelineViewportState => {
+    const state = viewportState(), scale = timelineFitScale(state.viewportWidth, svgWidth);
+    if (!state.available || scale === undefined) return state;
+    modeRef.current = 'fit'; zoomRef.current = scale; setViewportMode('fit'); setZoom(scale);
+    containerRef.current!.scrollLeft = 0;
+    return { ...state, mode: 'fit', zoom: scale };
+  };
+  const viewportActions = useRef({ get: viewportState, fit: fitViewport }); viewportActions.current = { get: viewportState, fit: fitViewport };
+  const viewportContextKey = JSON.stringify([projectId, bannerScope.eraId ?? null, pane?.instanceId ?? ownInstance]);
+  const viewportContext = useRef(viewportContextKey); viewportContext.current = viewportContextKey;
+  useLayoutEffect(() => {
+    let live = true;
+    const current = () => live && viewportContext.current === viewportContextKey;
+    const unavailable = (): TimelineViewportState => ({ available: false, reason: 'not-mounted', mode: 'manual', zoom: 1, viewportWidth: 0, canvasWidth: 0, canFit: false });
+    const dispose = registerTimelineViewport(bannerScope, pane?.instanceId ?? ownInstance, () => current() ? viewportActions.current.get() : unavailable(), () => current() ? viewportActions.current.fit() : unavailable());
+    return () => { live = false; dispose(); };
+  }, [projectId, bannerScope, pane?.instanceId, ownInstance, viewportContextKey]);
+  useEffect(() => {
+    const container = containerRef.current; if (!container) return;
+    const measure = () => setViewportWidth(container.clientWidth);
+    measure(); const observer = new ResizeObserver(measure); observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => { if (modeRef.current === 'fit') viewportActions.current.fit(); }, [svgWidth, viewportWidth, viewportVisible]);
   const world = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
   const dateError = (form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : world?.error ?? null)
     ?? validateEventClock({ ...form, ...world?.fields }, worldCalendar);
@@ -542,8 +578,13 @@ export default function SwimLaneView({
   }, [onAddConnection, onEditConnection]);
 
   // ── Zoom ──
-  const handleZoomIn = () => setZoom(z => Math.min(z + 0.15, 2.5));
-  const handleZoomOut = () => setZoom(z => Math.max(z - 0.15, 0.3));
+  const manualZoom = (delta: number) => {
+    const floor = Math.min(0.3, timelineFitScale(containerRef.current?.clientWidth ?? 0, svgWidth) ?? 0.3);
+    modeRef.current = 'manual'; setViewportMode('manual'); setZoom(z => Math.min(Math.max(z + delta, Math.min(z, floor)), 2.5));
+  };
+  const zoomAction = useRef(manualZoom); zoomAction.current = manualZoom;
+  const handleZoomIn = () => manualZoom(0.15);
+  const handleZoomOut = () => manualZoom(-0.15);
 
   // Mouse wheel zoom
   useEffect(() => {
@@ -552,7 +593,7 @@ export default function SwimLaneView({
     const handleWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      setZoom(z => Math.min(Math.max(z - event.deltaY * 0.002, 0.3), 2.5));
+      zoomAction.current(-event.deltaY * 0.002);
     };
     // React's delegated wheel listener is passive and cannot cancel browser zoom.
     container.addEventListener('wheel', handleWheel, { passive: false });
@@ -875,7 +916,7 @@ export default function SwimLaneView({
   return (
     <div className="space-y-3">
       {moveFailed && <p role="alert" className="text-sm text-danger">{t('timeline.settings.invalidMove')}</p>}
-      {timelines.filter(timeline => timeline.yearRange).map(timeline => <div key={timeline.id} className="text-xs text-text-muted flex flex-wrap gap-3 items-center" data-testid="timeline-range-note"><span>{timeline.title} · {t('timeline.settings.rangeNote').replace('{start}', String(timeline.yearRange!.start)).replace('{end}', String(timeline.yearRange!.end)).replace('{count}', String(storedEvents.filter(event => event.timelineId === timeline.id && !eventWithinYearRange(event, timeline.yearRange)).length))}</span><button type="button" className="text-accent-gold hover:underline" onClick={() => void saveTimelineSettings(projectId, timeline.id, { yearRange: undefined })}>{t('timeline.settings.allYears')}</button></div>)}
+      {timelines.filter(timeline => timeline.yearRange).map(timeline => <div key={timeline.id} className="text-xs text-text-muted flex flex-wrap gap-3 items-center" data-testid="timeline-range-note"><span>{timeline.title} · {t('timeline.settings.rangeNote').replace('{start}', String(timeline.yearRange!.start)).replace('{end}', String(timeline.yearRange!.end)).replace('{count}', String(storedEvents.filter(event => event.timelineId === timeline.id && !eventWithinYearRange(event, timeline.yearRange)).length))}</span><button type="button" className="text-accent-gold hover:underline" onClick={() => void saveTimelineSettings(projectId, timeline.id, { yearRange: undefined }, bannerScope.eraId)}>{t('timeline.settings.allYears')}</button></div>)}
       {timelines.some(timeline => timeline.worldCalendar) && <p className="text-xs text-text-muted">{t('timeline.settings.alignment')}</p>}
       {connecting && <p role="status" className="text-sm text-text-muted">{t('common.saving')}</p>}
       {failedConnection && (
@@ -888,7 +929,7 @@ export default function SwimLaneView({
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-lg font-serif font-bold text-accent-gold">{t('timeline.swimLaneView')}</h3>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {connectingFromId && (() => {
             const src = events.find(e => e.id === connectingFromId);
             return (
@@ -906,10 +947,11 @@ export default function SwimLaneView({
           <button onClick={handleZoomOut} className="p-2 border border-border rounded-lg hover:bg-elevated transition" title={t('timeline.zoomOut')}>
             <ZoomOut size={14} className="text-text-muted" />
           </button>
-          <span className="text-xs text-text-dim w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <span className="text-xs text-text-dim w-12 text-center">{new Intl.NumberFormat(locale, { maximumFractionDigits: zoom < 0.01 ? 2 : 0 }).format(zoom * 100)}%</span>
           <button onClick={handleZoomIn} className="p-2 border border-border rounded-lg hover:bg-elevated transition" title={t('timeline.zoomIn')}>
             <ZoomIn size={14} className="text-text-muted" />
           </button>
+          <button type="button" onClick={fitViewport} disabled={!viewportVisible || !timelineFitScale(viewportWidth, svgWidth)} aria-pressed={viewportMode === 'fit'} aria-label={t('timeline.fitView')} title={t('timeline.fitView')} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-text-muted transition hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40"><Minimize2 size={14} aria-hidden="true" />{t('timeline.fitView')}</button>
         </div>
       </div>
 

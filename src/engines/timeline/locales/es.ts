@@ -1,4 +1,5 @@
 export default {
+  'timeline.fitView': 'Ajustar línea temporal a la vista',
   'timeline.details.links': 'Fichas del Códex vinculadas',
   'timeline.details.searchCards': 'Buscar fichas para vincular',
   'timeline.details.noCards': 'No hay fichas coincidentes.',
