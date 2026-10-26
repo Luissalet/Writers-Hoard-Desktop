@@ -29,7 +29,7 @@ export async function testParityQueuedTableUndo(): Promise<string[]> {
     } as Project);
     useLocaleStore.setState({ locale: 'en' });
     await act(async () => { root.render(<MemoryRouter><TablesEngine projectId={projectId}/></MemoryRouter>); });
-    await until(() => !!host.querySelector<HTMLButtonElement>('button[draggable]:not(:disabled)'), 'Normal row editor never became ready');
+    await until(() => !!host.querySelector<HTMLButtonElement>('button[data-table-row-handle]:not(:disabled)'), 'Normal row editor never became ready');
     // A different pending database write queues the user's insert. No product
     // function or receipt implementation is replaced by this fixture.
     let acquired!: () => void;
