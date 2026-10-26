@@ -73,6 +73,8 @@ export interface PublishingCover {
 }
 
 export interface PublishingDocument {
+  marginsMm?: { top: number; bottom: number; inside: number; outside: number };
+  initialPageNumber?: number;
   cover?: PublishingCover;
   identifier: string;
   title: string;
@@ -116,6 +118,8 @@ export interface PublishingDocument {
 }
 
 export interface PublishingDocumentOptions {
+  marginsMm?: PublishingDocument['marginsMm'];
+  initialPageNumber?: number;
   cover?: PublishingCover;
   identifier?: string;
   projectTitle: string;
@@ -285,6 +289,8 @@ export function composePublishingDocument(
     };
   });
   return {
+    ...(options.marginsMm ? { marginsMm: { ...options.marginsMm } } : {}),
+    ...(options.initialPageNumber !== undefined ? { initialPageNumber: options.initialPageNumber } : {}),
     ...(options.cover ? { cover: Object.freeze({ ...options.cover, alt: xmlSafeText(options.cover.alt) }) } : {}),
     identifier: options.identifier ?? `urn:writers-hoard:${encodeURIComponent(options.projectTitle)}`,
     title: xmlSafeText(options.projectTitle),

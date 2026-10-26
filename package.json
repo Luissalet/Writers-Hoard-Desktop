@@ -9,7 +9,9 @@
   "scripts": {
     "postinstall": "node scripts/build-model-reader-runtime.mjs",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run publishing:wasm:check && tsc -b && vite build",
+    "publishing:wasm:build": "node scripts/build-publishing-wasm.mjs",
+    "publishing:wasm:check": "node scripts/check-publishing-wasm.mjs",
     "typecheck:renderer": "tsc -b --noEmit",
     "typecheck:electron": "tsc -p electron/tsconfig.json",
     "lint": "npm run lint:shipping",

@@ -425,7 +425,7 @@ pub fn compose(doc: &Document, story: &Story, frames: &[FrameSpec], opts: &Compo
     let mut missing_fonts: HashMap<String, bool> = HashMap::new();
     out.frames = frames.iter().map(|f| FrameText { frame: f.id, vertical: f.opts.vertical, columns: f.columns(), ..Default::default() }).collect();
     let cols: Vec<Vec<Rect>> = frames.iter().map(FrameSpec::columns).collect();
-    let mut cur = Cursor { fi: 0, col: 0, last_baseline: None, last_descent: 0.0, pending: 0.0 };
+    let mut cur = Cursor { fi: 0, col: 0, last_baseline: None, last_descent: 0.0, pending: 0.0, span_floors: cols.iter().map(|c|vec![None;c.len()]).collect() };
     let para_ranges = story.para_ranges();
     let np = para_ranges.len();
     let hyph_exceptions = doc.hyphenation_exception_map();
@@ -469,6 +469,8 @@ pub fn compose(doc: &Document, story: &Story, frames: &[FrameSpec], opts: &Compo
         info.truncate(pi);
         let pf = &story.paras[pi];
         let (pp, base_chars) = doc.styles.resolve_para(pf);
+        // A spanning paragraph must not cover content already placed in a left column.
+        if wide_span(&pp,&cur,&cols) && cur.col>0 {cur.next_frame();}
         if let Some(t) = story.para_table(pi) {
             if cur.last_baseline.is_some() {
                 match pp.start_paragraph {
@@ -673,6 +675,7 @@ pub fn compose(doc: &Document, story: &Story, frames: &[FrameSpec], opts: &Compo
         let has_tabs = glyphs.iter().any(|g| g.ch == '\t');
         let mut first_line_rect: Option<(usize, f64, f64, f64)> = None; // frame, baseline, ascent, x-span
         loop {
+            if wide_span(&pp,&cur,&cols) && cur.col>0 {cur.next_frame();}
             if cur.fi >= frames.len() {
                 out.overset_at = Some(glyphs.get(g0).map(|g| g.byte).unwrap_or(prange.start));
                 // The part of the paragraph that fits keeps its shading and border.
@@ -785,7 +788,7 @@ pub fn compose(doc: &Document, story: &Story, frames: &[FrameSpec], opts: &Compo
                     }
                     // Next column / frame; re-break the rest of the paragraph there.
                     g0 = s;
-                    cur.next_column(&cols);
+                    if wide_span(&pp,&cur,&cols){cur.next_frame();}else{cur.next_column(&cols);}
                     col_first_line = line_no;
                     moved = true;
                     break;
@@ -840,6 +843,11 @@ pub fn compose(doc: &Document, story: &Story, frames: &[FrameSpec], opts: &Compo
                 cur.last_baseline = Some(baseline);
                 cur.last_descent = desc;
                 cur.pending = 0.0;
+                if let SpanColumns::Span(n)=pp.span_columns && wide_span(&pp,&cur,&cols) {
+                    let count=if n==0{cols[cur.fi].len()}else{(n as usize).min(cols[cur.fi].len())};
+                    let floor=baseline+desc+pp.space_after;
+                    for target in cur.span_floors[cur.fi].iter_mut().take(count){*target=Some(target.unwrap_or(floor).max(floor));}
+                }
                 line_no += 1;
                 // Column / frame / page break characters.
                 if b.forced && e < glyphs.len() + 1 {
@@ -1270,6 +1278,8 @@ struct Cursor {
     last_descent: f64,
     /// Space before/after waiting to be added to the next line.
     pending: f64,
+    /// Bottom of spanning paragraphs in each column. Cursor snapshots own this state too.
+    span_floors: Vec<Vec<Option<f64>>>,
 }
 
 impl Cursor {
@@ -1279,13 +1289,15 @@ impl Cursor {
             self.col = 0;
             self.fi += 1;
         }
-        self.last_baseline = None;
+        self.last_baseline = self.span_floors.get(self.fi).and_then(|v|v.get(self.col)).copied().flatten();
+        self.last_descent = 0.0;
         self.pending = 0.0;
     }
     fn next_frame(&mut self) {
         self.fi += 1;
         self.col = 0;
         self.last_baseline = None;
+        self.last_descent = 0.0;
         self.pending = 0.0;
     }
     /// Baseline for the next line with leading `lead` and ascent `asc`.
@@ -1304,6 +1316,10 @@ impl Cursor {
             }
         }
     }
+}
+
+fn wide_span(pp:&ParaProps,cur:&Cursor,cols:&[Vec<Rect>])->bool {
+    matches!(pp.span_columns,SpanColumns::Span(n) if n!=1) && cols.get(cur.fi).is_some_and(|c|c.len()>1)
 }
 
 fn line_metrics(

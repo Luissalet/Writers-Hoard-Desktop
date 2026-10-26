@@ -1,4 +1,4 @@
-import type { Paragraph, ParagraphChild, Table, TableOfContents } from 'docx';
+import type { ISectionOptions, Paragraph, ParagraphChild, Table, TableOfContents } from 'docx';
 import { FOOTNOTE_REF_SELECTOR, FOOTNOTE_TEXT_ATTR } from '@/components/editor/footnotes/footnoteModel';
 import type { PublishingDocument } from './publishingDocument';
 import { PAPER_COLORS, TITLE_ORNAMENT_TEXT, TRIM_SIZES, type BookStyle } from './bookStyle';
@@ -30,6 +30,7 @@ interface BlockContext {
   quoted: boolean;
   /** Which kind of Word note a reference becomes. */
   notes: Notes;
+  images: WordImages;
   /** The book style, when the profile sets one: the gap after each paragraph. */
   book?: BookStyle;
   /** The book's language, for the labels of boxed text. */
@@ -95,10 +96,10 @@ function numberFootnotes(root: ParentNode, docx: DocxModule, notes: NoteBodies):
 }
 
 /** The manuscript's own pictures decoded for this build (src → Word image), when the profile keeps them. */
-let wordImages: Map<string, { type: 'png' | 'jpg' | 'gif'; data: Uint8Array; width: number; height: number }> | null = null;
+type WordImages = Map<string, { type: 'png' | 'jpg' | 'gif'; data: Uint8Array; width: number; height: number }>;
 
-function imageRunFor(element: Element, docx: DocxModule): ParagraphChild | null {
-  const image = wordImages?.get(element.getAttribute('src') ?? '');
+function imageRunFor(element: Element, docx: DocxModule, images: WordImages): ParagraphChild | null {
+  const image = images.get(element.getAttribute('src') ?? '');
   if (!image) return null;
   const percent = Number(element.getAttribute('data-wh-width'));
   const target = element.getAttribute('data-wh-width') === 'page' ? 520 : [25, 50, 75, 100].includes(percent) ? 520 * percent / 100 : Math.min(520, image.width);
@@ -110,6 +111,7 @@ function inlineChildren(
   nodes: Iterable<Node>,
   docx: DocxModule,
   notes: Notes,
+  images: WordImages,
   style: InlineStyle = {},
 ): ParagraphChild[] {
   const children: ParagraphChild[] = [];
@@ -148,7 +150,7 @@ function inlineChildren(
       children.push(new docx.TextRun({ break: 1 }));
       continue;
     }
-    if (tag === 'img') { const run = imageRunFor(node, docx); if (run) children.push(run); continue; }
+    if (tag === 'img') { const run = imageRunFor(node, docx, images); if (run) children.push(run); continue; }
     if (tag === 'ul' || tag === 'ol') continue;
     if (tag === 'sup' && node.hasAttribute(FOOTNOTE_NUMBER_ATTR)) {
       const id = Number(node.getAttribute(FOOTNOTE_NUMBER_ATTR));
@@ -165,7 +167,7 @@ function inlineChildren(
       monospace: style.monospace || tag === 'code',
       smallCaps:formattingFromElement(node).smallCaps??style.smallCaps,
     };
-    children.push(...inlineChildren(node.childNodes, docx, notes, nextStyle));
+    children.push(...inlineChildren(node.childNodes, docx, notes, images, nextStyle));
   }
   return children;
 }
@@ -192,7 +194,7 @@ function blocksFromChildren(
     if (child instanceof Element && BLOCK_TAGS.has(child.tagName.toLowerCase())) {
       blocks.push(...paragraphsFromElement(child, docx, context));
     } else if (child.nodeType === 3 && child.textContent?.trim()) {
-      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx, context.notes) }));
+      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx, context.notes, context.images) }));
     }
   }
   return blocks;
@@ -206,14 +208,14 @@ function blocksFromChildren(
  * Nested lists are skipped here (`inlineChildren` drops them) and follow as
  * paragraphs of their own.
  */
-function listItemChildren(item: Element, docx: DocxModule, notes: Notes): ParagraphChild[] {
+function listItemChildren(item: Element, docx: DocxModule, notes: Notes, images: WordImages): ParagraphChild[] {
   const children: ParagraphChild[] = [];
   let afterBlock = false;
   for (const node of item.childNodes) {
     // Source indentation between two blocks is layout, not a space in the text.
     if (node.nodeType === 3 && !node.textContent?.trim() && (afterBlock || children.length === 0)) continue;
     const block = node instanceof Element && BLOCK_TAGS.has(node.tagName.toLowerCase());
-    const runs = inlineChildren([node], docx, notes);
+    const runs = inlineChildren([node], docx, notes, images);
     if (runs.length === 0) continue;
     if ((block || afterBlock) && children.length > 0) children.push(new docx.TextRun({ break: 1 }));
     children.push(...runs);
@@ -244,7 +246,7 @@ function listBlocks(
   const blocks: BlockChild[] = [];
   const items = [...element.children].filter(child => child.tagName.toLowerCase() === 'li');
   for (const item of items) {
-    const children = listItemChildren(item, docx, context.notes);
+    const children = listItemChildren(item, docx, context.notes, context.images);
     if (children.length > 0) {
       blocks.push(new docx.Paragraph({
         children,
@@ -287,7 +289,7 @@ function cellBlocks(cell: Element, docx: DocxModule, context: BlockContext): Blo
   }
   // A cell may never be empty in OOXML: an empty paragraph is the empty cell.
   return [new docx.Paragraph({
-    children: inlineChildren(cell.childNodes, docx, context.notes, { bold: header }),
+    children: inlineChildren(cell.childNodes, docx, context.notes, context.images, { bold: header }),
   })];
 }
 
@@ -333,7 +335,7 @@ function paragraphsFromElement(
 ): BlockChild[] {
   const tag = element.tagName.toLowerCase();
   if (tag === 'ul' || tag === 'ol') return listBlocks(element, docx, context);
-  if (tag === 'img') { const run = imageRunFor(element, docx); return run ? [new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, spacing: { after: 160 }, children: [run] })] : []; }
+  if (tag === 'img') { const run = imageRunFor(element, docx, context.images); return run ? [new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, spacing: { after: 160 }, children: [run] })] : []; }
   if (tag === 'table') return tableBlocks(element, docx, context);
   // A column break: in a two-column book the next text starts the next column.
   if (tag === 'div' && element.hasAttribute('data-wh-column-break')) return context.book?.columns === 2 ? [new docx.Paragraph({ children: [new docx.ColumnBreak()] })] : [];
@@ -351,7 +353,7 @@ function paragraphsFromElement(
       rows: [new docx.TableRow({ cantSplit: true, children: [new docx.TableCell({
         shading: { fill: kind.fill, type: docx.ShadingType.CLEAR, color: 'auto' },
         margins: { top: 100, bottom: 100, left: 160, right: 160 },
-        children: [...(label ? [new docx.Paragraph({ children: [new docx.TextRun({ text: label, bold: true, size: 18, color: kind.border })], spacing: { after: 80 } })] : []), ...(inner.length ? inner : [new docx.Paragraph({ children: inlineChildren(element.childNodes, docx, context.notes) })])],
+        children: [...(label ? [new docx.Paragraph({ children: [new docx.TextRun({ text: label, bold: true, size: 18, color: kind.border })], spacing: { after: 80 } })] : []), ...(inner.length ? inner : [new docx.Paragraph({ children: inlineChildren(element.childNodes, docx, context.notes, context.images) })])],
       })] })],
     }), new docx.Paragraph({ spacing: { after: 120 }, children: [] })];
   }
@@ -365,7 +367,7 @@ function paragraphsFromElement(
   }
   if (/^h[1-6]$/.test(tag)) {
     return [new docx.Paragraph({
-      children: inlineChildren(element.childNodes, docx, context.notes),
+      children: inlineChildren(element.childNodes, docx, context.notes, context.images),
       heading: headingFor(tag, docx),
       spacing: { before: 200, after: 100 },
     })];
@@ -375,7 +377,7 @@ function paragraphsFromElement(
       return blocksFromChildren(element, docx, { ...context, quoted: true });
     }
     return [new docx.Paragraph({
-      children: inlineChildren(element.childNodes, docx, context.notes, { italics: true }),
+      children: inlineChildren(element.childNodes, docx, context.notes, context.images, { italics: true }),
       indent: { left: 720, right: 720 },
       spacing: { after: 120 },
     })];
@@ -392,7 +394,7 @@ function paragraphsFromElement(
         initials.push(new docx.Paragraph({children:[new docx.TextRun({text:initial,size:72})],keepNext:true,frame:{type:'alignment',alignment:{x:docx.HorizontalPositionAlign.LEFT,y:docx.VerticalPositionAlign.TOP},dropCap:docx.DropCapType.DROP,lines:3,width:0,height:0,anchor:{horizontal:docx.FrameAnchorType.TEXT,vertical:docx.FrameAnchorType.TEXT},wrap:docx.FrameWrap.AROUND,space:{horizontal:120,vertical:0}}}));
       }
     }
-    const children = inlineChildren(source.childNodes, docx, context.notes, {
+    const children = inlineChildren(source.childNodes, docx, context.notes, context.images, {
       italics: context.quoted,
       monospace: tag === 'pre',
       preformatted: tag === 'pre',
@@ -413,7 +415,7 @@ function paragraphsFromElement(
 
   const blocks = blocksFromChildren(element, docx, context);
   if (blocks.length === 0) {
-    const children = inlineChildren(element.childNodes, docx, context.notes);
+    const children = inlineChildren(element.childNodes, docx, context.notes, context.images);
     if (children.length > 0) blocks.push(new docx.Paragraph({ children }));
   }
   return blocks;
@@ -424,18 +426,19 @@ function paragraphsFromHtml(
   docx: DocxModule,
   nextInstance: { value: number },
   notes: Notes,
+  images: WordImages,
   book?: BookStyle,
   locale?: string,
 ): BlockChild[] {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
   numberFootnotes(parsed.body, docx, notes.bodies);
-  const context: BlockContext = { listLevel: 0, listInstance: 0, nextInstance, quoted: false, notes, book, locale };
+  const context: BlockContext = { listLevel: 0, listInstance: 0, nextInstance, quoted: false, notes, images, book, locale };
   const blocks: BlockChild[] = [];
   for (const child of parsed.body.childNodes) {
     if (child instanceof Element) {
       blocks.push(...paragraphsFromElement(child, docx, context));
     } else if (child.nodeType === 3 && child.textContent?.trim()) {
-      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx, context.notes) }));
+      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx, context.notes, context.images) }));
     }
   }
   return blocks;
@@ -535,7 +538,7 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
     );
   }
   // The manuscript's own pictures Word can hold, decoded once for the whole book.
-  wordImages = new Map();
+  const wordImages: WordImages = new Map();
   for (const section of document.sections) {
     if (!section.portableHtml.includes('<img')) continue;
     for (const image of new DOMParser().parseFromString(section.portableHtml, 'text/html').querySelectorAll('img')) {
@@ -583,7 +586,7 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
         spacing: { after: 240 },
       }));
     }
-    children.push(...paragraphsFromHtml(section.portableHtml, docx, listInstances, notes, document.bookStyle, document.locale));
+    children.push(...paragraphsFromHtml(section.portableHtml, docx, listInstances, notes, wordImages, document.bookStyle, document.locale));
   });
   if (document.blurb) {
     children.push(new docx.Paragraph({ text: document.blurb.title, heading: docx.HeadingLevel.HEADING_1, pageBreakBefore: true }));
@@ -617,16 +620,36 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
     // A book style sets the page: its trim (millimetres to twips) and paper.
     ...(document.bookStyle && document.bookStyle.paper !== 'white' && document.bookStyle.paper !== 'night' ? { background: { color: PAPER_COLORS[document.bookStyle.paper].background.slice(1) } } : {}),
     sections: (() => {
-      const page = document.bookStyle ? (() => {
-        const trim = TRIM_SIZES[document.bookStyle.trim], twips = (mm: number) => Math.round(mm * 1440 / 25.4), margin = twips(trim.margin);
-        return { size: { width: twips(trim.width), height: twips(trim.height) }, margin: { top: margin, right: margin, bottom: margin, left: margin } };
-      })() : { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } };
-      if (document.bookStyle?.columns !== 2) return [{ properties: { page }, children }];
-      // Two columns for the chapters; the title page, copyright and contents stay in one.
-      const body = { properties: { page, type: docx.SectionType.CONTINUOUS, column: { count: 2, space: 400, equalWidth: true } }, children: children.slice(frontMatter) };
-      return frontMatter > 0 ? [{ properties: { page }, children: children.slice(0, frontMatter) }, body] : [{ ...body, properties: { ...body.properties, type: undefined } }];
+      const twips = (mm: number) => Math.round(mm * 1440 / 25.4);
+      const trim = document.bookStyle ? TRIM_SIZES[document.bookStyle.trim] : undefined;
+      const legacyMargin = trim ? twips(trim.margin) : 1440;
+      const margins = document.marginsMm;
+      const page = {
+        ...(trim ? { size: { width: twips(trim.width), height: twips(trim.height) } } : {}),
+        margin: margins
+          ? { top: twips(margins.top), right: twips(margins.outside), bottom: twips(margins.bottom), left: twips(margins.inside) }
+          : { top: legacyMargin, right: legacyMargin, bottom: legacyMargin, left: legacyMargin },
+      };
+      const numbered = document.initialPageNumber !== undefined;
+      const columns = document.bookStyle?.columns === 2;
+      if (!columns && !numbered) return [{ properties: { page }, children }];
+      // Front matter keeps its own section without a footer. Its page breaks
+      // already start the body, so the section boundary remains continuous.
+      const body: ISectionOptions = {
+        properties: {
+          page: { ...page, ...(numbered ? { pageNumbers: { start: document.initialPageNumber } } : {}) },
+          ...(frontMatter > 0 ? { type: docx.SectionType.CONTINUOUS } : {}),
+          ...(columns ? { column: { count: 2, space: 400, equalWidth: true } } : {}),
+        },
+        ...(numbered ? { footers: { default: new docx.Footer({ children: [new docx.Paragraph({ alignment: docx.AlignmentType.CENTER, children: [new docx.TextRun({ children: [docx.PageNumber.CURRENT] })] })] }) } } : {}),
+        children: children.slice(frontMatter),
+      };
+      return frontMatter > 0 ? [{ properties: { page }, children: children.slice(0, frontMatter) }, body] : [body];
     })(),
   });
-  wordImages = null;
+  // Word interprets left/right as inside/outside on facing pages only with
+  // mirrorMargins. The library exposes settings as public XML components.
+  if (document.marginsMm) file.Settings.addChildElement(new docx.EmptyElement('w:mirrorMargins'));
   return docx.Packer.toBlob(file);
 }
+

@@ -269,7 +269,8 @@ pub(crate) fn place_table(
             return false;
         }
         col = col_rect(cur);
-        y = col.y0;
+        // A preceding spanning paragraph/graphic reserves the top of this column.
+        y = cur.last_baseline.unwrap_or(col.y0);
         top = y;
         frag_rows.clear();
         body_placed = 0;

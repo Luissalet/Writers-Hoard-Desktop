@@ -1,0 +1,28 @@
+[package]
+name = "writer-publishing-pdf-wasm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gutenberg-doc = { path = "../native/crates/doc" }
+gutenberg-compose = { path = "../native/crates/compose" }
+gutenberg-fonts = { path = "../native/crates/fonts" }
+gutenberg-images = { path = "../native/crates/images" }
+gutenberg-pdf = { path = "../native/crates/pdf" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+wasm-bindgen = "=0.2.129"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+panic = "abort"

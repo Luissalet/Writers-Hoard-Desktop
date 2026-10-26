@@ -1,0 +1,1493 @@
+{
+  "schema": 1,
+  "toolchain": "1.92.0",
+  "target": "wasm32-unknown-unknown",
+  "wasmBindgen": "0.2.129",
+  "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "cargo": "cargo 1.92.0 (344c4567c 2025-10-21)",
+  "flags": [
+    "checkout=/writer",
+    "cargo-home=/cargo",
+    "target=/build"
+  ],
+  "inputs": [
+    {
+      "path": "publishing/editorial/native/Cargo.lock",
+      "bytes": 143213,
+      "sha256": "bde696f37bf8c4424c3153c718b51af1d7aea50ab188cd42a8ea297f7167995f",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/Cargo.toml",
+      "bytes": 2731,
+      "sha256": "0cac07c7feab3673196e46eaad0d19d63e96c33cb5d5f8cb0277f397607740ec",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/LICENSE-APACHE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/LICENSE-MIT",
+      "bytes": 1103,
+      "sha256": "d543d31e3120c64b70abc77cfadcbdc2249c78de1c8efa2e3d62540bb79de816",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/NOTICE",
+      "bytes": 1730,
+      "sha256": "3f3e8c283260333a87841444cd2288b4d0138c9fdb43ad6f73a296ebf08075f4",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/Inter-Medium.ttf",
+      "bytes": 417300,
+      "sha256": "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/Inter-Regular.ttf",
+      "bytes": 411640,
+      "sha256": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/Inter-SemiBold.ttf",
+      "bytes": 419744,
+      "sha256": "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/JetBrainsMono-Regular.ttf",
+      "bytes": 270224,
+      "sha256": "e6fd0d7e91550b3ed2b735d4312474362c4716edc4fc0577a0f61ed782d5aed1"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/OFL-Inter.txt",
+      "bytes": 4380,
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/OFL-JetBrainsMono.txt",
+      "bytes": 4399,
+      "sha256": "a76abf002c49097d146e86740a3105a5d00450b1592e820a1109a8c5680cd697",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/OFL-ShipporiMincho.txt",
+      "bytes": 4399,
+      "sha256": "41fba056279be5f45ff9a99e44b7b53897b42732f5806d8e666e0ab49ac6bd38",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/OFL-SourceSans3.txt",
+      "bytes": 4486,
+      "sha256": "56af9b9c6715597e458284a474dc118a50a4150e9d547c70f7b4a33c3e6a9328",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/OFL-SourceSerif4.txt",
+      "bytes": 4491,
+      "sha256": "c21d7293d87b6d7ab1d0229a2f55b77f33a7613a6a4e66f6693d68d7d8d09464",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/ShipporiMincho-Regular.ttf",
+      "bytes": 8677284,
+      "sha256": "769b5269f0f9bc6534b352c0e6bd856a566e03ff788f107191c2d835863570b2"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSans3-Bold.ttf",
+      "bytes": 428176,
+      "sha256": "9214b9d95e4231c609802815c2646c98174e2102d0d37f88978a7f8e71006e6a"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSans3-It.ttf",
+      "bytes": 315812,
+      "sha256": "192afd78f0f54a3c69eaf02d43f4d9a821e9d6110e41d3d25d61a7385cd580e4"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSans3-Regular.ttf",
+      "bytes": 431196,
+      "sha256": "4644c81b86ec9caaa76b634889968ed3c4f4f52f054855933acc7c2b21e53b0f"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSans3-Semibold.ttf",
+      "bytes": 425904,
+      "sha256": "a3f4f8dcf343a8f24dc61951de93f3ba1558b15cd250ba24af8a40e957081b7d"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSerif4-Bold.ttf",
+      "bytes": 271568,
+      "sha256": "7cf4f4e1ad74f45058d5bc61716b82560442fbdcd9d3654d2dea96bf6c683d86"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSerif4-BoldIt.ttf",
+      "bytes": 191832,
+      "sha256": "7b215b37f8873f5579f3f8d2ded3ca7c588e2f435cd996605ebfc5befe2cd5eb"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSerif4-It.ttf",
+      "bytes": 187808,
+      "sha256": "9d2950a8f1da66e21502c35d646a1d2148e79f9ea43fd2158cf02f5232e7f430"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSerif4-Regular.ttf",
+      "bytes": 261868,
+      "sha256": "e5a4ee6a3d87bb9024796be390c6771e2a0eb1883dae25effaf57ca01668e24b"
+    },
+    {
+      "path": "publishing/editorial/native/assets/fonts/SourceSerif4-Semibold.ttf",
+      "bytes": 272088,
+      "sha256": "36db62940cb5728b12b1802476dc7fcf4c6c519a7bdd476ba23a4e555fc4655f"
+    },
+    {
+      "path": "publishing/editorial/native/assets/hyphenation/en-us.dic",
+      "bytes": 432905,
+      "sha256": "66ce9023847dd2cfc5c6ad14b83aaab94e58607fe95258f4f3ac431a23df63f1"
+    },
+    {
+      "path": "publishing/editorial/native/assets/hyphenation/en-us.pat",
+      "bytes": 129481,
+      "sha256": "0ad447633731c6c9faaf02ac1b327934eaac8aab23f658624d6c67ffe44b88b8"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/Cargo.toml",
+      "bytes": 376,
+      "sha256": "8e82421a259ca011821db5bd8a06dde52f427b5ec6f30224903bd5d69db4911d",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/ase.rs",
+      "bytes": 7078,
+      "sha256": "1da37e0908d5e3b43d8790e3969f84d25fa5520cf83498ffdc7334a06113a577",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/blend.rs",
+      "bytes": 3250,
+      "sha256": "4f319778384a0746cea7540dd7524b902a151a5e4d21a8ca72c15c162c1efaa3",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/cms/generic.rs",
+      "bytes": 19019,
+      "sha256": "21af0481e9b1e3547edc792cf532ae7c48bf4bec503cbe11f198800cdcbf24a9",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/cms/icc.rs",
+      "bytes": 5408,
+      "sha256": "cdbf705c55883c0ed3d3b850ad9000a1b42d01285f86d274e1bc387e127abcd3",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/cms/icc_out.rs",
+      "bytes": 5118,
+      "sha256": "17b350081626dd36648ff43ebc05638a50d813412e961962e26939f37f340eda",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/cms/lab.rs",
+      "bytes": 7044,
+      "sha256": "c6bda6aab2335dd8672b71f37849ef0362e4eef22734dc295cfc35ac9bfc0df6",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/cms/mod.rs",
+      "bytes": 24303,
+      "sha256": "36f62607dbb79c8e0170446860510ef0ac74e0a7e35c920b176666b3018f77cb",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/cms/tests.rs",
+      "bytes": 8817,
+      "sha256": "b5d0e7f327578f3f073f56274b681235f4019c9e277a8aeeeb9a4e26c81de93d",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/gradient.rs",
+      "bytes": 7336,
+      "sha256": "6e17032514395a4f8f83d20f77d3cde4afe327bae0eed4c3ce56c1761ac0c063",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/harmony.rs",
+      "bytes": 2921,
+      "sha256": "8e538a49a1a13b66ea8c524b13823a75a6684f44cffaebcd460c933b5a046cc6",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/lib.rs",
+      "bytes": 10492,
+      "sha256": "0d6ec755403e326f58a96468eab0687d762a3b65b99111960c605407ba63473c",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/color/src/swatch.rs",
+      "bytes": 7210,
+      "sha256": "3cae78cc3550bd194d01acd90175c5c4f47a21d25a7fa4a112a60cb33dc26d63",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/Cargo.toml",
+      "bytes": 604,
+      "sha256": "54c6e5c08165c8f9f3c706b7ccd517c3e101518df0bb03ebf178c71d16d11b44",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/breaker.rs",
+      "bytes": 28096,
+      "sha256": "ddebcb1933616fb9c1652b4a07d93f53faec6d7185d476ccc677c33830e874a1",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/cache.rs",
+      "bytes": 11481,
+      "sha256": "b59473dbf13fb3a59b7fb8bb2301432052540be075f36f4304f33e70d47cce20",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/hyphen/dict.rs",
+      "bytes": 5535,
+      "sha256": "be74239852b73b24c570023c21e19bc13e92398459082d1a86051bd4aa43433a",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/hyphen/mod.rs",
+      "bytes": 11561,
+      "sha256": "f82cc6f83c20c3866a83ef04f7b5f46766465fa9bc86fe7b9cb89770c33a3e22",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/hyphen/patgen.rs",
+      "bytes": 8544,
+      "sha256": "65b3447eae497512daff535d953914af3616c6eca173821c77dd7d8451421893",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/hyphen/patterns.rs",
+      "bytes": 8005,
+      "sha256": "1ea5756e59cef7f4b48f4f312a8a8797eac6d67fc400f131709017e83594fbe4",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/lib.rs",
+      "bytes": 92732,
+      "sha256": "be991b0eb06dd66dbc447b4be82cd18d80bead7ae4c19eed79e5f5519f852f5b",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/notes.rs",
+      "bytes": 9343,
+      "sha256": "c7556354123f9259dbd0feff8892c899629e1fd7361a21efa6985e9c2cf3d312",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/overlay.rs",
+      "bytes": 4181,
+      "sha256": "5f84aca13dbb75569adc9b8aab0fb7db049fa0caeeb75a906111fe308bfbf5d8",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/ruby.rs",
+      "bytes": 4344,
+      "sha256": "e48737cfb04fa3e3e6d905d5feee9eed251ef268ddba29b90c736d386b614a86",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/shape.rs",
+      "bytes": 27284,
+      "sha256": "26a8fee44dc7cf5e152bd42ea46efd2bba33ac68ac6dc3a57a37e8c2603fa09d",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/table.rs",
+      "bytes": 17688,
+      "sha256": "6f249dbb39e9c7c7dabe37e73626b48eb75d3d9aff99f7d787cbf44bb2effb39",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/tests.rs",
+      "bytes": 62017,
+      "sha256": "e0cc8f296fe7efb4625f0f0384b3968d6e964f6786c95c7e028bde12b45819cd",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/vars.rs",
+      "bytes": 6360,
+      "sha256": "b74551df40b1e96dc8b71b10b7c2b84d52a08359346c2633928d9e4a671fb29c",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/compose/src/xref.rs",
+      "bytes": 2902,
+      "sha256": "aab48bcd8f230ff0c73fd301bf226be8140297b357d58f0a1fde7252db724f4b",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/Cargo.toml",
+      "bytes": 484,
+      "sha256": "865d6f9966dcd734fbdc3ae519533f30b5dd86f7d57acce79af5f715d0ee36e7",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/anchored.rs",
+      "bytes": 4507,
+      "sha256": "70a3ffd1587cb6ccb16a02d3b49dd44152def1e97051a2bff460185e931815dd",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/arrow.rs",
+      "bytes": 7581,
+      "sha256": "cdb96d50066bc0659c909fb16b8b96ef8d0fd5b0e6f182e07de841ce37871976",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/attrs.rs",
+      "bytes": 24918,
+      "sha256": "7b2bb3939f9cc9b35ef5d185852b5b832934a84ae0914aac197a8a7d429f6bde",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/build.rs",
+      "bytes": 25921,
+      "sha256": "3128c084e3fce18c08b74c35719f71bfa9163e89ea13c7995428161ad2c2b9ea",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/edit.rs",
+      "bytes": 15765,
+      "sha256": "2eb1b06005cc550cbca8f4a95c9052cdc8d5ccaf4bf64ae4bb3a154dff661748",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/endnotes.rs",
+      "bytes": 7120,
+      "sha256": "9895858c44315cc9d5382904dd0ca647d178ba8b407485adde10f6e3b4c085a0",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/ids.rs",
+      "bytes": 791,
+      "sha256": "1343687ca4d4bdb31d2a641eb63dee0b8538cd8ba19aedde2d8ac75f5561f5b3",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/index.rs",
+      "bytes": 9471,
+      "sha256": "2f61dd9e1d9da3c0dc8974a0c652575f03d9b8cd32aa6df1797029abd98bc0c8",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/item.rs",
+      "bytes": 41335,
+      "sha256": "e942159034f46b15d98ea69a89bcba94a36e2fe5eb4825de50249b6dd3727e55",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/lib.rs",
+      "bytes": 25865,
+      "sha256": "b09405dcc45944706cce958eae62408b85eff91ccef8e5b73247918fd6fa92a3",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/notes.rs",
+      "bytes": 12203,
+      "sha256": "f445867d9a3ac21a7ba00277b2cd8c6e1df6710c661559f2d64bb24b8c7131ed",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/otf.rs",
+      "bytes": 3555,
+      "sha256": "337204179c1b1c22e9857b451a26e4295bb7d28dfd4124066e1dca5d49289e23",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/page.rs",
+      "bytes": 13384,
+      "sha256": "5698bdd600e16a1cd0ebfe1425231f1e4a982dd30aad69ad64941be932a6d3a1",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/selection.rs",
+      "bytes": 3616,
+      "sha256": "c59d567b3f89e86cf50c00b9ca7dac540736178d5bfb8b67bca5afa2cc81dc89",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/slice.rs",
+      "bytes": 6898,
+      "sha256": "480b115c5e6b867f4815d4d7eebb1ceba3a9bce3ec2a42bb8b6c97b6626e3412",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/story.rs",
+      "bytes": 21967,
+      "sha256": "806ae62c5b7e596e2e0614850bd9f284cdce738fa07c900dfe37379a3fedad23",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/styles.rs",
+      "bytes": 15810,
+      "sha256": "6fb3f5dfca42330a3fadefd097438031e7743052df780c590bc4232a195cb19d",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/table.rs",
+      "bytes": 41752,
+      "sha256": "fac6d57a8d7484b682f2249da4af804ac2745a7612e73190c81046faee59e4bc",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/tests.rs",
+      "bytes": 4230,
+      "sha256": "f46be744cc9612b670c46010ad6b010c3130c4136b5758456ca31f2060e767c9",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/vars.rs",
+      "bytes": 8313,
+      "sha256": "bc0948adc72e1e4a0987fba2c1d34a9857817b3b81426866177535f0cae0c07d",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/doc/src/xref.rs",
+      "bytes": 17661,
+      "sha256": "bcaf52ec2fec42941f03f445d818bf70903e5ee627caf177be19259ff8fb6147",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/fonts/Cargo.toml",
+      "bytes": 410,
+      "sha256": "26c98de4c4dc204cdd4c2e8c93516d2f6f30420017ad8d9370fca25ee5ac880b",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/fonts/src/fontdb.rs",
+      "bytes": 29667,
+      "sha256": "e00128ae5f005ad236ef424aa78d47115622f90652a1397f39f4c79d1dfd7424",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/fonts/src/lib.rs",
+      "bytes": 11038,
+      "sha256": "776ee31eec9fa021c98b260c4679e25fcd3bc9eac9fb7adb12b925bde5d3c181",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/Cargo.toml",
+      "bytes": 489,
+      "sha256": "de3644ec85d8f6c88dda6b8b72a6eb6af6261288233da7ef40ccbd0ad114ee87",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/corners.rs",
+      "bytes": 6727,
+      "sha256": "3c5e62264285bae8dfb225172045a0f6ccfb1783a8756a195f65d4aa33300deb",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/decompose.rs",
+      "bytes": 2202,
+      "sha256": "c7ae94c9543eeb66c7fbb0059f3d897bd65c6bf6b0d698b34e99fd1933d2b08d",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/edit_path.rs",
+      "bytes": 6153,
+      "sha256": "ed186e909c3ade8f7f873c3e0ec046047cbdb423cde2710f271bb7b651e237e4",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/freehand.rs",
+      "bytes": 4269,
+      "sha256": "e889b2a1054e942fad5b756d1bcb973438770e64a569698462c96e2e93073d13",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/hit.rs",
+      "bytes": 3731,
+      "sha256": "d872b4066a1701cb6f4a8fdee8efe30febca9ff052cda8782256b48a31a0cd39",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/lib.rs",
+      "bytes": 3544,
+      "sha256": "35d27774a987e5e7942682d227c38d567e9232393fcb660bdc442eebb020b6f2",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/path.rs",
+      "bytes": 19416,
+      "sha256": "7c212e885d37ec1af265a8b62808575beb7983a483c4edc3bc064667a5d67498",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/pathfinder.rs",
+      "bytes": 6526,
+      "sha256": "af97344a692eecbaee1151270adb226311c17e9705d15e99139095830c500afa",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/qr.rs",
+      "bytes": 2528,
+      "sha256": "edba72884e0e049b40c1ed1b0452b7f0c66b5b88ec9d9b51cc382e3ff1cfea7d",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/shapes.rs",
+      "bytes": 9699,
+      "sha256": "142147668bc5e4ca550433d7dd949d206f328d8245416e12b62152ffa74ef9a0",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/snap.rs",
+      "bytes": 1437,
+      "sha256": "b9a1461c6a581d08c72e73cd0792b3e51ecc89e25582d440cd1453436b7fa9a0",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/stroke_style.rs",
+      "bytes": 5516,
+      "sha256": "4f85b210c40a77d8d36a576e8becfd518a89591b534674e2d21cc1928a6a7b5f",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/trace.rs",
+      "bytes": 4378,
+      "sha256": "e028ef29ce6a4208b84baa33bffd8e6ebb237928fc5a1aee3a2442cd03f57a54",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/units.rs",
+      "bytes": 13674,
+      "sha256": "54a724bb90e1ef2f33ae22246af65e2543897482a5d4a654778b677fb43b0752",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/geom/src/warp.rs",
+      "bytes": 3144,
+      "sha256": "2a071ebf40dde1f006a2eb9d63b72f8e36d3da25bd2a5fae4e674355acaa9bc0",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/images/Cargo.toml",
+      "bytes": 390,
+      "sha256": "69607426e506eee0f638da50a7046b1e7b3dde653fc6c04c9b68ac6ad3a82454",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/images/src/eps.rs",
+      "bytes": 4748,
+      "sha256": "de86f49051261552dd21d16deab0fea03fad81dc340232d20b22f8189eb64d73",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/images/src/lib.rs",
+      "bytes": 6924,
+      "sha256": "0ad702678049ef4b0486a9d29e56043d56d38ecf560645e9dfa9ccef8401e2ff",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/Cargo.toml",
+      "bytes": 851,
+      "sha256": "edeed12c206e7ec8c92eb51e624840b7712b77a6be3cad86979893b0a7b60843",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/export.rs",
+      "bytes": 50673,
+      "sha256": "f205a30d18b60414d35d47006c3527afede5c9a9b4c520147d6b963e23476721",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/forms.rs",
+      "bytes": 11936,
+      "sha256": "098447d0bf162ed05803bf965919009718140bb999df372e043bf9dcd83027b7",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/lib.rs",
+      "bytes": 7638,
+      "sha256": "6e08a9a14265441148143405eb3aeb82aba233cacbbc0991e3c2b48e805e378b",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/links.rs",
+      "bytes": 8231,
+      "sha256": "cbed4dd183bf1d4d1b4e60a70367e8ecb4b906c272e120139571f4007ec1a02e",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/marks.rs",
+      "bytes": 3029,
+      "sha256": "8094825d56ba872492cf586051e9eb7638505dfe9bd1c5f84736eb3038d55410",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/pdfx.rs",
+      "bytes": 6557,
+      "sha256": "c55f021acde6192528949280996de345c4ddcb697715a68fd1e92bfdc5866a0f",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/tests.rs",
+      "bytes": 9172,
+      "sha256": "75f9be9aa56736237c5295b62518a97bf69ada372e4b1d12f1d33b31679a7b52",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/text.rs",
+      "bytes": 15796,
+      "sha256": "1634a7a38a6d8c8897cb08ad9444c7782e6b168dbb8ac56859f9a899b89c0653",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/native/crates/pdf/src/transitions.rs",
+      "bytes": 6794,
+      "sha256": "269ea2be2bd837ea59e354ec3dc8f5bc31ecec4eb0f4b89876d8556093e991eb",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/wasm/Cargo.lock",
+      "bytes": 35302,
+      "sha256": "42d950822162bc464f4104c284354142b2d4be3b65be313fe2a20a89e8add2de",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/wasm/Cargo.toml",
+      "bytes": 660,
+      "sha256": "a65fb217f6b5d333cfc059f9d000a2015df96f5ab6c05a994dc433eac6659648",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/wasm/src/input.rs",
+      "bytes": 1880,
+      "sha256": "57c903b34afb947d294b61ebf58939c4dffee4ba4ed06e5ba1eb307e1cf1bca9",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/wasm/src/layout.rs",
+      "bytes": 12565,
+      "sha256": "f551eee7e7497dcd2153f2d96ff67f9ed778b48b0726cf64050817d3a8de76df",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/wasm/src/lib.rs",
+      "bytes": 2149,
+      "sha256": "a164767ffa28fe636a5540d1ffba8caa8d116b54a0d4212e91b3f7347a07352b",
+      "normalization": "lf"
+    },
+    {
+      "path": "publishing/editorial/wasm/src/validate.rs",
+      "bytes": 1465,
+      "sha256": "03d6ccda5c8d5a715b993315ba94449f78ed79ab1474d05d55ebf51ead6c30f1",
+      "normalization": "lf"
+    },
+    {
+      "path": "scripts/build-publishing-wasm.mjs",
+      "bytes": 6291,
+      "sha256": "d56bbf0936ebe1714a62a07e3df4705fe5083406496722ff3c2f2a4d4be07070",
+      "normalization": "lf"
+    },
+    {
+      "path": "scripts/check-publishing-wasm.mjs",
+      "bytes": 1494,
+      "sha256": "0bb2fbf80c899044b9af93ef482d34313736688d45b408b5b4a3fc7227557a60",
+      "normalization": "lf"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm.js",
+      "bytes": 9083,
+      "sha256": "0ed2eba1c75396a8acddb497300d2e9fbbb40ced322bfcf7b1c0159fdbdab637"
+    },
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm.d.ts",
+      "bytes": 1952,
+      "sha256": "f5b4c4d0303d88f7fe45f9407ee86e8a037ee52ea19cb61a4d547282fd039fe4"
+    },
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm_bg.wasm",
+      "bytes": 25539614,
+      "sha256": "eaa2573dbae6b0ca60f276668c8a6440486c75912f6cab1939949f29288096ff"
+    },
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm_bg.wasm.d.ts",
+      "bytes": 721,
+      "sha256": "07e391b9ea3391b5a75fc05b3943218f68b35cc548c745ebadd1b9ce3f016706"
+    },
+    {
+      "path": "src/engines/writings/pdf/generated/THIRD_PARTY_NOTICES.txt",
+      "bytes": 402258,
+      "sha256": "9745cc84cbeec76c5bbd31c37ba068d6edab831ba4001156a5ba73c040f9790b"
+    }
+  ],
+  "gzip": [
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm.js",
+      "bytes": 2577
+    },
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm.d.ts",
+      "bytes": 669
+    },
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm_bg.wasm",
+      "bytes": 10672065
+    },
+    {
+      "path": "src/engines/writings/pdf/generated/writer_publishing_pdf_wasm_bg.wasm.d.ts",
+      "bytes": 220
+    }
+  ],
+  "packages": [
+    {
+      "name": "adler2",
+      "version": "2.0.1",
+      "license": "0BSD OR MIT OR Apache-2.0"
+    },
+    {
+      "name": "aho-corasick",
+      "version": "1.1.5",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "name": "aliasable",
+      "version": "0.1.3",
+      "license": "MIT"
+    },
+    {
+      "name": "arrayref",
+      "version": "0.3.9",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "name": "arrayvec",
+      "version": "0.7.8",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "autocfg",
+      "version": "1.5.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "base64",
+      "version": "0.22.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "bitflags",
+      "version": "2.13.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "bumpalo",
+      "version": "3.20.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "bytemuck",
+      "version": "1.25.2",
+      "license": "Zlib OR Apache-2.0 OR MIT"
+    },
+    {
+      "name": "bytemuck_derive",
+      "version": "1.12.1",
+      "license": "Zlib OR Apache-2.0 OR MIT"
+    },
+    {
+      "name": "byteorder-lite",
+      "version": "0.1.0",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "name": "cfg-if",
+      "version": "1.0.5",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "color_quant",
+      "version": "1.1.0",
+      "license": "MIT"
+    },
+    {
+      "name": "core_maths",
+      "version": "0.1.1",
+      "license": "MIT"
+    },
+    {
+      "name": "crc32fast",
+      "version": "1.5.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "data-url",
+      "version": "0.3.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "either",
+      "version": "1.19.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "equivalent",
+      "version": "1.0.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "euclid",
+      "version": "0.22.14",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "fax",
+      "version": "0.2.7",
+      "license": "MIT"
+    },
+    {
+      "name": "fdeflate",
+      "version": "0.3.7",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "fearless_simd",
+      "version": "0.4.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "fearless_simd",
+      "version": "1.1.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "flate2",
+      "version": "1.1.10",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "flo_curves",
+      "version": "0.8.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "float-cmp",
+      "version": "0.9.0",
+      "license": "MIT"
+    },
+    {
+      "name": "font-types",
+      "version": "0.11.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "font-types",
+      "version": "0.12.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "fontdb",
+      "version": "0.23.0",
+      "license": "MIT"
+    },
+    {
+      "name": "gif",
+      "version": "0.14.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "gutenberg-color",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "gutenberg-compose",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "gutenberg-doc",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "gutenberg-fonts",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "gutenberg-geom",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "gutenberg-images",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "gutenberg-pdf",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "half",
+      "version": "2.7.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "harfrust",
+      "version": "0.13.3",
+      "license": "MIT"
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "hayro-ccitt",
+      "version": "0.4.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "hayro-jbig2",
+      "version": "0.3.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "hayro-jpeg2000",
+      "version": "0.3.5",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "hayro-syntax",
+      "version": "0.7.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "hayro-write",
+      "version": "0.7.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "heck",
+      "version": "0.4.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "image",
+      "version": "0.25.10",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "image-webp",
+      "version": "0.2.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "imagesize",
+      "version": "0.14.0",
+      "license": "MIT"
+    },
+    {
+      "name": "indexmap",
+      "version": "2.14.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "itertools",
+      "version": "0.14.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "itoa",
+      "version": "1.0.18",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "krilla",
+      "version": "0.8.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "krilla-svg",
+      "version": "0.8.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "kurbo",
+      "version": "0.13.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "libm",
+      "version": "0.2.16",
+      "license": "MIT"
+    },
+    {
+      "name": "log",
+      "version": "0.4.34",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "memchr",
+      "version": "2.8.3",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "name": "memmap2",
+      "version": "0.9.11",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "miniz_oxide",
+      "version": "0.8.9",
+      "license": "MIT OR Zlib OR Apache-2.0"
+    },
+    {
+      "name": "miniz_oxide",
+      "version": "0.9.1",
+      "license": "MIT OR Zlib OR Apache-2.0"
+    },
+    {
+      "name": "moxcms",
+      "version": "0.8.1",
+      "license": "BSD-3-Clause OR Apache-2.0"
+    },
+    {
+      "name": "num-traits",
+      "version": "0.2.19",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "once_cell",
+      "version": "1.21.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "ouroboros",
+      "version": "0.18.5",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "ouroboros_macro",
+      "version": "0.18.5",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "pdf-writer",
+      "version": "0.15.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "pico-args",
+      "version": "0.5.0",
+      "license": "MIT"
+    },
+    {
+      "name": "png",
+      "version": "0.18.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "polycool",
+      "version": "0.4.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.107",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "proc-macro2-diagnostics",
+      "version": "0.10.1",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "psd",
+      "version": "0.3.5",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "pxfm",
+      "version": "0.1.30",
+      "license": "BSD-3-Clause OR Apache-2.0"
+    },
+    {
+      "name": "qrcodegen",
+      "version": "1.8.0",
+      "license": "MIT"
+    },
+    {
+      "name": "quick-error",
+      "version": "2.0.1",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "quote",
+      "version": "1.0.47",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "read-fonts",
+      "version": "0.39.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "read-fonts",
+      "version": "0.43.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "read-fonts",
+      "version": "0.44.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "regex",
+      "version": "1.13.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "regex-automata",
+      "version": "0.4.18",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "regex-syntax",
+      "version": "0.8.11",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "resvg",
+      "version": "0.47.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "rgb",
+      "version": "0.8.53",
+      "license": "MIT"
+    },
+    {
+      "name": "roots",
+      "version": "0.0.8",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "name": "roxmltree",
+      "version": "0.21.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "rustc-hash",
+      "version": "2.1.3",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "rustversion",
+      "version": "1.0.23",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "rustybuzz",
+      "version": "0.20.1",
+      "license": "MIT"
+    },
+    {
+      "name": "ryu",
+      "version": "1.0.23",
+      "license": "Apache-2.0 OR BSL-1.0"
+    },
+    {
+      "name": "serde",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "serde_core",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "serde_derive",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.154",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "simd-adler32",
+      "version": "0.3.10",
+      "license": "MIT"
+    },
+    {
+      "name": "simplecss",
+      "version": "0.2.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "siphasher",
+      "version": "1.0.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "skrifa",
+      "version": "0.42.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "skrifa",
+      "version": "0.47.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "slotmap",
+      "version": "1.1.1",
+      "license": "Zlib"
+    },
+    {
+      "name": "smallvec",
+      "version": "1.16.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "stable_deref_trait",
+      "version": "1.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "static_assertions",
+      "version": "1.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "strict-num",
+      "version": "0.1.1",
+      "license": "MIT"
+    },
+    {
+      "name": "subsetter",
+      "version": "0.2.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "svgtypes",
+      "version": "0.16.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "syn",
+      "version": "2.0.119",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "syn",
+      "version": "3.0.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "synstructure",
+      "version": "0.14.0",
+      "license": "MIT"
+    },
+    {
+      "name": "thiserror",
+      "version": "1.0.69",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "thiserror",
+      "version": "2.0.21",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "thiserror-impl",
+      "version": "1.0.69",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "thiserror-impl",
+      "version": "2.0.21",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "tiff",
+      "version": "0.11.3",
+      "license": "MIT"
+    },
+    {
+      "name": "tiny-skia",
+      "version": "0.12.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "tiny-skia-path",
+      "version": "0.12.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "tinyvec",
+      "version": "1.13.3",
+      "license": "Zlib OR Apache-2.0 OR MIT"
+    },
+    {
+      "name": "ttf-parser",
+      "version": "0.25.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "unicode-bidi",
+      "version": "0.3.18",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "unicode-bidi-mirroring",
+      "version": "0.4.0",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "unicode-ccc",
+      "version": "0.4.0",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "unicode-ident",
+      "version": "1.0.27",
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0"
+    },
+    {
+      "name": "unicode-properties",
+      "version": "0.1.4",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "unicode-script",
+      "version": "0.5.8",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "unicode-vo",
+      "version": "0.1.0",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "usvg",
+      "version": "0.47.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "version_check",
+      "version": "0.9.5",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "wasm-bindgen",
+      "version": "0.2.129",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "wasm-bindgen-macro",
+      "version": "0.2.129",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "wasm-bindgen-macro-support",
+      "version": "0.2.129",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "wasm-bindgen-shared",
+      "version": "0.2.129",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "weezl",
+      "version": "0.1.12",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "write-fonts",
+      "version": "0.48.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "writer-publishing-pdf-wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "xmlwriter",
+      "version": "0.1.0",
+      "license": "MIT"
+    },
+    {
+      "name": "xmp-writer",
+      "version": "0.3.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "yansi",
+      "version": "1.0.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "yoke",
+      "version": "0.8.3",
+      "license": "Unicode-3.0"
+    },
+    {
+      "name": "yoke-derive",
+      "version": "0.8.4",
+      "license": "Unicode-3.0"
+    },
+    {
+      "name": "zerocopy",
+      "version": "0.8.62",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT"
+    },
+    {
+      "name": "zerocopy-derive",
+      "version": "0.8.62",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT"
+    },
+    {
+      "name": "zerofrom",
+      "version": "0.1.8",
+      "license": "Unicode-3.0"
+    },
+    {
+      "name": "zerofrom-derive",
+      "version": "0.1.8",
+      "license": "Unicode-3.0"
+    },
+    {
+      "name": "zlib-rs",
+      "version": "0.6.8",
+      "license": "Zlib"
+    },
+    {
+      "name": "zmij",
+      "version": "1.0.23",
+      "license": "MIT"
+    },
+    {
+      "name": "zune-core",
+      "version": "0.5.3",
+      "license": "MIT OR Apache-2.0 OR Zlib"
+    },
+    {
+      "name": "zune-jpeg",
+      "version": "0.5.15",
+      "license": "MIT OR Apache-2.0 OR Zlib"
+    }
+  ]
+}

@@ -86,6 +86,10 @@ export interface PublishingProfile {
   includeBlurb?: boolean;
   /** How the whole book is set at compile time; missing: as written. */
   bookStyle?: import('@/engines/writings/bookStyle').BookStyle;
+  /** Physical page margins; absent keeps the trim's legacy defaults. Applies to fixed-page output. */
+  marginsMm?: { top: number; bottom: number; inside: number; outside: number };
+  /** First printed body-page number. Absent preserves the format's default. */
+  initialPageNumber?: number;
   /** Each chapter's header image from its Reader presentation, in every format. Missing: off. */
   includeChapterImages?: boolean;
   /** The manuscript's own pictures in DOCX and ePub too (stored ones only). Missing: off, as before. */

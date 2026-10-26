@@ -1,7 +1,6 @@
-import {selectManuscriptWritings,writingSelection,manuscriptProject,assertManuscriptOwner} from '@/engines/writings/manuscripts';
-import {listEraRows} from '@/services/worldEras/store';
+import {selectManuscriptWritings,writingSelection,assertManuscriptOwner} from '@/engines/writings/manuscripts';
 import { db } from '@/db';
-import { bookPages, normalizeBookStyle } from '@/engines/writings/bookStyle';
+import { bookPages, normalizeBookStyle, TRIM_SIZES } from '@/engines/writings/bookStyle';
 import * as projectOps from '@/db/operations';
 import { callAi } from '@/services/aiService';
 import { buildProjectEditorialContext } from '@/services/editorialProfile';
@@ -414,6 +413,7 @@ function uniqueIds(ids: readonly string[] | undefined): string[] {
 }
 
 export function normalizePublishingProfile(profile: PublishingProfile): NormalizedPublishingProfile {
+  validatePublishingLayout(profile);
   const selectedWritingIds = uniqueIds(profile.selectedWritingIds);
   return {
     ...profile,
@@ -421,6 +421,16 @@ export function normalizePublishingProfile(profile: PublishingProfile): Normaliz
     selectedWritingIds,
     writingOrder: uniqueIds(profile.writingOrder),
   };
+}
+
+/** Physical options are optional; absent options retain every legacy default. */
+export function validatePublishingLayout(profile: Pick<PublishingProfile, 'bookStyle' | 'marginsMm' | 'initialPageNumber'>): void {
+  if (profile.initialPageNumber !== undefined && (!Number.isSafeInteger(profile.initialPageNumber) || profile.initialPageNumber < 1 || profile.initialPageNumber > 4294967295)) throw Error('publishing_page_number_invalid');
+  if (profile.marginsMm === undefined) return;
+  const margins = profile.marginsMm;
+  const keys = ['top', 'bottom', 'inside', 'outside'] as const;
+  const trim = TRIM_SIZES[normalizeBookStyle(profile.bookStyle)?.trim ?? 'a4'];
+  if (!margins || typeof margins !== 'object' || Object.keys(margins).some(key => !keys.includes(key as typeof keys[number])) || keys.some(key => typeof margins[key] !== 'number' || !Number.isFinite(margins[key]) || margins[key] < 0) || margins.top + margins.bottom >= trim.height || margins.inside + margins.outside >= trim.width) throw Error('publishing_margins_invalid');
 }
 
 /**
@@ -516,7 +526,7 @@ export async function deletePublishingProfile(id: string): Promise<void> {
   await db.publishingProfiles.delete(id);
 }
 
-function currentPublishingLabels(format: PublishingFormat): PublishingArtifactLabels {
+export function currentPublishingLabels(format: PublishingFormat): PublishingArtifactLabels {
   return {
     ...currentCitationLabels(),
     wordLabel: t('writings.words'),
@@ -547,6 +557,7 @@ export function buildPublishingArtifacts(
     cover?: PublishingCover;
   } = {},
 ): PublishingArtifacts {
+  validatePublishingLayout(profile);
   if (profile.includeCover && !artifactOptions.cover) throw Error('publishing_cover_not_prepared');
   const labels = artifactOptions.labels ?? currentPublishingLabels(profile.format);
   const documentTitle = artifactOptions.titleOverride ?? `${project.title} — ${profile.name}`;
@@ -556,6 +567,8 @@ export function buildPublishingArtifacts(
     copyright: profile.includeCopyright ? publishingCopyright(project, labels.rightsLabel ?? 'All rights reserved.', artifactOptions.generatedAt) : undefined,
     blurb: profile.includeBlurb && project.blurb?.trim() ? { title: labels.blurbTitle ?? 'Back cover', text: project.blurb } : undefined,
     bookStyle: profile.bookStyle,
+    marginsMm: profile.marginsMm,
+    initialPageNumber: profile.initialPageNumber,
     chapterImages: profile.includeChapterImages ? project.readerPresentation?.chapters : undefined,
     includeInlineImages: profile.includeInlineImages ?? false,
     includeTitlePage: profile.includeTitlePage,
@@ -604,119 +617,51 @@ export async function preparePublishingArtifacts(
   citations: readonly Citation[],
   options: Parameters<typeof buildPublishingArtifacts>[4] = {},
 ): Promise<PublishingArtifacts> {
-  if (!profile.includeCover) return buildPublishingArtifacts(project, profile, writings, citations, options);
   const captured = structuredClone({ project, profile, writings, citations, options: { ...options, labels: options.labels ?? currentPublishingLabels(profile.format), generatedAt: options.generatedAt ?? Date.now() } });
-  const cover = await capturePublishingCover(captured.project);
+  const cover = captured.profile.includeCover ? await capturePublishingCover(captured.project) : undefined;
   const artifacts = buildPublishingArtifacts(captured.project, captured.profile, captured.writings, captured.citations, { ...captured.options, cover });
   // A captured compilation is read-only; no later caller or writer can replace its bytes.
   const freeze = (value: unknown): void => {
-    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return;
+    if (!value || typeof value !== 'object' || ArrayBuffer.isView(value) || value instanceof ArrayBuffer || Object.isFrozen(value)) return;
     Object.values(value).forEach(freeze); Object.freeze(value);
   };
   freeze(artifacts);
   return artifacts;
 }
 
-/**
- * The project with its footnote settings (marker style, placement), for a
- * caller that only has the id and the title (the Writings compile shortcut,
- * "export this writing"). Read from the row rather than asked of every
- * caller, so the choices made in the footnotes panel reach every export
- * the same way.
- */
-async function withFootnoteStyle(
-  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'> & Partial<Pick<Project, 'author' | 'blurb' | 'readerPresentation'>>,
-): Promise<Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement' | 'author' | 'blurb' | 'readerPresentation'>> {
-  // The byline, the back cover and the chapter images live on the row too: a
-  // caller with only the id and the title still exports the whole book.
-  try {
-    const row = await db.projects.get(project.id);
-    if (!row) return project;
-    return {
-      ...project,
-      footnoteStyle: project.footnoteStyle ?? row.footnoteStyle,
-      footnotePlacement: project.footnotePlacement ?? row.footnotePlacement,
-      author: project.author ?? row.author,
-      blurb: project.blurb ?? row.blurb,
-      readerPresentation: project.readerPresentation ?? row.readerPresentation,
-    };
-  } catch {
-    // Numbers per chapter, then — the defaults every exporter already assumes.
-    return project;
-  }
-}
-
 export async function exportPublishingProfile(
   project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>,
   profile: PublishingProfile,
   output: PublishingOutput,
-  artifactOptions: { titleOverride?: string; generatedAt?: number;eraId?:string } = {},
+  artifactOptions: { titleOverride?: string; generatedAt?: number; eraId?: string; signal?: AbortSignal; isCurrent?: () => boolean } = {},
 ): Promise<PublishingExportResult> {
-  const stored=await db.projects.get(project.id),book=stored?manuscriptProject(stored,profile.writingScope,artifactOptions.eraId):await withFootnoteStyle(project);
-  const allWritings = artifactOptions.eraId?await listEraRows<Writing>({projectId:project.id,eraId:artifactOptions.eraId},'writings'):await db.writings.where('projectId').equals(project.id).toArray();
-  const resolved = resolvePublishingWritings(allWritings, profile);
-  const baseResult = {
-    missingWritingIds: resolved.missingWritingIds,
-    googleDocsWithoutContent: resolved.googleDocsWithoutContent.map(({ id, title }) => ({ id, title })),
-  };
-  if (resolved.writings.length === 0) {
-    return { ok: false, reason: 'no-writings', ...baseResult };
-  }
-  if (resolved.googleDocsWithoutContent.length > 0) {
-    return { ok: false, reason: 'google-docs-without-content', ...baseResult };
-  }
-  const citations = profile.includeBibliography ? await getCitations(project.id) : [];
-  const artifacts = await preparePublishingArtifacts(
-    book,
-    profile,
-    resolved.writings,
-    citations,
-    artifactOptions,
-  );
-
-  if (output === 'markdown') {
-    downloadTextFile(artifacts.markdown, artifacts.markdownFilename, 'text/markdown');
-    return { ok: true, ...baseResult };
-  }
-  if (output === 'html') {
-    downloadTextFile(artifacts.html, artifacts.htmlFilename, 'text/html');
-    return { ok: true, ...baseResult };
-  }
-  if (output === 'pdf' && !canExportPdf()) {
-    return { ok: false, reason: 'pdf-unavailable', ...baseResult };
-  }
+  // Clone the caller's draft and context before the dynamic import yields.
+  const request = structuredClone({ projectId: project.id, profile, titleOverride: artifactOptions.titleOverride, generatedAt: artifactOptions.generatedAt ?? Date.now(), labels: currentPublishingLabels(profile.format), eraId: artifactOptions.eraId });
+  const isCurrent = artifactOptions.isCurrent;
+  const signal = artifactOptions.signal;
+  let baseResult: Pick<PublishingExportResult, 'missingWritingIds' | 'googleDocsWithoutContent'> = { missingWritingIds: [], googleDocsWithoutContent: [] };
   try {
-    if (output === 'docx') {
-      const { buildPublishingDocx } = await import('@/engines/writings/publishingDocx');
-      const blob = await buildPublishingDocx(artifacts.document);
-      downloadBlobFile(blob, artifacts.docxFilename);
-      return {
-        ok: true,
-        omittedImageCount: artifacts.document.omittedPortableImageCount,
-        ...baseResult,
-      };
+    const { capturePublishingBatch, encodePublishingBatch } = await import('@/engines/writings/publishingBatch');
+    const captured = await capturePublishingBatch(request, { signal });
+    baseResult = { missingWritingIds: [...captured.missingWritingIds], googleDocsWithoutContent: [...captured.googleDocsWithoutContent] };
+    // The native HTML writer keeps the legacy profile path. Explicit physical
+    // options require the common PDF encoder, which applies their geometry.
+    const nativePdf = output === 'pdf' && canExportPdf()
+      && request.profile.marginsMm === undefined && request.profile.initialPageNumber === undefined;
+    const [file] = await encodePublishingBatch(captured, [nativePdf ? 'html' : output], { signal });
+    if (file.status !== 'ready' || !file.bytes) return { ok: false, canceled: file.status === 'canceled', reason: 'export-failed', error: file.error, ...baseResult };
+    if (signal?.aborted || isCurrent && !isCurrent()) return { ok: false, canceled: true, ...baseResult };
+    if (nativePdf) {
+      const result = await exportHtmlPdf(new TextDecoder().decode(file.bytes), file.filename.replace(/\.html$/, '.pdf'));
+      return result.ok ? { ok: true, ...baseResult } : { ok: false, canceled: result.canceled, reason: 'export-failed', error: result.error, ...baseResult };
     }
-    if (output === 'epub') {
-      const { buildPublishingEpub } = await import('@/engines/writings/publishingEpub');
-      const blob = await buildPublishingEpub(artifacts.document);
-      downloadBlobFile(blob, artifacts.epubFilename);
-      return {
-        ok: true,
-        omittedImageCount: artifacts.document.omittedPortableImageCount,
-        ...baseResult,
-      };
-    }
-    const result = await exportHtmlPdf(artifacts.html, artifacts.pdfFilename);
-    return result.ok
-      ? { ok: true, ...baseResult }
-      : { ok: false, canceled: result.canceled, reason: 'export-failed', error: result.error, ...baseResult };
+    const mime = file.mime.startsWith('text/') ? `${file.mime};charset=utf-8` : file.mime;
+    downloadBlobFile(new Blob([file.bytes.slice().buffer as ArrayBuffer], { type: mime }), file.filename);
+    return { ok: true, ...(['docx', 'epub'].includes(output) ? { omittedImageCount: captured.omittedImageCount } : {}), ...baseResult };
   } catch (error) {
-    return {
-      ok: false,
-      reason: 'export-failed',
-      error: error instanceof Error ? error.message : String(error),
-      ...baseResult,
-    };
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof Error && 'missingWritingIds' in error && 'googleDocsWithoutContent' in error) baseResult = error as typeof error & typeof baseResult;
+    return { ok: false, reason: message === 'no-writings' || message === 'google-docs-without-content' ? message : 'export-failed', error: message, ...baseResult };
   }
 }
 
