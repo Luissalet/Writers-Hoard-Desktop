@@ -194,3 +194,7 @@ Implemented in source: supported standalone wiki pages/curation, Home creation-d
 ## Textos propios de las herramientas
 
 Las herramientas fuente pueden declarar sus catálogos y usar `useLocalToolT(client)` para etiquetas, interpolación, plurales y formatos Intl. Cambiar el idioma normal de la aplicación conserva las notas escritas; el ejemplo Libreta traducida permite edición Source y Propio con guardado explícito. Guarda una tarjeta nueva del Códex antes de insertar su bloque propio y guarda después el hijo y el documento padre por separado. Es una ampliación offline acotada del SDK; [evidencia, estado de entrega y límites](tasks/vvd1095/verification-sdk-locale.md) separan comprobación técnica e integración.
+
+## Continuación SDK: preferencias por mundo/herramienta/clave
+
+Defaults locales y favorito explícito del Cuaderno de iconos están implementados con SDK, MCP, Source, recibos y portabilidad propios; [evidencia y estado de integración](tasks/vvd1095/verification-sdk-defaults.md). La investigación de HostServices documentó también tema vivo y colecciones de mundo como siguientes contrastes, todavía sin nueva implementación ni prueba upstream atribuida. Se mantiene la meta de igualar o superar las capacidades offline; esta entrega no cierra1095 ni convierte documentación primaria en una prueba de ABI/runtime ajenos.

@@ -727,3 +727,23 @@ Without a host the hook is inert. `createRecordingLocalToolContextMenu()` return
 This port is not supplied to Owned/world blocks, readonly readers or fullscreen. The example is compiled from `installed/examples.context-counter`; enable it normally, then create/open a Source document. Compilation and CLI pack/check are not project enablement or a package-installation E2E proof. There is no new tool or permission: existing describe/call/state Undo/Redo expose the example's normal operations, not live menu callbacks. [Evidence, limits and delivery receipts](../tasks/vvd1095/verification-sdk-context-menus.md).
 
 The original flat 1501 delivery remains documented at the link above; [nested behavior, verification and delivery status](../tasks/vvd1095/verification-local-tool-submenus.md) records the additive 1505 extension separately. The general SDK remains partial; there is no claim of universal submenu behavior or binary compatibility with VVD.
+
+## Shared world/tool/key preferences
+
+`LocalToolClient.defaults?` is an additive optional service. It stores opaque `LocalToolJson` independently of legacy/Source document state. Its physical identity is world/project, stable tool namespace and key; documents, eras and release hashes are not data identities. Context, selected release and readonly checks still apply. Existing JSON/project storage limits apply. Keys use the existing nonempty map-key rule, excluding prototype keys. Reading never persists a fallback.
+
+```ts
+get(key): Promise<LocalToolDefaultSnapshot>
+set(key, value, expected): Promise<LocalToolDefaultResult>
+undo(key, receiptId): Promise<LocalToolDefaultResult>
+redo(key, receiptId): Promise<LocalToolDefaultResult>
+subscribe(changed): () => void
+```
+
+A snapshot contains `projectId`, `namespace`, `key`, `revision: number|null` and `entry: {present:false}|{present:true,value:LocalToolJson}`. Results contain `snapshot` and `receiptId: string|null`. Arguments and returned JSON are detached. Snapshot identity, entry shape and revision are validated before adaptation. The host's opaque revision can advance for another key: existing three-way actions compare the observed target entry and preserve disjoint changes. Incompatible same-key changes fail, desired-equal writes are idempotent, and value-based ABA has the existing equality semantics. No per-key counters are introduced.
+
+`useLocalToolDefaults(client,key)` provides live snapshot/loading/busy/error, set, reload, retained-proposal retry and its own Undo/Redo. Hook actions return success booleans, unlike service actions which return snapshots/receipts. Reload reads without resubmitting a proposal; after a fresh successful read the user can explicitly retry it. Invalidations received during a write are reconciled afterward; older reads/results and retained methods from revoked client/key bindings cannot act on a later binding. The hook uses the existing scoped Undo controller and preserves native text Undo.
+
+The normal Icon notebook demonstrates Save favorite and Use favorite. Save changes the world preference; Use resolves the stored catalogue ID and applies only iconId through the normal Source action. Both preserve the notes draft. Unknown/non-string favorite JSON remains stored and unavailable; old hosts without defaults keep notes, symbols and their available services. Notes have their existing separate Save/Undo/Redo.
+
+Persistence reuses the host-only `@writers/tool-defaults` record in Project.localToolStates, with an in-memory map codec and no invalid author contract. That exact stored identity does not become a valid author namespace. Base/era share preferences. Session receipts commit or abort with the outer transaction, can Undo a first set to absence and are not serialized. Corrupt stored maps fail rather than becoming absence or triggering a read-time repair. JSON clone and Duplicate preserve opaque strings while resetting record revision0; ZIP restores the exact record. General world/Owned/WorldPick coverage, parallel writes inside one outer operation and upstream ABI/runtime are not certified. [Attributed verification and delivery](../tasks/vvd1095/verification-sdk-defaults.md).
