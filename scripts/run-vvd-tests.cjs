@@ -53,11 +53,18 @@ const referencePathNativeCheck = spawnSync(electron, ['tests/local-tool-referenc
 if (referencePathNativeCheck.status !== 0 || referencePathNativeCheck.error) process.exit(referencePathNativeCheck.status ?? 1);
 const iconAuthorCheck = spawnSync(process.execPath, ['tests/local-tool-icons.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (iconAuthorCheck.status !== 0 || iconAuthorCheck.error) process.exit(iconAuthorCheck.status ?? 1);
+const iconSvgCheck = spawnSync(process.execPath, ['tests/local-tool-icon-svg.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (iconSvgCheck.status !== 0 || iconSvgCheck.error) process.exit(iconSvgCheck.status ?? 1);
+const iconSvgGeometryCheck = spawnSync(process.execPath, ['tests/local-tool-icon-svg-geometry.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (iconSvgGeometryCheck.status !== 0 || iconSvgGeometryCheck.error) process.exit(iconSvgGeometryCheck.status ?? 1);
 const mcpResultValuesCheck = spawnSync(process.execPath, ['tests/mcp-result-values.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (mcpResultValuesCheck.status !== 0 || mcpResultValuesCheck.error) process.exit(mcpResultValuesCheck.status ?? 1);
 const iconNativeCheck = spawnSync(electron, ['tests/local-tool-icons.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (iconNativeCheck.status !== 0 || iconNativeCheck.error) process.exit(iconNativeCheck.status ?? 1);
+const iconSvgNativeCheck = spawnSync(electron, ['tests/local-tool-icon-svg.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
+if (iconSvgNativeCheck.status !== 0 || iconSvgNativeCheck.error) process.exit(iconSvgNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-icon-svg.browser.tsx', 'testLocalToolIconSvgAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-icons.browser.tsx', 'testLocalToolIconsAll', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-reference-path.browser.tsx', 'testLocalToolReferencePathAll', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-beside.browser.tsx', 'testLocalToolBesideAll', 240000, 'scripts/run-focused-browser-tests.cjs'],

@@ -1633,3 +1633,16 @@ Review: source12 1fab01c827bfe45c3f1fb4a4860ca34f6a7b5540, actual CAS42 approve 
 - [x] Run applicable checks, independent review and exact integration; update usage documentation and the manual.
 
 Review: source18 f82e621a9552a534f5f0f686f811362a959cc899 approved at exact CAS43 and fast-forwarded to Main. ROOT9 passes include original critical396 and manifest942; Main four focused checks pass on exact blobs. Native23calls/21IPC/88tables and adapter9values preserve null/data; first failures retained. Brave Base/era and finish F1 resolved, manual315UTF16/readback and continuity complete. Documentation integration and research1523 closure are recorded separately in _stage/sdk-icons-next/ROOT-delivery-final.json; parent1095/WT and general parity remain open/partial, no push.
+
+
+## Writer SDK icon SVG (1095 / research1526)
+
+Success: resolve the existing local symbols as standalone SVG through an optional SDK capability and a readonly MCP tool, with geometry faithful to the unchanged Canvas painter. Preserve metadata-only author bundles, existing icon queries, Source notes and all project data.
+
+- [x] Complete independent architecture1648 review of the explicit graphic port, license notices, separate MCP endpoint and raster criterion before product changes.
+- [x] Record a public Source-positive RED for the missing SVG capability; ROOT reads the complete oracle and receipt before product GO, then require the complete oracle GREEN (one authorized async-callback harness correction, original/inverse proof retained).
+- [ ] Verify every symbol at24/96, structural arc/fill/closure cases, negative controls, pure author bundles and normal Source download without saving notes.
+- [ ] Exercise real Brave and native MCP, obtain independent technical/finish/formal review, and run applicable checks on frozen source.
+- [ ] Commit explicit paths as Luissalet, integrate under the merge lock without push, verify Main and update documentation/manual/continuity. Keep1095/WT open and general parity partial.
+
+Plan: _stage/sdk-icon-svg-next/FULL.md and PLAN.md. The first GO is test-only in tests/local-tool-icon-svg.node.cjs; product remains unchanged until the independent architecture review and material RED are read. Existing metadata and Native oracles, catalogue/data/painter and foreign files remain untouched. ROOT owns runner/todo, Browser, gates, Git/Main and delivery.

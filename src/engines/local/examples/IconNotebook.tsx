@@ -1,4 +1,4 @@
-import {useEffect,useId,useState} from 'react';
+import {useEffect,useId,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {LocalToolIcon,type LocalToolProps,type LocalToolIconPage,type LocalToolSnapshot} from '../sdk';
 import {useLocalToolState} from '../useLocalToolState';
 import {useTranslation} from '@/i18n/useTranslation';
@@ -9,6 +9,11 @@ const pageSize=50;
 export function IconNotebook({client,context}:LocalToolProps<IconNotebookState>){
  const {locale}=useTranslation(),es=locale==='es',id=useId(),[query,setQuery]=useState(''),[offset,setOffset]=useState(0),[draft,setDraft]=useState<{notes:string;baseline:LocalToolSnapshot<IconNotebookState>}>(),[retry,setRetry]=useState(0);
  const state=useLocalToolState(client,{observe:true,hasDraft:draft!==undefined});
+ const selected=state.snapshot?.data.iconId,binding=useMemo(()=>({client,id:selected}),[client,selected]);
+ const owner=useRef<typeof binding|null>(null);
+ const [exported,setExported]=useState<{binding:typeof binding;status:'busy'|'started'|'unavailable'|'error'}>();
+ const currentExport=exported?.binding===binding?exported:undefined;
+ useLayoutEffect(()=>{owner.current=binding;return()=>{if(owner.current===binding)owner.current=null;};},[binding]);
  const [page,setPage]=useState<{binding:typeof client;query:string;offset:number;retry:number;result?:LocalToolIconPage;error?:boolean}>();
  const current=page?.binding===client&&page.query===query&&page.offset===offset&&page.retry===retry?page:undefined;
  const editable=context?.canEdit!==false;
@@ -18,9 +23,23 @@ export function IconNotebook({client,context}:LocalToolProps<IconNotebookState>)
   return()=>{active=false;};
  },[client,query,offset,retry]);
  const saveNotes=async()=>{if(draft===undefined)return;const captured=draft;const ok=await state.apply([{type:'set',field:'notes',value:captured.notes}],captured.baseline);if(ok)setDraft(value=>value===captured?undefined:value);};
+ const downloadSvg=async()=>{
+  const icons=binding.client.icons;if(!binding.id||!icons?.resolveSvg||currentExport?.status==='busy')return;
+  setExported({binding,status:'busy'});
+  try{
+   const icon=await icons.get(binding.id);if(owner.current!==binding)return;
+   const svg=icon?await icons.resolveSvg(icon.id):null;if(owner.current!==binding)return;
+   if(!icon||svg===null){setExported({binding,status:'unavailable'});return;}
+   const {downloadTextFile}=await import('@/engines/writings/manuscriptExport');if(owner.current!==binding)return;
+   downloadTextFile(svg,icon.name+'.svg','image/svg+xml');setExported({binding,status:'started'});
+  }catch{if(owner.current===binding)setExported({binding,status:'error'});}
+ };
  return <section aria-label={es?'Cuaderno de iconos':'Icon notebook'} className="min-w-0 space-y-5 p-5 text-text-primary">
   <header className="flex min-w-0 flex-wrap items-center gap-3"><LocalToolIcon client={client} icon={state.snapshot?.data.iconId} size={28}/><h2 className="font-display text-xl">{es?'Cuaderno de iconos':'Icon notebook'}</h2></header>
   {state.snapshot?.data.iconId&&<p className="break-all text-sm text-text-muted">{state.snapshot.data.iconId}</p>}
+  <div className="flex flex-wrap items-center gap-3"><button type="button" className={button} disabled={!selected||!client.icons?.resolveSvg||currentExport?.status==='busy'} onClick={()=>void downloadSvg()}>{es?'Descargar SVG':'Download SVG'}</button>
+   {!client.icons?.resolveSvg?<p role="status" className="text-sm text-text-muted">{es?'Este host no ofrece SVG. Las notas siguen disponibles.':'This host does not provide SVG. Notes remain available.'}</p>:currentExport&&<p role={currentExport.status==='error'?'alert':'status'} className="text-sm text-text-primary">{currentExport.status==='busy'?(es?'Preparando SVG…':'Preparing SVG…'):currentExport.status==='started'?(es?'Descarga de SVG iniciada.':'SVG download started.'):currentExport.status==='unavailable'?(es?'No hay SVG disponible para este símbolo.':'No SVG is available for this symbol.'):(es?'No se pudo preparar el SVG. Tus notas se conservan; vuelve a intentarlo.':'Could not prepare the SVG. Your notes are preserved; try again.')}</p>}
+  </div>
   <div className="space-y-3"><label htmlFor={id+'-search'} className="block text-sm">{es?'Buscar símbolo':'Search symbols'}</label><input id={id+'-search'} type="search" value={query} onChange={event=>{setQuery(event.target.value);setOffset(0);}} className="min-h-10 w-full rounded-lg border border-border bg-elevated px-3 text-sm focus-visible:outline-2 focus-visible:outline-accent-gold"/>
    {!client.icons?<p role="status" className="text-sm text-text-muted">{es?'Este host no ofrece el catálogo de símbolos. Las notas siguen disponibles.':'This host does not provide the symbol catalogue. Notes remain available.'}</p>:current?.error?<div className="flex flex-wrap items-center gap-3"><p role="alert" className="text-sm text-text-primary">{es?'No se pudo consultar el catálogo. Tus notas se conservan.':'Could not read the catalogue. Your notes are preserved.'}</p><button type="button" className={button} onClick={()=>setRetry(value=>value+1)}>{es?'Reintentar':'Retry'}</button></div>:!current?.result?<p role="status" className="text-sm text-text-muted">{es?'Cargando símbolos…':'Loading symbols…'}</p>:<>
     <p role="status" className="text-sm tabular-nums text-text-muted">{current.result.total===0?(es?'No se encontraron símbolos.':'No symbols found.'):`${offset+1}–${offset+current.result.items.length} / ${current.result.total}`}</p>

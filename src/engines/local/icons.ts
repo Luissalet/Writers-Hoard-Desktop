@@ -4,17 +4,20 @@ export interface LocalToolIconDescriptor {id:string;pack:string;name:string;labe
 export interface LocalToolIconPack {id:string;label:string;count:number}
 export interface LocalToolIconSearchOptions {offset?:number;limit?:number}
 export interface LocalToolIconPage {items:LocalToolIconDescriptor[];total:number}
+/** Explicit graphics port: receives only an existing canonical icon ID. */
+export type LocalToolIconSvgResolver=(id:string)=>Promise<string|null>;
 export interface LocalToolIcons {
  get(id:string):Promise<LocalToolIconDescriptor|null>;
  search(query:string,options?:LocalToolIconSearchOptions):Promise<LocalToolIconPage>;
  packs():Promise<LocalToolIconPack[]>;
+ resolveSvg?:LocalToolIconSvgResolver;
 }
 const names=[...PLACE_CATALOG_NAMES].sort();
 const label=(name:string)=>name.replace(/([a-z0-9])([A-Z])/g,'$1 $2');
 const descriptor=(name:string):LocalToolIconDescriptor=>({id:`${PLACE_CATALOG_ID}:${name}`,pack:PLACE_CATALOG_ID,name,label:label(name)});
-/** Shared static metadata only: no renderer, geometry, database or network. */
-export function createLocalToolIcons():LocalToolIcons {
- return Object.freeze({
+/** Shared metadata with an optional explicit port; imports no renderer, geometry, DB or network. */
+export function createLocalToolIcons(iconSvg?:LocalToolIconSvgResolver):LocalToolIcons {
+ const icons:LocalToolIcons={
   async get(id:string){
    if(typeof id!=='string')return null;
    const name=canonicalPlaceCatalogName(id.startsWith(PLACE_CATALOG_ID+':')?id.slice(PLACE_CATALOG_ID.length+1):id);
@@ -26,5 +29,7 @@ export function createLocalToolIcons():LocalToolIcons {
    return{items:matches.slice(offset,offset+limit).map(descriptor),total:matches.length};
   },
   async packs(){return[{id:PLACE_CATALOG_ID,label:'Writer map symbols',count:names.length}];},
- });
+ };
+ if(iconSvg)icons.resolveSvg=async id=>{const icon=await icons.get(id);return icon?iconSvg(icon.id):null;};
+ return Object.freeze(icons);
 }
