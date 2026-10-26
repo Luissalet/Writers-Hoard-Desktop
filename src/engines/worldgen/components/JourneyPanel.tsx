@@ -1,5 +1,5 @@
 import RouteReveal from './RouteReveal';
-import { cellKmOf } from '../core/geoScale';
+import { mapMetric, metricCellKmOf} from '../core/geoScale';
 import type { WorldEdit } from '../core/edits';
 import JourneyPlayback from './JourneyPlayback';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
@@ -588,7 +588,7 @@ function JourneyPanelContent({
                 toName={to?.name ?? openedJourney?.stops.at(-1)?.name ?? ''}
                 onTraveller={(traveller) => onTraveller?.(traveller)} />
               {onRevealRoute && route.cells.length > 1 && (
-                <RouteReveal cells={route.cells} worldWidth={world.width} cellKm={cellKmOf(world.params, world.width)} onReveal={onRevealRoute} />
+                <RouteReveal cells={route.cells} worldWidth={world.width} cellKm={metricCellKmOf(mapMetric(world), world.width)} onReveal={onRevealRoute} />
               )}
               {route.stages.length > 0 && (
                 <>

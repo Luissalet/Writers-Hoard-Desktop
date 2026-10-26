@@ -14,7 +14,7 @@
 // through, and a river is either the best road in the country or an obstacle
 // requiring a bridge, depending entirely on which way you are going.
 
-import { cellKmOf, isSheet, mapDistanceKm, sheetScale } from './geoScale';
+import { isSheet, mapMetric, metricCellKmOf, metricWidthKmOf, metricSheetScale, metricDistanceKm } from './geoScale';
 import { Biome, type WorldData } from './types';
 import { riverKey } from './edits';
 import { englishRoute } from './travelText';
@@ -567,18 +567,18 @@ function cellCost(
   return { hours: km / kmh + ford, onRoad: road };
 }
 
-interface TravelMetric { radius: number; horizontal: Float64Array; diagonal: Float64Array; vertical: number }
+interface TravelMetric { radius: number; widthKm: number; horizontal: Float64Array; diagonal: Float64Array; vertical: number }
 const METRIC_CACHE = new WeakMap<WorldData, TravelMetric>();
 function travelMetric(world: WorldData, radius: number): TravelMetric {
   const cached = METRIC_CACHE.get(world);
-  if (cached?.radius === radius) return cached;
+  if (cached?.radius === radius && cached.widthKm === metricWidthKmOf(mapMetric(world))) return cached;
   const horizontal = new Float64Array(world.height), diagonal = new Float64Array(world.height);
   for (let y = 0; y < world.height; y++) {
     horizontal[y] = greatCircleKm(world, y * world.width, y * world.width + 1, radius);
     if (y + 1 < world.height) diagonal[y] = greatCircleKm(world, y * world.width, (y + 1) * world.width + 1, radius);
   }
   // A sheet's step north is its own cell, flat; the planet's is the arc of a row.
-  const metric = { radius, horizontal, diagonal, vertical: isSheet(world.params) ? cellKmOf(world.params, world.width) : Math.PI * radius / world.height };
+  const metric = { radius, widthKm: metricWidthKmOf(mapMetric(world)), horizontal, diagonal, vertical: isSheet(world.params) ? metricCellKmOf(mapMetric(world), world.width) : Math.PI * radius / world.height };
   METRIC_CACHE.set(world, metric);
   return metric;
 }
@@ -761,7 +761,7 @@ function solveRoute(
     // The pace scales the hours on the move; the rest days are added once, at the end.
     hoursPerDay: effectiveHoursPerDay(opts),
     pace: undefined,
-    planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371 * sheetScale(world.params),
+    planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371 * metricSheetScale(mapMetric(world)),
   };
   const withRest = (route: Route): Route => {
     const restDays = paceRestDays(pace, route.days);
@@ -842,7 +842,7 @@ function solveRoute(
     }
   }
 
-  const directKm = greatCircleKm(world, start, goal, opts.planetRadiusKm ?? 6371 * sheetScale(world.params));
+  const directKm = greatCircleKm(world, start, goal, opts.planetRadiusKm ?? 6371 * metricSheetScale(mapMetric(world)));
   if (!found) {
     return {
       cells: [], km: 0, hours: 0, days: 0, directKm, legs: [], crossings: [],
@@ -1063,7 +1063,7 @@ function weldRoutes(
   // The stages are recomputed over the WHOLE journey rather than concatenated:
   // a night does not fall at a waypoint just because the route happened to be
   // solved in pieces there.
-  const metric = travelMetric(world, opts.planetRadiusKm ?? 6371 * sheetScale(world.params));
+  const metric = travelMetric(world, opts.planetRadiusKm ?? 6371 * metricSheetScale(mapMetric(world)));
   const terminals = new Set(parts.flatMap(part => [part.cells[0], part.cells[part.cells.length - 1]]));
   const stages = findStages(world, geo, roadMask(world, geo), cells, metric, hpd, opts, terminals, modes?.some(mode => mode !== opts.mode) ? stepModes : undefined);
   const profile = elevationProfile(world, cells);
@@ -1116,7 +1116,7 @@ function greatCircleKm(world: WorldData, a: number, b: number, radiusKm: number)
 export function coordinateDistance(world: WorldData, ax: number, ay: number, bx: number, by: number, radiusKm: number): number {
   const W = world.width, H = world.height;
   // A sheet is flat: straight distances at its own scale.
-  if (isSheet(world.params)) return mapDistanceKm(world.params, W, H, ax, ay, bx, by);
+  if (isSheet(world.params)) return metricDistanceKm(mapMetric(world), W, H, ax, ay, bx, by);
   const toRad = (x: number, y: number) => ({
     lon: (x / W) * Math.PI * 2,
     lat: (0.5 - (y + 0.5) / H) * Math.PI,

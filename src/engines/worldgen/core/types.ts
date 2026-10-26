@@ -241,6 +241,9 @@ export interface RiverPath {
 
 /** Everything the pipeline produces. Typed arrays are width*height. */
 export interface WorldData {
+  /** Rehydrated from the saved row; excluded from generative pack/recipe identity. */
+  mapWidthKm?: number;
+  scaleRevision?: number;
   width: number;
   height: number;
   params: WorldParams;

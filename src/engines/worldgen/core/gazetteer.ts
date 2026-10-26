@@ -13,7 +13,7 @@
 // and a plausible-sounding one, and it is why this is worth building on top of a
 // physical model rather than instead of one.
 
-import { cellKmOf, climateLatDeg, isSheet, sheetScale, worldKmOf } from './geoScale';
+import { climateLatDeg, isSheet, mapMetric, metricCellKmOf, metricWidthKmOf, metricSheetScale } from './geoScale';
 import { Biome, type WorldData } from './types';
 import { createRng, rngInt } from './rng';
 import { cognates, etymology, GLOSS_ES, type Gloss, type Language } from './language';
@@ -159,7 +159,7 @@ function overview(c: Ctx): string {
     if (w.elevation[i] < minE) minE = w.elevation[i];
   }
   // A sheet's surface is its width by its height; a planet's, its sphere's.
-  const surfaceKm2 = isSheet(w.params) ? worldKmOf(w.params) ** 2 / 2 : 4 * Math.PI * Math.pow(c.opts.planetRadiusKm ?? 6371, 2);
+  const surfaceKm2 = isSheet(w.params) ? metricWidthKmOf(mapMetric(w)) ** 2 * c.H / c.W : 4 * Math.PI * Math.pow(c.opts.planetRadiusKm ?? 6371, 2);
   const landKm2 = surfaceKm2 * (land / N);
   const topBiomes = [...biomeCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
     .map(([b, n]) => `${biomeName(b)} (${Math.round((100 * n) / land)} %)`);
@@ -533,8 +533,8 @@ export function buildGazetteer(
   opts: GazetteerOptions,
 ): string {
   const W = world.width, H = world.height;
-  const radius = opts.planetRadiusKm ?? 6371 * sheetScale(world.params);
-  const c: Ctx = { world, geo, opts, W, H, kmPerCell: isSheet(world.params) ? cellKmOf(world.params, W) : (2 * Math.PI * radius) / W };
+  const radius = opts.planetRadiusKm ?? 6371 * metricSheetScale(mapMetric(world));
+  const c: Ctx = { world, geo, opts, W, H, kmPerCell: isSheet(world.params) ? metricCellKmOf(mapMetric(world), W) : (2 * Math.PI * radius) / W };
 
   return [
     `# ${opts.title}`,

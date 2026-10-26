@@ -9,7 +9,7 @@
 
 import { drawTownDots, drawTrail } from '../cartography/readerTrail';
 import { drawTradeLayerProjected } from '../cartography/tradeMarks';
-import { cellKmOf, isSheet, sheetScale } from '../core/geoScale';
+import { isSheet, mapMetric, metricCellKmOf, metricSheetScale } from '../core/geoScale';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useEnginePane, ownsEnginePaneEvent, dispatchEnginePaneCommand } from '@/engines/_shared/EnginePaneContext';
@@ -60,7 +60,7 @@ import {
   drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported,
 } from '../region/satelliteTile';
 import { drawTownWaterfrontStructures, PLAN_MAX_METRES_PER_PX } from '../region/townPlan';
-import { kmPerWorldCell } from '../region/terrain';
+import { physicalKmPerWorldCell } from '../region/terrain';
 import { regionClient, tileStats, oldestInFlightMs, traceTiles } from '../region/client';
 import { serveTile, tileServiceStats } from '../region/tileService';
 import { mapSourceKey, worldFamilyKey } from '../region/contentIdentity';
@@ -906,11 +906,11 @@ export default function Map2D({
    * `draw` only projects the answer.
    */
   const [rulerPts, setRulerPts] = useState<CellPoint[]>([]);
-  const rulerReading = measurePolyline(rulerPts, world.width, world.height, world.params);
+  const rulerReading = measurePolyline(rulerPts, world.width, world.height, mapMetric(world));
   const hasRuler = rulerPts.length > 0;
   /** Three points or more enclose a shape: its area and closed perimeter. */
-  const rulerAreaKm2 = rulerPts.length >= 3 ? polygonAreaKm2(rulerPts, world.width, world.height, undefined, world.params) : 0;
-  const rulerPerimeterKm = rulerPts.length >= 3 ? closedPerimeterKm(rulerPts, world.width, world.height, world.params) : 0;
+  const rulerAreaKm2 = rulerPts.length >= 3 ? polygonAreaKm2(rulerPts, world.width, world.height, undefined, mapMetric(world)) : 0;
+  const rulerPerimeterKm = rulerPts.length >= 3 ? closedPerimeterKm(rulerPts, world.width, world.height, mapMetric(world)) : 0;
   /** The real outlines, decoded once and only when a comparison is asked for. */
   const [basemap, setBasemap] = useState<Basemap | null>(null);
   useEffect(() => {
@@ -1047,7 +1047,7 @@ export default function Map2D({
   const painted = useRef<Hit[]>([]);
   /** The tier the view is currently in, advanced with a dead band. Seeded from
    *  the first camera it is given so the opening frame is not a transition. */
-  const tierRef = useRef<SemanticZoomTier>(semanticTier((viewport?.spanKm ?? 40075) * sheetScale(world.params)));
+  const tierRef = useRef<SemanticZoomTier>(semanticTier((viewport?.spanKm ?? 40075) * metricSheetScale(mapMetric(world))));
   const spaceRef = useRef(false);
   /**
    * Mover NO es pintar: el arrastre no deja tinta, coge lo que ya está ahí. Si
@@ -1524,7 +1524,7 @@ export default function Map2D({
     // effect. `nextSemanticTier` has provided a 14 % dead band since it was
     // written and no caller had ever used it.
     // In the map's own kilometres: on a sheet the tiers follow the ground it shows.
-    const spanKm = 40075 * cw / Math.max(1, mapW) * sheetScale(world.params);
+    const spanKm = 40075 * cw / Math.max(1, mapW) * metricSheetScale(mapMetric(world));
     // To a FIXED POINT, not one step per frame. `nextSemanticTier` moves at most
     // one position, and `applyViewport` schedules exactly one frame — so a jump
     // from the fitted planetary view to a saved comarca rendered (and therefore
@@ -1833,7 +1833,7 @@ export default function Map2D({
     // ellas invisible por construcción. Se pinta donde manda la semántica y una
     // sola vez.
     const streetScaleVisible = !!geography && pyramidHere
-      && (kmPerWorldCell(world) * 1000) / ((PW * scale) / W) <= PLAN_MAX_METRES_PER_PX;
+      && (physicalKmPerWorldCell(world) * 1000) / ((PW * scale) / W) <= PLAN_MAX_METRES_PER_PX;
     if (!streetScaleVisible) blitRivers();
 
     /** Principal settlements are an authoritative screen-space layer. Deep
@@ -2158,7 +2158,7 @@ export default function Map2D({
     }
 
     const cityLayerPxPerCell = (PW * scale) / W;
-    const cityLayerMetresPerWorldCell = kmPerWorldCell(world) * 1000;
+    const cityLayerMetresPerWorldCell = physicalKmPerWorldCell(world) * 1000;
     if (streetScaleVisible) {
       // At street-plan scale the physical river masks every ordinary road and
       // urban stroke, including while exact terrain is still arriving. The
@@ -2759,7 +2759,7 @@ export default function Map2D({
       for (const copyOx of copies) {
         for (const rg of savedRegions) {
           // A saved region measures the map's own km; on a sheet that is the sheet's scale.
-          const halfW = ((rg.spanKm / sheetScale(world.params) / EARTH_KM) * W * ppcX) / 2;
+          const halfW = ((rg.spanKm / metricSheetScale(mapMetric(world)) / EARTH_KM) * W * ppcX) / 2;
           const halfH = halfW / Math.max(0.25, rg.params?.aspect || 1.55) * (ppcY / ppcX);
           const [rx, ry] = toScreen(
             ((rg.x / W) % 1 + 1) % 1,
@@ -3277,7 +3277,7 @@ export default function Map2D({
           if (!wraps || Math.abs(cur.x - lx) <= mapW / 2) {
             band = {
               x0: lx, y0: ly, x1: cur.x, y1: cur.y,
-              label: kmText(cellDistanceKm(last, { x: cur.cx, y: cur.cy }, W, H, undefined, world.params)),
+              label: kmText(cellDistanceKm(last, { x: cur.cx, y: cur.cy }, W, H, undefined, mapMetric(world))),
             };
           }
         }
@@ -3315,7 +3315,7 @@ export default function Map2D({
       const centreY = (ch / 2 - view.oy) / mapH;
       const centre = centreY >= 0 && centreY <= 1 ? spec.inverse(centreX, centreY) : null;
       if (centre) {
-        const placed = placeReference(referenceShape, centre[0], centre[1], undefined, undefined, world.params);
+        const placed = placeReference(referenceShape, centre[0], centre[1], undefined, undefined, mapMetric(world));
         for (const copyOx of copies) {
           ctx.save();
           ctx.beginPath();
@@ -3385,7 +3385,7 @@ export default function Map2D({
      * el centro del mapa tapa mapa.
      */
     drawScreenScaleBar(ctx, {
-      kmPerPx: spanKm * sheetScale(world.params) / cw,
+      kmPerPx: spanKm * metricSheetScale(mapMetric(world)) / cw,
       align: 'left',
       edge: 7,
       bottom: ch - 23,
@@ -3684,7 +3684,7 @@ export default function Map2D({
   useEffect(() => {
     scheduleDraw();
   }, [
-    scheduleDraw, world, revision, viewMode, projection, geography, placeImages,
+    scheduleDraw, world, world.mapWidthKm, revision, viewMode, projection, geography, placeImages,
     showRivers, showLandmarks, showWaypoints, showGrid, showSettlements,
     showRoads, showBorders, showFeatures, roadFrom, tool,
     waypoints, selectedWaypointId, selectedSpatialKey, regionalEntities,
@@ -3972,7 +3972,7 @@ export default function Map2D({
         // Clamped in GROUND KILOMETRES, against the two ends of the panel's own
         // size track — the radius is stored in world cells, which mean nothing
         // to the reader and change meaning with the width of the world.
-        const kmPerCell = isSheet(world.params) ? cellKmOf(world.params, W) : Math.max(1, Math.round(EARTH_KM / W));
+        const kmPerCell = isSheet(world.params) ? metricCellKmOf(mapMetric(world), W) : Math.max(1, Math.round(EARTH_KM / W));
         const km = Math.min(BRUSH_MAX_KM, Math.max(BRUSH_MIN_KM,
           bt.radius * kmPerCell * Math.pow(1.0022, -e.deltaY)));
         setTool({ radius: km / kmPerCell });
@@ -3985,7 +3985,7 @@ export default function Map2D({
     return () => canvas.removeEventListener('wheel', onWheel);
     // `W` only moves when the world is a different size, which rebuilds every
     // layer anyway; re-subscribing the listener then costs nothing.
-  }, [W, world.params, zoomAbout]);
+  }, [W, world, world.params, zoomAbout]);
 
   // ---- helpers -------------------------------------------------------------------
   const screenToMap = (sx: number, sy: number): { u: number; v: number } | null => {
@@ -4955,7 +4955,7 @@ export default function Map2D({
     // Where on the planet, in degrees: the one figure no view had. The same
     // routine rotulates the ruler's points, so the two can be compared.
     parts.push(formatLatLon(
-      mapLonLat({ x: m.u * W, y: m.v * H }, W, H, world.params),
+      mapLonLat({ x: m.u * W, y: m.v * H }, W, H, mapMetric(world)),
       t('worldgen.measure.cardinals'), t('worldgen.travel.dur.decimal'),
     ));
     // Clamp here (event handler) so render never touches the container ref.
@@ -5452,13 +5452,13 @@ export default function Map2D({
                 </div>
               )}
               <div className="text-white/45">
-                {formatLatLon(mapLonLat(lastPt, W, H, world.params), cardinals, decimal)} · {t('worldgen.measure.keysHint')}
+                {formatLatLon(mapLonLat(lastPt, W, H, mapMetric(world)), cardinals, decimal)} · {t('worldgen.measure.keysHint')}
               </div>
             </>
           ) : lastPt ? (
             <>
               <div>{t('worldgen.measure.next')}</div>
-              <div className="text-white/45">{formatLatLon(mapLonLat(lastPt, W, H, world.params), cardinals, decimal)}</div>
+              <div className="text-white/45">{formatLatLon(mapLonLat(lastPt, W, H, mapMetric(world)), cardinals, decimal)}</div>
             </>
           ) : (
             <div>{t('worldgen.measure.start')}</div>

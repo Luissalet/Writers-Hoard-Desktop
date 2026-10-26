@@ -20,6 +20,7 @@
 //   the list as it was immediately before, for the audit trail.
 
 import { db } from '@/db';
+import { applyWorldScaleMetadata } from './core/geoScale';
 import type { GeneratedWorld } from './types';
 import type { WorldData, WorldParams } from './core/types';
 import { unpackWorld } from './core/types';
@@ -119,6 +120,7 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   if (liveWorld(runtimeId)) {
     const data = getCachedWorld(runtimeId, world.params);
     if (data) {
+      applyWorldScaleMetadata(data, world);
       const geo = getGeography(data, depth);
       return { ok: true, world: { data, geo, atlas: buildAtlas(data, geo), live: true } };
     }
@@ -127,11 +129,12 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   // 2. A recent private build for exactly this list.
   const key = buildKey(world, depth);
   const hit = built.get(runtimeId);
-  if (hit && hit.key === key && Date.now() - hit.at < BUILT_TTL_MS) return { ok: true, world: hit.world };
+  if (hit && hit.key === key && Date.now() - hit.at < BUILT_TTL_MS) { applyWorldScaleMetadata(hit.world.data, world); return { ok: true, world: hit.world }; }
 
   // 3. The snapshot, replayed privately.
   const snap = await loadSnapshot(runtimeId, paramsKey(world.params));
   if (snap) {
+    applyWorldScaleMetadata(snap, world);
     let edits: WorldEdit[] = [];
     if (world.edits) {
       try {

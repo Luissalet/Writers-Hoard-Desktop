@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fogHides, fogUnnamed, type ReaderFogLayer } from '../cartography/readerFogLayer';
-import { kmPerWorldCell } from '../region/terrain';
-import { cellKmOf, sheetScale } from '../core/geoScale';
+import { physicalKmPerWorldCell } from '../region/terrain';
+import { resolveWorldScale, mapMetric, metricCellKmOf, metricSheetScale } from '../core/geoScale';
 import { mapLonLat } from '../core/measure';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -1349,7 +1349,7 @@ export default function World3D({
     }
     if (geo && sl) for (const ruin of geo.ruins) {
       const key = ruin.sourceKey ?? editKey('ruin', ruin.x, ruin.y), style = world.painted?.styles?.[key];
-      if (!style || !semanticZoomProfile(st.surface.uvWindow.size * EARTH_KM * sheetScale(world.params)).showRegionalTerrain) continue;
+      if (!style || !semanticZoomProfile(st.surface.uvWindow.size * EARTH_KM * metricSheetScale(mapMetric(world))).showRegionalTerrain) continue;
       const at = place(ruin.x, ruin.y); if (!at) continue;
       out.push({ x: at.x, y: at.y, kind: 'spatial', rank: 3, label: ruin.name, color: style.color ?? '#f2e3c4', spatial: resolveWorldSpatialEntity({ key, kind: 'ruin', type: ruin.kind, name: ruin.name, x: ruin.x, y: ruin.y, extent: 1, importance: ruin.importance, style }) });
     }
@@ -1369,7 +1369,7 @@ export default function World3D({
       // is worth drawing: every village at full zoom is a grey smear, and only
       // the capitals at close range is a map with nothing on it.
       const win = st.surface.uvWindow.size;
-      const profile = semanticZoomProfile(win * 40075 * sheetScale(world.params));
+      const profile = semanticZoomProfile(win * 40075 * metricSheetScale(mapMetric(world)));
       const maxRank = profile.settlementRank;
       const ranked = geo.settlements
         .filter((s) => (RANK_ORDER[s.rank] ?? 3) <= maxRank || settlementStyle(world, s).labelVisible)
@@ -1386,7 +1386,7 @@ export default function World3D({
       }
     }
     if (sl) {
-      const profile = semanticZoomProfile(st.surface.uvWindow.size * 40075 * sheetScale(world.params));
+      const profile = semanticZoomProfile(st.surface.uvWindow.size * 40075 * metricSheetScale(mapMetric(world)));
       const ranked = entities
         .filter((entity) => !entity.hidden)
         .filter((entity) => entity.source !== 'regional' || profile.showRegionalTerrain)
@@ -1743,7 +1743,7 @@ export default function World3D({
      */
     const stF = R.current;
     if (stF) {
-      const kmPorPx = stF.focusKm * sheetScale(stF.zoomInputs.world?.params) / Math.max(1, w);
+      const kmPorPx = stF.focusKm * metricSheetScale(stF.zoomInputs.world ? mapMetric(stF.zoomInputs.world) : undefined) / Math.max(1, w);
       drawScreenScaleBar(ctx, {
         kmPerPx: kmPorPx,
         align: 'right',
@@ -1963,7 +1963,7 @@ export default function World3D({
       ? [{ z: floorZ, view: plan.view }, { z: plan.z, view: plan.view }]
       : [{ z: plan.z, view: plan.view }]);
 
-    const mPerPx = (plan.view.w * kmPerWorldCell(w) * 1000) / plan.width;
+    const mPerPx = (plan.view.w * physicalKmPerWorldCell(w) * 1000) / plan.width;
     const done = got.exact >= got.needed;
 
     // 2b. LAS CIUDADES DEL RELLENO. «Coloca las ciudades» (Luis, 2026-08-11):
@@ -1987,7 +1987,7 @@ export default function World3D({
         drawTownStains(ctx, geo.settlements, {
           worldWidth: w.width, worldHeight: w.height,
           view: plan.view, width: plan.width, height: plan.height,
-          metresPerCell: kmPerWorldCell(w) * 1000,
+          metresPerCell: physicalKmPerWorldCell(w) * 1000,
         });
       }
       // 2c. LOS CAMINOS, la misma capa y el mismo fundido que el 2D
@@ -2285,7 +2285,7 @@ export default function World3D({
       scheduleZoomSkin(focus);
       st.surface.setCamera(c.position);
       const cpq = st.surface.cellsPerQuad(MESH_STEPS[mesh]);
-      const km = Math.round(cellKmOf(world.params, world.width) * cpq * 10) / 10;
+      const km = Math.round(metricCellKmOf(mapMetric(world), world.width) * cpq * 10) / 10;
       if (t0 - st.hudAt > 220) {
         /**
          * Y CUÁNTAS PLANTAS, CON SU COSTE.
@@ -2573,9 +2573,7 @@ export default function World3D({
     // Para el muestreo del intervalo: ¿este dibujo terminó pidiendo otro?
     st.chained = st.need;
   }, [
-    world.width,
-    world.height,
-    world.params,
+    world,
     mesh,
     projectMarks,
     drawOverlay,
@@ -2957,7 +2955,7 @@ export default function World3D({
   useEffect(() => {
     const st = R.current;
     if (!st) return;
-    st.surface.setExaggeration(exaggeration);
+    st.surface.setExaggeration(exaggeration, resolveWorldScale(world).sourceWidthKm / resolveWorldScale(world).widthKm);
     st.surface.setShading(skin === 'arcilla', cavity, headlight, shadow);
     st.surface.setContour(contour);
     // UNA SOLA FUENTE PARA EL SOL. El terreno lo quiere en grados (para su
@@ -2978,6 +2976,8 @@ export default function World3D({
     request();
   }, [
     exaggeration,
+    world,
+    world.mapWidthKm,
     skin,
     cavity,
     headlight,
@@ -3905,7 +3905,7 @@ function describe(world: WorldData, p: Pt, t: (key: string) => string): string {
   const yi = Math.min(world.height - 1, Math.max(0, Math.round(p.y)));
   const km = world.elevation[yi * world.width + xi];
   // The same coordinate the flat map shows: on a sheet, its band of the globe.
-  const { lat, lon } = mapLonLat({ x: xi, y: yi }, world.width, world.height, world.params);
+  const { lat, lon } = mapLonLat({ x: xi, y: yi }, world.width, world.height, mapMetric(world));
   return `${km >= 0 ? `${Math.round(km * 1000)} m` : `${Math.round(-km * 1000)} m ${t('worldgen.threeD.belowSea')}`}`
     + ` · ${Math.abs(lat).toFixed(1)}°${t(lat >= 0 ? 'worldgen.threeD.compass.n' : 'worldgen.threeD.compass.s')}`
     + ` ${Math.abs(lon).toFixed(1)}°${t(lon >= 0 ? 'worldgen.threeD.compass.e' : 'worldgen.threeD.compass.w')}`;

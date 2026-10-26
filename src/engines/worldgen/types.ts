@@ -48,6 +48,10 @@ export interface GeneratedWorld {
   projectId: string;
   title: string;
   params: WorldParams;
+  /** Physical calibration of an existing sheet; never part of its generation recipe. */
+  mapWidthKm?: number;
+  /** Monotonic calibration revision, including reset and Undo. */
+  scaleRevision?: number;
   /** Original world when this recipe was explored as an independent alternative. */
   originWorldId?: string;
   /**

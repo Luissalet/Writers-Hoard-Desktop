@@ -7,7 +7,7 @@
 // dragged without paying for a re-render of the sheet, and — the real reason —
 // it is annotation, not cartography. A route drawn INTO the map would be a road.
 
-import { cellKmOf } from '../core/geoScale';
+import { mapMetric, metricCellKmOf} from '../core/geoScale';
 import { drawMapGrid, type MapGrid } from './mapGrid';
 import { drawContourLines } from './contourLayer';
 import { drawReaderFog, type ReaderFogLayer } from './readerFogLayer';
@@ -119,7 +119,7 @@ export function drawAnnotations(
   if (ann.trade) drawTradeLayer(ctx, ann.trade, sx(0), sy, k, W);
 
   // ---- the play grid --------------------------------------------------------
-  if (ann.grid) drawMapGrid(ctx, ann.grid, { width: ctx.canvas.width, height: ctx.canvas.height, cellPx: k, originX: sx(0), originY: sy(0), kmPerCell: cellKmOf(world.params, W) });
+  if (ann.grid) drawMapGrid(ctx, ann.grid, { width: ctx.canvas.width, height: ctx.canvas.height, cellPx: k, originX: sx(0), originY: sy(0), kmPerCell: metricCellKmOf(mapMetric(world), W) });
 
   // ---- the world at another sea level --------------------------------------
   if (ann.paleo) {

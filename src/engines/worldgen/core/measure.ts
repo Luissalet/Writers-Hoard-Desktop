@@ -14,7 +14,7 @@
 // equator has to be a quarter of `EARTH_KM`, and antipodes half of it, whatever
 // the map does with the answer.
 
-import { cellKmOf, climateLatDeg, isSheet, mapDistanceKm, sheetScale } from './geoScale';
+import { metricCellKmOf as cellKmOf, isSheet, metricDistanceKm as mapDistanceKm, metricSheetScale as sheetScale, SHEET_LAT, type MapMetric } from './geoScale';
 import { EARTH_KM } from './camera';
 
 /** A point in world cells, fractional, as every gesture in the 2D reports it. */
@@ -52,9 +52,9 @@ export function cellToLonLat(p: CellPoint, width: number, height: number): LonLa
  * or on a sheet the band of the globe the sheet stands for (its climate's
  * latitude round SHEET_LAT, and longitude at the same scale round 0°).
  */
-export function mapLonLat(p: CellPoint, width: number, height: number, sheet?: { worldKm?: number }): LonLatDeg {
+export function mapLonLat(p: CellPoint, width: number, height: number, sheet?: MapMetric): LonLatDeg {
   if (!isSheet(sheet)) return cellToLonLat(p, width, height);
-  return { lon: (p.x / width - 0.5) * 360 * sheetScale(sheet), lat: climateLatDeg(p.y / height, sheet) };
+  return { lon: (p.x / width - 0.5) * 360 * sheetScale(sheet), lat: Math.max(-89, Math.min(89, SHEET_LAT + (0.5 - p.y / height) * 180 * sheetScale(sheet))) };
 }
 
 /**
@@ -66,7 +66,7 @@ export function mapLonLat(p: CellPoint, width: number, height: number, sheet?: {
  * difference of 359° is the trigonometry of 1°.
  */
 export function cellDistanceKm(
-  a: CellPoint, b: CellPoint, width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: { worldKm?: number },
+  a: CellPoint, b: CellPoint, width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: MapMetric,
 ): number {
   // A sheet is flat: the straight distance at its own scale.
   if (isSheet(sheet)) return mapDistanceKm(sheet, width, height, a.x, a.y, b.x, b.y);
@@ -80,7 +80,7 @@ export function cellDistanceKm(
 }
 
 /** Initial bearing from `a` to `b`, degrees clockwise from north in [0, 360). */
-export function cellBearingDeg(a: CellPoint, b: CellPoint, width: number, height: number, sheet?: { worldKm?: number }): number {
+export function cellBearingDeg(a: CellPoint, b: CellPoint, width: number, height: number, sheet?: MapMetric): number {
   // A sheet is flat: north is up the map, east is right, whatever the row.
   if (isSheet(sheet)) {
     let dx = b.x - a.x;
@@ -141,7 +141,7 @@ export interface RulerReading {
 }
 
 /** Every leg of the polyline and the sum, once per change — never per frame. */
-export function measurePolyline(points: CellPoint[], width: number, height: number, sheet?: { worldKm?: number }): RulerReading {
+export function measurePolyline(points: CellPoint[], width: number, height: number, sheet?: MapMetric): RulerReading {
   const legs: RulerLeg[] = [];
   let totalKm = 0;
   for (let i = 1; i < points.length; i++) {
@@ -176,7 +176,7 @@ export function wrappedDx(a: CellPoint, b: CellPoint, width: number): number {
  * that crosses the east-west seam is measured as one piece, and a ring round a
  * pole measures the polar cap it encloses.
  */
-export function polygonAreaKm2(points: CellPoint[], width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: { worldKm?: number }): number {
+export function polygonAreaKm2(points: CellPoint[], width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: MapMetric): number {
   if (points.length < 3) return 0;
   // A sheet: the flat shoelace area, the ring unwrapped round the seam.
   if (isSheet(sheet)) {
@@ -211,7 +211,7 @@ export function polygonAreaKm2(points: CellPoint[], width: number, height: numbe
 }
 
 /** Perimeter of the ring closed back to its first point, in km. */
-export function closedPerimeterKm(points: CellPoint[], width: number, height: number, sheet?: { worldKm?: number }): number {
+export function closedPerimeterKm(points: CellPoint[], width: number, height: number, sheet?: MapMetric): number {
   if (points.length < 3) return 0;
   return measurePolyline([...points, points[0]], width, height, sheet).totalKm;
 }

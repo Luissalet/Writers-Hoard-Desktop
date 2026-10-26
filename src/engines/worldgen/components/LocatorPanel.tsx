@@ -36,7 +36,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Search } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { buildAtlas } from '../core/atlas';
-import { cellKmOf } from '../core/geoScale';
+import { mapMetric, metricCellKmOf} from '../core/geoScale';
 import { foldForSearch as fold, matchRank } from '../core/searchText';
 import type { WorldData } from '../core/types';
 import type { HumanGeography } from '../core/settlements';
@@ -164,7 +164,7 @@ export default function LocatorPanel({
   }, [pool, query]);
 
   /** Km por celda: una vuelta al planeta de ancho, o la anchura de la hoja. */
-  const kmPerCell = cellKmOf(world.params, world.width);
+  const kmPerCell = metricCellKmOf(mapMetric(world), world.width);
 
   /**
    * Lo importante que hay alrededor de la cámara, para la caja vacía.

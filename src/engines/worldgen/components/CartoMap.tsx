@@ -11,7 +11,7 @@ import { computeFields, getTintFieldFor } from '../cartography/render';
 import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
 import { drawFurniture } from '../cartography/furniture';
 import { fogUnnamed } from '../cartography/readerFogLayer';
-import { isSheet, worldKmOf } from '../core/geoScale';
+import { isSheet, mapMetric, metricWidthKmOf} from '../core/geoScale';
 import { LabelSpace, drawOverlay } from '../cartography/overlay';
 import type { PlaceImagePainter } from '../cartography/placeImages';
 import type { WorldSpatialEntity } from '../core/spatialEntities';
@@ -677,7 +677,7 @@ export default function CartoMap({
       drawFurniture(ctx, {
         theme: p.theme, width: ink.width, height: ink.height, view: v, scale: k,
         worldWidth: world.width, title: p.title, subtitle: p.subtitle, seed: String(world.params.seed),
-        ...(isSheet(world.params) ? { planetRadiusKm: worldKmOf(world.params) / (2 * Math.PI) } : {}),
+        ...(isSheet(world.params) ? { planetRadiusKm: metricWidthKmOf(mapMetric(world)) / (2 * Math.PI) } : {}),
       }, { frame: p.layers.frame !== false, compass: p.layers.compass !== false, scaleBar: p.layers.scaleBar !== false, graticule: false });
     }
   }, [viewFor, size.w, size.h, world]);
@@ -786,7 +786,7 @@ export default function CartoMap({
     base.current = null;
     render(1, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, world.revision, theme, geography, JSON.stringify(layers), density, reliefAmount, size.w, size.h, placeImages, regionalEntities]);
+  }, [world, world.revision, world.mapWidthKm, theme, geography, JSON.stringify(layers), density, reliefAmount, size.w, size.h, placeImages, regionalEntities]);
 
   useEffect(() => () => {
     window.clearTimeout(quickTimer.current);

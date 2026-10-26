@@ -7,6 +7,7 @@ import { canonTileKey } from './generate';
 import type { TileId } from './tiles';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from '../forge/bridge';
 import type { WorldData } from '../core/types';
+import { resolveWorldScale } from '../core/geoScale';
 import { regionGeometry, type RegionGeometry } from './terrain';
 import {
   DEFAULT_REGION_PARAMS,
@@ -411,6 +412,20 @@ export class RegionWorkerClient {
     geography: HumanGeography,
     window: RegionWindow,
     options: RegionRequestOptions = {},
+  ): RegionRequestHandle {
+    const scale = resolveWorldScale(world), ratio = scale.widthKm / scale.sourceWidthKm;
+    // Explicit geometry/canon requests retain original metres, worker context and identity.
+    // A freeform physical window converts at the boundary; only its returned readout is projected.
+    if (ratio === 1 || options.geometry || options.canonKey) return this.requestOriginal(world, geography, window, options);
+    const handle = this.requestOriginal(world, geography, { ...window, spanKm: window.spanKm / ratio }, options);
+    return { ...handle, promise: handle.promise.then(region => ({ ...region, window: { ...region.window, spanKm: region.window.spanKm * ratio }, metresPerCell: region.metresPerCell * ratio })) };
+  }
+
+  private requestOriginal(
+    world: WorldData,
+    geography: HumanGeography,
+    window: RegionWindow,
+    options: RegionRequestOptions,
   ): RegionRequestHandle {
     const requestId = `region-${this.nextRequestId++}`;
     const params: RegionParams = { ...DEFAULT_REGION_PARAMS, ...options.params };

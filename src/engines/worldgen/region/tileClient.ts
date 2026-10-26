@@ -16,7 +16,7 @@
 
 import type { HumanGeography } from '../core/settlements';
 import type { WorldData } from '../core/types';
-import { kmPerWorldCell } from './terrain';
+import { physicalKmPerWorldCell } from './terrain';
 import type { RegionData, RegionParams, RegionPlace, RegionStream, RegionTrack } from './types';
 import { regionClient, type RegionRequestOptions } from './client';
 import { canonTileKey } from './generate';
@@ -49,7 +49,7 @@ export interface CanonCompositeHandle {
 /** The tiles whose interiors intersect the window, nearest the centre first. */
 export function canonCover(world: WorldData, req: CanonCompositeRequest): TileId[] {
   const W = world.width, H = world.height;
-  const kmCell = kmPerWorldCell(world);
+  const kmCell = physicalKmPerWorldCell(world);
   const spanCells = Math.min(W, req.spanKm / kmCell);
   const aspect = req.aspect ?? 1.7;
   const spanYCells = Math.min(H, spanCells / aspect);
@@ -99,7 +99,7 @@ export function composeCanon(
   req: CanonCompositeRequest,
 ): RegionData {
   const W = world.width, H = world.height;
-  const kmCell = kmPerWorldCell(world);
+  const kmCell = physicalKmPerWorldCell(world);
   const per = 1 / canonRefinement(world);
   const interior = tileInterior(world);
   const aspect = req.aspect ?? 1.7;
