@@ -368,3 +368,11 @@ supported document kinds and paginates long content. Remote hosting, multiplayer
 third-party streaming accounts and arbitrary server tools are outside these local
 workflows. Production packaging and installed behavior need their own checks;
 feature test results alone do not certify a released executable.
+
+## Set the physical scale of an existing generated sheet
+
+In a saved generated sheet, open Scale of this map in its controls. Enter the physical width in kilometres; the height and cell size follow the existing grid. Apply saves the calibration, Cancel discards the draft, Reset returns to the original recipe's scale and Undo restores the last compatible change. Generating terrain remains a separate action.
+
+This changes how far, how large and how long the existing map reads: ruler, areas, journeys and true-size comparison outlines use the calibration while terrain and authored positions remain fixed. An inherited era uses Base settings until it owns a map variant; a normal automatic preview may create a variant independently. The same calibration survives supported JSON/ZIP project transfer and normal project duplication.
+
+This does not create independent rectangular width/height or grow/crop the world. Existing regional-sheet frames keep their separate purpose. [Scope, API, cold behavior and evidence](../tasks/vvd1095/verification-world-scale.md).

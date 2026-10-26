@@ -673,3 +673,9 @@ Estos cambios acotados están integrados en Main07d868d, con aprobación exacta 
 Los perfiles de publicación pueden incluir una portada frontal capturada antes del libro en HTML, EPUB, DOCX y la ruta PDF nativa existente. Se capturan juntos manuscrito/época, etiquetas y contenido; una edición posterior no sustituye la portada de esa exportación. Dejar la opción apagada conserva la salida anterior.
 
 El diseñador de cubierta exporta por separado el jacket completo en un PDF de una hoja, PNG o JPEG, con medidas de tapa, lomo, sangrado exterior y resolución editables. La vista previa a 72 ppp se distingue del muestreo de exportación. El PDF es raster RGB con cajas físicas; siguen abiertos el PDF de libro en Browser y el lote multiformato. [Uso, pruebas atribuidas y límites de entrega actuales](tasks/vvd1095/verification-cover-exports.md).
+
+## Ajustar la escala de una hoja generada
+
+Abre Escala de este mapa en los controles del mapa guardado para indicar su ancho físico. El alto y el tamaño de celda siguen la rejilla existente. Aplicar conserva terreno, lugares y posiciones del autor; Cancelar descarta el borrador, Restablecer recupera la escala de la receta y Deshacer restaura la última calibración compatible.
+
+Distancias, áreas, viajes y siluetas de comparación física usan la nueva escala. Una época heredada comparte los ajustes de Base hasta que tiene su propia variante del mapa. Cambian las medidas, no la cantidad de celdas: crear rectángulos independientes, crecer o recortar el mundo y sus anclajes siguen siendo trabajos separados. [Uso, API, pruebas y límites](tasks/vvd1095/verification-world-scale.md).

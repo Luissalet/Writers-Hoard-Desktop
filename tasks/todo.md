@@ -1787,3 +1787,18 @@ Se preservan todos los bytes y tareas anteriores. Fuente congelada 40 rutas sobr
 - [ ] Continuar C42 Browser book PDF/batch y demás remaining-parity; no cerrar filas agrupadas, paridad general o tarea 1095 por el jacket de una hoja.
 
 [Pruebas, fallos y límites C41](vvd1095/verification-cover-exports.md). El render DOCX retenido tiene una desviación de método QA; no se repite ni se declara nuevo render bundled conforme.
+
+### Checkpoint53: escala física de una hoja existente
+
+Este apéndice conserva los anteriores checkpoints. La fuente final es42 rutas en bbf18aff3f1521cf9ea4b71bbe97529638c131ef; las41 originales permanecen exactas y R2 añade sólo dos entradas de cobertura en selftest.ts.
+
+- [x] Implementar calibración, medidas/rutas/áreas efectivas y UI normal; conservar receta, posiciones y buffers reales, CAS/flush/Undo y Base/era propia.
+- [x] Conservar los RED de ausencia pública/UI, Undo de propietario archivado y scheduling de viaje/paleo; resolverlos sin rebajar los oráculos.
+- [x] Pasar los5 casos shipping de contrato/UI/avanzado/worker/portabilidad, Native de dos claves sobre34 fuentes previas exactas y Browser real con frío/EN/390/Undo/Reset. No certifican pixel/raycast3D ni exactitud inicial a través del codec con pérdida.
+- [x] Corregir la clasificación del probe padre de wh_set_world_scale tras el RED de crítica; autodiagnóstico focal68 y tipos/lint pasan. Quick Root verifica41; crítica R2 verifica42 y396 checks; build R2 verifica42. Son gates distintos.
+- [x] Leer limpieza Brave final:78 recuentos propios0 y workers/cache regional0; no se borraron datos ajenos.
+- [x] Leer FORMAL53 completo y voto approve exacto53/bbf18aff; registrar FF Main42blobs,39 bytes RAW iguales y3 conversiones CRLF→LF exclusivas, índice limpio y48 untracked preservados. Catálogo956 y Native Main propio de dos claves con78 contadores0 y cierre verificados.
+- [ ] Aplicar/commitear documentación y actualizar manual/comunes por Root con sus recibos; esta propuesta no escribe esos destinos.
+- [ ] Continuar dimensiones independientes, grow/crop, relleno/anclas y demás remaining-parity. No cerrar1095 ni la paridad global.
+
+[Contrato y atribución por capa](vvd1095/verification-world-scale.md).
