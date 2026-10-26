@@ -206,6 +206,14 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
   const spine: string[] = [];
   const navigation: Array<{ href: string; title: string }> = [];
 
+  if (document.cover) {
+    const cover = document.cover;
+    zip.file('EPUB/images/cover.png', cover.src.slice(cover.src.indexOf(',') + 1), { base64: true });
+    zip.file('EPUB/cover.xhtml', xhtmlPage(document, cover.alt, `<section epub:type="cover" class="wh-book-cover"><img src="images/cover.png" alt="${escapeXml(cover.alt)}" width="${cover.width}" height="${cover.height}" /></section>`));
+    manifest.push('<item id="cover-image" href="images/cover.png" media-type="image/png" properties="cover-image" />', '<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml" />');
+    spine.push('<itemref idref="cover-page" />');
+  }
+
   if (document.includeTitlePage) {
     const href = 'title.xhtml';
     const body = `<section class="title-page"><h1>${escapeXml(document.title)}</h1>${document.author ? `<p class="byline">${escapeXml(document.author)}</p>` : ''}<p>${document.wordCount.toLocaleString(document.locale)} ${escapeXml(document.wordLabel)} · ${escapeXml(new Date(document.generatedAt).toLocaleDateString(document.locale))}</p></section>`;
@@ -346,7 +354,7 @@ td, th { border: 1px solid #777; padding: 0.25em; }
 .wh-chapter-image { display: block; max-width: 100%; max-height: 60vh; margin: 0 auto 1em; }
 .wh-chapter-image--banner { width: 100%; max-height: 30vh; object-fit: cover; }
 .wh-chapter-image--beside { float: left; max-width: 40%; margin: 0.3em 1em 0.8em 0; }
-.wh-chapter-label { text-align: center; font-size: 0.75em; letter-spacing: 0.24em; text-transform: uppercase; margin: 0 0 0.8em; }${document.bookStyle ? `\n${bookStyleCss(document.bookStyle, 'section.chapter', 'section.chapter > h1')}\nbody{background:${PAPER_COLORS[document.bookStyle.paper].background};color:${PAPER_COLORS[document.bookStyle.paper].ink}}` : ''}`);
+.wh-chapter-label { text-align: center; font-size: 0.75em; letter-spacing: 0.24em; text-transform: uppercase; margin: 0 0 0.8em; }${document.bookStyle ? `\n${bookStyleCss(document.bookStyle, 'section.chapter', 'section.chapter > h1')}\nbody{background:${PAPER_COLORS[document.bookStyle.paper].background};color:${PAPER_COLORS[document.bookStyle.paper].ink}}` : ''}${document.cover ? '\n.wh-book-cover{margin:0;text-align:center}.wh-book-cover img{display:block;width:auto;height:auto;max-width:100%;max-height:95vh;margin:auto;object-fit:contain}' : ''}`);
 
   const modified = new Date(document.generatedAt).toISOString().replace(/\.\d{3}Z$/, 'Z');
   zip.file('EPUB/package.opf', `<?xml version="1.0" encoding="UTF-8"?>

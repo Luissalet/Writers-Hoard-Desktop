@@ -14,7 +14,7 @@ import { db } from '@/db';
 import { notifyProjectsChanged } from '@/db/operations';
 import type { PublishingFormat, PublishingProfile } from '@/types/projectTools';
 import {
-  buildPublishingArtifacts,
+  preparePublishingArtifacts,
   getPublishingProfiles,
   normalizePublishingProfile,
   resolvePublishingWritings,
@@ -26,7 +26,7 @@ import { BridgeError } from './bridgeError';
 import { resolveProjectId, withAudit, type ToolArgs } from './shared';
 
 const FORMATS: readonly PublishingFormat[] = ['manuscript', 'screenplay', 'research', 'biography', 'video'];
-const FLAGS = ['includeTitlePage', 'includeToc', 'includeCopyright', 'includeBlurb', 'includeChapterImages', 'includeInlineImages', 'includeSynopsis', 'includeBibliography'] as const;
+const FLAGS = ['includeTitlePage', 'includeCover', 'includeToc', 'includeCopyright', 'includeBlurb', 'includeChapterImages', 'includeInlineImages', 'includeSynopsis', 'includeBibliography'] as const;
 const STYLES = ['apa', 'mla', 'chicago'] as const;
 
 function summary(profile: PublishingProfile, writingCount: number) {
@@ -37,6 +37,7 @@ function summary(profile: PublishingProfile, writingCount: number) {
     name: profile.name,
     format: profile.format,
     includeTitlePage: profile.includeTitlePage,
+    includeCover: !!profile.includeCover,
     includeToc: !!profile.includeToc,
     includeCopyright: !!profile.includeCopyright,
     includeBlurb: !!profile.includeBlurb,
@@ -147,13 +148,15 @@ export async function whPublishingCompile(args: ToolArgs): Promise<unknown> {
   const profile = typeof args.profileId === 'string' ? await db.publishingProfiles.get(args.profileId) : undefined;
   if (!profile || profile.projectId !== projectId) throw new BridgeError('not-found', 'No publishing profile with that id in this project.');
   const output = args.output === 'html' ? 'html' : 'markdown';
+  if (args.complete !== undefined && typeof args.complete !== 'boolean') throw new BridgeError('bad-args', 'complete is true or false.');
   const eraId=typeof args.eraId==='string'?args.eraId:undefined;
   const writings = eraId?await listEraRows<Writing>({projectId,eraId},'writings'):await db.writings.where('projectId').equals(projectId).toArray();
   const resolved = resolvePublishingWritings(writings, profile);
   if (!resolved.writings.length) throw new BridgeError('bad-args', 'This profile compiles no pieces.');
   const citations = profile.includeBibliography ? await getCitations(projectId) : [];
-  const artifacts = buildPublishingArtifacts(manuscriptProject(project,profile.writingScope,eraId), profile, resolved.writings, citations);
+  const artifacts = await preparePublishingArtifacts(manuscriptProject(project,profile.writingScope,eraId), profile, resolved.writings, citations);
   const text = output === 'html' ? artifacts.html : artifacts.markdown;
+  const complete = args.complete === true || (output === 'html' && profile.includeCover === true);
   return {
     projectId,
     profileId: profile.id,
@@ -165,8 +168,10 @@ export async function whPublishingCompile(args: ToolArgs): Promise<unknown> {
     copyright: artifacts.document.copyright ?? null,
     blurb: artifacts.document.blurb ? true : false,
     bookStyle: artifacts.document.bookStyle?.preset ?? null,
+    cover: artifacts.document.cover ? { width: artifacts.document.cover.width, height: artifacts.document.cover.height } : null,
     missingWritingIds: resolved.missingWritingIds,
-    truncated: text.length > MAX_TEXT,
-    text: text.slice(0, MAX_TEXT),
+    characters: text.length,
+    truncated: !complete && text.length > MAX_TEXT,
+    text: complete ? text : text.slice(0, MAX_TEXT),
   };
 }

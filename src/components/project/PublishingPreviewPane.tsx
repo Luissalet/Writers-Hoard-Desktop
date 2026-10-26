@@ -6,17 +6,19 @@ import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { canExportPdf } from '@/engines/writings/manuscriptExport';
 import {
   buildPublishingPreview,
+  preparePublishingPreview,
   getCitations,
   PUBLISHING_WORDS_PER_PAGE,
   READING_WORDS_PER_MINUTE,
   type PublishingOutput,
   type PublishingPreviewContent,
+  type PublishingPreview,
 } from '@/services/projectTools';
 import type { Project, Writing } from '@/types';
 import type { Citation, PublishingProfile } from '@/types/projectTools';
 
 export interface PublishingPreviewPaneProps {
-  project: Pick<Project, 'id' | 'title' | 'author'> & Partial<Pick<Project, 'blurb' | 'readerPresentation'>>;
+  project: Pick<Project, 'id' | 'title' | 'author'> & Partial<Pick<Project, 'blurb' | 'readerPresentation' | 'coverImage'>>;
   /** The live profile draft. Recompiles are debounced, never per keystroke. */
   profile: PublishingProfile;
   /** Already scoped to the project, exactly as the export path resolves them. */
@@ -145,13 +147,26 @@ export default function PublishingPreviewPane({
   // `project` arrives as a fresh literal from the Writings shortcut, so the
   // compile is keyed on its fields instead of its identity.
   const previewProject = useMemo(
-    () => ({ id: project.id, title: project.title, author: project.author, blurb: project.blurb, readerPresentation: project.readerPresentation }),
-    [project.id, project.title, project.author, project.blurb, project.readerPresentation],
+    () => ({ id: project.id, title: project.title, author: project.author, blurb: project.blurb, readerPresentation: project.readerPresentation, coverImage: project.coverImage }),
+    [project.id, project.title, project.author, project.blurb, project.readerPresentation, project.coverImage],
   );
-  const preview = useMemo(
-    () => buildPublishingPreview(previewProject, compiled, writings, citations, { titleOverride }),
+  const plainPreview = useMemo(
+    () => buildPublishingPreview(previewProject, compiled.includeCover ? { ...compiled, includeCover: false } : compiled, writings, citations, { titleOverride }),
     [citations, compiled, previewProject, titleOverride, writings],
   );
+  const [coverRetry, setCoverRetry] = useState(0);
+  const coverRequest = useMemo(() => ({ project: previewProject, profile: compiled, writings, citations, titleOverride, locale, coverRetry }), [previewProject, compiled, writings, citations, titleOverride, locale, coverRetry]);
+  const [preparedCover, setPreparedCover] = useState<{ request: typeof coverRequest; preview?: PublishingPreview; error?: true }>();
+  useEffect(() => {
+    if (!compiled.includeCover) return undefined;
+    let live = true;
+    void preparePublishingPreview(coverRequest.project, coverRequest.profile, coverRequest.writings, coverRequest.citations, { titleOverride: coverRequest.titleOverride })
+      .then(preview => { if (live) setPreparedCover({ request: coverRequest, preview }); })
+      .catch(() => { if (live) setPreparedCover({ request: coverRequest, error: true }); });
+    return () => { live = false; };
+  }, [compiled.includeCover, coverRequest]);
+  const currentCover = preparedCover?.request === coverRequest ? preparedCover : undefined;
+  const preview = currentCover?.preview ?? plainPreview;
   const retractedCount = citations.filter(citation => citation.retractedAt).length;
 
   const outputLabels: Record<PublishingOutput, string> = {
@@ -169,7 +184,7 @@ export default function PublishingPreviewPane({
     }))
     .filter(entry => entry.lines.length > 0);
   const portable = isPortableOutput(target);
-  const stale = compiled !== profile;
+  const stale = compiled !== profile || Boolean(compiled.includeCover && !currentCover);
   const documentLocale = preview.document.locale;
   // A book style prints at a trim, and a trim holds its own number of words a page.
   const perPage = preview.document.bookStyle ? TRIM_SIZES[preview.document.bookStyle.trim].wordsPerPage : PUBLISHING_WORDS_PER_PAGE;
@@ -255,6 +270,7 @@ export default function PublishingPreviewPane({
             .replace('{titles}', preview.googleDocsWithoutContent.map(item => item.title).join(', '))}
         </p>
       )}
+      {compiled.includeCover && currentCover?.error && <p role="alert" data-testid="publishing-cover-error" className="mb-3 text-sm text-red-300">{t('projectTools.publishing.coverError')} <button type="button" onClick={() => setCoverRetry(value => value + 1)} className="underline">{t('projectTools.publishing.coverRetry')}</button></p>}
 
       <div role="group" aria-label={t('projectTools.publishing.preview.device')} className="mb-2 flex flex-wrap items-center gap-1.5">
         <span className="text-[11px] text-text-dim">{t('projectTools.publishing.preview.device')}</span>
@@ -278,6 +294,7 @@ export default function PublishingPreviewPane({
           </p>
         ) : (
           <>
+            {target !== 'markdown' && !stale && preview.document.cover && <div className="mb-6 flex justify-center border-b border-border pb-5" data-testid="publishing-preview-cover"><img src={preview.document.cover.src} alt={preview.document.cover.alt} width={preview.document.cover.width} height={preview.document.cover.height} className="max-h-80 max-w-full object-contain" /></div>}
             {preview.document.includeTitlePage && (
               <div className="mb-6 border-b border-border pb-5 text-center">
                 <p className="text-lg text-text-primary">{preview.document.title}</p>

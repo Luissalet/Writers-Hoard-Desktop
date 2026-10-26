@@ -76,6 +76,8 @@ export interface PublishingProfile {
   name: string;
   format: PublishingFormat;
   includeTitlePage: boolean;
+  /** Captured front jacket before the book. Missing: off; independent of Reader.showAtStart. */
+  includeCover?: boolean;
   /** A list of the chapters before the first one. Missing on older profiles: off. */
   includeToc?: boolean;
   /** A copyright page after the title page. Missing on older profiles: off. */

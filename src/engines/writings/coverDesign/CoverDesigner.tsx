@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState,type PointerEvent as ReactPointerEvent} from 'react';
+import {lazy,Suspense,useEffect,useRef,useState,type PointerEvent as ReactPointerEvent} from 'react';
 import {Eraser,MousePointer2,PenLine,Type,Trash2,Undo2,Redo2,Move,RotateCw,Scaling,ArrowDown,ArrowUp,Download} from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
@@ -11,6 +11,7 @@ import {COVER_FONTS,type CoverElement,type CoverFace} from './types';
 import {coverFaceBox,coverRaster,elementLabel,eraseInk,initialCoverJacket} from './model';
 import {coverSpreadContents} from './render';
 import {exportCoverImage} from './export';
+const PrintCoverModal=lazy(()=>import('./PrintCoverModal'));
 type Cover=ReaderPresentation['cover'];
 type Gesture={kind:'move'|'resize'|'rotate'|'draw'|'erase';start:Cover;element?:CoverElement;point:{x:number;y:number};points:StrokePoint[]};
 const control='min-h-9 min-w-0 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold';
@@ -18,7 +19,7 @@ const button=control+' aria-pressed:border-accent-gold aria-pressed:text-accent-
 const colors=['#ffffff','#1b2020','#d7b653','#b85845','#558568','#6c8cae'];
 export default function CoverDesigner({title,artwork,cover,locale,onApply,onClose}:{title:string;artwork?:string;cover:Cover;locale:'es'|'en';onApply:(cover:Cover)=>void;onClose:()=>void}){
  const es=locale==='es';const [history,setHistory]=useState<{past:Cover[];present:Cover;future:Cover[]}>(()=>({past:[],present:{...structuredClone(cover),jacket:structuredClone(cover.jacket??initialCoverJacket(title,readerInk(cover.color),!(cover.artwork&&coverRaster(artwork))))},future:[]}));
- const draft=history.present;const [selected,setSelected]=useState<string|null>(null),[mode,setMode]=useState<'select'|'draw'|'erase'>('select'),[face,setFace]=useState<CoverFace>('spread'),[brush,setBrush]=useState(6),[ink,setInk]=useState('#d7b653'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false);
+ const draft=history.present;const [selected,setSelected]=useState<string|null>(null),[mode,setMode]=useState<'select'|'draw'|'erase'>('select'),[face,setFace]=useState<CoverFace>('spread'),[brush,setBrush]=useState(6),[ink,setInk]=useState('#d7b653'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false),[printOpen,setPrintOpen]=useState(false);
  const svg=useRef<SVGSVGElement>(null),gesture=useRef<Gesture|null>(null),fileInput=useRef<HTMLInputElement>(null),fileReader=useRef<FileReader|null>(null);
  useEffect(()=>()=>fileReader.current?.abort(),[]);
  const elements=draft.jacket!.elements,element=elements.find(e=>e.id===selected),box=coverFaceBox(face);
@@ -64,7 +65,7 @@ export default function CoverDesigner({title,artwork,cover,locale,onApply,onClos
     </div>}
    </div>
    {error&&<p role="alert" className="text-sm text-danger">{error}</p>}
-   <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4"><button type="button" className={button} disabled={busy} onClick={()=>void exportImage('svg')}><Download size={16}/>SVG</button><button type="button" className={button} disabled={busy} onClick={()=>void exportImage('png')}><Download size={16}/>PNG</button><button type="button" className={button} disabled={busy} onClick={close}>{es?'Cancelar':'Cancel'}</button><button type="button" className={button+' bg-accent-gold text-deep'} disabled={busy} onClick={()=>{fileReader.current?.abort();onApply(draft);}}>{es?'Aplicar a presentación':'Apply to presentation'}</button></div>
+   <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4"><button type="button" className={button} disabled={busy} onClick={()=>void exportImage('svg')}><Download size={16}/>SVG</button><button type="button" className={button} disabled={busy} onClick={()=>void exportImage('png')}><Download size={16}/>PNG</button><button type="button" className={button} disabled={busy} onClick={()=>setPrintOpen(true)}><Download size={16}/>{es?'Cubierta para imprimir':'Print cover'}</button><button type="button" className={button} disabled={busy} onClick={close}>{es?'Cancelar':'Cancel'}</button><button type="button" className={button+' bg-accent-gold text-deep'} disabled={busy} onClick={()=>{fileReader.current?.abort();onApply(draft);}}>{es?'Aplicar a presentación':'Apply to presentation'}</button></div>
   </div>
- </Modal><ConfirmDialog open={confirm} message={es?'¿Descartar los cambios de cubierta?':'Discard jacket changes?'} onCancel={()=>setConfirm(false)} onConfirm={()=>{fileReader.current?.abort();onClose();}}/></>;
+ </Modal>{printOpen&&<Suspense fallback={null}><PrintCoverModal title={title} artwork={artwork} cover={draft} locale={locale} onClose={()=>setPrintOpen(false)}/></Suspense>}<ConfirmDialog open={confirm} message={es?'¿Descartar los cambios de cubierta?':'Discard jacket changes?'} onCancel={()=>setConfirm(false)} onConfirm={()=>{fileReader.current?.abort();onClose();}}/></>;
 }

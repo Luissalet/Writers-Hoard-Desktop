@@ -711,6 +711,7 @@ const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
         includeTitlePage: PROFILE_FLAG('Title page with the byline.'),
         includeToc: PROFILE_FLAG('Chapter list before the first chapter.'),
         includeCopyright: PROFILE_FLAG('Copyright page after the title page.'),
+        includeCover: PROFILE_FLAG('Captured front jacket before the book in HTML/PDF, EPUB and DOCX. Off when absent; independent of Reader showAtStart. This is not the separate print-jacket PDF.'),
         includeBlurb: PROFILE_FLAG('Back-cover text as the last page.'),
         includeInlineImages: PROFILE_FLAG('The manuscript\'s own pictures (stored PNG, JPEG, GIF, WebP up to 3 MB) also in DOCX and ePub, with their width; off: those formats carry no picture, as before. Linked web pictures are always left out.'),
         includeChapterImages: PROFILE_FLAG('Each chapter\'s header image from its Reader presentation (above the title, beside it, or as a banner with the chapter label) in HTML/PDF, ePub (as files in the book) and DOCX (PNG/JPEG/GIF; a WebP header image is left out of Word).'),
@@ -880,9 +881,9 @@ const PUBLISHING_PROFILE_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_publishing_compile',
-    description: 'Compile a publishing profile exactly as its export would and return the Markdown or HTML text (up to 200,000 characters), with the piece and word counts, the byline, the copyright line and whether the back cover is included. Read only: saving the file (and PDF, DOCX or ePub) stays with the person in the app.',
+    description: 'Compile a publishing profile using the same captured inputs as export. Returns filename, Markdown/HTML text, full character count and explicit truncated status. Default is a 200,000-character preview; complete:true returns the complete file text. HTML with includeCover automatically returns the complete file so the captured front PNG is never cut. The cover is independent of Reader showAtStart. Read only; this tool does not save or download files.',
     writes: false,
-    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId:{type:'string'}, profileId: s('Profile id from wh_publishing_profiles.'), output: { type: 'string', enum: ['markdown', 'html'] } }, required: ['profileId'], additionalProperties: false },
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, eraId:{type:'string'}, profileId: s('Profile id from wh_publishing_profiles.'), output: { type: 'string', enum: ['markdown', 'html'] }, complete: { type: 'boolean', description: 'Return the full file text instead of the bounded preview. Automatically true for HTML with a captured cover.' } }, required: ['profileId'], additionalProperties: false },
   },
 ];
 

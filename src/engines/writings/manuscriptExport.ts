@@ -11,7 +11,7 @@
 // (tasks/lessons: the OS save dialog is the browser's job).
 
 import { prepMarkdownFromHtml } from '@/engines/prepBlocks/markdown';
-import { bookPageCss, bookStyleCss, titleOrnamentHtml } from './bookStyle';
+import { bookPageCss, bookStyleCss, titleOrnamentHtml, TRIM_SIZES } from './bookStyle';
 import type { Writing } from '@/types';
 import { isDesktop } from '@/utils/platform';
 import { projectWritingHtml } from './revisionProjection';
@@ -337,6 +337,7 @@ export function chapterAnchorId(n: number): string {
 }
 
 export function renderPublishingHtml(document: PublishingDocument): string {
+  const coverHeightMm = document.bookStyle ? TRIM_SIZES[document.bookStyle.trim].height - TRIM_SIZES[document.bookStyle.trim].margin * 2 : 253;
   const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
   // Numbers written into the file rather than left to a CSS counter: a mail
   // client or a PDF viewer's text layer has no counters. Per chapter they
@@ -451,11 +452,11 @@ ${EDITORIAL_PROSE_CSS}
   .wh-chapter-label { text-align: center; font-size: 9pt; letter-spacing: 0.24em; text-transform: uppercase; color: #777; margin: 0 0 0.8em; }
   .copyright-page { display: flex; align-items: flex-end; justify-content: center; min-height: 80vh; page-break-after: always; text-align: center; font-size: 10pt; color: #444; }
   @media print { body { padding: 0; max-width: none; } }
-  ${document.bookStyle ? `${bookStyleCss(document.bookStyle, '.content', '.chapter-title')}\n${bookPageCss(document.bookStyle)}` : ''}
+  ${document.bookStyle ? `${bookStyleCss(document.bookStyle, '.content', '.chapter-title')}\n${bookPageCss(document.bookStyle)}` : ''}${document.cover ? `\n.wh-book-cover{display:flex;align-items:center;justify-content:center;height:${coverHeightMm}mm;page-break-after:always;break-after:page}.wh-book-cover img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}` : ''}
 </style>
 </head>
 <body>
-  ${
+  ${document.cover ? `<div class="wh-book-cover"><img src="${escapeHtml(document.cover.src)}" alt="${escapeHtml(document.cover.alt)}" width="${document.cover.width}" height="${document.cover.height}"></div>\n  ` : ''}${
     document.includeTitlePage
       ? `<div class="title-page">
     <h1>${escapeHtml(document.title)}</h1>
