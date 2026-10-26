@@ -1707,3 +1707,31 @@ Current checkpoint: source31c5598 and documentationbc3646d are delivered. Three 
 Checkpoint26-10: the exhaustive remaining-parity ledger reconciles all six matrices and SDK/current1041 without a percentage claim. Four bounded deltas are approvedCAS49 and integrated as a8e9ba6+a55e6e; source quick/build/critical396, eight area regressions, trusted Pointer, real Brave and two-key table/focus transports pass with separate attribution. Main manifest949/contracts6/Nativefocus pass; merge released. Documentation/manual/continuity continue before the next functional batch. Fresh Directions observation corrects the old inference: selected reference place becomes destination, then origin is chosen; old route is replaced while travel settings remain.
 
 Documentation checkpoint: native manual+679UTF16 CAS/readback preserves198paragraphs/197others/styles/structure/indexes; MEMORY full prefix and own graph only/embedFalse verified, ten common locks released. Fresh finish/documenter generic substitutes preserve existing visual history and sidecar. Source delivery remains a55e6e/CAS49; final docs identity is recorded separately. Continue Directions and the unresolved cold/shared Three check; no new product claim from its initial build watchdog failure.
+
+### Next verified differences: place directions and individual detection dismissal
+
+- [x] Observe actual reference Directions: the chosen place is the destination; choosing the origin completes the route, replacing the previous route while retaining travel options.
+- [x] Reproduce missing inspector actions in the real Writer WorldView before product changes; preserve the original failing oracle.
+- [ ] Add Travel from here / Directions to here, retain temporary travel choices across panel changes, and verify current place coordinates, scope, normal save/reopen and existing MCP planning.
+- [x] Observe reference per-candidate dismissal and restore the synthetic chapter's original HTML/text after leaving and reopening it. Persistence beyond same-page reopen remains unknown.
+- [ ] Specify and reproduce scoped, recoverable individual dismissal; implement and verify the normal UI and MCP operation without changing the classifier or inventing durable global exclusions.
+- [ ] Complete the cold/shared Three production-runtime check. The successful second build and timed-out native driver are separate evidence; diagnose the driver before attributing any product failure.
+- [ ] Review, integrate and document the next bounded changes, then continue through the remaining parity ledger.
+
+### Checkpoint fuente45: Directions, descartes duraderos y Three C01–C07
+
+Esta adenda sucede a las casillas pendientes del bloque «Next verified differences» sin reescribir sus estados históricos. Fuente45 comprometida47d448bfac8d8441f07943d4c032aca1ad674e3d sobre7c3ff16033a5868cb127e30afcf001c698685f57,45rutas explícitas; formalCAS50 aprobada exactamente e integración FF de Main47d448bf verificada. Main y manual verificados; preparación documental completa y continuidad común de ROOT aún pendiente.
+
+- [x] Implementar los dos extremos desde el lugar efectivo y verificar picking/opciones, save/reopen Base/era y planner MCP existente: revisión independiente, Brave normal y Native final3 LVXQWp con dos claves,10tools/14RPC/10IPC.
+- [x] Especificar e implementar descarte durable recuperable por owner/era/draft, metadata separada de prosa y preferencias, CAS/Undo/portables; revisar original durable be4 y conservar histórico1686 sin GREEN.
+- [x] Verificar decisiones con Native YNArl3 dos claves68/72/68 y Browser frío real: ledger/tokens exactos al recargar, Restore/Undo frescos, HTML/datos propios exactos y0ediciones; viewport restaurado y cleanup siete tablas0. La inferencia de la fixture es controlada y no acredita modelo NER Browser.
+- [x] Completar C01–C07 de la capacidad Three existente sobre build/run fresh concretos, conservando driver/bytegrafo FAIL, SwiftShader, formatos y límites de procedencia; sin wrapper nuevo.
+- [x] Obtener approve exacto CAS50 e integrar las45rutas por FF bajo merge lock fresco: Main47d448bf, blobs/índice/tracked verificados y foreign exactos, sin push.
+- [x] Completar y leer Main manifest951, contrato8 y Native dos claves68/72/68, conservando que el renderer usa el Vite WT con45blobs idénticos; merge lock liberado.
+- [x] Actualizar el manualGoogle con CAS y readback exacto: +997UTF16,198párrafos/197otros, estilos/estructura/índices conservados.
+- [x] Preparar y revisar las14adendas documentales de este corte para la aplicación de ROOT junto a este checkpoint; no se anticipa SHA del commit documental.
+- [ ] Completar ROOT la aplicación/commit documental y la continuidad MEMORY/grafo común; los diez locks comunes siguen tomados en este corte. Identidades finales sólo en ROOT-delivery50 cuando exista completo.
+- [ ] Continuar el wiring y verificación del runtime NER Browser real fuera de47d448bf. PARTIAL/not wired es el corte histórico inicial; el RED IIFE se conserva y el probe3 HF estático/default IIFE pasa sólo bundling focal, sin cambio Vite/reinicio. Quick/crítica396/build de fuente45 no cubren ese runtime ni acreditan modelo/inferencia.
+- [ ] Continuar todos los residuos de remaining-parity.md, sin E global en filas agrupadas ni cierre de1095.
+
+[Contrato y atribución actuales](vvd1095/verification-directions-dismissals-three.md). Las casillas de completar toda la paridad siguen pendientes.
