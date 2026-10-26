@@ -679,3 +679,11 @@ El diseñador de cubierta exporta por separado el jacket completo en un PDF de u
 Abre Escala de este mapa en los controles del mapa guardado para indicar su ancho físico. El alto y el tamaño de celda siguen la rejilla existente. Aplicar conserva terreno, lugares y posiciones del autor; Cancelar descarta el borrador, Restablecer recupera la escala de la receta y Deshacer restaura la última calibración compatible.
 
 Distancias, áreas, viajes y siluetas de comparación física usan la nueva escala. Una época heredada comparte los ajustes de Base hasta que tiene su propia variante del mapa. Cambian las medidas, no la cantidad de celdas: crear rectángulos independientes, crecer o recortar el mundo y sus anclajes siguen siendo trabajos separados. [Uso, API, pruebas y límites](tasks/vvd1095/verification-world-scale.md).
+
+## Preparar varios archivos de una misma copia del libro
+
+Los perfiles de publicación ofrecen Markdown, HTML, EPUB, Word (DOCX), PDF de libro con texto seleccionable y buscable en Browser, y PDF de cubierta para imprimir. Elige las salidas y pulsa Preparar archivos: cada escritor usa la misma copia del manuscrito/época, contenido y recursos locales. Preparar no guarda el perfil ni inicia descargas. Los archivos listos tienen una acción Descargar y un ZIP opcional explícito.
+
+Reintentar pendientes conserva esa copia preparada aunque cambie el libro vivo; Preparar de nuevo captura los datos actuales. PDF y Word admiten márgenes enfrentados en mm y número inicial de página opcionales; EPUB sigue siendo reajustable. El PDF de cubierta conserva sus medidas, lomo manual, sangrado y resolución propios. [Uso, API, estado de entrega y límites atribuidos](tasks/vvd1095/verification-publishing-batch.md). Esta continuación amplía el checkpoint C41 anterior; la paridad general web/SDK sigue abierta.
+
+El flujo C42 acotado está entregado en Main tras la aprobación exacta CAS54; la verificación enlazada distingue las comprobaciones finales de las pruebas anteriores de C41 y del corte previo al arreglo.

@@ -2774,3 +2774,21 @@ Source31c5598664c4f4de14880ae71d65c45530cc78f7 is approved exactly at CAS47 and 
 El mismo writer sirve a UI/MCP y drena escritores pendientes antes de resolver propietario y CAS. Undo normal restaura sólo una calibración todavía actual y conserva metadata concurrente; no hay herramienta MCP wh_undo nueva. Native usa el audit_index y POST /api/undo existentes. Un noop no añade before/recibo de escala ni altera authored/history/revision; el adaptador previo puede adjuntar su puntero genérico _undo a la línea de llamada, cuya Undo se rechaza sin cambiar el mapa. Cancelar el draft UI no llama al writer.
 
 JSON/ZIP/Duplicar conservan estos metadatos y su ausencia tras reset. El canon y los snapshots de generación mantienen su receta; sus datos runtime rehidratan la escala por separado. Las guardas normales de escritura/motor no cambian. [Pruebas y límites de transporte](../tasks/vvd1095/verification-world-scale.md).
+
+## Exportación de publicación desde una captura
+
+`wh_publishing_export` prepara salidas completas desde una única captura de sólo lectura. Usa el ámbito normal `projectId`, `eraId` opcional (ausente = Base), exactamente uno de `profileId` guardado o `draft` inline con `name`, un `jobId` elegido por el cliente y `outputs` no vacío entre `markdown`, `html`, `epub`, `docx`, `pdf`, `print-cover`. El perfil conserva `writingScope` y selección/orden/capítulos excluidos normales. No guarda el borrador, modifica el libro, descarga un archivo ni publica una edición.
+
+```json
+{"projectId":"project_id","profileId":"profile_id","jobId":"export_own_1","outputs":["pdf","docx"]}
+```
+
+Para PDF/Word, `marginsMm` opcional del perfil contiene `top`, `bottom`, `inside`, `outside`; `initialPageNumber` es un entero positivo opcional. Ausentes mantienen los valores predeterminados. `print-cover` requiere `printLayout` con `trimWidthMm`, `trimHeightMm`, `spineMm`, `bleedMm` y **`dpi` explícito**; lomo/sangrado admiten 0. Esto es distinto de `wh_reader_cover_export` de C41, donde dpi es opcional y su default es 300. No se estima el lomo a partir del número de páginas.
+
+La respuesta incluye proyecto/operación, `capturedAt`, recuentos, `canceled`, `deadlineExceeded` y `files`. Cada entrada contiene `output`, `status`, `filename`, `mime` y, si está lista, `byteLength`/`base64` con todos sus bytes; fallo o cancelación se informa por salida. Los formatos ya listos se conservan. Un fallo durante la captura puede devolver error de llamada en vez de una lista parcial. Un jobId duplicado activo del mismo proyecto devuelve busy; el registro se retira en finally. El timeout declarado es 180 s y el trabajo deja margen de limpieza antes de ese límite.
+
+`wh_publishing_cancel_export` recibe el mismo `projectId`/`jobId`, detiene su Worker PDF propio y devuelve `active`/`canceled`. No cancela otro proyecto/operación ni borra archivos listos. Un identificador terminado/desconocido devuelve `active:false`. El jobId se conoce antes de exportar y una segunda clave puede usarlo mientras la primera llamada sigue pendiente.
+
+Una nueva llamada `wh_publishing_export` **recaptura** el estado persistido; una operación terminada no conserva una copia capturada RPC reutilizable. Reintentar pendientes de la UI sí reutiliza su captura privada, sin DB. No hay un nuevo permiso, motor de jobs persistente o herramienta Undo de exportación. La prueba Native de Root observó catálogo 958 y estas dos herramientas por transporte real; no certifica todo el catálogo. [Evidencia por corte y entrega](../tasks/vvd1095/verification-publishing-batch.md).
+
+La fuente C42 está aprobada exactamente en CAS54 e integrada en Main. El Native fresco de Main usa ejecutor/stdio Main y renderer WT existente tras verificar las 42 tuplas canónicas; no reutiliza pre2 ni el ensayo formal, ni acredita todos los transportes del catálogo.

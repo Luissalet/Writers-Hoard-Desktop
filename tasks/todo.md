@@ -1802,3 +1802,19 @@ Este apéndice conserva los anteriores checkpoints. La fuente final es42 rutas e
 - [ ] Continuar dimensiones independientes, grow/crop, relleno/anclas y demás remaining-parity. No cerrar1095 ni la paridad global.
 
 [Contrato y atribución por capa](vvd1095/verification-world-scale.md).
+
+### Checkpoint54: PDF Browser y lote de publicación C42
+
+Este checkpoint sucede al de escala53 y conserva los anteriores. El corte final de autor tiene42 rutas:40 anteriores exactas, dos condiciones de token ZIP en la UI y una regresión shipping nueva; [estado y evidencia](vvd1095/verification-publishing-batch.md).
+
+- [x] Implementar PDF seleccionable/buscable mediante el núcleo editorial existente en WASM y Worker propio, con tablas/columnas, TOC, notas por capítulo/libro y assets locales.
+- [x] Implementar captura de sólo lectura coherente y seis salidas, reintento UI sin DB, resultados parciales, descargas/ZIP explícitos, scopes y márgenes/numeración PDF/Word opcionales.
+- [x] Exponer export/cancel_export por MCP y conservar errores, archivos listos, otras operaciones y limpieza; registrar Native real de Root sobre el corte 41 con su atribución.
+- [x] Conservar las positivas previas al producto, RED históricos, fallos de harness y límites; corregir el ZIP obsoleto con el mismo oráculo peer y portar únicamente sus dos casos a shipping.
+- [x] Preparar propuesta documental stage con prefijos y sidecar literales; no aplicar canónicos ni registrar entrega por este checklist.
+- [x] Registrar fuente `2e54a2d476c31b49cea48a56cb5c4582c9d38114`, aprobación exacta CAS54 y FF Main de 42 blobs; comprobaciones finales quick/crítica/build sobre 42 rutas y Native Main fresco con ejecutor/stdio Main y renderer WT autorizado por las 42 tuplas canónicas. No se hereda Native41 al corte final.
+- [x] Registrar manual54 actualizado por Root con CAS y lectura nativa completa: ROOT-manual54-receipt.json confirma resto del documento, estilos, pestañas y metadatos exactos.
+- [ ] Aplicar/commitear documentos y completar continuidad por Root, acreditados por sus recibos separados; no anticipar hashes ni escrituras comunes.
+- [ ] Continuar UNKNOWN de archivos de referencia y los demás residuos1095; no cerrar paridad global ni filas agrupadas por este flujo.
+
+El estado de este checklist corresponde al corte de propuesta anterior a su aplicación. El recibo final de entrega de Root y el registro de continuidad determinan su estado posterior; una casilla histórica no exige repetir una operación ya acreditada. No se afirma continuidad realizada sin ese recibo.
