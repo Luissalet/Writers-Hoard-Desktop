@@ -1735,3 +1735,35 @@ Esta adenda sucede a las casillas pendientes del bloque «Next verified differen
 - [ ] Continuar todos los residuos de remaining-parity.md, sin E global en filas agrupadas ni cierre de1095.
 
 [Contrato y atribución actuales](vvd1095/verification-directions-dismissals-three.md). Las casillas de completar toda la paridad siguen pendientes.
+
+### Continuación: clasificador local en Browser y ajuste de Timeline
+
+El checkpoint anterior está entregado: source47d448bf/CAS50 y documentación3f3c029 en Main, manual+997UTF16 y continuidad verificados; diez locks comunes liberados. Recibo final: `_stage/parity-directions-next/ROOT-delivery50.json`. La tarea1095 y la paridad general siguen abiertas.
+
+- [x] Preservar los dos RED originales del puerto Browser y repetir el mismo oráculo por HTTP Vite: editor normal/handler/worker sin modelo pasan; no se atribuye inferencia a los controles simulados.
+- [x] Corregir los dos defectos de ciclo de vida reproducidos independientemente: ID activo duplicado incluso con texto vacío, y doble cierre con trabajo encolado durante disposal. Mismos oráculos RED→GREEN.
+- [ ] Verificar preparación e importación normales con los cuatro assets fijados, inferencia WASM CPU real, offsets UTF-16 y red bloqueada, cancelación y recuperación conservando documentos y descartes.
+- [ ] Operar el editor normal en Brave y el puente MCP mediante dos claves reales; crear ficha/Undo, Base/era, recarga y limpieza propias.
+- [ ] Ejecutar gates del nuevo corte, revisión independiente exacta e integración por rutas en Main con su lock, sin push; actualizar documentación/manual/continuidad.
+- [x] Contrastar Fit en Timeline real de referencia: zoom y ajuste del rango configurado1500–1900, ajustes cancelados y evento propio intacto. No se infiere fit de sólo eventos a partir de un evento.
+- [ ] Investigar y probar el equivalente mínimo en SwimLane, distinguiendo viewport de rango authored y respetando el calendario/época; después seguir con los demás residuos del ledger.
+
+### Checkpoint Browser NER real y Timeline Fit — fuente41 entregada
+
+Esta adenda conserva todas las líneas anteriores, incluidas las doce del plan ya añadidas por ROOT/autor. Fuente07d868d8982ca46f4e1a192f20a4688db60155d8 sobre3f3c029,41rutas, aprobada exactamente por CAS51 e integrada por FF en Main, con41blobs/índice/tracked y foreign verificados.
+
+- [x] Verificar preparación/importación de cuatro assets reales, inferencia WASM CPU, offsets UTF-16 y recreación con red externa bloqueada en el renderer de ejecución; build completo emite el mismo worker/WASM.
+- [x] Probar Brave normal: autoescaneo, cuatro Files en dos selecciones, tipo elegido/creación vacía, descarte, reload, recuperar/Undo, cálculo largo cancelado y reescaneo; prosa y hermano exactos, limpieza77contadores0 y pestaña cerrada.
+- [x] Verificar MCP real dos claves16/20/18 y2Undo HTTP, conservación, EOF/pending0 y cuatro proyectos limpios. Mantener aparte Native metadata68 y sus negativas actualizadas legítimamente.
+- [x] Implementar y probar Fit/resize/manual, ámbito Base/era de All years, SDK público y Native16/20/16 con sus límites; revisión final dirigida del clamp y fixture equivalente al host normal.
+- [x] Verificar Timeline en Brave: Fit49%/9%, rango/precisión exactos y reload manual100%, All years swim/list sólo época y DOM Base→era→Base correcto tras reparar únicamente la key de fixture; dos bancos limpios, viewport restaurado y pestaña cerrada.
+- [x] Leer quick117s, crítica396/135s y build303s con fuente estable y dictamen preparatorio independiente; SHIP visual sólo de controles/capturas, separado del voto formal51.
+- [x] Obtener approve exacto CAS51 e integrar Main07d868d por FF; comprobar manifest954/queries/synthetic y NativeTimeline16/20/16 con dos claves, EOF/pending0/cleanup0. Merge liberado según ROOT, sin push.
+- [x] Preparar y revisar las13adendas documentales de este lote para su aplicación por ROOT; el commit resultante se acredita por su propio registro de entrega.
+- [x] Actualizar el manual51 y verificar readback, estructura, estilos e índices exactos, según ROOT-manual51-receipt.json.
+
+El estado final de aplicación/commit documental y continuidad común se consulta en los registros separados ROOT-delivery51.json/ROOT-continuity51.json, cuando se emitan. El último recibo emitido de cada ámbito prevalece sobre este checkpoint de preparación; aquí no se anticipan hashes, emisión ni continuidad realizada.
+
+- [ ] Continuar todos los residuos de remaining-parity.md. La UI Cancelar preparación no se ejecutó en Brave; no convertir prueba del puerto en esa interacción ni afirmar paridad global.
+
+[Evidencia y límites del lote](vvd1095/verification-browser-ner-timeline.md). El borrador del ensayo SDK es React independiente; no un Source host.
