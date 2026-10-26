@@ -206,3 +206,8 @@ El contraste1532 sucede al candidato de tema vivo de la sección1528: implementa
 ## Etiquetas y orden de clips 3D — continuación1095
 
 La implementación actual añade nombres de presentación y orden persistentes sobre todos los clips originales, con edición propietaria, MCP por ámbito, CAS y Deshacer; las salidas compactas/Reader/wiki sólo los leen. El campo opcional no reescribe GLB ni originales, y la ausencia antigua sigue sin migración. La fuente31c5598664c4f4de14880ae71d65c45530cc78f7 está aprobada exactamente en CAS47 e integrada en Main con cuatro focos PASS; el manual y la continuidad común también están actualizados. El commit/FF documental tiene su recibo posterior ROOT-delivery-final.json: [contrato, evidencia y estado](tasks/vvd1095/verification-model-animation-presentation.md). La fila D1#56 conserva PARTIAL para lo no acreditado, incluida eliminación de clips y edición de rigs; la tarea1095 y la paridad general permanecen abiertas. Los recuentos históricos no se recalculan por esta adición.
+
+
+## Continuación hasta paridad completa1095
+
+El [registro reconciliado de capacidades restantes](tasks/vvd1095/remaining-parity.md) reúne las seis matrices, el inventario1041 y el SDK. El lote de filas, vínculos, intensidad y concentración ya tiene evidencia e integración acotadas; no cierra el objetivo global. Resolver los residuos y las incógnitas por flujo real web/SDK/MCP, conservando portabilidad y datos existentes. Sólo una API externa o pago demostrado excluye su suboperación: ONLINE histórico no excluye colaboración/local peers, alojamiento propio ni las partes locales de una capacidad. No detenerse tras un checkpoint ni pedir a Luis que reinicie el encargo.

@@ -202,3 +202,8 @@ lectura exacta del manual actualizado).
   visible el botón funciona. Siguiente paso: exponer en la vista de prueba el
   estado del store (`width`, `fitViewQueued`, `nodesInitialized`) para ver qué
   condición falta.
+
+
+## Estado del lote1095 de filas, vínculos, intensidad y concentración
+
+Los fallos de producto detectados en este lote (reserva de Undo tras abort, journal al salir del editor y gesto/menú de filas) están corregidos y verificados; sus FAIL históricos se conservan en [tasks/vvd1095/verification-rows-places-zones-focus.md](tasks/vvd1095/verification-rows-places-zones-focus.md). No requieren decisión de Luis. Los residuos implementables y observaciones aún desconocidas se trabajan en el [registro de paridad](tasks/vvd1095/remaining-parity.md), sin convertirlos en bloqueos del usuario ni declarar paridad completa. Se conserva el resto de este documento y su historia.

@@ -735,3 +735,10 @@ The optional `client.theme` service and `useLocalToolTheme` hook expose nine res
 The local 3D viewer saves labels and presentation order for all original animation clips. Choose a clip, edit its label and save, or move it earlier/later. Clearing a label restores its original name/fallback; Reset removes the optional presentation. Previous/next follows the saved order while identity remains the source index, including duplicate or unnamed clips. Owner editing and two scoped MCP tools share version checks and normal Undo; compact views and Reader/wiki remain read-only. Model binaries and original files are preserved. [Contract, attributed evidence and delivery status](tasks/vvd1095/verification-model-animation-presentation.md). Task1095 and overall parity remain open/partial.
 
 Source31c5598664c4f4de14880ae71d65c45530cc78f7 was approved exactly at submission47 and integrated into Main; four focused Main checks passed, including two-key Native. The manual and common continuity are updated. The separate documentation commit/FF is recorded by ROOT-delivery-final.json; overall parity and task1095 remain open.
+
+
+## Row order, map links, zone intensity and concentration
+
+Tables and Sheets add Insert above, Move up/down and a row-header Pointer handle. Changes preserve row IDs and cells, use normal Undo and remain separate from sort/filter; live Codex view ordering is still a separate gap. Worldgen place links reuse the normal Codex picker with title/alias word search, while scenes/writings/events remain available. Zone intensity uses paired slider/number controls from0 to100; zero keeps its zone and label.
+
+Local Source and legacy editors expose optional `context.focusMode` and `useLocalToolFocusMode(context)`. Concentration hides shell chrome while retaining editors and unsaved drafts; Exit or free Escape restores it. Fullscreen remains separate. `wh_workspace_focus_get/set` use actual mounted host IDs without a draft save; the catalogue has949tools. [Use, exact evidence and delivery](tasks/vvd1095/verification-rows-places-zones-focus.md); [remaining parity](tasks/vvd1095/remaining-parity.md). General web/SDK parity remains open.
