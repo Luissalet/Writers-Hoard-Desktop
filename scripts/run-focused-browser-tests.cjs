@@ -3,6 +3,7 @@ const esbuild = require('esbuild');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { viteCssTextPlugin } = require('./esbuild-vite-css.cjs');
 
 // Same as run-critical-tests: SwiftShader keeps WebGL available headless, so
 // focused tests can mount the real 3D view instead of its 2D fallback.
@@ -25,7 +26,7 @@ async function main() {
       resolveDir: root,
     },
     bundle: true, platform: 'browser', format: 'iife', target: 'chrome130', jsx: 'automatic',
-    outfile: path.join(directory, 'test.js'), alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' },
+    outfile: path.join(directory, 'test.js'), alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' }, plugins: [viteCssTextPlugin()],
     define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env': '{"DEV":false,"BASE_URL":"/"}', 'import.meta.url': '"file:///focused-test.js"' },
     logLevel: 'warning',
   });

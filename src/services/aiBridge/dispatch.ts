@@ -11,6 +11,7 @@
 // twice in development, and a double subscription here would answer every
 // call twice (tasks/lessons.md #19).
 
+import Dexie from 'dexie';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { getBridgeTool } from './manifest';
 import { BridgeError, type ToolArgs } from './tools/shared';
@@ -92,13 +93,17 @@ function announceWrite(tool: string, result: unknown): void {
   const shape = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
   const audit = (shape.__audit && typeof shape.__audit === 'object' ? shape.__audit : {}) as Record<string, unknown>;
   const str = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
-  notifyDataChanged({
+  const emit = () => Dexie.ignoreTransaction(() => notifyDataChanged({
     source: tool === '__undo' ? 'undo' : 'ai',
     tool,
     table: str(audit.table),
     entityId: str(audit.entityId) ?? str(shape.entityId),
     projectId: str(audit.projectId),
-  });
+  }));
+  let transaction = Dexie.currentTransaction;
+  if (!transaction) { emit(); return; }
+  while (transaction.parent) transaction = transaction.parent;
+  transaction.on('complete', emit);
 }
 
 const bridge = typeof window !== 'undefined' ? window.electronAPI?.aiBridge : undefined;

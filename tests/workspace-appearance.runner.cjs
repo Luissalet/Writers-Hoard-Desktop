@@ -4,6 +4,7 @@ const esbuild = require('esbuild');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { viteCssTextPlugin } = require('../scripts/esbuild-vite-css.cjs');
 
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
@@ -23,7 +24,7 @@ async function main() {
       resolveDir: root,
     },
     bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', target: 'chrome130', outfile: path.join(directory, 'test.js'),
-    alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' },
+    alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' }, plugins: [viteCssTextPlugin()],
     define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env': '{"DEV":false,"BASE_URL":"/"}', 'import.meta.url': '"file:///reference-ui.js"' },
     logLevel: 'warning',
   });

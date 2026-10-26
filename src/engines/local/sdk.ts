@@ -2,6 +2,11 @@ export {createLocalToolIcons} from './icons';
 export type {LocalToolIcons,LocalToolIconDescriptor,LocalToolIconPack,LocalToolIconPage,LocalToolIconSearchOptions,LocalToolIconSvgResolver} from './icons';
 export {LocalToolIcon} from './LocalToolIcon';
 export type {LocalToolIconProps} from './LocalToolIcon';
+export {localToolThemeColorTokens} from './themes';
+export type {LocalToolThemeColorToken,LocalToolThemeScope,LocalToolThemeSnapshot,LocalToolThemeSource} from './themes';
+export {useLocalToolTheme} from './useLocalToolTheme';
+export type {LocalToolThemeView} from './useLocalToolTheme';
+export {LocalToolAppliedThemeProvider} from './appliedTheme';
 export {useLocalToolContextMenu,createRecordingLocalToolContextMenu} from './contextMenus';
 export type {LocalToolMenuEntry,LocalToolMenuTrigger,LocalToolContextMenuPort,LocalToolRecordedMenuRequest} from './contextMenus';
 import {prepareLocalToolTours,type LocalToolTourSpec,type LocalToolTutorialPort} from './tutorials';
@@ -55,6 +60,7 @@ export interface LocalToolCodexCard{id:string;title:string;type:CodexEntryType;t
 export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:readonly string[];limit?:number}
 export interface LocalToolOpenDocumentOptions{placement?:'beside'}
 export interface LocalToolClient<T extends LocalToolJson>{
+  readonly theme?:import('./themes').LocalToolThemeSource;
   readonly defaults?:import('./defaults').LocalToolDefaults;
   readonly icons?:import('./icons').LocalToolIcons;
   readonly locale?:import('./locales').LocalToolLocaleSource;

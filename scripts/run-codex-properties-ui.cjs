@@ -4,6 +4,7 @@ const esbuild = require('esbuild');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { viteCssTextPlugin } = require('./esbuild-vite-css.cjs');
 
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
@@ -29,10 +30,7 @@ async function main(options = {}) {
     alias: { '@': path.join(root, 'src') }, loader: { '.css': 'css' },
     // Match Vite's ?inline contract: native shadow surfaces consume a CSS
     // string, which must never be emitted into the host renderer stylesheet.
-    plugins: [{ name: 'native-inline-css', setup(build) {
-      build.onResolve({ filter: /\.css\?inline$/ }, args => ({ path: path.resolve(args.resolveDir, args.path.slice(0, -7)), namespace: 'native-inline-css' }));
-      build.onLoad({ filter: /.*/, namespace: 'native-inline-css' }, args => ({ contents: fs.readFileSync(args.path, 'utf8'), loader: 'text' }));
-    } }],
+    plugins: [viteCssTextPlugin()],
     banner: {js:'const __qaEmptyGlob=()=>({});'},
     define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env': '{"DEV":false,"BASE_URL":"/"}', 'import.meta.glob':'__qaEmptyGlob', 'import.meta.url': '"file:///reference-ui.js"' },
     logLevel: 'warning',

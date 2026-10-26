@@ -523,7 +523,11 @@ for (const binaryId of ['yt-dlp', 'gallery-dl']) {
 // interface: critical dark-theme text tokens must remain readable
 // ---------------------------------------------------------------------------
 {
-  const css = read('src/index.css');
+  const indexCss = read('src/index.css');
+  if (!indexCss.includes('@import "./services/workspaceAppearance/defaultTheme.css";')) {
+    fail('interface: index.css must import the authoritative default theme.');
+  }
+  const css = indexCss + '\n' + read('src/services/workspaceAppearance/defaultTheme.css');
   const token = (name) => css.match(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
   const luminance = (hex) => {
     const channels = hex.slice(1).match(/../g).map((part) => Number.parseInt(part, 16) / 255);

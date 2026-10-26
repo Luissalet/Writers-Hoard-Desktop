@@ -1,5 +1,6 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {useContext,useEffect,useMemo,useRef,useState} from 'react';
 import type {LocalToolClient,LocalToolJson} from './sdk';
+import {LocalToolAppliedThemeContext} from './appliedThemeContext';
 
 export interface LocalToolIconProps {
  client:Pick<LocalToolClient<LocalToolJson>,'icons'>;icon?:string|null;fallback?:string|null;
@@ -8,7 +9,8 @@ export interface LocalToolIconProps {
 /** Rendering is optional; the persisted identity remains ordinary JSON. */
 export function LocalToolIcon({client,icon,fallback='BookOpen',size=20,color,label,className}:LocalToolIconProps){
  const canvas=useRef<HTMLCanvasElement>(null),wrapper=useRef<HTMLSpanElement>(null);
- const binding=useMemo(()=>({client,icons:client.icons,icon,fallback,size,color}),[client,icon,fallback,size,color]);
+ const appliedTheme=useContext(LocalToolAppliedThemeContext),appliedInk=color==null?appliedTheme:undefined;
+ const binding=useMemo(()=>({client,icons:client.icons,icon,fallback,size,color,appliedInk}),[client,icon,fallback,size,color,appliedInk]);
  const [painted,setPainted]=useState<typeof binding>();
  const drawn=painted===binding;
  useEffect(()=>{
