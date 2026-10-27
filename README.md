@@ -805,3 +805,12 @@ The next57 work retains nine separately reproduced public ABS-coordinate failure
 [Main56 receipt](_stage/parity-map-domain-next/ROOT-main56-FF-r1.json), [formal56 review](_stage/parity-map-domain-next/INDEPENDENT-FORMAL56-REVIEW-R1.md).
 
 Root updated the manual once:90→638UTF16, delta548 at113268/t.0; the whole resource matches the expected change except revision, with other text/styles/tabs/metadata exact. Five aliases were released. [Manual56 receipt](_stage/parity-map-domain-next/ROOT-manual56-receipt-r1.json). Common continuity has its own receipt.
+
+
+## Finite map keys and Story coordinates: delivery57
+
+The delivered correction makes `wh_add_place` and `wh_duplicate_place` return the same absolute source key used by public place lists, while public x/y remain local to the current sheet. Story list and prose/order updates now project the stored source position once, preserving both events' IDs, text and order. Landmark readers use the absolute source identity for canonical and historical feature keys while retaining local drawing coordinates. Label/stamp same-cell `#2` identities remain supported.
+
+[API and attributed verification](tasks/vvd1095/verification-source-abs.md): the original16 criteria, a69-check four-family control, and independent two-key Native20 criteria pass. A separate26-assertion generated-branch fixture is installed without changing the old test prefix; it uses explicit fixture data, not procedural generation. Root final quick220674ms,397critical checks152033ms and build456009ms pass on112Source/146code. Source `a91027f3dc54864fc91c17d92d6dc23b2290f342` has exact CAS57 approval and verified Main FF:7blobs/disk exact,48untracked preserved,clean index,no push. [Main receipt](_stage/parity-map-domain-next/ROOT-main57-FF-r1.json). Earlier143-path gates remain historical.
+
+This does not migrate ambiguous old local links or repair earlier doubled coordinates automatically. Painted landmarks still show their incumbent default name (`Volcán` in the exercised case) despite the custom add name retained in the journal; that is a separate existing residue. Fog/zones have separately measured13 failures plus3 finite-wrap failures for58. Paper-cut mountain rendering remains under reference comparison. Task1095 and overall web/SDK parity remain open.

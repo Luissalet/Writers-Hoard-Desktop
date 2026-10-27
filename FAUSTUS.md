@@ -280,3 +280,12 @@ Los nueve fallos ABS reservados para57 se conservan aparte: dos keys de AddPlace
 [Recibo Main56](_stage/parity-map-domain-next/ROOT-main56-FF-r1.json) y [revisión formal56](_stage/parity-map-domain-next/INDEPENDENT-FORMAL56-REVIEW-R1.md), con recusaciones por autoría central/Road explícitas.
 
 Root actualizó el manual una vez:90→638UTF16, delta548 en113268/t.0; recurso completo exacto salvo revisión, con otros textos/estilos/tabs/metadatos intactos. Cinco alias liberados. [Recibo manual56](_stage/parity-map-domain-next/ROOT-manual56-receipt-r1.json). La continuidad común conserva su recibo separado.
+
+
+## Entrega57: identidades y sucesos de hojas finitas
+
+La entrega corrige la clave devuelta por `wh_add_place`/`wh_duplicate_place`: coincide con la identidad ABS de los listados, manteniendo x/y públicos locales. Story lista centros locales y las actualizaciones de prosa y orden conservan posiciones durables, IDs y texto de ambos hermanos. El lector de landmarks deriva canonical/alias histórico desde el origen ABS sin desplazar sus coordenadas locales; label/stamp conservan la segunda marca#2.
+
+[Uso, causalidad y límites](tasks/vvd1095/verification-source-abs.md):16criterios originales GREEN,69comprobaciones de cuatro familias y Native independiente de dos claves20criterios/32tools/36RPC/16Undo/48IPC. La regresión pura añadida26aserciones usa fixture explícita en la rama generada y helpers normales de adopción, alias/precedencia/move/style/remove y dos bounds; el prefijo legacy6324B es literal. No acredita generación procedural.
+
+Gates finales Root quick220674ms/397críticas152033ms/build456009ms PASS sobre112Source/146code. Fuente `a91027f3dc54864fc91c17d92d6dc23b2290f342`, aprobación exacta CAS57 y FFMain verificado:7blobs/disco exactos,48untracked preservados,índice limpio,sin push. Los gates143 anteriores siguen históricos. Sin migración de claves locales ambiguas ni reparación automática de posiciones antiguas ya dobladas. El nombre visible por defecto de landmark pintado (`Volcán`) sigue como residuo separado. Fog/zones13fallos medidos y wrap3 quedan para58; Paper cut requiere contraste funcional adicional.1095 sigue abierta; frío y descargas conservan sus límites previos.

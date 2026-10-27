@@ -254,3 +254,12 @@ Los nueve fallos ABS reservados para57 se conservan aparte: dos keys de AddPlace
 [Recibo Main56](_stage/parity-map-domain-next/ROOT-main56-FF-r1.json) y [revisión formal56](_stage/parity-map-domain-next/INDEPENDENT-FORMAL56-REVIEW-R1.md), con recusaciones por autoría central/Road explícitas.
 
 Root actualizó el manual una vez:90→638UTF16, delta548 en113268/t.0; recurso completo exacto salvo revisión, con otros textos/estilos/tabs/metadatos intactos. Cinco alias liberados. [Recibo manual56](_stage/parity-map-domain-next/ROOT-manual56-receipt-r1.json). La continuidad común conserva su recibo separado.
+
+
+## Entrega57 y siguiente58
+
+Entregado el corte de claves ABS/listados y Story local sin doble origen. Ya pasan el original16criterios, el control69de cuatro familias y Native independiente20criterios; Root instaló26aserciones puras de landmarks generados mediante fixture explícita/adopción normal. Gates finales Root quick220674ms/397críticas152033ms/build456009ms PASS sobre112Source/146code. Fuente `a91027f3dc54864fc91c17d92d6dc23b2290f342`, aprobación exacta CAS57 y FFMain verificado:7blobs/disco exactos,48untracked preservados,índice limpio,sin push. Los gates143 anteriores siguen históricos. [Evidencia acotada](tasks/vvd1095/verification-source-abs.md).
+
+Siguiente58: resolver los13fallos finitos fog/zones medidos (9API+4Canvas) y los3fallos de wrap aislados con origen0, preservando controles legacy y reutilizando proyección/máscara existentes. No afirmar todavía UI/eras/PNG/ruta reveal corregidos. El nombre custom al añadir landmark sigue guardado en journal pero no visible en lugar del default: residuo previo separado, con contrato/repro propios antes de otro cambio. No migrar automáticamente identidades locales antiguas ambiguas ni posiciones ya dañadas.
+
+La referencia Root Paper cut acredita selector persistente y acabado2D distinto sobre un volcán, no algoritmo/3D/export universal. Contrastar los renderers y alternativas propias existentes antes de definir el delta. Continúan Mediterráneo versionado y los demás residuos cartográficos/escritura/campaña/SDK del registro1095. Sin porcentajes ni exclusión automática por ONLINE.
