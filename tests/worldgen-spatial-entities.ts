@@ -153,3 +153,128 @@ export function testWorldgenSpatialEntities(): string {
 
   return 'Worldgen spatial landmark identity and overrides';
 }
+
+/** Explicit generated-branch fixture; this does not run procedural generation. */
+export async function testWorldgenSpatialEntityDomainIdentity(): Promise<string> {
+  const { captureDomainCatalogue } = await import('@/engines/worldgen/core/domainCatalogue');
+  const {
+    adoptDomainDocument, appendDomainEdits, appendDomainResize,
+    readDomainDocument, serializeDomainDocument,
+  } = await import('@/engines/worldgen/core/domainDocument');
+  const { replayDomain } = await import('@/engines/worldgen/core/domainReplay');
+  const { resizeBounds, validWorldDomain } = await import('@/engines/worldgen/core/worldDomain');
+  const { serializeEdits } = await import('@/engines/worldgen/core/edits');
+
+  const source = worldWith({ type: 'volcano', x: 20, y: 6, strength: 0.8 });
+  const legacy = serializeEdits([]);
+  const catalogue = captureDomainCatalogue(source, EMPTY_GEOGRAPHY, legacy);
+  const boundsA = { x: 16, y: 0, width: 16, height: 16 };
+  const adopted = adoptDomainDocument(source, legacy, catalogue, boundsA);
+  const document = readDomainDocument(serializeDomainDocument(adopted));
+  assert(document, 'adopted domain journal did not round-trip');
+  const canonical = 'landmark:volcano:20,6';
+  const alias = 'feature:volcano:20,6';
+  assert(catalogue.entries.some(entry => entry.kind === 'landmark' && entry.key === canonical),
+    'adoption catalogue did not retain source landmark identity');
+
+  const first = replayDomain(source, document, 0);
+  assert(validWorldDomain(first.domain, first.params, first.width, first.height),
+    'adoption helper did not produce valid domain metadata');
+  assert(first.landmarks.length === 1 && !(first.painted?.markers.length),
+    'fixture did not isolate the generated-landmark branch');
+  const firstEntities = resolveWorldLandmarks(first);
+  assert(firstEntities.length === 1, 'generated landmark missing from finite domain');
+  const initial = firstEntities[0];
+  assert(initial.key === canonical && initial.legacyKeys.includes(alias),
+    'finite generated landmark identity did not include absolute source origin');
+  assert(initial.x === 4 && initial.y === 6 && initial.sourceX === 4 && initial.sourceY === 6,
+    'finite generated landmark did not retain local presentation/source coordinates');
+  const firstAtlas = buildAtlas(first, EMPTY_GEOGRAPHY);
+  assert(firstAtlas.byKey.get(canonical) === firstAtlas.byKey.get(alias)
+    && firstAtlas.byKey.get(canonical)?.key === canonical,
+  'finite Atlas did not resolve canonical and historical absolute identities together');
+  assert(!firstAtlas.byKey.has('landmark:volcano:4,6'),
+    'finite Atlas invented an ambiguous local canonical alias');
+
+  const aliasDocument = appendDomainEdits(document, [
+    { kind: 'rename', target: 'feature', key: alias, name: 'Monte Ceniza' },
+    { kind: 'move', target: 'feature', key: alias, x: 22, y: 7 },
+    { kind: 'style', target: 'feature', key: alias,
+      style: { icon: 'caldera', color: '#d1492e', size: 1.4, labelVisible: true } },
+  ]);
+  const aliasWorld = replayDomain(source, aliasDocument, 1);
+  const aliasEntity = resolveWorldLandmarks(aliasWorld)[0];
+  assert(aliasEntity?.key === canonical && aliasEntity.name === 'Monte Ceniza',
+    'finite historical alias rename did not resolve to source identity');
+  assert(aliasEntity.x === 6 && aliasEntity.y === 7 && aliasEntity.sourceX === 4 && aliasEntity.sourceY === 6,
+    'finite historical move was not projected once or moved source coordinates');
+  assert(aliasEntity.style.icon === 'caldera' && aliasEntity.style.color === '#d1492e'
+    && aliasEntity.style.size === 1.4 && aliasEntity.style.labelVisible,
+  'finite historical alias style was not applied');
+
+  const correctedDocument = appendDomainEdits(aliasDocument, [
+    { kind: 'rename', target: 'landmark', key: canonical, name: 'La Caldera Roja' },
+    { kind: 'move', target: 'landmark', key: canonical, x: 23, y: 8 },
+    { kind: 'style', target: 'landmark', key: canonical, style: { icon: 'volcano', size: 2 } },
+  ]);
+  const corrected = replayDomain(source, correctedDocument, 2);
+  const resolved = resolveWorldLandmarks(corrected)[0];
+  assert(resolved?.key === canonical && resolved.name === 'La Caldera Roja'
+    && resolved.x === 7 && resolved.y === 8,
+  'canonical finite rename/move did not win over historical alias');
+  assert(resolved.sourceX === 4 && resolved.sourceY === 6
+    && resolved.style.icon === 'volcano' && resolved.style.size === 2
+    && resolved.style.color === '#d1492e' && resolved.style.labelVisible,
+  'canonical finite style precedence lost inherited fields or moved source coordinates');
+  const correctedAtlas = buildAtlas(corrected, EMPTY_GEOGRAPHY);
+  assert(correctedAtlas.byKey.get(canonical)?.name === 'La Caldera Roja'
+    && correctedAtlas.byKey.get(alias) === correctedAtlas.byKey.get(canonical)
+    && correctedAtlas.byKey.get(canonical)?.x === 7,
+  'finite Atlas ignored resolved rename/move or historical alias');
+
+  const boundsB = resizeBounds(boundsA, 24, 16, 'east');
+  assert(boundsB.x === 8 && boundsB.y === 0, 'second finite frame is not discriminating');
+  const resizedDocument = appendDomainResize(correctedDocument, boundsB, 'east', 'sea', 0);
+  const resized = replayDomain(source, resizedDocument, 3);
+  assert(validWorldDomain(resized.domain, resized.params, resized.width, resized.height),
+    'resized fixture domain metadata is invalid');
+  const resizedEntity = resolveWorldLandmarks(resized)[0];
+  assert(resizedEntity?.key === canonical && resizedEntity.legacyKeys.includes(alias)
+    && resizedEntity.name === 'La Caldera Roja',
+  'second bounds changed generated landmark source identity or prose');
+  assert(resizedEntity.x === 15 && resizedEntity.y === 8
+    && resizedEntity.sourceX === 12 && resizedEntity.sourceY === 6,
+  'second bounds did not reproject presentation and unmoved source coordinates once');
+  assert(resizedEntity.style.icon === 'volcano' && resizedEntity.style.size === 2
+    && resizedEntity.style.color === '#d1492e', 'second bounds lost sparse style precedence');
+  const resizedAtlas = buildAtlas(resized, EMPTY_GEOGRAPHY);
+  assert(resizedAtlas.byKey.get(alias) === resizedAtlas.byKey.get(canonical)
+    && resizedAtlas.byKey.get(canonical)?.x === 15
+    && !resizedAtlas.byKey.has('landmark:volcano:12,6'),
+  'second Atlas frame changed identity or invented a local alias');
+
+  const removedDocument = appendDomainEdits(correctedDocument, [
+    { kind: 'remove', target: 'feature', key: alias },
+  ]);
+  const removed = replayDomain(source, removedDocument, 4);
+  assert(resolveWorldLandmarks(removed).length === 0,
+    'finite historical alias removal did not hide landmark');
+  const hidden = resolveWorldLandmarks(removed, { includeHidden: true });
+  assert(hidden.length === 1 && hidden[0].hidden && hidden[0].key === canonical,
+    'finite hidden inspector lost absolute source identity');
+  assert(!buildAtlas(removed, EMPTY_GEOGRAPHY).byKey.has(canonical),
+    'finite Atlas included a removed landmark');
+  const restoredDocument = appendDomainEdits(removedDocument, [
+    { kind: 'restore', target: 'landmark', key: canonical },
+  ]);
+  const restored = replayDomain(source, restoredDocument, 5);
+  assert(resolveWorldLandmarks(restored)[0]?.name === 'La Caldera Roja',
+    'finite canonical restore did not clear historical removal and retain prose');
+  const removedAgain = replayDomain(source, appendDomainEdits(restoredDocument, [
+    { kind: 'remove', target: 'landmark', key: canonical },
+  ]), 6);
+  assert(resolveWorldLandmarks(removedAgain).length === 0,
+    'later finite canonical removal did not win over restore');
+
+  return 'Explicit generated landmark fixture: adopted finite identity, overrides and two bounds';
+}

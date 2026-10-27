@@ -167,10 +167,12 @@ export function legacyLandmarkKey(landmark: Pick<Landmark, 'type' | 'x' | 'y'>):
 export function resolveWorldLandmark(
   landmark: Landmark,
   edits?: AppliedEdits,
+  origin = { x: 0, y: 0 },
 ): WorldSpatialEntity {
+  const identity = { type: landmark.type, x: landmark.x + origin.x, y: landmark.y + origin.y };
   return resolveWorldSpatialEntity({
-    key: landmarkKey(landmark),
-    legacyKeys: [legacyLandmarkKey(landmark)],
+    key: landmarkKey(identity),
+    legacyKeys: [legacyLandmarkKey(identity)],
     kind: 'landmark',
     type: landmark.type,
     name: LANDMARK_NAMES[landmark.type],
@@ -192,11 +194,11 @@ export function resolveWorldLandmark(
  * can request them to offer a restore action without reconstructing identity.
  */
 export function resolveWorldLandmarks(
-  world: Pick<WorldData, 'landmarks' | 'painted'>,
+  world: Pick<WorldData, 'landmarks' | 'painted' | 'domain'>,
   options: { includeHidden?: boolean } = {},
 ): WorldSpatialEntity[] {
   const entities = world.landmarks.map((landmark) =>
-    resolveWorldLandmark(landmark, world.painted));
+    resolveWorldLandmark(landmark, world.painted, world.domain?.bounds));
   /**
    * The ones the reader placed.
    *
@@ -214,6 +216,7 @@ export function resolveWorldLandmarks(
     entities.push(resolveWorldLandmark(
       { type: m.landmark, x: Math.round(m.x), y: Math.round(m.y), strength: 1 } as Landmark,
       world.painted,
+      world.domain?.bounds,
     ));
   }
   return options.includeHidden ? entities : entities.filter((entity) => !entity.hidden);

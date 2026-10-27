@@ -78,7 +78,7 @@ import {
 import { getAnchorAdapter } from '@/engines/_shared/anchoring/registry';
 import { registerFallbackAnchorAdapters } from '@/engines/_shared/anchoring/registerFallbackAdapters';
 import type { Scene, DialogBlock } from '@/engines/dialog-scene/types';
-import { testWorldgenSpatialEntities } from './worldgen-spatial-entities';
+import { testWorldgenSpatialEntities, testWorldgenSpatialEntityDomainIdentity } from './worldgen-spatial-entities';
 import { testWorldgenSemanticZoom } from './worldgen-semantic-zoom';
 import { testAiBridgeContracts } from './ai-bridge';
 import { testAiRuntimeContracts } from './ai-runtime';
@@ -5186,6 +5186,7 @@ async function run(): Promise<void> {
   await testBridgeLinksStayInProject();
   passed.push('AI bridge: every linked row id stays inside the project');
   passed.push(testWorldgenSpatialEntities());
+  passed.push(await testWorldgenSpatialEntityDomainIdentity());
   passed.push(testWorldgenSemanticZoom());
   await runRegionInfraTests();
   passed.push('Worldgen regional identity, coordinates, cache, and cancellation');

@@ -1,4 +1,5 @@
 import { db } from '../src/db';
+import { testWorldgenSourceABS, trace as sourceAbsTrace } from './worldgen-source-abs.browser';
 import { testWorldgenDomainWaypoints, trace as waypointTrace } from './worldgen-domain-waypoints.browser';
 import { testWorldgenDomainMeasure, trace as measureTrace } from './worldgen-domain-measure.browser';
 import { testWorldgenDomainWaypointAxis, trace as axisTrace } from './worldgen-domain-waypoint-axis.browser';
@@ -12,8 +13,9 @@ declare global {
   }
 }
 
-const traces = [coordinateTrace, waypointTrace, measureTrace, axisTrace, cacheTrace, roadTrace];
+const traces = [sourceAbsTrace, coordinateTrace, waypointTrace, measureTrace, axisTrace, cacheTrace, roadTrace];
 void (async () => {
+  await testWorldgenSourceABS();
   await testWorldgenDomainCoordinateFamilies();
   await testWorldgenDomainWaypoints();
   await testWorldgenDomainMeasure();
