@@ -15,6 +15,7 @@
 import { createRng } from './rng';
 import { SphereNoise } from './noise';
 import type { Landmark, RiverPath, WorldParams } from './types';
+import { runtimeU, runtimeV, type RuntimeGeometry } from './runtimeGeometry';
 
 export function detectLandmarks(
   params: WorldParams,
@@ -24,9 +25,10 @@ export function detectLandmarks(
   temperature: Float32Array,
   rivers: RiverPath[],
   lake: Uint8Array,
+  geometry?: RuntimeGeometry,
 ): Landmark[] {
   if (!params.landmarks) return [];
-  const W = params.width, H = W >> 1;
+  const W = geometry?.width ?? params.width, H = geometry?.height ?? (W >> 1);
   const rng = createRng(params.seed, 'landmarks');
   const karstN = new SphereNoise(params.seed, 'karst');
   const scale = W / 1024; // budgets scale with map size
@@ -37,7 +39,7 @@ export function detectLandmarks(
     for (const m of out) {
       if (sameTypeOnly && m.type !== sameTypeOnly) continue;
       let dx = Math.abs(m.x - x);
-      if (dx > W / 2) dx = W - dx;
+      if (!geometry && dx > W / 2) dx = W - dx;
       const dy = m.y - y;
       if (dx * dx + dy * dy < MIN_D2) return false;
     }
@@ -73,6 +75,7 @@ export function detectLandmarks(
     for (let k = 0; k < 260; k++) {
       const x = Math.floor(rng() * W);
       const y = 4 + Math.floor(rng() * (H - 8));
+      if (geometry && (y < 0 || y >= H)) continue;
       const i = y * W + x;
       if (elevation[i] > -1.6 && elevation[i] < -0.25 && convergence[i] < 0.05 && rng() < 0.05) {
         cands.push({ x, y, s: 0.4 + rng() * 0.3 });
@@ -86,17 +89,17 @@ export function detectLandmarks(
     const cands: Cand[] = [];
     const stride = 3;
     for (let y = 2; y < H - 2; y += stride) {
-      const v = (y + 0.5) / H;
+      const v = geometry ? runtimeV(params, geometry, y + 0.5) : (y + 0.5) / H;
       for (let x = 0; x < W; x += stride) {
         const i = y * W + x;
         const e = elevation[i];
         if (e < 0.08 || e > 2.4 || lake[i]) continue;
         if (precipitation[i] < 420) continue;
-        const u = (x + 0.5) / W;
+        const u = geometry ? runtimeU(params, geometry, x + 0.5) : (x + 0.5) / W;
         const karst = karstN.fbm(u, v, 5 * params.worldScale, 3);
         if (karst < 0.24) continue;
         // Relief: prefer hills/valley flanks over flats.
-        const xr = x + 1 < W ? i + 1 : i + 1 - W;
+        const xr = x + 1 < W ? i + 1 : geometry ? i : i + 1 - W;
         const relief = Math.abs(elevation[xr] - e) + Math.abs(elevation[i + W] - e);
         if (relief < 0.025) continue;
         cands.push({ x, y, s: karst * 0.7 + relief * 4 + rng() * 0.15 });
@@ -121,8 +124,8 @@ export function detectLandmarks(
         // Gorge: deep relative valley — neighbors well above the river cell.
         if (r.flow > 0.45 && eb > 0.15) {
           const x = b % W, y = (b / W) | 0;
-          const xr = x + 1 < W ? b + 1 : b + 1 - W;
-          const xl = x > 0 ? b - 1 : b - 1 + W;
+          const xr = x + 1 < W ? b + 1 : geometry ? b : b + 1 - W;
+          const xl = x > 0 ? b - 1 : geometry ? b : b - 1 + W;
           const up = y > 0 ? b - W : b;
           const dn = y < H - 1 ? b + W : b;
           const wallMin = Math.min(elevation[xr], elevation[xl], elevation[up], elevation[dn]);

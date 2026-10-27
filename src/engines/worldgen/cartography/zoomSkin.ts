@@ -19,7 +19,7 @@
 // anywhere in the chain, and therefore no half-texel left to get wrong.
 
 import {
-  MIN_TILE_Z, TILE_PX, tileCountX, tileCountY, wrapTileX, type TileKey,
+  MIN_TILE_Z, TILE_PX, tileCountX, tileCountY, wrapTileX, type TileKey, type TileWorld,
 } from './tiles';
 import type { CartoView } from './render';
 
@@ -30,6 +30,9 @@ import type { CartoView } from './render';
 export interface SkinWindow { u: number; v: number; uSize: number; vSize: number }
 
 export interface ZoomSkinPlan {
+  /** Absent for the legacy cylindrical pyramid. */
+  wrapX?: false;
+  tileRows?: number;
   z: number;
   /** Tile block, in unwrapped indices: tx0 may be negative or past the last
    *  column when the window straddles the seam. */
@@ -97,7 +100,7 @@ export const MIN_PX_PER_CELL = 2.5;
 export const MAX_BLOCK_RATIO = 1.8;
 
 export function planZoomSkin(
-  world: { width: number; height: number },
+  world: TileWorld,
   mesh: SkinWindow,
   opts: ZoomSkinOptions,
 ): ZoomSkinPlan | null {
@@ -107,6 +110,7 @@ export function planZoomSkin(
   const maxZ = Math.max(MIN_TILE_Z, opts.maxZ);
 
   if (!(mesh.uSize > 0) || !(mesh.vSize > 0)) return null;
+  if (world.domain?.topology === 'finite' && (mesh.u + mesh.uSize / 2 < 0 || mesh.u - mesh.uSize / 2 > 1)) return null;
   if (mesh.uSize > MAX_ZOOM_SKIN_SPAN) return null;
 
   // What we would LIKE to cover: the framing plus a margin on every side. The
@@ -136,23 +140,25 @@ export function planZoomSkin(
 export function samePlan(a: ZoomSkinPlan | null, b: ZoomSkinPlan | null): boolean {
   if (!a || !b) return a === b;
   return a.z === b.z && a.tx0 === b.tx0 && a.ty0 === b.ty0
-    && a.nx === b.nx && a.ny === b.ny;
+    && a.nx === b.nx && a.ny === b.ny && a.wrapX === b.wrapX
+    && a.view.w === b.view.w && a.view.h === b.view.h;
 }
 
 function blockAt(
-  world: { width: number; height: number },
+  world: TileWorld,
   mesh: SkinWindow,
   wantU: number,
   wantV: number,
   z: number,
 ): ZoomSkinPlan | null {
   const nTilesX = tileCountX(z);
-  const nTilesY = tileCountY(z);
+  const nTilesY = tileCountY(z, world);
+  const finite = world.domain?.topology === 'finite';
   const cells = world.width / nTilesX;
 
   // The window we are covering, before snapping. v is pulled inside the world:
   // there are no tiles past the poles to ask for.
-  const u0 = mesh.u - wantU / 2;
+  const u0 = finite ? Math.min(1 - wantU, Math.max(0, mesh.u - wantU / 2)) : mesh.u - wantU / 2;
   const v0 = Math.min(1 - Math.min(1, wantV), Math.max(0, mesh.v - wantV / 2));
   const v1 = Math.min(1, v0 + wantV);
 
@@ -175,11 +181,12 @@ function blockAt(
   const keys: TileKey[] = [];
   for (let ty = ty0; ty <= ty0 + ny - 1; ty++) {
     for (let tx = tx0; tx <= tx0 + nx - 1; tx++) {
-      keys.push({ z, tx: wrapTileX(z, tx), ty });
+      keys.push({ z, tx: finite ? tx : wrapTileX(z, tx), ty });
     }
   }
 
   return {
+    ...(finite ? { wrapX: false as const, tileRows: nTilesY } : {}),
     z,
     tx0,
     ty0,
@@ -228,7 +235,7 @@ export function zoomSkinCovers(
   const w = plan.window;
   // Nearest wrapped branch of the mesh centre relative to the plan.
   let du = mesh.u - w.u;
-  du -= Math.round(du);
+  if (plan.wrapX !== false) du -= Math.round(du);
   const lu0 = (du - mesh.uSize / 2) / w.uSize;
   const lu1 = (du + mesh.uSize / 2) / w.uSize;
   const lv0 = (mesh.v - mesh.vSize / 2 - w.v) / w.vSize;
@@ -240,7 +247,7 @@ export function zoomSkinCovers(
   if (w.uSize > mesh.uSize * MAX_BLOCK_RATIO
     && w.vSize > mesh.vSize * MAX_BLOCK_RATIO) return false;
   const atNorthPole = plan.ty0 === 0;
-  const atSouthPole = plan.ty0 + plan.ny >= tileCountY(plan.z);
+  const atSouthPole = plan.ty0 + plan.ny >= (plan.tileRows ?? tileCountY(plan.z));
   return lu0 >= fade && lu1 <= 1 - fade
     && (atNorthPole || lv0 >= fade)
     && (atSouthPole || lv1 <= 1 - fade);

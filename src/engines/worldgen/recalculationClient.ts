@@ -25,8 +25,8 @@ function run(request: RecalculationRequest, options: RecalculationOptions): Prom
 }
 
 export async function requestWorldRecalculation(world: WorldData, options: RecalculationOptions = {}): Promise<EnvironmentFields> {
-  const { elevation, boundary, width, height, params } = world;
-  const reply = await run({ type: 'derive', world: { elevation, boundary, width, height, params } }, options);
+  const { elevation, boundary, width, height, params, domain } = world;
+  const reply = await run({ type: 'derive', world: { elevation, boundary, width, height, params, domain } }, options);
   if (!reply.environment) throw new Error('Missing recalculation result');
   return reply.environment;
 }

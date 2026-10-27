@@ -28,6 +28,7 @@ import {hasCatalogPlaceIcon} from '../core/placeIconCatalog';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
 import { geographyContentKey } from '../region/contentIdentity';
+import { domainPlaceKey } from '../core/domainCatalogue';
 
 // A world object is identity-stable for as long as it is loaded, so a WeakMap
 // keyed on it is exactly the right cache lifetime.
@@ -81,7 +82,8 @@ function geoKey(world: WorldData, params: HumanGeographyParams): string {
     ? (world.painted?.sitesPolicy ?? { everywhere: true, zones: [] })
     : null;
   return JSON.stringify(params)
-    + '|' + JSON.stringify(policy);
+    + '|' + JSON.stringify(policy)
+    + (world.domain ? `|domain:${world.domain.revision}:${world.domain.bounds.x},${world.domain.bounds.y}/${world.width}x${world.height}` : '');
 }
 
 /** Interaction path: patch an existing base, or report a cold cache. Never
@@ -317,11 +319,12 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
    * destino: la colocación explícita del lector gana a la marea.
    */
   const mv = world.painted?.moves ?? {};
-  const fix = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin'): T[] =>
-    list.filter((o) => !gone.has(`${target}:${Math.round(o.x)},${Math.round(o.y)}`))
-      .filter((o) => mv[`${target}:${Math.round(o.x)},${Math.round(o.y)}`] || !drowned(o.x, o.y))
+  const placeKey = (o: { x: number; y: number; sourceKey?: string }, target: 'settlement' | 'ruin') => o.sourceKey ?? domainPlaceKey(world, target, o.x, o.y);
+  const fix = <T extends { x: number; y: number; name: string; sourceKey?: string }>(list: T[], target: 'settlement' | 'ruin'): T[] =>
+    list.filter((o) => !gone.has(placeKey(o, target)))
+      .filter((o) => mv[placeKey(o, target)] || !drowned(o.x, o.y))
       .map((o) => {
-        const k = `${target}:${Math.round(o.x)},${Math.round(o.y)}`;
+        const k = placeKey(o, target);
         const n = ren[k];
         const pop = target === 'settlement' ? pops[k] : undefined;
         const m = mv[k];
@@ -349,7 +352,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
   for (const m of world.painted?.markers ?? []) {
     const k = kOf(m.x, m.y);
     if (m.marker === 'settlement') {
-      const ek = `settlement:${Math.round(m.x)},${Math.round(m.y)}`;
+      const ek = domainPlaceKey(world, 'settlement', m.x, m.y);
       if (gone.has(ek)) continue;
       const mvd = mv[ek];
       if (haveS.has(k) || (!mvd && drowned(m.x, m.y))) continue;
@@ -372,7 +375,7 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
         painted: true,
       });
     } else if (m.marker === 'ruin') {
-      const ek = `ruin:${Math.round(m.x)},${Math.round(m.y)}`;
+      const ek = domainPlaceKey(world, 'ruin', m.x, m.y);
       if (gone.has(ek)) continue;
       const mvd = mv[ek];
       if (haveR.has(k) || (!mvd && drowned(m.x, m.y))) continue;
@@ -415,9 +418,9 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
    * overlay genuinely changed — see `patchedRealmOf`.
    */
   const features = base.features
-    .filter((f) => !gone.has(`feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`))
+    .filter((f) => !gone.has(f.sourceKey ?? domainPlaceKey(world, 'feature', f.x, f.y, `${f.kind}:`)))
     .map((f) => {
-      const fk = `feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`;
+      const fk = f.sourceKey ?? domainPlaceKey(world, 'feature', f.x, f.y, `${f.kind}:`);
       const n = ren[fk];
       // Los accidentes también se mudan por aquí. La llave puede venir escrita
       // como `feature:` o como `landmark:` según qué capa registró el gesto;
@@ -618,7 +621,7 @@ export function pickSettlement(
   let bestD = maxCells * maxCells;
   for (const s of geo.settlements) {
     let dx = Math.abs(s.x - x);
-    if (dx > world.width / 2) dx = world.width - dx;
+    if (world.domain?.topology !== 'finite' && dx > world.width / 2) dx = world.width - dx;
     const dy = s.y - y;
     // Bias the pick toward bigger places: two towns close together should
     // resolve to the one the reader is more likely to have aimed at.

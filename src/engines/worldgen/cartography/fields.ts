@@ -20,9 +20,9 @@ export { blur, distanceTo, localRelief } from '../core/fields';
  * local maximum along at least one of the four axes. Combined with a relief
  * threshold this gives clean mountain spines to string symbol chains along.
  */
-export function ridgeMask(elevation: Float32Array, relief: Float32Array, W: number, H: number, reliefMin: number): Uint8Array {
+export function ridgeMask(elevation: Float32Array, relief: Float32Array, W: number, H: number, reliefMin: number, wrapX = true): Uint8Array {
   const out = new Uint8Array(W * H);
-  const at = (x: number, y: number) => elevation[Math.min(H - 1, Math.max(0, y)) * W + ((x % W) + W) % W];
+  const at = (x: number, y: number) => elevation[Math.min(H - 1, Math.max(0, y)) * W + (wrapX ? ((x % W) + W) % W : Math.min(W - 1, Math.max(0, x)))];
   for (let y = 1; y < H - 1; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
@@ -46,7 +46,7 @@ export function ridgeMask(elevation: Float32Array, relief: Float32Array, W: numb
  * on the SAME landmass — otherwise a symbol bridges a strait and reads as a
  * drawing error.
  */
-export function labelLandmasses(elevation: Float32Array, W: number, H: number): { label: Int32Array; sizes: number[] } {
+export function labelLandmasses(elevation: Float32Array, W: number, H: number, wrapX = true): { label: Int32Array; sizes: number[] } {
   const label = new Int32Array(W * H).fill(-1);
   const sizes: number[] = [];
   const stack = new Int32Array(W * H);
@@ -63,8 +63,8 @@ export function labelLandmasses(elevation: Float32Array, W: number, H: number): 
       count++;
       const x = i % W, y = (i / W) | 0;
       const nb = [
-        y * W + ((x + 1) % W),
-        y * W + ((x - 1 + W) % W),
+        x < W - 1 ? i + 1 : wrapX ? y * W : -1,
+        x > 0 ? i - 1 : wrapX ? y * W + W - 1 : -1,
         y > 0 ? i - W : -1,
         y < H - 1 ? i + W : -1,
       ];

@@ -86,12 +86,18 @@ export function createWorldEditWriter(
 
   return {
     schedule(value: string) {
+      if (latest === undefined && active === undefined && acknowledged.at(-1) === value) return;
       latest = value;
       unregister ??= track();
       clearTimeout(timer);
       timer = setTimeout(() => { void flush(); }, delay);
     },
     flush,
+    /** A domain/history writer has already committed this exact authored document. */
+    acknowledge(value: string) {
+      if (latest !== undefined || active) return;
+      acknowledged.push(value); if (acknowledged.length > 2) acknowledged.shift();
+    },
     /** Ignore our older DB echo only while a newer local value still awaits confirmation. */
     isSupersededEcho(value: string | undefined): boolean {
       return value !== undefined && latest !== undefined && value !== latest

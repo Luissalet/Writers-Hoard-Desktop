@@ -17,14 +17,27 @@ import { resolveLakeSurface } from '../core/lakeSurface';
 import { SphereNoise } from '../core/noise';
 import { riverKey } from '../core/edits';
 import { resample } from '../cartography/contours';
-import type { WorldData } from '../core/types';
+import { Biome, type WorldData } from '../core/types';
 import type { RegionParams, RegionStream, RegionWindow } from './types';
 
 const EARTH_KM = 2 * Math.PI * 6371;
 
 /** How wide one world cell is on the ground: a sheet's own scale, or the planet's. */
-export function kmPerWorldCell(world: Pick<WorldData, 'width'> & { params?: { worldKm?: number } }): number {
-  return isSheet(world.params) ? cellKmOf(world.params, world.width) : EARTH_KM / world.width;
+export function kmPerWorldCell(world: Pick<WorldData, 'width'> & { params?: { worldKm?: number }; domain?: WorldData['domain'] }): number {
+  const width = world.domain?.source.width ?? world.width;
+  return isSheet(world.params) ? cellKmOf(world.params, width) : EARTH_KM / width;
+}
+
+/** Noise stays on the source cylinder even when the visible arrays move or change shape. */
+export function regionSourceUV(world: WorldData, x: number, y: number): { u: number; v: number } {
+  const domain = world.domain;
+  if (domain) return { u: (x + domain.bounds.x) / domain.source.width, v: (y + domain.bounds.y) / domain.source.height };
+  return { u: ((x / world.width) % 1 + 1) % 1, v: Math.min(1, Math.max(0, y / world.height)) };
+}
+
+/** Lattice nodes are anchored before the local materialization's origin is subtracted. */
+function sourceGeometry(world: WorldData, geometry: RegionGeometry): RegionGeometry {
+  return world.domain ? { ...geometry, originX: geometry.originX + world.domain.bounds.x, originY: geometry.originY + world.domain.bounds.y } : geometry;
 }
 
 /** Physical readouts/frames only. Canon generation continues using kmPerWorldCell. */
@@ -145,11 +158,17 @@ export function extractPatch(world: WorldData, g: RegionGeometry): WorldPatch {
   const WW = world.width, WH = world.height;
   const lakeSurface = resolveLakeSurface(world);
   for (let j = 0; j < h; j++) {
+    const rawY = y0 + j;
     const wy = Math.min(WH - 1, Math.max(0, y0 + j));
     for (let i = 0; i < w; i++) {
-      const wx = (((x0 + i) % WW) + WW) % WW;
-      const s = wy * WW + wx;
       const d = j * w + i;
+      const rawX = x0 + i;
+      if (world.domain?.topology === 'finite' && (rawX < 0 || rawX >= WW || rawY < 0 || rawY >= WH)) {
+        p.elev[d] = -1.6; p.biome[d] = Biome.Ocean;
+        continue;
+      }
+      const wx = ((rawX % WW) + WW) % WW;
+      const s = wy * WW + wx;
       p.elev[d] = world.elevation[s];
       p.biome[d] = world.biome[s];
       p.temp[d] = world.temperature[s];
@@ -428,7 +447,6 @@ export function buildElevation(
   const fine = new SphereNoise(seed, 'region-fine');
   const ridge = new SphereNoise(seed, 'region-ridge');
   const coast = new SphereNoise(seed, 'region-coast');
-  const WW = world.width;
 
   // Frequencies are PHYSICAL — a wavelength in kilometres, converted to cycles
   // around the planet — not multiples of the world grid.
@@ -449,11 +467,12 @@ export function buildElevation(
   const uvAt = (x: number, y: number) => {
     const wy = g.originY + (y + 0.5) * g.worldPerCellY;
     const wx = g.originX + (x + 0.5) * g.worldPerCellX;
-    return { u: ((wx / WW) % 1 + 1) % 1, v: Math.min(1, Math.max(0, wy / world.height)) };
+    return regionSourceUV(world, wx, wy);
   };
 
-  const fineF = new SplitFbm(fine, g, uvAt, 7, oct, 2.05, 0.5, cellKm, cyc);
-  const coastF = new SplitFbm(coast, g, uvAt, 2.5, Math.max(4, oct - 2), 2.2, 0.55, cellKm, cyc);
+  const lattice = sourceGeometry(world, g);
+  const fineF = new SplitFbm(fine, lattice, uvAt, 7, oct, 2.05, 0.5, cellKm, cyc);
+  const coastF = new SplitFbm(coast, lattice, uvAt, 2.5, Math.max(4, oct - 2), 2.2, 0.55, cellKm, cyc);
   const fRidge = cyc(4.5);
   const ridgeOct = Math.max(3, oct - 1);
 
@@ -461,7 +480,7 @@ export function buildElevation(
   // smooth: one world cell is two hundred sheet cells. Bicubic-sampling them per
   // cell — sixteen array reads and five Catmull-Rom evaluations apiece — is the
   // same waste as evaluating a fifty-kilometre noise field per cell.
-  const off6 = latticeOffset(g, 6);
+  const off6 = latticeOffset(lattice, 6);
   const baseF = new CoarseField(W, H, 6, (x, y) => {
     const wy = g.originY + (y + 0.5) * g.worldPerCellY;
     const wx = g.originX + (x + 0.5) * g.worldPerCellX;
@@ -482,10 +501,9 @@ export function buildElevation(
 
   for (let y = 0; y < H; y++) {
     const wy = g.originY + (y + 0.5) * g.worldPerCellY;
-    const v = Math.min(1, Math.max(0, wy / world.height));
     for (let x = 0; x < W; x++) {
       const wx = g.originX + (x + 0.5) * g.worldPerCellX;
-      const u = ((wx / WW) % 1 + 1) % 1;
+      const { u, v } = regionSourceUV(world, wx, wy);
 
       const base = baseF.at(x, y);
       const grad = gradF.at(x, y);

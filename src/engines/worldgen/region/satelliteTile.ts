@@ -21,6 +21,7 @@
 
 import { Biome, type WorldData } from '../core/types';
 import type { WorldEdit } from '../core/edits';
+import type { DomainDocument } from '../core/domainDocument';
 import type { HumanGeography } from '../core/settlements';
 import type { Ctx } from '../cartography/symbols';
 import { renderAtlasWindow, BIOME_COLORS } from '../core/render';
@@ -100,6 +101,7 @@ export interface SatelliteTileOptions {
   layers: Record<string, boolean | undefined>;
   density: number;
   edits?: WorldEdit[];
+  domainDocument?: DomainDocument;
   /** Install fresh supertiles as their stored (quantised) selves — set by the
    *  worker core whenever the client persists canon. */
   quantizeCanon?: boolean;
@@ -534,7 +536,7 @@ export function renderSatelliteDeepTile(
   const spec = satelliteTileSpec(world, key);
   const cover = canonWindowCover(world, spec);
   const built: { key: string; data: RegionData }[] = [];
-  const placed = canonCoverFor(world, geography, cache, cover, opts.edits, limits, built, opts.quantizeCanon);
+  const placed = canonCoverFor(world, geography, cache, cover, opts.edits, limits, built, opts.quantizeCanon, opts.domainDocument);
 
   const region = styledRegionPlaces(composeCanonWindow(world, placed, spec), world, opts.edits);
   const m = region.margin;

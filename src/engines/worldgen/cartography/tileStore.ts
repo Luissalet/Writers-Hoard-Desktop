@@ -37,7 +37,7 @@
 
 import type { CartoView } from './render';
 import {
-  MIN_TILE_Z, TILE_PX, tileCountX, tileCountY, tileId, tilesInView, wrapTileX,
+  MIN_TILE_Z, TILE_PX, tileCountX, tileId, tilesInView, wrapTileX,
   type TileKey,
 } from './tiles';
 
@@ -569,7 +569,7 @@ export class DisplayTileStore {
     while (az >= MIN_TILE_Z) {
       atx = Math.floor(atx / 2); aty = Math.floor(aty / 2);
       const anc = this.entry(
-        map, { z: az, tx: wrapTileX(az, atx), ty: Math.min(tileCountY(az) - 1, aty) });
+        map, { z: az, tx: wrapTileX(az, atx), ty: aty });
       if (anc) {
         const scale = 1 << (key.z - az);
         const frac = TILE_PX / scale;

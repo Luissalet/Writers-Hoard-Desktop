@@ -31,6 +31,8 @@ import { hashEditsString } from './workerProtocol';
 import { applyCanonElevationEdits, applyCanonCoverEdits, canonSeaShift } from './canonEdits';
 import { sitesPolicyFrom, type SitesPolicy, type WorldEdit } from '../core/edits';
 import { createWorldCoastField } from './coastField';
+import type { DomainDocument } from '../core/domainDocument';
+import { domainCanonEdits, domainCanonSeaShift } from '../core/domainCanon';
 
 export interface RegionBuildOptions {
   params?: Partial<RegionParams>;
@@ -56,6 +58,8 @@ export interface RegionBuildOptions {
    * canonEdits.ts for why re-rasterising over the edited world is wrong.
    */
   edits?: WorldEdit[];
+  /** Preserve resize survival bounds when replaying the flattened physical edits. */
+  domainDocument?: DomainDocument;
 }
 
 /**
@@ -108,7 +112,8 @@ export function generateRegion(
   const rev = world.revision ?? 0;
   let cache = CACHE.get(world);
   if (!cache || cache.rev !== rev) CACHE.set(world, (cache = { rev, order: [], map: new Map() }));
-  const key = cacheKey(g, params, policy);
+  const key = cacheKey(g, params, policy)
+    + (opts.domainDocument ? `:domain:${hashEditsString(JSON.stringify(opts.domainDocument))}` : '');
   const hit = cache.map.get(key);
   if (hit) {
     p('listo', 1);
@@ -123,7 +128,7 @@ export function generateRegion(
   anchorCoastline(world, g, patch, elevation);
   const authoredElevation = opts.edits?.length ? new Uint8Array(elevation.length) : undefined;
   if (opts.edits?.length) {
-    applyCanonElevationEdits(elevation, g, world, opts.edits, authoredElevation);
+    applyCanonElevationEdits(elevation, g, world, opts.edits, authoredElevation, opts.domainDocument);
   }
 
   p('agua', 0.22);
@@ -134,7 +139,14 @@ export function generateRegion(
   erodeSheet(elevation, g.width, g.height, g.metresPerCell, 3, 0.0055 * params.detail);
   // Erosion is allowed to reshape relief, never to move the map's coastline.
   // Re-pin after it, except exactly where the reader authored elevation/land.
-  anchorCoastline(world, g, patch, elevation, authoredElevation, canonSeaShift(opts.edits));
+  let seaShift: number | ((x: number, y: number) => number) = canonSeaShift(opts.edits);
+  if (opts.domainDocument) {
+    const plan = domainCanonEdits(opts.domainDocument, { x: 0, y: 0,
+      width: world.domain?.source.width ?? world.width, height: world.domain?.source.height ?? world.height });
+    const ox = world.domain?.bounds.x ?? 0, oy = world.domain?.bounds.y ?? 0;
+    seaShift = (x, y) => domainCanonSeaShift(plan, x + ox, y + oy);
+  }
+  anchorCoastline(world, g, patch, elevation, authoredElevation, seaShift);
 
   p('cauces', 0.42);
   const t = buildHydrology(world, g, patch, elevation);
@@ -144,7 +156,7 @@ export function generateRegion(
   p('vegetación', 0.45);
   const natural = buildNaturalCover(world, g, patch, t, params);
   if (opts.edits?.length) {
-    applyCanonCoverEdits(natural.biome, natural.cover, t.elevation, g, world, opts.edits);
+    applyCanonCoverEdits(natural.biome, natural.cover, t.elevation, g, world, opts.edits, opts.domainDocument);
   }
 
   p('poblamiento', 0.6);
@@ -349,7 +361,7 @@ function anchorCoastline(
   world: WorldData, g: RegionGeometry, patch: WorldPatch, elevation: Float32Array,
   authored?: Uint8Array,
   /** The world's sea level moved by the edits (km): the coast is where the moved sea meets the land. */
-  seaShift = 0,
+  seaShift: number | ((x: number, y: number) => number) = 0,
 ): void {
   const W = g.width, H = g.height;
   const boundary = createWorldCoastField(world, patch);
@@ -360,7 +372,7 @@ function anchorCoastline(
       if (authored?.[i]) continue;
       const e = elevation[i];
       const wx = g.originX + (x + 0.5) * g.worldPerCellX;
-      const h = boundary.sample(wx, wy).elevation - seaShift;
+      const h = boundary.sample(wx, wy).elevation - (typeof seaShift === 'function' ? seaShift(wx, wy) : seaShift);
       // Same sign: nothing to decide.
       if ((h > 0) === (e > 0)) continue;
       elevation[i] = h > 0 ? 0.0006 : -0.0006;

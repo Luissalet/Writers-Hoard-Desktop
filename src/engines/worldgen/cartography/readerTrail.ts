@@ -17,14 +17,16 @@ const INK = 'rgba(70,46,24,0.92)';
  * the trail is unwrapped from its start so it never crosses the whole sheet,
  * and drawn once per world copy that can show.
  */
-export function drawTrail(ctx: Ctx, trail: readonly TrailPoint[], x0: number, sy: (wy: number) => number, k: number, W: number, scale = 1): void {
+export function drawTrail(ctx: Ctx, trail: readonly TrailPoint[], x0: number, sy: (wy: number) => number, k: number, W: number, scale = 1, wrapX = true): void {
   if (trail.length < 2) return;
   const pts: { x: number; y: number; chapter?: number; first: boolean }[] = [];
   let prev = trail[0].x, lastChapter: number | undefined | null = null;
   for (const p of trail) {
     let x = p.x;
-    while (x - prev > W / 2) x -= W;
-    while (x - prev < -W / 2) x += W;
+    if (wrapX) {
+      while (x - prev > W / 2) x -= W;
+      while (x - prev < -W / 2) x += W;
+    }
     prev = x;
     pts.push({ x, y: p.y, chapter: p.chapter, first: p.chapter !== lastChapter });
     lastChapter = p.chapter;
@@ -33,7 +35,7 @@ export function drawTrail(ctx: Ctx, trail: readonly TrailPoint[], x0: number, sy
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const off of [-span, 0, span]) {
+  for (const off of wrapX ? [-span, 0, span] : [0]) {
     const screen = pts.map((p) => ({ ...p, sx: x0 + (p.x + 0.5) * k + off, sy: sy(p.y + 0.5) }));
     if (screen.every((p) => p.sx < -40 || p.sx > cw + 40) || screen.every((p) => p.sy < -40 || p.sy > ch + 40)) continue;
     ctx.strokeStyle = INK;
@@ -69,13 +71,13 @@ export function drawTrail(ctx: Ctx, trail: readonly TrailPoint[], x0: number, sy
 }
 
 /** Towns heard of: a dot each, no name. */
-export function drawTownDots(ctx: Ctx, dots: readonly { x: number; y: number }[], x0: number, sy: (wy: number) => number, k: number, W: number, scale = 1): void {
+export function drawTownDots(ctx: Ctx, dots: readonly { x: number; y: number }[], x0: number, sy: (wy: number) => number, k: number, W: number, scale = 1, wrapX = true): void {
   if (!dots.length) return;
   const span = W * k, cw = ctx.canvas.width, ch = ctx.canvas.height;
   const r = Math.max(1.8, Math.min(3.2, k * 0.4)) * scale;
   ctx.save();
   ctx.fillStyle = INK;
-  for (const d of dots) for (const off of [-span, 0, span]) {
+  for (const d of dots) for (const off of wrapX ? [-span, 0, span] : [0]) {
     const x = x0 + (d.x + 0.5) * k + off, y = sy(d.y + 0.5);
     if (x < -6 || x > cw + 6 || y < -6 || y > ch + 6) continue;
     ctx.beginPath();

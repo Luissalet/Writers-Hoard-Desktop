@@ -28,6 +28,7 @@ import type { WorldParams } from './types';
 import { DEFAULT_FILTERS, resolveBiome, type GenerationFilters } from './generation';
 
 export interface BiomeInputs {
+  geometry?: { width: number; height: number; originX: number; originY: number };
   elevation: Float32Array;
   temperature: Float32Array;
   precipitation: Float32Array;
@@ -76,7 +77,7 @@ export function classifyBiomes(
   rect?: BiomeRect,
   out?: Uint8Array,
 ): Uint8Array {
-  const W = params.width, H = W >> 1, N = W * H;
+  const W = inputs.geometry?.width ?? params.width, H = inputs.geometry?.height ?? (W >> 1), N = W * H;
   const { elevation, temperature, precipitation, lake, flow, relief, seaDist } = inputs;
   const biome = out ?? new Uint8Array(N);
   const dither = new SphereNoise(params.seed, 'biome-dither');
@@ -96,12 +97,14 @@ export function classifyBiomes(
   const xn = rect ? Math.min(W, rect.w) : W;
 
   for (let y = y0; y < y1; y++) {
-    const v = (y + 0.5) / H;
+    const v = inputs.geometry ? (y + inputs.geometry.originY + 0.5) / (params.width / 2) : (y + 0.5) / H;
     const latAbs = Math.abs(climateLatDeg(v, params));
     const tl = treeline(latAbs);
     const yW = y * W;
     for (let xi = 0; xi < xn; xi++) {
-      const x = ((x0 + xi) % W + W) % W;
+      const rawX = x0 + xi;
+      if (inputs.geometry && (rawX < 0 || rawX >= W)) continue;
+      const x = ((rawX % W) + W) % W;
       const i = yW + x;
       const e = elevation[i];
 
@@ -113,7 +116,7 @@ export function classifyBiomes(
         continue;
       }
 
-      const u = (x + 0.5) / W;
+      const u = inputs.geometry ? (x + inputs.geometry.originX + 0.5) / params.width : (x + 0.5) / W;
       // Two dither scales: a broad wobble that bends zone borders and a fine one
       // that feathers them. Without this every boundary is a contour line.
       const dT = 3.2 * dither.fbm(u, v, 5 * ws, 2) + 1.2 * dither.fbm(u, v, 26, 2);

@@ -4,7 +4,7 @@ import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { worldgenScopeOperations, worldRuntimeKey } from './era';
 import { worldSettingsScope } from './settingsScope';
 import { flushWorldEdits, hasPendingWorldEdits } from './editWriter';
-import { isSheet, resolveWorldScale } from './core/geoScale';
+import { isSheet, mapMetric, resolveWorldScale } from './core/geoScale';
 import type { GeneratedWorld } from './types';
 
 type Scope = { projectId: string; eraId?: string };
@@ -25,11 +25,11 @@ async function read(scope: Scope, id: string): Promise<GeneratedWorld> {
 export async function getWorldScale(requested: Scope, id: string) {
   return db.transaction('r', db.tables, async () => {
     const scope = await worldSettingsScope(requested, id), row = await read(scope, id);
-    return { worldId: id, ...resolveWorldScale(row), scope, requestedScope: requested, sheet: isSheet(row.params) };
+    return { worldId: id, ...resolveWorldScale(row), scope, requestedScope: requested, sheet: isSheet(row.params) || !!mapMetric(row).finite };
   });
 }
 function validate(row: GeneratedWorld, widthKm: number | null) {
-  if (!isSheet(row.params)) throw new WorldScaleError('bad-value', 'Only an existing sheet can be calibrated.');
+  if (!isSheet(row.params) && !mapMetric(row).finite) throw new WorldScaleError('bad-value', 'Only an existing sheet can be calibrated.');
   const metric = resolveWorldScale({ ...row, mapWidthKm: widthKm ?? undefined });
   if (widthKm !== null && (typeof widthKm !== 'number' || !Number.isFinite(widthKm) || widthKm <= 0)
     || ![metric.widthKm, metric.heightKm, metric.cellKm, metric.widthKm * metric.heightKm].every(value => Number.isFinite(value) && value > 0)) throw new WorldScaleError('bad-value', 'The width, height, cell size and area must be positive finite representable numbers.');

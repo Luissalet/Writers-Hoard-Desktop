@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEnginePane, ownsEnginePaneEvent, dispatchEnginePaneCommand } from '@/engines/_shared/EnginePaneContext';
 import type { WorldData } from '../core/types';
 import type { WorldViewport } from '../types';
@@ -148,6 +148,9 @@ export default function CartoMap({
   viewport, onViewportChange, flyTarget, flyMark = null, canonWorld, canonEdits,
 }: CartoMapProps) {
   const pane = useEnginePane();
+  const cameraGeometry = useMemo(() => world.domain?.topology === 'finite'
+    ? { width: world.width, height: world.height, finite: true } : undefined,
+  [world.domain?.topology, world.width, world.height]);
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inkRef = useRef<HTMLCanvasElement>(null);
@@ -259,13 +262,18 @@ export default function CartoMap({
   const viewFor = useCallback((v: LiveView, w: number, h: number): CartoView => {
     const W = world.width, H = world.height;
     const aspect = w > 0 && h > 0 ? w / h : 2;
+    if (world.domain?.topology === 'finite') {
+      const vw = Math.max(W, H * aspect) / v.zoom, vh = vw / aspect;
+      const axis = (centre: number, extent: number, span: number) => span >= extent ? (extent - span) / 2 : Math.min(extent - span, Math.max(0, centre * extent - span / 2));
+      return { x: axis(v.cu, W, vw), y: axis(v.cv, H, vh), w: vw, h: vh };
+    }
     let vh = H / v.zoom;
     let vw = vh * aspect;
     if (vw > W) { vw = W; vh = vw / aspect; }
     if (vh > H) { vh = H; vw = vh * aspect; }
     const y = Math.min(H - vh, Math.max(0, v.cv * H - vh / 2));
     return { x: v.cu * W - vw / 2, y, w: vw, h: vh };
-  }, [world.width, world.height]);
+  }, [world.width, world.height, world.domain?.topology]);
 
   // ---- painting ------------------------------------------------------------
 
@@ -305,8 +313,10 @@ export default function CartoMap({
         if ((pl.kind === 'town' || pl.kind === 'village')
           && principalNames.has(pl.name.trim().toLocaleLowerCase())) continue;
         let x = pl.worldX;
-        while (x < cx - W / 2) x += W;
-        while (x > cx + W / 2) x -= W;
+        if (p.world.domain?.topology !== 'finite') {
+          while (x < cx - W / 2) x += W;
+          while (x > cx + W / 2) x -= W;
+        }
         const sx = (x - v.x) * scale;
         const sy = (pl.worldY - v.y) * scale;
         if (sx < -60 || sy < -30 || sx > outW + 60 || sy > outH + 30) continue;
@@ -372,8 +382,10 @@ export default function CartoMap({
     // la copia que se ve, no en la de al lado.
     const cx = v.x + v.w / 2;
     let x = mark.x;
-    while (x < cx - W / 2) x += W;
-    while (x > cx + W / 2) x -= W;
+    if (p.world.domain?.topology !== 'finite') {
+      while (x < cx - W / 2) x += W;
+      while (x > cx + W / 2) x -= W;
+    }
     const sx = (x - v.x) * scale;
     const sy = (mark.y - v.y) * scale;
     if (sx < -80 * pxScale || sy < -40 * pxScale
@@ -448,9 +460,9 @@ export default function CartoMap({
       const sw = v.w * kx, sh = v.h * ky;
       const sx = v.x * kx;
       // Draw the seam twice so a view straddling it has no gap either.
-      ctx.fillStyle = theme.ocean.deep;
+      ctx.fillStyle = world.domain?.topology === 'finite' ? theme.paper.base : theme.ocean.deep;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      for (const shift of [-gm.canvas.width, 0, gm.canvas.width]) {
+      for (const shift of world.domain?.topology === 'finite' ? [0] : [-gm.canvas.width, 0, gm.canvas.width]) {
         ctx.drawImage(gm.canvas, sx + shift, v.y * ky, sw, sh, 0, 0, canvas.width, canvas.height);
         if (shift === 0 && sx >= 0 && sx + sw <= gm.canvas.width) break;
       }
@@ -460,8 +472,10 @@ export default function CartoMap({
       const k = b.view.w / v.w;
       let dx = b.view.x - v.x;
       const W = world.width;
-      while (dx > W / 2) dx -= W;
-      while (dx < -W / 2) dx += W;
+      if (world.domain?.topology !== 'finite') {
+        while (dx > W / 2) dx -= W;
+        while (dx < -W / 2) dx += W;
+      }
       ctx.fillStyle = theme.paper.base;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(b.canvas, (dx / v.w) * canvas.width, ((b.view.y - v.y) / v.h) * canvas.height,
@@ -492,7 +506,7 @@ export default function CartoMap({
     // underneath carry no type at all.
     drawLettering(ctx, v, canvas.width, canvas.height, canvas.width / Math.max(1, size.w));
     drawFlyMark(ctx, v, canvas.width, canvas.height, canvas.width / Math.max(1, size.w));
-  }, [viewFor, size.w, size.h, world.width, world.height, theme.paper.base, theme.ocean.deep, drawLettering, drawFlyMark]);
+  }, [viewFor, size.w, size.h, world.width, world.height, world.domain?.topology, theme.paper.base, theme.ocean.deep, drawLettering, drawFlyMark]);
 
   /**
    * Book an interim blit, with a timer behind it.
@@ -664,8 +678,10 @@ export default function CartoMap({
     const k = size.w / v.w;
     const sx = (wx: number) => {
       let d = wx - v.x;
-      while (d > world.width / 2) d -= world.width;
-      while (d < -world.width / 2) d += world.width;
+      if (world.domain?.topology !== 'finite') {
+        while (d > world.width / 2) d -= world.width;
+        while (d < -world.width / 2) d += world.width;
+      }
       return d * k;
     };
     const sy = (wy: number) => (wy - v.y) * k;
@@ -701,13 +717,13 @@ export default function CartoMap({
     if (onViewportChange) {
       window.clearTimeout(reportTimer.current);
       reportTimer.current = window.setTimeout(() => {
-        const vp = cartaViewToViewport(viewFor(live.current, size.w, size.h), world);
+        const vp = cartaViewToViewport(viewFor(live.current, size.w, size.h), world, cameraGeometry);
         lastReported.current = vp;
         onViewportChange(vp);
       }, 180);
     }
     onViewChange?.(v);
-  }, [requestInterim, scheduleRender, paintInk, onViewportChange, onViewChange, viewFor, size.w, size.h, world]);
+  }, [requestInterim, scheduleRender, paintInk, onViewportChange, onViewChange, viewFor, size.w, size.h, world, cameraGeometry]);
 
   const cancelFlight = useCallback(() => {
     if (flight.current) { cancelAnimationFrame(flight.current); flight.current = 0; }
@@ -718,29 +734,29 @@ export default function CartoMap({
   // our own reports are ignored, or every wheel tick would fight its round-trip.
   useEffect(() => {
     if (!viewport || size.w < 8 || size.h < 8) return;
-    if (sameViewport(viewport, lastReported.current)) return;
+    if (sameViewport(viewport, lastReported.current, cameraGeometry)) return;
     cancelFlight();
     window.clearTimeout(reportTimer.current);
-    live.current = viewportToCartaCamera(viewport, world, size.w, size.h, MIN_ZOOM, maxZoomFor(size.h));
+    live.current = viewportToCartaCamera(viewport, world, size.w, size.h, MIN_ZOOM, maxZoomFor(size.h), cameraGeometry);
     lastReported.current = viewport; // adopting is not a gesture; do not report it back
     setZoomLabel(live.current.zoom);
     requestInterim();
     scheduleRender();
     paintInk();
-  }, [viewport, size.w, size.h, world, cancelFlight, requestInterim, scheduleRender, paintInk, maxZoomFor]);
+  }, [viewport, size.w, size.h, world, cancelFlight, requestInterim, scheduleRender, paintInk, maxZoomFor, cameraGeometry]);
 
   // A one-shot flight: interim blits per frame (exactly what a gesture paints),
   // one real render at the destination.
   useEffect(() => {
     if (!flyTarget || size.w < 8 || size.h < 8) return;
     cancelFlight();
-    const from = cartaViewToViewport(viewFor(live.current, size.w, size.h), world);
-    const to = clampViewport({ u: flyTarget.u, v: flyTarget.v, spanKm: flyTarget.spanKm ?? from.spanKm });
+    const from = cartaViewToViewport(viewFor(live.current, size.w, size.h), world, cameraGeometry);
+    const to = clampViewport({ u: flyTarget.u, v: flyTarget.v, spanKm: flyTarget.spanKm ?? from.spanKm }, cameraGeometry);
     const t0 = performance.now();
     const step = () => {
       const t = Math.min(1, (performance.now() - t0) / FLIGHT_MS);
       live.current = viewportToCartaCamera(
-        flightAt(from, to, t), world, size.w, size.h, MIN_ZOOM, maxZoomFor(size.h));
+        flightAt(from, to, t, cameraGeometry), world, size.w, size.h, MIN_ZOOM, maxZoomFor(size.h), cameraGeometry);
       if (t < 1) {
         requestInterim();
         paintInk();
@@ -786,7 +802,7 @@ export default function CartoMap({
     base.current = null;
     render(1, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, world.revision, world.mapWidthKm, theme, geography, JSON.stringify(layers), density, reliefAmount, size.w, size.h, placeImages, regionalEntities]);
+  }, [world, world.revision, world.domain?.revision, world.width, world.height, world.mapWidthKm, theme, geography, JSON.stringify(layers), density, reliefAmount, size.w, size.h, placeImages, regionalEntities]);
 
   useEffect(() => () => {
     window.clearTimeout(quickTimer.current);
@@ -945,6 +961,7 @@ export default function CartoMap({
     const v = viewFor(live.current, size.w, size.h);
     const wx = v.x + ((e.clientX - rect.left) / rect.width) * v.w;
     const wy = v.y + ((e.clientY - rect.top) / rect.height) * v.h;
+    if (world.domain?.topology === 'finite' && (wx < 0 || wx >= world.width || wy < 0 || wy >= world.height)) return;
     if (onInspect) {
       onInspect(((wx % world.width) + world.width) % world.width,
         Math.min(world.height - 1, Math.max(0, wy)));
@@ -972,9 +989,10 @@ export default function CartoMap({
     const v = viewFor(live.current, size.w, size.h);
     const x = v.x + ((e.clientX - rect.left) / rect.width) * v.w;
     const y = v.y + ((e.clientY - rect.top) / rect.height) * v.h;
+    if (world.domain?.topology === 'finite' && (x < 0 || x >= world.width || y < 0 || y >= world.height)) return;
     onZoomTo(((x % world.width) + world.width) % world.width,
       Math.min(world.height - 1, Math.max(0, y)));
-  }, [onZoomTo, viewFor, size.w, size.h, world.width, world.height]);
+  }, [onZoomTo, viewFor, size.w, size.h, world.width, world.height, world.domain?.topology]);
 
   return (
     <div

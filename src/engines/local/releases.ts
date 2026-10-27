@@ -19,6 +19,14 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
  // product actions. Validate raw retained roots too, without loading source code
  // or hashing documents in a database hook or a second transaction.
  const validateDocument=(document:unknown)=>{if(!document||typeof document!=='object'||Array.isArray(document))return;const row=document as {namespace?:unknown;data:Parameters<typeof parseLocalToolState>[1]};if(row.namespace!==namespace)return;if(!definition.document)throw Error('local_tool_document_host_required');parseLocalToolState(definition,row.data);};
+ const retained=[...(project.sourceToolDocuments??[])];
+ const appTargets=new Map<string,string>();
+ const rememberTarget=(value:unknown)=>{if(value&&typeof value==='object'){const row=value as {id?:string;namespace?:string};if(row.id&&row.namespace)appTargets.set(row.id,row.namespace);}};
+ retained.forEach(rememberTarget);
+ for(const variant of await db.worldEraVariants.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())for(const state of [variant,...variant.history??[]])if(state.document?.root){retained.push(state.document.root as never);rememberTarget(state.document.root);}
+ for(const entry of await db.documentHistory.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray()){retained.push(entry.document.root as never);rememberTarget(entry.document.root);}
+ for(const entry of await db.documentArchives.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())if(entry.metadata?.item){retained.push(entry.metadata.item as never);rememberTarget(entry.metadata.item);}
+ if(definition.app)for(const document of retained)if(document.namespace===namespace){const data=document.data as {children?:{document?:{documentId?:string}}[]};for(const member of data.children??[]){const known=member.document?.documentId&&appTargets.get(member.document.documentId);if(known&&!definition.app.descriptor.tools.includes(known))throw Error('local_app_retained_child_incompatible');}}
  for(const document of project.sourceToolDocuments??[])validateDocument(document);
  for(const variant of await db.worldEraVariants.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())for(const state of [variant,...variant.history??[]])validateDocument(state.document?.root);
  for(const entry of await db.documentHistory.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())validateDocument(entry.document.root);

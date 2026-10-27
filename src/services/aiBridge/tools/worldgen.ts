@@ -30,6 +30,7 @@ import {
   type WorldWaypoint,
 } from '@/engines/worldgen/types';
 import { worldgenScopeOperations, worldRuntimeKey, listWorldLinks, saveWorldLink } from '@/engines/worldgen/era';
+import { waypointCellFromPosition, waypointForDomain, type WaypointDomain } from '@/engines/worldgen/waypointPosition';
 import { worldEraToolScope } from '@/services/worldEras/toolScope';
 import { readEraRow } from '@/services/worldEras/store';
 import {
@@ -94,6 +95,28 @@ export async function whSetWorldScale(args: ToolArgs): Promise<unknown> {
     if (error instanceof WorldScaleError) throw new BridgeError(error.code === 'bad-value' ? 'bad-args' : error.code, error.message);
     throw error;
   }
+}
+
+export async function whGetWorldDomain(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args);
+  const { getWorldDomain } = await import('@/engines/worldgen/worldDomain');
+  return getWorldDomain({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id);
+}
+export async function whResizeWorld(args: ToolArgs): Promise<unknown> {
+  const world = await loadWorld(args); await assertEngineEnabled(world.projectId, ENGINE);
+  const { resizeWorldDomain, WorldDomainError } = await import('@/engines/worldgen/worldDomain');
+  const { DOMAIN_ANCHORS } = await import('@/engines/worldgen/core/worldDomain');
+  const anchor = optEnum(args, 'anchor', DOMAIN_ANCHORS), fill = optEnum(args, 'fill', ['sea', 'land'] as const);
+  if (!anchor || !fill || args.dryRun !== undefined && typeof args.dryRun !== 'boolean') throw new BridgeError('bad-args', 'Use an anchor, sea or land fill and a boolean dryRun.');
+  try {
+    const receipt = await resizeWorldDomain({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id, { widthKm: requireNumber(args, 'widthKm'), heightKm: requireNumber(args, 'heightKm'), anchor, fill, expectedRevision: requireNumber(args, 'expectedRevision'), jobId: optString(args, 'jobId'), dryRun: args.dryRun as boolean | undefined });
+    const result = { worldId: world.id, changed: receipt.changed, domain: receipt.domain };
+    return receipt.changed && !args.dryRun ? withAudit(result, { projectId: world.projectId, entityId: world.id, summary: `resized map "${world.title}"`, before: { __worldDomain: receipt } }) : result;
+  } catch (error) { if (error instanceof WorldDomainError) throw new BridgeError(error.code, error.message); throw error; }
+}
+export async function whCancelWorldOperation(args: ToolArgs): Promise<unknown> {
+  const projectId = resolveProjectId(args), { cancelWorldDomainOperation } = await import('@/engines/worldgen/worldDomain');
+  return cancelWorldDomainOperation({ projectId, eraId: worldEraToolScope(args)?.eraId }, requireString(args, 'jobId'));
 }
 
 type MarkerEdit = Extract<WorldEdit, { kind: 'marker' }>;
@@ -262,15 +285,22 @@ function placeShape(place: AtlasPlace, data: WorldData, locked?: ReadonlySet<str
   };
 }
 
-function waypointShape(waypoint: WorldWaypoint): Record<string, unknown> {
+function waypointShape(waypoint: WorldWaypoint, domain: WaypointDomain): Record<string, unknown> {
+  const position = waypointForDomain(waypoint, domain);
   return {
     id: waypoint.id,
     name: waypoint.name,
     description: waypoint.description,
     color: waypoint.color,
-    u: waypoint.u,
-    v: waypoint.v,
+    u: position.u,
+    v: position.v,
+    ...(waypoint.cell ? { cell: waypoint.cell } : {}),
   };
+}
+
+async function waypointDomain(world: GeneratedWorld, args: ToolArgs) {
+  const { getWorldDomain } = await import('@/engines/worldgen/worldDomain');
+  return getWorldDomain({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id);
 }
 
 /** How many edits of each kind the world carries. Malformed JSON counts as none. */
@@ -367,6 +397,7 @@ export async function whListWorlds(args: ToolArgs): Promise<unknown> {
 export async function whGetWorld(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const waypoints = await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getAll(world.id);
+  const domain = await waypointDomain(world, args);
   return {
     ...worldDigest(world, waypoints),
     params: normalizeParams(world.params),
@@ -374,7 +405,7 @@ export async function whGetWorld(args: ToolArgs): Promise<unknown> {
     live: liveWorld(worldRuntimeKey(world.id, worldEraToolScope(args)?.eraId)) !== undefined,
     // A forge in progress means a place read will answer pending until it ends.
     forging: isForging(worldRuntimeKey(world.id, worldEraToolScope(args)?.eraId)),
-    waypoints: waypoints.map(waypointShape),
+    waypoints: waypoints.map(waypoint => waypointShape(waypoint, domain)),
     // Where the author moved the sea and the snowline (metres; 0 = as generated).
     ...(await import('@/engines/worldgen/core/edits')).worldLevels(currentEdits(world, args)),
   };
@@ -856,14 +887,16 @@ export async function whUpdateLabel(args: ToolArgs): Promise<unknown> {
 export async function whListWaypoints(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const waypoints = await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getAll(world.id);
-  return { worldId: world.id, waypoints: waypoints.map(waypointShape) };
+  const domain = await waypointDomain(world, args);
+  return { worldId: world.id, waypoints: waypoints.map(waypoint => waypointShape(waypoint, domain)) };
 }
 
 export async function whAddWaypoint(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   await assertEngineEnabled(world.projectId, ENGINE);
   const name = requireString(args, 'name').trim();
-  const u = wrapU(requireNumber(args, 'u'));
+  const domain = await waypointDomain(world, args);
+  const u = domain.topology === 'finite' ? clampV(requireNumber(args, 'u')) : wrapU(requireNumber(args, 'u'));
   const v = clampV(requireNumber(args, 'v'));
   // Colours cycle through the palette the way the view's own pin tool does.
   const existing = await worldgenScopeOperations(worldEraToolScope(args)).waypoints.getAll(world.id);
@@ -877,6 +910,7 @@ export async function whAddWaypoint(args: ToolArgs): Promise<unknown> {
     color: optString(args, 'color') ?? WAYPOINT_COLORS[existing.length % WAYPOINT_COLORS.length],
     u,
     v,
+    ...(domain.topology === 'finite' ? { cell: waypointCellFromPosition(domain, u, v) } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -899,7 +933,7 @@ export async function whUpdateWaypoint(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(waypoint.projectId, ENGINE);
 
   const changes: Partial<WorldWaypoint> = {};
-  const before: Partial<WorldWaypoint> = {};
+  const before: Partial<WorldWaypoint> & { __absent?: string[] } = {};
   const name = optString(args, 'name')?.trim();
   if (name) {
     changes.name = name;
@@ -916,14 +950,27 @@ export async function whUpdateWaypoint(args: ToolArgs): Promise<unknown> {
     before.color = waypoint.color;
   }
   const u = optNumber(args, 'u');
+  const v = optNumber(args, 'v');
+  const world = u !== undefined || v !== undefined
+    ? await worldgenScopeOperations(worldEraToolScope(args)).worlds.getOne(waypoint.worldId) : undefined;
+  const domain = world ? await waypointDomain(world, args) : undefined;
+  const position = domain ? waypointForDomain(waypoint, domain) : waypoint;
   if (u !== undefined) {
-    changes.u = wrapU(u);
+    changes.u = domain?.topology === 'finite' ? clampV(u) : wrapU(u);
     before.u = waypoint.u;
   }
-  const v = optNumber(args, 'v');
   if (v !== undefined) {
     changes.v = clampV(v);
     before.v = waypoint.v;
+  }
+  if (domain?.topology === 'finite') {
+    const cell = waypointCellFromPosition(domain, changes.u ?? position.u, changes.v ?? position.v);
+    changes.cell = cell && waypoint.cell ? {
+      x: u === undefined ? waypoint.cell.x : cell.x,
+      y: v === undefined ? waypoint.cell.y : cell.y,
+    } : cell;
+    if (waypoint.cell) before.cell = waypoint.cell;
+    else before.__absent = ['cell'];
   }
 
   if (!Object.keys(changes).length) {
@@ -1144,6 +1191,19 @@ export async function whCreateWorld(args: ToolArgs): Promise<unknown> {
     if (preset.overrides.starter !== 'landmass') throw new BridgeError('bad-args', 'landmassKm goes with the island, country or continent preset.');
     if (typeof args.landmassKm !== 'number' || !Number.isFinite(args.landmassKm) || args.landmassKm < 300 || args.landmassKm > 9000) throw new BridgeError('bad-args', 'landmassKm must be a number of km between 300 and 9000.');
   }
+  if (args.sheetSize !== undefined) {
+    if (!args.sheetSize || typeof args.sheetSize !== 'object' || Array.isArray(args.sheetSize) || args.worldKm !== undefined || args.sheet === false) throw new BridgeError('bad-args', 'sheetSize needs widthKm/heightKm and cannot be combined with worldKm or sheet:false.');
+    const sheetSize = args.sheetSize as Record<string, unknown>;
+    if (sheetSize.resolution !== undefined && args.width !== undefined) throw new BridgeError('bad-args', 'Use sheetSize.resolution without a second width.');
+    const title = optString(args, 'title')?.trim() || 'World', seed = optString(args, 'seed')?.trim() || generateId('seed').slice(-8);
+    const params = { ...applyWorldPreset({ ...DEFAULT_PARAMS, seed, width: optNumber(args, 'width') ?? DEFAULT_PARAMS.width }, preset), ...(typeof args.landmassKm === 'number' ? { landmassKm: Math.round(args.landmassKm) } : {}) };
+    delete params.worldKm;
+    const { createFiniteWorld, WorldDomainError } = await import('@/engines/worldgen/worldDomain');
+    try {
+      const { world, domain } = await createFiniteWorld({ projectId, eraId: worldEraToolScope(args)?.eraId }, { title, params, sheetSize: { widthKm: sheetSize.widthKm as number, heightKm: sheetSize.heightKm as number, resolution: sheetSize.resolution as number | undefined }, jobId: optString(args, 'jobId') });
+      return withAudit({ id: world.id, worldId: world.id, title, preset: presetId, seed, width: domain.bounds.width, height: domain.bounds.height, starter: world.params.starter ?? null, worldKm: domain.widthKm, cellKm: domain.cellKm, sheet: true, created: true, domain }, { projectId, entityId: world.id, summary: `created map "${title}"` });
+    } catch (error) { if (error instanceof WorldDomainError) throw new BridgeError(error.code, error.message); throw error; }
+  }
   // How big the map is. A single landmass is laid on a sheet its own size
   // (about 3.2 times the land, so the sea goes round it) unless sheet:false asks
   // for the whole planet; worldKm sets a sheet of any width for any preset.
@@ -1176,16 +1236,18 @@ export async function whMeasureWorld(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const { measurePolyline, polygonAreaKm2, closedPerimeterKm } = await import('@/engines/worldgen/core/measure');
   const { normalizeParams } = await import('@/engines/worldgen/core/types');
-  const width = normalizeParams(world.params).width, height = width >> 1;
+  const sheet = mapMetric(world);
+  const width = sheet.finite ? sheet.width! : normalizeParams(world.params).width;
+  const height = sheet.finite ? sheet.height! : width >> 1;
   const raw = args.points;
   if (!Array.isArray(raw) || raw.length < 2 || raw.length > 500) throw new BridgeError('bad-args', 'points must be an array of 2 to 500 {x,y} world cells.');
   const points = raw.map((point, index) => {
     const p = point as Record<string, unknown>;
     if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new BridgeError('bad-args', `points[${index}] must be {x,y} numbers.`);
     if (p.y < 0 || p.y > height) throw new BridgeError('bad-args', `points[${index}].y must be within 0..${height}.`);
-    return { x: ((p.x % width) + width) % width, y: p.y };
+    if (sheet.finite && (p.x < 0 || p.x > width)) throw new BridgeError('bad-args', `points[${index}].x must be within 0..${width}.`);
+    return { x: sheet.finite ? p.x : ((p.x % width) + width) % width, y: p.y };
   });
-  const sheet = mapMetric(world);
   const reading = measurePolyline(points, width, height, sheet);
   const round = (value: number) => Math.round(value * 100) / 100;
   return {
@@ -1255,6 +1317,11 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
       return { x: place.x, y: place.y, name: place.name };
     }
     if (typeof s?.x === 'number' && typeof s?.y === 'number' && Number.isFinite(s.x) && Number.isFinite(s.y)) {
+      if (data.domain?.topology === 'finite') {
+        if (s.x < 0 || s.x >= data.width || s.y < 0 || s.y >= data.height) throw new BridgeError('bad-args', `stops[${index}] must be within the world grid.`);
+        const x = Math.min(data.width - 1, Math.round(s.x)), y = Math.min(data.height - 1, Math.round(s.y));
+        return { x, y, name: `${x},${y}` };
+      }
       if (Math.round(s.y) < 0 || Math.round(s.y) >= data.height) throw new BridgeError('bad-args', `stops[${index}].y must be within the world grid.`);
       return { x: ((Math.round(s.x) % data.width) + data.width) % data.width, y: Math.round(s.y), name: `${Math.round(s.x)},${Math.round(s.y)}` };
     }

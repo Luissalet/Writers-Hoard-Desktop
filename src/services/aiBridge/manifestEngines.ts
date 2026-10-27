@@ -935,6 +935,9 @@ const PENDING_NOTE =
 
 export const WORLDGEN_TOOLS: BridgeTool[] = [
   { name: 'wh_get_world_scale', writes: false, description: 'Read the physical width, height and cell size of an existing generated map, its source recipe width, override and revision. Includes requested and resolved settings scope: an era inheriting a map shares Base settings. Does not generate terrain.', schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false } },
+  { name: 'wh_get_world_domain', writes: false, description: 'Read the actual map domain: source recipe, absolute bounds, finite or legacy topology, physical width/height and cell size, domain and scale revisions, catalogue count and resolved/requested era scope. Does not generate, adopt or save terrain.', schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false } },
+  { name: 'wh_resize_world', writes: true, description: 'Grow or crop the actual terrain grid, retaining the exact overlapping cells and their absolute identities. widthKm and heightKm are quantized at the current cell size; read effective bounds in the response. Choose one of nine anchors and sea or land for new cells. expectedRevision comes from wh_get_world_domain. The source seed and recipe stay unchanged; a crop then growth fills discarded terrain anew. dryRun only previews; jobId allows cancellation. Apply prepares outside the writer and atomically commits only a still-current recipe/domain/scale/owner. Undo preserves newer edits.', schema: { type: 'object', properties: { worldId: WORLD_ID, widthKm: { type: 'number', exclusiveMinimum: 0 }, heightKm: { type: 'number', exclusiveMinimum: 0 }, anchor: s('Retained anchor.', { enum: ['north-west', 'north', 'north-east', 'west', 'center', 'east', 'south-west', 'south', 'south-east'] }), fill: s('New terrain.', { enum: ['sea', 'land'] }), expectedRevision: { type: 'integer', minimum: 0 }, jobId: s('Optional owned preparation ID.'), dryRun: { type: 'boolean' } }, required: ['worldId', 'widthKm', 'heightKm', 'anchor', 'fill', 'expectedRevision'], additionalProperties: false } },
+  { name: 'wh_cancel_world_operation', writes: false, description: 'Cancel only the active finite-map creation or resize with this jobId in the requested project/era. Returns active and canceled; never changes authored rows or another job.', schema: { type: 'object', properties: { projectId: PROJECT_ID, jobId: s('The jobId passed to creation or resize.') }, required: ['jobId'], additionalProperties: false } },
   { name: 'wh_set_world_scale', writes: true, description: 'Calibrate an existing sheet without regenerating or changing its seed, cells, terrain, edits or coordinates. Pass positive finite widthKm; null resets to recipe width. Height and cell size follow the existing grid aspect. expectedRevision comes from wh_get_world_scale; stale changes fail. Undo restores only this still-current calibration. Planets retain their original semantics.', schema: { type: 'object', properties: { worldId: WORLD_ID, widthKm: { anyOf: [{ type: 'number', exclusiveMinimum: 0 }, { type: 'null' }] }, expectedRevision: { type: 'integer', minimum: 0 } }, required: ['worldId', 'widthKm', 'expectedRevision'], additionalProperties: false } },
   {
     name: 'wh_render_world_map', writes: false,
@@ -979,11 +982,13 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
       worldKm: n('Make the map a flat sheet this many km wide (1000-40074), for any preset; omit for the planet (or the landmass sheet).'),
       seed: s('Seed text; omit for a random one. Same seed and preset give the same world.'),
       width: n('Grid width: 1024 fast, 2048 standard (default), 3072 high.'),
+      sheetSize: { type: 'object', description: 'Prepare and atomically publish an actual finite rectangular sheet. Dimensions in km; resolution is cells along its longest side (multiple of4). Independent width/height; no worldKm or sheet:false. Without this object the deferred legacy creation is unchanged.', properties: { widthKm: { type: 'number', exclusiveMinimum: 0 }, heightKm: { type: 'number', exclusiveMinimum: 0 }, resolution: { type: 'integer', minimum: 4, multipleOf: 4 } }, required: ['widthKm', 'heightKm'], additionalProperties: false },
+      jobId: s('Optional preparation ID for wh_cancel_world_operation when sheetSize is present.'),
     }, additionalProperties: false },
   },
   {
     name: 'wh_measure_world', writes: false,
-    description: 'Measure on a generated world like the map ruler: great-circle distance along points in world cells (each leg with bearing) and, for three or more points, the enclosed area in km² and the closed perimeter. Uses the size every map instrument uses: the planet, or on a sheet world its own width, measured flat.',
+    description: 'Measure on a generated world like the map ruler: great-circle distance along points in world cells (each leg with bearing) and, for three or more points, the enclosed area in km² and the closed perimeter. Sheets use their current physical calibration, measured flat. Finite maps use local coordinates inside the current width/height, including the boundary, without wrapping; read wh_get_world_domain for the current extent. Legacy maps keep their original seam behavior.',
     schema: { type: 'object', properties: { worldId: WORLD_ID, points: { type: 'array', minItems: 2, maxItems: 500, description: 'Points in world cells, in order.', items: { type: 'object', properties: { x: CELL_X, y: CELL_Y }, required: ['x', 'y'], additionalProperties: false } } }, required: ['worldId', 'points'], additionalProperties: false },
   },
   {
@@ -1689,7 +1694,7 @@ Only the fields given change; the label keeps its place (use wh_move_place to mo
     name: 'wh_list_waypoints',
     description:
       `List the reader's own bookmarked waypoints on a world, separate from generated places.
-The reader's waypoints on a world: named pins with a note and a colour, positioned by normalised u (0 west to 1 east, wrapping) and v (0 north to 1 south). Waypoints are the reader's own bookmarks, separate from the generated places.`,
+The reader's own named pins, separate from generated places. Finite sheets return their absolute cell and u/v projected into the current rectangle; retained pins outside it may have u/v outside 0..1. Reading never changes saved coordinates. Legacy worlds keep normalized wrapping.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1702,7 +1707,7 @@ The reader's waypoints on a world: named pins with a note and a colour, position
     name: 'wh_add_waypoint',
     description:
       `Drop a waypoint on a world at a normalised position; colour cycles if omitted.
-Drop a waypoint on a world at a normalised position: u 0..1 west to east (wraps), v 0..1 north to south. To pin a generated place, take its u,v from wh_list_places. The colour cycles through the app's palette when omitted.`,
+Use u 0..1 west to east and v 0..1 north to south. Finite sheets clamp both and retain the absolute source cell through later growth or cropping; east 1 is distinct from west 0. Legacy u still wraps. To pin a generated place, take its u/v from wh_list_places. Colour cycles if omitted.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1720,7 +1725,7 @@ Drop a waypoint on a world at a normalised position: u 0..1 west to east (wraps)
   },
   {
     name: 'wh_update_waypoint',
-    description: 'Change a waypoint: rename it, move it, recolour it or rewrite its note. Only the fields you pass are touched.',
+    description: 'Rename, move, recolour or rewrite a waypoint. Movement uses current normalized map coordinates; finite sheets retain the untouched absolute axis. Changing only prose or colour leaves its position unchanged.',
     writes: true,
     schema: {
       type: 'object',

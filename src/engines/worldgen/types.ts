@@ -52,6 +52,8 @@ export interface GeneratedWorld {
   mapWidthKm?: number;
   /** Monotonic calibration revision, including reset and Undo. */
   scaleRevision?: number;
+  /** Monotonic authored domain revision, including Undo. */
+  domainRevision?: number;
   /** Original world when this recipe was explored as an independent alternative. */
   originWorldId?: string;
   /**
@@ -178,6 +180,8 @@ export interface CanonTileRow {
 }
 
 export interface WorldWaypoint {
+  /** Absolute source cell once the map has adopted a finite domain. */
+  cell?: { x: number; y: number };
   id: string;
   projectId: string;
   worldId: string;

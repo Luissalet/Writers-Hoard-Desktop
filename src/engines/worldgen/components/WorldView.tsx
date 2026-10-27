@@ -64,9 +64,11 @@ import { useWorldGeneration } from '../useWorldGeneration';
 import { forgeCrashExitCode, isForgeCrash } from '../forge/bridge';
 import { useWorldEnvironment } from '../useWorldEnvironment';
 import { useWorldWaypoints } from '../hooks';
+import { waypointCellFromPosition, waypointForDomain } from '../waypointPosition';
 import Map2D from './Map2D';
 import ParamsPanel from './ParamsPanel';
 import WorldScalePanel from './WorldScalePanel';
+import WorldDomainPanel from './WorldDomainPanel';
 import { applyWorldScaleMetadata } from '../core/geoScale';
 import WaypointsPanel from './WaypointsPanel';
 import type { Shape3D, Skin3D } from './World3D';
@@ -575,7 +577,7 @@ export default function WorldView({
     return painter;
   },[imageBinding]);
   /** A sheet is a flat map of a piece of ground: it has no globe to turn. */
-  const sheetWorld = isSheet(world.params);
+  const sheetWorld = !!mapMetric(world).finite || isSheet(world.params);
   /**
    * The camera's span is in planet kilometres (a whole map is 40075 across);
    * a saved region's, like every number a reader sees, is in the map's own. On
@@ -655,11 +657,16 @@ export default function WorldView({
   }, [generate]);
 
   const {
-    items: waypoints,
+    items: storedWaypoints,
     addItem: addWaypoint,
     editItem: editWaypoint,
     removeItem: removeWaypoint,
   } = useWorldWaypoints(world.id);
+  const waypoints = useMemo(() => {
+    void paintRev; // The live domain is adopted in place before its ready revision.
+    const domain = data?.domain;
+    return domain ? storedWaypoints.map(waypoint => waypointForDomain(waypoint, domain)) : storedWaypoints;
+  }, [storedWaypoints, data, paintRev]);
 
   // Deep-linked waypoint focus — applied as a render-phase state adjustment
   // (React's documented pattern) once the waypoint list contains the target.
@@ -758,12 +765,12 @@ export default function WorldView({
     void paintRev;
     if (!data) return null;
     const s = sessionWorld.current === data ? session.current : null;
-    const edits = s && s.edits.length ? s.serialize() : undefined;
-    const key = `${data.params.seed}:${data.width}:${edits ?? ''}`;
+    const canonical = s?.canonicalSource();
+    const edits = s && canonical && (s.edits.length || canonical.world.domain) ? canonical.edits : undefined;
+    const bounds = data.domain?.bounds;
+    const key = `${data.params.seed}:${data.width}:${data.height}:${bounds?.x ?? 0}:${bounds?.y ?? 0}:${data.domain?.revision ?? 0}:${edits ?? ''}`;
     if (canonPrev.current.source === data && canonPrev.current.key === key && canonPrev.current.value) return canonPrev.current.value;
-    const value = edits
-      ? { world: { ...data, elevation: s!.pristineElevation }, edits }
-      : { world: data, edits: undefined };
+    const value = { world: canonical?.world ?? data, edits };
     /**
      * EL MUNDO PRÍSTINO TAMBIÉN SE LIGA AL ALMACÉN. `bindCanonWorld` se
      * enseñaba sólo sobre `data` (el mundo editado, en `remember`), pero las
@@ -1858,12 +1865,13 @@ export default function WorldView({
       color: WAYPOINT_COLORS[waypoints.length % WAYPOINT_COLORS.length],
       u,
       v,
+      cell: data?.domain ? waypointCellFromPosition(data.domain, u, v) : undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     await addWaypoint(wp);
     setSelectedWaypointId(wp.id);
-  }, [projectId, world.id, waypoints.length, addWaypoint, t]);
+  }, [projectId, world.id, waypoints.length, addWaypoint, t, data]);
 
   const dropWaypoint = useCallback(async (id: string) => {
     await removeWaypoint(id);
@@ -2692,7 +2700,7 @@ export default function WorldView({
               // ediciones — ver `isWaypointTool` — así que se guarda como
               // cualquier otro cambio de la chincheta, con su fecha.
               onMoveWaypoint={(id, u, v) => {
-                void editWaypoint(id, { u, v, updatedAt: Date.now() });
+                void editWaypoint(id, { u, v, cell: data?.domain ? waypointCellFromPosition(data.domain, u, v) : undefined, updatedAt: Date.now() });
               }}
               onSelectWaypoint={setSelectedWaypointId}
               onSelectSpatialEntity={(entity: WorldSpatialEntity | null) => {
@@ -3227,7 +3235,7 @@ export default function WorldView({
                 }}
               />
             ) : panelTab === 'params' ? (
-              <><WorldScalePanel key={runtimeId} world={world} eraId={scope.eraId} onChanged={onRefreshWorld} /><ParamsPanel
+              <><WorldScalePanel key={runtimeId} world={world} eraId={scope.eraId} onChanged={onRefreshWorld} /><WorldDomainPanel key={`domain:${runtimeId}`} scope={scope} worldId={world.id} onChanged={onRefreshWorld} /><ParamsPanel
                 params={params}
                 onChange={setParams}
                 onGenerate={handleGenerate}

@@ -43,6 +43,17 @@ export function canonWindowCover(world: WorldData, spec: CanonWindowSpec): TileI
   const perTile = tileInterior(world);
   const x0 = spec.gx0 - spec.margin, x1 = spec.gx0 + spec.cw + spec.margin;
   const y0 = spec.gy0 - spec.margin, y1 = spec.gy0 + spec.ch + spec.margin;
+  if (world.domain?.topology === 'finite') {
+    const b = world.domain.bounds, ref = canonRefinement(world);
+    const left = Math.max(x0, b.x * ref), right = Math.min(x1, (b.x + b.width) * ref);
+    const top = Math.max(y0, b.y * ref), bottom = Math.min(y1, (b.y + b.height) * ref);
+    const out: TileId[] = [];
+    if (left >= right || top >= bottom) return out;
+    for (let ty = Math.floor(top / perTile); ty <= Math.ceil(bottom / perTile) - 1; ty++) {
+      for (let tx = Math.floor(left / perTile); tx <= Math.ceil(right / perTile) - 1; tx++) out.push({ tx, ty });
+    }
+    return out;
+  }
   const ny = tileCountY(world);
   const out: TileId[] = [];
   const ty0 = Math.max(0, Math.floor(y0 / perTile));
@@ -114,11 +125,13 @@ export function composeCanonWindow(
   // Grid (0,0) in global canon indices.
   const ox = spec.gx0 - m;
   const oy = spec.gy0 - m;
+  const bounds = world.domain?.topology === 'finite' ? world.domain.bounds : undefined;
+  const localX = bounds?.x ?? 0, localY = bounds?.y ?? 0;
 
   const out: RegionData = {
     window: {
-      cx: (spec.gx0 + spec.cw / 2) * per,
-      cy: (spec.gy0 + spec.ch / 2) * per,
+      cx: (spec.gx0 + spec.cw / 2) * per - localX,
+      cy: (spec.gy0 + spec.ch / 2) * per - localY,
       spanKm: spec.cw * per * kmCell,
     },
     params: tiles[0]?.data.params ?? canonParams(world),
@@ -126,8 +139,8 @@ export function composeCanonWindow(
     height,
     margin: m,
     metresPerCell: kmCell * 1000 * per,
-    originX: ox * per,
-    originY: oy * per,
+    originX: ox * per - localX,
+    originY: oy * per - localY,
     worldPerCellX: per,
     worldPerCellY: per,
     elevation: new Float32Array(n),
@@ -149,6 +162,7 @@ export function composeCanonWindow(
   // Sea outside the covered rows (polar clamp): matches generated tiles, which
   // never exist past the poles.
   out.water.fill(1);
+  if (bounds) out.elevation.fill(-1.6);
 
   const worldCanon = Math.round(W / per);
   const seenPlace = new Set<string>();
@@ -156,13 +170,13 @@ export function composeCanonWindow(
   for (const { id, data } of tiles) {
     const g = tileGeometry(world, id);
     const tix0 = Math.round((wrapTx(world, id.tx) * TILE_WORLD_CELLS) / per);
-    const tiy0 = Math.round((Math.min(tileCountY(world) - 1, Math.max(0, id.ty)) * TILE_WORLD_CELLS) / per);
+    const tiy0 = Math.round(((bounds ? id.ty : Math.min(tileCountY(world) - 1, Math.max(0, id.ty))) * TILE_WORLD_CELLS) / per);
 
-    for (const shift of [-worldCanon, 0, worldCanon]) {
-      const ax0 = Math.max(ox, tix0 + shift);
-      const ax1 = Math.min(ox + width, tix0 + shift + interior);
-      const ay0 = Math.max(oy, tiy0);
-      const ay1 = Math.min(oy + height, tiy0 + interior);
+    for (const shift of bounds ? [0] : [-worldCanon, 0, worldCanon]) {
+      const ax0 = Math.max(ox, tix0 + shift, bounds ? bounds.x / per : -Infinity);
+      const ax1 = Math.min(ox + width, tix0 + shift + interior, bounds ? (bounds.x + bounds.width) / per : Infinity);
+      const ay0 = Math.max(oy, tiy0, bounds ? bounds.y / per : -Infinity);
+      const ay1 = Math.min(oy + height, tiy0 + interior, bounds ? (bounds.y + bounds.height) / per : Infinity);
       if (ax1 <= ax0 || ay1 <= ay0) continue;
 
       for (let gy = ay0; gy < ay1; gy++) {
@@ -192,12 +206,14 @@ export function composeCanonWindow(
         p.x >= g.margin && p.x < g.margin + interior && p.y >= g.margin && p.y < g.margin + interior;
       const inGrid = (p: { x: number; y: number }) => {
         const q = toGrid(p);
-        return q.x >= 0 && q.x < width && q.y >= 0 && q.y < height;
+        return q.x >= 0 && q.x < width && q.y >= 0 && q.y < height
+          && (!bounds || ((q.x + ox) * per >= bounds.x && (q.x + ox) * per < bounds.x + bounds.width
+            && (q.y + oy) * per >= bounds.y && (q.y + oy) * per < bounds.y + bounds.height));
       };
       const keepPt = (p: { x: number; y: number }) => inInterior(p) && inGrid(p);
 
       for (const p of data.places) {
-        if (!inInterior(p)) continue;
+        if (!inInterior(p) || !inGrid(p)) continue;
         const q = toGrid(p);
         if (q.x < 0 || q.x >= width || q.y < 0 || q.y >= height) continue;
         if (seenPlace.has(p.sourceKey)) continue;

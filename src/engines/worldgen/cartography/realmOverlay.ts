@@ -55,7 +55,8 @@ export interface BorderSegments {
  * a requestAnimationFrame callback, which is precisely when the reader has just
  * let go of the brush and is looking for it to feel quick.
  */
-const CACHE = new WeakMap<Int32Array, BorderSegments>();
+type RealmWorld = { width: number; height: number; domain?: { topology: string } };
+const CACHE = new WeakMap<Int32Array, { key: string; segments: BorderSegments }>();
 
 /**
  * Every edge where two realms meet, or where a realm meets unclaimed ground.
@@ -66,9 +67,11 @@ const CACHE = new WeakMap<Int32Array, BorderSegments>();
  * seam), and the south edge of the last row is not, because there is nothing
  * below it.
  */
-export function realmBorders(world: { width: number; height: number }, geo: HumanGeography): BorderSegments {
+export function realmBorders(world: RealmWorld, geo: HumanGeography): BorderSegments {
+  const wrapX = world.domain?.topology !== 'finite';
+  const key = `${world.width}x${world.height}/${wrapX}`;
   const cached = CACHE.get(geo.realmOf);
-  if (cached) { cached.styles = new Map(geo.realms.map(r => [r.hue, r.style ?? {}])); return cached; }
+  if (cached?.key === key) { cached.segments.styles = new Map(geo.realms.map(r => [r.hue, r.style ?? {}])); return cached.segments; }
   const W = world.width, H = world.height;
   const of = geo.realmOf;
   // Two passes: count, then fill. Growing a JS array of a few thousand entries
@@ -78,7 +81,7 @@ export function realmBorders(world: { width: number; height: number }, geo: Huma
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       const a = of[i];
-      if (a !== of[y * W + ((x + 1) % W)]) n++;
+      if ((wrapX || x < W - 1) && a !== of[y * W + ((x + 1) % W)]) n++;
       if (y < H - 1 && a !== of[i + W]) n++;
     }
   }
@@ -89,7 +92,7 @@ export function realmBorders(world: { width: number; height: number }, geo: Huma
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       const a = of[i];
-      const r = of[y * W + ((x + 1) % W)];
+      const r = wrapX || x < W - 1 ? of[y * W + ((x + 1) % W)] : a;
       const d = y < H - 1 ? of[i + W] : a;
       if (a !== r) {
         xy[k * 4] = x + 1; xy[k * 4 + 1] = y;
@@ -107,7 +110,7 @@ export function realmBorders(world: { width: number; height: number }, geo: Huma
   }
   const out = mergeRuns({ xy, hue, count: k });
   out.styles = new Map(geo.realms.map(r => [r.hue, r.style ?? {}]));
-  CACHE.set(geo.realmOf, out);
+  CACHE.set(geo.realmOf, { key, segments: out });
   return out;
 }
 
@@ -364,10 +367,10 @@ const TINT_CACHE = new WeakMap<Int32Array, { key: string; canvas: HTMLCanvasElem
  * fact about the map.
  */
 export function realmTint(
-  world: { width: number; height: number },
+  world: RealmWorld,
   geo: HumanGeography,
 ): HTMLCanvasElement | null {
-  const key = JSON.stringify(geo.realms.map(r => [r.hue, r.style]));
+  const key = `${world.width}x${world.height}|` + JSON.stringify(geo.realms.map(r => [r.hue, r.style]));
   const hit = TINT_CACHE.get(geo.realmOf);
   if (hit?.key === key) return hit.canvas;
   const W = world.width, H = world.height;
@@ -414,12 +417,14 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 }
 
 /** Same styled territory raster on the photographic 3D skin. */
-export function drawRealmWash(ctx: CanvasRenderingContext2D, world: { width: number; height: number }, geo: HumanGeography,
+export function drawRealmWash(ctx: CanvasRenderingContext2D, world: RealmWorld, geo: HumanGeography,
   view: { x: number; y: number; w: number; h: number }, width: number, height: number): void {
   if (!geo.realms.some(r => r.style?.areaStyle || r.style?.areaOpacity !== undefined || r.style?.color)) return;
   const tint = realmTint(world, geo); if (!tint) return;
   ctx.save(); ctx.globalAlpha = .16;
   const sx = width / view.w, sy = height / view.h;
-  for (let k = Math.floor(view.x / world.width); k <= Math.floor((view.x + view.w) / world.width); k++) ctx.drawImage(tint, (k * world.width - view.x) * sx, -view.y * sy, world.width * sx, world.height * sy);
+  const start = world.domain?.topology === 'finite' ? 0 : Math.floor(view.x / world.width);
+  const end = world.domain?.topology === 'finite' ? 0 : Math.floor((view.x + view.w) / world.width);
+  for (let k = start; k <= end; k++) ctx.drawImage(tint, (k * world.width - view.x) * sx, -view.y * sy, world.width * sx, world.height * sy);
   ctx.restore();
 }

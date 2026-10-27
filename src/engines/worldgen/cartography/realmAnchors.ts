@@ -15,18 +15,19 @@ interface RealmAnchor {
  * 2048-wide world — which is affordable once and ruinous on every frame of a
  * pan. Keyed on `realmOf`, exactly like the border extraction in
  * `cartography/realmOverlay`: that array is what changes when the political map
- * changes, and a geography rebuilt after a stroke brings a new one.
+ * changes, and a geography rebuilt after a stroke brings a new one. Shape and
+ * topology are also checked before reusing an anchor.
  */
-const REALM_ANCHORS = new WeakMap<Int32Array, Array<RealmAnchor | null>>();
+const REALM_ANCHORS = new WeakMap<Int32Array, { width: number; height: number; wrapX: boolean; anchors: Array<RealmAnchor | null> }>();
 
-export function realmAnchors(W: number, H: number, geo: HumanGeography): Array<RealmAnchor | null> {
+export function realmAnchors(W: number, H: number, geo: HumanGeography, wrapX = true): Array<RealmAnchor | null> {
   const cached = REALM_ANCHORS.get(geo.realmOf);
-  if (cached) return cached;
+  if (cached && cached.width === W && cached.height === H && cached.wrapX === wrapX) return cached.anchors;
   const of = geo.realmOf;
   const n = geo.realms.length;
   // Longitude is averaged as an ANGLE. A realm that straddles the antimeridian
   // has columns near 0 and near W, and the plain mean of those puts its capital
-  // on the far side of the planet.
+  // on the far side of the planet. A finite sheet instead uses a linear mean.
   const cosCol = new Float64Array(W), sinCol = new Float64Array(W);
   for (let x = 0; x < W; x++) {
     const a = (x / W) * Math.PI * 2;
@@ -38,13 +39,13 @@ export function realmAnchors(W: number, H: number, geo: HumanGeography): Array<R
     for (let x = 0; x < W; x++) {
       const r = of[y * W + x];
       if (r < 0 || r >= n) continue;
-      cos[r] += cosCol[x]; sin[r] += sinCol[x];
+      cos[r] += wrapX ? cosCol[x] : x; sin[r] += sinCol[x];
       sumY[r] += y; count[r]++;
     }
   }
   const cx = new Float64Array(n), cy = new Float64Array(n);
   for (let r = 0; r < n; r++) {
-    cx[r] = ((Math.atan2(sin[r], cos[r]) / (Math.PI * 2)) * W % W + W) % W;
+    cx[r] = wrapX ? ((Math.atan2(sin[r], cos[r]) / (Math.PI * 2)) * W % W + W) % W : count[r] ? cos[r] / count[r] : 0;
     cy[r] = count[r] ? sumY[r] / count[r] : 0;
   }
   // Second pass: the nearest cell the realm actually HOLDS. A centroid falls in
@@ -58,8 +59,10 @@ export function realmAnchors(W: number, H: number, geo: HumanGeography): Array<R
       const r = of[y * W + x];
       if (r < 0 || r >= n) continue;
       let dx = x - cx[r];
-      while (dx > W / 2) dx -= W;
-      while (dx < -W / 2) dx += W;
+      if (wrapX) {
+        while (dx > W / 2) dx -= W;
+        while (dx < -W / 2) dx += W;
+      }
       const dy = y - cy[r];
       const d2 = dx * dx + dy * dy;
       if (d2 >= best[r]) continue;
@@ -71,6 +74,6 @@ export function realmAnchors(W: number, H: number, geo: HumanGeography): Array<R
     const a = out[r];
     if (a) a.cells = count[r];
   }
-  REALM_ANCHORS.set(geo.realmOf, out);
+  REALM_ANCHORS.set(geo.realmOf, { width: W, height: H, wrapX, anchors: out });
   return out;
 }

@@ -272,8 +272,10 @@ export function strokeMask(stroke: Stroke, W: number, H: number, wrapX = true): 
   const ax = stroke.pts[0].x;
   const un = stroke.pts.map((p) => {
     let x = p.x;
-    while (x - ax > W / 2) x -= W;
-    while (x - ax < -W / 2) x += W;
+    if (wrapX) {
+      while (x - ax > W / 2) x -= W;
+      while (x - ax < -W / 2) x += W;
+    }
     return { x, y: p.y };
   });
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -904,27 +906,27 @@ class LiveBrush implements Brush {
 // The ops
 // ---------------------------------------------------------------------------
 
-const idx = (W: number, H: number, x: number, y: number): number =>
-  Math.min(H - 1, Math.max(0, y)) * W + (((x % W) + W) % W);
+const idx = (W: number, H: number, x: number, y: number, wrapX = true): number =>
+  Math.min(H - 1, Math.max(0, y)) * W + (wrapX ? (((x % W) + W) % W) : Math.min(W - 1, Math.max(0, x)));
 
 /** Mean of the 3×3 neighbourhood of the PRE-STROKE field. */
-function mean3(base: BaseField, W: number, H: number, x: number, y: number): number {
+function mean3(base: BaseField, W: number, H: number, x: number, y: number, wrapX = true): number {
   let sum = 0, n = 0;
   for (let dy = -1; dy <= 1; dy++) {
     const yy = y + dy;
     if (yy < 0 || yy >= H) continue;
-    for (let dx = -1; dx <= 1; dx++) { sum += base.at(idx(W, H, x + dx, yy)); n++; }
+    for (let dx = -1; dx <= 1; dx++) { sum += base.at(idx(W, H, x + dx, yy, wrapX)); n++; }
   }
-  return n ? sum / n : base.at(idx(W, H, x, y));
+  return n ? sum / n : base.at(idx(W, H, x, y, wrapX));
 }
 
-function bilinearBase(base: BaseField, W: number, H: number, x: number, y: number): number {
+function bilinearBase(base: BaseField, W: number, H: number, x: number, y: number, wrapX = true): number {
   const fx = Math.floor(x), fy = Math.floor(y);
   const tx = x - fx, ty = y - fy;
-  const h00 = base.at(idx(W, H, fx, fy));
-  const h10 = base.at(idx(W, H, fx + 1, fy));
-  const h01 = base.at(idx(W, H, fx, fy + 1));
-  const h11 = base.at(idx(W, H, fx + 1, fy + 1));
+  const h00 = base.at(idx(W, H, fx, fy, wrapX));
+  const h10 = base.at(idx(W, H, fx + 1, fy, wrapX));
+  const h01 = base.at(idx(W, H, fx, fy + 1, wrapX));
+  const h11 = base.at(idx(W, H, fx + 1, fy + 1, wrapX));
   return (h00 * (1 - tx) + h10 * tx) * (1 - ty) + (h01 * (1 - tx) + h11 * tx) * ty;
 }
 
@@ -967,7 +969,7 @@ export function applyTerrainOp(
       // and wrong.
       brush.each((i, c, x, y) => {
         const b = base.at(i);
-        elev[i] = b + (mean3(base, W, H, x, y) - b) * c * strength;
+        elev[i] = b + (mean3(base, W, H, x, y, wrapX) - b) * c * strength;
       });
       return;
 
@@ -978,7 +980,7 @@ export function applyTerrainOp(
       // Clamped to the local range so it cannot run away into spikes.
       brush.each((i, c, x, y) => {
         const b = base.at(i);
-        const m = mean3(base, W, H, x, y);
+        const m = mean3(base, W, H, x, y, wrapX);
         const lim = Math.abs(b - m) * 2.5 + 0.004;
         elev[i] = b + Math.max(-lim, Math.min(lim, (b - m) * c * strength * 2.2));
       });
@@ -1035,8 +1037,8 @@ export function applyTerrainOp(
       const noise = new SphereNoise(seed, 'sculpt-gully');
       brush.each((i, c, x, y) => {
         const b = base.at(i);
-        const gx = base.at(idx(W, H, x + 1, y)) - base.at(idx(W, H, x - 1, y));
-        const gy = base.at(idx(W, H, x, y + 1)) - base.at(idx(W, H, x, y - 1));
+        const gx = base.at(idx(W, H, x + 1, y, wrapX)) - base.at(idx(W, H, x - 1, y, wrapX));
+        const gy = base.at(idx(W, H, x, y + 1, wrapX)) - base.at(idx(W, H, x, y - 1, wrapX));
         const slope = Math.hypot(gx, gy) * 0.5;
         const u = (x + 0.5) / W, v = (y + 0.5) / H;
         const r = 1 - Math.abs(noise.fbm(u, v, 260, 4));
@@ -1055,9 +1057,9 @@ export function applyTerrainOp(
       // field from a point pulled back along the drag by its own coverage, so the
       // centre travels the full distance and the rim does not move at all.
       if (stroke.pts.length < 2) return;
-      const { dx, dy } = grabVector(stroke, W);
+      const { dx, dy } = grabVector(stroke, W, wrapX);
       brush.each((i, c, x, y) => {
-        elev[i] = bilinearBase(base, W, H, x - dx * c, y - dy * c);
+        elev[i] = bilinearBase(base, W, H, x - dx * c, y - dy * c, wrapX);
       });
       return;
     }
@@ -1158,12 +1160,14 @@ export function liveBase(elev: Float32Array): BaseField {
 export function snapshotBase(
   elev: Float32Array, W: number, H: number,
   x0: number, y0: number, w: number, h: number,
+  wrapX = true,
 ): BaseField {
   const data = new Float32Array(w * h);
   for (let gy = 0; gy < h; gy++) {
     const wy = Math.min(H - 1, Math.max(0, y0 + gy));
     for (let gx = 0; gx < w; gx++) {
-      data[gy * w + gx] = elev[wy * W + ((((x0 + gx) % W) + W) % W)];
+      const x = x0 + gx;
+      data[gy * w + gx] = elev[wy * W + (wrapX ? (((x % W) + W) % W) : Math.min(W - 1, Math.max(0, x)))];
     }
   }
   // No loops in the lookup. This function is called several times per cell per
@@ -1200,13 +1204,15 @@ export function opIsLocal(op: TerrainOp | LandOp): boolean {
 }
 
 /** The drag of a grab stroke, unwrapped across the seam. */
-export function grabVector(stroke: Stroke, W: number): { dx: number; dy: number } {
+export function grabVector(stroke: Stroke, W: number, wrapX = true): { dx: number; dy: number } {
   const pts = stroke.pts;
   if (pts.length < 2) return { dx: 0, dy: 0 };
   const a = pts[0], b = pts[pts.length - 1];
   let dx = b.x - a.x;
-  while (dx > W / 2) dx -= W;
-  while (dx < -W / 2) dx += W;
+  if (wrapX) {
+    while (dx > W / 2) dx -= W;
+    while (dx < -W / 2) dx += W;
+  }
   return { dx, dy: b.y - a.y };
 }
 
@@ -1221,11 +1227,12 @@ export function grabVector(stroke: Stroke, W: number): { dx: number; dy: number 
  */
 export function opBaseRect(
   op: TerrainOp, stroke: Stroke, brush: Brush, W: number,
+  wrapX = true,
 ): { x0: number; y0: number; w: number; h: number } {
   if (op !== 'grab') {
     return { x0: brush.x0 - 1, y0: brush.y0 - 1, w: brush.w + 2, h: brush.h + 2 };
   }
-  const { dx, dy } = grabVector(stroke, W);
+  const { dx, dy } = grabVector(stroke, W, wrapX);
   const x0 = Math.floor(Math.min(brush.x0, brush.x0 - dx)) - 2;
   const x1 = Math.ceil(Math.max(brush.x0 + brush.w, brush.x0 + brush.w - dx)) + 2;
   const y0 = Math.floor(Math.min(brush.y0, brush.y0 - dy)) - 2;

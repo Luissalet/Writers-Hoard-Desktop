@@ -134,9 +134,10 @@ export function clampCameraToSurface(
 export const MAX_CLOUD_SHADOWS = 40;
 
 const HEIGHT_FN = /* glsl */`
+uniform float uWrapX;
 // Monotone reconstruction preserves ramps, samples and continuous slopes.
 ${WORLD_HEIGHT_GLSL}
-float baseHeightAt(vec2 uv) { return sampleWorldHeightTexture(uv); }
+float baseHeightAt(vec2 uv) { return sampleWorldHeightTexture(uv,uWrapX > 0.5); }
 
 /** Value noise on a 2D lattice, cheap and continuous. */
 float ampHash(vec2 p) {
@@ -174,7 +175,7 @@ float ampNoise(vec2 p) {
 float subCellRelief(vec2 uv, float base) {
   if (uAmpDetail <= 0.0 || base <= 0.0) return 0.0;
   // Display detail may roughen hills, but must not grow islands through a lake.
-  int waterBiome = int(texture(uBiome, vec2(fract(uv.x), clamp(uv.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
+  int waterBiome = int(texture(uBiome, vec2(uWrapX > 0.5 ? fract(uv.x) : clamp(uv.x,0.0,1.0), clamp(uv.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
   if (waterBiome == ${Biome.Lake}) return 0.0;
   float band = 1.0 - smoothstep(0.06, 0.34, uUVSize.x);
   if (band <= 0.0) return 0.0;
@@ -209,7 +210,7 @@ float heightAtDispRaw(vec2 uv, float disp) {
   float base = baseHeightAt(uv);
   if (uDetailOn < 0.5 || disp <= 0.001) return base;
   float wrappedX = uv.x - uDetailOrigin.x;
-  wrappedX -= round(wrappedX);
+  if (uWrapX > 0.5) wrappedX -= round(wrappedX);
   vec2 localUV = vec2(
     wrappedX / max(1e-7, uDetailSize.x),
     (uv.y - uDetailOrigin.y) / max(1e-7, uDetailSize.y)
@@ -331,7 +332,7 @@ void main() {
   float eShown = uPainted > 0.5 ? max(e, uSea) : e;
   // Paper sheets: the land stands on the sheet its ground reaches (a lake's bed stays under its water).
   if (uTerrace > 0.0 && uShape < 0.5 && e > uSea) {
-    int bed = int(texture(uBiome, vec2(fract(w.x), clamp(w.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
+    int bed = int(texture(uBiome, vec2(uWrapX > 0.5 ? fract(w.x) : clamp(w.x,0.0,1.0), clamp(w.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
     if (bed != ${Biome.Lake}) eShown = uSea + ceil((e - uSea) / uTerrace) * uTerrace;
   }
   vec3 p = uShape < 0.5
@@ -859,7 +860,7 @@ void main() {
     // A finished map — the satellite raster or the drawn carta — laid over the
     // relief. Its own coastlines, rivers and ice are already in it, so none of
     // the elevation-driven colouring below applies.
-    vec2 aw = vec2(fract(vUV.x), clamp(vUV.y, 0.0005, 0.9995));
+    vec2 aw = vec2(uWrapX > 0.5 ? fract(vUV.x) : clamp(vUV.x,0.0,1.0), clamp(vUV.y, 0.0005, 0.9995));
     // Take the wrapped branch nearest the window, or a texture covering a strip
     // across the seam samples a world away on one side of it.
     if (uAlbedoSize.x < 0.999) {
@@ -880,7 +881,7 @@ void main() {
     col = mix(vec3(0.53, 0.68, 0.78), vec3(0.16, 0.26, 0.42), pow(d, 0.45));
     col = mix(col, vec3(0.72, 0.83, 0.87), smoothstep(0.06, 0.0, uSea - e) * 0.6);
   } else {
-    int b = int(texture(uBiome, vec2(fract(vUV.x), clamp(vUV.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
+    int b = int(texture(uBiome, vec2(uWrapX > 0.5 ? fract(vUV.x) : clamp(vUV.x,0.0,1.0), clamp(vUV.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
     col = uPalette[clamp(b, 0, 47)];
   }
   // Close range: the canonical patch's own colours take over from whichever
@@ -1048,7 +1049,7 @@ void main() {
   // has not been, a faint sketch under a wash where it has only been heard of.
   // The relief keeps its light on the paper, so the model still reads as ground.
   if (uReaderFogOn > 0.5) {
-    float fv = texture(uReaderFog, vec2(fract(vUV.x), clamp(vUV.y, 0.0, 1.0))).r;
+    float fv = texture(uReaderFog, vec2(uWrapX > 0.5 ? fract(vUV.x) : clamp(vUV.x,0.0,1.0), clamp(vUV.y, 0.0, 1.0))).r;
     float hidden = 1.0 - smoothstep(0.18, 0.32, fv);
     float heard = smoothstep(0.18, 0.32, fv) * (1.0 - smoothstep(0.68, 0.82, fv));
     if (uReaderFogOn < 1.5) {
@@ -1110,6 +1111,8 @@ void main() {
 `;
 
 export interface SurfaceOptions {
+  /** Finite sheets have distinct west/east boundaries. Legacy surfaces wrap. */
+  wrapX?: boolean;
   worldWidth: number;
   worldHeight: number;
   /** Mesh resolution in vertices across. */
@@ -1146,6 +1149,7 @@ export interface TerrainDetailPatch {
  * two views are interchangeable from the brush's point of view.
  */
 export class SculptSurface {
+  readonly wrapX: boolean;
   readonly mesh: THREE.Mesh;
   readonly material: THREE.ShaderMaterial;
   private heightTex: THREE.DataTexture;
@@ -1177,6 +1181,7 @@ export class SculptSurface {
   private zoomWindow: FocusRect | null = null;
 
   constructor(opts: SurfaceOptions) {
+    this.wrapX = opts.wrapX !== false;
     this.W = opts.worldWidth;
     this.H = opts.worldHeight;
     this.meshResolution = Math.max(16, Math.round(opts.mesh));
@@ -1190,7 +1195,7 @@ export class SculptSurface {
     );
     this.heightTex.magFilter = THREE.NearestFilter;
     this.heightTex.minFilter = THREE.NearestFilter;
-    this.heightTex.wrapS = THREE.RepeatWrapping;
+    this.heightTex.wrapS = this.wrapX ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
     this.heightTex.needsUpdate = true;
 
     this.biomeTex = new THREE.DataTexture(
@@ -1198,7 +1203,7 @@ export class SculptSurface {
     );
     this.biomeTex.magFilter = THREE.NearestFilter;
     this.biomeTex.minFilter = THREE.NearestFilter;
-    this.biomeTex.wrapS = THREE.RepeatWrapping;
+    this.biomeTex.wrapS = this.wrapX ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
     this.biomeTex.needsUpdate = true;
 
     this.detailHeightTex = new THREE.DataTexture(
@@ -1218,6 +1223,7 @@ export class SculptSurface {
     this.material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
+        uWrapX: { value: this.wrapX ? 1 : 0 },
         uHeight: { value: this.heightTex },
         uDetailHeight: { value: this.detailHeightTex },
         uBiome: { value: this.biomeTex },
@@ -1559,10 +1565,11 @@ export class SculptSurface {
    *  rectangle, say — must use this and not the request. */
   setWindow(w: UVWindow): UVWindow {
     const size = Math.min(1, Math.max(MIN_UV_WINDOW, w.size));
+    const u = this.wrapX ? w.u : size >= 1 ? 0.5 : Math.min(1 - size / 2, Math.max(size / 2, w.u));
     // v is clamped so the grid never runs off the poles; u wraps and does not care.
     const v = size >= 1 ? 0.5 : Math.min(1 - size / 2, Math.max(size / 2, w.v));
-    this.window = { u: w.u, v, size };
-    (this.material.uniforms.uUVMin.value as THREE.Vector2).set(w.u - size / 2, v - size / 2);
+    this.window = { u, v, size };
+    (this.material.uniforms.uUVMin.value as THREE.Vector2).set(u - size / 2, v - size / 2);
     (this.material.uniforms.uUVSize.value as THREE.Vector2).set(size, size);
     /**
      * EL PIVOTE: la malla se muda al centro de su ventana.
@@ -1578,14 +1585,14 @@ export class SculptSurface {
      */
     const sizeZ = SIZE_X * (this.H / this.W);
     if ((this.material.uniforms.uShape.value as number) < 0.5) {
-      this.mesh.position.set((w.u - 0.5) * SIZE_X, 0, (v - 0.5) * sizeZ);
+      this.mesh.position.set((u - 0.5) * SIZE_X, 0, (v - 0.5) * sizeZ);
     } else {
       this.mesh.position.set(0, 0, 0);
     }
     (this.material.uniforms.uPivot.value as THREE.Vector3).copy(this.mesh.position);
     this.updateZoomRel();
     this.updateDetailDisp();
-    return { u: w.u, v, size };
+    return { u, v, size };
   }
 
   /** `uZoomRel` = centro de la ventana de la malla − esquina de la piel, con la
@@ -1596,7 +1603,7 @@ export class SculptSurface {
     const z = this.zoomWindow;
     if (!z) { rel.set(0, 0); return; }
     let du = this.window.u - z.u;
-    du -= Math.round(du);
+    if (this.wrapX) du -= Math.round(du);
     rel.set(du, this.window.v - z.v);
   }
 
@@ -1727,6 +1734,7 @@ export class SculptSurface {
     for (let y = y0; y < y0 + h; y++) {
       if (y < 0 || y >= this.H) continue;
       for (let x = x0; x < x0 + w; x++) {
+        if (!this.wrapX && (x < 0 || x >= W)) continue;
         const xx = ((x % W) + W) % W;
         const i = y * W + xx;
         this.heights[i] = elevation[i];
@@ -1753,18 +1761,18 @@ export class SculptSurface {
     const t = this.terraceKm;
     if (t <= 0 || h <= 0 || this.material.uniforms.uShape.value > 0.5) return h;
     // The same stepping the vertex shader does: a lake's bed is left as it is.
-    const x = Math.min(this.W - 1, Math.floor((((u % 1) + 1) % 1) * this.W)), y = Math.min(this.H - 1, Math.max(0, Math.floor(v * this.H)));
+    const x = Math.min(this.W - 1, Math.max(0, Math.floor((this.wrapX ? ((u % 1) + 1) % 1 : u) * this.W))), y = Math.min(this.H - 1, Math.max(0, Math.floor(v * this.H)));
     if ((this.biomeTex.image.data as Uint8Array)[y * this.W + x] === Biome.Lake) return h;
     return Math.ceil(h / t) * t;
   }
 
   /** The ground as it is, without the paper sheets: what sowing and the model's cut read. */
   baseHeightAtUV(u: number, v: number): number {
-    const base = sampleWorldHeight(this.heights, this.W, this.H, u, v);
+    const base = sampleWorldHeight(this.heights, this.W, this.H, u, v, this.wrapX);
     const patch = this.detailPatch;
     if (!patch) return base;
     let wrappedX = u - patch.u;
-    wrappedX -= Math.round(wrappedX);
+    if (this.wrapX) wrappedX -= Math.round(wrappedX);
     const localU = wrappedX / Math.max(1e-7, patch.uSize);
     const localV = (v - patch.v) / Math.max(1e-7, patch.vSize);
     if (localU < 0 || localU > 1 || localV < 0 || localV > 1) return base;
@@ -1795,7 +1803,7 @@ export class SculptSurface {
       this.readerFogTex?.dispose();
       const tex = new THREE.DataTexture(bytes, layer.width, layer.height, THREE.RedFormat, THREE.UnsignedByteType);
       tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter;
-      tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.wrapS = this.wrapX ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
       tex.needsUpdate = true;
       this.readerFogTex = tex;
       this.readerFogMask = layer.mask;
@@ -1882,6 +1890,7 @@ export function visibleWindow(
   worldWidth: number,
   worldHeight: number,
   pad = 1.35,
+  wrapX = true,
 ): UVWindow {
   const sizeZ = SIZE_X * (worldHeight / worldWidth);
   const origin = new THREE.Vector3();
@@ -1930,8 +1939,10 @@ export function visibleWindow(
   const a = us[0];
   const un = us.map((u) => {
     let x = u;
-    while (x - a > 0.5) x -= 1;
-    while (x - a < -0.5) x += 1;
+    if (wrapX) {
+      while (x - a > 0.5) x -= 1;
+      while (x - a < -0.5) x += 1;
+    }
     return x;
   });
   const u0 = Math.min(...un), u1 = Math.max(...un);
@@ -1973,6 +1984,7 @@ export function focusWindow(
   worldHeight: number,
   bound: UVWindow,
   slack = 1.15,
+  wrapX = true,
 ): FocusRect {
   const sizeZ = SIZE_X * (worldHeight / worldWidth);
   const halfFov = Math.tan((camera.fov * Math.PI) / 360);
@@ -2034,7 +2046,7 @@ export function focusWindow(
   // La rama envuelta más cercana a lo visible, para que el bloque de teselas y
   // la caja de la malla hablen de la misma vuelta al mundo.
   let du = u - bound.u;
-  du -= Math.round(du);
+  if (wrapX) du -= Math.round(du);
   return {
     u: bound.u + du,
     v: Math.min(1 - vSize / 2, Math.max(vSize / 2, v)),
@@ -2072,8 +2084,8 @@ export function pickCell(
     if (shape === 'plane') {
       const u = p.x / SIZE_X + 0.5;
       const v = p.z / sizeZ + 0.5;
-      if (v < 0 || v > 1) return null;
-      return { x: (((u % 1) + 1) % 1) * worldWidth, y: v * worldHeight };
+      if (v < 0 || v > 1 || (!surface.wrapX && (u < 0 || u > 1))) return null;
+      return { x: (surface.wrapX ? ((u % 1) + 1) % 1 : u) * worldWidth, y: v * worldHeight };
     }
     const r = p.length();
     if (r < 1e-4) return null;

@@ -7,6 +7,8 @@ export interface ReaderSourceRows{codexEntries:CodexEntry;localMediaAssets:Local
 /** Only the data consumed by the existing standalone Reader renderer. No live fallback. */
 export interface ReaderSource{
  readonly project:Project;
+ /** Prepare-only compiled handles. Owned render data must not retain this map. */
+ readonly capturedLocalSources?:ReadonlyMap<string,{development?:import('@/engines/local/sdk').LocalToolDefinition;releases:ReadonlyMap<string,{definition:import('@/engines/local/sdk').LocalToolDefinition;manifest:import('@/engines/local/releaseFormat.mjs').LocalToolReleaseManifest}>}>;
  capturedAssetFiles?():import('@/engines/local/assetFileFormat').LocalAssetFile[];
  capturedImages?():InspirationImage[];
  rows<K extends keyof ReaderSourceRows>(table:K):ReaderSourceRows[K][];

@@ -362,8 +362,8 @@ export function drawAnnotations(
     ctx.restore();
   }
   // ---- the reader's view: towns heard of, and the trail so far ---------------
-  if (ann.townDots?.length) drawTownDots(ctx, ann.townDots, sx(0), sy, k, W);
-  if (ann.trail?.length) drawTrail(ctx, ann.trail, sx(0), sy, k, W);
+  if (ann.townDots?.length) drawTownDots(ctx, ann.townDots, sx(0), sy, k, W, 1, world.domain?.topology !== 'finite');
+  if (ann.trail?.length) drawTrail(ctx, ann.trail, sx(0), sy, k, W, 1, world.domain?.topology !== 'finite');
   // ---- what happens where, in which chapter: over everything, fog included --
   if (ann.story?.length) {
     const x0 = sx(0);

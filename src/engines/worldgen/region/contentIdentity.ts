@@ -94,11 +94,13 @@ export function geographyContentKey(geography: HumanGeography): string {
  */
 export function worldFamilyKey(world: WorldData): string {
   return `${world.params.seed}:${world.width}x${world.height}`
-    + `:p${hashEditsString(stableStringify(world.params))}`;
+    + `:p${hashEditsString(stableStringify(world.params))}`
+    + (world.domain ? `:domain:${world.domain.source.sourceKey}:${world.domain.topology}:${world.domain.bounds.x},${world.domain.bounds.y}` : '');
 }
 
 export function worldContentKey(world: WorldData): string {
-  return `${worldFamilyKey(world)}:r${world.revision ?? 0}`;
+  return `${worldFamilyKey(world)}:r${world.revision ?? 0}`
+    + (world.domain ? `:d${world.domain.revision}:c${hashValue(2166136261, world.domain.catalogue, new Set()).toString(36)}` : '');
 }
 
 export function mapSourceKey(

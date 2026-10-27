@@ -1,3 +1,4 @@
+import LocalAppWorkspace from '../apps/LocalAppWorkspace';
 import DocumentImageDialog from '@/services/documentImage/DocumentImageDialog';
 import {useLayoutEffect,useRef,useState} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
@@ -8,11 +9,11 @@ import type {LocalToolDefinition} from '../sdk';
 import {readSourceToolDocument,createSourceToolDocument,listSourceToolDocuments,renameSourceToolDocument,archiveSourceToolDocument} from './store';
 const control='min-h-10 min-w-0 rounded-lg border border-border bg-elevated px-3 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold';
 const button='min-h-10 rounded-lg border border-border px-3 text-sm text-text-primary hover:bg-elevated disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent-gold';
-interface SourceToolWorkspaceProps {projectId:string;definition:LocalToolDefinition;eraId?:string;documentId?:string;navigate:(path:string)=>void;releaseHash:string|null}
+export interface SourceToolWorkspaceProps {projectId:string;definition:LocalToolDefinition;eraId?:string;documentId?:string;navigate:(path:string)=>void;releaseHash:string|null}
 /** A live query may retain its previous result while new dependencies load.
  * A document context owns its controls, drafts and client for its whole lifetime. */
-export default function SourceToolWorkspace(props:SourceToolWorkspaceProps){return <SourceToolWorkspaceSession key={JSON.stringify([props.projectId,props.eraId??null,props.definition.namespace,props.documentId??null,props.releaseHash])} {...props}/>;}
-function SourceToolWorkspaceSession({projectId,definition,eraId,documentId,navigate}:SourceToolWorkspaceProps){
+export default function SourceToolWorkspace(props:SourceToolWorkspaceProps){return props.definition.app?<LocalAppWorkspace {...props}/>:<SourceToolWorkspaceSession key={JSON.stringify([props.projectId,props.eraId??null,props.definition.namespace,props.documentId??null,props.releaseHash])} {...props}/>;}
+export function SourceToolWorkspaceSession({projectId,definition,eraId,documentId,navigate}:SourceToolWorkspaceProps){
  const alive=useRef(true);useLayoutEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  const {locale}=useTranslation(),es=locale==='es',rows=useLiveQuery(()=>listSourceToolDocuments({projectId,eraId},definition.namespace),[projectId,eraId,definition.namespace]),[image,setImage]=useState(false),[title,setTitle]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const route=(id?:string,legacy=false)=>{const query=new URLSearchParams({...id?{document:id}:{},...legacy?{legacy:'1'}:{},...(eraId?{era:eraId}:{})});return`/project/${encodeURIComponent(projectId)}/local-tool-${definition.namespace}?${query}`;};

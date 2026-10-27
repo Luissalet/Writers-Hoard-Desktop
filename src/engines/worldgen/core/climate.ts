@@ -12,6 +12,7 @@
 import { climateLatDeg } from './geoScale';
 import { SphereNoise } from './noise';
 import type { WorldParams } from './types';
+import { runtimeLatitude, runtimeU, runtimeV, type RuntimeGeometry } from './runtimeGeometry';
 
 export interface ClimateResult {
   /** °C at cell (lapse-adjusted). */
@@ -51,6 +52,7 @@ function smooth01(t: number): number {
 }
 
 export interface ClimateInputs {
+  geometry?: RuntimeGeometry;
   /**
    * Sea-surface temperature anomaly per cell (°C from the zonal mean), already
    * diffused a short way inland so a coast feels the water it faces. Omit for
@@ -66,26 +68,33 @@ export function computeClimate(
   onProgress?: (f: number) => void,
   inputs?: ClimateInputs,
 ): ClimateResult {
-  const W = params.width, H = W >> 1;
+  const geometry = inputs?.geometry;
+  const W = geometry?.width ?? params.width, H = geometry?.height ?? (W >> 1);
 
   // ---- Half-resolution working grid ----
-  const w = W >> 1, h = H >> 1;
+  const w = geometry ? Math.max(1, Math.ceil(W / 2)) : W >> 1, h = geometry ? Math.max(1, Math.ceil(H / 2)) : H >> 1;
+  const latAt = (y: number) => geometry ? runtimeLatitude(params, geometry, Math.min(H - 0.5, y * 2)) : climateLatDeg(y / h, params);
+  const uAt = (x: number) => geometry ? runtimeU(params, geometry, x * 2) : x / w;
+  const vAt = (y: number) => geometry ? runtimeV(params, geometry, y * 2) : y / h;
   const n = w * h;
   const elevHalf = new Float32Array(n);
   const waterHalf = new Uint8Array(n);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i0 = (2 * y) * W + 2 * x;
+      const ix = geometry ? (2 * y) * W + Math.min(W - 1, 2 * x + 1) : i0 + 1;
+      const iy = geometry ? Math.min(H - 1, 2 * y + 1) * W + 2 * x : i0 + W;
+      const ixy = geometry ? Math.min(H - 1, 2 * y + 1) * W + Math.min(W - 1, 2 * x + 1) : i0 + W + 1;
       const e = Math.max(
-        Math.max(elevation[i0], elevation[i0 + 1]),
-        Math.max(elevation[i0 + W], elevation[i0 + W + 1]),
+        Math.max(elevation[i0], elevation[ix]),
+        Math.max(elevation[iy], elevation[ixy]),
       );
       const j = y * w + x;
       elevHalf[j] = e;
       const anyWater =
-        elevation[i0] <= 0 || elevation[i0 + 1] <= 0 ||
-        elevation[i0 + W] <= 0 || elevation[i0 + W + 1] <= 0 ||
-        (lake ? (lake[i0] | lake[i0 + 1] | lake[i0 + W] | lake[i0 + W + 1]) : 0) !== 0;
+        elevation[i0] <= 0 || elevation[ix] <= 0 ||
+        elevation[iy] <= 0 || elevation[ixy] <= 0 ||
+        (lake ? (lake[i0] | lake[ix] | lake[iy] | lake[ixy]) : 0) !== 0;
       waterHalf[j] = anyWater ? 1 : 0;
     }
   }
@@ -99,9 +108,9 @@ export function computeClimate(
   if (inputs?.sst) {
     const src = inputs.sst;
     for (let y = 0; y < h; y++) {
-      const sy = Math.min(H - 1, Math.round(((y + 0.5) / h) * H - 0.5));
+      const sy = geometry ? Math.min(H - 1, y * 2 + 1) : Math.min(H - 1, Math.round(((y + 0.5) / h) * H - 0.5));
       for (let x = 0; x < w; x++) {
-        const sx = Math.min(W - 1, Math.round(((x + 0.5) / w) * W - 0.5));
+        const sx = geometry ? Math.min(W - 1, x * 2 + 1) : Math.min(W - 1, Math.round(((x + 0.5) / w) * W - 0.5));
         sstHalf[y * w + x] = src[sy * W + sx];
       }
     }
@@ -110,7 +119,7 @@ export function computeClimate(
   // ---- Sea-level temperature by latitude (+ noise wobble) ----
   const tempHalf = new Float32Array(n);
   for (let y = 0; y < h; y++) {
-    const lat = climateLatDeg((y + 0.5) / h, params);
+    const lat = latAt(y + 0.5);
     const a = Math.abs(lat) / 90;
     const baseT = 29 - 51 * Math.pow(a, 1.9) + params.temperature;
     const aFrac = Math.abs(lat) / 90;
@@ -121,8 +130,8 @@ export function computeClimate(
       // Amplified toward the poles so ice-cap edges meander instead of
       // following one ruler-straight isotherm.
       const wob =
-        (5.5 * varN.fbm(x / w, y / h, 2.3 * ws, 3) +
-          2.0 * varN.fbm(x / w + 0.4, y / h + 0.6, 7 * ws, 2)) * (1 + 0.55 * aFrac);
+        (5.5 * varN.fbm(uAt(x), vAt(y), 2.3 * ws, 3) +
+          2.0 * varN.fbm(uAt(x) + 0.4, vAt(y) + 0.6, 7 * ws, 2)) * (1 + 0.55 * aFrac);
       const e = elevHalf[j];
       // Ocean currents. This is the term that lets two coasts at the same
       // latitude be temperate and subarctic, which latitude alone cannot do.
@@ -146,7 +155,7 @@ export function computeClimate(
       // Evapotranspiration recycles moisture over warm land — without this,
       // continental interiors turn into wall-to-wall desert. Suppressed in
       // the subtropical high (deserts must stay deserts).
-      const lat = Math.abs(climateLatDeg(((j / w) | 0) / h, params));
+      const lat = Math.abs(latAt((j / w) | 0));
       const subtropic = Math.exp(-((lat - 23) ** 2) / (2 * 10 * 10));
       evap[j] = Math.min(0.26, 0.08 + t / 110) * (1 - 0.75 * subtropic);
       hum[j] = evap[j] * 0.5;
@@ -160,7 +169,7 @@ export function computeClimate(
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const j = y * w + x;
-      const uu = x / w, vv = y / h;
+      const uu = uAt(x), vv = vAt(y);
       wobX[j] = 0.55 * varN.fbm(uu, vv, 4, 2);
       wobY[j] = 0.5 * varN.fbm(uu + 0.43, vv + 0.79, 4, 2);
     }
@@ -171,7 +180,7 @@ export function computeClimate(
   const wyRow = new Float32Array(h);
   const beltRow = new Float32Array(h);
   for (let y = 0; y < h; y++) {
-    const lat = climateLatDeg((y + 0.5) / h, params);
+    const lat = latAt(y + 0.5);
     const [wx, wy] = windAt(lat);
     wxRow[y] = wx; wyRow[y] = wy;
     const a = Math.abs(lat);
@@ -188,7 +197,7 @@ export function computeClimate(
   const invCosRow = new Float32Array(h);
   for (let y = 0; y < h; y++) {
     const lat = (0.5 - (y + 0.5) / h) * Math.PI;
-    invCosRow[y] = 1 / Math.max(0.2, Math.cos(lat));
+    invCosRow[y] = geometry ? 1 : 1 / Math.max(0.2, Math.cos(lat));
   }
   const maxStepX = w * 0.2;
   const next = new Float32Array(n);
@@ -206,8 +215,8 @@ export function computeClimate(
         if (sy < 0) sy = 0; else if (sy > h - 1) sy = h - 1;
         const x0 = Math.floor(sx), y0 = Math.floor(sy);
         const fx = sx - x0, fy = sy - y0;
-        const x0w = ((x0 % w) + w) % w;
-        const x1w = (x0w + 1) % w;
+        const x0w = geometry ? Math.min(w - 1, Math.max(0, x0)) : ((x0 % w) + w) % w;
+        const x1w = geometry ? Math.min(w - 1, Math.max(0, x0 + 1)) : (x0w + 1) % w;
         const y1 = Math.min(h - 1, y0 + 1);
         const hUp =
           (hum[y0 * w + x0w] * (1 - fx) + hum[y0 * w + x1w] * fx) * (1 - fy) +
@@ -242,7 +251,7 @@ export function computeClimate(
   // ocean. Deep interiors run colder at high latitudes and slightly hotter
   // in the tropics — breaks the "temperature is only latitude" look.
   for (let y = 0; y < h; y++) {
-    const a = Math.abs(climateLatDeg((y + 0.5) / h, params));
+    const a = Math.abs(latAt(y + 0.5));
     const yW = y * w;
     for (let x = 0; x < w; x++) {
       const j = yW + x;
@@ -259,7 +268,7 @@ export function computeClimate(
   // water to be genuinely cold rather than merely cool.
   if (inputs?.sst) {
     for (let y = 0; y < h; y++) {
-      const lat = Math.abs(climateLatDeg((y + 0.5) / h, params));
+      const lat = Math.abs(latAt(y + 0.5));
       // Peak around 22°, gone by the mid-latitudes where storms dominate.
       const belt = Math.exp(-((lat - 22) ** 2) / (2 * 13 * 13));
       const yW = y * w;
@@ -282,7 +291,7 @@ export function computeClimate(
       for (let y = 0; y < h; y++) {
         const y0 = Math.max(0, y - 1) * w, y1 = y * w, y2 = Math.min(h - 1, y + 1) * w;
         for (let x = 0; x < w; x++) {
-          const xl = x > 0 ? x - 1 : w - 1, xr = x + 1 < w ? x + 1 : 0;
+          const xl = x > 0 ? x - 1 : geometry ? 0 : w - 1, xr = x + 1 < w ? x + 1 : geometry ? w - 1 : 0;
           tmp[y1 + x] =
             (rain[y0 + xl] + rain[y0 + x] + rain[y0 + xr] +
              rain[y1 + xl] + rain[y1 + x] * 2 + rain[y1 + xr] +
@@ -306,7 +315,7 @@ export function computeClimate(
       const norm = Math.pow(Math.min(1.35, rain[j] * inv), 0.85);
       // Regional wet/dry anomalies so rainfall isn't purely zonal either.
       const mult = Math.min(1.45, Math.max(0.6,
-        1 + 0.38 * varN.fbm((j % w) / w + 0.77, ((j / w) | 0) / h + 0.31, 2.3 * ws, 3)));
+        1 + 0.38 * varN.fbm(uAt(j % w) + 0.77, vAt((j / w) | 0) + 0.31, 2.3 * ws, 3)));
       rain[j] = Math.min(3600, 2900 * norm * mult * params.moisture);
     }
   }
@@ -315,14 +324,14 @@ export function computeClimate(
   const temperature = new Float32Array(W * H);
   const precipitation = new Float32Array(W * H);
   for (let y = 0; y < H; y++) {
-    const sy = Math.min(h - 1.001, Math.max(0, (y + 0.5) / 2 - 0.5));
+    const sy = Math.min(geometry ? h - 1 : h - 1.001, Math.max(0, (y + 0.5) / 2 - 0.5));
     const y0 = Math.floor(sy), fy = sy - y0;
     const y1 = Math.min(h - 1, y0 + 1);
     for (let x = 0; x < W; x++) {
       const sx = (x + 0.5) / 2 - 0.5;
       const x0 = Math.floor(sx), fx = sx - x0;
-      const x0w = ((x0 % w) + w) % w;
-      const x1w = (x0w + 1) % w;
+      const x0w = geometry ? Math.min(w - 1, Math.max(0, x0)) : ((x0 % w) + w) % w;
+      const x1w = geometry ? Math.min(w - 1, Math.max(0, x0 + 1)) : (x0w + 1) % w;
       const i = y * W + x;
       const t =
         (tempHalf[y0 * w + x0w] * (1 - fx) + tempHalf[y0 * w + x1w] * fx) * (1 - fy) +

@@ -8,9 +8,10 @@ function cubic(a: number, b: number, c: number, d: number, t: number): number {
 function row(values: Float32Array, y: number, x0: number, x1: number, x2: number, x3: number, f: number): number {
   return cubic(values[y+x0], values[y+x1], values[y+x2], values[y+x3], f);
 }
-export function sampleWorldHeight(values: Float32Array, width: number, height: number, u: number, v: number): number {
+export function sampleWorldHeight(values: Float32Array, width: number, height: number, u: number, v: number, wrapX = true): number {
   const tx = u * width - .5, ty = v * height - .5, ix = Math.floor(tx), iy = Math.floor(ty), fx = tx - ix;
-  const x1 = ((ix % width) + width) % width, x0 = (x1 + width - 1) % width, x2 = (x1 + 1) % width, x3 = (x1 + 2) % width;
+  const atX = (x: number) => wrapX ? ((x % width) + width) % width : Math.min(width - 1, Math.max(0, x));
+  const x0 = atX(ix - 1), x1 = atX(ix), x2 = atX(ix + 1), x3 = atX(ix + 2);
   const y0 = Math.min(height - 1, Math.max(0, iy - 1)) * width, y1 = Math.min(height - 1, Math.max(0, iy)) * width;
   const y2 = Math.min(height - 1, Math.max(0, iy + 1)) * width, y3 = Math.min(height - 1, Math.max(0, iy + 2)) * width;
   return cubic(row(values,y0,x0,x1,x2,x3,fx), row(values,y1,x0,x1,x2,x3,fx), row(values,y2,x0,x1,x2,x3,fx), row(values,y3,x0,x1,x2,x3,fx), ty-iy);
@@ -31,13 +32,15 @@ float heightRow(ivec4 x, int y, float f) {
   return heightCubic(vec4(texelFetch(uHeight,ivec2(x.x,y),0).r, texelFetch(uHeight,ivec2(x.y,y),0).r,
                          texelFetch(uHeight,ivec2(x.z,y),0).r, texelFetch(uHeight,ivec2(x.w,y),0).r),f);
 }
-float sampleWorldHeightTexture(vec2 uv) {
+float sampleWorldHeightTexture(vec2 uv, bool wrapX) {
   vec2 t = uv * uGrid - 0.5, f = fract(t);
   ivec2 i = ivec2(floor(t)); int gw = int(uGrid.x), gh = int(uGrid.y);
   int x = ((i.x % gw) + gw) % gw;
   ivec4 xs = ivec4((x+gw-1)%gw,x,(x+1)%gw,(x+2)%gw);
+  if (!wrapX) xs = clamp(ivec4(i.x-1,i.x,i.x+1,i.x+2),0,gw-1);
   vec4 rows = vec4(heightRow(xs,clamp(i.y-1,0,gh-1),f.x), heightRow(xs,clamp(i.y,0,gh-1),f.x),
                    heightRow(xs,clamp(i.y+1,0,gh-1),f.x), heightRow(xs,clamp(i.y+2,0,gh-1),f.x));
   return heightCubic(rows,f.y);
 }
+float sampleWorldHeightTexture(vec2 uv) { return sampleWorldHeightTexture(uv,true); }
 `;

@@ -19,6 +19,7 @@ import WorldView, {
   type SpatialFocus,
   type WaypointFocus,
 } from './WorldView';
+import WorldDomainCreatePanel from './WorldDomainCreatePanel';
 
 export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   const scope = useWorldEraScope(projectId);
@@ -157,6 +158,11 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
         {activeWorld?.originWorldId && worlds.some(item => item.id === activeWorld.originWorldId) &&
           <button onClick={() => setActiveWorldId(activeWorld.originWorldId!)} className="text-sm text-accent-gold underline underline-offset-4">{worldWorkspaceCopy(locale).openOriginal}</button>}
       </div>}
+      <WorldDomainCreatePanel
+        key={`create:${projectId}:${scope.eraId ?? ''}:${activeWorldId}`}
+        scope={scope}
+        onCreated={async (worldId, isCurrent) => { await refresh(); if (isCurrent()) setActiveWorldId(worldId); }}
+      />
       {activeWorld && (
         <>
           <WorldView

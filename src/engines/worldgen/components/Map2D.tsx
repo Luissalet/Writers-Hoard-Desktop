@@ -17,7 +17,7 @@ import type { BiomeId, LandmarkType, WorldData, ViewMode } from '../core/types';
 import { BIOME_COLORS, renderAtlasWindow, renderBase, renderRivers, updateAtlasCells } from '../core/render';
 import { SculptGesture } from '../sculpt/ops';
 import {
-  PROJECTIONS, reprojectRgba, type Projection, type ProjectionSpec,
+  getProjectionSpec, reprojectRgba, type Projection, type ProjectionSpec,
 } from '../core/projections';
 import {
   commitPaintStroke, commitRefusal, isWaypointTool, negativeOf, pickGeneratedAt, restriction,
@@ -71,7 +71,7 @@ import { COVER_LABEL_ES } from '../region/types';
 import type { RegionData } from '../region/types';
 import { regionVisibleRect } from '../region/coordinates';
 import {
-  EARTH_KM, MAX_SPAN_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, sameViewport,
+  EARTH_KM, MAX_SPAN_KM, MIN_SPAN_KM, clampViewport, clampSpanKm, fittedViewport, flightAt, FLIGHT_MS, sameViewport,
   type FlyMark,
   type FlyTarget,
 } from '../core/camera';
@@ -802,7 +802,7 @@ function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): H
 const TINT_SHEETS = new WeakMap<Int32Array, { key: string; source: HTMLCanvasElement; canvas: HTMLCanvasElement | null }>();
 
 function projectedRealmTint(
-  world: { width: number; height: number },
+  world: Pick<WorldData, 'width' | 'height' | 'domain'>,
   geo: HumanGeography,
   projection: Projection,
 ): HTMLCanvasElement | null {
@@ -811,13 +811,13 @@ function projectedRealmTint(
   // shape and the blit was always right there.
   if (!flat || projection === 'equirect') return flat;
   const W = world.width, H = world.height;
-  const key = `${projection}:${W}x${H}`;
+  const key = `${projection}:${world.domain?.topology}:${W}x${H}`;
   const hit = TINT_SHEETS.get(geo.realmOf);
   if (hit && hit.key === key && hit.source === flat) return hit.canvas;
   const src = flat.getContext('2d')?.getImageData(0, 0, W, H);
   let canvas: HTMLCanvasElement | null = null;
   if (src) {
-    const { px, w, h } = reprojectRgba(src.data, W, H, projection);
+    const { px, w, h } = reprojectRgba(src.data, W, H, projection, world.domain?.topology === 'finite');
     canvas = makeCanvas(px, w, h);
   }
   TINT_SHEETS.set(geo.realmOf, { key, source: flat, canvas });
@@ -1064,7 +1064,9 @@ export default function Map2D({
 
   const menuAfterPan = useRef(false);
   const W = world.width, H = world.height;
-  const spec = PROJECTIONS[projection];
+  const finite = world.domain?.topology === 'finite';
+  const cameraGeometry = useMemo(() => finite ? { width: W, height: H, finite: true } : undefined, [finite, W, H]);
+  const spec = getProjectionSpec(projection, finite);
   const wraps = spec.wraps;
   const landmarks = useMemo(
     () => resolveWorldLandmarks(world),
@@ -1093,12 +1095,12 @@ export default function Map2D({
   const basePixels = useMemo(
     () => renderBase(world, viewMode),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [world, viewMode, revision],
+    [world, viewMode, revision, world.revision, world.domain?.revision, W, H],
   );
   const riverPixels = useMemo(
     () => renderRivers(world),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [world, revision],
+    [world, revision, world.revision, world.domain?.revision, W, H],
   );
   /** Palette source for the satellite WINDOW renderer (per-pixel shading needs
    *  the colours unshaded). Only the atlas mode pays for it. */
@@ -1106,7 +1108,7 @@ export default function Map2D({
     () => (viewMode === 'atlas' && projection === 'equirect'
       ? renderBase(world, 'atlas', { shade: false }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [world, viewMode, projection, revision],
+    [world, viewMode, projection, revision, world.revision, world.domain?.revision, W, H],
   );
   /**
    * The settled satellite window: one canvas rendered at SCREEN resolution for
@@ -1422,15 +1424,15 @@ export default function Map2D({
 
   const baseCanvas = useMemo(() => {
     if (projection === 'equirect') return makeCanvas(basePixels, W, H);
-    const { px, w, h } = reprojectRgba(basePixels, W, H, projection);
+    const { px, w, h } = reprojectRgba(basePixels, W, H, projection, finite);
     return makeCanvas(px, w, h);
-  }, [basePixels, projection, W, H]);
+  }, [basePixels, projection, W, H, finite]);
 
   const riverCanvas = useMemo(() => {
     if (projection === 'equirect') return makeCanvas(riverPixels, W, H);
-    const { px, w, h } = reprojectRgba(riverPixels, W, H, projection);
+    const { px, w, h } = reprojectRgba(riverPixels, W, H, projection, finite);
     return makeCanvas(px, w, h);
-  }, [riverPixels, projection, W, H]);
+  }, [riverPixels, projection, W, H, finite]);
 
   const regionalCanvas = useMemo(
     () => regionDetail ? makeRegionalTerrainCanvas(regionDetail) : null,
@@ -1452,11 +1454,11 @@ export default function Map2D({
     const uv = spec.inverse(X, Math.min(1, Math.max(0, Y)));
     if (!uv) return null;
     return {
-      u: ((uv[0] % 1) + 1) % 1,
+      u: finite ? uv[0] : ((uv[0] % 1) + 1) % 1,
       v: Math.min(1, Math.max(0, uv[1])),
-      spanKm: Math.min(EARTH_KM, Math.max(MIN_SPAN_KM, EARTH_KM * rect.width / Math.max(1, mapW))),
+      spanKm: clampSpanKm(EARTH_KM * rect.width / Math.max(1, mapW), cameraGeometry),
     };
-  }, [PH, PW, spec, wraps]);
+  }, [PH, PW, spec, wraps, finite, cameraGeometry]);
 
   /** The last camera this view told the parent about — so an echo of our own
    *  report is not mistaken for someone else moving the camera. */
@@ -1645,10 +1647,17 @@ export default function Map2D({
       if (!sharpEligible || !sharpSat.current) return;
       if (sharpSat.current.key !== `${worldId(world)}:${revision}`) return;
       const sh = sharpSat.current;
+      if (finite) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(view.ox, view.oy, mapW, mapH);
+        ctx.clip();
+      }
       for (let ox = firstOx; ox <= lastOx; ox += mapW) {
         ctx.drawImage(sh.canvas, ox + sh.vx * scale, view.oy + sh.vy * scale, sh.vw * scale, sh.vh * scale);
         if (!wraps) break;
       }
+      if (finite) ctx.restore();
     };
 
     const layerPlan = map2DLayerPlan(showRivers);
@@ -2062,7 +2071,7 @@ export default function Map2D({
       // the world was divided and not into what. The anchor is cached on
       // `realmOf` (see `realmAnchors`), so a pan costs one projection and one
       // measurement per realm.
-      const anchors = realmAnchors(W, H, geography);
+      const anchors = realmAnchors(W, H, geography, !finite);
       for (let r = 0; r < geography.realms.length; r++) {
         const anchor = anchors[r];
         const realm = geography.realms[r];
@@ -2677,10 +2686,10 @@ export default function Map2D({
      * LAS MARCAS DEL LECTOR, aquí también, para que el Índice y el Viaje dejen
      * de expulsarle a la Carta.
      *
-     * `drawAnnotations` pide el mapa como dos funciones separadas — `sx(wx)` y
-     * `sy(wy)` — y eso sólo se puede cumplir en una proyección CILÍNDRICA, que
-     * son exactamente las que envuelven: en equirect `forward` es la identidad
-     * y en mercator la X depende sólo de la longitud. En las tres curvas
+     * `drawAnnotations` needs separable `sx(wx)` and `sy(wy)` functions.
+     * Equirectangular and Mercator retain separable axes even when finite
+     * boundaries do not wrap. In equirect `forward` is the identity; in
+     * Mercator X depends only on longitude. En las tres curvas
      * (acimutal, Mollweide, Winkel) la horizontal de un punto depende también
      * de su latitud, así que no hay ningún par de funciones de un argumento que
      * las describa y esta capa no se puede dibujar ahí sin reescribirla. No se
@@ -2693,7 +2702,8 @@ export default function Map2D({
      * Carta. Es la misma trampa que costó 15 ms por fotograma a las fronteras.
      * El nivel del mar antiguo sigue teniendo su vista y su interruptor.
      */
-    if (annotations && wraps) {
+    const cylindrical = projection === 'equirect' || projection === 'mercator';
+    if (annotations && cylindrical) {
       const marks: CartoAnnotations = {
         pins: annotations.pins,
         route: annotations.route,
@@ -2915,7 +2925,7 @@ export default function Map2D({
     }
 
     // ---- closed river crossings, over the names: the author's mark is never hidden under a label ----
-    if (annotations?.closedCrossings?.length && wraps) {
+    if (annotations?.closedCrossings?.length && cylindrical) {
       for (const copyOx of copies) {
         drawClosedCrossings(ctx, annotations.closedCrossings, (wx) => toScreen(wx / W, 0, copyOx)[0], (wy) => toScreen(0, wy / H, copyOx)[1]);
       }
@@ -2949,12 +2959,12 @@ export default function Map2D({
 
     // ---- the reader's view: towns heard of as dots, and the party's trail -----
     // Over the paper, like the story marks: they are what the reader knows.
-    if (wraps && (annotations?.townDots?.length || annotations?.trail?.length)) {
+    if (cylindrical && (annotations?.townDots?.length || annotations?.trail?.length)) {
       const copyOx = copies.find((ox) => ox <= cw / 2 && cw / 2 < ox + mapW) ?? copies[0];
       const x0 = toScreen(0, 0, copyOx)[0], k = (PW * scale) / W;
       const syc = (wy: number) => toScreen(0, Math.min(1, Math.max(0, wy / H)), copyOx)[1];
-      if (annotations.townDots?.length) drawTownDots(ctx, annotations.townDots, x0, syc, k, W);
-      if (annotations.trail?.length) drawTrail(ctx, annotations.trail, x0, syc, k, W);
+      if (annotations.townDots?.length) drawTownDots(ctx, annotations.townDots, x0, syc, k, W, 1, !finite);
+      if (annotations.trail?.length) drawTrail(ctx, annotations.trail, x0, syc, k, W, 1, !finite);
     }
 
     // ---- story events: over the fog, they are what the reader knows ---------
@@ -3385,7 +3395,7 @@ export default function Map2D({
      * el centro del mapa tapa mapa.
      */
     drawScreenScaleBar(ctx, {
-      kmPerPx: spanKm * metricSheetScale(mapMetric(world)) / cw,
+      kmPerPx: spanKm / cw,
       align: 'left',
       edge: 7,
       bottom: ch - 23,
@@ -3787,11 +3797,11 @@ export default function Map2D({
     const from = computeViewport();
     if (!from) return;
     cancelFlight();
-    const to = clampViewport(target);
+    const to = clampViewport(target, cameraGeometry);
     const t0 = performance.now();
     const step = () => {
       const t = Math.min(1, (performance.now() - t0) / FLIGHT_MS);
-      applyViewport(flightAt(from, to, t));
+      applyViewport(flightAt(from, to, t, cameraGeometry));
       if (t < 1) {
         flightRaf.current = requestAnimationFrame(step);
       } else {
@@ -3800,7 +3810,7 @@ export default function Map2D({
       }
     };
     flightRaf.current = requestAnimationFrame(step);
-  }, [computeViewport, cancelFlight, applyViewport, reportViewport]);
+  }, [computeViewport, cancelFlight, applyViewport, reportViewport, cameraGeometry]);
 
   /**
    * DE DÓNDE VENÍAMOS. La pila de vistas.
@@ -3822,10 +3832,10 @@ export default function Map2D({
     const stack = camHistory.current;
     // Sin repetir el sitio en el que ya estamos: dos «volar aquí» al mismo
     // pueblo son un solo paso atrás, no dos que no van a ninguna parte.
-    if (stack.length && sameViewport(stack[stack.length - 1], vp)) return;
+    if (stack.length && sameViewport(stack[stack.length - 1], vp, cameraGeometry)) return;
     stack.push(vp);
     if (stack.length > 24) stack.shift();
-  }, []);
+  }, [cameraGeometry]);
 
   /** Devolver al lector a la última vista de la que saltó. */
   const goBack = useCallback(() => {
@@ -3843,10 +3853,19 @@ export default function Map2D({
    */
   const flyHome = useCallback(() => {
     const now = computeViewport();
+    if (cameraGeometry) {
+      const canvas = canvasRef.current;
+      if (!now || !canvas) return;
+      const rect = canvas.getBoundingClientRect(), target = fittedViewport(cameraGeometry, rect.width, rect.height);
+      if (sameViewport(now, target, cameraGeometry)) return;
+      pushHistory(now);
+      flyLocal(target);
+      return;
+    }
     if (!now || now.spanKm > MAX_SPAN_KM * 0.92) return;
     pushHistory(now);
     flyLocal({ u: 0.5, v: 0.5, spanKm: MAX_SPAN_KM });
-  }, [computeViewport, pushHistory, flyLocal]);
+  }, [computeViewport, pushHistory, flyLocal, cameraGeometry]);
 
   /**
    * Somebody else moved the shared camera. Go there.
@@ -3860,7 +3879,7 @@ export default function Map2D({
    */
   useEffect(() => {
     if (!viewport || !viewRef.current) return;
-    if (sameViewport(viewport, lastReported.current)) return;
+    if (sameViewport(viewport, lastReported.current, cameraGeometry)) return;
     cancelFlight();
     // Todo lo que llega hasta aquí es un SALTO de verdad: el eco de nuestro
     // propio informe lo ha filtrado la línea de arriba, así que lo que queda es

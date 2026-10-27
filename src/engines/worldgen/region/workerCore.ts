@@ -10,6 +10,7 @@
 
 import { canonTileKey, clearRegionCache, generateRegion } from './generate';
 import { deserializeEdits } from '../core/edits';
+import { readDomainDocument } from '../core/domainDocument';
 import { renderCartaTile, TILE_PX } from '../cartography/tiles';
 import { canonRefinement, tileAt, tileGeometry, tileKey as canonKeyOf } from './tiles';
 import { renderBase } from '../core/render';
@@ -221,6 +222,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
         const theme = THEMES.find((t) => t.id === message.themeId) ?? THEMES[0];
         const live = context;
         const edits = message.edits ? deserializeEdits(message.edits) : undefined;
+        const domainDocument = message.edits ? readDomainDocument(message.edits) ?? undefined : undefined;
         let places: TilePlace[] | undefined;
         const built: { key: string; data: RegionData }[] = [];
         const satellite = message.ink === 'satellite';
@@ -280,7 +282,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
               canonCoverFor(
                 live.world, live.geography, live.canon, [id], edits,
                 { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES },
-                built, live.persistCanon,
+                built, live.persistCanon, domainDocument,
               );
               done++;
             }
@@ -289,7 +291,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
         // Only deep carta burns images into its tile. Shallow carta and all
         // satellite tiles leave those resources to the main-thread overlay.
         const deepCartaPlan=deepCarta?prepareDeepTile(live.world,live.geography,live.canon,
-          {z:message.z,tx:message.tx,ty:message.ty},{theme,layers:message.layers,density:message.density,edits,quantizeCanon:live.persistCanon}):undefined;
+          {z:message.z,tx:message.tx,ty:message.ty},{theme,layers:message.layers,density:message.density,edits,domainDocument,quantizeCanon:live.persistCanon}):undefined;
         if(deepCartaPlan?.imageStyles.length){
           if(!host.preparePlaceImages)throw new Error('Regional host has no local image decoder.');
           placeImages=await host.preparePlaceImages(deepCartaPlan.imageStyles,controller.signal);
@@ -306,6 +308,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
                   layers: message.layers,
                   density: message.density,
                   edits,
+                  domainDocument,
                   quantizeCanon: live.persistCanon,
                 },
                 { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES },
@@ -426,6 +429,7 @@ export function createRegionWorkerCore(host: RegionWorkerHost): (message: Region
         params: message.params,
         geometry: message.geometry,
         edits: message.edits ? deserializeEdits(message.edits) : undefined,
+        domainDocument: message.edits ? readDomainDocument(message.edits) ?? undefined : undefined,
         sitesPolicy: message.sitesPolicy,
         onProgress: (stage, overall) => {
           if (!cancelled.has(requestId)) {

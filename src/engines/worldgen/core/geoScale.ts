@@ -17,17 +17,18 @@ export const SHEET_LAT = 40;
 /** How many times its own size a single landmass's sheet is, so the sea goes all round it. */
 export const SHEET_PER_LANDMASS = 3.2;
 
-type Sized = { worldKm?: number } | undefined | null;
+type Sized = { worldKm?: number; sourceFrame?: { version: 1; kind: 'flat-sheet'; widthKm: number; centerLatitudeDeg: number } } | undefined | null;
 
 /** The map's width in km: the sheet's, or the planet's. */
 export function worldKmOf(params: Sized): number {
+  if (params?.sourceFrame?.version === 1 && Number.isFinite(params.sourceFrame.widthKm) && params.sourceFrame.widthKm > 0) return params.sourceFrame.widthKm;
   const v = params?.worldKm;
   return typeof v === 'number' && Number.isFinite(v) && v >= WORLD_KM.min && v < PLANET_KM ? v : PLANET_KM;
 }
 
 /** Whether the world is a flat sheet of a set width rather than a planet. */
 export function isSheet(params: Sized): boolean {
-  return worldKmOf(params) < PLANET_KM;
+  return params?.sourceFrame?.version === 1 || worldKmOf(params) < PLANET_KM;
 }
 
 /** Km a world cell measures across (along the equator on a planet). */
@@ -46,6 +47,7 @@ export function sheetScale(params: Sized): number {
  * SHEET_LAT as wide as the sheet is tall.
  */
 export function climateLatDeg(v: number, params: Sized): number {
+  if (params?.sourceFrame) return Math.max(-89, Math.min(89, params.sourceFrame.centerLatitudeDeg + (0.5 - v) * worldKmOf(params) * 180 / PLANET_KM));
   const grid = (0.5 - v) * 180;
   if (!isSheet(params)) return grid;
   return Math.max(-89, Math.min(89, SHEET_LAT + grid * sheetScale(params)));
@@ -74,24 +76,42 @@ export function mapDistanceKm(params: Sized, width: number, height: number, ax: 
 }
 
 /** Explicit reading metric. The original helpers above remain generation-only. */
-export interface MapMetric { worldKm?: number; mapWidthKm?: number; width?: number; height?: number }
-export interface WorldScaleSource { params?: { worldKm?: number; width?: number }; width?: number; height?: number; mapWidthKm?: number; scaleRevision?: number }
+export interface MapMetric { worldKm?: number; sourceFrame?: NonNullable<Sized>['sourceFrame']; mapWidthKm?: number; width?: number; height?: number; finite?: boolean; baseCellKm?: number; originX?: number; originY?: number; sourceWidth?: number; sourceHeight?: number }
+export interface WorldScaleSource { params?: { worldKm?: number; width?: number; sourceFrame?: NonNullable<Sized>['sourceFrame'] }; width?: number; height?: number; mapWidthKm?: number; scaleRevision?: number; edits?: string; domain?: { bounds: { x?: number; y?: number; width: number; height: number }; topology: string; source: { width?: number; height?: number; baseCellKm: number } } }
 export function mapMetric(world: WorldScaleSource): MapMetric {
+  let bounds = world.domain?.bounds, finite = world.domain?.topology === 'finite';
+  // Rows carry one journal authority; runtime worlds carry its already derived descriptor.
+  if (!world.domain && world.edits) {
+    try {
+      const document = JSON.parse(world.edits);
+      if (document?.v === 3) {
+        bounds = document.initial.bounds;
+        for (const step of document.steps) if (step.kind === 'resize') bounds = step.bounds;
+        finite = document.initial.topology === 'finite' || document.steps.some((step: { kind: string }) => step.kind === 'resize');
+      }
+    } catch { /* Old unreadable edit strings keep their previous metric. */ }
+  }
+  if (bounds) return { worldKm: world.params?.worldKm, sourceFrame: world.params?.sourceFrame, mapWidthKm: world.mapWidthKm, width: bounds.width, height: bounds.height, finite,
+    originX: bounds.x ?? 0, originY: bounds.y ?? 0, sourceWidth: world.domain?.source.width ?? world.params?.width, sourceHeight: world.domain?.source.height ?? ((world.params?.width ?? bounds.width) >> 1),
+    baseCellKm: world.domain?.source.baseCellKm ?? cellKmOf(world.params, world.params?.width ?? bounds.width) };
+  if (world.params?.sourceFrame) return { worldKm: world.params.worldKm, sourceFrame: world.params.sourceFrame, mapWidthKm: world.mapWidthKm, width: world.width ?? world.params.width, height: world.height };
   return { worldKm: world.params?.worldKm, mapWidthKm: world.mapWidthKm, width: world.width ?? world.params?.width, height: world.height };
 }
 export function metricWidthKmOf(metric: MapMetric | undefined): number {
+  if (metric?.finite) return typeof metric.mapWidthKm === 'number' && Number.isFinite(metric.mapWidthKm) && metric.mapWidthKm > 0 ? metric.mapWidthKm : (metric.baseCellKm ?? 1) * (metric.width ?? 1);
   return isSheet(metric) && typeof metric?.mapWidthKm === 'number' && Number.isFinite(metric.mapWidthKm) && metric.mapWidthKm > 0 ? metric.mapWidthKm : worldKmOf(metric);
 }
 export function metricCellKmOf(metric: MapMetric | undefined, width: number): number { return metricWidthKmOf(metric) / Math.max(1, width); }
 export function metricSheetScale(metric: MapMetric | undefined): number { return metricWidthKmOf(metric) / PLANET_KM; }
 export function metricDistanceKm(metric: MapMetric | undefined, width: number, height: number, ax: number, ay: number, bx: number, by: number): number {
+  if (metric?.finite) return Math.hypot(bx - ax, by - ay) * metricCellKmOf(metric, width);
   if (!isSheet(metric)) return mapDistanceKm(metric, width, height, ax, ay, bx, by);
   let dx = Math.abs(bx - ax); if (dx > width / 2) dx = width - dx;
   return Math.hypot(dx, by - ay) * metricCellKmOf(metric, width);
 }
 export function resolveWorldScale(world: WorldScaleSource) {
-  const width = world.width ?? world.params?.width ?? 1, height = world.height ?? (width >> 1), sourceWidthKm = worldKmOf(world.params), widthKm = metricWidthKmOf(mapMetric(world));
-  return { width, height, widthKm, heightKm: widthKm * height / width, cellKm: widthKm / width, sourceWidthKm, revision: world.scaleRevision ?? 0, overridden: isSheet(world.params) && typeof world.mapWidthKm === 'number' && widthKm === world.mapWidthKm };
+  const metric = mapMetric(world), width = metric.width ?? 1, height = metric.height ?? (width >> 1), sourceWidthKm = worldKmOf(world.params), widthKm = metricWidthKmOf(metric);
+  return { width, height, widthKm, heightKm: widthKm * height / width, cellKm: widthKm / width, sourceWidthKm, revision: world.scaleRevision ?? 0, overridden: (metric.finite || isSheet(world.params)) && typeof world.mapWidthKm === 'number' && widthKm === world.mapWidthKm };
 }
 /** Metadata only; retain the live object, all buffers and its generation parameters. */
 export function applyWorldScaleMetadata<T extends WorldScaleSource>(data: T, record: Pick<WorldScaleSource, 'mapWidthKm' | 'scaleRevision'>): T {

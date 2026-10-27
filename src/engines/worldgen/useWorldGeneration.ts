@@ -32,6 +32,7 @@ import { bindCanonWorld } from './canonSnapshots';
 import type { WorkerReply } from './worldgen.worker';
 
 interface Entry {
+  source: WorldData;
   key: string;
   data: WorldData;
   byteLength: number;
@@ -52,21 +53,23 @@ export function paramsKey(params: WorldParams): string {
   return JSON.stringify(params);
 }
 
-function remember(worldId: string, key: string, data: WorldData): Entry {
+function remember(worldId: string, key: string, data: WorldData, pristineSource = data): Entry {
   const entry: Entry = {
+    source: data,
     key,
     data,
     byteLength: 0,
     pristine: {
-      ...captureEnvironment(data),
-      elevation: Float32Array.from(data.elevation),
+      ...captureEnvironment(pristineSource),
+      elevation: Float32Array.from(pristineSource.elevation),
     },
   };
+  entry.source = { ...pristineSource, ...entry.pristine, painted: undefined };
   // Count actual owned buffers rather than assuming the default resolution.
   // A 3072-wide world is several times larger than the old three-world budget
   // implied. Count aliases once and include the pristine paint recovery copy.
   const buffers = new Set<ArrayBufferLike>();
-  for (const value of [...Object.values(data), ...Object.values(entry.pristine), ...data.rivers.map((river) => river.cells), ...entry.pristine.rivers.map(river => river.cells)]) {
+  for (const value of [...Object.values(data), ...Object.values(entry.source), ...Object.values(entry.pristine), ...data.rivers.map((river) => river.cells), ...entry.pristine.rivers.map(river => river.cells)]) {
     if (ArrayBuffer.isView(value)) buffers.add(value.buffer);
   }
   for (const buffer of buffers) entry.byteLength += buffer.byteLength;
@@ -88,6 +91,14 @@ function remember(worldId: string, key: string, data: WorldData): Entry {
   return entry;
 }
 
+/** A newly created prepared map opens from the same RAW fields its readers saw.
+ * Existing view objects and their PaintSession remain owned by that view. */
+export function rememberPreparedWorld(worldId: string, params: WorldParams, data: WorldData, pristineSource: WorldData): void {
+  // The view restores/rebinds its wrapper during opening. Keep the private
+  // prepared reader's geometry stable while that asynchronous replay runs.
+  if (!cache.has(worldId)) remember(worldId, paramsKey(params), { ...data }, pristineSource);
+}
+
 export function getCachedWorld(worldId: string, params: WorldParams): WorldData | null {
   const hit = cache.get(worldId);
   if (hit && hit.key === paramsKey(params)) {
@@ -95,6 +106,12 @@ export function getCachedWorld(worldId: string, params: WorldParams): WorldData 
     return hit.data;
   }
   return null;
+}
+
+/** Read-only pristine source for a private domain replay. The replay owns its clone. */
+export function getCachedWorldSource(worldId: string, params: WorldParams): WorldData | null {
+  const hit = cache.get(worldId);
+  return hit?.key === paramsKey(params) ? hit.source : null;
 }
 
 export interface GenerationState {
@@ -171,6 +188,12 @@ export function useWorldGeneration(
   const restorePristine = useCallback((w: WorldData) => {
     const entry = cache.get(worldId);
     if (!entry || entry.data !== w) return;
+    if (w.domain || w.width !== entry.source.width || w.height !== entry.source.height) {
+      Object.assign(w, entry.source, captureEnvironment(entry.source), { elevation: entry.source.elevation.slice() });
+      delete w.domain;
+      w.revision = (w.revision ?? 0) + 1;
+      return;
+    }
     w.elevation.set(entry.pristine.elevation);
     restoreEnvironment(w, entry.pristine);
     w.painted = undefined;

@@ -35,6 +35,7 @@ export class FlowSolver {
   private W: number;
   private H: number;
   private N: number;
+  private finite: boolean;
   // binary heap
   private heapIdx: Uint32Array;
   private heapKey: Float64Array;
@@ -56,8 +57,9 @@ export class FlowSolver {
   private rowArea: Float32Array;
   private donors: Uint8Array | null;
 
-  constructor(width: number, height: number, drainageVersion: 1 | 2 = 1) {
+  constructor(width: number, height: number, drainageVersion: 1 | 2 = 1, finite = false) {
     this.W = width; this.H = height; this.N = width * height;
+    this.finite = finite;
     this.heapIdx = new Uint32Array(this.N);
     this.heapKey = new Float64Array(this.N);
     this.fifo = new Uint32Array(this.N);
@@ -75,9 +77,9 @@ export class FlowSolver {
     for (let y = 0; y < height; y++) {
       const lat = (0.5 - (y + 0.5) / height) * Math.PI;
       const c = Math.cos(lat);
-      this.rowDistE[y] = Math.max(0.06, c);
+      this.rowDistE[y] = finite ? 1 : Math.max(0.06, c);
       this.rowDistDiag[y] = Math.hypot(this.rowDistE[y], 1);
-      this.rowArea[y] = Math.max(0.02, c);
+      this.rowArea[y] = finite ? 1 : Math.max(0.02, c);
     }
   }
 
@@ -132,14 +134,22 @@ export class FlowSolver {
         visited[i] = 1;
       }
     }
+    // A finite window drains through its boundary at the existing height.
+    // This neither adds an ocean nor changes the authored terrain.
+    if (this.finite) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (x !== 0 && x !== W - 1 && y !== 0 && y !== H - 1) continue;
+      const i = y * W + x;
+      if (visited[i]) continue;
+      filled[i] = elev[i]; visited[i] = 1; this.heapPush(i, filled[i]);
+    }
     // Push only ocean cells that touch land (the active flood frontier).
     for (let y = 0; y < H; y++) {
       const yW = y * W;
       for (let x = 0; x < W; x++) {
         const i = yW + x;
         if (elev[i] > 0) continue;
-        const east = x + 1 < W ? i + 1 : i + 1 - W;
-        const west = x > 0 ? i - 1 : i - 1 + W;
+        const east = x + 1 < W ? i + 1 : this.finite ? i : i + 1 - W;
+        const west = x > 0 ? i - 1 : this.finite ? i : i - 1 + W;
         const frontier = elev[east] > 0 || elev[west] > 0
           || (y + 1 < H && (elev[i + W] > 0 || elev[east + W] > 0 || elev[west + W] > 0))
           || (y > 0 && (elev[i - W] > 0 || elev[east - W] > 0 || elev[west - W] > 0));
@@ -202,8 +212,8 @@ export class FlowSolver {
         let best = i, bestRate = 0, bestDist = 1;
         // This kernel runs eight times per land cell on every erosion pass.
         // Resolve seam/pole bounds once and retain E,W,S,N,SE,SW,NE,NW tie order.
-        const east = x + 1 < W ? i + 1 : i + 1 - W;
-        const west = x > 0 ? i - 1 : i - 1 + W;
+        const east = x + 1 < W ? i + 1 : this.finite ? i : i + 1 - W;
+        const west = x > 0 ? i - 1 : this.finite ? i : i - 1 + W;
         let rate = (fi - filled[east]) / dE;
         if (rate > bestRate) { bestRate = rate; best = east; bestDist = dE; }
         rate = (fi - filled[west]) / dE;
@@ -279,6 +289,8 @@ export class FlowSolver {
   /** Neighbor index with x-wrap and y-clamp; -1 when off the top/bottom. */
   private neighbor(i: number, x: number, y: number, d: number): number {
     const W = this.W, H = this.H;
+    if (this.finite && ((x === 0 && (d === 1 || d === 5 || d === 7))
+      || (x === W - 1 && (d === 0 || d === 4 || d === 6)))) return -1;
     // 0..3 orthogonal (E, W, S, N), 4..7 diagonal (SE, SW, NE, NW)
     switch (d) {
       case 0: return x + 1 < W ? i + 1 : i + 1 - W;
