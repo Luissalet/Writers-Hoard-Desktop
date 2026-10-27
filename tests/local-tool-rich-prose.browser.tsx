@@ -112,7 +112,7 @@ export async function testLocalToolRichProseListMarkers(){
 }
 
 export async function testLocalToolRichProsePendingLedger(){
- const f=await proseFixture('ledger'),root=createRoot(document.getElementById('root')!),before={...getPendingWritesSnapshot()};useLocaleStore.setState({locale:'en',loaded:true});try{await act(async()=>{root.render(<StrictMode><MemoryRouter><LocalToolDocumentHost projectId={f.projectId} documentId={f.document.id}/></MemoryRouter></StrictMode>);await pause();});await untilProse(()=>!!editorOf(),'Ledger source editor absent');assertProse(getPendingWritesSnapshot().dirty===before.dirty,'Clean rich source leaves global Saving indicator dirty');await act(async()=>{editorOf().commands.setContent(PROSE_HTML);await pause();});assertProse(getPendingWritesSnapshot().dirty===before.dirty+1,'Real draft not represented in pending ledger');await click(button('Save briefing'));await untilProse(()=>getPendingWritesSnapshot().dirty===before.dirty&&button('Save briefing')?.matches(':disabled')===true,'Successful rich save stays dirty in ledger');await act(async()=>{editorOf().commands.setContent('<p>Discard me</p>');await pause();});await click(button('Discard changes'));await untilProse(()=>getPendingWritesSnapshot().dirty===before.dirty,'Explicit discard leaves ledger dirty');await act(async()=>root.unmount());assertProse(getPendingWritesSnapshot().dirty===before.dirty,'Unmount leaves SDK-owned flusher registered');return ['Real pending ledger remains clean on mount/save/discard/unmount and reports actual rich draft only, without resetting other owners'];}finally{await act(async()=>root.unmount());await deleteProject(f.projectId);}
+ const f=await proseFixture('ledger'),root=createRoot(document.getElementById('root')!),before={...getPendingWritesSnapshot()};useLocaleStore.setState({locale:'en',loaded:true});try{await act(async()=>{root.render(<StrictMode><MemoryRouter><LocalToolDocumentHost projectId={f.projectId} documentId={f.document.id}/></MemoryRouter></StrictMode>);await pause();});await untilProse(()=>!!editorOf(),'Ledger source editor absent');assertProse(getPendingWritesSnapshot().dirty===before.dirty,'Clean rich source leaves global Saving indicator dirty');await act(async()=>{editorOf().commands.setContent(PROSE_HTML);await pause();});assertProse(getPendingWritesSnapshot().dirty===before.dirty+2,'Real draft not represented in pending ledger');await click(button('Save briefing'));await untilProse(()=>getPendingWritesSnapshot().dirty===before.dirty&&button('Save briefing')?.matches(':disabled')===true,'Successful rich save stays dirty in ledger');await act(async()=>{editorOf().commands.setContent('<p>Discard me</p>');await pause();});await click(button('Discard changes'));await untilProse(()=>getPendingWritesSnapshot().dirty===before.dirty,'Explicit discard leaves ledger dirty');await act(async()=>root.unmount());assertProse(getPendingWritesSnapshot().dirty===before.dirty,'Unmount leaves SDK-owned flusher registered');return ['Real pending ledger remains clean on mount/save/discard/unmount and reports actual rich draft only, without resetting other owners'];}finally{await act(async()=>root.unmount());await deleteProject(f.projectId);}
 }
 
 export async function testLocalToolRichProseDockAndLegacy(){
@@ -202,5 +202,55 @@ export async function testLocalToolRichProseRuntimeRollback(){
   await act(async()=>root.unmount());await deleteProject(f.projectId);
   for(const hash of[hash1,hash2]){const row=await db.localToolPackages.get(hash);if(row){assertProse(row.namespace==='qa.runtime-package59','Refuse foreign fixture package cleanup');await db.localToolPackages.delete(hash);}}
   assertProse(!await db.projects.get(f.projectId)&&!await db.localToolPackages.get(hash1)&&!await db.localToolPackages.get(hash2),'Own runtime regression cleanup incomplete');
+ }
+}
+
+/** Trial lifecycle through normal package/ProjectWorkspace/Source Host and real SDK flushers. */
+export async function testLocalToolRichProseRuntimeTrial(){
+ const [{default:runtimeV1},{default:runtimeV2},{default:ProjectWorkspace}]=await Promise.all([import('./fixtures/local-tools/runtime-rollback-v1.whpackage.json?raw'),import('./fixtures/local-tools/runtime-rollback-v2.whpackage.json?raw'),import('@/components/project/workspace/ProjectWorkspace')]);
+ const f=await proseFixture('runtime-trial'),root=createRoot(document.getElementById('root')!),TOOL='qa.runtime-tool59',APP='qa.runtime-app59',packet1=JSON.parse(runtimeV1),packet2=JSON.parse(runtimeV2),hash=packet2.manifest.contentHash;
+ const ownedProjects:{id:string;title:string}[]=[],declaredTitles:string[]=[],ownedPackages:{hash:string;fileSha256:string}[]=[],pendingBefore=getPendingWritesSnapshot().dirty;
+ const input=(text:string)=>({name:'own-rich-trial.whpackage.json',mime:'application/json',base64:btoa(Array.from(new TextEncoder().encode(text),byte=>String.fromCharCode(byte)).join(''))});
+ const call=async<T,>(name:string,args:Record<string,unknown>)=>{const reply=await runBridgeTool(name,args as never);assertProse(reply.ok,'Runtime Trial call failed '+name+' '+JSON.stringify(reply));return reply.result as T;};
+ type Trial={projectId:string;documentId:string;path:string};
+ const create=async(app=false)=>{const title='Own rich Trial '+crypto.randomUUID();declaredTitles.push(title);const trial=await call<Trial>('wh_local_package_trial_create',{namespace:app?APP:TOOL,contentHash:hash,title,tools:app?[{namespace:TOOL,contentHash:hash}]:[]});ownedProjects.push({id:trial.projectId,title});return trial;};
+ const read=(projectId:string,documentId:string,namespace=TOOL)=>call<import('@/engines/local/sdk').LocalToolSnapshot<import('@/engines/local/sdk').LocalToolJson>>('wh_local_tool_read',{projectId,namespace,documentId});
+ const clear=async()=>{await act(async()=>root.render(null));await untilProse(()=>getPendingWritesSnapshot().dirty===pendingBefore,'Trial unmount left an owned flusher registered');};
+ const mount=async(trial:Trial)=>{const project=await db.projects.get(trial.projectId);assertProse(project,'Own Trial row absent');const engines=project.enabledEngines.map(id=>getEngine(id)).filter((engine):engine is NonNullable<typeof engine>=>!!engine);await act(async()=>{root.render(<StrictMode><MemoryRouter key={trial.projectId} initialEntries={[trial.path]}><ProjectWorkspace projectId={trial.projectId} engines={engines}><LocalToolDocumentHost projectId={trial.projectId} documentId={trial.documentId}/></ProjectWorkspace></MemoryRouter></StrictMode>);await pause();});await untilProse(()=>!!editorOf()&&getPendingWritesSnapshot().dirty===pendingBefore,'Actual runtime Trial SDK editor not ready');};
+ useLocaleStore.setState({locale:'en',loaded:true});
+ try{
+  const control=await f.client.read();
+  for(const[text,packet]of[[runtimeV1,packet1],[runtimeV2,packet2]] as const){const old=await db.localToolPackages.get(packet.manifest.contentHash);await call('wh_local_package_install',{file:input(text)});if(!old){const row=await db.localToolPackages.get(packet.manifest.contentHash);assertProse(row?.namespace==='qa.runtime-package59','Own installed packet missing');ownedPackages.push({hash:row.contentHash,fileSha256:row.fileSha256});}}
+  const inventory=JSON.stringify(await db.localToolPackages.toArray()),kept=await create();await mount(kept);
+  const saved=await read(kept.projectId,kept.documentId),editor=editorOf(),dom=editor.view.dom,draft='<h2>Own Trial retained draft Élodie 李明</h2>';
+  await act(async()=>{editor.commands.setContent(draft);await pause();});await untilProse(()=>getPendingWritesSnapshot().dirty>=pendingBefore+2,'Real Trial rich draft/boundary not represented');
+  const beforeKeep=await db.projects.get(kept.projectId),draftText=editor.getText();assertProse(beforeKeep?.localRuntimeTrial?.projectId===kept.projectId,'Normal Trial marker absent');assertProse(draftText.includes('Own Trial retained draft Élodie 李明'),'Actual retained draft absent before Keep');
+  await click(button('Keep'));await untilProse(()=>!button('Keep'),'Normal Keep did not remove Trial controls');
+  const afterKeep=await db.projects.get(kept.projectId),expected={...beforeKeep};delete expected.localRuntimeTrial;
+  assertProse(JSON.stringify(afterKeep)===JSON.stringify(expected),'Keep changed more than the Trial marker');
+  assertProse(dom.isConnected&&editorOf()===editor&&editor.getText()===draftText,'Keep replaced the actual SDK node or draft '+JSON.stringify({connected:dom.isConnected,sameEditor:editorOf()===editor,beforeText:draftText,text:editor.getText(),currentText:editorOf()?.getText()}));
+  assertProse(JSON.stringify(await read(kept.projectId,kept.documentId))===JSON.stringify(saved),'Keep flushed the retained draft');
+  await click(button('Save briefing'));await untilProse(()=>getPendingWritesSnapshot().dirty===pendingBefore,'Kept draft did not save normally');await clear();
+  for(const app of[false,true]){
+   const trial=await create(app);let childId=trial.documentId;
+   if(app){const child=await call<{id:string}>('wh_local_tool_document_create',{projectId:trial.projectId,namespace:TOOL,title:'Own Trial app rich child'});childId=child.id;const baseline=await read(trial.projectId,trial.documentId,APP);await call('wh_local_tool_state_apply',{projectId:trial.projectId,namespace:APP,documentId:trial.documentId,baseline,actions:[{type:'list-insert',field:'children',item:{id:'own-trial-rich-member',document:{kind:'local-tool',documentId:childId},variant:'panel'},afterId:null}]});}
+   await mount(trial);if(app)assertProse(document.querySelector('[data-runtime59-host]')?.getAttribute('data-runtime59-host')===trial.documentId&&!!document.querySelector('[data-runtime59-surface="panel"]'),'Normal runtime App Host/Surface child not mounted');
+   const captured=editorOf();await act(async()=>{captured.commands.setContent('<p>Own editable Trial '+String(app)+' draft Élodie 李明</p>');await pause();});await untilProse(()=>getPendingWritesSnapshot().dirty>=pendingBefore+2,'Editable Trial SDK draft not pending');
+   const unsaved=await read(trial.projectId,childId);assertProse(!String((unsaved.data as Record<string,unknown>).draftNotes).includes('Own editable Trial'),'Typing saved before Discard');
+   // Do not manually save, fabricate a flusher, add a peer winner, or wait heuristically.
+   await call('wh_local_package_trial_discard',{projectId:trial.projectId,contentHash:hash});
+   assertProse(!await db.projects.get(trial.projectId),'Editable Trial Discard did not delete its own project after real Save');
+   await clear();assertProse(JSON.stringify(await db.localToolPackages.toArray())===inventory,'Trial Discard changed installed packages');
+   assertProse(JSON.stringify(await f.client.read())===JSON.stringify(control),'Trial lifecycle changed the sibling compiled Source');
+  }
+  return ['Normal runtime Trial create/Keep preserves the identical real SDK Tiptap node and pending draft without changing saved data','Editable document Discard lets the real SDK flusher save before deleting only its Trial project','Normal App Host/Surface rich child Discard resolves the app afterWrites check as well as the child boundary, preserving installed packages and the sibling Source'];
+ }finally{
+  await act(async()=>root.unmount());
+  // Recover only exact UUID titles declared by this test if a public call failed after publication.
+  for(const title of declaredTitles)for(const row of await db.projects.filter(project=>project.title===title).toArray())if(!ownedProjects.some(own=>own.id===row.id))ownedProjects.push({id:row.id,title});
+  for(const own of ownedProjects){const row=await db.projects.get(own.id);assertProse(!row||row.title===own.title,'Refuse foreign Trial cleanup');if(row)await deleteProject(own.id);assertProse(!await db.projects.get(own.id),'Own Trial cleanup incomplete');}
+  await deleteProject(f.projectId);
+  for(const own of ownedPackages){const row=await db.localToolPackages.get(own.hash);if(row){assertProse(row.namespace==='qa.runtime-package59'&&row.fileSha256===own.fileSha256,'Refuse foreign runtime package cleanup');await db.localToolPackages.delete(own.hash);}}
+  assertProse(getPendingWritesSnapshot().dirty===pendingBefore,'Trial cleanup reset or retained other pending owners');
  }
 }

@@ -19,7 +19,7 @@ const listeners = new Set<() => void>();
 const active = new Map<number, Promise<unknown>>();
 const failed = new Map<string, FailedWrite>();
 const ownerGeneration = new Map<string, number>();
-const flushers = new Map<string, Flusher>();
+const flushers = new Map<string, { flush: Flusher; afterWrites: boolean }>();
 let nextWriteId = 0;
 let lastSavedAt: number | null = null;
 let snapshot: PendingWritesSnapshot = { pending: 0, failed: 0, dirty: 0, lastSavedAt: null };
@@ -80,12 +80,13 @@ export function trackPendingWrite<T>(
   );
 }
 
-/** Register buffered work that must be flushed before navigation/app close. */
-export function registerPendingFlusher(id: string, flush: Flusher): () => void {
-  flushers.set(id, flush);
+/** Register buffered work; afterWrites checks run after saving and draining active writes. */
+export function registerPendingFlusher(id: string, flush: Flusher, afterWrites = false): () => void {
+  const entry = { flush, afterWrites };
+  flushers.set(id, entry);
   publish();
   return () => {
-    if (flushers.get(id) === flush) {
+    if (flushers.get(id) === entry) {
       flushers.delete(id);
       publish();
     }
@@ -124,13 +125,16 @@ export interface FlushPendingWritesResult {
  */
 export async function flushPendingWrites(timeoutMs = 8_000): Promise<FlushPendingWritesResult> {
   const work = (async (): Promise<FlushPendingWritesResult> => {
-    const flushed = await Promise.allSettled([...flushers.values()].map(flush => flush()));
+    const flushed = await Promise.allSettled([...flushers.values()].filter(entry => !entry.afterWrites).map(entry => entry.flush()));
     // Writes can enqueue another serialised write as they settle. Drain until
     // the ledger is actually empty; the outer timeout remains the hard stop.
     while (active.size > 0) {
       await Promise.allSettled([...active.values()]);
     }
-    const flusherFailed = flushed.some(result => result.status === 'rejected' || !result.value);
+    // Draft checks observe the completed save phase, never race its flushers.
+    const checks = [...flushers.values()].filter(entry => entry.afterWrites);
+    const checked = checks.length ? await Promise.allSettled(checks.map(entry => entry.flush())) : [];
+    const flusherFailed = [...flushed, ...checked].some(result => result.status === 'rejected' || !result.value);
     return { ok: !flusherFailed && failed.size === 0, timedOut: false, failed: failed.size };
   })();
 

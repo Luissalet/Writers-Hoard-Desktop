@@ -1,3 +1,4 @@
+import {validateLocalRuntimeTrial} from '@/engines/local/trialTypes';
 import { validateEntityCandidateDismissals } from '@/services/entityDetection/dismissalTypes';
 import { renewCandidateDismissals } from '@/services/entityDetection/dismissals';
 import {validateManuscriptProject} from '@/engines/writings/manuscripts';
@@ -16,7 +17,8 @@ import {validateToolDockProjectMetadata} from '@/engines/writings/toolDock/types
 import type {WorldEraVariant,WorldEraVariantState} from '@/services/worldEras/types';
 import {validateProjectAnimationPresentations} from '@/engines/model-viewer/portable';
 
-export function validateProjectArchiveMetadata(project: { modelAssets?:unknown; manuscriptCatalog?:unknown; writingToolDock?:unknown; pinned?:unknown; worldFolderImports?:unknown; genres?:unknown; sourceToolDocuments?: unknown; entityDetectionPreferences?: unknown; entityCandidateDismissals?: unknown; wikiProfiles?: unknown; localToolInstallations?: unknown; localToolContracts?:unknown; localToolStates?:Project['localToolStates']; worldEras?:Project['worldEras'] } & Parameters<typeof validateProjectCoverMetadata>[0]): void {
+export function validateProjectArchiveMetadata(project: { id?:unknown; localRuntimeTrial?:unknown; modelAssets?:unknown; manuscriptCatalog?:unknown; writingToolDock?:unknown; pinned?:unknown; worldFolderImports?:unknown; genres?:unknown; sourceToolDocuments?: unknown; entityDetectionPreferences?: unknown; entityCandidateDismissals?: unknown; wikiProfiles?: unknown; localToolInstallations?: unknown; localToolContracts?:unknown; localToolStates?:Project['localToolStates']; worldEras?:Project['worldEras'] } & Parameters<typeof validateProjectCoverMetadata>[0]): void {
+  validateLocalRuntimeTrial(project.id,project.localRuntimeTrial);
   validateManuscriptProject(project);
   validateToolDockProjectMetadata(project);
   normalizeProjectGenres(project.genres);

@@ -1,3 +1,4 @@
+import {withoutLocalRuntimeTrial} from '@/engines/local/trialTypes';
 import {decodeSourceToolArchives,cloneSourceToolArchives} from '@/engines/local/documents/archivePortability';
 import {remapBannerLink} from '@/engines/timeline/bannerStyles';
 import {encodeAssetFile,decodeAssetFiles,type PortableLocalAssetFile,type LocalAssetFile} from '@/engines/local/assetFileFormat';
@@ -797,7 +798,7 @@ export async function importProjectData(
     suppressDocumentHistoryForTransaction();
     // Project
     await db.projects.add({
-      ...data.project!,
+      ...withoutLocalRuntimeTrial(data.project!),
       id: newProjectId,
       ...remapWorldMetadata(data.project!, remap, codexIds, mediaIds, new Set([...(data.writings ?? []).map(writing => writing.id), ...eraRoots('writings').map(row => row.id)]), toolIds,richSources),
       title: `${data.project!.title} (Imported)`,

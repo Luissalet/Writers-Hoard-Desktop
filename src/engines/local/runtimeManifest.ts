@@ -1,5 +1,7 @@
+import {LOCAL_RUNTIME_TRIAL_TOOLS} from './trialManifest';
 import type {BridgeTool} from '@/services/aiBridge/schema';
 export const LOCAL_RUNTIME_TOOLS:BridgeTool[]=[
+  ...LOCAL_RUNTIME_TRIAL_TOOLS,
   {
     "name": "wh_local_package_inspect",
     "group": "research",
