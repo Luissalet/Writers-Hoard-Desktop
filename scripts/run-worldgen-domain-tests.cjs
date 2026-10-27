@@ -29,6 +29,11 @@ const inputs = [
   'tests/worldgen-domain-road-boundary.browser.ts', 'src/engines/worldgen/bridgeAccess.ts',
   'src/engines/worldgen/core/edits.ts', 'src/engines/worldgen/core/domainReplay.ts',
   'tests/worldgen-domain-coordinate-families.browser.ts', 'src/engines/worldgen/core/biomeKeys.ts',
+  'tests/worldgen-source-abs.browser.ts',
+  'src/db/index.ts',
+  'src/services/aiBridge/dispatch.ts',
+  'src/engines/worldgen/core/storyEvents.ts',
+  'src/engines/worldgen/core/domainDocument.ts',
 ];
 const hashes = () => inputs.map(file => ({ file, sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex') }));
 

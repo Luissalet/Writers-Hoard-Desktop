@@ -34,6 +34,7 @@ import { waypointCellFromPosition, waypointForDomain, type WaypointDomain } from
 import { worldEraToolScope } from '@/services/worldEras/toolScope';
 import { readEraRow } from '@/services/worldEras/store';
 import { domainBounds, readDomainDocument } from '@/engines/worldgen/core/domainDocument';
+import { projectDomainEdit } from '@/engines/worldgen/core/domainReplay';
 import {
   applyWorldEdits,
   isForging,
@@ -386,9 +387,11 @@ async function appendEdit<T extends object>(
 }
 
 /** Response identities use the journal acknowledged after the writer flush. */
-function paintedResponseKey(before: string, kind: 'label' | 'stamp', x: number, y: number): string {
+function paintedResponseKey(before: string, kind: Parameters<typeof editKey>[0], x: number, y: number, extra = ''): string {
   const document = readDomainDocument(before), origin = document ? domainBounds(document) : { x: 0, y: 0 };
-  return nextPaintedKey(deserializeEdits(before), kind, x + origin.x, y + origin.y);
+  return kind === 'label' || kind === 'stamp'
+    ? nextPaintedKey(deserializeEdits(before), kind, x + origin.x, y + origin.y)
+    : editKey(kind, x + origin.x, y + origin.y, extra);
 }
 
 // ---------------------------------------------------------------------------
@@ -652,7 +655,7 @@ export async function whAddPlace(args: ToolArgs): Promise<unknown> {
   return appendEdit(
     args, world,
     edit,
-    { key, marker, x, y, name },
+    (before) => ({ key: paintedResponseKey(before, marker, x, y, edit.landmark ? `${edit.landmark}:` : ''), marker, x, y, name }),
     `placed ${marker} "${name ?? key}" at ${x},${y} in world "${world.title}"`,
   );
 }
@@ -762,7 +765,7 @@ export async function whDuplicatePlace(args: ToolArgs): Promise<unknown> {
   return appendEdit(
     args, world,
     edit,
-    { key: newKey, from: key, marker: edit.marker, x: at.x, y: at.y, name: edit.name },
+    (before) => ({ key: paintedResponseKey(before, edit.marker, at.x, at.y, edit.landmark ? `${edit.landmark}:` : ''), from: key, marker: edit.marker, x: at.x, y: at.y, name: edit.name }),
     `duplicated place ${key} as "${edit.name ?? newKey}" in world "${world.title}"`,
   );
 }
@@ -1906,11 +1909,17 @@ async function writingTitles(args: ToolArgs, world: GeneratedWorld, ids: Iterabl
   return titles;
 }
 
+/** Story API geometry is local; the normal writer adds the current origin once. */
+function localStoryEdits(world: GeneratedWorld): WorldEdit[] {
+  const json = world.edits ?? '[]', edits = deserializeEdits(json), document = readDomainDocument(json);
+  return document ? edits.map((edit) => edit.kind === 'story' ? projectDomainEdit(edit, domainBounds(document)) : edit) : edits;
+}
+
 /** An event with an `order` takes that place in its chapter and the others move along: every changed record. */
 async function placedStory(world: GeneratedWorld, event: import('@/engines/worldgen/core/storyEvents').StoryEvent): Promise<WorldEdit[]> {
   const { storyEventsFrom, placeInChapter } = await storyModule();
   if (event.order === undefined) return [{ kind: 'story', ...event }];
-  const events = storyEventsFrom([...deserializeEdits(world.edits ?? '[]'), { kind: 'story', ...event }]);
+  const events = storyEventsFrom([...localStoryEdits(world), { kind: 'story', ...event }]);
   return placeInChapter(events, event.id, event.order).map((record) => ({ kind: 'story' as const, ...record }));
 }
 
@@ -1936,7 +1945,7 @@ export async function whUpdateStoryEvent(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { normalizeStoryEvent, storyEventsFrom } = await storyModule();
   const id = requireString(args, 'id');
-  const current = storyEventsFrom(deserializeEdits(world.edits ?? '[]')).find((event) => event.id === id);
+  const current = storyEventsFrom(localStoryEdits(world)).find((event) => event.id === id);
   if (!current) throw new BridgeError('not-found', `No story event "${id}" on this world; use wh_list_story_events.`);
   const at = await storyPosition(args, world);
   await checkStoryWho(args, world);
@@ -1970,7 +1979,7 @@ export async function whRemoveStoryEvent(args: ToolArgs): Promise<unknown> {
 export async function whListStoryEvents(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const { storyEventsFrom, storyKnownBy, STORY_STATUSES } = await storyModule();
-  let events = storyEventsFrom(deserializeEdits(world.edits ?? '[]'));
+  let events = storyEventsFrom(localStoryEdits(world));
   const status = optEnum(args, 'status', STORY_STATUSES);
   if (args.status !== undefined && !status) throw new BridgeError('bad-args', 'status must be planned or happened.');
   if (args.knownByChapter !== undefined) {
