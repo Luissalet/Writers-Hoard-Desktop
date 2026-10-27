@@ -2792,3 +2792,25 @@ La respuesta incluye proyecto/operación, `capturedAt`, recuentos, `canceled`, `
 Una nueva llamada `wh_publishing_export` **recaptura** el estado persistido; una operación terminada no conserva una copia capturada RPC reutilizable. Reintentar pendientes de la UI sí reutiliza su captura privada, sin DB. No hay un nuevo permiso, motor de jobs persistente o herramienta Undo de exportación. La prueba Native de Root observó catálogo 958 y estas dos herramientas por transporte real; no certifica todo el catálogo. [Evidencia por corte y entrega](../tasks/vvd1095/verification-publishing-batch.md).
 
 La fuente C42 está aprobada exactamente en CAS54 e integrada en Main. El Native fresco de Main usa ejecutor/stdio Main y renderer WT existente tras verificar las 42 tuplas canónicas; no reutiliza pre2 ni el ensayo formal, ni acredita todos los transportes del catálogo.
+
+
+## Paquetes ejecutables locales, pruebas e incidencias
+
+Las herramientas siguientes comparten los flujos normales de Writer. No aceptan rutas de código ni URLs. Un File completo es {name,mime,base64}, con MIME application/json o application/octet-stream.
+
+| Tool | Entrada | Comportamiento |
+|---|---|---|
+| wh_local_package_inspect | {file:File} | Verifica bytes/hashes/manifiesto sin ejecutar ni guardar. |
+| wh_local_package_install | {file:File} | Instala lote app/tools; sin reconstruir, habilitar motores o elegir pins. |
+| wh_local_package_list | {namespace?} | Inventario por paquete/miembro y disponibilidad, sin evaluar código. |
+| wh_local_package_export | {contentHash} | File JSON completo del paquete instalado; no instalación implícita en backups de datos. |
+| wh_local_package_trial_create | {contentHash,namespace,title,tools:[{namespace,contentHash}]} | Proyecto normal nuevo con versiones/dependencias explícitas; devuelve IDs/ruta tras commit, sin navegar. Herramienta simple usa tools:[]. |
+| wh_local_package_trial_keep | {projectId,contentHash} | Compara marcador y retira sólo condición de prueba; mantiene borrador/ruta/datos. |
+| wh_local_package_trial_discard | {projectId,contentHash} | Resuelve pending writes y revalida marcador; borra sólo ese proyecto. Conflicto conserva recuperación y paquete instalado. |
+| wh_local_package_usage | {contentHash} | Sólo lectura de pins actuales/contenido retenido, sin prosa ni evaluación; incluye desactivados/épocas/archivo y enlaces disponibles. |
+| wh_local_package_errors | {namespace?,contentHash?,phase?} | Sólo lectura de incidencias de este renderer; filtros AND por paquete o miembro/hash/fase. |
+| wh_local_package_errors_clear | Mismos filtros | Borra sólo historial de sesión; sin filtros lo limpia completo. No repara/desinstala ni cambia pins/loader/boundary. |
+
+Fases de incidencia: load,factory,prepare,persist,publish,notify,render,operation. Mensaje fijo del host, tipo finito/count e identidad verificada; sin contenido, argumentos, excepción libre o stack. Dos claves del mismo renderer ven la misma memoria; recargar/cerrar inicia vacío. Retry de carga/vista y repetición explícita de operación conservan su semántica. Source compilado y fallos pre-callback de validación no entran en ese historial. La clasificación writes de clear describe su cambio de memoria, sin añadir una escritura de documentos.
+
+[Paquetes59](../tasks/vvd1095/verification-sdk-runtime-packages.md), [Trial/Usage60](../tasks/vvd1095/verification-sdk-runtime-trials.md) y [errores61](../tasks/vvd1095/verification-sdk-runtime-errors.md) separan firmas, causas, pruebas, dos claves/carga fría, Browser y límites. No equivalencia global del SDK, CRDT/presencia o producción instalada inferidos de estas APIs.
