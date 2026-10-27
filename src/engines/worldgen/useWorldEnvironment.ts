@@ -7,6 +7,19 @@ import { deserializeEdits, serializeEdits } from './core/edits';
 import { preparePaintReplay, requestWorldRecalculation } from './recalculationClient';
 import { commitWorldRecalculation, prepareWorldRecalculation, WorldRecipeConflict } from './recipe';
 import type { createWorldEditWriter } from './editWriter';
+import { packWorld, unpackWorld } from './core/types';
+import { appendDomainEdits, domainBounds, readDomainDocument, serializeDomainDocument } from './core/domainDocument';
+import { prepareWorldDomain } from './domainPreparationClient';
+import { captureWorldDomainHistory, commitWorldDomainHistory, WorldDomainError, type WorldDomainHistoryExpectation } from './worldDomain';
+import { applyWorldScaleMetadata } from './core/geoScale';
+
+async function prepareSerializedReplay(data: WorldData, json: string, revision: number, options: { signal: AbortSignal; onProgress: (stage: string, progress: number) => void }, source?: () => WorldData) {
+  const document = json ? readDomainDocument(json) : null;
+  if (!document) { await preparePaintReplay(data, deserializeEdits(json), options, source); return undefined; }
+  const pristine = source?.() ?? data;
+  const prepared = await prepareWorldDomain({ type: 'replay', params: pristine.params, pristine: packWorld(pristine).transfer, legacy: json, revision }, options.signal, options.onProgress);
+  return unpackWorld(prepared.world);
+}
 
 export interface EnvironmentJob { kind: 'open' | 'recalculate' | 'history'; stage: string; progress: number; committing?: boolean }
 
@@ -25,7 +38,10 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
   const active = useRef<{ controller: AbortController; committing: boolean; kind: EnvironmentJob['kind'] } | null>(null);
   const seenIncoming = useRef(record.edits);
   const pendingIncoming = useRef<{ value: string | undefined; blocked: boolean } | null>(null);
+  const historyBaseline = useRef<WorldDomainHistoryExpectation | null>(null);
   const readyEvent = useEffectEvent(onReady);
+  const recordEvent = useEffectEvent(() => record);
+  const eraEvent = useEffectEvent(() => scope.eraId);
   const start = (kind: EnvironmentJob['kind']) => {
     const controller = new AbortController();
     const task = { controller, committing: false, kind };
@@ -46,12 +62,17 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
     const options = start('open');
     void (async () => {
       try {
+        const snapshot = recordEvent(), eraId = eraEvent();
         const desired = pendingIncoming.current;
         const source = desired ? desired.value : savedEdits.current;
         const edits = source ? deserializeEdits(source) : [];
-        await preparePaintReplay(data, edits, options);
+        const baseline = readDomainDocument(source ?? '') ? await captureWorldDomainHistory({ projectId: snapshot.projectId, eraId }, snapshot) : null;
+        const prepared = await prepareSerializedReplay(data, source ?? '', snapshot.domainRevision ?? 0, options);
         if (options.signal.aborted) return;
-        session.current = new PaintSession(data, edits); sessionWorld.current = data;
+        session.current = new PaintSession(data);
+        if (prepared) session.current.load(source ?? '', snapshot.domainRevision ?? 0, prepared); else session.current.load(serializeEdits(edits));
+        sessionWorld.current = data;
+        applyWorldScaleMetadata(data, snapshot); historyBaseline.current = baseline;
         if (desired) {
           savedEdits.current = source;
           if (pendingIncoming.current === desired) pendingIncoming.current = null;
@@ -62,7 +83,7 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
       } finally { finish(options.signal); }
     })();
     return () => { active.current?.controller.abort(); active.current = null; };
-  }, [data, record.id, restorePristine, retry, session, sessionWorld, savedEdits]);
+  }, [data, record.id, scope.eraId, restorePristine, retry, session, sessionWorld, savedEdits]);
 
   // Incoming edits can contain checkpoints created in another view. Prepare those
   // in a worker before loading them; an error leaves the last valid world visible.
@@ -79,15 +100,18 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
     const options = start('history');
     void (async () => {
       try {
-        await preparePaintReplay(data, deserializeEdits(incoming ?? ''), options, () => current.pristineWorld);
+        const snapshot = recordEvent(), eraId = eraEvent();
+        const baseline = readDomainDocument(incoming ?? '') ? await captureWorldDomainHistory({ projectId: snapshot.projectId, eraId }, snapshot) : null;
+        const prepared = await prepareSerializedReplay(data, incoming ?? '', snapshot.domainRevision ?? 0, options, () => current.pristineWorld);
         if (options.signal.aborted || session.current !== current) return;
-        current.load(incoming ?? ''); savedEdits.current = incoming;
+        current.load(incoming ?? '', snapshot.domainRevision ?? 0, prepared); savedEdits.current = incoming;
+        applyWorldScaleMetadata(data, snapshot); historyBaseline.current = baseline;
         if (pendingIncoming.current === desired) pendingIncoming.current = null;
         readyEvent();
       } catch { if (!options.signal.aborted) { desired.blocked = true; setReady(false); setError('work'); } }
       finally { finish(options.signal); }
     })();
-  }, [record.edits, ready, data, session, savedEdits, writer, job]);
+  }, [record.edits, scope.eraId, ready, data, session, savedEdits, writer, job]);
 
   const recalculate = async () => {
     const current = session.current;
@@ -97,10 +121,12 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
     try {
       if (!await writer.flush()) { setError('save'); return false; }
       const base = await prepareWorldRecalculation(record.id, record.projectId, scope.eraId);
-      if (serializeEdits(base.edits ? deserializeEdits(base.edits) : []) !== current.serialize() || JSON.stringify(base.params) !== JSON.stringify(record.params)) throw new WorldRecipeConflict();
+      const document = base.edits ? readDomainDocument(base.edits) : null;
+      const saved = document ? serializeDomainDocument(document) : serializeEdits(base.edits ? deserializeEdits(base.edits) : []);
+      if (saved !== current.serialize() || JSON.stringify(base.params) !== JSON.stringify(record.params)) throw new WorldRecipeConflict();
       const fields = await requestWorldRecalculation(data, options);
       if (options.signal.aborted || session.current !== current || (data.revision ?? 0) !== revision) return false;
-      const json = serializeEdits([...current.edits, { kind: 'recalculate', version: 1 }]);
+      const json = document ? serializeDomainDocument(appendDomainEdits(document, [{ kind: 'recalculate', version: 1 }])) : serializeEdits([...current.edits, { kind: 'recalculate', version: 1 }]);
       options.task.committing = true; setJob({ kind: 'recalculate', stage: 'saving', progress: 1, committing: true });
       await commitWorldRecalculation(base, json, scope.eraId);
       savedEdits.current = json;
@@ -116,13 +142,26 @@ export function useWorldEnvironment({ data, record, session, sessionWorld, saved
   const history = async (action: 'undo' | 'redo' | 'clear') => {
     const current = session.current;
     if (!data || !current || !ready || active.current) return false;
-    const edits = action === 'undo' ? current.undoEdits : action === 'redo' ? current.redoEdits : [];
+    const json = current.historySerialized(action), previous = current.serialize();
+    const expected = historyBaseline.current;
     const options = start('history');
     try {
-      await preparePaintReplay(data, edits, options, () => current.pristineWorld);
+      const priorDoc = readDomainDocument(previous), nextDoc = readDomainDocument(json);
+      const geometric = priorDoc && nextDoc && JSON.stringify(domainBounds(priorDoc)) !== JSON.stringify(domainBounds(nextDoc));
+      const prepared = await prepareSerializedReplay(data, json, (expected?.domainRevision ?? record.domainRevision ?? 0) + (geometric ? 1 : 0), options, () => current.pristineWorld);
       if (options.signal.aborted || session.current !== current) return false;
-      current[action](); return true;
-    } catch { if (!options.signal.aborted) setError('work'); return false; }
+      if (geometric) {
+        if (!expected) throw new WorldRecipeConflict();
+        if (!await writer.flush()) { setError('save'); return false; }
+        options.task.committing = true; setJob({ kind: 'history', stage: 'saving', progress: 1, committing: true });
+        const context = { projectId: record.projectId, eraId: scope.eraId };
+        const row = await commitWorldDomainHistory(context, record.id, previous, json, expected);
+        current[action](prepared); applyWorldScaleMetadata(data, row); if (data.domain) data.domain.revision = row.domainRevision ?? 0;
+        historyBaseline.current = await captureWorldDomainHistory(context, row);
+        savedEdits.current = json; writer.acknowledge(json);
+      } else current[action](prepared);
+      return true;
+    } catch (cause) { if (!options.signal.aborted) setError(cause instanceof WorldDomainError && cause.code === 'conflict' ? 'conflict' : 'work'); return false; }
     finally { finish(options.signal); }
   };
   const cancel = useCallback(() => {

@@ -10,6 +10,7 @@
 import { cellKmOf, isSheet, sheetScale } from './geoScale';
 import { FlowSolver } from './erosion';
 import type { RiverPath, WorldParams } from './types';
+import type { RuntimeGeometry } from './runtimeGeometry';
 
 export interface HydrologyResult {
   lake: Uint8Array;
@@ -54,17 +55,18 @@ export function computeHydrology(
   precipitation: Float32Array,
   solver: FlowSolver | null,
   temperature?: Float32Array,
+  geometry?: RuntimeGeometry,
 ): HydrologyResult {
-  const W = params.width, H = W >> 1, N = W * H;
-  const s = solver ?? new FlowSolver(W, H, params.drainageVersion);
+  const W = geometry?.width ?? params.width, H = geometry?.height ?? (W >> 1), N = W * H;
+  const s = solver ?? new FlowSolver(W, H, params.drainageVersion, !!geometry);
 
   const absolute = params.hydrologyVersion === 2;
   const tempAt = (i: number) => temperature && Number.isFinite(temperature[i]) ? temperature[i] : 15 + params.temperature;
   const volumePerRunoff = new Float64Array(H);
   const solverArea = new Float64Array(H);
   if (absolute) for (let y = 0; y < H; y++) {
-    volumePerRunoff[y] = hydrologyCellArea(W, H, y, params) * MM_KM2_TO_CUBIC_METRES_PER_SECOND;
-    solverArea[y] = Math.fround(Math.max(0.02, Math.cos((0.5 - (y + 0.5) / H) * Math.PI)));
+    volumePerRunoff[y] = (geometry ? cellKmOf(params, params.width) ** 2 : hydrologyCellArea(W, H, y, params)) * MM_KM2_TO_CUBIC_METRES_PER_SECOND;
+    solverArea[y] = geometry ? 1 : Math.fround(Math.max(0.02, Math.cos((0.5 - (y + 0.5) / H) * Math.PI)));
   }
   // Legacy recipes retain their relative field. New worlds pass m³/s, with
   // the solver's own latitude multiplier compensated exactly once.
@@ -112,6 +114,7 @@ export function computeHydrology(
           if (y + dy < 0 || y + dy >= H) continue;
           for (let dx = -1; dx <= 1; dx++) {
             if (dx === 0 && dy === 0) continue;
+            if (geometry && (x + dx < 0 || x + dx >= W)) continue;
             const n = (y + dy) * W + (x + dx + W) % W;
             if (lake[n] !== 1) continue;
             lake[n] = 2; queue[tail++] = n;
@@ -162,8 +165,8 @@ export function computeHydrology(
         const i = yW + x;
         if (!lake[i]) continue;
         let n = 0;
-        if (lake[x + 1 < W ? i + 1 : i + 1 - W]) n++;
-        if (lake[x > 0 ? i - 1 : i - 1 + W]) n++;
+        if ((!geometry || x + 1 < W) && lake[x + 1 < W ? i + 1 : i + 1 - W]) n++;
+        if ((!geometry || x > 0) && lake[x > 0 ? i - 1 : i - 1 + W]) n++;
         if (y + 1 < H && lake[i + W]) n++;
         if (y > 0 && lake[i - W]) n++;
         if (n <= (pass === 0 ? 0 : 1)) { lake[i] = 0; lakeSurface[i] = 0; }

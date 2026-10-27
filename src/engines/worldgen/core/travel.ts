@@ -578,7 +578,7 @@ function travelMetric(world: WorldData, radius: number): TravelMetric {
     if (y + 1 < world.height) diagonal[y] = greatCircleKm(world, y * world.width, (y + 1) * world.width + 1, radius);
   }
   // A sheet's step north is its own cell, flat; the planet's is the arc of a row.
-  const metric = { radius, widthKm: metricWidthKmOf(mapMetric(world)), horizontal, diagonal, vertical: isSheet(world.params) ? metricCellKmOf(mapMetric(world), world.width) : Math.PI * radius / world.height };
+  const metric = { radius, widthKm: metricWidthKmOf(mapMetric(world)), horizontal, diagonal, vertical: world.domain?.topology === 'finite' || isSheet(world.params) ? metricCellKmOf(mapMetric(world), world.width) : Math.PI * radius / world.height };
   METRIC_CACHE.set(world, metric);
   return metric;
 }
@@ -612,9 +612,12 @@ function isLake(world: WorldData, i: number): boolean {
 }
 function nearLand(world: WorldData, i: number): boolean {
   const W = world.width, H = world.height;
+  const finite = world.domain?.topology === 'finite';
   const x = i % W, y = (i / W) | 0;
   for (let k = 0; k < 8; k++) {
-    const nx = ((x + DX8[k]) % W + W) % W, ny = y + DY8[k];
+    const xx = x + DX8[k], ny = y + DY8[k];
+    if (finite && (xx < 0 || xx >= W)) continue;
+    const nx = finite ? xx : ((xx % W) + W) % W;
     if (ny < 0 || ny >= H) continue;
     const j = ny * W + nx;
     if (!isSea(world, j) && !isLake(world, j)) return true;
@@ -655,12 +658,15 @@ export function isRiverCell(world: WorldData, i: number): boolean { return landR
 /** The river cell whose centre lies nearest (x, y), no further than a cell and a half; -1 when there is none. */
 export function riverCellNear(world: WorldData, x: number, y: number): number {
   const W = world.width, H = world.height, rivers = landRivers(world);
+  const finite = world.domain?.topology === 'finite';
   const cx = Math.floor(x), cy = Math.floor(y);
   let best = -1, bestD = 1.5 * 1.5 + 1e-9;
   for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
     const ny = cy + dy;
     if (ny < 0 || ny >= H) continue;
-    const i = ny * W + (((cx + dx) % W) + W) % W;
+    const nx = cx + dx;
+    if (finite && (nx < 0 || nx >= W)) continue;
+    const i = ny * W + (finite ? nx : ((nx % W) + W) % W);
     if (!rivers[i]) continue;
     const d = (cx + dx + 0.5 - x) ** 2 + (ny + 0.5 - y) ** 2;
     if (d < bestD) { bestD = d; best = i; }
@@ -785,16 +791,26 @@ function solveRoute(
   }
   if (opts.legModes?.[0] && opts.legModes[0] !== opts.mode) opts = { ...opts, mode: opts.legModes[0] };
   const W = world.width, H = world.height, N = W * H;
+  const finite = world.domain?.topology === 'finite';
+  if (finite && [from, to].some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.x >= W || p.y < 0 || p.y >= H)) {
+    return {
+      cells: [], km: 0, hours: 0, days: 0, directKm: 0, legs: [], crossings: [],
+      roadFraction: 0, stages: [], realms: [], highestM: 0, lowestM: 0, ascentM: 0,
+      impossible: 'no hay ruta transitable entre esos dos puntos',
+    };
+  }
   const metric = travelMetric(world, opts.planetRadiusKm!);
   const roads = roadMask(world, geo);
 
-  const idx = (x: number, y: number) => Math.min(H - 1, Math.max(0, Math.round(y))) * W
+  const idx = finite
+    ? (x: number, y: number) => Math.min(H - 1, Math.max(0, Math.round(y))) * W + Math.min(W - 1, Math.max(0, Math.round(x)))
+    : (x: number, y: number) => Math.min(H - 1, Math.max(0, Math.round(y))) * W
     + (((Math.round(x) % W) + W) % W);
   const start = idx(from.x, from.y);
   const goal = idx(to.x, to.y);
   const terminals = new Set([start, goal]);
 
-  // Every edge costs at least its spherical distance / this speed bound.
+  // Every edge costs at least its metric distance / this speed bound.
   // Include favourable currents, downstream flow and frozen road surfaces;
   // a planar/base-speed heuristic overestimated at high latitudes and could
   // permanently close a cell before its quickest approach was considered.
@@ -826,7 +842,9 @@ function solveRoute(
     if (expanded++ > N * 2) break;
     const x = i % W, y = (i / W) | 0;
     for (let k = 0; k < 8; k++) {
-      const nx = ((x + DX8[k]) % W + W) % W;
+      const xx = x + DX8[k];
+      if (finite && (xx < 0 || xx >= W)) continue;
+      const nx = finite ? xx : ((xx % W) + W) % W;
       const ny = y + DY8[k];
       if (ny < 0 || ny >= H) continue;
       const j = ny * W + nx;
@@ -1116,7 +1134,7 @@ function greatCircleKm(world: WorldData, a: number, b: number, radiusKm: number)
 export function coordinateDistance(world: WorldData, ax: number, ay: number, bx: number, by: number, radiusKm: number): number {
   const W = world.width, H = world.height;
   // A sheet is flat: straight distances at its own scale.
-  if (isSheet(world.params)) return metricDistanceKm(mapMetric(world), W, H, ax, ay, bx, by);
+  if (world.domain?.topology === 'finite' || isSheet(world.params)) return metricDistanceKm(mapMetric(world), W, H, ax, ay, bx, by);
   const toRad = (x: number, y: number) => ({
     lon: (x / W) * Math.PI * 2,
     lat: (0.5 - (y + 0.5) / H) * Math.PI,

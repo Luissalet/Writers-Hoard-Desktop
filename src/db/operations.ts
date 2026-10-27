@@ -1,3 +1,4 @@
+import {decodeSourceToolArchives,cloneSourceToolArchives} from '@/engines/local/documents/archivePortability';
 import {remapBannerLink} from '@/engines/timeline/bannerStyles';
 import {encodeAssetFile,decodeAssetFiles,type PortableLocalAssetFile,type LocalAssetFile} from '@/engines/local/assetFileFormat';
 import {validateManuscriptContents,writingSelection,structuralManuscriptOwners} from '@/engines/writings/manuscripts';
@@ -187,12 +188,14 @@ export async function deleteProject(id: string): Promise<void> {
     }
 
     // --- children without a projectId index: resolve via parent ids ---
-    const [sceneIds, storyboardIds, annotationIds, worldIds] = await Promise.all([
+    const [sceneIds, storyboardIds, annotationIds, baseWorldIds, eraWorlds] = await Promise.all([
       db.scenes.where('projectId').equals(id).primaryKeys(),
       db.storyboards.where('projectId').equals(id).primaryKeys(),
       db.annotations.where('projectId').equals(id).primaryKeys(),
       db.generatedWorlds.where('projectId').equals(id).primaryKeys(),
+      db.worldEraVariants.where('projectId').equals(id).filter(row => row.kind === 'worldgen').toArray(),
     ]);
+    const worldIds = [...new Set([...(baseWorldIds as string[]), ...eraWorlds.map(row => row.entityId)])];
 
     if (sceneIds.length) await db.sceneCasts.where('sceneId').anyOf(sceneIds as string[]).delete();
     if (storyboardIds.length) {
@@ -201,13 +204,13 @@ export async function deleteProject(id: string): Promise<void> {
     if (annotationIds.length) {
       await db.annotationReferences.where('annotationId').anyOf(annotationIds as string[]).delete();
     }
-    if (worldIds.length) {
-      await db.worldSnapshots.bulkDelete(worldIds as string[]);
-      // The forged tile caches hang off the world, not the project, exactly
-      // like the snapshot above — and are megabytes per world, so an orphan
-      // is not free just because the budget evicts it eventually.
-      await db.canonTiles.where('worldId').anyOf(worldIds as string[]).delete();
-      await db.renderedTiles.where('worldId').anyOf(worldIds as string[]).delete();
+    for (const worldId of worldIds) {
+      // Era cache identities are JSON pairs, including worlds created only in
+      // an era. The comma closes the logical-ID boundary before any era ID.
+      const eraPrefix = JSON.stringify([worldId]).slice(0, -1) + ',';
+      for (const table of [db.worldSnapshots, db.canonTiles, db.renderedTiles]) {
+        await table.where('worldId').equals(worldId).or('worldId').startsWith(eraPrefix).delete();
+      }
     }
 
     // --- every project-scoped table, current and future ---
@@ -694,8 +697,10 @@ export async function exportProjectData(projectId: string) {
 
   const entityLinks = await db.entityLinks.where('projectId').equals(projectId).toArray();
   const publishingProfiles=project?.manuscriptCatalog?await db.publishingProfiles.where('projectId').equals(projectId).toArray():[];
+  const sourceToolArchives=await db.documentArchives.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray();
   return {
     ...(publishingProfiles.length?{publishingProfiles}:{}),
+    ...(sourceToolArchives.length?{sourceToolArchives:await encodeEraValue(sourceToolArchives)}:{}),
     project,
     ...(entityLinks.length ? { entityLinks } : {}),
     ...await exportAnnotationData(projectId),
@@ -767,6 +772,7 @@ export async function importProjectData(
   const eraVariants = decodeEraVariants(data.worldEraVariants, data.project!.id, eraAssets);
   validateManuscriptContents(data.project!,data.writings??[],eraVariants,data.publishingProfiles??[]);
   const history = await decodeDocumentHistory(data.documentHistory, data.project!.id, eraAssets);
+  const sourceToolArchives=decodeSourceToolArchives(data.sourceToolArchives,data.project!.id),archiveRoots=sourceToolArchives.map(row=>row.metadata!.item as unknown as NonNullable<Project['sourceToolDocuments']>[number]);
   const clonedHistory = await cloneDocumentHistory(history, eraVariants, data.project!, newProjectId, remap, { ...data, localMediaAssets: media }, eraAssets);
   const sceneSources = (data.scenes ?? []).map(root => ({ kind: 'dialog-scene' as const, document: { root, children: { sceneCasts: (data.sceneCasts ?? []).filter(row=>row.sceneId===root.id), dialogBlocks: (data.dialogBlocks ?? []).filter(row=>row.sceneId===root.id) } } as unknown as import('@/services/worldEras/types').EraDocument }));
   const cloneScene = worldDocumentCloner([...eraVariants,...history,...sceneSources], data.project!,newProjectId,remap,{...data,localMediaAssets:media},eraAssets);
@@ -774,14 +780,16 @@ export async function importProjectData(
   const eraRoots = (kind: string) => eraVariants.filter(row => row.kind === kind).flatMap(row => row.document ? [row.document.root] : []);
   const codexIds = new Set([...(data.codexEntries ?? []).map(entry => entry.id), ...eraRoots('codex').map(row => row.id)]), mediaIds = new Set([...media.map(asset => asset.id), ...eraRoots('media').map(row => row.id)]);
   const referenceProject = { ...data.project! };
-  const richSources=[...data.project!.sourceToolDocuments??[],...eraVariants.filter(row=>row.kind==='local-tool').flatMap(row=>[row.document,...row.history?.map(state=>state.document)??[]]).flatMap(document=>document?[document.root]:[]),...history.filter(row=>row.kind==='local-tool').map(row=>row.document.root)] as unknown as Project['sourceToolDocuments'];
+  const richSources=[...data.project!.sourceToolDocuments??[],...eraVariants.filter(row=>row.kind==='local-tool').flatMap(row=>[row.document,...row.history?.map(state=>state.document)??[]]).flatMap(document=>document?[document.root]:[]),...history.filter(row=>row.kind==='local-tool').map(row=>row.document.root),...archiveRoots] as unknown as Project['sourceToolDocuments'];
   for (const [kind, adapter] of Object.entries(eraAdapters)) if (adapter.metadata) Object.assign(referenceProject, { [adapter.metadata]: [...(data.project![adapter.metadata] as { id: string }[] | undefined) ?? [], ...eraRoots(kind)] });
+  referenceProject.sourceToolDocuments=[...new Map([...(referenceProject.sourceToolDocuments??[]),...archiveRoots].map(row=>[row.id,row])).values()];
   const toolIds = projectToolIds(referenceProject, { writings:[...data.writings??[],...eraRoots('writings')],scenes:data.scenes,generatedWorlds:data.generatedWorlds,worldMaps: [...data.worldMaps ?? [], ...eraRoots('maps')], boards: [...data.boards ?? [], ...eraRoots('board')], timelines: [...data.timelines ?? [], ...eraRoots('timeline')] });
   const richContent = (content: string) => remapWorldRichContent(content, data.project!.id, newProjectId, remap, codexIds, mediaIds, toolIds);
   const richProse=(content:string)=>remapWorldRichContent(content,data.project!.id,newProjectId,remap,codexIds,mediaIds,toolIds,{linksOnly:true});
+  const clonedSourceToolArchives=cloneSourceToolArchives(sourceToolArchives,newProjectId,remap,richProse);
 
   await db.transaction('rw', [
-    db.projects, db.codexEntries, db.writings, db.publishingProfiles, db.manuscriptSources, db.timelines, db.timelineEvents, db.documentHistory, db.annotations, db.annotationReferences, db.scenes, db.sceneCasts, db.dialogBlocks,
+    db.projects, db.codexEntries, db.writings, db.publishingProfiles, db.manuscriptSources, db.timelines, db.timelineEvents, db.documentHistory, db.documentArchives, db.annotations, db.annotationReferences, db.scenes, db.sceneCasts, db.dialogBlocks,
     db.boards, db.boardNodes, db.boardEdges, db.boardLayers, db.boardViews,
     db.worldMaps, db.mapPins, db.entityLinks,
     db.imageCollections, db.inspirationImages, db.snapshots, db.localMediaAssets, db.localToolAssetFiles, db.worldEraVariants, db.worldEraAssets, db.notes, db.writingSnapshots, db.timelineConnections, db.generatedWorlds, db.worldWaypoints,
@@ -959,6 +967,7 @@ export async function importProjectData(
     if (eraAssets.length) await db.worldEraAssets.bulkAdd(eraAssets.map(asset => ({ ...asset, id: remap(asset.id, 'era-asset'), projectId: newProjectId })));
     if (clonedEraVariants.length) await db.worldEraVariants.bulkAdd(clonedEraVariants);
     if (clonedHistory.length) await db.documentHistory.bulkAdd(clonedHistory);
+    if (clonedSourceToolArchives.length) await db.documentArchives.bulkAdd(clonedSourceToolArchives);
     if (clonedAnnotations.annotations.length) await db.annotations.bulkAdd(clonedAnnotations.annotations);
     if (clonedAnnotations.annotationReferences.length) await db.annotationReferences.bulkAdd(clonedAnnotations.annotationReferences);
     for(const source of sceneSources){const document=cloneScene('dialog-scene',source.document);await db.table('scenes').add(document.root);for(const [table,rows] of Object.entries(document.children))if(rows.length)await db.table(table).bulkAdd(rows);}

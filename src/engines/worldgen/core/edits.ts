@@ -750,18 +750,22 @@ function touchedRect(edits: WorldEdit[], W: number, H: number, pad: number, extr
 }
 
 /** Adjacent samples follow the short arc across the planet's east/west seam. */
-function polylineCells(points: readonly Pt[], W: number, H: number): number[] {
+function polylineCells(points: readonly Pt[], W: number, H: number, wrapX = true): number[] {
   const cells: number[] = [];
   for (let k = 1; k < points.length; k++) {
     const a = points[k - 1], b = points[k];
     let dx = b.x - a.x;
-    while (dx > W / 2) dx -= W;
-    while (dx < -W / 2) dx += W;
+    if (wrapX) {
+      while (dx > W / 2) dx -= W;
+      while (dx < -W / 2) dx += W;
+    }
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, b.y - a.y)));
     for (let s = 0; s <= steps; s++) {
       const fraction = s / steps;
-      const x = ((Math.round(a.x + dx * fraction) % W) + W) % W;
-      const y = Math.min(H - 1, Math.max(0, Math.round(a.y + (b.y - a.y) * fraction)));
+      const rawX = Math.round(a.x + dx * fraction), rawY = Math.round(a.y + (b.y - a.y) * fraction);
+      if (!wrapX && (rawX < 0 || rawY < 0 || rawX >= W || rawY >= H)) continue;
+      const x = ((rawX % W) + W) % W;
+      const y = Math.min(H - 1, Math.max(0, rawY));
       const cell = y * W + x;
       if (cells[cells.length - 1] !== cell) cells.push(cell);
     }
@@ -843,7 +847,7 @@ function seaDistanceFor(world: WorldData, elev: Float32Array, W: number, H: numb
   for (let i = 0; i < N; i++) mask[i] = elev[i] <= 0 ? 1 : 0;
   const hit = SEA_CACHE.get(world);
   if (hit && sameMask(hit.mask, mask)) return hit.dist;
-  const dist = distanceTo(mask, W, H);
+  const dist = distanceTo(mask, W, H, world.domain?.topology !== 'finite');
   SEA_CACHE.set(world, { mask, dist });
   return dist;
 }
@@ -858,8 +862,10 @@ const SEA_BIOMES_KEPT = 6;
 /** How often the sea-level biomes were reused or worked out; read by the tests. */
 export const SEA_BIOME_STATS = { hits: 0, misses: 0 };
 
-export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
+export function applyEdits(world: WorldData, edits: WorldEdit[], initialSeaLevelM = 0, metadataOnly = false): AppliedEdits {
   const W = world.width, H = world.height, N = W * H;
+  const wrapX = world.domain?.topology !== 'finite';
+  const geometry = wrapX ? undefined : { width: W, height: H, originX: world.domain!.bounds.x, originY: world.domain!.bounds.y };
   const out: AppliedEdits = {
     terrainChanged: false, markers: [], labels: [], stamps: [], rivers: [],
     renames: {}, populations: {}, removed: new Set(), moves: {}, styles: {},
@@ -882,6 +888,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   let needsClassification = false;
   // A checkpoint owns exactly its prefix. Later strokes reuse it without re-running climate.
   for (let index = edits.length - 1; index >= 0; index--) {
+    if (metadataOnly) break;
     if (edits[index].kind !== 'recalculate') continue;
     if ((edits[index] as { version: number }).version !== 1) throw new Error('Unsupported environment recalculation version');
     const cached = getRecalculationCheckpoint(world, serializeEdits(edits.slice(0, index + 1)));
@@ -890,11 +897,12 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     start = index + 1; out.terrainChanged = true; break;
   }
   // The sea level already in the heights: what the prefix a checkpoint restored had set.
-  let seaM = 0, seaMoved = false;
+  let seaM = initialSeaLevelM, seaMoved = false;
   // Lakes the sea has covered in this replay: a later, lower sea gives them back; a stroke that lifts the ground does not.
   let drownedLakes: Uint8Array | null = null;
   for (let index = 0; index < start; index++) { const e = edits[index]; if (e.kind === 'seaLevel') seaM = e.m; }
   for (let index = start; index < edits.length; index++) {
+    if (metadataOnly) break;
     const e = edits[index];
     if (e.kind === 'seaLevel') {
       // Every height moves by the change, in the list's order: what was painted
@@ -925,8 +933,9 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
         SEA_BIOME_STATS.misses++;
         const reliefR = Math.max(3, Math.round(W / 150));
         classifyBiomes(world.params, {
+          geometry,
           elevation: elev, temperature: world.temperature, precipitation: world.precipitation, lake: world.lake,
-          flow: world.flow, relief: localRelief(elev, W, H, reliefR), seaDist: seaDistanceFor(world, elev, W, H),
+          flow: world.flow, relief: localRelief(elev, W, H, reliefR, wrapX), seaDist: seaDistanceFor(world, elev, W, H),
           sst: world.sst, boundary: world.boundary, filters: world.params.filters,
         }, undefined, world.biome);
         kept.set(key, world.biome.slice());
@@ -943,17 +952,17 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       needsClassification = false;
     }
     if (e.kind === 'terrain') {
-      const s = maskForOp(e.op, e.stroke, W, H);
+      const s = maskForOp(e.op, e.stroke, W, H, wrapX);
       if (!s || s.empty) continue;
       // The ops that read cells other than the one they write need the heights as
       // they were before this edit; `opBaseRect` says exactly which ones.
-      const r = opBaseRect(e.op, e.stroke, s, W);
-      const base = snapshotBase(elev, W, H, r.x0, r.y0, r.w, r.h);
-      applyTerrainOp(e.op, elev, base, W, H, s, e.stroke, world.params.seed);
+      const r = opBaseRect(e.op, e.stroke, s, W, wrapX);
+      const base = snapshotBase(elev, W, H, r.x0, r.y0, r.w, r.h, wrapX);
+      applyTerrainOp(e.op, elev, base, W, H, s, e.stroke, world.params.seed, wrapX);
       out.terrainChanged = true;
       needsClassification = true;
     } else if (e.kind === 'land') {
-      const s = strokeMask(e.stroke, W, H);
+      const s = strokeMask(e.stroke, W, H, wrapX);
       if (!s || s.empty) continue;
       // Painting coastline is a MAX/MIN against a dome, not a lerp toward a
       // target. The lerp version read plausibly and did not work: over 4 km of
@@ -968,7 +977,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     } else if (e.kind === 'river') {
       // Carve a shallow channel so the drawn river also shows up in drainage,
       // relief and the biomes along its banks.
-      const s = strokeMask({ pts: e.pts, radius: Math.max(0.8, e.width), strength: 1, softness: 0.9 }, W, H);
+      const s = strokeMask({ pts: e.pts, radius: Math.max(0.8, e.width), strength: 1, softness: 0.9 }, W, H, wrapX);
       s?.each((i, c) => {
         if (elev[i] > 0) elev[i] = Math.max(0.004, elev[i] - 0.055 * c);
       });
@@ -1014,7 +1023,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const lakeCells: number[] = [];
   let scratch: LakeScratch | undefined;
   for (const e of edits) {
-    if (e.kind !== 'lake') continue;
+    if (e.kind !== 'lake' || metadataOnly) continue;
     scratch ??= lakeScratch(world);
     const changed = e.op === 'fill'
       ? fillLake(world, e.x, e.y, { maxCells: e.maxCells, minCells: e.minCells, scratch })
@@ -1036,7 +1045,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   if (needsClassification) {
     const seaDist = seaDistanceFor(world, elev, W, H);
     const reliefR = Math.max(3, Math.round(W / 150));
-    const relief = localRelief(elev, W, H, reliefR);
+    const relief = localRelief(elev, W, H, reliefR, wrapX);
     // Lakes are a hydrology product; a painted basin below sea level should read
     // as sea, not as a lake, so clear any lake flag the edit drowned.
     for (let i = 0; i < N; i++) if (elev[i] <= 0) world.lake[i] = 0;
@@ -1047,6 +1056,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     // cheaper, and an exact windowed EDT needs its border seeded from outside the
     // window, which is a different and much easier thing to get wrong.
     classifyBiomes(world.params, {
+      geometry,
       elevation: elev,
       temperature: world.temperature,
       precipitation: world.precipitation,
@@ -1057,7 +1067,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       sst: world.sst,
       boundary: world.boundary,
       filters: world.params.filters,
-    }, touchedRect(edits, W, H, reliefR + 3, lakeCells), world.biome);
+    }, wrapX ? touchedRect(edits, W, H, reliefR + 3, lakeCells) : undefined, world.biome);
   }
 
   // ---- 3. explicit biome paint, which wins over the classifier -----------
@@ -1068,9 +1078,10 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   // Order matters and is the list's order: paint, erase, paint again.
   let overlay: Int16Array | null = null;
   for (const e of edits) {
+    if (metadataOnly) break;
     if (e.kind !== 'biome' && e.kind !== 'eraseBiome') continue;
     if (!overlay) { overlay = new Int16Array(N); overlay.fill(-1); }
-    const s = strokeMask(e.stroke, W, H);
+    const s = strokeMask(e.stroke, W, H, wrapX);
     const painting = e.kind === 'biome';
     const allow = painting && e.only ? filterFor(e.only, elev, W, H) : null;
     s?.each((i, c) => {
@@ -1109,7 +1120,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const drawnRivers: { cells: number[]; flow: number; gone: boolean }[] = [];
   for (const e of edits) {
     if (e.kind === 'river' && e.pts.length >= 2) {
-      const cells = polylineCells(e.pts, W, H);
+      const cells = polylineCells(e.pts, W, H, wrapX);
       if (cells.length >= 2) drawnRivers.push({ cells, flow: Math.min(1, e.width / 3), gone: erasers.length > 0 && erased(cells) });
     } else if (e.kind === 'reverseRiver') {
       const visible = drawnRivers.filter((r) => !r.gone);
@@ -1164,12 +1175,12 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     } else if (e.kind === 'label') {
       // A second label in the same cell gets its own key (`label:x,y#2`), so a
       // removal or rename of the first never reaches it.
-      const key = uniqueKey(editKey('label', e.x, e.y));
+      const key = uniqueKey(editKey('label', e.x + (world.domain?.bounds.x ?? 0), e.y + (world.domain?.bounds.y ?? 0)));
       const label = { x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle, spacing: e.spacing, curve: e.curve, key };
       placedAt.set(label, at);
       out.labels.push(label);
     } else if (e.kind === 'stamp') {
-      const key = uniqueKey(editKey('stamp', e.x, e.y));
+      const key = uniqueKey(editKey('stamp', e.x + (world.domain?.bounds.x ?? 0), e.y + (world.domain?.bounds.y ?? 0)));
       const stamp = { x: e.x, y: e.y, glyph: e.glyph, size: e.size, name: e.name, key };
       placedAt.set(stamp, at);
       out.stamps.push(stamp);
@@ -1220,7 +1231,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     } else if (e.kind === 'road' && e.pts.length >= 2) {
       // Rasterised to cells so it draws through exactly the same road layer the
       // generated ones use — a hand-drawn road must not be distinguishable.
-      const cells = polylineCells(e.pts, W, H);
+      const cells = polylineCells(e.pts, W, H, wrapX);
       if (cells.length >= 2) out.roads.push({ cells, major: e.major, ...(e.width !== undefined ? { width: e.width } : {}), ...(e.pattern ? { pattern: e.pattern } : {}) });
     } else if (e.kind === 'realm' || e.kind === 'realmFill' || e.kind === 'realmArea') {
       // In LIST ORDER with each other, like the biome overlay: paint a province,
@@ -1230,7 +1241,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       const cells = out.realmCells;
       const own = Math.max(-1, Math.min(32767, Math.round(e.realm)));
       if (e.kind === 'realm') {
-        const m = strokeMask(e.stroke, W, H);
+        const m = strokeMask(e.stroke, W, H, wrapX);
         m?.each((i, c) => {
           // COVERAGE decides, and the dither keeps the rim from reading as a
           // stamp — the same dither the biome brush uses a few sections up. What
@@ -1269,7 +1280,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     if (e.kind !== 'eraseMarkers') continue;
     const hit = (p: { x: number; y: number }) => {
       let dx = Math.abs(p.x - e.x);
-      if (dx > W / 2) dx = W - dx;
+      if (wrapX && dx > W / 2) dx = W - dx;
       return dx * dx + (p.y - e.y) ** 2 <= e.radius * e.radius;
     };
     const later = (item: object) => (placedAt.get(item) ?? -1) > at;
@@ -1684,6 +1695,9 @@ function keepWellFormed(list: unknown[]): WorldEdit[] {
 export function deserializeEdits(json: string): WorldEdit[] {
   try {
     const v = JSON.parse(json);
+    if (v?.v === 3 && v.legacy && typeof v.legacy.json === 'string' && Number.isSafeInteger(v.legacy.count) && Array.isArray(v.steps)) {
+      return [...deserializeEdits(v.legacy.json).slice(0, Math.max(0, v.legacy.count)), ...keepWellFormed(v.steps.filter((step: { kind?: string }) => step?.kind === 'edit').map((step: { edit: unknown }) => step.edit))];
+    }
     if (Array.isArray(v)) {
       // One malformed element must cost one element, not the reader's whole
       // edit history — hence the filter before the migration touches anything.

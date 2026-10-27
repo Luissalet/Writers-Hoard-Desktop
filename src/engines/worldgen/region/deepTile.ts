@@ -14,6 +14,7 @@
 import { scaleBytes, scaleCount } from '@/utils/capacity';
 import type { WorldData } from '../core/types';
 import type { WorldEdit } from '../core/edits';
+import type { DomainDocument } from '../core/domainDocument';
 import type { HumanGeography } from '../core/settlements';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
@@ -149,13 +150,14 @@ export function canonCoverFor(
   limits: CanonCacheLimits,
   built?: { key: string; data: RegionData }[],
   quantize?: boolean,
+  domainDocument?: DomainDocument,
 ): { id: TileId; data: RegionData }[] {
   const placed: { id: TileId; data: RegionData }[] = [];
   for (const id of cover) {
     const k = canonTileKey(id);
     let data = cache.map.get(k);
     if (!data) {
-      data = generateCanonTile(world, geography, id, { edits });
+      data = generateCanonTile(world, geography, id, { edits, domainDocument });
       if (quantize) data = quantizeCanonTile(data);
       installCanon(cache, k, data, limits);
       built?.push({ key: k, data });
@@ -177,6 +179,7 @@ export interface DeepTileOptions {
   layers: Record<string, boolean | undefined>;
   density: number;
   edits?: WorldEdit[];
+  domainDocument?: DomainDocument;
   /** Install fresh supertiles as their stored (quantised) selves — set by the
    *  worker core whenever the client persists canon. */
   quantizeCanon?: boolean;
@@ -216,7 +219,7 @@ export function prepareDeepTile(
   const cover = canonWindowCover(world, spec);
   const built: { key: string; data: RegionData }[] = [];
   const placed = canonCoverFor(world, geography, cache, cover, opts.edits,
-    { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES }, built, opts.quantizeCanon);
+    { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES }, built, opts.quantizeCanon, opts.domainDocument);
 
   const region = styledRegionPlaces(composeCanonWindow(world, placed, spec), world, opts.edits);
   const m = region.margin;
@@ -258,7 +261,7 @@ export function prepareDeepTile(
       x: wrapTileX(key.z, key.tx) * TILE_PX,
       y: key.ty * TILE_PX,
       extentX: TILE_PX * tileCountX(key.z),
-      extentY: TILE_PX * tileCountY(key.z),
+      extentY: TILE_PX * tileCountY(key.z, world),
     },
   };
   return{

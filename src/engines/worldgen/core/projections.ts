@@ -13,7 +13,7 @@ export const PROJECTION_IDS: Projection[] = ['equirect', 'mercator', 'robinson',
 
 export interface ProjectionSpec {
   /** Output canvas size for a given source (equirect) width. */
-  outputSize: (srcW: number) => { w: number; h: number };
+  outputSize: (srcW: number, srcH?: number) => { w: number; h: number };
   /** East-west wrap-around drawing makes sense (cylindrical only). */
   wraps: boolean;
   forward: (u: number, v: number) => [number, number];
@@ -79,7 +79,7 @@ function mollTheta(phi: number): number {
 
 export const PROJECTIONS: Record<Projection, ProjectionSpec> = {
   equirect: {
-    outputSize: (w) => ({ w, h: w >> 1 }),
+    outputSize: (w, h) => ({ w, h: h ?? (w >> 1) }),
     wraps: true,
     forward: (u, v) => [u, v],
     inverse: (X, Y) => (Y < 0 || Y > 1 ? null : [((X % 1) + 1) % 1, Y]),
@@ -178,15 +178,34 @@ export const PROJECTIONS: Record<Projection, ProjectionSpec> = {
   },
 };
 
+const FINITE_PROJECTIONS = Object.fromEntries(PROJECTION_IDS.map(id => {
+  const base = PROJECTIONS[id];
+  const spec: ProjectionSpec = {
+    ...base, wraps: false,
+    inverse: (X, Y) => {
+      if (X < 0 || X > 1 || Y < 0 || Y > 1) return null;
+      const uv = base.inverse(X, Y);
+      // Cylindrical inverse functions wrap X=1 to zero for planets. A finite
+      // sheet has two different edges, including at the exact pointer limit.
+      return uv && (id === 'equirect' || id === 'mercator' ? [X, uv[1]] : uv);
+    },
+  };
+  return [id, spec];
+})) as Record<Projection, ProjectionSpec>;
+
+export function getProjectionSpec(projection: Projection, finite = false): ProjectionSpec {
+  return (finite ? FINITE_PROJECTIONS : PROJECTIONS)[projection];
+}
+
 // ---- Pixel reprojection -------------------------------------------------------
 
 const indexMapCache = new Map<string, Int32Array>();
 
 /** Nearest-neighbour gather map: output pixel → source pixel index (or -1). */
-export function getProjectionIndexMap(projection: Projection, srcW: number, srcH: number): { map: Int32Array; w: number; h: number } {
-  const spec = PROJECTIONS[projection];
-  const { w, h } = spec.outputSize(srcW);
-  const key = `${projection}:${srcW}x${srcH}:${w}x${h}`;
+export function getProjectionIndexMap(projection: Projection, srcW: number, srcH: number, finite = false): { map: Int32Array; w: number; h: number } {
+  const spec = getProjectionSpec(projection, finite);
+  const { w, h } = spec.outputSize(srcW, srcH);
+  const key = `${projection}:${finite}:${srcW}x${srcH}:${w}x${h}`;
   let map = indexMapCache.get(key);
   if (!map) {
     map = new Int32Array(w * h);
@@ -220,8 +239,9 @@ export function reprojectRgba(
   srcW: number,
   srcH: number,
   projection: Projection,
+  finite = false,
 ): { px: Uint8ClampedArray<ArrayBuffer>; w: number; h: number } {
-  const { map, w, h } = getProjectionIndexMap(projection, srcW, srcH);
+  const { map, w, h } = getProjectionIndexMap(projection, srcW, srcH, finite);
   const out = new Uint8ClampedArray(w * h * 4);
   for (let i = 0; i < map.length; i++) {
     const s = map[i];

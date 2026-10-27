@@ -193,17 +193,18 @@ export function computeFields(world: WorldData): CartoFields {
   const cached = FIELD_CACHE.get(world);
   if (cached && cached.rev === rev) return cached.fields;
   const { width: W, height: H, elevation } = world;
+  const wrapX = world.domain?.topology !== 'finite';
   const land = new Uint8Array(W * H);
   const sea = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) {
     if (elevation[i] > 0) land[i] = 1;
     else sea[i] = 1;
   }
-  const seaDist = distanceTo(land, W, H);
-  const landDist = distanceTo(sea, W, H);
+  const seaDist = distanceTo(land, W, H, wrapX);
+  const landDist = distanceTo(sea, W, H, wrapX);
   // Relief radius is tied to the grid so the mountain/plateau split behaves the
   // same at every resolution.
-  const relief = localRelief(elevation, W, H, Math.max(4, Math.round(W / 90)));
+  const relief = localRelief(elevation, W, H, Math.max(4, Math.round(W / 90)), wrapX);
 
   // Sorted sample of land relief for quantile lookups. Sampling every 7th cell
   // keeps this ~O(landCells/7 · log) and the quantiles are indistinguishable
@@ -214,9 +215,9 @@ export function computeFields(world: WorldData): CartoFields {
   const reliefQuantile = (q: number) =>
     sample.length ? sample[Math.min(sample.length - 1, Math.max(0, Math.round(q * (sample.length - 1))))] : 0;
 
-  const ridges = ridgeMask(elevation, relief, W, H, Math.max(0.02, reliefQuantile(0.6)));
-  const { label } = labelLandmasses(elevation, W, H);
-  const shade = hillshade(elevation, W, H);
+  const ridges = ridgeMask(elevation, relief, W, H, Math.max(0.02, reliefQuantile(0.6)), wrapX);
+  const { label } = labelLandmasses(elevation, W, H, wrapX);
+  const shade = hillshade(elevation, W, H, wrapX);
   const fields: CartoFields = { land, seaDist, landDist, relief, ridges, landmass: label, shade, reliefQuantile };
   FIELD_CACHE.set(world, { rev, fields });
   return fields;
@@ -232,10 +233,10 @@ export function computeFields(world: WorldData): CartoFields {
  * ladera tenga textura. La forma grande sale de la elevación desenfocada a
  * W/128 celdas, que a 1024 son 8 celdas ≈ 280 km: la escala de una sierra.
  */
-function hillshade(elevation: Float32Array, W: number, H: number): Float32Array {
-  const coarse = blur(elevation, W, H, Math.max(2, Math.round(W / 128)), 2);
+function hillshade(elevation: Float32Array, W: number, H: number, wrapX = true): Float32Array {
+  const coarse = blur(elevation, W, H, Math.max(2, Math.round(W / 128)), 2, wrapX);
   const out = new Float32Array(W * H);
-  const wrap = (x: number) => ((x % W) + W) % W;
+  const wrap = (x: number) => wrapX ? ((x % W) + W) % W : Math.min(W - 1, Math.max(0, x));
   const Z = 9, ZC = 26;
   for (let y = 0; y < H; y++) {
     const yd = Math.min(H - 1, y + 1), yu = Math.max(0, y - 1);
@@ -286,7 +287,8 @@ function getTintField(world: WorldData, theme: CartoTheme): TintField {
   // Premultiply so blurring across a biome edge cannot drag black in from the
   // untinted cells, then un-premultiply on read.
   const R = Math.max(2, Math.round(W / 420));
-  const br = blur(r, W, H, R, 2), bg = blur(g, W, H, R, 2), bb = blur(b, W, H, R, 2), ba = blur(a, W, H, R, 2);
+  const wrapX = world.domain?.topology !== 'finite';
+  const br = blur(r, W, H, R, 2, wrapX), bg = blur(g, W, H, R, 2, wrapX), bb = blur(b, W, H, R, 2, wrapX), ba = blur(a, W, H, R, 2, wrapX);
   for (let i = 0; i < W * H; i++) {
     const w = ba[i] || 1e-6;
     br[i] /= w; bg[i] /= w; bb[i] /= w;
@@ -488,7 +490,7 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   // Coastline. Extract in world space so the seam and sub-cell accuracy are
   // both handled, then project.
   const coast = extractCoastlines(world, view, scale);
-  drawCoastlines(ctx, coast, theme, inkNoise, scale, world.width, view, toScreenX, toScreenY);
+  drawCoastlines(ctx, coast, theme, inkNoise, scale, world.width, view, toScreenX, toScreenY, world.domain?.topology !== 'finite');
 
   if (L.shading) drawHachure(ctx, world, fields, theme, view, scale, OW, OH);
   if (L.relief && theme.terrain && L.contours !== false && !opts.contourIntervalM) drawTerrainContours(ctx, world, theme, view, scale, toScreenX, toScreenY, reliefAmount);
@@ -612,7 +614,7 @@ function renderBaseRaster(
   const tint = getTintField(world, theme);
 
   const ring = theme.ocean.rings;
-  const wrapX = (x: number) => ((x % W) + W) % W;
+  const wrapX = (x: number) => world.domain?.topology === 'finite' ? Math.min(W - 1, Math.max(0, x)) : ((x % W) + W) % W;
 
   for (let py = 0; py < OH; py++) {
     const wy = view.y + (py + 0.5) / scale;
@@ -622,6 +624,10 @@ function renderBaseRaster(
       const xc = wrapX(Math.floor(wx));
       const ci = yc * W + xc;
       const o = (py * OW + px) * 4;
+      if (world.domain?.topology === 'finite' && (wx < 0 || wx >= W || wy < 0 || wy >= H)) {
+        out[o] = paper[o]; out[o + 1] = paper[o + 1]; out[o + 2] = paper[o + 2]; out[o + 3] = 255;
+        continue;
+      }
 
       // Paper modulation: keeps grain visible under everything.
       const pl = paper[o] * 0.3 + paper[o + 1] * 0.5 + paper[o + 2] * 0.2;
@@ -747,7 +753,7 @@ function allCoastlines(world: WorldData): Contour[] {
   const rev = world.revision ?? 0;
   const cached = COAST_CACHE.get(world);
   if (cached && cached.rev === rev) return cached.c;
-  const c = marchingSquares(world.elevation, world.width, world.height, 0, true);
+  const c = marchingSquares(world.elevation, world.width, world.height, 0, world.domain?.topology !== 'finite');
   COAST_CACHE.set(world, { rev, c });
   return c;
 }
@@ -765,7 +771,7 @@ function allLakeShores(world: WorldData): Contour[] {
     else {
       const f = new Float32Array(W * H);
       for (let i = 0; i < W * H; i++) f[i] = lake[i];
-      hit = marchingSquares(f, W, H, 0.5, true);
+      hit = marchingSquares(f, W, H, 0.5, world.domain?.topology !== 'finite');
     }
   }
   LAKE_CACHE.set(world, { rev, c: hit });
@@ -807,7 +813,7 @@ function extractCoastlines(world: WorldData, view: CartoView, scale: number): Co
   const contours = allCoastlines(world);
   // Wobble/chaikin reach a few output px past the raw bbox; pad in cells.
   const pad = Math.max(2, 8 / scale);
-  return contours.filter((c) => c.pts.length >= 6 && polylineVisible(c.pts, view, world.width, pad));
+  return contours.filter((c) => c.pts.length >= 6 && polylineVisible(c.pts, view, world.width, pad, world.domain?.topology !== 'finite'));
 }
 
 function projectContour(
@@ -816,6 +822,7 @@ function projectContour(
   view: CartoView,
   toX: (x: number) => number,
   toY: (y: number) => number,
+  wrapX = true,
 ): Pt[] {
   // Choose the wrap offset that puts the contour nearest the view centre.
   const cx = view.x + view.w / 2;
@@ -823,8 +830,10 @@ function projectContour(
   for (const p of pts) sum += p.x;
   const mean = sum / pts.length;
   let shift = 0;
-  while (mean + shift < cx - W / 2) shift += W;
-  while (mean + shift > cx + W / 2) shift -= W;
+  if (wrapX) {
+    while (mean + shift < cx - W / 2) shift += W;
+    while (mean + shift > cx + W / 2) shift -= W;
+  }
   // Raster samples live at cell centres; marching squares uses sample indices.
   return pts.map((p) => ({ x: toX(p.x + shift + 0.5), y: toY(p.y + 0.5) }));
 }
@@ -839,11 +848,12 @@ function drawCoastlines(
   view: CartoView,
   toX: (x: number) => number,
   toY: (y: number) => number,
+  wrapX = true,
 ): void {
   ctx.strokeStyle = theme.coastline.color;
   ctx.lineWidth = theme.coastline.width * Math.max(0.75, Math.min(2.2, scale));
   for (const c of contours) {
-    let pts = projectContour(c.pts, W, view, toX, toY);
+    let pts = projectContour(c.pts, W, view, toX, toY, wrapX);
     pts = simplify(pts, 0.35);
     if (pts.length < 4) continue;
     pts = chaikin(pts, c.closed, 2);

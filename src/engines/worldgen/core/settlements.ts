@@ -21,7 +21,8 @@ import {
 } from './language';
 import { findLandforms, type Landform, type LandformKind } from './landforms';
 import { generateRuins, ruinPrefix, RUIN_BIAS, type Ruin } from './ruins';
-import { compatibleEditKeys, editKey, realmEditKey, zoneAllowsWorld } from './edits';
+import { compatibleEditKeys, realmEditKey, zoneAllowsWorld } from './edits';
+import { domainPlaceKey } from './domainCatalogue';
 
 export type SettlementRank = 'capital' | 'city' | 'town' | 'village';
 
@@ -57,6 +58,9 @@ export function settlementCellCenter(s: Pick<Settlement, 'x' | 'y'>): { x: numbe
 }
 
 export interface Road {
+  sourceKey?: string;
+  fromKey?: string;
+  toKey?: string;
   /** Cell indices along the route. */
   cells: number[];
   /** Trade artery between major settlements, versus a local track. */
@@ -386,6 +390,21 @@ export function buildHumanGeography(
 ): HumanGeography {
   const { width: W, height: H, elevation, biome, temperature, precipitation, flow, lake } = world;
   const seed = world.params.seed;
+  const domain = world.domain;
+  const finite = domain?.topology === 'finite';
+  const identities = new Map(domain?.catalogue.entries.map(entry => [entry.key, entry]));
+  const identityAt = (kind: 'settlement' | 'ruin' | 'feature', x: number, y: number, extra = '') => identities.get(domainPlaceKey(world, kind, x, y, extra));
+  const reservedIds = new Set(domain?.catalogue.entries.filter(e => e.kind === 'settlement' || e.kind === 'authored').map(e => e.id));
+  const reservedRuinIds = new Set(domain?.catalogue.entries.filter(e => e.kind === 'ruin').map(e => e.id));
+  const proposedId = (key: string, fallback: number, reserved = reservedIds) => {
+    if (!domain) return fallback;
+    let id = 2166136261;
+    for (let i = 0; i < key.length; i++) id = Math.imul(id ^ key.charCodeAt(i), 16777619);
+    id = id >>> 1;
+    while (reserved.has(id)) id++;
+    reserved.add(id);
+    return id;
+  };
   const rng = createRng(seed, 'human');
   const registry = new NameRegistry(seed);
   // El grifo del mundo: con 'auto' y sin ediciones de lugares, NADA generado
@@ -404,7 +423,9 @@ export function buildHumanGeography(
   const siteAllowed = sitesPolicy && !(sitesPolicy.everywhere && sitesPolicy.zones.length === 0)
     ? (x: number, y: number) => zoneAllowsWorld(sitesPolicy, x, y, W)
     : null;
-  const { cultureAt, seeds: cultureSeeds } = cultureMap(seed, W, H, params.cultureCount);
+  const sourceCultures = cultureMap(seed, domain?.source.width ?? W, domain?.source.height ?? H, params.cultureCount);
+  const cultureSeeds = sourceCultures.seeds;
+  const cultureAt = (x: number, y: number) => sourceCultures.cultureAt(x + (domain?.bounds.x ?? 0), y + (domain?.bounds.y ?? 0));
 
   // One living language per culture present on the map, all descended from a
   // single reconstructed proto-language — so neighbours share cognates and the
@@ -518,12 +539,19 @@ export function buildHumanGeography(
   const sheet = isSheet(world.params);
   let landCells = 0;
   if (sheet) for (let i = 0; i < W * H; i++) if (elevation[i] > 0 && !lake[i]) landCells++;
-  const targetTotal = Math.round(
+  let targetTotal = Math.round(
     Math.min(260, Math.max(24, sheet ? landCells / 400 : (W * H) / 5200) * params.settlementDensity),
   );
   const order: number[] = [];
   for (let i = 0; i < W * H; i++) if (score[i] > 0.35) order.push(i);
   order.sort((a, b) => score[b] - score[a]);
+  const retained = finite && params.settlementDensity > 0 ? domain.catalogue.entries.filter(entry => entry.kind === 'settlement' && entry.at
+    && entry.at.x >= domain.bounds.x && entry.at.x < domain.bounds.x + W && entry.at.y >= domain.bounds.y && entry.at.y < domain.bounds.y + H)
+    .sort((a, b) => (a.id ?? 0) - (b.id ?? 0)).flatMap(entry => {
+      const x = entry.at!.x - domain.bounds.x, y = entry.at!.y - domain.bounds.y, cell = y * W + x;
+      return elevation[cell] > 0 && !lake[cell] && (!siteAllowed || siteAllowed(x, y)) ? [cell] : [];
+    }) : [];
+  if (retained.length) { const known = new Set(retained); order.splice(0, order.length, ...retained, ...order.filter(cell => !known.has(cell))); targetTotal = Math.max(targetTotal, retained.length); }
 
   const settlements: Settlement[] = [];
   const minSpacing = sheet
@@ -543,7 +571,10 @@ export function buildHumanGeography(
     // Rank by position in the sorted list — a Zipf-ish hierarchy where a few
     // dominant sites become cities and the long tail becomes villages.
     const q = settlements.length / targetTotal;
-    const rank: SettlementRank = q < 0.05 ? 'capital' : q < 0.16 ? 'city' : q < 0.45 ? 'town' : 'village';
+    const saved = identityAt('settlement', x, y);
+    const originalCount = domain?.catalogue.entries.filter(e => e.kind === 'settlement').length ?? 0;
+    const sourceRank = saved?.id !== undefined && originalCount ? saved.id / originalCount : q;
+    const rank: SettlementRank = sourceRank < 0.05 ? 'capital' : sourceRank < 0.16 ? 'city' : sourceRank < 0.45 ? 'town' : 'village';
     const need = spacingFor(rank);
 
     let blocked = false;
@@ -554,7 +585,7 @@ export function buildHumanGeography(
         if (!bucket) continue;
         for (const s of bucket) {
           let ddx = Math.abs(s.x - x);
-          if (ddx > W / 2) ddx = W - ddx;
+          if (!finite && ddx > W / 2) ddx = W - ddx;
           const ddy = s.y - y;
           const other = spacingFor(s.rank);
           const req = Math.max(need, other) * 0.75;
@@ -562,14 +593,15 @@ export function buildHumanGeography(
         }
       }
     }
-    if (blocked) continue;
+    if (blocked && !(finite && saved?.kind === 'settlement')) continue;
 
     const culture = cultureAt(x, y);
     const port = coastal[i] === 1 && (rank === 'capital' || rank === 'city' || rng() < 0.75);
     const onRiver = riverine[i] > 0.12;
     const basePop = rank === 'capital' ? 26000 : rank === 'city' ? 9000 : rank === 'town' ? 2200 : 420;
     const s: Settlement = {
-      id: settlements.length,
+      id: saved?.id ?? proposedId(domainPlaceKey(world, 'settlement', x, y), settlements.length),
+      ...(domain ? { sourceKey: domainPlaceKey(world, 'settlement', x, y) } : {}),
       x, y,
       name: '',
       culture,
@@ -593,7 +625,7 @@ export function buildHumanGeography(
       marshy: riverine[i] > 0.5 && elevation[i] < 0.2,
     }));
     s.etym = et;
-    s.name = et.text;
+    s.name = saved?.name ?? et.text;
     settlements.push(s);
     const k = gkey(x, y);
     let bucket = grid.get(k);
@@ -610,11 +642,13 @@ export function buildHumanGeography(
     const x = ((Math.round(m.x) % W) + W) % W;
     const y = Math.min(H - 1, Math.max(0, Math.round(m.y)));
     const i = y * W + x;
+    if (finite && (m.x < 0 || m.x >= W || m.y < 0 || m.y >= H)) continue;
     if (elevation[i] <= 0) continue;      // refuse to found a town in the sea
     const rank = m.rank ?? 'town';
     const culture = cultureAt(x, y);
     const s: Settlement = {
-      id: settlements.length,
+      id: identityAt('settlement', x, y)?.id ?? proposedId(domainPlaceKey(world, 'settlement', x, y), settlements.length),
+      ...(domain ? { sourceKey: domainPlaceKey(world, 'settlement', x, y) } : {}),
       x, y,
       name: m.name ?? coin(culture, `painted:${x},${y}`).text,
       culture,
@@ -690,7 +724,7 @@ export function buildHumanGeography(
   const roadMoves = world.painted?.moves;
   const routedSettlements = depth === 'full' && roadMoves && Object.keys(roadMoves).length
     ? settlements.map((s) => {
-      const m = roadMoves[editKey('settlement', s.x, s.y)];
+      const m = roadMoves[s.sourceKey ?? domainPlaceKey(world, 'settlement', s.x, s.y)];
       return m ? { ...s, x: m.x, y: m.y } : s;
     })
     : settlements;
@@ -714,9 +748,17 @@ export function buildHumanGeography(
       // contenido inventado, no geografía. Las pintadas (más abajo) no.
       .filter((r) => !siteAllowed || siteAllowed(r.x, r.y))
     : [];
+  if (finite && depth === 'full') for (const entry of domain.catalogue.entries) {
+    if (entry.kind !== 'ruin' || !entry.at || !entry.type || !entry.name) continue;
+    const x = entry.at.x - domain.bounds.x, y = entry.at.y - domain.bounds.y;
+    if (x < 0 || y < 0 || x >= W || y >= H || elevation[y * W + x] <= 0 || (siteAllowed && !siteAllowed(x, y))) continue;
+    if (ruins.some(ruin => domainPlaceKey(world, 'ruin', ruin.x, ruin.y) === entry.key)) continue;
+    ruins.push({ id: entry.id ?? 0, sourceKey: entry.key, kind: entry.type as Ruin['kind'], name: entry.name, x, y, condition: 'overgrown', site: 'holy', importance: 0.72 });
+  }
 
   for (const m of world.painted?.markers ?? []) {
     if (m.marker !== 'ruin') continue;
+    if (finite && (m.x < 0 || m.x >= W || m.y < 0 || m.y >= H)) continue;
     const x = ((Math.round(m.x) % W) + W) % W;
     const y = Math.min(H - 1, Math.max(0, Math.round(m.y)));
     const kind = m.ruin ?? 'city';
@@ -739,9 +781,19 @@ export function buildHumanGeography(
   // the same seed always puts the same city in the same place, but nothing
   // guarantees it keeps the same array slot once a parameter moves, and a rename
   // that survives only until a slider is touched is not a rename.
-  for (const s of settlements) s.sourceKey ??= editKey('settlement', s.x, s.y);
-  for (const r of ruins) r.sourceKey ??= editKey('ruin', r.x, r.y);
-  for (const f of features) f.sourceKey ??= editKey('feature', f.x, f.y, `${f.kind}:`);
+  for (const s of settlements) s.sourceKey ??= domainPlaceKey(world, 'settlement', s.x, s.y);
+  for (const r of ruins) {
+    r.sourceKey ??= domainPlaceKey(world, 'ruin', r.x, r.y);
+    const saved = identities.get(r.sourceKey);
+    r.id = saved?.id ?? proposedId(r.sourceKey, r.id, reservedRuinIds);
+    if (saved?.name && !r.painted) r.name = saved.name;
+    if (saved?.kind === 'ruin' && saved.type) r.kind = saved.type as Ruin['kind'];
+  }
+  for (const f of features) {
+    f.sourceKey ??= domainPlaceKey(world, 'feature', f.x, f.y, `${f.kind}:`);
+    const saved = identities.get(f.sourceKey);
+    if (saved?.name) f.name = saved.name;
+  }
   for (const r of realms) r.style = world.painted?.styles?.[realmEditKey(r.id)];
   const painted2 = corrections ? world.painted : undefined;
   const pops = world.painted?.populations ?? {};
@@ -749,10 +801,10 @@ export function buildHumanGeography(
   if (painted2 && (Object.keys(painted2.renames).length || painted2.removed.size
     || Object.keys(pops).length || Object.keys(mvs).length)) {
     const ren = painted2.renames, gone = painted2.removed;
-    const keep = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin') =>
-      list.filter((o) => !gone.has(editKey(target, o.x, o.y)))
+    const keep = <T extends { x: number; y: number; name: string; sourceKey?: string }>(list: T[], target: 'settlement' | 'ruin') =>
+      list.filter((o) => !gone.has(o.sourceKey ?? domainPlaceKey(world, target, o.x, o.y)))
         .map((o) => {
-          const k = editKey(target, o.x, o.y);
+          const k = o.sourceKey ?? domainPlaceKey(world, target, o.x, o.y);
           const n = ren[k];
           const pop = target === 'settlement' ? pops[k] : undefined;
           // La mudanza del lector se honra también en el pase completo, con la
@@ -777,7 +829,7 @@ export function buildHumanGeography(
 
     for (let i = 0; i < features.length; i++) {
       const f = features[i];
-      const k = editKey('feature', f.x, f.y, `${f.kind}:`);
+      const k = f.sourceKey ?? domainPlaceKey(world, 'feature', f.x, f.y, `${f.kind}:`);
       if (gone.has(k)) { features.splice(i--, 1); continue; }
       // La mudanza puede venir escrita como `feature:` o `landmark:` según qué
       // capa registró el gesto; las dos grafías son el mismo objeto.
@@ -832,9 +884,18 @@ function growRealms(
   rng: Rng,
 ): { realms: Realm[]; realmOf: Int32Array } {
   const { width: W, height: H, elevation, biome } = world;
+  const finite = world.domain?.topology === 'finite';
   const realmOf = new Int32Array(W * H).fill(-1);
-  const capitals = settlements.filter((s) => s.rank === 'capital').slice(0, params.realmCount);
-  const realms: Realm[] = capitals.map((c, idx) => ({
+  const savedRealms = world.domain?.catalogue.entries.filter(entry => entry.kind === 'realm').sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+  const capitals = savedRealms?.length ? savedRealms.flatMap(realm => {
+    const capital = settlements.find(s => s.sourceKey === realm.refs?.capitalKey);
+    return capital ? [capital] : [];
+  }) : settlements.filter((s) => s.rank === 'capital').slice(0, params.realmCount);
+  const realms: Realm[] = savedRealms?.length ? savedRealms.map((realm, index) => ({
+    id: realm.id ?? index, name: realm.name ?? '', capital: world.domain!.catalogue.entries.find(entry => entry.key === realm.refs?.capitalKey)?.id ?? -1,
+    culture: (realm.refs?.cultureId ?? capitals[0]?.culture ?? 'nordic') as CultureId,
+    hue: Math.round((index * 137.508 + rng() * 20) % 360), cellCount: 0,
+  })) : capitals.map((c, idx) => ({
     id: idx,
     name: realmName(idx, c),
     capital: c.id,
@@ -864,7 +925,7 @@ function growRealms(
   capitals.forEach((c, idx) => {
     const i = c.y * W + c.x;
     dist[i] = 0;
-    realmOf[i] = idx;
+    realmOf[i] = savedRealms?.length ? realms.findIndex(realm => realm.capital === c.id) : idx;
     heap.push(0, i);
   });
   while (heap.size) {
@@ -876,10 +937,14 @@ function growRealms(
       if (yy < 0 || yy >= H) continue;
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
-        const n = yy * W + ((x + dx + W) % W);
+        const xx = x + dx;
+        if (finite && (xx < 0 || xx >= W)) continue;
+        const n = yy * W + (finite ? xx : (xx + W) % W);
         if (cost[n] < 0) continue;
         const step = cost[n] * (dx && dy ? 1.414 : 1);
-        const nd = d + step;
+        // Compare the value the Float32 distance grid will actually retain.
+        // A double rounded back to the same distance is not an improvement.
+        const nd = Math.fround(d + step);
         // Cap the reach so a lone capital does not swallow an empty hemisphere.
         if (nd > 190 || nd >= dist[n]) continue;
         dist[n] = nd;
@@ -898,6 +963,7 @@ function growRealms(
 
 function buildRoads(world: WorldData, settlements: Settlement[], coastal: Uint8Array): Road[] {
   const { width: W, height: H, elevation, biome, lake } = world;
+  const wrapX = world.domain?.topology !== 'finite';
   if (settlements.length < 2) return [];
 
   // Travel cost. Slope dominates — medieval roads followed valleys and passes,
@@ -907,7 +973,8 @@ function buildRoads(world: WorldData, settlements: Settlement[], coastal: Uint8A
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       if (elevation[i] <= 0 || lake[i]) { base[i] = -1; continue; }
-      const xr = y * W + ((x + 1) % W), xl = y * W + ((x - 1 + W) % W);
+      const xr = y * W + (wrapX ? (x + 1) % W : Math.min(W - 1, x + 1));
+      const xl = y * W + (wrapX ? (x - 1 + W) % W : Math.max(0, x - 1));
       const yd = Math.min(H - 1, y + 1) * W + x, yu = Math.max(0, y - 1) * W + x;
       const slope = Math.abs(elevation[xr] - elevation[xl]) + Math.abs(elevation[yd] - elevation[yu]);
       const b = biome[i];
@@ -934,7 +1001,7 @@ function buildRoads(world: WorldData, settlements: Settlement[], coastal: Uint8A
       if (a === b) continue;
       const B = settlements[b];
       let dx = Math.abs(A.x - B.x);
-      if (dx > W / 2) dx = W - dx;
+      if (wrapX && dx > W / 2) dx = W - dx;
       const dy = A.y - B.y;
       near.push([dx * dx + dy * dy, b]);
     }
@@ -966,11 +1033,11 @@ function buildRoads(world: WorldData, settlements: Settlement[], coastal: Uint8A
   for (const [a, b, d2] of unique) {
     if (Math.sqrt(d2) > maxDist) continue;
     const A = settlements[a], B = settlements[b];
-    const path = aStar(base, used, W, H, A.y * W + A.x, B.y * W + B.x);
+    const path = aStar(base, used, W, H, A.y * W + A.x, B.y * W + B.x, wrapX);
     if (!path) continue;
     for (const c of path) used[c] = Math.min(0.82, used[c] + 0.55);
     const major = weight(A) + weight(B) >= 4;
-    roads.push({ cells: path, major });
+    roads.push({ cells: path, major, ...(world.domain ? { sourceKey: `road:${A.sourceKey}:${B.sourceKey}`, fromKey: A.sourceKey, toKey: B.sourceKey } : {}) });
   }
   return roads;
 }
@@ -982,6 +1049,7 @@ function aStar(
   H: number,
   start: number,
   goal: number,
+  wrapX = true,
 ): number[] | null {
   const gScore = new Float32Array(W * H).fill(Infinity);
   const came = new Int32Array(W * H).fill(-1);
@@ -989,7 +1057,7 @@ function aStar(
   const gx = goal % W, gy = (goal / W) | 0;
   const heuristic = (i: number) => {
     let dx = Math.abs((i % W) - gx);
-    if (dx > W / 2) dx = W - dx;
+    if (wrapX && dx > W / 2) dx = W - dx;
     const dy = ((i / W) | 0) - gy;
     return Math.hypot(dx, dy) * 0.85;
   };
@@ -1011,7 +1079,9 @@ function aStar(
       if (yy < 0 || yy >= H) continue;
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
-        const n = yy * W + ((x + dx + W) % W);
+        const xx = x + dx;
+        if (!wrapX && (xx < 0 || xx >= W)) continue;
+        const n = yy * W + (wrapX ? (xx + W) % W : xx);
         if (closed[n] || base[n] < 0) continue;
         const step = base[n] * (1 - used[n]) * (dx && dy ? 1.414 : 1);
         const ng = gScore[i] + step;

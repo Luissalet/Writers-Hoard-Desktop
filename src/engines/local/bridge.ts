@@ -1,3 +1,4 @@
+import {LOCAL_APP_HANDLERS} from './apps/bridge';
 import {createLocalToolIcons} from './icons';
 import {createRuntimeLocalToolIcons} from './iconSvgRuntime';
 import {localToolTutorialSnapshots} from './LocalToolTutorialHost';
@@ -24,6 +25,7 @@ async function invoke(args:ToolArgs,writes:boolean){const {source,releaseHash}=a
 async function stateClient(args:ToolArgs){const scoped=await client(args);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.state)throw new BridgeError('bad-args','This source has no declarative state codec.');return scoped;}
 async function defaultsClient(args:ToolArgs,readOnly=false){const scoped=await client(args,readOnly);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.defaults)throw new BridgeError('bad-args','This host does not provide shared tool defaults.');return scoped;}
 export const LOCAL_TOOL_HANDLERS={
+ ...LOCAL_APP_HANDLERS,
  async wh_local_tool_default_get(args:ToolArgs){const scoped=await defaultsClient(args,true);return scoped.defaults!.get(requireString(args,'key'));},
  async wh_local_tool_default_update(args:ToolArgs){const scoped=await defaultsClient(args),key=requireString(args,'key');if(args.action==='set'){if(!Object.hasOwn(args,'value'))throw new BridgeError('bad-args','value is required for set.');return scoped.defaults!.set(key,args.value as LocalToolJson,args.expected as LocalToolDefaultSnapshot);}if(args.action==='undo'||args.action==='redo')return scoped.defaults![args.action](key,requireString(args,'receiptId'));throw new BridgeError('bad-args','Choose set, undo or redo.');},
  async wh_local_tool_icon_svg(args:ToolArgs){if(typeof args.id!=='string')throw new BridgeError('bad-args','id is required for SVG resolution.');return createRuntimeLocalToolIcons().resolveSvg!(args.id);},

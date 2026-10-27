@@ -31,6 +31,7 @@
 // as themselves. The rest are display fields where a part in 255 is invisible.
 
 import { unpackWorld, type WorldData, type WorldParams, type WorldTransfer } from './types';
+import { validWorldDomain } from './worldDomain';
 
 /** New writes use the current layout; explicitly supported older layouts remain readable. */
 // v1 could contain already-painted fields from a delayed snapshot write.
@@ -74,6 +75,7 @@ const FIELDS: { name: keyof WorldData & string; codec: Codec }[] = [
 ];
 
 interface Header {
+  domain?: WorldData['domain'];
   v: number;
   hasLakeSurface?: boolean;
   width: number;
@@ -207,6 +209,11 @@ function looksUncompressed(bytes: Uint8Array): boolean {
 
 /** Serialise a generated world to a compressed byte array. */
 export async function encodeWorld(w: WorldData): Promise<Uint8Array> {
+  if (w.domain && !validWorldDomain(w.domain, w.params, w.width, w.height)) throw new Error('dominio de instantánea inválido');
+  for (const field of FIELDS) {
+    const values = w[field.name] as Float32Array | Uint8Array | undefined;
+    if (values && values.length !== w.width * w.height) throw new Error('geometría de campo inválida');
+  }
   if (w.lakeSurface && (w.lakeSurface.length !== w.width * w.height || !w.lakeSurface.every(Number.isFinite))) {
     throw new Error('altura de lago inválida');
   }
@@ -231,6 +238,7 @@ export async function encodeWorld(w: WorldData): Promise<Uint8Array> {
   }
 
   const header: Header = {
+    domain: w.domain,
     v: SNAPSHOT_VERSION,
     hasLakeSurface: !!w.lakeSurface,
     width: w.width,
@@ -281,7 +289,8 @@ export async function decodeWorld(stored: Uint8Array): Promise<WorldData> {
   const n = header.width * header.height;
   if (!Number.isSafeInteger(header.width) || !Number.isSafeInteger(header.height)
     || header.width < 1 || header.height < 1 || !Number.isSafeInteger(n)
-    || !header.params || header.params.width !== header.width || typeof header.params.seed !== 'string'
+    || !header.params || typeof header.params.seed !== 'string'
+    || (header.domain ? !validWorldDomain(header.domain, header.params, header.width, header.height) : header.params.width !== header.width)
     || !Array.isArray(header.layout) || !Array.isArray(header.riverFlows) || !Array.isArray(header.riverLengths)
     || !Array.isArray(header.landmarks) || !Array.isArray(header.plateInfo)
     || header.riverFlows.length !== header.riverLengths.length
@@ -301,6 +310,7 @@ export async function decodeWorld(stored: Uint8Array): Promise<WorldData> {
   // an offset into a possibly unaligned view.
   const payload = bytes.slice(8 + headerLen).buffer;
   const t: Record<string, unknown> = {
+    domain: header.domain,
     width: header.width,
     height: header.height,
     params: header.params,

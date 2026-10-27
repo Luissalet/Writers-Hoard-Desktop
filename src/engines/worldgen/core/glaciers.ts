@@ -25,6 +25,7 @@
 import { climateLatDeg } from './geoScale';
 import type { WorldParams } from './types';
 import { SphereNoise } from './noise';
+import { runtimeLatitude, runtimeU, runtimeV, type RuntimeGeometry } from './runtimeGeometry';
 
 export interface GlacialResult {
   /** Ice thickness proxy 0–1 at the glacial maximum, for the glaciers view. */
@@ -45,8 +46,11 @@ export function applyGlaciers(
   params: WorldParams,
   elevation: Float32Array,
   onProgress?: (f: number) => void,
+  geometry?: RuntimeGeometry,
 ): GlacialResult {
-  const W = params.width, H = W >> 1;
+  const W = geometry?.width ?? params.width, H = geometry?.height ?? (W >> 1), wrapX = !geometry;
+  const uAt = (x: number) => geometry ? runtimeU(params, geometry, x) : x / W;
+  const vAt = (y: number) => geometry ? runtimeV(params, geometry, y) : y / H;
   const N = W * H;
   const g = Math.max(0, Math.min(1, params.glaciation));
   const ice = new Float32Array(N);
@@ -63,13 +67,13 @@ export function applyGlaciers(
   const coolingC = 1.5 + 7.5 * g;
   let iceCells = 0;
   for (let y = 0; y < H; y++) {
-    const lat = Math.abs(climateLatDeg((y + 0.5) / H, params));
+    const lat = Math.abs(geometry ? runtimeLatitude(params, geometry, y + 0.5) : climateLatDeg((y + 0.5) / H, params));
     const baseT = 29 - 51 * Math.pow(lat / 90, 1.9) + params.temperature - coolingC;
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       const e = elevation[i];
       // Wandering snowline: ±3.5 °C of regional anomaly.
-      const wob = 3.5 * noise.fbm(x / W, y / H, 2.6 * ws, 3);
+      const wob = 3.5 * noise.fbm(uAt(x), vAt(y), 2.6 * ws, 3);
       // Lapse rate: high ground is glaciated at far lower latitudes, which is
       // what puts alpine troughs in the tropics.
       const t = baseT + wob - 6.5 * Math.max(0, e);
@@ -109,6 +113,7 @@ export function applyGlaciers(
       if (yy < 0 || yy >= H) continue;
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
+        if (geometry && (x + dx < 0 || x + dx >= W)) continue;
         const j = yy * W + ((x + dx + W) % W);
         const drop = (elevation[i] - elevation[j]) / (dx && dy ? 1.414 : 1);
         if (drop > bestDrop) { bestDrop = drop; best = j; }
@@ -140,7 +145,8 @@ export function applyGlaciers(
   const maxCut = 3.4 * g;                 // km, before the width factor
   for (const i of orderArr) {
     const x = i % W, y = (i / W) | 0;
-    const xr = y * W + ((x + 1) % W), xl = y * W + ((x - 1 + W) % W);
+    const xr = y * W + (wrapX ? (x + 1) % W : Math.min(W - 1, x + 1));
+    const xl = y * W + (wrapX ? (x - 1 + W) % W : Math.max(0, x - 1));
     const yd = Math.min(H - 1, y + 1) * W + x, yu = Math.max(0, y - 1) * W + x;
     const slope = Math.hypot(
       (elevation[xr] - elevation[xl]) * 0.5,
@@ -169,7 +175,7 @@ export function applyGlaciers(
   // shallow basin and the trough disappears — the first attempt at this made the
   // whole glaciated zone smoother rather than more dramatic.
   const R = Math.max(1, Math.round((W / 1100) * (1 + g)));
-  const wide = boxBlur(carved, W, H, R, 2);
+  const wide = boxBlur(carved, W, H, R, 2, wrapX);
   // The axis keeps its full depth; the walls pull back to meet it.
   for (let i = 0; i < N; i++) carved[i] = Math.max(carved[i], wide[i] * 0.95);
 
@@ -183,18 +189,19 @@ export function applyGlaciers(
     // Only on genuinely steep headwalls, and only sometimes — a bowl at every
     // ice head fills the uplands with identical dimples.
     const x = i % W, y = (i / W) | 0;
-    if (noise.sample(x / W + 0.31, y / H + 0.77, 260 * ws) < 0.35) continue;
+    if (noise.sample(uAt(x) + 0.31, vAt(y) + 0.77, 260 * ws) < 0.35) continue;
     const bowl = 0.26 * g * ice[i];
     const rad = Math.max(1, Math.round(W / 1000));
     for (let dy = -rad - 1; dy <= rad + 1; dy++) {
       const yy = y + dy;
       if (yy < 0 || yy >= H) continue;
       for (let dx = -rad - 1; dx <= rad + 1; dx++) {
+        if (geometry && (x + dx < 0 || x + dx >= W)) continue;
         // A jittered radius: a perfectly circular bowl becomes a perfectly
         // circular tarn, and nothing on a map reads as artificial faster.
         const ang = Math.atan2(dy, dx);
         const wobR = (rad + 0.5) * (0.72 + 0.5 * (noise.sample(
-          Math.cos(ang) * 0.5 + x / W, Math.sin(ang) * 0.5 + y / H, 40) * 0.5 + 0.5));
+          Math.cos(ang) * 0.5 + uAt(x), Math.sin(ang) * 0.5 + vAt(y), 40) * 0.5 + 0.5));
         const d = Math.hypot(dx, dy) / wobR;
         if (d > 1) continue;
         const j = yy * W + ((x + dx + W) % W);
@@ -216,7 +223,7 @@ export function applyGlaciers(
   // Isostatic rebound, in the crudest honest form: land that carried a lot of
   // ice sat lower under the weight and rose after it melted. Without this the
   // whole glaciated zone ends up as sea and the map loses its north.
-  const load = boxBlur(ice, W, H, Math.max(2, Math.round(W / 260)), 2);
+  const load = boxBlur(ice, W, H, Math.max(2, Math.round(W / 260)), 2, wrapX);
   for (let i = 0; i < N; i++) {
     if (load[i] <= 0.02) continue;
     elevation[i] += 0.13 * g * load[i];
@@ -226,7 +233,7 @@ export function applyGlaciers(
 }
 
 /** Separable box blur, wrapping in x and clamping in y. */
-function boxBlur(src: Float32Array, W: number, H: number, radius: number, passes: number): Float32Array {
+function boxBlur(src: Float32Array, W: number, H: number, radius: number, passes: number, wrapX = true): Float32Array {
   const a = Float32Array.from(src);
   const b = new Float32Array(W * H);
   const R = Math.max(1, radius);
@@ -235,10 +242,11 @@ function boxBlur(src: Float32Array, W: number, H: number, radius: number, passes
     for (let y = 0; y < H; y++) {
       const o = y * W;
       let sum = 0;
-      for (let k = -R; k <= R; k++) sum += a[o + ((k % W) + W) % W];
+      const horizontal = (x: number) => wrapX ? ((x % W) + W) % W : Math.min(W - 1, Math.max(0, x));
+      for (let k = -R; k <= R; k++) sum += a[o + horizontal(k)];
       for (let x = 0; x < W; x++) {
         b[o + x] = sum * inv;
-        sum += a[o + ((x + R + 1) % W)] - a[o + ((x - R + 2 * W) % W)];
+        sum += a[o + horizontal(x + R + 1)] - a[o + horizontal(x - R)];
       }
     }
     for (let x = 0; x < W; x++) {

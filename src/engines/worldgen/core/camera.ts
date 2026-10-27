@@ -190,20 +190,48 @@ export function wrapU(u: number): number {
   return ((u % 1) + 1) % 1;
 }
 
-export function clampSpanKm(spanKm: number): number {
-  return Math.min(MAX_SPAN_KM, Math.max(MIN_SPAN_KM, spanKm));
+/** Finite sheets use the same width-relative encoding, without a planet seam
+ * or a one-width ceiling. This is camera space, not physical sheet kilometres. */
+export interface CameraGeometry { width: number; height: number; finite: boolean }
+
+export function clampSpanKm(spanKm: number, geometry?: CameraGeometry): number {
+  return Math.min(geometry?.finite ? Infinity : MAX_SPAN_KM, Math.max(MIN_SPAN_KM, spanKm));
 }
 
-export function clampViewport(vp: WorldViewport): WorldViewport {
-  return { ...vp, u: wrapU(vp.u), v: Math.min(1, Math.max(0, vp.v)), spanKm: clampSpanKm(vp.spanKm) };
+export function clampViewport(vp: WorldViewport, geometry?: CameraGeometry): WorldViewport {
+  return { ...vp, u: geometry?.finite ? Math.min(1, Math.max(0, vp.u)) : wrapU(vp.u), v: Math.min(1, Math.max(0, vp.v)), spanKm: clampSpanKm(vp.spanKm, geometry) };
+}
+
+/** Whole finite sheet with an isotropic margin, encoded against its width. */
+export function fittedViewport(geometry: CameraGeometry, canvasW: number, canvasH: number): WorldViewport {
+  const scale = Math.min(canvasW / geometry.width, canvasH / geometry.height) * 0.98;
+  return { u: 0.5, v: 0.5, spanKm: EARTH_KM * canvasW / (geometry.width * scale) };
+}
+
+/** Distance per unit width that fits the shared ground rectangle in an
+ * inclined perspective camera. Its inverse reports that same rectangle. */
+export function planeViewportDistanceRatio(axes: {
+  right: readonly [number, number, number];
+  up: readonly [number, number, number];
+  back: readonly [number, number, number];
+}, fovDegrees: number, aspect: number): number {
+  const tanV = Math.tan(fovDegrees * Math.PI / 360), tanH = tanV * aspect;
+  let distance = 0;
+  for (const x of [-0.5, 0.5]) for (const z of [-0.5 / aspect, 0.5 / aspect]) {
+    distance = Math.max(distance, axes.back[0] * x + axes.back[2] * z + Math.max(
+      Math.abs(axes.right[0] * x + axes.right[2] * z) / tanH,
+      Math.abs(axes.up[0] * x + axes.up[2] * z) / tanV,
+    ));
+  }
+  return distance;
 }
 
 /** Are two viewports the same place for all practical purposes? Used to break
  *  echo loops between a view reporting out and the same value arriving back. */
-export function sameViewport(a: WorldViewport | null | undefined, b: WorldViewport | null | undefined): boolean {
+export function sameViewport(a: WorldViewport | null | undefined, b: WorldViewport | null | undefined, geometry?: CameraGeometry): boolean {
   if (!a || !b) return false;
   const du = Math.abs(a.u - b.u);
-  return Math.min(du, 1 - du) < 1e-4
+  return (geometry?.finite ? du : Math.min(du, 1 - du)) < 1e-4
     && Math.abs(a.v - b.v) < 1e-4
     && Math.abs(Math.log(a.spanKm / b.spanKm)) < 1e-3;
 }
@@ -216,19 +244,23 @@ export interface CartaCamera { zoom: number; cu: number; cv: number }
 export function viewportToCartaCamera(
   vp: WorldViewport, world: { width: number; height: number },
   canvasW: number, canvasH: number, minZoom: number, maxZoom: number,
+  geometry?: CameraGeometry,
 ): CartaCamera {
   const aspect = canvasW > 0 && canvasH > 0 ? canvasW / canvasH : 2;
-  const vw = (clampSpanKm(vp.spanKm) / EARTH_KM) * world.width;
+  const vw = (clampSpanKm(vp.spanKm, geometry) / EARTH_KM) * world.width;
   const vh = vw / aspect;
-  const zoom = Math.min(maxZoom, Math.max(minZoom, world.height / Math.max(1e-6, vh)));
-  return { zoom, cu: wrapU(vp.u), cv: Math.min(1, Math.max(0, vp.v)) };
+  const zoom = Math.min(maxZoom, Math.max(minZoom, geometry?.finite
+    ? Math.max(world.width, world.height * aspect) / Math.max(1e-6, vw)
+    : world.height / Math.max(1e-6, vh)));
+  return { zoom, cu: geometry?.finite ? Math.min(1, Math.max(0, vp.u)) : wrapU(vp.u), cv: Math.min(1, Math.max(0, vp.v)) };
 }
 
-export function cartaViewToViewport(view: CartoView, world: { width: number; height: number }): WorldViewport {
+export function cartaViewToViewport(view: CartoView, world: { width: number; height: number }, geometry?: CameraGeometry): WorldViewport {
+  const u = (view.x + view.w / 2) / world.width;
   return {
-    u: wrapU((view.x + view.w / 2) / world.width),
+    u: geometry?.finite ? Math.min(1, Math.max(0, u)) : wrapU(u),
     v: Math.min(1, Math.max(0, (view.y + view.h / 2) / world.height)),
-    spanKm: clampSpanKm((view.w / world.width) * EARTH_KM),
+    spanKm: clampSpanKm((view.w / world.width) * EARTH_KM, geometry),
   };
 }
 
@@ -244,23 +276,23 @@ export function easeInOutCubic(t: number): number {
  * way), and when the target is far relative to both spans the flight bows out —
  * pull back, travel, dive — instead of panning at full magnification.
  */
-export function flightAt(from: WorldViewport, to: WorldViewport, t: number): WorldViewport {
+export function flightAt(from: WorldViewport, to: WorldViewport, t: number, geometry?: CameraGeometry): WorldViewport {
   const k = easeInOutCubic(Math.min(1, Math.max(0, t)));
   let du = to.u - from.u;
-  if (du > 0.5) du -= 1;
-  if (du < -0.5) du += 1;
-  const u = wrapU(from.u + du * k);
+  if (!geometry?.finite && du > 0.5) du -= 1;
+  if (!geometry?.finite && du < -0.5) du += 1;
+  const u = geometry?.finite ? from.u + du * k : wrapU(from.u + du * k);
   const v = from.v + (to.v - from.v) * k;
-  const travelKm = Math.hypot(du, to.v - from.v) * EARTH_KM;
+  const travelKm = Math.hypot(du, (to.v - from.v) * (geometry?.finite ? geometry.height / geometry.width : 1)) * EARTH_KM;
   // The span the flight would need at its midpoint to keep the journey on
   // screen. Never higher than a full zoom-out, never engaged for short hops.
-  const bow = Math.min(MAX_SPAN_KM, Math.max(from.spanKm, to.spanKm, travelKm * 1.25));
+  const bow = Math.min(geometry?.finite ? Infinity : MAX_SPAN_KM, Math.max(from.spanKm, to.spanKm, travelKm * 1.25));
   const lf = Math.log(from.spanKm), lt = Math.log(to.spanKm), lb = Math.log(bow);
   const direct = lf + (lt - lf) * k;
   // Parabolic bump that is 0 at both ends and 1 mid-flight.
   const bump = 4 * k * (1 - k);
   const span = Math.exp(direct + Math.max(0, lb - Math.max(lf, lt)) * bump * (travelKm > to.spanKm ? 1 : 0));
-  return { u, v, spanKm: clampSpanKm(span) };
+  return { u, v, spanKm: clampSpanKm(span, geometry) };
 }
 
 /** The viewport a double-click should fly to. */

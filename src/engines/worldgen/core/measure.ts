@@ -14,7 +14,7 @@
 // equator has to be a quarter of `EARTH_KM`, and antipodes half of it, whatever
 // the map does with the answer.
 
-import { metricCellKmOf as cellKmOf, isSheet, metricDistanceKm as mapDistanceKm, metricSheetScale as sheetScale, SHEET_LAT, type MapMetric } from './geoScale';
+import { metricCellKmOf as cellKmOf, isSheet, metricDistanceKm as mapDistanceKm, metricSheetScale as sheetScale, worldKmOf, climateLatDeg, PLANET_KM, SHEET_LAT, type MapMetric } from './geoScale';
 import { EARTH_KM } from './camera';
 
 /** A point in world cells, fractional, as every gesture in the 2D reports it. */
@@ -53,6 +53,15 @@ export function cellToLonLat(p: CellPoint, width: number, height: number): LonLa
  * latitude round SHEET_LAT, and longitude at the same scale round 0°).
  */
 export function mapLonLat(p: CellPoint, width: number, height: number, sheet?: MapMetric): LonLatDeg {
+  if (sheet?.finite) {
+    const sourceW = sheet.sourceWidth ?? width, sourceH = sheet.sourceHeight ?? height;
+    const x = p.x + (sheet.originX ?? 0), y = p.y + (sheet.originY ?? 0);
+    if (!isSheet(sheet)) {
+      const point = cellToLonLat({ x, y }, sourceW, sourceH);
+      return { ...point, lat: Math.max(-89, Math.min(89, point.lat)) };
+    }
+    return { lon: (x / sourceW - 0.5) * 360 * worldKmOf(sheet) / PLANET_KM, lat: climateLatDeg(y / sourceH, sheet) };
+  }
   if (!isSheet(sheet)) return cellToLonLat(p, width, height);
   return { lon: (p.x / width - 0.5) * 360 * sheetScale(sheet), lat: Math.max(-89, Math.min(89, SHEET_LAT + (0.5 - p.y / height) * 180 * sheetScale(sheet))) };
 }
@@ -69,7 +78,7 @@ export function cellDistanceKm(
   a: CellPoint, b: CellPoint, width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: MapMetric,
 ): number {
   // A sheet is flat: the straight distance at its own scale.
-  if (isSheet(sheet)) return mapDistanceKm(sheet, width, height, a.x, a.y, b.x, b.y);
+  if (sheet?.finite || isSheet(sheet)) return mapDistanceKm(sheet, width, height, a.x, a.y, b.x, b.y);
   const p = cellToLonLat(a, width, height);
   const q = cellToLonLat(b, width, height);
   const dLat = (q.lat - p.lat) * DEG;
@@ -82,10 +91,12 @@ export function cellDistanceKm(
 /** Initial bearing from `a` to `b`, degrees clockwise from north in [0, 360). */
 export function cellBearingDeg(a: CellPoint, b: CellPoint, width: number, height: number, sheet?: MapMetric): number {
   // A sheet is flat: north is up the map, east is right, whatever the row.
-  if (isSheet(sheet)) {
+  if (sheet?.finite || isSheet(sheet)) {
     let dx = b.x - a.x;
-    while (dx > width / 2) dx -= width;
-    while (dx < -width / 2) dx += width;
+    if (!sheet?.finite) {
+      while (dx > width / 2) dx -= width;
+      while (dx < -width / 2) dx += width;
+    }
     return ((Math.atan2(dx, -(b.y - a.y)) / DEG) + 360) % 360;
   }
   const p = cellToLonLat(a, width, height);
@@ -179,10 +190,10 @@ export function wrappedDx(a: CellPoint, b: CellPoint, width: number): number {
 export function polygonAreaKm2(points: CellPoint[], width: number, height: number, radiusKm = PLANET_RADIUS_KM, sheet?: MapMetric): number {
   if (points.length < 3) return 0;
   // A sheet: the flat shoelace area, the ring unwrapped round the seam.
-  if (isSheet(sheet)) {
+  if (sheet?.finite || isSheet(sheet)) {
     const k = cellKmOf(sheet, width);
     let prev = points[0].x, a = 0;
-    const xs = points.map((p) => { let x = p.x; while (x - prev > width / 2) x -= width; while (x - prev < -width / 2) x += width; prev = x; return x; });
+    const xs = points.map((p) => { let x = p.x; if (!sheet?.finite) { while (x - prev > width / 2) x -= width; while (x - prev < -width / 2) x += width; } prev = x; return x; });
     for (let i = 0; i < points.length; i++) { const j = (i + 1) % points.length; a += xs[i] * points[j].y - xs[j] * points[i].y; }
     return Math.abs(a) / 2 * k * k;
   }

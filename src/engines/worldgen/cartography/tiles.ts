@@ -38,11 +38,13 @@ export const MAX_TILE_Z = 12;
 export const MAX_WORLD_TILE_Z = 9;
 
 export interface TileKey { z: number; tx: number; ty: number }
+export type TileWorld = Pick<WorldData, 'width' | 'height' | 'domain'>;
 
 export function tileCountX(z: number): number {
   return 1 << z;
 }
-export function tileCountY(z: number): number {
+export function tileCountY(z: number, world?: Pick<WorldData, 'width' | 'height'>): number {
+  if (world) return Math.max(1, Math.ceil(world.height * tileCountX(z) / world.width));
   return Math.max(1, 1 << (z - 1));
 }
 
@@ -57,10 +59,10 @@ export function tileId(key: TileKey): string {
 
 /** World-cell rect a tile covers. Exact: tile edges land on cell fractions
  *  that are powers of two, so neighbouring tiles share their boundary. */
-export function tileView(world: { width: number; height: number }, key: TileKey): CartoView {
+export function tileView(world: TileWorld, key: TileKey): CartoView {
   const cells = world.width / tileCountX(key.z);
   return {
-    x: wrapTileX(key.z, key.tx) * cells,
+    x: (world.domain?.topology === 'finite' ? key.tx : wrapTileX(key.z, key.tx)) * cells,
     y: key.ty * cells,
     w: cells,
     h: cells,
@@ -95,21 +97,22 @@ export interface ViewTile extends TileKey {
 
 /** Tiles whose ground intersects a view rect (x free, y clamped), row-major. */
 export function tilesInView(
-  world: { width: number; height: number },
+  world: TileWorld,
   z: number,
   view: CartoView,
 ): ViewTile[] {
   const cells = world.width / tileCountX(z);
-  const tx0 = Math.floor(view.x / cells);
-  const tx1 = Math.floor((view.x + view.w - 1e-9) / cells);
+  const finite = world.domain?.topology === 'finite';
+  const tx0 = Math.max(finite ? 0 : -Infinity, Math.floor(view.x / cells));
+  const tx1 = Math.min(finite ? tileCountX(z) - 1 : Infinity, Math.floor((view.x + view.w - 1e-9) / cells));
   const ty0 = Math.max(0, Math.floor(view.y / cells));
-  const ty1 = Math.min(tileCountY(z) - 1, Math.floor((view.y + view.h - 1e-9) / cells));
+  const ty1 = Math.min(tileCountY(z, world) - 1, Math.floor((view.y + view.h - 1e-9) / cells));
   const out: ViewTile[] = [];
   for (let ty = ty0; ty <= ty1; ty++) {
     // Both indices, always: the wrapped one identifies the GROUND, the raw one
     // identifies the PLACE ON SCREEN, and a view wider than the world needs the
     // same ground drawn at both of its edges.
-    for (let tx = tx0; tx <= tx1; tx++) out.push({ z, tx: wrapTileX(z, tx), ty, viewTx: tx });
+    for (let tx = tx0; tx <= tx1; tx++) out.push({ z, tx: finite ? tx : wrapTileX(z, tx), ty, viewTx: tx });
   }
   return out;
 }
@@ -170,7 +173,7 @@ export function renderCartaTile(
       x: wrapTileX(req.key.z, req.key.tx) * TILE_PX,
       y: req.key.ty * TILE_PX,
       extentX: TILE_PX * tileCountX(req.key.z),
-      extentY: TILE_PX * tileCountY(req.key.z),
+      extentY: TILE_PX * tileCountY(req.key.z, world),
     },
   });
 }

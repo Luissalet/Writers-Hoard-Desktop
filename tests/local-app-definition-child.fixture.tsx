@@ -1,0 +1,3 @@
+import {defineLocalTool,type LocalToolJson} from '@/engines/local/sdk';
+type State={notes:string};
+export default defineLocalTool({namespace:'qa.minimum-release-child',name:{en:'Own compiled child',es:'Hijo compilado propio'},description:{en:'Definition registry control',es:'Control de registro de definición'},document:{defaultTitle:{en:'Own child',es:'Hijo propio'},embed:'interactive'},initialState:{notes:'Own release-only child'},codec:{version:1,fields:{notes:{kind:'prose'}}},validateState:(value:LocalToolJson):value is State=>!!value&&typeof value==='object'&&!Array.isArray(value)&&typeof value.notes==='string',component:()=>null});

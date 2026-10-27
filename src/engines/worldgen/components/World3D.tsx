@@ -105,9 +105,17 @@ import { editKey, realmEditKey, TERRAIN_HEIGHT_M } from '../core/edits';
 import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING } from '../core/labelShape';
 import { drawStamp, isStampGlyph, STAMP_SIZES, type StampGlyph, type StampSize } from '../cartography/stampGlyphs';
 import {
-  EARTH_KM, FLIGHT_MS, MIN_3D_SPAN_KM, MIN_SPAN_KM, type FlyMark, type FlyTarget,
+  EARTH_KM, FLIGHT_MS, MIN_3D_SPAN_KM, MIN_SPAN_KM, fittedViewport, planeViewportDistanceRatio, type FlyMark, type FlyTarget,
 } from '../core/camera';
 import { anchoredDolly, anchoredGlobeDolly } from '../core/zoomAnchor';
+
+function planeViewportRatio(camera: THREE.PerspectiveCamera): number {
+  camera.updateMatrixWorld();
+  const m = camera.matrixWorld.elements;
+  return planeViewportDistanceRatio({
+    right: [m[0], m[1], m[2]], up: [m[4], m[5], m[6]], back: [m[8], m[9], m[10]],
+  }, camera.fov, camera.aspect);
+}
 
 /**
  * The world, in three dimensions. The main view.
@@ -870,6 +878,7 @@ export default function World3D({
     try {
       surface = new SculptSurface({
         worldWidth: world.width, worldHeight: world.height, mesh: MESH_STEPS[1], palette,
+        wrapX: world.domain?.topology !== 'finite',
       });
     } catch (e) {
       // Sobre un contexto ya perdido el error es consecuencia, no causa.
@@ -943,6 +952,7 @@ export default function World3D({
     scene.add(sky.mesh);
     const sizeZ = SIZE_X * (world.height / world.width);
     const water = createWater({
+      wrapX: world.domain?.topology !== 'finite',
       seed: world.params.seed, sizeX: SIZE_X, sizeZ, radius: R_GLOBE,
     });
     water.globe.visible = false;
@@ -1339,7 +1349,7 @@ export default function World3D({
       });
     }
     if (geo && st.zoomInputs.showBorders) {
-      const anchors = realmAnchors(world.width, world.height, geo);
+      const anchors = realmAnchors(world.width, world.height, geo, world.domain?.topology !== 'finite');
       for (const realm of geo.realms) {
         const anchor = anchors[realm.id];
         if (!anchor || !realm.style || Math.sqrt(anchor.cells) / world.width / st.surface.uvWindow.size * w < 100) continue;
@@ -2197,7 +2207,7 @@ export default function World3D({
     st.surface.setZoomSkin(null);
     scheduleZoomSkin(focusWindow(
       st.camera, st.controls.target, shapeRef.current,
-      world.width, world.height, st.surface.uvWindow,
+      world.width, world.height, st.surface.uvWindow, 1.15, st.surface.wrapX,
     ));
   }, [world, revision, skin, theme, geography, ready, scheduleZoomSkin, showRivers, showRoads, showBorders]);
 
@@ -2270,7 +2280,7 @@ export default function World3D({
       + `${st.controls.target.x.toFixed(2)},${st.controls.target.y.toFixed(2)},${st.controls.target.z.toFixed(2)}`;
     if (key !== st.poseKey) {
       st.poseKey = key;
-      const nextWindow = visibleWindow(c, shapeRef.current, world.width, world.height);
+      const nextWindow = visibleWindow(c, shapeRef.current, world.width, world.height, 1.35, st.surface.wrapX);
       // LA VENTANA QUE MANDA ES LA QUE DEVUELVE, no la que se pide: recorta v
       // fuera de los polos y pone suelo al tamaño. Todo lo que tenga que caer
       // sobre la malla —la piel de cerca, la primera— tiene que usar el retorno.
@@ -2280,7 +2290,7 @@ export default function World3D({
       // repartir dos mil píxeles de textura entre el suelo y el horizonte es
       // dárselos al horizonte. Ver `focusWindow`.
       const focus = focusWindow(
-        c, st.controls.target, shapeRef.current, world.width, world.height, meshWindow,
+        c, st.controls.target, shapeRef.current, world.width, world.height, meshWindow, 1.15, st.surface.wrapX,
       );
       scheduleZoomSkin(focus);
       st.surface.setCamera(c.position);
@@ -2335,17 +2345,22 @@ export default function World3D({
       // mirada que a lo ancho, y quedarse con el ancho encuadraría MENOS de lo
       // que se estaba viendo. Errar por encima es recuperable; errar por debajo
       // es perderse.
-      const focusKm = Math.max(
+      const finitePlane = shapeRef.current === 'plane' && world.domain?.topology === 'finite';
+      const focusKm = finitePlane
+        ? st.camera.position.distanceTo(st.controls.target) / planeViewportRatio(st.camera) / SIZE_X * EARTH_KM
+        : Math.max(
         focus.uSize * EARTH_KM,
         focus.vSize * EARTH_KM * (world.height / world.width),
       );
+      const centerU = finitePlane ? Math.min(1, Math.max(0, st.controls.target.x / SIZE_X + 0.5)) : focus.u;
+      const centerV = finitePlane ? Math.min(1, Math.max(0, st.controls.target.z / sizeZ + 0.5)) : focus.v;
       st.focusKm = focusKm;
-      const viewportKey = `${focus.u.toFixed(5)}:${focus.v.toFixed(5)}:${focusKm.toFixed(2)}`;
+      const viewportKey = `${centerU.toFixed(5)}:${centerV.toFixed(5)}:${focusKm.toFixed(2)}`;
       if (viewportKey !== st.viewportKey) {
         st.viewportKey = viewportKey;
         queueViewport({
-          u: ((focus.u % 1) + 1) % 1,
-          v: focus.v,
+          u: finitePlane ? centerU : ((centerU % 1) + 1) % 1,
+          v: centerV,
           spanKm: Math.max(MIN_SPAN_KM, focusKm),
         });
       }
@@ -2574,6 +2589,7 @@ export default function World3D({
     st.chained = st.need;
   }, [
     world,
+    sizeZ,
     mesh,
     projectMarks,
     drawOverlay,
@@ -2719,8 +2735,11 @@ export default function World3D({
     // the lens against the ground.
     const freshWorld = st.posedWorld !== world;
     st.posedWorld = world;
-    const initialViewport = freshWorld ? null : viewportRef.current;
-    if (initialViewport && initialViewport.spanKm < 36000) {
+    const finitePlane = shape === 'plane' && world.domain?.topology === 'finite';
+    const initialViewport = finitePlane
+      ? viewportRef.current ?? fittedViewport({ width: world.width, height: world.height, finite: true }, st.camera.aspect, 1)
+      : freshWorld ? null : viewportRef.current;
+    if (initialViewport && (finitePlane || initialViewport.spanKm < 36000)) {
       const focus = new THREE.Vector3();
       scenePos(
         initialViewport.u * world.width,
@@ -2738,13 +2757,22 @@ export default function World3D({
         initialViewport.spanKm / EARTH_KM,
       ));
       if (shape === 'plane') {
-        const distance = Math.max(2.5, SIZE_X * fraction * 1.25);
-        st.controls.target.copy(focus);
-        st.camera.position.copy(focus).add(new THREE.Vector3(
-          0,
-          distance * 0.72,
-          distance * 0.62,
-        ));
+        if (finitePlane) {
+          const a = 52 * Math.PI / 180, direction = new THREE.Vector3(0, Math.sin(a), Math.cos(a));
+          st.controls.target.copy(focus);
+          st.camera.position.copy(focus).add(direction);
+          st.camera.lookAt(focus);
+          const distance = Math.max(MIN_SPAN_KM, initialViewport.spanKm) / EARTH_KM * SIZE_X * planeViewportRatio(st.camera);
+          st.camera.position.copy(focus).addScaledVector(direction, distance);
+        } else {
+          const distance = Math.max(2.5, SIZE_X * fraction * 1.25);
+          st.controls.target.copy(focus);
+          st.camera.position.copy(focus).add(new THREE.Vector3(
+            0,
+            distance * 0.72,
+            distance * 0.62,
+          ));
+        }
       } else {
         st.controls.target.set(0, 0, 0);
         // GEOMETRÍA DEL CASQUETE, NO UNA RECTA A OJO. La fórmula antigua
@@ -2922,7 +2950,7 @@ export default function World3D({
     // v = 0 is the north row of the raster, which is only true if three.js does
     // not flip it on upload.
     tex.flipY = false;
-    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapS = world.domain?.topology === 'finite' ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.magFilter = THREE.LinearFilter;

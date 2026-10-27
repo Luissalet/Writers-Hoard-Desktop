@@ -6,6 +6,7 @@ import { classifyBiomes } from './biomes';
 import { detectLandmarks } from './landmarks';
 import { distanceTo, localRelief } from './fields';
 import { applyGlaciers } from './glaciers';
+import { runtimeGeometry } from './runtimeGeometry';
 
 export type EnvironmentFields = Pick<WorldData, 'temperature' | 'precipitation' | 'biome' | 'flow' | 'lake' | 'rivers' | 'landmarks' | 'currentU' | 'currentV' | 'sst' | 'currentSpeed' | 'ice'> & { lakeSurface?: Float32Array };
 
@@ -37,28 +38,29 @@ export function restoreEnvironment(world: WorldData, environment: EnvironmentFie
 }
 
 /** Pure derivation from the current terrain. Never erodes or re-applies a brush stroke. */
-export type RecalculationTerrain = Pick<WorldData, 'params' | 'elevation' | 'boundary' | 'width' | 'height'>;
+export type RecalculationTerrain = Pick<WorldData, 'params' | 'elevation' | 'boundary' | 'width' | 'height' | 'domain'>;
 export function recalculateEnvironment(world: RecalculationTerrain, onProgress?: ProgressFn): EnvironmentFields {
   const { elevation, width: W, height: H } = world;
+  const geometry = runtimeGeometry(world), wrapX = !geometry;
   // The explicit v1 action upgrades environmental drainage without regenerating legacy terrain.
   const params = { ...world.params, hydrologyVersion: 2 as const, drainageVersion: 2 as const };
   const report = (stage: string, progress: number) => onProgress?.(stage, progress);
   report('currents', 0);
-  const currents = computeCurrents(params, elevation, fraction => report('currents', fraction * 0.22));
-  const sst = nearshoreSst(currents.sst, elevation, W, H, Math.max(3, Math.round(W / 150)));
-  const climate = computeClimate(params, elevation, null, fraction => report('climate', 0.22 + fraction * 0.3), { sst });
+  const currents = computeCurrents(params, elevation, fraction => report('currents', fraction * 0.22), geometry);
+  const sst = nearshoreSst(currents.sst, elevation, W, H, Math.max(3, Math.round(W / 150)), wrapX);
+  const climate = computeClimate(params, elevation, null, fraction => report('climate', 0.22 + fraction * 0.3), { sst, geometry });
   report('hydrology', 0.52);
-  const hydro = computeHydrology(params, elevation, climate.precipitation, null, climate.temperature);
+  const hydro = computeHydrology(params, elevation, climate.precipitation, null, climate.temperature, geometry);
   const mask = new Uint8Array(W * H);
   for (let i = 0; i < mask.length; i++) mask[i] = elevation[i] <= 0 ? 1 : 0;
   report('biomes', 0.7);
-  const biome = classifyBiomes(params, { elevation, ...climate, lake: hydro.lake, flow: hydro.flowMap,
-    relief: localRelief(elevation, W, H, Math.max(3, Math.round(W / 150))), seaDist: distanceTo(mask, W, H),
+  const biome = classifyBiomes(params, { geometry, elevation, ...climate, lake: hydro.lake, flow: hydro.flowMap,
+    relief: localRelief(elevation, W, H, Math.max(3, Math.round(W / 150)), wrapX), seaDist: distanceTo(mask, W, H, wrapX),
     sst, boundary: world.boundary, filters: params.filters });
   report('landmarks', 0.8);
-  const landmarks = detectLandmarks(params, elevation, world.boundary, climate.precipitation, climate.temperature, hydro.rivers, hydro.lake);
+  const landmarks = detectLandmarks(params, elevation, world.boundary, climate.precipitation, climate.temperature, hydro.rivers, hydro.lake, geometry);
   // Ice depends on the new terrain; glacial carving is discarded so authoring is never eroded again.
-  const { ice } = applyGlaciers(params, elevation.slice(), fraction => report('glaciers', 0.88 + fraction * 0.12));
+  const { ice } = applyGlaciers(params, elevation.slice(), fraction => report('glaciers', 0.88 + fraction * 0.12), geometry);
   report('finish', 1);
   return { ...climate, biome, flow: hydro.flowMap, lake: hydro.lake, lakeSurface: hydro.lakeSurface,
     rivers: hydro.rivers, landmarks, currentU: currents.u, currentV: currents.v, currentSpeed: currents.speed, sst, ice };

@@ -26,6 +26,7 @@
 import { climateLatDeg } from './geoScale';
 import type { WorldParams } from './types';
 import { windAt } from './climate';
+import { runtimeLatitude, type RuntimeGeometry } from './runtimeGeometry';
 
 export interface CurrentsResult {
   /** Eastward component of surface flow, full resolution, 0 on land. */
@@ -42,9 +43,9 @@ export interface CurrentsResult {
 }
 
 /** Downsample a field by simple averaging (x wraps, y clamps). */
-function shrinkField(src: Float32Array, W: number, H: number, step: number): { f: Float32Array; w: number; h: number } {
-  const w = Math.max(4, Math.floor(W / step));
-  const h = Math.max(2, Math.floor(H / step));
+function shrinkField(src: Float32Array, W: number, H: number, step: number, wrapX = true): { f: Float32Array; w: number; h: number } {
+  const w = wrapX ? Math.max(4, Math.floor(W / step)) : Math.max(1, Math.ceil(W / step));
+  const h = wrapX ? Math.max(2, Math.floor(H / step)) : Math.max(1, Math.ceil(H / step));
   const f = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -52,7 +53,7 @@ function shrinkField(src: Float32Array, W: number, H: number, step: number): { f
       for (let dy = 0; dy < step; dy++) {
         const sy = Math.min(H - 1, y * step + dy);
         for (let dx = 0; dx < step; dx++) {
-          const sx = (x * step + dx) % W;
+          const sx = wrapX ? (x * step + dx) % W : Math.min(W - 1, x * step + dx);
           sum += src[sy * W + sx];
           n++;
         }
@@ -64,18 +65,19 @@ function shrinkField(src: Float32Array, W: number, H: number, step: number): { f
 }
 
 /** Bilinear upsample to full resolution (x wraps). */
-function growField(src: Float32Array, w: number, h: number, W: number, H: number): Float32Array {
+function growField(src: Float32Array, w: number, h: number, W: number, H: number, wrapX = true, step = 1): Float32Array {
   const out = new Float32Array(W * H);
   for (let y = 0; y < H; y++) {
-    const fy = ((y + 0.5) / H) * h - 0.5;
+    const fy = wrapX ? ((y + 0.5) / H) * h - 0.5 : (y + 0.5) / step - 0.5;
     const y0 = Math.max(0, Math.min(h - 1, Math.floor(fy)));
     const y1 = Math.min(h - 1, y0 + 1);
     const ty = Math.max(0, Math.min(1, fy - y0));
     for (let x = 0; x < W; x++) {
-      const fx = ((x + 0.5) / W) * w - 0.5;
+      const fx = wrapX ? ((x + 0.5) / W) * w - 0.5 : (x + 0.5) / step - 0.5;
       const x0 = Math.floor(fx);
       const tx = fx - x0;
-      const xa = ((x0 % w) + w) % w, xb = ((x0 + 1) % w + w) % w;
+      const xa = wrapX ? ((x0 % w) + w) % w : Math.min(w - 1, Math.max(0, x0));
+      const xb = wrapX ? ((x0 + 1) % w + w) % w : Math.min(w - 1, Math.max(0, x0 + 1));
       const a = src[y0 * w + xa], b = src[y0 * w + xb];
       const c = src[y1 * w + xa], d = src[y1 * w + xb];
       out[y * W + x] = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
@@ -88,13 +90,15 @@ export function computeCurrents(
   params: WorldParams,
   elevation: Float32Array,
   onProgress?: (f: number) => void,
+  geometry?: RuntimeGeometry,
 ): CurrentsResult {
-  const W = params.width, H = W >> 1;
+  const W = geometry?.width ?? params.width, H = geometry?.height ?? (W >> 1), wrapX = !geometry;
   // Currents are a planetary-scale field; a quarter-resolution solve is
   // indistinguishable once it is smoothed back up, and the projection is the
   // only expensive part of this module.
   const step = Math.max(1, Math.round(W / 320));
-  const { f: elev, w, h } = shrinkField(elevation, W, H, step);
+  const { f: elev, w, h } = shrinkField(elevation, W, H, step, wrapX);
+  const latAt = (y: number) => geometry ? runtimeLatitude(params, geometry, y * step + Math.min(step, H - y * step) / 2) : climateLatDeg((y + 0.5) / h, params);
   const n = w * h;
 
   const sea = new Uint8Array(n);
@@ -105,7 +109,7 @@ export function computeCurrents(
 
   // ---- 1. wind forcing, rotated by the Ekman angle -----------------------
   for (let y = 0; y < h; y++) {
-    const lat = climateLatDeg((y + 0.5) / h, params);
+    const lat = latAt(y);
     const [wx, wy] = windAt(lat);
     // Surface water moves at ~45° to the wind, to the right in the northern
     // hemisphere. In screen terms (+y south) that is a clockwise rotation north
@@ -132,7 +136,7 @@ export function computeCurrents(
   const div = new Float32Array(n);
   let p = new Float32Array(n);
   let p2 = new Float32Array(n);
-  const idx = (x: number, y: number) => Math.min(h - 1, Math.max(0, y)) * w + ((x % w) + w) % w;
+  const idx = (x: number, y: number) => Math.min(h - 1, Math.max(0, y)) * w + (wrapX ? ((x % w) + w) % w : Math.min(w - 1, Math.max(0, x)));
 
   const ITER = 90;
   for (let pass = 0; pass < 3; pass++) {
@@ -213,7 +217,7 @@ export function computeCurrents(
   // against "what this latitude would be with no currents".
   const zonal = new Float32Array(h);
   for (let y = 0; y < h; y++) {
-    const lat = climateLatDeg((y + 0.5) / h, params);
+    const lat = latAt(y);
     const a = Math.abs(lat) / 90;
     zonal[y] = 29 - 51 * Math.pow(a, 1.9) + params.temperature;
   }
@@ -230,7 +234,8 @@ export function computeCurrents(
       let px = x + 0.5, py = y + 0.5;
       let acc = 0, wsum = 0, decay = 1;
       for (let s = 0; s < STEPS; s++) {
-        const xi = Math.floor(((px % w) + w) % w);
+        if (geometry && (px < 0 || px >= w)) break;
+        const xi = Math.floor(wrapX ? ((px % w) + w) % w : px);
         const yi = Math.min(h - 1, Math.max(0, Math.floor(py)));
         const j = yi * w + xi;
         if (!sea[j]) break;
@@ -268,7 +273,7 @@ export function computeCurrents(
   {
     const up = new Float32Array(n);
     for (let y = 1; y < h - 1; y++) {
-      const lat = climateLatDeg((y + 0.5) / h, params);
+      const lat = latAt(y);
       const [wx, wy] = windAt(lat);
       // Ekman transport: 90° to the right of the wind in the northern
       // hemisphere. In screen coordinates (+y south) that is (−wy, wx) north of
@@ -360,10 +365,10 @@ export function computeCurrents(
   }
   for (let i = 0; i < n; i++) spLow[i] /= maxSp;
 
-  const u = growField(cu, w, h, W, H);
-  const v = growField(cv, w, h, W, H);
-  const sst = growField(sstLow, w, h, W, H);
-  const speed = growField(spLow, w, h, W, H);
+  const u = growField(cu, w, h, W, H, wrapX, step);
+  const v = growField(cv, w, h, W, H, wrapX, step);
+  const sst = growField(sstLow, w, h, W, H, wrapX, step);
+  const speed = growField(spLow, w, h, W, H, wrapX, step);
   // Upsampling bleeds ocean values a cell or two inland; clear them so land
   // never reports a current.
   for (let i = 0; i < W * H; i++) {
@@ -383,6 +388,7 @@ export function coastalInfluence(
   W: number,
   H: number,
   reach: number,
+  wrapX = true,
 ): Float32Array {
   const out = new Float32Array(W * H);
   // Multi-source BFS from the shoreline, in cells.
@@ -405,6 +411,7 @@ export function coastalInfluence(
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
         const yy = y + dy;
         if (yy < 0 || yy >= H) continue;
+        if (!wrapX && (x + dx < 0 || x + dx >= W)) continue;
         const j = yy * W + ((x + dx + W) % W);
         if (dist[j] <= d) continue;
         dist[j] = d;
@@ -432,6 +439,7 @@ export function nearshoreSst(
   W: number,
   H: number,
   reach: number,
+  wrapX = true,
 ): Float32Array {
   const out = new Float32Array(W * H);
   // Iterative diffusion of the ocean anomaly into land, which averages over
@@ -451,6 +459,7 @@ export function nearshoreSst(
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
           const yy = y + dy;
           if (yy < 0 || yy >= H) continue;
+          if (!wrapX && (x + dx < 0 || x + dx >= W)) continue;
           const j = yy * W + ((x + dx + W) % W);
           if (weight[j] <= 0) continue;
           a += cur[j] * weight[j];

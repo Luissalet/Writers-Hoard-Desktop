@@ -1,12 +1,13 @@
 import type { WorldData, WorldParams } from './core/types';
 import type { Settlement } from './core/settlements';
 import type { TravelOptions } from './core/travel';
+import { absoluteToLocalCell, localToAbsoluteCell } from './core/worldDomain';
 
 /** Creative intent only: paths, durations and generated geography are recalculated. */
 export interface WorldJourney {
   id: string;
   name: string;
-  stops: { name: string; u: number; v: number }[];
+  stops: { name: string; u: number; v: number; cell?: { x: number; y: number } }[];
   options: Omit<TravelOptions, 'via'>;
   recipeKey: string;
   createdAt: number;
@@ -27,8 +28,9 @@ export function journeyRecipeKey(recipe: { params: WorldParams; edits?: string }
   return `journey-v1:${(a >>> 0).toString(16)}:${(b >>> 0).toString(16)}`;
 }
 
-export function journeyNormalizedStops(stops: Pick<Settlement, 'name' | 'x' | 'y'>[], world: Pick<WorldData, 'width' | 'height'>): WorldJourney['stops'] {
-  return stops.map(stop => ({ name: stop.name, u: (((stop.x + 0.5) / world.width) % 1 + 1) % 1, v: Math.max(0, Math.min(1, (stop.y + 0.5) / world.height)) }));
+export function journeyNormalizedStops(stops: Pick<Settlement, 'name' | 'x' | 'y'>[], world: Pick<WorldData, 'width' | 'height' | 'domain'>): WorldJourney['stops'] {
+  return stops.map(stop => ({ name: stop.name, u: (((stop.x + 0.5) / world.width) % 1 + 1) % 1, v: Math.max(0, Math.min(1, (stop.y + 0.5) / world.height)),
+    ...(world.domain ? { cell: localToAbsoluteCell(world, stop.x, stop.y) } : {}) }));
 }
 
 /** Resolve geographic positions in the current grid, even if old settlements no longer exist. */
@@ -44,12 +46,14 @@ export function journeyPoint(x: number, y: number, name: string, seq: number): S
   };
 }
 
-export function journeyStopsForWorld(journey: WorldJourney, world: Pick<WorldData, 'width' | 'height'>): Settlement[] {
+export function journeyStopsForWorld(journey: WorldJourney, world: Pick<WorldData, 'width' | 'height' | 'domain'>): Settlement[] {
   return journey.stops.map((stop, index) => ({
     // Generated settlements use non-negative IDs. These anchors must never select one by accident.
     id: -1_000_000 - index, name: stop.name,
-    x: Math.max(0, Math.min(world.width - 1, stop.u * world.width - 0.5)),
-    y: Math.max(0, Math.min(world.height - 1, stop.v * world.height - 0.5)),
+    ...(stop.cell ? absoluteToLocalCell(world, stop.cell) : {
+      x: Math.max(0, Math.min(world.width - 1, stop.u * world.width - 0.5)),
+      y: Math.max(0, Math.min(world.height - 1, stop.v * world.height - 0.5)),
+    }),
     culture: 'latin', rank: 'village', population: 0, port: false, river: false, realm: -1, score: 0,
   }));
 }

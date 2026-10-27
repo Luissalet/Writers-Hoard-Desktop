@@ -74,6 +74,8 @@ export interface WorldParams {
    * absent = the whole planet, 40075 km round the equator.
    */
   worldKm?: number;
+  /** Physical frame for new finite sheets; absent keeps the legacy recipe. */
+  sourceFrame?: { version: 1; kind: 'flat-sheet'; widthKm: number; centerLatitudeDeg: number };
 }
 
 export const DEFAULT_PARAMS: WorldParams = {
@@ -110,6 +112,12 @@ export function normalizeParams(params: Partial<WorldParams>): WorldParams {
   // A sheet's width; the planet's own (or anything off the scale) is no sheet at all.
   if (!(typeof normalized.worldKm === 'number' && Number.isFinite(normalized.worldKm) && normalized.worldKm >= 1000 && normalized.worldKm < 40075)) delete normalized.worldKm;
   else normalized.worldKm = Math.round(normalized.worldKm);
+  const frame = normalized.sourceFrame;
+  if (frame) {
+    if (frame.version !== 1 || frame.kind !== 'flat-sheet' || !Number.isFinite(frame.widthKm) || frame.widthKm <= 0
+      || !Number.isFinite(frame.centerLatitudeDeg) || frame.centerLatitudeDeg < -89 || frame.centerLatitudeDeg > 89) throw new Error('Invalid source frame');
+    normalized.sourceFrame = { ...frame };
+  }
   return normalized;
 }
 
@@ -241,6 +249,7 @@ export interface RiverPath {
 
 /** Everything the pipeline produces. Typed arrays are width*height. */
 export interface WorldData {
+  domain?: import('./worldDomain').WorldDomain;
   /** Rehydrated from the saved row; excluded from generative pack/recipe identity. */
   mapWidthKm?: number;
   scaleRevision?: number;
@@ -311,6 +320,9 @@ export type ProgressFn = (stage: string, overall: number) => void;
 
 /** Serializable bundle sent from the worker back to the UI. */
 export interface WorldTransfer {
+  domain?: import('./worldDomain').WorldDomain;
+  /** Prepared journals carry their narrative overlays and sites policy too. */
+  painted?: WorldData['painted'];
   width: number;
   height: number;
   params: WorldParams;
@@ -342,6 +354,8 @@ function gridBuffer(view: ArrayBufferView): ArrayBuffer {
 
 export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: ArrayBuffer[] } {
   const transfer: WorldTransfer = {
+    domain: w.domain,
+    painted: w.painted,
     width: w.width,
     height: w.height,
     params: w.params,
@@ -386,6 +400,8 @@ export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: Arr
 
 export function unpackWorld(t: WorldTransfer): WorldData {
   return {
+    domain: t.domain,
+    painted: t.painted,
     width: t.width,
     height: t.height,
     params: t.params,

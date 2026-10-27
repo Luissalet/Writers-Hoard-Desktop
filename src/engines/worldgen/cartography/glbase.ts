@@ -18,6 +18,7 @@ out vec4 fragColor;
 uniform sampler2D uGround; // elevation, sea distance, hillshade, temperature
 uniform sampler2D uTint, uLake, uPaper;
 uniform vec2 uGrid, uOut;
+uniform bool uWrapX;
 uniform vec4 uView;
 uniform vec3 uPaperBase, uSeaShallow, uSeaDeep, uLand, uSnow, uShadeColor, uRing, uLakeColor;
 uniform float uDeepAt, uRingCount, uRingSpacing, uRingWidth, uRingAlpha, uRingFalloff, uShade, uTintAmount;
@@ -25,7 +26,7 @@ uniform vec3 uHighland;
 uniform vec3 uTerrain; // start, upper elevation, pigment strength
 ivec2 cellAt(ivec2 p) {
   int w = int(uGrid.x);
-  return ivec2((p.x % w + w) % w, clamp(p.y, 0, int(uGrid.y) - 1));
+  return ivec2(uWrapX ? (p.x % w + w) % w : clamp(p.x,0,w-1), clamp(p.y, 0, int(uGrid.y) - 1));
 }
 // Float textures need explicit filtering in core WebGL2. The C1 weights match
 // the CPU washes and avoid visible nearest-cell blocks on a close hillside.
@@ -41,9 +42,13 @@ vec4 fieldAt(sampler2D field, vec2 cell) {
 void main() {
   float scale = uOut.x / uView.z;
   vec2 cell = uView.xy + vScreen * uOut / scale;
+  vec3 paper = texture(uPaper, vScreen).rgb;
+  if (!uWrapX && (cell.x < 0.0 || cell.x >= uGrid.x || cell.y < 0.0 || cell.y >= uGrid.y)) {
+    fragColor = vec4(paper, 1.0);
+    return;
+  }
   vec4 ground = fieldAt(uGround, cell);
   float e = ground.r;
-  vec3 paper = texture(uPaper, vScreen).rgb;
   float modulation = dot(paper, vec3(0.3, 0.5, 0.2)) / max(0.00001, dot(uPaperBase, vec3(0.3, 0.5, 0.2)));
   vec3 col;
   if (e <= 0.0) {
@@ -123,12 +128,14 @@ export class CartoBaseGL {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.uniform1i(this.u[name], unit);
     }
+    this.u.uWrapX = gl.getUniformLocation(prog, 'uWrapX');
     gl.uniform2f(this.u.uGrid, this.gridW, this.gridH);
   }
 
   sync(world: WorldData, fields: CartoFields, tint: Tint): void {
     this.world = world;
     const gl = this.gl, n = this.gridW * this.gridH, revision = world.revision ?? 0;
+    gl.useProgram(this.prog); gl.uniform1i(this.u.uWrapX, world.domain?.topology === 'finite' ? 0 : 1);
     if (revision !== this.uploadedRev) {
       const ground = new Float32Array(n * 4);
       // The fourth channel only draws snow, so it carries the author's snowline shift.

@@ -271,6 +271,7 @@ export function polylineVisible(
   view: { x: number; y: number; w: number; h: number },
   W: number,
   pad: number,
+  wrapX = true,
 ): boolean {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, mean = 0;
   for (const p of pts) {
@@ -284,8 +285,10 @@ export function polylineVisible(
   if (maxY < view.y - pad || minY > view.y + view.h + pad) return false;
   const cx = view.x + view.w / 2;
   let shift = 0;
-  while (mean + shift < cx - W / 2) shift += W;
-  while (mean + shift > cx + W / 2) shift -= W;
+  if (wrapX) {
+    while (mean + shift < cx - W / 2) shift += W;
+    while (mean + shift > cx + W / 2) shift -= W;
+  }
   return maxX + shift >= view.x - pad && minX + shift <= view.x + view.w + pad;
 }
 

@@ -80,7 +80,7 @@ export function distanceTo(mask: Uint8Array, W: number, H: number, wrapX = true)
 }
 
 /** Separable box blur repeated `passes` times ≈ Gaussian. Wraps in x. */
-export function blur(src: Float32Array, W: number, H: number, radius: number, passes = 2): Float32Array {
+export function blur(src: Float32Array, W: number, H: number, radius: number, passes = 2, wrapX = true): Float32Array {
   const a = Float32Array.from(src);
   let b = new Float32Array(W * H);
   const R = Math.max(1, Math.round(radius));
@@ -90,10 +90,11 @@ export function blur(src: Float32Array, W: number, H: number, radius: number, pa
     for (let y = 0; y < H; y++) {
       const o = y * W;
       let sum = 0;
-      for (let k = -R; k <= R; k++) sum += a[o + ((k % W) + W) % W];
+      const horizontal = (x: number) => wrapX ? ((x % W) + W) % W : Math.min(W - 1, Math.max(0, x));
+      for (let k = -R; k <= R; k++) sum += a[o + horizontal(k)];
       for (let x = 0; x < W; x++) {
         b[o + x] = sum * inv;
-        sum += a[o + ((x + R + 1) % W)] - a[o + ((x - R + W * 2) % W)];
+        sum += a[o + horizontal(x + R + 1)] - a[o + horizontal(x - R)];
       }
     }
     // vertical (clamped)
@@ -118,8 +119,8 @@ export function blur(src: Float32Array, W: number, H: number, radius: number, pa
  * plateau is 5 km up but has near-zero local relief and must NOT get covered
  * in mountain symbols.
  */
-export function localRelief(elevation: Float32Array, W: number, H: number, radius: number): Float32Array {
-  const base = blur(elevation, W, H, radius, 2);
+export function localRelief(elevation: Float32Array, W: number, H: number, radius: number, wrapX = true): Float32Array {
+  const base = blur(elevation, W, H, radius, 2, wrapX);
   const out = new Float32Array(W * H);
   for (let i = 0; i < W * H; i++) out[i] = elevation[i] - base[i];
   return out;

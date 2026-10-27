@@ -30,12 +30,14 @@ import { liveWorld } from './core/liveWorlds';
 import { buildAtlas, type Atlas } from './core/atlas';
 import { getGeography } from './cartography/texture';
 import type { GeoDepth, HumanGeography } from './core/settlements';
-import { getCachedWorld, paramsKey } from './useWorldGeneration';
+import { getCachedWorld, getCachedWorldSource, paramsKey, rememberPreparedWorld } from './useWorldGeneration';
 import { loadSnapshot, saveSnapshot } from './snapshots';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from './forge/bridge';
 import { worldgenScopeOperations, worldRuntimeKey } from './era';
 import { flushWorldEdits, hasPendingWorldEdits } from './editWriter';
 import type { WorkerReply } from './worldgen.worker';
+import { appendDomainEdits, domainBounds, readDomainDocument, serializeDomainDocument } from './core/domainDocument';
+import { replayDomain, unprojectDomainEdit } from './core/domainReplay';
 
 export interface ReadableWorld {
   data: WorldData;
@@ -52,13 +54,21 @@ export type OpenWorldResult =
 // A reader that lists places, then finds one, then describes it should not pay
 // the snapshot + replay + geography bill three times. Private objects only —
 // the live world is never cached here (it is already free to read).
-interface Built { key: string; world: ReadableWorld; at: number }
+interface Built { key: string; world?: ReadableWorld; prepared?: WorldData; at: number }
 const built = new Map<string, Built>();
 const BUILT_TTL_MS = 5 * 60_000;
 const BUILT_MAX = 2;
 
 function buildKey(world: GeneratedWorld, depth: GeoDepth): string {
-  return `${world.id}|${paramsKey(world.params)}|${depth}|${world.edits ?? ''}`;
+  return `${world.id}|${paramsKey(world.params)}|${depth}|${world.edits ?? ''}|${world.domainRevision ?? 0}`;
+}
+
+/** Adopt an already prepared private materialization after its authored row commits. No DB or geography work. */
+export function rememberDomainWorld(world: GeneratedWorld, data: WorldData, eraId?: string, pristineSource?: WorldData): void {
+  const runtimeId = worldRuntimeKey(world.id, eraId);
+  if (pristineSource && !liveWorld(runtimeId)) rememberPreparedWorld(runtimeId, world.params, data, pristineSource);
+  built.delete(runtimeId); built.set(runtimeId, { key: buildKey(world, 'full'), prepared: data, at: Date.now() });
+  while (built.size > BUILT_MAX) built.delete(built.keys().next().value!);
 }
 
 const forging = new Set<string>();
@@ -114,12 +124,13 @@ export function isForging(worldId: string): boolean {
  */
 export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth = 'full', eraId?: string): Promise<OpenWorldResult> {
   const runtimeId = worldRuntimeKey(world.id, eraId);
+  const document = world.edits ? readDomainDocument(world.edits) : null;
   // 1. An open view: its object is the current state, and its geography is
   //    already built (or will be adopted by the view, a deeper answer being
   //    valid for shallower questions too).
   if (liveWorld(runtimeId)) {
     const data = getCachedWorld(runtimeId, world.params);
-    if (data) {
+    if (data && (!document || liveWorld(runtimeId)?.snapshot() === world.edits)) {
       applyWorldScaleMetadata(data, world);
       const geo = getGeography(data, depth);
       return { ok: true, world: { data, geo, atlas: buildAtlas(data, geo), live: true } };
@@ -129,10 +140,20 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   // 2. A recent private build for exactly this list.
   const key = buildKey(world, depth);
   const hit = built.get(runtimeId);
-  if (hit && hit.key === key && Date.now() - hit.at < BUILT_TTL_MS) { applyWorldScaleMetadata(hit.world.data, world); return { ok: true, world: hit.world }; }
+  if (hit && Date.now() - hit.at < BUILT_TTL_MS) {
+    if (hit.prepared && hit.key === buildKey(world, 'full')) {
+      const data = hit.prepared; applyWorldScaleMetadata(data, world);
+      const geo = getGeography(data, depth);
+      return { ok: true, world: { data, geo, atlas: buildAtlas(data, geo), live: false } };
+    }
+    if (hit.world && hit.key === key) { applyWorldScaleMetadata(hit.world.data, world); return { ok: true, world: hit.world }; }
+  }
 
   // 3. The snapshot, replayed privately.
-  const snap = await loadSnapshot(runtimeId, paramsKey(world.params));
+  // A pending view adoption must not round-trip a warm domain through the cold codec.
+  // Legacy PaintSession below still receives only its private snapshot.
+  const pristine = (document ? getCachedWorldSource(runtimeId, world.params) : null) ?? await loadSnapshot(runtimeId, paramsKey(world.params));
+  const snap = pristine && document ? replayDomain(pristine, document, world.domainRevision ?? 0) : pristine;
   if (snap) {
     applyWorldScaleMetadata(snap, world);
     let edits: WorldEdit[] = [];
@@ -144,7 +165,7 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
       }
     }
     // Replays onto `snap`, which is ours alone.
-    new PaintSession(snap, edits);
+    if (!document) new PaintSession(snap, edits);
     const geo = getGeography(snap, depth);
     const readable: ReadableWorld = { data: snap, geo, atlas: buildAtlas(snap, geo), live: false };
     built.delete(runtimeId);
@@ -180,6 +201,12 @@ function refuseLockedEdits(existing: string | WorldEdit[], edits: WorldEdit[]): 
   else if (existing) { try { list = deserializeEdits(existing); } catch { list = []; } }
   const key = lockViolation(list, edits);
   if (key) throw new Error(`Place ${key} is locked; unlock it with wh_lock_place (locked: false) before you move or remove it, and only if the author wants that.`);
+}
+
+function appendSerializedEdits(current: string, edits: WorldEdit[]): string {
+  const document = current ? readDomainDocument(current) : null;
+  if (document) return serializeDomainDocument(appendDomainEdits(document, edits.map(edit => unprojectDomainEdit(edit, domainBounds(document)))));
+  return serializeEdits([...deserializeEdits(current), ...edits]);
 }
 
 export async function applyWorldEdits(
@@ -225,8 +252,7 @@ export async function applyWorldEdits(
         }
       }
       refuseLockedEdits(list, edits);
-      list.push(...edits);
-      await worlds.update(world.id, { edits: serializeEdits(list) });
+      await worlds.update(world.id, { edits: appendSerializedEdits(current, edits) });
       return current;
     });
     if (before === null) continue;
@@ -247,7 +273,8 @@ function holdsEdits(serialized: string | undefined, edits: WorldEdit[]): boolean
   } catch {
     return false;
   }
-  const wanted = edits.map((edit) => JSON.stringify(edit));
+  const document = readDomainDocument(serialized);
+  const wanted = (document ? edits.map(edit => unprojectDomainEdit(edit, domainBounds(document))) : edits).map((edit) => JSON.stringify(edit));
   const have = list.map((edit) => JSON.stringify(edit));
   for (let start = 0; start + wanted.length <= have.length; start += 1) {
     if (wanted.every((edit, offset) => have[start + offset] === edit)) return true;
@@ -278,14 +305,7 @@ async function reconcileRowWrite(worldId: string, edits: WorldEdit[], projectId:
       const row = await worlds.getOne(worldId);
       if (!row || holdsEdits(row.edits, edits)) return false;
       if (liveWorld(runtimeId) || hasPendingWorldEdits(runtimeId)) return null;
-      let list: WorldEdit[] = [];
-      try {
-        list = row.edits ? deserializeEdits(row.edits) : [];
-      } catch {
-        list = [];
-      }
-      list.push(...edits);
-      await worlds.update(worldId, { edits: serializeEdits(list) });
+      await worlds.update(worldId, { edits: appendSerializedEdits(row.edits ?? '', edits) });
       return true;
     });
     if (reappended === false) return;

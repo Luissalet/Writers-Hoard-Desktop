@@ -33,6 +33,7 @@ import { buildLakeGeometry } from './lakeGeometry';
 import { EARTH_KM } from '../core/camera';
 
 export interface WaterOptions {
+  wrapX?: boolean;
   /** Semilla del mundo, para que el oleaje sea determinista. */
   seed: string;
   /** Lado del plano de mundo en unidades de escena (hoy SIZE_X = 240). */
@@ -148,6 +149,7 @@ precision highp float;
 precision highp sampler2D;
 
 uniform sampler2D uHeight;
+uniform float uWrapX;
 uniform float uHasHeight;
 uniform vec2  uGrid;
 uniform float uLake;
@@ -179,7 +181,7 @@ out vec4 outColor;
 // ---------------------------------------------------------------------------
 // Foam and terrain use exactly the same reconstructed zero crossing.
 ${WORLD_HEIGHT_GLSL}
-float floorKmAt(vec2 uv) { return sampleWorldHeightTexture(uv); }
+float floorKmAt(vec2 uv) { return sampleWorldHeightTexture(uv,uWrapX > 0.5); }
 
 // ---------------------------------------------------------------------------
 // El oleaje
@@ -510,6 +512,7 @@ interface WaterUniforms {
 function makeUniforms(o: WaterOptions, shape: number, phase: number): WaterUniforms {
   return {
     uHeight: { value: null },
+    uWrapX: { value: o.wrapX === false ? 0 : 1 },
     uHasHeight: { value: 0 },
     uGrid: { value: new THREE.Vector2(1, 1) },
     uSea: { value: 0 },
