@@ -788,3 +788,20 @@ Publishing profiles offer Markdown, HTML, EPUB, Word (DOCX), a searchable book P
 Retry pending files uses the same prepared copy, including after the live book changes. Preparing again captures current data. PDF and Word accept optional facing margins in mm and an initial page number; EPUB remains reflowable. The print-cover PDF uses its own trim, manual spine, bleed and resolution. [Usage, API, delivery state and attributed limits](tasks/vvd1095/verification-publishing-batch.md). This extends the earlier C41 checkpoint; overall web/SDK parity remains open.
 
 This bounded C42 workflow is delivered in Main after exact CAS54 approval; the linked verification separates final checks from the earlier C41 and pre-fix evidence.
+
+
+## Painted label formatting and finite map readers
+
+Worldgen's painted-label inspector now offers independent bold, italic, uppercase display, ink and font-family overrides. Each field can inherit its existing style; Reset format clears all five in one undoable action. Changing the Region/Water/Range preset preserves explicit overrides. Uppercase affects drawing while the authored Unicode text stays intact. Existing size, rotation, spacing and curve controls remain available. Atlas, Carta and both 3D label modes resolve the same authored overrides with their existing context defaults. No new font files are installed.
+
+The existing `wh_add_label`, `wh_update_label` and `wh_list_labels` tools expose `bold`, `italic`, `caps`, `color` and `font`. Omission preserves a field; `null` restores inheritance, and `false` remains an explicit override. Undo, eras, JSON, ZIP restore and duplication use the normal Worldgen journal. Finite label/stamp creation returns the usable absolute identity key even when the sheet origin is nonzero.
+
+The finite Carta dots/trail reader and story annotations now respect sheet boundaries; focused public coordinate tests also cover current-domain bounds, valid edge rounding and rejected original exterior inputs. Their legacy wrapping controls have separate evidence. See [painted-label verification](tasks/vvd1095/verification-lettering.md) and the appended [domain verification](tasks/vvd1095/verification-world-domain.md) for causal tests, actual two-key Native transport and Root's normal Brave checks.
+
+Continuation56 Source is committed as `4f463f9abc4e0d6989a8d1b10e02033d7e3fa4da`. Root quick227919ms,396 critical checks157760ms and build370224ms pass on the frozen142 code paths. Approval is exact CAS56 and Main FF is verified:23blobs/disk exact,48untracked preserved, clean index and no push. This document records the delivered checkpoint; common continuity has its own receipt. The manual is updated and verified. General web/SDK parity remains open. Cold terrain serialization retains its declared numerical losses; returned PNG bytes do not establish a Browser download to disk.
+
+The next57 work retains nine separately reproduced public ABS-coordinate failures (two returned place keys and seven Story criteria,9of16). Its patch has its own verification and is not part of commit56. Root also observed normal Carta Fit returning zoom1.6to1.0 with the formatted label; the [captured view](_stage/ROOT-brave-evidence-next/carta-final-mouse-fit-lettering-r1.png) is linked in domain/lettering verification.
+
+[Main56 receipt](_stage/parity-map-domain-next/ROOT-main56-FF-r1.json), [formal56 review](_stage/parity-map-domain-next/INDEPENDENT-FORMAL56-REVIEW-R1.md).
+
+Root updated the manual once:90→638UTF16, delta548 at113268/t.0; the whole resource matches the expected change except revision, with other text/styles/tabs/metadata exact. Five aliases were released. [Manual56 receipt](_stage/parity-map-domain-next/ROOT-manual56-receipt-r1.json). Common continuity has its own receipt.

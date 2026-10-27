@@ -263,3 +263,20 @@ Writer prepara Markdown, HTML, EPUB, DOCX, PDF de libro seleccionable/buscable y
 MCP añade `wh_publishing_export` y `wh_publishing_cancel_export`: una llamada devuelve archivos completos por salida, y otra detiene sólo el operación activo del mismo proyecto. Cada llamada nueva de exportación recaptura datos persistidos; no recupera la copia privada de la UI. El catálogo observado tiene 958 herramientas, sin atribuir sus transportes a todas ellas. [Contrato, pruebas por corte y estado de entrega](tasks/vvd1095/verification-publishing-batch.md). No se afirma descarga ZIP en disco de Brave, diálogo de guardado Native probado ni paridad general.
 
 La fuente `2e54a2d476c31b49cea48a56cb5c4582c9d38114` tiene aprobación exacta CAS54 y está integrada en Main con comprobaciones focales propias. El manual ya está actualizado y verificado en ROOT-manual54-receipt.json; commit documental y continuidad se acreditan por sus recibos separados, sin anticiparlos aquí.
+
+
+## Entrega56: rótulos y consumidores finitos
+
+El inspector normal de rótulos pintados de Worldgen añade negrita, cursiva, mayúsculas de dibujo, tinta y familia del catálogo existente, con herencia individual y reset conjunto reversible. Los cinco overrides conservan false explícito, grafía Unicode, preset, forma e identidad; el reset elimina sólo formato. Atlas, Carta y los dos modos3D consumen esos atributos. Las tres tools de rótulos existentes exponen los mismos campos/null, sin otro servicio o writer. [Contrato, uso y evidencia](tasks/vvd1095/verification-lettering.md).
+
+Se verificaron Base/épocas, Undo real, JSON/Duplicate/ZIP y recorte/ampliación conservando atributos y todos los bytes de los14 buffers solapados del caso caliente. Native propio e independiente usan dos claves reales y los mismos cuatro grupos; Root observó los cinco valores tras recarga Brave, reset/Undo, preservación al cambiar preset y dibujo Satélite/Pintado. No son certificaciones de todos los archivos de fuentes, plataformas o píxeles3D.
+
+El consumidor separado renderCartography de dots/trail y las copias finitas de sucesos tienen ahora RED/GREEN causales propios. Las familias públicas de coordenadas/road tienen cobertura acotada y errores exteriores antes de redondear. [La adenda de dominio](tasks/vvd1095/verification-world-domain.md) separa autorías, capas y controles legacy. No presentar estos resultados como prueba universal de todos los consumidores cartográficos.
+
+Corte r6:111Source/142code, fuente comprometida `4f463f9abc4e0d6989a8d1b10e02033d7e3fa4da`. Root quick227919ms,396críticas157760ms y build370224ms pasaron con código y guardas ajenas exactos; aprobación exacta CAS56 y FFMain ya verificados(23blobs/disco exactos,48no rastreados conservados, índice limpio, sin push). La documentación de56 acompaña esta entrega; la continuidad común tiene recibo separado. El manual ya está actualizado y verificado. La entrega55 y sus recibos anteriores siguen históricos y literales.1095 continúa abierta; quedan los demás residuos del ledger y no hay descarga web a disco confirmada ni terreno frío RAW lossless.
+
+Los nueve fallos ABS reservados para57 se conservan aparte: dos keys de AddPlace/Duplicate y siete criterios de Story (listado local, prosa y reorder), con16criterios/9fallos y controles legacy/Undo sanos. El parche57 sigue su propia verificación y no forma parte del commit56; no se deduce paridad global de los gates56. [Causa57](_stage/parity-map-domain-next/independent-source-abs-r1/CAUSAL-RED1.md).
+
+[Recibo Main56](_stage/parity-map-domain-next/ROOT-main56-FF-r1.json) y [revisión formal56](_stage/parity-map-domain-next/INDEPENDENT-FORMAL56-REVIEW-R1.md), con recusaciones por autoría central/Road explícitas.
+
+Root actualizó el manual una vez:90→638UTF16, delta548 en113268/t.0; recurso completo exacto salvo revisión, con otros textos/estilos/tabs/metadatos intactos. Cinco alias liberados. [Recibo manual56](_stage/parity-map-domain-next/ROOT-manual56-receipt-r1.json). La continuidad común conserva su recibo separado.
