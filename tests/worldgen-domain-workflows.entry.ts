@@ -1,4 +1,6 @@
 import { db } from '../src/db';
+import { testWorldgenFogZonesAPI, trace as fogZonesTrace } from './worldgen-fog-zones-api.browser';
+import { testWorldgenFogWrap, trace as fogWrapTrace } from './worldgen-fog-zones-wrap.browser';
 import { testWorldgenSourceABS, trace as sourceAbsTrace } from './worldgen-source-abs.browser';
 import { testWorldgenDomainWaypoints, trace as waypointTrace } from './worldgen-domain-waypoints.browser';
 import { testWorldgenDomainMeasure, trace as measureTrace } from './worldgen-domain-measure.browser';
@@ -13,7 +15,7 @@ declare global {
   }
 }
 
-const traces = [sourceAbsTrace, coordinateTrace, waypointTrace, measureTrace, axisTrace, cacheTrace, roadTrace];
+const traces = [sourceAbsTrace, coordinateTrace, waypointTrace, measureTrace, axisTrace, cacheTrace, roadTrace, fogZonesTrace, fogWrapTrace];
 void (async () => {
   await testWorldgenSourceABS();
   await testWorldgenDomainCoordinateFamilies();
@@ -22,6 +24,8 @@ void (async () => {
   await testWorldgenDomainWaypointAxis();
   await testWorldgenEraCacheCleanup();
   await testWorldgenDomainRoadBoundary();
+  await testWorldgenFogZonesAPI();
+  await testWorldgenFogWrap();
   const tests = traces.flatMap(trace => (trace.checks as { name: string; passed: boolean }[]).map(check => {
     if (!check.passed) throw Error(check.name);
     return check.name;

@@ -65,7 +65,8 @@ export function zonesFrom(edits: readonly WorldEdit[]): WorldZone[] {
 }
 
 /** The outline laid out without a jump at the date line: each point the wrapped branch nearest the one before. */
-export function unwrapRing(pts: readonly Pt[], W: number): Pt[] {
+export function unwrapRing(pts: readonly Pt[], W: number, wrapX = true): Pt[] {
+  if (!wrapX) return pts.map(p => ({ ...p }));
   const out: Pt[] = [];
   let prev = pts[0]?.x ?? 0;
   for (const p of pts) {
@@ -79,8 +80,8 @@ export function unwrapRing(pts: readonly Pt[], W: number): Pt[] {
 }
 
 /** Area in cells and the label anchor (the centroid of the outline), unwrapped. */
-export function zoneShape(zone: Pick<WorldZone, 'pts'>, W: number): { cells: number; cx: number; cy: number } {
-  const ring = unwrapRing(zone.pts, W);
+export function zoneShape(zone: Pick<WorldZone, 'pts'>, W: number, wrapX = true): { cells: number; cx: number; cy: number } {
+  const ring = unwrapRing(zone.pts, W, wrapX);
   let a = 0, cx = 0, cy = 0;
   for (let i = 0; i < ring.length; i++) {
     const p = ring[i], q = ring[(i + 1) % ring.length];
@@ -89,19 +90,21 @@ export function zoneShape(zone: Pick<WorldZone, 'pts'>, W: number): { cells: num
   }
   if (Math.abs(a) < 1e-9) {
     const mx = ring.reduce((s, p) => s + p.x, 0) / ring.length, my = ring.reduce((s, p) => s + p.y, 0) / ring.length;
-    return { cells: 0, cx: ((mx % W) + W) % W, cy: my };
+    return { cells: 0, cx: wrapX ? ((mx % W) + W) % W : mx, cy: my };
   }
   cx /= 3 * a; cy /= 3 * a;
-  return { cells: Math.abs(a) / 2, cx: ((cx % W) + W) % W, cy };
+  return { cells: Math.abs(a) / 2, cx: wrapX ? ((cx % W) + W) % W : cx, cy };
 }
 
 /** Whether a point (cells) lies inside a zone, across the date line too. */
-export function zoneContains(zone: Pick<WorldZone, 'pts'>, W: number, x: number, y: number): boolean {
-  const ring = unwrapRing(zone.pts, W);
+export function zoneContains(zone: Pick<WorldZone, 'pts'>, W: number, x: number, y: number, wrapX = true): boolean {
+  const ring = unwrapRing(zone.pts, W, wrapX);
   let px = x;
   const mid = ring.reduce((s, p) => s + p.x, 0) / ring.length;
-  while (px - mid > W / 2) px -= W;
-  while (px - mid < -W / 2) px += W;
+  if (wrapX) {
+    while (px - mid > W / 2) px -= W;
+    while (px - mid < -W / 2) px += W;
+  }
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[i], b = ring[j];

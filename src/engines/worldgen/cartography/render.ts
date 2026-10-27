@@ -516,7 +516,7 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
 
   // ---- stage 2c: the author's zones, under the lettering ---------------------
   if (opts.zones?.length) {
-    drawZones(ctx as unknown as CanvasRenderingContext2D, opts.zones, world.width, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, scale, [-world.width, 0, world.width]);
+    drawZones(ctx as unknown as CanvasRenderingContext2D, opts.zones, world.width, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, scale, world.domain?.topology === 'finite' ? [0] : [-world.width, 0, world.width], null, world.domain?.topology !== 'finite');
   }
 
   // ---- stage 3: culture layer, lettering and furniture --------------------
@@ -537,7 +537,7 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
 
   // ---- stage 3b: what the reader has not seen yet --------------------------
   if (opts.fog) {
-    drawReaderFog(ctx, opts.fog, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, true);
+    drawReaderFog(ctx, opts.fog, (wx) => (wx - view.x) * scale, (wy) => (wy - view.y) * scale, world.domain?.topology !== 'finite');
   }
   {
     const markScale = Math.max(1, Math.min(3, OW / 1600));
