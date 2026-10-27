@@ -74,9 +74,10 @@ import { migrateLegacyBoards } from './legacyBoardMigration';
 import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 45;
+export const CURRENT_DB_VERSION = 46;
 
 export class WritersHoardDB extends Dexie {
+  localToolPackages!: Table<import('@/engines/local/runtimeTypes').LocalRuntimePackageRow>;
   manuscriptSources!: Table<import('@/engines/writings/manuscriptReview/sourceTypes').ManuscriptSourceRow>;
   worldEraVariants!: Table<import('@/services/worldEras/types').WorldEraVariant>;
   worldEraAssets!: Table<import('@/services/worldEras/types').WorldEraAsset>;
@@ -1047,6 +1048,8 @@ export class WritersHoardDB extends Dexie {
     this.version(43).stores({ documentHistory: 'id, projectId, [projectId+kind+entityId], createdAt, *assetIds' });
     this.version(44).stores({ manuscriptSources: 'id, projectId, [projectId+sha256]' });
     this.version(45).stores({localToolAssetFiles:'id, projectId, [projectId+kind], &[projectId+kind+sha256+mime]'});
+    // Immutable executable packages are exported explicitly, never as project data.
+    this.version(46).stores({localToolPackages:'contentHash, namespace, installedAt, *memberNamespaces'});
 
     installDocumentHistory(this);
   }

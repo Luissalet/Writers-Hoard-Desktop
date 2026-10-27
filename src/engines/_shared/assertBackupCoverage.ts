@@ -60,6 +60,9 @@ export interface BackupCoverageReport {
   doubleCovered: Array<{ engineId: string; table: string }>;
 }
 
+// Executable inventory has its own explicit package export. Data restore preserves it.
+const EXPLICIT_PACKAGE_EXPORT_TABLES = new Set(['localToolPackages']);
+
 export function checkBackupCoverage(): BackupCoverageReport {
   const strategyTables = new Set(
     getAllBackupStrategies().flatMap((s) => s.tables),
@@ -85,7 +88,7 @@ export function checkBackupCoverage(): BackupCoverageReport {
   const doubleCovered: BackupCoverageReport['doubleCovered'] = [];
 
   for (const table of db.tables.map((t) => t.name)) {
-    if (cacheSet.has(table)) continue;
+    if (cacheSet.has(table) || EXPLICIT_PACKAGE_EXPORT_TABLES.has(table)) continue;
     const inStrategy = strategyTables.has(table);
     const inLegacy = legacySet.has(table);
     const engineId = ownerByTable.get(table) ?? '(no engine)';
