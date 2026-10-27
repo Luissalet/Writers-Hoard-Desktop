@@ -1,17 +1,20 @@
+import {subscribeRuntimeErrors,getRuntimeErrorSnapshot,clearRuntimeErrors,type RuntimeErrorPhase} from './runtimeErrors';
 import {LocalRuntimeTrialActions} from './RuntimeTrialControls';
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {useTranslation} from '@/i18n/useTranslation';
 import {onDataChanged} from '@/engines/_shared/dataChanged';
 import {runtimeBase64,runtimeDecodeBase64} from './runtimeFormat.mjs';
 import {inspectLocalRuntimePackage,installLocalRuntimePackage,listLocalRuntimePackages,exportLocalRuntimePackage,loadLocalRuntimePackages} from './runtimePackages';
 import type {RuntimePackageInput} from './runtimeTypes';
 
+const runtimeErrorEs:Record<RuntimeErrorPhase,{label:string;message:string}>={load:{label:'Carga',message:'No se pudo cargar el paquete local.'},factory:{label:'Creación',message:'La creación del paquete local ha fallado.'},prepare:{label:'Preparación',message:'No se pudo preparar el paquete local.'},persist:{label:'Guardado',message:'No se pudo guardar el paquete local.'},publish:{label:'Catálogo local',message:'No se pudo publicar el paquete en el catálogo local.'},notify:{label:'Aviso de cambio',message:'El paquete está publicado, pero falló su aviso de cambio.'},render:{label:'Vista',message:'La vista del paquete local ha fallado.'},operation:{label:'Operación',message:'La operación del paquete local ha fallado.'}};
 type Inspection=Awaited<ReturnType<typeof inspectLocalRuntimePackage>>;
 type Installed=Awaited<ReturnType<typeof listLocalRuntimePackages>>['packages'];
 const button='min-h-10 rounded-lg border border-border px-3 text-sm text-text-primary hover:bg-elevated disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent-gold';
 
 export default function LocalRuntimePackagesPanel({onNavigate}:{onNavigate?:()=>void}){
   const {locale}=useTranslation(),es=locale==='es';
+  const runtimeErrors=useSyncExternalStore(subscribeRuntimeErrors,getRuntimeErrorSnapshot,getRuntimeErrorSnapshot);
   const [file,setFile]=useState<RuntimePackageInput>(),[inspection,setInspection]=useState<Inspection>();
   const [packages,setPackages]=useState<Installed>([]),[loaded,setLoaded]=useState(false);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
@@ -90,6 +93,11 @@ export default function LocalRuntimePackagesPanel({onNavigate}:{onNavigate?:()=>
       </li>)}</ul>}
       {packages.some(row=>row.status==='unavailable')&&<button type="button" disabled={busy} onClick={()=>void retry()} className={button}>{es?'Reintentar carga':'Retry loading'}</button>}
     </div>
+    <section className="space-y-2 border-t border-border pt-3" aria-label={es?'Errores de esta sesión':'Errors in this session'}>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-medium text-text-primary">{es?'Errores de esta sesión':'Errors in this session'}</h4><button type="button" className={button} disabled={!runtimeErrors.length} onClick={()=>clearRuntimeErrors()}>{es?'Limpiar errores':'Clear errors'}</button></div>
+      <p className="text-sm text-text-muted">{es?'Se borran al cerrar Writer. Limpiar sólo borra este historial; no repara el paquete. Reintenta en la herramienta o en la carga del paquete.':'Cleared when Writer closes. Clearing only removes this history; it does not repair the package. Retry in the tool or package loader.'}</p>
+      {!runtimeErrors.length?<p className="text-sm text-text-muted">{es?'No hay errores registrados.':'No errors recorded.'}</p>:<ul className="divide-y divide-border">{runtimeErrors.map(row=><li key={row.id} className="space-y-1 py-2"><p className="break-words text-sm text-text-primary">{row.namespace??row.packageNamespace} · {es?(row.kind==='app'?'App':row.kind==='tool'?'Herramienta':'Paquete'):(row.kind??'package')} · {es?runtimeErrorEs[row.phase].label:row.phase} · {row.count}</p><p className="break-all text-xs text-text-muted">{row.contentHash.slice(0,12)}{row.mountId?' · '+row.mountId:''}{row.operation?' · '+row.operation:''}</p><p className="text-sm text-text-muted">{es?runtimeErrorEs[row.phase].message:row.message} ({row.errorType})</p><button type="button" className={button} onClick={()=>clearRuntimeErrors({contentHash:row.contentHash})}>{es?'Limpiar este paquete':'Clear this package'}</button></li>)}</ul>}
+    </section>
     {busy&&<p role="status" className="text-sm text-text-muted">{es?'Procesando paquete…':'Processing package…'}</p>}
     {error&&<p role="alert" className="break-words text-sm text-danger">{error}</p>}
     {notice&&<p role="status" className="text-sm text-success">{notice}</p>}

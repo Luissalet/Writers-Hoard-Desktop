@@ -8,6 +8,7 @@ interface EngineErrorBoundaryProps {
   message: string;
   retryLabel: string;
   detailsLabel: string;
+  onError?: (error: Error, info: ErrorInfo) => void;
 }
 
 interface EngineErrorBoundaryState {
@@ -27,6 +28,7 @@ export default class EngineErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('Engine render failed', error, info);
+    try { this.props.onError?.(error, info); } catch { /* Diagnostics never replace the engine fallback. */ }
   }
 
   componentDidUpdate(previous: EngineErrorBoundaryProps): void {

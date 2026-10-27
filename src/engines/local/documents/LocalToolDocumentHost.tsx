@@ -1,3 +1,4 @@
+import LocalRuntimeErrorBoundary from '../LocalRuntimeErrorBoundary';
 import LocalToolPendingBoundary from '../LocalToolPendingBoundary';
 import LocalToolFocusHost from '../LocalToolFocusHost';
 import LocalToolContextMenuHost from '../LocalToolContextMenuHost';
@@ -33,16 +34,17 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  const record=useLiveQuery(async()=>({read:await readSourceToolDocument({projectId,eraId},documentId,namespace).catch(reason=>{if(reason instanceof Error&&reason.message==='project_missing')return undefined;throw reason;}),project:await db.projects.get(projectId)}),[projectId,eraId,documentId,namespace]);
  const outerPending=useContext(LocalToolAtomPendingContext),pendingTokens=useRef(new Set<string>()),[hasPending,setHasPending]=useState(false);
  const reportPending=useMemo(()=>(token:string,pending:boolean)=>{if(pending)pendingTokens.current.add(token);else pendingTokens.current.delete(token);setHasPending(pendingTokens.current.size>0);outerPending?.(token,pending);},[outerPending]);
- const retained=useRef<{document:NonNullable<NonNullable<typeof record>['read']>['document'];definition:LocalToolDefinition}|undefined>(undefined);
+ const retained=useRef<{document:NonNullable<NonNullable<typeof record>['read']>['document'];definition:LocalToolDefinition;contentHash:string|null}|undefined>(undefined);
  const freshDocument=record?.read?.document,document=freshDocument??(retainPresentation?retained.current?.document:undefined);let definition:LocalToolDefinition|undefined;let error='';if(record?.project&&document)try{definition=resolveProjectLocalTool(document.namespace,record.project);if(!definition.document)throw Error('local_tool_document_host_required');}catch(reason){error=String(reason);}
  // A compatible pin may replace the Component type. Keep the actual pending
  // editor mounted until its own recovery controls resolve the draft; authority
  // still comes from the current pin and a newly issued readonly client.
- const heldRelease=(retainPresentation||!!definition?.app)&&hasPending&&!!retained.current&&definition!==retained.current.definition;
- if(heldRelease)definition=retained.current!.definition;
- if(definition&&document&&!heldRelease)retained.current={document,definition};if(!definition&&retainPresentation)definition=retained.current?.definition;
- const allowed=!allowedNamespaces||!!document&&allowedNamespaces.includes(document.namespace);
  const hash=document?record?.project?.localToolInstallations?.[document.namespace]?.contentHash??null:null;
+ let presentationHash=hash;
+ const heldRelease=(retainPresentation||!!definition?.app)&&hasPending&&!!retained.current&&definition!==retained.current.definition;
+ if(heldRelease){definition=retained.current!.definition;presentationHash=retained.current!.contentHash;}
+ if(definition&&document&&!heldRelease)retained.current={document,definition,contentHash:hash};if(!definition&&retainPresentation){definition=retained.current?.definition;presentationHash=retained.current?.contentHash??null;}
+ const allowed=!allowedNamespaces||!!document&&allowedNamespaces.includes(document.namespace);
  const canEdit=!!freshDocument&&!error&&!heldRelease&&allowed&&!!definition&&!!record?.project?.enabledEngines.includes('local-tool-'+document?.namespace)&&!readOnly&&(view!=='embed'||interactive&&definition.document?.embed==='interactive');
  const parentNavigate=parent?.navigate,parentOpenBeside=parent?.openBeside,documentNamespace=document?.namespace;
  const navRef=useRef({parentNavigate,parentOpenBeside});navRef.current={parentNavigate,parentOpenBeside};
@@ -79,7 +81,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
   {blocked&&<p role="alert" className="text-sm text-danger">{es?'Guarda o revisa el borrador pendiente antes de cambiar de vista.':'Save or review the pending draft before changing views.'}</p>}
   {error&&<p role="status" className="text-sm text-text-muted">{es?'Fuente no disponible. Se conserva el contenido guardado.':'Source unavailable. Saved content is preserved.'}</p>}
   <LocalToolAtomPendingContext.Provider value={reportPending}><LocalToolHostAncestors.Provider value={[...ancestors,identity]}><EnginePaneContext.Provider value={pane}><LocalToolUndoBoundary data-tool-editor-surface data-engine-pane-id={instanceId} onFocusCapture={()=>activateEnginePane(instanceId)} onPointerDownCapture={()=>activateEnginePane(instanceId)}>
-   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:<LocalToolTutorialHost definition={definition!} context={focusContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{tutorialContext=><LocalToolContextMenuHost context={tutorialContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{menuContext=><LocalToolPendingBoundary><Component key={retainPresentation||definition?.app?documentId:`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={{...menuContext,...(componentContext.app?{app:componentContext.app}:{})}}/></LocalToolPendingBoundary>}</LocalToolContextMenuHost>}</LocalToolTutorialHost>}
+   {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:<LocalToolTutorialHost definition={definition!} context={focusContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{tutorialContext=><LocalToolContextMenuHost context={tutorialContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{menuContext=><LocalRuntimeErrorBoundary namespace={document.namespace} contentHash={presentationHash}><LocalToolPendingBoundary><Component key={retainPresentation||definition?.app?documentId:`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={{...menuContext,...(componentContext.app?{app:componentContext.app}:{})}}/></LocalToolPendingBoundary></LocalRuntimeErrorBoundary>}</LocalToolContextMenuHost>}</LocalToolTutorialHost>}
   </LocalToolUndoBoundary></EnginePaneContext.Provider></LocalToolHostAncestors.Provider></LocalToolAtomPendingContext.Provider>
   {fullscreen&&<Modal open fullscreen title={document.title} busy={busy} dismissible={false} onClose={()=>void changeFullscreen(false)}><div className="space-y-3 p-5"><button type="button" className="min-h-10 rounded-lg border border-border px-3 text-sm" disabled={busy} onClick={()=>void changeFullscreen(false)}>{es?'Guardar y volver':'Save and return'}</button>{blocked&&<p role="alert">{es?'El borrador sigue pendiente.':'The draft is still pending.'}</p>}<LocalToolDocumentHost projectId={projectId} eraId={eraId} documentId={documentId} namespace={namespace} view="fullscreen" readOnly={readOnly} chrome={false}/></div></Modal>}
  </section>}</LocalToolFocusHost>;
