@@ -111,6 +111,8 @@ export interface Project {
   pinned?: boolean;
   localToolContracts?: import('@/engines/local/stateCodec').LocalToolContracts;
   localToolInstallations?: import('@/engines/local/installations').LocalToolInstallations;
+  /** An explicit normal-project trial; keeping removes only this marker. */
+  localRuntimeTrial?: import('@/engines/local/trialTypes').LocalRuntimeTrial;
   worldEras?: import('@/services/worldEras/types').WorldEra[];
   workspaceAppearance?: import('@/services/workspaceAppearance/types').WorkspaceAppearance;
   createdAt: number;

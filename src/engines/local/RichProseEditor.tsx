@@ -1,4 +1,5 @@
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {flushSync} from 'react-dom';
 import type {Editor} from '@tiptap/core';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import {useTranslation} from '@/i18n/useTranslation';
@@ -31,7 +32,7 @@ function RichProseEditor({client,field,label,readOnly}:LocalToolRichProseProps&{
  useLayoutEffect(()=>{draftRef.current=draft;live.current={state,draft,reading,readOnly};},[state,draft,reading,readOnly]);
  useLayoutEffect(()=>{session.active=true;return()=>{session.active=false;session.generation++;session.reader?.abort();};},[session]);
  useLayoutEffect(()=>{if(editor&&!editor.isDestroyed)editor.setEditable(!readOnly&&!state.busy,false);},[editor,state.busy,readOnly]);
- const save=useCallback(async()=>{const current=live.current;if(current.readOnly||current.reading||current.state.busy)return false;if(!current.draft)return true;const captured=current.draft;const ok=await current.state.apply([{type:'set',field,value:richProseHtml(captured.html)}],captured.baseline);if(ok&&session.active&&draftRef.current===captured)setDraft(undefined);return ok;},[field,session]);
+ const save=useCallback(async()=>{const current=live.current;if(current.readOnly||current.reading||current.state.busy)return false;if(!current.draft)return true;const captured=current.draft;const ok=await current.state.apply([{type:'set',field,value:richProseHtml(captured.html)}],captured.baseline);if(ok&&session.active&&draftRef.current===captured)flushSync(()=>setDraft(undefined));return ok;},[field,session]);
  const pending=!!draft||reading||state.busy;
  useEffect(()=>{if(pending)return registerPendingFlusher('sdk-rich-prose:'+id,save);},[id,save,pending]);
  const change=useCallback((html:string)=>{const snapshot=live.current.state.snapshot;if(!snapshot||live.current.readOnly||live.current.state.busy)return;setDraft(current=>({html,baseline:current?.baseline??structuredClone(snapshot)}));},[]);

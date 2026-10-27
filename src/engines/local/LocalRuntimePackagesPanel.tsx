@@ -1,3 +1,4 @@
+import {LocalRuntimeTrialActions} from './RuntimeTrialControls';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {useTranslation} from '@/i18n/useTranslation';
 import {onDataChanged} from '@/engines/_shared/dataChanged';
@@ -9,7 +10,7 @@ type Inspection=Awaited<ReturnType<typeof inspectLocalRuntimePackage>>;
 type Installed=Awaited<ReturnType<typeof listLocalRuntimePackages>>['packages'];
 const button='min-h-10 rounded-lg border border-border px-3 text-sm text-text-primary hover:bg-elevated disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent-gold';
 
-export default function LocalRuntimePackagesPanel(){
+export default function LocalRuntimePackagesPanel({onNavigate}:{onNavigate?:()=>void}){
   const {locale}=useTranslation(),es=locale==='es';
   const [file,setFile]=useState<RuntimePackageInput>(),[inspection,setInspection]=useState<Inspection>();
   const [packages,setPackages]=useState<Installed>([]),[loaded,setLoaded]=useState(false);
@@ -85,6 +86,7 @@ export default function LocalRuntimePackagesPanel(){
       {!loaded?<p className="text-sm text-text-muted">{es?'Cargando paquetes…':'Loading packages…'}</p>:!packages.length?<p className="text-sm text-text-muted">{es?'Aún no hay paquetes instalados.':'No packages installed yet.'}</p>:<ul className="divide-y divide-border">{packages.map(row=><li key={row.manifest.contentHash} className="flex flex-wrap items-start justify-between gap-3 py-3">
         <div className="min-w-0 flex-1 space-y-1"><p className="break-words text-sm text-text-primary">{row.manifest.namespace} · {row.manifest.version}</p><p className="break-all text-xs text-text-muted">{row.manifest.contentHash.slice(0,12)} · {row.bytes.toLocaleString(locale)} bytes</p>{row.status==='unavailable'&&<p className="break-words text-sm text-warning">{es?'No disponible en esta sesión':'Unavailable in this session'}{row.error?': '+row.error.message:''}</p>}</div>
         <button type="button" disabled={busy} onClick={()=>void download(row.manifest.contentHash)} className={button} aria-label={`${es?'Descargar paquete':'Download package'} · ${row.manifest.namespace} · ${row.manifest.version}`}>{es?'Descargar paquete':'Download package'}</button>
+        <LocalRuntimeTrialActions row={row} onNavigate={onNavigate}/>
       </li>)}</ul>}
       {packages.some(row=>row.status==='unavailable')&&<button type="button" disabled={busy} onClick={()=>void retry()} className={button}>{es?'Reintentar carga':'Retry loading'}</button>}
     </div>

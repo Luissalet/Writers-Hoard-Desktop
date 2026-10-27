@@ -1,3 +1,4 @@
+import {withoutLocalRuntimeTrial} from '@/engines/local/trialTypes';
 import {validateManuscriptContents,writingSelection} from '@/engines/writings/manuscripts';
 import type { Project, WorldMap, MapPin, Writing } from '@/types';
 import { PROJECT_SETTING_PREFIXES } from '@/db/operations';
@@ -252,6 +253,6 @@ export async function remapDuplicateSnapshot(snapshot:ProjectDuplicateSnapshot,t
     if(which[0]==='proofreaderDismissed'&&typeof value==='string'&&value){const parsed=JSON.parse(value) as unknown;const checks:Record<string,string>={'seed-without-payoff':'seed','writing-outside-outline':'wr','character-disappears':'codex','scene-without-pov':'scene','relationship-broken-endpoint':'relationships','stale-draft':'wr'};if(Array.isArray(parsed))value=JSON.stringify(parsed.map(id=>{if(typeof id!=='string')return id;const split=id.indexOf(':'),kind=id.slice(0,split),rest=id.slice(split+1);if(checks[kind])return kind+':'+clone.remap(rest,checks[kind]);if(kind==='beat-without-scene'){const marker=rest.indexOf(':');return kind+':'+rest.slice(0,marker+1)+clone.remap(rest.slice(marker+1),'beat');}return id;}));}
     return{...input,id:`set_${targetKey}`,key:targetKey,value};
   });
-  const project={...clone.metadata(),id:targetProjectId,title,children:[],pinned:false,createdAt:Date.now(),updatedAt:Date.now()};
+  const project={...withoutLocalRuntimeTrial(clone.metadata()),id:targetProjectId,title,children:[],pinned:false,createdAt:Date.now(),updatedAt:Date.now()};
   return {project,parent:snapshot.parent,tables};
 }

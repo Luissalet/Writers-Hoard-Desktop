@@ -24,7 +24,7 @@ export default function LocalAppDocument({client,context}:LocalToolProps<LocalTo
  useLayoutEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useLayoutEffect(()=>{outerPending?.('local-app-members',anyPending());return()=>outerPending?.('local-app-members',false);},[outerPending,pendingVersion]);
  const hasPending=anyPending();
- useEffect(()=>hasPending?registerPendingFlusher('local-app-'+crypto.randomUUID(),async()=>!anyPending()):undefined,[hasPending]);
+ useEffect(()=>hasPending?registerPendingFlusher('local-app-'+crypto.randomUUID(),async()=>!anyPending(),true):undefined,[hasPending]);
  useEffect(()=>{if(!anyPending())setDetails(context?.app);},[context?.app,pendingVersion]);
  const app=details,raw=state.snapshot?.data,children=raw&&typeof raw==='object'&&!Array.isArray(raw)&&Array.isArray(raw.children)?raw.children as unknown as LocalAppMember[]:undefined;
  useLayoutEffect(()=>{

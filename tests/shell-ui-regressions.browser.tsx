@@ -7,6 +7,7 @@
 
 import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import '@/engines';
 import Modal from '@/components/common/Modal';
 import IconPicker from '@/components/common/IconPicker';
@@ -98,7 +99,7 @@ export async function testShellUiRegressions(): Promise<string[]> {
     let saved: string[] | null = null;
     const root = createRoot(host);
     const render = (project: Project) => root.render(
-      <EngineManager open project={project} onClose={() => {}} onUpdate={async ({ enabledEngines }) => { saved = enabledEngines; }} />,
+      <MemoryRouter><EngineManager open project={project} onClose={() => {}} onUpdate={async ({ enabledEngines }) => { saved = enabledEngines; }} /></MemoryRouter>,
     );
     await act(async () => { render(base); await wait(); });
     const disables = () => document.querySelectorAll<HTMLButtonElement>(`[role="dialog"] button[aria-label="${t('engines.disable')}"]`);

@@ -1,3 +1,4 @@
+import {RuntimeTrialBanner} from '@/engines/local/RuntimeTrialControls';
 import { LocalToolAppliedThemeProvider } from '@/engines/local/appliedTheme';
 import {WorkspaceFocusContext,useWorkspaceFocusChrome} from './workspaceFocus';
 import WorldEraToolbar from '@/services/worldEras/WorldEraToolbar';
@@ -167,6 +168,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
     finally { setBusy(false); }
   };
   return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="project-workspace">
+    <RuntimeTrialBanner key={projectId} projectId={projectId}/>
     <div {...focusChrome} data-tour="project-workspace" className="flex flex-wrap items-center justify-end gap-2 border-b border-border bg-deep px-4 py-2">
       <div className="mr-auto flex min-w-0 flex-wrap gap-2"><button type="button" className={button} data-testid="workspace-library-open" data-tour="workspace-library" onClick={() => { setLibraryEraId(focusedEra()); setLibraryOpen(true); }}><Library size={15} aria-hidden="true" />{libraryCopy[locale].title}</button><button type="button" className={button} data-testid="workspace-archive" onClick={() => { setArchiveEraId(focusedEra()); setArchiveOpen(true); }}><Archive size={15} aria-hidden="true" />{copy.archive}</button><ProjectSoundtrack key={projectId} projectId={projectId} locale={locale} />{lastUndo && <button type="button" className={button} data-testid="workspace-undo-last" title={copy.undoLast.replace('{label}', lastUndo.label)} onClick={() => void undoLast(projectId)}><Undo2 size={15} aria-hidden="true" /><span className="max-w-48 truncate">{copy.undoLast.replace('{label}', lastUndo.label)}</span></button>}</div>
       {split && <span className="mr-auto text-xs text-text-muted">{copy.help}</span>}

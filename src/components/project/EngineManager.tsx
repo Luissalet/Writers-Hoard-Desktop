@@ -602,7 +602,7 @@ export default function EngineManager({
             )}
           </section>
 
-          <LocalToolReleaseManager projectId={project.id}/>
+          <LocalToolReleaseManager projectId={project.id} onNavigate={onClose}/>
 
           {/* ── Actions ── */}
           <div className="flex justify-end gap-2 border-t border-border pt-4">

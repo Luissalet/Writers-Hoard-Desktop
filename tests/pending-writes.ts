@@ -79,6 +79,35 @@ export async function runPendingWriteTests(): Promise<string[]> {
   assert(getPendingWritesSnapshot().dirty === 0, 'unmounted owners must leave the dirty ledger');
   passed.push('Pending writes: close flush drains registered editors');
 
+  const savedDraft = deferred<void>();
+  let resolvedDraft = false;
+  let saves = 0;
+  let checks = 0;
+  // Register the check first: registration order must not race a valid save.
+  const unregisterCheck = registerPendingFlusher('pending-test:draft-check', async () => {
+    checks += 1;
+    return resolvedDraft;
+  }, true);
+  const unregisterSave = registerPendingFlusher('pending-test:draft-save', async () => {
+    saves += 1;
+    await trackPendingWrite(savedDraft.promise, undefined, 'pending-test:draft-write');
+    resolvedDraft = true;
+    return true;
+  });
+  const draftFlush = flushPendingWrites(100);
+  savedDraft.resolve();
+  const draftResult = await draftFlush;
+  unregisterCheck();
+  unregisterSave();
+  assert(draftResult.ok && saves === 1 && checks === 1, 'a draft check must observe the completed save without repeating it');
+  passed.push('Pending writes: final draft checks follow a successful save');
+
+  const unregisterUnresolved = registerPendingFlusher('pending-test:unresolved-draft', async () => false, true);
+  const unresolved = await flushPendingWrites(100);
+  unregisterUnresolved();
+  assert(!unresolved.ok && !unresolved.timedOut && getPendingWritesSnapshot().dirty === 0, 'an unresolved draft must still refuse continuation');
+  passed.push('Pending writes: unresolved final drafts still refuse continuation');
+
   const unregisterStuck = registerPendingFlusher(
     'pending-test:stuck',
     () => new Promise<boolean>(() => undefined),

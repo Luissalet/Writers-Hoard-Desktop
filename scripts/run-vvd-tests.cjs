@@ -250,6 +250,7 @@ const suites = [
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseProfileAndRaster', 180000],
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseBridge', 180000],
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseRuntimeRollback', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseRuntimeTrial', 180000],
   ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseProjection', 180000],
   ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseRemap', 180000],
   ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseCaptured', 180000],
