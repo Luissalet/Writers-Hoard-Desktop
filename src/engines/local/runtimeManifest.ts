@@ -2,6 +2,8 @@ import {LOCAL_RUNTIME_TRIAL_TOOLS} from './trialManifest';
 import type {BridgeTool} from '@/services/aiBridge/schema';
 export const LOCAL_RUNTIME_TOOLS:BridgeTool[]=[
   ...LOCAL_RUNTIME_TRIAL_TOOLS,
+  {"name":"wh_local_package_errors","group":"research","writes":false,"schema":{"type":"object","properties":{"namespace":{"type":"string","pattern":"^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$","maxLength":80},"contentHash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"phase":{"type":"string","enum":["load","factory","prepare","persist","publish","notify","render","operation"]}},"additionalProperties":false},"description":"List local runtime package errors from this renderer session only. Does not load code or read/write project data. Optional package/member namespace, content hash and phase filters match together."},
+  {"name":"wh_local_package_errors_clear","group":"research","writes":true,"schema":{"type":"object","properties":{"namespace":{"type":"string","pattern":"^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$","maxLength":80},"contentHash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"phase":{"type":"string","enum":["load","factory","prepare","persist","publish","notify","render","operation"]}},"additionalProperties":false},"description":"Explicitly clear matching local runtime errors from this renderer session only. Does not remove installed packages, pins, loader availability, boundary state or project data."},
   {
     "name": "wh_local_package_inspect",
     "group": "research",
