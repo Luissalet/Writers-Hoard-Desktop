@@ -263,3 +263,9 @@ Entregado el corte de claves ABS/listados y Story local sin doble origen. Ya pas
 Siguiente58: resolver los13fallos finitos fog/zones medidos (9API+4Canvas) y los3fallos de wrap aislados con origen0, preservando controles legacy y reutilizando proyección/máscara existentes. No afirmar todavía UI/eras/PNG/ruta reveal corregidos. El nombre custom al añadir landmark sigue guardado en journal pero no visible en lugar del default: residuo previo separado, con contrato/repro propios antes de otro cambio. No migrar automáticamente identidades locales antiguas ambiguas ni posiciones ya dañadas.
 
 La referencia Root Paper cut acredita selector persistente y acabado2D distinto sobre un volcán, no algoritmo/3D/export universal. Contrastar los renderers y alternativas propias existentes antes de definir el delta. Continúan Mediterráneo versionado y los demás residuos cartográficos/escritura/campaña/SDK del registro1095. Sin porcentajes ni exclusión automática por ONLINE.
+
+## Actualización58: zonas y niebla entregadas con alcance acotado
+
+La entrega58 resuelve los16fallos finitos medidos de zonas/niebla y los cuatro del consumidor Canvas de Carta, conservando los controles legacy. [Evidencia y estado](tasks/vvd1095/verification-fog-zones.md): fuente `08c8e0cd9af53651831d246957fbd809b1688879`, CAS58 aprobado e integración Main verificada; reapertura fría observada por UI y limpieza Browser completada por tres Undo hasta nueve ediciones.
+
+Siguen abiertos la comprobación del PNG público, routeReveal y los alcances no ensayados de proyección/eras/portables. No se deduce que necesiten todos un cambio: requieren contrato y observación propios. Continúan el nombre visible custom de landmarks, Paper cut, el starter Mediterráneo pendiente de acuerdo arquitectónico y los huecos de escritura/campaña/SDK, incluido el brief de ejecución SDK. Sin cierre global de1095 ni porcentaje de paridad. No repetir la actualización del manual56 como entrega nueva.
