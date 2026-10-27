@@ -769,7 +769,17 @@ The cover designer separately exports a complete print jacket as a one-sheet PDF
 
 Open Scale of this map in the saved map's controls to set its physical width. Height and cell size follow the existing grid. Apply keeps terrain, places and authored positions; Cancel discards the draft, Reset returns to the recipe's scale and Undo restores the last compatible calibration.
 
-Distances, areas, journeys and physical comparison outlines use the new scale. An inherited era shares Base settings until it has its own map variant. This changes measurements, not the number of cells: independent rectangular creation, growing or cropping the world and anchor handles remain separate work. [Usage, API, evidence and limits](tasks/vvd1095/verification-world-scale.md).
+Distances, areas, journeys and physical comparison outlines use the new scale. An inherited era shares Base settings until it has its own map variant. Calibration changes measurements while retaining the grid. [Usage, API, evidence and limits](tasks/vvd1095/verification-world-scale.md).
+
+## Create and resize finite map sheets
+
+New sheets accept independent physical width and height, including portrait maps. Resizing a saved sheet grows or crops its terrain at the current cell size, using nine anchors and sea or land fill. The preview shows effective dimensions and grid rounding; preparation supports progress, cancellation and compatible Undo. Overlapping terrain and source identities remain stable; growing after a crop fills the discarded area anew. Pins, journeys and authored places keep their source coordinates. Finite Map2D displays reader routes, endpoints, crossings, dots and trails without opposite-edge copies. The separate Cartography renderer still needs its own trail/dot correction and causal test; this delivery does not certify every chart/export consumer. [Usage, MCP, attributed verification and limits](tasks/vvd1095/verification-world-domain.md).
+
+Delivery55 source `7989bfcad06531da35182e71cbe769e90136ce02` is integrated in Main after exact CAS55 approval. Final Root quick,396 critical checks and build passed with108 Source guards/133 code paths stable; Main verified133 blobs and disk files exactly. The manual update has a separate whole-resource receipt. Source and API verification are linked below; overall parity and task1095 remain open.
+
+## Compose local apps from Source documents
+
+The local SDK exposes `defineLocalApp`, a Host for an app instance and a Surface for its documentary tools. Instances use existing Source state, releases, eras and Undo; shared children keep one document with separate mount clients. App routes belong to each viewport. Pending declared drafts survive detach or compatible release changes until their recovery controls resolve them. Optional publication presets export captured document content through the existing Wiki publisher. Four MCP tools list, describe, navigate a mounted instance and export its complete HTML. [API, examples, verification and remaining SDK capabilities](tasks/vvd1095/verification-sdk-app-host.md).
 
 ## Prepare several publishing files from one captured book
 
