@@ -27,13 +27,13 @@ const STATE: Record<FogOp, number> = { seen: FOG_SEEN, heard: FOG_HEARD, hide: F
  * `elevation` (km, one per cell) is what the 'land' start reads: land in ink,
  * the sea blank. Without it that start is blank paper.
  */
-export function fogMask(edits: readonly WorldEdit[], width: number, height: number, start: ReaderStart = 'blank', chapter: number | null = null, elevation?: ArrayLike<number>): Uint8Array {
+export function fogMask(edits: readonly WorldEdit[], width: number, height: number, start: ReaderStart = 'blank', chapter: number | null = null, elevation?: ArrayLike<number>, wrapX = true): Uint8Array {
   const mask = new Uint8Array(width * height).fill(start === 'ink' ? FOG_SEEN : start === 'sketch' ? FOG_HEARD : FOG_HIDDEN);
   if (start === 'land' && elevation && elevation.length === mask.length) for (let i = 0; i < mask.length; i++) if (elevation[i] > 0) mask[i] = FOG_SEEN;
   for (const edit of edits) {
     if (edit.kind !== 'fog' || !FOG_OPS.includes(edit.op)) continue;
     if (chapter !== null && edit.chapter !== undefined && edit.chapter > chapter) continue;
-    const brush = strokeMask(edit.stroke, width, height);
+    const brush = strokeMask(edit.stroke, width, height, wrapX);
     if (!brush || brush.empty) continue;
     const value = STATE[edit.op];
     brush.each((i, cover) => { if (cover >= 0.5) mask[i] = value; });
@@ -124,8 +124,9 @@ export function routeFogEdits(cells: readonly number[], width: number, radiusCel
 }
 
 /** One fog edit per piece of a line (see `splitLongLine`). */
-export function fogStrokeEdits(points: readonly { x: number; y: number }[], width: number, op: FogOp, radiusCells: number, chapter: number | null = null): WorldEdit[] {
-  return splitLongLine(points, width).map((pts): WorldEdit => {
+export function fogStrokeEdits(points: readonly { x: number; y: number }[], width: number, op: FogOp, radiusCells: number, chapter: number | null = null, wrapX = true): WorldEdit[] {
+  const pieces = wrapX ? splitLongLine(points, width) : points.length ? [points.map(p => ({ ...p }))] : [];
+  return pieces.map((pts): WorldEdit => {
     const stroke = { pts, radius: radiusCells, strength: 1, softness: 0.35 };
     return chapter === null ? { kind: 'fog', op, stroke } : { kind: 'fog', op, stroke, chapter };
   });

@@ -185,6 +185,14 @@ function worldSize(world: GeneratedWorld): { width: number; height: number; fini
   return { width, height: Math.max(1, Math.floor(width / 2)) };
 }
 
+/** Fog and zone consumers use local cells; the journal and writer keep ABS geometry. */
+function localReaderEdits(world: GeneratedWorld): WorldEdit[] {
+  const json = world.edits ?? '[]', edits = deserializeEdits(json), document = readDomainDocument(json);
+  if (!document) return edits;
+  const bounds = domainBounds(document);
+  return edits.map(edit => edit.kind === 'fog' || edit.kind === 'zone' ? projectDomainEdit(edit, bounds) : edit);
+}
+
 /** Integer cell coordinates inside the world, or a refusal that says the bounds. */
 function cellCoords(
   args: ToolArgs,
@@ -464,7 +472,7 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
     }
     const { fogMask } = await import('@/engines/worldgen/core/readerFog');
     const data = opened.world.data;
-    fog = { mask: fogMask(deserializeEdits(world.edits ?? '[]'), data.width, data.height, look.readerStart, chapter, data.elevation), width: data.width, height: data.height, mode: 'reader', ...(look.readerTowns === 'dots' ? { townDots: true } : {}) };
+    fog = { mask: fogMask(localReaderEdits(world), data.width, data.height, look.readerStart, chapter, data.elevation, data.domain?.topology !== 'finite'), width: data.width, height: data.height, mode: 'reader', ...(look.readerTowns === 'dots' ? { townDots: true } : {}) };
     const { storyEventsFrom, storyKnownBy } = await import('@/engines/worldgen/core/storyEvents');
     story = storyKnownBy(storyEventsFrom(deserializeEdits(world.edits ?? '[]')), chapter);
     // Towns as dots and the party's trail, as the look asks.
@@ -491,7 +499,7 @@ export async function whRenderWorldMap(args: ToolArgs): Promise<unknown> {
     else throw new BridgeError('bad-args', `hour must be a clock hour from 0 to 24 or one of ${Object.keys(MAP_HOURS).join(', ')}.`);
   }
   // The author's zones are part of the author's map, not of what the reader has seen.
-  const zones = readerView ? null : (await import('@/engines/worldgen/core/zones')).zonesFrom(deserializeEdits(world.edits ?? '[]'));
+  const zones = readerView ? null : (await import('@/engines/worldgen/core/zones')).zonesFrom(localReaderEdits(world));
   const {preparePlaceImages,webPlaceImageAdapter}=await import('@/engines/worldgen/cartography/placeImages');
   const canvasOptions={theme:themeById(themeId),width,height,view,geography:opened.world.geo,title:world.title,grid:look.grid,fog,story,zones,trail,townDots,layers:{...DEFAULT_LAYERS,...look.layers,...(look.contours===null?{}:{contours:false})},contourIntervalM:typeof look.contours==='number'?look.contours:null,reliefAmount:look.reliefAmount};
   const imageStyles=collectCartoPlaceImageStyles(opened.world.data,canvasOptions);
@@ -1430,7 +1438,7 @@ export async function whPaintReaderFog(args: ToolArgs): Promise<unknown> {
   }
   // A line longer than a quarter of the world is stored as several strokes, or it would fold across the sheet.
   const { fogStrokeEdits } = await import('@/engines/worldgen/core/readerFog');
-  const edits = fogStrokeEdits(pts, size.width, op, radius, chapter ?? null);
+  const edits = fogStrokeEdits(pts, size.width, op, radius, chapter ?? null, !size.finite);
   return appendEdit(
     args, world,
     edits,
@@ -1459,10 +1467,10 @@ export async function whReaderView(args: ToolArgs): Promise<unknown> {
     if (typeof args.chapter !== 'number' || !Number.isInteger(args.chapter) || args.chapter < 0) throw new BridgeError('bad-args', 'chapter must be a whole number from 0 up.');
     chapter = args.chapter;
   }
-  const edits = deserializeEdits(world.edits ?? '[]').filter((edit) => edit.kind === 'fog');
+  const edits = localReaderEdits(world).filter((edit) => edit.kind === 'fog');
   const land = await readerLand(args, world, start);
   if (land && 'pending' in land) return land.pending;
-  const mask = fogMask(edits, size.width, size.height, start, chapter, land?.elevation);
+  const mask = fogMask(edits, size.width, size.height, start, chapter, land?.elevation, !size.finite);
   const shares = fogShares(mask);
   const round = (v: number) => Math.round(v * 1000) / 1000;
   let cells: { x: number; y: number; state: 'seen' | 'heard' | 'hidden' }[] | undefined;
@@ -1519,7 +1527,7 @@ export async function whStoryChapters(args: ToolArgs): Promise<unknown> {
   const { storyEventsFrom, storyChapterFrames } = await import('@/engines/worldgen/core/storyEvents');
   const { fogMask, fogShares, fogChapters } = await import('@/engines/worldgen/core/readerFog');
   const { resolvePresentation } = await import('@/engines/worldgen/presentation');
-  const edits = deserializeEdits(world.edits ?? '[]');
+  const edits = localReaderEdits(world);
   const fog = edits.filter((edit) => edit.kind === 'fog');
   const start = resolvePresentation(world.presentation).readerStart;
   const land = await readerLand(args, world, start);
@@ -1529,7 +1537,7 @@ export async function whStoryChapters(args: ToolArgs): Promise<unknown> {
   const names = await codexNames(args, world, events.flatMap((event) => event.who ?? []));
   const brief = (event: { id: string; type: string; title: string; x: number; y: number; who?: string[] }) => ({ id: event.id, type: event.type, title: event.title, x: Math.round(event.x * 10) / 10, y: Math.round(event.y * 10) / 10, ...(event.who?.length ? { who: event.who.map((id) => names.get(id) ?? id) } : {}) });
   const frames = storyChapterFrames(events, fogChapters(fog)).map((frame) => {
-    const shares = fogShares(fogMask(fog, size.width, size.height, start, frame.chapter, land?.elevation));
+    const shares = fogShares(fogMask(fog, size.width, size.height, start, frame.chapter, land?.elevation, !size.finite));
     return { chapter: frame.chapter, happened: frame.happened.map(brief), planned: frame.planned.map(brief), map: { seen: round(shares.seen), heard: round(shares.heard), hidden: round(shares.hidden) } };
   });
   return { worldId: world.id, readerStart: start, chapters: frames };
@@ -2005,10 +2013,10 @@ export async function whListZones(args: ToolArgs): Promise<unknown> {
   const { unwrapRing } = await import('@/engines/worldgen/core/zones');
   return {
     worldId: world.id,
-    zones: zonesFrom(deserializeEdits(world.edits ?? '[]')).map((zone) => {
-      const shape = zoneShape(zone, size.width);
+    zones: zonesFrom(localReaderEdits(world)).map((zone) => {
+      const shape = zoneShape(zone, size.width, !size.finite);
       // The ruler's own area: on the sphere (shrinking toward the poles), or flat on a sheet.
-      const areaKm2 = Math.round(polygonAreaKm2(unwrapRing(zone.pts, size.width), size.width, size.height, undefined, world.params));
+      const areaKm2 = Math.round(polygonAreaKm2(unwrapRing(zone.pts, size.width, !size.finite), size.width, size.height, undefined, size.finite ? mapMetric(world) : world.params));
       return { ...zone, points: zone.pts.length, pts: zone.pts.map((p) => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })), areaKm2, center: { x: Math.round(shape.cx * 10) / 10, y: Math.round(shape.cy * 10) / 10 } };
     }),
   };
@@ -2025,7 +2033,7 @@ export async function whAddZone(args: ToolArgs): Promise<unknown> {
   const pts = strokeCells(args, size, 3, 'exact');
   let zone: import('@/engines/worldgen/core/zones').WorldZone;
   try { zone = normalizeZone({ id: `zone-${Date.now().toString(36)}${(typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))}`, name: args.name, pts, color: args.color, pattern: args.pattern, opacity: args.opacity }); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
-  if (zoneShape(zone, size.width).cells < 0.5) throw new BridgeError('bad-args', 'The corners enclose no ground: give at least three corners that are not in a line.');
+  if (zoneShape(zone, size.width, !size.finite).cells < 0.5) throw new BridgeError('bad-args', 'The corners enclose no ground: give at least three corners that are not in a line.');
   return appendEdit(args, world, { kind: 'zone', ...zone }, { zone }, `drew the zone "${zone.name}" on world "${world.title}"`);
 }
 
@@ -2035,14 +2043,14 @@ export async function whUpdateZone(args: ToolArgs): Promise<unknown> {
   await assertEngineEnabled(world.projectId, ENGINE);
   const { normalizeZone, zonesFrom, zoneShape } = await import('@/engines/worldgen/core/zones');
   const id = requireString(args, 'id');
-  const current = zonesFrom(deserializeEdits(world.edits ?? '[]')).find((zone) => zone.id === id);
+  const current = zonesFrom(localReaderEdits(world)).find((zone) => zone.id === id);
   if (!current) throw new BridgeError('not-found', `No zone "${id}" on this world; use wh_list_zones.`);
   const merged: Record<string, unknown> = { ...current };
   for (const key of ['name', 'color', 'pattern', 'opacity'] as const) if (args[key] !== undefined) merged[key] = args[key];
   if (args.points !== undefined) merged.pts = strokeCells(args, worldSize(world), 3, 'exact');
   let zone: import('@/engines/worldgen/core/zones').WorldZone;
   try { zone = normalizeZone(merged); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
-  if (args.points !== undefined && zoneShape(zone, worldSize(world).width).cells < 0.5) throw new BridgeError('bad-args', 'The corners enclose no ground: give at least three corners that are not in a line.');
+  if (args.points !== undefined && zoneShape(zone, worldSize(world).width, !worldSize(world).finite).cells < 0.5) throw new BridgeError('bad-args', 'The corners enclose no ground: give at least three corners that are not in a line.');
   return appendEdit(args, world, { kind: 'zone', ...zone }, { zone }, `changed the zone "${zone.name}" on world "${world.title}"`);
 }
 

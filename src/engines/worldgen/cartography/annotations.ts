@@ -103,7 +103,7 @@ export function drawAnnotations(
   // `sx` may wrap round the seam: lay the outline out linearly from the origin, as the fog does.
   if (ann.zones?.length) {
     const x0 = sx(0);
-    drawZones(ctx, ann.zones, W, (wx) => x0 + wx * k, sy, k, [-W, 0, W]);
+    drawZones(ctx, ann.zones, W, (wx) => x0 + wx * k, sy, k, world.domain?.topology === 'finite' ? [0] : [-W, 0, W], null, world.domain?.topology !== 'finite');
   }
 
   // ---- what the reader has not seen yet -------------------------------------
@@ -112,7 +112,7 @@ export function drawAnnotations(
   // fill either side.
   if (ann.fog) {
     const x0 = sx(0);
-    drawReaderFog(ctx, ann.fog, (wx) => x0 + wx * k, sy, true);
+    drawReaderFog(ctx, ann.fog, (wx) => x0 + wx * k, sy, world.domain?.topology !== 'finite');
   }
 
   // ---- the trade lens -------------------------------------------------------

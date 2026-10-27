@@ -1016,9 +1016,10 @@ export default function WorldView({
    */
   const fogEdits = useMemo(() => {
     void paintRev;
-    return (session.current?.edits ?? []).filter((edit) => edit.kind === 'fog');
+    const bounds = data?.domain?.bounds;
+    return (session.current?.edits ?? []).filter((edit) => edit.kind === 'fog').map(edit => bounds ? projectDomainEdit(edit, bounds) : edit);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
-  }, [paintRev, data]);
+  }, [paintRev, data, data?.domain?.revision]);
   /** Story events on the map, from the same edit list. */
   const storyEvents = useMemo(() => {
     void paintRev;
@@ -1032,9 +1033,10 @@ export default function WorldView({
   /** The author's named zones, from the same edit list. */
   const zones = useMemo(() => {
     void paintRev;
-    return zonesFrom(session.current?.edits ?? []);
+    const edits = session.current?.edits ?? [], bounds = data?.domain?.bounds;
+    return zonesFrom(bounds ? edits.map(edit => edit.kind === 'zone' ? projectDomainEdit(edit, bounds) : edit) : edits);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
-  }, [paintRev, data]);
+  }, [paintRev, data, data?.domain?.revision]);
   /** The first corner of a zone started from the map's menu. */
   const [zoneStart, setZoneStart] = useState<{ x: number; y: number } | null>(null);
   const readerChapters = useMemo(() => [...new Set([...fogChapters(fogEdits), ...storyEvents.flatMap((event) => event.chapter === undefined ? [] : [event.chapter])])].sort((a, b) => a - b), [fogEdits, storyEvents]);
@@ -1108,7 +1110,7 @@ export default function WorldView({
   const fogMode: ReaderFogLayer['mode'] | null = readerView ? 'reader' : tool.mode === 'fog' ? 'author' : null;
   const fogLayer = useMemo<ReaderFogLayer | undefined>(() => {
     if (!fogMode || !data) return undefined;
-    const mask = fogMask(fogEdits, data.width, data.height, readerStart, fogMode === 'reader' ? readerChapter : null, data.elevation);
+    const mask = fogMask(fogEdits, data.width, data.height, readerStart, fogMode === 'reader' ? readerChapter : null, data.elevation, data.domain?.topology !== 'finite');
     return { mask, width: data.width, height: data.height, mode: fogMode, ...(fogMode === 'reader' && readerTowns === 'dots' ? { townDots: true } : {}) };
   }, [fogMode, data, fogEdits, readerStart, readerChapter, readerTowns]);
   /** Towns as dots: the towns the reader has only heard of, as dots with no name. */
@@ -3229,7 +3231,7 @@ export default function WorldView({
                 zones={zones}
                 onUpdateZone={(zone) => { if (!applyEdit({ kind: 'zone', ...zone })) toast.error(t('worldgen.story.busy')); }}
                 onRemoveZone={(id) => { if (!applyEdit({ kind: 'zoneRemove', id })) toast.error(t('worldgen.story.busy')); }}
-                onFocusZone={(zone) => { const c = zoneShape(zone, data?.width ?? 1); zoomToPoint(c.cx, c.cy); }}
+                onFocusZone={(zone) => { const c = zoneShape(zone, data?.width ?? 1, data?.domain?.topology !== 'finite'); zoomToPoint(c.cx, c.cy); }}
                 worldLevels={levels}
                 onRollName={(style, roll) => (geography && data ? rollLabelName(geography, String(data.params.seed), style, roll, undefined, { painted: paintedNames(data.painted) }) : null)}
                 onWorldLevel={(kind, m) => {

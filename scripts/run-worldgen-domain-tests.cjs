@@ -34,6 +34,8 @@ const inputs = [
   'src/services/aiBridge/dispatch.ts',
   'src/engines/worldgen/core/storyEvents.ts',
   'src/engines/worldgen/core/domainDocument.ts',
+  'tests/worldgen-fog-zones-api.browser.ts', 'tests/worldgen-fog-zones-wrap.browser.ts',
+  'src/engines/worldgen/core/zones.ts', 'src/engines/worldgen/core/readerFog.ts',
 ];
 const hashes = () => inputs.map(file => ({ file, sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex') }));
 

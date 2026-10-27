@@ -19,12 +19,12 @@ function rgba(hex: string, a: number): string {
  * once for each copy offset in `offsets` (whole world widths, for a wrapping map).
  * `k` is pixels per cell, which sizes the names.
  */
-export function drawZones(ctx: Ctx, zones: readonly WorldZone[], W: number, sx: (wx: number) => number, sy: (wy: number) => number, k: number, offsets: readonly number[] = [0], selectedId: string | null = null): void {
+export function drawZones(ctx: Ctx, zones: readonly WorldZone[], W: number, sx: (wx: number) => number, sy: (wy: number) => number, k: number, offsets: readonly number[] = [0], selectedId: string | null = null, wrapX = true): void {
   if (!zones.length) return;
   for (const zone of zones) {
-    const ring = unwrapRing(zone.pts, W);
+    const ring = unwrapRing(zone.pts, W, wrapX);
     if (ring.length < 3) continue;
-    const shape = zoneShape(zone, W);
+    const shape = zoneShape(zone, W, wrapX);
     const strength = zone.opacity ?? 1;
     for (const off of offsets) {
       ctx.save();
@@ -63,8 +63,10 @@ export function drawZones(ctx: Ctx, zones: readonly WorldZone[], W: number, sx: 
       const size = Math.max(10, Math.min(26, span / Math.max(4, zone.name.length * 0.62)));
       let cx = shape.cx;
       const mid = ring.reduce((s, p) => s + p.x, 0) / ring.length;
-      while (cx - mid > W / 2) cx -= W;
-      while (cx - mid < -W / 2) cx += W;
+      if (wrapX) {
+        while (cx - mid > W / 2) cx -= W;
+        while (cx - mid < -W / 2) cx += W;
+      }
       const x = sx(cx + off), y = sy(shape.cy);
       ctx.font = `italic 600 ${Math.round(size)}px Georgia, "Times New Roman", serif`;
       ctx.textAlign = 'center';
