@@ -20,9 +20,11 @@ export const DUPLICATE_PROJECT_TABLES = [
 ] as const;
 export const DUPLICATE_CHILD_TABLES = { annotationReferences:['annotations','annotationId'], sceneCasts:['scenes','sceneId'], storyboardConnectors:['storyboards','storyboardId'] } as const;
 export const DUPLICATE_SHARED_TABLES = ['tags','referenceDocuments','referenceSections','referenceLenses'] as const;
+// Global executable inventory is declared for coverage, never captured/copied.
+export const DUPLICATE_GLOBAL_CODE_TABLES = ['localToolPackages'] as const;
 export const DUPLICATE_CACHE_TABLES = ['worldSnapshots','canonTiles','renderedTiles'] as const;
 export function duplicateSchemaCoverage() {
-  const declared = new Set<string>(['projects','settings','sharedCanonEntities',...DUPLICATE_PROJECT_TABLES,...Object.keys(DUPLICATE_CHILD_TABLES),...DUPLICATE_SHARED_TABLES,...DUPLICATE_CACHE_TABLES]);
+  const declared = new Set<string>(['projects','settings','sharedCanonEntities',...DUPLICATE_PROJECT_TABLES,...Object.keys(DUPLICATE_CHILD_TABLES),...DUPLICATE_SHARED_TABLES,...DUPLICATE_CACHE_TABLES,...DUPLICATE_GLOBAL_CODE_TABLES]);
   return { declared:[...declared].sort(), missing:db.tables.map(table=>table.name).filter(name=>!declared.has(name)), obsolete:[...declared].filter(name=>!db.tables.some(table=>table.name===name)) };
 }
 /** Requests use the supplied transaction even after asynchronous hashing by callers. */

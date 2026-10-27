@@ -1202,7 +1202,7 @@ export async function importFullZip(file: File): Promise<void> {
     // legacy JSON import follows for every table its format cannot hold. The
     // version test is the one `prepareReferenceLibrary` reads it by.
     const carriesLibrary = prepared.manifest.version >= 4;
-    const toClear = db.tables.filter(
+    const toClear = db.tables.filter(table => table.name !== 'localToolPackages').filter(
       (table) => carriesLibrary || !REFERENCE_LIBRARY_TABLES.has(table.name),
     );
     await db.transaction('rw', db.tables, async () => {

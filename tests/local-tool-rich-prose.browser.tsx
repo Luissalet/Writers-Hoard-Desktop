@@ -159,3 +159,48 @@ export async function testLocalToolRichProseBridge(){
   return ['Existing registered dispatcher describes/reads/applies rich strings and scoped receipts for Source, Owned and named era without changing native tool signatures'];
  }finally{await deleteProject(f.projectId);}
 }
+
+/** Real package loader + retained Source rich editor; existing fixture/editor/assert/cleanup helpers. */
+export async function testLocalToolRichProseRuntimeRollback(){
+ const [{default:runtimeRollbackV1},{default:runtimeRollbackV2}]=await Promise.all([import('./fixtures/local-tools/runtime-rollback-v1.whpackage.json?raw'),import('./fixtures/local-tools/runtime-rollback-v2.whpackage.json?raw')]);
+ const f=await proseFixture('runtime-rollback'),root=createRoot(document.getElementById('root')!),TOOL='qa.runtime-tool59',APP='qa.runtime-app59';
+ const packet1=JSON.parse(runtimeRollbackV1),packet2=JSON.parse(runtimeRollbackV2),hash1=packet1.manifest.contentHash,hash2=packet2.manifest.contentHash;
+ const input=(text:string)=>({name:'own-rich-runtime.whpackage.json',mime:'application/json',base64:btoa(Array.from(new TextEncoder().encode(text),byte=>String.fromCharCode(byte)).join(''))});
+ const call=async<T,>(name:string,args:Record<string,unknown>)=>{const reply=await runBridgeTool(name,args as never);assertProse(reply.ok,'Runtime rich call failed '+name+' '+JSON.stringify(reply));return reply.result as T;};
+ const read=()=>call<import('@/engines/local/sdk').LocalToolSnapshot<import('@/engines/local/sdk').LocalToolJson>>('wh_local_tool_read',{projectId:f.projectId,namespace:TOOL,documentId:childId});
+ let childId='';useLocaleStore.setState({locale:'en',loaded:true});
+ try{
+  const control=await f.client.read(),pendingBefore=getPendingWritesSnapshot().dirty;
+  for(const text of[runtimeRollbackV1,runtimeRollbackV2]){const installed=await call<{installed:boolean;rebuildRequired:boolean}>('wh_local_package_install',{file:input(text)});assertProse(installed.installed&&installed.rebuildRequired===false,'Actual runtime release did not install');}
+  for(const namespace of[TOOL,APP]){await call('wh_enable_engine',{projectId:f.projectId,engineId:'local-tool-'+namespace});await call('wh_local_tool_pin',{projectId:f.projectId,namespace,contentHash:hash2,expectedRevision:null});}
+  const child=await call<{id:string}>('wh_local_tool_document_create',{projectId:f.projectId,namespace:TOOL,title:'Own rich runtime child'}),owner=await call<{id:string}>('wh_local_tool_document_create',{projectId:f.projectId,namespace:APP,title:'Own rich runtime app'});childId=child.id;
+  const app=await call<import('@/engines/local/sdk').LocalToolSnapshot<import('@/engines/local/sdk').LocalToolJson>>('wh_local_tool_read',{projectId:f.projectId,namespace:APP,documentId:owner.id});
+  await call('wh_local_tool_state_apply',{projectId:f.projectId,namespace:APP,documentId:owner.id,baseline:app,actions:[{type:'list-insert',field:'children',item:{id:'own-rich-member',document:{kind:'local-tool',documentId:childId},variant:'panel'},afterId:null}]});
+  await act(async()=>{root.render(<StrictMode><MemoryRouter><LocalToolDocumentHost projectId={f.projectId} namespace={APP} documentId={owner.id}/></MemoryRouter></StrictMode>);await pause();});
+  await untilProse(()=>!!editorOf()&&getPendingWritesSnapshot().dirty===pendingBefore,'Actual runtime rich editor not ready');
+  const saved=await read(),editor=editorOf(),dom=editor.view.dom;
+  const bindings=Reflect.get(globalThis,'__runtime59P2Bindings') as Map<string,{client:import('@/engines/local/sdk').LocalToolClient<import('@/engines/local/sdk').LocalToolJson>;version:string}>;
+  assertProse(bindings.get(childId)?.version==='2.0.0','Real v2 package component not loaded');const oldClient=bindings.get(childId)!.client;
+  assertProse(JSON.stringify(await oldClient.read())===JSON.stringify(saved),'Emitted actual Source client does not read saved data');
+  await act(async()=>{editor.commands.setContent('<p>Own retained runtime draft Élodie 李明</p>');await pause();});
+  await untilProse(()=>getPendingWritesSnapshot().dirty>pendingBefore,'Actual rich draft not in normal pending ledger');
+  assertProse(JSON.stringify(await read())===JSON.stringify(saved),'Typing unexpectedly committed a draft');
+  await act(async()=>{await call('wh_local_tool_pin',{projectId:f.projectId,namespace:TOOL,contentHash:hash1,expectedRevision:1});await pause();});
+  await untilProse(()=>!dom.isConnected||bindings.get(childId)?.client!==oldClient,'Actual rollback binding did not transition');
+  let revoked=false;try{await oldClient.read();}catch{revoked=true;}assertProse(revoked,'Old Source writer lease not revoked');
+  // These three assertions protect capability, client-key and transient-loading teardown seams together.
+  assertProse(dom.isConnected&&editorOf()===editor&&!editor.isDestroyed,'RICH_RUNTIME_REBIND_REMOUNTED_TIPTAP');
+  assertProse(editor.getText()==='Own retained runtime draft Élodie 李明'&&!editor.isEditable,'RICH_RUNTIME_READONLY_LOST_DRAFT');
+  assertProse(button('Save briefing')?.matches(':disabled')&&button('Undo')?.matches(':disabled')&&button('Redo')?.matches(':disabled')&&document.querySelector<HTMLInputElement>('[data-testid="sdk-prose-image"]')?.disabled,'Readonly recovery left writing controls enabled');
+  assertProse(getPendingWritesSnapshot().dirty>pendingBefore,'Readonly lease lost normal pending owner');
+  const flushed=await (await import('@/services/pendingWrites')).flushPendingWrites();assertProse(!flushed.ok&&JSON.stringify(await read())===JSON.stringify(saved),'Readonly pending flush committed/cleared draft');
+  assertProse(JSON.stringify(await f.client.read())===JSON.stringify(control),'Rollback changed sibling compiled control');
+  await click(button('Discard changes'));await untilProse(()=>!dom.isConnected&&!document.querySelector('[data-runtime59-release="2.0.0"]')&&!!document.querySelector('[data-runtime59-saved]'),'Discard did not adopt actual selected v1');
+  await untilProse(()=>getPendingWritesSnapshot().dirty===pendingBefore,'Discard did not resolve normal pending ledger');assertProse(JSON.stringify(await read())===JSON.stringify(saved),'Discard altered saved Source data');
+  return ['Real runtime app+tool packages select through the normal registry, Source Host and pin writer; actual old client lease revokes','The exact Tiptap editor/draft survives capability readonly, client replacement and transient snapshot loading; editing and normal pending flush stay blocked','Normal Discard adopts selected v1 without saving the draft or changing sibling data; no stage/native/production-CSP claim'];
+ }finally{
+  await act(async()=>root.unmount());await deleteProject(f.projectId);
+  for(const hash of[hash1,hash2]){const row=await db.localToolPackages.get(hash);if(row){assertProse(row.namespace==='qa.runtime-package59','Refuse foreign fixture package cleanup');await db.localToolPackages.delete(hash);}}
+  assertProse(!await db.projects.get(f.projectId)&&!await db.localToolPackages.get(hash1)&&!await db.localToolPackages.get(hash2),'Own runtime regression cleanup incomplete');
+ }
+}

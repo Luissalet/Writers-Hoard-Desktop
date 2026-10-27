@@ -1,4 +1,5 @@
 import LocalToolReleaseManager from '@/engines/local/LocalToolReleaseManager';
+import {onDataChanged} from '@/engines/_shared/dataChanged';
 import { useEffect, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, GripVertical, Search, X } from 'lucide-react';
 import {
@@ -111,6 +112,10 @@ export default function EngineManager({
   onUpdate,
 }: EngineManagerProps) {
   const { t } = useTranslation();
+  const [,refreshCatalog] = useState(0);
+  useEffect(() => onDataChanged(detail => {
+    if (!detail.table || detail.table === 'localToolPackages') refreshCatalog(value => value + 1);
+  }), []);
   const [enabledIds, setEnabledIds] = useState<string[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [mode, setMode] = useState<ProjectMode>(project.mode);

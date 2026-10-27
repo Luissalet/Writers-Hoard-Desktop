@@ -1,3 +1,4 @@
+import {LOCAL_RUNTIME_TOOLS} from './runtimeManifest';
 import {LOCAL_APP_TOOLS} from './apps/manifest';
 import {LOCAL_TOOL_BLOCK_TOOLS} from './blocks/manifest';
 import {n,PROJECT_ID,s,type BridgeTool} from '@/services/aiBridge/schema';
@@ -9,6 +10,7 @@ const defaultExpected={type:'object',properties:{projectId:PROJECT_ID,namespace:
 const actionSchema=(type:string,properties:Record<string,unknown>)=>({type:'object',properties:{type:{type:'string',const:type},field:s('Stable field key declared in the codec.'),...properties},required:['type','field',...Object.keys(properties)],additionalProperties:false});
 const actionSchemas=[actionSchema('set',{value:actionValue}),actionSchema('unset',{}),actionSchema('map-set',{key:s('Map key.'),value:actionValue}),actionSchema('map-delete',{key:s('Map key.')}),actionSchema('list-insert',{item:{type:'object'},afterId:{type:['string','null']}}),actionSchema('list-update',{id:s('Stable item ID.'),item:{type:'object'}}),actionSchema('list-delete',{id:s('Stable item ID.')}),actionSchema('list-move',{id:s('Stable item ID.'),afterId:{type:['string','null']}})];
 export const LOCAL_TOOL_TOOLS:BridgeTool[]=[
+ ...LOCAL_RUNTIME_TOOLS,
  ...LOCAL_APP_TOOLS,
  {name:'wh_local_tool_default_get',group:'research',writes:false,description:'Read one opaque JSON preference shared by a tool across documents in a world. Presence is explicit, including stored null/false/zero/empty. Optional era validates context; the preference is world-wide. Reading never persists a fallback.',schema:{type:'object',properties:defaultScope,required:['namespace','key'],additionalProperties:false}},
  {name:'wh_local_tool_default_update',group:'research',writes:true,description:'Set one shared tool preference from its observed expected snapshot, or Undo/Redo using that key and an exact session receipt. Preserves disjoint keys, refuses incompatible same-key changes and can Undo to absence. Does not save Source notes or select a symbol. Set requires value and expected; undo/redo require receiptId.',schema:{type:'object',properties:{...defaultScope,action:{type:'string',enum:['set','undo','redo']},value:actionValue,expected:defaultExpected,receiptId:s('Exact preference session receipt for the same world/tool/key.')},required:['namespace','key','action'],additionalProperties:false}},

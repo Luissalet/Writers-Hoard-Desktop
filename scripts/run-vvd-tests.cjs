@@ -5,6 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const root = path.resolve(__dirname, '..');
+const runtimeFormatCheck = spawnSync(process.execPath, ['--test', 'tests/local-runtime-format.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (runtimeFormatCheck.status !== 0 || runtimeFormatCheck.error) process.exit(runtimeFormatCheck.status ?? 1);
+const runtimeColdCheck = spawnSync(process.execPath, ['tests/local-runtime-packages-native/run.cjs', 'cold', `vvd-runtime-${Date.now().toString(36)}-${process.pid}`], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 660000 });
+if (runtimeColdCheck.status !== 0 || runtimeColdCheck.error) process.exit(runtimeColdCheck.status ?? 1);
 const finiteKernelsCheck = spawnSync(process.execPath, ['tests/worldgen-finite-kernels.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (finiteKernelsCheck.status !== 0 || finiteKernelsCheck.error) process.exit(finiteKernelsCheck.status ?? 1);
 const finiteConsumersCheck = spawnSync(process.execPath, ['tests/worldgen-finite-consumers.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
@@ -245,6 +249,7 @@ const suites = [
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseDraftCas', 180000],
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseProfileAndRaster', 180000],
   ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseBridge', 180000],
+  ['local-tool-rich-prose.browser.tsx', 'testLocalToolRichProseRuntimeRollback', 180000],
   ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseProjection', 180000],
   ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseRemap', 180000],
   ['local-tool-rich-prose-portability.browser.tsx', 'testLocalToolRichProseCaptured', 180000],
