@@ -370,7 +370,7 @@ export function drawAnnotations(
     for (const mark of ann.story) {
       const baseX = x0 + mark.x * k, y = sy(mark.y);
       const span = W * k;
-      for (const off of [-span, 0, span]) {
+      for (const off of world.domain?.topology === 'finite' ? [0] : [-span, 0, span]) {
         const x = baseX + off;
         if (x < -40 || x > ctx.canvas.width + 200 || y < -20 || y > ctx.canvas.height + 20) continue;
         drawStoryMark(ctx, mark, x, y);

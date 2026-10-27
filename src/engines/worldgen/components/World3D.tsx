@@ -102,7 +102,7 @@ import {
 import { semanticZoomProfile } from '../core/semanticZoom';
 import { realmAnchors } from '../cartography/realmAnchors';
 import { editKey, realmEditKey, TERRAIN_HEIGHT_M } from '../core/edits';
-import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING } from '../core/labelShape';
+import { glyphBounds, labelGlyphs, labelAppearance, LABEL_DEFAULT_SPACING } from '../core/labelShape';
 import { drawStamp, isStampGlyph, STAMP_SIZES, type StampGlyph, type StampSize } from '../cartography/stampGlyphs';
 import {
   EARTH_KM, FLIGHT_MS, MIN_3D_SPAN_KM, MIN_SPAN_KM, fittedViewport, planeViewportDistanceRatio, type FlyMark, type FlyTarget,
@@ -509,7 +509,7 @@ interface ScreenMark {
   stamp?: { glyph: StampGlyph; size: StampSize };
   rank: number;
   /** For `text`: a painted label's shape (type size, angle, spacing, bend). */
-  shape?: { size: number; angle: number; spacing: number; curve: number };
+  shape?: { size: number; angle: number; spacing: number; curve: number; weight: number; italic: boolean; font: string; customInk: boolean };
   label: string;
   color: string;
   settlement?: Settlement;
@@ -1340,12 +1340,16 @@ export default function World3D({
     for (const pl of world.painted?.labels ?? []) {
       const key = pl.key ?? editKey('label', pl.x, pl.y), moved = world.painted?.moves?.[key];
       const at = place(moved?.x ?? pl.x, moved?.y ?? pl.y); if (!at) continue;
-      const caps = pl.style === 'region' || pl.style === 'range';
+      const appearance = labelAppearance(pl, {
+        caps: pl.style === 'region' || pl.style === 'range', italic: false, weight: 600,
+        color: pl.style === 'water' ? '#b2d6ec' : '#ffe9c2',
+        font: placeFont({ labelFont: pl.font }, '"Source Sans 3", system-ui, sans-serif'),
+      });
       out.push({
         x: at.x, y: at.y, kind: 'text', rank: -1,
-        label: caps ? pl.text.toUpperCase() : pl.text,
-        color: pl.style === 'water' ? '#b2d6ec' : '#ffe9c2',
-        shape: { size: Math.max(8, Math.min(48, pl.size ?? 12)), angle: pl.angle ?? 0, spacing: pl.spacing ?? LABEL_DEFAULT_SPACING[pl.style], curve: pl.curve ?? 0 },
+        label: appearance.text,
+        color: appearance.color,
+        shape: { size: Math.max(8, Math.min(48, pl.size ?? 12)), angle: pl.angle ?? 0, spacing: pl.spacing ?? LABEL_DEFAULT_SPACING[pl.style], curve: pl.curve ?? 0, weight: appearance.weight, italic: appearance.italic, font: appearance.font, customInk: pl.color !== undefined },
       });
     }
     if (geo && st.zoomInputs.showBorders) {
@@ -1512,14 +1516,14 @@ export default function World3D({
       }
       if (m.kind === 'text' && m.shape) {
         const { size, angle, spacing, curve } = m.shape;
-        ctx.font = letterFont(600, size);
+        ctx.font = `${m.shape.italic ? 'italic ' : ''}${letterFont(m.shape.weight, size, m.shape.font)}`;
         const chars = [...m.label], widths = chars.map((ch) => ctx.measureText(ch).width);
         const glyphs = labelGlyphs(widths, size * spacing, curve, angle, m.x, m.y);
         const box = glyphBounds(glyphs, widths, size);
         if (!fits(box.x, box.y, box.x + box.w, box.y + box.h)) continue;
         const align: CanvasTextAlign = ctx.textAlign, baseline: CanvasTextBaseline = ctx.textBaseline;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 3;
-        ctx.strokeStyle = LETTERING === 'map' ? MAP_HALO : 'rgba(6,8,13,0.88)'; ctx.fillStyle = LETTERING === 'map' ? MAP_INK : m.color;
+        ctx.strokeStyle = LETTERING === 'map' ? MAP_HALO : 'rgba(6,8,13,0.88)'; ctx.fillStyle = LETTERING === 'map' && !m.shape.customInk ? MAP_INK : m.color;
         for (const pass of [true, false]) glyphs.forEach((g, i) => {
           ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a);
           if (pass) ctx.strokeText(chars[i], 0, 0); else ctx.fillText(chars[i], 0, 0);

@@ -3,6 +3,8 @@ import { testWorldgenDomainWaypoints, trace as waypointTrace } from './worldgen-
 import { testWorldgenDomainMeasure, trace as measureTrace } from './worldgen-domain-measure.browser';
 import { testWorldgenDomainWaypointAxis, trace as axisTrace } from './worldgen-domain-waypoint-axis.browser';
 import { testWorldgenEraCacheCleanup, trace as cacheTrace } from './worldgen-era-cache-cleanup.browser';
+import { testWorldgenDomainRoadBoundary, trace as roadTrace } from './worldgen-domain-road-boundary.browser';
+import { testWorldgenDomainCoordinateFamilies, trace as coordinateTrace } from './worldgen-domain-coordinate-families.browser';
 
 declare global {
   interface Window {
@@ -10,12 +12,14 @@ declare global {
   }
 }
 
-const traces = [waypointTrace, measureTrace, axisTrace, cacheTrace];
+const traces = [coordinateTrace, waypointTrace, measureTrace, axisTrace, cacheTrace, roadTrace];
 void (async () => {
+  await testWorldgenDomainCoordinateFamilies();
   await testWorldgenDomainWaypoints();
   await testWorldgenDomainMeasure();
   await testWorldgenDomainWaypointAxis();
   await testWorldgenEraCacheCleanup();
+  await testWorldgenDomainRoadBoundary();
   const tests = traces.flatMap(trace => (trace.checks as { name: string; passed: boolean }[]).map(check => {
     if (!check.passed) throw Error(check.name);
     return check.name;

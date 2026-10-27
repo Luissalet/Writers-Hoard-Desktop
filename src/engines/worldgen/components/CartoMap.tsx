@@ -1046,6 +1046,7 @@ export default function CartoMap({
 function ZoomBtn({ label, onClick, title }: { label: string; onClick: () => void; title?: string }) {
   return (
     <button
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
       title={title}
       className="w-7 h-7 grid place-items-center rounded-md border border-white/20 bg-[#0b0e14]/92 text-white text-sm hover:bg-[#161b26] transition shadow-lg shadow-black/50"

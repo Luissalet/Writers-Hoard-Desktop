@@ -9,6 +9,8 @@ const finiteKernelsCheck = spawnSync(process.execPath, ['tests/worldgen-finite-k
 if (finiteKernelsCheck.status !== 0 || finiteKernelsCheck.error) process.exit(finiteKernelsCheck.status ?? 1);
 const finiteConsumersCheck = spawnSync(process.execPath, ['tests/worldgen-finite-consumers.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (finiteConsumersCheck.status !== 0 || finiteConsumersCheck.error) process.exit(finiteConsumersCheck.status ?? 1);
+const cartographyReaderCheck = spawnSync(process.execPath, ['tests/worldgen-cartography-reader.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });
+if (cartographyReaderCheck.status !== 0 || cartographyReaderCheck.error) process.exit(cartographyReaderCheck.status ?? 1);
 const domainAnchorsCheck = spawnSync(process.execPath, ['--experimental-strip-types', '--test', 'tests/worldgen-domain-anchors.test.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (domainAnchorsCheck.status !== 0 || domainAnchorsCheck.error) process.exit(domainAnchorsCheck.status ?? 1);
 const domainWorkflowsCheck = spawnSync(electron, ['scripts/run-worldgen-domain-tests.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
@@ -518,6 +520,9 @@ const suites = [
   ['world-travel-profile.browser.ts', 'testWorldTravelProfile'],
   ['world-map-eras.browser.ts', 'testWorldMapEras'],
   ['world-labels.browser.ts', 'testWorldLabels'],
+  ['world-label-format-core.browser.ts', 'testWorldLabelFormatCore', 60000, 'scripts/run-focused-browser-tests.cjs'],
+  ['world-label-format.browser.tsx', 'testWorldLabelFormatBridge', 60000, 'scripts/run-focused-browser-tests.cjs'],
+  ['world-label-format.browser.tsx', 'testWorldLabelFormatUI', 60000, 'scripts/run-focused-browser-tests.cjs'],
   ['world-stamps.browser.ts', 'testWorldStamps'],
   ['world-journey-playback.browser.ts', 'testWorldJourneyPlayback'],
   ['world-grid.browser.ts', 'testWorldGrid'],

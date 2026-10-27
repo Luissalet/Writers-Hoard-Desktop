@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { PaintedLabel } from '../core/edits';
 import { LABEL_CURVE_RANGE, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, LABEL_STYLE_IDS, type LabelChange } from '../core/labelShape';
+import { PLACE_LABEL_FONTS, type PlaceLabelFont } from '../core/placeStyleCatalog';
 
 const DEG = 180 / Math.PI;
 const defaults = (label: PaintedLabel) => ({ size: label.size ?? 12, angle: label.angle ?? 0, spacing: label.spacing ?? LABEL_DEFAULT_SPACING[label.style], curve: label.curve ?? 0 });
@@ -25,7 +26,7 @@ export default function LabelEditor({ label, onChange, onRemove }: {
   const pending = useRef<{ key: string; change: LabelChange } | null>(null);
   const typed = useRef<{ key: string; text: string; original: string } | null>(null);
   const timer = useRef(0);
-  const labelKey = label ? `${label.key}:${label.text}:${label.style}:${label.size}:${label.angle}:${label.spacing}:${label.curve}` : '';
+  const labelKey = label ? `${label.key}:${label.text}:${label.style}:${label.size}:${label.angle}:${label.spacing}:${label.curve}:${label.bold}:${label.italic}:${label.caps}:${label.color}:${label.font}` : '';
   // Follow the label when it changes elsewhere (its handles, undo, an agent).
   const [seen, setSeen] = useState(labelKey);
   if (seen !== labelKey) { setSeen(labelKey); setText(label?.text ?? ''); setShape(label ? defaults(label) : null); }
@@ -74,6 +75,40 @@ export default function LabelEditor({ label, onChange, onRemove }: {
             {t(`worldgen.paint.labelStyle.${id}`)}
           </button>
         ))}
+      </div>
+      <div className="grid grid-cols-1 gap-2">
+        {(['bold', 'italic', 'caps'] as const).map((field) => (
+          <label key={field} className="min-w-0 flex flex-col gap-1 text-xs text-white/70">
+            <span>{t(`worldgen.labels.${field}`)}</span>
+            <select data-testid={`label-${field}`} value={label[field] === undefined ? 'inherit' : String(label[field])}
+              onChange={(event) => onChange({ [field]: event.target.value === 'inherit' ? null : event.target.value === 'true' }, label.key)}
+              className="min-w-0 w-full rounded border border-white/15 bg-[#17191f] min-h-10 px-2 py-1 text-base text-white/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2">
+              <option value="inherit">{t('worldgen.labels.inherit')}</option>
+              <option value="false">{t('worldgen.labels.off')}</option>
+              <option value="true">{t('worldgen.labels.on')}</option>
+            </select>
+          </label>
+        ))}
+      </div>
+      <label className="flex flex-col gap-1 text-xs text-white/70">
+        <span>{t('worldgen.labels.font')}</span>
+        <select data-testid="label-font" value={label.font ?? 'inherit'}
+          onChange={(event) => onChange({ font: event.target.value === 'inherit' ? null : event.target.value as PlaceLabelFont }, label.key)}
+          className="w-full rounded border border-white/15 bg-[#17191f] min-h-10 px-2 py-1 text-base text-white/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2">
+          <option value="inherit">{t('worldgen.labels.inherit')}</option>
+          {PLACE_LABEL_FONTS.map((font) => <option key={font} value={font}>{t(`worldgen.place.font.${font}`)}</option>)}
+        </select>
+      </label>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-xs text-white/70">
+          <span>{t('worldgen.labels.color')}{label.color === undefined ? ` · ${t('worldgen.labels.inherit')}` : ''}</span>
+          <input type="color" data-testid="label-color" aria-label={t('worldgen.labels.color')} value={label.color ?? '#ffe9c2'}
+            onChange={(event) => onChange({ color: event.target.value }, label.key)} className="h-10 w-14 rounded border border-white/15 bg-black/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2" />
+        </label>
+        <button type="button" data-testid="label-color-inherit" aria-label={t('worldgen.labels.inheritColor')} onClick={() => onChange({ color: null }, label.key)}
+          className="rounded border border-white/15 bg-black/30 min-h-10 px-3 py-1 text-xs text-white/80 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2">{t('worldgen.labels.inherit')}</button>
+        <button type="button" data-testid="label-reset-format" onClick={() => onChange({ bold: null, italic: null, caps: null, color: null, font: null }, label.key)}
+          className="rounded border border-white/15 bg-black/30 min-h-10 px-3 py-1 text-xs text-white/80 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2">{t('worldgen.labels.resetFormat')}</button>
       </div>
       {slider('size', LABEL_SIZE_RANGE.min, LABEL_SIZE_RANGE.max, 1, shape.size, `${Math.round(shape.size)} px`, (v) => v)}
       {slider('angle', -180, 180, 1, Math.round(shape.angle * DEG), `${Math.round(shape.angle * DEG)}°`, (v) => Math.round(v / DEG * 1000) / 1000)}

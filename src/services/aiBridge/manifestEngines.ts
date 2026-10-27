@@ -1241,6 +1241,11 @@ Write a free-standing label on the map at a cell — the name of a region, a bod
         angleDegrees: { type: 'number', minimum: -180, maximum: 180, description: 'Rotation, clockwise on the map.' },
         spacing: { type: 'number', minimum: 0, maximum: 1, description: 'Extra space between letters as a share of the type size.' },
         curve: { type: 'number', minimum: -1, maximum: 1, description: 'Bend: positive arches up, negative bows down, 0 straight.' },
+        bold: { type: ['boolean', 'null'], description: 'Explicit bold (true 700, false 400); null inherits the style.' },
+        italic: { type: ['boolean', 'null'], description: 'Explicit italic; null inherits the style.' },
+        caps: { type: ['boolean', 'null'], description: 'Draw uppercase without changing authored text; null inherits the style.' },
+        color: { type: ['string', 'null'], pattern: '^#[0-9a-fA-F]{6}$', description: 'Ink #RRGGBB; null inherits the style.' },
+        font: { type: ['string', 'null'], enum: ['theme', 'serif', 'sans', 'mono', 'script', null], description: 'Existing font family; theme follows this view, null removes the override.' },
       },
       required: ['worldId', 'x', 'y', 'text'],
       additionalProperties: false,
@@ -1664,7 +1669,7 @@ Generated from the settlements (each opens farms, fisheries, pastures, logging c
     name: 'wh_list_labels',
     description:
       `List the reader's painted labels on a world with keys, place and shape.
-Each label's key (label:x,y, where it was first painted), text, style, current cell and any size, angleDegrees, spacing and curve. Use the key with wh_update_label, wh_move_place, wh_rename_place or wh_remove_place.`,
+Each label's key (label:x,y, where it was first painted), text, style, current cell and any size, angleDegrees, spacing, curve and sparse bold/italic/caps/color/font overrides. Use the key with wh_update_label, wh_move_place, wh_rename_place or wh_remove_place.`,
     writes: false,
     schema: { type: 'object', properties: { worldId: WORLD_ID }, required: ['worldId'], additionalProperties: false },
   },
@@ -1672,7 +1677,7 @@ Each label's key (label:x,y, where it was first painted), text, style, current c
     name: 'wh_update_label',
     description:
       `Change a painted label's text, style, size, angle, letter spacing or curve.
-Only the fields given change; the label keeps its place (use wh_move_place to move it). Undoable.`,
+Only the fields given change; null resets a bold/italic/caps/color/font override to the style. The label keeps its place (use wh_move_place to move it). Undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1685,6 +1690,11 @@ Only the fields given change; the label keeps its place (use wh_move_place to mo
         angleDegrees: { type: 'number', minimum: -180, maximum: 180, description: 'Rotation, clockwise on the map.' },
         spacing: { type: 'number', minimum: 0, maximum: 1, description: 'Extra space between letters as a share of the type size.' },
         curve: { type: 'number', minimum: -1, maximum: 1, description: 'Bend: positive arches up, negative bows down, 0 straight.' },
+        bold: { type: ['boolean', 'null'], description: 'Explicit bold (true 700, false 400); null inherits the style.' },
+        italic: { type: ['boolean', 'null'], description: 'Explicit italic; null inherits the style.' },
+        caps: { type: ['boolean', 'null'], description: 'Draw uppercase without changing authored text; null inherits the style.' },
+        color: { type: ['string', 'null'], pattern: '^#[0-9a-fA-F]{6}$', description: 'Ink #RRGGBB; null inherits the style.' },
+        font: { type: ['string', 'null'], enum: ['theme', 'serif', 'sans', 'mono', 'script', null], description: 'Existing font family; theme follows this view, null removes the override.' },
       },
       required: ['worldId', 'key'],
       additionalProperties: false,

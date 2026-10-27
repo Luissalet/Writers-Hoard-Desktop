@@ -4,6 +4,49 @@
  * 3D overlay) so a label set in one reads the same in the others.
  */
 
+import { PLACE_LABEL_FONTS, type PlaceLabelFont } from './placeStyleCatalog';
+
+export interface LabelFormat {
+  bold?: boolean;
+  italic?: boolean;
+  caps?: boolean;
+  color?: string;
+  font?: PlaceLabelFont;
+}
+export type LabelFormatChange = { [K in keyof LabelFormat]?: LabelFormat[K] | null };
+export const LABEL_FORMAT_FIELDS = ['bold', 'italic', 'caps', 'color', 'font'] as const;
+
+/** Sparse overrides; null resets one field without changing the others. */
+export function normalizeLabelFormat(input: Record<string, unknown>): LabelFormatChange {
+  const out: LabelFormatChange = {};
+  for (const field of ['bold', 'italic', 'caps'] as const) {
+    const value = input[field];
+    if (value === undefined) continue;
+    if (value !== null && typeof value !== 'boolean') throw new Error(`${field} must be boolean or null.`);
+    out[field] = value;
+  }
+  if (input.color !== undefined) {
+    if (input.color !== null && (typeof input.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(input.color))) throw new Error('color must be #RRGGBB or null.');
+    out.color = input.color === null ? null : (input.color as string).toLowerCase();
+  }
+  if (input.font !== undefined) {
+    if (input.font !== null && !PLACE_LABEL_FONTS.includes(input.font as PlaceLabelFont)) throw new Error(`font must be one of ${PLACE_LABEL_FONTS.join(', ')} or null.`);
+    out.font = input.font as PlaceLabelFont | null;
+  }
+  return out;
+}
+
+/** Callers resolve the existing font catalog and supply their own legacy defaults. */
+export function labelAppearance(label: LabelFormat & { text: string }, defaults: { weight: number; italic: boolean; caps: boolean; color: string; font: string }) {
+  return {
+    text: (label.caps ?? defaults.caps) ? label.text.toUpperCase() : label.text,
+    weight: label.bold === undefined ? defaults.weight : label.bold ? 700 : 400,
+    italic: label.italic ?? defaults.italic,
+    color: label.color ?? defaults.color,
+    font: defaults.font,
+  };
+}
+
 export const LABEL_SIZE_RANGE = { min: 8, max: 48 } as const;
 /** Extra space between letters, as a share of the type size. */
 export const LABEL_SPACING_RANGE = { min: 0, max: 1 } as const;
@@ -55,7 +98,7 @@ export function glyphBounds(glyphs: LabelGlyph[], widths: number[], size: number
   return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : { x: 0, y: 0, w: 0, h: 0 };
 }
 
-export interface LabelChange {
+export interface LabelChange extends LabelFormatChange {
   text?: string;
   style?: 'region' | 'water' | 'range' | 'settlement' | 'note';
   size?: number;
@@ -70,7 +113,7 @@ export const LABEL_DEFAULT_SPACING: Record<typeof LABEL_STYLE_IDS[number], numbe
 
 /** Validates a label change; refuses rather than clamps so callers learn the range. */
 export function normalizeLabelChange(input: Record<string, unknown>): LabelChange {
-  const out: LabelChange = {};
+  const out: LabelChange = normalizeLabelFormat(input);
   if (input.text !== undefined) {
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('text must be a non-empty string.');
     out.text = input.text.trim().slice(0, 120);
