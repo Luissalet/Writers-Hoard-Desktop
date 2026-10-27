@@ -84,7 +84,7 @@ import { describeDuration, MODE_KEY, straightLineEstimates, type TravelProfile }
 import { keyboardNudge } from '../core/keyNav';
 import { legendFor } from '../cartography/legend';
 import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
-import { glyphBounds, labelGlyphs, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
+import { glyphBounds, labelGlyphs, labelAppearance, LABEL_DEFAULT_SPACING, LABEL_SIZE_RANGE, LABEL_SPACING_RANGE, type LabelGlyph } from '../core/labelShape';
 import { drawStamp, isStampGlyph, STAMP_SIZES } from '../cartography/stampGlyphs';
 import { drawReaderFog, drawReaderFogProjected, fogHides, fogUnnamed, READER_PAPER } from '../cartography/readerFogLayer';
 import { drawStoryMark } from '../cartography/storyMarks';
@@ -1561,7 +1561,7 @@ export default function Map2D({
       if (hasPlaceMarkerOverride(style,placeImages)) imageFrames.push({ x, y, radius });
     };
     const mapLabels: Array<{
-      value: { text: string; color: string; size: number; weight: number; font: string; glyphs?: LabelGlyph[] };
+      value: { text: string; color: string; size: number; weight: number; font: string; italic?: boolean; glyphs?: LabelGlyph[] };
       x: number;
       y: number;
       width: number;
@@ -2478,14 +2478,18 @@ export default function Map2D({
           if (preview && (Object.entries(preview) as [keyof typeof preview, number][]).every(([field, value]) => pl[field] === value)) {
             labelPreview.current = null; preview = undefined;
           }
-          const caps = pl.style === 'region' || pl.style === 'range';
-          const text = caps ? pl.text.toUpperCase() : pl.text;
+          const appearance = labelAppearance(pl, {
+            caps: pl.style === 'region' || pl.style === 'range', italic: false, weight: 600,
+            color: pl.style === 'water' ? 'rgba(178,214,236,0.96)' : '#ffe9c2',
+            font: placeFont({ labelFont: pl.font }, '"Source Sans 3", sans-serif'),
+          });
+          const text = appearance.text;
           const size = Math.max(LABEL_SIZE_RANGE.min, Math.min(LABEL_SIZE_RANGE.max, pl.size ?? 12));
           const angle = preview?.angle ?? pl.angle ?? 0;
           const spacing = preview?.spacing ?? pl.spacing ?? LABEL_DEFAULT_SPACING[pl.style];
           const curve = preview?.curve ?? pl.curve ?? 0;
-          const font = '"Source Sans 3", sans-serif';
-          ctx.font = `600 ${size}px ${font}`;
+          const font = appearance.font;
+          ctx.font = `${appearance.italic ? 'italic ' : ''}${appearance.weight} ${size}px ${font}`;
           const widths = [...text].map((ch) => ctx.measureText(ch).width);
           const glyphs = labelGlyphs(widths, size * spacing, curve, angle, sx, sy);
           const box = glyphBounds(glyphs, widths, size);
@@ -2503,7 +2507,7 @@ export default function Map2D({
             selectedGeom = { key: plKey, cx: sx, cy: sy, angle, spacing, curve, size, glyphSum, count: widths.length, widths, halfW: (glyphSum + size * spacing * Math.max(0, widths.length - 1)) / 2 };
           }
           mapLabels.push({
-            value: { text, color: pl.style === 'water' ? 'rgba(178,214,236,0.96)' : '#ffe9c2', size, weight: 600, font, glyphs },
+            value: { text, color: appearance.color, size, weight: appearance.weight, italic: appearance.italic, font, glyphs },
             x: box.x, y: box.y + box.h / 2, width: box.w, height: box.h,
             // Highest band there is: the reader wrote it, so it outranks
             // anything the generator came up with, and it is drawn even where
@@ -2900,7 +2904,7 @@ export default function Map2D({
       && label.y - label.height / 2 < frame.y + frame.radius + 2 && label.y + label.height / 2 > frame.y - frame.radius - 2)) : mapLabels;
     for (const candidate of declutterLabels(visibleLabels, Math.max(8, Math.round(semantic.labelBudget * Math.min(1, cw * ch / 400000))), 4)) {
       const item = candidate.value;
-      ctx.font = `${item.weight} ${item.size}px ${item.font}`;
+      ctx.font = `${item.italic ? 'italic ' : ''}${item.weight} ${item.size}px ${item.font}`;
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
       ctx.strokeStyle = 'rgba(6,8,13,0.88)';

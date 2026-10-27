@@ -84,6 +84,7 @@ import SavedRegionsPanel from './SavedRegionsPanel';
 import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
+import { projectDomainEdit } from '../core/domainReplay';
 import { registerLiveWorld } from '../core/liveWorlds';
 import { deserializeEdits, drawnRiverNear, duplicateName, duplicatePlaceEdit, duplicateSpot, editKey, keysInEdits, lockedPlaceKeys, lockViolation, riverCellsAfterEdits, roadLook, sitesPolicyFrom, targetFromKey, worldLevels } from '../core/edits';
 import { planRoute , riverCellNear } from '../core/travel';
@@ -1021,9 +1022,12 @@ export default function WorldView({
   /** Story events on the map, from the same edit list. */
   const storyEvents = useMemo(() => {
     void paintRev;
-    return storyEventsFrom(session.current?.edits ?? []);
+    const edits = session.current?.edits ?? [];
+    const bounds = data?.domain?.bounds;
+    // Durable story edits are ABS; every view/editor callback below uses current local cells.
+    return storyEventsFrom(bounds ? edits.map(edit => edit.kind === 'story' ? projectDomainEdit(edit, bounds) : edit) : edits);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the session's list is mutated in place; paintRev is its revision.
-  }, [paintRev, data]);
+  }, [paintRev, data, data?.domain?.revision]);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   /** The author's named zones, from the same edit list. */
   const zones = useMemo(() => {

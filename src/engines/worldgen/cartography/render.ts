@@ -541,13 +541,13 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   }
   {
     const markScale = Math.max(1, Math.min(3, OW / 1600));
-    if (opts.townDots?.length) drawTownDots(ctx, opts.townDots, -view.x * scale, (wy) => (wy - view.y) * scale, scale, world.width, markScale);
-    if (opts.trail?.length) drawTrail(ctx, opts.trail, -view.x * scale, (wy) => (wy - view.y) * scale, scale, world.width, markScale);
+    if (opts.townDots?.length) drawTownDots(ctx, opts.townDots, -view.x * scale, (wy) => (wy - view.y) * scale, scale, world.width, markScale, world.domain?.topology !== 'finite');
+    if (opts.trail?.length) drawTrail(ctx, opts.trail, -view.x * scale, (wy) => (wy - view.y) * scale, scale, world.width, markScale, world.domain?.topology !== 'finite');
   }
   if (opts.story?.length) {
     const markScale = Math.max(1, Math.min(3, OW / 1600));
     for (const mark of opts.story) {
-      for (const off of [-world.width, 0, world.width]) {
+      for (const off of world.domain?.topology === 'finite' ? [0] : [-world.width, 0, world.width]) {
         const x = (mark.x + off - view.x) * scale, y = (mark.y - view.y) * scale;
         if (x < -40 || x > OW + 40 || y < -20 || y > OH + 20) continue;
         drawStoryMark(ctx, mark, x, y, markScale);

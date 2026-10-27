@@ -18,7 +18,7 @@
 // stroke does not move the jet stream, and a two-second pause per brush stroke
 // would make the tool unusable.
 
-import { normalizeLabelChange } from './labelShape';
+import { normalizeLabelChange, normalizeLabelFormat, LABEL_FORMAT_FIELDS, type LabelFormat, type LabelFormatChange } from './labelShape';
 import { normalizeStoryEvent, type StoryEvent } from './storyEvents';
 import { normalizeZone } from './zones';
 import { normalizeTradeSite, type TradeSiteEdit, type TradeSiteRemoveEdit, type TradeSiteRestoreEdit } from './economy';
@@ -284,6 +284,11 @@ export type WorldEdit =
   }
   | {
     kind: 'label';
+    bold?: boolean | null;
+    italic?: boolean | null;
+    caps?: boolean | null;
+    color?: string | null;
+    font?: LabelFormatChange['font'];
     x: number;
     y: number;
     text: string;
@@ -304,6 +309,11 @@ export type WorldEdit =
    */
   | {
     kind: 'relabel';
+    bold?: boolean | null;
+    italic?: boolean | null;
+    caps?: boolean | null;
+    color?: string | null;
+    font?: LabelFormatChange['font'];
     key: string;
     text?: string;
     style?: 'region' | 'water' | 'range' | 'settlement' | 'note';
@@ -632,7 +642,7 @@ export interface PaintedMarker {
   landmark?: LandmarkType;
 }
 
-export interface PaintedLabel {
+export interface PaintedLabel extends LabelFormat {
   x: number;
   y: number;
   text: string;
@@ -1177,6 +1187,9 @@ export function applyEdits(world: WorldData, edits: WorldEdit[], initialSeaLevel
       // removal or rename of the first never reaches it.
       const key = uniqueKey(editKey('label', e.x + (world.domain?.bounds.x ?? 0), e.y + (world.domain?.bounds.y ?? 0)));
       const label = { x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle, spacing: e.spacing, curve: e.curve, key };
+      for (const field of LABEL_FORMAT_FIELDS) {
+        if (e[field] !== undefined && e[field] !== null) (label as unknown as Record<string, unknown>)[field] = e[field];
+      }
       placedAt.set(label, at);
       out.labels.push(label);
     } else if (e.kind === 'stamp') {
@@ -1190,6 +1203,10 @@ export function applyEdits(world: WorldData, edits: WorldEdit[], initialSeaLevel
       // A later change of words wins over an earlier rename.
       if (label && e.text !== undefined) delete out.renames[e.key];
       if (label) {
+        for (const field of LABEL_FORMAT_FIELDS) {
+          if (e[field] === null) delete label[field];
+          else if (e[field] !== undefined) (label as unknown as Record<string, unknown>)[field] = e[field];
+        }
         for (const field of ['text', 'style', 'size', 'angle', 'spacing', 'curve'] as const) {
           if (e[field] !== undefined) (label as unknown as Record<string, unknown>)[field] = e[field];
         }
@@ -1655,6 +1672,9 @@ function wellFormedEdit(e: unknown): e is WorldEdit {
     return true;
   }
   const kind = (e as { kind: string }).kind;
+  if (kind === 'label') {
+    try { normalizeLabelFormat(e as Record<string, unknown>); return true; } catch { return false; }
+  }
   if (kind === 'relabel') {
     const change: Record<string, unknown> = { ...(e as Record<string, unknown>) };
     const key = change.key;

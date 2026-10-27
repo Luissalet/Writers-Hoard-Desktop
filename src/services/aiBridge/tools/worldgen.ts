@@ -33,6 +33,7 @@ import { worldgenScopeOperations, worldRuntimeKey, listWorldLinks, saveWorldLink
 import { waypointCellFromPosition, waypointForDomain, type WaypointDomain } from '@/engines/worldgen/waypointPosition';
 import { worldEraToolScope } from '@/services/worldEras/toolScope';
 import { readEraRow } from '@/services/worldEras/store';
+import { domainBounds, readDomainDocument } from '@/engines/worldgen/core/domainDocument';
 import {
   applyWorldEdits,
   isForging,
@@ -173,12 +174,12 @@ function requireNumber(args: ToolArgs, key: string): number {
   return value;
 }
 
-/**
- * Grid size from the parameters alone, for validating a write before (or
- * without) the terrain being in memory. Height follows from width: the grid
- * is an equirectangular planet (`H = W >> 1` in core/pipeline.ts).
- */
-function worldSize(world: GeneratedWorld): { width: number; height: number } {
+/** Current journal extent without materializing terrain; legacy keeps its recipe grid. */
+function worldSize(world: GeneratedWorld): { width: number; height: number; finite?: boolean } {
+  if (mapMetric(world).finite) {
+    const { width, height } = resolveWorldScale(world);
+    return { width, height, finite: true };
+  }
   const { width } = normalizeParams(world.params);
   return { width, height: Math.max(1, Math.floor(width / 2)) };
 }
@@ -186,8 +187,13 @@ function worldSize(world: GeneratedWorld): { width: number; height: number } {
 /** Integer cell coordinates inside the world, or a refusal that says the bounds. */
 function cellCoords(
   args: ToolArgs,
-  size: { width: number; height: number },
+  size: { width: number; height: number; finite?: boolean },
 ): { x: number; y: number } {
+  if (size.finite) {
+    const x = requireNumber(args, 'x'), y = requireNumber(args, 'y');
+    if (x < 0 || x >= size.width || y < 0 || y >= size.height) throw new BridgeError('bad-args', `Cell ${x},${y} is outside the world: x runs 0..${size.width - 1} west to east and y 0..${size.height - 1} north to south.`);
+    return { x: Math.min(size.width - 1, Math.round(x)), y: Math.min(size.height - 1, Math.round(y)) };
+  }
   const x = Math.round(requireNumber(args, 'x'));
   const y = Math.round(requireNumber(args, 'y'));
   if (x < 0 || x >= size.width || y < 0 || y >= size.height) {
@@ -333,7 +339,7 @@ function editDigest(world: GeneratedWorld): {
 }
 
 function worldDigest(world: GeneratedWorld, waypoints: WorldWaypoint[]): Record<string, unknown> {
-  const { width, height } = worldSize(world);
+  const { width, height, finite } = worldSize(world);
   return {
     id: world.id,
     title: world.title,
@@ -341,7 +347,7 @@ function worldDigest(world: GeneratedWorld, waypoints: WorldWaypoint[]): Record<
     width,
     height,
     // How big the map is: a sheet of worldKm across, or the planet (40075 km round).
-    sheet: typeof world.params.worldKm === 'number' && world.params.worldKm < 40075,
+    sheet: finite || typeof world.params.worldKm === 'number' && world.params.worldKm < 40075,
     worldKm: resolveWorldScale(world).widthKm,
     cellKm: Math.round(resolveWorldScale(world).cellKm * 1000) / 1000,
     physicalScale: resolveWorldScale(world),
@@ -363,12 +369,12 @@ async function appendEdit<T extends object>(
   args: ToolArgs,
   world: GeneratedWorld,
   edit: WorldEdit | WorldEdit[],
-  result: T,
+  result: T | ((before: string) => T),
   summary: string,
 ): Promise<unknown> {
   const { before, delivered } = await applyWorldEdits(world, Array.isArray(edit) ? edit : [edit], worldEraToolScope(args)?.eraId);
   return withAudit(
-    { ...result, delivered },
+    { ...(typeof result === 'function' ? result(before) : result), delivered },
     {
       projectId: world.projectId,
       entityId: world.id,
@@ -377,6 +383,12 @@ async function appendEdit<T extends object>(
       before: { edits: before },
     },
   );
+}
+
+/** Response identities use the journal acknowledged after the writer flush. */
+function paintedResponseKey(before: string, kind: 'label' | 'stamp', x: number, y: number): string {
+  const document = readDomainDocument(before), origin = document ? domainBounds(document) : { x: 0, y: 0 };
+  return nextPaintedKey(deserializeEdits(before), kind, x + origin.x, y + origin.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -775,11 +787,11 @@ export async function whAddLabel(args: ToolArgs): Promise<unknown> {
   const text = requireString(args, 'text').trim();
   const style = optEnum(args, 'style', LABEL_STYLES) ?? 'note';
   const shape = labelShapeArgs(args);
-  const edit: LabelEdit = { kind: 'label', x, y, text, style, ...shape };
+  const edit: LabelEdit = { kind: 'label', x, y, text, style, ...Object.fromEntries(Object.entries(shape).filter(([, value]) => value !== null)) };
   return appendEdit(
     args, world,
     edit,
-    { key: nextPaintedKey(deserializeEdits(world.edits ?? '[]'), 'label', x, y), text, style, x, y, ...labelShapeShown(shape) },
+    (before) => ({ key: paintedResponseKey(before, 'label', x, y), text, style, x, y, ...labelShapeShown(shape) }),
     `labelled ${x},${y} "${text}" in world "${world.title}"`,
   );
 }
@@ -787,19 +799,20 @@ export async function whAddLabel(args: ToolArgs): Promise<unknown> {
 /** size, angleDegrees, spacing and curve from tool arguments, validated. */
 function labelShapeArgs(args: ToolArgs): Omit<LabelChange, 'text' | 'style'> {
   const raw: Record<string, unknown> = {};
-  for (const key of ['size', 'spacing', 'curve'] as const) if (args[key] !== undefined) raw[key] = args[key];
+  for (const key of ['size', 'spacing', 'curve', 'bold', 'italic', 'caps', 'color', 'font'] as const) if (args[key] !== undefined) raw[key] = args[key];
   if (args.angleDegrees !== undefined) {
     if (typeof args.angleDegrees !== 'number' || !Number.isFinite(args.angleDegrees) || Math.abs(args.angleDegrees) > 180) throw new BridgeError('bad-args', 'angleDegrees must be a number from -180 to 180.');
     raw.angle = args.angleDegrees * Math.PI / 180;
   }
   try { return normalizeLabelChange(raw); } catch (error) { throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error)); }
 }
-function labelShapeShown(shape: { size?: number; angle?: number; spacing?: number; curve?: number }) {
+function labelShapeShown(shape: Omit<LabelChange, 'text' | 'style'>) {
   return {
     ...(shape.size !== undefined ? { size: shape.size } : {}),
     ...(shape.angle !== undefined ? { angleDegrees: Math.round(shape.angle * 180 / Math.PI * 10) / 10 } : {}),
     ...(shape.spacing !== undefined ? { spacing: shape.spacing } : {}),
     ...(shape.curve !== undefined ? { curve: shape.curve } : {}),
+    ...Object.fromEntries(['bold', 'italic', 'caps', 'color', 'font'].filter((key) => shape[key as keyof typeof shape] !== undefined).map((key) => [key, shape[key as keyof typeof shape]])),
   };
 }
 
@@ -817,7 +830,7 @@ export async function whAddStamp(args: ToolArgs): Promise<unknown> {
   return appendEdit(
     args, world,
     { kind: 'stamp', x, y, glyph, ...(size !== 'M' ? { size } : {}), ...(name ? { name } : {}) },
-    { key: nextPaintedKey(deserializeEdits(world.edits ?? '[]'), 'stamp', x, y), glyph, size, x, y, ...(name ? { name } : {}) },
+    (before) => ({ key: paintedResponseKey(before, 'stamp', x, y), glyph, size, x, y, ...(name ? { name } : {}) }),
     `stamped ${glyph} at ${x},${y} in world "${world.title}"`,
   );
 }
@@ -871,7 +884,7 @@ export async function whUpdateLabel(args: ToolArgs): Promise<unknown> {
     if (error instanceof BridgeError) throw error;
     throw new BridgeError('bad-args', error instanceof Error ? error.message : String(error));
   }
-  if (!Object.keys(change).length) throw new BridgeError('bad-args', 'Give at least one of text, style, size, angleDegrees, spacing, curve.');
+  if (!Object.keys(change).length) throw new BridgeError('bad-args', 'Give at least one of text, style, size, angleDegrees, spacing, curve, bold, italic, caps, color, font.');
   return appendEdit(
     args, world,
     { kind: 'relabel', key, ...change },
@@ -1563,13 +1576,19 @@ export async function whAddSpringRiver(args: ToolArgs): Promise<unknown> {
  * centre of its cell (brush strokes), 'whole' at the nearest whole cell (a
  * drawn river's points), 'exact' keeps the fractions (a zone's corners).
  */
-function strokeCells(args: ToolArgs, size: { width: number; height: number }, min: number, snap: 'cell' | 'whole' | 'exact' = 'cell'): { x: number; y: number }[] {
+function strokeCells(args: ToolArgs, size: { width: number; height: number; finite?: boolean }, min: number, snap: 'cell' | 'whole' | 'exact' = 'cell'): { x: number; y: number }[] {
   const raw = args.points;
   if (!Array.isArray(raw) || raw.length < min || raw.length > 400) throw new BridgeError('bad-args', `points must be ${min} to 400 {x, y} world cells.`);
   return raw.map((point, index) => {
     const p = point as Record<string, unknown>;
     if (typeof p?.x !== 'number' || typeof p?.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
     if (p.y < 0 || p.y >= size.height) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
+    if (size.finite) {
+      if (p.x < 0 || p.x >= size.width) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
+      if (snap === 'exact') return { x: p.x, y: p.y };
+      if (snap === 'whole') return { x: Math.min(size.width - 1, Math.round(p.x)), y: Math.min(size.height - 1, Math.round(p.y)) };
+      return { x: Math.floor(p.x) + 0.5, y: Math.floor(p.y) + 0.5 };
+    }
     const wrap = (x: number) => ((x % size.width) + size.width) % size.width;
     if (snap === 'exact') return { x: wrap(p.x), y: p.y };
     if (snap === 'whole') return { x: wrap(Math.round(p.x)), y: Math.min(size.height - 1, Math.round(p.y)) };
@@ -1727,6 +1746,10 @@ export async function whPaintBiome(args: ToolArgs): Promise<unknown> {
   const pts = raw.map((point, index) => {
     const p = point as Record<string, unknown>;
     if (typeof p?.x !== 'number' || typeof p?.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.y < 0 || p.y >= size.height) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
+    if (size.finite) {
+      if (p.x < 0 || p.x >= size.width) throw new BridgeError('bad-args', `points[${index}] must be {x, y} inside the world grid.`);
+      return { x: p.x, y: p.y };
+    }
     return { x: ((p.x % size.width) + size.width) % size.width, y: p.y };
   });
   const radius = optNumber(args, 'radius') ?? 3;
@@ -1796,6 +1819,11 @@ export async function whAddWorldRoad(args: ToolArgs): Promise<unknown> {
       return { x: place.x, y: place.y, name: place.name };
     }
     if (typeof s?.x === 'number' && typeof s?.y === 'number' && Number.isFinite(s.x) && Number.isFinite(s.y)) {
+      if (data.domain?.topology === 'finite') {
+        if (s.x < 0 || s.x >= data.width || s.y < 0 || s.y >= data.height) throw new BridgeError('bad-args', `${label} must be within the world grid.`);
+        const x = Math.min(data.width - 1, Math.round(s.x)), y = Math.min(data.height - 1, Math.round(s.y));
+        return { x, y, name: `${x},${y}` };
+      }
       if (Math.round(s.y) < 0 || Math.round(s.y) >= data.height) throw new BridgeError('bad-args', `${label}.y must be within the world grid.`);
       return { x: ((Math.round(s.x) % data.width) + data.width) % data.width, y: Math.round(s.y), name: `${Math.round(s.x)},${Math.round(s.y)}` };
     }

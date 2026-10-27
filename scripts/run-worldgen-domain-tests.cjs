@@ -26,6 +26,9 @@ const inputs = [
   'src/services/aiBridge/tools/worldgen.ts', 'src/engines/worldgen/core/measure.ts',
   'src/engines/worldgen/core/geoScale.ts', 'src/engines/worldgen/worldDomain.ts',
   'src/engines/worldgen/core/worldDomain.ts', 'src/engines/worldgen/waypointPosition.ts',
+  'tests/worldgen-domain-road-boundary.browser.ts', 'src/engines/worldgen/bridgeAccess.ts',
+  'src/engines/worldgen/core/edits.ts', 'src/engines/worldgen/core/domainReplay.ts',
+  'tests/worldgen-domain-coordinate-families.browser.ts', 'src/engines/worldgen/core/biomeKeys.ts',
 ];
 const hashes = () => inputs.map(file => ({ file, sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex') }));
 
