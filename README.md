@@ -862,4 +862,9 @@ Source consumers can select typed saved fields from documents open in their proj
 
 [Practical API](docs/local-tool-sdk.md#optional-fields-from-currently-open-source-documents) and [verification](tasks/vvd1095/verification-sdk-open-documents.md). Root Brave split panes confirm Save, close/reopen and an independent draft preserved; reload recovers explicitly saved text with remounted hosts. Cleanup deletes only the own Trial, keeping the installed package.
 
-Source63 passed its focused/permanent checks and final recovery, quick and build gates. Commit `f47e8270` received exact CAS63 approval and Main FF; the manual is updated. Memory/graph continuity remains pending. Character-level prose, presence, full Host/world queries, hosting and task1095 remain open.
+Source63 passed its focused/permanent checks and final recovery, quick and build gates. Commit `f47e8270` received exact CAS63 approval and Main FF; the manual is updated. Memory/graph continuity63 is complete (Root receipt ROOT-continuity63-r1.json). Character-level prose, presence, full Host/world queries, hosting and task1095 remain open.
+
+
+## Initial names for placed landmarks: delivery64
+
+A placed landmark now exposes its authored initial name in the ordinary place readers and map label; a later explicit rename still takes precedence. Generated or unnamed landmarks keep their defaults. Public/Native checks and Root Brave normal import, search, label, place card and reload pass at this scope. [Evidence and limits](tasks/vvd1095/verification-source-abs.md#source64-nombre-inicial-de-landmarks-colocados). Source `5623cb60` received exact CAS64 approval and Main FF without push; broader map parity and task1095 remain open.
