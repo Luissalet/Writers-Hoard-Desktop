@@ -1887,5 +1887,28 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Native real dos claves12tools16RPC12IPC/2151inputs, sobres completos/normalexportreadonly/cleanup89zero/EOF401cierres.
 - [x] Brave3 importación normal, paquete QA mediante instalador/pin explícito, lectura actual/cold10000/prosa/opaco; borrar sólo importado devuelve los mismos cinco proyectos.
 - [x] Fuente aprobada CAS65 e integrada Main FF por tres rutas, sin push.
-- [ ] Registrar commit documental y continuidad65 con recibos efectivos, sin repetir64.
+- [x] Docs45afaa8d integradas Main y continuidad65 completada, recibos ROOT-docs65-main-r1/ROOT-continuity65-r1; sin repetir64.
 - [ ] Continuar texto por caracteres desde el RED público conservado; rich/presencia y demás1095 abiertos.
+
+### Texto plain opt-in: siguiente corte experimental
+
+- [ ] Revisar el parche congelado14+2 y aplicarlo sobre65, preservando contrato v1, Base64 reparado y rutas ajenas.
+- [ ] Pasar seis grupos de semántica y el oráculo público A original con nuevo wrapper; conservar su RED y cualquier fallo nuevo.
+- [ ] Comprobar RW/receipts/abort, Save/set/CAS/presencia y acciones mixtas; eras/epoch/portables/pending con sus propios escenarios.
+- [ ] Medir10k/50k unidades sobre strings reales y cien gestos con historia retenida antes de adoptar la representación.
+- [ ] Probar MCP dos claves y Brave, revisión exacta e integración Main; actualizar manual y registros con evidencia efectiva.
+- [ ] Continuar después con rich/presencia y los demás huecos de1095, sin declarar paridad por este corte.
+
+
+### Faustus: apoyo desde la sesión real de Brave
+
+- [x] Implementar extensión y MCP propios en Faustus, con ocho acciones dirigidas a la pestaña elegida y sin escritorio ni otro perfil.
+- [x] Probar las ocho acciones en Brave real; revisión independiente del compacto/completo, cinco proyectos preservados y release/EOF normales.
+- [x] Pasar 26 pruebas Python finales; integrar 24 rutas de Faustus como Luissalet, con aprobación exacta1717/CAS1 y commit e5cb885e, sin push.
+- [x] Registrar por la API normal de Faustus el servidor823416aa y su herramienta browser_session.
+- [x] Actualizar el manual de Google con una sola inserción de 540 unidades UTF16 y lectura de comprobación íntegra; conservar memoria, grafo y evidencia.
+- [ ] Completar el encargo Biblioteca/Inicio mediante el modelo de Faustus cuando quede disponible; el turno ajenoSilver1672 sigue activo.
+- [ ] Confirmar traslado de la extensión a D:\LocalAI\Faustus\browser-extension y activar el builtin sin duplicar7016; retirar sólo la configuraciónQA propia al hacer el relevo. No borrar todavía el WT de la extensión.
+- [ ] Aplicar y aceptar el corte plainR1+R2+R3: la revisión estática atiende S1, pero semántica, coste, MCP, UI y adopción siguen pendientes.
+
+Writer1095 y writers1671 continúan abiertas hasta sus criterios completos. El apoyo de navegador no constituye paridad web/SDK.
