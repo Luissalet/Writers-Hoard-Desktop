@@ -1829,7 +1829,34 @@ Fuente `603a3c991f82367e537a38965aebb77775720692` aprobada CAS62 e integrada Mai
 - [x] Registrar contracts-r3/tipos finales0, quickr3/buildr2 y atribución separada de crítica399.
 - [x] Commit40rutas exactas, revisión independiente CAS62 y FF Main bajo mergelease/HEAD fresco, sin push.
 - [x] Actualizar manual Google con CAS/readback y documentación de esta entrega.
-- [ ] Completar continuidad de memoria/grafo por recibo propio de Root.
+- [x] Completar continuidad de memoria/grafo: ROOT-continuity62-r1.json,28-10-2026 11:23:40UTC; prefijo MEMORY y otras filas del grafo exactos, sin embeddings.
 - [ ] Continuar SDK34 saved/open/closed y todos los residuos de carácter/presencia/defaults/Host/query/hosting; sin done1095.
 
 [Verificación por capa](vvd1095/verification-sdk-convergence.md).
+
+### SDK34: campos tipados de documentos Source abiertos
+
+Contrato propio preparado en `_stage/parity-sdk-open-document-fields-next/sdk34-prep-r1`, basado en la primaria oficial que separa montajes abiertos e índice durable. Los tipos auxiliares exactos de la referencia y su política de drafts siguen desconocidos; no se inventa su ABI. Esta fase lee valores Source guardados, sin flush ni escrituras.
+
+- [x] Leer el SDK y comprobar queryDocuments/useLocalToolIndex/lectores y lifecycle existentes antes de proponer cambios.
+- [x] Leer y ejecutar el cuerpo público: control durable A/C y Save real primero, después delta de documentos abiertos con borrador B preservado. RED público conservado; seis grupos iniciales y tres pendientes pasan en recibos separados tras corregir readiness del observador.
+- [x] Implementar sólo membresía efímera revocable, lector tipado reutilizado, hook y MCP sobre los mismos puertos; no duplicar parser/codec/writer. Puerto opcional para clientes históricos con diagnóstico explícito de ausencia.
+- [x] Probar open/close/doble montaje/StrictMode/era/proyecto/lectura tardía, readonly exacto y drafts sin Save, mediante host real. Native independiente dos claves/dos procesos positivo; ruta permanente nueve grupos y rama unavailable dos controles positivos. Focal H2 posterior acredita editor conectado antes de captura y conservación A8/C11 al cerrar H1.
+- [x] Probar en Brave normal Save A7→8, cierre/reapertura, borrador B conservado, Save B y recarga; eliminar sólo el Trial propio. El arranque parcial anterior y los límites del frío UI quedan registrados.
+- [ ] Cerrar hallazgo independiente F2: opcionales undefined coherentes y recuperación del hook sin reutilizar filas antiguas; conservar RED previo y repetir sólo criterios pendientes.
+- [ ] Verificar MCP dos claves, Brave, pruebas pertinentes y revisión independiente antes de integrar; conservar todos los residuos generales de1095.
+
+
+### Entrega63: campos Source abiertos, continuidad pendiente
+
+Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos ni cierra1095. [API y pruebas](vvd1095/verification-sdk-open-documents.md).
+
+- [x] Implementar membresía RAM por mount/scope, proyección guardada compartida, puerto opcional/hook/MCP readonly y kit explícito; writer e índice durable incumbentes.
+- [x] Conservar RED y positivos públicos/Node/kit/Native/montados con atribuciones propias, sin transformar errores de observador en bugs Source.
+- [x] Root Brave split confirma Save/open/close, draft B preservado y Save B→frío UI; borrar sólo Trial propio dejando paquete, con parcial anterior conservado.
+- [x] Completar F1 H2-ready y mismo probe F2 opcionales; preservar RED React y mismo renderer GREEN de primera recuperación, con test permanente literal y fila de suite.
+- [x] Completar gates finales recovery-ui17892ms/quick125432ms/build318546ms,3255inputs exactos/WASM117/5; crítica399 anterior conservada sin repetir.
+- [x] Fuente f47e8270c63570a7511732f2d1ff1309e8938879 aprobada CAS63 exacta e integrada Main FF,18blobs exactos/48untracked preservados/sin push.
+- [x] Actualizar manual63 con CAS/readback completo:509UTF16 añadidos/198párrafos y197otros/estilos/metadatos exactos; errores de lectura conservados sin replay de escritura.
+- [ ] Completar continuidad memoria/grafo63 con su recibo propio.
+- [ ] Mantener abiertos SDK34 completo, carácter/presencia/defaults/Host/query/hosting y demás paridad1095.

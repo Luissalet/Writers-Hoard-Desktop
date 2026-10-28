@@ -854,3 +854,12 @@ The package manager shares a session-only error history with wh_local_package_er
 Source documents can explicitly activate a causal history and exchange scalar/map/stable-list changes between independent SDK replicas. Normal Save and scoped Undo/Redo use the same Source writer; opening or exporting an uninitialized document does not activate it. The workspace has change-file controls and three ordinary MCP tools. [Usage and attributed checks](tasks/vvd1095/verification-sdk-convergence.md) distinguish persistence, two-key cold Native, mounted UI and normal Brave evidence.
 
 Source commit `603a3c991f82367e537a38965aebb77775720692` is approved at CAS62 and integrated into Main:40 exact paths,48 untracked files preserved, clean index, no push. The native Google manual is updated with guarded write/readback. The permanent offline UI route passes16 checks,8at1280 and8at390, with89 empty tables per viewport; the earlier stalled launcher remains a separate failed attempt. Character-level prose, presence, additive defaults, complete Host queries and hosting remain open, as does task1095. No production/Main-installed or Browser download claim follows from these checks.
+
+
+## Saved fields from open Source documents: checkpoint63
+
+Source consumers can select typed saved fields from documents open in their project/era through optional `client.openDocuments`, `useLocalToolOpenDocuments` or readonly `wh_local_tool_open_document_query`. Closed documents stay in the durable index. Reads do not open documents or Save another editor's draft; duplicate mounts share one row. The author kit represents mounts explicitly.
+
+[Practical API](docs/local-tool-sdk.md#optional-fields-from-currently-open-source-documents) and [verification](tasks/vvd1095/verification-sdk-open-documents.md). Root Brave split panes confirm Save, close/reopen and an independent draft preserved; reload recovers explicitly saved text with remounted hosts. Cleanup deletes only the own Trial, keeping the installed package.
+
+Source63 passed its focused/permanent checks and final recovery, quick and build gates. Commit `f47e8270` received exact CAS63 approval and Main FF; the manual is updated. Memory/graph continuity remains pending. Character-level prose, presence, full Host/world queries, hosting and task1095 remain open.
