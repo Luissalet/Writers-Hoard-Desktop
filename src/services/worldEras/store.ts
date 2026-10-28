@@ -8,6 +8,9 @@ import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import type { Project } from '@/types';
 import { validateWorldCalendar } from '@/engines/timeline/worldCalendar';
 import { validateLocalToolProjectStates } from '@/engines/local/stateTypes';
+import {forkSourceToolConvergence} from '@/engines/local/documents/portability';
+import {validateSourceToolDocument,type SourceToolDocument} from '@/engines/local/documents/types';
+import {convergenceHash} from '@/engines/local/convergence/format';
 import { validateWorkspaceAppearanceProject } from '@/services/workspaceAppearance/validation';
 import { baseEraDocuments, eraAdapters, eraAdapterForTable, eraDocumentVersion, validateEraDocument } from './adapters';
 import { releaseUnreferencedEraAsset, resolveEraDocumentAssets, storeEraDocumentAssets } from './assets';
@@ -88,11 +91,31 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
     const current = await readWorldDocument(scope, kind, document.root.id);
     if ((current?.version ?? null) !== expectedVersion) throw new WorldEraConflict();
     const previous = await tx.table<WorldEraVariant>('worldEraVariants').where('[projectId+eraId+kind+entityId]').equals([scope.projectId, scope.eraId!, kind, document.root.id]).first();
-    const revision = (previous?.revision ?? 0) + 1, now = Math.max(Date.now(), (previous?.updatedAt ?? 0) + 1, Number(current?.document.root.updatedAt ?? 0) + 1), nextDocument = structuredClone(document);
+    let revision = (previous?.revision ?? 0) + 1;
+    const now = Math.max(Date.now(), (previous?.updatedAt ?? 0) + 1, Number(current?.document.root.updatedAt ?? 0) + 1), nextDocument = structuredClone(document);
+    const history=options.checkpoint ? previous?.history ?? [] : variantHistory(previous);
+    if(kind==='local-tool'){
+      const root=nextDocument.root as unknown as SourceToolDocument,old=current?.document.root as unknown as SourceToolDocument|undefined;
+      const convergence=root.convergence??old?.convergence;
+      if(convergence){
+        root.convergence=convergence;root.codec??=old?.codec;
+        const changed=!old||current?.provenance==='base'||convergenceHash(root.data)!==convergenceHash(old.data)||convergenceHash(root.convergence)!==convergenceHash(old.convergence??null)||root.namespace!==old.namespace;
+        if(changed){
+          root.convergence=forkSourceToolConvergence(root);root.generation=crypto.randomUUID();
+          // checkpoint writes also retain displaced causal state; generic data saves cannot erase it.
+          if(options.checkpoint&&previous)history.push(...variantHistory(previous).slice(-1));
+          if(current?.provenance==='base'){
+            const sourceRevision=previous?revision++:0;
+            history.push({revision:sourceRevision,updatedAt:Number(current.document.root.updatedAt??now),document:structuredClone(current.document)});
+          }
+        }
+        validateSourceToolDocument(root);
+      }
+    }
     const sameWriting = kind === 'writings' && current && await eraDocumentVersion({ root: current.document.root, children: {} }) === await eraDocumentVersion({ root: nextDocument.root, children: {} });
     if ('updatedAt' in nextDocument.root && !sameWriting && current) nextDocument.root.updatedAt = now;
     if ('revision' in nextDocument.root) nextDocument.root.revision = Number(current?.document.root.revision ?? 0) + 1;
-    const next: WorldEraVariant = { id: previous?.id ?? crypto.randomUUID(), projectId: scope.projectId, eraId: scope.eraId!, kind, entityId: document.root.id, revision, updatedAt: now, document: await storeEraDocumentAssets(scope, kind, nextDocument), history: options.checkpoint ? previous?.history ?? [] : variantHistory(previous) };
+    const next: WorldEraVariant = { id: previous?.id ?? crypto.randomUUID(), projectId: scope.projectId, eraId: scope.eraId!, kind, entityId: document.root.id, revision, updatedAt: now, document: await storeEraDocumentAssets(scope, kind, nextDocument), history };
     await tx.table<WorldEraVariant>('worldEraVariants').put(next);
     if (options.checkpoint) await releaseUnreferencedEraAsset(scope.projectId, previous?.document?.root.__worldEraAssetId);
     return { document: nextDocument, provenance: 'variant' as const, version: `variant:${revision}`, variantRevision: revision };

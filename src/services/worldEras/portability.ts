@@ -1,6 +1,7 @@
 import {remapBannerLink} from '@/engines/timeline/bannerStyles';
 import { cloneManuscriptWritingSource } from '@/engines/writings/manuscriptReview/portability';
-import { remapSourceToolDocument, type SourceToolDocument } from '@/engines/local/documents/types';
+import {remapSourceToolDocument} from '@/engines/local/documents/portability';
+import type {SourceToolDocument} from '@/engines/local/documents/types';
 import {remapToolDockLayout,type ToolDockValue} from '@/engines/writings/toolDock/types';
 import {worldDocumentPrefixes as prefixes} from './documentPrefixes';
 import type { Project } from '@/types';

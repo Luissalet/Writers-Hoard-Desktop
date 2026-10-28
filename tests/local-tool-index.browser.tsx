@@ -17,7 +17,7 @@ import {readProjectDuplicate} from '@/services/projectDuplicate/capture';
 import {remapDuplicateSnapshot} from '@/services/projectDuplicate/remap';
 import {LOCAL_TOOL_HANDLERS} from '@/engines/local/bridge';
 import {useLocalToolIndex} from '@/engines/local/useLocalToolIndex';
-import {remapSourceToolDocument} from '@/engines/local/documents/types';
+import {remapSourceToolDocument} from '@/engines/local/documents/portability';
 import {rememberLocalToolDefinition} from '@/engines/local/definitions';
 import {defineLocalTool} from '@/engines/local/sdk';
 import {pinLocalToolRelease} from '@/engines/local/releases';

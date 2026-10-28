@@ -9,7 +9,7 @@ import {pinLocalToolRelease} from '@/engines/local/releases';
 import {queryLocalToolDocuments} from '@/engines/local/queryDocuments';
 import {searchProjectContent} from '@/services/projectSearchIndex';
 import {evaluateLocalToolIndex, queryLocalToolIndexRows, type LocalToolIndexSpec} from '@/engines/local/documentIndex';
-import {remapSourceToolDocument} from '@/engines/local/documents/types';
+import {remapSourceToolDocument} from '@/engines/local/documents/portability';
 
 const assert: (value: unknown, message: string) => asserts value = (value, message) => {if (!value) throw Error(message);};
 export async function reviewLocalToolIndexSelection() {

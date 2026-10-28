@@ -7,7 +7,10 @@ import {createBrowserLocalToolAssets} from './assetBrowser';
 import {createBrowserLocalToolAudio} from './audioBrowser';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {readSourceToolState,saveSourceToolState,readSourceToolDocument} from './documents/store';
-import {createLocalToolStateActions} from './stateRuntime';
+import {startSourceToolConvergence,exportSourceToolConvergence,importSourceToolConvergence,applySourceToolConvergence,reverseSourceToolConvergence} from './documents/convergence';
+import {localToolConvergenceContext} from './convergence/context';
+import type {LocalToolDocumentConvergence} from './convergence/clientTypes';
+import {createLocalToolStateActions,prepareLocalToolConvergenceBranch} from './stateRuntime';
 import {createLocalToolDefaults,readDefaultsState,prepareDefaultsSave} from './defaults';
 import {createLocalToolReferences,type LocalToolReferenceDestination} from './references';
 import Dexie,{type Transaction} from 'dexie';
@@ -27,6 +30,8 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  if(typeof projectId!=='string'||!projectId||projectId.length>500||Array.from(projectId).some(character=>character.charCodeAt(0)<32))throw new LocalToolStateError('missing-project');
  if(!localToolNamespace(definition.namespace))throw new LocalToolStateError('invalid-namespace');
  const namespace=definition.namespace,scope={projectId,eraId:options.eraId};
+ const convergenceAuthorId='writer-session-'+crypto.randomUUID();
+ const convergenceOptionsFor=async()=>{const codec=definition.codec??(options.documentId?(await readSourceToolDocument(scope,options.documentId,namespace))?.document.codec:undefined),context=localToolConvergenceContext(definition,codec);return context?{...context,authorId:convergenceAuthorId}:undefined;};
  const current=()=>{if(options.isCurrent&&!options.isCurrent())throw Error('local_tool_context_expired');};
  const writable=()=>{current();if(options.readOnly)throw new Error('local_tool_query_is_read_only');};
  const importWritable=()=>{current();if(options.readOnly&&!options.assetImportWritable?.())throw new Error('local_tool_query_is_read_only');};
@@ -68,7 +73,16 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
    return()=>{active=false;stop();Dexie.on.storagemutated.unsubscribe(committed);if(pending!==undefined)clearTimeout(pending);};
   },
   async read(){const row=await project();return options.documentId?readSourceToolState(scope,options.documentId,definition):readLocalToolState(row,definition,scope.eraId);},
-  async save(data:T,expectedRevision:number|null,expectedDocumentVersion?:string){writable();if(options.documentId)return db.transaction('rw',db.tables,async()=>{await project();writable();const saved=await saveSourceToolState(scope,options.documentId!,definition,data,expectedRevision,expectedDocumentVersion);writable();return saved;});const snapshot=await db.transaction('rw',db.projects,async()=>{const row=await project(),prepared=prepareLocalToolSave(row,definition,data,expectedRevision,scope.eraId);writable();await db.projects.update(projectId,prepared.changes);writable();return prepared.snapshot;});announce(projectId);return snapshot;},
+  async save(data:T,expectedRevision:number|null,expectedDocumentVersion?:string){
+   writable();if(options.documentId)return db.transaction('rw',db.tables,async tx=>{
+    const row=await project();writable();const convergenceOptions=await convergenceOptionsFor();let authorChanged=false;
+    const saved=await saveSourceToolState(scope,options.documentId!,definition,data,expectedRevision,expectedDocumentVersion,convergenceOptions?{...convergenceOptions,onPrepared:changed=>{authorChanged=changed;}}:undefined);writable();
+    if(saved.convergence&&authorChanged){let outer:Transaction=tx;while(outer.parent)outer=outer.parent;
+     prepareLocalToolConvergenceBranch(JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),saved,{receiptTransaction:outer,onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});
+    }return saved;
+   });
+   const snapshot=await db.transaction('rw',db.projects,async()=>{const row=await project(),prepared=prepareLocalToolSave(row,definition,data,expectedRevision,scope.eraId);writable();await db.projects.update(projectId,prepared.changes);writable();return prepared.snapshot;});announce(projectId);return snapshot;
+  },
   async queryCodex(query:LocalToolCodexQuery={}){await project();const effective=await getEraProject(scope);return projectLocalToolCodex(await listEraRows<CodexEntry>(scope,'codexEntries'),effective.codexTemplates,query);},
   world:Object.freeze({list:async(documentKind:EraDocumentKind)=>Promise.all((await listWorldDocuments(scope,kind(documentKind))).map(read=>projected(documentKind,read))),read:async(documentKind:EraDocumentKind,id:string)=>{const read=await readWorldDocument(scope,kind(documentKind),id);return read?projected(documentKind,read):undefined;},...(scope.eraId?{variants:Object.freeze({save:(documentKind:EraDocumentKind,document:EraDocument,expectedVersion:string|null)=>{writable();return saveEraDocument(scope,kind(documentKind),document,expectedVersion);},hide:(documentKind:EraDocumentKind,id:string,expectedVersion:string)=>{writable();return hideEraDocument(scope,kind(documentKind),id,expectedVersion);}})}:{})}),
   media:Object.freeze({async list(){const {mediaRows}=await import('@/engines/media/scope');return mediaRows(projectId,scope.eraId);},async import(file:File){writable();const {importLocalMedia}=await import('@/engines/media/operations');writable();return importLocalMedia(projectId,file,scope.eraId);}}),
@@ -79,7 +93,15 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   async openDocument(documentKind:EraDocumentKind,id:string,openOptions?:LocalToolOpenDocumentOptions){current();const resolved=await destination(documentKind,id);if(!resolved.read)throw new Error('world_document_missing');if(resolved.path!==null){current();const {navigateTo}=await import('@/engines/_shared/anchoring');current();(openOptions?.placement==='beside'&&options.openBeside?options.openBeside:options.navigate??navigateTo)(resolved.path);}},
  } satisfies Omit<LocalToolClient<T>,'refs'|'state'>;
  const theme=Object.freeze({get:async()=>{const row=await project(),appearance=appearanceFromProject(row,scope);current();return Object.freeze({...scope,...resolveWorkspaceTheme(appearance.effective)});},subscribe:base.subscribe});
- const client:LocalToolClient<T>={...base,theme,refs:createLocalToolReferences(base,reference=>destination(reference.kind,reference.documentId,true)),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();const result=await run({client,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});writable();return result;});})}:{})};
+ const convergence:LocalToolDocumentConvergence<T>|undefined=options.documentId?Object.freeze({
+  start:async (baseline:import('./sdk').LocalToolSnapshot<T>)=>{writable();return db.transaction('rw',db.tables,async()=>{await project();writable();const convergenceOptions=await convergenceOptionsFor();if(!convergenceOptions)throw Error('local_tool_convergence_codec_required');const result=await startSourceToolConvergence(scope,options.documentId!,definition,baseline,convergenceOptions);writable();if(!result.checkpoint)throw Error('local_tool_convergence_checkpoint_missing');return{snapshot:result.snapshot,checkpoint:result.checkpoint,changed:result.causalChanged};});},
+  export:async (exportOptions?:{stateVectorBase64?:string})=>{await project();const result=await exportSourceToolConvergence(scope,options.documentId!,definition,exportOptions);current();return{snapshot:result.snapshot,checkpoint:result.checkpoint,update:result.update};},
+  import:async (update:import('./convergence/types').LocalToolConvergenceUpdate)=>{writable();return db.transaction('rw',db.tables,async()=>{await project();writable();const convergenceOptions=await convergenceOptionsFor();if(!convergenceOptions)throw Error('local_tool_convergence_codec_required');const result=await importSourceToolConvergence(scope,options.documentId!,definition,update,convergenceOptions);writable();return{snapshot:result.snapshot,changed:result.changed,causalChanged:result.causalChanged,pending:result.pending};});},
+ }):undefined;
+ const client:LocalToolClient<T>={...base,...(convergence?{convergence}:{}),theme,refs:createLocalToolReferences(base,reference=>destination(reference.kind,reference.documentId,true)),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();const convergenceOptions=options.documentId?await convergenceOptionsFor():undefined;const result=await run({client,receiptTransaction:outer,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),...(options.documentId&&convergenceOptions?{convergence:{
+ apply:(baseline,actions)=>applySourceToolConvergence(scope,options.documentId!,definition,baseline,actions,convergenceOptions),
+ reverse:recipe=>reverseSourceToolConvergence(scope,options.documentId!,definition,recipe,convergenceOptions),
+ }}:{}),onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});writable();return result;});})}:{})};
  const defaults=createLocalToolDefaults(client,{receiptScope:'writer-runtime',read:async()=>readDefaultsState(await project()),atomic:run=>{
   writable();return db.transaction('rw',db.projects,async tx=>{
    let outer:Transaction=tx;while(outer.parent)outer=outer.parent;

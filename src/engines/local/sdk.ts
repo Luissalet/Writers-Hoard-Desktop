@@ -1,3 +1,6 @@
+export {createLocalToolReplica} from './convergence/replica';
+export type {LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica,LocalToolReplicaEdit,LocalToolValidationConflict} from './convergence/types';
+export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot} from './convergence/clientTypes';
 export {useLocalToolFocusMode} from './useLocalToolFocusMode';
 export {createRecordingLocalToolFocusMode} from './focusMode';
 export type {LocalToolFocusMode,LocalToolFocusSnapshot,LocalToolFocusCommand} from './focusMode';
@@ -57,12 +60,13 @@ export {evaluateLocalToolIndex,queryLocalToolIndexRows} from './documentIndex';
 export type {LocalToolDocumentQuery,LocalToolIndexSpec,LocalToolIndexRow,LocalToolIndexPredicate} from './documentIndex';
 export type {LocalToolJson,LocalToolState} from './stateTypes';
 export type {EraDocument,EraDocumentKind,EraDocumentRead} from '@/services/worldEras/types';
-export interface LocalToolSnapshot<T extends LocalToolJson>{revision:number|null;updatedAt:number|null;data:T;document?:{id:string;namespace:string;title:string;version:string;lineage:string};block?:{id:string;owner:import('./blocks/types').LocalToolBlockDataOwner;version:string;lineage:string};provenance?:'base'|'variant'}
+export interface LocalToolSnapshot<T extends LocalToolJson>{revision:number|null;updatedAt:number|null;data:T;convergence?:import('./convergence/clientTypes').LocalToolConvergenceSnapshot;document?:{id:string;namespace:string;title:string;version:string;lineage:string};block?:{id:string;owner:import('./blocks/types').LocalToolBlockDataOwner;version:string;lineage:string};provenance?:'base'|'variant'}
 export interface LocalToolWorldRead extends EraDocumentRead{projection?:{fields:Record<string,string>}}
 export interface LocalToolCodexCard{id:string;title:string;type:CodexEntryType;tags:string[];fields:Record<string,string>;truncated:boolean}
 export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:readonly string[];limit?:number}
 export interface LocalToolOpenDocumentOptions{placement?:'beside'}
 export interface LocalToolClient<T extends LocalToolJson>{
+  readonly convergence?:import('./convergence/clientTypes').LocalToolDocumentConvergence<T>;
   readonly theme?:import('./themes').LocalToolThemeSource;
   readonly defaults?:import('./defaults').LocalToolDefaults;
   readonly icons?:import('./icons').LocalToolIcons;
@@ -85,8 +89,10 @@ export interface LocalToolClient<T extends LocalToolJson>{
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostContext {app?:import('./apps/types').LocalAppDetails;focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
-export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
+export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{
+  const stateSchemaVersion=definition.stateSchemaVersion??'1';
+  if(typeof stateSchemaVersion!=='string'||!stateSchemaVersion.trim()||stateSchemaVersion.length>200||Array.from(stateSchemaVersion).some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127))throw Error('local_tool_state_schema_version_invalid');
   if(definition.namespace===HOST_ASSET_NAMESPACE)throw Error('local_tool_reserved_namespace');
   if(definition.assets)validateLocalAssetManifest(definition.assets,definition.assetFiles??{});
   if(!localToolNamespace(definition.namespace))throw new LocalToolStateError('invalid-namespace');
@@ -108,7 +114,7 @@ export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalTo
     validateLocalOperationSchema(schema);
     return Object.freeze({...operation,description:{...operation.description},inputSchema:schema});
   });
-  return Object.freeze({...definition,...(definition.tours!==undefined?{tours:prepareLocalToolTours(definition.tours)}:{}),...(definition.locales?{locales:prepareLocalToolLocales(definition.locales)}:{}),...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(definition.codec?{codec:cloneLocalToolJson(definition.codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
+  return Object.freeze({...definition,stateSchemaVersion,...(definition.tours!==undefined?{tours:prepareLocalToolTours(definition.tours)}:{}),...(definition.locales?{locales:prepareLocalToolLocales(definition.locales)}:{}),...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(definition.codec?{codec:cloneLocalToolJson(definition.codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
 }
 
 export {useLocalToolFontFace} from './useLocalToolFontFace';

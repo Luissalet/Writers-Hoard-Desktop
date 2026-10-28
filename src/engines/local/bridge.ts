@@ -1,4 +1,5 @@
 import {recordRuntimeError,runtimeErrorIdentity} from './runtimeErrors';
+import {LOCAL_CONVERGENCE_HANDLERS} from './convergence/bridge';
 import {LOCAL_RUNTIME_HANDLERS} from './runtimeBridge';
 import {LOCAL_APP_HANDLERS} from './apps/bridge';
 import {createLocalToolIcons} from './icons';
@@ -28,6 +29,7 @@ async function stateClient(args:ToolArgs){const scoped=await client(args);await 
 async function defaultsClient(args:ToolArgs,readOnly=false){const scoped=await client(args,readOnly);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.defaults)throw new BridgeError('bad-args','This host does not provide shared tool defaults.');return scoped;}
 export const LOCAL_TOOL_HANDLERS={
  ...LOCAL_RUNTIME_HANDLERS,
+ ...LOCAL_CONVERGENCE_HANDLERS,
  ...LOCAL_APP_HANDLERS,
  async wh_local_tool_default_get(args:ToolArgs){const scoped=await defaultsClient(args,true);return scoped.defaults!.get(requireString(args,'key'));},
  async wh_local_tool_default_update(args:ToolArgs){const scoped=await defaultsClient(args),key=requireString(args,'key');if(args.action==='set'){if(!Object.hasOwn(args,'value'))throw new BridgeError('bad-args','value is required for set.');return scoped.defaults!.set(key,args.value as LocalToolJson,args.expected as LocalToolDefaultSnapshot);}if(args.action==='undo'||args.action==='redo')return scoped.defaults![args.action](key,requireString(args,'receiptId'));throw new BridgeError('bad-args','Choose set, undo or redo.');},
