@@ -868,3 +868,8 @@ Source63 passed its focused/permanent checks and final recovery, quick and build
 ## Initial names for placed landmarks: delivery64
 
 A placed landmark now exposes its authored initial name in the ordinary place readers and map label; a later explicit rename still takes precedence. Generated or unnamed landmarks keep their defaults. Public/Native checks and Root Brave normal import, search, label, place card and reload pass at this scope. [Evidence and limits](tasks/vvd1095/verification-source-abs.md#source64-nombre-inicial-de-landmarks-colocados). Source `5623cb60` received exact CAS64 approval and Main FF without push; broader map parity and task1095 remain open.
+
+
+## Large causal envelopes: delivery65
+
+Existing large Source checkpoints reopen without the observed regexp stack overflow, preserving canonical bytes and the admitted state budget. Two-key MCP returns complete identical envelopes; Brave imports, opens and reloads the normal exported project. [Evidence and limits](tasks/vvd1095/verification-sdk-convergence.md#source65-validacion-base64-grande). Source `5db5570dd6185ecfb3be1d26b70abb08b1678d40` received exact CAS65 approval and Main FF without push. Character-level text, rich collaboration and wider parity remain open.
