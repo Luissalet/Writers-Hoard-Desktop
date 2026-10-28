@@ -832,3 +832,34 @@ wh_local_package_errors({namespace?,contentHash?,phase?}) returns errors/session
 Entries use verified package/member identity, phase, stable host message, finite error type and repetition count; no saved prose, arguments, arbitrary exception text or stack. Phases are load/factory/prepare/persist/publish/notify/render/operation. Render errors belong to the implementation actually shown, including an older retained version while a new pin supplies current authority. A failing child preserves sibling drafts; the crashing view's own unmounted draft is not promised recoverable. Callback failures retain transaction rollback; validation failures before the callback and compiled Source errors are excluded. This is not a global console/event-handler observer. [API, independent review and evidence scopes](../tasks/vvd1095/verification-sdk-runtime-errors.md).
 
 These deliveries do not provide general CRDT, character-level prose collaboration, presence, every Host/world-query service or hosting. The broader SDK parity task remains open.
+
+
+## Optional fields from currently open Source documents
+
+`client.openDocuments?` is an optional readonly port. New browser and memory hosts supply `query(input)` and `subscribe(changed):()=>void`; older clients may omit it. An absent port is unavailable, whereas an available host with no matching mounted Source documents returns `[]`. Do not silently turn absence into an empty result.
+
+```ts
+import {useLocalToolOpenDocuments} from '@/engines/local/sdk';
+
+const query = {
+  namespace: 'my.counter',
+  fields: {
+    points: {path: '$.score', type: 'number' as const},
+    names: {path: '$.names[*]', type: 'string[]' as const, mode: 'all' as const},
+  },
+};
+// Inside the ordinary author component, using its current client:
+const {rows, loading, error} = useLocalToolOpenDocuments(client, query);
+```
+
+For an imperative consumer, first check `client.openDocuments`, then call `await client.openDocuments.query(query)`. The hook returns `{rows,loading,error}` and reports `local_tool_open_documents_unavailable` for an omitted port. It subscribes to membership and normal saved-data notifications, clears outdated rows during refresh, and ignores results from retired client/query bindings. Unsubscribe any imperative subscription when its consumer leaves.
+
+The query accepts optional `namespace` and required alias-to-selector `fields`, reusing `LocalToolIndexField` paths/types/modes. Explicit `undefined` for optional `namespace` or selector `mode` means omission; it does not make required fields, aliases or extra properties optional. Strict JSON validation rejects getters without invoking them. It has no durable query pagination/filter options. Rows contain only `id`, `namespace`, `title`, `provenance:'base'|'variant'` and selected `fields`. Array selectors use the existing `first`/`all` semantics; results are detached and frozen. This is saved Source JSON, not a draft, another producer's codec or a Y.Doc. Closed documents remain available through the existing durable `queryDocuments` API.
+
+Membership belongs to the current project/era and actual Source mounts, deduplicated across two hosts of one Source. A query captures all current mount tokens before its first await and revalidates them after the final read. Closing every captured mount removes that row, even if a new mount reopens the same document; an originally captured second host can keep it eligible. Queries do not mount, flush, Save, persist membership or execute producer code. A mounted draft stays untouched until its normal explicit Save; that saved result can then refresh the selected fields.
+
+MCP `wh_local_tool_open_document_query({projectId,eraId?,namespace?,fields})` returns `{documents: rows}` through the same projection. It is readonly; a headless renderer without matching mounts returns an empty collection. This does not enumerate arbitrary cards, Codex documents or every world document type.
+
+In author tests, `createFakeLocalToolHost` owns an independent membership registry. After normal fixture/client setup, use `const close = host.mountDocument(scope, documentId)` to represent a mount, query through the public client, and call `close()` on teardown. Creating a client, reading or running a durable query never mounts a document. The kit shares the pure projection with the browser adapter and keeps normal Source Save behavior; it is not a DOM or Browser simulation.
+
+[Attributed checks, preserved failures and delivery status](../tasks/vvd1095/verification-sdk-open-documents.md). Writer signatures differ from the upstream reference; this bounded saved-Source capability does not close SDK34, all Host queries, character-level prose collaboration, presence or hosting.
