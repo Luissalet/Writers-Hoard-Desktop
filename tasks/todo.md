@@ -1847,7 +1847,7 @@ Contrato propio preparado en `_stage/parity-sdk-open-document-fields-next/sdk34-
 - [ ] Verificar MCP dos claves, Brave, pruebas pertinentes y revisión independiente antes de integrar; conservar todos los residuos generales de1095.
 
 
-### Entrega63: campos Source abiertos, continuidad pendiente
+### Entrega63: campos Source abiertos, continuidad completada
 
 Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos ni cierra1095. [API y pruebas](vvd1095/verification-sdk-open-documents.md).
 
@@ -1858,5 +1858,14 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Completar gates finales recovery-ui17892ms/quick125432ms/build318546ms,3255inputs exactos/WASM117/5; crítica399 anterior conservada sin repetir.
 - [x] Fuente f47e8270c63570a7511732f2d1ff1309e8938879 aprobada CAS63 exacta e integrada Main FF,18blobs exactos/48untracked preservados/sin push.
 - [x] Actualizar manual63 con CAS/readback completo:509UTF16 añadidos/198párrafos y197otros/estilos/metadatos exactos; errores de lectura conservados sin replay de escritura.
-- [ ] Completar continuidad memoria/grafo63 con su recibo propio.
+- [x] Continuidad memoria/grafo63 completada por Root: ROOT-continuity63-r1.json,15:14UTC/MEMORY+grafo58refs/embeddingfalse; no repetir escritura.
 - [ ] Mantener abiertos SDK34 completo, carácter/presencia/defaults/Host/query/hosting y demás paridad1095.
+
+
+### Entrega64: nombre inicial de landmark
+
+- [x] Corregir lector común sin cambiar writer/keys/coords ni defaults generados; probar prioridad de rename y vuelta al nombre inicial.
+- [x] Root GREEN175checks/2066inputs, Node2/33inputs, quick149355ms/3255inputs y Native dos claves19tools23RPC19IPC positivos, con atribución propia.
+- [x] Brave import/search/etiqueta/ficha y reload correctos sin rename; eliminar sólo el importado y volver a los mismos cinco mundos.
+- [x] Fuente5623cb601e5f5a4de7f09e942be2ea40ae78ed1f aprobada CAS64 exacta e integrada Main FF,2RAW exactos/48untracked preservados/sin push; sin build/crítica nuevos.
+- [ ] Commit documental y continuidad64 con recibos efectivos, sin cierre1095.
