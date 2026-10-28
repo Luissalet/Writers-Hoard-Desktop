@@ -1818,3 +1818,18 @@ Este checkpoint sucede al de escala53 y conserva los anteriores. El corte final 
 - [ ] Continuar UNKNOWN de archivos de referencia y los demás residuos1095; no cerrar paridad global ni filas agrupadas por este flujo.
 
 El estado de este checklist corresponde al corte de propuesta anterior a su aplicación. El recibo final de entrega de Root y el registro de continuidad determinan su estado posterior; una casilla histórica no exige repetir una operación ya acreditada. No se afirma continuidad realizada sin ese recibo.
+
+
+### Checkpoint62: intercambio causal Source integrado
+
+Fuente `603a3c991f82367e537a38965aebb77775720692` aprobada CAS62 e integrada Main:40 rutas exactas,48 archivos no rastreados conservados, índice limpio, sin push. Manual nativo actualizado con escritura CAS y lectura completa posterior. La ruta permanente offline UI pasa16 grupos,8a1280 y8a390, con89 tablas vacías por viewport; el arranque anterior detenido conserva su resultado separado. Siguen abiertos prosa por caracteres, presencia, defaults aditivos, Host/query completo, hosting y el resto de1095. No se afirma producción/Main instalada ni descarga Browser a disco.
+
+- [x] Implementar activación explícita/réplicas scalar-map-list/pending/replay, writer atómico, CAS/Save/Undo/eras/History/portables; prosa como valor completo.
+- [x] Acreditar persistencia7, Native frío dos claves, UI montada8+8 y camino permanente offline16; conservar todos los FAIL y límites.
+- [x] Registrar contracts-r3/tipos finales0, quickr3/buildr2 y atribución separada de crítica399.
+- [x] Commit40rutas exactas, revisión independiente CAS62 y FF Main bajo mergelease/HEAD fresco, sin push.
+- [x] Actualizar manual Google con CAS/readback y documentación de esta entrega.
+- [ ] Completar continuidad de memoria/grafo por recibo propio de Root.
+- [ ] Continuar SDK34 saved/open/closed y todos los residuos de carácter/presencia/defaults/Host/query/hosting; sin done1095.
+
+[Verificación por capa](vvd1095/verification-sdk-convergence.md).
