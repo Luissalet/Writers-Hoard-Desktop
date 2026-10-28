@@ -39,7 +39,8 @@ export function convergenceBase64(bytes:Uint8Array):string {
  return btoa(binary);
 }
 export function convergenceBytes(base64:string):Uint8Array {
- if(typeof base64!=='string'||base64.length%4!==0||! /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64))return fail();
+ // Repeating one character avoids overflowing the regexp stack on large envelopes.
+ if(typeof base64!=='string'||base64.length%4!==0||! /^[A-Za-z0-9+/]*={0,2}$/.test(base64))return fail();
  const binary=atob(base64),bytes=Uint8Array.from(binary,char=>char.charCodeAt(0));if(convergenceBase64(bytes)!==base64)return fail();return bytes;
 }
 export function validateConvergenceMetadata(value:LocalToolConvergenceMetadata):void {

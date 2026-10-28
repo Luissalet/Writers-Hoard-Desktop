@@ -12,10 +12,11 @@ async function compile(name,contents){
  return{run:require(file),inputs};
 }
 void(async()=>{
- const pure=await compile('format',"export {testConvergenceFormatBudget} from './tests/local-tool-convergence.format';");
+ const pure=await compile('format',"export {testConvergenceFormatBudget,testConvergenceLargeCanonicalBytes} from './tests/local-tool-convergence.format';");
  const forbidden=pure.inputs.filter(file=>/[\\/]node_modules[\\/](yjs|dexie|react)[\\/]|[\\/]convergence[\\/]replica\.|[\\/]src[\\/]db[\\/]|[\\/]local[\\/](storage|registry|bootstrap)\./.test(file));
  if(forbidden.length)throw Error('Pure format graph imported engine/application: '+forbidden.join(','));
  console.log('PASS '+pure.run.testConvergenceFormatBudget());
+ console.log('PASS '+pure.run.testConvergenceLargeCanonicalBytes());
  const contracts=await compile('contracts',"export {runCoreOracle} from './tests/local-tool-convergence.core';export {runOracle} from './tests/local-tool-convergence.memory';export {assertMemoryStartFlags} from './tests/local-tool-convergence.start-flags';");
  const core=await contracts.run.runCoreOracle((name,value)=>save('core-'+name,value));if(!core.ok)throw Error('Core convergence failed; see '+directory);
  for(const group of core.groups)console.log('PASS core '+group.name);
