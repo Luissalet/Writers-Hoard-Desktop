@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const root = path.resolve(__dirname, '..');
+const convergenceContractCheck = spawnSync(process.execPath, ['tests/local-tool-convergence.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
+if (convergenceContractCheck.status !== 0 || convergenceContractCheck.error) process.exit(convergenceContractCheck.status ?? 1);
 const runtimeFormatCheck = spawnSync(process.execPath, ['--test', 'tests/local-runtime-format.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (runtimeFormatCheck.status !== 0 || runtimeFormatCheck.error) process.exit(runtimeFormatCheck.status ?? 1);
 const runtimeColdCheck = spawnSync(process.execPath, ['tests/local-runtime-packages-native/run.cjs', 'cold', `vvd-runtime-${Date.now().toString(36)}-${process.pid}`], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 660000 });
@@ -100,6 +102,8 @@ if (focusNativeCheck.status !== 0 || focusNativeCheck.error) process.exit(focusN
 const tableRowsNativeCheck = spawnSync(electron, ['tests/table-row-order.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (tableRowsNativeCheck.status !== 0 || tableRowsNativeCheck.error) process.exit(tableRowsNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-convergence-controls.layout.browser.tsx', 'testLocalToolConvergenceControlsLayout', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-convergence.persistence.browser.ts', 'testLocalToolConvergencePersistence', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['table-row-order.pure.ts', 'testTableRowOrderPure', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['table-row-order.browser.tsx', 'testTableRowOrderContracts', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['table-row-order.browser.tsx', 'testTableRowOrderUi', 240000, 'scripts/run-codex-properties-ui.cjs'],

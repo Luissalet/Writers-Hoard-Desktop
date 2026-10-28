@@ -12,7 +12,7 @@ import {createLocalToolClient} from '@/engines/local/storage';
 import LocalToolDocumentHost from '@/engines/local/documents/LocalToolDocumentHost';
 import {buildReaderHtml} from '@/engines/writings/readerExport';
 import {defaultReaderPresentation} from '@/engines/writings/readerPresentation';
-import {remapSourceToolDocument} from '@/engines/local/documents/types';
+import {remapSourceToolDocument} from '@/engines/local/documents/portability';
 import {loadWorldWikiData,buildWorldWiki} from '@/services/worldWikiExport';
 import {assetFixture,assertAsset,ASSET_NS} from './local-tool-assets.browser';
 import {authorCard} from './fixtures/local-tools/author-data';

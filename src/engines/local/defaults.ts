@@ -51,7 +51,7 @@ export function createLocalToolDefaults<T extends LocalToolJson>(host:LocalToolC
  const actions=(key:string)=>{
   validateKey(key);
   return createLocalToolStateActions<DefaultsData>(codec,JSON.stringify([port.receiptScope,HOST_DEFAULTS_NAMESPACE,projectId,namespace,key]),run=>port.atomic(transaction=>{
-   const client:LocalToolClient<DefaultsData>={...host,read:transaction.read,save:transaction.save,state:undefined};
+   const client:LocalToolClient<DefaultsData>={...host,read:transaction.read,save:transaction.save,state:undefined,convergence:undefined};
    return run({client,onCommit:transaction.onCommit,onAbort:transaction.onAbort});
   }));
  };

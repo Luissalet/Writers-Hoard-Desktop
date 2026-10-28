@@ -1,7 +1,8 @@
 import {decodeEraValue} from '@/services/worldEras/portability';
 import {validateArchive} from '@/services/documentArchive/store';
 import type {DocumentArchive} from '@/services/documentArchive/types';
-import {remapSourceToolDocument,type SourceToolDocument} from './types';
+import {remapSourceToolDocument} from './portability';
+import type {SourceToolDocument} from './types';
 
 /** The legacy project JSON extension is explicitly Source-only. Other archive
  * kinds continue using complete project Duplicate and ZIP. */

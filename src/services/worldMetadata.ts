@@ -3,7 +3,7 @@ import {remapManuscriptCatalog} from '@/engines/writings/manuscripts';
 import {remapLocalToolBlocksInHtml,validateLocalToolBlocksInHtml} from '@/engines/local/blocks/types';
 import { remapPrepBlocks } from '@/engines/prepBlocks/remap';
 import {remapLocalToolReferences} from '@/engines/local/stateCodec';
-import {remapSourceToolDocuments} from '@/engines/local/documents/types';
+import {remapSourceToolDocuments} from '@/engines/local/documents/portability';
 import {remapToolDockLayout} from '@/engines/writings/toolDock/types';
 import {remapWorldFolderImports,WORLD_FOLDER_IMPORT_ID_PREFIX} from '@/services/worldFolderImport/portability';
 import {worldDocumentPrefixes} from '@/services/worldEras/documentPrefixes';
