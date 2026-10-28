@@ -687,3 +687,10 @@ Los perfiles de publicación ofrecen Markdown, HTML, EPUB, Word (DOCX), PDF de l
 Reintentar pendientes conserva esa copia preparada aunque cambie el libro vivo; Preparar de nuevo captura los datos actuales. PDF y Word admiten márgenes enfrentados en mm y número inicial de página opcionales; EPUB sigue siendo reajustable. El PDF de cubierta conserva sus medidas, lomo manual, sangrado y resolución propios. [Uso, API, estado de entrega y límites atribuidos](tasks/vvd1095/verification-publishing-batch.md). Esta continuación amplía el checkpoint C41 anterior; la paridad general web/SDK sigue abierta.
 
 El flujo C42 acotado está entregado en Main tras la aprobación exacta CAS54; la verificación enlazada distingue las comprobaciones finales de las pruebas anteriores de C41 y del corte previo al arreglo.
+
+
+## Intercambiar cambios de documentos Source: checkpoint local62
+
+Los documentos Source pueden activar una historia causal e intercambiar cambios scalar/map/listas estables entre réplicas independientes del SDK. Guardar y Deshacer/Rehacer conservan el writer y los controles de versión normales; leer o exportar un documento sin activar no lo convierte en colaborativo. El espacio ofrece controles de archivo y tres herramientas MCP habituales. [Uso y pruebas atribuidas](tasks/vvd1095/verification-sdk-convergence.md) separan persistencia, Native frío de dos claves, UI montada y Brave normal.
+
+Fuente `603a3c991f82367e537a38965aebb77775720692` aprobada CAS62 e integrada Main:40 rutas exactas,48 archivos no rastreados conservados, índice limpio, sin push. Manual nativo actualizado con escritura CAS y lectura completa posterior. La ruta permanente offline UI pasa16 grupos,8a1280 y8a390, con89 tablas vacías por viewport; el arranque anterior detenido conserva su resultado separado. Siguen abiertos prosa por caracteres, presencia, defaults aditivos, Host/query completo, hosting y el resto de1095. No se afirma producción/Main instalada ni descarga Browser a disco.

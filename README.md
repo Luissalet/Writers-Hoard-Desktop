@@ -847,3 +847,10 @@ Root's two-key/two-process Native checks pass with38tools/44RPC/38IPC,2174inputs
 The package manager shares a session-only error history with wh_local_package_errors and wh_local_package_errors_clear. Verified package/member identity, phase, count and a stable host message identify failures without persisting authored content or exception stacks. Clear removes history; existing loader and view Retry controls recover the package. A failing child view leaves its sibling draft mounted, and a retained older implementation owns its errors after a pin change.
 
 [API and attributed verification](tasks/vvd1095/verification-sdk-runtime-errors.md). Source 23cf590c113ffe892702152eec0bce11b9c57cd6 received exact CAS61 approval and verified Main FF; quick,399critical checks and build passed. Five permanent error regression groups and independent two-key cold transport have distinct evidence scopes. Broader SDK convergence, presence, Host services, distribution/hosting and1095 remain open.
+
+
+## Source document change exchange: local checkpoint62
+
+Source documents can explicitly activate a causal history and exchange scalar/map/stable-list changes between independent SDK replicas. Normal Save and scoped Undo/Redo use the same Source writer; opening or exporting an uninitialized document does not activate it. The workspace has change-file controls and three ordinary MCP tools. [Usage and attributed checks](tasks/vvd1095/verification-sdk-convergence.md) distinguish persistence, two-key cold Native, mounted UI and normal Brave evidence.
+
+Source commit `603a3c991f82367e537a38965aebb77775720692` is approved at CAS62 and integrated into Main:40 exact paths,48 untracked files preserved, clean index, no push. The native Google manual is updated with guarded write/readback. The permanent offline UI route passes16 checks,8at1280 and8at390, with89 empty tables per viewport; the earlier stalled launcher remains a separate failed attempt. Character-level prose, presence, additive defaults, complete Host queries and hosting remain open, as does task1095. No production/Main-installed or Browser download claim follows from these checks.

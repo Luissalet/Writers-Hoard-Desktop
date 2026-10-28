@@ -237,6 +237,51 @@ Successful actions return a session receipt. Undo/Redo use the same identity mer
 
 Native methods use the same source/pin and engine checks: `wh_local_tool_state_apply({projectId,eraId?,namespace,baseline,actions})`, `wh_local_tool_state_undo/redo({...,receiptId})`. Describe includes the codec. Read-only operation clients reject actions and Undo/Redo just as they reject save.
 
+## Offline change exchange for Source documents
+
+A Source document with a declared codec can explicitly start a causal history through `client.convergence`. Opening, reading or exporting a legacy document does not start it. Namespace-level state and Owned blocks retain their existing APIs. The document workspace provides **Exchange changes / Intercambiar cambios**, activation, change-file preparation/download and file import. Save buffered edits before exchanging. A prepared download is discarded when the saved revision or document generation changes.
+
+Activate before exporting the project's ZIP backup to another installation. Import that ZIP as the same project to retain its document identities and shared history. JSON import and **Duplicate** create independent document histories, so their change files do not merge back into the original. Install/select the compatible Source release separately through the existing source workflow; project backups do not install code.
+
+```ts
+import {createLocalToolReplica} from '@/engines/local/sdk';
+
+const started = await client.convergence!.start(await client.read());
+const checkpoint = started.checkpoint;
+const replica = createLocalToolReplica(checkpoint, {
+  authorId: crypto.randomUUID(),
+  contract: {
+    namespace: definition.namespace,
+    codec: definition.codec!,
+    validationId: checkpoint.validationId,
+    schemaEpoch: checkpoint.schemaEpoch,
+    validateState: definition.validateState,
+  },
+});
+try {
+  const change = replica.apply([
+    {type: 'map-set', field: 'labels', key: 'status', value: 'draft'},
+  ]);
+  await client.convergence!.import(change.update);
+} finally {
+  replica.destroy();
+}
+```
+
+Independent replicas start from the same checkpoint. Transport each returned update as its own-format JSON value; do not regenerate an edit for each delivery. `replica.export(stateVectorBase64?)` and `client.convergence.export({stateVectorBase64})` optionally export relative to a previously observed vector. A complete export includes the checkpoint and update; a legacy document returns null for both. `client.read().convergence` is a small identity/conflict descriptor and does not contain the checkpoint bytes.
+
+Replica methods are `read`, `inspect`, `apply`, `receive`, `export`, `checkpoint`, `undo`, `redo` and `destroy`. Import reports `changed` for the admitted view, `causalChanged` for new causal information and `pending` for missing dependencies. A hidden or incomplete contribution can change causal history without changing the displayed data. Complete checkpoints retain pending inputs across save, ZIP restore and cold reopening. A duplicate update with no causal novelty writes no revision and creates no receipt.
+
+Scalar/map values and stable list membership, content and placement retain concurrent contributions with deterministic resolution. Plain and rich prose are whole-value registers: this API does not provide character-level editing, shared cursors, presence or automatic network transport. A merged raw state can fail the author validator. The admitted view then uses a retained authored valid snapshot, with an explicit validation conflict containing the raw state; the incompatible contributions remain in the causal history. An explicit valid repair can resolve the conflict. Reading does not author a repair or a new fallback.
+
+After activation, normal `client.state.apply/undo/redo` and whole-document Save use the same causal history. Undo withdraws the local receipt's contribution while preserving remote contributions; receipts remain session-scoped, ordered and bound to their document lineage/release. Remote import does not grant Undo of a remote author. A committed own Save starts a new Redo branch; an identical Save, remote import or aborted transaction does not. Receipt installation and consumption occur only when the outer write commits.
+
+`stateSchemaVersion` defaults to `"1"`. Authors must change it when validator semantics change. The host derives the validation/schema identities from the declared version, namespace, effective codec and initial state; these are declared compatibility identities, not a hash proving callback equivalence. The first accepted write in a changed contract validates the admitted state and starts a new generation/history atomically. Old-epoch export remains a read of the persisted admitted view without invoking the newly installed validator. An inherited era's first accepted write likewise starts its own history and retains the displaced Base snapshot in normal history. Old packets cannot cross these independent histories.
+
+The ordinary MCP tools are `wh_local_tool_convergence_start`, `wh_local_tool_convergence_export` and `wh_local_tool_convergence_import`. Each accepts the normal project/era/namespace scope and a real `documentId`; start additionally takes the observed `baseline`, export an optional `stateVectorBase64`, and import the complete `update` value. They share Source writes and the normal commit/abort lifecycle. No host receipt recipe is accepted as a tool argument.
+
+The pure author memory host uses the same causal core and public document API. Its explicit fixtures remain a memory model and do not certify production history or asset persistence. Yjs 13.6.33 implements the internal causal representation; the public envelope and identity policy are Writer's own formats. [Bundled dependency notices](../public/third-party/local-convergence.txt).
+
 ## Local references and document drops
 
 `client.refs.resolve({kind,documentId})` reads current effective title/provenance and availability; a removed document returns `available:false`. `client.refs.open(reference)` uses normal pane navigation with the current era. `wh_local_tool_reference_resolve` exposes the same metadata path. Stored labels are never the reference identity.
