@@ -349,3 +349,8 @@ F1 H2-ready y F2 opcionales pasan; RED React de primera render obsoleta tiene el
 ## Entrega64: nombre inicial de landmarks colocados
 
 El lector conserva el nombre autorado al añadir un landmark; rename explícito posterior mantiene prioridad y generados/sin nombre conservan defaults. Root Brave importó el JSON normal previo al rename, verificó búsqueda/etiqueta/ficha x5y5, recargó y borró sólo el importado, volviendo a los mismos cinco mundos. [Pruebas y límites](tasks/vvd1095/verification-source-abs.md#source64-nombre-inicial-de-landmarks-colocados). Quick y controles públicos/Native pasan; sin build/crítica nuevos. Fuente5623cb60 aprobada CAS64 exacta e integrada Main FF,2RAW exactos/48untracked preservados/sin push.1095 continúa.
+
+
+## Entrega65: reapertura de sobres causales grandes
+
+El validador Base64 deja de agotar la pila con checkpoints grandes y conserva formato canónico/presupuesto de estado. Regresión16MiB+1, Node del área y quick positivos; MCP real dos claves devuelve el estado completo y Brave importa/abre/recarga el mismo documento con10000elementos/prosa/opaco intactos. [Pruebas y límites](tasks/vvd1095/verification-sdk-convergence.md#source65-validacion-base64-grande). Fuente5db5570dd6185ecfb3be1d26b70abb08b1678d40 aprobada CAS65 exacta e integrada Main FF/sin push. Texto por caracteres, rich/presencia y1095 continúan abiertos.

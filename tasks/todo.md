@@ -1868,4 +1868,24 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Root GREEN175checks/2066inputs, Node2/33inputs, quick149355ms/3255inputs y Native dos claves19tools23RPC19IPC positivos, con atribución propia.
 - [x] Brave import/search/etiqueta/ficha y reload correctos sin rename; eliminar sólo el importado y volver a los mismos cinco mundos.
 - [x] Fuente5623cb601e5f5a4de7f09e942be2ea40ae78ed1f aprobada CAS64 exacta e integrada Main FF,2RAW exactos/48untracked preservados/sin push; sin build/crítica nuevos.
-- [ ] Commit documental y continuidad64 con recibos efectivos, sin cierre1095.
+- [x] Docs64 integradas Main15d39074 y continuidad64 completada por Root, recibos ROOT-docs64-main-r1.json/ROOT-continuity64-r1.json; sin repetir ni cerrar1095.
+
+### Continuación: estados causales grandes y texto por caracteres
+
+- [x] Reproducir la reapertura fallida de un checkpoint grande y conservar el fallo causal.
+- [x] Corregir la validación Base64 sin cambiar el formato aceptado; regresión de 16 MiB+1 y Node del área positivos.
+- [x] Verificación rápida del corte de tres rutas: root-gates65-first1, 207708 ms, 3255 entradas exactas.
+- [x] Medición continuada10k termina adversa por deadline600s/history44; originales10k/50k conservados, sin PASS de rendimiento plain.
+- [x] MCP dos claves y Brave actual/cold verificados, revisión exacta65 aprobada e integración Main por tres rutas sin push.
+- [ ] Implementar texto plain por caracteres siguiendo el acuerdo1801 y su primer RED público: identidades estables, Undo autoral, Save/CAS, fallback válido y portables. La representación física sigue en estudio; no hay API de texto nueva entregada.
+- [ ] Continuar rich, presencia y todos los demás residuos de1095; no cerrar la tarea por este checkpoint.
+
+
+### Entrega65: Base64 grande
+
+- [x] Regresión permanente16MiB+1 y canonicalidad; genuino REDred2→GREENgreen2, pure15inputs, Node134inputs, quick207708ms/3255inputs exactos.
+- [x] Native real dos claves12tools16RPC12IPC/2151inputs, sobres completos/normalexportreadonly/cleanup89zero/EOF401cierres.
+- [x] Brave3 importación normal, paquete QA mediante instalador/pin explícito, lectura actual/cold10000/prosa/opaco; borrar sólo importado devuelve los mismos cinco proyectos.
+- [x] Fuente aprobada CAS65 e integrada Main FF por tres rutas, sin push.
+- [ ] Registrar commit documental y continuidad65 con recibos efectivos, sin repetir64.
+- [ ] Continuar texto por caracteres desde el RED público conservado; rich/presencia y demás1095 abiertos.

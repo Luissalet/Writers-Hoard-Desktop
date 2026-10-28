@@ -312,4 +312,9 @@ F1 H2-ready, F2 opcionales y recuperación de primera render ya tienen positivos
 
 ## Continuación64: alcance del nombre inicial
 
-El residuo de nombre custom inicial de landmark tiene corrección y positivos acotados: lector público, prioridad rename/defaults y UI import/search/label/ficha/reload. [Verificación](tasks/vvd1095/verification-source-abs.md#source64-nombre-inicial-de-landmarks-colocados). Fuente5623cb60 aprobada CAS64 exacta e integrada Main FF. Completar registro documental/continuidad64 con recibos efectivos; no ampliar a todos los tipos/eras/portables ni repetir los gates de63. Mantener abiertos Paper cut y demás residuos del ledger/1095.
+El residuo de nombre custom inicial de landmark tiene corrección y positivos acotados: lector público, prioridad rename/defaults y UI import/search/label/ficha/reload. [Verificación](tasks/vvd1095/verification-source-abs.md#source64-nombre-inicial-de-landmarks-colocados). Fuente5623cb60 aprobada CAS64 exacta e integrada Main FF. Registro documental y continuidad64 completos, recibos ROOT-docs64-main-r1.json/ROOT-continuity64-r1.json; no ampliar a todos los tipos/eras/portables ni repetir los gates de63. Mantener abiertos Paper cut y demás residuos del ledger/1095.
+
+
+## Continuación65: texto por caracteres
+
+Formato Base64 reparado, aprobado CAS65 e integrado Main; lectura actual/cold de Brave comprobada. El proxy de listas conserva sus fallos10k/50k y la continuación incompleta600s/history44: no acreditan rendimiento plain. El primer público conserva25PASS/1FAIL por textRange ausente; acuerdo1801 y parche experimental sóloStage no entregan la API. Seguir con identidades estables/Undo autoral/Save/RW/fallback/portables, luego rich/presencia y demás ledger.1095 abierta.
