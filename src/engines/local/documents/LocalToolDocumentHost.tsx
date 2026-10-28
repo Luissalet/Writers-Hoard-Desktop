@@ -24,6 +24,7 @@ import {sourceDocumentPreview} from './preview';
 import {LocalToolHostAncestors} from './hostContext';
 import {LocalToolAtomPendingContext} from '../blocks/pending';
 import {LocalToolUndoBoundary} from '../LocalToolUndoBoundary';
+import {mountedSourceDocuments} from '../queryOpenDocuments';
 export interface LocalToolDocumentHostProps {projectId:string;eraId?:string;documentId:string;namespace?:string;view?:LocalToolHostContext['view'];interactive?:boolean;readOnly?:boolean;chrome?:boolean;retainPresentation?:boolean;allowedNamespaces?:readonly string[]}
 /** Every surface mounts one real document; collection lists belong to its engine. */
 export default function LocalToolDocumentHost(props:LocalToolDocumentHostProps){return <SourceDocumentSession key={JSON.stringify([props.projectId,props.eraId??null,props.documentId,props.namespace??null,props.view??'editor'])} {...props}/>;}
@@ -36,6 +37,11 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  const reportPending=useMemo(()=>(token:string,pending:boolean)=>{if(pending)pendingTokens.current.add(token);else pendingTokens.current.delete(token);setHasPending(pendingTokens.current.size>0);outerPending?.(token,pending);},[outerPending]);
  const retained=useRef<{document:NonNullable<NonNullable<typeof record>['read']>['document'];definition:LocalToolDefinition;contentHash:string|null}|undefined>(undefined);
  const freshDocument=record?.read?.document,document=freshDocument??(retainPresentation?retained.current?.document:undefined);let definition:LocalToolDefinition|undefined;let error='';if(record?.project&&document)try{definition=resolveProjectLocalTool(document.namespace,record.project);if(!definition.document)throw Error('local_tool_document_host_required');}catch(reason){error=String(reason);}
+ const freshNamespace=freshDocument?.namespace,cyclic=ancestors.includes(identity);
+ useLayoutEffect(()=>{
+  if(!freshNamespace||cyclic)return;
+  return mountedSourceDocuments.register({projectId,eraId},documentId,freshNamespace);
+ },[projectId,eraId,documentId,freshNamespace,cyclic]);
  // A compatible pin may replace the Component type. Keep the actual pending
  // editor mounted until its own recovery controls resolve the draft; authority
  // still comes from the current pin and a newly issued readonly client.

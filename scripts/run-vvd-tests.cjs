@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const root = path.resolve(__dirname, '..');
+const openDocumentCheck = spawnSync(process.execPath, ['tests/local-tool-open-documents.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
+if (openDocumentCheck.status !== 0 || openDocumentCheck.error) process.exit(openDocumentCheck.status ?? 1);
 const convergenceContractCheck = spawnSync(process.execPath, ['tests/local-tool-convergence.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
 if (convergenceContractCheck.status !== 0 || convergenceContractCheck.error) process.exit(convergenceContractCheck.status ?? 1);
 const runtimeFormatCheck = spawnSync(process.execPath, ['--test', 'tests/local-runtime-format.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
@@ -102,6 +104,9 @@ if (focusNativeCheck.status !== 0 || focusNativeCheck.error) process.exit(focusN
 const tableRowsNativeCheck = spawnSync(electron, ['tests/table-row-order.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (tableRowsNativeCheck.status !== 0 || tableRowsNativeCheck.error) process.exit(tableRowsNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-open-document-fields.layout.browser.tsx', 'testLocalToolOpenDocumentFields', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-open-document-fields.layout.browser.tsx', 'testLocalToolOpenDocumentsUnavailable', 240000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-open-documents-recovery.browser.tsx', 'testLocalToolOpenDocumentsQueryRecovery', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-convergence-controls.layout.browser.tsx', 'testLocalToolConvergenceControlsLayout', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-convergence.persistence.browser.ts', 'testLocalToolConvergencePersistence', 240000, 'scripts/run-focused-browser-tests.cjs'],
   ['table-row-order.pure.ts', 'testTableRowOrderPure', 240000, 'scripts/run-codex-properties-ui.cjs'],

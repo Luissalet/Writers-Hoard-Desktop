@@ -30,6 +30,8 @@ export type {LocalAssetRef,LocalAssetSpec,LocalAssetManifest,LocalAssetResolved,
 import {HOST_ASSET_NAMESPACE,validateLocalAssetManifest,type LocalAssetManifest,type LocalAssetFiles} from './assets';
 export {defineLocalToolBlock} from './blocks/definitions';
 export {useLocalToolWorldList,useLocalToolWorldRead} from './useLocalToolWorld';
+export {useLocalToolOpenDocuments} from './useLocalToolOpenDocuments';
+export type {LocalToolOpenDocumentQuery,LocalToolOpenDocumentRow,LocalToolOpenDocuments} from './openDocuments';
 export {useSound,useAudioPlayer} from './useLocalToolAudio';
 export type {LocalToolAudio,LocalAudioLevels,LocalAudioChannelLevels,LocalAudioRef,LocalAudioOptions,LocalAudioUpdate,LocalAudioState,LocalAudioBus,LocalAudioFocus} from './audio';
 export type {LocalToolWorldClient} from './useLocalToolWorld';
@@ -66,6 +68,7 @@ export interface LocalToolCodexCard{id:string;title:string;type:CodexEntryType;t
 export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:readonly string[];limit?:number}
 export interface LocalToolOpenDocumentOptions{placement?:'beside'}
 export interface LocalToolClient<T extends LocalToolJson>{
+  readonly openDocuments?:import('./openDocuments').LocalToolOpenDocuments;
   readonly convergence?:import('./convergence/clientTypes').LocalToolDocumentConvergence<T>;
   readonly theme?:import('./themes').LocalToolThemeSource;
   readonly defaults?:import('./defaults').LocalToolDefaults;
