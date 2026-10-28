@@ -151,6 +151,27 @@ export function testWorldgenSpatialEntities(): string {
   ]);
   assert(resolveWorldLandmark(landmark, removedAgain).hidden, 'later remove did not win over restore');
 
+  const named = emptyAppliedEdits();
+  named.markers.push(
+    { kind: 'marker', marker: 'landmark', landmark: 'volcano', x: 5, y: 5, name: 'QA cráter Élodie Ω' },
+    { kind: 'marker', marker: 'landmark', landmark: 'cave', x: 2, y: 2 },
+  );
+  const namedWorld = worldWith(landmark, named), namedKey = 'landmark:volcano:5,5';
+  const byKey = () => new Map(resolveWorldLandmarks(namedWorld).map(entity => [entity.key, entity]));
+  assert(byKey().get(namedKey)?.name === 'QA cráter Élodie Ω', 'painted landmark lost its authored source name');
+  assert(byKey().get(canonicalKey)?.name === 'Volcán', 'generated landmark default name changed');
+  assert(byKey().get('landmark:cave:2,2')?.name === 'Cueva', 'unnamed painted landmark lost its default');
+  assert(buildAtlas(namedWorld, EMPTY_GEOGRAPHY).byKey.get(namedKey)?.name === 'QA cráter Élodie Ω',
+    'Atlas did not expose the authored landmark source name');
+  named.renames['feature:volcano:5,5'] = 'Nombre anterior';
+  assert(byKey().get(namedKey)?.name === 'Nombre anterior', 'source name overrode a historical sparse rename');
+  named.renames[namedKey] = 'Nombre posterior';
+  assert(byKey().get(namedKey)?.name === 'Nombre posterior', 'source name overrode the canonical sparse rename');
+  delete named.renames[namedKey]; delete named.renames['feature:volcano:5,5'];
+  const restoredName = byKey().get(namedKey);
+  assert(restoredName?.name === 'QA cráter Élodie Ω' && restoredName.sourceX === 5 && restoredName.sourceY === 5,
+    'removing renames did not restore the source name and coordinates');
+
   return 'Worldgen spatial landmark identity and overrides';
 }
 
