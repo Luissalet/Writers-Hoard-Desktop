@@ -168,6 +168,7 @@ export function resolveWorldLandmark(
   landmark: Landmark,
   edits?: AppliedEdits,
   origin = { x: 0, y: 0 },
+  sourceName?: string,
 ): WorldSpatialEntity {
   const identity = { type: landmark.type, x: landmark.x + origin.x, y: landmark.y + origin.y };
   return resolveWorldSpatialEntity({
@@ -175,7 +176,7 @@ export function resolveWorldLandmark(
     legacyKeys: [legacyLandmarkKey(identity)],
     kind: 'landmark',
     type: landmark.type,
-    name: LANDMARK_NAMES[landmark.type],
+    name: sourceName || LANDMARK_NAMES[landmark.type],
     x: landmark.x,
     y: landmark.y,
     extent: 2,
@@ -217,6 +218,7 @@ export function resolveWorldLandmarks(
       { type: m.landmark, x: Math.round(m.x), y: Math.round(m.y), strength: 1 } as Landmark,
       world.painted,
       world.domain?.bounds,
+      m.name,
     ));
   }
   return options.includeHidden ? entities : entities.filter((entity) => !entity.hidden);
