@@ -8,6 +8,8 @@ import {localToolTutorialSnapshots} from './LocalToolTutorialHost';
 import {LOCAL_ASSET_HANDLERS} from './assetBridge';
 import {LOCAL_AUDIO_HANDLERS} from './audioBridge';
 import {queryLocalToolDocuments} from './queryDocuments';
+import {createBrowserLocalToolOpenDocuments} from './queryOpenDocuments';
+import type {LocalToolOpenDocumentQuery} from './openDocuments';
 import {LOCAL_TOOL_BLOCK_HANDLERS} from './blocks/bridge';
 import {createSourceToolDocument,listSourceToolDocuments,renameSourceToolDocument,archiveSourceToolDocument} from './documents/store';
 import type {LocalToolSnapshot} from './sdk';
@@ -38,6 +40,7 @@ export const LOCAL_TOOL_HANDLERS={
  ...LOCAL_AUDIO_HANDLERS,
  ...LOCAL_ASSET_HANDLERS,
  ...LOCAL_TOOL_BLOCK_HANDLERS,
+ async wh_local_tool_open_document_query(args:ToolArgs){const query=Object.fromEntries(['namespace','fields'].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));return{documents:await createBrowserLocalToolOpenDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')}).query(query as unknown as LocalToolOpenDocumentQuery)};},
  async wh_local_tool_document_query(args:ToolArgs){const query=Object.fromEntries(['namespace','where','reference','offset','limit'].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));return{documents:await queryLocalToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},query)};},
  async wh_local_tool_document_list(args:ToolArgs){return{documents:await listSourceToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'namespace'))};},
  async wh_local_tool_document_create(args:ToolArgs){const namespace=requireString(args,'namespace'),projectId=resolveProjectId(args);await assertEngineEnabled(projectId,localToolEngineId(namespace));return createSourceToolDocument({projectId,eraId:optString(args,'eraId')},namespace,requireString(args,'title'));},
