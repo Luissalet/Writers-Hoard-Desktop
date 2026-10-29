@@ -1,15 +1,21 @@
 import * as Y from 'yjs';
 import {cloneLocalToolJson,type LocalToolJson} from '../stateTypes';
-import {validateLocalToolCodecState,type LocalToolStateCodec} from '../stateCodec';
+import {validateLocalToolCodecState,isLocalToolPlainField,type LocalToolStateCodec} from '../stateCodec';
 import {mergeLocalToolActions,localToolStateEqual,type LocalToolStateAction} from '../stateActions';
-import {assertConvergenceIdentity,convergenceBase64,convergenceBytes,convergenceCanonical,convergenceHash,convergenceIdentity,convergenceIdentityOf,convergenceClone,validateConvergenceMetadata,validateLocalToolConvergenceCheckpoint,validateLocalToolConvergenceUpdate,validateLocalToolConvergenceReceipt} from './format';
-import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceContract,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,LocalToolConvergenceUpdate,LocalToolConvergenceView,LocalToolReplicaOptions,LocalToolReplica,LocalToolReplicaEdit,LocalToolConvergenceChange,LocalToolConvergenceReceipt,LocalToolConvergencePreparation} from './types';
+import {assertConvergenceIdentity,convergenceBase64,convergenceBytes,convergenceCanonical,convergenceHash,convergenceIdentity,convergenceIdentityOf,convergenceClone,validateConvergenceMetadata,validateLocalToolConvergenceCheckpoint,validateLocalToolConvergenceUpdate,validateLocalToolConvergenceReceipt,validateLocalToolPlainRange} from './format';
+import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceContract,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,LocalToolConvergenceUpdate,LocalToolConvergenceView,LocalToolReplicaOptions,LocalToolReplica,LocalToolReplicaEdit,LocalToolConvergenceChange,LocalToolConvergenceReceipt,LocalToolConvergencePreparation,LocalToolPlainRange} from './types';
+
+import {JsonMap,JsonArray,Registers,type Toggle} from './registers';
+import {PlainRuns,type PlainSpan,type PlainPlan,type PlainDraft} from './plainRuns';
 
 type ObjectData=Record<string,LocalToolJson>;
 type Binding={id:string;placementId:string};
 type Bindings=Record<string,Binding[]>;
 type Placement={id:string;placementId:string};
-type ValidView={data:LocalToolJson;bindings:Bindings};
+type PlainBindings=Record<string,PlainSpan[]>;
+type PlainBindingChecks=Map<string,ReturnType<PlainRuns['bindingValidator']>>;
+type ValidView={data:LocalToolJson;bindings:Bindings;plainBindings?:PlainBindings};
+type ActionPlan<T extends LocalToolJson>={actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean;plainBindings?:PlainBindings;plainPlans?:Record<string,PlainPlan>;plainPresence?:Record<string,boolean>};
 type ReadyAction=LocalToolStateAction&{placementId?:string;anchorPlacement?:string|null};
 const clone=<T>(value:T):T=>convergenceClone(value);
 const binding=(bindings:Binding[],id:string)=>bindings.find(value=>value.id===id)?.placementId;
@@ -17,131 +23,24 @@ const bind=(bindings:Binding[],id:string,placementId:string)=>{const at=bindings
 const unbind=(bindings:Binding[],id:string)=>{const at=bindings.findIndex(value=>value.id===id);if(at>=0)bindings.splice(at,1);};
 const object=(value:unknown):value is ObjectData=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const listFields=(codec:LocalToolStateCodec)=>Object.entries(codec.fields).filter(([,field])=>field.kind==='list');
-/** JSON text protects opaque UTF-16 strings from the engine's UTF-8 Any encoding. */
-class JsonMap<T>{
- constructor(inner:Y.Map<string>){this.inner=inner;}
- readonly inner:Y.Map<string>;
- get(key:string):T|undefined{const text=this.inner.get(key);if(text===undefined)return undefined;if(typeof text!=='string')throw Error('local_tool_convergence_json_invalid');return JSON.parse(text) as T;}
- has(key:string){return this.inner.has(key);}
- set(key:string,value:T){this.inner.set(key,JSON.stringify(value));}
- keys(){return this.inner.keys();}
- *values():IterableIterator<T>{for(const key of this.keys())yield this.get(key)!;}
- *[Symbol.iterator]():IterableIterator<[string,T]>{for(const key of this.keys())yield[key,this.get(key)!];}
- observe(callback:()=>void){this.inner.observe(callback);}
-}
-class JsonArray<T>{
- constructor(inner:Y.Array<string>){this.inner=inner;}
- readonly inner:Y.Array<string>;
- toArray():T[]{return this.inner.toArray().map(text=>{if(typeof text!=='string')throw Error('local_tool_convergence_json_invalid');return JSON.parse(text) as T;});}
- insert(index:number,values:T[]){this.inner.insert(index,values.map(value=>JSON.stringify(value)));}
- push(values:T[]){this.inner.push(values.map(value=>JSON.stringify(value)));}
-}
 const order=(doc:Y.Doc,field:string)=>new JsonArray<Placement>(doc.getArray<string>('order:'+JSON.stringify(field)));
-interface CausalTransaction {id:string;parents:string[]}
-interface RegisterVersion {id:string;root:string;key:string;present:boolean;value:LocalToolJson;txId:string}
-interface RegisterActivation {id:string;versionId:string;enabled:boolean;txId:string}
-interface Toggle {id:string;enabled:boolean}
-class Registers {
- readonly transactions:JsonMap<CausalTransaction>;
- readonly versions:JsonMap<RegisterVersion>;
- readonly activations:JsonMap<RegisterActivation>;
- private groups:Map<string,RegisterVersion[]>|null=null;
- private activationGroups:Map<string,RegisterActivation[]>|null=null;
- private completeMemo=new Map<string,boolean|null>();
- private ancestorMemo=new Map<string,Set<string>>();
- private context:{id:string;parents:string[];writes:Map<string,RegisterVersion>}|null=null;
- constructor(doc:Y.Doc){
-  this.doc=doc;
-  this.transactions=new JsonMap(doc.getMap('causal-transactions'));this.versions=new JsonMap(doc.getMap('register-versions'));this.activations=new JsonMap(doc.getMap('register-activations'));
-  this.transactions.observe(()=>this.invalidate());this.versions.observe(()=>this.invalidate());this.activations.observe(()=>this.invalidate());
- }
- readonly doc:Y.Doc;
- private invalidate(){this.groups=null;this.activationGroups=null;this.completeMemo.clear();this.ancestorMemo.clear();}
- entries(root:string,key?:string):RegisterVersion[]{
-  if(!this.groups){this.groups=new Map();for(const version of this.versions.values()){const group=convergenceCanonical([version.root,version.key]);const values=this.groups.get(group)??[];values.push(version);this.groups.set(group,values);}}
-  return key===undefined?[...this.groups.values()].flat().filter(version=>version.root===root):this.groups.get(convergenceCanonical([root,key]))??[];
- }
- complete(txId:string):boolean {
-  if(this.completeMemo.has(txId))return this.completeMemo.get(txId)===true;
-  const tx=this.transactions.get(txId);if(!tx)return false;this.completeMemo.set(txId,null);
-  const complete=tx.parents.every(parent=>this.complete(parent));this.completeMemo.set(txId,complete);return complete;
- }
- ancestors(txId:string,visiting=new Set<string>()):Set<string> {
-  const cached=this.ancestorMemo.get(txId);if(cached)return cached;if(visiting.has(txId))throw Error('local_tool_convergence_transaction_cycle');
-  const all=new Set<string>(),next=new Set(visiting);next.add(txId);
-  for(const parent of this.transactions.get(txId)?.parents??[]){all.add(parent);for(const ancestor of this.ancestors(parent,next))all.add(ancestor);}
-  this.ancestorMemo.set(txId,all);return all;
- }
- private maximum<T extends {id:string;txId:string}>(values:T[]):T|undefined {
-  let chosen:T|undefined;
-  for(const value of values){if(values.some(other=>other.txId!==value.txId&&this.ancestors(other.txId).has(value.txId)))continue;if(!chosen||value.id>chosen.id)chosen=value;}
-  return chosen;
- }
- activation(versionId:string):RegisterActivation|undefined {
-  if(!this.activationGroups){this.activationGroups=new Map();for(const activation of this.activations.values()){const values=this.activationGroups.get(activation.versionId)??[];values.push(activation);this.activationGroups.set(activation.versionId,values);}}
-  return this.maximum((this.activationGroups.get(versionId)??[]).filter(activation=>this.complete(activation.txId)));
- }
- winner(root:string,key:string,eligible?:(version:RegisterVersion)=>boolean,includePending=true):RegisterVersion|undefined {
-  const staged=includePending?this.context?.writes.get(convergenceCanonical([root,key])):undefined;if(staged&&(!eligible||eligible(staged)))return staged;
-  return this.maximum(this.entries(root,key).filter(version=>this.complete(version.txId)&&this.activation(version.id)?.enabled===true&&(!eligible||eligible(version))));
- }
- private heads():string[]{const heads=new Set(this.transactions.keys());for(const tx of this.transactions.values())for(const parent of tx.parents)heads.delete(parent);return [...heads];}
- begin():void {if(this.context)throw Error('local_tool_convergence_transaction_nested');this.context={id:crypto.randomUUID(),parents:this.heads(),writes:new Map()};}
- cancel():void {this.context=null;}
- flush():string[]{
-  const context=this.context;if(!context)throw Error('local_tool_convergence_transaction_missing');this.context=null;
-  if(!context.writes.size)return[];this.transactions.set(context.id,{id:context.id,parents:context.parents});const ids:string[]=[];
-  for(const version of context.writes.values()){this.versions.set(version.id,version);const activationId=crypto.randomUUID();this.activations.set(activationId,{id:activationId,versionId:version.id,enabled:true,txId:context.id});ids.push(version.id);}
-  this.invalidate();return ids;
- }
- write(root:string,key:string,present:boolean,value:LocalToolJson=null):void {
-  if(!this.context)throw Error('local_tool_convergence_transaction_missing');
-  const group=convergenceCanonical([root,key]),before=this.winner(root,key,undefined,false);
-  if(before&&before.present===present&&(!present||localToolStateEqual(before.value,value))){this.context.writes.delete(group);return;}
-  if(!before&&!present){this.context.writes.delete(group);return;}
-  const previous=this.context.writes.get(group),id=previous?.id??crypto.randomUUID();
-  this.context.writes.set(group,{id,root,key,present,value:present?clone(value):null,txId:this.context.id});
- }
- toggle(changes:readonly Toggle[]):Toggle[]{
-  if(this.context)throw Error('local_tool_convergence_transaction_nested');const effective:Toggle[]=[],inverse:Toggle[]=[];
-  for(const change of changes){if(!this.versions.has(change.id))throw Error('local_tool_convergence_receipt_unavailable');const enabled=this.activation(change.id)?.enabled??false;
-   if(enabled!==change.enabled){effective.push(clone(change));inverse.push({id:change.id,enabled});}
-  }
-  if(!effective.length)return[];const txId=crypto.randomUUID(),parents=this.heads();this.transactions.set(txId,{id:txId,parents});
-  for(const change of effective){const id=crypto.randomUUID();this.activations.set(id,{id,versionId:change.id,enabled:change.enabled,txId});}this.invalidate();return inverse;
- }
- map<T>(root:string){
-  function* iterate(registers:Registers):IterableIterator<[string,T]>{const keys=new Set([...registers.entries(root).map(version=>version.key),...[...(registers.context?.writes.values()??[])].filter(version=>version.root===root).map(version=>version.key)]);for(const key of keys){const version=registers.winner(root,key);if(version?.present)yield[key,clone(version.value) as T];}}
-  return{
-  get:(key:string):T|undefined=>{const version=this.winner(root,key);return version?.present?clone(version.value) as T:undefined;},
-  set:(key:string,value:T)=>{this.write(root,key,true,value as LocalToolJson);},
-  delete:(key:string)=>{this.write(root,key,false);},
-  [Symbol.iterator]:()=>iterate(this),
- };}
- pending():boolean {
-  return [...this.transactions.keys()].some(id=>!this.complete(id))||[...this.versions.values()].some(version=>!this.complete(version.txId)||!this.activation(version.id))||[...this.activations.values()].some(activation=>!this.versions.has(activation.versionId)||!this.complete(activation.txId));
- }
- validate():void {
-  for(const[id,tx]of this.transactions){if(!tx||tx.id!==id||!Array.isArray(tx.parents)||tx.parents.some(parent=>typeof parent!=='string'||parent===id)||new Set(tx.parents).size!==tx.parents.length)throw Error('local_tool_convergence_transaction_invalid');this.ancestors(id);}
-  for(const[id,version]of this.versions){if(!version||version.id!==id||typeof version.root!=='string'||typeof version.key!=='string'||typeof version.present!=='boolean'||typeof version.txId!=='string')throw Error('local_tool_convergence_register_invalid');convergenceClone(version);}
-  for(const[id,activation]of this.activations)if(!activation||activation.id!==id||typeof activation.versionId!=='string'||typeof activation.enabled!=='boolean'||typeof activation.txId!=='string')throw Error('local_tool_convergence_activation_invalid');
- }
-}
 const roots=(doc:Y.Doc,codec:LocalToolStateCodec)=>{
- const registers=new Registers(doc);
- return{registers,scalar:registers.map<LocalToolJson>('scalar'),presence:registers.map<boolean>('presence'),valid:registers.map<ValidView>('authored-valid-snapshot'),
+ const registers=new Registers(doc),plainRoots=new Map<string,PlainRuns>();
+ return{registers,plain:(field:string)=>{let plain=plainRoots.get(field);if(!plain){plain=new PlainRuns(doc,field,registers);plainRoots.set(field,plain);}return plain;},scalar:registers.map<LocalToolJson>('scalar'),presence:registers.map<boolean>('presence'),valid:registers.map<ValidView>('authored-valid-snapshot'),
  map:(field:string)=>registers.map<LocalToolJson>('map:'+field),
  list:(field:string)=>({content:registers.map<ObjectData>('content:'+field),membership:registers.map<boolean>('membership:'+field),selected:registers.map<string>('selected:'+field),order:order(doc,field)}),codec};
 };
 type Roots=ReturnType<typeof roots>;
 function initializeRoots(doc:Y.Doc,codec:LocalToolStateCodec):Roots {
- const r=roots(doc,codec);for(const[field,descriptor]of Object.entries(codec.fields)){if(descriptor.kind==='list')r.list(field);}return r;
+ const r=roots(doc,codec);for(const[field,descriptor]of Object.entries(codec.fields)){if(descriptor.kind==='list')r.list(field);else if(isLocalToolPlainField(descriptor))r.plain(field);}return r;
 }
 function projection(r:Roots):ValidView {
- const data:ObjectData={},bindings:Bindings={};
+ const data:ObjectData={},bindings:Bindings={},plainBindings:PlainBindings={};
  for(const[field,value]of r.scalar)data[field]=clone(value);
  for(const[field,descriptor]of Object.entries(r.codec.fields)){
-  if(descriptor.kind==='map'){
+  if(isLocalToolPlainField(descriptor)){
+   delete data[field];if(r.presence.get(field)){const view=r.plain(field).materialize();data[field]=view.text;plainBindings[field]=view.bindings;}
+  }else if(descriptor.kind==='map'){
    delete data[field];if(r.presence.get(field))data[field]=Object.fromEntries([...r.map(field)].map(([key,value])=>[key,clone(value)]));
   }else if(descriptor.kind==='list'){
    delete data[field];if(!r.presence.get(field))continue;
@@ -153,9 +52,9 @@ function projection(r:Roots):ValidView {
    data[field]=items;bindings[field]=anchors;
   }
  }
- return{data,bindings};
+ return{data,bindings,...(Object.values(r.codec.fields).some(isLocalToolPlainField)?{plainBindings}:{})};
 }
-function checkBindings(r:Roots,view:ValidView):void {
+function checkBindings(r:Roots,view:ValidView,plainChecks?:PlainBindingChecks):void {
  if(!object(view.data)||!object(view.bindings))throw Error('local_tool_convergence_bindings_invalid');
  for(const[field,descriptor]of listFields(r.codec)){
   if(descriptor.kind!=='list')continue;const rows=view.data[field];
@@ -165,6 +64,15 @@ function checkBindings(r:Roots,view:ValidView):void {
   for(const row of rows){const id=(row as ObjectData)[descriptor.idKey] as string;const place=binding(bindings,id);if(typeof place!=='string'||placements.get(place)!==id)throw Error('local_tool_convergence_bindings_invalid');}
  }
  if(Object.keys(view.bindings).some(field=>r.codec.fields[field]?.kind!=='list'))throw Error('local_tool_convergence_bindings_invalid');
+ const plain=view.plainBindings??{};if(!object(plain)||Object.keys(plain).some(field=>!isLocalToolPlainField(r.codec.fields[field])))throw Error('local_tool_convergence_bindings_invalid');
+ for(const[field,descriptor]of Object.entries(r.codec.fields))if(isLocalToolPlainField(descriptor)){
+  const value=(view.data as ObjectData)[field];if(value===undefined){if(Object.hasOwn(plain,field))throw Error('local_tool_convergence_bindings_invalid');continue;}
+  if(typeof value!=='string'||!Array.isArray(plain[field]))throw Error('local_tool_convergence_bindings_invalid');
+  if(plainChecks){
+   let check=plainChecks.get(field);if(!check){check=r.plain(field).bindingValidator();plainChecks.set(field,check);}
+   check({text:value,bindings:plain[field]});
+  }else r.plain(field).checkBindings({text:value,bindings:plain[field]});
+ }
 }
 function contractCopy<T extends LocalToolJson>(contract:LocalToolConvergenceContract<T>):LocalToolConvergenceContract<T> {
  validateConvergenceMetadata(contract);if(typeof contract.validateState!=='function')throw Error('local_tool_convergence_validator_required');
@@ -190,7 +98,9 @@ function currentBindings(r:Roots,contract:LocalToolConvergenceContract):Bindings
 }
 function semanticPending(r:Roots):boolean {
  if(r.registers.pending())return true;
- for(const version of r.registers.entries('authored-valid-snapshot'))if(version.present){try{checkBindings(r,version.value as unknown as ValidView);}catch{return true;}}
+ for(const[field,descriptor]of Object.entries(r.codec.fields))if(isLocalToolPlainField(descriptor)&&r.plain(field).pending())return true;
+ const plainChecks:PlainBindingChecks=new Map();
+ for(const version of r.registers.entries('authored-valid-snapshot'))if(version.present){try{checkBindings(r,version.value as unknown as ValidView,plainChecks);}catch{return true;}}
  for(const[field]of listFields(r.codec)){
   const placements=new Set(r.list(field).order.toArray().map(place=>place.placementId));
   if(r.registers.entries('selected:'+field).some(version=>version.present&&!placements.has(version.value as string)))return true;
@@ -214,19 +124,22 @@ function pending(doc:Y.Doc):boolean {
  return false;
 }
 function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson,identity:LocalToolConvergenceIdentity):void {
- const r=initializeRoots(doc,metadata.codec),bindings:Bindings={};
+ const r=initializeRoots(doc,metadata.codec),bindings:Bindings={},plainBindings:PlainBindings={},plainFields=Object.keys(metadata.codec.fields).filter(field=>isLocalToolPlainField(metadata.codec.fields[field])).sort();
  doc.transact(()=>{
   new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).set('value',clone(identity));r.registers.begin();
+  if(plainFields.length)new JsonMap<string[]>(doc.getMap('plain-fields')).set('value',plainFields);
   for(const[field,value]of Object.entries(data as ObjectData)){
    const descriptor=metadata.codec.fields[field];
-   if(descriptor?.kind==='map'){
+   if(isLocalToolPlainField(descriptor)){
+    const draft=r.plain(field).draft({text:'',bindings:[]});draft.replace(value as string);const plan=draft.finish();r.plain(field).commit(plan);r.presence.set(field,true);plainBindings[field]=plan.view.bindings;
+   }else if(descriptor?.kind==='map'){
     r.presence.set(field,true);for(const[key,item]of Object.entries(value as ObjectData))r.map(field).set(key,clone(item));
    }else if(descriptor?.kind==='list'){
     r.presence.set(field,true);const list=r.list(field);bindings[field]=[];
     for(const item of value as ObjectData[]){const id=item[descriptor.idKey] as string,placementId=crypto.randomUUID();list.content.set(id,clone(item));list.membership.set(id,true);list.selected.set(id,placementId);list.order.push([{id,placementId}]);bind(bindings[field],id,placementId);}
    }else r.scalar.set(field,clone(value));
   }
-  r.valid.set('view',{data:clone(data),bindings});r.registers.flush();
+  r.valid.set('view',{data:clone(data),bindings,...(plainFields.length?{plainBindings}:{})});r.registers.flush();
  },'genesis');
 }
 /** Pure portable fork: trusted engine, no registry/factory or executable package validator. */
@@ -237,7 +150,7 @@ export function forkLocalToolGenesis(data:LocalToolJson,metadata:LocalToolConver
 export function createLocalToolGenesis<T extends LocalToolJson>(data:T,contract:LocalToolConvergenceContract<T>):LocalToolConvergenceCheckpoint {
  const frozen=contractCopy(contract),safe=cloneLocalToolJson(data);if(!accepts(frozen,safe))throw Error('local_tool_convergence_authored_state_invalid');return forkLocalToolGenesis(safe,frozen);
 }
-function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string):{actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean} {
+function prepareLegacyActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string):{actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean} {
  const before=inspect(r,contract).data,{data:proposal}=mergeLocalToolActions(contract.codec,before,before,actions);
  if(!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
  const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract);
@@ -253,8 +166,64 @@ function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConve
  const raw=projection(r).data;let rawChanged=true;try{rawChanged=!localToolStateEqual(raw,mergeLocalToolActions(contract.codec,raw,raw,actions).data);}catch{/* An intent valid on fallback can target an absent/different raw list identity. */}
  return{actions:prepared,proposal,bindings,changed:!localToolStateEqual(before,proposal)||rawChanged};
 }
+function admitted(r:Roots,contract:LocalToolConvergenceContract):ValidView {
+ const raw=projection(r);return accepts(contract,raw.data)?raw:validFallback(r,contract);
+}
+function plainFields(doc:Y.Doc):string[]{
+ const fields=new JsonMap<string[]>(doc.getMap('plain-fields')).get('value')??[];
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string')||new Set(fields).size!==fields.length)throw Error('local_tool_plain_fields_invalid');return fields;
+}
+function checkPlainDocument(r:Roots,doc:Y.Doc):void {
+ const expected=Object.keys(r.codec.fields).filter(field=>isLocalToolPlainField(r.codec.fields[field])).sort();
+ if(convergenceCanonical(plainFields(doc))!==convergenceCanonical(expected))throw Error('local_tool_plain_fields_invalid');
+ for(const field of expected)r.plain(field).validate();
+}
+function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,identity:LocalToolConvergenceIdentity,baseline?:T):ActionPlan<T> {
+ const initial=admitted(r,contract),before=initial.data as T;
+ if(!Object.values(r.codec.fields).some(isLocalToolPlainField)){
+  if(baseline!==undefined)mergeLocalToolActions(contract.codec,baseline,before,actions);return prepareLegacyActions(r,contract,actions,authorId);
+ }
+ if(!Array.isArray(actions)||!actions.length)throw Error('local_tool_actions_invalid');
+ const generic=actions.filter(action=>action.type!=='text-splice');if(generic.length)mergeLocalToolActions(contract.codec,baseline??before,before,generic);
+ const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract),plainBindings=clone(initial.plainBindings??{}),drafts=new Map<string,PlainDraft>(),plainPresence:Record<string,boolean>={};
+ let proposal=clone(before) as ObjectData;
+ const draft=(field:string)=>{let value=drafts.get(field);if(!value){const old=(initial.data as ObjectData)[field];value=r.plain(field).draft({text:typeof old==='string'?old:'',bindings:plainBindings[field]??[]});drafts.set(field,value);}return value;};
+ for(const action of prepared){
+  const descriptor=contract.codec.fields[action.field];
+  if(action.type==='text-splice'){
+   if(Object.keys(action).length!==4||!isLocalToolPlainField(descriptor)||typeof action.text!=='string')throw Error('local_tool_plain_range_invalid');validateLocalToolPlainRange(action.range);
+   if(action.field!==action.range.field||typeof proposal[action.field]!=='string')throw Error('local_tool_plain_range_invalid');assertConvergenceIdentity(action.range.identity,identity);
+   const next=draft(action.field);next.splice(action.range,action.text);const view=next.view();proposal[action.field]=view.text;plainBindings[action.field]=view.bindings;continue;
+  }
+  // Three-way conflict checks already covered the generic subsequence. Apply in original order to the proposal overlay.
+  proposal=mergeLocalToolActions(contract.codec,proposal,proposal,[action]).data as ObjectData;
+  if(isLocalToolPlainField(descriptor)){
+   const next=draft(action.field);if(action.type==='set')next.replace(action.value as string);else if(action.type==='unset')next.clear();else throw Error('local_tool_action_kind_invalid');
+   plainPresence[action.field]=action.type!=='unset';if(action.type==='unset')delete plainBindings[action.field];else plainBindings[action.field]=next.view().bindings;continue;
+  }
+  if(action.type==='list-delete')unbind(bindings[action.field],action.id);
+  else if(action.type==='list-insert'||action.type==='list-move'){
+   if(descriptor?.kind!=='list')throw Error('local_tool_convergence_list_invalid');action.anchorPlacement=action.afterId===null?null:binding(bindings[action.field],action.afterId);
+   if(action.anchorPlacement===undefined)throw Error('local_tool_convergence_anchor_invalid');action.placementId=authorId+':'+crypto.randomUUID();const id=action.type==='list-insert'?action.item[descriptor.idKey] as string:action.id;bind(bindings[action.field],id,action.placementId);
+  }
+ }
+ if(!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
+ const plainPlans=Object.fromEntries([...drafts].map(([field,value])=>[field,value.finish()]));
+ const nonPlain=generic.filter(action=>!isLocalToolPlainField(contract.codec.fields[action.field])),raw=projection(r).data;
+ let rawChanged=false;if(nonPlain.length){try{rawChanged=!localToolStateEqual(raw,mergeLocalToolActions(contract.codec,raw,raw,nonPlain).data);}catch{rawChanged=true;}}
+ return{actions:prepared,proposal:proposal as T,bindings,plainBindings,plainPlans,plainPresence,changed:!localToolStateEqual(before,proposal)||Object.values(plainPlans).some(plan=>plan.changed)||rawChanged};
+}
+function commitPlain(r:Roots,plan:{plainPlans?:Record<string,PlainPlan>;plainPresence?:Record<string,boolean>}):void {
+ for(const[field,value]of Object.entries(plan.plainPlans??{}))r.plain(field).commit(value);
+ for(const[field,present]of Object.entries(plan.plainPresence??{}))r.presence.set(field,present);
+}
+function mutateActions(r:Roots,plan:ActionPlan<LocalToolJson>):void {
+ if(!plan.plainPlans){mutate(r,plan.actions);return;}
+ mutate(r,plan.actions.filter(action=>action.type!=='text-splice'&&!isLocalToolPlainField(r.codec.fields[action.field])));commitPlain(r,plan);
+}
+
 function mutate(r:Roots,actions:readonly ReadyAction[]):void {
- for(const action of actions){const field=action.field;
+ for(const action of actions){if(action.type==='text-splice')throw Error('local_tool_plain_convergence_required');const field=action.field;
   if(action.type==='set')r.scalar.set(field,clone(action.value));else if(action.type==='unset')r.scalar.delete(field);
   else if(action.type==='map-set')r.map(field).set(action.key,clone(action.value));else if(action.type==='map-delete')r.map(field).delete(action.key);
   else{
@@ -271,18 +240,18 @@ function mutate(r:Roots,actions:readonly ReadyAction[]):void {
   }
  }
 }
-function authorFallback<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,proposal:T,bindings:Bindings):void {
- const raw=projection(r);const fallback=accepts(contract,raw.data)?raw:{data:clone(proposal),bindings:clone(bindings)};checkBindings(r,fallback);r.valid.set('view',fallback);
+function authorFallback<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,proposal:T,bindings:Bindings,plainBindings?:PlainBindings):void {
+ const raw=projection(r);const fallback=accepts(contract,raw.data)?raw:{data:clone(proposal),bindings:clone(bindings),...(plainBindings?{plainBindings:clone(plainBindings)}:{})};checkBindings(r,fallback);r.valid.set('view',fallback);
 }
 
 
 type ReplacementWrite={root:'scalar'|'presence'|'map'|'membership';field:string;key:string;present:boolean;value?:LocalToolJson};
-interface ReplacementPlan<T extends LocalToolJson>{proposal:T;bindings:Bindings;writes:ReplacementWrite[];actions:ReadyAction[];changed:boolean}
-function prepareReplacement<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,data:T,authorId:string):ReplacementPlan<T> {
+interface ReplacementPlan<T extends LocalToolJson>{proposal:T;bindings:Bindings;writes:ReplacementWrite[];actions:ReadyAction[];changed:boolean;plainBindings?:PlainBindings;plainPlans?:Record<string,PlainPlan>;plainPresence?:Record<string,boolean>}
+function prepareLegacyReplacement<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,data:T,authorId:string):ReplacementPlan<T> {
  const proposal=cloneLocalToolJson(data);if(!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
  const before=inspect(r,contract).data as ObjectData,next=proposal as ObjectData,bindings=currentBindings(r,contract),writes:ReplacementWrite[]=[],actions:ReadyAction[]=[];
  for(const field of new Set([...Object.keys(before),...Object.keys(next)])){
-  const descriptor=contract.codec.fields[field],old=before[field],desired=next[field];if(localToolStateEqual(old,desired))continue;
+  const descriptor=contract.codec.fields[field],old=before[field],desired=next[field];if(isLocalToolPlainField(descriptor)||localToolStateEqual(old,desired))continue;
   if(descriptor?.kind==='map'){
    writes.push({root:'presence',field,key:field,present:true,value:desired!==undefined});
    const oldMap={...Object.fromEntries(r.map(field)),...((old??{}) as ObjectData)},nextMap=(desired??{}) as ObjectData;
@@ -302,11 +271,22 @@ function prepareReplacement<T extends LocalToolJson>(r:Roots,contract:LocalToolC
  }
  return{proposal,bindings,writes,actions,changed:!localToolStateEqual(before,proposal)};
 }
+function prepareReplacement<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,data:T,authorId:string):ReplacementPlan<T> {
+ const plan=prepareLegacyReplacement(r,contract,data,authorId);if(!Object.values(r.codec.fields).some(isLocalToolPlainField))return plan;
+ const current=admitted(r,contract),plainBindings=clone(current.plainBindings??{}),plainPlans:Record<string,PlainPlan>={},plainPresence:Record<string,boolean>={};
+ for(const[field,descriptor]of Object.entries(r.codec.fields))if(isLocalToolPlainField(descriptor)){
+  const old=(current.data as ObjectData)[field],desired=(data as ObjectData)[field];if(localToolStateEqual(old,desired))continue;
+  const draft=r.plain(field).draft({text:typeof old==='string'?old:'',bindings:plainBindings[field]??[]});
+  if(desired===undefined){draft.clear();delete plainBindings[field];}else{draft.replace(desired as string);plainBindings[field]=draft.view().bindings;}
+  plainPlans[field]=draft.finish();plainPresence[field]=desired!==undefined;
+ }
+ return{...plan,plainBindings,plainPlans,plainPresence};
+}
 function mutateReplacement(r:Roots,plan:ReplacementPlan<LocalToolJson>):void {
  for(const write of plan.writes){const target=write.root==='scalar'?r.scalar:write.root==='presence'?r.presence:write.root==='membership'?r.list(write.field).membership:r.map(write.field);
   if(write.present)target.set(write.key,clone(write.value) as never);else target.delete(write.key);
  }
- mutate(r,plan.actions);
+ mutate(r,plan.actions);commitPlain(r,plan);
 }
 
 type ActivationRecipe={format:'register-activation/1';changes:Toggle[];frontier:string[]};
@@ -324,7 +304,7 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
  const current=()=>{if(closed)throw Error('local_tool_convergence_destroyed');};
  const onUpdate=(update:Uint8Array)=>{captured?.push(update);};doc.on('update',onUpdate);
  try{
-  Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));checkDocumentIdentity(doc,identity);r.registers.validate();
+  Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));checkDocumentIdentity(doc,identity);r.registers.validate();checkPlainDocument(r,doc);
   if(convergenceBase64(Y.encodeStateVector(doc))!==checkpoint.stateVectorBase64)throw Error('local_tool_convergence_vector_invalid');inspect(r,contract);
   if(restore){validateLocalToolConvergenceReceipt(restore);assertConvergenceIdentity(restore.identity,identity);recipeRecord(restore,r);receipts.set(restore.id,clone(restore));(restore.mode==='undo'?undo:redo).push(restore.id);}
  }catch(error){doc.destroy();throw error;}
@@ -336,11 +316,11 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
   if(!changes.length)return null;const id=options.authorId+':receipt:'+crypto.randomUUID(),heads=new Set(r.registers.transactions.keys());for(const tx of r.registers.transactions.values())for(const parent of tx.parents)heads.delete(parent);
   const receipt:LocalToolConvergenceReceipt={format:'writers-hoard-local-convergence-receipt/1',id,identity:clone(identity),mode,record:{format:'register-activation/1',changes:clone(changes),frontier:[...heads]} as unknown as LocalToolJson};receipts.set(id,receipt);(mode==='undo'?undo:redo).push(id);return receipt;
  };
- function author(plan:{proposal:T;bindings:Bindings;changed:boolean},mutations:()=>void):LocalToolReplicaEdit<T> {
+ function author(plan:{proposal:T;bindings:Bindings;plainBindings?:PlainBindings;changed:boolean},mutations:()=>void):LocalToolReplicaEdit<T> {
   const baseline=before();if(!plan.changed)return{...result(baseline),update:packet(identity,Y.mergeUpdates([])),receiptId:null};
   captured=[];let ids:string[]=[];
   try{
-   doc.transact(()=>{r.registers.begin();mutations();authorFallback(r,contract,plan.proposal,plan.bindings);ids=r.registers.flush();},options.authorId);
+   doc.transact(()=>{r.registers.begin();mutations();authorFallback(r,contract,plan.proposal,plan.bindings,plan.plainBindings);ids=r.registers.flush();},options.authorId);
    for(const id of redo)receipts.delete(id);redo.length=0;const receipt=storeReceipt('undo',ids.map(id=>({id,enabled:false})));
    return{...result(baseline),update:packet(identity,Y.mergeUpdates(captured)),receiptId:receipt?.id??null};
   }finally{r.registers.cancel();captured=null;}
@@ -353,20 +333,26 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
    const next=storeReceipt(isRedo?'undo':'redo',inverse);return{...result(baseline),update:packet(identity,Y.mergeUpdates(captured)),receiptId:next?.id??null};
   }finally{captured=null;}
  }
+ const applyObserved=(actions:readonly LocalToolStateAction[],baseline?:T)=>{current();const plan=prepareActions(r,contract,actions,options.authorId,identity,baseline);return author(plan,()=>mutateActions(r,plan));};
+ const textRange=(field:string,from:number,to:number):LocalToolPlainRange=>{
+  current();if(identity.engine.version!=='2'||!isLocalToolPlainField(contract.codec.fields[field]))throw Error('local_tool_plain_range_invalid');const view=admitted(r,contract),text=(view.data as ObjectData)[field];
+  if(typeof text!=='string')throw Error('local_tool_plain_range_invalid');return{format:'writers-hoard-local-plain-range/1',identity:clone(identity),field,...r.plain(field).range({text,bindings:view.plainBindings?.[field]??[]},from,to)};
+ };
  const replica:LocalToolReplica<T>=Object.freeze({
+  textRange,
   read:()=>clone(view().data),inspect:()=>clone(view()),checkpoint:currentCheckpoint,
-  apply(actions:readonly LocalToolStateAction[]){current();const plan=prepareActions(r,contract,actions,options.authorId);return author(plan,()=>mutate(r,plan.actions));},
+  apply:applyObserved,
   undo:(id:string)=>reverse(id,false),redo:(id:string)=>reverse(id,true),
   receive(update:LocalToolConvergenceUpdate){
    current();validateLocalToolConvergenceUpdate(update);assertConvergenceIdentity(update,identity);const baseline=before(),bytes=convergenceBytes(update.updateBase64);
    // Validate a full candidate first. Invalid JSON/graph/bindings must not partially change this instance.
-   const candidate=new Y.Doc({gc:false});try{const candidateRoots=initializeRoots(candidate,contract.codec);Y.applyUpdate(candidate,convergenceBytes(baseline.checkpoint.checkpointBase64));Y.applyUpdate(candidate,bytes);checkDocumentIdentity(candidate,identity);candidateRoots.registers.validate();inspect(candidateRoots,contract);}finally{candidate.destroy();}
+   const candidate=new Y.Doc({gc:false});try{const candidateRoots=initializeRoots(candidate,contract.codec);Y.applyUpdate(candidate,convergenceBytes(baseline.checkpoint.checkpointBase64));Y.applyUpdate(candidate,bytes);checkDocumentIdentity(candidate,identity);candidateRoots.registers.validate();checkPlainDocument(candidateRoots,candidate);inspect(candidateRoots,contract);}finally{candidate.destroy();}
    Y.applyUpdate(doc,bytes);return result(baseline);
   },
   export(stateVectorBase64?:string){current();return packet(identity,Y.encodeStateAsUpdate(doc,stateVectorBase64===undefined?undefined:convergenceBytes(stateVectorBase64)));},
   destroy(){if(!closed){closed=true;receipts.clear();undo.length=redo.length=0;doc.off('update',onUpdate);doc.destroy();}},
  });
- return{replica,
+ return{replica,applyObserved,
   receipt(id:string|null){current();if(id===null)return null;const receipt=receipts.get(id);if(!receipt)throw Error('local_tool_convergence_receipt_unavailable');return clone(receipt);},
   replace(data:T){current();const plan=prepareReplacement(r,contract,data,options.authorId);return author(plan,()=>mutateReplacement(r,plan));},
   pending(){current();return pending(doc)||semanticPending(r);},
@@ -381,7 +367,7 @@ function prepare<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpo
  }finally{host.replica.destroy();}
 }
 /** Host-only: no token is consumed until the existing Source writer's onCommit hook. */
-export function prepareLocalToolActions<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,actions:readonly LocalToolStateAction[]):LocalToolConvergencePreparation<T> {return prepare(checkpoint,options,host=>host.replica.apply(actions));}
+export function prepareLocalToolActions<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,actions:readonly LocalToolStateAction[],baseline?:T):LocalToolConvergencePreparation<T> {return prepare(checkpoint,options,host=>host.applyObserved(actions,baseline));}
 export function prepareLocalToolReplacement<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,data:T):LocalToolConvergencePreparation<T> {return prepare(checkpoint,options,host=>host.replace(data));}
 export function prepareLocalToolReceive<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,update:LocalToolConvergenceUpdate):LocalToolConvergencePreparation<T> {return prepare(checkpoint,options,host=>host.replica.receive(update));}
 export function prepareLocalToolReverse<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,receipt:LocalToolConvergenceReceipt):LocalToolConvergencePreparation<T> {return prepare(checkpoint,options,host=>receipt.mode==='undo'?host.replica.undo(receipt.id):host.replica.redo(receipt.id),receipt);}
@@ -402,9 +388,16 @@ export function exportLocalToolConvergenceCheckpoint(checkpoint:LocalToolConverg
    if(version.root==='authored-valid-snapshot'){
     const view=version.value as unknown as ValidView;
     if(!view||!object(view.bindings))throw Error('local_tool_convergence_bindings_invalid');
+    for(const[field,bindings]of Object.entries(view.plainBindings??{})){try{new PlainRuns(doc,field,registers).checkBindings({text:(view.data as ObjectData)[field] as string,bindings});}catch{semantic=true;}}
     for(const[field,bindings]of Object.entries(view.bindings)){const places=new Map(order(doc,field).toArray().map(place=>[place.placementId,place.id]));if(!Array.isArray(bindings))throw Error('local_tool_convergence_bindings_invalid');for(const {id,placementId}of bindings)if(places.get(placementId)!==id)semantic=true;}
    }
   }
+  for(const field of plainFields(doc)){const plain=new PlainRuns(doc,field,registers);plain.validate();if(plain.pending())semantic=true;}
   return{update:packet(identity,Y.encodeStateAsUpdate(doc,stateVectorBase64===undefined?undefined:convergenceBytes(stateVectorBase64))),pending:pending(doc)||semantic};
  }finally{doc.destroy();}
+}
+
+/** Host-only readonly capture; no initialization, migration or receipt. */
+export function captureLocalToolPlainRange<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,field:string,from:number,to:number):{data:T;range:LocalToolPlainRange}{
+ const host=instantiate(checkpoint,options);try{return{data:host.replica.read(),range:host.replica.textRange(field,from,to)};}finally{host.replica.destroy();}
 }

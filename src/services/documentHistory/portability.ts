@@ -7,7 +7,10 @@ import { decodeEraValue, worldDocumentCloner, type CloneDocumentBase } from '@/s
 import { decodeHistoryAssets } from './assets';
 import type { DocumentHistoryEntry } from './types';
 export async function decodeDocumentHistory(value: unknown, projectId: string, assets: WorldEraAsset[]): Promise<DocumentHistoryEntry[]> {
- const rows = decodeEraValue(value ?? []); if (!Array.isArray(rows)) throw Error('document_history_invalid');
+ return validateDocumentHistory(decodeEraValue(value ?? []), projectId, assets);
+}
+export async function validateDocumentHistory(rows: unknown, projectId: string, assets: WorldEraAsset[]): Promise<DocumentHistoryEntry[]> {
+ if (!Array.isArray(rows)) throw Error('document_history_invalid');
  const seen = new Set<string>(), byId = new Map(assets.map(row => [row.id,row]));
  for (const row of rows as DocumentHistoryEntry[]) {
   if (!row?.id || seen.has(row.id) || row.projectId !== projectId || !eraDocumentKinds.includes(row.kind) || !row.entityId || !Number.isFinite(row.createdAt) || !['edit','manual','pre-restore'].includes(row.reason) || typeof row.title !== 'string' || !Array.isArray(row.assetIds) || row.assetIds.some(id => !byId.has(id))) throw Error('document_history_invalid');

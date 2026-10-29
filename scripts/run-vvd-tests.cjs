@@ -172,6 +172,7 @@ const suites = [
   ['review-board-media-contracts.browser.ts', 'testReviewBoardMediaContracts', 180000],
   ['board-canvas-undo.browser.ts', 'testBoardCanvasUndo', 180000],
   ['board-piles.browser.tsx', 'testBoardPiles', 180000],
+  ['world-era-value-codec.browser.ts', 'testWorldEraValueCodec', 60000],
   ['world-eras-adapters.browser.tsx', 'testWorldEraAdapters', 180000],
   ['project-duplicate-independent.browser.ts', 'testProjectDuplicateIndependent', 180000],
   ['project-duplicate-full.browser.ts', 'testProjectDuplicateAllFamilies', 180000],

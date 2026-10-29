@@ -1,9 +1,11 @@
 import {sha256Hex} from '@/services/aiRuntime/recipe';
 import {localToolNamespace,type LocalToolJson} from '../stateTypes';
-import {validateLocalToolCodec,type LocalToolStateCodec} from '../stateCodec';
-import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolValidationConflict} from './types';
+import {validateLocalToolCodec,localToolHasPlainFields,type LocalToolStateCodec} from '../stateCodec';
+import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolValidationConflict,LocalToolPlainRange,LocalToolConvergenceIdentityV1,LocalToolConvergenceIdentityV2} from './types';
 
-export const LOCAL_TOOL_CONVERGENCE_ENGINE:LocalToolConvergenceIdentity['engine']=Object.freeze({id:'writers-hoard-yjs-registers',version:'1',updateFormat:'yjs-v1',libraryVersion:'13.6.33'});
+export const LOCAL_TOOL_CONVERGENCE_ENGINE:LocalToolConvergenceIdentityV1['engine']=Object.freeze({id:'writers-hoard-yjs-registers',version:'1',updateFormat:'yjs-v1',libraryVersion:'13.6.33'});
+export const LOCAL_TOOL_PLAIN_ENGINE:LocalToolConvergenceIdentityV2['engine']=Object.freeze({...LOCAL_TOOL_CONVERGENCE_ENGINE,version:'2'});
+export const convergenceEngine=(codec:LocalToolStateCodec):LocalToolConvergenceIdentity['engine']=>localToolHasPlainFields(codec)?LOCAL_TOOL_PLAIN_ENGINE:LOCAL_TOOL_CONVERGENCE_ENGINE;
 const fail=():never=>{throw Error('local_tool_convergence_format_invalid');};
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const exact=(value:Record<string,unknown>,keys:readonly string[])=>Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
@@ -48,11 +50,11 @@ export function validateConvergenceMetadata(value:LocalToolConvergenceMetadata):
  validateLocalToolCodec(value.codec);
 }
 export function convergenceIdentity(metadata:LocalToolConvergenceMetadata,genesisId:string):LocalToolConvergenceIdentity {
- validateConvergenceMetadata(metadata);if(!text(genesisId))fail();return{namespace:metadata.namespace,genesisId,engine:{...LOCAL_TOOL_CONVERGENCE_ENGINE},codecHash:convergenceCodecHash(metadata.codec),validationId:metadata.validationId,schemaEpoch:metadata.schemaEpoch};
+ validateConvergenceMetadata(metadata);if(!text(genesisId))fail();const fields={namespace:metadata.namespace,genesisId,codecHash:convergenceCodecHash(metadata.codec),validationId:metadata.validationId,schemaEpoch:metadata.schemaEpoch},engine=convergenceEngine(metadata.codec);if(engine.version==='1')return{...fields,engine};return{...fields,engine};
 }
 const identityKeys=['namespace','genesisId','engine','codecHash','validationId','schemaEpoch'] as const;
 export function validateConvergenceIdentity(value:unknown):asserts value is LocalToolConvergenceIdentity {
- if(!object(value)||!localToolNamespace(value.namespace)||!text(value.genesisId)||!text(value.validationId)||!text(value.schemaEpoch)||typeof value.codecHash!=='string'||! /^[a-f0-9]{64}$/.test(value.codecHash)||convergenceCanonical(value.engine)!==convergenceCanonical(LOCAL_TOOL_CONVERGENCE_ENGINE))fail();
+ if(!object(value)||!localToolNamespace(value.namespace)||!text(value.genesisId)||!text(value.validationId)||!text(value.schemaEpoch)||typeof value.codecHash!=='string'||! /^[a-f0-9]{64}$/.test(value.codecHash)||![LOCAL_TOOL_CONVERGENCE_ENGINE,LOCAL_TOOL_PLAIN_ENGINE].some(engine=>convergenceCanonical(value.engine)===convergenceCanonical(engine)))fail();
 }
 /** JSON-only shape validation. Does not execute an engine, registry or package callback. */
 export function validateLocalToolConvergenceCheckpoint(value:unknown):asserts value is LocalToolConvergenceCheckpoint {
@@ -79,4 +81,11 @@ export function validateLocalToolConvergenceReceipt(value:unknown):asserts value
 export function validateLocalToolValidationConflict(value:unknown):asserts value is LocalToolValidationConflict|null {
  if(value===null)return;convergenceClone(value);
  if(!object(value)||!exact(value,['kind','policy','validationId','rawFingerprint','raw'])||value.kind!=='validation'||value.policy!=='authored-valid-snapshot/1'||!text(value.validationId)||typeof value.rawFingerprint!=='string'||convergenceHash(value.raw)!==value.rawFingerprint)fail();
+}
+
+/** Causal selection envelope, not an admitted-state JSON budget. Never starts a history. */
+export function validateLocalToolPlainRange(value:unknown):asserts value is LocalToolPlainRange {
+ convergenceClone(value);
+ if(!object(value)||!exact(value,['format','identity','field','afterPlacementId','deleteIds'])||value.format!=='writers-hoard-local-plain-range/1'||!text(value.field)||value.afterPlacementId!==null&&!text(value.afterPlacementId)||!Array.isArray(value.deleteIds)||value.deleteIds.some(id=>!text(id))||new Set(value.deleteIds).size!==value.deleteIds.length)return fail();
+ validateConvergenceIdentity(value.identity);if(!exact(value.identity as unknown as Record<string,unknown>,identityKeys)||value.identity.engine.version!=='2')fail();
 }

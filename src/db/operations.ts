@@ -9,14 +9,14 @@ import { validateCodexOptionLists } from '@/engines/codex/optionListTypes';
 import {validateLocalToolBlockRichContent} from '@/engines/local/blocks/types';
 import {remapToolDockLayout,validateToolDockWritingMetadata} from '@/engines/writings/toolDock/types';
 import { preserveLegacyProjectMetadata, preserveLegacyWritingToolDock, preserveLegacyEraWritingToolDock, validateProjectArchiveMetadata } from '@/services/projectArchiveMetadata';
-import { decodeDocumentHistory, cloneDocumentHistory } from '@/services/documentHistory/portability';
+import { decodeDocumentHistory, validateDocumentHistory, cloneDocumentHistory } from '@/services/documentHistory/portability';
 import { exportAnnotationData, decodeAnnotationData, cloneAnnotationData, annotationSourceIds } from '@/engines/annotations/portability';
 import { validatePublishedEditionsProject } from '@/services/publishedEditions/validation';
 import type { DocumentHistoryEntry } from '@/services/documentHistory/types';
 import { suppressDocumentHistoryForTransaction } from '@/services/documentHistory/context';
 import type { WorldEraAsset, WorldEraVariant } from '@/services/worldEras/types';
 import { eraAdapters } from '@/services/worldEras/adapters';
-import { cloneEraVariants, decodeEraVariants, decodeEraAssets, encodeEraValue, worldDocumentCloner } from '@/services/worldEras/portability';
+import { cloneEraVariants, decodeEraVariants, decodeEraAssets, encodeEraValue, decodeEraValue, validateEraAssets, validateEraVariants, worldDocumentCloner } from '@/services/worldEras/portability';
 import { archiveWithMutation } from '@/services/documentArchive/store';
 import { db } from './index';
 import Dexie from 'dexie';
@@ -1020,7 +1020,7 @@ export async function exportFullDatabase() {
     localMediaAssets: await Promise.all((await db.localMediaAssets.toArray()).map(encodeLocalMedia)),
     worldEraVariants: await encodeEraValue(await db.worldEraVariants.toArray()),
     worldEraAssets: await encodeEraValue(await db.worldEraAssets.toArray()),
-    projects,
+    projects: await encodeEraValue(projects),
     codexEntries,
     writings,
     timelines,
@@ -1091,8 +1091,12 @@ const LEGACY_CHILD_TABLES: Record<string, string[]> = {
  * rather than replacing the `snapshots` table.
  */
 export async function importFullDatabase(
-  data: Omit<Awaited<ReturnType<typeof exportFullDatabase>>, 'manuscriptSources' | 'localToolAssetFiles' | 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'> & Partial<Pick<Awaited<ReturnType<typeof exportFullDatabase>>, 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'>> & { localToolAssetFiles?:PortableLocalAssetFile[]; manuscriptSources?: import('@/engines/writings/manuscriptReview/portability').PortableManuscriptSource[]; externalLinks?: LegacyExternalLink[] },
+  input: Omit<Awaited<ReturnType<typeof exportFullDatabase>>, 'manuscriptSources' | 'localToolAssetFiles' | 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'> & Partial<Pick<Awaited<ReturnType<typeof exportFullDatabase>>, 'annotations' | 'annotationReferences' | 'documentHistory' | 'scenes' | 'sceneCasts' | 'dialogBlocks' | 'notes' | 'generatedWorlds' | 'worldWaypoints' | 'writingSnapshots' | 'timelineConnections' | 'localMediaAssets'>> & { localToolAssetFiles?:PortableLocalAssetFile[]; manuscriptSources?: import('@/engines/writings/manuscriptReview/portability').PortableManuscriptSource[]; externalLinks?: LegacyExternalLink[] },
 ): Promise<void> {
+  // Legacy project arrays have never used the binary era codec.
+  const projects = Array.isArray(input.projects) || input.projects === undefined ? input.projects : decodeEraValue(input.projects);
+  if (input.projects !== undefined && !Array.isArray(projects)) throw Error('full_export_projects_invalid');
+  const data = { ...input, projects: projects as Project[] | undefined, documentHistory: decodeEraValue(input.documentHistory), worldEraAssets: decodeEraValue(input.worldEraAssets), worldEraVariants: decodeEraValue(input.worldEraVariants) };
   const payload = data as unknown as Record<string, unknown>;
   for(const writing of data.writings??[])validateToolDockWritingMetadata(writing);
   const eraAssets: WorldEraAsset[] = [];
@@ -1114,12 +1118,12 @@ export async function importFullDatabase(
     const ownedAnnotations = (data.annotations ?? []).filter(row => row.projectId === project.id), ownedIds = new Set(ownedAnnotations.map(row => row.id));
     const decodedComments = decodeAnnotationData({ annotations: ownedAnnotations, annotationReferences: (data.annotationReferences ?? []).filter(row => ownedIds.has(row.annotationId)) }, project.id, new Set(project.worldEras?.map(era => era.id)));
     annotations.push(...decodedComments.annotations); annotationReferences.push(...decodedComments.annotationReferences);
-    const assets = await decodeEraAssets(Array.isArray(data.worldEraAssets) ? data.worldEraAssets.filter(row => row && typeof row === 'object' && row.projectId === project.id) : [], project.id);
+    const assets = await validateEraAssets(Array.isArray(data.worldEraAssets) ? data.worldEraAssets.filter(row => row && typeof row === 'object' && row.projectId === project.id) : [], project.id);
     eraAssets.push(...assets);
-    history.push(...await decodeDocumentHistory(Array.isArray(data.documentHistory)?data.documentHistory.filter(row=>row && typeof row==='object' && row.projectId===project.id):[],project.id,assets));
+    history.push(...await validateDocumentHistory(Array.isArray(data.documentHistory)?data.documentHistory.filter(row=>row && typeof row==='object' && row.projectId===project.id):[],project.id,assets));
     assetFiles.push(...await decodeAssetFiles((data.localToolAssetFiles??[]).filter(row=>row.projectId===project.id),project.id));
     media.push(...decodeLocalMedia((data.localMediaAssets ?? []).filter(row=>row.projectId===project.id),project.id));
-    eraVariants.push(...decodeEraVariants(Array.isArray(data.worldEraVariants) ? data.worldEraVariants.filter(row => row && typeof row === 'object' && row.projectId === project.id) : [], project.id, assets));
+    eraVariants.push(...validateEraVariants(Array.isArray(data.worldEraVariants) ? data.worldEraVariants.filter(row => row && typeof row === 'object' && row.projectId === project.id) : [], project.id, assets));
   }
   if(assetFiles.length!==(data.localToolAssetFiles?.length??0))throw Error('local_asset_import_scope_invalid');
   if (annotations.length !== (data.annotations?.length ?? 0) || annotationReferences.length !== (data.annotationReferences?.length ?? 0)) throw Error('annotation_import_scope_invalid');

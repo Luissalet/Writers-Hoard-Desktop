@@ -4,6 +4,7 @@ const esbuild = require('esbuild');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { viteCssTextPlugin } = require('../scripts/esbuild-vite-css.cjs');
 
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
@@ -19,11 +20,11 @@ async function main() {
   fs.writeFileSync(path.join(directory, 'styles.css'), compiler.build(scanner.scan()));
   await esbuild.build({
     stdin: {
-      contents: `import {testWorldErasUi, testWorldEraToolbarUi} from './tests/world-eras.browser.tsx'; import {testWorldEraConversationUi} from './tests/world-eras-conversation.browser.tsx'; const run=async()=>[...await testWorldErasUi(), ...await testWorldEraToolbarUi(), ...await testWorldEraConversationUi()]; globalThis.IS_REACT_ACT_ENVIRONMENT = true; run().then(tests => window.__result = {ok:true,tests}).catch(error => window.__result = {ok:false,error:error.stack || String(error)});`,
+      contents: `import {testWorldErasUi, testWorldEraToolbarUi} from './tests/world-eras.browser.tsx'; import {testWorldEraConversationUi} from './tests/world-eras-conversation.browser.tsx'; import {testWorldEraValueCodec} from './tests/world-era-value-codec.browser.ts'; const run=async()=>[...await testWorldEraValueCodec(), ...await testWorldErasUi(), ...await testWorldEraToolbarUi(), ...await testWorldEraConversationUi()]; globalThis.IS_REACT_ACT_ENVIRONMENT = true; run().then(tests => window.__result = {ok:true,tests}).catch(error => window.__result = {ok:false,error:error.stack || String(error)});`,
       resolveDir: root,
     },
     bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', target: 'chrome130', outfile: path.join(directory, 'test.js'),
-    alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' },
+    alias: { '@': path.join(root, 'src') }, loader: { '.css': 'empty' }, plugins: [viteCssTextPlugin()],
     define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env': '{"DEV":false,"BASE_URL":"/"}', 'import.meta.url': '"file:///reference-ui.js"' },
     logLevel: 'warning',
   });

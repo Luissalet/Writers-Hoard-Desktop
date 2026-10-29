@@ -15,6 +15,7 @@ async function client(args:ToolArgs,readOnly=false){
  return scoped.convergence;
 }
 export const LOCAL_CONVERGENCE_HANDLERS={
+ async wh_local_tool_text_range(args:ToolArgs){const from=args.from,to=args.to;if(typeof from!=='number'||typeof to!=='number'||!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||from>to)throw new BridgeError('bad-args','Invalid UTF-16 range.');return(await client(args,true)).textRange(requireString(args,'field'),from,to);},
  async wh_local_tool_convergence_start(args:ToolArgs){return(await client(args)).start(args.baseline as LocalToolSnapshot<LocalToolJson>);},
  async wh_local_tool_convergence_export(args:ToolArgs){return(await client(args,true)).export({stateVectorBase64:optString(args,'stateVectorBase64')});},
  async wh_local_tool_convergence_import(args:ToolArgs){return(await client(args)).import(args.update as LocalToolConvergenceUpdate);},
