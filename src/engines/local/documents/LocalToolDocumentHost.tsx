@@ -25,10 +25,10 @@ import {LocalToolHostAncestors} from './hostContext';
 import {LocalToolAtomPendingContext} from '../blocks/pending';
 import {LocalToolUndoBoundary} from '../LocalToolUndoBoundary';
 import {mountedSourceDocuments} from '../queryOpenDocuments';
-export interface LocalToolDocumentHostProps {projectId:string;eraId?:string;documentId:string;namespace?:string;view?:LocalToolHostContext['view'];interactive?:boolean;readOnly?:boolean;chrome?:boolean;retainPresentation?:boolean;allowedNamespaces?:readonly string[]}
+export interface LocalToolDocumentHostProps {projectId:string;eraId?:string;documentId:string;namespace?:string;view?:LocalToolHostContext['view'];interactive?:boolean;readOnly?:boolean;chrome?:boolean;retainPresentation?:boolean;showUnavailable?:boolean;allowedNamespaces?:readonly string[]}
 /** Every surface mounts one real document; collection lists belong to its engine. */
 export default function LocalToolDocumentHost(props:LocalToolDocumentHostProps){return <SourceDocumentSession key={JSON.stringify([props.projectId,props.eraId??null,props.documentId,props.namespace??null,props.view??'editor'])} {...props}/>;}
-function SourceDocumentSession({projectId,eraId,documentId,namespace,view='editor',interactive=false,readOnly=false,chrome=true,retainPresentation=false,allowedNamespaces}:LocalToolDocumentHostProps){
+function SourceDocumentSession({projectId,eraId,documentId,namespace,view='editor',interactive=false,readOnly=false,chrome=true,retainPresentation=false,showUnavailable=true,allowedNamespaces}:LocalToolDocumentHostProps){
  const {locale}=useTranslation(),es=locale==='es',parent=useEnginePane(),ancestors=useContext(LocalToolHostAncestors),identity=JSON.stringify([projectId,eraId??null,'local-tool',documentId]);
  const [instanceId]=useState(()=>`source-document-${crypto.randomUUID()}`),[fullscreen,setFullscreen]=useState(false),[busy,setBusy]=useState(false),[blocked,setBlocked]=useState(false),alive=useRef(true);
  useLayoutEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -36,7 +36,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  const outerPending=useContext(LocalToolAtomPendingContext),pendingTokens=useRef(new Set<string>()),[hasPending,setHasPending]=useState(false);
  const reportPending=useMemo(()=>(token:string,pending:boolean)=>{if(pending)pendingTokens.current.add(token);else pendingTokens.current.delete(token);setHasPending(pendingTokens.current.size>0);outerPending?.(token,pending);},[outerPending]);
  const retained=useRef<{document:NonNullable<NonNullable<typeof record>['read']>['document'];definition:LocalToolDefinition;contentHash:string|null}|undefined>(undefined);
- const freshDocument=record?.read?.document,document=freshDocument??(retainPresentation?retained.current?.document:undefined);let definition:LocalToolDefinition|undefined;let error='';if(record?.project&&document)try{definition=resolveProjectLocalTool(document.namespace,record.project);if(!definition.document)throw Error('local_tool_document_host_required');}catch(reason){error=String(reason);}
+ const freshDocument=record?.read?.document,document=freshDocument??(retainPresentation||hasPending?retained.current?.document:undefined);let definition:LocalToolDefinition|undefined;let error='';if(record?.project&&document)try{definition=resolveProjectLocalTool(document.namespace,record.project);if(!definition.document)throw Error('local_tool_document_host_required');}catch(reason){error=String(reason);}
  const freshNamespace=freshDocument?.namespace,cyclic=ancestors.includes(identity);
  useLayoutEffect(()=>{
   if(!freshNamespace||cyclic)return;
@@ -66,7 +66,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  // A navigation-only rebind retains the editor draft while the layout effect issues a new client.
  // Cleanup still permanently revokes the previous emitted client.
  const selectedClient=binding&&binding.definition===definition&&binding.namespace===documentNamespace&&binding.hash===hash&&binding.canEdit===canEdit?binding.client:undefined;
- const client=selectedClient??(retainPresentation||definition?.app?binding?.client:undefined);
+ const client=selectedClient??(retainPresentation||hasPending||definition?.app?binding?.client:undefined);
  useLocalToolAudioLifecycle(client?.audio);
  const visible=parent?.visible??true;
  const primary=stableNavigation?parent?.primary:false;
@@ -77,10 +77,10 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  const context=useRichProseHostContext({view,canEdit,scope:{projectId,eraId},...(document?{document:{id:documentId,namespace:document.namespace,title:document.title}}:{})},client,document?.codec);
  if(ancestors.includes(identity))return <p className="text-sm text-text-muted">{es?'Referencia circular al documento abierto.':'Circular reference to the open document.'}</p>;
  if(!record)return <p role="status">{es?'Cargando documento…':'Loading document…'}</p>;
- if(!document)return <p role="alert">{es?'El documento no está disponible en este contexto.':'This document is unavailable in this context.'}</p>;
+ if(!document)return showUnavailable?<p role="alert">{es?'El documento no está disponible en este contexto.':'This document is unavailable in this context.'}</p>:null;
  const Component=definition?.component;
  const enabled=!!record.project?.enabledEngines.includes('local-tool-'+document.namespace);
- const fallback=!allowed||!client||!Component||(!canEdit&&!(retainPresentation||definition?.app&&enabled));
+ const fallback=!allowed||!client||!Component||(!canEdit&&!(retainPresentation||hasPending||definition?.app&&enabled));
  const componentContext={...context,...(definition?.app?{app:definition.app}:{})};
  return <LocalToolFocusHost context={context} releaseHash={hash} identity={client} visible={visible&&!fullscreen} namespace={document.namespace} instanceId={instanceId}>{(focusContext,focusControl)=><section className="min-w-0 space-y-3 text-text-primary" data-source-document-host={documentId} data-source-document-view={view}>
   {chrome&&<header className="flex flex-wrap items-center gap-3"><h3 className="min-w-0 flex-1 break-words font-display text-lg">{document.title}</h3>{focusControl}{view!=='fullscreen'&&<button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-elevated disabled:opacity-50" disabled={busy} onClick={()=>void changeFullscreen(true)}><Maximize2 size={15}/>{es?'Pantalla completa':'Fullscreen'}</button>}</header>}
