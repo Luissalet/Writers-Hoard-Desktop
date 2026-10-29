@@ -1926,3 +1926,17 @@ Writer1095 y writers1671 continúan abiertas hasta sus criterios completos. El a
 - [ ] Resolver1808/hilo1958: archivo remoto desmonta el host de otro pane y oculta su borrador; no confundirlo con recuperación readonly/pin ya probada.
 - [ ] Conservar el proyecto QA extra y sus cuatro documentos mientras no se complete su eliminación normal autorizada; el diálogo irreversible se canceló. No afirmar vuelta a cinco proyectos ni desinstalación del paquete.
 - [ ] Completar el perfil colaborativo rico/binding: engine3 y routing son sólo propuesta Stage; split/join/movimiento/IME/selección/presencia y el resto de1095 siguen abiertos.
+
+### Seguimiento Source1808 y1829 (29-10-2026)
+
+- [x] Reproducir pérdida del borrador por archivo remoto y verificar retención readonly, restauración/CAS y descarte en Brave real.
+- [x] Contrastar el fallo incumbente de navegación contra HEAD anterior, restaurando los RAW y el índice exactos; mismo rechazo anterior al hunk1808.
+- [x] Corregir la confirmación del borrador del cuaderno antes del check pending; revisión independiente verifica flush/conflicto/apunte/navegación. Conservar FAIL Rename y PASS completo del mismo incumbente con observador, sin afirmar causa ni determinismo (1829/hilo1980).
+- [x] Verificar archive/list/restore por dispatcher MCP registrado y siete grupos finales, Brave real readonly/restore/CAS/descarte/aviso único; ambas revisiones 1 aprobadas e integración de 48539f8 por cuatro rutas sin push (1808/hilo1958).
+- [x] Corregir los cuatro P2 y dos bordes adicionales del núcleo rico; revisión estática R4 favorable,19rutas aplicadas sólo al worktree y oráculos permanentes F1/F2 (215 comprobaciones) y seis grupos límite (65) del SDK en memoria. Source/MCP/web siguen pendientes (1796/hilo1942).
+
+- [ ] Completar el control operativo de readiness de Rename: título y botón habilitados antes de entrada, valor exacto antes del peer y formulario listo/nombre durable remoto tras rechazo; conservar las aserciones y ambos resultados anteriores.
+
+Resultado: fuente 48539f81933988e49a9a028853a7a447a0e73057 integrada Main sobre e807507, aprobación independiente 1808/1829 revisión 1. Tipos finales 0, focal independiente cinco grupos, Rich MCP siete grupos y Brave con dos pestañas tienen atribución propia; no nuevo stdio/segunda clave. El FAIL inicial de navegación también existía en los dos blobs anteriores; la primera frontera pasa tras el arreglo. El FAIL Rename posterior sigue retenido y su causa no está demostrada por el PASS observado. Este resultado supera la nota 1808 pendiente del bloque histórico de extensiones sin cambiar su prefijo.
+
+Extensiones 67: fuente f437039 y docs e807507 en Main, quick/build 0 y manual 291 CAS/readback íntegro ya completados; no repetir Google. Continuidad conjunta67/recuperación preparada aparte, aún sin escritura por este paquete. El núcleo rico R4 está aplicado sólo al worktree y pasan sus dos oráculos permanentes en memoria, sin commit/integración ni persistencia/MCP/web acreditados; 1796/1095 y paridad completa siguen abiertos.
