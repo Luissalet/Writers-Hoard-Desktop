@@ -294,7 +294,7 @@ export default function TiptapEditor({
   // A host that brings its own `doc` node (the book, whose top level holds
   // chapters as well as blocks) takes StarterKit's out of the schema: two
   // nodes of one name would both be registered, and the last one would win.
-  const ownDocument = !richProfile&&(extensions?.some((extension) => extension.name === 'doc') ?? false);
+  const ownDocument = extensions?.some((extension) => extension.name === 'doc') ?? false;
   // The HTML last handed to `onChange`. The host hands it straight back as
   // `content`, and the sync effect below can skip serialising the document a
   // second time to find out that nothing came from outside.
@@ -332,8 +332,8 @@ export default function TiptapEditor({
       PrepHandout.configure(codexBlockHost),
       ToolDocumentBlock.configure(codexBlockHost),
       SourceToolBlock.configure({host:sourceHost}),
-      ...(extensions ?? []),
       ]:[]),
+      ...(extensions ?? []),
     ],
     content:richProfile?richProseHtml(content):content,
     onUpdate: ({ editor }) => {
