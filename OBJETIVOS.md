@@ -325,3 +325,10 @@ Formato Base64 reparado, aprobado CAS65 e integrado Main; lectura actual/cold de
 Texto plano opt-in ya dispone de rangos por identidad, inserciones/borrados concurrentes, Undo/Redo autoral y conservación causal en el writer Source. El codec portable distingue metadatos own undefined y literales reservados sin sustituir el guardado normal. La regresión pura de 21 casos se promueve al área de épocas, manteniendo los ensayos de persistencia separados. [API y límites](docs/local-tool-sdk.md#opt-in-plain-utf16-text).
 
 Continuar con colaboración rica/binding real, semántica de IME y grafemas, carets/presencia y transporte/hosting antes de afirmar equivalencia general. El rango actual se mide en unidades UTF16; no tratarlo como posición de grafema. Medir el coste en cada contexto real: 310,5 ms/997,3 ms son el gesto 101 CPU de 10k/50k, no una garantía de respuesta de la interfaz. Mantener 1790 y los históricos 1095/1195 abiertos; ninguna nueva decisión de Luis ni exclusión por ONLINE se deriva de este avance.
+
+
+## Continuación tras las extensiones del editor rico
+
+El paso acotado `f43703952e92c8f78460dfe09660f97fed42c992`, aprobado exactamente en1796r1, permite extensiones estables del componente SDK y un doc propio compatible sin duplicación, manteniendo Guardar/CAS/Deshacer normales. [Contrato y pruebas atribuidas](tasks/vvd1095/verification-sdk-rich-prose.md#optional-rich-editor-extensions-source-f437039).
+
+Continuar con el perfil colaborativo rico completo: buffers retenidos, routing de segmentos desde el contrato inicial, split/join/movimiento con identidades estables, marcas parciales, selección/IME y binding real sobre el mismo writer. Engine3 es sólo propuesta Stage; el C0 en RAM no entrega ese perfil. Resolver por separado1808: archivar remotamente un documento desmonta el host de otro pane y oculta su borrador. Las pruebas de retarget/readonly/pin no acreditan esa recuperación. Mantener abiertos presencia, Host/query, transporte/hosting y los demás residuos de1095; las extensiones no cierran la paridad.
