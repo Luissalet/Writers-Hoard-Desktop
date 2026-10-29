@@ -873,3 +873,10 @@ A placed landmark now exposes its authored initial name in the ordinary place re
 ## Large causal envelopes: delivery65
 
 Existing large Source checkpoints reopen without the observed regexp stack overflow, preserving canonical bytes and the admitted state budget. Two-key MCP returns complete identical envelopes; Brave imports, opens and reloads the normal exported project. [Evidence and limits](tasks/vvd1095/verification-sdk-convergence.md#source65-validacion-base64-grande). Source `5db5570dd6185ecfb3be1d26b70abb08b1678d40` received exact CAS65 approval and Main FF without push. Character-level text, rich collaboration and wider parity remain open.
+
+
+## Opt-in plain text collaboration
+
+Local-tool authors can opt a plain prose field into captured UTF16 edits. SDK replicas and the normal Source writer preserve character identities through concurrent inserts, overlapping deletions, author Undo/Redo and reopening. Existing whole-field prose and rich HTML retain their own behavior. `textRange` is readonly; applying its captured range, Save and change-file exchange use the existing version checks and writer. [Author API and limits](docs/local-tool-sdk.md#opt-in-plain-utf16-text).
+
+This is plain text, not a collaborative rich editor, caret/presence service or automatic network session. The normal runtime package flow can supply an author component; it does not install a generic editor automatically. Overall SDK and web parity remain open.
