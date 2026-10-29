@@ -701,3 +701,10 @@ Fuente `603a3c991f82367e537a38965aebb77775720692` aprobada CAS62 e integrada Mai
 Los autores de herramientas locales pueden activar ediciones por rangos UTF16 en un campo de prosa plana. Las réplicas del SDK y el writer Source normal conservan identidades a través de inserciones concurrentes, borrados solapados, Deshacer/Rehacer autoral y reapertura. La prosa de campo completo y el HTML enriquecido mantienen su comportamiento. `textRange` sólo lee; aplicar su rango capturado, Guardar e intercambiar archivos de cambios usan el writer y las comprobaciones de versión existentes. [API de autor y límites](docs/local-tool-sdk.md#opt-in-plain-utf16-text).
 
 Es texto plano: siguen abiertos el editor rico colaborativo, carets/presencia y la sesión de red automática. Un componente de autor puede instalarse por el flujo normal de paquetes; no se instala automáticamente un editor genérico. La paridad global web y SDK continúa abierta.
+
+
+## Extensiones opcionales del editor rico del SDK
+
+Los autores de herramientas locales pueden pasar un array `extensions` estable a `LocalToolRichProseEditor`, por ejemplo para añadir un atajo propio. El host nativo mantiene Guardar, el Deshacer local del texto y Deshacer/Rehacer de Source; un nodo `doc` propio compatible sustituye al documento de StarterKit. Omitir la prop o pasar `[]` conserva los valores normales. El array y los objetos de extensión deben permanecer estables durante el montaje.
+
+Se añade comportamiento de autor al perfil de HTML ya admitido. La configuración dinámica del esquema y la colaboración rica siguen pendientes. [API de autor](docs/local-tool-sdk.md#optional-rich-editor-extensions) y [pruebas atribuidas y trabajo restante](tasks/vvd1095/verification-sdk-rich-prose.md#optional-rich-editor-extensions-source-f437039) separan el paquete normal/Brave, el dispatcher registrado y los controles de componente independientes. La paridad general web/SDK continúa abierta.

@@ -895,3 +895,31 @@ MCP `wh_local_tool_text_range({projectId,eraId?,namespace,documentId,field,from,
 The era-value JSON wire also preserves own undefined metadata separately from missing/null and escapes literal Blob/envelope-shaped data while retaining actual Blob bytes. Legacy valid document/array forms keep their declared decoding. This is not a new general JS-value serializer: dates, sparse arrays and arbitrary unsupported values are not promised by these 21 roundtrip checks.
 
 Measured CPU fixture: the 101st apply took 310.5 ms at 10k and 997.3 ms at 50k UTF16 units, after retaining the declared history. These are individual public-engine wall times, not maxima, keystroke/Source-RW/Browser timings or a performance guarantee. The earlier list-proxy failures remain separate evidence. Rich collaborative editing, Unicode grapheme/IME binding, caret/presence and network/hosting are still open. No generic rich editor, transport or complete SDK parity follows from the plain-text opt-in.
+
+
+## Optional rich editor extensions
+
+`LocalToolRichProseEditor` accepts optional `extensions?:AnyExtension[]`, using the public type from `@tiptap/core`. The application passes the same array through its `renderRichProse` capability to the native editor. Omitting it or supplying `[]` preserves the existing sdk-prose defaults; the full editor keeps its prior extension order. This does not change the `{kind:'prose',format:'rich'}` stored string contract.
+
+Keep both the array and its extension objects stable for the entire editor mount. Extensions are not dynamically reconfigured by a parent rerender. Define them outside the component or retain them for that mount. A normal author package can use public `Extension.create`/`Node.create`; its regular packer bundles those imports and receives the SDK from the host. No private application editor, second Editor/Schema instance or new host dependency is needed for the demonstrated custom keyboard behavior.
+
+```tsx
+import {Extension} from '@tiptap/core';
+import {LocalToolRichProseEditor,type LocalToolProps} from '@/engines/local/sdk';
+
+const extensions = [Extension.create({
+  name: 'ownBriefingShortcut',
+  addKeyboardShortcuts() {
+    return {'Mod-Shift-y': () => this.editor.isEditable && this.editor.commands.toggleMark('bold')};
+  },
+})];
+
+function Briefing({client,context}:LocalToolProps<{briefing:string}>) {
+  return <LocalToolRichProseEditor client={client} context={context}
+    field="briefing" extensions={extensions}/>;
+}
+```
+
+The host supplies `this.editor`; the author does not create a parallel editor or writer. Save/Discard, captured baseline/CAS, Source receipts and local text Undo retain their existing scopes. The demonstrated shortcut toggles bold already supported by the saved HTML profile. Supplying a compatible `doc` node disables StarterKit's `doc`, so only one top node is installed; the checked example uses `content:'paragraph+'`.
+
+The prop adds author behavior, not arbitrary persistent schema support. New tags/attributes may still be removed by the existing HTML sanitizer. It is not serialized into document JSON or sent as an MCP object; the registered rich Source/Owned/era dispatcher retains its existing signatures. Readonly/pin recovery and conflicting Save retain their prior authority and draft rules; remote archive recovery is separately open in1808. [Normal package/Brave and independent checks](../tasks/vvd1095/verification-sdk-rich-prose.md#optional-rich-editor-extensions-source-f437039). Rich collaborative engine3, dynamic schemas and general SDK parity remain open.

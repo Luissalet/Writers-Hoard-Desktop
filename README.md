@@ -880,3 +880,10 @@ Existing large Source checkpoints reopen without the observed regexp stack overf
 Local-tool authors can opt a plain prose field into captured UTF16 edits. SDK replicas and the normal Source writer preserve character identities through concurrent inserts, overlapping deletions, author Undo/Redo and reopening. Existing whole-field prose and rich HTML retain their own behavior. `textRange` is readonly; applying its captured range, Save and change-file exchange use the existing version checks and writer. [Author API and limits](docs/local-tool-sdk.md#opt-in-plain-utf16-text).
 
 This is plain text, not a collaborative rich editor, caret/presence service or automatic network session. The normal runtime package flow can supply an author component; it does not install a generic editor automatically. Overall SDK and web parity remain open.
+
+
+## Optional extensions for SDK rich prose editors
+
+Local-tool authors can pass a stable `extensions` array to `LocalToolRichProseEditor`, for example to add a custom keyboard command. The same native host handles explicit Save, local text Undo and Source Undo/Redo; a compatible custom `doc` node replaces StarterKit's document node. Omitting the prop or passing `[]` preserves the defaults. Keep the array and extension objects stable for the editor mount.
+
+This adds author behavior to the existing admitted HTML profile; it does not add dynamic schema reconfiguration or collaborative rich text. [Author API](docs/local-tool-sdk.md#optional-rich-editor-extensions) and [attributed checks and remaining work](tasks/vvd1095/verification-sdk-rich-prose.md#optional-rich-editor-extensions-source-f437039) distinguish the normal package/Brave checks, registered dispatcher and independent component tests. General web/SDK parity remains open.

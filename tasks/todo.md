@@ -1916,3 +1916,13 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Aceptar el corte plain66 corregido: núcleo/A2/B1, C2/C3/C4/FullDB, costes y Native/Brave acreditados con atribución propia; commit77e09b40 aprobado en1790r1 e integrado Main. No acredita aceptación del encargo de navegador mediante el modelo de Faustus.
 
 Writer1095 y writers1671 continúan abiertas hasta sus criterios completos. El apoyo de navegador no constituye paridad web/SDK.
+
+
+### Extensiones del editor rico: lote f437039,1796r1
+
+- [x] Transmitir el array opcional estable desde SDK al host/editor; conservar defaults sin prop/[] y orden full, con doc propio compatible único. Cuatro rutas aprobadas exactamente en1796r1, autor/committer Luissalet, sin push.
+- [x] Probar paquete normal en Brave: causal del atajo, Deshacer local, Save2/Undo3/Redo4 y frío posterior, dos rerenders estables, Empty y doc propio paragraph+/Save2; CAS entre dos pestañas conserva el borrador A y el ganador B5. Conservar el intento previo con selección PM aún no asentada como preparación fallida, sin atribuirlo a Source.
+- [x] Pasar tres exports independientes finales, siete incumbentes renderer y Node3; Source/Owned/pin/readonly y dispatcher registrado tienen atribución separada, sin nueva prueba Native/stdio. [Evidencia](vvd1095/verification-sdk-rich-prose.md#optional-rich-editor-extensions-source-f437039).
+- [ ] Resolver1808/hilo1958: archivo remoto desmonta el host de otro pane y oculta su borrador; no confundirlo con recuperación readonly/pin ya probada.
+- [ ] Conservar el proyecto QA extra y sus cuatro documentos mientras no se complete su eliminación normal autorizada; el diálogo irreversible se canceló. No afirmar vuelta a cinco proyectos ni desinstalación del paquete.
+- [ ] Completar el perfil colaborativo rico/binding: engine3 y routing son sólo propuesta Stage; split/join/movimiento/IME/selección/presencia y el resto de1095 siguen abiertos.
