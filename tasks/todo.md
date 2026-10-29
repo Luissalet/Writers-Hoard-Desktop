@@ -1899,7 +1899,7 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Medir 10k/50k unidades sobre strings reales con historia de cien gestos retenida: 267 comprobaciones por tamaño; gesto 101: 310,5 ms/997,3 ms tras el ajuste local de scan. Conservar los ensayos anteriores; no afirmar fluidez universal ni latencia Source/Browser.
 - [x] Probar Native dos claves por fase (41+7 llamadas/IPC, frío, EOF/revocaciones 401 y 89 tablas finales vacías) y Brave normal de paquete/edición/Undo/Redo/reload/Unicode/cleanup propio; aprobación independiente 1790r1 y Main77e09b40 sin push.
 - [x] Actualizar manual66 una sola vez: 561 UTF16, CAS y readback íntegro de 201 párrafos/estructura/estilos exactos al invertir el añadido.
-- [ ] Completar commit documental y continuidad memoria/grafo66 por Root con sus recibos propios; no anticiparlos.
+- [x] Completar documentación66 en Main3db1d298 y continuidad ROOT-continuity66-r1: prefijo MEMORY exacto, concepto histórico y nodo del proyecto Writer actualizados; conceptos ajenos, aristas e historia previa preservados.
 - [ ] Continuar después con rich/presencia y los demás huecos de1095, sin declarar paridad por este corte.
 
 
