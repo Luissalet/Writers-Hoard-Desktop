@@ -1877,7 +1877,7 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Verificación rápida del corte de tres rutas: root-gates65-first1, 207708 ms, 3255 entradas exactas.
 - [x] Medición continuada10k termina adversa por deadline600s/history44; originales10k/50k conservados, sin PASS de rendimiento plain.
 - [x] MCP dos claves y Brave actual/cold verificados, revisión exacta65 aprobada e integración Main por tres rutas sin push.
-- [ ] Implementar texto plain por caracteres siguiendo el acuerdo1801 y su primer RED público: identidades estables, Undo autoral, Save/CAS, fallback válido y portables. La representación física sigue en estudio; no hay API de texto nueva entregada.
+- [x] Implementar texto plain UTF16 opt-in con identidades estables, Undo autoral, Save/CAS, fallback válido y portables; Source66 aprobada en writers1790/revisión1 e integrada en Main77e09b40. Rich/presencia y paridad global siguen abiertos.
 - [ ] Continuar rich, presencia y todos los demás residuos de1095; no cerrar la tarea por este checkpoint.
 
 
@@ -1888,15 +1888,18 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Brave3 importación normal, paquete QA mediante instalador/pin explícito, lectura actual/cold10000/prosa/opaco; borrar sólo importado devuelve los mismos cinco proyectos.
 - [x] Fuente aprobada CAS65 e integrada Main FF por tres rutas, sin push.
 - [x] Docs45afaa8d integradas Main y continuidad65 completada, recibos ROOT-docs65-main-r1/ROOT-continuity65-r1; sin repetir64.
-- [ ] Continuar texto por caracteres desde el RED público conservado; rich/presencia y demás1095 abiertos.
+- [x] Completar el subcontrato plain66 desde el RED público conservado, con aprobación exacta 1790r1/Main77e09b40; rich/presencia y los demás residuos1095 continúan abiertos.
 
-### Texto plain opt-in: siguiente corte experimental
+### Texto plain opt-in: entrega66 acotada
 
-- [ ] Revisar el parche congelado14+2 y aplicarlo sobre65, preservando contrato v1, Base64 reparado y rutas ajenas.
-- [ ] Pasar seis grupos de semántica y el oráculo público A original con nuevo wrapper; conservar su RED y cualquier fallo nuevo.
-- [ ] Comprobar RW/receipts/abort, Save/set/CAS/presencia y acciones mixtas; eras/epoch/portables/pending con sus propios escenarios.
-- [ ] Medir10k/50k unidades sobre strings reales y cien gestos con historia retenida antes de adoptar la representación.
-- [ ] Probar MCP dos claves y Brave, revisión exacta e integración Main; actualizar manual y registros con evidencia efectiva.
+- [x] Revisar y aplicar R1+R2+R3 preservando compatibilidad v1 y rutas ajenas; entrega66 final de 26 rutas aprobada 1790r1 e integrada en Main77e09b40. stateCodec conserva equivalencia CRLF física/LF Git documentada.
+- [x] Pasar seis grupos de semántica (82checks/41réplicas) y el oráculo público A original mediante wrapperA2 (129checks/15réplicas,89tablas vacías al limpiar). Conservar REDa1 y recibos completos; tipos renderer0.
+- [x] B1: RW/receipts/abort, Save/set/CAS/presencia y acciones mixtas positivos:100checks/3réplicas/89zero.
+- [x] C1/portables: conservar el FAIL ZIP original y completar la recuperación pendiente C2/C3/C4 con 97 comprobaciones, FullDB2 con 36 y codec con 21 casos; own undefined/ausencia y literales/Blob conservados, sin repetir los casos previos ya positivos.
+- [x] Medir 10k/50k unidades sobre strings reales con historia de cien gestos retenida: 267 comprobaciones por tamaño; gesto 101: 310,5 ms/997,3 ms tras el ajuste local de scan. Conservar los ensayos anteriores; no afirmar fluidez universal ni latencia Source/Browser.
+- [x] Probar Native dos claves por fase (41+7 llamadas/IPC, frío, EOF/revocaciones 401 y 89 tablas finales vacías) y Brave normal de paquete/edición/Undo/Redo/reload/Unicode/cleanup propio; aprobación independiente 1790r1 y Main77e09b40 sin push.
+- [x] Actualizar manual66 una sola vez: 561 UTF16, CAS y readback íntegro de 201 párrafos/estructura/estilos exactos al invertir el añadido.
+- [ ] Completar commit documental y continuidad memoria/grafo66 por Root con sus recibos propios; no anticiparlos.
 - [ ] Continuar después con rich/presencia y los demás huecos de1095, sin declarar paridad por este corte.
 
 
@@ -1907,8 +1910,9 @@ Actualiza sólo el estado SDK34 anterior; no sustituye sus recibos históricos n
 - [x] Pasar 26 pruebas Python finales; integrar 24 rutas de Faustus como Luissalet, con aprobación exacta1717/CAS1 y commit e5cb885e, sin push.
 - [x] Registrar por la API normal de Faustus el servidor823416aa y su herramienta browser_session.
 - [x] Actualizar el manual de Google con una sola inserción de 540 unidades UTF16 y lectura de comprobación íntegra; conservar memoria, grafo y evidencia.
-- [ ] Completar el encargo Biblioteca/Inicio mediante el modelo de Faustus cuando quede disponible; el turno ajenoSilver1672 sigue activo.
-- [ ] Confirmar traslado de la extensión a D:\LocalAI\Faustus\browser-extension y activar el builtin sin duplicar7016; retirar sólo la configuraciónQA propia al hacer el relevo. No borrar todavía el WT de la extensión.
-- [ ] Aplicar y aceptar el corte plainR1+R2+R3: la revisión estática atiende S1, pero semántica, coste, MCP, UI y adopción siguen pendientes.
+- [ ] Completar Biblioteca/Inicio mediante el modelo de Faustus. El intento nativoR2 abrió Biblioteca, pero terminó por contexto tras28consultas de artefacto; Root reconcilió36visibles, liberó y volvióInicio. Vista consultable aprobada CAS2 e integrada622d5afd; falta activación coordinada y prueba real.
+- [x] Confirmar builtin de navegador activo en Main y desactivar por API normal sólo la configuraciónQA823416aa que competía por7016. Sin reinicio ni habilitar el conector directo Writer.
+- [ ] Confirmar traslado de la extensión a D:\LocalAI\Faustus\browser-extension. Sigue sin acreditarse; no borrar el WT de la extensión.
+- [x] Aceptar el corte plain66 corregido: núcleo/A2/B1, C2/C3/C4/FullDB, costes y Native/Brave acreditados con atribución propia; commit77e09b40 aprobado en1790r1 e integrado Main. No acredita aceptación del encargo de navegador mediante el modelo de Faustus.
 
 Writer1095 y writers1671 continúan abiertas hasta sus criterios completos. El apoyo de navegador no constituye paridad web/SDK.

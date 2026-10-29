@@ -1556,3 +1556,17 @@ observed capabilities and remaining gaps; one delivered batch is not full parity
 99. Write/read source as explicit UTF8 and compare exact baseline bytes before repairing a visible separator; do not recode unrelated inherited text. Preserve legacy DOM text nodes, accessible names and readonly HTML/CSP when adding a paint layer. Keep raw storage baselines separate from projected world-calendar labels. Independent copy must distinguish an explicit form override from unchanged manual fields travelling with a full patch. Run unchanged original oracles as well as new ones; legitimate enum/table inventory changes need a causal proof, not weaker guards. Choose the harness that actually supplies native IPC before registering a native test: missing qaNative in a focused runner is a harness error, not a product defect or a licence to start a rejected host. Preserve RED logs, attribution and receipt-bound review; do not turn a historical Browser checkpoint into a claim about later bytes.
 
 100. When Luis asks to continue until complete parity, delivering one feature is a checkpoint rather than the stopping condition. Maintain the complete current offline gap list, reconcile historical rows against shipped code, and continue directly with the next confirmed gap. Finish only when the agreed scope has verified functional equivalence; unknown behavior stays unresolved and exclusions must follow the user's external-API/payment boundary. Compare the real web session and SDK, keep Browser in Brave, and never substitute internal bookkeeping for product progress.
+
+
+101. An action acknowledgement plus a snapshot does not prove that a SPA has
+finished the requested UI transition. Wait for the actual expected control or
+content, and preserve the earlier loading/stale observation rather than replaying
+writes blindly. Accessibility trees can split a visible name across nodes or
+words; query the observed roles/tokens without assuming one contiguous phrase,
+while keeping the semantic acceptance criterion exact. A background extension's
+normal one-minute alarm needs a declared matching connection timeout; an earlier
+deadline is not proof that it is disabled. Run pytest with its intended existing
+`--confcutdir` directory and exercise query/schema helpers through their normal
+loaders: a missing fixture/helper or collected parent conftest is a harness health
+failure, not a product defect. Preserve original failures, labels and attribution
+before making a versioned observer or loader correction.

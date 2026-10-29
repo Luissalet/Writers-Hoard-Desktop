@@ -863,3 +863,35 @@ MCP `wh_local_tool_open_document_query({projectId,eraId?,namespace?,fields})` re
 In author tests, `createFakeLocalToolHost` owns an independent membership registry. After normal fixture/client setup, use `const close = host.mountDocument(scope, documentId)` to represent a mount, query through the public client, and call `close()` on teardown. Creating a client, reading or running a durable query never mounts a document. The kit shares the pure projection with the browser adapter and keeps normal Source Save behavior; it is not a DOM or Browser simulation.
 
 [Attributed checks, preserved failures and delivery status](../tasks/vvd1095/verification-sdk-open-documents.md). Writer signatures differ from the upstream reference; this bounded saved-Source capability does not close SDK34, all Host queries, character-level prose collaboration, presence or hosting.
+
+
+## Opt-in plain UTF16 text
+
+A source tool can declare a plain field with `{kind:'prose', collaboration:'plain-utf16/1'}`. The codec descriptor remains `{version:1,fields:...}`; the causal identity explicitly selects engine version 2. Unmarked prose remains an atomic string and `{kind:'prose',format:'rich'}` remains rich HTML. Rich format and plain collaboration are mutually exclusive for one field. This is an own API, not an upstream rich-text hook or binding.
+
+```ts
+// Inside an ordinary author component/operation with its current document client:
+const baseline = await client.read();
+if (!client.convergence || !client.state) throw Error('Convergence unavailable');
+await client.convergence.start(baseline); // Explicit author action; reads never start it.
+const captured = await client.convergence.textRange('text', 1, 1);
+const applied = await client.state.apply(captured.snapshot, [{
+  type: 'text-splice', field: 'text', range: captured.range, text: 'X',
+}]);
+if (applied.receiptId) {
+  const undone = await client.state.undo(applied.receiptId);
+  if (undone.receiptId) await client.state.redo(undone.receiptId);
+}
+```
+
+`textRange(field,from,to)` returns `{snapshot,range}`. Bounds are safe integers in UTF16 code units, with `0 <= from <= to <=` the admitted string length, start included/end excluded. An initialized empty string accepts 0/0; absent/uninitialized/non-opted fields reject instead of creating content. The detached range has format `writers-hoard-local-plain-range/1`, causal `identity`, `field`, historical `afterPlacementId` and captured `deleteIds`. Keep it with its snapshot; do not replace identities with offsets after another edit. Empty inserted text removes only the captured IDs. Inserts not observed by that capture survive. Concurrent insertion order is deterministic, without assuming an invented alphabetical X/Y order.
+
+Normal `state.apply/undo/redo` keeps session receipt ownership and stack checks. SDK `createLocalToolReplica(checkpoint,{authorId,contract})` exposes the same plain range and immutable updates; independent replicas can exchange, replay and reopen checkpoints without recreating authored operations. Removing one author's delete keeps another concurrent delete active. A remote child retains its historical anchor when a parent's insertion is undone. Export/import preserve pending dependencies; raw-invalid merges retain an explicit conflict plus a deterministic authored-valid view and its range bindings. Each declared validator/schema epoch remains explicit.
+
+Full Save or a `set` is deliberately different from a captured splice: it produces the desired complete admitted field, preserving the nonoverlapping equal prefix/suffix identities and removing other known units. Within the same generation and contract, an identical Save is a causal noop; stale Save still fails its normal revision/document-version CAS. Captured splice removes only its original IDs and preserves contributions it did not observe. Atomic/rich/opaque sibling data is not implicitly edited. Existing document/era/fork/portable services retain the same writer and identity rules; reads do not migrate or initialize them.
+
+MCP `wh_local_tool_text_range({projectId,eraId?,namespace,documentId,field,from,to})` is readonly and returns the same `{snapshot,range}`. Existing `wh_local_tool_state_apply` carries `text-splice` in its actions with that baseline; start/export/import and Undo/Redo retain their existing public tools. No host receipt recipe, validator function or private writer is serialized into the range.
+
+The era-value JSON wire also preserves own undefined metadata separately from missing/null and escapes literal Blob/envelope-shaped data while retaining actual Blob bytes. Legacy valid document/array forms keep their declared decoding. This is not a new general JS-value serializer: dates, sparse arrays and arbitrary unsupported values are not promised by these 21 roundtrip checks.
+
+Measured CPU fixture: the 101st apply took 310.5 ms at 10k and 997.3 ms at 50k UTF16 units, after retaining the declared history. These are individual public-engine wall times, not maxima, keystroke/Source-RW/Browser timings or a performance guarantee. The earlier list-proxy failures remain separate evidence. Rich collaborative editing, Unicode grapheme/IME binding, caret/presence and network/hosting are still open. No generic rich editor, transport or complete SDK parity follows from the plain-text opt-in.

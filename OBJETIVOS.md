@@ -318,3 +318,10 @@ El residuo de nombre custom inicial de landmark tiene corrección y positivos ac
 ## Continuación65: texto por caracteres
 
 Formato Base64 reparado, aprobado CAS65 e integrado Main; lectura actual/cold de Brave comprobada. El proxy de listas conserva sus fallos10k/50k y la continuación incompleta600s/history44: no acreditan rendimiento plain. El primer público conserva25PASS/1FAIL por textRange ausente; acuerdo1801 y parche experimental sóloStage no entregan la API. Seguir con identidades estables/Undo autoral/Save/RW/fallback/portables, luego rich/presencia y demás ledger.1095 abierta.
+
+
+## Continuación66: siguiente alcance de colaboración
+
+Texto plano opt-in ya dispone de rangos por identidad, inserciones/borrados concurrentes, Undo/Redo autoral y conservación causal en el writer Source. El codec portable distingue metadatos own undefined y literales reservados sin sustituir el guardado normal. La regresión pura de 21 casos se promueve al área de épocas, manteniendo los ensayos de persistencia separados. [API y límites](docs/local-tool-sdk.md#opt-in-plain-utf16-text).
+
+Continuar con colaboración rica/binding real, semántica de IME y grafemas, carets/presencia y transporte/hosting antes de afirmar equivalencia general. El rango actual se mide en unidades UTF16; no tratarlo como posición de grafema. Medir el coste en cada contexto real: 310,5 ms/997,3 ms son el gesto 101 CPU de 10k/50k, no una garantía de respuesta de la interfaz. Mantener 1790 y los históricos 1095/1195 abiertos; ninguna nueva decisión de Luis ni exclusión por ONLINE se deriva de este avance.

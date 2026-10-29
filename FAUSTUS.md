@@ -354,3 +354,12 @@ El lector conserva el nombre autorado al añadir un landmark; rename explícito 
 ## Entrega65: reapertura de sobres causales grandes
 
 El validador Base64 deja de agotar la pila con checkpoints grandes y conserva formato canónico/presupuesto de estado. Regresión16MiB+1, Node del área y quick positivos; MCP real dos claves devuelve el estado completo y Brave importa/abre/recarga el mismo documento con10000elementos/prosa/opaco intactos. [Pruebas y límites](tasks/vvd1095/verification-sdk-convergence.md#source65-validacion-base64-grande). Fuente5db5570dd6185ecfb3be1d26b70abb08b1678d40 aprobada CAS65 exacta e integrada Main FF/sin push. Texto por caracteres, rich/presencia y1095 continúan abiertos.
+
+
+## Continuación66: texto plano por identidad
+
+El SDK y los documentos Source admiten opt-in `plain-utf16/1`, rangos capturados y `text-splice` sobre la misma historia causal, writer, CAS y receipts normales. Las unidades conservan identidad aunque se borre su ancla o se retire una inserción padre con un hijo remoto. Borrados concurrentes no se revierten al deshacer sólo uno de sus autores; pendientes y fallback válido conservan sus vínculos. Prosa atómica, rich guardado y campos opacos siguen separados. El codec portable conserva own undefined frente a ausencia/null, Blob real y etiquetas Blob/envelope literales; la regresión pura de 21 casos conserva sus comparaciones originales.
+
+Las pruebas públicas/Source y las de persistencia mantienen alcances distintos. Root Native comprueba 41 llamadas/41 IPC en preparación y 7 llamadas/7 IPC en proceso frío, dos claves por fase, revocación401 sin IPC posterior, EOF y 89 tablas propias vacías al final. Root Brave instala el paquete por selector normal y crea un documento propio: capturas A/B del mismo G, X/Y→aYXb, Undo→aXb, Redo, recarga con G persistente, reemplazo por emoji, borrado y Undo; los hermanos atómico/rich/opaco permanecen exactos. Borrar sólo ese proyecto devuelve los cinco anteriores. No es una prueba de réplicas offline independientes dentro de Brave ni de 89 tablas vacías de su perfil normal.
+
+El ensayo CPU del gesto 101 mide 310,5 ms con 10k y 997,3 ms con 50k unidades UTF16, con historia conservada; no son máximos, tiempo de tecla, SourceRW ni latencia Browser. Los ensayos antiguos adversos y sus límites se conservan. Rich colaborativo, IME/grafemas, selección/carets/presencia, red/hosting y la paridad general siguen abiertos. [Contrato de autor](docs/local-tool-sdk.md#opt-in-plain-utf16-text). Este avance no cierra 1790 ni los históricos 1095/1195.

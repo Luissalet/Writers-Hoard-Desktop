@@ -694,3 +694,10 @@ El flujo C42 acotado está entregado en Main tras la aprobación exacta CAS54; l
 Los documentos Source pueden activar una historia causal e intercambiar cambios scalar/map/listas estables entre réplicas independientes del SDK. Guardar y Deshacer/Rehacer conservan el writer y los controles de versión normales; leer o exportar un documento sin activar no lo convierte en colaborativo. El espacio ofrece controles de archivo y tres herramientas MCP habituales. [Uso y pruebas atribuidas](tasks/vvd1095/verification-sdk-convergence.md) separan persistencia, Native frío de dos claves, UI montada y Brave normal.
 
 Fuente `603a3c991f82367e537a38965aebb77775720692` aprobada CAS62 e integrada Main:40 rutas exactas,48 archivos no rastreados conservados, índice limpio, sin push. Manual nativo actualizado con escritura CAS y lectura completa posterior. La ruta permanente offline UI pasa16 grupos,8a1280 y8a390, con89 tablas vacías por viewport; el arranque anterior detenido conserva su resultado separado. Siguen abiertos prosa por caracteres, presencia, defaults aditivos, Host/query completo, hosting y el resto de1095. No se afirma producción/Main instalada ni descarga Browser a disco.
+
+
+## Colaboración optativa de texto plano
+
+Los autores de herramientas locales pueden activar ediciones por rangos UTF16 en un campo de prosa plana. Las réplicas del SDK y el writer Source normal conservan identidades a través de inserciones concurrentes, borrados solapados, Deshacer/Rehacer autoral y reapertura. La prosa de campo completo y el HTML enriquecido mantienen su comportamiento. `textRange` sólo lee; aplicar su rango capturado, Guardar e intercambiar archivos de cambios usan el writer y las comprobaciones de versión existentes. [API de autor y límites](docs/local-tool-sdk.md#opt-in-plain-utf16-text).
+
+Es texto plano: siguen abiertos el editor rico colaborativo, carets/presencia y la sesión de red automática. Un componente de autor puede instalarse por el flujo normal de paquetes; no se instala automáticamente un editor genérico. La paridad global web y SDK continúa abierta.
