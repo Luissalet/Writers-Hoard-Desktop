@@ -17,12 +17,14 @@ void(async()=>{
  if(forbidden.length)throw Error('Pure format graph imported engine/application: '+forbidden.join(','));
  console.log('PASS '+pure.run.testConvergenceFormatBudget());
  console.log('PASS '+pure.run.testConvergenceLargeCanonicalBytes());
- const contracts=await compile('contracts',"export {runCoreOracle} from './tests/local-tool-convergence.core';export {runOracle} from './tests/local-tool-convergence.memory';export {assertMemoryStartFlags} from './tests/local-tool-convergence.start-flags';");
+ const contracts=await compile('contracts',"export {runCoreOracle} from './tests/local-tool-convergence.core';export {runOracle} from './tests/local-tool-convergence.memory';export {assertMemoryStartFlags} from './tests/local-tool-convergence.start-flags';export {run as runPlainOracle} from './tests/local-tool-convergence.plain';");
  const core=await contracts.run.runCoreOracle((name,value)=>save('core-'+name,value));if(!core.ok)throw Error('Core convergence failed; see '+directory);
  for(const group of core.groups)console.log('PASS core '+group.name);
  const memory=await contracts.run.runOracle((name,value)=>save('memory-'+name,value));if(!memory.ok)throw Error('Memory convergence failed; see '+directory);
  for(const check of memory.checks)console.log('PASS '+check);
  console.log('PASS '+await contracts.run.assertMemoryStartFlags());
+ const plain=await contracts.run.runPlainOracle((name,value)=>save('plain-'+name,value));if(!plain.ok)throw Error('Plain convergence failed; see '+directory);
+ for(const group of plain.groups)console.log('PASS plain '+group.name);
  const changed=[...guards].filter(([file,before])=>!fs.existsSync(file)||hash(file)!==before).map(([file])=>file);
  save('GUARDS.json',{inputs:guards.size,changed});if(changed.length)throw Error('Inputs changed during convergence contract');
  console.log('PASS pure format graph excludes engine/DB/React; '+guards.size+' inputs stable. Evidence '+directory);

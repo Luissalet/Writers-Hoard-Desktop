@@ -1,5 +1,5 @@
 export {createLocalToolReplica} from './convergence/replica';
-export type {LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica,LocalToolReplicaEdit,LocalToolValidationConflict} from './convergence/types';
+export type {LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica,LocalToolReplicaEdit,LocalToolValidationConflict,LocalToolPlainRange} from './convergence/types';
 export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot} from './convergence/clientTypes';
 export {useLocalToolFocusMode} from './useLocalToolFocusMode';
 export {createRecordingLocalToolFocusMode} from './focusMode';

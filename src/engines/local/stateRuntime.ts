@@ -60,15 +60,17 @@ export function createLocalToolStateActions<T extends LocalToolJson>(codec:Local
    if(!result.changed)return{snapshot:result.snapshot,receiptId:null};
    return{snapshot:result.snapshot,receiptId:recordEvolution(transaction,current,before,owned.capture(),mode)};
   }
-  const merged=mergeLocalToolActions(codec,baseline.data,current.data,actions);
+  const hasPlainIntent=actions.some(action=>action.type==='text-splice');
+  if(hasPlainIntent&&!current.convergence)throw Error('local_tool_plain_convergence_required');
+  const merged=hasPlainIntent?undefined:mergeLocalToolActions(codec,baseline.data,current.data,actions);
   if(current.convergence){
    if(!transaction.convergence)throw Error('local_tool_convergence_host_unavailable');
    const result=await transaction.convergence.apply(baseline,actions);
    return{snapshot:result.snapshot,receiptId:recordConvergence(transaction,result.snapshot,result.receipt,mode,true)};
   }
-  if(!merged.inverse.length)return{snapshot:current,receiptId:null};
-  const snapshot=await transaction.client.save(merged.data,current.revision,current.document?.version??current.block?.version),receiptId='local-state-'+(++nextReceipt)+'-'+Math.random().toString(36).slice(2);
-  transaction.onCommit(()=>receipts.set(receiptId,{kind:'actions',identity:receiptIdentity(transaction,current),mode,baseline:structuredClone(snapshot),actions:cloneLocalToolJson(merged.inverse as unknown as LocalToolJson) as unknown as LocalToolStateAction[],claimed:false}));return{snapshot,receiptId};
+  if(!merged!.inverse.length)return{snapshot:current,receiptId:null};
+  const snapshot=await transaction.client.save(merged!.data,current.revision,current.document?.version??current.block?.version),receiptId='local-state-'+(++nextReceipt)+'-'+Math.random().toString(36).slice(2);
+  transaction.onCommit(()=>receipts.set(receiptId,{kind:'actions',identity:receiptIdentity(transaction,current),mode,baseline:structuredClone(snapshot),actions:cloneLocalToolJson(merged!.inverse as unknown as LocalToolJson) as unknown as LocalToolStateAction[],claimed:false}));return{snapshot,receiptId};
  };
  const reverse=(mode:'undo'|'redo',receiptId:string)=>atomic(async transaction=>{
   const receipt=receipts.get(receiptId),current=await transaction.client.read();

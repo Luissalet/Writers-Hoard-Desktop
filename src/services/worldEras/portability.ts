@@ -10,28 +10,69 @@ import { eraAdapters, eraDocumentVersion, validateEraDocument } from './adapters
 import { resolveEraDocumentAssetPayload } from './assets';
 import { eraDocumentKinds, type EraDocumentKind, type EraRow, type WorldEraVariant, type WorldEraAsset } from './types';
 
-/** JSON and ZIP use the same recursive binary codec, including retained versions. */
+type EraValuePath = string[];
+type EraValueEnvelope = { __whEraValue: 2; value: unknown; undefinedPaths: EraValuePath[]; literalBlobPaths: EraValuePath[] };
+const recordValue = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+const blobValue = (value: unknown): value is Record<string, unknown> & { mime: string; base64: string } => recordValue(value) && value.__whEraBlob === 1 && typeof value.base64 === 'string' && typeof value.mime === 'string';
+const envelopeValue = (value: unknown): value is EraValueEnvelope => recordValue(value) && value.__whEraValue === 2 && Object.keys(value).length === 4 && ['__whEraValue', 'value', 'undefinedPaths', 'literalBlobPaths'].every(key => Object.hasOwn(value, key));
+const invalidEraValue = (): never => { throw Error('world_era_value_invalid'); };
+function eraValueAt(value: unknown, path: EraValuePath): unknown {
+  for (const key of path) { if (!value || typeof value !== 'object' || !Object.hasOwn(value, key)) return invalidEraValue(); value = (value as Record<string, unknown>)[key]; }
+  return value;
+}
+function eraValuePaths(value: unknown): EraValuePath[] {
+  if (!Array.isArray(value) || value.some(path => !Array.isArray(path) || path.some(key => typeof key !== 'string'))) return invalidEraValue();
+  if (new Set(value.map(path => JSON.stringify(path))).size !== value.length) return invalidEraValue();
+  return value as EraValuePath[];
+}
+/** JSON and ZIP retain own undefined metadata and distinguish literal Blob records. */
 export async function encodeEraValue(value: unknown): Promise<unknown> {
-  if (value instanceof Blob) {
-    const bytes = new Uint8Array(await value.arrayBuffer()); let raw = '';
-    for (let index = 0; index < bytes.length; index += 8192) raw += String.fromCharCode(...bytes.subarray(index, index + 8192));
-    return { __whEraBlob: 1, mime: value.type, base64: btoa(raw) };
+  const undefinedPaths: EraValuePath[] = [], literalBlobPaths: EraValuePath[] = [];
+  async function encode(item: unknown, path: EraValuePath): Promise<unknown> {
+    if (item === undefined) { undefinedPaths.push(path); return null; }
+    if (item instanceof Blob) {
+      const bytes = new Uint8Array(await item.arrayBuffer()); let raw = '';
+      for (let index = 0; index < bytes.length; index += 8192) raw += String.fromCharCode(...bytes.subarray(index, index + 8192));
+      return { __whEraBlob: 1, mime: item.type, base64: btoa(raw) };
+    }
+    if (Array.isArray(item)) return Promise.all(item.map((child, index) => encode(child, [...path, String(index)])));
+    if (item && typeof item === 'object') {
+      if (blobValue(item)) literalBlobPaths.push(path);
+      return Object.fromEntries(await Promise.all(Object.entries(item).map(async ([key, child]) => [key, await encode(child, [...path, key])])));
+    }
+    return item;
   }
-  if (Array.isArray(value)) return Promise.all(value.map(encodeEraValue));
-  if (value && typeof value === 'object') return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, child]) => [key, await encodeEraValue(child)])));
+  const encoded = await encode(value, []);
+  return undefinedPaths.length || literalBlobPaths.length || envelopeValue(value) ? { __whEraValue: 2, value: encoded, undefinedPaths, literalBlobPaths } : encoded;
+}
+function decodeLegacyEraValue(value: unknown, literals: ReadonlySet<string>, path: EraValuePath = []): unknown {
+  if (value instanceof Blob) return value;
+  if (Array.isArray(value)) return value.map((child, index) => decodeLegacyEraValue(child, literals, [...path, String(index)]));
+  if (value && typeof value === 'object') {
+    if (blobValue(value) && !literals.has(JSON.stringify(path))) return new Blob([Uint8Array.from(atob(value.base64), char => char.charCodeAt(0))], { type: value.mime });
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, decodeLegacyEraValue(child, literals, [...path, key])]));
+  }
   return value;
 }
 export function decodeEraValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(decodeEraValue);
-  if (value && typeof value === 'object') {
-    const object = value as Record<string, unknown>;
-    if (object.__whEraBlob === 1 && typeof object.base64 === 'string' && typeof object.mime === 'string') return new Blob([Uint8Array.from(atob(object.base64), char => char.charCodeAt(0))], { type: object.mime });
-    return Object.fromEntries(Object.entries(object).map(([key, child]) => [key, decodeEraValue(child)]));
+  if (!envelopeValue(value)) return decodeLegacyEraValue(value, new Set());
+  const undefinedPaths = eraValuePaths(value.undefinedPaths), literalBlobPaths = eraValuePaths(value.literalBlobPaths);
+  for (const path of literalBlobPaths) if (!blobValue(eraValueAt(value.value, path))) return invalidEraValue();
+  for (const path of undefinedPaths) if (eraValueAt(value.value, path) !== null) return invalidEraValue();
+  let decoded = decodeLegacyEraValue(value.value, new Set(literalBlobPaths.map(path => JSON.stringify(path))));
+  for (const path of undefinedPaths) {
+    if (!path.length) { if (undefinedPaths.length !== 1 || literalBlobPaths.length) return invalidEraValue(); decoded = undefined; continue; }
+    const parent = eraValueAt(decoded, path.slice(0, -1)), key = path[path.length - 1];
+    if (!parent || typeof parent !== 'object' || !Object.hasOwn(parent, key) || (parent as Record<string, unknown>)[key] !== null) return invalidEraValue();
+    Object.defineProperty(parent, key, { value: undefined, enumerable: true, writable: true, configurable: true });
   }
-  return value;
+  return decoded;
 }
 export async function decodeEraAssets(value: unknown, projectId: string): Promise<WorldEraAsset[]> {
-  const rows = decodeEraValue(value ?? []); if (!Array.isArray(rows)) throw new Error('world_era_assets_invalid');
+  return validateEraAssets(decodeEraValue(value ?? []), projectId);
+}
+export async function validateEraAssets(rows: unknown, projectId: string): Promise<WorldEraAsset[]> {
+  if (!Array.isArray(rows)) throw new Error('world_era_assets_invalid');
   const ids = new Set<string>(), hashes = new Set<string>();
   for (const asset of rows as WorldEraAsset[]) {
     if (!asset?.id || asset.projectId !== projectId || ids.has(asset.id) || hashes.has(asset.sha256) || !asset.payload || typeof asset.payload !== 'object' || Array.isArray(asset.payload) || asset.sha256 !== await eraDocumentVersion({ root: { id: 'binary', ...asset.payload }, children: {} })) throw new Error('world_era_asset_invalid');
@@ -40,7 +81,9 @@ export async function decodeEraAssets(value: unknown, projectId: string): Promis
   return rows as WorldEraAsset[];
 }
 export function decodeEraVariants(value: unknown, projectId: string, assets: WorldEraAsset[] = []): WorldEraVariant[] {
-  const rows = decodeEraValue(value ?? []);
+  return validateEraVariants(decodeEraValue(value ?? []), projectId, assets);
+}
+export function validateEraVariants(rows: unknown, projectId: string, assets: WorldEraAsset[] = []): WorldEraVariant[] {
   if (!Array.isArray(rows)) throw new Error('world_era_variants_invalid');
   const keys = new Set<string>(), ids = new Set<string>();
   for (const row of rows as WorldEraVariant[]) {

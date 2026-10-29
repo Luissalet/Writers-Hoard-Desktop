@@ -12,20 +12,22 @@ export interface LocalToolConvergenceMetadata {
 export interface LocalToolConvergenceContract<T extends LocalToolJson=LocalToolJson> extends LocalToolConvergenceMetadata {
  validateState:(value:LocalToolJson)=>value is T;
 }
-export interface LocalToolConvergenceIdentity {
+interface LocalToolConvergenceIdentityFields {
  namespace:string;
  genesisId:string;
- engine:{id:'writers-hoard-yjs-registers';version:'1';updateFormat:'yjs-v1';libraryVersion:'13.6.33'};
  codecHash:string;
  validationId:string;
  schemaEpoch:string;
 }
-export interface LocalToolConvergenceCheckpoint extends LocalToolConvergenceIdentity {
+export type LocalToolConvergenceIdentityV1=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'1';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
+export type LocalToolConvergenceIdentityV2=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'2';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
+export type LocalToolConvergenceIdentity=LocalToolConvergenceIdentityV1|LocalToolConvergenceIdentityV2;
+export type LocalToolConvergenceCheckpoint=LocalToolConvergenceIdentity&{
  format:'writers-hoard-local-convergence/1';
  checkpointBase64:string;
  stateVectorBase64:string;
 }
-export interface LocalToolConvergenceUpdate extends LocalToolConvergenceIdentity {
+export type LocalToolConvergenceUpdate=LocalToolConvergenceIdentity&{
  format:'writers-hoard-local-convergence-update/1';
  updateBase64:string;
 }
@@ -51,6 +53,7 @@ export interface LocalToolReplicaEdit<T extends LocalToolJson=LocalToolJson> ext
 }
 /** SDK-visible capability; no host receipt recipe, database or callback in this object. */
 export interface LocalToolReplica<T extends LocalToolJson=LocalToolJson> {
+ textRange(field:string,from:number,to:number):LocalToolPlainRange;
  read():T;
  inspect():LocalToolConvergenceView<T>;
  apply(actions:readonly LocalToolStateAction[]):LocalToolReplicaEdit<T>;
@@ -81,3 +84,5 @@ export interface LocalToolReplicaOptions<T extends LocalToolJson=LocalToolJson> 
  authorId:string;
  contract:LocalToolConvergenceContract<T>;
 }
+
+export interface LocalToolPlainRange {format:'writers-hoard-local-plain-range/1';identity:LocalToolConvergenceIdentity;field:string;afterPlacementId:string|null;deleteIds:readonly string[]}

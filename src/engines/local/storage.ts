@@ -8,7 +8,7 @@ import {createBrowserLocalToolAudio} from './audioBrowser';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {createBrowserLocalToolOpenDocuments} from './queryOpenDocuments';
 import {readSourceToolState,saveSourceToolState,readSourceToolDocument} from './documents/store';
-import {startSourceToolConvergence,exportSourceToolConvergence,importSourceToolConvergence,applySourceToolConvergence,reverseSourceToolConvergence} from './documents/convergence';
+import {startSourceToolConvergence,exportSourceToolConvergence,importSourceToolConvergence,applySourceToolConvergence,reverseSourceToolConvergence,readSourceToolPlainRange} from './documents/convergence';
 import {localToolConvergenceContext} from './convergence/context';
 import type {LocalToolDocumentConvergence} from './convergence/clientTypes';
 import {createLocalToolStateActions,prepareLocalToolConvergenceBranch} from './stateRuntime';
@@ -96,6 +96,7 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  const openDocuments=createBrowserLocalToolOpenDocuments(scope,{validate:project,current,subscribe:base.subscribe});
  const theme=Object.freeze({get:async()=>{const row=await project(),appearance=appearanceFromProject(row,scope);current();return Object.freeze({...scope,...resolveWorkspaceTheme(appearance.effective)});},subscribe:base.subscribe});
  const convergence:LocalToolDocumentConvergence<T>|undefined=options.documentId?Object.freeze({
+  textRange:async(field:string,from:number,to:number)=>{await project();const convergenceOptions=await convergenceOptionsFor();if(!convergenceOptions)throw Error('local_tool_convergence_codec_required');const result=await readSourceToolPlainRange(scope,options.documentId!,definition,field,from,to,convergenceOptions);current();return result;},
   start:async (baseline:import('./sdk').LocalToolSnapshot<T>)=>{writable();return db.transaction('rw',db.tables,async()=>{await project();writable();const convergenceOptions=await convergenceOptionsFor();if(!convergenceOptions)throw Error('local_tool_convergence_codec_required');const result=await startSourceToolConvergence(scope,options.documentId!,definition,baseline,convergenceOptions);writable();if(!result.checkpoint)throw Error('local_tool_convergence_checkpoint_missing');return{snapshot:result.snapshot,checkpoint:result.checkpoint,changed:result.causalChanged};});},
   export:async (exportOptions?:{stateVectorBase64?:string})=>{await project();const result=await exportSourceToolConvergence(scope,options.documentId!,definition,exportOptions);current();return{snapshot:result.snapshot,checkpoint:result.checkpoint,update:result.update};},
   import:async (update:import('./convergence/types').LocalToolConvergenceUpdate)=>{writable();return db.transaction('rw',db.tables,async()=>{await project();writable();const convergenceOptions=await convergenceOptionsFor();if(!convergenceOptions)throw Error('local_tool_convergence_codec_required');const result=await importSourceToolConvergence(scope,options.documentId!,definition,update,convergenceOptions);writable();return{snapshot:result.snapshot,changed:result.changed,causalChanged:result.causalChanged,pending:result.pending};});},
