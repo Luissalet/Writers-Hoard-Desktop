@@ -887,3 +887,10 @@ This is plain text, not a collaborative rich editor, caret/presence service or a
 Local-tool authors can pass a stable `extensions` array to `LocalToolRichProseEditor`, for example to add a custom keyboard command. The same native host handles explicit Save, local text Undo and Source Undo/Redo; a compatible custom `doc` node replaces StarterKit's document node. Omitting the prop or passing `[]` preserves the defaults. Keep the array and extension objects stable for the editor mount.
 
 This adds author behavior to the existing admitted HTML profile; it does not add dynamic schema reconfiguration or collaborative rich text. [Author API](docs/local-tool-sdk.md#optional-rich-editor-extensions) and [attributed checks and remaining work](tasks/vvd1095/verification-sdk-rich-prose.md#optional-rich-editor-extensions-source-f437039) distinguish the normal package/Brave checks, registered dispatcher and independent component tests. General web/SDK parity remains open.
+
+
+## Recovering a Source document with pending changes
+
+If another consumer archives an open Source rich briefing, its unsaved draft stays visible and available to copy in the same editor, with editing and Save/Undo/Redo disabled. Restoring the saved document creates a fresh generation: saving the older draft still reports a conflict and preserves it. Discard deliberately adopts the restored saved version; discarding while archived releases the draft and leaves one unavailable notice. Retaining the draft does not restore or save the document automatically.
+
+The linked notebook's pending flusher also confirms its saved draft has cleared before document navigation completes. Actual conflicts and an unadded item still block leaving. These changes are approved and integrated in source `48539f8`. [Recovery evidence and limits](tasks/vvd1095/verification-sdk-rich-prose.md#source-recovery-48539f8). A later rename check failed once and passed in a separate observed run; its readiness follow-up remains open. Rich collaboration and overall web/SDK parity continue.

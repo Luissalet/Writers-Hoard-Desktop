@@ -923,3 +923,14 @@ function Briefing({client,context}:LocalToolProps<{briefing:string}>) {
 The host supplies `this.editor`; the author does not create a parallel editor or writer. Save/Discard, captured baseline/CAS, Source receipts and local text Undo retain their existing scopes. The demonstrated shortcut toggles bold already supported by the saved HTML profile. Supplying a compatible `doc` node disables StarterKit's `doc`, so only one top node is installed; the checked example uses `content:'paragraph+'`.
 
 The prop adds author behavior, not arbitrary persistent schema support. New tags/attributes may still be removed by the existing HTML sanitizer. It is not serialized into document JSON or sent as an MCP object; the registered rich Source/Owned/era dispatcher retains its existing signatures. Readonly/pin recovery and conflicting Save retain their prior authority and draft rules; remote archive recovery is separately open in1808. [Normal package/Brave and independent checks](../tasks/vvd1095/verification-sdk-rich-prose.md#optional-rich-editor-extensions-source-f437039). Rich collaborative engine3, dynamic schemas and general SDK parity remain open.
+
+
+## Source recovery after remote archive
+
+The normal Source workspace retains an already-pending rich editor when another consumer archives its document. The saved Source stops being active and the old writable lease is revoked. The retained editor is readonly and copyable; Save, Source Undo/Redo and pending flush cannot commit it. Keeping this presentation does not register the archived Source as open for normal queries, restore it or write its draft.
+
+Restore issues a new document generation. An older captured draft baseline still conflicts; the local draft remains available until explicit Discard adopts the restored saved version. Discard while the document stays archived releases the editor/pending owner and leaves one unavailable notice. The host's internal notice coordination is not a new author SDK or MCP parameter. Clean unavailable documents retain their existing fallback behavior.
+
+The linked notebook example confirms clearing the successfully saved captured string synchronously before its flusher returns, so the normal afterWrites check observes completion before navigation. A different newer draft, an unadded item or a failed write is retained; the global pending ledger and shared state hook are unchanged.
+
+Source `48539f8` is approved in 1808/1829 revision1 and integrated. [Attributed recovery checks](../tasks/vvd1095/verification-sdk-rich-prose.md#source-recovery-48539f8) distinguish real Brave, the registered MCP dispatcher and component oracles, and preserve the later rename/readiness limitation. No new stdio transport, second key, rich engine3 or arbitrary persistent schema follows. The existing optional extensions and HTML profile keep their prior contract.
