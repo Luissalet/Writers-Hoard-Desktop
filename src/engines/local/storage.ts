@@ -25,7 +25,7 @@ import type {CodexEntry} from '@/types';
 import {localToolNamespace,LocalToolStateError,type LocalToolJson} from './stateTypes';
 import {readLocalToolState,prepareLocalToolSave,projectLocalToolCodex} from './clientContract';
 import type {LocalToolClient,LocalToolCodexQuery,LocalToolDefinition,LocalToolOpenDocumentOptions} from './sdk';
-export interface LocalToolClientOptions{/** Editable Owned host port only; world/media/query facilities remain readonly. */assetImportWritable?:()=>boolean;assetDefaultsWritable?:()=>boolean;/** Injectable silent backend coordinator for host contract tests. */audioEngine?:ReturnType<typeof import('./audio').createLocalAudioEngine>;documentId?:string;eraId?:string;navigate?:(path:string)=>void;openBeside?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
+export interface LocalToolClientOptions{/** Host-owned publication token captured before a normal Save. */capturePublishedFields?:()=>()=>void;/** Editable Owned host port only; world/media/query facilities remain readonly. */assetImportWritable?:()=>boolean;assetDefaultsWritable?:()=>boolean;/** Injectable silent backend coordinator for host contract tests. */audioEngine?:ReturnType<typeof import('./audio').createLocalAudioEngine>;documentId?:string;eraId?:string;navigate?:(path:string)=>void;openBeside?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
 function announce(projectId:string){const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});let transaction=Dexie.currentTransaction;if(!transaction){emit();return;}while(transaction.parent)transaction=transaction.parent;transaction.on('complete',emit);}
 export function createLocalToolClient<T extends LocalToolJson>(projectId:string,definition:LocalToolDefinition<T>,options:LocalToolClientOptions={}):LocalToolClient<T>{
  if(typeof projectId!=='string'||!projectId||projectId.length>500||Array.from(projectId).some(character=>character.charCodeAt(0)<32))throw new LocalToolStateError('missing-project');
@@ -75,12 +75,14 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   },
   async read(){const row=await project();return options.documentId?readSourceToolState(scope,options.documentId,definition):readLocalToolState(row,definition,scope.eraId);},
   async save(data:T,expectedRevision:number|null,expectedDocumentVersion?:string){
-   writable();if(options.documentId)return db.transaction('rw',db.tables,async tx=>{
+   writable();const retirePublication=options.capturePublishedFields?.();if(options.documentId)return db.transaction('rw',db.tables,async tx=>{
     const row=await project();writable();const convergenceOptions=await convergenceOptionsFor();let authorChanged=false;
     const saved=await saveSourceToolState(scope,options.documentId!,definition,data,expectedRevision,expectedDocumentVersion,convergenceOptions?{...convergenceOptions,onPrepared:changed=>{authorChanged=changed;}}:undefined);writable();
     if(saved.convergence&&authorChanged){let outer:Transaction=tx;while(outer.parent)outer=outer.parent;
      prepareLocalToolConvergenceBranch(JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),saved,{receiptTransaction:outer,onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});
-    }return saved;
+    }
+    if(retirePublication){let outer:Transaction=tx;while(outer.parent)outer=outer.parent;outer.on('complete',()=>Dexie.ignoreTransaction(retirePublication));}
+    return saved;
    });
    const snapshot=await db.transaction('rw',db.projects,async()=>{const row=await project(),prepared=prepareLocalToolSave(row,definition,data,expectedRevision,scope.eraId);writable();await db.projects.update(projectId,prepared.changes);writable();return prepared.snapshot;});announce(projectId);return snapshot;
   },

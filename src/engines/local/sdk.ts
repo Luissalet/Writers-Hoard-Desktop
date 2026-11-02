@@ -34,7 +34,9 @@ import {HOST_ASSET_NAMESPACE,validateLocalAssetManifest,type LocalAssetManifest,
 export {defineLocalToolBlock} from './blocks/definitions';
 export {useLocalToolWorldList,useLocalToolWorldRead} from './useLocalToolWorld';
 export {useLocalToolOpenDocuments} from './useLocalToolOpenDocuments';
-export type {LocalToolOpenDocumentQuery,LocalToolOpenDocumentRow,LocalToolOpenDocuments} from './openDocuments';
+export {useLocalToolPublishedOpenDocuments} from './useLocalToolPublishedOpenDocuments';
+export {useLocalToolDocumentFields} from './useLocalToolDocumentFields';
+export type {LocalToolOpenDocumentQuery,LocalToolOpenDocumentRow,LocalToolOpenDocuments,LocalToolPublishedOpenDocumentQuery,LocalToolPublishedOpenDocumentRow,LocalToolDocumentFields} from './openDocuments';
 export {useSound,useAudioPlayer} from './useLocalToolAudio';
 export type {LocalToolAudio,LocalAudioLevels,LocalAudioChannelLevels,LocalAudioRef,LocalAudioOptions,LocalAudioUpdate,LocalAudioState,LocalAudioBus,LocalAudioFocus} from './audio';
 export type {LocalToolWorldClient} from './useLocalToolWorld';
@@ -93,7 +95,7 @@ export interface LocalToolClient<T extends LocalToolJson>{
   openDocument(kind:EraDocumentKind,id:string,options?:LocalToolOpenDocumentOptions):Promise<void>;
 }
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
-export interface LocalToolHostContext {app?:import('./apps/types').LocalAppDetails;focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode;renderCollaborativeRich?:(props:import('./CollaborativeRich').LocalToolCollaborativeRichProps)=>import('react').ReactNode}
+export interface LocalToolHostContext {documentFields?:import('./openDocuments').LocalToolDocumentFields;app?:import('./apps/types').LocalAppDetails;focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode;renderCollaborativeRich?:(props:import('./CollaborativeRich').LocalToolCollaborativeRichProps)=>import('react').ReactNode}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
 export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{

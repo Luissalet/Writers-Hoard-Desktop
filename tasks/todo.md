@@ -1,3 +1,16 @@
+# Source draft fields — task1890
+
+- [x] Establish saved7/draft9 and independent consumer draft in normal Source hosts, then record the causal missing published port after health.
+- [x] Add explicit lease-owned publication and separate typed query without changing the saved query.
+- [x] Retire the captured instance token only after a successful normal Save commit; preserve failure/newer publication/other instances.
+- [x] Add producer/consumer hooks, readonly MCP projection and a normal Source example with explicit publish/Discard.
+- [x] Verify double mounts, eras, stale queries, lease/StrictMode, clones, Save failure/commit and readonly storage/ledger; retain original tests.
+- [x] Run affected types/checks; freeze exact paths and hand off independent review plus Root Brave/transport.
+
+- [ ] Root: independent exact review, real Brave and authenticated MCP/Native as applicable, final commit/integration, manual/continuity.
+
+Root owns integration and existing services. No primary Source, Main, browser, models, commit or push by this worker. Task1890/hilo2056; contract2055 accepted94eeeae7. Red/green labels remain distinct.
+
 # Quick creation of timelines and boards — task1882
 
 - [x] Read the normal Timeline/Board defaults, era adapters, shared Home/palette service and MCP contract before editing.
