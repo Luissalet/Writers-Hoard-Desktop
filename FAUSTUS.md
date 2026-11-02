@@ -1,10 +1,12 @@
 # Writer publishing workspace
 
-## Estado integrado: bloques1883 y borradores1890 — 02-11-2026
+## Estado integrado: bloques1883, borradores1890 y Enter1895 — 02-11-2026
 
 Source69899cb9 (1883, revisión1) y Source004ee3e1 (1890, revisión1) están aprobadas e integradas Main, sin push. El perfil compartido añade H1–H3, listas anidadas, citas y toggle sobre el mismo writer/identidades/Undo; la publicación de campos de borrador es opt-in por instancia Source, separada de la consulta guardada habitual.
 
-Native combinado93 prueba el Host compuesto, Save normal y frío, incluida consulta saved/published sin productores fantasma. Native36 acredita por separado la publicación explícita; Root conserva Brave, quick/build y sus alcances. [Bloques](tasks/vvd1095/verification-shared-blocks1883.md) y [publicación](tasks/vvd1095/verification-sdk-published-fields.md). Este estado supera las notas históricas de entrega pendiente. Siguen1895 (Enter en item vacío),1893 (presencia), coste de historiales grandes, IME físico, schema persistente ampliable y enlaces/imágenes/tablas del perfil;1095/1796 continúan abiertos.
+Enter sobre un item vacío ya sale de la lista con la misma hoja y un único Undo, Sourcee35a3185 aprobado1895r1 e integrado Main. Conserva texto ajeno, numeración actual y los casos anidados aceptados; Brave y un nuevo Native40 acreditan Save/frío con sus alcances. [Comportamiento y pruebas](tasks/vvd1095/verification-empty-item1895.md).
+
+Native combinado93 prueba el Host compuesto, Save normal y frío, incluida consulta saved/published sin productores fantasma. Native36 acredita por separado la publicación explícita; Root conserva Brave, quick/build y sus alcances. [Bloques](tasks/vvd1095/verification-shared-blocks1883.md) y [publicación](tasks/vvd1095/verification-sdk-published-fields.md). Este estado supera las notas históricas de entrega pendiente. Siguen1893 (presencia),1913 (contenido vivo),1917 (coste de historiales grandes) y1920 (estado de guardado), IME físico, schema persistente ampliable y enlaces/imágenes/tablas del perfil;1095/1796 continúan abiertos.
 
 
 La entrega55 de1095 está integrada en Main con fuente `7989bfcad06531da35182e71cbe769e90136ce02`, aprobación exacta CAS55 y133 blobs/disk verificados. Incorpora hojas finitas rectangulares o verticales, cambio real de terreno con nueve anclas y relleno mar/tierra, preparación cancelable y Undo compatible. Solape caliente14 buffers RAW; codec frío con pérdidas previas. La revisión causó y corrigió reinos/caminos/viajes, límites MCP y anotaciones Map2D; el caller separado renderCartography conserva un residuo estático, sin certificar Carta/export completo. [Uso, MCP y atribución](tasks/vvd1095/verification-world-domain.md). Root final2:quick184833ms,396críticas151607ms y build394076ms,108Source/133code exactos; no Native de app Main. Manual+1361UTF16 con recurso completo verificado y bloqueos libres.1095/paridad siguen abiertos.
