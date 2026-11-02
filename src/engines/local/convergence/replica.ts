@@ -528,6 +528,32 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
  function reverse(id:string,isRedo:boolean):LocalToolReplicaEdit<T> {
   current();invalidateSnapshotProofs();projectionEpoch={};const from=isRedo?redo:undo,receipt=receipts.get(id);if(from.at(-1)!==id||!receipt)throw Error('local_tool_convergence_receipt_unavailable');
   const record=recipeRecord(receipt,r),baseline=before();captured=[];let inverse:Toggle[]=[];
+  if(record.changes.some(change=>r.registers.versions.get(change.id)?.root.startsWith('blocks3:'))){
+   // Structural inverses may retain derived ancestor/required-slot support.
+   // Prepare the actual UUID-bearing delta, never mutate then validate or
+   // regenerate a different toggle transaction when committing the result.
+   captured=null;const epoch=projectionEpoch,context=convergenceCanonical([contract.namespace,contract.validationId,contract.schemaEpoch,contract.codec]),validator=contract.validateState;
+   const admissionRequired=record.changes.some(change=>{const version=r.registers.versions.get(change.id);return version?.root.startsWith('blocks3:')&&version.root.endsWith(':membership')&&version.value===true;});
+   const candidate=new Y.Doc({gc:false}),updates:Uint8Array[]=[];let prepared:LocalToolConvergenceView<T>,bytes:Uint8Array,unresolved=false;
+   try{
+    const reader=initializeRoots(candidate,contract.codec);Y.applyUpdate(candidate,convergenceBytes(baseline.checkpoint.checkpointBase64));candidate.on('update',update=>updates.push(update));
+    candidate.transact(()=>{inverse=reader.registers.toggle(record.changes);},options.authorId);
+    reader.registers.validate();checkPlainDocument(reader,candidate);prepared=inspect(reader,contract);
+    unresolved=pending(candidate)||semanticPending(reader);
+    if(admissionRequired&&(prepared.conflict||unresolved))throw Error('local_tool_convergence_authored_state_invalid');
+    // Existing movement Undo/Redo can intentionally restore a concurrent cycle.
+    // Preserve its explicit conflict/fallback contract rather than hiding it or
+    // turning that established operation into a new rejection.
+    if(!prepared.conflict)checkBindings(reader,projection(reader));bytes=Y.mergeUpdates(updates);
+   }finally{candidate.destroy();}
+   current();
+   if(epoch!==projectionEpoch||from.at(-1)!==id||receipts.get(id)!==receipt||currentCheckpoint().checkpointBase64!==baseline.checkpoint.checkpointBase64||validator!==contract.validateState||context!==convergenceCanonical([contract.namespace,contract.validationId,contract.schemaEpoch,contract.codec]))throw Error('local_tool_convergence_preparation_stale');
+   projectionMutation(()=>Y.applyUpdate(doc,bytes!,options.authorId));from.pop();receipts.delete(id);
+   const next=storeReceipt(isRedo?'undo':'redo',inverse);
+   // No second validator callback after commit: the admitted candidate is the
+   // exact committed cut. A reentrant policy cannot invalidate it after writes.
+   return{...clone(prepared!),changed:!localToolStateEqual(baseline.data,prepared!.data),causalChanged:baseline.checkpoint.checkpointBase64!==currentCheckpoint().checkpointBase64,pending:unresolved,update:packet(identity,bytes!),receiptId:next?.id??null};
+  }
   try{
    projectionMutation(()=>doc.transact(()=>{inverse=r.registers.toggle(record.changes);},options.authorId));from.pop();receipts.delete(id);
    const next=storeReceipt(isRedo?'undo':'redo',inverse);return{...result(baseline),update:packet(identity,Y.mergeUpdates(captured)),receiptId:next?.id??null};
