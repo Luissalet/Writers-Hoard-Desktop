@@ -1,4 +1,5 @@
 import type {RichRange,RichSplitCapture,RichJoinCapture,RichResolvedPoint} from './richTypes';
+import type {RichBlockCapture,RichBlockMoveCapture,RichBlockPlacement} from './blocks';
 import type {LocalToolJson} from '../stateTypes';
 import type {LocalToolStateCodec} from '../stateCodec';
 import type {LocalToolStateAction} from '../stateActions';
@@ -55,6 +56,11 @@ export interface LocalToolReplicaEdit<T extends LocalToolJson=LocalToolJson> ext
 }
 /** SDK-visible capability; no host receipt recipe, database or callback in this object. */
 export interface LocalToolReplica<T extends LocalToolJson=LocalToolJson> {
+ richBlockSplitCapture(field:string,nodeId:string,at:number):import('./blockText').RichBlockSplitCapture;
+ richBlockJoinCapture(field:string,leftNodeId:string,rightNodeId:string):import('./blockText').RichBlockJoinCapture;
+ richBlockEditCapture(field:string,nodeIds:string[],destination?:RichBlockPlacement):import('./blockEditingTypes').RichBlockEditCapture;
+ richBlockCapture(field:string,options:{nodeIds:string[]}):RichBlockCapture;
+ richBlockMoveCapture(field:string,nodeId:string,destination:RichBlockPlacement):RichBlockMoveCapture;
  richRange(field:string,nodeId:string,from:number,to:number,options?:{affinity:'left'|'right'}):RichRange;
  resolveRichPoint(point:RichRange):RichResolvedPoint;
  richSplitCapture(field:string,nodeId:string,at:number,options?:{affinity:'left'|'right'}):RichSplitCapture;

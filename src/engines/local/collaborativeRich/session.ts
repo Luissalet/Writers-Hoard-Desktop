@@ -2,6 +2,7 @@ import type {LocalToolClient,LocalToolJson,LocalToolSnapshot} from '../sdk';
 import {createLocalToolReplica} from '../convergence/replica';
 import {assertConvergenceIdentity,convergenceIdentityOf} from '../convergence/format';
 import type {LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica} from '../convergence/types';
+import {validateRichBlockDocument,richBlockLeaves,type RichBlockDocument,type RichBlockAction} from '../convergence/blocks';
 import {validateRichDocument,type RichDocument,type RichAction} from '../convergence/richTypes';
 
 type Exported=Awaited<ReturnType<NonNullable<LocalToolClient<LocalToolJson>['convergence']>['export']>>;
@@ -47,7 +48,8 @@ export class RichEditorSession {
   this.contract=contract;this.notify=notify;this.nextStep=nextStep;this.client=client;this.field=field;this.lineage=snapshot.document.lineage;this.confirmedVector=checkpoint.stateVectorBase64;
   this.replica=createLocalToolReplica(checkpoint,{authorId:'writer-editor:'+crypto.randomUUID(),contract});this.document();
  }
- document():RichDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichDocument(value);return value;}
+ blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value);return value;}
+ document():RichDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field],descriptor=this.contract.codec.fields[this.field];if(descriptor?.kind==='rich'&&descriptor.profile==='blocks-tree/1')return richBlockLeaves(value as unknown as RichBlockDocument);validateRichDocument(value);return value;}
  acceptedThrough(epoch:object){return this.accepted.get(epoch)??0;}
  hasAcceptedRecord(token:object){return this.acceptedRecords.has(token);}
  consumeAccepted(epoch:object,sequence:number,tokens:readonly object[]=[]){this.accepted.set(epoch,Math.max(this.acceptedThrough(epoch),sequence));for(const token of tokens)this.acceptedRecords.add(token);}
@@ -96,7 +98,7 @@ export class RichEditorSession {
   try{run();if(this.grouping.length){this.owned.push({receipts:this.grouping,step:this.nextStep()});this.reverted=[];}this.changed();return true;}
   catch(error){this.fail(error,true);return false;}finally{this.grouping=undefined;}
  }
- apply(action:RichAction){
+ apply(action:RichAction|RichBlockAction){
   if(!this.grouping)throw Error('local_tool_rich_editor_gesture_required');const result=this.replica.apply([action]);
   if(result.receiptId)this.grouping.push(result.receiptId);if(result.causalChanged)this.sequence++;
   if(result.pending||result.conflict)throw Error('local_tool_rich_editor_unresolved');

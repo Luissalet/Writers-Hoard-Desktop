@@ -1,4 +1,7 @@
+export type {RichBlockSplitCapture,RichBlockJoinCapture,RichBlockTextAction} from './convergence/blockText';
 export type {RichDocument,RichParagraph,RichText,RichMark,RichRange,RichSplitCapture,RichJoinCapture,RichAction,RichResolvedPoint} from './convergence/richTypes';
+export type {RichBlockEditCapture,RichBlockEditingAction} from './convergence/blockEditingTypes';
+export type {RichBlockDocument,RichBlock,RichBlockKind,RichBlockPlacement,RichBlockCapture,RichBlockMoveCapture,RichBlockAction} from './convergence/blocks';
 export {createLocalToolReplica} from './convergence/replica';
 export type {LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica,LocalToolReplicaEdit,LocalToolValidationConflict,LocalToolPlainRange} from './convergence/types';
 export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot,LocalToolConvergenceImportOptions} from './convergence/clientTypes';

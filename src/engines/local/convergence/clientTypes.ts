@@ -6,6 +6,11 @@ import type {LocalToolConvergenceIdentity,LocalToolConvergenceCheckpoint,LocalTo
 export type LocalToolConvergenceSnapshot=LocalToolConvergenceIdentity&{conflict?:LocalToolValidationConflict};
 export interface LocalToolConvergenceImportOptions {expectedLineage?:string}
 export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
+ richBlockSplitCapture(field:string,nodeId:string,at:number):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockText').RichBlockSplitCapture}>;
+ richBlockJoinCapture(field:string,leftNodeId:string,rightNodeId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockText').RichBlockJoinCapture}>;
+ richBlockEditCapture(field:string,nodeIds:string[],destination?:import('./blockTypes').RichBlockPlacement):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockEditingTypes').RichBlockEditCapture}>;
+ richBlockCapture(field:string,options:{nodeIds:string[]}):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockTypes').RichBlockCapture}>;
+ richBlockMoveCapture(field:string,nodeId:string,destination:import('./blockTypes').RichBlockPlacement):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockTypes').RichBlockMoveCapture}>;
  richRange(field:string,nodeId:string,from:number,to:number,options?:{affinity:'left'|'right'}):Promise<{snapshot:LocalToolSnapshot<T>;range:RichRange}>;
  resolveRichPoint(point:RichRange):Promise<{snapshot:LocalToolSnapshot<T>;point:RichResolvedPoint}>;
  richSplitCapture(field:string,nodeId:string,at:number,options?:{affinity:'left'|'right'}):Promise<{snapshot:LocalToolSnapshot<T>;capture:RichSplitCapture}>;

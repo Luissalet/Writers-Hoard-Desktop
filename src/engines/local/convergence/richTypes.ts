@@ -14,7 +14,7 @@ export type RichResolvedPoint={nodeId:string;offset:number;detached:false}|{deta
 export interface RichSlice {buffer:string;ids:string[];segment:string}
 export interface RichSplitCapture {format:'writers-hoard-rich-split/1';range:RichRange;suffix:RichSlice[];edges:string[]}
 export interface RichJoinCapture {format:'writers-hoard-rich-join/1';identity:LocalToolConvergenceIdentity;field:string;leftNodeId:string;rightNodeId:string;slices:RichSlice[];edges:string[];frontier:string[]}
-export type RichCaptureRequest={kind:'range';field:string;nodeId:string;from:number;to:number;affinity?:'left'|'right'}|{kind:'split';field:string;nodeId:string;at:number;affinity?:'left'|'right'}|{kind:'join';field:string;leftNodeId:string;rightNodeId:string};
+export type RichCaptureRequest={kind:'block-split';field:string;nodeId:string;at:number}|{kind:'block-join';field:string;leftNodeId:string;rightNodeId:string}|{kind:'block-edit';field:string;nodeIds:string[];destination?:import('./blockTypes').RichBlockPlacement}|{kind:'blocks';field:string;nodeIds:string[]}|{kind:'block-move';field:string;nodeId:string;destination:import('./blockTypes').RichBlockPlacement}|{kind:'range';field:string;nodeId:string;from:number;to:number;affinity?:'left'|'right'}|{kind:'split';field:string;nodeId:string;at:number;affinity?:'left'|'right'}|{kind:'join';field:string;leftNodeId:string;rightNodeId:string};
 export type RichAction=
  |{type:'rich-insert-paragraph';field:string;id:string;afterId:string|null;text:string;marks?:RichMark[]}
  |{type:'rich-delete-paragraph';field:string;id:string}

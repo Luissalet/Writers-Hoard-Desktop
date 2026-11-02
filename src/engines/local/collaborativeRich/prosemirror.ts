@@ -1,3 +1,5 @@
+import {blockPMDocument,blockBookmark,projectBlockView} from './blockProsemirror';
+import {authorBlockTransaction,normalizeBlockIds,blockCompositionTransaction} from './blockAdmission';
 import type {Node as PMNode,Schema} from '@tiptap/pm/model';
 import {Fragment} from '@tiptap/pm/model';
 import {AddMarkStep,RemoveMarkStep,ReplaceStep,ReplaceAroundStep} from '@tiptap/pm/transform';
@@ -31,7 +33,7 @@ function newParagraph(session:RichEditorSession,afterId:string|null,node:PMNode)
 
 /** Translate actual PM steps, capturing only after earlier actions have completed. */
 function authorAcceptedRichTransaction(session:RichEditorSession,tr:Transaction):void {
- if(!tr.docChanged||tr.getMeta(RICH_INTERNAL))return;
+ if(!tr.docChanged||tr.getMeta(RICH_INTERNAL))return;if(blockSession(session))return authorBlockTransaction(session,tr);
  // Reject an unrepresentable schema/step before the first local mutation.
  paragraphs(tr.before);paragraphs(tr.doc);
  for(const step of tr.steps)if(!(step instanceof ReplaceStep||step instanceof AddMarkStep||step instanceof RemoveMarkStep||step instanceof ReplaceAroundStep))throw Error('local_tool_rich_editor_step_unsupported');
@@ -92,10 +94,12 @@ export function richPMDocument(schema:Schema,doc:RichDocument):PMNode{
 }
 type Bookmark={anchor:RichRange|null;head:RichRange|null};
 export function richBookmark(session:RichEditorSession,doc:PMNode,anchor:number,head:number):Bookmark{
+ if(blockSession(session))return blockBookmark(session,doc,anchor,head);
  const capture=(pos:number)=>{const p=point(doc,pos,'right'),node=doc.child(p.index),id=node.attrs.id as string|null;if(!id)return null;return session.replica.richRange(session.field,id,p.offset,p.offset);};return{anchor:capture(anchor),head:capture(head)};
 }
 /** Patch affected paragraph spans; never replace the document on each local keystroke. */
 export function projectRichView(session:RichEditorSession,tr:Transaction,bookmark:Bookmark):Transaction{
+ if(blockSession(session))return projectBlockView(session,tr,bookmark);
  const oldAnchor=tr.selection.anchor,oldHead=tr.selection.head,storedMarks=tr.storedMarks,target=richPMDocument(tr.doc.type.schema,session.document());
  // Work right-to-left so positions of earlier unchanged paragraphs stay stable.
  const current=paragraphs(tr.doc),desired=paragraphs(target);let prefix=0,suffix=0;
@@ -126,7 +130,8 @@ export function createRichAdmissionJournal(canEdit:()=>boolean=()=>true){return 
 }});}
 export function hasRichAcceptedWork(session:RichEditorSession,state:EditorState){const journal=admissionKey.getState(state);return!!journal?.records.some(r=>!session.hasAcceptedRecord(r.token));}
 /** Only attributes and the journal ACK change here. Text/marks have already been accepted by PM. */
-function normalizeRichIds(tr:Transaction,doc:RichDocument){
+function normalizeRichIds(tr:Transaction,doc:RichDocument,session:RichEditorSession){
+ if(blockSession(session))return normalizeBlockIds(session,tr).setMeta(RICH_INTERNAL,true).setMeta('preventClearDocument',true).setMeta('addToHistory',false);
  const target=richPMDocument(tr.doc.type.schema,doc);if(target.childCount!==tr.doc.childCount)throw Error('local_tool_rich_editor_admission_mismatch');let pos=0;
  for(let i=0;i<tr.doc.childCount;i++){const node=tr.doc.child(i),wanted=target.child(i);if(!node.content.eq(wanted.content))throw Error('local_tool_rich_editor_admission_mismatch');if(node.attrs.id!==wanted.attrs.id)tr.setNodeMarkup(pos,undefined,{...node.attrs,id:wanted.attrs.id});pos+=node.nodeSize;}
  return tr.setMeta(RICH_INTERNAL,true).setMeta('preventClearDocument',true).setMeta('addToHistory',false);
@@ -140,12 +145,12 @@ function drainAcceptedInside(session:RichEditorSession,read:()=>EditorState,disp
   for(;;){
    const state=read(),journal=admissionKey.getState(state);if(!journal)throw Error('local_tool_rich_editor_journal_missing');
    const records=journal.records.filter(r=>!session.hasAcceptedRecord(r.token));
-   if(!records.length){if(!state.doc.eq(richPMDocument(state.schema,session.document())))throw Error('local_tool_rich_editor_normalization_vetoed');return;}
+   if(!records.length){if(!state.doc.eq(sessionPMDocument(session,state.schema)))throw Error('local_tool_rich_editor_normalization_vetoed');return;}
    const cut=records.at(-1)!.sequence;
    // Mark consumed before authoring/dispatch, even on failure or veto of the internal ACK.
    session.consumeAccepted(journal.epoch,cut,journal.records.filter(r=>r.sequence<=cut).map(r=>r.token));
    for(const record of records)authorAcceptedRichTransaction(session,record.transaction);
-   dispatch(normalizeRichIds(read().tr,session.document()).setMeta(RICH_ACK,cut));
+   dispatch(normalizeRichIds(read().tr,session.document(),session).setMeta(RICH_ACK,cut));
    const committed=admissionKey.getState(read());if(committed?.epoch!==journal.epoch||committed.acknowledged<cut)throw Error('local_tool_rich_editor_ack_vetoed');
    // Any newly appended/nested accepted steps are drained before allowing Save or another gesture.
   }
@@ -153,11 +158,14 @@ function drainAcceptedInside(session:RichEditorSession,read:()=>EditorState,disp
 /** Composition acknowledges provisional records, but authors ONLY its final minimal slice. */
 export function commitRichComposition(session:RichEditorSession,before:EditorState,read:()=>EditorState,dispatch:(tr:Transaction)=>void):boolean{
  const state=read(),journal=admissionKey.getState(state);if(!journal)throw Error('local_tool_rich_editor_journal_missing');
- const transaction=richCompositionTransaction(before,state),cut=journal.sequence;
+ const transaction=blockSession(session)?blockCompositionTransaction(before,state):richCompositionTransaction(before,state),cut=journal.sequence;
  return session.gesture(()=>{
   session.consumeAccepted(journal.epoch,cut,journal.records.filter(r=>r.sequence<=cut).map(r=>r.token));authorAcceptedRichTransaction(session,transaction);
-  dispatch(normalizeRichIds(read().tr,session.document()).setMeta(RICH_ACK,cut));
+  dispatch(normalizeRichIds(read().tr,session.document(),session).setMeta(RICH_ACK,cut));
   const committed=admissionKey.getState(read());if(committed?.epoch!==journal.epoch||committed.acknowledged<cut)throw Error('local_tool_rich_editor_ack_vetoed');
   drainAcceptedInside(session,read,dispatch);
  });
 }
+
+export function blockSession(session:RichEditorSession){const field=session.contract.codec.fields[session.field];return field?.kind==='rich'&&field.profile==='blocks-tree/1';}
+export function sessionPMDocument(session:RichEditorSession,schema:Schema){return blockSession(session)?blockPMDocument(schema,session.blockDocument()):richPMDocument(schema,session.document());}

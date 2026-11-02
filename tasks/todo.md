@@ -23,6 +23,24 @@ Root owns integration and existing services. No primary Source, Main, browser, m
 
 Acceptance: Home, command palette and wh_project_quick_create create editable/reopenable timelines and boards with the entered title, correct identity and era. The existing three choices and filtered-search behavior remain. No fallback from an era to Base, no new layout or storage. Worktree writer-quick-create1882 is isolated from rich Source40 under test.
 
+# Shared structured blocks — task1883
+
+- [x] Read decision2046, retained-version leaf mapping and fixed public causals C1/C2 before code.
+- [x] Add blocks-tree/1 with schema writers-blocks/1 over the existing Registers, RichRuns and writer; preserve paragraphs-inline/1.
+- [x] Project snapshot leaves from each snapshot's own represented catalogue, retaining structural version witnesses and leaf identities.
+- [x] Add public structural captures/actions and matching host/MCP ports without a second tree engine or whole-field HTML CAS.
+- [x] Pass C1 wrap versus Unicode/marks and author Undo, and C2 concurrent cycle/raw retention/fallback/Undo/Redo/cold read; preserve failures.
+- [x] Freeze the minimal core for Root and independent review before expanding editor/UI; R2 passed the peer's unchanged text causal and scoped MCP checks.
+- [x] Apply the tested editing/PM layer, connect the existing renderer/Baseline/admission/session and preserve the legacy paragraph profile.
+- [x] Add tree-proven split/join for Enter/Backspace; test moved leaves, empty wrappers, remote B and author Undo without copying text.
+- [x] Mount the normal editor and exercise H1–H3/lists/blockquote/toggle, typing, Save/reopen and read-only; freeze R3 for independent review.
+- [x] Compose with Main7d3f1365 in isolation, preserving Quick44/docs37, private RAW image7714 and guarded block proposals; rerun Node, both mounted editors, four legacy suites, renderer types and conformance.
+- [x] R6: bind indent/outdent to the captured item, list and destination ancestors; reject stale substituted containers atomically, preserve remote children and verify fresh intent plus Undo with permanent public regressions (81 checks/11 replicas, normal Node and mounted editor checks pass; exact peer still pending).
+- [x] R7: retain the captured-container proof while selecting only a sublist of the current list's kind; permanent mixed bullet/ordered regression preserves the existing ordered subtree, creates a bullet sublist, and verifies optional outdent plus Undo (104 combined indent checks/13 replicas).
+- [ ] Final exact peer/Brave/native acceptance and delivery; no push.
+
+Acceptance: the two fixed public causals in rich-blocks-causals-2046-20261102-r1 pass through the actual product API. Text leaf IDs, runs and B's contributions survive structural Undo. Remote concurrent cycles remain raw, use the existing authored-valid fallback deterministically, and do not become pending or throw on receive. No claims for editor, arbitrary extensions, images or tables follow from the core.
+
 # Writer consolidation #931
 
 Owned source blocks can opt into additive codec evolution: a compatible version can add fields to the same saved block without changing it on selection or read. The first meaningful edit saves data, codec and portable preview together; scoped action Undo restores the complete prior envelope. Strict compatibility remains the default, Source state keeps its existing migration contract, and the general SDK remains partial. [Contract, example and evidence](vvd1095/verification-sdk-owned-evolution.md).
