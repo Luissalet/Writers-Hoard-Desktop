@@ -107,10 +107,11 @@ export class RichRuns {
   const matchingRetained=(name:string,keys:Set<string>)=>{if(!keys.size)return[];const index=entryIndex(name),versions=[...keys].flatMap(key=>index.byKey.get(key)??[]);if(keys.size>1)versions.sort((a,b)=>index.rank.get(a)!-index.rank.get(b)!);return versions;};
   const baseline=plan?.baseline,baselineNodes=new Map((baseline?.bindings.nodes??[]).map(n=>[n.id,n])),baselineUnits=new Map((baseline?.bindings.nodes??[]).flatMap(n=>n.units.map(u=>[u.id,u] as const)));
   const scalar=(name:string,key:string)=>{const own=lastMatching(staged(name),w=>w.key===key);if(own)return own.value;if(baseline){if(name==='membership')return baselineNodes.has(key);if(name==='selected')return baselineNodes.get(key)?.placement;if(name==='edge')return baselineNodes.get(key)?.edge;}return this.registers.winner(this.root(name),key)?.value;};
-  const known=new Map<string,string>(),visible=new Set<string>(),physical=new Map<string,string[]>();
+  const known=new Map<string,string>(),visible=new Set<string>(),physical=new Map<string,string[]>(),runSizes=new Map<string,number>(),duplicateRuns=new Set<string>();
   for(const b of buffers.values()){
    if(b.txId!=='@plan'&&!this.registers.transactionAvailable(b.txId))continue;
    const source=this.plain(b.id),prepared=plan?.plain[b.id],extra=prepared?.runs??[],all=[...source.allSpans(),...extra.map(r=>({runId:r.id,from:0,to:r.length}))];
+   for(const span of all){const key=JSON.stringify([b.id,span.runId]);if(runSizes.has(key))duplicateRuns.add(key);runSizes.set(key,span.to-span.from);}
    const base=baseline?spans([...baselineUnits.keys()].filter(id=>decodePoint(id).buffer===b.id)).map(({runId,from,to})=>({runId,from,to})):undefined;
    const full=source.materialize(all,extra),shown=source.materialize(base,extra,prepared?.spans??[]),ids:string[]=[];
    for(const span of full.bindings)for(let offset=span.from;offset<span.to;offset++){const id=unit(b.id,span.runId,offset);known.set(id,full.text.charAt(ids.length));ids.push(id);}
@@ -152,9 +153,36 @@ export class RichRuns {
    const winner=routingMaximum(values('routing').filter(v=>eligible(v.value as unknown as Routing,bounded)));
    return winner?{key:winner.key,value:winner.value as unknown as Routing}:undefined;
   };
+  // Units of one run have the same ancestor tail. Share its scalar choice only
+  // when no retained/current/draft payload mentions this run by unit, and its
+  // baseline witnesses are absent or complete with one identical route key.
+  let sharing:{blocked:Set<string>;baseline:Map<string,{count:number;route:string;uniform:boolean}>;safe:boolean}|undefined;
+  const shareRun=(key:string)=>{
+   if(!sharing){
+    const blocked=new Set<string>(),proof=new Map<string,{count:number;route:string;uniform:boolean}>();let safe=true;
+    const inspect=(value:unknown)=>{
+     if(!record(value)||!Array.isArray(value.spans)||Object.hasOwn(value,'excludes')&&!Array.isArray(value.excludes)){safe=false;return;}
+     for(const span of[...value.spans,...(Array.isArray(value.excludes)?value.excludes:[])]){
+      if(!record(span)||typeof span.buffer!=='string'||typeof span.runId!=='string'){safe=false;continue;}blocked.add(JSON.stringify([span.buffer,span.runId]));
+     }
+    };
+    for(const versions of entryIndex('routing').byKey.values())for(const version of versions)if(version.present)inspect(version.value);
+    for(const write of staged('routing'))inspect(write.value);
+    if(baseline)for(const[id,u]of baselineUnits){const p=decodePoint(id),key=JSON.stringify([p.buffer,p.runId]),prior=proof.get(key);if(prior){prior.count++;prior.uniform&&=prior.route===u.route;}else proof.set(key,{count:1,route:u.route,uniform:true});}
+    sharing={blocked,baseline:proof,safe};
+   }
+   if(!sharing.safe||sharing.blocked.has(key)||duplicateRuns.has(key))return false;
+   const proof=sharing.baseline.get(key);return!proof||proof.uniform&&proof.count===runSizes.get(key);
+  };
   // Scalar lookup result only, never a retained lineage array; misses are scoped too.
-  const routes=new Map<string,Readonly<Chosen>|undefined>();
-  const route=(ref:RichRef):Readonly<Chosen>|undefined=>{const key=refKey(ref);if(routes.has(key))return routes.get(key);const chosen=resolveRoute(ref),value=chosen?Object.freeze(chosen):undefined;routes.set(key,value);return value;};
+  const routes=new Map<string,Readonly<Chosen>|undefined>(),runRoutes=new Map<string,Readonly<Chosen>|undefined>();
+  const route=(ref:RichRef):Readonly<Chosen>|undefined=>{
+   if('unit'in ref&&known.has(ref.unit)){
+    const p=decodePoint(ref.unit),key=JSON.stringify([p.buffer,p.runId]);
+    if(shareRun(key)){if(runRoutes.has(key))return runRoutes.get(key);const chosen=resolveRoute(ref),value=chosen?Object.freeze(chosen):undefined;runRoutes.set(key,value);return value;}
+   }
+   const key=refKey(ref);if(routes.has(key))return routes.get(key);const chosen=resolveRoute(ref),value=chosen?Object.freeze(chosen):undefined;routes.set(key,value);return value;
+  };
   const mark=(id:string,kind:RichMark):{key:string;value:Marking}|undefined=>{
    const own=lastMatching(staged('marks'),w=>{const v=w.value as unknown as Marking;return v.mark===kind&&covers(v.spans,id,decodePoint(id));});if(own)return{key:own.key,value:own.value as unknown as Marking};
    if(baselineUnits.has(id)){const key=baselineUnits.get(id)!.marks[kind];if(!key)return undefined;const historical=retained('marks',key).find(v=>v.present);return historical?{key,value:historical.value as unknown as Marking}:undefined;}
