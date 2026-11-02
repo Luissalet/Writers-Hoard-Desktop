@@ -1,3 +1,4 @@
+import {createPresenceRelay} from './presence/server';
 // The packaged renderer is served from the same origin the development
 // renderer uses (http://127.0.0.1:5174), so both builds open ONE library.
 //
@@ -9,7 +10,8 @@
 // What this server does, and nothing more: GET/HEAD of files inside the
 // built renderer folder, on loopback only, for requests whose Host is exactly
 // the renderer origin (a DNS-rebound page cannot read it through another
-// name). No directory listing, no writes, no API.
+// name). Document data remains in the renderer. The same listener also carries
+// ephemeral document presence; it never writes or imports document content.
 import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -112,6 +114,7 @@ export function createRendererRequestHandler(root: string, expectedHost: string)
 }
 
 let server: http.Server | null = null;
+let presence:ReturnType<typeof createPresenceRelay>|undefined;
 
 /**
  * Serve `root` at RENDERER_ORIGIN. Rejects with the listen error (EADDRINUSE
@@ -120,22 +123,19 @@ let server: http.Server | null = null;
  * library.
  */
 export function startRendererServer(root: string, port = RENDERER_PORT): Promise<string> {
-  if (server) return Promise.resolve(`http://${RENDERER_HOST}:${port}`);
-  const handler = createRendererRequestHandler(root, `${RENDERER_HOST}:${port}`);
-  const candidate = http.createServer((req, res) => {
-    void handler(req, res);
-  });
-  return new Promise((resolve, reject) => {
-    candidate.once('error', reject);
-    candidate.listen(port, RENDERER_HOST, () => {
-      candidate.off('error', reject);
-      server = candidate;
-      resolve(`http://${RENDERER_HOST}:${port}`);
-    });
+  if (server) {const address=server.address();return Promise.resolve(`http://${RENDERER_HOST}:${address&&typeof address==='object'?address.port:port}`);}
+  let actualPort=port;
+  let handler=createRendererRequestHandler(root,`${RENDERER_HOST}:${actualPort}`);
+  const relay=createPresenceRelay(()=>[`${RENDERER_HOST}:${actualPort}`]);
+  const candidate=http.createServer((req,res)=>{void relay.handle(req,res).then(handled=>{if(!handled)void handler(req,res);}).catch(()=>{if(!res.headersSent)res.writeHead(500);res.end();});});
+  return new Promise((resolve,reject)=>{
+    const failed=(error:Error)=>{relay.close();reject(error);};candidate.once('error',failed);
+    candidate.listen(port,RENDERER_HOST,()=>{candidate.off('error',failed);const address=candidate.address();if(address&&typeof address==='object')actualPort=address.port;handler=createRendererRequestHandler(root,`${RENDERER_HOST}:${actualPort}`);server=candidate;presence=relay;resolve(`http://${RENDERER_HOST}:${actualPort}`);});
   });
 }
 
 export function stopRendererServer(): void {
+  presence?.close();presence=undefined;
   server?.close();
   server = null;
 }

@@ -1,3 +1,4 @@
+import LocalPresenceInvite from './engines/local/presence/Invite';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter, HashRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import '@/engines'; // Initialize engine registry
@@ -55,6 +56,7 @@ function DeferredRoute({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <Router basename={basename}>
+      <LocalPresenceInvite/>
       <Routes>
         <Route element={<MainLayout />}>
           <Route path="/" element={<DeferredRoute><Dashboard /></DeferredRoute>} />

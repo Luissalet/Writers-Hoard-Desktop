@@ -5,6 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const root = path.resolve(__dirname, '..');
+const presenceCheck = spawnSync(process.execPath, ['tests/local-tool-presence.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
+if (presenceCheck.status !== 0 || presenceCheck.error) process.exit(presenceCheck.status ?? 1);
+const presenceSourceCheck = spawnSync(process.execPath, ['scripts/run-local-tool-presence-portability.cjs', `presence-source-${Date.now().toString(36)}-${process.pid}`, 'source'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });
+if (presenceSourceCheck.status !== 0 || presenceSourceCheck.error) process.exit(presenceSourceCheck.status ?? 1);
 const openDocumentCheck = spawnSync(process.execPath, ['tests/local-tool-open-documents.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
 if (openDocumentCheck.status !== 0 || openDocumentCheck.error) process.exit(openDocumentCheck.status ?? 1);
 const convergenceContractCheck = spawnSync(process.execPath, ['tests/local-tool-convergence.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
@@ -550,6 +554,9 @@ const suites = [
   ['document-archive.browser.tsx', 'testDocumentArchive'],
   ['vvd-world-portability.browser.ts', 'testVvdWorldPortability'],
   ['world-documents-search.browser.tsx', 'testWorldDocumentsSearch'],
+  ['local-tool-presence.hooks.browser.tsx', 'testLocalPresenceHookOwnership'],
+  ['local-tool-presence.scope.browser.ts', 'testLocalPresenceFinalScope'],
+  ['local-tool-presence.scope.browser.ts', 'testLocalPresencePublicationOwners'],
   ['local-tool-sdk.browser.tsx', 'testLocalToolSdk'],
   // Map wave (Ágora 1095).
   ['world-presentation.browser.tsx', 'testWorldPresentationCore'],

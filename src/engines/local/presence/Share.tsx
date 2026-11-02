@@ -1,0 +1,33 @@
+import {useLocalPresencePort} from './hooks';
+import {useEffect,useState} from 'react';
+import Modal from '@/components/common/Modal';
+import {useTranslation} from '@/i18n/useTranslation';
+import {exportProjectZip} from '@/services/zipBackup';
+import type {LocalDocumentPresenceHost} from './host';
+import {chooseLocalPresenceProfile,currentPresenceInvite,presenceRoomFromUrl,readLocalPresenceProfiles} from './profile';
+const control='min-h-10 rounded-lg border border-border bg-elevated px-3 text-sm disabled:opacity-50';
+export default function LocalPresenceShare({host}:{host:LocalDocumentPresenceHost}){
+ const {locale}=useTranslation(),es=locale==='es',[open,setOpen]=useState(!!currentPresenceInvite()),snapshot=useLocalPresencePort(host.port),[profiles,setProfiles]=useState<Awaited<ReturnType<typeof readLocalPresenceProfiles>>>({profiles:[],selected:null}),[selected,setSelected]=useState(''),[name,setName]=useState(''),[color,setColor]=useState('#0284c7'),[link,setLink]=useState(''),[incoming,setIncoming]=useState(()=>currentPresenceInvite()?window.location.href:''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ useEffect(()=>{if(!open)return;let active=true;void readLocalPresenceProfiles().then(value=>{if(!active)return;setProfiles(value);const profile=value.profiles.find(p=>p.userId===value.selected);if(profile){setSelected(profile.userId);setName(profile.name);setColor(profile.color);}}).catch(()=>{if(active)setError(es?'No se pudo leer el perfil local.':'Could not read the local profile.');});return()=>{active=false;};},[open,es]);
+ const choose=(id:string)=>{setSelected(id);const p=profiles.profiles.find(p=>p.userId===id);setName(p?.name??'');setColor(p?.color??'#0284c7');};
+ const run=(work:()=>Promise<void>)=>{if(busy)return;setBusy(true);setError('');void work().catch(reason=>setError(String(reason).includes('incompatible')?es?'Esta copia tiene otra identidad. Importa el ZIP de la sesión.':'This copy has another identity. Import the session project ZIP.':String(reason).includes('session_ended')?es?'La sesión local ha terminado. Crea otra o pide un enlace nuevo.':'The local session has ended. Create another or request a new link.':String(reason).includes('profile_missing')?es?'Escribe tu nombre para esta sesión.':'Enter your name for this session.':es?'No se pudo conectar con esta sesión local. Conservamos el documento y el borrador.':'Could not connect to this local session. The document and draft are preserved.')).finally(()=>setBusy(false));};
+ const connect=async(join:boolean)=>{const prior=profiles.profiles.find(p=>p.userId===selected),profile=await chooseLocalPresenceProfile({...prior,userId:selected||crypto.randomUUID(),name,color});setProfiles(await readLocalPresenceProfiles());setSelected(profile.userId);const room=join?presenceRoomFromUrl(incoming):await host.create(profile);if(join)await host.join(room,profile);const url=new URL('/',window.location.origin);url.searchParams.set('presenceSession',room);setLink(url.href);};
+ return <div className="flex flex-wrap items-center gap-2" data-presence-share>
+  <span className="flex gap-1" aria-label={es?'Personas en el documento':'People in this document'}>{snapshot.peers.map(peer=><span key={peer.userId} className="rounded-full border px-2 py-1 text-xs" style={{borderColor:peer.color}} title={peer.name}>{peer.name}{peer.isSelf?(es?' (tú)':' (you)'):''}</span>)}</span>
+  <button type="button" className={control} onClick={()=>setOpen(true)}>{es?'Compartir sesión local':'Share local session'}</button>
+  <Modal open={open} title={es?'Sesión local del documento':'Local document session'} onClose={()=>{if(!busy)setOpen(false);}}><div className="space-y-4 p-4" data-presence-dialog>
+   <p className="text-sm text-text-muted">{es?'Muestra personas y cursores en este Writer local. Los cambios del documento se guardan con sus controles habituales.':'Show people and cursors in this local Writer. Document changes use their usual Save controls.'}</p>
+   <label className="block text-sm">{es?'Perfil local':'Local profile'}<select className={control+' ml-2'} value={selected} onChange={e=>choose(e.target.value)}><option value="">{es?'Otro perfil':'Another profile'}</option>{profiles.profiles.map(p=><option key={p.userId} value={p.userId}>{p.name}</option>)}</select></label>
+   <p className="text-xs text-text-muted">{es?'El perfil se aplica a las vistas compartidas de esta ventana. Cambiar de persona cierra sus sesiones anteriores.':'The profile applies to shared views in this window. Switching people closes its earlier sessions.'}</p>
+   <label className="block text-sm">{es?'Nombre':'Name'}<input className={control+' ml-2'} aria-label={es?'Nombre del perfil':'Profile name'} value={name} onChange={e=>setName(e.target.value)}/></label>
+   <label className="block text-sm">{es?'Color':'Color'}<input className="ml-2" aria-label={es?'Color del perfil':'Profile color'} type="color" value={color} onChange={e=>setColor(e.target.value)}/></label>
+   <div className="flex flex-wrap gap-2"><button className={control} disabled={busy||!name.trim()} onClick={()=>run(()=>connect(false))}>{es?'Crear sesión':'Create session'}</button><button className={control} disabled={busy} onClick={()=>run(()=>exportProjectZip(host.client.projectId))}>{es?'Exportar proyecto ZIP':'Export project ZIP'}</button></div>
+   <p className="text-xs text-text-muted">{es?'El ZIP incluye lo guardado, no el borrador pendiente.':'The ZIP includes saved content, not the pending draft.'}</p>
+   <label className="block text-sm">{es?'Enlace para unirse':'Join link'}<input className={control+' mt-1 block w-full'} aria-label={es?'Enlace de sesión local':'Local session link'} value={incoming} onChange={e=>setIncoming(e.target.value)}/></label>
+   <button className={control} disabled={busy||!incoming||!name.trim()} onClick={()=>run(()=>connect(true))}>{es?'Unirse':'Join session'}</button>
+   {link&&<div className="space-y-2"><input className={control+' w-full'} aria-label={es?'Enlace para compartir':'Share link'} readOnly value={link} onFocus={e=>e.target.select()}/><button className={control} onClick={()=>run(async()=>{await navigator.clipboard.writeText(link);})}>{es?'Copiar enlace':'Copy link'}</button></div>}
+   {host.roomId&&<button className={control} disabled={busy} onClick={()=>run(async()=>{await host.leave();setLink('');})}>{es?'Salir de esta vista':'Leave this view'}</button>}
+   {(error||snapshot.error)&&<p role="alert" className="text-sm text-danger">{error||(es?'La presencia está desconectada.':'Presence is disconnected.')}</p>}
+  </div></Modal>
+ </div>;
+}
