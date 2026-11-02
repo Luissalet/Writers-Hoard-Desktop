@@ -1,5 +1,9 @@
 # Objetivos de autoría local
 
+## Corrección estructural1932 integrada — 03-11-2026
+
+Sourceef9abe94 aprobado1932r1 conserva visibles los hijos de otro autor al deshacer un contenedor; slots incompatibles mantienen conflicto explícito y el veto no consume el receipt. [Verificación](tasks/vvd1095/verification-undo-support1932.md). Continuar contenido vivo1913/autoguardado, rendimiento1917, hosting y demás filas abiertas. Esta corrección no cierra1095/1796 ni los perfiles ricos extensibles.
+
 ## Siguiente trabajo tras1883/1890 integrados — 02-11-2026
 
 Bloques compartidos69899cb9 y campos de borrador publicados004ee3e1 están aprobados e integrados Main. Los pendientes históricos de su entrega quedan superados. La salida de lista vacía Sourcee35a3185 también está aprobada1895r1 e integrada Main. La presencia local 1893 cubre perfiles elegidos, conexiones, cursores reconocidos y Follow sobre el servidor local; no entrega sincronización de texto entre bibliotecas. Continuar con intercambio vivo de contenido 1913, hosting, coste de historiales grandes 1917, IME físico, schema persistente ampliable y enlaces/imágenes/tablas del perfil compartido. El indicador de guardado Sourceaf68bee8 ya está aprobado1920r1 e integrado, incluido el flush inmediato y la recuperación. La publicación es opt-in Source; no atribuye una política desconocida al proveedor ni cierra SDK34/1095/1796.

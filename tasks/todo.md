@@ -1,3 +1,12 @@
+# Structural Undo support — task1932
+
+- [x] Preserve the original public hidden-child RED and agree causal structural support before changing product.
+- [x] Keep full author inverse receipts, current remote metadata and atomic structural reverse on the existing writer.
+- [x] Pass original192, new223, independent98, normal Node/types, Root Brave, Native42 with two keys per phase and cold persistence, quick/build.
+- [x] Approve exact submission1 and integrate four tested blobs as ef9abe94 with merge lock, Luissalet and no push.
+
+[Evidence and limits](vvd1095/verification-undo-support1932.md). Live content1913, performance1917 and complete parity remain open.
+
 # Empty list item Enter — task1895
 
 - [x] Read design2061; preserve the normal Source renderer RED before product changes.

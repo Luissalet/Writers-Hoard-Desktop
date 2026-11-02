@@ -2,6 +2,8 @@
 
 ## Integrated shared blocks and explicit draft fields
 
+Undoing a container now preserves another author's active paragraphs, text identities and marks. Only the causal structure needed to represent those contributions remains; explicit hiding and independent Undo are respected. Save, Redo and cold reopening use the same writer. [Structural Undo and verification](tasks/vvd1095/verification-undo-support1932.md).
+
 Structured shared text is integrated in source `69899cb9`: H1–H3, nested bullet/numbered lists, quotes and toggles use the existing Source writer, stable text identities and author Undo/Redo. Source `004ee3e1` separately adds opt-in draft-field publications per open pane; saved queries remain the default and existing tools do not publish automatically.
 
 An empty list item now exits its list level with Enter, preserving the paragraph identity, author Undo/Redo and normal Save. Root/intermediate/nested cases use the same SDK and MCP action, with remote text and current numbering preserved. [Empty-item behavior and evidence](tasks/vvd1095/verification-empty-item1895.md).

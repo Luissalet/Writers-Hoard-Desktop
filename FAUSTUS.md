@@ -1,5 +1,9 @@
 # Writer publishing workspace
 
+## Deshacer con aportaciones de otra persona — 03-11-2026
+
+Sourceef9abe94 está aprobado1932r1 e integrado Main. Deshacer la creación de un contenedor conserva los párrafos activos de otro autor, con texto, formato e identidades; sólo mantiene el soporte causal necesario y respeta ocultaciones y retiradas independientes. Rehacer y Guardar conservan el mismo writer. SDK, revisión independiente, Brave y MCP real con segunda clave/reapertura tienen evidencia separada. [Comportamiento y límites](tasks/vvd1095/verification-undo-support1932.md). No entrega contenido vivo1913, fluidez1917, IME o paridad general.
+
 ## Estado integrado: bloques1883, borradores1890 y Enter1895 — 02-11-2026
 
 Source69899cb9 (1883, revisión1) y Source004ee3e1 (1890, revisión1) están aprobadas e integradas Main, sin push. El perfil compartido añade H1–H3, listas anidadas, citas y toggle sobre el mismo writer/identidades/Undo; la publicación de campos de borrador es opt-in por instancia Source, separada de la consulta guardada habitual.
