@@ -60,7 +60,9 @@ export function createLocalToolStateActions<T extends LocalToolJson>(codec:Local
    if(!result.changed)return{snapshot:result.snapshot,receiptId:null};
    return{snapshot:result.snapshot,receiptId:recordEvolution(transaction,current,before,owned.capture(),mode)};
   }
-  const hasPlainIntent=actions.some(action=>action.type==='text-splice');
+  const hasRichIntent=actions.some(action=>action.type.startsWith('rich-')||codec.fields[action.field]?.kind==='rich');
+  if(hasRichIntent&&!current.convergence)throw Error('local_tool_rich_convergence_required');
+  const hasPlainIntent=hasRichIntent||actions.some(action=>action.type==='text-splice');
   if(hasPlainIntent&&!current.convergence)throw Error('local_tool_plain_convergence_required');
   const merged=hasPlainIntent?undefined:mergeLocalToolActions(codec,baseline.data,current.data,actions);
   if(current.convergence){

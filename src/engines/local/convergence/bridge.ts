@@ -14,9 +14,15 @@ async function client(args:ToolArgs,readOnly=false){
  if(!scoped.convergence)throw new BridgeError('bad-args','This source document has no declarative state codec.');
  return scoped.convergence;
 }
+function index(args:ToolArgs,key:string):number{const value=args[key];if(typeof value!=='number'||!Number.isSafeInteger(value)||value<0)throw new BridgeError('bad-args','Invalid UTF-16 position.');return value;}
+function affinity(args:ToolArgs):'left'|'right'{const value=args.affinity??'right';if(value!=='left'&&value!=='right')throw new BridgeError('bad-args','Invalid rich affinity.');return value;}
 export const LOCAL_CONVERGENCE_HANDLERS={
+ async wh_local_tool_rich_range(args:ToolArgs){return(await client(args,true)).richRange(requireString(args,'field'),requireString(args,'nodeId'),index(args,'from'),index(args,'to'),{affinity:affinity(args)});},
+ async wh_local_tool_rich_resolve_point(args:ToolArgs){return(await client(args,true)).resolveRichPoint(args.point as import('./richTypes').RichRange);},
+ async wh_local_tool_rich_split_capture(args:ToolArgs){return(await client(args,true)).richSplitCapture(requireString(args,'field'),requireString(args,'nodeId'),index(args,'at'),{affinity:affinity(args)});},
+ async wh_local_tool_rich_join_capture(args:ToolArgs){return(await client(args,true)).richJoinCapture(requireString(args,'field'),requireString(args,'leftNodeId'),requireString(args,'rightNodeId'));},
  async wh_local_tool_text_range(args:ToolArgs){const from=args.from,to=args.to;if(typeof from!=='number'||typeof to!=='number'||!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||from>to)throw new BridgeError('bad-args','Invalid UTF-16 range.');return(await client(args,true)).textRange(requireString(args,'field'),from,to);},
  async wh_local_tool_convergence_start(args:ToolArgs){return(await client(args)).start(args.baseline as LocalToolSnapshot<LocalToolJson>);},
  async wh_local_tool_convergence_export(args:ToolArgs){return(await client(args,true)).export({stateVectorBase64:optString(args,'stateVectorBase64')});},
- async wh_local_tool_convergence_import(args:ToolArgs){return(await client(args)).import(args.update as LocalToolConvergenceUpdate);},
+ async wh_local_tool_convergence_import(args:ToolArgs){return(await client(args)).import(args.update as LocalToolConvergenceUpdate,{expectedLineage:optString(args,'expectedLineage')});},
 };

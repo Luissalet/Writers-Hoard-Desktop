@@ -1,6 +1,7 @@
+export type {RichDocument,RichParagraph,RichText,RichMark,RichRange,RichSplitCapture,RichJoinCapture,RichAction,RichResolvedPoint} from './convergence/richTypes';
 export {createLocalToolReplica} from './convergence/replica';
 export type {LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica,LocalToolReplicaEdit,LocalToolValidationConflict,LocalToolPlainRange} from './convergence/types';
-export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot} from './convergence/clientTypes';
+export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot,LocalToolConvergenceImportOptions} from './convergence/clientTypes';
 export {useLocalToolFocusMode} from './useLocalToolFocusMode';
 export {createRecordingLocalToolFocusMode} from './focusMode';
 export type {LocalToolFocusMode,LocalToolFocusSnapshot,LocalToolFocusCommand} from './focusMode';
@@ -22,6 +23,8 @@ export {useLocalToolLocale,useLocalToolT} from './useLocalToolLocale';
 export type {LocalToolMessages,LocalToolCatalogs,LocalToolLocaleDefinition,LocalToolLocaleSnapshot,LocalToolLocaleSource,LocalToolMessageParams,LocalToolTranslator} from './locales';
 import {prepareLocalToolLocales,type LocalToolLocaleDefinition} from './locales';
 export {LocalToolRichProseEditor} from './RichProse';
+export {LocalToolCollaborativeRichEditor} from './CollaborativeRich';
+export type {LocalToolCollaborativeRichProps} from './CollaborativeRich';
 export type {LocalToolRichProseProps} from './RichProse';
 export {useLocalToolAudioLevels} from './useLocalToolAudioLevels';
 export {localAssetFile} from './assets';
@@ -90,7 +93,7 @@ export interface LocalToolClient<T extends LocalToolJson>{
   openDocument(kind:EraDocumentKind,id:string,options?:LocalToolOpenDocumentOptions):Promise<void>;
 }
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
-export interface LocalToolHostContext {app?:import('./apps/types').LocalAppDetails;focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode}
+export interface LocalToolHostContext {app?:import('./apps/types').LocalAppDetails;focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode;renderCollaborativeRich?:(props:import('./CollaborativeRich').LocalToolCollaborativeRichProps)=>import('react').ReactNode}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
 export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{

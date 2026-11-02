@@ -1,3 +1,4 @@
+import type {RichRange,RichSplitCapture,RichJoinCapture,RichResolvedPoint} from './richTypes';
 import type {LocalToolJson} from '../stateTypes';
 import type {LocalToolStateCodec} from '../stateCodec';
 import type {LocalToolStateAction} from '../stateActions';
@@ -21,7 +22,8 @@ interface LocalToolConvergenceIdentityFields {
 }
 export type LocalToolConvergenceIdentityV1=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'1';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
 export type LocalToolConvergenceIdentityV2=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'2';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
-export type LocalToolConvergenceIdentity=LocalToolConvergenceIdentityV1|LocalToolConvergenceIdentityV2;
+export type LocalToolConvergenceIdentityV3=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'3';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
+export type LocalToolConvergenceIdentity=LocalToolConvergenceIdentityV1|LocalToolConvergenceIdentityV2|LocalToolConvergenceIdentityV3;
 export type LocalToolConvergenceCheckpoint=LocalToolConvergenceIdentity&{
  format:'writers-hoard-local-convergence/1';
  checkpointBase64:string;
@@ -53,6 +55,10 @@ export interface LocalToolReplicaEdit<T extends LocalToolJson=LocalToolJson> ext
 }
 /** SDK-visible capability; no host receipt recipe, database or callback in this object. */
 export interface LocalToolReplica<T extends LocalToolJson=LocalToolJson> {
+ richRange(field:string,nodeId:string,from:number,to:number,options?:{affinity:'left'|'right'}):RichRange;
+ resolveRichPoint(point:RichRange):RichResolvedPoint;
+ richSplitCapture(field:string,nodeId:string,at:number,options?:{affinity:'left'|'right'}):RichSplitCapture;
+ richJoinCapture(field:string,leftNodeId:string,rightNodeId:string):RichJoinCapture;
  textRange(field:string,from:number,to:number):LocalToolPlainRange;
  read():T;
  inspect():LocalToolConvergenceView<T>;

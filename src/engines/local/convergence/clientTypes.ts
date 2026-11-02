@@ -1,11 +1,17 @@
+import type {RichRange,RichSplitCapture,RichJoinCapture,RichResolvedPoint} from './richTypes';
 import type {LocalToolJson} from '../stateTypes';
 import type {LocalToolSnapshot} from '../sdk';
 import type {LocalToolConvergenceIdentity,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolValidationConflict,LocalToolPlainRange} from './types';
 /** Small read descriptor; complete causal bytes are available through explicit export. */
 export type LocalToolConvergenceSnapshot=LocalToolConvergenceIdentity&{conflict?:LocalToolValidationConflict};
+export interface LocalToolConvergenceImportOptions {expectedLineage?:string}
 export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
+ richRange(field:string,nodeId:string,from:number,to:number,options?:{affinity:'left'|'right'}):Promise<{snapshot:LocalToolSnapshot<T>;range:RichRange}>;
+ resolveRichPoint(point:RichRange):Promise<{snapshot:LocalToolSnapshot<T>;point:RichResolvedPoint}>;
+ richSplitCapture(field:string,nodeId:string,at:number,options?:{affinity:'left'|'right'}):Promise<{snapshot:LocalToolSnapshot<T>;capture:RichSplitCapture}>;
+ richJoinCapture(field:string,leftNodeId:string,rightNodeId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:RichJoinCapture}>;
  textRange(field:string,from:number,to:number):Promise<{snapshot:LocalToolSnapshot<T>;range:LocalToolPlainRange}>;
  start(baseline:LocalToolSnapshot<T>):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint;changed:boolean}>;
- export(options?:{stateVectorBase64?:string}):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint|null;update:LocalToolConvergenceUpdate|null}>;
- import(update:LocalToolConvergenceUpdate):Promise<{snapshot:LocalToolSnapshot<T>;changed:boolean;causalChanged:boolean;pending:boolean}>;
+ export(options?:{stateVectorBase64?:string}):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint|null;update:LocalToolConvergenceUpdate|null;pending:boolean}>;
+ import(update:LocalToolConvergenceUpdate,options?:LocalToolConvergenceImportOptions):Promise<{snapshot:LocalToolSnapshot<T>;changed:boolean;causalChanged:boolean;pending:boolean}>;
 }

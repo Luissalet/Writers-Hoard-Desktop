@@ -72,6 +72,34 @@ export class Registers {
   return this.maximum(this.entries(root,key).filter(version=>this.complete(version.txId)&&this.activation(version.id)?.enabled===true&&(!eligible||eligible(version))));
  }
  private heads():string[]{const heads=new Set(this.transactions.keys());for(const tx of this.transactions.values())for(const parent of tx.parents)heads.delete(parent);return [...heads];}
+ /** Complete causal frontier only; incomplete imports never manufacture a capture basis. */
+ frontier():string[]{
+  const complete=[...this.transactions.values()].filter(tx=>this.complete(tx.id)),heads=new Set(complete.map(tx=>tx.id));
+  for(const tx of complete)for(const parent of tx.parents)heads.delete(parent);return[...heads].sort();
+ }
+ /** Synchronous historical reader over retained versions, never a writer or another DAG. */
+ atFrontier<T>(frontier:readonly string[],read:(view:Registers)=>T):T{
+  if(!Array.isArray(frontier)||!frontier.length||new Set(frontier).size!==frontier.length||frontier.some(id=>typeof id!=='string'||!this.complete(id)))throw Error('local_tool_convergence_frontier_invalid');
+  const included=new Set<string>();for(const id of frontier){included.add(id);for(const ancestor of this.ancestors(id))included.add(ancestor);}
+  const view=Object.create(this) as Registers;
+  // Derived only for this synchronous historical read; never reused after a document mutation.
+  const entriesMemo=new Map<string,readonly RegisterVersion[]>(),candidatesMemo=new Map<string,readonly RegisterVersion[]>(),activationMemo=new Map<string,RegisterActivation|undefined>();
+  let activationGroups:Map<string,RegisterActivation[]>|undefined;
+  const activation=(id:string)=>{
+   if(activationMemo.has(id))return activationMemo.get(id);
+   if(!activationGroups){activationGroups=new Map();for(const item of this.activations.values())if(included.has(item.txId)){const group=activationGroups.get(item.versionId)??[];group.push(Object.freeze(item));activationGroups.set(item.versionId,group);}}
+   const chosen=this.maximum(activationGroups.get(id)??[]);activationMemo.set(id,chosen);return chosen;
+  };
+  const entries=(root:string)=>{let values=entriesMemo.get(root);if(!values){values=Object.freeze(this.entries(root).filter(v=>included.has(v.txId)));entriesMemo.set(root,values);}return values;};
+  const candidates=(root:string)=>{let values=candidatesMemo.get(root);if(!values){values=Object.freeze(entries(root).filter(v=>activation(v.id)?.enabled===true));candidatesMemo.set(root,values);}return values;};
+  // Return fresh arrays as before; cached arrays remain private and immutable.
+  view.entries=(root,key)=>key===undefined?[...entries(root)]:entries(root).filter(v=>v.key===key);
+  view.candidates=root=>[...candidates(root)];
+  view.winner=(root,key,eligible)=>this.maximum(candidates(root).filter(v=>v.key===key&&(!eligible||eligible(v))));
+  view.activation=activation;view.complete=id=>included.has(id);view.transactionAvailable=id=>included.has(id);view.frontier=()=>[...frontier].sort();
+  return read(view);
+ }
+
  begin():void {if(this.context)throw Error('local_tool_convergence_transaction_nested');this.context={id:crypto.randomUUID(),parents:this.heads(),writes:new Map()};}
  cancel():void {this.context=null;}
  flush():string[]{

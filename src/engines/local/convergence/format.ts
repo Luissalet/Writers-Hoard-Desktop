@@ -1,11 +1,12 @@
 import {sha256Hex} from '@/services/aiRuntime/recipe';
 import {localToolNamespace,type LocalToolJson} from '../stateTypes';
 import {validateLocalToolCodec,localToolHasPlainFields,type LocalToolStateCodec} from '../stateCodec';
-import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolValidationConflict,LocalToolPlainRange,LocalToolConvergenceIdentityV1,LocalToolConvergenceIdentityV2} from './types';
+import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolValidationConflict,LocalToolPlainRange,LocalToolConvergenceIdentityV1,LocalToolConvergenceIdentityV2,LocalToolConvergenceIdentityV3} from './types';
 
 export const LOCAL_TOOL_CONVERGENCE_ENGINE:LocalToolConvergenceIdentityV1['engine']=Object.freeze({id:'writers-hoard-yjs-registers',version:'1',updateFormat:'yjs-v1',libraryVersion:'13.6.33'});
 export const LOCAL_TOOL_PLAIN_ENGINE:LocalToolConvergenceIdentityV2['engine']=Object.freeze({...LOCAL_TOOL_CONVERGENCE_ENGINE,version:'2'});
-export const convergenceEngine=(codec:LocalToolStateCodec):LocalToolConvergenceIdentity['engine']=>localToolHasPlainFields(codec)?LOCAL_TOOL_PLAIN_ENGINE:LOCAL_TOOL_CONVERGENCE_ENGINE;
+export const LOCAL_TOOL_RICH_ENGINE:LocalToolConvergenceIdentityV3['engine']=Object.freeze({...LOCAL_TOOL_CONVERGENCE_ENGINE,version:'3'});
+export const convergenceEngine=(codec:LocalToolStateCodec):LocalToolConvergenceIdentity['engine']=>codec.version===2?LOCAL_TOOL_RICH_ENGINE:localToolHasPlainFields(codec)?LOCAL_TOOL_PLAIN_ENGINE:LOCAL_TOOL_CONVERGENCE_ENGINE;
 const fail=():never=>{throw Error('local_tool_convergence_format_invalid');};
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const exact=(value:Record<string,unknown>,keys:readonly string[])=>Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
@@ -37,6 +38,11 @@ export function convergenceCanonical(value:unknown):string {
 export const convergenceHash=(value:unknown):string=>sha256Hex(convergenceCanonical(value));
 export function convergenceCodecHash(codec:LocalToolStateCodec):string {validateLocalToolCodec(codec);return convergenceHash(codec);}
 export function convergenceBase64(bytes:Uint8Array):string {
+ // Native encoders keep standard alphabet/padding and avoid the binary-string copy.
+ const native=(Uint8Array.prototype as Uint8Array & {toBase64?:()=>string}).toBase64;
+ if(typeof native==='function')return native.call(bytes);
+ const buffer=(globalThis as typeof globalThis & {Buffer?:{from:(buffer:ArrayBufferLike,offset:number,length:number)=>{toString:(encoding:'base64')=>string}}}).Buffer;
+ if(buffer)return buffer.from(bytes.buffer,bytes.byteOffset,bytes.byteLength).toString('base64');
  let binary='';for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
  return btoa(binary);
 }
@@ -50,11 +56,11 @@ export function validateConvergenceMetadata(value:LocalToolConvergenceMetadata):
  validateLocalToolCodec(value.codec);
 }
 export function convergenceIdentity(metadata:LocalToolConvergenceMetadata,genesisId:string):LocalToolConvergenceIdentity {
- validateConvergenceMetadata(metadata);if(!text(genesisId))fail();const fields={namespace:metadata.namespace,genesisId,codecHash:convergenceCodecHash(metadata.codec),validationId:metadata.validationId,schemaEpoch:metadata.schemaEpoch},engine=convergenceEngine(metadata.codec);if(engine.version==='1')return{...fields,engine};return{...fields,engine};
+ validateConvergenceMetadata(metadata);if(!text(genesisId))fail();const fields={namespace:metadata.namespace,genesisId,codecHash:convergenceCodecHash(metadata.codec),validationId:metadata.validationId,schemaEpoch:metadata.schemaEpoch},engine=convergenceEngine(metadata.codec);if(engine.version==='1')return{...fields,engine};if(engine.version==='2')return{...fields,engine};return{...fields,engine};
 }
 const identityKeys=['namespace','genesisId','engine','codecHash','validationId','schemaEpoch'] as const;
 export function validateConvergenceIdentity(value:unknown):asserts value is LocalToolConvergenceIdentity {
- if(!object(value)||!localToolNamespace(value.namespace)||!text(value.genesisId)||!text(value.validationId)||!text(value.schemaEpoch)||typeof value.codecHash!=='string'||! /^[a-f0-9]{64}$/.test(value.codecHash)||![LOCAL_TOOL_CONVERGENCE_ENGINE,LOCAL_TOOL_PLAIN_ENGINE].some(engine=>convergenceCanonical(value.engine)===convergenceCanonical(engine)))fail();
+ if(!object(value)||!localToolNamespace(value.namespace)||!text(value.genesisId)||!text(value.validationId)||!text(value.schemaEpoch)||typeof value.codecHash!=='string'||! /^[a-f0-9]{64}$/.test(value.codecHash)||![LOCAL_TOOL_CONVERGENCE_ENGINE,LOCAL_TOOL_PLAIN_ENGINE,LOCAL_TOOL_RICH_ENGINE].some(engine=>convergenceCanonical(value.engine)===convergenceCanonical(engine)))fail();
 }
 /** JSON-only shape validation. Does not execute an engine, registry or package callback. */
 export function validateLocalToolConvergenceCheckpoint(value:unknown):asserts value is LocalToolConvergenceCheckpoint {
@@ -87,5 +93,5 @@ export function validateLocalToolValidationConflict(value:unknown):asserts value
 export function validateLocalToolPlainRange(value:unknown):asserts value is LocalToolPlainRange {
  convergenceClone(value);
  if(!object(value)||!exact(value,['format','identity','field','afterPlacementId','deleteIds'])||value.format!=='writers-hoard-local-plain-range/1'||!text(value.field)||value.afterPlacementId!==null&&!text(value.afterPlacementId)||!Array.isArray(value.deleteIds)||value.deleteIds.some(id=>!text(id))||new Set(value.deleteIds).size!==value.deleteIds.length)return fail();
- validateConvergenceIdentity(value.identity);if(!exact(value.identity as unknown as Record<string,unknown>,identityKeys)||value.identity.engine.version!=='2')fail();
+ validateConvergenceIdentity(value.identity);if(!exact(value.identity as unknown as Record<string,unknown>,identityKeys)||!['2','3'].includes(value.identity.engine.version))fail();
 }
