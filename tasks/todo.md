@@ -1,5 +1,16 @@
 # Source draft fields — task1890
 
+# Cierre actual de bloques1883 y publicación1890 — 02-11-2026
+
+- [x] Publicación explícita004ee3e1: aprobación1890r1, Native propio36tools/44RPC/36IPC, BraveRoot/quick/build e integración Main.
+- [x] Bloques69899cb9 sobre004ee3e1: aprobación1883r1,34blobs exactos, Native compuesto93tools/101RPC/93IPC, BraveRoot/quick/build e integración Main sin push.
+- [x] Conservar los FAIL/oráculos, recibos y evidencia trasladada bajo `_stage/blocks1883-delivery` y `_stage/published1890-delivery`; no reinterpretar recibos históricos.
+- [x] Root confirmó manual Google y continuidad MEMORY/Store, con recibos propios; no repetir sus escrituras.
+- [ ] Continuar1895/1893 y coste/IME/schema persistente/enlaces/imágenes/tablas;1095/1796 permanecen abiertos.
+
+Este estado supera sólo las casillas históricas de aceptación/integración pendientes de1883/1890 que siguen debajo.
+
+
 - [x] Establish saved7/draft9 and independent consumer draft in normal Source hosts, then record the causal missing published port after health.
 - [x] Add explicit lease-owned publication and separate typed query without changing the saved query.
 - [x] Retire the captured instance token only after a successful normal Save commit; preserve failure/newer publication/other instances.
