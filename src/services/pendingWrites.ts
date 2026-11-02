@@ -19,16 +19,20 @@ const listeners = new Set<() => void>();
 const active = new Map<number, Promise<unknown>>();
 const failed = new Map<string, FailedWrite>();
 const ownerGeneration = new Map<string, number>();
-const flushers = new Map<string, { flush: Flusher; afterWrites: boolean }>();
+const flushers = new Map<string, { flush: Flusher; afterWrites: boolean; hasPending?: () => boolean }>();
 let nextWriteId = 0;
 let lastSavedAt: number | null = null;
 let snapshot: PendingWritesSnapshot = { pending: 0, failed: 0, dirty: 0, lastSavedAt: null };
+
+function dirtyCount(): number {
+  return [...flushers.values()].filter(entry => entry.hasPending?.() ?? true).length;
+}
 
 function publish(): void {
   snapshot = {
     pending: active.size,
     failed: failed.size,
-    dirty: flushers.size,
+    dirty: dirtyCount(),
     lastSavedAt,
   };
   for (const listener of listeners) listener();
@@ -40,6 +44,10 @@ export function subscribePendingWrites(listener: () => void): () => void {
 }
 
 export function getPendingWritesSnapshot(): PendingWritesSnapshot {
+  // A command can change an editor before React commits. Read its current work
+  // without removing the save route needed by an immediate navigation/flush.
+  const dirty = dirtyCount();
+  if (dirty !== snapshot.dirty) snapshot = { ...snapshot, dirty };
   return snapshot;
 }
 
@@ -81,8 +89,8 @@ export function trackPendingWrite<T>(
 }
 
 /** Register buffered work; afterWrites checks run after saving and draining active writes. */
-export function registerPendingFlusher(id: string, flush: Flusher, afterWrites = false): () => void {
-  const entry = { flush, afterWrites };
+export function registerPendingFlusher(id: string, flush: Flusher, afterWrites = false, hasPending?: () => boolean): () => void {
+  const entry = { flush, afterWrites, hasPending };
   flushers.set(id, entry);
   publish();
   return () => {

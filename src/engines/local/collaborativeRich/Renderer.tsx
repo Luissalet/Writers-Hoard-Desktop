@@ -61,9 +61,10 @@ export default function CollaborativeRichRenderer({client,field,label,placeholde
   const unsubscribe=client.subscribe?.(()=>{if(active){if(current.current)void current.current.refresh();else void refresh();}});return()=>{active=false;read++;generation.current=requested+1;if(refreshInitial.current===refresh)refreshInitial.current=undefined;unsubscribe?.();};
  },[client,definition,field,readOnly,reload]);
  useEffect(()=>()=>{current.current?.destroy();current.current=undefined;},[]);
- useLocalToolAtomPending(session?.pending??false);
+ const pending=session?.pending??false;
+ useLocalToolAtomPending(pending);
  useLocalToolUndoController({undoStep:session?.undoStep,redoStep:session?.redoStep,undo:async()=>session?.reverse()??false,redo:async()=>session?.reverse(true)??false});
- useEffect(()=>session?registerPendingFlusher('sdk-collaborative-rich:'+id,async()=>{const ok=await session.flush();flushSync(()=>redraw(n=>n+1));return ok;}):undefined,[session,id]);
+ useEffect(()=>session?registerPendingFlusher('sdk-collaborative-rich:'+id,async()=>{if(current.current!==session||!session.pending)return true;const ok=await session.flush();flushSync(()=>redraw(n=>n+1));return ok;},false,()=>current.current===session&&session.pending):undefined,[session,id]);
  const start=async()=>{if(passive.kind!=='ready'||!passive.fresh||readOnly||starting||current.current)return;const requested=generation.current,refresh=refreshInitial.current;setStarting(true);setError('');try{await client.convergence!.start(passive.snapshot);if(requested===generation.current)setReload(n=>n+1);}catch(reason){if(requested===generation.current){const failure=reason instanceof Error?reason.message:String(reason);await refresh?.();if(requested===generation.current&&!current.current)setError(failure);}}finally{if(requested===generation.current)setStarting(false);}};
  if(!session)return <section className={['min-w-0 space-y-3',className].filter(Boolean).join(' ')} aria-label={heading}>
   <h4 className="font-display text-base text-text-primary">{heading}</h4>
