@@ -1,4 +1,7 @@
 import {RichRuns,richExclusions,type RichPlan,type RichBindings} from './richRuns';
+import {captureBlockSplit,captureBlockJoin,validateBlockTextCapture,prepareBlockText,type RichBlockTextAction} from './blockText';
+import {captureBlockEdit,prepareBlockEdit,isBlockEditingAction} from './blockEditing';
+import {RichBlocks,richBlockLeaves,type RichBlockDocument,type RichBlockBindings,type RichBlockPlan,type RichBlockAction,type RichBlockPlacement} from './blocks';
 import {prepareRichSnapshotBindings,prepareRichSnapshotBatch,encodeRichSnapshotBindings,type StoredRichBindings,type PreparedRichSnapshot} from './richSnapshot';
 import {validateRichDocument,type RichAction,type RichDocument,type RichRange,type RichSplitCapture,type RichJoinCapture,type RichSpan} from './richTypes';
 import * as Y from 'yjs';
@@ -18,10 +21,10 @@ type Placement={id:string;placementId:string};
 type PlainBindings=Record<string,PlainSpan[]>;
 type PlainBindingChecks=Map<string,ReturnType<PlainRuns['bindingValidator']>>;
 type RichBindingChecks=Map<string,ReturnType<RichRuns['bindingValidator']>>;
-type ValidView={data:LocalToolJson;bindings:Bindings;plainBindings?:PlainBindings;richBindings?:Record<string,RichBindings>};
+type ValidView={data:LocalToolJson;bindings:Bindings;plainBindings?:PlainBindings;richBindings?:Record<string,RichBindings>;blockBindings?:Record<string,RichBlockBindings>};
 type StoredValidView=Omit<ValidView,'richBindings'>&{richBindings?:Record<string,StoredRichBindings>};
-type ActionPlan<T extends LocalToolJson>={actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean;plainBindings?:PlainBindings;richBindings?:Record<string,RichBindings>;plainPlans?:Record<string,PlainPlan>;plainPresence?:Record<string,boolean>;richPlans?:Record<string,RichPlan>;richPresence?:Record<string,boolean>};
-type ReadyAction=Exclude<LocalToolStateAction,RichAction>&{placementId?:string;anchorPlacement?:string|null};
+type ActionPlan<T extends LocalToolJson>={actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean;plainBindings?:PlainBindings;richBindings?:Record<string,RichBindings>;blockBindings?:Record<string,RichBlockBindings>;blockPlans?:Record<string,RichBlockPlan>;plainPlans?:Record<string,PlainPlan>;plainPresence?:Record<string,boolean>;richPlans?:Record<string,RichPlan>;richPresence?:Record<string,boolean>};
+type ReadyAction=Exclude<LocalToolStateAction,RichAction|RichBlockAction>&{placementId?:string;anchorPlacement?:string|null};
 const clone=<T>(value:T):T=>convergenceClone(value);
 const binding=(bindings:Binding[],id:string)=>bindings.find(value=>value.id===id)?.placementId;
 const bind=(bindings:Binding[],id:string,placementId:string)=>{const at=bindings.findIndex(value=>value.id===id);if(at<0)bindings.push({id,placementId});else bindings[at]={id,placementId};};
@@ -36,16 +39,21 @@ const roots=(doc:Y.Doc,codec:LocalToolStateCodec,provided?:Registers)=>{
  list:(field:string)=>({content:registers.map<ObjectData>('content:'+field),membership:registers.map<boolean>('membership:'+field),selected:registers.map<string>('selected:'+field),order:order(doc,field)}),codec,projectionReader:undefined as undefined|(()=>ValidView)};
 };
 type Roots=ReturnType<typeof roots>;
+const blocks=(r:Roots,field:string)=>new RichBlocks(r.registers,field);
+const blockField=(r:Roots,field:string)=>{const descriptor=r.codec.fields[field];return descriptor?.kind==='rich'&&descriptor.profile==='blocks-tree/1';};
+function leafData(r:Roots,field:string,data:unknown):RichDocument {
+ if(blockField(r,field))return richBlockLeaves(data as RichBlockDocument);validateRichDocument(data);return data;
+}
 function initializeRoots(doc:Y.Doc,codec:LocalToolStateCodec):Roots {
  const r=roots(doc,codec);for(const[field,descriptor]of Object.entries(codec.fields)){if(descriptor.kind==='rich')r.rich(field);else if(descriptor.kind==='list')r.list(field);else if(isLocalToolPlainField(descriptor))r.plain(field);}return r;
 }
 /** Private RAW image only; acceptance/fallback/bindings/pending are never cached. */
 function projection(r:Roots):ValidView {return r.projectionReader?r.projectionReader():projectRoots(r);}
 function projectRoots(r:Roots):ValidView {
- const data:ObjectData={},bindings:Bindings={},plainBindings:PlainBindings={},richBindings:Record<string,RichBindings>={};
+ const data:ObjectData={},bindings:Bindings={},plainBindings:PlainBindings={},richBindings:Record<string,RichBindings>={},blockBindings:Record<string,RichBlockBindings>={};
  for(const[field,value]of r.scalar)data[field]=clone(value);
  for(const[field,descriptor]of Object.entries(r.codec.fields)){
-  if(descriptor.kind==='rich'){delete data[field];if(r.presence.get(field)){const view=r.rich(field).materialize();data[field]=view.data as unknown as LocalToolJson;richBindings[field]=view.bindings;}}else if(isLocalToolPlainField(descriptor)){
+  if(descriptor.kind==='rich'){delete data[field];if(r.presence.get(field)){const rich=r.rich(field).materialize();if(blockField(r,field)){const view=blocks(r,field).project(rich);data[field]=view.data as unknown as LocalToolJson;richBindings[field]=view.rich.bindings;blockBindings[field]=view.bindings;}else{data[field]=rich.data as unknown as LocalToolJson;richBindings[field]=rich.bindings;}}}else if(isLocalToolPlainField(descriptor)){
    delete data[field];if(r.presence.get(field)){const view=r.plain(field).materialize();data[field]=view.text;plainBindings[field]=view.bindings;}
   }else if(descriptor.kind==='map'){
    delete data[field];if(r.presence.get(field))data[field]=Object.fromEntries([...r.map(field)].map(([key,value])=>[key,clone(value)]));
@@ -59,7 +67,7 @@ function projectRoots(r:Roots):ValidView {
    data[field]=items;bindings[field]=anchors;
   }
  }
- return{data,bindings,...(Object.keys(richBindings).length?{richBindings}:{}),...(Object.values(r.codec.fields).some(isLocalToolPlainField)?{plainBindings}:{})};
+ return{data,bindings,...(Object.keys(blockBindings).length?{blockBindings}:{}),...(Object.keys(richBindings).length?{richBindings}:{}),...(Object.values(r.codec.fields).some(isLocalToolPlainField)?{plainBindings}:{})};
 }
 /** Storage preflight: every field is prepared before logical unit arrays are built. */
 function readRichSnapshot(rich:RichRuns,data:RichDocument,value:unknown):PreparedRichSnapshot {
@@ -74,11 +82,11 @@ function readRichSnapshot(rich:RichRuns,data:RichDocument,value:unknown):Prepare
 function readValidSnapshot(r:Roots,value:unknown):ValidView {
  if(!object(value)||!object(value.data)||!object(value.bindings))throw Error('local_tool_convergence_bindings_invalid');const view=value as unknown as StoredValidView,stored=view.richBindings??{};
  if(!object(stored))throw Error('local_tool_rich_bindings_invalid');const prepared:[string,PreparedRichSnapshot][]=[];
- for(const[field,bindings]of Object.entries(stored)){if(r.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_bindings_invalid');const data=(view.data as ObjectData)[field];validateRichDocument(data);prepared.push([field,readRichSnapshot(r.rich(field),data,bindings)]);}
+ for(const[field,bindings]of Object.entries(stored)){if(r.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_bindings_invalid');const data=(view.data as ObjectData)[field];if(blockField(r,field))blocks(r,field).check(data as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings);prepared.push([field,readRichSnapshot(r.rich(field),leafData(r,field,data),bindings)]);}
  return{...view,...(Object.hasOwn(view,'richBindings')?{richBindings:Object.fromEntries(prepared.map(([field,bindings])=>[field,bindings.read()]))}:{})} as ValidView;
 }
 function writeValidSnapshot(r:Roots,view:ValidView):void {
- const packed:StoredValidView={...view,...(view.richBindings?{richBindings:Object.fromEntries(Object.entries(view.richBindings).map(([field,bindings])=>{const data=(view.data as ObjectData)[field];validateRichDocument(data);return[field,encodeRichSnapshotBindings(data,bindings)];}))}:{})};
+ const packed:StoredValidView={...view,...(view.richBindings?{richBindings:Object.fromEntries(Object.entries(view.richBindings).map(([field,bindings])=>{const data=(view.data as ObjectData)[field];return[field,encodeRichSnapshotBindings(leafData(r,field,data),bindings)];}))}:{})};
  const before=r.registers.winner('authored-valid-snapshot','view',undefined,false);
  if(before?.present&&object(before.value)&&!localToolStateEqual(before.value,packed)){
   const rest=(v:object)=>Object.fromEntries(Object.entries(v).filter(([key])=>key!=='richBindings'));
@@ -108,12 +116,13 @@ function checkBindings(r:Roots,view:ValidView,plainChecks?:PlainBindingChecks,ri
 }
 function checkRichBindings(r:Roots,view:ValidView,checks?:RichBindingChecks):void {
  const bindings=view.richBindings??{};
+ const structure=view.blockBindings??{};if(!object(structure)||Object.keys(structure).some(field=>!blockField(r,field)))throw Error('local_tool_blocks_bindings_invalid');
  if(Object.keys(bindings).some(field=>r.codec.fields[field]?.kind!=='rich'))throw Error('local_tool_rich_bindings_invalid');
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'){
-  const data=(view.data as ObjectData)[field];if(data===undefined){if(Object.hasOwn(bindings,field))throw Error('local_tool_rich_bindings_invalid');continue;}
-  validateRichDocument(data);if(!bindings[field])throw Error('local_tool_rich_bindings_invalid');
-  if(checks){let check=checks.get(field);if(!check){check=r.rich(field).bindingValidator();checks.set(field,check);}check({data,bindings:bindings[field]});}
-  else r.rich(field).checkBindings({data,bindings:bindings[field]});
+  const data=(view.data as ObjectData)[field];if(data===undefined){if(Object.hasOwn(bindings,field)||Object.hasOwn(structure,field))throw Error('local_tool_rich_bindings_invalid');continue;}
+  if(blockField(r,field))blocks(r,field).check(data as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings);const leaves=leafData(r,field,data);if(!bindings[field])throw Error('local_tool_rich_bindings_invalid');
+  if(checks){let check=checks.get(field);if(!check){check=r.rich(field).bindingValidator();checks.set(field,check);}check({data:leaves,bindings:bindings[field]});}
+  else r.rich(field).checkBindings({data:leaves,bindings:bindings[field]});
  }
 }
 function contractCopy<T extends LocalToolJson>(contract:LocalToolConvergenceContract<T>):LocalToolConvergenceContract<T> {
@@ -142,7 +151,7 @@ function currentBindings(r:Roots,contract:LocalToolConvergenceContract):Bindings
 type SnapshotBindingProofs={context?:string;valid:Map<string,string>};
 function semanticPending(r:Roots,proofs?:SnapshotBindingProofs):boolean {
  if(r.registers.pending())return true;
- for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'&&r.rich(field).pending())return true;
+ for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'&&(r.rich(field).pending()||blockField(r,field)&&blocks(r,field).pending()))return true;
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(isLocalToolPlainField(descriptor)&&r.plain(field).pending())return true;
  let valid:Map<string,string>|undefined;
  if(proofs){
@@ -181,10 +190,10 @@ function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson
  const r=initializeRoots(doc,metadata.codec),bindings:Bindings={},plainBindings:PlainBindings={},richBindings:Record<string,RichBindings>={},plainFields=Object.keys(metadata.codec.fields).filter(field=>isLocalToolPlainField(metadata.codec.fields[field])).sort();
  doc.transact(()=>{
   new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).set('value',clone(identity));r.registers.begin();
-  if(plainFields.length)new JsonMap<string[]>(doc.getMap('plain-fields')).set('value',plainFields);const richFields=Object.keys(metadata.codec.fields).filter(f=>metadata.codec.fields[f].kind==='rich').sort();if(richFields.length)new JsonMap<string[]>(doc.getMap('rich-fields')).set('value',richFields);
+  if(plainFields.length)new JsonMap<string[]>(doc.getMap('plain-fields')).set('value',plainFields);const richFields=Object.keys(metadata.codec.fields).filter(f=>metadata.codec.fields[f].kind==='rich').sort();if(richFields.length)new JsonMap<string[]>(doc.getMap('rich-fields')).set('value',richFields);const blockFields=richFields.filter(f=>blockField(r,f));if(blockFields.length)new JsonMap<string[]>(doc.getMap('block-fields')).set('value',blockFields);
   for(const[field,value]of Object.entries(data as ObjectData)){
    const descriptor=metadata.codec.fields[field];
-   if(descriptor?.kind==='rich'){const draft=r.rich(field).draft();validateRichDocument(value);draft.replace(value);const plan=draft.finish();r.rich(field).commit(plan);r.presence.set(field,true);richBindings[field]=plan.view.bindings;}else if(isLocalToolPlainField(descriptor)){
+   if(descriptor?.kind==='rich'){const draft=r.rich(field).draft();const leaves=leafData(r,field,value);draft.replace(leaves);if(blockField(r,field))blocks(r,field).seed(value as unknown as RichBlockDocument);const plan=draft.finish();r.rich(field).commit(plan);r.presence.set(field,true);richBindings[field]=plan.view.bindings;}else if(isLocalToolPlainField(descriptor)){
     const draft=r.plain(field).draft({text:'',bindings:[]});draft.replace(value as string);const plan=draft.finish();r.plain(field).commit(plan);r.presence.set(field,true);plainBindings[field]=plan.view.bindings;
    }else if(descriptor?.kind==='map'){
     r.presence.set(field,true);for(const[key,item]of Object.entries(value as ObjectData))r.map(field).set(key,clone(item));
@@ -193,7 +202,7 @@ function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson
     for(const item of value as ObjectData[]){const id=item[descriptor.idKey] as string,placementId=crypto.randomUUID();list.content.set(id,clone(item));list.membership.set(id,true);list.selected.set(id,placementId);list.order.push([{id,placementId}]);bind(bindings[field],id,placementId);}
    }else r.scalar.set(field,clone(value));
   }
-  writeValidSnapshot(r,{data:clone(data),bindings,...(Object.keys(richBindings).length?{richBindings}:{}),...(plainFields.length?{plainBindings}:{})});r.registers.flush();
+  writeValidSnapshot(r,Object.keys(metadata.codec.fields).some(field=>blockField(r,field))?projectRoots(r):{data:clone(data),bindings,...(Object.keys(richBindings).length?{richBindings}:{}),...(plainFields.length?{plainBindings}:{})});r.registers.flush();
  },'genesis');
 }
 /** Pure portable fork: trusted engine, no registry/factory or executable package validator. */
@@ -227,13 +236,17 @@ function plainFields(doc:Y.Doc):string[]{
  const fields=new JsonMap<string[]>(doc.getMap('plain-fields')).get('value')??[];
  if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string')||new Set(fields).size!==fields.length)throw Error('local_tool_plain_fields_invalid');return fields;
 }
+function blockFields(doc:Y.Doc):string[]{
+ const fields=new JsonMap<string[]>(doc.getMap('block-fields')).get('value')??[];
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string')||new Set(fields).size!==fields.length)throw Error('local_tool_blocks_fields_invalid');return fields;
+}
 function checkPlainDocument(r:Roots,doc:Y.Doc):void {
  const expected=Object.keys(r.codec.fields).filter(field=>isLocalToolPlainField(r.codec.fields[field])).sort();
  if(convergenceCanonical(plainFields(doc))!==convergenceCanonical(expected))throw Error('local_tool_plain_fields_invalid');
  for(const field of expected)r.plain(field).validate();
  const rich=Object.keys(r.codec.fields).filter(field=>r.codec.fields[field].kind==='rich').sort(),stored=new JsonMap<string[]>(doc.getMap('rich-fields')).get('value')??[];
  if(convergenceCanonical(rich)!==convergenceCanonical(stored))throw Error('local_tool_rich_fields_invalid');
- for(const field of rich)r.rich(field).pending();
+ const expectedBlocks=rich.filter(f=>blockField(r,f));if(convergenceCanonical(blockFields(doc))!==convergenceCanonical(expectedBlocks))throw Error('local_tool_blocks_fields_invalid');for(const field of rich){r.rich(field).pending();if(blockField(r,field))blocks(r,field).pending();}
 }
 function preparePlainActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,identity:LocalToolConvergenceIdentity,baseline?:T,validateProposal=true):ActionPlan<T> {
  const initial=admitted(r,contract),before=initial.data as T;
@@ -278,7 +291,7 @@ function validateRichCapture<T extends LocalToolJson>(r:Roots,doc:Y.Doc,contract
  assertConvergenceIdentity(capturedIdentity,identity);if(field!==action.field||!Array.isArray(frontier))throw Error('local_tool_rich_capture_invalid');
  return r.registers.atFrontier(frontier,registers=>{
   const historical=roots(doc,contract.codec,registers),view=admitted(historical,contract),data=(view.data as ObjectData)[field],bindings=view.richBindings?.[field];
-  validateRichDocument(data);if(!bindings)throw Error('local_tool_rich_capture_invalid');const admittedRich={data,bindings},rich=historical.rich(field);let expected:RichRange|RichSplitCapture|RichJoinCapture;
+  const leaves=leafData(historical,field,data);if(!bindings)throw Error('local_tool_rich_capture_invalid');const admittedRich={data:leaves,bindings},rich=historical.rich(field);let expected:RichRange|RichSplitCapture|RichJoinCapture;
   if(range){
    const node=bindings.nodes.find(n=>n.id===range.nodeId);if(!node)throw Error('local_tool_rich_capture_invalid');
    const from=range.right===null?node.units.length:node.units.findIndex(u=>u.id===range.right);if(from<0||range.left!==(node.units[from-1]?.id??null)||!Array.isArray(range.deleteIds))throw Error('local_tool_rich_capture_invalid');
@@ -286,21 +299,40 @@ function validateRichCapture<T extends LocalToolJson>(r:Roots,doc:Y.Doc,contract
   }else{const join=capture as RichJoinCapture;expected=rich.joinCapture(identity,join.leftNodeId,join.rightNodeId,admittedRich);}
   if(convergenceCanonical(expected)!==convergenceCanonical(capture))throw Error('local_tool_rich_capture_invalid');
   if(capture.format==='writers-hoard-rich-split/1'||capture.format==='writers-hoard-rich-join/1'){
+   return fieldRichExclusions(historical,contract,field,rich,bindings,capture.format==='writers-hoard-rich-split/1'?capture.suffix:capture.slices);
+  }
+ });
+}
+
+function fieldRichExclusions(historical:Roots,contract:LocalToolConvergenceContract,field:string,rich:RichRuns,bindings:RichBindings,slices:readonly {ids:string[]}[]):RichSpan[]{
    const observed=new Set(bindings.nodes.flatMap(n=>n.units.map(u=>u.id))),check=rich.bindingValidator();
    // These are witnesses of THIS FIELD under accepted data, not global fallbacks.
    // atFrontier excludes future versions; entries includes retained inactive ones.
    for(const version of historical.registers.entries('authored-valid-snapshot','view')){
     if(!version.present||!object(version.value)||!accepts(contract,(version.value as unknown as ValidView).data))continue;
     try{
-     const stored=version.value as unknown as StoredValidView,value=(stored.data as ObjectData)[field];validateRichDocument(value);
-     const prepared=readRichSnapshot(rich,value,stored.richBindings?.[field]),witness={data:value,bindings:prepared.read()};check(witness);
+     const stored=version.value as unknown as StoredValidView,value=(stored.data as ObjectData)[field];if(blockField(historical,field))blocks(historical,field).check(value as unknown as RichBlockDocument,stored.blockBindings?.[field] as RichBlockBindings);const leaves=leafData(historical,field,value);
+     const prepared=readRichSnapshot(rich,leaves,stored.richBindings?.[field]),witness={data:leaves,bindings:prepared.read()};check(witness);
      for(const node of witness.bindings.nodes)for(const unit of node.units)observed.add(unit.id);
     }catch{/* Unverifiable field witnesses establish no observation. */}
    }
-   const slices=capture.format==='writers-hoard-rich-split/1'?capture.suffix:capture.slices;
    return richExclusions(observed,new Set(slices.flatMap(slice=>slice.ids)));
-  }
+}
+
+function validateBlockCapture(r:Roots,contract:LocalToolConvergenceContract,identity:LocalToolConvergenceIdentity,action:Exclude<RichBlockAction,RichBlockTextAction>):void {
+ const capture=action.capture;assertConvergenceIdentity(capture.identity,identity);if(capture.field!==action.field||!Array.isArray(capture.frontier))throw Error('local_tool_blocks_capture_invalid');
+ r.registers.atFrontier(capture.frontier,registers=>{
+  const historical=roots(r.registers.doc,contract.codec,registers),view=admitted(historical,contract),data=(view.data as ObjectData)[action.field] as unknown as RichBlockDocument,binding=view.blockBindings?.[action.field];
+  if(!blockField(historical,action.field)||!binding)throw Error('local_tool_blocks_capture_invalid');const source=blocks(historical,action.field);
+  const expected=isBlockEditingAction(action)?captureBlockEdit(source,identity,data,binding,action.capture.nodeIds,action.capture.destination):action.type==='rich-block-wrap'?source.capture(identity,data,binding,action.capture.nodeIds):source.moveCapture(identity,data,binding,action.capture.nodeId,action.capture.destination);
+  if(convergenceCanonical(expected)!==convergenceCanonical(capture))throw Error('local_tool_blocks_capture_invalid');
  });
+}
+
+
+function validateTreeTextAction(r:Roots,contract:LocalToolConvergenceContract,identity:LocalToolConvergenceIdentity,action:RichBlockTextAction):RichSpan[]{
+ assertConvergenceIdentity(action.capture.identity,identity);if(action.capture.field!==action.field||!blockField(r,action.field))throw Error('local_tool_blocks_capture_invalid');
+ return r.registers.atFrontier(action.capture.frontier,registers=>{const historical=roots(r.registers.doc,contract.codec,registers),view=admitted(historical,contract),field=action.field,data=(view.data as ObjectData)[field] as unknown as RichBlockDocument,binding=view.blockBindings?.[field],text=view.richBindings?.[field];if(!binding||!text)throw Error('local_tool_blocks_capture_invalid');const rich=historical.rich(field);validateBlockTextCapture(blocks(historical,field),rich,identity,data,binding,text,action);return fieldRichExclusions(historical,contract,field,rich,text,action.type==='rich-block-split'?action.capture.text.suffix:action.capture.text.slices);});
 }
 
 
@@ -309,22 +341,31 @@ function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConve
  if(!Array.isArray(actions)||!actions.length)throw Error('local_tool_actions_invalid');
  const before=admitted(r,contract),generic=actions.filter(a=>r.codec.fields[a.field]?.kind!=='rich');
  const base:ActionPlan<T>=generic.length?preparePlainActions(r,contract,generic,authorId,identity,baseline,false):{actions:[],proposal:clone(before.data) as T,bindings:clone(before.bindings),plainBindings:clone(before.plainBindings??{}),plainPlans:{},changed:false};
- const proposal=clone(base.proposal) as ObjectData,richBindings=clone(before.richBindings??{}),richPlans:Record<string,RichPlan>={},richPresence:Record<string,boolean>={};
+ const proposal=clone(base.proposal) as ObjectData,richBindings=clone(before.richBindings??{}),blockBindings=clone(before.blockBindings??{}),blockPlans:Record<string,RichBlockPlan>={},richPlans:Record<string,RichPlan>={},richPresence:Record<string,boolean>={};
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'){
-  const own=actions.filter(a=>a.field===field);if(!own.length)continue;const old=(before.data as ObjectData)[field],binding=before.richBindings?.[field];const draft=r.rich(field).draft(old!==undefined&&binding?{data:old as unknown as RichDocument,bindings:binding}:undefined);let present=typeof proposal[field]!=='undefined';
+  const own=actions.filter(a=>a.field===field);if(!own.length)continue;const old=(before.data as ObjectData)[field],binding=before.richBindings?.[field];const isBlocks=blockField(r,field);const draft=r.rich(field).draft(old!==undefined&&binding?{data:leafData(r,field,old),bindings:binding}:undefined);let present=typeof proposal[field]!=='undefined',structure=(isBlocks&&old!==undefined?clone(old):old) as unknown as RichBlockDocument;
   for(const action of own){
-   if(action.type==='set'||action.type==='unset'){
+   if(action.type==='rich-block-split'||action.type==='rich-block-join'){
+    if(!isBlocks||!present)throw Error('local_tool_blocks_action_invalid');const excludes=validateTreeTextAction(r,contract,identity,action),plan=prepareBlockText(blocks(r,field),structure,blockBindings[field],action);draft.apply(plan.textAction,identity,excludes);if(blockPlans[field])plan.writes=[...blockPlans[field].writes,...plan.writes];blockPlans[field]=plan;structure=plan.data;blockBindings[field]=plan.bindings;
+   }else if(action.type==='rich-block-wrap'||action.type==='rich-block-move'||isBlockEditingAction(action)){
+    if(!isBlocks||!present)throw Error('local_tool_blocks_action_invalid');validateBlockCapture(r,contract,identity,action);const plan=isBlockEditingAction(action)?prepareBlockEdit(blocks(r,field),structure,blockBindings[field],action,identity,draft.finish().view.bindings.nodes.at(-1)?.id??null):blocks(r,field).prepare(structure,blockBindings[field],action,identity);if('textActions'in plan)for(const textAction of plan.textActions as RichAction[])draft.apply(textAction,identity);if(blockPlans[field])plan.writes=[...blockPlans[field].writes,...plan.writes];blockPlans[field]=plan;structure=plan.data;blockBindings[field]=plan.bindings;
+   }else if(action.type==='set'||action.type==='unset'){
+    if(isBlocks)throw Error('local_tool_blocks_structural_actions_required');
     if(baseline!==undefined&&!localToolStateEqual((baseline as ObjectData)[field],(before.data as ObjectData)[field]))throw Error('conflict');
     const value=action.type==='set'?action.value:undefined;if(value!==undefined)validateRichDocument(value);if(value===undefined&&!present||value!==undefined&&present&&localToolStateEqual(draft.finish().view.data,value))continue;draft.replace(value);present=value!==undefined;
-   }else{if(!present||!action.type.startsWith('rich-'))throw Error('local_tool_rich_action_invalid');const excludes=validateRichCapture(r,r.rich(field).doc,contract,identity,action as RichAction);draft.apply(action as RichAction,identity,excludes);}
+   }else{if(!present||!action.type.startsWith('rich-'))throw Error('local_tool_rich_action_invalid');if(isBlocks&&action.type!=='rich-text-splice'&&action.type!=='rich-mark')throw Error('local_tool_blocks_structural_actions_required');const excludes=validateRichCapture(r,r.rich(field).doc,contract,identity,action as RichAction);draft.apply(action as RichAction,identity,excludes);}
   }
-  const plan=draft.finish();richPlans[field]=plan;richPresence[field]=present;if(present){proposal[field]=plan.view.data as unknown as LocalToolJson;richBindings[field]=plan.view.bindings;}else{delete proposal[field];delete richBindings[field];}
+  const plan=draft.finish();richPlans[field]=plan;richPresence[field]=present;if(present){
+   if(isBlocks){const leaves=new Map(plan.view.data.content.map(p=>[p.id,p]));for(const b of structure.blocks)if(Object.hasOwn(b,'content'))b.content=clone(leaves.get(b.id)?.content??[]);proposal[field]=structure as unknown as LocalToolJson;richBindings[field]={nodes:richBlockLeaves(structure).content.map(p=>plan.view.bindings.nodes.find(n=>n.id===p.id)!)};}
+   else{proposal[field]=plan.view.data as unknown as LocalToolJson;richBindings[field]=plan.view.bindings;}
+  }else{delete proposal[field];delete richBindings[field];delete blockBindings[field];}
  }
  if(!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
- return{...base,proposal:proposal as T,plainPlans:base.plainPlans??{},richPlans,richPresence,richBindings,changed:base.changed||!localToolStateEqual(before.data,proposal)||Object.values(richPlans).some(p=>p.changed)};
+ return{...base,proposal:proposal as T,plainPlans:base.plainPlans??{},richPlans,richPresence,richBindings,blockPlans,blockBindings,changed:base.changed||!localToolStateEqual(before.data,proposal)||Object.values(richPlans).some(p=>p.changed)||Object.values(blockPlans).some(p=>p.writes.length>0)};
 }
-function commitRich(r:Roots,plan:{richPlans?:Record<string,RichPlan>;richPresence?:Record<string,boolean>}):void {
+function commitRich(r:Roots,plan:{richPlans?:Record<string,RichPlan>;richPresence?:Record<string,boolean>;blockPlans?:Record<string,RichBlockPlan>}):void {
  for(const[field,value]of Object.entries(plan.richPlans??{}))r.rich(field).commit(value);
+ for(const[field,value]of Object.entries(plan.blockPlans??{}))blocks(r,field).commit(value);
  for(const[field,value]of Object.entries(plan.richPresence??{}))r.presence.set(field,value);
 }
 
@@ -356,8 +397,8 @@ function mutate(r:Roots,actions:readonly ReadyAction[]):void {
   }
  }
 }
-function authorFallback<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,proposal:T,bindings:Bindings,plainBindings?:PlainBindings,richBindings?:Record<string,RichBindings>):void {
- const raw=projection(r);const fallback=accepts(contract,raw.data)?raw:{data:clone(proposal),bindings:clone(bindings),...(plainBindings?{plainBindings:clone(plainBindings)}:{}),...(richBindings?{richBindings:clone(richBindings)}:{})};checkBindings(r,fallback);writeValidSnapshot(r,fallback);
+function authorFallback<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,proposal:T,bindings:Bindings,plainBindings?:PlainBindings,richBindings?:Record<string,RichBindings>,blockBindings?:Record<string,RichBlockBindings>):void {
+ const raw=projection(r);const fallback=accepts(contract,raw.data)?raw:{data:clone(proposal),bindings:clone(bindings),...(plainBindings?{plainBindings:clone(plainBindings)}:{}),...(richBindings?{richBindings:clone(richBindings)}:{}),...(blockBindings?{blockBindings:clone(blockBindings)}:{})};checkBindings(r,fallback);writeValidSnapshot(r,fallback);
 }
 
 
@@ -398,7 +439,7 @@ function prepareReplacement<T extends LocalToolJson>(r:Roots,contract:LocalToolC
  }
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'){
   const old=(current.data as ObjectData)[field],desired=(data as ObjectData)[field];if(localToolStateEqual(old,desired))continue;
-  if(desired!==undefined)validateRichDocument(desired);const draft=r.rich(field).draft();draft.replace(desired);const prepared=draft.finish();richPlans[field]=prepared;richPresence[field]=desired!==undefined;
+  if(blockField(r,field))throw Error('local_tool_blocks_structural_actions_required');if(desired!==undefined)validateRichDocument(desired);const draft=r.rich(field).draft();draft.replace(desired);const prepared=draft.finish();richPlans[field]=prepared;richPresence[field]=desired!==undefined;
   if(desired===undefined)delete richBindings[field];else richBindings[field]=prepared.view.bindings;
  }
  return{...plan,plainBindings,plainPlans,plainPresence,richBindings,richPlans,richPresence};
@@ -472,11 +513,11 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
   if(!changes.length)return null;const id=options.authorId+':receipt:'+crypto.randomUUID(),heads=new Set(r.registers.transactions.keys());for(const tx of r.registers.transactions.values())for(const parent of tx.parents)heads.delete(parent);
   const receipt:LocalToolConvergenceReceipt={format:'writers-hoard-local-convergence-receipt/1',id,identity:clone(identity),mode,record:{format:'register-activation/1',changes:clone(changes),frontier:[...heads]} as unknown as LocalToolJson};receipts.set(id,receipt);(mode==='undo'?undo:redo).push(id);return receipt;
  };
- function author(plan:{proposal:T;bindings:Bindings;plainBindings?:PlainBindings;richBindings?:Record<string,RichBindings>;changed:boolean},mutations:()=>void):LocalToolReplicaEdit<T> {
+ function author(plan:{proposal:T;bindings:Bindings;plainBindings?:PlainBindings;richBindings?:Record<string,RichBindings>;blockBindings?:Record<string,RichBlockBindings>;changed:boolean},mutations:()=>void):LocalToolReplicaEdit<T> {
   const baseline=before();if(!plan.changed)return{...result(baseline),update:packet(identity,Y.mergeUpdates([])),receiptId:null};
   captured=[];let ids:string[]=[];
   try{
-   projectionMutation(()=>doc.transact(()=>{r.registers.begin();mutations();authorFallback(r,contract,plan.proposal,plan.bindings,plan.plainBindings,plan.richBindings);ids=r.registers.flush();},options.authorId));
+   projectionMutation(()=>doc.transact(()=>{r.registers.begin();mutations();authorFallback(r,contract,plan.proposal,plan.bindings,plan.plainBindings,plan.richBindings,plan.blockBindings);ids=r.registers.flush();},options.authorId));
    for(const id of redo)receipts.delete(id);redo.length=0;const receipt=storeReceipt('undo',ids.map(id=>({id,enabled:false})));
    return{...result(baseline),update:packet(identity,Y.mergeUpdates(captured)),receiptId:receipt?.id??null};
   }finally{r.registers.cancel();captured=null;}
@@ -495,8 +536,13 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
   if(typeof text!=='string')throw Error('local_tool_plain_range_invalid');return{format:'writers-hoard-local-plain-range/1',identity:clone(identity),field,...r.plain(field).range({text,bindings:view.plainBindings?.[field]??[]},from,to)};
  };
  const rich=(field:string)=>{current();if(identity.engine.version!=='3'||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_field_invalid');return r.rich(field);};
- const richView=(field:string)=>{const view=admitted(r,contract),data=(view.data as ObjectData)[field],bindings=view.richBindings?.[field];validateRichDocument(data);if(!bindings)throw Error('local_tool_rich_bindings_invalid');return{data,bindings};};
+ const richView=(field:string)=>{const view=admitted(r,contract),data=leafData(r,field,(view.data as ObjectData)[field]),bindings=view.richBindings?.[field];if(!bindings)throw Error('local_tool_rich_bindings_invalid');return{data,bindings};};
  const replica:LocalToolReplica<T>=Object.freeze({
+  richBlockSplitCapture:(field:string,nodeId:string,at:number)=>{current();const view=admitted(r,contract);if(!blockField(r,field))throw Error('local_tool_blocks_field_invalid');return captureBlockSplit(blocks(r,field),r.rich(field),identity,(view.data as ObjectData)[field] as unknown as RichBlockDocument,view.blockBindings![field],view.richBindings![field],nodeId,at);},
+  richBlockJoinCapture:(field:string,leftNodeId:string,rightNodeId:string)=>{current();const view=admitted(r,contract);if(!blockField(r,field))throw Error('local_tool_blocks_field_invalid');return captureBlockJoin(blocks(r,field),r.rich(field),identity,(view.data as ObjectData)[field] as unknown as RichBlockDocument,view.blockBindings![field],view.richBindings![field],leftNodeId,rightNodeId);},
+  richBlockEditCapture:(field:string,nodeIds:string[],destination?:RichBlockPlacement)=>{current();const view=admitted(r,contract);if(!blockField(r,field))throw Error('local_tool_blocks_field_invalid');return captureBlockEdit(blocks(r,field),identity,(view.data as ObjectData)[field] as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings,nodeIds,destination);},
+  richBlockCapture:(field:string,options:{nodeIds:string[]})=>{current();const view=admitted(r,contract);if(!blockField(r,field))throw Error('local_tool_blocks_field_invalid');return blocks(r,field).capture(identity,(view.data as ObjectData)[field] as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings,options.nodeIds);},
+  richBlockMoveCapture:(field:string,nodeId:string,destination:RichBlockPlacement)=>{current();const view=admitted(r,contract);if(!blockField(r,field))throw Error('local_tool_blocks_field_invalid');return blocks(r,field).moveCapture(identity,(view.data as ObjectData)[field] as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings,nodeId,destination);},
   richRange:(field:string,nodeId:string,from:number,to:number,options?:{affinity:'left'|'right'})=>rich(field).range(identity,nodeId,from,to,options?.affinity,richView(field)),
   resolveRichPoint:(point:RichRange)=>{current();if(!point||!Array.isArray(point.deleteIds)||point.deleteIds.length)throw Error('local_tool_rich_point_invalid');validateRichCapture(r,doc,contract,identity,{type:'rich-mark',field:point.field,nodeId:point.nodeId,range:point,mark:'bold',enabled:true});return rich(point.field).resolvePoint(point,identity,richView(point.field));},
   richSplitCapture:(field:string,nodeId:string,at:number,options?:{affinity:'left'|'right'})=>rich(field).splitCapture(identity,nodeId,at,options?.affinity,richView(field)),
@@ -544,7 +590,7 @@ export function exportLocalToolConvergenceCheckpoint(checkpoint:LocalToolConverg
   Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));checkDocumentIdentity(doc,identity);
   if(convergenceBase64(Y.encodeStateVector(doc))!==checkpoint.stateVectorBase64)throw Error('local_tool_convergence_vector_invalid');
   const registers=new Registers(doc);registers.validate();let semantic=registers.pending();const richFields=new JsonMap<string[]>(doc.getMap('rich-fields')).get('value')??[];if(!Array.isArray(richFields)||new Set(richFields).size!==richFields.length||richFields.some(f=>typeof f!=='string')||richFields.length&&identity.engine.version!=='3')throw Error('local_tool_rich_fields_invalid');for(const field of richFields)if(new RichRuns(doc,field,registers).pending())semantic=true;
-  const richChecks:RichBindingChecks=new Map();
+  const richChecks:RichBindingChecks=new Map(),blockSet=new Set(blockFields(doc));for(const field of blockSet){if(!richFields.includes(field))throw Error('local_tool_blocks_fields_invalid');if(new RichBlocks(registers,field).pending())semantic=true;}
   for(const version of registers.versions.values()){
    if(!version.present)continue;
    if(version.root.startsWith('selected:')&&!order(doc,version.root.slice('selected:'.length)).toArray().some(place=>place.placementId===version.value))semantic=true;
@@ -553,9 +599,9 @@ export function exportLocalToolConvergenceCheckpoint(checkpoint:LocalToolConverg
     if(!view||!object(view.bindings))throw Error('local_tool_convergence_bindings_invalid');
     const batch=prepareRichSnapshotBatch(Object.entries(view.richBindings??{}),([field,bindings])=>{
      if(!richFields.includes(field))throw Error('local_tool_rich_bindings_invalid');
-     try{const data=(view.data as ObjectData)[field];validateRichDocument(data);return readRichSnapshot(new RichRuns(doc,field,registers),data,bindings);}catch{semantic=true;return null;}
+     try{const raw=(view.data as ObjectData)[field];if(blockSet.has(field))new RichBlocks(registers,field).check(raw as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings);const data=blockSet.has(field)?richBlockLeaves(raw as unknown as RichBlockDocument):raw;validateRichDocument(data);return readRichSnapshot(new RichRuns(doc,field,registers),data,bindings);}catch{semantic=true;return null;}
     });
-    for(const{value:[field],prepared}of batch){try{const data=(view.data as ObjectData)[field];validateRichDocument(data);let check=richChecks.get(field);if(!check){check=new RichRuns(doc,field,registers).bindingValidator();richChecks.set(field,check);}check({data,bindings:prepared.read()});}catch{semantic=true;}}
+    for(const{value:[field],prepared}of batch){try{const raw=(view.data as ObjectData)[field],data=blockSet.has(field)?richBlockLeaves(raw as unknown as RichBlockDocument):raw;validateRichDocument(data);let check=richChecks.get(field);if(!check){check=new RichRuns(doc,field,registers).bindingValidator();richChecks.set(field,check);}check({data,bindings:prepared.read()});}catch{semantic=true;}}
     for(const[field,bindings]of Object.entries(view.plainBindings??{})){try{new PlainRuns(doc,field,registers).checkBindings({text:(view.data as ObjectData)[field] as string,bindings});}catch{semantic=true;}}
     for(const[field,bindings]of Object.entries(view.bindings)){const places=new Map(order(doc,field).toArray().map(place=>[place.placementId,place.id]));if(!Array.isArray(bindings))throw Error('local_tool_convergence_bindings_invalid');for(const {id,placementId}of bindings)if(places.get(placementId)!==id)semantic=true;}
    }
@@ -571,8 +617,8 @@ export function captureLocalToolPlainRange<T extends LocalToolJson>(checkpoint:L
 }
 
 /** Same readonly reconstruction as the plain capture, without granting receipt authority. */
-export function captureLocalToolRich<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,request:{kind:'range';field:string;nodeId:string;from:number;to:number;affinity?:'left'|'right'}|{kind:'split';field:string;nodeId:string;at:number;affinity?:'left'|'right'}|{kind:'join';field:string;leftNodeId:string;rightNodeId:string}){
- const host=instantiate(checkpoint,options);try{const p=host.replica;const capture=request.kind==='range'?p.richRange(request.field,request.nodeId,request.from,request.to,{affinity:request.affinity??'right'}):request.kind==='split'?p.richSplitCapture(request.field,request.nodeId,request.at,{affinity:request.affinity??'right'}):p.richJoinCapture(request.field,request.leftNodeId,request.rightNodeId);return{data:p.read(),capture};}finally{host.replica.destroy();}
+export function captureLocalToolRich<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,request:import('./richTypes').RichCaptureRequest){
+ const host=instantiate(checkpoint,options);try{const p=host.replica;const capture=request.kind==='block-split'?p.richBlockSplitCapture(request.field,request.nodeId,request.at):request.kind==='block-join'?p.richBlockJoinCapture(request.field,request.leftNodeId,request.rightNodeId):request.kind==='block-edit'?p.richBlockEditCapture(request.field,request.nodeIds,request.destination):request.kind==='blocks'?p.richBlockCapture(request.field,{nodeIds:request.nodeIds}):request.kind==='block-move'?p.richBlockMoveCapture(request.field,request.nodeId,request.destination):request.kind==='range'?p.richRange(request.field,request.nodeId,request.from,request.to,{affinity:request.affinity??'right'}):request.kind==='split'?p.richSplitCapture(request.field,request.nodeId,request.at,{affinity:request.affinity??'right'}):p.richJoinCapture(request.field,request.leftNodeId,request.rightNodeId);return{data:p.read(),capture};}finally{host.replica.destroy();}
 }
 
 /** Readonly Source reconstruction; captures retain no Undo authority. */

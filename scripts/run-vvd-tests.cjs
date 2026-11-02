@@ -23,6 +23,8 @@ const domainAnchorsCheck = spawnSync(process.execPath, ['--experimental-strip-ty
 if (domainAnchorsCheck.status !== 0 || domainAnchorsCheck.error) process.exit(domainAnchorsCheck.status ?? 1);
 const domainWorkflowsCheck = spawnSync(electron, ['scripts/run-worldgen-domain-tests.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 240000 });
 if (domainWorkflowsCheck.status !== 0 || domainWorkflowsCheck.error) process.exit(domainWorkflowsCheck.status ?? 1);
+const blockSchemasCheck = spawnSync(process.execPath, ['tests/local-tool-block-schemas.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
+if (blockSchemasCheck.status !== 0 || blockSchemasCheck.error) process.exit(blockSchemasCheck.status ?? 1);
 const manifestCheck = spawnSync(process.execPath, ['tests/ai-bridge-manifest.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
 if (manifestCheck.status !== 0) process.exit(manifestCheck.status ?? 1);
 const assetFileCheck = spawnSync(process.execPath, ['tests/local-tool-asset-files.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true });
@@ -104,6 +106,9 @@ if (focusNativeCheck.status !== 0 || focusNativeCheck.error) process.exit(focusN
 const tableRowsNativeCheck = spawnSync(electron, ['tests/table-row-order.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (tableRowsNativeCheck.status !== 0 || tableRowsNativeCheck.error) process.exit(tableRowsNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-block-editor.browser.tsx', 'testBlockEditor', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-block-editor.browser.tsx', 'testEmptyBlockEditor', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-block-editor.browser.tsx', 'testBlockCompositionOrder', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-collaborative-rich.binding.ts', 'testCollaborativeRichBinding', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-collaborative-rich.extensions.ts', 'testCollaborativeRichExtensions', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-collaborative-rich.baseline.tsx', 'testCollaborativeRichBaseline', 180000, 'scripts/run-focused-browser-tests.cjs'],
