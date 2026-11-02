@@ -1,11 +1,12 @@
 import type {LocalToolJson} from '../stateTypes';
 import type {RichView} from './richRuns';
 import type {LocalToolConvergenceIdentity} from './types';
-import {Registers} from './registers';
+import {Registers,type RegisterVersion} from './registers';
 import {assertConvergenceIdentity,convergenceCanonical,convergenceClone} from './format';
 import {BLOCK_SCHEMA,validateRichBlockDocument,validateRichBlockPlacement,richBlockLeaf,type RichBlockKind,type RichBlockDocument,type RichBlock,type RichBlockBindings,type RichBlockBinding,type RichBlockPlacement,type RichBlockCapture,type RichBlockMoveCapture,type RichBlockCoreAction} from './blockTypes';
 export * from './blockTypes';
 type Write={name:'kind'|'attrs'|'membership'|'placement';id:string;value:LocalToolJson};
+type StructuralNode={block:RichBlock;binding:RichBlockBinding;retirement?:string};
 export interface RichBlockPlan {data:RichBlockDocument;bindings:RichBlockBindings;writes:Write[]}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const fail=():never=>{throw Error('local_tool_blocks_invalid');};
@@ -26,23 +27,90 @@ export class RichBlocks {
   const get=(name:string)=>{const version=this.read(name,blockId);if(!version?.present)return fail();return version.id;};
   return{id:blockId,kindVersionId:get('kind'),attrsVersionId:get('attrs'),membershipVersionId:get('membership'),placementVersionId:get('placement')};
  }
- project(rich:RichView):{data:RichBlockDocument;bindings:RichBlockBindings;rich:RichView} {
-  const all=new Map<string,RichBlock>(),leaves=new Map(rich.data.content.map(p=>[p.id,p]));
-  for(const key of new Set([...this.registers.entries(this.root('kind')),...this.registers.candidates(this.root('kind'))].map(v=>v.key))){
-   if(this.read('membership',key)?.value!==true)continue;
-   const type=this.read('kind',key)?.value as RichBlockKind,attrs=this.read('attrs',key)?.value as RichBlock['attrs'],place=this.read('placement',key)?.value as unknown as RichBlockPlacement;
-   if(!type||!attrs||!place)throw Error('local_tool_blocks_dependency_missing');
-   const leaf=leaves.get(key);if(richBlockLeaf(type)&&!leaf)throw Error('local_tool_blocks_dependency_missing');
-   all.set(key,{id:key,type,attrs:convergenceClone(attrs),...convergenceClone(place),...(richBlockLeaf(type)?{content:convergenceClone(leaf!.content)}:{})});
+ /** Derived support never changes activations or the complete inverse of a receipt. */
+ private structure(history=new Map<string,Map<string,StructuralNode>>()):Map<string,StructuralNode> {
+  const r=this.registers,all=new Map<string,StructuralNode>(),invalid=new Set<string>(),summaryWitness=new Map<string,string>();
+  const historical=(frontier:string[])=>{
+   const key=JSON.stringify([...frontier].sort()),cached=history.get(key);if(cached)return cached;
+   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field).structure(history));history.set(key,value);return value;
+  };
+  const version=(binding:RichBlockBinding,name:Write['name'])=>r.versions.get(binding[`${name}VersionId`])??r.candidates(this.root(name)).find(v=>v.id===binding[`${name}VersionId`]);
+  const assemble=(id:string,values:Record<Write['name'],RegisterVersion>):StructuralNode=>({
+   block:{id,type:values.kind.value as RichBlockKind,attrs:convergenceClone(values.attrs.value) as RichBlock['attrs'],...convergenceClone(values.placement.value) as unknown as RichBlockPlacement},
+   binding:{id,kindVersionId:values.kind.id,attrsVersionId:values.attrs.id,membershipVersionId:values.membership.id,placementVersionId:values.placement.id},
+  });
+  for(const key of new Set([...r.entries(this.root('kind')),...r.candidates(this.root('kind'))].map(v=>v.key))){
+   const membership=this.read('membership',key);if(membership?.value!==true)continue;
+   const values={kind:this.read('kind',key),attrs:this.read('attrs',key),membership,placement:this.read('placement',key)};
+   if(Object.values(values).some(value=>!value?.present))throw Error('local_tool_blocks_dependency_missing');
+   all.set(key,assemble(key,values as Record<Write['name'],RegisterVersion>));
   }
+  const visiting=new Set<string>();
+  const requireParent=(child:StructuralNode,inherited?:Map<string,StructuralNode>):void=>{
+   const id=child.block.parentId;if(id===null||invalid.has(id))return;
+   const current=all.get(id);if(current&&!current.retirement)return;
+   // An explicit hide remains an explicit hide. Only a withdrawn true membership
+   // can supply support, never any arbitrary retained version of the ancestor.
+   if(this.read('membership',id))return;
+   const place=version(child.binding,'placement'),parents=place&&r.transactions.get(place.txId)?.parents;
+   // A list and its items may be born in one transaction. Their chain was
+   // witnessed together by the descendant, not in that constructor's parents.
+   const basis=inherited?.get(child.block.id)?.binding.placementVersionId===child.binding.placementVersionId?inherited:parents?.length?historical(parents):undefined;
+   const witness=basis?.get(id);if(!basis||!witness||richBlockLeaf(witness.block.type))return;
+   const membership=version(witness.binding,'membership'),retired=membership&&r.activation(membership.id);
+   if(!membership||membership.value!==true||!retired||retired.enabled||!r.complete(retired.txId))return;
+   const prior=r.transactions.get(retired.txId)?.parents;if(!prior?.length)return;
+   const values=r.atFrontier(prior,view=>{
+    if(view.winner(this.root('membership'),id)?.id!==membership.id)return undefined;
+    const picked={} as Record<Write['name'],RegisterVersion>;
+    for(const name of ['kind','attrs','membership','placement'] as const){
+     const active=r.winner(this.root(name),id),old=view.winner(this.root(name),id,value=>{
+      const activation=r.activation(value.id);return activation?.enabled===true||activation?.enabled===false&&activation.txId===retired.txId;
+     }),off=old&&r.activation(old.id);
+     // Values independently undone after B's witness are not resurrected. The
+     // fallback must belong to the SAME withdrawal as the required membership.
+     const value=active??(old&&off?.enabled===false&&off.txId===retired.txId?old:undefined);
+     if(!value?.present)return undefined;picked[name]=value;
+    }
+    return picked;
+   });
+   if(!values)return;
+   const support=assemble(id,values);support.retirement=retired.txId;
+   if(current&&!equal(current,support)){invalid.add(id);all.delete(id);return;}
+   all.set(id,support);
+   if(visiting.has(id)){invalid.add(id);all.delete(id);return;}visiting.add(id);
+   requireParent(support,basis);visiting.delete(id);
+   if(support.block.type==='toggle'){
+    const summaries=[...basis.values()].filter(v=>v.block.parentId===id&&v.block.slot==='summary');
+    if(summaries.length!==1){invalid.add(id);all.delete(id);return;}
+    const summary=summaries[0],seen=summaryWitness.get(id);if(seen&&seen!==summary.block.id){invalid.add(id);all.delete(id);return;}summaryWitness.set(id,summary.block.id);
+    const represented=[...all.values()].filter(v=>v.block.parentId===id&&v.block.slot==='summary');
+    if(represented.length===1&&represented[0].block.id===summary.block.id)return;
+    const leaf=all.get(summary.block.id),oldPlace=version(summary.binding,'placement'),now=leaf&&version(leaf.binding,'placement'),off=oldPlace&&r.activation(oldPlace.id);
+    const beforeWithdrawal=oldPlace&&r.atFrontier(prior,view=>view.winner(this.root('placement'),summary.block.id)?.id===oldPlace.id);
+    if(represented.length||!leaf||!richBlockLeaf(leaf.block.type)||!oldPlace||!now||off?.enabled!==false||off.txId!==retired.txId||!beforeWithdrawal||!r.ancestors(oldPlace.txId).has(now.txId)){
+     invalid.add(id);all.delete(id);return;
+    }
+    // Required-slot support may retain an observed placement that Undo reverted
+    // to its ancestor. A later/concurrent placement, even byte-equal, wins.
+    all.set(leaf.block.id,{block:{...leaf.block,...convergenceClone(oldPlace.value) as unknown as RichBlockPlacement},binding:{...leaf.binding,placementVersionId:oldPlace.id}});
+   }
+  };
+  for(const child of [...all.values()])requireParent(child);
+  for(const id of invalid)all.delete(id);
+  return all;
+ }
+ project(rich:RichView):{data:RichBlockDocument;bindings:RichBlockBindings;rich:RichView} {
+  const structure=this.structure(),all=new Map<string,RichBlock>(),leaves=new Map(rich.data.content.map(p=>[p.id,p]));
+  for(const[key,{block}]of structure){const leaf=leaves.get(key);if(richBlockLeaf(block.type)&&!leaf)throw Error('local_tool_blocks_dependency_missing');all.set(key,{...block,...(richBlockLeaf(block.type)?{content:convergenceClone(leaf!.content)}:{})});}
   // A known hidden ancestor omits a branch. Cycles remain finite raw catalogues.
-  const visible=(b:RichBlock)=>{const seen=new Set([b.id]);let parent=b.parentId;while(parent!==null){if(seen.has(parent))return true;seen.add(parent);const ancestor=all.get(parent);if(!ancestor)return false;parent=ancestor.parentId;}return true;};
+  const visible=(b:RichBlock)=>{const seen=new Set([b.id]);let parent=b.parentId;while(parent!==null){if(seen.has(parent))return true;seen.add(parent);const ancestor=all.get(parent);if(!ancestor)return this.read('membership',parent)?.value!==false;parent=ancestor.parentId;}return true;};
   const blocks=[...all.values()].filter(visible).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0),ids=new Set(blocks.filter(b=>richBlockLeaf(b.type)).map(b=>b.id));
   const filtered={data:{type:'doc' as const,content:rich.data.content.filter(p=>ids.has(p.id))},bindings:{nodes:rich.bindings.nodes.filter(p=>ids.has(p.id))}};
   // Text and its bindings follow catalogue IDs, independently of intrinsic paragraph order.
   filtered.data.content=blocks.filter(b=>richBlockLeaf(b.type)).map(b=>filtered.data.content.find(p=>p.id===b.id)!);
   filtered.bindings.nodes=filtered.data.content.map(p=>filtered.bindings.nodes.find(n=>n.id===p.id)!);
-  return{data:{type:'block-doc',schema:BLOCK_SCHEMA,blocks},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>this.binding(b.id))},rich:filtered};
+  return{data:{type:'block-doc',schema:BLOCK_SCHEMA,blocks},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
  }
  check(data:RichBlockDocument,bindings:RichBlockBindings):void {
   validateRichBlockDocument(data);
