@@ -2044,6 +2044,6 @@ Revisión:42blobs aprobados y Main exactos; no instalación de ejecutable, parid
 - [x] Implementar identidad local explícita, vínculos de host, SSE/POST en renderer existente y hooks sin awareness durable.
 - [x] Integrar UI compartir, MCP readonly sin join, punteros/caret conocido y follow local; mantener abierta sincronización de borradores1913.
 - [x] Probar lifecycle/scopes/clones/reconexión, corregir tres P2 independientes y verificar Source/SSE, Brave y nuevo Native14tools/22RPC/14IPC con89zero y recursos cerrados.
-- [ ] Entregar commit33/revisión formal e integrar con Root; mantener1913/1917 y paridad global abiertos, sin push.
+- [x] Entregar commit33 bc4d4076, aprobar revisión1 e integrar con Root; mantener1913/1917 y paridad global abiertos, sin push.
 
 Criterio: contrato2079 y research-inbox/writer-presence1893/LINK-FLOW-r2; no equivaler clavesMCP a personas ni importar awareness como contenido.
