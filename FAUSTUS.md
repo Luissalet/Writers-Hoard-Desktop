@@ -389,3 +389,6 @@ Las herramientas Source locales pueden declarar un perfil propio de texto enriqu
 
 
 El resumen del proyecto y la paleta permiten crear una línea temporal o un tablero de corcho a partir del título, además de escritos, notas y esquemas. Las opciones respetan los motores habilitados; la creación y la apertura conservan la era del panel, donde los esquemas no están disponibles. MCP ofrece las mismas opciones y Deshacer normal. [Uso y pruebas](tasks/vvd1095/verification-quick-create-engines.md#delivery44a4d4af). Fuente44a4d4af integrada Main, equivalente exacta al patch e42ac635 aprobado en1882r1. Rich67 y la mejora de rutas e247b504 también están Main; bloques compartidos1883 y cache RAW posterior siguen sólo en desarrollo, sin paridad global.
+
+
+La cache privada de proyección de la réplica también está integrada en Source7d3f1365, aprobada1796r4. Reutiliza lecturas sin cambios e invalida por transacción/contexto, manteniendo copias públicas y las reglas históricas. Pruebas normales, Brave y un nuevo MCP Native con dos claves pasan; no hay una nueva medición100/50k ni aceptación de fluidez. Supera las notas anteriores de cache sólo Stage. Bloques1883 y borradores publicados1890 siguen aislados, pendientes de sus revisiones y aceptación completas. [Evidencia y límites](tasks/vvd1095/verification-sdk-rich-prose.md#private-replica-projection-source7d3f1365).
