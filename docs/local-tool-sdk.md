@@ -865,6 +865,31 @@ In author tests, `createFakeLocalToolHost` owns an independent membership regist
 [Attributed checks, preserved failures and delivery status](../tasks/vvd1095/verification-sdk-open-documents.md). Writer signatures differ from the upstream reference; this bounded saved-Source capability does not close SDK34, all Host queries, character-level prose collaboration, presence or hosting.
 
 
+## Explicit draft fields from a Source pane
+
+The saved `openDocuments.query` contract above is unchanged. An editable normal Source document host additionally supplies optional `context.documentFields` with its actual `instanceId` and `publish(data):()=>void`. Publication is explicit, copied JSON in the existing ephemeral registry; it neither saves nor inspects another component's React state. Owned/legacy/headless clients do not acquire a producer by reading or querying.
+
+```ts
+import {useLocalToolDocumentFields, useLocalToolPublishedOpenDocuments} from '@/engines/local/sdk';
+// Pass the author's own draft only after its explicit opt-in; undefined withdraws.
+const publication = useLocalToolDocumentFields(context, sharing ? draft : undefined);
+const projected = useLocalToolPublishedOpenDocuments(client, {
+  namespace: 'my.counter',
+  fields: {points: {path: '$.score', type: 'number'}},
+});
+// Before the author's Discard action, then clear its own draft and reload:
+publication.clear();
+```
+
+Imperatively, check `client.openDocuments?.queryPublished` and call it with the same selectors plus optional `instanceId`. The hook reports `local_tool_published_open_documents_unavailable` for an older port. Each published row has an obligatory `instanceId`; two mounts of one document can return two different drafts. No arbitrary latest-instance winner is chosen. Metadata title/provenance describes the effective saved Source, while fields come from that instance's explicit publication. Values retain the existing strict index types/modes, and only selected fields are returned as detached frozen copies. Publication accepts ordinary JSON under the incumbent state byte budget, not a codec, callback, validator decision or Y.Doc.
+
+A new publication replaces only its own host token. A returned old revoker cannot retire a newer publication. Discard must explicitly clear publication; the host cannot infer arbitrary author buttons. `client.save` captures its instance's token before any await and retires that token only on successful outer transaction commit. A failed/aborted Save, another mount's draft or a newer edit during Save remains published. Unmount, retarget or loss of edit authority/lease revokes the producer even if a readonly draft presentation is retained. Captures are revalidated after the final await; close/republication does not rescue an old query.
+
+MCP `wh_local_tool_open_document_query` remains readonly and defaults to `source:'saved'`. Pass `source:'published'` for explicit publications and optionally `instanceId` to select one host. No headless producer is created; an available empty scope returns `[]`. The kit adds explicit `host.mountDocumentPublisher(scope,id)` returning `documentFields`, its instance-bound `client`, and `dispose`; ordinary `mountDocument` retains saved membership only. Neither `createClient` nor `read` publishes.
+
+The installed `examples.published-fields` Source demonstrates two pane drafts, explicit Publish, Discard and ordinary Save using these hooks. Existing Source packages do not auto-publish. [Task1890 evidence and remaining acceptance](../tasks/vvd1095/verification-sdk-published-fields.md). This own opt-in extension does not establish the reference provider's undocumented draft policy or close SDK34/1095.
+
+
 ## Opt-in plain UTF16 text
 
 A source tool can declare a plain field with `{kind:'prose', collaboration:'plain-utf16/1'}`. The codec descriptor remains `{version:1,fields:...}`; the causal identity explicitly selects engine version 2. Unmarked prose remains an atomic string and `{kind:'prose',format:'rich'}` remains rich HTML. Rich format and plain collaboration are mutually exclusive for one field. This is an own API, not an upstream rich-text hook or binding.

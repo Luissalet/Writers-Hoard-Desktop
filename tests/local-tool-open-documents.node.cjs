@@ -36,7 +36,7 @@ if(process.argv[2]==='--worker'){
  const report={ok:false,directory,scope:'Pure membership/projector and explicit author memory host; no DB/Native/browser coverage',groups};
  void(async()=>{
   assertGraphGuards();
-  for(const [name,filename,exported]of [['core','local-tool-open-documents.core.node.ts','testLocalToolOpenDocumentsCore'],['kit','local-tool-open-documents.kit.node.ts','testLocalToolOpenDocumentsKit']]){
+  for(const [name,filename,exported]of [['core','local-tool-open-documents.core.node.ts','testLocalToolOpenDocumentsCore'],['kit','local-tool-open-documents.kit.node.ts','testLocalToolOpenDocumentsKit'],['published','local-tool-published-documents.node.ts','testLocalToolPublishedDocuments']]){
    const built=await build({entryPoints:[path.join(root,'tests',filename)],bundle:true,platform:'node',format:'cjs',target:'node22',alias:{'@':path.join(root,'src')},write:false,metafile:true,logLevel:'error'});
    const inputs=Object.keys(built.metafile.inputs).map(file=>path.resolve(root,file));
    const forbidden=inputs.filter(file=>applicationGraph.test(graphName(file)));

@@ -22,8 +22,20 @@ export interface LocalToolOpenDocumentRow {
   readonly provenance: 'base' | 'variant';
   readonly fields: Readonly<Record<string, LocalToolIndexPrimitive | readonly LocalToolIndexPrimitive[]>>;
 }
+export interface LocalToolPublishedOpenDocumentQuery extends LocalToolOpenDocumentQuery {
+  readonly instanceId?: string;
+}
+export interface LocalToolPublishedOpenDocumentRow extends LocalToolOpenDocumentRow {
+  readonly instanceId: string;
+}
+/** Explicit producer port issued only to a current editable Source host. */
+export interface LocalToolDocumentFields {
+  readonly instanceId: string;
+  publish(data: LocalToolJson): () => void;
+}
 export interface LocalToolOpenDocuments {
   query(input: LocalToolOpenDocumentQuery): Promise<readonly LocalToolOpenDocumentRow[]>;
+  queryPublished?(input: LocalToolPublishedOpenDocumentQuery): Promise<readonly LocalToolPublishedOpenDocumentRow[]>;
   subscribe(changed: () => void): () => void;
 }
 /** Structural subset of SourceToolRead, so production and explicit memory fixtures share the projector. */
@@ -116,6 +128,17 @@ export function normalizeLocalToolOpenDocumentQuery(value: unknown): LocalToolOp
 export function validateLocalToolOpenDocumentQuery(value: unknown): asserts value is LocalToolOpenDocumentQuery {
   normalizeLocalToolOpenDocumentQuery(value);
 }
+export function normalizeLocalToolPublishedOpenDocumentQuery(value: unknown): LocalToolPublishedOpenDocumentQuery {
+  const properties = queryRecordDescriptors(value);
+  let instanceId: string | undefined, candidate = value;
+  if (properties && Object.hasOwn(properties, 'instanceId')) {
+    const property = queryDataDescriptor(properties, 'instanceId');
+    if (!property || property.value !== undefined && (typeof property.value !== 'string' || !property.value)) throw Error('local_tool_open_document_instance_invalid');
+    instanceId = property.value; delete properties.instanceId;
+    candidate = Object.create(null, properties);
+  }
+  return {...normalizeLocalToolOpenDocumentQuery(candidate), ...(instanceId === undefined ? {} : {instanceId})};
+}
 function queryCopy(query: LocalToolOpenDocumentQuery): LocalToolOpenDocumentQuery {
   return normalizeLocalToolOpenDocumentQuery(query);
 }
@@ -136,6 +159,19 @@ function rowCopy(read: LocalToolOpenDocumentRead, query: LocalToolOpenDocumentQu
 /** One factory per actual host environment; no process-wide producer singleton is created here. */
 export function createLocalToolOpenDocumentRegistry() {
   const members = new Map<symbol, Member>();
+  type Publication = {scope: LocalToolOpenDocumentScope; scopeKey: string; documentId: string; namespace: string; instanceId: string; token: symbol; data: LocalToolJson};
+  const publications = new Map<symbol, Publication>();
+  const publishedCaptures = new WeakMap<LocalToolOpenDocumentCapture, {scope: LocalToolOpenDocumentScope; rows: readonly {owner: symbol; publication: Publication}[]}>();
+  const publicationLive = (owner: symbol, publication: Publication) => publications.get(owner)?.token === publication.token;
+  function publishedState(handle: LocalToolOpenDocumentCapture) {
+    const state = publishedCaptures.get(handle);
+    if (!state) throw Error('local_tool_open_document_capture_invalid');
+    return state;
+  }
+  function revalidatePublishedCaptured(handle: LocalToolOpenDocumentCapture, rows: readonly LocalToolPublishedOpenDocumentRow[]) {
+    const state = publishedState(handle);
+    return Object.freeze(rows.filter(row => state.rows.some(({owner, publication}) => row.instanceId === publication.instanceId && row.id === publication.documentId && row.namespace === publication.namespace && publicationLive(owner, publication))));
+  }
   const listeners = new Map<string, Set<() => void>>();
   const captures = new WeakMap<LocalToolOpenDocumentCapture, CapturedState>();
   function changed(key: string) {
@@ -158,6 +194,44 @@ export function createLocalToolOpenDocumentRegistry() {
     return Object.freeze(retained);
   }
   return Object.freeze({
+    /** Host-only: creating a port does not publish data or saved membership. */
+    createPublisher(scope: LocalToolOpenDocumentScope, documentId: string, namespace: string, instanceId: string) {
+      const ownScope = scopeCopy(scope), key = scopeKey(ownScope), owner = Symbol('local-tool-field-producer');
+      if (typeof documentId !== 'string' || !documentId || !localToolNamespace(namespace) || typeof instanceId !== 'string' || !instanceId) throw Error('local_tool_open_document_identity_invalid');
+      let active = true;
+      const retire = (token: symbol | undefined) => {if (token !== undefined && publications.get(owner)?.token === token) {publications.delete(owner); changed(key);}};
+      const capture = () => {const token = publications.get(owner)?.token; return () => retire(token);};
+      return Object.freeze({
+        instanceId,
+        publish(data: LocalToolJson) {
+          if (!active) throw Error('local_tool_context_expired');
+          const copied = cloneLocalToolJson(data), token = Symbol('local-tool-field-publication');
+          publications.set(owner, {scope: ownScope, scopeKey: key, documentId, namespace, instanceId, token, data: copied}); changed(key);
+          return () => retire(token);
+        },
+        capture,
+        dispose() {active = false; capture()();},
+      });
+    },
+    capturePublished(scope: LocalToolOpenDocumentScope, namespace?: string, instanceId?: string): LocalToolOpenDocumentCapture {
+      const ownScope = scopeCopy(scope), key = scopeKey(ownScope);
+      if (namespace !== undefined && !localToolNamespace(namespace) || instanceId !== undefined && (typeof instanceId !== 'string' || !instanceId)) throw Error('local_tool_open_document_query_invalid');
+      const rows = [...publications].filter(([, row]) => row.scopeKey === key && (namespace === undefined || row.namespace === namespace) && (instanceId === undefined || row.instanceId === instanceId)).map(([owner, publication]) => ({owner, publication}));
+      const handle = Object.freeze({[captureBrand]: true as const}); publishedCaptures.set(handle, {scope: ownScope, rows}); return handle;
+    },
+    async projectPublishedCaptured(handle: LocalToolOpenDocumentCapture, input: LocalToolPublishedOpenDocumentQuery, reader: LocalToolOpenDocumentReader): Promise<readonly LocalToolPublishedOpenDocumentRow[]> {
+      const state = publishedState(handle), query = normalizeLocalToolPublishedOpenDocumentQuery(input);
+      const rows = await Promise.all(state.rows.filter(({publication}) => (query.namespace === undefined || publication.namespace === query.namespace) && (query.instanceId === undefined || publication.instanceId === query.instanceId)).map(async ({publication}) => {
+        const read = await reader(state.scope, publication.documentId, publication.namespace);
+        if (!read || read.document.id !== publication.documentId || read.document.namespace !== publication.namespace) return undefined;
+        const row = rowCopy({...read, document: {...read.document, data: publication.data}}, query);
+        return Object.freeze({...row, instanceId: publication.instanceId});
+      }));
+      const projected = rows.filter((row): row is LocalToolPublishedOpenDocumentRow => row !== undefined);
+      projected.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id) || a.namespace.localeCompare(b.namespace) || a.instanceId.localeCompare(b.instanceId));
+      return revalidatePublishedCaptured(handle, projected);
+    },
+    revalidatePublishedCaptured,
     register(scope: LocalToolOpenDocumentScope, documentId: string, namespace: string): () => void {
       const ownScope = scopeCopy(scope);
       if (typeof documentId !== 'string' || !documentId || !localToolNamespace(namespace)) {
