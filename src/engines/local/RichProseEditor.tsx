@@ -6,13 +6,16 @@ import {useTranslation} from '@/i18n/useTranslation';
 import {registerPendingFlusher} from '@/services/pendingWrites';
 import type {LocalToolClient,LocalToolHostContext,LocalToolJson,LocalToolSnapshot} from './sdk';
 import type {LocalToolRichProseProps} from './RichProse';
+import type {LocalToolCollaborativeRichProps} from './CollaborativeRich';
+import CollaborativeRichRenderer from './collaborativeRich/Renderer';
+import type {LocalToolDefinition} from './sdk';
 import type {LocalToolStateCodec} from './stateCodec';
 import {MAX_LOCAL_TOOL_STATE_BYTES,localToolJsonText} from './stateTypes';
 import {useLocalToolState} from './useLocalToolState';
 import {richProseHtml} from './richProseHtml';
 
 /** One capability per client lease; no state revision participates in the React key. */
-export function useRichProseHostContext(context:LocalToolHostContext,client:LocalToolClient<LocalToolJson>|undefined,codec:LocalToolStateCodec|undefined):LocalToolHostContext{
+export function useRichProseHostContext(context:LocalToolHostContext,client:LocalToolClient<LocalToolJson>|undefined,codec:LocalToolStateCodec|undefined,definition?:LocalToolDefinition):LocalToolHostContext{
  const codecText=JSON.stringify(codec??null),{view,canEdit,scope,document}=context,projectId=scope.projectId,eraId=scope.eraId,documentId=document?.id,namespace=document?.namespace,title=document?.title;
  // A document keeps presentation through a lease rebind; the fresh client still owns all reads/writes.
  const identity=documentId?JSON.stringify([projectId,eraId??null,namespace,documentId,view]):client;
@@ -20,7 +23,10 @@ export function useRichProseHostContext(context:LocalToolHostContext,client:Loca
  return useMemo(()=>{const canonical=JSON.parse(codecText) as LocalToolStateCodec|null;return{view,canEdit,scope:{projectId,eraId},...(documentId&&namespace?{document:{id:documentId,namespace,title:title??''}}:{}),renderRichProse:(props:LocalToolRichProseProps)=>{
   const descriptor=canonical?.fields[props.field];if(props.client!==client||descriptor?.kind!=='prose'||descriptor.format!=='rich')return <p role="status">{props.context?.canEdit?'Rich prose is not declared for this field.':'Rich prose is read only.'}</p>;
   return <RichProseEditor key={binding.id+':'+props.field} {...props} readOnly={!canEdit}/>;
- }};},[binding,codecText,view,canEdit,projectId,eraId,documentId,namespace,title,client]);
+ },renderCollaborativeRich:(props:LocalToolCollaborativeRichProps)=>{
+  const descriptor=canonical?.fields[props.field];if(props.client!==client||!definition||!documentId||descriptor?.kind!=='rich'||descriptor.profile!=='paragraphs-inline/1')return <p role="status">Collaborative rich text is not declared for this Source field.</p>;
+  return <CollaborativeRichRenderer key={binding.id+':collaborative:'+props.field} {...props} definition={definition} readOnly={!canEdit||props.editable===false}/>;
+ }};},[binding,codecText,view,canEdit,projectId,eraId,documentId,namespace,title,client,definition]);
 }
 interface Draft {html:string;baseline:LocalToolSnapshot<LocalToolJson>}
 const button='min-h-9 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold disabled:opacity-50';

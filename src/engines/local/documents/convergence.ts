@@ -4,7 +4,7 @@ import type {WorldEraScope} from '@/services/worldEras/types';
 import type {LocalToolDefinition,LocalToolJson,LocalToolSnapshot,LocalToolStateAction} from '../sdk';
 import type {LocalToolConvergenceCheckpoint,LocalToolConvergencePreparation,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolReplicaOptions} from '../convergence/types';
 import {convergenceHash} from '../convergence/format';
-import {createLocalToolGenesis,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,captureLocalToolPlainRange} from '../convergence/replica';
+import {createLocalToolGenesis,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
 export type {SourceConvergenceOptions} from './store';
@@ -66,8 +66,9 @@ async function prepare<T extends LocalToolJson>(scope:WorldEraScope,id:string,de
   });return result(scope,id,definition,plan);
  });
 }
-export function importSourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,update:LocalToolConvergenceUpdate,options:SourceConvergenceOptions){
- return prepare(scope,id,definition,options,(_read,inherited)=>{
+export function importSourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,update:LocalToolConvergenceUpdate,options:SourceConvergenceOptions,guard?:import('../convergence/clientTypes').LocalToolConvergenceImportOptions){
+ return prepare(scope,id,definition,options,(read,inherited)=>{
+  if(guard?.expectedLineage!==undefined&&(typeof guard.expectedLineage!=='string'||!guard.expectedLineage||guard.expectedLineage!==read.lineage))throw Error('source_tool_document_lineage_conflict');
   if(inherited)throw Error('local_tool_convergence_era_start_required');
  },(_read,checkpoint,replicaOptions)=>prepareLocalToolReceive(checkpoint,replicaOptions,update));
 }
@@ -93,5 +94,22 @@ export function readSourceToolPlainRange<T extends LocalToolJson>(scope:WorldEra
   const contract=sourceConvergenceContract(read.document,definition,options),captured=captureLocalToolPlainRange(checkpoint,{authorId:options.authorId,contract},field,from,to);
   if(convergenceHash(captured.data)!==convergenceHash(read.document.data))throw Error('source_tool_convergence_projection_mismatch');
   return{snapshot:sourceToolSnapshot(read,definition,false),range:captured.range};
+ });
+}
+
+/** Capture and snapshot share a readonly Source transaction and never grant Undo. */
+export function readSourceToolRichCapture<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,request:import('../convergence/richTypes').RichCaptureRequest,options:SourceConvergenceOptions){
+ return db.transaction('r',[db.projects,db.worldEraVariants],async()=>{
+  const read=source(await readSourceToolDocument(scope,id,definition.namespace),id,definition.namespace),checkpoint=read.document.convergence?.checkpoint;
+  if(!checkpoint)throw Error('local_tool_convergence_not_started');const contract=sourceConvergenceContract(read.document,definition,options),captured=captureLocalToolRich(checkpoint,{authorId:options.authorId,contract},request);
+  if(convergenceHash(captured.data)!==convergenceHash(read.document.data))throw Error('source_tool_convergence_projection_mismatch');return{snapshot:sourceToolSnapshot(read,definition,false),capture:captured.capture};
+ });
+}
+
+export function readSourceToolRichPoint<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,point:import('../convergence/richTypes').RichRange,options:SourceConvergenceOptions){
+ return db.transaction('r',[db.projects,db.worldEraVariants],async()=>{
+  const read=source(await readSourceToolDocument(scope,id,definition.namespace),id,definition.namespace),checkpoint=read.document.convergence?.checkpoint;
+  if(!checkpoint)throw Error('local_tool_convergence_not_started');const contract=sourceConvergenceContract(read.document,definition,options),resolved=resolveLocalToolRichPoint(checkpoint,{authorId:options.authorId,contract},point);
+  if(convergenceHash(resolved.data)!==convergenceHash(read.document.data))throw Error('source_tool_convergence_projection_mismatch');return{snapshot:sourceToolSnapshot(read,definition,false),point:resolved.point};
  });
 }

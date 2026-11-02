@@ -74,7 +74,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  useEffect(()=>registerEnginePaneScope(instanceId,{projectId,eraId,navigate}),[instanceId,projectId,eraId,navigate]);
  const changeFullscreen=async(next:boolean)=>{if(busy)return;setBusy(true);setBlocked(false);try{const result=await flushPendingWrites();if(alive.current){if(result.ok)setFullscreen(next);else setBlocked(true);}}finally{if(alive.current)setBusy(false);}};
  const semantic=document?sourceDocumentPreview(document,locale):{title:'',fields:[]},preview=useLocalToolAssetPreview(semantic,projectId,document?.namespace??'',eraId);
- const context=useRichProseHostContext({view,canEdit,scope:{projectId,eraId},...(document?{document:{id:documentId,namespace:document.namespace,title:document.title}}:{})},client,document?.codec);
+ const context=useRichProseHostContext({view,canEdit,scope:{projectId,eraId},...(document?{document:{id:documentId,namespace:document.namespace,title:document.title}}:{})},client,document?.codec,definition);
  if(ancestors.includes(identity))return <p className="text-sm text-text-muted">{es?'Referencia circular al documento abierto.':'Circular reference to the open document.'}</p>;
  if(!record)return <p role="status">{es?'Cargando documento…':'Loading document…'}</p>;
  if(!document)return showUnavailable?<p role="alert">{es?'El documento no está disponible en este contexto.':'This document is unavailable in this context.'}</p>:null;

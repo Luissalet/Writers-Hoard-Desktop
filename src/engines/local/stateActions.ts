@@ -1,6 +1,6 @@
 import {cloneLocalToolJson,type LocalToolJson} from './stateTypes';
 import {localToolFieldKey,validateLocalToolCodecState,type LocalToolStateCodec} from './stateCodec';
-export type LocalToolStateAction=
+export type LocalToolStateAction=import('./convergence/richTypes').RichAction
  |{type:'text-splice';field:string;range:import('./convergence/types').LocalToolPlainRange;text:string}
  |{type:'set';field:string;value:LocalToolJson}|{type:'unset';field:string}
  |{type:'map-set';field:string;key:string;value:LocalToolJson}|{type:'map-delete';field:string;key:string}
@@ -12,10 +12,10 @@ const equal=(a:unknown,b:unknown):boolean=>{if(a===b)return true;if(!a||!b||type
 export {equal as localToolStateEqual};
 /** Three-way merge only the identities an action changes. Other fields/keys/items survive. */
 export function mergeLocalToolActions<T extends LocalToolJson>(codec:LocalToolStateCodec,baseline:T,current:T,actions:readonly LocalToolStateAction[]):{data:T;inverse:LocalToolStateAction[]}{
- validateLocalToolCodecState(baseline,codec);validateLocalToolCodecState(current,codec);const safeActions=cloneLocalToolJson(actions as unknown as LocalToolJson) as unknown as LocalToolStateAction[];if(!Array.isArray(actions)||!actions.length)throw Error('local_tool_actions_invalid');
+ validateLocalToolCodecState(baseline,codec);validateLocalToolCodecState(current,codec);const safeActions=cloneLocalToolJson(actions as unknown as LocalToolJson) as unknown as Exclude<LocalToolStateAction,import('./convergence/richTypes').RichAction>[];if(!Array.isArray(actions)||!actions.length)throw Error('local_tool_actions_invalid');
  const before=cloneLocalToolJson(baseline) as Record<string,LocalToolJson>,next=cloneLocalToolJson(current) as Record<string,LocalToolJson>,inverse:LocalToolStateAction[]=[];
  for(const action of safeActions){const field=action.field,descriptor=codec.fields[field];if(!localToolFieldKey(field)||!descriptor)throw Error('local_tool_action_field_invalid');const conflict=()=>{throw new LocalToolActionConflict(field);},compare=(old:unknown,actual:unknown,desired:unknown)=>{if(!equal(old,actual)&&!equal(desired,actual))conflict();};const keys=Object.keys(action),check=(allowed:string[])=>{if(keys.length!==allowed.length||keys.some(key=>!allowed.includes(key)))throw Error('local_tool_actions_invalid');};
-  if(action.type==='text-splice')throw Error('local_tool_plain_convergence_required');
+  if(descriptor.kind==='rich'||action.type.startsWith('rich-'))throw Error('local_tool_rich_convergence_required');if(action.type==='text-splice')throw Error('local_tool_plain_convergence_required');
   if(action.type==='set'||action.type==='unset'){
    check(action.type==='set'?['type','field','value']:['type','field']);if(descriptor.kind==='map'||descriptor.kind==='list')throw Error('local_tool_action_kind_invalid');const desired=action.type==='set'?action.value:undefined;compare(before[field],next[field],desired);if(!equal(next[field],desired))inverse.unshift(Object.hasOwn(next,field)?{type:'set',field,value:next[field]}:{type:'unset',field});if(desired===undefined){delete next[field];delete before[field];}else next[field]=before[field]=desired;
   }else if(action.type==='map-set'||action.type==='map-delete'){

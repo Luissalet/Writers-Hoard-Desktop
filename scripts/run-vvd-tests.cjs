@@ -104,6 +104,10 @@ if (focusNativeCheck.status !== 0 || focusNativeCheck.error) process.exit(focusN
 const tableRowsNativeCheck = spawnSync(electron, ['tests/table-row-order.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (tableRowsNativeCheck.status !== 0 || tableRowsNativeCheck.error) process.exit(tableRowsNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-collaborative-rich.binding.ts', 'testCollaborativeRichBinding', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-collaborative-rich.extensions.ts', 'testCollaborativeRichExtensions', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-collaborative-rich.baseline.tsx', 'testCollaborativeRichBaseline', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-collaborative-rich.initial-authority.tsx', 'testCollaborativeRichInitialAuthority', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-open-document-fields.layout.browser.tsx', 'testLocalToolOpenDocumentFields', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-open-document-fields.layout.browser.tsx', 'testLocalToolOpenDocumentsUnavailable', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-open-documents-recovery.browser.tsx', 'testLocalToolOpenDocumentsQueryRecovery', 240000, 'scripts/run-codex-properties-ui.cjs'],

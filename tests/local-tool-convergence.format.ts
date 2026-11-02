@@ -31,3 +31,21 @@ export function testConvergenceLargeCanonicalBytes(){
  assert.throws(()=>convergenceBytes(encoded.slice(0,-4)+'AA=A'),/local_tool_convergence_format_invalid/);
  return 'Large canonical causal bytes round-trip exactly; invalid alphabet, padding and unused bits remain rejected';
 }
+
+/** Actual host-selected encoders only; availability is recorded, never mocked or forced. */
+export function testConvergenceEncodingBytes(){
+ const host={node:typeof process==='undefined'?null:process.versions.node??null,electron:typeof process==='undefined'?null:process.versions.electron??null,nativeUint8ArrayToBase64:typeof (Uint8Array.prototype as Uint8Array & {toBase64?:()=>string}).toBase64==='function',globalBufferFrom:typeof (globalThis as typeof globalThis & {Buffer?:{from?:unknown}}).Buffer?.from==='function',atob:typeof globalThis.atob==='function',btoa:typeof globalThis.btoa==='function'};
+ let checks=0;const same=(a:unknown,b:unknown,message?:string)=>{assert.deepEqual(a,b,message);checks++;};
+ const vectors=[['',''],['f','Zg=='],['fo','Zm8='],['foo','Zm9v'],['foob','Zm9vYg=='],['fooba','Zm9vYmE='],['foobar','Zm9vYmFy']];
+ for(const[text,canonical]of vectors){const bytes=new TextEncoder().encode(text);same(convergenceBase64(bytes),canonical,'RFC4648 encoding');same(convergenceBytes(canonical),bytes,'RFC4648 decoding');}
+ const alphabet=Uint8Array.from({length:256},(_,index)=>index),allBytes='AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w==';
+ same(convergenceBase64(alphabet),allBytes,'every possible byte');same(convergenceBytes(allBytes),alphabet);same(convergenceBase64(new Uint8Array([255])),'/w==');same(convergenceBytes('AAA='),new Uint8Array([0,0]));
+ const observations:{bytes:number;offset:number;base64Chars:number}[]=[];
+ for(const size of[1,2,3,8191,8192,8193,MAX_LOCAL_TOOL_STATE_BYTES+3]){
+  const backing=new Uint8Array(size+19).fill(0xa7),view=backing.subarray(7,7+size);for(let index=0;index<view.length;index++)view[index]=(index*31+7)%256;const before=backing.slice(),copy=new Uint8Array(view),encoded=convergenceBase64(view),decoded=convergenceBytes(encoded);
+  same(encoded,convergenceBase64(copy),'view offset or neighbor bytes leaked');same(encoded.length,4*Math.ceil(size/3),'standard padding length');same(decoded,copy,'complete byte-for-byte roundtrip');same(backing,before,'input or sentinels mutated');observations.push({bytes:size,offset:view.byteOffset,base64Chars:encoded.length});
+ }
+ const invalid:unknown[]=[undefined,null,0,true,{},[], 'A','AA','AAA','AA=','AAAA=','AAAA\n',' AAAA','AAAA ','AAA\t','AAA\u2028','A===','AA=A','====','AB==','AAB=','/x==','____','_w==','-w==','éAAA'];
+ for(const value of invalid){assert.throws(()=>convergenceBytes(value as string),/local_tool_convergence_format_invalid/);checks++;}
+ return{ok:true,checks,rfc4648Vectors:vectors.length,allByteValues:256,observations,invalidCases:invalid.length,hostCapabilities:host,forcedBranches:false,encoderBranchProved:false,purpose:'Actual functions in this host only; a Node result does not establish Brave/native/fallback coverage'};
+}
