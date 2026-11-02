@@ -1,3 +1,4 @@
+import {queryLocalToolPresence} from './presence/query';
 import {recordRuntimeError,runtimeErrorIdentity} from './runtimeErrors';
 import {LOCAL_CONVERGENCE_HANDLERS} from './convergence/bridge';
 import {LOCAL_RUNTIME_HANDLERS} from './runtimeBridge';
@@ -40,6 +41,7 @@ export const LOCAL_TOOL_HANDLERS={
  ...LOCAL_AUDIO_HANDLERS,
  ...LOCAL_ASSET_HANDLERS,
  ...LOCAL_TOOL_BLOCK_HANDLERS,
+ async wh_local_tool_presence_query(args:ToolArgs){return queryLocalToolPresence({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'namespace'),requireString(args,'documentId'));},
  async wh_local_tool_open_document_query(args:ToolArgs){const source=optString(args,'source')??'saved';if(!['saved','published'].includes(source)||source==='saved'&&Object.hasOwn(args,'instanceId'))throw Error('local_tool_open_document_query_invalid');const query=Object.fromEntries(['namespace','fields',...(source==='published'?['instanceId']:[])].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));const port=createBrowserLocalToolOpenDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')});return{documents:await(source==='published'?port.queryPublished!(query as unknown as LocalToolOpenDocumentQuery):port.query(query as unknown as LocalToolOpenDocumentQuery))};},
  async wh_local_tool_document_query(args:ToolArgs){const query=Object.fromEntries(['namespace','where','reference','offset','limit'].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));return{documents:await queryLocalToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},query)};},
  async wh_local_tool_document_list(args:ToolArgs){return{documents:await listSourceToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'namespace'))};},

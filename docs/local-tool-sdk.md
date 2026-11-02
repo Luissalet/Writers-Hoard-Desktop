@@ -1015,3 +1015,33 @@ The finite catalogue is sorted by block ID; its parentId/slot/afterId placements
 Public document/replica capture methods are `richBlockCapture`, `richBlockMoveCapture`, `richBlockEditCapture`, `richBlockSplitCapture` and `richBlockJoinCapture`. Matching readonly MCP tools use `wh_local_tool_rich_block_*_capture`. Apply the unchanged returned capture with `rich-block-wrap/move/insert/transform/container/hide/unwrap/list-indent/split/join` through normal `state.apply`; start/export/import and author Undo remain the existing APIs. Split/join prove tree adjacency at the captured frontier before reusing text routing. Whole-field replacement and legacy paragraph structural commands are not block editing operations.
 
 This first schema declares these node kinds and five marks; it does not persist arbitrary callbacks or arbitrary Node/Mark extensions. A future declared schema/version can extend that contract. Multi-block arbitrary PM paste/drag transformations, physical IME, images/tables/links in this shared profile, portable custom rendering, presence and large-history interactive performance remain separate work. [Delivery verification and exact limits](../tasks/vvd1095/verification-shared-blocks1883.md). New Native93 verifies the combined SourceHost, normal editor Save and cold reopening, including saved/published coexistence without opt-in publications. Empty-list Enter remains follow-up1895; this does not close global parity.
+
+
+
+## Local document presence
+
+Source document hosts can share ephemeral presence through the renderer's existing local HTTP listener. Use **Share local session** in the document header to choose a local profile (name and color), create a session, and copy its link. Another view uses that link and its own profile. The normal project ZIP importer prepares a compatible document in a second library; JSON import and Duplicate create a new causal identity and cannot be relabelled as that document.
+
+This is local chosen identity, independent of Google login, a replica author ID or an MCP key. The same profile counts as one person while its connections and Source instances remain distinct. Changing people applies to shared views in that window and closes their previous memberships. Creating or selecting a profile explicitly updates normal preferences; mounting a hook and querying presence do not create profiles or write activity.
+
+```tsx
+const presence = useLocalToolDocumentPresence(client, context)
+// { status: 'unavailable' | 'connecting' | 'ready' | 'disconnected', peers }
+// peer: { userId, name, color, avatarMediaId?, isSelf, state, connections }
+
+const { peers, setLocal } = useLocalToolCollabPresence(client, context)
+setLocal({ selectedField: 'notes', pointer: { x: 10, y: 20 } })
+setLocal(null) // withdraw only this hook's publication
+```
+
+These functions are optional host capabilities. A null client, Owned block, published snapshot or host without a presence port returns an unavailable empty list. Keep the tool useful in that case. `useLocalToolDocumentPresenceById(client, { namespace, documentId })` observes existing Source memberships in the client's exact project/era and never opens a document or another network connection. `useLocalToolDocumentAwareness(client, context)` returns the optional leased port (`getSnapshot`, `subscribe`, `setLocal`, `publish`); it is Writer's protocol, not a Yjs Awareness object.
+
+Payloads are explicit detached JSON. Invalid JSON keeps the previous valid publication. Old cleanup and callbacks after retarget cannot withdraw a new binding's state. `publish(value)` returns an ownership-aware revoker; `useLocalToolCollabPresence` manages it through unmount and StrictMode. A person with several views exposes all identified `connections`; the person's summarized state belongs to the view selected by host focus/pointer activity, and remains null when no single active view has been selected.
+
+The viewport host draws remote pointers and offers **Follow** for a specific connection. Local wheel, keyboard or pointer action cancels following. The shared rich editor draws carets and selection highlights from causal point captures already known to its replica. Unknown units, incompatible identity or detached points hide that decoration. Awareness never calls `receive`, `import`, Save or Undo to make a point resolvable.
+
+One SSE stream per renderer and normal POST updates use the same actual renderer listener in development and the packaged application. No extra production port, daemon, external API or paid service is required. The stream is independent of the optional MCP bridge switch. Standalone static hosting without this local listener reports unavailable transport; a localhost link is not a link to another computer. Disconnect/unmount/retarget withdraw sessions; reconnection uses a fresh connection and does not restore old payloads from disk.
+
+`wh_local_tool_presence_query({projectId, eraId?, namespace, documentId})` reads the existing host projection without joining or opening a document. Two MCP keys read the same people; keys do not become peers. Presence is absent from document state, checkpoints, dirty state, Save, Undo, snapshots, history and backups. Profile preferences are separate explicit metadata. [Attributed checks and remaining limits](../tasks/vvd1095/verification-sdk-presence.md).
+
+Live exchange of document content is separate work (1913). This presence channel does not make an unsaved edit in one library appear in another.

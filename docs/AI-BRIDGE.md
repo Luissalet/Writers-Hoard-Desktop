@@ -2819,3 +2819,8 @@ Fases de incidencia: load,factory,prepare,persist,publish,notify,render,operatio
 
 
 Source draft field projection (task1890): `wh_local_tool_open_document_query` adds optional `source:'saved'|'published'` and `instanceId` for published mode. Omit source to retain the saved, document-deduplicated query. Published mode reads only explicit live Source-host publications, returning one row per instance with typed selected fields; no Save, flush, new storage or phantom headless mount. It stays readonly. The public SDK publisher/query/hooks and the `examples.published-fields` Source share this projection. See [the bounded contract and evidence](../tasks/vvd1095/verification-sdk-published-fields.md); authenticated transport and Root Brave acceptance have separate receipts.
+
+
+### Ephemeral Source presence
+
+`wh_local_tool_presence_query` is readonly. Pass `projectId`, optional `eraId`, `namespace` and `documentId`. It reports `status` and the existing host instances with room/peer snapshots, including stable person IDs and identified connections. It does not open a document, choose/create a profile, join a session, publish state, receive causal document updates or save anything. No active host produces an unavailable empty projection. Project/era and Source identity are revalidated after asynchronous reads; retired host bindings are excluded. The tool uses the ordinary bridge and manifest; its API keys are readers of the same people, not separate collaborator identities. The SSE presence transport uses the renderer listener, independently of the optional MCP8766 switch.

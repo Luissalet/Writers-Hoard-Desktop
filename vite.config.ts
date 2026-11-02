@@ -1,3 +1,4 @@
+import {localToolPresencePlugin} from './scripts/local-tool-presence-plugin'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -7,7 +8,7 @@ import { modelReaderRuntimePlugin } from './scripts/model-reader-runtime-plugin'
 
 export default defineConfig({
   base: process.env.VITE_BASE_URL || '/',
-  plugins: [react(), tailwindcss(), modelReaderRuntimePlugin(), localToolReleasePlugin()],
+  plugins: [react(), tailwindcss(), localToolPresencePlugin(), modelReaderRuntimePlugin(), localToolReleasePlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

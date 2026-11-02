@@ -2036,3 +2036,14 @@ Revisión:42blobs aprobados y Main exactos; no instalación de ejecutable, parid
 - [x] Integrar fastpath por rune247b504, aprobación1796r3, Native nuevo94tools y Brave exacto; no confundirlo con la propuestaRAW posterior.
 - [ ] Aceptar fluidez de documentos grandes: CPU100actual560,7ms medios sigue insuficiente.
 - [ ] Continuar el árbol compartido1883 hasta editor normal y criterios completos. El P2changed:false de su R1 aislada se conserva; R2 corregida en revisión. No ha llegado a Main ni cierra1095.
+
+
+### Presencia local1893 — implementación en worktree aislado
+
+- [x] Verificar ProjectZIP real entre dos bibliotecas privadas y salud Source7/drafts9+11 antes de RED puerto ausente.
+- [x] Implementar identidad local explícita, vínculos de host, SSE/POST en renderer existente y hooks sin awareness durable.
+- [x] Integrar UI compartir, MCP readonly sin join, punteros/caret conocido y follow local; mantener abierta sincronización de borradores1913.
+- [x] Probar lifecycle/scopes/clones/reconexión, corregir tres P2 independientes y verificar Source/SSE, Brave y nuevo Native14tools/22RPC/14IPC con89zero y recursos cerrados.
+- [ ] Entregar commit33/revisión formal e integrar con Root; mantener1913/1917 y paridad global abiertos, sin push.
+
+Criterio: contrato2079 y research-inbox/writer-presence1893/LINK-FLOW-r2; no equivaler clavesMCP a personas ni importar awareness como contenido.
