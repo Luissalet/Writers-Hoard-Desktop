@@ -1,5 +1,10 @@
 # Objetivos de autoría local
 
+## Siguiente trabajo tras1883/1890 integrados — 02-11-2026
+
+Bloques compartidos69899cb9 y campos de borrador publicados004ee3e1 están aprobados e integrados Main. Los pendientes históricos de su entrega quedan superados. Continuar con salida de lista vacía1895, presencia/cursor/follow/transporte1893, coste de historiales grandes, IME físico, schema persistente ampliable y enlaces/imágenes/tablas del perfil compartido. La publicación es opt-in Source; no atribuye una política desconocida al proveedor ni cierra SDK34/1095/1796.
+
+
 La ampliación 1526 cubre `resolveSvg` propio opcional para el catálogo local existente, un endpoint MCP gráfico de lectura separado y Descargar SVG en el ejemplo fuente importable. El objetivo aceptado en el hilo 1650 es geometría SVG estándar, verificada para los 1688 símbolos; los diagnósticos RGBA conservan 1218 diferencias de 3376 pares y no se convierten en PASS. Quedan fuera igualdad fotométrica, packs externos/subidos, SVG de autor en prosa/preview, equivalencia temática y firma/ABI upstream. SDK general y 1095 siguen parciales/abiertos. [Contrato, pruebas atribuidas y entrega](tasks/vvd1095/verification-sdk-icon-svg.md).
 
 La subcapacidad1523 cubre consulta de metadatos y búsqueda paginada del catálogo propio existente por SDK/MCP, junto a `LocalToolIcon` sobre el mismo pintor Canvas. Cuaderno de iconos es fuente importable para autores con selección y notas independientes; el transporte stdio conserva el `null` explícito. En aquel corte1523 quedaban fuera `resolveSvg`, packs externos/subidos, iconos en la prosa/preview y equivalencia temática o ABI upstream. La tarea1095 y el SDK general mantienen el estado parcial; no se altera el recuento histórico de matrices. [Contrato, atribución y estado real](tasks/vvd1095/verification-sdk-icons.md).

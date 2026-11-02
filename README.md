@@ -1,5 +1,12 @@
 # Writers Hoard — Desktop
 
+## Integrated shared blocks and explicit draft fields
+
+Structured shared text is integrated in source `69899cb9`: H1–H3, nested bullet/numbered lists, quotes and toggles use the existing Source writer, stable text identities and author Undo/Redo. Source `004ee3e1` separately adds opt-in draft-field publications per open pane; saved queries remain the default and existing tools do not publish automatically.
+
+The combined SourceHost passes new two-key Native93 and Root Brave/build/quick checks; publication has its own Native36 acceptance. See [blocks](tasks/vvd1095/verification-shared-blocks1883.md) and [draft fields](tasks/vvd1095/verification-sdk-published-fields.md). These deliveries supersede older pending-delivery notes below. Empty-list Enter1895, presence1893, large-history cost, physical IME, extensible persisted schemas and links/images/tables in this shared profile remain open; overall1095 parity is not closed.
+
+
 Local-tool authors can now resolve a catalogue ID to standalone SVG through optional `client.icons.resolveSvg(id)`. The importable Icon notebook adds **Download SVG**, preserving pending notes without saving them. The separate readonly MCP tool `wh_local_tool_icon_svg` returns the same SVG or JSON null. This uses the existing local catalogue without an external API or payment. Standard SVG geometry is verified for all 1,688 symbols; Canvas pixel equality is not claimed. [API and author use](docs/local-tool-sdk.md#local-icon-svg-resolution); [measured limits and delivery status](tasks/vvd1095/verification-sdk-icon-svg.md).
 
 Local-tool authors can query the existing own symbol catalogue with optional `client.icons.get/search/packs` and render a saved ID through `LocalToolIcon`, using the same local map-symbol painter. The importable Icon notebook example keeps notes independent: searching/pages do not write, selecting saves only the icon, and Save notes remains explicit with conflict recovery and Undo/Redo. This does not install or enable an example automatically. Unknown IDs keep their data and use fallback; general SDK parity remains partial. The subsequent SVG extension is documented above. [API and example](docs/local-tool-sdk.md#shared-local-icon-catalogue); [evidence and delivery status](tasks/vvd1095/verification-sdk-icons.md).
