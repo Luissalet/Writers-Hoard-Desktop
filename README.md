@@ -900,3 +900,6 @@ Local Source tools can opt into a separate collaborative rich profile: paragraph
 
 
 Project Overview and the command palette can create a timeline or cork board directly from the entered title, alongside writings, notes and outlines. Choices follow enabled engines; creation and navigation retain the active pane’s era, where outlines stay unavailable. MCP exposes the same options and normal create Undo. [Use and verification](tasks/vvd1095/verification-quick-create-engines.md#delivery44a4d4af).
+
+
+Quiet replica reads now reuse a private raw projection (Source7d3f1365, approved1796r4). Transaction/context changes invalidate it and public results remain detached copies. Functional Browser and new two-key Native checks pass; large-history typing performance remains open. [Evidence and limits](tasks/vvd1095/verification-sdk-rich-prose.md#private-replica-projection-source7d3f1365).

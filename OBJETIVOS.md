@@ -346,3 +346,6 @@ Continuar el núcleo rico y su binding completo sobre el writer existente. R4 es
 ## Continuación del texto rico compartido — 02-11-2026
 
 Fuente55d391be ya integrada y aprobada1796r2: perfil paragraphs-inline/1, cinco marcas, capturas de rango/split/join/punto, editor normal y writer Source/Undo autoral. Sustituye sólo las notas históricas que lo describían como propuesta o exclusivamente aplicado al worktree. Continuar con rendimiento, perfil estructural blocks-tree/1 (decisión2046), encabezados/listas/toggles, schema persistente ampliable, presencia/cursor/follow, proyección explícita de borradores abiertos y demás huecos de1095. El HTML convencional conserva sus funciones. No hay decisión pendiente de Luis para avanzar ni paridad completa. [Evidencia](tasks/vvd1095/verification-sdk-rich-prose.md#collaborative-rich-paragraphs-source55d391be).
+
+
+La cache RAW7d3f1365 ya está Main y aprobada1796r4; supera su estado anterior de propuesta. Mantener abierto el rendimiento interactivo: no atribuirle el perfilCPU100 anterior de rutase247 ni una fluidez no medida. Completar bloques1883, publicación de borradores1890, IME físico, presencia y demás residuos1095 por sus propios cortes.

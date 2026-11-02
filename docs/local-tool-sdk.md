@@ -970,3 +970,6 @@ The readonly MCP equivalents are `wh_local_tool_rich_range`, `wh_local_tool_rich
 Bindings prove the retained snapshot's field provenance, including hidden/inactive history. They are not a cached permission or validation-policy result. The successful-proof memo is private to one replica and is invalidated on receive, reverse/replacement, incompatible writes and metadata changes. It does not make historical reads trust the current raw view. Schema/profile/generation mismatches keep their ordinary rejection and fallback rules.
 
 Source55d391be is approved at writers1796/submission2 and integrated Main. [Attributed tests and remaining limits](../tasks/vvd1095/verification-sdk-rich-prose.md#collaborative-rich-paragraphs-source55d391be). Shared presence, physical IME, a general block tree and interactive performance at large retained histories are still pending; this is not universal SDK parity.
+
+
+Private projection reuse in Source7d3f1365 does not change these contracts. It caches only a quiet raw image, invalidates on transaction/context changes, and clones public results. Mutable policy and historical admission remain live; performance with large retained histories is still an open acceptance item. [Attributed functional checks](../tasks/vvd1095/verification-sdk-rich-prose.md#private-replica-projection-source7d3f1365).
