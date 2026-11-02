@@ -452,22 +452,22 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
   if(convergenceBase64(Y.encodeStateVector(doc))!==checkpoint.stateVectorBase64)throw Error('local_tool_convergence_vector_invalid');inspect(r,contract);
   if(restore){validateLocalToolConvergenceReceipt(restore);assertConvergenceIdentity(restore.identity,identity);recipeRecord(restore,r);receipts.set(restore.id,clone(restore));(restore.mode==='undo'?undo:redo).push(restore.id);}
  }catch(error){doc.destroy();throw error;}
- // A disposable synchronous operation stack, not a cache on the Doc or across writes.
- const withProjection=<R>(run:()=>R):R=>{
-  const previous=r.projectionReader;let cached:ValidView|undefined,epoch:object|undefined,context:string|undefined;
-  r.projectionReader=()=>{
-   // A validator method can alter this.codec. Non-JSON context disables reuse without a new rejection.
-   let signature:string;try{signature=convergenceCanonical(r.codec);}catch{return projectRoots(r);}
-   if(!cached||epoch!==projectionEpoch||context!==signature){const started=projectionEpoch,value=projectRoots(r);if(started!==projectionEpoch){cached=undefined;return value;}cached=value;epoch=started;context=signature;}
-   return cached;
-  };
-  try{return run();}finally{r.projectionReader=previous;}
+ // One private RAW image may survive quiet reads; policy, fallback and binding
+ // validation still run on every call. No historical Roots share this reader.
+ let cachedRaw:ValidView|undefined,rawEpoch:object|undefined,rawContext:string|undefined;
+ const invalidateRaw=()=>{cachedRaw=undefined;rawEpoch=undefined;rawContext=undefined;projectionEpoch={};};
+ doc.on('afterTransaction',invalidateRaw);
+ r.projectionReader=()=>{
+  // A validator method can alter this.codec. Non-JSON context disables reuse.
+  let signature:string;try{signature=convergenceCanonical(r.codec);}catch{invalidateRaw();return projectRoots(r);}
+  if(!cachedRaw||rawEpoch!==projectionEpoch||rawContext!==signature){const started=projectionEpoch,value=projectRoots(r);if(started!==projectionEpoch){invalidateRaw();return value;}cachedRaw=value;rawEpoch=started;rawContext=signature;}
+  return cachedRaw;
  };
  const projectionMutation=<R>(run:()=>R):R=>{projectionEpoch={};try{return run();}finally{projectionEpoch={};}};
  const view=()=>{current();return inspect(r,contract);};
  const currentCheckpoint=()=>{current();return capsule(identity,doc);};
  const before=()=>({data:view().data,checkpoint:currentCheckpoint()});
- const result=(baseline:ReturnType<typeof before>):LocalToolConvergenceChange<T>=>withProjection(()=>({...view(),changed:!localToolStateEqual(baseline.data,view().data),causalChanged:baseline.checkpoint.checkpointBase64!==currentCheckpoint().checkpointBase64,pending:pending(doc)||semanticPending(r,snapshotProofs)}));
+ const result=(baseline:ReturnType<typeof before>):LocalToolConvergenceChange<T>=>({...clone(view()),changed:!localToolStateEqual(baseline.data,view().data),causalChanged:baseline.checkpoint.checkpointBase64!==currentCheckpoint().checkpointBase64,pending:pending(doc)||semanticPending(r,snapshotProofs)});
  const storeReceipt=(mode:'undo'|'redo',changes:Toggle[]):LocalToolConvergenceReceipt|null=>{
   if(!changes.length)return null;const id=options.authorId+':receipt:'+crypto.randomUUID(),heads=new Set(r.registers.transactions.keys());for(const tx of r.registers.transactions.values())for(const parent of tx.parents)heads.delete(parent);
   const receipt:LocalToolConvergenceReceipt={format:'writers-hoard-local-convergence-receipt/1',id,identity:clone(identity),mode,record:{format:'register-activation/1',changes:clone(changes),frontier:[...heads]} as unknown as LocalToolJson};receipts.set(id,receipt);(mode==='undo'?undo:redo).push(id);return receipt;
@@ -489,7 +489,7 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
    const next=storeReceipt(isRedo?'undo':'redo',inverse);return{...result(baseline),update:packet(identity,Y.mergeUpdates(captured)),receiptId:next?.id??null};
   }finally{captured=null;}
  }
- const applyObserved=(actions:readonly LocalToolStateAction[],baseline?:T)=>withProjection(()=>{current();if(!Array.isArray(actions)||!actions.length||actions.some(action=>action.type!=='rich-text-splice'))invalidateSnapshotProofs();projectionEpoch={};const plan=prepareActions(r,contract,actions,options.authorId,identity,baseline);return author(plan,()=>mutateActions(r,plan));});
+ const applyObserved=(actions:readonly LocalToolStateAction[],baseline?:T)=>{current();if(!Array.isArray(actions)||!actions.length||actions.some(action=>action.type!=='rich-text-splice'))invalidateSnapshotProofs();projectionEpoch={};const plan=prepareActions(r,contract,actions,options.authorId,identity,baseline);return author(plan,()=>mutateActions(r,plan));};
  const textRange=(field:string,from:number,to:number):LocalToolPlainRange=>{
   current();if(!['2','3'].includes(identity.engine.version)||!isLocalToolPlainField(contract.codec.fields[field]))throw Error('local_tool_plain_range_invalid');const view=admitted(r,contract),text=(view.data as ObjectData)[field];
   if(typeof text!=='string')throw Error('local_tool_plain_range_invalid');return{format:'writers-hoard-local-plain-range/1',identity:clone(identity),field,...r.plain(field).range({text,bindings:view.plainBindings?.[field]??[]},from,to)};
@@ -512,11 +512,11 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
    projectionMutation(()=>Y.applyUpdate(doc,bytes));return result(baseline);
   },
   export(stateVectorBase64?:string){current();return packet(identity,Y.encodeStateAsUpdate(doc,stateVectorBase64===undefined?undefined:convergenceBytes(stateVectorBase64)));},
-  destroy(){if(!closed){invalidateSnapshotProofs();projectionEpoch={};closed=true;receipts.clear();undo.length=redo.length=0;doc.off('update',onUpdate);doc.off('afterTransaction',proofMetadataChanged);doc.destroy();}},
+  destroy(){if(!closed){invalidateSnapshotProofs();invalidateRaw();r.projectionReader=undefined;closed=true;receipts.clear();undo.length=redo.length=0;doc.off('update',onUpdate);doc.off('afterTransaction',proofMetadataChanged);doc.off('afterTransaction',invalidateRaw);doc.destroy();}},
  });
  return{replica,applyObserved,
   receipt(id:string|null){current();if(id===null)return null;const receipt=receipts.get(id);if(!receipt)throw Error('local_tool_convergence_receipt_unavailable');return clone(receipt);},
-  replace(data:T){return withProjection(()=>{current();invalidateSnapshotProofs();projectionEpoch={};const plan=prepareReplacement(r,contract,data,options.authorId);return author(plan,()=>mutateReplacement(r,plan));});},
+  replace(data:T){current();invalidateSnapshotProofs();projectionEpoch={};const plan=prepareReplacement(r,contract,data,options.authorId);return author(plan,()=>mutateReplacement(r,plan));},
   pending(){current();return pending(doc)||semanticPending(r,snapshotProofs);},
  };
 }
