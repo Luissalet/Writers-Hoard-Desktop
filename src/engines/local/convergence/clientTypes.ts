@@ -6,6 +6,7 @@ import type {LocalToolConvergenceIdentity,LocalToolConvergenceCheckpoint,LocalTo
 export type LocalToolConvergenceSnapshot=LocalToolConvergenceIdentity&{conflict?:LocalToolValidationConflict};
 export interface LocalToolConvergenceImportOptions {expectedLineage?:string}
 export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
+ richBlockEmptyItemCapture(field:string,nodeId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockExit').RichBlockEmptyItemCapture}>;
  richBlockSplitCapture(field:string,nodeId:string,at:number):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockText').RichBlockSplitCapture}>;
  richBlockJoinCapture(field:string,leftNodeId:string,rightNodeId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockText').RichBlockJoinCapture}>;
  richBlockEditCapture(field:string,nodeIds:string[],destination?:import('./blockTypes').RichBlockPlacement):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockEditingTypes').RichBlockEditCapture}>;

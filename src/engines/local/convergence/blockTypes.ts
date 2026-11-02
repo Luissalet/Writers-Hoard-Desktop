@@ -13,7 +13,7 @@ export interface RichBlockBinding {id:string;kindVersionId:string;attrsVersionId
 export interface RichBlockBindings {format:'writers-hoard-block-bindings/1';nodes:RichBlockBinding[]}
 export interface RichBlockCapture {format:'writers-hoard-block-capture/1';identity:LocalToolConvergenceIdentity;field:string;nodeIds:string[];bindings:RichBlockBinding[];frontier:string[]}
 export interface RichBlockMoveCapture {format:'writers-hoard-block-move/1';identity:LocalToolConvergenceIdentity;field:string;nodeId:string;destination:RichBlockPlacement;bindings:RichBlockBinding[];frontier:string[]}
-export type RichBlockAction=import('./blockText').RichBlockTextAction|RichBlockCoreAction|import('./blockEditingTypes').RichBlockEditingAction;
+export type RichBlockAction=import('./blockText').RichBlockTextAction|RichBlockCoreAction|import('./blockEditingTypes').RichBlockEditingAction|import('./blockExit').RichBlockExitAction;
 export type RichBlockCoreAction=
  |{type:'rich-block-wrap';field:string;capture:RichBlockCapture;wrapper:{id:string;type:'bullet-list'|'ordered-list';attrs:Record<string,LocalToolJson>};items:{id:string;leafId:string}[]}
  |{type:'rich-block-move';field:string;capture:RichBlockMoveCapture};

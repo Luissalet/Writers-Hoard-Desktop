@@ -1,3 +1,13 @@
+# Empty list item Enter — task1895
+
+- [x] Read design2061; preserve the normal Source renderer RED before product changes.
+- [x] Add a public capture and atomic structural action using explicit retained frames, stable IDs and current remote list attrs.
+- [x] Connect the existing editor and SDK/client/MCP ports, without HTML replacement or intermediate writes.
+- [x] Pass root/nested/position/remote/Undo/ordinal and Source Save/reopen controls (401 core,20 Source,25 position,36 dispatcher checks, renderer types pass); final quick/build receipts accompany the frozen cut.
+- [ ] Freeze exact paths for peer and Root Browser/Native; no author commit/Main/push.
+
+Acceptance: text item → Enter creates an empty item → Enter exits with the same leaf ID/caret. Nested/intermediate conventions follow2061. Stale actions cannot borrow new containers; remote text/marks/start survive author Undo. Pre-code plan: _stage/empty-list1895/PLAN.md.
+
 # Source draft fields — task1890
 
 # Cierre actual de bloques1883 y publicación1890 — 02-11-2026

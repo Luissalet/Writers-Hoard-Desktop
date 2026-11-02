@@ -998,6 +998,12 @@ Source55d391be is approved at writers1796/submission2 and integrated Main. [Attr
 
 
 Private projection reuse in Source7d3f1365 does not change these contracts. It caches only a quiet raw image, invalidates on transaction/context changes, and clones public results. Mutable policy and historical admission remain live; performance with large retained histories is still an open acceptance item. [Attributed functional checks](../tasks/vvd1095/verification-sdk-rich-prose.md#private-replica-projection-source7d3f1365).
+### Empty list item exit in the shared block profile
+
+Candidate1895 handles Enter at offset0 of a genuinely empty paragraph that is its list item's only visible child. It moves that same leaf outside a top-level list, or lifts the same item one level from a nested list. Intermediate items split the structural list while preserving the suffix's item/leaf IDs and reading order. No text buffers or HTML are copied. List continuations use current effective numbering, including an already-received remote start change. Whitespace, headings, multi-child items and noncollapsed selections retain their existing Enter path.
+
+`richBlockEmptyItemCapture(field,nodeId)` on the replica/document convergence client and readonly MCP `wh_local_tool_rich_block_empty_item_capture` capture the explicit retained structural frame and empty range. Apply `rich-block-exit-empty-item` through the existing state writer; `continuationListId` is required semantically only when both prefix and suffix need separate list containers. An absent ID in that case rejects the whole proposal. A changed parent/owner or a new boundary outside the captured intent also rejects atomically; global bindings do not extend that authority. The ordinary author Undo/Redo, draft and Save/reopen paths remain in use. [Evidence and precise scope](../tasks/vvd1095/verification-empty-item1895.md).
+
 ### Shared blocks: explicit writers-blocks/1 profile
 
 Source `69899cb9`, approved at writers1883/submission1 and integrated in Main, adds `{kind:'rich',profile:'blocks-tree/1',schema:'writers-blocks/1'}` to codec2. Use the same `LocalToolCollaborativeRichEditor` and Source document client, with initial state `{body:{type:'block-doc',schema:'writers-blocks/1',blocks:[]}}`. The [runnable author fixture](../tests/fixtures/local-tools/collaborative-blocks.tsx) uses the normal facade. Existing paragraph documents retain their profile and are not converted on read.
