@@ -484,6 +484,8 @@ const suites = [
   ['wiki-standalone-pages.browser.tsx', 'testWikiStandalonePages'],
   ['wiki-curation.browser.tsx', 'testWikiCuration'],
   ['project-home.browser.tsx', 'testProjectHome'],
+  ['project-quick-create-engines.browser.tsx', 'testProjectQuickCreateEngines'],
+  ['project-quick-create-engines.browser.tsx', 'testProjectQuickCreateHomeEra'],
   ['campaign-quick-wins.browser.tsx', 'testCampaignQuickWins'],
   ['review-campaign-quickwins.browser.tsx', 'testReviewCampaignQuickWins'],
   ['fiction-sessions.browser.tsx', 'testFictionSessions'],

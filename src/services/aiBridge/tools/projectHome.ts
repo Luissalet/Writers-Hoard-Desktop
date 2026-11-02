@@ -18,12 +18,13 @@ export async function whProjectHome(args: ToolArgs): Promise<unknown> {
 
 export async function whProjectQuickCreate(args: ToolArgs): Promise<unknown> {
   const engineId = optEnum(args, 'engineId', QUICK_CREATE_ENGINES);
-  if (!engineId) throw new BridgeError('bad-args', 'engineId must be writings, notes or outline');
+  if (!engineId) throw new BridgeError('bad-args', `engineId must be one of: ${QUICK_CREATE_ENGINES.join(', ')}`);
   const projectId = await resolveProjectForEngine(args, engineId), eraId = optString(args, 'eraId');
   if (eraId && engineId === 'outline') throw new BridgeError('bad-args', 'Outlines have no era storage. Create it from the base project.');
   const text = requireString(args, 'text');
   const created = await quickCreateProjectDocument({ projectId, eraId }, engineId, text);
-  return withAudit({ ...created, created: true }, { projectId, entityId: created.id, table: engineId === 'outline' ? 'outlines' : engineId, summary: `created ${engineId} from project home` });
+  const table = engineId === 'outline' ? 'outlines' : engineId === 'timeline' ? 'timelines' : engineId === 'board' ? 'boards' : engineId;
+  return withAudit({ ...created, created: true }, { projectId, entityId: created.id, table, summary: `created ${engineId} from project home` });
 }
 
 export const HOME_HANDLERS = { wh_project_home: whProjectHome, wh_project_quick_create: whProjectQuickCreate };

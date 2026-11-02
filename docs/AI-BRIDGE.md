@@ -2626,6 +2626,8 @@ Prueba: `tests/wiki-map-navigation.browser.tsx`.
 
 See [offline preparation](OFFLINE-PREPARATION.md) for UI parity, argument semantics, privacy and remaining gaps. New core tools wh_project_home (read) and wh_project_quick_create (write) share normal document operations. New native fiction tools wh_story_session_list/create/update preserve the19 original contracts; list omits DM notes unless include_dm_notes:true. Planning is distinct from selecting current play; recap_posted:true is local ready-to-share plus played, not external publication. Full fiction backups preserve preparation/attendance and remap imported IDs.
 
+`wh_project_quick_create` accepts `engineId` writings, notes, outline, timeline or board and the entered `text`. Timeline and board use their normal defaults and accept `eraId` without writing to Base; outlines remain Base-only. Enabled-engine and active-era checks apply. The audit table is `timelines` or `boards`, so the existing create Undo targets the same scoped document. Home and the command palette share this service and preserve their existing filtered-search rules.
+
 wh_wiki_profile_get includeDocuments:true exposes the captured effective catalogue. Profile options add additionalDocuments/excludedDocuments refs (entry/map plus notes,tables,board,timeline,character-sheets,dictionary,relation-tree,radar,model-viewer,local-tool with namespace), and sections.parentId. Existing policies and immutable edition CAS apply. Workspace appearance patches add effect none/snow/rain/embers/fireflies and effectIntensity0–100; performance/reduced motion suppress particles.
 
 ## Recursos de herramientas locales (fuente d542365)

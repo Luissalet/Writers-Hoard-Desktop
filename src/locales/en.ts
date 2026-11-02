@@ -96,7 +96,7 @@ const en = {
     'home.tips': 'Navigation tip',
   'home.tipNext': 'Next tip',
   'home.tipPrevious': 'Previous tip',
-    'home.tip.0': 'Use Ctrl/⌘ + K to find documents, navigate or create a writing, note or outline from your text.',
+    'home.tip.0': 'Use Ctrl/⌘ + K to find documents, navigate or create a writing, note, outline, timeline or board from your text.',
     'home.tip.1': 'Supervise gathers project health and intelligence. Develop brings together structure and creative tools.',
     'home.tip.2': 'Comments in boards and maps can be marked unread, so you can return to a specific point.',
   'workspaceLibrary.pinnedNotice': 'Pinned document',

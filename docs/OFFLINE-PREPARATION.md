@@ -12,7 +12,7 @@ Pages use the effective captured source, immutable edition/digest and existing p
 
 ## Home and Library
 
-Overview aggregates real createdAt dates for extant writings, scenes, Codex entries, notes, outlines and research sources. Undated records are counted separately; deleted history and connection/word growth are not reconstructed. Quick creation supports writings/notes in Base or an explicit active era and outlines in Base only, with enabled-engine checks and normal persistence/history operations. A search containing recognized filters, exclusions or quoted phrases does not offer quick creation. Plain text keeps accents/case. Other engines use their normal editors.
+Overview aggregates real createdAt dates for extant writings, scenes, Codex entries, notes, outlines and research sources. Undated records are counted separately; deleted history and connection/word growth are not reconstructed. Quick creation supports writings, notes, timelines and boards in Base or an explicit active era and outlines in Base only, with enabled-engine checks and normal persistence/history operations. Timelines use the engine's color palette by effective timeline count; boards start with the normal cork surface. Home and the palette open the exact new document. A search containing recognized filters, exclusions or quoted phrases does not offer quick creation. Plain text keeps accents/case. Other engines use their normal editors.
 
 Next action derives from current counts/health and available tools. Tips advance manually. This is authoring guidance, not availability polling, invitation or a fiction scheduling assistant. Library context bookmarks reuse existing placements/CAS and can be undone only while their revision matches. Opened-from-Library is window-session memory, project/era scoped; it excludes documents opened elsewhere and is not a durable reading log. Rules entries, grid bookmarks and arbitrary right-click bookmarks across every editor remain outside this change.
 
@@ -31,7 +31,8 @@ The session_details companion table is created only when fiction's own store ope
 While the Sessions view remains mounted, closing preparation or switching sessions retains unsaved values and errors in a private world/session cache. Reopening reconciles the saved baseline without allowing an older request to overwrite a newer draft. This cache does not promise recovery after reloading or restarting the application.
 
 - wh_project_home reads monthly document counts, next action, available quick creation and fresh Base Library-session references.
-- wh_project_quick_create takes projectId, optional eraId, engineId(writings/notes/outline), text.
+- Home quick creation uses its pane's era and navigator. Outline is omitted in an era, including the suggested next action. A pending creation keeps its submitted scope and does not navigate after Home changes context.
+- wh_project_quick_create takes projectId, optional eraId, engineId(writings/notes/outline/timeline/board), text. Only outlines are Base-only; timeline/board audit records use timelines/boards for normal scoped create Undo.
 - wh_story_session_list takes world, optional session and include_dm_notes(defaultfalse).
 - wh_story_session_create takes world, optional title/details and creates planned only.
 - wh_story_session_update takes world, session and partial patch.

@@ -96,7 +96,7 @@ const es = {
     'home.tips': 'Consejo de navegación',
   'home.tipNext': 'Siguiente consejo',
   'home.tipPrevious': 'Consejo anterior',
-    'home.tip.0': 'Con Ctrl/⌘ + K puedes buscar documentos, navegar o crear un escrito, nota o esquema a partir del texto.',
+    'home.tip.0': 'Con Ctrl/⌘ + K puedes buscar documentos, navegar o crear un escrito, nota, esquema, línea temporal o tablero a partir del texto.',
     'home.tip.1': 'Supervisar reúne el estado y la información del proyecto. Desarrollar agrupa las herramientas creativas y de estructura.',
     'home.tip.2': 'Los comentarios de tableros y mapas se pueden marcar como no leídos para volver a un punto concreto.',
   'workspaceLibrary.pinnedNotice': 'Documento fijado',
