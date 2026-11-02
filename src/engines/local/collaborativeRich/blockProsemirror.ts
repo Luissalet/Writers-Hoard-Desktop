@@ -60,6 +60,7 @@ export function blockTextKey(session:RichEditorSession,view:{state:EditorState;d
  if(key==='Enter')return session.gesture(()=>{
   session.beforeViewChange?.();if(to>from)session.apply({type:'rich-text-splice',field:session.field,nodeId:leaf.id!,range:session.replica.richRange(session.field,leaf.id!,offset,to-leaf.pos-1),text:''});
   const data=session.blockDocument(),block=data.blocks.find(b=>b.id===leaf.id)!,parent=data.blocks.find(b=>b.id===block.parentId);
+  if(from===to&&offset===0&&block.type==='paragraph'&&block.content?.length===0&&parent?.type==='list-item'&&richBlockChildren(data,parent.id).length===1){session.apply({type:'rich-block-exit-empty-item',field:session.field,capture:session.replica.richBlockEmptyItemCapture(session.field,leaf.id!),continuationListId:crypto.randomUUID()});session.afterViewChange?.();const placed=blockPMLeaves(view.state.doc).find(n=>n.id===leaf.id);if(placed)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,placed.pos+1)));return;}
   const newId=crypto.randomUUID();session.apply({type:'rich-block-split',field:session.field,capture:session.replica.richBlockSplitCapture(session.field,leaf.id!,offset),newNodeId:newId,...(parent?.type==='list-item'?{newItemId:crypto.randomUUID()}:{})});session.afterViewChange?.();const placed=blockPMLeaves(view.state.doc).find(n=>n.id===newId);if(placed)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,placed.pos+1)));
  });
  if(key!=='Backspace'||from!==to||offset!==0||index===0)return false;

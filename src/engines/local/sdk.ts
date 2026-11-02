@@ -1,3 +1,4 @@
+export type {RichBlockEmptyItemFrame,RichBlockEmptyItemCapture,RichBlockExitAction} from './convergence/blockExit';
 export type {RichBlockSplitCapture,RichBlockJoinCapture,RichBlockTextAction} from './convergence/blockText';
 export type {RichDocument,RichParagraph,RichText,RichMark,RichRange,RichSplitCapture,RichJoinCapture,RichAction,RichResolvedPoint} from './convergence/richTypes';
 export type {RichBlockEditCapture,RichBlockEditingAction} from './convergence/blockEditingTypes';

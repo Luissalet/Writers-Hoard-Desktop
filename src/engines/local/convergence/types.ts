@@ -56,6 +56,7 @@ export interface LocalToolReplicaEdit<T extends LocalToolJson=LocalToolJson> ext
 }
 /** SDK-visible capability; no host receipt recipe, database or callback in this object. */
 export interface LocalToolReplica<T extends LocalToolJson=LocalToolJson> {
+ richBlockEmptyItemCapture(field:string,nodeId:string):import('./blockExit').RichBlockEmptyItemCapture;
  richBlockSplitCapture(field:string,nodeId:string,at:number):import('./blockText').RichBlockSplitCapture;
  richBlockJoinCapture(field:string,leftNodeId:string,rightNodeId:string):import('./blockText').RichBlockJoinCapture;
  richBlockEditCapture(field:string,nodeIds:string[],destination?:RichBlockPlacement):import('./blockEditingTypes').RichBlockEditCapture;

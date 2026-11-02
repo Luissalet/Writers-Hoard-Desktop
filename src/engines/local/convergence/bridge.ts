@@ -17,6 +17,7 @@ async function client(args:ToolArgs,readOnly=false){
 function index(args:ToolArgs,key:string):number{const value=args[key];if(typeof value!=='number'||!Number.isSafeInteger(value)||value<0)throw new BridgeError('bad-args','Invalid UTF-16 position.');return value;}
 function affinity(args:ToolArgs):'left'|'right'{const value=args.affinity??'right';if(value!=='left'&&value!=='right')throw new BridgeError('bad-args','Invalid rich affinity.');return value;}
 export const LOCAL_CONVERGENCE_HANDLERS={
+ async wh_local_tool_rich_block_empty_item_capture(args:ToolArgs){return(await client(args,true)).richBlockEmptyItemCapture(requireString(args,'field'),requireString(args,'nodeId'));},
  async wh_local_tool_rich_block_split_capture(args:ToolArgs){return(await client(args,true)).richBlockSplitCapture(requireString(args,'field'),requireString(args,'nodeId'),index(args,'at'));},
  async wh_local_tool_rich_block_join_capture(args:ToolArgs){return(await client(args,true)).richBlockJoinCapture(requireString(args,'field'),requireString(args,'leftNodeId'),requireString(args,'rightNodeId'));},
  async wh_local_tool_rich_block_edit_capture(args:ToolArgs){if(!Array.isArray(args.nodeIds)||args.nodeIds.some(id=>typeof id!=='string'||!id))throw new BridgeError('bad-args','Invalid block IDs.');return(await client(args,true)).richBlockEditCapture(requireString(args,'field'),args.nodeIds as string[],args.destination as import('./blockTypes').RichBlockPlacement|undefined);},
