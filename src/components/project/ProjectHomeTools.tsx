@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useEraNavigate } from '@/services/worldEras/navigation';
+import { useWorldEraScope } from '@/services/worldEras/hooks';
+import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 import { useProject } from '@/hooks/useProjects';
 import { useTranslation } from '@/i18n/useTranslation';
 import { deriveNextProjectMove, type DocumentGrowth, type ProjectCockpitData } from '@/services/projectIntelligence';
@@ -35,24 +37,29 @@ export default function ProjectHomeTools({ projectId, data, onReview, onContinue
   projectId: string; data: ProjectCockpitData; onReview: () => void; onContinue: () => void;
 }) {
   const { t } = useTranslation(), { project } = useProject(projectId);
-  const navigate = useNavigate();
+  const navigate = useEraNavigate(), scope = useWorldEraScope(projectId), pane = useEnginePane();
+  const context = useRef<object>({});
+  useLayoutEffect(() => { context.current = {}; return () => { context.current = {}; }; }, [projectId, scope.eraId, pane?.instanceId]);
   const [tip, setTip] = useState(0), [engine, setEngine] = useState<QuickCreateEngine | null>(null), [text, setText] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(false);
   const busyRef = useRef(false);
-  const engines = quickCreateEngines(project?.enabledEngines ?? []);
-  const move = deriveNextProjectMove(project?.enabledEngines ?? [], data);
+  const engines = quickCreateEngines(project?.enabledEngines ?? [], scope.eraId);
+  const move = deriveNextProjectMove(engines, data);
   const moveEngine = move === 'write' ? 'writings' : move === 'outline' ? 'outline' : move === 'notes' ? 'notes' : null;
   const choose = (id: QuickCreateEngine) => { setEngine(id); setError(false); };
   const create = async () => {
     if (!engine || !text.trim() || busyRef.current) return;
+    const owner = context.current;
     busyRef.current = true; setBusy(true); setError(false);
     try {
-      const created = await quickCreateProjectDocument({ projectId }, engine, text);
+      const created = await quickCreateProjectDocument(scope, engine, text);
+      if (context.current !== owner) return;
       setText(''); setEngine(null);
+      const open = (path: string) => pane?.projectId === projectId && pane.navigate ? pane.navigate(path) : navigate(path);
       const adapter = getAnchorAdapter(engine);
-      if (adapter) adapter.navigateToEntity(created.id, projectId, navigate);
-      else navigate(`/project/${encodeURIComponent(projectId)}/${engine}`);
-    } catch { setError(true); }
+      if (adapter) adapter.navigateToEntity(created.id, projectId, open);
+      else open(`/project/${encodeURIComponent(projectId)}/${engine}`);
+    } catch { if (context.current === owner) setError(true); }
     finally { busyRef.current = false; setBusy(false); }
   };
   const control = 'min-h-10 rounded-lg border border-border px-3 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold disabled:opacity-50';

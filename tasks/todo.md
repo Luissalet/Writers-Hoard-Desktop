@@ -1,3 +1,15 @@
+# Quick creation of timelines and boards — task1882
+
+- [x] Read the normal Timeline/Board defaults, era adapters, shared Home/palette service and MCP contract before editing.
+- [x] Add timeline and board to shared quick creation, preserving enabled engines, titles and explicit era scope.
+- [x] Extend the existing MCP enum/help/error and map its audit to timelines/boards.
+- [x] Verify Base/era persistence, defaults, disabled/invalid scopes, audit/Undo and exact-document navigation with focused tests; retain original Home/search controls.
+- [x] Run the affected focused checks and renderer/Electron types; leave the index empty for independent review.
+- [x] Follow-up from real Brave: Home inherits its era/pane, omits Outline there, and never navigates a retired context after async creation. A direct Home-provider regression failed before the fix and passes after it; earlier results remain.
+- [ ] Root: real Brave and MCP transport, exact review, explicit-path commit and locked Main integration; no push.
+
+Acceptance: Home, command palette and wh_project_quick_create create editable/reopenable timelines and boards with the entered title, correct identity and era. The existing three choices and filtered-search behavior remain. No fallback from an era to Base, no new layout or storage. Worktree writer-quick-create1882 is isolated from rich Source40 under test.
+
 # Writer consolidation #931
 
 Owned source blocks can opt into additive codec evolution: a compatible version can add fields to the same saved block without changing it on selection or read. The first meaningful edit saves data, codec and portable preview together; scoped action Undo restores the complete prior envelope. Strict compatibility remains the default, Source state keeps its existing migration contract, and the general SDK remains partial. [Contract, example and evidence](vvd1095/verification-sdk-owned-evolution.md).
