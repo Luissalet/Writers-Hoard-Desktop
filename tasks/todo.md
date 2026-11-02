@@ -1940,3 +1940,17 @@ Writer1095 y writers1671 continúan abiertas hasta sus criterios completos. El a
 Resultado: fuente 48539f81933988e49a9a028853a7a447a0e73057 integrada Main sobre e807507, aprobación independiente 1808/1829 revisión 1. Tipos finales 0, focal independiente cinco grupos, Rich MCP siete grupos y Brave con dos pestañas tienen atribución propia; no nuevo stdio/segunda clave. El FAIL inicial de navegación también existía en los dos blobs anteriores; la primera frontera pasa tras el arreglo. El FAIL Rename posterior sigue retenido y su causa no está demostrada por el PASS observado. Este resultado supera la nota 1808 pendiente del bloque histórico de extensiones sin cambiar su prefijo.
 
 Extensiones 67: fuente f437039 y docs e807507 en Main, quick/build 0 y manual 291 CAS/readback íntegro ya completados; no repetir Google. Continuidad conjunta67/recuperación preparada aparte, aún sin escritura por este paquete. El núcleo rico R4 está aplicado sólo al worktree y pasan sus dos oráculos permanentes en memoria, sin commit/integración ni persistencia/MCP/web acreditados; 1796/1095 y paridad completa siguen abiertos.
+
+
+### Editor rico compartido — entrega55d391be, 02-11-2026
+
+- [x] Incorporar codec2 paragraphs-inline/1 y engine3 al mismo writer Source, con cinco marcas, identidades y capturas de rango/split/join/punto.
+- [x] Contrastar los casos R5 de prefijos/exclusiones y conservar las regresiones públicas de política/frontera/clave reutilizada; Node final147inputs estables.
+- [x] Probar Source42 por Native real con dos claves por fase, reapertura sin resembrar,94herramientas y limpieza89tablas/EOF; Brave conserva texto y formato tras Undo/Redo/Discard.
+- [x] Pasar verify:quick y build; commit explícito42rutas como Luissalet, aprobación1796r2, integración Main bajo mergelease/HEAD fresco, sin push.
+- [x] Actualizar el manual de Google con dos sustituciones acotadas y lectura completa209párrafos/textos/estilos; conservar recibo ROOT-manual-rich67-receipt-20261102-r1.json.
+- [ ] Reducir el coste de historiales grandes hasta poder aceptar fluidez; fastpath por run sólo Stage.
+- [ ] Ampliar el perfil compartido a bloques estructurados según2046, sin duplicar writer/Undo ni alterar párrafos guardados.
+- [ ] Completar IME físico, presencia/cursor/follow, proyección de borradores y demás huecos1095. La tarea global continúa.
+
+Revisión:42blobs aprobados y Main exactos; no instalación de ejecutable, paridad total ni nuevo transporte de peers inferidos.

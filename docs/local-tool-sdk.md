@@ -934,3 +934,39 @@ Restore issues a new document generation. An older captured draft baseline still
 The linked notebook example confirms clearing the successfully saved captured string synchronously before its flusher returns, so the normal afterWrites check observes completion before navigation. A different newer draft, an unadded item or a failed write is retained; the global pending ledger and shared state hook are unchanged.
 
 Source `48539f8` is approved in 1808/1829 revision1 and integrated. [Attributed recovery checks](../tasks/vvd1095/verification-sdk-rich-prose.md#source-recovery-48539f8) distinguish real Brave, the registered MCP dispatcher and component oracles, and preserve the later rename/readiness limitation. No new stdio transport, second key, rich engine3 or arbitrary persistent schema follows. The existing optional extensions and HTML profile keep their prior contract.
+
+
+## Collaborative rich paragraphs
+
+`LocalToolCollaborativeRichEditor` is a separate public component for `{version:2,fields:{body:{kind:'rich',profile:'paragraphs-inline/1'}}}`. The causal identity selects engine3. The existing HTML string profile and plain-utf16/1 keep their own contracts; reading or selecting a release does not convert them.
+
+```tsx
+import {defineLocalTool, LocalToolCollaborativeRichEditor,
+  type LocalToolJson, type LocalToolProps} from '@/engines/local/sdk';
+type Data = Record<string, LocalToolJson>;
+function Notebook({client, context}: LocalToolProps<Data>) {
+  return <LocalToolCollaborativeRichEditor client={client} context={context}
+    field="body" label="Shared notebook" editable={context?.canEdit}/>;
+}
+export default defineLocalTool<Data>({
+  namespace:'example.shared-notebook',
+  name:{en:'Shared notebook',es:'Cuaderno compartido'},
+  description:{en:'Shared paragraphs',es:'Párrafos compartidos'},
+  initialState:{body:{type:'doc',content:[]}},
+  codec:{version:2,fields:{body:{kind:'rich',profile:'paragraphs-inline/1'}}},
+  document:{defaultTitle:{en:'Notebook',es:'Cuaderno'}},
+  component:Notebook,
+});
+```
+
+The JSON document contains flat `{id,type:'paragraph',content:[{type:'text',text,marks?}]}` nodes. Marks are bold, italic, underline, strike and code in canonical order. IDs belong to the document; text captures use UTF16 unit identities rather than current numerical positions. This profile does not persist headings, lists, links, images, tables or arbitrary Node/Mark schemas. Behavioral `extensions` are fixed for the mount and must keep this schema and author Undo; changing the array is not a persistent schema migration.
+
+The normal host first displays the saved baseline. Explicit activation starts shared editing through the document's existing Source writer. The native editor keeps its local draft until Save; Discard adopts the saved document. Save publishes already-authored updates instead of reauthoring them as a full replacement. Conflicting generation/release/authority changes retain recovery behavior. The facade stays pure and reports unavailable without a host capability; it never supplies a fake DOM or writes directly to storage.
+
+`client.convergence.richRange(field,nodeId,from,to,{affinity})` returns the admitted snapshot and stable range. `richSplitCapture(field,nodeId,at,...)` and `richJoinCapture(field,leftNodeId,rightNodeId)` capture the intended split or adjacent pair. Keep returned captures unchanged for `rich-text-splice`, `rich-mark`, `rich-split` or `rich-join` actions. Insert/delete/move-paragraph actions use stable paragraph IDs. A captured split/join retains observed segments and preserves independent contributions it did not see; it does not copy the text into a new buffer. `resolveRichPoint` accepts an empty range and returns a current `{nodeId,offset,detached:false}` or `{detached:true}`, never resurrecting hidden content.
+
+The readonly MCP equivalents are `wh_local_tool_rich_range`, `wh_local_tool_rich_split_capture`, `wh_local_tool_rich_join_capture` and `wh_local_tool_rich_resolve_point`. Start/export/import and state apply/Undo/Redo use the existing convergence and state tools. Reads do not initialize, fork or grant Undo authority. Exports retain causal history; importing the same update without novelty is a noop. Receipts belong to the author/session that issued them; reopening a checkpoint does not transfer a previous session's Undo authority. Independent replicas are created from the same exported checkpoint with their own author IDs and public `createLocalToolReplica` API.
+
+Bindings prove the retained snapshot's field provenance, including hidden/inactive history. They are not a cached permission or validation-policy result. The successful-proof memo is private to one replica and is invalidated on receive, reverse/replacement, incompatible writes and metadata changes. It does not make historical reads trust the current raw view. Schema/profile/generation mismatches keep their ordinary rejection and fallback rules.
+
+Source55d391be is approved at writers1796/submission2 and integrated Main. [Attributed tests and remaining limits](../tasks/vvd1095/verification-sdk-rich-prose.md#collaborative-rich-paragraphs-source55d391be). Shared presence, physical IME, a general block tree and interactive performance at large retained histories are still pending; this is not universal SDK parity.
