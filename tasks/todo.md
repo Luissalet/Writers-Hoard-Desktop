@@ -1966,3 +1966,14 @@ Extensiones 67: fuente f437039 y docs e807507 en Main, quick/build 0 y manual 29
 - [ ] Completar IME físico, presencia/cursor/follow, proyección de borradores y demás huecos1095. La tarea global continúa.
 
 Revisión:42blobs aprobados y Main exactos; no instalación de ejecutable, paridad total ni nuevo transporte de peers inferidos.
+
+
+### Creación rápida1882 entregada y coste del editor — 02-11-2026
+
+- [x] Entregar timeline/board desde Inicio/paleta/MCP, era propia y navegación exacta; corregir el Home que caía en Base y conservar su RED.
+- [x] Revisar R3 con executorMCP real,27controles propios de contexto y86previos; Brave verifica reapertura y aislamientoBase/era.
+- [x] Commit12rutas Luissalet, aprobación1882r1 de e42ac635 y rebase equivalente44a4d4af; tests7+4/quick/build posteriores0 e integración con mergelease, sin push.
+- [x] ManualGoogle295UTF16,209párrafos leídos sin replay tras error de impresión de metadata.
+- [x] Integrar fastpath por rune247b504, aprobación1796r3, Native nuevo94tools y Brave exacto; no confundirlo con la propuestaRAW posterior.
+- [ ] Aceptar fluidez de documentos grandes: CPU100actual560,7ms medios sigue insuficiente.
+- [ ] Continuar el árbol compartido1883 hasta editor normal y criterios completos. El P2changed:false de su R1 aislada se conserva; R2 corregida en revisión. No ha llegado a Main ni cierra1095.

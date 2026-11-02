@@ -718,3 +718,6 @@ El flusher del cuaderno vinculado también confirma que se ha retirado su borrad
 
 
 Las herramientas Source locales pueden declarar un perfil propio de texto enriquecido compartido: párrafos, cinco marcas e identidades estables de texto. El editor del SDK conserva un borrador local, Guardar explícito y Deshacer/Rehacer por autor; los cambios independientes se combinan mediante el writer Source habitual. Siguen pendientes los encabezados, listas anidadas, esquemas arbitrarios y presencia compartida, y los historiales grandes aún son lentos. Es independiente del editor HTML enriquecido existente. [API de autor](docs/local-tool-sdk.md#collaborative-rich-paragraphs); [pruebas y límites](tasks/vvd1095/verification-sdk-rich-prose.md#collaborative-rich-paragraphs-source55d391be).
+
+
+El resumen del proyecto y la paleta permiten crear una línea temporal o un tablero de corcho a partir del título, además de escritos, notas y esquemas. Las opciones respetan los motores habilitados; la creación y la apertura conservan la era del panel, donde los esquemas no están disponibles. MCP ofrece las mismas opciones y Deshacer normal. [Uso y pruebas](tasks/vvd1095/verification-quick-create-engines.md#delivery44a4d4af).

@@ -897,3 +897,6 @@ The linked notebook's pending flusher also confirms its saved draft has cleared 
 
 
 Local Source tools can opt into a separate collaborative rich profile: paragraphs, five inline marks and stable text identities. The normal SDK editor keeps a local draft, explicit Save and author Undo/Redo; independent updates merge through the existing Source writer. Headings, nested lists, arbitrary schemas and shared presence are still pending, and large histories remain slow. This is separate from the existing rich HTML editor. [Author API](docs/local-tool-sdk.md#collaborative-rich-paragraphs); [verification and limits](tasks/vvd1095/verification-sdk-rich-prose.md#collaborative-rich-paragraphs-source55d391be).
+
+
+Project Overview and the command palette can create a timeline or cork board directly from the entered title, alongside writings, notes and outlines. Choices follow enabled engines; creation and navigation retain the active pane’s era, where outlines stay unavailable. MCP exposes the same options and normal create Undo. [Use and verification](tasks/vvd1095/verification-quick-create-engines.md#delivery44a4d4af).
