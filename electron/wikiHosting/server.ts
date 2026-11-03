@@ -3,7 +3,8 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { WIKI_HOST_SLUG, type WikiHostAddress, type WikiHostChange, type WikiHostListScope, type WikiHostOwner, type WikiHostPublication } from '../../src/services/wikiProfiles/hostingTypes';
+import { crc32 } from 'node:zlib';
+import { WIKI_HOST_COVER_IMAGE, WIKI_HOST_SLUG, type WikiHostAddress, type WikiHostChange, type WikiHostListScope, type WikiHostOwner, type WikiHostPublication } from '../../src/services/wikiProfiles/hostingTypes';
 
 const BIND = '127.0.0.1';
 const TOKEN = /^[A-Za-z0-9_-]{32}$/;
@@ -14,14 +15,33 @@ type AddressRow = Omit<WikiHostAddress, 'active' | 'url' | 'coverUrl'> & { activ
 type Row = AddressRow & { html: string; cover: string | null };
 const ADDRESS_COLUMNS = 'slug, projectId, profileId, editionId, audience, sha256, revision, active, token, cover IS NOT NULL AS hasCover';
 
+function completePng(bytes: Buffer) {
+  if (bytes.length < 57 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' ||
+    bytes.readUInt32BE(8) !== 13 || bytes.toString('ascii', 12, 16) !== 'IHDR' ||
+    !bytes.readUInt32BE(16) || !bytes.readUInt32BE(20)) return false;
+  let hasData = false;
+  for (let offset = 8; offset + 12 <= bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    const end = offset + 8 + length;
+    if (end + 4 > bytes.length || crc32(bytes.subarray(offset + 4, end)) !== bytes.readUInt32BE(end)) return false;
+    const type = bytes.toString('ascii', offset + 4, offset + 8);
+    if (type === 'IDAT' && length) hasData = true;
+    if (type === 'IEND') return hasData && length === 0 && end + 4 === bytes.length;
+    offset = end + 4;
+  }
+  return false;
+}
+
 function decodeCover(value: unknown) {
-  const match = typeof value === 'string' && /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+=*)$/.exec(value);
+  const match = typeof value === 'string' && WIKI_HOST_COVER_IMAGE.exec(value);
   if (!match) throw Error('wiki_host_cover_invalid');
   const [, mime, encoded] = match;
   const bytes = Buffer.from(encoded, 'base64');
-  const valid = mime === 'image/png' ? bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
-    : mime === 'image/jpeg' ? bytes.subarray(0, 3).toString('hex') === 'ffd8ff'
-    : bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  const valid = mime === 'image/png' ? completePng(bytes)
+    : mime === 'image/jpeg' ? bytes.length > 16 && bytes.subarray(0, 3).toString('hex') === 'ffd8ff' && bytes.readUInt16BE(bytes.length - 2) === 0xffd9
+    : bytes.length > 20 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.readUInt32LE(4) + 8 === bytes.length &&
+      bytes.toString('ascii', 8, 12) === 'WEBP' && ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.toString('ascii', 12, 16)) &&
+      bytes.readUInt32LE(16) > 0 && bytes.readUInt32LE(16) <= bytes.length - 20;
   if (!valid || bytes.toString('base64') !== encoded) throw Error('wiki_host_cover_invalid');
   return { mime, bytes };
 }
