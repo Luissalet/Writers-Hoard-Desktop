@@ -1,5 +1,9 @@
 # Writer publishing workspace
 
+## Ediciones de wiki por enlace propio — 2056
+
+El Códex puede servir una edición guardada de la wiki en una dirección estable, pública o con enlace privado. Los cambios del mundo no sustituyen el HTML de la edición hasta elegir otra para esa dirección. Retirar el enlace no borra las ediciones. Las herramientas MCP de listado, publicación y retirada usan el mismo servicio. [Uso, configuración y límites](tasks/vvd1095/verification-wiki-hosting2056.md).
+
 ## Imágenes en menciones del Códex — 2028
 
 Las menciones enlazadas de Notas y Escritura permiten mostrar u ocultar la imagen local de la ficha en cada aparición, con el mismo texto, enlace, marcas y Deshacer. La imagen sigue siendo una vista del avatar en su proyecto y época. El lector, la wiki y el documento como imagen usan las referencias incluidas en su ámbito de captura; MCP comparte la preferencia de Escritura. [Alcance y pruebas](tasks/vvd1095/verification-mention-image2028.md).
