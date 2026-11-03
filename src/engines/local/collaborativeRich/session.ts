@@ -1,5 +1,5 @@
-import {localToolRichLinks,localToolRichTables,localToolRichTableAxes,isLocalToolRichBlockField} from '../stateCodec';
-import type {RichTableCellCapture} from '../convergence/tableAxesEditing';
+import {localToolRichLinks,localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,isLocalToolRichBlockField} from '../stateCodec';
+import {sameTableCellBindings,type RichTableCellCapture} from '../convergence/tableAxesEditing';
 import type {LocalToolClient,LocalToolJson,LocalToolSnapshot} from '../sdk';
 import {createLocalToolReplica} from '../convergence/replica';
 import {assertConvergenceIdentity,convergenceIdentityOf,convergenceIdentity,convergenceClone,convergenceCanonical} from '../convergence/format';
@@ -64,14 +64,15 @@ export class RichEditorSession {
  busy=false;
  revision=0;
  constructor(client:LocalToolClient<LocalToolJson>,checkpoint:LocalToolConvergenceCheckpoint,snapshot:LocalToolSnapshot<LocalToolJson>,contract:LocalToolConvergenceContract,field:string,notify:()=>void,nextStep:()=>number){
-  if(!snapshot.document||!['3','4','5','6'].includes(checkpoint.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_editor_identity_invalid');
+  if(!snapshot.document||!['3','4','5','6','7'].includes(checkpoint.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_editor_identity_invalid');
   this.targetContract=contract;this.contract=effectiveRichAdoptionContract(checkpoint,contract);this.convergenceIdentity=convergenceIdentityOf(checkpoint);this.confirmedIdentity=convergenceIdentityOf(checkpoint);this.notify=notify;this.nextStep=nextStep;this.client=client;this.field=field;this.lineage=snapshot.document.lineage;this.confirmedVector=checkpoint.stateVectorBase64;
   this.replica=createLocalToolReplica(checkpoint,{authorId:'writer-editor:'+crypto.randomUUID(),contract});this.document();
  }
  get tables(){return localToolRichTables(this.contract.codec.fields[this.field]);}
  get axes(){return localToolRichTableAxes(this.contract.codec.fields[this.field]);}
+ get widths(){return localToolRichTableWidths(this.contract.codec.fields[this.field]);}
  get links(){return localToolRichLinks(this.contract.codec.fields[this.field]);}
- blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables,this.axes);return value;}
+ blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables,this.axes,this.widths);return value;}
  document():RichDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field],descriptor=this.contract.codec.fields[this.field];if(isLocalToolRichBlockField(descriptor))return richBlockLeaves(value as unknown as RichBlockDocument,this.links,this.tables);validateRichDocument(value,this.links);return value;}
  acceptedThrough(epoch:object){return this.accepted.get(epoch)??0;}
  hasAcceptedRecord(token:object){return this.acceptedRecords.has(token);}
@@ -182,7 +183,7 @@ export class RichEditorSession {
   try{
    let pending=false;for(const update of updates)pending=view.receive(update).pending;if(pending)throw Error('local_tool_table_cell_composition_stale');
    const current=view.richTableCellCapture(capture.field,capture.tableId,capture.rowId,capture.columnId,capture.afterId);
-   if(convergenceCanonical(current.bindings)!==convergenceCanonical(capture.bindings)||view.inspect().conflict)throw Error('local_tool_table_cell_composition_stale');
+   if(!sameTableCellBindings(current.bindings,capture.bindings,this.widths?capture.columnId:undefined)||view.inspect().conflict)throw Error('local_tool_table_cell_composition_stale');
   }finally{view.destroy();}
  }
  endComposition(){

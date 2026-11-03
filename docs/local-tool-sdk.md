@@ -1195,6 +1195,14 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### Shared table column widths (2082)
+
+The opt-in field profile is `blocks-tree/5` with `writers-blocks/4` in codec2. It selects engine7 even if the field is absent or has no table. Existing axes, fixed-table and strict sibling fields retain their grammars. A prior engine6 history cannot be activated as the new profile.
+
+Use `richTableColumnWidthCapture(field,tableId,columnId)` and apply `{type:'rich-table-column-width',field,capture,widthPx}`. The readonly bridge operation is `wh_local_tool_rich_table_column_width_capture`. An explicit width is a safe integer of at least 48 px. Use `null` to return the column to Auto. The value belongs to the stable column ID and is saved with the existing Source writer. A stale width capture rejects without applying a partial edit. Undo withdraws that author's width contribution and leaves concurrent contributions intact.
+
+In `examples.shared-table-width`, drag the right edge of a cell or use the selected column's numeric width control. The drag previews locally and commits on release. Use Automatic width to clear the explicit width. Undo and Redo update the mounted geometry, and the passive reader uses the saved column order and widths. Same-ID ZIP retains the checkpoint and a semantic copy keeps the widths with a new identity.
+
 ## Optional images on normal HTML Codex links
 
 The SDK prose editor preserves `data-wh-codex-image="true"` on a valid local Codex anchor. Show image / Hide image changes one appearance with normal Undo; it does not add an authored IMG or avatar bytes to the document. Cold NoteCard/ReadingView and captured Reader/wiki/document-image output derive thumbnails from their admitted local entries. Use the existing `wh_edit_writing_document` operation `setCodexImage` with an appearance range, `codexImage:boolean` and the normal `expectedUpdatedAt` CAS; audit Undo remains available.

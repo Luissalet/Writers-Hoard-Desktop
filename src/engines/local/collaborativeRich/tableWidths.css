@@ -1,0 +1,20 @@
+[data-writer-width-surface] .ProseMirror {
+  overflow-x: auto;
+}
+
+[data-writer-width-surface] table[data-writer-column-widths] :is(th, td)[data-writer-cell-address] {
+  position: relative;
+}
+
+[data-writer-width-surface] table[data-writer-column-widths] :is(th, td)[data-writer-cell-address]::after {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 7px;
+  content: "";
+  cursor: col-resize;
+  touch-action: none;
+}
+
+[data-writer-width-surface] table[data-writer-column-widths] :is(th, td)[data-writer-cell-address]:hover::after {
+  border-inline-end: 2px solid currentColor;
+}

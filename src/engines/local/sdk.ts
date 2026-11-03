@@ -9,7 +9,7 @@ export type {RichBlockSplitCapture,RichBlockJoinCapture,RichBlockTextAction} fro
 export type {RichDocument,RichParagraph,RichText,RichMark,RichMarkKey,RichMarkValue,RichRange,RichSplitCapture,RichJoinCapture,RichAction,RichResolvedPoint} from './convergence/richTypes';
 export type {RichBlockEditCapture,RichBlockEditingAction} from './convergence/blockEditingTypes';
 export type {RichTableAxis,RichTableAxisOrder} from './convergence/tableAxesFormat';
-export type {RichTableAxisCapture,RichTableCellCapture,RichTableAxesAction,RichTableCreateAction} from './convergence/tableAxesEditing';
+export type {RichTableAxisCapture,RichTableCellCapture,RichTableColumnWidthCapture,RichTableAxesAction,RichTableCreateAction} from './convergence/tableAxesEditing';
 export type {RichBlockDocument,RichBlock,RichBlockKind,RichBlockPlacement,RichBlockCapture,RichBlockMoveCapture,RichBlockAction} from './convergence/blocks';
 export {createLocalToolReplica} from './convergence/replica';
 export type {LocalToolRichAdoption,LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica,LocalToolReplicaEdit,LocalToolValidationConflict,LocalToolPlainRange} from './convergence/types';

@@ -1,5 +1,5 @@
 import {TABLE_SCHEMA,tableKind,validateTableAttributes,validateTableLayout,type RichTableKind} from './tableFormat';
-import {TABLE_AXES_SCHEMA,axisKind,validateAxisAttributes,validateTableAxesLayout,type RichTableAxisOrder} from './tableAxesFormat';
+import {TABLE_AXES_SCHEMA,TABLE_WIDTHS_SCHEMA,isTableAxesSchema,axisKind,validateAxisAttributes,validateTableAxesLayout,type RichTableAxisOrder} from './tableAxesFormat';
 import type {LocalToolJson} from '../stateTypes';
 import type {RichDocument,RichText} from './richTypes';
 import {validateRichDocument} from './richTypes';
@@ -10,7 +10,7 @@ export type RichBlockKind='paragraph'|'heading'|'bullet-list'|'ordered-list'|'li
 export interface RichBlockPlacement {parentId:string|null;slot:'body'|'summary'|'columns';afterId:string|null}
 export interface RichBlock extends RichBlockPlacement {id:string;type:RichBlockKind;attrs:Record<string,LocalToolJson>;content?:RichText[]}
 /** A finite catalogue, including a finite raw image when concurrent placements cycle. */
-export interface RichBlockDocument {type:'block-doc';schema:typeof BLOCK_SCHEMA|typeof TABLE_SCHEMA|typeof TABLE_AXES_SCHEMA;blocks:RichBlock[];axisOrder?:RichTableAxisOrder[]}
+export interface RichBlockDocument {type:'block-doc';schema:typeof BLOCK_SCHEMA|typeof TABLE_SCHEMA|typeof TABLE_AXES_SCHEMA|typeof TABLE_WIDTHS_SCHEMA;blocks:RichBlock[];axisOrder?:RichTableAxisOrder[]}
 export interface RichBlockBinding {id:string;kindVersionId:string;attrsVersionId:string;membershipVersionId:string;placementVersionId:string}
 export interface RichBlockBindings {format:'writers-hoard-block-bindings/1';nodes:RichBlockBinding[]}
 export interface RichBlockCapture {format:'writers-hoard-block-capture/1';identity:LocalToolConvergenceIdentity;field:string;nodeIds:string[];bindings:RichBlockBinding[];frontier:string[]}
@@ -22,21 +22,21 @@ export const richBlockLeaf=(kind:RichBlockKind)=>kind==='paragraph'||kind==='hea
 export function validateRichBlockPlacement(v:unknown,axes=false):asserts v is RichBlockPlacement {
  if(!object(v)||Object.keys(v).length!==3||v.parentId!==null&&!id(v.parentId)||v.slot!=='body'&&v.slot!=='summary'&&(!axes||v.slot!=='columns')||v.afterId!==null&&!id(v.afterId))fail();
 }
-export function validateRichBlockAttributes(kind:unknown,value:unknown,tables=false,axes=false):asserts value is Record<string,LocalToolJson> {
- if(axes&&axisKind(kind)){validateAxisAttributes(kind,value);return;}
+export function validateRichBlockAttributes(kind:unknown,value:unknown,tables=false,axes=false,widths=false):asserts value is Record<string,LocalToolJson> {
+ if(axes&&axisKind(kind)){validateAxisAttributes(kind,value,widths);return;}
  if(tables&&tableKind(kind)){validateTableAttributes(kind,value);return;}
  if(!object(value))return fail();const keys=Object.keys(value);
  if(kind==='heading'){if(keys.length!==1||![1,2,3].includes(value.level as number))fail();}
  else if(kind==='ordered-list'){if(keys.length>1||keys.length===1&&(!Object.hasOwn(value,'start')||!Number.isSafeInteger(value.start)||Number(value.start)<1))fail();}
  else if(!['paragraph','bullet-list','list-item','blockquote','toggle'].includes(kind as string)||keys.length)fail();
 }
-export function validateRichBlockDocument(value:unknown,links=false,tables=false,axes=false):asserts value is RichBlockDocument {
- if(!object(value)||Object.keys(value).length!==(axes?4:3)||value.type!=='block-doc'||value.schema!==(axes?TABLE_AXES_SCHEMA:tables?TABLE_SCHEMA:BLOCK_SCHEMA)||axes&&!tables||!Array.isArray(value.blocks))return fail();
+export function validateRichBlockDocument(value:unknown,links=false,tables=false,axes=false,widths=false):asserts value is RichBlockDocument {
+ if(!object(value)||Object.keys(value).length!==(axes?4:3)||value.type!=='block-doc'||value.schema!==(widths?TABLE_WIDTHS_SCHEMA:axes?TABLE_AXES_SCHEMA:tables?TABLE_SCHEMA:BLOCK_SCHEMA)||axes&&!tables||widths&&!axes||!Array.isArray(value.blocks))return fail();
  const blocks=value.blocks as RichBlock[],all=new Map<string,RichBlock>();
  for(const [at,b]of blocks.entries()){
   if(!object(b)||!id(b.id)||all.has(b.id)||Object.keys(b).length!==(richBlockLeaf(b.type)?7:6))return fail();
   if(at>0&&blocks[at-1].id>=b.id)return fail();
-  validateRichBlockAttributes(b.type,b.attrs,tables,axes);validateRichBlockPlacement({parentId:b.parentId,slot:b.slot,afterId:b.afterId},axes);
+  validateRichBlockAttributes(b.type,b.attrs,tables,axes,widths);validateRichBlockPlacement({parentId:b.parentId,slot:b.slot,afterId:b.afterId},axes);
   if(richBlockLeaf(b.type))validateRichDocument({type:'doc',content:[{id:b.id,type:'paragraph',content:b.content}]},links);else if(Object.hasOwn(b,'content'))fail();
   all.set(b.id,b);
  }
@@ -56,6 +56,6 @@ export function validateRichBlockDocument(value:unknown,links=false,tables=false
  if(axes)validateTableAxesLayout(value as unknown as RichBlockDocument);else if(tables)validateTableLayout(value as unknown as RichBlockDocument);
 }
 /** Only this catalogue's own represented leaves, never the current RichRuns projection. */
-export function richBlockLeaves(value:RichBlockDocument,links=false,tables=false,axes=value.schema===TABLE_AXES_SCHEMA):RichDocument {
- validateRichBlockDocument(value,links,tables,axes);return{type:'doc',content:value.blocks.filter(b=>richBlockLeaf(b.type)).map(b=>({id:b.id,type:'paragraph',content:b.content!}))};
+export function richBlockLeaves(value:RichBlockDocument,links=false,tables=false,axes=isTableAxesSchema(value.schema),widths=value.schema===TABLE_WIDTHS_SCHEMA):RichDocument {
+ validateRichBlockDocument(value,links,tables,axes,widths);return{type:'doc',content:value.blocks.filter(b=>richBlockLeaf(b.type)).map(b=>({id:b.id,type:'paragraph',content:b.content!}))};
 }
