@@ -2151,3 +2151,15 @@ ManualGoogle actualizado una vez tras Main con CAS y readback íntegro (delta514
 - [x] CUT5 congelado, revisión independiente y aprobación formal1958/revisión2 de624474ba; Root integra54rutas Main sin push y completa la documentación de entrega. Manual/memoria tienen recibos separados.
 
 Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se repiten con etiquetas consumidas ni se atribuyen a bytes posteriores. Los focos owner/relay/reentry/descriptor y la aceptación final tienen resultados y límites en [la verificación](vvd1095/verification-rich-links1958.md#existing-shared-histories). Los estados de preparación anteriores se conservan como historial; no se cierran1095/1796.
+
+
+## 2003 — fixed collaborative tables, first increment
+
+- [x] Resolve2184 and preserve literal old reader/health; missing table profile RED before Source.
+- [x] Add engine5, finite per-field table capability and strict rectangular grammar without changing old profiles.
+- [x] Public atomic table insertion/move/hide and exact captures/receipts through the existing writer.
+- [x] Creation Undo scaffold and inherited home-route support; preserve B append without routingB, B Undo/Redo, explicit hide and current policy.
+- [x] Same session PM/keyboard/SDK/MCP and normal example; Source/eras/portable semantics.
+- [ ] Area oracles and independent review; final frozen CUT, quick/build, Root Brave and real bridge acceptance.
+
+Variable axes, cell merge/split, shared images and adoption of old origins remain open. Coordination: writers2178; contract: decision2184. No commit/Main/push authorized for this implementation.
