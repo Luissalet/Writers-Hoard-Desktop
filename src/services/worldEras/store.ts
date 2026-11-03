@@ -9,6 +9,7 @@ import type { Project } from '@/types';
 import { validateWorldCalendar } from '@/engines/timeline/worldCalendar';
 import { validateLocalToolProjectStates } from '@/engines/local/stateTypes';
 import {forkSourceToolDocument} from '@/engines/local/documents/portability';
+import {isSourceAdditivePredecessor,sourceAdditiveOriginFor} from '@/engines/local/documents/additiveOrigin';
 import {validateSourceToolDocument,type SourceToolDocument} from '@/engines/local/documents/types';
 import {convergenceHash} from '@/engines/local/convergence/format';
 import { validateWorkspaceAppearanceProject } from '@/services/workspaceAppearance/validation';
@@ -86,7 +87,7 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
   document=resolved;
   validateEraDocument(scope.projectId, kind, document.root.id, document);
   return db.transaction('rw', db.tables, async tx => {
-    await assertWorldEra(scope);
+    const project=await assertWorldEra(scope);
     if(kind==='writings')document=await projectWritingOwner(scope.projectId,document);
     const current = await readWorldDocument(scope, kind, document.root.id);
     if ((current?.version ?? null) !== expectedVersion) throw new WorldEraConflict();
@@ -97,9 +98,13 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
     if(kind==='local-tool'){
       const root=nextDocument.root as unknown as SourceToolDocument,old=current?.document.root as unknown as SourceToolDocument|undefined;
       const convergence=root.convergence??old?.convergence;
+      const changed=!old||current?.provenance==='base'||convergenceHash(root.data)!==convergenceHash(old.data)||convergenceHash(convergence??null)!==convergenceHash(old.convergence??null)||root.namespace!==old.namespace;
+      if(changed||convergenceHash(root.codec??null)!==convergenceHash(old?.codec??null)){
+        const from=old&&sourceAdditiveOriginFor(old.namespace,project.localToolInstallations?.[old.namespace]?.contentHash);
+        if(root.codec?.sourceDefault||old?.codec?.sourceDefault||old&&isSourceAdditivePredecessor(old,from))throw Error('local_tool_source_additive_write_unavailable');
+      }
       if(convergence){
         root.convergence=convergence;root.codec??=old?.codec;
-        const changed=!old||current?.provenance==='base'||convergenceHash(root.data)!==convergenceHash(old.data)||convergenceHash(root.convergence)!==convergenceHash(old.convergence??null)||root.namespace!==old.namespace;
         if(changed){
           Object.assign(root,forkSourceToolDocument(root),{generation:crypto.randomUUID()});
           // checkpoint writes also retain displaced causal state; generic data saves cannot erase it.

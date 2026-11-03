@@ -12,8 +12,10 @@ import {cloneLocalToolJson,LocalToolStateError,type LocalToolJson} from '../stat
 import {validateLocalToolCodecState} from '../stateCodec';
 import {validateSourceToolDocument,type SourceToolDocument} from './types';
 import {forkSourceToolDocument} from './portability';
+import {assertSourceAdditiveTarget,parseSourceToolDocumentState} from './additive';
+import {priorSourceCodec} from '../convergence/sourceAdditive';
 import type {LocalToolConvergenceContract} from '../convergence/types';
-import {assertTableAxesOrigin,convergenceCodecHash,convergenceHash,convergenceIdentityOf,validateConvergenceMetadata} from '../convergence/format';
+import {assertTableAxesOrigin,convergenceCanonical,convergenceCodecHash,convergenceEngine,convergenceHash,convergenceIdentityOf,validateConvergenceMetadata} from '../convergence/format';
 import {effectiveRichAdoptionContract} from '../convergence/richAdoption';
 import {createLocalToolGenesis,inspectLocalToolConvergence,prepareLocalToolReplacement} from '../convergence/replica';
 function announce(projectId:string){let tx=Dexie.currentTransaction;const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});if(!tx){emit();return;}while(tx.parent)tx=tx.parent;tx.on('complete',emit);}
@@ -60,8 +62,13 @@ async function mutate(scope:WorldEraScope,id:string,expected:number|null,expecte
 }
 export interface SourceConvergenceOptions {authorId:string;validationId:string;schemaEpoch:string;/** Host-only local flag; not a commit notification. */onPrepared?:(causalChanged:boolean)=>void}
 /** Current executable validation comes from the selected host, never old persisted metadata. */
-export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false):LocalToolConvergenceContract<T>{
+export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false,promoting=false):LocalToolConvergenceContract<T>{
  const codec=definition.codec??document.codec;if(!codec)throw Error('local_tool_convergence_codec_required');
+ if(!promoting&&(definition.sourceAdditive||document.codec?.sourceDefault||document.convergence?.checkpoint.engine.version==='8'))assertSourceAdditiveTarget(document,definition);
+ if(document.convergence?.checkpoint.engine.version==='1'&&document.codec&&!promoting&&convergenceEngine(codec).version==='1'){
+  const added=Object.keys(codec.fields).filter(field=>!Object.hasOwn(document.codec!.fields,field));
+  if(added.length===1&&codec.fields[added[0]].kind==='scalar'&&convergenceCanonical(priorSourceCodec(codec,added[0]))===convergenceCanonical(document.codec))throw Error('local_tool_source_additive_required');
+ }
  assertTableAxesOrigin(codec,document.codec,document.convergence?.checkpoint.engine.version);
  const contract={namespace:definition.namespace,codec,validationId:options.validationId,schemaEpoch:options.schemaEpoch,validateState:definition.validateState,...(definition.richAdoption?{richAdoption:definition.richAdoption}:{})};
  validateConvergenceMetadata(contract);return document.convergence&&!adopting?effectiveRichAdoptionContract(document.convergence.checkpoint,contract):contract;
@@ -72,6 +79,7 @@ export function prepareSourceConvergenceContext<T extends LocalToolJson>(origina
  const contract=sourceConvergenceContract(original,definition,options,adopting),stored=original.convergence.checkpoint;
  const knownAdoption=adopting&&!!contract.richAdoption&&stored.engine.version==='3';if(knownAdoption)effectiveRichAdoptionContract(stored,contract);
  const epochChanged=!knownAdoption&&(stored.validationId!==contract.validationId||stored.schemaEpoch!==contract.schemaEpoch||stored.codecHash!==convergenceCodecHash(contract.codec));
+ if(epochChanged&&stored.engine.version==='8')throw Error('local_tool_source_additive_incompatible');
  let document=original;
  if(epochChanged){
   const checkpoint=createLocalToolGenesis(original.data as T,contract);
@@ -82,23 +90,27 @@ export function prepareSourceConvergenceContext<T extends LocalToolJson>(origina
  if(convergenceHash(view.data)!==convergenceHash(document.data)||convergenceHash(view.conflict)!==convergenceHash(document.convergence!.conflict??null))throw Error('source_tool_convergence_projection_mismatch');
  return{document,checkpoint,replicaOptions,view,reset:epochChanged||inherited,epochChanged};
 }
-export async function createSourceToolDocument(scope:WorldEraScope,namespace:string,title:string):Promise<SourceToolDocument>{return db.transaction('rw',db.tables,()=>Dexie.Promise.resolve(db.projects.get(scope.projectId)).then(project=>{if(!project)throw Error('project_missing');const definition=resolveProjectLocalTool(namespace,project);if(!definition.document||!title.trim())throw Error('source_tool_document_title_required');const id=crypto.randomUUID(),now=Date.now();return mutate(scope,id,null,null,()=>({id,generation:crypto.randomUUID(),namespace,title:title.trim(),revision:1,createdAt:now,updatedAt:now,data:parseLocalToolState(definition,definition.initialState),...(definition.codec?{codec:structuredClone(definition.codec)}:{}),...(definition.preview?{preview:structuredClone(definition.preview)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})}));}));}
+export async function createSourceToolDocument(scope:WorldEraScope,namespace:string,title:string):Promise<SourceToolDocument>{return db.transaction('rw',db.tables,()=>Dexie.Promise.resolve(db.projects.get(scope.projectId)).then(project=>{if(!project)throw Error('project_missing');const definition=resolveProjectLocalTool(namespace,project);if(!definition.document||!title.trim())throw Error('source_tool_document_title_required');const id=crypto.randomUUID(),now=Date.now(),data=parseLocalToolState(definition,definition.initialState),spec=definition.codec?.sourceDefault;
+ if(spec&&data&&typeof data==='object'&&!Array.isArray(data)&&Object.hasOwn(data,spec.field)&&convergenceCanonical(data[spec.field])===convergenceCanonical(spec.defaultValue))delete data[spec.field];
+ return mutate(scope,id,null,null,()=>({id,generation:crypto.randomUUID(),namespace,title:title.trim(),revision:1,createdAt:now,updatedAt:now,data,...(definition.codec?{codec:structuredClone(definition.codec)}:{}),...(definition.preview?{preview:structuredClone(definition.preview)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})}));}));}
 export async function renameSourceToolDocument(scope:WorldEraScope,id:string,namespace:string,title:string,expected:number,expectedVersion:string){if(!title.trim())throw Error('source_tool_document_title_required');return mutate(scope,id,expected,expectedVersion,current=>{if(!current||current.namespace!==namespace)throw Error('source_tool_document_missing');return{...current,title:title.trim(),revision:current.revision+1,updatedAt:Math.max(Date.now(),current.updatedAt+1)};});}
 export async function archiveSourceToolDocument(scope:WorldEraScope,id:string,namespace:string,expected:number,expectedVersion:string):Promise<void>{await db.transaction('rw',db.tables,async()=>{const read=await readSourceToolDocument(scope,id,namespace);if(!read||read.document.revision!==expected||read.version!==expectedVersion)throw new LocalToolStateError('conflict');if(scope.eraId){const previous=await db.worldEraVariants.where('[projectId+eraId+kind+entityId]').equals([scope.projectId,scope.eraId,'local-tool',id]).first();await db.worldEraVariants.put({id:previous?.id??crypto.randomUUID(),projectId:scope.projectId,eraId:scope.eraId,kind:'local-tool',entityId:id,hidden:true,document:{root:read.document as unknown as EraRow,children:{}},history:retain(previous),revision:(previous?.revision??0)+1,updatedAt:Date.now()});announceEraChange(scope.projectId);return;}await archiveMetadataWithMutation('local-tool',scope.projectId,id,async()=>{const project=await db.projects.get(scope.projectId);if(!project)throw Error('project_missing');await db.projects.update(scope.projectId,{sourceToolDocuments:(project.sourceToolDocuments??[]).filter(row=>row.id!==id),updatedAt:Math.max(Date.now(),project.updatedAt+1)});announce(scope.projectId);});});}
 /** Export may copy its already-admitted old-epoch view without executing a newly pinned validator. */
 export function sourceToolSnapshot<T extends LocalToolJson>(read:SourceToolRead,definition:LocalToolDefinition<T>,validate=true):LocalToolSnapshot<T>{
  const document=read.document,convergence=document.convergence;
- return{revision:document.revision,updatedAt:document.updatedAt,data:validate?parseLocalToolState(definition,document.data):cloneLocalToolJson(document.data) as T,provenance:read.provenance,document:{id:document.id,namespace:definition.namespace,title:document.title,version:read.version,lineage:read.lineage},...(convergence?{convergence:{...convergenceIdentityOf(convergence.checkpoint),...(convergence.conflict?{conflict:structuredClone(convergence.conflict)}:{})}}:{})};
+ return{revision:document.revision,updatedAt:document.updatedAt,data:validate?parseSourceToolDocumentState(definition,document):cloneLocalToolJson(document.data) as T,provenance:read.provenance,document:{id:document.id,namespace:definition.namespace,title:document.title,version:read.version,lineage:read.lineage},...(convergence?{convergence:{...convergenceIdentityOf(convergence.checkpoint),...(convergence.conflict?{conflict:structuredClone(convergence.conflict)}:{})}}:{})};
 }
 export async function readSourceToolState<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>):Promise<LocalToolSnapshot<T>>{
  const read=await readSourceToolDocument(scope,id,definition.namespace);if(!read)throw Error('source_tool_document_missing');return sourceToolSnapshot(read,definition);
 }
 export async function saveSourceToolState<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,data:T,expected:number|null,expectedVersion?:string,convergenceOptions?:SourceConvergenceOptions):Promise<LocalToolSnapshot<T>>{
+ if(definition.sourceAdditive)throw Error('local_tool_source_additive_write_unavailable');
  const safe=parseLocalToolState(definition,data);if(!expectedVersion)throw Error('source_tool_document_version_required');
  return db.transaction('rw',db.tables,async()=>{
   await transformSourceToolDocument(scope,id,read=>{
    checkSourceCAS(read,expected,expectedVersion);if(!read||read.document.namespace!==definition.namespace)throw Error('source_tool_document_missing');
    let current=read.document,nextData=cloneLocalToolJson(safe);
+   if(current.codec?.sourceDefault||current.convergence?.checkpoint.engine.version==='8')throw Error('local_tool_source_additive_write_unavailable');
    if(current.convergence){
     if(!convergenceOptions)throw Error('source_tool_convergence_context_required');
     const context=prepareSourceConvergenceContext(current,definition,convergenceOptions,!!scope.eraId&&read.provenance==='base');
