@@ -378,3 +378,10 @@ La cache RAW7d3f1365 ya está Main y aprobada1796r4; supera su estado anterior d
 Manual/Automático optativo del editor compartido queda cubierto en el alcance de [1952](tasks/vvd1095/verification-autosave1952.md#current-acceptance-of-cut3), fuente `0ac21d2cd02ef500a4ac08f6492d10b94710efe1` y Main `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`. No es ya un hueco total de guardar automáticamente. La preferencia personal recordada sólo determina futuras instancias locales; se conserva Manual por campo fuera de sala y el mismo Save/writer documental para Automático.
 
 Continuar1917 hasta respuesta interactiva acreditada,1958 enlaces causales (diseño, sin código), esquemas persistentes ampliables, imágenes/tablas del perfil compartido, IME físico, hosting y los demás residuos1095. El modo por defecto y los casos de referencia no contrastados mantienen su atribución; ningún resultado1952 equivale a paridad web/SDK completa. Las listas antiguas permanecen como checkpoints históricos, no como inventario actual.
+
+
+## Continuación tras enlaces nuevos1958
+
+El primer hito de1958 ya está en Main93e1766088185d209110af5f9f7b8b94bc687109: enlaces causales optativos en párrafos y bloques de documentos nuevos, UI/SDK/MCP, Undo autoral, Save/Auto e intercambio local verificados. [Alcance y pruebas](tasks/vvd1095/verification-rich-links1958.md). Queda superado el pendiente total de enlaces, sin cerrar la familia completa de texto compartido.
+
+Siguiente: implementar y probar la adopción explícita y acotada3→4 acordada en2138, conservando origen/historia, política actual, lecturas sin reset, recuperación de dependencias, sala y guardado del corte correcto.1958 permanece abierta y su worktree se conserva para ese segundo hito. Después continúan imágenes/tablas del perfil, esquema persistente ampliable, respuesta interactiva de historiales grandes1917, IME físico, hosting y los demás residuos1095. No excluir por estar ONLINE sin dependencia externa o pago demostrados.

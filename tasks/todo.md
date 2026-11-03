@@ -2126,3 +2126,15 @@ ManualGoogle actualizado una vez tras Main con CAS y readback íntegro (delta514
 - [x]1958 CUT2: corrección dirigida del RED peer CUT1: acciones antiguas mark/move no leen link no consumido; regresión permanente counter0/semántica/IDs. CUT1/gates/RED peer conservados, nuevo corte y gates necesarios.
 
 - [x]1958 CUT3: corregir P2 peer de link opcional falsy en rich-block-insert; null/false/0/cadena vacía rechazan con checkpoint exacto, controles omitido/objeto válido y Undo conservados. Evidencia CUT2 intacta; nuevo corte/gates y revisión necesarios.
+
+
+##1958 — primer hito entregado, adopción pendiente
+
+- [x] Native4/perfiles2 por campo: links y snapshot2, cinco marcas/lectores3 estrictos, ejemplo normal sin D ficticia.
+- [x] SDK/editor/MCP por el mismo writer; Source, Manual/Auto, frío, ZIP y pruebas atribuidas.
+- [x] Dos P2 independientes conservados y corregidos con los mismos oráculos; CUT3 final4ed1b671.
+- [x] Node139, montado61, Source23, Auto79, quick/build; peer157; Brave dos bibliotecas/SSE; Native115tools/123RPC/115IPC con cuatro claves y frío en otro Electron.
+- [x] Commit38rutas93e1766, aprobación exacta1958r1 e integración Main sin push; manual Google CAS/readback íntegro una vez.
+- [ ] Segundo hito1958: adopción conocida3→4 según decisión2138 y sus diez oráculos fijados antes de código. No cerrar1958/1095 al entregar el primero.
+
+[Verificación permanente](vvd1095/verification-rich-links1958.md). Las casillas iniciales del plan quedan históricas; esta entrega sólo sustituye su primer hito. Memoria/grafos y documentación final tienen recibos propios de Root.
