@@ -1,5 +1,13 @@
 # Writer publishing workspace
 
+## Contenido local compartido — 03-11-2026
+
+Source `48ba665be0d96a10eab6774fd4798660f6c3cf1d`, padre1c41e1da, está aprobado en la revisión1 de1913 e integrado en Main y primary. La opción **Compartir también el contenido del documento** antes de Crear/Unirse intercambia todos los campos sobre las réplicas y Undo existentes; personas y cursores siguen siendo la opción predeterminada. Guardar escribe sólo en esta biblioteca. Salir sin guardar aquí concilia únicamente el Save ya iniciado y recarga el Source actual, conservando el borrador de otras vistas.
+
+SDK y cuatro herramientas registradas operan sobre esa misma instancia abierta: query/capture de lectura, batch atómico y control undo/redo/save/leave. Consultar en frío no crea una vista ni sala. Autor Source59/original8da/UI, revisión independiente53+3 y Brave de Root tienen atribuciones separadas. El corte finalR3 añade sus tres UI, relay11, Brave nuevo, quick106,600s/build140,359s y Native nuevo58tools/66RPC/58IPC con dos claves por fase y otro Electron frío. [Pruebas y límites](tasks/vvd1095/verification-live-content1913.md).
+
+Root integró los25blobs aprobados bajo merge lock, con índice/canon/no rastreados y rules ajenas conservados, sin push. El manual Google y la continuidad MEMORY/Store ya están actualizados con sus recibos propios; no se repiten sus escrituras. Autoguardado1952 continúa pendiente para la siguiente entrega, junto a hosting, rendimiento1917, IME físico, schema persistente ampliable y enlaces/imágenes/tablas del perfil. No se declara paridad1095 ni que los candidatos de rendimiento estén Main. Este checkpoint complementa las entregas integradas anteriores.
+
 ## Deshacer con aportaciones de otra persona — 03-11-2026
 
 Sourceef9abe94 está aprobado1932r1 e integrado Main. Deshacer la creación de un contenedor conserva los párrafos activos de otro autor, con texto, formato e identidades; sólo mantiene el soporte causal necesario y respeta ocultaciones y retiradas independientes. Rehacer y Guardar conservan el mismo writer. SDK, revisión independiente, Brave y MCP real con segunda clave/reapertura tienen evidencia separada. [Comportamiento y límites](tasks/vvd1095/verification-undo-support1932.md). No entrega contenido vivo1913, fluidez1917, IME o paridad general.

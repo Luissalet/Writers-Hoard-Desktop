@@ -12,7 +12,15 @@
 - [x] Reproduce functional Unicode RED after healthy Source/ZIP and normal Create/Join; preserve fixture8da/driverb6 and cleanup receipts.
 - [x] Add whole-document opt-in transport and coordinated existing rich sessions, preserving people-only default and Source durability.
 - [x] Add normal UI, SDK and MCP actions for the same open instance, atomic batches and local exit without a new Save.
-- [ ] Pass the unchanged causal, concurrency/Saveflight/recovery/scope controls and relevant legacy checks; freeze for independent review and real Brave/Native.
+- [x] Pass the unchanged composed original8da/b6, Source59/Saveflight/recovery/scope and legacy controls with their actual author surfaces; retain failures and original oracles.
+- [x] Complete independent three-instance/two-field review (53 scenario assertions plus three checks of recorded observations), attributed to R1.
+- [x] Preserve failed quickR1/R2; validate R3's hook and relay identity changes with the same three UI fixtures, HTTP/SSE11 and Root's new Brave checks.
+- [x] Complete new two-key Native58tools/66RPC/58IPC: one normal SourceHost/two fields, real content sharing/SSE, atomic batch/Undo, whole-document Save, local Leave and cold another Electron/same profile/origin without seed/host; close all resources and89tables/ledger.
+- [x] Pass final R3 quick106.600s/build140.359s with EOF0 and exact25RAW/HEAD/index guards.
+- [x] Approve exact commit48ba665be0d96a10eab6774fd4798660f6c3cf1d in submission1, preserving all25tested blobs.
+- [x] Root: integrate all25approved blobs as48ba665b in Main/primary under merge lock, preserving index/canonical bytes/untracked/foreign rules; no push.
+- [x] Root: update Google manual once (2requests/+603UTF16/215paragraphs and complete resource inverse check), MEMORY and two Store concepts with prior content preserved.
+- [ ] Continue autosave1952, performance1917, hosting/physicalIME/schema/links/images/tables and the remaining parity gaps;1095/1796 remain open.
 
 Contract: R3/2099B. Plan before Source: `_stage/live-content1913/IMPLEMENTATION-PLAN-r1.md`. Source and network lifetimes differ; a relay ACK never confirms durable Save.
 
