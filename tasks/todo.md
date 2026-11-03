@@ -2198,3 +2198,10 @@ Variable axes, cell merge/split, shared images and adoption of old origins remai
 - [x] Fix a permanent oracle on the real NoteRichEditor wrapper before implementation: explicit Base despite an era pane, hidden era, Base return and Inbox isolation, no prose writes.
 - [x] Preserve the first RED, pass project/era/owner context through the existing editor, then run the unchanged area plus wrapper case.
 - [x] Freeze a new cut, run quick/build once with guards and commit explicit paths; Root repeats Brave and accepts a freshly authorized Native preparation.
+
+
+## 2028 - Saved Notes preview correction after Brave R2
+
+- [x] Reproduce the missing thumbnail on the real NoteCard after a normal rerender with the same rich HTML. Preserve the original failure and prove that the same checks pass after correction.
+- [x] Verify avatar refresh, rich HTML replacement, existing era scoping and no note writes. Area19, renderer types and targeted NoteCard lint passed on the frozen cut.
+- [x] Commit the explicit paths and hand off the exact cut for Brave on the same saved note and final Native acceptance.

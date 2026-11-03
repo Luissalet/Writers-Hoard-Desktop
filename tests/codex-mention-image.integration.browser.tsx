@@ -57,6 +57,23 @@ export async function testCodexMentionImageIntegration():Promise<string[]> {
     await act(async()=>{root.render(<MemoryRouter><NoteCard note={note} onUpdate={()=>{throw Error('Passive read must not write');}} onDelete={()=>{throw Error('No delete');}}/></MemoryRouter>);await pause();});
     await until(()=>thumb(host)?.getAttribute('src')===A,'Cold NoteCard must hydrate the current avatar');
     assert((await db.notes.get(note.id))?.richHtml===html,'Passive NoteCard must not persist hydrated HTML');
+    // A title refresh rerenders the same saved card without changing its rich HTML or scope.
+    const renderPassiveNote=async(value:Note)=>act(async()=>{
+      root.render(<MemoryRouter><NoteCard note={value} onUpdate={()=>{throw Error('Passive read must not write');}} onDelete={()=>{throw Error('No delete');}}/></MemoryRouter>);await pause();
+    });
+    const refreshedNote={...note,title:'Refreshed saved note'};
+    await renderPassiveNote(refreshedNote);
+    assert(host.querySelector('[data-testid="note-title-shown"]')?.textContent===refreshedNote.title,'Saved card must actually rerender');
+    assert(thumb(host)?.getAttribute('src')===A,'Same rich HTML and scope must keep the saved card thumbnail after rerender');
+    await db.codexEntries.update(E,{avatar:B});
+    await until(()=>thumb(host)?.getAttribute('src')===B,'Rerendered saved card must still react to avatar changes');
+    await renderPassiveNote({...refreshedNote,richHtml:html.replace(' data-wh-codex-image="true"','')});
+    assert(!thumb(host),'Replacing rich HTML with an OFF link must remove its old thumbnail');
+    await db.codexEntries.update(E,{avatar:A});
+    await renderPassiveNote(note);
+    await until(()=>thumb(host)?.getAttribute('src')===A,'Returning ON rich HTML must use the current avatar');
+    assert((await db.notes.get(note.id))?.richHtml===html,'Passive rerender, avatar changes and replacement props must not persist HTML');
+    passed.push('Real saved NoteCard keeps the thumbnail through rerender, reacts to avatar and HTML changes, and never writes prose');
     await act(async()=>{root.render(<MemoryRouter><ReadingView pieces={[writing]} onClose={()=>{}} onOpenInEditor={()=>{}}/></MemoryRouter>);await pause();});
     await until(()=>thumb(host)?.getAttribute('src')===A,'Cold ReadingView must hydrate without editor');
     passed.push('Cold NoteCard/ReadingView resolve local thumbnails without editor or prose writes');

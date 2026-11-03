@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Check, Copy, FolderInput, Palette, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
@@ -50,6 +50,8 @@ export default function NoteCard({
   const [saveFailed, setSaveFailed] = useState(false);
   const saveLock = useRef(false);
   const imageActivity = useRef<NoteImageActivity>({ epoch: 0, blocked: false }), scope = useWorldEraScope(note.projectId), richRead = useRef<HTMLDivElement>(null);
+  // Keep React from replacing the DOM that owns derived thumbnails on unrelated renders.
+  const richReadHtml = useMemo(() => note.richHtml === undefined ? undefined : sanitizedHtml(note.richHtml), [note.richHtml]);
   useLayoutEffect(() => { if (!editing && note.richHtml && noteImageLayoutCss(note.richHtml) && richRead.current) ensureNoteImageLayout(richRead.current.ownerDocument); }, [editing, note.richHtml]);
   useLayoutEffect(() => { if (!editing && richRead.current) return hydrateCodexLinkImages(richRead.current, note.projectId, scope.eraId); }, [editing, note.richHtml, note.projectId, scope.eraId]);
 
@@ -289,7 +291,7 @@ export default function NoteCard({
           >
             {note.cover && <img src={note.cover} alt="" className="mb-2 max-h-40 w-full rounded-lg object-cover" data-testid="note-cover-image" />}
             {note.title && <p className="mb-1 text-base font-semibold text-text-primary" data-testid="note-title-shown">{note.title}</p>}
-            {note.richHtml!==undefined?<div ref={richRead} className="tiptap-editor prose prose-sm max-w-none break-words text-text-primary" data-note-rich-read dangerouslySetInnerHTML={sanitizedHtml(note.richHtml)}/>:<p
+            {note.richHtml!==undefined?<div ref={richRead} className="tiptap-editor prose prose-sm max-w-none break-words text-text-primary" data-note-rich-read dangerouslySetInnerHTML={richReadHtml}/>:<p
               className={`text-sm text-text-primary whitespace-pre-wrap leading-relaxed ${
                 note.kind === 'quote' ? 'font-serif italic' : ''
               }`}
