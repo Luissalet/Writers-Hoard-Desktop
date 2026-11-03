@@ -23,6 +23,7 @@ files:
 asarUnpack:
   - '**/node_modules/ffmpeg-static/**'
   - 'dist-electron/aibridge/**'
+  - 'dist-electron/wikiHosting/writer-wiki-host.cjs'
   - '**/node_modules/onnxruntime-node/**'
   - '**/node_modules/sharp/**'
   - '**/node_modules/@img/**'

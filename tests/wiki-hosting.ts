@@ -212,3 +212,33 @@ test('publication covers follow the edition address, even across audience change
     await rmdir(directory);
   }
 });
+
+
+test('external editor writes the normal registry without taking the reader port', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'writer-wiki-external-test-'));
+  const file = path.join(directory, 'sites.sqlite');
+  const reserved = createServer((_req, res) => { res.writeHead(204).end(); });
+  await new Promise<void>(resolve => reserved.listen(0, '127.0.0.1', resolve));
+  const address = reserved.address();
+  assert(address && typeof address === 'object');
+  const editor = createWikiHost({ file, port: address.port, externalReader: true });
+  try {
+    await editor.resume();
+    const input = { ...owner, ...edition('a', htmlA), slug: 'external', audience: 'public' as const };
+    const published = await editor.publish({ ...input, expectedRevision: 0 });
+    assert.equal(published.url, `http://127.0.0.1:${address.port}/wiki/external`);
+    assert.equal((await request(published.url!)).status, 204, 'The editor did not replace the independent listener');
+    await new Promise<void>(resolve => reserved.close(() => resolve()));
+    const updated = await editor.publish({ ...input, ...edition('b', htmlB), expectedRevision: 1 });
+    assert.equal(updated.url, published.url, 'A stopped reader does not make the editor bind or change the URL');
+    assert.deepEqual(editor.list(owner), [updated]);
+    await assert.rejects(request(updated.url!));
+    editor.withdraw({ ...owner, slug: input.slug, expectedRevision: 2 });
+    assert.equal(editor.list(owner)[0].active, false);
+  } finally {
+    if (reserved.listening) await new Promise<void>(resolve => reserved.close(() => resolve()));
+    await editor.close();
+    await rm(file, { force: true });
+    await rmdir(directory);
+  }
+});

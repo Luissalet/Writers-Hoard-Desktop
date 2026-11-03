@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,7 +12,8 @@ const hash = (data: string | Buffer) => createHash('sha256').update(data).digest
 const isId = (id: string) => typeof id === 'string' && id.length > 0 && id.length <= 200;
 
 type AddressRow = Omit<WikiHostAddress, 'active' | 'url' | 'coverUrl'> & { active: number; token: string | null };
-type Row = AddressRow & { html: string; cover: string | null };
+type Row = AddressRow & { html: string; cover?: string | null };
+type WikiReaderOptions = { port: number; publicOrigin?: string };
 const ADDRESS_COLUMNS = 'slug, projectId, profileId, editionId, audience, sha256, revision, active, token, cover IS NOT NULL AS hasCover';
 
 function completePng(bytes: Buffer) {
@@ -56,54 +57,22 @@ function checkChange(input: WikiHostChange) {
   if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw Error('wiki_host_revision_invalid');
 }
 
-/** One read-only HTTP origin, independent of the editor and its bridge. */
-export function createWikiHost(options: { file: string; port: number; publicOrigin?: string }) {
+function wikiOrigin(options: WikiReaderOptions) {
   if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535) throw Error('wiki_host_port_invalid');
   const publicUrl = options.publicOrigin ? new URL(options.publicOrigin) : null;
   if (publicUrl && (!['https:', 'http:'].includes(publicUrl.protocol) || publicUrl.href !== publicUrl.origin + '/')) {
     throw Error('wiki_host_origin_invalid');
   }
-  let db: DatabaseSync | undefined;
+  return publicUrl;
+}
+
+const loopbackOrigin = (port: number) => `http://${BIND}:${port}`;
+const wikiAddressUrl = (row: AddressRow, base: string | undefined) =>
+  row.active && base ? base + '/wiki/' + row.slug + (row.token ? '/u/' + row.token : '') : null;
+
+function createWikiReader(options: WikiReaderOptions, publicUrl: URL | null, find: (slug: string) => Row | undefined) {
   let origin: string | undefined;
   let starting: Promise<void> | undefined;
-
-  function store() {
-    if (db) return db;
-    mkdirSync(path.dirname(options.file), { recursive: true });
-    const opened = new DatabaseSync(options.file);
-    try {
-      opened.exec(`
-        PRAGMA busy_timeout=5000;
-        CREATE TABLE IF NOT EXISTS wiki_addresses (
-          slug TEXT PRIMARY KEY, projectId TEXT NOT NULL, profileId TEXT NOT NULL,
-          editionId TEXT NOT NULL, audience TEXT NOT NULL, sha256 TEXT NOT NULL,
-          revision INTEGER NOT NULL, active INTEGER NOT NULL, token TEXT, html TEXT NOT NULL
-        );
-      `);
-      if (!opened.prepare('PRAGMA table_info(wiki_addresses)').all().some(column => column.name === 'cover')) {
-        opened.exec('ALTER TABLE wiki_addresses ADD COLUMN cover TEXT');
-      }
-      db = opened;
-      return db;
-    } catch (error) {
-      opened.close();
-      throw error;
-    }
-  }
-
-  function find(slug: string): Row | undefined {
-    return store().prepare('SELECT * FROM wiki_addresses WHERE slug=?').get(slug) as Row | undefined;
-  }
-
-  function summary(row: AddressRow & { hasCover: number }): WikiHostAddress {
-    const base = publicUrl?.origin ?? origin;
-    const url = row.active && base ? base + '/wiki/' + row.slug + (row.token ? '/u/' + row.token : '') : null;
-    return {
-      projectId: row.projectId, profileId: row.profileId, slug: row.slug, editionId: row.editionId,
-      sha256: row.sha256, audience: row.audience, revision: row.revision, active: !!row.active,
-      url, ...(url && row.hasCover ? { coverUrl: url + '/cover' } : {}),
-    };
-  }
 
   function serve(req: IncomingMessage, res: ServerResponse) {
     res.setHeader('Cache-Control', 'no-store');
@@ -145,8 +114,8 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
       res.writeHead(500).end();
       return;
     }
-    const coverUrl = row.cover && summary({ ...row, hasCover: 1 }).coverUrl;
-    const meta = coverUrl ? `<meta property="og:image" content="${coverUrl}">` : '';
+    const coverUrl = row.cover && wikiAddressUrl(row, publicUrl?.origin ?? origin);
+    const meta = coverUrl ? `<meta property="og:image" content="${coverUrl}/cover">` : '';
     const html = meta ? row.html.replace(/<\/head>|^<!doctype html>(?![\s\S]*<\/head>)/i,
       tag => tag.toLowerCase() === '</head>' ? meta + tag : tag + meta) : row.html;
     res.writeHead(200, {
@@ -158,7 +127,11 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
   }
 
   const server = createServer((req, res) => {
-    try { serve(req, res); } catch { res.writeHead(500).end(); }
+    try { serve(req, res); }
+    catch (error) {
+      const sqliteCode = (error as { errcode?: number }).errcode;
+      res.writeHead(sqliteCode === 5 || sqliteCode === 6 ? 503 : 500).end();
+    }
   });
   function start() {
     return starting ??= new Promise<void>((resolve, reject) => {
@@ -168,16 +141,88 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
         server.off('error', failed);
         const address = server.address();
         if (!address || typeof address === 'string') throw Error('wiki_host_listener_invalid');
-        origin = `http://${BIND}:${address.port}`;
+        origin = loopbackOrigin(address.port);
         resolve();
       });
     });
   }
 
   return {
+    start,
+    origin: () => origin,
+    async close() {
+      try {
+        await starting?.catch(() => undefined);
+        if (server.listening) await new Promise<void>(resolve => server.close(() => resolve()));
+      } finally {
+        starting = undefined;
+        origin = undefined;
+      }
+    },
+  };
+}
+
+/** This process owns only the reader socket. The editor owns registry creation and writes. */
+export function createStandaloneWikiReader(options: WikiReaderOptions & { file: string }) {
+  const publicUrl = wikiOrigin(options);
+  if (!options.port) throw Error('wiki_host_port_invalid');
+  return createWikiReader(options, publicUrl, slug => {
+    if (!statSync(options.file, { throwIfNoEntry: false })) return undefined;
+    const db = new DatabaseSync(options.file, { readOnly: true, timeout: 150 });
+    try {
+      if (!db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='wiki_addresses'").get()) return undefined;
+      return db.prepare('SELECT * FROM wiki_addresses WHERE slug=?').get(slug) as Row | undefined;
+    } finally { db.close(); }
+  });
+}
+
+export function createWikiHost(options: WikiReaderOptions & { file: string; externalReader?: boolean }) {
+  const publicUrl = wikiOrigin(options);
+  if (options.externalReader && !options.port) throw Error('wiki_host_port_invalid');
+  const reader = options.externalReader ? undefined : createWikiReader(options, publicUrl, find);
+  let db: DatabaseSync | undefined;
+
+  function store() {
+    if (db) return db;
+    mkdirSync(path.dirname(options.file), { recursive: true });
+    const opened = new DatabaseSync(options.file);
+    try {
+      opened.exec(`
+        PRAGMA busy_timeout=5000;
+        CREATE TABLE IF NOT EXISTS wiki_addresses (
+          slug TEXT PRIMARY KEY, projectId TEXT NOT NULL, profileId TEXT NOT NULL,
+          editionId TEXT NOT NULL, audience TEXT NOT NULL, sha256 TEXT NOT NULL,
+          revision INTEGER NOT NULL, active INTEGER NOT NULL, token TEXT, html TEXT NOT NULL
+        );
+      `);
+      if (!opened.prepare('PRAGMA table_info(wiki_addresses)').all().some(column => column.name === 'cover')) {
+        opened.exec('ALTER TABLE wiki_addresses ADD COLUMN cover TEXT');
+      }
+      db = opened;
+      return db;
+    } catch (error) {
+      opened.close();
+      throw error;
+    }
+  }
+
+  function find(slug: string): Row | undefined {
+    return store().prepare('SELECT * FROM wiki_addresses WHERE slug=?').get(slug) as Row | undefined;
+  }
+
+  function summary(row: AddressRow & { hasCover: number }): WikiHostAddress {
+    const url = wikiAddressUrl(row, publicUrl?.origin ?? (options.externalReader ? loopbackOrigin(options.port) : reader?.origin()));
+    return {
+      projectId: row.projectId, profileId: row.profileId, slug: row.slug, editionId: row.editionId,
+      sha256: row.sha256, audience: row.audience, revision: row.revision, active: !!row.active,
+      url, ...(url && row.hasCover ? { coverUrl: url + '/cover' } : {}),
+    };
+  }
+
+  return {
     async resume() {
-      if (!db && !existsSync(options.file)) return;
-      if (store().prepare('SELECT 1 FROM wiki_addresses LIMIT 1').get()) await start();
+      if (!reader || (!db && !existsSync(options.file))) return;
+      if (store().prepare('SELECT 1 FROM wiki_addresses LIMIT 1').get()) await reader.start();
     },
     list(owner: WikiHostListScope) {
       if ((owner.projectId !== undefined && !isId(owner.projectId)) ||
@@ -194,7 +239,7 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
         throw Error('wiki_host_artifact_changed');
       }
       if (input.coverImage !== undefined && input.coverImage !== null) decodeCover(input.coverImage);
-      await start();
+      await reader?.start();
       const token = input.audience === 'unlisted' ? randomBytes(24).toString('base64url') : null;
       const sql = `
         INSERT INTO wiki_addresses (slug, projectId, profileId, editionId, audience, sha256, revision, active, token, html, cover)
@@ -225,11 +270,8 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
     },
     async close() {
       try {
-        await starting?.catch(() => undefined);
-        if (server.listening) await new Promise<void>(resolve => server.close(() => resolve()));
+        await reader?.close();
       } finally {
-        starting = undefined;
-        origin = undefined;
         db?.close();
         db = undefined;
       }
