@@ -1,3 +1,12 @@
+# Additive Source field — task2088
+
+- [x] Reproduce the saved V1 failure and contrast the documented SDK default.
+- [x] Preserve the existing history on read, first effective edit, Undo and backup.
+- [x] Verify Source59, Node123, independent policy, session and Era checks, Brave and two-key MCP with cold reopen.
+- [x] Approve the exact Source cut in Writers 2088/revision 1.
+
+[Behavior and verification](vvd1095/verification-sdk-source-additive2088.md). General Source schema evolution remains open.
+
 # Optional mention image - task2028
 
 - [x] Read the accepted contract and fix six causal expectations before Source.

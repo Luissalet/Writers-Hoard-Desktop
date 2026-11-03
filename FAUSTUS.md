@@ -1,5 +1,9 @@
 # Writer publishing workspace
 
+## Campos nuevos en herramientas Source — 2088
+
+`sourceAdditive` declara un campo escalar y un valor por defecto para el origen Source indicado. Cambiar de versión no escribe el documento. SDK y MCP usan el mismo guardado para la primera edición y el mismo Deshacer de sesión. El historial se conserva al reabrir. [Contrato y verificación](tasks/vvd1095/verification-sdk-source-additive2088.md).
+
 ## Ancho de columna en tablas compartidas — 2082
 
 En el perfil optativo de anchos, arrastra el borde derecho de una celda o elige un ancho con el teclado. Deshacer restaura al instante la medida y el valor guardable. El ancho sigue al ID de la columna; al guardar, el lector y la reapertura mantienen la presentación. El SDK y MCP comparten la misma operación. [Uso y pruebas](tasks/vvd1095/verification-table-width2082.md).

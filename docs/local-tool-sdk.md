@@ -621,6 +621,14 @@ The saved codec drives Source/Owned/dock/Reader/wiki/documentImage HTML previews
 
 Published editions keep frozen chapter/Reader HTML/hash, not a historical copy of every Source tool. Editable snapshots remap links; restore inspects the current captured target world and reports missing references, without reconstructing a deleted briefing from published HTML. Folder-import Undo also sees rich codec references in Source/Owned/dock/Base/era. General SDK coverage remains partial; no character CRDT, online collaboration or new stdio session follows from this field. [Final evidence and limits](../tasks/vvd1095/verification-sdk-rich-prose.md).
 
+## Add a scalar field to an existing Source document
+
+In the new `defineLocalTool` definition, declare `sourceAdditive: { from, field: 'habitat', defaultValue: 'Coast' }`. The codec declares `habitat: { kind: 'scalar' }`, and the new validator accepts the effective default. Copy the old `namespace` and codec, and the `validationId` and `schemaEpoch` from its checkpoint into `from`. This first form supports one new scalar and requires the initial register profile as predecessor. A promoted document uses convergence engine 8.
+
+After selecting the new release, `client.read()` returns Coast when no value is stored. Read, Start and export of an already initialized predecessor leave its checkpoint, revision and stored data intact. Write through `client.state.apply(snapshot, actions)` or `wh_local_tool_state_apply`. The first effective action stores the transition and action in a single revision. A no-op leaves the predecessor unchanged; an explicit set to Coast creates an override. Undo through the same session removes that override and the default is visible again. Receipts stay with their original session and release.
+
+The stored row and checkpoint keep only explicitly authored values. The existing persisted index definition does not change. A new document starts directly with its own engine 8 identity. Replacement Save cannot infer explicit field presence from the effective snapshot; use actions to edit this profile. Peers can exchange updates from the same promoted checkpoint. A late old writer and a competing promotion cannot replace its history. Same-ID backup and restore retain the checkpoint. See the [tested behavior and limits](../tasks/vvd1095/verification-sdk-source-additive2088.md).
+
 ## Add fields to an existing Owned block
 
 An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.
