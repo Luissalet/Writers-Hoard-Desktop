@@ -1,5 +1,9 @@
 # Writer publishing workspace
 
+## Ancho de columna en tablas compartidas — 2082
+
+En el perfil optativo de anchos, arrastra el borde derecho de una celda o elige un ancho con el teclado. Deshacer restaura al instante la medida y el valor guardable. El ancho sigue al ID de la columna; al guardar, el lector y la reapertura mantienen la presentación. El SDK y MCP comparten la misma operación. [Uso y pruebas](tasks/vvd1095/verification-table-width2082.md).
+
 ## Filas y columnas en tablas compartidas — 2047
 
 Las herramientas Source que optan por el perfil de ejes pueden añadir o retirar filas y columnas, escribir en sus celdas y deshacer conservando las aportaciones ajenas representables. Las celdas vacías no crean bloques hasta la primera escritura. El editor, SDK y MCP usan el mismo documento. [Uso y pruebas](tasks/vvd1095/verification-table-axes2047.md).

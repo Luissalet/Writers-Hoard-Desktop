@@ -2,7 +2,7 @@
 
 ## Ejes de tablas compartidas entregados
 
-2047 añade filas y columnas mutables en un perfil optativo, con edición de intersecciones, Deshacer, Save, reapertura y portabilidad. Siguen el ancho de columnas (2082), combinar o dividir celdas, imágenes y adopción de documentos anteriores. [Verificación](tasks/vvd1095/verification-table-axes2047.md).
+2047 añade filas y columnas mutables en un perfil optativo, con edición de intersecciones, Deshacer, Save, reapertura y portabilidad. 2082 añade anchos por columna con arrastre, teclado y Deshacer inmediato. Siguen combinar o dividir celdas, imágenes y adopción de documentos anteriores. [Anchos compartidos](tasks/vvd1095/verification-table-width2082.md). [Verificación](tasks/vvd1095/verification-table-axes2047.md).
 
 ## Enlaces servidos para la wiki
 
