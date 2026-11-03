@@ -940,3 +940,10 @@ The normal shared rich editor offers **Manual** and **Automatic**. Manual is the
 A Save confirms only its captured cut: later edits remain pending. Switching to Manual stops future attempts while an existing Save settles. Errors preserve the draft for explicit Retry. Leave starts no Save, waits only for writes already in flight and returns to the saved local Source; fresh local editing can save automatically again. SDK `documentContent.setSaveMode` and normal MCP `wh_local_tool_live_control` use this same open instance; a cold request does not create an editor.
 
 [API](docs/local-tool-sdk.md#automatic-saving-of-open-rich-documents) and [attributed acceptance](tasks/vvd1095/verification-autosave1952.md#current-acceptance-of-cut3) supersede earlier preparation notes about autosave being unavailable. Source `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`, integrated in Main as `0ac21d2cd02ef500a4ac08f6492d10b94710efe1` after independent acceptance; no push. Links1958, large-history responsiveness, physical IME, hosting and complete1095 parity remain open.
+
+
+## Links in new shared rich documents
+
+Local tools can opt into causal links in paragraph or block fields. The normal editor adds Link with its current address, Apply, Remove and Cancel; author Undo/Redo, Manual/Automatic saving and local content sharing use the existing Source writer. The installed Linked notebook demonstrates two compatible fields and one legacy field. The HTML editor keeps its existing behavior.
+
+Source `93e1766088185d209110af5f9f7b8b94bc687109` is approved at writers1958/revision1 and integrated locally without push. This covers new native4/profile2 documents. Adopting existing shared histories, images/tables in this profile, physical IME, large-history responsiveness and the remaining parity work stay open. [API](docs/local-tool-sdk.md#causal-links-in-new-shared-documents-profile2) · [verification and scope](tasks/vvd1095/verification-rich-links1958.md).

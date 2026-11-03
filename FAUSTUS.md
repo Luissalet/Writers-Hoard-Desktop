@@ -433,3 +433,12 @@ El editor normal y el SDK ofrecen Manual/Automático por instancia documental. S
 Composición/recuperación/readonly o contexto retirado impiden publicar un corte incompleto. El ACK de H no confirma J admitido después; pasar a Manual cancela futuros intentos y conserva el vuelo iniciado. Un error mantiene el borrador y exige Reintentar explícito. Salir sin guardar aquí inicia cero Save/retry y concilia sólo los ya iniciados; tras recargar, la nueva sesión local vuelve a guardar con la elección retenida. SDK setSaveMode y MCP live_control normal actúan sobre el host abierto; frío no lo fabrica.
 
 Fuente `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`, Main `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`, sin push. [Contrato y atribución](tasks/vvd1095/verification-autosave1952.md#current-acceptance-of-cut3). Esta adenda sucede a los pendientes históricos de Auto, sin reatribuir sus pruebas ni cerrar enlaces1958, rendimiento, IME físico, hosting o paridad1095.
+
+
+## Enlaces causales en documentos compartidos nuevos —1958
+
+Las herramientas locales pueden ofrecer enlaces en campos de párrafos o bloques compartidos. El editor normal muestra la dirección actual y permite crear, cambiar y quitar el enlace conservando texto e identidades. Deshacer/Rehacer, Manual/Automático e intercambio local usan el mismo writer Source. SDK y MCP ofrecen las mismas operaciones; un campo legado del contrato mixto conserva sus cinco marcas y no recibe enlaces por estar en engine4.
+
+Fuente93e1766088185d209110af5f9f7b8b94bc687109 aprobada exactamente en1958/revisión1 e integrada Main, Luissalet y sin push. Node139, editor montado61, Source23, regresión Auto79, quick/build, revisión independiente157, Brave real de dos bibliotecas por SSE y Native nuevo115tools/123RPC/115IPC tienen [atribución separada](tasks/vvd1095/verification-rich-links1958.md). El manual de Google se actualizó una vez mediante CAS y lectura íntegra: sustitución64→516UTF16, delta452,215párrafos y estilos conservados; no se repite Auto1952.
+
+Sólo documentos NUEVOS nativos4/perfiles2. La adopción explícita de historia existente3→4, decidida en2138, sigue pendiente dentro de1958. Esta nota supera su descripción histórica de diseño sin código únicamente para el primer hito. Rendimiento1917, imágenes/tablas, IME físico, hosting y demás residuos1095 siguen abiertos; no hay paridad completa ni decisión nueva pendiente de Luis.
