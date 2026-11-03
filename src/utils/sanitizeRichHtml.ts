@@ -1,4 +1,5 @@
 import DOMPurify, { type Config } from 'dompurify';
+import { CODEX_IMAGE_ATTRIBUTE, codexImageTarget, stripCodexThumbnails } from '@/services/codexReference/imageHtml';
 import { imageAlign } from '@/components/editor/blocks/imageLayout';
 import { FORMAT_ATTRIBUTES, formattingFromElement, formattingHtmlAttributes, INLINE_KEYS, BLOCK_KEYS, SCENE_BREAK_KEYS, normalizeColumnWidths } from '@/components/editor/advanced/model';
 import { REVISION_ATTRIBUTES, REVISION_BREAK_ATTRIBUTES, revisionMetadataFromElement, revisionHtmlAttributes } from '@/engines/writings/revisions/model';
@@ -33,6 +34,7 @@ DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
 // after arbitrary incoming style attributes have been removed as before.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (!(node instanceof Element)) return;
+  if (node.hasAttribute(CODEX_IMAGE_ATTRIBUTE) && !(node.tagName === 'A' && node.getAttribute(CODEX_IMAGE_ATTRIBUTE) === 'true' && codexImageTarget(node.getAttribute('href')))) node.removeAttribute(CODEX_IMAGE_ATTRIBUTE);
   // Paragraphs/headings already own this attribute in the prose vocabulary.
   // Preserve that legacy path and restore only an image's admitted enum below.
   const inlineImageAlign = node.tagName === 'IMG' ? imageAlign(node.getAttribute('data-wh-align')) : null;
@@ -122,7 +124,7 @@ const RICH_HTML_CONFIG: Config = {
 
 /** Sanitize persisted rich text immediately before it enters an HTML sink. */
 export function sanitizeRichHtml(html: string): string {
-  return DOMPurify.sanitize(html, RICH_HTML_CONFIG);
+  return DOMPurify.sanitize(stripCodexThumbnails(html), RICH_HTML_CONFIG);
 }
 
 /**

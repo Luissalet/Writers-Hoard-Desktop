@@ -1,5 +1,6 @@
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
+import { CodexLink } from '@/components/editor/codexBlocks/CodexLink';
 import Image from '@tiptap/extension-image';
 import { db } from '@/db';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
@@ -16,7 +17,7 @@ import { assertEngineEnabled, assertRowInScope, BridgeError, requireString, with
 
 /** The same chapter schema is used for editorial and language operations. */
 export function createWritingEditor(content: string): Editor {
-  return new Editor({ element: document.createElement('div'), extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()], content: normalizeAdvancedHtml(content) });
+  return new Editor({ element: document.createElement('div'), extensions: [StarterKit.configure({ link: false }), CodexLink.configure({ openOnClick: false }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()], content: normalizeAdvancedHtml(content) });
 }
 export async function writingForEditorial(args: ToolArgs, editing: boolean): Promise<Writing> {
   const writing = await getWriting(requireString(args, 'id'));

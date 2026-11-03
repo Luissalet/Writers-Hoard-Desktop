@@ -23,6 +23,7 @@ import {prepareSourceBlocksForExport} from '@/services/sourceBlockReading';
 import {LOCAL_TOOL_PREVIEW_CSS} from '@/engines/local/previewTypes';
 import {renderCoverSvg} from './coverDesign/render';
 import { codexTextLinkTarget } from '@/components/editor/codexBlocks/inlineLinks';
+import { projectCodexImages } from '@/services/codexReference/imageHtml';
 import { footnoteAnchors, formatFootnoteMarker, normalizeFootnotePlacement, normalizeFootnoteStyle, renderBookEndnotesHtml, renderEndnotesHtml, renderFootnoteRefs, type EndnoteGroup } from '@/components/editor/footnotes/footnoteModel';
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
 const chapterKey = (id: string) => `chapter-${[...new TextEncoder().encode(id)].map(value => value.toString(16).padStart(2, '0')).join('')}`;
@@ -57,6 +58,7 @@ export async function buildReaderHtml(project: Project, writings: Writing[], pre
   const entries: (CodexEntry | undefined)[] = rawEntries;
   const encoded = new Map((await Promise.all(media.filter((asset): asset is NonNullable<typeof asset> => Boolean(asset && asset.projectId === project.id)).map(encodeLocalMedia))).map(asset => [asset.id, asset]));
   for (const template of contents) {
+    projectCodexImages(template.content, project.id, entries.filter((entry): entry is CodexEntry => Boolean(entry && entry.projectId === project.id)));
     const voiceFigures:Array<{figure:HTMLElement;asset:Awaited<ReturnType<typeof encodeLocalMedia>>}>=[];
     for (const block of template.content.querySelectorAll('[data-wh-media-block="true"]')) {
       const asset = encoded.get(block.getAttribute('data-asset-id') ?? ''); if (!asset) { block.remove(); continue; }

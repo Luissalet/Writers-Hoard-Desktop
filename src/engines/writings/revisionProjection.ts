@@ -1,5 +1,6 @@
 import { getSchema } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
+import { CodexLink } from '@/components/editor/codexBlocks/CodexLink';
 import Image from '@tiptap/extension-image';
 import { DOMParser as PmDomParser, DOMSerializer, type Node as PmNode } from '@tiptap/pm/model';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
@@ -21,7 +22,7 @@ export function projectWritingHtml(html: string, decision: 'accept' | 'reject' =
   if (!html.includes('data-wh-revision-kind') && !html.includes('data-wh-revision-break-kind')) return html;
   const host = document.createElement('div'); host.innerHTML = html;
   if (!host.querySelector('[data-wh-revision-kind],[data-wh-revision-break-kind]')) return html;
-  chapterSchema ??= getSchema([StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()]);
+  chapterSchema ??= getSchema([StarterKit.configure({ link: false }), CodexLink.configure({ openOnClick: false }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()]);
   const doc = PmDomParser.fromSchema(chapterSchema).parse(host);
   return describeRevisionDocument(doc).length ? revisionDocumentHtml(doc, decision) : html;
 }

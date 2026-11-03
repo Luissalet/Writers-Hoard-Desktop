@@ -1,10 +1,11 @@
 import { useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { Editor } from '@tiptap/react';
-import { BookOpen, ChevronDown, X } from 'lucide-react';
+import { BookOpen, ChevronDown, Image, X } from 'lucide-react';
 import type { CodexEntry } from '@/types';
 import { searchEntries } from '@/services/codexReference/matcher';
 import { localAvatar } from './model';
 import { canInsertCodexTextLink, insertCodexTextLink } from './inlineLinks';
+import { selectedCodexLink, setCodexLinkImage } from './CodexLink';
 import RulesCardPanel, { RulesCardRefresh } from './RulesCardPanel';
 const copy = {
   es: { title: 'Bloque del Codex', open: 'Insertar referencia viva del Codex', close: 'Cerrar referencias del Codex', search: 'Buscar entrada', help: 'Inserta una vista vinculada: refleja los cambios del Codex sin copiar su texto al documento.', empty: 'No hay entradas disponibles en este proyecto.', noMatches: 'No hay coincidencias.', place: 'Coloca el cursor en el texto de un capítulo, fuera de su título y sin abarcar otros capítulos.', insert: 'Insertar', complete: 'Referencia insertada. Puedes deshacerla en el editor.' },
@@ -19,11 +20,15 @@ export default function CodexBlockControls({ editor, projectId, entries, locale,
   const subscribe = (changed: () => void) => { editor.on('transaction', changed); return () => { editor.off('transaction', changed); }; };
   useSyncExternalStore(subscribe, () => editor.state);
   const scoped = entries.filter(entry => entry.projectId === projectId);
+  const selectedLink = selectedCodexLink(editor, projectId);
+  const selectedDocument = editor.state.doc, selectedSelection = editor.state.selection;
+  const imageOn = selectedLink?.mark.attrs.codexImage === true;
   const filtered = query.trim() ? searchEntries(query, scoped, 30) : scoped.slice(0, 30);
   const canInsert = (textOnly||mode === 'text' || mode === 'rules' ? canInsertCodexTextLink(editor) : !editor.isDestroyed && editor.isEditable && editor.can().insertCodexLiveBlock({ projectId, entryId: 'placement-test', label: '' }))&&(!textOnly||editor.state.selection.$from.parent.isTextblock&&editor.state.selection.$to.parent.isTextblock);
   const close = () => { setOpen(false); toggle.current?.focus(); };
   return <div data-codex-block-controls className="w-full min-w-0 px-2 py-1.5">
     <button ref={toggle} type="button" className={button} aria-label={c.open} aria-expanded={open} aria-controls={panelId} onClick={() => { setOpen(value => !value); setStatus(''); }}><BookOpen size={15} aria-hidden="true" />{c.title}<ChevronDown size={13} aria-hidden="true" /></button>
+    {selectedLink && <button type="button" className={`${button} ms-2`} aria-pressed={imageOn} onMouseDown={event => event.preventDefault()} onClick={event => { if (event.currentTarget.isConnected && editor.state.doc === selectedDocument && editor.state.selection === selectedSelection) setCodexLinkImage(editor, projectId, !imageOn); }}><Image size={15} aria-hidden="true" />{locale === 'es' ? imageOn ? 'Ocultar imagen' : 'Mostrar imagen' : imageOn ? 'Hide image' : 'Show image'}</button>}
     {open && <section id={panelId} aria-label={c.open} className="mt-3 space-y-3 text-sm text-text-primary" onKeyDown={event => { if (event.key === 'Escape') { close(); event.stopPropagation(); } }}>
       <div className="flex items-start gap-3"><p className="min-w-0 flex-1 text-xs text-text-secondary">{c.help}</p><button type="button" className={button} aria-label={c.close} onClick={close}><X size={14} aria-hidden="true" /></button></div>
       {!textOnly&&<label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">{locale === 'es' ? 'Insertar como' : 'Insert as'}<select className="min-h-9 rounded border border-border bg-deep px-3 text-sm text-text-primary" value={mode} data-testid="codex-insert-mode" onChange={event => { setMode(event.target.value as 'block' | 'text' | 'rules'); setRulesEntry(null); }}><option value="block">{locale === 'es' ? 'Bloque vivo' : 'Live block'}</option><option value="text">{locale === 'es' ? 'Texto enlazado / vincular selección' : 'Linked text / link selection'}</option><option value="rules">{locale === 'es' ? 'Ficha de reglas (hechizo, objeto, criatura)' : 'Rules card (spell, item, creature)'}</option></select></label>}

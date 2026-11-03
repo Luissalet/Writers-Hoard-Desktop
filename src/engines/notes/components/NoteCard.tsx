@@ -9,6 +9,7 @@ import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import type { NoteImageActivity } from './NoteImageControls';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { ensureNoteImageLayout, noteImageLayoutCss } from '@/components/editor/blocks/imageLayout';
+import { hydrateCodexLinkImages } from '@/services/codexReference/imageReading';
 
 interface NoteCardProps {
   note: Note;
@@ -50,6 +51,7 @@ export default function NoteCard({
   const saveLock = useRef(false);
   const imageActivity = useRef<NoteImageActivity>({ epoch: 0, blocked: false }), scope = useWorldEraScope(note.projectId), richRead = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { if (!editing && note.richHtml && noteImageLayoutCss(note.richHtml) && richRead.current) ensureNoteImageLayout(richRead.current.ownerDocument); }, [editing, note.richHtml]);
+  useLayoutEffect(() => { if (!editing && richRead.current) return hydrateCodexLinkImages(richRead.current, note.projectId, scope.eraId); }, [editing, note.richHtml, note.projectId, scope.eraId]);
 
   const { icon: KindIcon, color: kindColor } = NOTE_KIND_META[note.kind];
   const accent = note.color ?? kindColor;

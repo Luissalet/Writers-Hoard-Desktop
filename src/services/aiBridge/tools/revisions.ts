@@ -1,5 +1,6 @@
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
+import { CodexLink } from '@/components/editor/codexBlocks/CodexLink';
 import Image from '@tiptap/extension-image';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
 import { createAdvancedExtensions, normalizeAdvancedHtml } from '@/components/editor/advanced';
@@ -17,7 +18,7 @@ const scopeFor = (args: ToolArgs, projectId?: string) => ({ projectId: projectId
 const documentVersions = new WeakMap<Writing, string>();
 
 function editorFor(content: string) {
-  return new Editor({ element: document.createElement('div'), extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()], content: normalizeAdvancedHtml(content) });
+  return new Editor({ element: document.createElement('div'), extensions: [StarterKit.configure({ link: false }), CodexLink.configure({ openOnClick: false }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()], content: normalizeAdvancedHtml(content) });
 }
 
 async function writingFor(args: ToolArgs, editing: boolean) {

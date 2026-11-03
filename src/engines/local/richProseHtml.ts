@@ -1,4 +1,5 @@
 import {sanitizeRichHtml} from '@/utils/sanitizeRichHtml';
+import {CODEX_IMAGE_ATTRIBUTE,codexImageTarget} from '@/services/codexReference/imageHtml';
 import {renderLocalToolPreview,type LocalToolSemanticPreview} from './previewTypes';
 
 export interface RichProsePolicy {includeImages?:boolean;link?:(href:string)=>string|undefined}
@@ -12,10 +13,10 @@ export function richProseHtml(html:string,policy:RichProsePolicy={}):string{
  for(const atom of template.content.querySelectorAll('[data-wh-source-block],[data-wh-tool-block],[data-wh-media-block],[data-wh-codex-block],[data-wh-prep]'))atom.replaceWith(document.createTextNode(atom.textContent??''));
  for(const element of [...template.content.querySelectorAll('*')].reverse()){
   if(!tags.has(element.tagName)){element.replaceWith(...element.childNodes);continue;}
-  const href=element.getAttribute('href'),src=element.getAttribute('src'),alt=element.getAttribute('alt'),title=element.getAttribute('title');
+  const href=element.getAttribute('href'),src=element.getAttribute('src'),alt=element.getAttribute('alt'),title=element.getAttribute('title'),codexImage=element.getAttribute(CODEX_IMAGE_ATTRIBUTE)==='true'&&Boolean(codexImageTarget(element.getAttribute('href')));
   for(const attribute of [...element.attributes])element.removeAttribute(attribute.name);
   if(element.tagName==='IMG'){if(policy.includeImages===false||!src||!raster.test(src)){element.remove();continue;}element.setAttribute('src',src);if(alt)element.setAttribute('alt',alt);}
-  if(element.tagName==='A'){const target=href&&(policy.link?policy.link(href):href);if(target)element.setAttribute('href',target);else{element.replaceWith(...element.childNodes);continue;}}
+  if(element.tagName==='A'){const target=href&&(policy.link?policy.link(href):href);if(target){element.setAttribute('href',target);if(codexImage)element.setAttribute(CODEX_IMAGE_ATTRIBUTE,'true');}else{element.replaceWith(...element.childNodes);continue;}}
   if(title)element.setAttribute('title',title);
  }
  return template.innerHTML;

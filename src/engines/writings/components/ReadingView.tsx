@@ -29,6 +29,7 @@ import { loadReadingPosition, saveReadingPosition } from '../readingPositionPers
 import { hydrateLocalMediaBlocks } from '@/engines/media/readingBlocks';
 import { hydrateToolDocumentBlocks } from '@/components/editor/toolBlocks/reading';
 import { hydrateCodexBlocks } from '@/components/editor/codexBlocks/reading';
+import { hydrateCodexLinkImages } from '@/services/codexReference/imageReading';
 import type { Project } from '@/types';
 import type { ChapterPresentation } from '../readerPresentationTypes';
 import { readerColor, readerInk, readerRaster, safeReaderPresentation } from '../readerPresentation';
@@ -115,6 +116,9 @@ const ReadingPiece = memo(function ReadingPiece({
   );
   const counter = footnoteStart > 1 ? { counterReset: `wh-footnote ${footnoteStart - 1}` } : undefined;
   const proseHtml = useMemo(() => sanitizedHtml(piece.content + endnotes), [piece.content, endnotes]);
+  useEffect(() => {
+    if (proseRef.current) return hydrateCodexLinkImages(proseRef.current, piece.projectId, eraId);
+  }, [piece.content, piece.projectId, endnotes, eraId]);
   useEffect(() => {
     if (proseRef.current) return hydrateLocalMediaBlocks(proseRef.current, piece.projectId, locale === 'es' ? 'El medio local no está disponible.' : 'The local media file is unavailable.', eraId,locale);
   }, [piece.content, piece.projectId, endnotes, locale, eraId]);
