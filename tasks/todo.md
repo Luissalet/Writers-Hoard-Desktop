@@ -7,6 +7,15 @@
 
 [Evidence and limits](vvd1095/verification-undo-support1932.md). Live content1913, performance1917 and complete parity remain open.
 
+# Live document content — task1913
+
+- [x] Reproduce functional Unicode RED after healthy Source/ZIP and normal Create/Join; preserve fixture8da/driverb6 and cleanup receipts.
+- [x] Add whole-document opt-in transport and coordinated existing rich sessions, preserving people-only default and Source durability.
+- [x] Add normal UI, SDK and MCP actions for the same open instance, atomic batches and local exit without a new Save.
+- [ ] Pass the unchanged causal, concurrency/Saveflight/recovery/scope controls and relevant legacy checks; freeze for independent review and real Brave/Native.
+
+Contract: R3/2099B. Plan before Source: `_stage/live-content1913/IMPLEMENTATION-PLAN-r1.md`. Source and network lifetimes differ; a relay ACK never confirms durable Save.
+
 # Empty list item Enter — task1895
 
 - [x] Read design2061; preserve the normal Source renderer RED before product changes.

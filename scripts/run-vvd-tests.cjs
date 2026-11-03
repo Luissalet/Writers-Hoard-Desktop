@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const root = path.resolve(__dirname, '..');
+const liveContentCheck = spawnSync(process.execPath, ['tests/local-tool-live-content.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
+if (liveContentCheck.status !== 0 || liveContentCheck.error) process.exit(liveContentCheck.status ?? 1);
 const presenceCheck = spawnSync(process.execPath, ['tests/local-tool-presence.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (presenceCheck.status !== 0 || presenceCheck.error) process.exit(presenceCheck.status ?? 1);
 const presenceSourceCheck = spawnSync(process.execPath, ['scripts/run-local-tool-presence-portability.cjs', `presence-source-${Date.now().toString(36)}-${process.pid}`, 'source'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });
@@ -555,6 +557,7 @@ const suites = [
   ['vvd-world-portability.browser.ts', 'testVvdWorldPortability'],
   ['world-documents-search.browser.tsx', 'testWorldDocumentsSearch'],
   ['local-tool-presence.hooks.browser.tsx', 'testLocalPresenceHookOwnership'],
+  ['local-tool-live-content.source.browser.ts', 'testLiveDocumentContentSource', 120000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-presence.scope.browser.ts', 'testLocalPresenceFinalScope'],
   ['local-tool-presence.scope.browser.ts', 'testLocalPresencePublicationOwners'],
   ['local-tool-sdk.browser.tsx', 'testLocalToolSdk'],
