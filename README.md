@@ -1,5 +1,9 @@
 # Writers Hoard — Desktop
 
+## Column widths in shared tables
+
+Tools that opt into the width profile let you drag the right edge of a cell or enter a width with the keyboard. Automatic width restores the layout, and Undo updates the table immediately. The reader uses the saved widths. [Usage and verification](tasks/vvd1095/verification-table-width2082.md).
+
 ## Rows and columns in shared tables
 
 Source tools with the editable axes profile can add or remove rows and columns in shared tables. Each axis retains its identity, and an empty cell needs no authored block until you write in it. Undo, Save and the SDK use the same document. [Usage and verification](tasks/vvd1095/verification-table-axes2047.md).
