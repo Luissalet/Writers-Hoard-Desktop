@@ -10,6 +10,8 @@ import {getLocalToolDefinition,getLocalToolReleases} from './definitions';
 import {validateLocalToolInstallations,type LocalToolInstallation} from './installations';
 import {localToolContentHash} from './releaseFormat.mjs';
 import {parseLocalToolState} from './clientContract';
+import {parseSourceToolDocumentState} from './documents/additive';
+import {validateSourceToolDocument} from './documents/types';
 import {localToolNamespace} from './stateTypes';
 export function resolveProjectLocalTool(namespace:string,project:Pick<Project,'localToolInstallations'>){validateLocalToolInstallations(project.localToolInstallations);const pin=project.localToolInstallations?.[namespace],definition=getLocalToolDefinition(namespace,pin?.contentHash);if(!definition)throw Error(pin?.contentHash?'local_tool_pinned_release_unavailable':getLocalToolReleases(namespace).length?'local_tool_pin_required':'local_tool_source_unavailable');return definition;}
 export async function pinLocalToolRelease(projectId:string,namespace:string,contentHash:string|null,expectedRevision:number|null):Promise<LocalToolInstallation>{
@@ -18,7 +20,14 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
  const result=await db.transaction('rw',[db.projects,db.worldEraVariants,db.documentHistory,db.documentArchives,db.codexEntries,db.writings,db.boardNodes],async tx=>{const project=await db.projects.get(projectId);if(!project)throw Error('project_missing');validateLocalToolInstallations(project.localToolInstallations);const current=project.localToolInstallations?.[namespace];if((current?.revision??null)!==expectedRevision)throw Error('local_tool_pin_conflict');for(const states of [project.localToolStates,...(project.worldEras??[]).map(era=>era.localToolStates)])if(states?.[namespace])parseLocalToolState(definition,states[namespace].data);// Hidden, reinherited and historic source states can be restored by normal
  // product actions. Validate raw retained roots too, without loading source code
  // or hashing documents in a database hook or a second transaction.
- const validateDocument=(document:unknown)=>{if(!document||typeof document!=='object'||Array.isArray(document))return;const row=document as {namespace?:unknown;data:Parameters<typeof parseLocalToolState>[1]};if(row.namespace!==namespace)return;if(!definition.document)throw Error('local_tool_document_host_required');parseLocalToolState(definition,row.data);};
+ const validateDocument=(document:unknown)=>{
+  if(!document||typeof document!=='object'||Array.isArray(document))return;
+  const row=document as {namespace?:unknown;data:Parameters<typeof parseLocalToolState>[1]};
+  if(row.namespace!==namespace)return;
+  if(!definition.document)throw Error('local_tool_document_host_required');
+  if(definition.sourceAdditive){validateSourceToolDocument(document);parseSourceToolDocumentState(definition,document);}
+  else parseLocalToolState(definition,row.data);
+ };
  const retained=[...(project.sourceToolDocuments??[])];
  const appTargets=new Map<string,string>();
  const rememberTarget=(value:unknown)=>{if(value&&typeof value==='object'){const row=value as {id?:string;namespace?:string};if(row.id&&row.namespace)appTargets.set(row.id,row.namespace);}};

@@ -7,6 +7,7 @@ import {convergenceHash,validateLocalToolConvergenceUpdate} from '../convergence
 import {createLocalToolGenesis,prepareLocalToolAdoption,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
+import {isSourceAdditivePredecessor} from './additive';
 export type {SourceConvergenceOptions} from './store';
 export interface SourceConvergenceReadOptions {stateVectorBase64?:string}
 interface StoredPlan {
@@ -33,6 +34,12 @@ export function startSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
  return db.transaction('rw',db.tables,async()=>{
   const plan=await transformSourceToolDocument<StoredPlan>(scope,id,read=>{
    const actual=source(read,id,definition.namespace);baseline(actual,value,id,definition.namespace,true);
+   if(definition.sourceAdditive){
+    const checkpoint=actual.document.convergence?.checkpoint;
+    if(!checkpoint||!isSourceAdditivePredecessor(actual.document,definition))throw Error('local_tool_source_additive_write_unavailable');
+    sourceToolSnapshot(actual,definition);
+    return{result:{checkpoint,update:null,changed:false,causalChanged:false,pending:exportLocalToolConvergenceCheckpoint(checkpoint).pending}};
+   }
    const inherited=!!scope.eraId&&actual.provenance==='base';
    if(actual.document.convergence){
     const prepared=prepareSourceConvergenceContext(actual.document,definition,options,inherited);
