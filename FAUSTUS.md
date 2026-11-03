@@ -2,9 +2,9 @@
 
 ## Rendimiento parcial del texto rico — 03-11-2026
 
-Source `2157bc3733593d4884a24134b8923241041d6046` está aprobado en1917/revisión1 e integrado Main/primary sin push. Reduce recorridos/copia repetidos manteniendo identidades, marcas, validación vigente y el mismo writer y Undo autoral. La medición original100gestos/10k baja a360,787677ms de media y410,3989ms p95; no acredita fluidez ni el caso50k.
+R5 `2157bc37` y R6 `ca7c553f380ecead992303fa281988679c2fcce7` están aprobados1917/revisiones1 y2 e integrados Main/primary sin push. R6 reutiliza las identidades del recorrido físico al proyectar visibilidad, conservando validación, marcas, autoría e historia. La nueva medida original100gestos/10k da321,022263ms de media y366,7179ms p95; sigue sin aceptar fluidez ni50k.
 
-Los gates de HEAD9632 conservan su atribución. La composición con1913 tiene nuevo Node164/109, Brave real en dos bibliotecas y Native58tools/66RPC/58IPC con dos claves por fase y otro Electron frío sin seed/host. [Pruebas y límites](tasks/vvd1095/verification-rich-performance1917.md). 1917 permanece abierta para reducir latencia; autoguardado1952 y el resto1095 siguen en curso.
+R6 tiene Node165/109, controles propios48 y peer81 con atribución21SDK+60premisas, quick112,261s/build131,632s, Brave real y nuevo NativeR3 58tools/66RPC/58IPC con dos claves por fase y otro Electron frío. NativeR2 falló por la página QA y permanece FAIL; sóloR3 acredita el recorrido. [Pruebas y límites](tasks/vvd1095/verification-rich-performance1917.md).1917 y autoguardado1952 siguen abiertos. La conciliación1957 corrige ausencias documentales antiguas sin universalizar sus flujos.
 
 
 ## Contenido local compartido — 03-11-2026
