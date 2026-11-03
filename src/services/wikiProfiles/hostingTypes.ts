@@ -3,7 +3,7 @@ export interface WikiHostOwner {
   profileId: string;
 }
 
-export type WikiHostListScope = Pick<WikiHostOwner, 'projectId'> & Partial<Pick<WikiHostOwner, 'profileId'>>;
+export type WikiHostListScope = Partial<WikiHostOwner>;
 
 export type WikiHostAudience = 'public' | 'unlisted';
 

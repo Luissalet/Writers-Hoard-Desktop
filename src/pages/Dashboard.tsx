@@ -60,6 +60,7 @@ import { ConfirmDialog } from '@/engines/_shared';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import type { Project } from '@/types';
 import { getEngine } from '@/engines';
+import WikiHostingPanel from '@/engines/codex/WikiHostingPanel';
 
 /** The chapter a card's "Continue" would open, and what to call the button. */
 interface ResumeTarget {
@@ -81,7 +82,7 @@ function withCurrentChoice(choices: readonly number[], current: number): number[
 }
 
 export default function Dashboard() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { projects, loading, error, addProject, editProject, removeProject, refresh } = useProjects();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
@@ -681,6 +682,13 @@ export default function Dashboard() {
 
         {/* The browser has not promised to keep any of this. */}
         <StoragePersistenceWarning />
+
+        <div className="mb-5">
+          <WikiHostingPanel locale={locale}
+            projectTitles={Object.fromEntries(projects.map(project => [project.id, project.title]))}
+            control="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+            button="rounded-lg border border-border bg-surface px-3 py-2 text-sm hover:bg-elevated disabled:opacity-50" />
+        </div>
 
         {error && <ReadErrorNotice onRetry={refresh} retrying={loading} />}
         {projects.length > 0 && <div className="relative mb-5 max-w-md">

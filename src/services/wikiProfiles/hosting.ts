@@ -1,4 +1,3 @@
-import { getWikiEdition } from './store';
 import {
   WIKI_HOST_MANAGE_PATH,
   type WikiHostAddress, type WikiHostAudience, type WikiHostChange, type WikiHostListScope,
@@ -20,6 +19,7 @@ export function listWikiAddresses(owner: WikiHostListScope) {
 }
 
 export async function serveWikiEdition(input: WikiHostChange & { editionId: string; audience: WikiHostAudience }) {
+  const { getWikiEdition } = await import('./store');
   const edition = await getWikiEdition(input.projectId, input.profileId, input.editionId);
   return manage<WikiHostAddress>('publish', { ...input, sha256: edition.reader.sha256, html: edition.reader.html });
 }
