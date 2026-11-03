@@ -21,7 +21,7 @@ function capturedBlock(source:RichBlocks,capture:RichBlockJoinCapture,id:string|
 }
 export function captureBlockSplit(source:RichBlocks,rich:RichRuns,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,nodeId:string,at:number):RichBlockSplitCapture {
  const capture=captureBlockEdit(source,identity,data,bindings,[nodeId]);
- return{...capture,text:rich.splitCapture(identity,nodeId,at,'right',{data:richBlockLeaves(data),bindings:textBindings})};
+ return{...capture,text:rich.splitCapture(identity,nodeId,at,'right',{data:richBlockLeaves(data,source.links),bindings:textBindings})};
 }
 /** Structural adjacency is proved before adapting the two own text witnesses. */
 export function captureBlockJoin(source:RichBlocks,rich:RichRuns,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,leftId:string,rightId:string):RichBlockJoinCapture {
@@ -33,7 +33,7 @@ export function captureBlockJoin(source:RichBlocks,rich:RichRuns,identity:LocalT
   const lp=data.blocks.find(b=>b.id===left.parentId),rp=data.blocks.find(b=>b.id===right.parentId);if(lp?.type!=='list-item'||rp?.type!=='list-item'||lp.parentId!==rp.parentId||lp.slot!==rp.slot)return fail();
   const items=richBlockChildren(data,lp.parentId,lp.slot),at=items.findIndex(b=>b.id===lp.id);if(items[at+1]?.id!==rp.id||richBlockChildren(data,lp.id).at(-1)?.id!==leftId||richBlockChildren(data,rp.id)[0]?.id!==rightId)return fail();
  }
- const flat=richBlockLeaves(data),pair={type:'doc' as const,content:[leftId,rightId].map(id=>flat.content.find(p=>p.id===id)!)};
+ const flat=richBlockLeaves(data,source.links),pair={type:'doc' as const,content:[leftId,rightId].map(id=>flat.content.find(p=>p.id===id)!)};
  return{...capture,text:rich.joinCapture(identity,leftId,rightId,{data:pair,bindings:{nodes:[leftId,rightId].map(id=>textBindings.nodes.find(n=>n.id===id)!)}})};
 }
 export function validateBlockTextCapture(source:RichBlocks,rich:RichRuns,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,action:RichBlockTextAction):void {

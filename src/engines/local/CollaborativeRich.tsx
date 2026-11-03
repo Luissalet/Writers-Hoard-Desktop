@@ -2,7 +2,7 @@ import type {ReactNode} from 'react';
 import type {AnyExtension} from '@tiptap/core';
 import type {LocalToolClient,LocalToolHostContext,LocalToolJson} from './sdk';
 
-/** Explicit paragraphs-inline/1 or blocks-tree/1 component; five inline marks.
+/** Explicit paragraph/tree component; profile2 adds causal links to five inline marks.
  * HTML codec1 keeps its own editor. A block schema is a persisted codec contract.
  * Extra extensions are fixed for the mount, like the HTML editor. They may add commands,
  * plugins and rules within this profile; they must not add schema or replace author Undo.

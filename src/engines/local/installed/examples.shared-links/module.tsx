@@ -1,0 +1,9 @@
+import {defineLocalTool,LocalToolCollaborativeRichEditor,type LocalToolJson,type LocalToolProps} from '@/engines/local/sdk';
+type Data=Record<string,LocalToolJson>;
+const initialState:Data={body:{type:'doc',content:[{id:'P',type:'paragraph',content:[{type:'text',text:'Un enlace en el cuaderno.'}]}]},outline:{type:'block-doc',schema:'writers-blocks/1',blocks:[{id:'Q',type:'paragraph',attrs:{},parentId:null,slot:'body',afterId:null,content:[{type:'text',text:'Un enlace en la estructura.'}]}]},aside:{type:'doc',content:[{id:'S',type:'paragraph',content:[{type:'text',text:'Notas sin enlaces.'}]}]}};
+// Author packages export a definition, not a React refresh boundary.
+// eslint-disable-next-line react-refresh/only-export-components
+function Notebook({client,context}:LocalToolProps<Data>){return <div className="space-y-6"><LocalToolCollaborativeRichEditor client={client} context={context} field="body" label="Cuaderno"/><LocalToolCollaborativeRichEditor client={client} context={context} field="outline" label="Estructura"/><LocalToolCollaborativeRichEditor client={client} context={context} field="aside" label="Notas simples"/></div>;}
+const definition=defineLocalTool<Data>({namespace:'examples.shared-links',name:{es:'Cuaderno con enlaces',en:'Linked notebook'},description:{es:'Texto compartido con enlaces, estructura y guardado Source.',en:'Shared text with links, structure and Source saving.'},initialState,codec:{version:2,fields:{body:{kind:'rich',profile:'paragraphs-inline/2'},outline:{kind:'rich',profile:'blocks-tree/2',schema:'writers-blocks/1'},aside:{kind:'rich',profile:'paragraphs-inline/1'}}},document:{defaultTitle:{es:'Cuaderno con enlaces',en:'Linked notebook'},embed:'interactive'},validateState:(value:LocalToolJson):value is Data=>!!value&&typeof value==='object'&&!Array.isArray(value)&&!!value.body&&!!value.outline&&!!value.aside,component:Notebook});
+
+export default definition;

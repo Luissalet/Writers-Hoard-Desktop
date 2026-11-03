@@ -1,3 +1,4 @@
+import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import {SourceToolBlock} from '@/engines/local/blocks/SourceToolBlock';
 import SourceToolBlockControls from '@/engines/local/blocks/SourceToolBlockControls';
 import {registerLocalToolEditor,type LocalToolEditorHost,type LocalToolEditorContext} from '@/engines/local/blocks/editorHost';
@@ -617,10 +618,10 @@ export default function TiptapEditor({
   };
 
   const applyLink = () => {
-    const url = linkUrl.trim();
+    const url = normalizeEditorLinkHref(linkUrl);
     setShowLinkForm(false);
     if (!url) return;
-    const href = /^(https?:|mailto:)/i.test(url) ? url : `https://${url}`;
+    const href = url;
     editor.chain().focus().setLink({ href }).run();
   };
 

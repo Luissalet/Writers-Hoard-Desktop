@@ -30,14 +30,14 @@ function attributes(kind:unknown,value:unknown):asserts value is Record<string,L
  else if(kind==='ordered-list'){if(keys.length>1||keys.length===1&&(!Object.hasOwn(value,'start')||!Number.isSafeInteger(value.start)||Number(value.start)<1))fail();}
  else if(!['paragraph','bullet-list','list-item','blockquote','toggle'].includes(kind as string)||keys.length)fail();
 }
-export function validateRichBlockDocument(value:unknown):asserts value is RichBlockDocument {
+export function validateRichBlockDocument(value:unknown,links=false):asserts value is RichBlockDocument {
  if(!object(value)||Object.keys(value).length!==3||value.type!=='block-doc'||value.schema!==BLOCK_SCHEMA||!Array.isArray(value.blocks))return fail();
  const blocks=value.blocks as RichBlock[],all=new Map<string,RichBlock>();
  for(const [at,b]of blocks.entries()){
   if(!object(b)||!id(b.id)||all.has(b.id)||Object.keys(b).length!==(richBlockLeaf(b.type)?7:6))return fail();
   if(at>0&&blocks[at-1].id>=b.id)return fail();
   attributes(b.type,b.attrs);validateRichBlockPlacement({parentId:b.parentId,slot:b.slot,afterId:b.afterId});
-  if(richBlockLeaf(b.type))validateRichDocument({type:'doc',content:[{id:b.id,type:'paragraph',content:b.content}]});else if(Object.hasOwn(b,'content'))fail();
+  if(richBlockLeaf(b.type))validateRichDocument({type:'doc',content:[{id:b.id,type:'paragraph',content:b.content}]},links);else if(Object.hasOwn(b,'content'))fail();
   all.set(b.id,b);
  }
  for(const b of blocks){
@@ -55,6 +55,6 @@ export function validateRichBlockDocument(value:unknown):asserts value is RichBl
  for(const b of blocks)if(b.type==='toggle'&&blocks.filter(child=>child.parentId===b.id&&child.slot==='summary').length!==1)return fail();
 }
 /** Only this catalogue's own represented leaves, never the current RichRuns projection. */
-export function richBlockLeaves(value:RichBlockDocument):RichDocument {
- validateRichBlockDocument(value);return{type:'doc',content:value.blocks.filter(b=>richBlockLeaf(b.type)).map(b=>({id:b.id,type:'paragraph',content:b.content!}))};
+export function richBlockLeaves(value:RichBlockDocument,links=false):RichDocument {
+ validateRichBlockDocument(value,links);return{type:'doc',content:value.blocks.filter(b=>richBlockLeaf(b.type)).map(b=>({id:b.id,type:'paragraph',content:b.content!}))};
 }

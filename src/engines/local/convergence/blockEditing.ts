@@ -1,3 +1,4 @@
+import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
 import {convergenceClone,assertConvergenceIdentity} from '@/engines/local/convergence/format';
 import {validateRichBlockDocument,validateRichBlockPlacement,richBlockLeaf,type RichBlock,type RichBlockDocument,type RichBlockBindings,type RichBlockPlacement} from '@/engines/local/convergence/blockTypes';
@@ -55,10 +56,12 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   }
  }else if(action.type==='rich-block-insert'){
   const place=action.capture.destination;if(!place||selected.length||!['paragraph','heading'].includes(action.block.type)||typeof action.text!=='string')return fail();
-  const block:RichBlock={...convergenceClone(action.block),...convergenceClone(place),content:action.text?[{type:'text',text:action.text,...(action.marks?.length?{marks:action.marks.map(type=>({type}))}:{})}]:[]};
+  const href=action.link&&typeof action.link.href==='string'?normalizeEditorLinkHref(action.link.href):undefined;if(action.link!==undefined&&(!source.links||!href||Object.keys(action.link).length!==1))return fail();
+  const marks=[...(action.marks??[]).map(type=>({type})),...(href?[{type:'link' as const,attrs:{href}}]:[])];
+  const block:RichBlock={...convergenceClone(action.block),...convergenceClone(place),content:action.text?[{type:'text',text:action.text,...(marks.length?{marks}:{})}]:[]};
   // Reanchor following siblings in the same intent; text identities are untouched.
   for(const b of result.data.blocks)if(b.parentId===place.parentId&&b.slot===place.slot&&b.afterId===place.afterId)move(b,{parentId:b.parentId,slot:b.slot,afterId:block.id});
-  put(block);result.textActions.push({type:'rich-insert-paragraph',field:source.field,id:block.id,afterId:intrinsicLastLeaf,text:action.text,...(action.marks?{marks:action.marks}:{})});
+  put(block);result.textActions.push({type:'rich-insert-paragraph',field:source.field,id:block.id,afterId:intrinsicLastLeaf,text:action.text,...(action.marks?{marks:action.marks}:{}),...(href?{link:{href}}:{})});
  }else if(action.type==='rich-block-transform'){
   if(!selected.length)return fail();for(const b of selected){const sameLeaf=richBlockLeaf(b.type)&&richBlockLeaf(action.kind),sameList=['bullet-list','ordered-list'].includes(b.type)&&['bullet-list','ordered-list'].includes(action.kind);if(!sameLeaf&&!sameList)return fail();b.type=action.kind;b.attrs=convergenceClone(action.attrs);write('kind',b.id,b.type);write('attrs',b.id,b.attrs);}
  }else if(action.type==='rich-block-hide'){
@@ -77,5 +80,5 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   for(const b of result.data.blocks)if(b.parentId===wrapper.parentId&&b.slot===wrapper.slot&&b.afterId===wrapper.id)move(b,{parentId:b.parentId,slot:b.slot,afterId:previous});
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links);return result;
 }
