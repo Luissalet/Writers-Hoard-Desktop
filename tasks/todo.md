@@ -2,13 +2,14 @@
 
 # Partial rich-text performance delivery — task1917
 
-- [x] Preserve baseline and original100-gesture/10k oracle; keep rejected R1 and all diagnostics.
-- [x] Reduce repeated metadata preparation, point parsing, binding copies and visibility traversal without changing authority or retained history.
-- [x] Pass fixed author/independent controls, quick/build, and new combined Node164/109, Native58/66/58 and real Brave on main1913 plus R5.
-- [x] Approve exact2157bc37 in submission1 and integrate nine tested blobs under merge lock, Luissalet and no push.
-- [ ] Continue1917: mean360.8/p95410.4ms remains above the interactive target; no new50k result or full parity claim.
+- [x] Preserve baseline and original100-gesture/10k oracle, rejected R1 and all diagnostics.
+- [x] Deliver R5 metadata/copy/visibility savings as2157bc37 and R6 identity reuse asca7c553f, with exact reviewed blobs and no history/authority change.
+- [x] Pass R6 fixed author48, independent81, Node165/109, quick/build, new NativeR3 58/66/58 and real Brave; retain failed NativeR2 and its limits.
+- [x] Approve exact submission2 and integrate three tested blobs under merge lock, Luissalet and no push.
+- [x] Reconcile ten obsolete export/draft/runtime anchors from research1957 against code and historical deliveries, without new runtime claims.
+- [ ] Continue1917: mean321.0/p95366.7ms remains above the interactive target; no new50k or sparse result.
 
-[Attributed evidence](vvd1095/verification-rich-performance1917.md). Autosave1952 continues independently.
+[Attributed evidence](vvd1095/verification-rich-performance1917.md). Autosave1952 and causal links1958 continue independently; complete parity remains open.
 
 
 - [x] Preserve the original public hidden-child RED and agree causal structural support before changing product.

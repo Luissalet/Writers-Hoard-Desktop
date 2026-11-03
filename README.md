@@ -2,9 +2,9 @@
 
 ## Shared rich-text performance
 
-Source `2157bc37` reduces repeated work in shared rich-text editing while preserving author Undo, marks, identities and the existing Save flow. The original 100-gesture/10k test measured 361 ms mean and 410 ms p95, compared with the historical 511/594 ms. This is a partial improvement; large histories still need further work before accepting interactive performance.
+R5 and source `ca7c553f` reduce repeated work while preserving author Undo, marks, identities and the existing Save flow. The latest original100-gesture/10k test measured321ms mean and367ms p95, compared with the historical511/594ms. This remains a partial improvement; large histories still need work before accepting interactive performance.
 
-The composed version passed the normal area checks, a new two-key MCP/cold reopening run and real Brave editing between two libraries. [Evidence and limits](tasks/vvd1095/verification-rich-performance1917.md). Autosave, physical IME, hosting and overall parity remain open.
+The R6 version passed area checks, a new two-key MCP/cold reopening run and real Brave editing. [Evidence and limits](tasks/vvd1095/verification-rich-performance1917.md). Autosave, physical IME, hosting and overall parity remain open.
 
 
 ## Local document content sharing

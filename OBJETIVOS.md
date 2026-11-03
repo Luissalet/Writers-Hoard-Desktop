@@ -2,9 +2,9 @@
 
 ## Rendimiento1917: ahorro integrado, fluidez pendiente — 03-11-2026
 
-Source2157bc37 entrega un ahorro parcial aprobado1917r1 sobre la sincronización1913 ya integrada. El mismo oráculo100gestos/10k midió360,787677ms de media y410,3989ms p95. Continuar hasta aceptar respuesta interactiva cercana o inferior a100ms p95, conservando historia, autoría, formato y validación;50k sigue sin nueva medidaR5. No cerrar1917 por esta entrega.
+R5 y R6 `ca7c553f` entregan ahorros parciales aprobados1917r1/r2. El último oráculo100gestos/10k midió321,022263ms de media y366,7179ms p95. Continuar hasta aceptar respuesta cercana o inferior a100ms p95 sin podar historia ni cambiar formato, autoría o validación;50k y el coste casi-todo-oculto siguen sin nueva medidaR6. No cerrar1917 por esta entrega.
 
-Node combinado, revisión independiente, Brave y Native nuevos pasan con sus atribuciones; [evidencia](tasks/vvd1095/verification-rich-performance1917.md). Autoguardado1952 continúa separado. Hosting, IME físico, schema persistente ampliable, enlaces/imágenes/tablas y el resto del registro1095 siguen abiertos.
+[Pruebas y límites](tasks/vvd1095/verification-rich-performance1917.md). Continúan autoguardado1952, enlaces causales1958, hosting, IME físico y schema compartido ampliable. La conciliación1957 confirma portada/batch, drafts optativos y runtime ya entregados, manteniendo sus residuos reales de comparación, otros productores, proyectos de autoría y devStream.
 
 
 ## Contenido1913 entregado; continuar autoguardado1952 — 03-11-2026
