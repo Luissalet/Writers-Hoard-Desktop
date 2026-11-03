@@ -1,5 +1,9 @@
 # Writer publishing workspace
 
+## Imágenes en menciones del Códex — 2028
+
+Las menciones enlazadas de Notas y Escritura permiten mostrar u ocultar la imagen local de la ficha en cada aparición, con el mismo texto, enlace, marcas y Deshacer. La imagen sigue siendo una vista del avatar en su proyecto y época. El lector, la wiki y el documento como imagen usan las referencias incluidas en su ámbito de captura; MCP comparte la preferencia de Escritura. [Alcance y pruebas](tasks/vvd1095/verification-mention-image2028.md).
+
 ## Tablas compartidas de tamaño fijo —2003
 
 Las herramientas Source que optan por `blocks-tree/3` y `writers-blocks/2` pueden insertar tablas fijas, editar texto/marcas/enlaces por celda, mover/quitar la tabla y Deshacer conservando las contribuciones representables de otro autor. `examples.shared-tables` muestra ese perfil junto a hermanos estrictos. SDK y `wh_local_tool_state_apply` usan `rich-table-insert` con la captura estructural normal; lectura/export, Manual/Auto y Source siguen los mismos mecanismos. El perfil se declara por campo, selecciona motor5 y no migra historias antiguas al abrirlas.

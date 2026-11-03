@@ -1,5 +1,9 @@
 # Objetivos de autoría local
 
+## Imágenes en menciones normales entregadas
+
+Notas y Escritura ya pueden mostrar u ocultar el avatar de una ficha por mención enlazada; Notas guardadas, Lector, wiki y documento como imagen respetan el ámbito admitido. Siguen pendientes el compilador general de Word/EPUB/Markdown/PDF y la preferencia e imágenes del perfil causal compartido. [Pruebas y límites](tasks/vvd1095/verification-mention-image2028.md).
+
 ## Estado actual: tablas fijas compartidas entregadas
 
 El primer incremento2003 permite a herramientas locales que optan por su perfil insertar tablas fijas, editar/formatear/enlazar por celda y mover/quitar/Deshacer sin perder aportaciones ajenas representables. Coexiste con los controles contextuales de Notas2009 ya entregados. Autor, revisión del núcleo/UI, Brave y puente autenticado tienen evidencia separada; la composición conserva ambos caminos y ha pasado sus dos focos y gates. [Estado, pruebas y límites](tasks/vvd1095/verification-shared-tables2003.md).
