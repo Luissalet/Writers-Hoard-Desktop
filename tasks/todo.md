@@ -2175,6 +2175,8 @@ Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se rep
 - [x] Same session PM/keyboard/SDK/MCP and normal example; Source/eras/portable semantics.
 - [x] Area oracles, independent kernel/UI reviews, frozen CUT40, quick/build, Root Brave and fresh real bridge acceptance with a second key; scopes and limits remain separate.
 - [x] Compose with approved contextual controls and record finite combined checks20+27 and quick/build with new authority.
-- [ ] Obtain formal review of the final composed commit before Main integration.
+- [x] Final composition1cffcbdb approved at2003/submission1 and integrated Main/primary, with the disclosed lease-gap receipt and verification after reacquiring it.
+- [x] Correct only passive-table key spreading; unchanged existing passive9 and Baseline lint pass.
+- [ ] Obtain narrow revision2 and Root Brave acceptance for this passive-preview follow-up; the two-libraryR5 attempt remains partial.
 
 Variable axes, cell merge/split, shared images and adoption of old origins remain open. Coordination: writers2178; contract: decision2184. Local checkpoint and composition are authorized; Root coordinates formal submission and Main integration. No push.

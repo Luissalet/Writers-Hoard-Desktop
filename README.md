@@ -4,7 +4,7 @@
 
 Local tools that declare the new shared-table profile can insert fixed-size tables, write and format each cell, add links, move or remove the whole table, and Undo while preserving another author's contributions. Manual and Automatic saving, SDK and MCP keep the same document paths. Existing tools are not migrated just by opening them; Notes retain their normal contextual table toolbar and all earlier features.
 
-Removing a table is an explicit action. Undoing its creation can instead retain the structure needed by another author's work. Mutable rows/columns, cell merge/split, sizing, images and adoption of older origins into this shared profile remain open. [Use, contract, evidence and delivery status](tasks/vvd1095/verification-shared-tables2003.md). Final formal review and Main integration are tracked there; this is not complete parity.
+Removing a table is an explicit action. Undoing its creation can instead retain the structure needed by another author's work. Mutable rows/columns, cell merge/split, sizing, images and adoption of older origins into this shared profile remain open. [Use, contract, evidence and delivery status](tasks/vvd1095/verification-shared-tables2003.md). The fixed-grid delivery is approved and integrated locally. A small passive-preview follow-up has its own pending review and browser acceptance; it does not widen this profile or establish complete parity.
 
 
 ## Contextual table controls
