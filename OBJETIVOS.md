@@ -1,5 +1,12 @@
 # Objetivos de autoría local
 
+## Rendimiento1917: ahorro integrado, fluidez pendiente — 03-11-2026
+
+Source2157bc37 entrega un ahorro parcial aprobado1917r1 sobre la sincronización1913 ya integrada. El mismo oráculo100gestos/10k midió360,787677ms de media y410,3989ms p95. Continuar hasta aceptar respuesta interactiva cercana o inferior a100ms p95, conservando historia, autoría, formato y validación;50k sigue sin nueva medidaR5. No cerrar1917 por esta entrega.
+
+Node combinado, revisión independiente, Brave y Native nuevos pasan con sus atribuciones; [evidencia](tasks/vvd1095/verification-rich-performance1917.md). Autoguardado1952 continúa separado. Hosting, IME físico, schema persistente ampliable, enlaces/imágenes/tablas y el resto del registro1095 siguen abiertos.
+
+
 ## Contenido1913 entregado; continuar autoguardado1952 — 03-11-2026
 
 Source48ba665b está aprobado1913/revisión1 e integrado Main: selección documental explícita, personas/cursores por defecto, Save local y salida sin retirar aportaciones ajenas. Autor Source/UI, peer53+3, BraveR1/R3, Native58/66/58 y quick/buildR3 tienen evidencia separada. Los25blobs aprobados ya están en Main y primary; Root completó manual Google y continuidad con sus recibos reales, sin repetir escrituras. [Aceptación y límites](tasks/vvd1095/verification-live-content1913.md).

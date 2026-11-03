@@ -1,5 +1,12 @@
 # Writer publishing workspace
 
+## Rendimiento parcial del texto rico — 03-11-2026
+
+Source `2157bc3733593d4884a24134b8923241041d6046` está aprobado en1917/revisión1 e integrado Main/primary sin push. Reduce recorridos/copia repetidos manteniendo identidades, marcas, validación vigente y el mismo writer y Undo autoral. La medición original100gestos/10k baja a360,787677ms de media y410,3989ms p95; no acredita fluidez ni el caso50k.
+
+Los gates de HEAD9632 conservan su atribución. La composición con1913 tiene nuevo Node164/109, Brave real en dos bibliotecas y Native58tools/66RPC/58IPC con dos claves por fase y otro Electron frío sin seed/host. [Pruebas y límites](tasks/vvd1095/verification-rich-performance1917.md). 1917 permanece abierta para reducir latencia; autoguardado1952 y el resto1095 siguen en curso.
+
+
 ## Contenido local compartido — 03-11-2026
 
 Source `48ba665be0d96a10eab6774fd4798660f6c3cf1d`, padre1c41e1da, está aprobado en la revisión1 de1913 e integrado en Main y primary. La opción **Compartir también el contenido del documento** antes de Crear/Unirse intercambia todos los campos sobre las réplicas y Undo existentes; personas y cursores siguen siendo la opción predeterminada. Guardar escribe sólo en esta biblioteca. Salir sin guardar aquí concilia únicamente el Save ya iniciado y recarga el Source actual, conservando el borrador de otras vistas.

@@ -1,5 +1,12 @@
 # Writers Hoard — Desktop
 
+## Shared rich-text performance
+
+Source `2157bc37` reduces repeated work in shared rich-text editing while preserving author Undo, marks, identities and the existing Save flow. The original 100-gesture/10k test measured 361 ms mean and 410 ms p95, compared with the historical 511/594 ms. This is a partial improvement; large histories still need further work before accepting interactive performance.
+
+The composed version passed the normal area checks, a new two-key MCP/cold reopening run and real Brave editing between two libraries. [Evidence and limits](tasks/vvd1095/verification-rich-performance1917.md). Autosave, physical IME, hosting and overall parity remain open.
+
+
 ## Local document content sharing
 
 Source `48ba665b` is integrated after approval in submission1. **Share document content too** before Create/Join exchanges every field through the existing rich editors and author Undo; people and cursors remain the default. **Save to this library** writes only here. **Leave without saving here** reconciles an existing Save and reloads this library's current Source while other views retain their shared draft.

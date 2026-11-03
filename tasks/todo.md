@@ -1,5 +1,16 @@
 # Structural Undo support — task1932
 
+# Partial rich-text performance delivery — task1917
+
+- [x] Preserve baseline and original100-gesture/10k oracle; keep rejected R1 and all diagnostics.
+- [x] Reduce repeated metadata preparation, point parsing, binding copies and visibility traversal without changing authority or retained history.
+- [x] Pass fixed author/independent controls, quick/build, and new combined Node164/109, Native58/66/58 and real Brave on main1913 plus R5.
+- [x] Approve exact2157bc37 in submission1 and integrate nine tested blobs under merge lock, Luissalet and no push.
+- [ ] Continue1917: mean360.8/p95410.4ms remains above the interactive target; no new50k result or full parity claim.
+
+[Attributed evidence](vvd1095/verification-rich-performance1917.md). Autosave1952 continues independently.
+
+
 - [x] Preserve the original public hidden-child RED and agree causal structural support before changing product.
 - [x] Keep full author inverse receipts, current remote metadata and atomic structural reverse on the existing writer.
 - [x] Pass original192, new223, independent98, normal Node/types, Root Brave, Native42 with two keys per phase and cold persistence, quick/build.
