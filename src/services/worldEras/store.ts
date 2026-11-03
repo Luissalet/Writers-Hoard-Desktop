@@ -9,8 +9,7 @@ import type { Project } from '@/types';
 import { validateWorldCalendar } from '@/engines/timeline/worldCalendar';
 import { validateLocalToolProjectStates } from '@/engines/local/stateTypes';
 import {forkSourceToolDocument} from '@/engines/local/documents/portability';
-import {isSourceAdditivePredecessor} from '@/engines/local/documents/additive';
-import {getLocalToolDefinition} from '@/engines/local/definitions';
+import {isSourceAdditivePredecessor,sourceAdditiveOriginFor} from '@/engines/local/documents/additiveOrigin';
 import {validateSourceToolDocument,type SourceToolDocument} from '@/engines/local/documents/types';
 import {convergenceHash} from '@/engines/local/convergence/format';
 import { validateWorkspaceAppearanceProject } from '@/services/workspaceAppearance/validation';
@@ -101,8 +100,8 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
       const convergence=root.convergence??old?.convergence;
       const changed=!old||current?.provenance==='base'||convergenceHash(root.data)!==convergenceHash(old.data)||convergenceHash(convergence??null)!==convergenceHash(old.convergence??null)||root.namespace!==old.namespace;
       if(changed||convergenceHash(root.codec??null)!==convergenceHash(old?.codec??null)){
-        const definition=old&&getLocalToolDefinition(old.namespace,project.localToolInstallations?.[old.namespace]?.contentHash);
-        if(root.codec?.sourceDefault||old?.codec?.sourceDefault||definition&&isSourceAdditivePredecessor(old!,definition))throw Error('local_tool_source_additive_write_unavailable');
+        const from=old&&sourceAdditiveOriginFor(old.namespace,project.localToolInstallations?.[old.namespace]?.contentHash);
+        if(root.codec?.sourceDefault||old?.codec?.sourceDefault||old&&isSourceAdditivePredecessor(old,from))throw Error('local_tool_source_additive_write_unavailable');
       }
       if(convergence){
         root.convergence=convergence;root.codec??=old?.codec;

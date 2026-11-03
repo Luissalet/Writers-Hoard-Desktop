@@ -5,16 +5,7 @@ import {projectSourceDefault} from '../convergence/sourceAdditive';
 import type {LocalToolJson} from '../stateTypes';
 import type {LocalToolDefinition} from '../sdk';
 import type {SourceToolDocument} from './types';
-
-/** A pre-start root may be shown under the exact old codec, without gaining a writer. */
-export function isSourceAdditivePredecessor<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>):boolean {
- const declaration=definition.sourceAdditive;
- if(!declaration||!document.codec||document.namespace!==declaration.from.namespace||
-    convergenceCanonical(document.codec)!==convergenceCanonical(declaration.from.codec))return false;
- const checkpoint=document.convergence?.checkpoint;
- if(checkpoint)assertConvergenceIdentity(checkpoint,convergenceIdentity(declaration.from,checkpoint.genesisId));
- return true;
-}
+import {isSourceAdditivePredecessor} from './additiveOrigin';
 
 export function assertSourceAdditiveTarget<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>):void {
  const codec=definition.codec,checkpoint=document.convergence?.checkpoint;
@@ -30,7 +21,7 @@ export function parseSourceToolDocumentState<T extends LocalToolJson>(definition
   return parseLocalToolState(definition,projectSourceDefault(document.data,definition.codec!.sourceDefault));
  }
  if(!declaration)return parseLocalToolState(definition,document.data);
- if(!isSourceAdditivePredecessor(document,definition)){
+ if(!isSourceAdditivePredecessor(document,declaration.from)){
   if(document.convergence)throw Error('local_tool_source_additive_incompatible');
   return parseLocalToolState(definition,document.data);
  }
