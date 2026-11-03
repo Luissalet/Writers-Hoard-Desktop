@@ -1,4 +1,6 @@
 import {validateRichAdoption} from './convergence/richAdoption';
+import {prepareSourceAdditiveDeclaration,sourceAdditiveDefault,type LocalToolSourceAdditive} from './convergence/sourceAdditive';
+export type {LocalToolSourceAdditive} from './convergence/sourceAdditive';
 import {localToolConvergenceContext} from './convergence/context';
 export type {LocalToolDocumentContent,LocalToolDocumentContentSnapshot,LocalToolSaveMode} from './liveContent/types';
 export {useLocalToolDocumentContent} from './liveContent/hooks';
@@ -109,7 +111,7 @@ export interface LocalToolClient<T extends LocalToolJson>{
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostContext {documentContent?:import('./liveContent/types').LocalToolDocumentContent;presence?:import('./presence/types').LocalToolDocumentPresence;documentFields?:import('./openDocuments').LocalToolDocumentFields;app?:import('./apps/types').LocalAppDetails;focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode;renderCollaborativeRich?:(props:import('./CollaborativeRich').LocalToolCollaborativeRichProps)=>import('react').ReactNode}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
-export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;richAdoption?:import('./convergence/types').LocalToolRichAdoption;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
+export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;sourceAdditive?:LocalToolSourceAdditive;richAdoption?:import('./convergence/types').LocalToolRichAdoption;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{
   const stateSchemaVersion=definition.stateSchemaVersion??'1';
   if(definition.richAdoption){if(!definition.codec)throw Error('local_tool_rich_adoption_invalid');const target=localToolConvergenceContext({...definition,apiVersion:1,stateSchemaVersion});validateRichAdoption(definition.richAdoption,{namespace:definition.namespace,codec:definition.codec,...target!});}
@@ -121,10 +123,14 @@ export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalTo
   if(definition.document)for(const locale of ['en','es']as const)if(typeof definition.document.defaultTitle?.[locale]!=='string'||!definition.document.defaultTitle[locale].trim())throw Error('source_tool_document_invalid');
   if(definition.document?.embed&&!['preview','interactive'].includes(definition.document.embed))throw Error('source_tool_document_invalid');if(definition.preview)validateLocalToolPreviewSpec(definition.preview);
   if(definition.codec)validateLocalToolCodec(definition.codec);
+  if(definition.sourceAdditive!==undefined&&!definition.document)throw Error('local_tool_source_additive_invalid');
+  const sourceAdditive=definition.sourceAdditive===undefined?undefined:prepareSourceAdditiveDeclaration(definition.sourceAdditive,definition.namespace,definition.codec);
   if(definition.index)validateLocalToolIndexSpec(definition.index);
   const blockKeys=new Set<string>();for(const block of definition.blocks??[]){if(blockKeys.has(block.key))throw Error('local_tool_block_key_duplicate');blockKeys.add(block.key);validateLocalToolBlockDefinition(definition.namespace,block);}
+  if(definition.codec?.sourceDefault&&!sourceAdditive)throw Error('local_tool_source_additive_invalid');
+  const codec=definition.codec&&sourceAdditive?{...definition.codec,sourceDefault:sourceAdditiveDefault(sourceAdditive)}:definition.codec;
   const initialState=cloneLocalToolJson(definition.initialState);if(definition.validateState(initialState)!==true)throw new LocalToolStateError('invalid-state');
-  if(definition.codec)validateLocalToolCodecState(initialState,definition.codec);
+  if(codec)validateLocalToolCodecState(initialState,codec);
   const seen=new Set<string>();
   const operations=(definition.operations??[]).map(operation=>{
     if(!/^[a-z][a-z0-9_]{0,79}$/.test(operation.id)||seen.has(operation.id)||typeof operation.writes!=='boolean'||typeof operation.run!=='function')throw new Error('invalid_local_tool_operation');
@@ -135,7 +141,7 @@ export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalTo
     validateLocalOperationSchema(schema);
     return Object.freeze({...operation,description:{...operation.description},inputSchema:schema});
   });
-  return Object.freeze({...definition,stateSchemaVersion,...(definition.richAdoption?{richAdoption:cloneLocalToolJson(definition.richAdoption as unknown as LocalToolJson) as unknown as import('./convergence/types').LocalToolRichAdoption}:{}),...(definition.tours!==undefined?{tours:prepareLocalToolTours(definition.tours)}:{}),...(definition.locales?{locales:prepareLocalToolLocales(definition.locales)}:{}),...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(definition.codec?{codec:cloneLocalToolJson(definition.codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
+  return Object.freeze({...definition,stateSchemaVersion,...(sourceAdditive?{sourceAdditive}:{}),...(definition.richAdoption?{richAdoption:cloneLocalToolJson(definition.richAdoption as unknown as LocalToolJson) as unknown as import('./convergence/types').LocalToolRichAdoption}:{}),...(definition.tours!==undefined?{tours:prepareLocalToolTours(definition.tours)}:{}),...(definition.locales?{locales:prepareLocalToolLocales(definition.locales)}:{}),...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(codec?{codec:cloneLocalToolJson(codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
 }
 
 export {useLocalToolFontFace} from './useLocalToolFontFace';

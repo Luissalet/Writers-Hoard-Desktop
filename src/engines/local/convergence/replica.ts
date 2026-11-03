@@ -20,6 +20,8 @@ import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceContract,LocalTo
 import {JsonMap,JsonArray,Registers,type Toggle} from './registers';
 import {PlainRuns,type PlainSpan,type PlainPlan,type PlainDraft} from './plainRuns';
 import {appendRichAdoption,readRichAdoption,richAdoptionOrigin,inspectLegacyRichUpdate,validateRichAdoption,checkRichAdoptionAncestors,checkRichAdoptionMonotonicity,effectiveRichAdoptionContract} from './richAdoption';
+import {appendSourceAdditiveAuthority,checkSourceAdditiveHistory,SOURCE_ADDITIVE_ROOT} from './sourceAdditiveHistory';
+import {projectSourceDefault} from './sourceAdditive';
 
 type ObjectData=Record<string,LocalToolJson>;
 type Binding={id:string;placementId:string};
@@ -148,7 +150,7 @@ function contractCopy<T extends LocalToolJson>(contract:LocalToolConvergenceCont
  return{namespace:contract.namespace,codec:clone(contract.codec),validationId:contract.validationId,schemaEpoch:contract.schemaEpoch,validateState:contract.validateState,...(contract.richAdoption?{richAdoption:clone(contract.richAdoption)}:{})};
 }
 function accepts(contract:LocalToolConvergenceContract,data:LocalToolJson):boolean {
- try{validateLocalToolCodecState(data,contract.codec);return contract.validateState(cloneLocalToolJson(data))===true;}catch{return false;}
+ try{validateLocalToolCodecState(data,contract.codec);return contract.validateState(cloneLocalToolJson(projectSourceDefault(data,contract.codec.sourceDefault)))===true;}catch{return false;}
 }
 function validFallback<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>):ValidView {
  const plainChecks:PlainBindingChecks=new Map(),richChecks:RichBindingChecks=new Map();
@@ -189,6 +191,7 @@ function semanticPending(r:Roots,proofs?:SnapshotBindingProofs):boolean {
  return false;
 }
 function checkDocumentIdentity(doc:Y.Doc,identity:LocalToolConvergenceIdentity):void {
+ if(identity.engine.version==='8'||doc.share.has(SOURCE_ADDITIVE_ROOT)){checkSourceAdditiveHistory(doc,identity);return;}
  if(convergenceCanonical(new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).get('value'))!==convergenceCanonical(identity)||doc.share.has('convergence-rich-adoptions'))readRichAdoption(doc,identity);
 }
 function capsule(identity:LocalToolConvergenceIdentity,doc:Y.Doc):LocalToolConvergenceCheckpoint {
@@ -207,7 +210,9 @@ function pending(doc:Y.Doc):boolean {
 function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson,identity:LocalToolConvergenceIdentity):void {
  const r=initializeRoots(doc,metadata.codec),bindings:Bindings={},plainBindings:PlainBindings={},richBindings:Record<string,RichBindings>={},plainFields=Object.keys(metadata.codec.fields).filter(field=>isLocalToolPlainField(metadata.codec.fields[field])).sort();
  doc.transact(()=>{
-  new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).set('value',clone(identity));r.registers.begin();
+  new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).set('value',clone(identity));
+  if(metadata.codec.sourceDefault)appendSourceAdditiveAuthority(doc,metadata);
+  r.registers.begin();
   if(plainFields.length)new JsonMap<string[]>(doc.getMap('plain-fields')).set('value',plainFields);const richFields=Object.keys(metadata.codec.fields).filter(f=>metadata.codec.fields[f].kind==='rich').sort();if(richFields.length)new JsonMap<string[]>(doc.getMap('rich-fields')).set('value',richFields);const linkFields=richFields.filter(f=>localToolRichLinks(metadata.codec.fields[f]));if(linkFields.length)new JsonMap<string[]>(doc.getMap('rich-link-fields')).set('value',linkFields);const blockFields=richFields.filter(f=>blockField(r,f));if(blockFields.length)new JsonMap<string[]>(doc.getMap('block-fields')).set('value',blockFields);const tables=richFields.filter(field=>localToolRichTables(metadata.codec.fields[field]));if(tables.length)new JsonMap<string[]>(doc.getMap('table-fields')).set('value',tables);const axes=richFields.filter(field=>localToolRichTableAxes(metadata.codec.fields[field]));if(axes.length)new JsonMap<string[]>(doc.getMap('table-axis-fields')).set('value',axes);const widths=axes.filter(field=>localToolRichTableWidths(metadata.codec.fields[field]));if(widths.length)new JsonMap<string[]>(doc.getMap('table-width-fields')).set('value',widths);
   for(const[field,value]of Object.entries(data as ObjectData)){
    const descriptor=metadata.codec.fields[field];
@@ -259,6 +264,20 @@ export function forkLocalToolGenesis(data:LocalToolJson,metadata:LocalToolConver
 }
 export function createLocalToolGenesis<T extends LocalToolJson>(data:T,contract:LocalToolConvergenceContract<T>):LocalToolConvergenceCheckpoint {
  const frozen=contractCopy(contract),safe=cloneLocalToolJson(data);if(!accepts(frozen,safe))throw Error('local_tool_convergence_authored_state_invalid');return seedLocalToolGenesis(safe,frozen);
+}
+/** Prepare only a candidate. The Source writer decides whether a user action commits it. */
+export function prepareSourceAdditiveCheckpoint(checkpoint:LocalToolConvergenceCheckpoint,data:LocalToolJson,from:LocalToolConvergenceMetadata,target:LocalToolConvergenceContract):LocalToolConvergenceCheckpoint {
+ assertConvergenceIdentity(checkpoint,convergenceIdentity(from,checkpoint.genesisId));
+ if(checkpoint.engine.version!=='1'||!target.codec.sourceDefault||exportLocalToolConvergenceCheckpoint(checkpoint).pending||!accepts(target,data))throw Error('local_tool_source_additive_incompatible');
+ const doc=new Y.Doc({gc:false}),identity=convergenceIdentity(target,checkpoint.genesisId);
+ try{
+  Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));
+  const roots=initializeRoots(doc,from.codec);
+  if(convergenceCanonical(projectRoots(roots).data)!==convergenceCanonical(data))throw Error('local_tool_source_additive_incompatible');
+  doc.transact(()=>appendSourceAdditiveAuthority(doc,target,from),'source-additive');
+  checkSourceAdditiveHistory(doc,identity);
+  return capsule(identity,doc);
+ }finally{doc.destroy();}
 }
 function prepareLegacyActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,validateProposal=true):{actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean} {
  const before=inspect(r,contract).data,{data:proposal}=mergeLocalToolActions(contract.codec,before,before,actions);
