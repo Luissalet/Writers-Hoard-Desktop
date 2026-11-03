@@ -115,11 +115,15 @@ export class RichRuns {
    for(const span of all){const key=JSON.stringify([b.id,span.runId]);if(runSizes.has(key))duplicateRuns.add(key);runSizes.set(key,span.to-span.from);}
    const base=baseline?spans([...baselineUnits.keys()].filter(id=>decodePoint(id).buffer===b.id),decodePoint).map(({runId,from,to})=>({runId,from,to})):undefined;
    const{full,visible:shown}=source.retainedAndVisible(base,extra,prepared?.spans??[]),ids:string[]=[];
+   let shownAt=0;
    for(const span of full.bindings){
     const buffer=b.id,runId=span.runId,runKey=JSON.stringify([buffer,runId]),syntax=typeof buffer==='string'&&!!buffer&&typeof runId==='string'&&!!runId;
-    for(let offset=span.from;offset<span.to;offset++){const id=unit(buffer,runId,offset);if(!points.has(id)&&syntax&&Number.isSafeInteger(offset)&&offset>=0)points.set(id,Object.freeze({buffer,runId,offset:offset===0?0:offset,runKey}));known.set(id,full.text.charAt(ids.length));ids.push(id);}
+    for(let offset=span.from;offset<span.to;offset++){
+     const id=unit(buffer,runId,offset);if(!points.has(id)&&syntax&&Number.isSafeInteger(offset)&&offset>=0)points.set(id,Object.freeze({buffer,runId,offset:offset===0?0:offset,runKey}));known.set(id,full.text.charAt(ids.length));ids.push(id);
+     const next=shown[shownAt];if(next&&next.runId===runId&&next.from<=offset&&offset<next.to){visible.add(id);if(offset+1===next.to)shownAt++;}
+    }
    }
-   physical.set(b.id,ids);for(const s of shown)for(let i=s.from;i<s.to;i++)visible.add(unit(b.id,s.runId,i));
+   physical.set(b.id,ids);
   }
   const lineage=(ref:RichRef):RichRef[]=>{
    const path:RichRef[]=[],seen=new Set<string>();let current:RichRef|null=ref;
