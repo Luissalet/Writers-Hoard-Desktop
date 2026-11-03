@@ -1,4 +1,5 @@
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
+import { codexImageTarget } from '@/services/codexReference/imageHtml';
 import { safeToolSvg } from '@/components/editor/toolBlocks/preview';
 import type { DocumentImageRect } from './types';
 
@@ -7,9 +8,9 @@ export const raster=(value:unknown):value is string=>typeof value==='string'&&/^
 export const image=(value:unknown,alt='')=>raster(value)?`<img src="${esc(value)}" alt="${esc(alt)}">`:'';
 export const table=(headers:unknown[],rows:unknown[][])=>`<table><thead><tr>${headers.map(value=>`<th>${esc(value)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(value=>`<td>${esc(value)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 export const fields=(values:Record<string,unknown>)=>`<dl>${Object.entries(values).map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${esc(typeof value==='object'?JSON.stringify(value):value)}</dd></div>`).join('')}</dl>`;
-export function safeProse(source:string):Document {
+export function safeProse(source:string, preserveCodexLinks=false):Document {
   const doc=new DOMParser().parseFromString(sanitizeRichHtml(source),'text/html');
-  for(const element of doc.querySelectorAll('*'))for(const attribute of ['href','src','poster','background','srcset','xlink:href'])if(element.hasAttribute(attribute)&&!(element.tagName==='IMG'&&attribute==='src'&&raster(element.getAttribute('src'))))element.removeAttribute(attribute);
+  for(const element of doc.querySelectorAll('*'))for(const attribute of ['href','src','poster','background','srcset','xlink:href'])if(element.hasAttribute(attribute)&&!(element.tagName==='IMG'&&attribute==='src'&&raster(element.getAttribute('src')))&&!(preserveCodexLinks&&element.tagName==='A'&&attribute==='href'&&codexImageTarget(element.getAttribute('href'))))element.removeAttribute(attribute);
   return doc;
 }
 /** Full exporter output, without the tool-preview's 360px thumbnail cap. */

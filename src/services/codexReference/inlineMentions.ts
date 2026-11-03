@@ -5,22 +5,31 @@ import type { CodexEntry } from '@/types';
 import { createMentionIndex } from './indexedMentions';
 import type { WordGloss } from '@/engines/dictionary/glosses';
 import { codexTextLinkTarget } from '@/components/editor/codexBlocks/inlineLinks';
+import { codexLinkOccurrences } from '@/components/editor/codexBlocks/CodexLink';
+import { createCodexThumbnail, codexImageTarget } from './imageHtml';
+import { localAvatar } from '@/components/editor/codexBlocks/model';
 
 export const inlineMentionsKey = new PluginKey<DecorationSet>('codexInlineMentions');
 export const OPEN_CODEX_REFERENCE = 'wh:open-codex-reference';
 export interface OpenCodexReferenceDetail { projectId: string; entryId: string; scopeId?: string; handled: boolean }
 
 /** Transient annotations use the shared indexed matcher and never alter saved prose. */
-export function createInlineMentionsPlugin(entries: CodexEntry[], open: (id: string) => void, dictionaryMatches?: (text: string) => WordGloss[], preferences: { autoLinkMentions: boolean; animateNewLinks: boolean } = { autoLinkMentions: true, animateNewLinks: false }): Plugin<DecorationSet> {
-  const index = createMentionIndex(entries);
+export function createInlineMentionsPlugin(entries: CodexEntry[], open: (id: string) => void, dictionaryMatches?: (text: string) => WordGloss[], preferences: { autoLinkMentions: boolean; animateNewLinks: boolean } = { autoLinkMentions: true, animateNewLinks: false }, projectId?: string, excludeAutoEntryId?: string): Plugin<DecorationSet> {
+  const index = createMentionIndex(entries.filter(entry => entry.id !== excludeAutoEntryId));
   const entryMap = new Map(entries.map(entry => [entry.id, entry]));
   const decorate = (doc: ProseMirrorNode, existing?: DecorationSet) => {
     const decorations: Decoration[] = [];
+    for (const occurrence of codexLinkOccurrences(doc)) {
+      const target = codexImageTarget(occurrence.mark.attrs.href);
+      const entry = target && target.projectId === projectId ? entryMap.get(target.entryId) : undefined;
+      const avatar = entry && entry.projectId === projectId ? localAvatar(entry.avatar) : undefined;
+      if (occurrence.mark.attrs.codexImage === true && avatar) decorations.push(Decoration.widget(occurrence.from, view => createCodexThumbnail(view.dom.ownerDocument, avatar), { side: -1, key: `${occurrence.from}:${avatar}` }));
+    }
     doc.descendants((node, position, parent) => {
       if (!node.isText || !node.text || parent?.type.name === 'codeBlock' || node.marks.some(mark => mark.type.name === 'code')) return;
       const link = node.marks.find(mark => mark.type.name === 'link');
       if (link) {
-        const owner = entries[0]?.projectId, id = owner && codexTextLinkTarget(String(link.attrs.href ?? ''), owner), entry = id ? entryMap.get(id) : undefined;
+        const owner = projectId, id = owner && codexTextLinkTarget(String(link.attrs.href ?? ''), owner), entry = id ? entryMap.get(id) : undefined;
         if (entry && entry.projectId === owner) decorations.push(Decoration.inline(position, position + node.nodeSize, { class: 'wh-codex-mention', 'data-wh-codex-mention': entry.id, role: 'link', tabindex: '0', title: entry.title }));
         return;
       }

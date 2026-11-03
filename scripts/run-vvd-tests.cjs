@@ -522,6 +522,8 @@ const suites = [
   ['indexed-mentions.browser.ts', 'testIndexedMentions'],
   ['codex-live-blocks.browser.tsx', 'testCodexLiveBlocks'],
   ['codex-text-links.browser.tsx', 'testCodexTextLinks'],
+  ['codex-mention-image.browser.ts', 'testCodexMentionImage'],
+  ['codex-mention-image.integration.browser.tsx', 'testCodexMentionImageIntegration'],
   ['world-graph.browser.ts', 'testWorldGraph'],
   ['world-graph-ui.browser.tsx', 'testWorldGraphUi'],
   ['vvd-maps.browser.tsx', 'testVvdMaps'],

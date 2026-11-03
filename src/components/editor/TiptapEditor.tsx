@@ -7,6 +7,8 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import './revisionMarks.css';
 import type { AnyExtension, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { CodexLink } from './codexBlocks/CodexLink';
+import { stripCodexThumbnails } from '@/services/codexReference/imageHtml';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import { createWritingBlockExtensions } from './blocks/extensions';
@@ -14,7 +16,7 @@ import SlashMenu from './blocks/SlashMenu';
 import SlashToolHost from './blocks/SlashToolHost';
 import ImageControls from './blocks/ImageControls';
 import BlockFieldControls from './blocks/BlockFieldControls';
-import { lazy, Suspense, useEffect,useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect,useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
   Bold,
@@ -264,11 +266,14 @@ export default function TiptapEditor({
   useEffect(()=>richProfile?undefined:registerLocalToolEditor(sourceHost),[sourceHost,richProfile]);
   const [codexBlockHost] = useState(() => createCodexBlockHost({ projectId: editorialProjectId, scopeId: blockScopeId }));
   useEffect(() => { codexBlockHost.setContext({ projectId: editorialProjectId, scopeId: blockScopeId }); }, [codexBlockHost, editorialProjectId, blockScopeId]);
-  const mentionEntries = useLiveQuery(async () => {
-    if (!editorialProjectId) return [];
-    const project = await db.projects.get(editorialProjectId);
-    return project?.enabledEngines.includes('codex') ? editorialEraId ? listEraRows<CodexEntry>({ projectId: editorialProjectId, eraId: editorialEraId }, 'codexEntries') : db.codexEntries.where('projectId').equals(editorialProjectId).toArray() : [];
-  }, [editorialProjectId, editorialEraId]);
+  const mentionScope = useMemo(() => ({projectId:editorialProjectId,eraId:editorialEraId,scopeId:blockScopeId}), [editorialProjectId,editorialEraId,blockScopeId]);
+  const mentionResult = useLiveQuery(async () => {
+    if (!editorialProjectId) return {scope:mentionScope,entries:[]};
+    const project = editorialEraId ? await getEraProject({projectId:editorialProjectId,eraId:editorialEraId}) : await db.projects.get(editorialProjectId);
+    const entries = project?.enabledEngines.includes('codex') ? await (editorialEraId ? listEraRows<CodexEntry>({ projectId: editorialProjectId, eraId: editorialEraId }, 'codexEntries') : db.codexEntries.where('projectId').equals(editorialProjectId).toArray()) : [];
+    return {scope:mentionScope,entries};
+  }, [mentionScope]);
+  const mentionEntries = mentionResult?.scope === mentionScope ? mentionResult.entries : undefined;
   const projectDictionaries = useLiveQuery(async () => {
     if (!editorialProjectId||richProfile) return undefined;
     const project = editorialEraId ? await getEraProject({ projectId: editorialProjectId, eraId: editorialEraId }) : await db.projects.get(editorialProjectId);
@@ -314,7 +319,8 @@ export default function TiptapEditor({
   }));
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ link: { openOnClick: false }, document: ownDocument ? false : undefined }),
+      StarterKit.configure({ link: false, document: ownDocument ? false : undefined }),
+      CodexLink.configure({ openOnClick: false }),
       Image.configure({ allowBase64: true }),
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
       ...(!richProfile?[
@@ -336,7 +342,7 @@ export default function TiptapEditor({
       ]:[]),
       ...(extensions ?? []),
     ],
-    content:richProfile?richProseHtml(content):content,
+    content:richProfile?richProseHtml(content):stripCodexThumbnails(content),
     onUpdate: ({ editor }) => {
       if (onChange) {
         const html = editor.getHTML();
@@ -346,7 +352,7 @@ export default function TiptapEditor({
       onDocumentChange?.();
     },
     editorProps: {
-      ...(richProfile?{transformPastedHTML:(html:string)=>richProseHtml(html)}:{}),
+      transformPastedHTML:(html:string)=>richProfile?richProseHtml(html):stripCodexThumbnails(html),
       attributes: {
         class: 'prose prose-invert max-w-none focus:outline-none',
       },
@@ -384,13 +390,13 @@ export default function TiptapEditor({
   const copilotObjectId = copilotIdentity?.objectId;
   const referenceScopeId = paneReferenceScope(referenceContext?.scopeId ?? copilotObjectId, pane);
   const referenceEntryId = referenceContext?.entryId ?? copilotObjectId;
-  useEffect(() => {
-    if (!editor || editor.isDestroyed || !editorialProjectId || !mentionEntries?.length) return;
-    editor.registerPlugin(createInlineMentionsPlugin(mentionEntries.filter(entry => entry.id !== referenceEntryId), id => {
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !editorialProjectId) return;
+    editor.registerPlugin(createInlineMentionsPlugin(mentionEntries??[], id => {
       const detail: OpenCodexReferenceDetail = { projectId: editorialProjectId, entryId: id, scopeId: referenceScopeId, handled: false };
       window.dispatchEvent(new CustomEvent(OPEN_CODEX_REFERENCE, { detail }));
       if (!detail.handled) (pane?.navigate ?? navigateTo)(`/project/${encodeURIComponent(editorialProjectId)}/codex?entry=${encodeURIComponent(id)}`);
-    }, createGlossMatcher(projectDictionaries ?? []), entityDetectionPreferences));
+    }, createGlossMatcher(projectDictionaries ?? []), entityDetectionPreferences, editorialProjectId, referenceEntryId));
     return () => { if (!editor.isDestroyed) editor.unregisterPlugin(inlineMentionsKey); };
   }, [editor, editorialProjectId, mentionEntries, referenceEntryId, referenceScopeId, projectDictionaries, pane?.navigate, entityDetectionPreferences]);
   const copilotKind = copilotIdentity?.kind;
@@ -495,7 +501,7 @@ export default function TiptapEditor({
     // Its destroy() clears the schema; the live replacement will sync next render.
     if (!editor || editor.isDestroyed) return;
     if (content === emittedHtmlRef.current) return;
-    const incoming=richProfile?richProseHtml(content):content;
+    const incoming=richProfile?richProseHtml(content):stripCodexThumbnails(content);
     if (editor.getHTML() !== incoming) {
       editor.commands.setContent(incoming, { emitUpdate: false });
       // What was emitted is no longer what the editor holds.

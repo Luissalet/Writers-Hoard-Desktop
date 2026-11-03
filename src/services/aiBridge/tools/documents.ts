@@ -1,5 +1,7 @@
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
+import { CodexLink } from '@/components/editor/codexBlocks/CodexLink';
+import { setCodexLinkImage } from '@/components/editor/codexBlocks/CodexLink';
 import Image from '@tiptap/extension-image';
 import { CellSelection } from '@tiptap/pm/tables';
 import { TextSelection } from '@tiptap/pm/state';
@@ -20,7 +22,7 @@ function writingOps(args:ToolArgs,projectId?:string){const eraId=optString(args,
 function editorFor(html: string): Editor {
   return new Editor({
     element: document.createElement('div'),
-    extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()],
+    extensions: [StarterKit.configure({ link: false }), CodexLink.configure({ openOnClick: false }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()],
     content: normalizeAdvancedHtml(html),
   });
 }
@@ -112,7 +114,10 @@ export async function whEditWritingDocument(args: ToolArgs) {
       } catch { throw new BridgeError('bad-args', 'Ese rango no selecciona celdas o texto compatibles con la operación.'); }
     } else editor.commands.setTextSelection(Math.max(1, editor.state.doc.content.size - 1));
     let applied = false;
-    if (operation === 'insertTable') {
+    if (operation === 'setCodexImage') {
+      if (!range || typeof args.codexImage !== 'boolean') throw new BridgeError('bad-args', 'setCodexImage necesita from/to y codexImage booleano.');
+      applied = setCodexLinkImage(editor, writing.projectId, args.codexImage, range);
+    } else if (operation === 'insertTable') {
       const rows = args.rows ?? 3, cols = args.cols ?? 3;
       if (typeof rows !== 'number' || typeof cols !== 'number' || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) throw new BridgeError('bad-args', 'rows y cols deben ser enteros positivos.');
       applied = editor.commands.insertTable({ rows, cols, withHeaderRow: true });

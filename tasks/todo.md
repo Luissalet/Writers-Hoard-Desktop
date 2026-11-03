@@ -1,3 +1,11 @@
+# Optional mention image - task2028
+
+- [x] Read the accepted contract and fix six causal expectations before Source.
+- [x] Preserve the SDK HTML loss baseline (functional RED, closed hidden window).
+- [x] Implement the finite Link preference and derived projection in normal consumers.
+- [x] Verify scoped readers, clipboard, captured exports, fork/ZIP and the existing MCP writer in private functional QA; Native cold acceptance remains with Root.
+- [ ] Freeze the product paths and run area/types/lint/quick/build; peer and Root acceptance pending.
+
 # Contextual table controls — task2009
 
 - [x] Read Root's normal Notes baseline: table menu/Undo/reopen work, contextual controls are absent. Preserve baseline evidence.

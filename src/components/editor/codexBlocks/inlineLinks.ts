@@ -1,6 +1,8 @@
 import type { Editor } from '@tiptap/core';
 import { CHAPTER_HEADING_NAME } from '../chapterHeading/chapterBlocks';
 import { blockIdentifier, blockLabel, type CodexBlockTarget } from './model';
+import { selectedCodexLink } from './CodexLink';
+import { codexImageTarget } from '@/services/codexReference/imageHtml';
 export function canInsertCodexTextLink(editor: Editor): boolean {
   if (editor.isDestroyed || !editor.isEditable) return false;
   const { from, to, $from, $to } = editor.state.selection;
@@ -13,9 +15,12 @@ export function canInsertCodexTextLink(editor: Editor): boolean {
 export function insertCodexTextLink(editor: Editor, hostProjectId: string, target: CodexBlockTarget): boolean {
   if (!canInsertCodexTextLink(editor) || hostProjectId !== target.projectId || !blockIdentifier(target.entryId) || !blockIdentifier(target.projectId)) return false;
   const href = `/project/${encodeURIComponent(target.projectId)}/codex?entry=${encodeURIComponent(target.entryId)}`;
+  const previous = selectedCodexLink(editor, hostProjectId);
+  const previousTarget = codexImageTarget(previous?.mark.attrs.href);
+  const codexImage = previousTarget?.projectId === target.projectId && previousTarget.entryId === target.entryId && previous?.mark.attrs.codexImage === true;
   return editor.state.selection.empty
     ? editor.chain().focus().insertContent({ type: 'text', text: blockLabel(target.label) || 'Codex', marks: [{ type: 'link', attrs: { href, target: null } }] }).run()
-    : editor.chain().focus().setLink({ href, target: null }).run();
+    : editor.chain().focus().command(({ tr }) => { tr.addMark(editor.state.selection.from, editor.state.selection.to, editor.schema.marks.link.create({ href, target: null, codexImage })); return true; }).run();
 }
 export function codexTextLinkTarget(href: string, projectId: string): string | undefined {
   try { const url = new URL(href, 'https://writer.invalid'); if (url.origin === 'https://writer.invalid' && url.pathname === `/project/${encodeURIComponent(projectId)}/codex`) return blockIdentifier(url.searchParams.get('entry')) || undefined; } catch { /* Unrelated/invalid links are ordinary text. */ }

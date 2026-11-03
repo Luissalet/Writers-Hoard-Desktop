@@ -2,6 +2,7 @@ import { noteImageLayoutCss } from '@/components/editor/blocks/style';
 import { imageAlign, isInlineRaster } from '@/components/editor/blocks/imageLayout';
 import {codexTextLinkTarget} from '@/components/editor/codexBlocks/inlineLinks';
 import {localAssetFontCss,type LocalAssetFont} from '@/engines/local/localAssetFonts';
+import { projectCodexImages } from '@/services/codexReference/imageHtml';
 import {voiceReadingMarkup,installVoiceReading,VOICE_READING_CSS} from '@/engines/media/voiceReading';
 import { privateTemplateIds } from '@/engines/codex/templateHierarchy';
 import {mediaFilename} from '@/engines/media/types';
@@ -115,6 +116,7 @@ function rich(content: string, entries: Map<string, CodexEntry>, includeImages: 
     paragraph.append(anchor); block.replaceWith(paragraph);
   }
   const spoilers = [...doc.querySelectorAll('[data-wh-wiki-spoiler="true"]')];
+  projectCodexImages(doc.body, projectId, [...entries.values()], includeImages);
   doc.body.querySelectorAll('*').forEach(element => {
     for (const attribute of [...element.attributes]) {
       if (['id', 'name', 'class', 'hidden', 'tabindex', 'is'].includes(attribute.name) || attribute.name.startsWith('data-') || attribute.name.startsWith('on')) element.removeAttribute(attribute.name);

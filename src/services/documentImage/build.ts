@@ -1,4 +1,5 @@
 import { noteImageLayoutCss } from '@/components/editor/blocks/style';
+import { projectCodexImages, codexImageTarget } from '@/services/codexReference/imageHtml';
 import { getEraProject,listEraRows,readWorldDocument } from '@/services/worldEras/store';
 import { eraDocumentKinds,type EraDocumentKind,type EraDocument,type WorldEraScope } from '@/services/worldEras/types';
 import type { CodexEntry,Project,WorldMap,MapPin,Timeline,TimelineEvent,TimelineConnection } from '@/types';
@@ -54,11 +55,12 @@ async function entries(ctx:Context){return ctx.entries??=ctx.source?ctx.source.r
 
 async function prose(source:string,ctx:Context):Promise<string>{
   let doc:Document;
+  const mentions = source.includes('data-wh-codex-image="true"');
   if(ctx.source){
-    doc=safeProse(source);
+    doc=safeProse(source,mentions);
     const policy={eraId:ctx.scope.eraId,source:ctx.source,page:true,assetFontCollector:ctx.fonts};
     doc.body.innerHTML=await prepareSourceBlocksForExport(await prepareToolDocumentBlocksForExport(doc.body.innerHTML,ctx.scope.projectId,ctx.locale,policy),ctx.scope.projectId,ctx.locale,policy);
-  }else doc=safeProse(await prepareSourceBlocksForExport(source,ctx.scope.projectId,ctx.locale,{eraId:ctx.scope.eraId}));
+  }else doc=safeProse(await prepareSourceBlocksForExport(source,ctx.scope.projectId,ctx.locale,{eraId:ctx.scope.eraId}),mentions);
   for(const block of doc.querySelectorAll<HTMLElement>('figure[data-wh-tool-block="true"], [data-wh-codex-block="true"], [data-wh-media-block="true"]')){
     if(!doc.body.contains(block))continue;
     const target=block.dataset.whToolBlock?toolTarget({projectId:block.dataset.projectId,kind:block.dataset.toolKind,documentId:block.dataset.documentId,namespace:block.dataset.namespace,presentation:block.dataset.presentation}):{projectId:block.dataset.projectId,kind:block.dataset.whMediaBlock?'media':'codex',documentId:block.dataset.assetId??block.dataset.entryId,namespace:undefined};
@@ -69,6 +71,10 @@ async function prose(source:string,ctx:Context):Promise<string>{
     block.replaceWith(section);
   }
   const notes=extractFootnotesFromHtml(source);if(notes.length)doc.body.insertAdjacentHTML('beforeend',renderEndnotesHtml(notes,{heading:ctx.locale==='es'?'Notas':'Notes',style:'numbers',backlinks:false}));
+  if (mentions) {
+    projectCodexImages(doc.body,ctx.scope.projectId,await entries(ctx));
+    for (const anchor of doc.querySelectorAll('a[href]')) if (codexImageTarget(anchor.getAttribute('href'))) anchor.removeAttribute('href');
+  }
   return doc.body.innerHTML;
 }
 
@@ -177,6 +183,11 @@ async function renderPart(ctx:Context,kind:EraDocumentKind,id:string,view?:Docum
       case 'board':{const board=await boardImage(ctx.scope,rows<BoardNode>(document,'boardNodes'),rows<BoardEdge>(document,'boardEdges'),rows<BoardLayer>(document,'boardLayers'),ctx.width,view,String(root.surface??'cork'),ctx.locale);html=board.html;framing={mode:view?'view':'fit-content',coordinateSpace:'board-flow',view:board.view};break;}
       case 'model-viewer':await prepareModelReaderRuntime();html=modelReaderMarkup(root as unknown as ModelAsset,ctx.locale)+`<p class="meta">Framed orbit camera · rest pose · animation paused</p>`;break;
       case 'media':if(ctx.mediaAttachments)ctx.mediaAttachments.set(id,root as unknown as LocalMediaAsset);html=await media(root as unknown as LocalMediaAsset,ctx);break;
+    }
+    if (kind === 'local-tool' && html.includes('data-wh-codex-image="true"')) {
+      const projection = globalThis.document.createElement('template'); projection.innerHTML = html;
+      projectCodexImages(projection.content, ctx.scope.projectId, await entries(ctx));
+      html = projection.innerHTML;
     }
     return{title:name,html,framing};
   }finally{ctx.active.delete(key);}
