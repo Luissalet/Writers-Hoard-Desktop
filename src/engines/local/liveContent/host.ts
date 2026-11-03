@@ -1,5 +1,8 @@
+import {readSourceToolDocument} from '../documents/store';
 import type {RichEditorSession,RichSourceExport} from '../collaborativeRich/session';
-import type {LocalToolConvergenceUpdate} from '../convergence/types';
+import type {LocalToolConvergenceUpdate,LocalToolConvergenceIdentity} from '../convergence/types';
+import {convergenceIdentityOf,convergenceCanonical} from '../convergence/format';
+import {RICH_ADOPTION_MISSING,RICH_LEGACY_MISSING} from '../convergence/richAdoption';
 import {convergenceClone,assertConvergenceIdentity} from '../convergence/format';
 import type {LocalToolJson} from '../stateTypes';
 import type {ContentNetwork,LocalToolDocumentContent,LocalToolSaveMode} from './types';
@@ -21,6 +24,10 @@ export class LocalDocumentContentHost {
  private alive=true;
  private leaving=false;
  private needsCatchup=false;
+ private activeProof:LocalToolConvergenceUpdate|undefined;
+ private repairRequest:{network:ContentNetwork;epoch:number;id:string}|undefined;
+ private requestedFull:string|undefined;
+ private answeredFull:string|undefined;
  private error='';
  private sending=Promise.resolve();
  private savePreference:DocumentSavePreference;
@@ -41,14 +48,31 @@ export class LocalDocumentContentHost {
   this.releaseHash=releaseHash;this.savePreference=savePreference;this.saveMode=savePreference.mode;
   this.offPreference=savePreference.subscribe(()=>{if(this.saveMode!==savePreference.mode){this.saveMode=savePreference.mode;this.scheduleEpoch++;this.cancelTimer();}this.reconcileAutosave();this.changed();});
   this.instanceId=instanceId;this.current=current;this.client=client;
-  this.port=Object.freeze({instanceId,getSnapshot:()=>this.snapshot(),subscribe:(changed:()=>void)=>{this.listeners.add(changed);return()=>{this.listeners.delete(changed);};},query:()=>this.query(),capture:((field:string,request:LocalToolJson)=>this.capture(field,request)) as LocalToolDocumentContent['capture'],apply:async(field:string,actions:readonly LocalToolStateAction[])=>{const captured=convergenceClone(actions);if(!Array.isArray(captured)||!captured.length||captured.some(action=>action.field!==field))throw Error('local_tool_live_action_field_mismatch');await this.validate();return this.session(field).applyBatch(captured);},setSaveMode:(mode:LocalToolSaveMode)=>{this.assert();return this.savePreference.choose(mode,()=>this.validate());},control:(action:'undo'|'redo'|'save'|'leave'|'retry',field?:string)=>this.control(action,field)});
+  this.port=Object.freeze({instanceId,getSnapshot:()=>this.snapshot(),subscribe:(changed:()=>void)=>{this.listeners.add(changed);return()=>{this.listeners.delete(changed);};},query:()=>this.query(),capture:((field:string,request:LocalToolJson)=>this.capture(field,request)) as LocalToolDocumentContent['capture'],apply:async(field:string,actions:readonly LocalToolStateAction[])=>{const captured=convergenceClone(actions);if(!Array.isArray(captured)||!captured.length||captured.some(action=>action.field!==field))throw Error('local_tool_live_action_field_mismatch');await this.validate();return this.session(field).applyBatch(captured);},setSaveMode:(mode:LocalToolSaveMode)=>{this.assert();return this.savePreference.choose(mode,()=>this.validate());},control:(action:'undo'|'redo'|'save'|'leave'|'retry'|'adopt',field?:string)=>this.control(action,field)});
   hosts.set(this.port,this);liveDocumentHosts.add(this);
  }
  private assert(){if(!this.alive||!this.current())throw Error('local_tool_live_host_unavailable');}
- private async validate(){this.assert();const snapshot=await this.client.read(),project=await assertWorldEra({projectId:this.client.projectId,eraId:this.client.eraId});this.assert();if(!project.enabledEngines.includes('local-tool-'+this.client.namespace))throw Error('local_tool_live_engine_disabled');if(this.releaseHash!==undefined&&(project.localToolInstallations?.[this.client.namespace]?.contentHash??null)!==this.releaseHash)throw Error('local_tool_pin_conflict');if(!snapshot.document||snapshot.document.id!==this.client.documentId||!snapshot.convergence)throw Error('local_tool_live_identity_invalid');for(const session of this.sessions.keys()){if(snapshot.document.lineage!==session.lineage)throw Error('source_tool_document_lineage_conflict');assertConvergenceIdentity(snapshot.convergence,session.convergenceIdentity);}}
+ async sourceDescriptor(){
+  this.assert();const snapshot=await this.client.read();this.assert();if(!snapshot.document||snapshot.document.id!==this.client.documentId||!snapshot.convergence)throw Error('local_tool_live_identity_invalid');
+  const readActual=async()=>{
+   const actual=await readSourceToolDocument({projectId:this.client.projectId,eraId:this.client.eraId},snapshot.document!.id,this.client.namespace),project=await assertWorldEra({projectId:this.client.projectId,eraId:this.client.eraId});this.assert();
+   if(!project.enabledEngines.includes('local-tool-'+this.client.namespace))throw Error('local_tool_live_engine_disabled');if(this.releaseHash!==undefined&&(project.localToolInstallations?.[this.client.namespace]?.contentHash??null)!==this.releaseHash)throw Error('local_tool_pin_conflict');
+   if(!actual||actual.lineage!==snapshot.document!.lineage||!actual.document.convergence)throw Error('source_tool_document_lineage_conflict');for(const session of this.sessions.keys())if(actual.lineage!==session.lineage)throw Error('source_tool_document_lineage_conflict');
+   return convergenceIdentityOf(actual.document.convergence.checkpoint);
+  };
+  let source=await readActual(),identity:LocalToolConvergenceIdentity;
+  try{identity=this.documentIdentity(source);}catch(error){
+   if(!(error instanceof Error&&error.message===RICH_ADOPTION_MISSING)||source.engine.version!=='4')throw error;const full=await this.client.convergence!.export();this.assert();if(!full.update)throw error;this.prepareRemote(full.update,false);
+   // FULL verification awaits real storage. Revalidate scope/pin/lineage after it.
+   source=await readActual();identity=this.documentIdentity(source);
+  }
+  return{snapshot,source,identity};
+ }
+ private async validate(){await this.sourceDescriptor();}
+
  private changed(){for(const changed of this.listeners)changed();}
  snapshot(){const first=this.sessions.keys().next().value;return convergenceClone({source:'live' as const,saveMode:this.savePreference.mode,modeReady:this.savePreference.ready,...(this.savePreference.error?{preferenceError:this.savePreference.error}:{}),autosaveState:this.autosaveState(),...(this.autosaveError?{autosaveError:this.autosaveError}:{}),instanceId:this.instanceId,networkEpoch:this.epoch,roomId:this.network?.roomId??null,scope:{projectId:this.client.projectId,eraId:this.client.eraId??null},documentId:this.client.documentId??null,namespace:this.client.namespace,lineage:first?.lineage??null,identity:first?.convergenceIdentity??null,sharing:!!this.network,saveReady:this.saveReady(),fields:[...new Set([...this.sessions.keys()].map(s=>s.field))],draftRevision:[...this.sessions.keys()].reduce((n,s)=>n+s.revision,0),pending:[...this.sessions.keys()].some(s=>s.pending),...(this.error?{error:this.error}:{})});}
- register(session:RichEditorSession,reload:()=>void){this.assert();const entry={reload,off:undefined as (()=>void)|undefined,offSaved:session.onSaved(saved=>{for(const other of this.sessions.keys())if(other!==session)other.receiveSaved(saved);}),offState:session.subscribeState(()=>{this.reconcileAutosave();this.changed();this.resumeCatchup();})};this.sessions.set(session,entry);if(this.network){entry.off=session.onDraft((update,saved)=>this.local(session,update,saved));void this.publishFull().catch(error=>{this.error=String(error);this.detach();});}this.reconcileAutosave();this.changed();return()=>{entry.off?.();entry.offState();entry.offSaved();this.sessions.delete(session);this.reconcileAutosave();this.changed();};}
+ register(session:RichEditorSession,reload:()=>void){this.assert();const entry={reload,off:undefined as (()=>void)|undefined,offSaved:session.onSaved(saved=>{for(const other of this.sessions.keys())if(other!==session)other.receiveSaved(saved);}),offState:session.subscribeState(()=>{this.reconcileAutosave();this.changed();this.resumeCatchup();this.reconcileRecovery();})};this.sessions.set(session,entry);if(this.network){entry.off=session.onDraft((update,saved)=>this.local(session,update,saved));void this.publishFull().catch(error=>{this.error=String(error);this.detach();});}this.reconcileAutosave();this.changed();return()=>{entry.off?.();entry.offState();entry.offSaved();this.sessions.delete(session);this.reconcileAutosave();this.changed();};}
  private session(field?:string){this.assert();if(this.leaving)throw Error('local_tool_live_leaving');const values=[...this.sessions.keys()].filter(s=>!field||s.field===field);if(values.length!==1)throw Error('local_tool_live_field_ambiguous');return values[0];}
  async query():Promise<LocalToolJson> {await this.validate();return convergenceClone({...this.snapshot(),documents:[...this.sessions.keys()].map(s=>({field:s.field,data:s.replica.read(),dirty:s.dirty,editable:s.editable}))}) as unknown as LocalToolJson;}
  async capture(field:string,request:LocalToolJson):Promise<LocalToolJson>{
@@ -68,16 +92,37 @@ export class LocalDocumentContentHost {
  private healthy(){this.assert();if(!this.sessions.size||[...this.sessions.keys()].some(s=>!s.shareable))throw Error('local_tool_live_recovery_not_shareable');}
  private saveReady(){return!this.leaving&&this.sessions.size>0&&[...this.sessions.keys()].every(s=>s.shareable);}
  /** A reconnect keeps the author and network binding; deferred composition is not a failure. */
- reconnect(network:ContentNetwork){if(!this.alive||!this.current()||!this.network)return;this.network=network;this.needsCatchup=true;this.resumeCatchup();this.changed();}
+ reconnect(network:ContentNetwork){if(!this.alive||!this.current()||!this.network)return;this.network=network;this.repairRequest=undefined;this.needsCatchup=true;this.resumeCatchup();this.reconcileRecovery();this.changed();}
  private resumeCatchup(){if(!this.needsCatchup||!this.network||!this.saveReady())return;this.needsCatchup=false;const network=this.network,epoch=this.epoch;queueMicrotask(()=>{if(network!==this.network||epoch!==this.epoch)return;void this.publishFull().catch(error=>{if(epoch===this.epoch){this.error=String(error);this.changed();}});});}
  /** Merge every admitted field into each existing replica before taking a document cut. */
  seed(){this.healthy();const sessions=[...this.sessions.keys()],updates=sessions.map(s=>s.exportDraft());for(let i=0;i<sessions.length;i++)for(let j=0;j<updates.length;j++)if(i!==j)sessions[i].receiveDraft(updates[j]);this.healthy();return sessions[0].exportDraft();}
  async start(network:ContentNetwork,remote?:LocalToolConvergenceUpdate){this.healthy();this.detach();this.network=network;const epoch=this.epoch;for(const[s,e]of this.sessions)e.off=s.onDraft((update,saved)=>this.local(s,update,saved));if(remote)this.receive(remote);await this.publishFull();if(epoch===this.epoch)this.changed();}
- receive(update:LocalToolConvergenceUpdate){this.assert();if(!this.network)return;for(const s of this.sessions.keys())s.receiveDraft(update);this.changed();}
+ prepareRemote(update:LocalToolConvergenceUpdate,requireComplete=true){
+  this.assert();let prepared:LocalToolConvergenceUpdate|undefined;for(const session of this.sessions.keys()){const candidate=session.prepareRemote(update,requireComplete);if(prepared)assertConvergenceIdentity(candidate,convergenceIdentityOf(prepared));else prepared=candidate;}if(!prepared)throw Error('local_tool_live_host_unavailable');if(prepared.engine.version==='4')this.activeProof=convergenceClone(prepared);return convergenceIdentityOf(prepared);
+ }
+ documentIdentity(source:LocalToolConvergenceIdentity){
+  this.assert();const live=[...this.sessions.keys()].find(s=>s.convergenceIdentity.engine.version==='4'),proof=live?.replica.export()??this.activeProof;let result:LocalToolConvergenceIdentity|undefined;
+  for(const session of this.sessions.keys()){const identity=session.identityForSource(source,proof);if(result)assertConvergenceIdentity(identity,result);else result=identity;}return result??source;
+ }
+ receive(update:LocalToolConvergenceUpdate){
+  this.assert();if(!this.network)return;
+  if(update.engine.version==='4'&&[...this.sessions.keys()].some(s=>s.convergenceIdentity.engine.version==='3'))try{this.prepareRemote(update,false);}catch(error){if(!(error instanceof Error&&(error.message===RICH_ADOPTION_MISSING||error.message===RICH_LEGACY_MISSING)))throw error;}
+  for(const s of this.sessions.keys())s.receiveDraft(update);this.changed();this.reconcileRecovery();
+ }
+ requestedFullContent(requestId:string){if(!this.network||!this.alive||!this.current()||requestId===this.answeredFull)return;this.requestedFull=requestId;this.reconcileRecovery();}
+ private reconcileRecovery(){
+  if(!this.network||!this.alive||!this.current()||this.leaving)return;
+  if(this.requestedFull&&this.saveReady()){const request=this.requestedFull;this.requestedFull=undefined;this.answeredFull=request;void this.publishFull().catch(error=>{if(this.network){this.error=String(error);this.changed();}});}
+  if(![...this.sessions.keys()].some(s=>s.needsFull)){if(![...this.sessions.keys()].some(s=>s.needsCompletion))this.repairRequest=undefined;return;}
+  const network=this.network,epoch=this.epoch;if(!network.requestFull||this.repairRequest)return;
+  const request={network,epoch,id:crypto.randomUUID()};this.repairRequest=request;
+  void network.requestFull(request.id).then(full=>{if(this.alive&&this.current()&&this.network===network&&this.epoch===epoch&&this.repairRequest===request&&full)this.receive(full);}).catch(error=>{if(this.alive&&this.network===network&&epoch===this.epoch){this.error=String(error);this.changed();}});
+ }
+
  private local(source:RichEditorSession,update:LocalToolConvergenceUpdate,saved?:RichSourceExport){if(!this.network)return;try{for(const s of this.sessions.keys())if(s!==source){if(saved)s.receiveSaved(saved);else s.receiveDraft(update);}this.enqueue(update);}catch(error){this.error=String(error);this.detach();}this.changed();}
- private enqueue(update:LocalToolConvergenceUpdate){const epoch=this.epoch,network=this.network,messageId=crypto.randomUUID();if(!network)return;this.sending=this.sending.catch(()=>{}).then(async()=>{if(epoch!==this.epoch||network!==this.network)return;this.assert();await network.send(update,messageId);if(epoch===this.epoch&&this.error){this.error='';this.changed();}}).catch(error=>{if(epoch===this.epoch){this.error=String(error);this.changed();}});}
+ private enqueue(update:LocalToolConvergenceUpdate){if(this.network?.identity&&convergenceCanonical(this.network.identity)!==convergenceCanonical(convergenceIdentityOf(update)))update=this.seed();const epoch=this.epoch,network=this.network,messageId=crypto.randomUUID();if(!network)return;this.sending=this.sending.catch(()=>{}).then(async()=>{if(epoch!==this.epoch||network!==this.network)return;this.assert();await network.send(update,messageId);if(epoch===this.epoch&&this.error){this.error='';this.changed();}}).catch(error=>{if(epoch===this.epoch){this.error=String(error);this.changed();}});}
  private async publishFull(){if(!this.network)return;this.enqueue(this.seed());await this.sending;}
- detach(){this.epoch++;this.needsCatchup=false;this.network=undefined;for(const entry of this.sessions.values()){entry.off?.();entry.off=undefined;}this.changed();}
+ detach(){this.epoch++;this.needsCatchup=false;this.network=undefined;this.repairRequest=undefined;this.requestedFull=undefined;this.answeredFull=undefined;this.activeProof=undefined;for(const session of this.sessions.keys())session.retireDraftReceives();for(const entry of this.sessions.values()){entry.off?.();entry.off=undefined;}this.changed();}
  async leave(){this.assert();if(this.leaving||!this.network)return false;this.leaving=true;this.schedulerStopped=true;this.scheduleEpoch++;this.exitEpoch++;this.cancelTimer();const network=this.network;network?.retire?.();this.detach();const sessions=[...this.sessions];for(const[s]of sessions)s.stopEditingForExit();const settled=await Promise.all(sessions.map(([s])=>s.settleSave()));await network?.leave();this.assert();if(settled.some(ok=>!ok)){this.error='local_tool_live_save_reconciliation_failed';this.leaving=false;this.changed();return false;}for(const[s,e]of sessions)if(this.sessions.get(s)===e)e.reload();this.leaving=false;this.schedulerStopped=false;this.reconcileAutosave();this.changed();return true;}
  private cancelTimer(){if(this.timer!==undefined){clearTimeout(this.timer);this.timer=undefined;}}
  private dirty(){return[...this.sessions.keys()].some(s=>s.dirty);}
@@ -108,6 +153,6 @@ export class LocalDocumentContentHost {
  }
  async retry(field?:string){this.assert();const session=this.session(field);if(this.autosaveError&&[...this.sessions.keys()].every(s=>!s.error))return this.requestSave(field);if(!this.documentSave()){const ok=await session.retry();if(ok){this.autosaveError='';this.changed();}return ok;}if([...this.sessions.keys()].some(s=>s!==session&&!s.shareable))return false;return session.retry(()=>this.requestSave(field));}
  async flush(field?:string){this.assert();if(!this.documentSave())return this.session(field).flush();do{if(!this.saveReady())return false;if(!await this.requestSave(field))return false;}while(this.dirty());return[...this.sessions.keys()].every(s=>!s.pending);}
- async control(action:'undo'|'redo'|'save'|'leave'|'retry',field?:string){this.assert();if(action==='leave')return this.leave();if(action==='save'){this.session(field);return this.requestSave(field);}if(action==='retry')return this.retry(field);await this.validate();return this.session(field).reverse(action==='redo');}
+ async control(action:'undo'|'redo'|'save'|'leave'|'retry'|'adopt',field?:string){this.assert();if(action==='leave')return this.leave();if(action==='save'){this.session(field);return this.requestSave(field);}if(action==='retry')return this.retry(field);await this.validate();if(action==='adopt'){this.healthy();this.seed();const adopted=this.session(field).adopt();if(adopted)this.seed();return adopted;}return this.session(field).reverse(action==='redo');}
  dispose(){this.schedulerStopped=true;this.scheduleEpoch++;this.exitEpoch++;this.cancelTimer();this.offPreference();this.detach();this.alive=false;liveDocumentHosts.delete(this);for(const entry of this.sessions.values()){entry.offState();entry.offSaved();}this.listeners.clear();this.sessions.clear();}
 }

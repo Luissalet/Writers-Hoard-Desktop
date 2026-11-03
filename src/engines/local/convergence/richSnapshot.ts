@@ -1,4 +1,4 @@
-import type {RichBindings,RichUnitBinding} from './richRuns';
+import type {RichBindings,RichUnitBinding} from './richTypes';
 import {RICH_MARKS,RICH_MARK_KEYS,validateRichDocument,type RichDocument,type RichMarkKey,type RichSpan} from './richTypes';
 
 export const RICH_SNAPSHOT_BINDINGS_FORMAT='writers-hoard-rich-snapshot-bindings/1' as const;

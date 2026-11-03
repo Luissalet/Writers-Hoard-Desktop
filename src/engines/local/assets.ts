@@ -1,7 +1,9 @@
-import {cloneLocalToolJson,localToolNamespace,type LocalToolJson} from './stateTypes';
+import type {LocalAssetRef} from './assetReference';
+export {validateLocalAssetRef} from './assetReference';
+export type {LocalAssetRef} from './assetReference';
+import {cloneLocalToolJson,type LocalToolJson} from './stateTypes';
 export const HOST_ASSET_NAMESPACE='writers.host-assets';
 export type LocalAssetKind='audio'|'image'|'font'|'video'|'data';
-export type LocalAssetRef={kind:'media'|'image'|'file';id:string}|{kind:'source';namespace:string;slot:string;releaseHash?:string};
 export type LocalAssetOverrides=Record<string,LocalAssetRef>;
 export interface LocalAssetSpec {path:string;kind:LocalAssetKind;meta?:Record<string,LocalToolJson>;replaceable?:boolean;accept?:string[];aliases?:string[]}
 export type LocalAssetManifest=Record<string,LocalAssetSpec>;
@@ -11,7 +13,6 @@ export interface LocalAssetInstallation {version:string;overrides:LocalAssetOver
 import type {LocalAssetFileInfo,LocalAssetFileKind} from './assetFileFormat';
 export type {LocalAssetFileInfo,LocalAssetFileKind} from './assetFileFormat';
 export interface LocalToolAssets {import(file:File,kind:LocalAssetFileKind):Promise<LocalAssetFileInfo>;list():Promise<LocalAssetManifest>;validate(slot:string,ref:LocalAssetRef|null):Promise<{slot:string;aliases:string[]}>;resolve(ref:LocalAssetRef):Promise<LocalAssetResolved|null>;slot(slot:string,overrides?:LocalAssetOverrides):Promise<LocalAssetResolved|null>;choices(kind:LocalAssetKind):Promise<{ref:LocalAssetRef;title:string}[]>;installation:{read():Promise<LocalAssetInstallation>;set(slot:string,ref:LocalAssetRef|null,expectedVersion:string):Promise<LocalAssetInstallation>}}
-export function validateLocalAssetRef(value:unknown):asserts value is LocalAssetRef {const row=value as LocalAssetRef;if(!row||typeof row!=='object'||Array.isArray(row))throw Error('local_asset_ref_invalid');if(row.kind==='media'||row.kind==='image'||row.kind==='file'){if(typeof row.id!=='string'||!row.id||Object.keys(row).sort().join(',')!=='id,kind')throw Error('local_asset_ref_invalid');}else if(row.kind==='source'){if(!localToolNamespace(row.namespace)||typeof row.slot!=='string'||!row.slot||Object.keys(row).some(key=>!['kind','namespace','slot','releaseHash'].includes(key))||row.releaseHash!==undefined&&!/^[a-f0-9]{64}$/.test(row.releaseHash))throw Error('local_asset_ref_invalid');}else throw Error('local_asset_ref_invalid');}
 export function validateLocalAssetManifest(value:LocalAssetManifest,files:LocalAssetFiles){cloneLocalToolJson(value as unknown as LocalToolJson);const names=new Set(Object.keys(value));for(const [key,spec]of Object.entries(value)){if(!key||['__proto__','constructor','prototype'].includes(key)||!spec||!['audio','image','font','video','data'].includes(spec.kind)||!spec.path||spec.path.split('/').some(part=>!part||part==='.'||part==='..')||/[\\:]/.test(spec.path)||Array.from(spec.path).some(character=>character.charCodeAt(0)<32)||typeof files[spec.path]!=='function'||spec.replaceable!==undefined&&typeof spec.replaceable!=='boolean'||spec.accept!==undefined&&(!Array.isArray(spec.accept)||spec.accept.some(mime=>typeof mime!=='string'||!mime)))throw Error('local_asset_manifest_invalid');if(spec.aliases!==undefined&&(!Array.isArray(spec.aliases)||spec.aliases.some(alias=>typeof alias!=='string')))throw Error('local_asset_alias_invalid');for(const alias of spec.aliases??[]){if(!alias||names.has(alias))throw Error('local_asset_alias_ambiguous');names.add(alias);}}}
 export function assetSlot(manifest:LocalAssetManifest,key:string){return Object.hasOwn(manifest,key)?key:Object.keys(manifest).find(name=>manifest[name].aliases?.includes(key));}
 export function assetOverrideKey(namespace:string,slot:string){return JSON.stringify([namespace,slot]);}

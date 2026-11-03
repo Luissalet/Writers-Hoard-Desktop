@@ -1,3 +1,5 @@
+import type {RichUnitBinding,RichBindings} from './richTypes';
+export type {RichUnitBinding,RichBindings} from './richTypes';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type * as Y from 'yjs';
 import type {LocalToolJson} from '../stateTypes';
@@ -18,8 +20,6 @@ type Marking={spans:RichSpan[];mark:RichMark;enabled:boolean}|{spans:RichSpan[];
 const markValue=(m:Marking):RichMarkValue|undefined=>m.mark==='link'?m.href===null?undefined:{type:'link',attrs:{href:m.href}}:m.enabled?{type:m.mark}:undefined;
 type Write={root:string;key:string;value:LocalToolJson};
 type Chosen={key:string;value:Routing};
-export interface RichUnitBinding {id:string;route:string;segment:string;marks:Partial<Record<RichMarkKey,string>>}
-export interface RichBindings {nodes:{id:string;placement:string;edge:string;units:RichUnitBinding[]}[]}
 export interface RichView {data:RichDocument;bindings:RichBindings}
 export interface RichPlan {
  nodes:Node[];buffers:Buffer[];edges:Edge[];lineages:Lineage[];

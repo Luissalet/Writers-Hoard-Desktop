@@ -100,8 +100,8 @@ export function richBookmark(session:RichEditorSession,doc:PMNode,anchor:number,
  const capture=(pos:number)=>{const p=point(doc,pos,'right'),node=doc.child(p.index),id=node.attrs.id as string|null;if(!id)return null;return session.replica.richRange(session.field,id,p.offset,p.offset);};return{anchor:capture(anchor),head:capture(head)};
 }
 /** Patch affected paragraph spans; never replace the document on each local keystroke. */
-export function projectRichView(session:RichEditorSession,tr:Transaction,bookmark:Bookmark):Transaction{
- if(blockSession(session))return projectBlockView(session,tr,bookmark);
+export function projectRichView(session:RichEditorSession,tr:Transaction,bookmark:Bookmark,restoreSelection=false):Transaction{
+ if(blockSession(session))return projectBlockView(session,tr,bookmark,restoreSelection);
  const oldAnchor=tr.selection.anchor,oldHead=tr.selection.head,storedMarks=tr.storedMarks,target=richPMDocument(tr.doc.type.schema,session.document());
  // Work right-to-left so positions of earlier unchanged paragraphs stay stable.
  const current=paragraphs(tr.doc),desired=paragraphs(target);let prefix=0,suffix=0;
@@ -109,7 +109,7 @@ export function projectRichView(session:RichEditorSession,tr:Transaction,bookmar
  while(suffix<current.length-prefix&&suffix<desired.length-prefix&&current[current.length-1-suffix].node.eq(desired[desired.length-1-suffix].node))suffix++;
  if(prefix<current.length-suffix||prefix<desired.length-suffix){const from=current[prefix]?.start??tr.doc.content.size,to=suffix?current[current.length-suffix].start:tr.doc.content.size;tr.replaceWith(from,to,Fragment.fromArray(desired.slice(prefix,desired.length-suffix).map(p=>p.node)));}
  const resolve=(capture:RichRange|null,fallback:number)=>{if(!capture)return Math.min(fallback,tr.doc.content.size);const p=session.replica.resolveRichPoint(capture);if(p.detached)return tr.mapping.map(fallback);let pos=0;for(let i=0;i<tr.doc.childCount;i++){const n=tr.doc.child(i);if(n.attrs.id===p.nodeId)return pos+1+Math.min(p.offset,n.content.size);pos+=n.nodeSize;}return tr.mapping.map(fallback);};
- if(tr.docChanged){const anchor=resolve(bookmark.anchor,oldAnchor),head=resolve(bookmark.head,oldHead);tr.setSelection(TextSelection.between(tr.doc.resolve(Math.max(0,Math.min(anchor,tr.doc.content.size))),tr.doc.resolve(Math.max(0,Math.min(head,tr.doc.content.size)))));}
+ if(tr.docChanged||restoreSelection){const anchor=resolve(bookmark.anchor,oldAnchor),head=resolve(bookmark.head,oldHead);tr.setSelection(TextSelection.between(tr.doc.resolve(Math.max(0,Math.min(anchor,tr.doc.content.size))),tr.doc.resolve(Math.max(0,Math.min(head,tr.doc.content.size)))));}
  return tr.setStoredMarks(storedMarks).setMeta('preventClearDocument',true).setMeta(RICH_INTERNAL,true).setMeta('addToHistory',false);
 }
 

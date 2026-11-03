@@ -3,8 +3,8 @@ import {db} from '@/db';
 import type {WorldEraScope} from '@/services/worldEras/types';
 import type {LocalToolDefinition,LocalToolJson,LocalToolSnapshot,LocalToolStateAction} from '../sdk';
 import type {LocalToolConvergenceCheckpoint,LocalToolConvergencePreparation,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolReplicaOptions} from '../convergence/types';
-import {convergenceHash} from '../convergence/format';
-import {createLocalToolGenesis,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
+import {convergenceHash,validateLocalToolConvergenceUpdate} from '../convergence/format';
+import {createLocalToolGenesis,prepareLocalToolAdoption,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
 export type {SourceConvergenceOptions} from './store';
@@ -52,16 +52,16 @@ export function exportSourceToolConvergence<T extends LocalToolJson>(scope:World
   return{snapshot:sourceToolSnapshot(read,definition,false),checkpoint,update:exported.update,changed:false,causalChanged:false,pending:exported.pending};
  });
 }
-async function prepare<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,options:SourceConvergenceOptions,guard:(read:SourceToolRead,inherited:boolean)=>void,change:(read:SourceToolRead,checkpoint:LocalToolConvergenceCheckpoint,replicaOptions:LocalToolReplicaOptions<T>,reset:boolean)=>LocalToolConvergencePreparation<T>):Promise<SourceConvergenceResult<T>>{
+async function prepare<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,options:SourceConvergenceOptions,guard:(read:SourceToolRead,inherited:boolean)=>void,change:(read:SourceToolRead,checkpoint:LocalToolConvergenceCheckpoint,replicaOptions:LocalToolReplicaOptions<T>,reset:boolean)=>LocalToolConvergencePreparation<T>,adopting=false):Promise<SourceConvergenceResult<T>>{
  return db.transaction('rw',db.tables,async()=>{
   const plan=await transformSourceToolDocument<StoredPlan>(scope,id,read=>{
    const actual=source(read,id,definition.namespace),inherited=!!scope.eraId&&actual.provenance==='base';
    guard(actual,inherited); // CAS/lineage is checked before any new branch or epoch is prepared.
-   const context=prepareSourceConvergenceContext(actual.document,definition,options,inherited),{checkpoint,replicaOptions}=context;
+   const context=prepareSourceConvergenceContext(actual.document,definition,options,inherited,adopting),{checkpoint,replicaOptions}=context;
    const prepared=change(actual,checkpoint,replicaOptions,context.reset);
    if(prepared.beforeFingerprint!==convergenceHash(checkpoint))throw Error('conflict');
    const convergence=state(prepared),metadataChanged=convergenceHash(context.document.convergence)!==convergenceHash(convergence);
-   const next=context.reset||prepared.changed||prepared.causalChanged||metadataChanged?{...touch(context.document),data:prepared.data,convergence}:undefined;
+   const next=context.reset||prepared.changed||prepared.causalChanged||metadataChanged?{...touch(context.document),codec:structuredClone(replicaOptions.contract.codec),data:prepared.data,convergence}:undefined;
    return{next,result:{checkpoint:prepared.checkpoint,update:prepared.update,changed:prepared.changed,causalChanged:context.reset||prepared.causalChanged,pending:prepared.pending,receipt:prepared.receipt,consumeReceiptId:prepared.consumeReceiptId}};
   });return result(scope,id,definition,plan);
  });
@@ -70,7 +70,12 @@ export function importSourceToolConvergence<T extends LocalToolJson>(scope:World
  return prepare(scope,id,definition,options,(read,inherited)=>{
   if(guard?.expectedLineage!==undefined&&(typeof guard.expectedLineage!=='string'||!guard.expectedLineage||guard.expectedLineage!==read.lineage))throw Error('source_tool_document_lineage_conflict');
   if(inherited)throw Error('local_tool_convergence_era_start_required');
- },(_read,checkpoint,replicaOptions)=>prepareLocalToolReceive(checkpoint,replicaOptions,update));
+ },(_read,checkpoint,replicaOptions)=>prepareLocalToolReceive(checkpoint,replicaOptions,update),update.engine.version==='4'&&!!definition.richAdoption);
+}
+export function adoptSourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,options:SourceConvergenceOptions,full?:LocalToolConvergenceUpdate){
+ if(!definition.richAdoption)throw Error('local_tool_rich_adoption_required');
+ if(full!==undefined){validateLocalToolConvergenceUpdate(full);if(full.engine.version!=='4')throw Error('local_tool_rich_adoption_invalid');}
+ return prepare(scope,id,definition,options,(read,inherited)=>{baseline(read,value,id,definition.namespace,true);if(inherited)throw Error('local_tool_convergence_era_start_required');},(_read,checkpoint,replicaOptions)=>full?prepareLocalToolReceive(checkpoint,replicaOptions,full):prepareLocalToolAdoption(checkpoint,replicaOptions),true);
 }
 export function applySourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],options:SourceConvergenceOptions){
  return prepare(scope,id,definition,options,read=>{

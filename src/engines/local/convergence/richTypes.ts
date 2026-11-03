@@ -1,5 +1,5 @@
-import type {LocalToolConvergenceIdentity} from './types';
-import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
+import type {LocalToolConvergenceIdentity} from './formatTypes';
+import {normalizeEditorLinkHref} from '../../../utils/normalizeEditorLinkHref';
 export type RichMark='bold'|'italic'|'underline'|'strike'|'code';
 export const RICH_MARKS:readonly RichMark[]=['bold','italic','underline','strike','code'];
 export type RichMarkKey=RichMark|'link';
@@ -19,7 +19,7 @@ export type RichResolvedPoint={nodeId:string;offset:number;detached:false}|{deta
 export interface RichSlice {buffer:string;ids:string[];segment:string}
 export interface RichSplitCapture {format:'writers-hoard-rich-split/1';range:RichRange;suffix:RichSlice[];edges:string[]}
 export interface RichJoinCapture {format:'writers-hoard-rich-join/1';identity:LocalToolConvergenceIdentity;field:string;leftNodeId:string;rightNodeId:string;slices:RichSlice[];edges:string[];frontier:string[]}
-export type RichCaptureRequest={kind:'block-empty-item';field:string;nodeId:string}|{kind:'block-split';field:string;nodeId:string;at:number}|{kind:'block-join';field:string;leftNodeId:string;rightNodeId:string}|{kind:'block-edit';field:string;nodeIds:string[];destination?:import('./blockTypes').RichBlockPlacement}|{kind:'blocks';field:string;nodeIds:string[]}|{kind:'block-move';field:string;nodeId:string;destination:import('./blockTypes').RichBlockPlacement}|{kind:'range';field:string;nodeId:string;from:number;to:number;affinity?:'left'|'right'}|{kind:'split';field:string;nodeId:string;at:number;affinity?:'left'|'right'}|{kind:'join';field:string;leftNodeId:string;rightNodeId:string};
+export type RichCaptureRequest={kind:'block-empty-item';field:string;nodeId:string}|{kind:'block-split';field:string;nodeId:string;at:number}|{kind:'block-join';field:string;leftNodeId:string;rightNodeId:string}|{kind:'block-edit';field:string;nodeIds:string[];destination?:import('./blockFormat').RichBlockPlacement}|{kind:'blocks';field:string;nodeIds:string[]}|{kind:'block-move';field:string;nodeId:string;destination:import('./blockFormat').RichBlockPlacement}|{kind:'range';field:string;nodeId:string;from:number;to:number;affinity?:'left'|'right'}|{kind:'split';field:string;nodeId:string;at:number;affinity?:'left'|'right'}|{kind:'join';field:string;leftNodeId:string;rightNodeId:string};
 export type RichAction=
  |{type:'rich-insert-paragraph';field:string;id:string;afterId:string|null;text:string;marks?:RichMark[];link?:{href:string}}
  |{type:'rich-delete-paragraph';field:string;id:string}
@@ -46,3 +46,6 @@ export function validateRichDocument(value:unknown,links=false):asserts value is
   }
  }
 }
+
+export interface RichUnitBinding {id:string;route:string;segment:string;marks:Partial<Record<RichMarkKey,string>>}
+export interface RichBindings {nodes:{id:string;placement:string;edge:string;units:RichUnitBinding[]}[]}

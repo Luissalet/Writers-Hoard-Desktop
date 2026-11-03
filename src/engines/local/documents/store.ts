@@ -14,6 +14,7 @@ import {validateSourceToolDocument,type SourceToolDocument} from './types';
 import {forkSourceToolConvergence} from './portability';
 import type {LocalToolConvergenceContract} from '../convergence/types';
 import {convergenceCodecHash,convergenceHash,convergenceIdentityOf,validateConvergenceMetadata} from '../convergence/format';
+import {effectiveRichAdoptionContract} from '../convergence/richAdoption';
 import {createLocalToolGenesis,inspectLocalToolConvergence,prepareLocalToolReplacement} from '../convergence/replica';
 function announce(projectId:string){let tx=Dexie.currentTransaction;const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});if(!tx){emit();return;}while(tx.parent)tx=tx.parent;tx.on('complete',emit);}
 export async function readSourceToolDocument(scope:WorldEraScope,id:string,namespace?:string){const project=await db.projects.get(scope.projectId);if(!project)throw Error('project_missing');if(scope.eraId&&!project.worldEras?.some(era=>era.id===scope.eraId))throw Error('world_era_missing');let variant:WorldEraVariant|undefined;let document=project.sourceToolDocuments?.find(row=>row.id===id),provenance:'base'|'variant'='base';if(scope.eraId){variant=await db.worldEraVariants.where('[projectId+eraId+kind+entityId]').equals([scope.projectId,scope.eraId,'local-tool',id]).first();if(variant&&!variant.archived){if(variant.hidden)return undefined;document=variant.document?.root as unknown as SourceToolDocument;provenance='variant';}}if(!document||namespace&&document.namespace!==namespace)return undefined;validateSourceToolDocument(document);const epoch=variant?[...variant.history??[],variant].filter(state=>state.archived||state.hidden).at(-1)?.revision??0:0;return{document:structuredClone(document),provenance,lineage:JSON.stringify([document.generation??document.createdAt,epoch]),version:JSON.stringify([document.generation??document.createdAt,document.revision,document.updatedAt,variant?.id??null,variant?.revision??null,!!variant?.archived])};}
@@ -59,16 +60,17 @@ async function mutate(scope:WorldEraScope,id:string,expected:number|null,expecte
 }
 export interface SourceConvergenceOptions {authorId:string;validationId:string;schemaEpoch:string;/** Host-only local flag; not a commit notification. */onPrepared?:(causalChanged:boolean)=>void}
 /** Current executable validation comes from the selected host, never old persisted metadata. */
-export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>):LocalToolConvergenceContract<T>{
+export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false):LocalToolConvergenceContract<T>{
  const codec=definition.codec??document.codec;if(!codec)throw Error('local_tool_convergence_codec_required');
- const contract={namespace:definition.namespace,codec,validationId:options.validationId,schemaEpoch:options.schemaEpoch,validateState:definition.validateState};
- validateConvergenceMetadata(contract);return contract;
+ const contract={namespace:definition.namespace,codec,validationId:options.validationId,schemaEpoch:options.schemaEpoch,validateState:definition.validateState,...(definition.richAdoption?{richAdoption:definition.richAdoption}:{})};
+ validateConvergenceMetadata(contract);return document.convergence&&!adopting?effectiveRichAdoptionContract(document.convergence.checkpoint,contract):contract;
 }
 /** Pure preparation: no DB/history/receipt consumption. The caller commits its final intent once. */
-export function prepareSourceConvergenceContext<T extends LocalToolJson>(original:SourceToolDocument,definition:LocalToolDefinition<T>,options:SourceConvergenceOptions,inherited=false){
+export function prepareSourceConvergenceContext<T extends LocalToolJson>(original:SourceToolDocument,definition:LocalToolDefinition<T>,options:SourceConvergenceOptions,inherited=false,adopting=false){
  if(!original.convergence)throw Error('local_tool_convergence_not_started');
- const contract=sourceConvergenceContract(original,definition,options),stored=original.convergence.checkpoint;
- const epochChanged=stored.validationId!==contract.validationId||stored.schemaEpoch!==contract.schemaEpoch||stored.codecHash!==convergenceCodecHash(contract.codec);
+ const contract=sourceConvergenceContract(original,definition,options,adopting),stored=original.convergence.checkpoint;
+ const knownAdoption=adopting&&!!contract.richAdoption&&stored.engine.version==='3';if(knownAdoption)effectiveRichAdoptionContract(stored,contract);
+ const epochChanged=!knownAdoption&&(stored.validationId!==contract.validationId||stored.schemaEpoch!==contract.schemaEpoch||stored.codecHash!==convergenceCodecHash(contract.codec));
  let document=original;
  if(epochChanged){
   const checkpoint=createLocalToolGenesis(original.data as T,contract);
@@ -104,7 +106,7 @@ export async function saveSourceToolState<T extends LocalToolJson>(scope:WorldEr
     convergenceOptions.onPrepared?.(context.reset||prepared.causalChanged);
     current={...context.document,convergence:{checkpoint:prepared.checkpoint,...(prepared.conflict?{conflict:prepared.conflict}:{})}};nextData=prepared.data;
    }
-   const codec=definition.codec??current.codec;if(codec)validateLocalToolCodecState(nextData,codec);
+   const codec=current.convergence?current.codec??definition.codec:definition.codec??current.codec;if(codec)validateLocalToolCodecState(nextData,codec);
    const next={...current,data:nextData,revision:current.revision+1,updatedAt:Math.max(Date.now(),current.updatedAt+1),...(codec?{codec:structuredClone(codec)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})};
    if(!definition.index)delete next.index;return{next,result:undefined};
   });return readSourceToolState(scope,id,definition);

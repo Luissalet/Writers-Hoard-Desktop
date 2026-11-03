@@ -1,7 +1,8 @@
 import {localToolRichLinks,isLocalToolRichBlockField} from '../stateCodec';
 import type {LocalToolClient,LocalToolJson,LocalToolSnapshot} from '../sdk';
 import {createLocalToolReplica} from '../convergence/replica';
-import {assertConvergenceIdentity,convergenceIdentityOf} from '../convergence/format';
+import {assertConvergenceIdentity,convergenceIdentityOf,convergenceIdentity,convergenceClone,convergenceCanonical} from '../convergence/format';
+import {effectiveRichAdoptionContract,RICH_ADOPTION_MISSING,RICH_LEGACY_MISSING} from '../convergence/richAdoption';
 import type {LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolConvergenceIdentity,LocalToolReplica} from '../convergence/types';
 import {validateRichBlockDocument,richBlockLeaves,type RichBlockDocument,type RichBlockAction} from '../convergence/blocks';
 import {validateRichDocument,type RichDocument,type RichAction} from '../convergence/richTypes';
@@ -16,8 +17,10 @@ export class RichEditorSession {
  readonly replica:LocalToolReplica;
  readonly lineage:string;
  readonly field:string;
- readonly contract:LocalToolConvergenceContract;
- readonly convergenceIdentity:LocalToolConvergenceIdentity;
+ contract:LocalToolConvergenceContract;
+ private readonly targetContract:LocalToolConvergenceContract;
+ convergenceIdentity:LocalToolConvergenceIdentity;
+ private confirmedIdentity:LocalToolConvergenceIdentity;
  private notify:()=>void;
  private nextStep:()=>number;
  private recovery=false;
@@ -50,7 +53,10 @@ export class RichEditorSession {
  private stateListeners=new Set<()=>void>();
  private savedListeners=new Set<(saved:RichSourceExport)=>void>();
  private outgoing:LocalToolConvergenceUpdate[]=[];
- private deferredDrafts:LocalToolConvergenceUpdate[]=[];
+ private deferredDrafts:{update:LocalToolConvergenceUpdate;attempt:string;needsFull:boolean}[]=[];
+ private admissionProgress=0;
+ private compositionEpoch=0;
+ private drainingDrafts=false;
  beforeViewChange:(()=>void)|undefined;
  afterViewChange:(()=>void)|undefined;
  error='';
@@ -58,7 +64,7 @@ export class RichEditorSession {
  revision=0;
  constructor(client:LocalToolClient<LocalToolJson>,checkpoint:LocalToolConvergenceCheckpoint,snapshot:LocalToolSnapshot<LocalToolJson>,contract:LocalToolConvergenceContract,field:string,notify:()=>void,nextStep:()=>number){
   if(!snapshot.document||!['3','4'].includes(checkpoint.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_editor_identity_invalid');
-  this.contract=contract;this.convergenceIdentity=convergenceIdentityOf(checkpoint);this.notify=notify;this.nextStep=nextStep;this.client=client;this.field=field;this.lineage=snapshot.document.lineage;this.confirmedVector=checkpoint.stateVectorBase64;
+  this.targetContract=contract;this.contract=effectiveRichAdoptionContract(checkpoint,contract);this.convergenceIdentity=convergenceIdentityOf(checkpoint);this.confirmedIdentity=convergenceIdentityOf(checkpoint);this.notify=notify;this.nextStep=nextStep;this.client=client;this.field=field;this.lineage=snapshot.document.lineage;this.confirmedVector=checkpoint.stateVectorBase64;
   this.replica=createLocalToolReplica(checkpoint,{authorId:'writer-editor:'+crypto.randomUUID(),contract});this.document();
  }
  get links(){return localToolRichLinks(this.contract.codec.fields[this.field]);}
@@ -69,10 +75,28 @@ export class RichEditorSession {
  consumeAccepted(epoch:object,sequence:number,tokens:readonly object[]=[]){this.accepted.set(epoch,Math.max(this.acceptedThrough(epoch),sequence));for(const token of tokens)this.acceptedRecords.add(token);}
  /** A view may first mount only after a validated receive; later rebinds keep that view. */
  get hasBoundOnce(){return this.boundOnce;}
- get needsCompletion(){return this.incomplete;}
+ get needsCompletion(){return this.incomplete||this.deferredDrafts.length>0;}
+ get needsFull(){return this.deferredDrafts.some(entry=>entry.needsFull);}
+ get receiveProgress(){return this.admissionProgress+':'+this.compositionEpoch;}
+ get canAdopt(){return this.editable&&this.shareable&&!this.busy&&this.convergenceIdentity.engine.version==='3'&&!!this.targetContract.richAdoption&&localToolRichLinks(this.targetContract.codec.fields[this.field]);}
+ get definitionContract(){return this.targetContract;}
+ /** Transient SDK verification. New joins require completeness; live identity/recovery retain ordinary pending. */
+ prepareRemote(update:LocalToolConvergenceUpdate,requireComplete=true){
+  const candidate=createLocalToolReplica(this.replica.checkpoint(),{authorId:'adoption-verify',contract:this.targetContract});
+  try{const result=candidate.receive(update);if(requireComplete&&(result.pending||result.conflict))throw Error('local_tool_live_recovery_not_shareable');return candidate.export();}finally{candidate.destroy();}
+ }
+ identityForSource(source:LocalToolConvergenceIdentity,proof?:LocalToolConvergenceUpdate){
+  const own=convergenceIdentityOf(this.replica.checkpoint());
+  if(convergenceCanonical(source)===convergenceCanonical(own)&&!(source.engine.version==='3'&&proof?.engine.version==='4'&&this.targetContract.richAdoption)){this.replica.inspect();return own;}
+  if(!this.targetContract.richAdoption)throw Error('local_tool_convergence_identity_mismatch');
+  if(source.engine.version==='3')effectiveRichAdoptionContract(source,this.targetContract);
+  else assertConvergenceIdentity(source,convergenceIdentity(this.targetContract,own.genesisId));
+  const active=own.engine.version==='4'?own:proof?convergenceIdentityOf(this.prepareRemote(proof,false)):undefined;
+  if(!active)throw Error('local_tool_rich_adoption_dependency_missing');assertConvergenceIdentity(active,convergenceIdentity(this.targetContract,source.genesisId));this.replica.inspect();return active;
+ }
  get canRetry(){return this.alive&&(this.failedWrite||this.failedRead)&&!this.recovery&&!this.readOnly;}
  get dirty(){return this.sequence>this.acknowledged||this.contributions.length>0;}
- get shareable(){return this.alive&&this.permitted&&!this.recovery&&!this.composing&&!this.grouping&&!this.incomplete&&!this.error&&!this.exiting;}
+ get shareable(){return this.alive&&this.permitted&&!this.recovery&&!this.composing&&!this.grouping&&!this.incomplete&&!this.error&&!this.exiting&&!this.deferredDrafts.length;}
  onDraft(listener:(update:LocalToolConvergenceUpdate,saved?:RichSourceExport)=>void){this.draftListeners.add(listener);return()=>{this.draftListeners.delete(listener);};}
  onSaved(listener:(saved:RichSourceExport)=>void){this.savedListeners.add(listener);return()=>{this.savedListeners.delete(listener);};}
  subscribeState(listener:()=>void){this.stateListeners.add(listener);return()=>{this.stateListeners.delete(listener);};}
@@ -80,18 +104,40 @@ export class RichEditorSession {
  private admitted(update:LocalToolConvergenceUpdate){this.sequence++;this.ownContributions.push({cut:this.sequence,update:{...update}});}
  private publishDraft(){if(!this.outgoing.length||!this.draftListeners.size||!this.shareable)return;const update=mergeDraftUpdates(this.outgoing);this.outgoing=[];for(const listener of this.draftListeners)listener(update);}
  exportDraft(){if(!this.shareable)throw Error('local_tool_live_recovery_not_shareable');return this.replica.export();}
- receiveDraft(update:LocalToolConvergenceUpdate){
-  if(!this.alive||this.recovery||this.error)throw Error('local_tool_live_recovery_not_shareable');
-  if(this.composing){this.deferredDrafts.push(update);return;}
-  try{this.beforeViewChange?.();const result=this.replica.receive(update);
-   if(result.causalChanged)this.contributions.push(update);
-   this.incomplete=result.pending||!!result.conflict;
-   this.afterViewChange?.();this.changed();
-  }catch(error){this.fail(error,true);throw error;}
+ private syncContract(){
+  const identity=convergenceIdentityOf(this.replica.checkpoint());
+  if(convergenceCanonical(identity)!==convergenceCanonical(this.convergenceIdentity)){assertConvergenceIdentity(identity,convergenceIdentity(this.targetContract,identity.genesisId));this.contract=this.targetContract;this.convergenceIdentity=identity;}
+ }
+ private applyDraft(update:LocalToolConvergenceUpdate){
+  this.beforeViewChange?.();const result=this.replica.receive(update);if(result.causalChanged){this.contributions.push(convergenceClone(update));this.admissionProgress++;}this.syncContract();this.incomplete=result.pending||!!result.conflict;this.afterViewChange?.();this.changed();
+ }
+ private needsFullError(error:unknown){return error instanceof Error&&(error.message===RICH_ADOPTION_MISSING||error.message===RICH_LEGACY_MISSING);}
+ private retainDraft(update:LocalToolConvergenceUpdate,needsFull:boolean){
+  const key=convergenceCanonical(update),entry=this.deferredDrafts.find(entry=>convergenceCanonical(entry.update)===key);
+  if(entry){if(needsFull&&!entry.needsFull){entry.needsFull=true;this.changed();}return;}
+  this.deferredDrafts.push({update:convergenceClone(update),attempt:this.receiveProgress,needsFull});this.changed();
+ }
+ private drainDrafts(){
+  if(this.drainingDrafts||this.composing||this.recovery||this.error)return;this.drainingDrafts=true;
+  try{let progressed=true;while(progressed&&!this.composing&&!this.recovery&&!this.error){progressed=false;for(const entry of [...this.deferredDrafts]){
+   if(entry.attempt===this.receiveProgress)continue;entry.attempt=this.receiveProgress;
+   try{this.applyDraft(entry.update);this.deferredDrafts.splice(this.deferredDrafts.indexOf(entry),1);progressed=true;}
+   catch(error){if(this.needsFullError(error)){entry.needsFull=true;continue;}this.fail(error,true);throw error;}
+  }}}finally{this.drainingDrafts=false;this.changed();this.publishDraft();}
+ }
+ receiveDraft(update:LocalToolConvergenceUpdate):'integrated'|'deferred'|'needs-full'{
+  if(!this.alive||this.recovery||this.error)throw Error('local_tool_live_recovery_not_shareable');const original=convergenceClone(update);
+  if(this.composing){this.retainDraft(original,false);return'deferred';}
+  try{this.applyDraft(original);}catch(error){if(this.needsFullError(error)){this.retainDraft(original,true);return'needs-full';}this.fail(error,true);throw error;}
+  this.drainDrafts();return'integrated';
+ }
+ adopt(){
+  if(!this.canAdopt)return false;this.beforeViewChange?.();const result=this.replica.adopt(this.targetContract);this.syncContract();if(result.causalChanged){this.admitted(result.update);this.admissionProgress++;this.outgoing.push(result.update);}this.afterViewChange?.();this.changed();this.publishDraft();return true;
  }
  /** Wait only for an already-started Source write. This never initiates a flush. */
  settleSave(){return this.flight??Promise.resolve(true);}
- get pending(){return this.dirty||this.busy||this.ownUnresolved||this.composing||this.recovery||!!this.grouping;}
+ get pending(){return this.dirty||this.busy||this.ownUnresolved||this.composing||this.recovery||!!this.grouping||this.deferredDrafts.length>0;}
+ retireDraftReceives(){this.deferredDrafts=[];this.compositionEpoch++;this.changed();}
  get editable(){return this.alive&&this.permitted&&!this.readOnly&&!this.error&&!this.exiting;}
  stopEditingForExit(){this.exiting=true;this.changed();}
  get undoStep(){return this.editable&&!this.composing?this.owned.at(-1)?.step:undefined;}
@@ -101,13 +147,13 @@ export class RichEditorSession {
  rebind(client:LocalToolClient<LocalToolJson>,readOnly:boolean){this.client=client;this.readOnly=readOnly;this.permitted=false;this.request++;this.changed();void this.refresh();}
  private identity(result:Exported){
   if(result.snapshot.document?.lineage!==this.lineage||result.snapshot.document?.id!==this.client.documentId)throw Error('source_tool_document_lineage_conflict');
-  if(!result.checkpoint||!result.update)throw Error('local_tool_convergence_not_started');assertConvergenceIdentity(result.checkpoint,convergenceIdentityOf(this.replica.checkpoint()));
+  if(!result.checkpoint||!result.update)throw Error('local_tool_convergence_not_started');if(result.checkpoint.engine.version==='3'&&this.convergenceIdentity.engine.version==='4'&&this.targetContract.richAdoption){effectiveRichAdoptionContract(result.checkpoint,this.targetContract);return;}if(result.checkpoint.engine.version==='4'&&this.convergenceIdentity.engine.version==='3'&&this.targetContract.richAdoption){assertConvergenceIdentity(result.checkpoint,convergenceIdentity(this.targetContract,this.convergenceIdentity.genesisId));return;}assertConvergenceIdentity(result.checkpoint,convergenceIdentityOf(this.replica.checkpoint()));
  }
  receiveSaved(result:RichSourceExport){if(!this.alive)return;this.identity(result);if(this.composing||this.flight){this.deferred=[result];return;}this.receive(result,false);}
  private receive(result:Exported,propagate=true){
-  this.identity(result);this.beforeViewChange?.();const received=this.replica.receive(result.update!);this.confirmedVector=result.checkpoint!.stateVectorBase64;
+  this.identity(result);this.beforeViewChange?.();const received=this.replica.receive(result.update!);if(received.causalChanged)this.admissionProgress++;this.syncContract();this.confirmedVector=result.checkpoint!.stateVectorBase64;this.confirmedIdentity=convergenceIdentityOf(result.checkpoint!);
   if(this.contributions.length||this.ownContributions.length){const covered=sourceCoverage(result.checkpoint!);this.contributions=this.contributions.filter(update=>!covered(update));while(this.ownContributions[0]&&covered(this.ownContributions[0].update))this.acknowledged=Math.max(this.acknowledged,this.ownContributions.shift()!.cut);}
-  this.incomplete=received.pending||result.pending||!!received.conflict;if(!this.incomplete)this.ownUnresolved=false;this.permitted=true;this.boundOnce=true;this.afterViewChange?.();this.changed();
+  this.incomplete=received.pending||result.pending||!!received.conflict;if(!this.incomplete)this.ownUnresolved=false;this.permitted=true;this.boundOnce=true;this.afterViewChange?.();this.changed();this.drainDrafts();
   // Forward this already-produced, validated Source cut, not a fresh export of the
   // draft. Same-instance fields may use its local proof; the wire carries bytes only.
   if(propagate)for(const listener of this.savedListeners)listener(result);
@@ -131,7 +177,7 @@ export class RichEditorSession {
   // validated read after a deferred read failure; never clear an existing recovery barrier.
   if(!this.recovery&&!this.error&&readFailure?.client===this.client){this.failedRead=true;this.fail(readFailure.reason);}
   if(!this.recovery&&!this.error)try{for(const update of deferred)this.receive(update);}catch(error){this.fail(error,true);}
-  const drafts=this.deferredDrafts;this.deferredDrafts=[];if(!this.recovery&&!this.error)try{for(const update of drafts)this.receiveDraft(update);}catch(error){this.fail(error,true);}this.publishDraft();
+  this.compositionEpoch++;if(!this.recovery&&!this.error)try{this.drainDrafts();}catch(error){this.fail(error,true);}this.publishDraft();
   this.changed();
  }
  gesture(run:()=>void):boolean{
@@ -164,7 +210,7 @@ export class RichEditorSession {
  }
  save():Promise<boolean>{
   if(this.grouping)return Promise.resolve(false);if(this.flight)return this.flight;if(!this.editable||this.composing)return Promise.resolve(false);if(!this.dirty)return Promise.resolve(!this.ownUnresolved);
-  const cut=this.sequence,remoteCut=this.contributions.length,client=this.client,update:LocalToolConvergenceUpdate=this.replica.export(this.confirmedVector);this.busy=true;this.changed();
+  const cut=this.sequence,remoteCut=this.contributions.length,client=this.client,update:LocalToolConvergenceUpdate=this.replica.export(this.convergenceIdentity.engine.version==='4'&&this.confirmedIdentity.engine.version==='3'?undefined:this.confirmedVector);this.busy=true;this.changed();
   const write=Promise.resolve().then(async()=>{
    try{const result=await client.convergence!.import(update,{expectedLineage:this.lineage});
     if(!this.alive||client!==this.client)return false;if(result.snapshot.document?.lineage!==this.lineage)throw Error('source_tool_document_lineage_conflict');
