@@ -1,5 +1,9 @@
 # Writers Hoard — Desktop
 
+## Adding a field to a Source tool
+
+A Source tool can declare one new scalar field with a default. An existing document shows the value after selecting the new version. The first edit keeps its history, and Undo restores the default when no authored value remains. [SDK and verification](tasks/vvd1095/verification-sdk-source-additive2088.md).
+
 ## Column widths in shared tables
 
 Tools that opt into the width profile let you drag the right edge of a cell or enter a width with the keyboard. Automatic width restores the layout, and Undo updates the table immediately. The reader uses the saved widths. [Usage and verification](tasks/vvd1095/verification-table-width2082.md).

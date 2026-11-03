@@ -1,5 +1,9 @@
 # Writers Hoard — Escritorio
 
+## Añadir un campo a una herramienta Source
+
+Una herramienta Source puede declarar un campo escalar nuevo con valor por defecto. Al elegir la versión nueva, el documento existente muestra ese valor. La primera edición conserva el historial y Deshacer recupera el valor por defecto cuando ya no queda un valor propio. [SDK y pruebas](tasks/vvd1095/verification-sdk-source-additive2088.md).
+
 ## Tablas fijas en herramientas compartidas
 
 Las herramientas locales que declaran el nuevo perfil de tablas compartidas pueden insertar tablas de tamaño fijo, escribir y dar formato en cada celda, añadir enlaces, mover o quitar la tabla completa y usar Deshacer conservando aportaciones ajenas. Manual, Automático, SDK y MCP mantienen los mismos caminos del documento. Abrir un módulo antiguo no lo migra: las Notas conservan su barra contextual de tablas y todas las funciones anteriores.
