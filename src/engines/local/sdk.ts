@@ -138,3 +138,5 @@ export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalTo
 
 export {useLocalToolFontFace} from './useLocalToolFontFace';
 export type {LocalAssetFileInfo,LocalAssetFileKind} from './assetFileFormat';
+
+export type {RichTableInsertAction} from './convergence/tableEditing';
