@@ -48,7 +48,7 @@ import { GHOST_DEBOUNCE_MS } from '@/services/ghostText/ghostText';
 import { createPageLayoutPlugin, pageLayoutKey, type PageLayoutOptions } from './pageMode/PageLayout';
 import type { CodexEntry, FootnoteMarkerStyle } from '@/types';
 import type { Citation } from '@/types/projectTools';
-import { AdvancedEditorToolbar, createAdvancedExtensions } from './advanced';
+import { AdvancedEditorToolbar, TableControls, createAdvancedExtensions } from './advanced';
 import DocumentTools from './documents/DocumentTools';
 import { createRevisionExtensions } from '@/engines/writings/revisions';
 import RevisionControls from './revisions/RevisionControls';
@@ -655,6 +655,7 @@ export default function TiptapEditor({
       {dictionarySelection && dictionarySelection.projectId === editorialProjectId && dictionarySelection.eraId === editorialEraId && <Suspense fallback={null}><SelectionDictionaryDialog key={`${editorialProjectId}:${editorialEraId ?? 'base'}`} projectId={dictionarySelection.projectId} eraId={dictionarySelection.eraId} selection={dictionarySelection.text} onClose={() => { setDictionarySelection(undefined); editor.commands.focus(); }} /></Suspense>}
       {menu.visible && (onAnnotate || onGenerateImage || copilotAvailable() || dictionaryEnabled) && (
         <div
+          data-editor-selection-actions
           className="absolute z-20 flex w-max max-w-full flex-wrap items-center justify-center gap-0.5 p-0.5 rounded-lg bg-surface border border-accent-gold/40 shadow-lg"
           style={{ top: menu.top, left: '50%', transform: 'translateX(-50%)' }}
         >
@@ -835,6 +836,7 @@ export default function TiptapEditor({
 
       {/* Editor */}
       <EditorContent editor={editor} />
+      <TableControls editor={editor} locale={locale} />
       <SlashMenu editor={editor} wrapperRef={wrapperRef} locale={locale} />
       <SlashToolHost editor={editor} locale={locale} projectId={editorialProjectId} eraId={editorialEraId} />
       <ImageControls editor={editor} wrapperRef={wrapperRef} locale={locale} />

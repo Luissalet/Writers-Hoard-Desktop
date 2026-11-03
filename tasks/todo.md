@@ -1,3 +1,16 @@
+# Contextual table controls — task2009
+
+- [x] Read Root's normal Notes baseline: table menu/Undo/reopen work, contextual controls are absent. Preserve baseline evidence.
+- [x] Agree the scoped plan and actions before Source; preserve the existing select and HTML/TableKit writer.
+- [x] Add accessible contextual controls with before/after, selection/focus, keyboard, viewport and lifecycle handling.
+- [x] Expose header toggling through the existing document handler and verify CAS/audit Undo.
+- [x] Verify mounted controls and normal TiptapEditor integration (20 groups), legacy area (26 groups), renderer types, area lint and the scoped design detector; preserve focus failures and QA setup limits.
+- [x] Complete independent review, Root Brave and new two-key MCP acceptance against the frozen product routes; preserve exact-cut evidence and earlier observer failures.
+
+Plan: `research-inbox/writer-table-context-next/post-design-r1/PLAN.md`; SourceGO writers2185/24170. Table grammar2003 remains outside this change; the shared runner gains only the finite registration for this UI test.
+
+Revisión funcional completada e integrada en Main/primary como d9039d3, sin push: [evidencia y límites2009](vvd1095/verification-table-context2009.md). Las pruebas automatizadas usan foco de página emulado; Brave y el puente Native tienen evidencias independientes.
+
 # Structural Undo support — task1932
 
 # Partial rich-text performance delivery — task1917
@@ -2160,6 +2173,8 @@ Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se rep
 - [x] Public atomic table insertion/move/hide and exact captures/receipts through the existing writer.
 - [x] Creation Undo scaffold and inherited home-route support; preserve B append without routingB, B Undo/Redo, explicit hide and current policy.
 - [x] Same session PM/keyboard/SDK/MCP and normal example; Source/eras/portable semantics.
-- [ ] Area oracles and independent review; final frozen CUT, quick/build, Root Brave and real bridge acceptance.
+- [x] Area oracles, independent kernel/UI reviews, frozen CUT40, quick/build, Root Brave and fresh real bridge acceptance with a second key; scopes and limits remain separate.
+- [x] Compose with approved contextual controls and record finite combined checks20+27 and quick/build with new authority.
+- [ ] Obtain formal review of the final composed commit before Main integration.
 
-Variable axes, cell merge/split, shared images and adoption of old origins remain open. Coordination: writers2178; contract: decision2184. No commit/Main/push authorized for this implementation.
+Variable axes, cell merge/split, shared images and adoption of old origins remain open. Coordination: writers2178; contract: decision2184. Local checkpoint and composition are authorized; Root coordinates formal submission and Main integration. No push.

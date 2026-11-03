@@ -4,6 +4,7 @@ import { AlignLeft, AlignCenter, AlignRight, AlignJustify, IndentIncrease, Inden
 import { applyAdvancedFormatting,insertSceneBreak } from './extensions';
 import { FONT_FAMILIES, PARAGRAPH_STYLES,SCENE_BREAK_STYLES, type AdvancedFormatting,type SceneBreakStyle } from './model';
 import { TEXT_EFFECTS } from '../blocks/extensions';
+import { TABLE_ACTIONS, TABLE_COPY, runTableAction, type TableAction } from './tableActions';
 
 const TEXT_EFFECT_LABELS = {
   es: { glow: 'Brillo', shake: 'Temblor', wave: 'Ondulación', rainbow: 'Arcoíris', pulse: 'Pulso', blur: 'Desenfoque (se ve al pasar)' },
@@ -11,8 +12,8 @@ const TEXT_EFFECT_LABELS = {
 } as const;
 
 export const ADVANCED_EDITOR_COPY = {
-  es: { toolbar: 'Formato avanzado', font: 'Fuente', size: 'Tamaño', style: 'Estilo de párrafo', line: 'Interlineado', color: 'Color de texto', highlight: 'Resaltado', clear: 'Quitar formato', left: 'Alinear a la izquierda', center: 'Centrar', right: 'Alinear a la derecha', justify: 'Justificar', indent: 'Aumentar sangría', outdent: 'Reducir sangría', sub: 'Subíndice', sup: 'Superíndice', page: 'Salto de página', table: 'Tabla', insert: 'Insertar tabla 3 × 3', row: 'Añadir fila', column: 'Añadir columna', deleteRow: 'Eliminar fila', deleteColumn: 'Eliminar columna', merge: 'Combinar celdas', split: 'Dividir celda', header: 'Alternar encabezado', deleteTable: 'Eliminar tabla', inherit: 'Predeterminada', serif: 'Serif', sans: 'Sans serif', mono: 'Monoespaciada', normal: 'Normal', lead: 'Entrada', quote: 'Cita', caption: 'Pie de figura', none: 'Predeterminado', noColor: 'Quitar color', noHighlight: 'Quitar resaltado' },
-  en: { toolbar: 'Advanced formatting', font: 'Font', size: 'Size', style: 'Paragraph style', line: 'Line spacing', color: 'Text color', highlight: 'Highlight', clear: 'Clear formatting', left: 'Align left', center: 'Center', right: 'Align right', justify: 'Justify', indent: 'Increase indent', outdent: 'Decrease indent', sub: 'Subscript', sup: 'Superscript', page: 'Page break', table: 'Table', insert: 'Insert 3 × 3 table', row: 'Add row', column: 'Add column', deleteRow: 'Delete row', deleteColumn: 'Delete column', merge: 'Merge cells', split: 'Split cell', header: 'Toggle header', deleteTable: 'Delete table', inherit: 'Default', serif: 'Serif', sans: 'Sans serif', mono: 'Monospace', normal: 'Normal', lead: 'Lead', quote: 'Quote', caption: 'Caption', none: 'Default', noColor: 'Clear color', noHighlight: 'Clear highlight' },
+  es: { toolbar: 'Formato avanzado', font: 'Fuente', size: 'Tamaño', style: 'Estilo de párrafo', line: 'Interlineado', color: 'Color de texto', highlight: 'Resaltado', clear: 'Quitar formato', left: 'Alinear a la izquierda', center: 'Centrar', right: 'Alinear a la derecha', justify: 'Justificar', indent: 'Aumentar sangría', outdent: 'Reducir sangría', sub: 'Subíndice', sup: 'Superíndice', page: 'Salto de página', ...TABLE_COPY.es, inherit: 'Predeterminada', serif: 'Serif', sans: 'Sans serif', mono: 'Monoespaciada', normal: 'Normal', lead: 'Entrada', quote: 'Cita', caption: 'Pie de figura', none: 'Predeterminado', noColor: 'Quitar color', noHighlight: 'Quitar resaltado' },
+  en: { toolbar: 'Advanced formatting', font: 'Font', size: 'Size', style: 'Paragraph style', line: 'Line spacing', color: 'Text color', highlight: 'Highlight', clear: 'Clear formatting', left: 'Align left', center: 'Center', right: 'Align right', justify: 'Justify', indent: 'Increase indent', outdent: 'Decrease indent', sub: 'Subscript', sup: 'Superscript', page: 'Page break', ...TABLE_COPY.en, inherit: 'Default', serif: 'Serif', sans: 'Sans serif', mono: 'Monospace', normal: 'Normal', lead: 'Lead', quote: 'Quote', caption: 'Caption', none: 'Default', noColor: 'Clear color', noHighlight: 'Clear highlight' },
 } as const;
 
 const control = 'rounded border border-border bg-surface px-1.5 py-1 text-xs text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent-gold disabled:opacity-40';
@@ -35,18 +36,7 @@ export default function AdvancedEditorToolbar({ editor, locale = 'es' }: { edito
   }) });
   const apply = (format: AdvancedFormatting) => { applyAdvancedFormatting(editor, format); editor.commands.focus(); };
   const chooseTable = (action: string) => {
-    const chain = editor.chain().focus();
-    switch (action) {
-      case 'insert': chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break;
-      case 'row': chain.addRowAfter().run(); break;
-      case 'column': chain.addColumnAfter().run(); break;
-      case 'deleteRow': chain.deleteRow().run(); break;
-      case 'deleteColumn': chain.deleteColumn().run(); break;
-      case 'merge': chain.mergeCells().run(); break;
-      case 'split': chain.splitCell().run(); break;
-      case 'header': chain.toggleHeaderRow().run(); break;
-      case 'deleteTable': chain.deleteTable().run(); break;
-    }
+    if (TABLE_ACTIONS.includes(action as TableAction)) runTableAction(editor, action as TableAction);
   };
   return <div role="group" aria-label={copy.toolbar} className="flex flex-wrap items-center gap-1 border-b border-border bg-surface/50 px-2 py-1.5">
     <select className={control} aria-label={copy.font} disabled={!editable} value={state.inline.fontFamily ?? 'inherit'} onChange={event => apply({ fontFamily: event.target.value as AdvancedFormatting['fontFamily'] })}>
@@ -84,7 +74,7 @@ export default function AdvancedEditorToolbar({ editor, locale = 'es' }: { edito
     <button type="button" className={button} title={copy.page} aria-label={copy.page} disabled={!editable} onMouseDown={event => event.preventDefault()} onClick={() => editor.chain().focus().insertPageBreak().run()}><Scissors size={15} /></button>
     <label className="inline-flex items-center gap-1"><Table2 size={15} aria-hidden="true" /><select className={control} aria-label={copy.table} disabled={!editable} value="" onChange={event => chooseTable(event.target.value)}>
       <option value="">{copy.table}</option><option value="insert">{copy.insert}</option>
-      {(['row', 'column', 'deleteRow', 'deleteColumn', 'merge', 'split', 'header', 'deleteTable'] as const).map(action => <option key={action} value={action} disabled={!state.table}>{copy[action]}</option>)}
+      {TABLE_ACTIONS.slice(1).map(action => <option key={action} value={action} disabled={!state.table}>{copy[action]}</option>)}
     </select></label>
     <button type="button" className={button} title={copy.clear} aria-label={copy.clear} disabled={!editable} onMouseDown={event => event.preventDefault()} onClick={() => { apply({ fontFamily: 'inherit', fontSize: null, color: null, highlight: null, alignment: 'left', lineHeight: null, indent: 0, firstLineIndent:0,dropCap:false,smallCaps:false,paragraphStyle: 'normal', subscript: false, superscript: false }); editor.chain().focus().unsetAllMarks().run(); }}><RemoveFormatting size={15} /></button>
   </div>;
