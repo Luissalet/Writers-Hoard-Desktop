@@ -44,9 +44,10 @@ export class RichEditorSession {
  private ownUnresolved=false;
  private exiting=false;
  private contributions:LocalToolConvergenceUpdate[]=[];
- private sharedOwn:{cut:number;update:LocalToolConvergenceUpdate}[]=[];
+ private ownContributions:{cut:number;update:LocalToolConvergenceUpdate}[]=[];
  private draftListeners=new Set<(update:LocalToolConvergenceUpdate,saved?:RichSourceExport)=>void>();
  private stateListeners=new Set<()=>void>();
+ private savedListeners=new Set<(saved:RichSourceExport)=>void>();
  private outgoing:LocalToolConvergenceUpdate[]=[];
  private deferredDrafts:LocalToolConvergenceUpdate[]=[];
  beforeViewChange:(()=>void)|undefined;
@@ -70,9 +71,12 @@ export class RichEditorSession {
  get canRetry(){return this.alive&&(this.failedWrite||this.failedRead)&&!this.recovery&&!this.readOnly;}
  get dirty(){return this.sequence>this.acknowledged||this.contributions.length>0;}
  get shareable(){return this.alive&&this.permitted&&!this.recovery&&!this.composing&&!this.grouping&&!this.incomplete&&!this.error&&!this.exiting;}
- onDraft(listener:(update:LocalToolConvergenceUpdate,saved?:RichSourceExport)=>void){if(!this.draftListeners.size&&this.sequence>this.acknowledged)this.sharedOwn.push({cut:this.sequence,update:this.exportDraft()});this.draftListeners.add(listener);return()=>{this.draftListeners.delete(listener);};}
+ onDraft(listener:(update:LocalToolConvergenceUpdate,saved?:RichSourceExport)=>void){this.draftListeners.add(listener);return()=>{this.draftListeners.delete(listener);};}
+ onSaved(listener:(saved:RichSourceExport)=>void){this.savedListeners.add(listener);return()=>{this.savedListeners.delete(listener);};}
  subscribeState(listener:()=>void){this.stateListeners.add(listener);return()=>{this.stateListeners.delete(listener);};}
- private publishDraft(){if(!this.outgoing.length||!this.draftListeners.size||!this.shareable)return;const update=mergeDraftUpdates(this.outgoing);this.outgoing=[];this.sharedOwn.push({cut:this.sequence,update});for(const listener of this.draftListeners)listener(update);}
+ /** Track the admitted engine delta independently of transport; Source ACK can cover another field. */
+ private admitted(update:LocalToolConvergenceUpdate){this.sequence++;this.ownContributions.push({cut:this.sequence,update:{...update}});}
+ private publishDraft(){if(!this.outgoing.length||!this.draftListeners.size||!this.shareable)return;const update=mergeDraftUpdates(this.outgoing);this.outgoing=[];for(const listener of this.draftListeners)listener(update);}
  exportDraft(){if(!this.shareable)throw Error('local_tool_live_recovery_not_shareable');return this.replica.export();}
  receiveDraft(update:LocalToolConvergenceUpdate){
   if(!this.alive||this.recovery||this.error)throw Error('local_tool_live_recovery_not_shareable');
@@ -100,10 +104,11 @@ export class RichEditorSession {
  receiveSaved(result:RichSourceExport){if(!this.alive)return;this.identity(result);if(this.composing||this.flight){this.deferred=[result];return;}this.receive(result,false);}
  private receive(result:Exported,propagate=true){
   this.identity(result);this.beforeViewChange?.();const received=this.replica.receive(result.update!);this.confirmedVector=result.checkpoint!.stateVectorBase64;
-  if(this.contributions.length||this.sharedOwn.length){const covered=sourceCoverage(result.checkpoint!);this.contributions=this.contributions.filter(update=>!covered(update));while(this.sharedOwn[0]&&covered(this.sharedOwn[0].update))this.acknowledged=Math.max(this.acknowledged,this.sharedOwn.shift()!.cut);}
+  if(this.contributions.length||this.ownContributions.length){const covered=sourceCoverage(result.checkpoint!);this.contributions=this.contributions.filter(update=>!covered(update));while(this.ownContributions[0]&&covered(this.ownContributions[0].update))this.acknowledged=Math.max(this.acknowledged,this.ownContributions.shift()!.cut);}
   this.incomplete=received.pending||result.pending||!!received.conflict;if(!this.incomplete)this.ownUnresolved=false;this.permitted=true;this.boundOnce=true;this.afterViewChange?.();this.changed();
   // Forward this already-produced, validated Source cut, not a fresh export of the
   // draft. Same-instance fields may use its local proof; the wire carries bytes only.
+  if(propagate)for(const listener of this.savedListeners)listener(result);
   if(propagate&&received.causalChanged&&this.shareable)for(const listener of this.draftListeners)listener(result.update!,result);
  }
  async refresh():Promise<void>{
@@ -130,7 +135,7 @@ export class RichEditorSession {
  gesture(run:()=>void):boolean{
   if(!this.editable||this.grouping)return false;this.grouping=[];
   try{run();if(this.grouping.length){this.owned.push({receipts:this.grouping,step:this.nextStep()});this.reverted=[];}this.changed();return true;}
-  catch(error){this.fail(error,true);return false;}finally{this.grouping=undefined;this.publishDraft();}
+  catch(error){this.fail(error,true);return false;}finally{this.grouping=undefined;this.publishDraft();for(const listener of this.stateListeners)listener();}
  }
  /** One public engine transaction, one receipt. A rejected batch leaves no partial gesture. */
  applyBatch(actions:readonly LocalToolStateAction[]):boolean{
@@ -138,19 +143,19 @@ export class RichEditorSession {
   this.beforeViewChange?.();
   const result=this.replica.apply(actions);
   if(result.receiptId){this.owned.push({receipts:[result.receiptId],step:this.nextStep()});this.reverted=[];}
-  if(result.causalChanged)this.sequence++;
+  if(result.causalChanged)this.admitted(result.update);
   if(result.pending||result.conflict){this.fail(Error('local_tool_rich_editor_unresolved'),true);return false;}
   try{this.afterViewChange?.();}catch(error){this.fail(error,true);return false;}if(result.causalChanged&&this.draftListeners.size)this.outgoing.push(result.update);this.changed();this.publishDraft();return true;
  }
  apply(action:RichAction|RichBlockAction){
   if(!this.grouping)throw Error('local_tool_rich_editor_gesture_required');const result=this.replica.apply([action]);
-  if(result.receiptId)this.grouping.push(result.receiptId);if(result.causalChanged)this.sequence++;
+  if(result.receiptId)this.grouping.push(result.receiptId);if(result.causalChanged)this.admitted(result.update);
   if(result.pending||result.conflict)throw Error('local_tool_rich_editor_unresolved');if(result.causalChanged&&this.draftListeners.size)this.outgoing.push(result.update);
  }
  reverse(redo=false):boolean{
   if(!this.editable||this.composing)return false;const from=redo?this.reverted:this.owned,to=redo?this.owned:this.reverted,gesture=from.at(-1);if(!gesture)return false;
   try{this.beforeViewChange?.();const receipts:string[]=[];for(const receipt of [...gesture.receipts].reverse()){
-    const result=redo?this.replica.redo(receipt):this.replica.undo(receipt);if(result.receiptId)receipts.push(result.receiptId);if(result.causalChanged)this.sequence++;
+    const result=redo?this.replica.redo(receipt):this.replica.undo(receipt);if(result.receiptId)receipts.push(result.receiptId);if(result.causalChanged)this.admitted(result.update);
     if(result.pending||result.conflict)throw Error('local_tool_rich_editor_unresolved');if(result.causalChanged&&this.draftListeners.size)this.outgoing.push(result.update);
    }from.pop();to.push({receipts,step:this.nextStep()});this.afterViewChange?.();this.changed();this.publishDraft();return true;
   }catch(error){this.fail(error,true);return false;}
@@ -161,12 +166,12 @@ export class RichEditorSession {
   const write=Promise.resolve().then(async()=>{
    try{const result=await client.convergence!.import(update,{expectedLineage:this.lineage});
     if(!this.alive||client!==this.client)return false;if(result.snapshot.document?.lineage!==this.lineage)throw Error('source_tool_document_lineage_conflict');
-    this.acknowledged=Math.max(this.acknowledged,cut);this.sharedOwn=this.sharedOwn.filter(own=>own.cut>cut);this.contributions.splice(0,remoteCut);this.incomplete=result.pending||!!result.snapshot.convergence?.conflict;this.ownUnresolved=this.incomplete;const saved=await client.convergence!.export();if(this.alive&&client===this.client){if(this.composing)this.deferred.push(saved);else this.receive(saved);}return !this.error&&!this.ownUnresolved;
+    this.acknowledged=Math.max(this.acknowledged,cut);this.ownContributions=this.ownContributions.filter(own=>own.cut>cut);this.contributions.splice(0,remoteCut);this.incomplete=result.pending||!!result.snapshot.convergence?.conflict;this.ownUnresolved=this.incomplete;const saved=await client.convergence!.export();if(this.alive&&client===this.client){if(this.composing)this.deferred.push(saved);else this.receive(saved);}return !this.error&&!this.ownUnresolved;
    }catch(error){if(this.alive&&client===this.client){this.failedWrite=true;this.fail(error);}return false;}
    finally{this.busy=false;this.flight=undefined;const deferred=this.deferred;this.deferred=[];if(this.alive&&!this.composing&&!this.recovery){for(const read of deferred)try{this.receive(read);}catch(error){this.fail(error,true);}}else if(this.composing)this.deferred=deferred;if(this.alive)this.changed();}
   });this.flight=write;return write;
  }
- async retry(){if((!this.failedWrite&&!this.failedRead)||this.recovery||this.readOnly)return false;this.error='';await this.refresh();if(this.error)return false;this.failedWrite=false;this.failedRead=false;return this.save();}
+ async retry(save=()=>this.save()){if((!this.failedWrite&&!this.failedRead)||this.recovery||this.readOnly)return false;this.error='';await this.refresh();if(this.error)return false;this.failedWrite=false;this.failedRead=false;return save();}
  async flush(){do{if(!await this.save())return false;}while(this.dirty);return !this.pending;}
- destroy(){if(!this.alive)return;this.alive=false;this.request++;this.deferred=[];this.deferredDrafts=[];this.draftListeners.clear();this.stateListeners.clear();this.compositionReadFailure=undefined;this.replica.destroy();}
+ destroy(){if(!this.alive)return;this.alive=false;this.request++;this.deferred=[];this.deferredDrafts=[];this.draftListeners.clear();this.savedListeners.clear();this.stateListeners.clear();this.compositionReadFailure=undefined;this.replica.destroy();}
 }

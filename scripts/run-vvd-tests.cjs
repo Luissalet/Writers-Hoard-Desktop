@@ -7,6 +7,8 @@ const electron = require('electron');
 const root = path.resolve(__dirname, '..');
 const liveContentCheck = spawnSync(process.execPath, ['tests/local-tool-live-content.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (liveContentCheck.status !== 0 || liveContentCheck.error) process.exit(liveContentCheck.status ?? 1);
+const autosaveCheck = spawnSync(process.execPath, ['tests/local-tool-autosave.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
+if (autosaveCheck.status !== 0 || autosaveCheck.error) process.exit(autosaveCheck.status ?? 1);
 const presenceCheck = spawnSync(process.execPath, ['tests/local-tool-presence.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (presenceCheck.status !== 0 || presenceCheck.error) process.exit(presenceCheck.status ?? 1);
 const presenceSourceCheck = spawnSync(process.execPath, ['scripts/run-local-tool-presence-portability.cjs', `presence-source-${Date.now().toString(36)}-${process.pid}`, 'source'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });

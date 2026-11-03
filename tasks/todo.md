@@ -2085,3 +2085,15 @@ Revisión:42blobs aprobados y Main exactos; no instalación de ejecutable, parid
 - [x] Entregar commit33 bc4d4076, aprobar revisión1 e integrar con Root; mantener1913/1917 y paridad global abiertos, sin push.
 
 Criterio: contrato2079 y research-inbox/writer-presence1893/LINK-FLOW-r2; no equivaler clavesMCP a personas ni importar awareness como contenido.
+
+
+### Guardado automático1952 — worktree aislado
+
+- [x] Fijar oráculos O1–O9 y ejecutar baseline funcional Source/ZIP/editores saludables antes de producto.
+- [x] Preferencia local recordada por biblioteca y elección estable por instancia; lecturas y respuestas antiguas sin escrituras o rollback.
+- [x] Scheduler documental de500ms con mismo Save/writer, Manual/noSala legacy por campo y todas las entradas Save/Retry/flush coordinadas.
+- [x] UI visible y SDK/MCP normal; composición, vuelo/OFF, Leave, error y retarget conservados.
+- [x] Contrastar los mismos oráculos y controles del área/tipos; preparar primer corte y handoff para Root.
+- [ ] Componer R5 aprobada antes de corte final/Native, revisión independiente y Brave; sin commit/Main/push por este autor.
+
+Criterio previo: research-inbox/writer-live-content-next/AUTOSAVE-ORACLES-r3.md y ROOT-autosave-agreement-r2.md. No se atribuye paridad ni ejecución a este plan.

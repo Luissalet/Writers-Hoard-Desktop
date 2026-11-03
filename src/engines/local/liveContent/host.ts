@@ -2,7 +2,8 @@ import type {RichEditorSession,RichSourceExport} from '../collaborativeRich/sess
 import type {LocalToolConvergenceUpdate} from '../convergence/types';
 import {convergenceClone,assertConvergenceIdentity} from '../convergence/format';
 import type {LocalToolJson} from '../stateTypes';
-import type {ContentNetwork,LocalToolDocumentContent} from './types';
+import type {ContentNetwork,LocalToolDocumentContent,LocalToolSaveMode} from './types';
+import {DocumentSavePreference} from './savePreference';
 import type {LocalToolClient} from '../sdk';
 import type {LocalToolStateAction} from '../stateActions';
 import {assertWorldEra} from '@/services/worldEras/store';
@@ -13,7 +14,7 @@ export function documentContentHost(port:LocalToolDocumentContent|undefined){ret
 /** A coordinator over the existing field replicas, never a second writer or mirror. */
 export class LocalDocumentContentHost {
  readonly port:LocalToolDocumentContent;
- private sessions=new Map<RichEditorSession,{reload:()=>void;off?:()=>void;offState:()=>void}>();
+ private sessions=new Map<RichEditorSession,{reload:()=>void;off?:()=>void;offState:()=>void;offSaved:()=>void}>();
  private listeners=new Set<()=>void>();
  private network:ContentNetwork|undefined;
  private epoch=0;
@@ -22,21 +23,32 @@ export class LocalDocumentContentHost {
  private needsCatchup=false;
  private error='';
  private sending=Promise.resolve();
+ private savePreference:DocumentSavePreference;
+ private offPreference:()=>void;
+ private saveMode:LocalToolSaveMode;
+ private timer:ReturnType<typeof setTimeout>|undefined;
+ private scheduleEpoch=0;
+ private exitEpoch=0;
+ private documentFlight:Promise<boolean>|undefined;
+ private waitingFlights:Promise<void>|undefined;
+ private autosaveError='';
+ private schedulerStopped=false;
  readonly instanceId:string;
  readonly client:LocalToolClient<LocalToolJson>;
  private current:()=>boolean;
  private releaseHash:string|null|undefined;
- constructor(instanceId:string,current:()=>boolean,client:LocalToolClient<LocalToolJson>,releaseHash?:string|null){
-  this.releaseHash=releaseHash;
+ constructor(instanceId:string,current:()=>boolean,client:LocalToolClient<LocalToolJson>,releaseHash?:string|null,savePreference=new DocumentSavePreference()){
+  this.releaseHash=releaseHash;this.savePreference=savePreference;this.saveMode=savePreference.mode;
+  this.offPreference=savePreference.subscribe(()=>{if(this.saveMode!==savePreference.mode){this.saveMode=savePreference.mode;this.scheduleEpoch++;this.cancelTimer();}this.reconcileAutosave();this.changed();});
   this.instanceId=instanceId;this.current=current;this.client=client;
-  this.port=Object.freeze({instanceId,getSnapshot:()=>this.snapshot(),subscribe:(changed:()=>void)=>{this.listeners.add(changed);return()=>{this.listeners.delete(changed);};},query:()=>this.query(),capture:((field:string,request:LocalToolJson)=>this.capture(field,request)) as LocalToolDocumentContent['capture'],apply:async(field:string,actions:readonly LocalToolStateAction[])=>{const captured=convergenceClone(actions);if(!Array.isArray(captured)||!captured.length||captured.some(action=>action.field!==field))throw Error('local_tool_live_action_field_mismatch');await this.validate();return this.session(field).applyBatch(captured);},control:(action:'undo'|'redo'|'save'|'leave',field?:string)=>this.control(action,field)});
+  this.port=Object.freeze({instanceId,getSnapshot:()=>this.snapshot(),subscribe:(changed:()=>void)=>{this.listeners.add(changed);return()=>{this.listeners.delete(changed);};},query:()=>this.query(),capture:((field:string,request:LocalToolJson)=>this.capture(field,request)) as LocalToolDocumentContent['capture'],apply:async(field:string,actions:readonly LocalToolStateAction[])=>{const captured=convergenceClone(actions);if(!Array.isArray(captured)||!captured.length||captured.some(action=>action.field!==field))throw Error('local_tool_live_action_field_mismatch');await this.validate();return this.session(field).applyBatch(captured);},setSaveMode:(mode:LocalToolSaveMode)=>{this.assert();return this.savePreference.choose(mode,()=>this.validate());},control:(action:'undo'|'redo'|'save'|'leave'|'retry',field?:string)=>this.control(action,field)});
   hosts.set(this.port,this);liveDocumentHosts.add(this);
  }
  private assert(){if(!this.alive||!this.current())throw Error('local_tool_live_host_unavailable');}
  private async validate(){this.assert();const snapshot=await this.client.read(),project=await assertWorldEra({projectId:this.client.projectId,eraId:this.client.eraId});this.assert();if(!project.enabledEngines.includes('local-tool-'+this.client.namespace))throw Error('local_tool_live_engine_disabled');if(this.releaseHash!==undefined&&(project.localToolInstallations?.[this.client.namespace]?.contentHash??null)!==this.releaseHash)throw Error('local_tool_pin_conflict');if(!snapshot.document||snapshot.document.id!==this.client.documentId||!snapshot.convergence)throw Error('local_tool_live_identity_invalid');for(const session of this.sessions.keys()){if(snapshot.document.lineage!==session.lineage)throw Error('source_tool_document_lineage_conflict');assertConvergenceIdentity(snapshot.convergence,session.convergenceIdentity);}}
  private changed(){for(const changed of this.listeners)changed();}
- snapshot(){const first=this.sessions.keys().next().value;return convergenceClone({source:'live' as const,instanceId:this.instanceId,networkEpoch:this.epoch,roomId:this.network?.roomId??null,scope:{projectId:this.client.projectId,eraId:this.client.eraId??null},documentId:this.client.documentId??null,namespace:this.client.namespace,lineage:first?.lineage??null,identity:first?.convergenceIdentity??null,sharing:!!this.network,saveReady:this.saveReady(),fields:[...new Set([...this.sessions.keys()].map(s=>s.field))],draftRevision:[...this.sessions.keys()].reduce((n,s)=>n+s.revision,0),pending:[...this.sessions.keys()].some(s=>s.pending),...(this.error?{error:this.error}:{})});}
- register(session:RichEditorSession,reload:()=>void){this.assert();const entry={reload,off:undefined as (()=>void)|undefined,offState:session.subscribeState(()=>{this.changed();this.resumeCatchup();})};this.sessions.set(session,entry);if(this.network){entry.off=session.onDraft((update,saved)=>this.local(session,update,saved));void this.publishFull().catch(error=>{this.error=String(error);this.detach();});}this.changed();return()=>{entry.off?.();entry.offState();this.sessions.delete(session);this.changed();};}
+ snapshot(){const first=this.sessions.keys().next().value;return convergenceClone({source:'live' as const,saveMode:this.savePreference.mode,modeReady:this.savePreference.ready,...(this.savePreference.error?{preferenceError:this.savePreference.error}:{}),autosaveState:this.autosaveState(),...(this.autosaveError?{autosaveError:this.autosaveError}:{}),instanceId:this.instanceId,networkEpoch:this.epoch,roomId:this.network?.roomId??null,scope:{projectId:this.client.projectId,eraId:this.client.eraId??null},documentId:this.client.documentId??null,namespace:this.client.namespace,lineage:first?.lineage??null,identity:first?.convergenceIdentity??null,sharing:!!this.network,saveReady:this.saveReady(),fields:[...new Set([...this.sessions.keys()].map(s=>s.field))],draftRevision:[...this.sessions.keys()].reduce((n,s)=>n+s.revision,0),pending:[...this.sessions.keys()].some(s=>s.pending),...(this.error?{error:this.error}:{})});}
+ register(session:RichEditorSession,reload:()=>void){this.assert();const entry={reload,off:undefined as (()=>void)|undefined,offSaved:session.onSaved(saved=>{for(const other of this.sessions.keys())if(other!==session)other.receiveSaved(saved);}),offState:session.subscribeState(()=>{this.reconcileAutosave();this.changed();this.resumeCatchup();})};this.sessions.set(session,entry);if(this.network){entry.off=session.onDraft((update,saved)=>this.local(session,update,saved));void this.publishFull().catch(error=>{this.error=String(error);this.detach();});}this.reconcileAutosave();this.changed();return()=>{entry.off?.();entry.offState();entry.offSaved();this.sessions.delete(session);this.reconcileAutosave();this.changed();};}
  private session(field?:string){this.assert();if(this.leaving)throw Error('local_tool_live_leaving');const values=[...this.sessions.keys()].filter(s=>!field||s.field===field);if(values.length!==1)throw Error('local_tool_live_field_ambiguous');return values[0];}
  async query():Promise<LocalToolJson> {await this.validate();return convergenceClone({...this.snapshot(),documents:[...this.sessions.keys()].map(s=>({field:s.field,data:s.replica.read(),dirty:s.dirty,editable:s.editable}))}) as unknown as LocalToolJson;}
  async capture(field:string,request:LocalToolJson):Promise<LocalToolJson>{
@@ -66,7 +78,36 @@ export class LocalDocumentContentHost {
  private enqueue(update:LocalToolConvergenceUpdate){const epoch=this.epoch,network=this.network,messageId=crypto.randomUUID();if(!network)return;this.sending=this.sending.catch(()=>{}).then(async()=>{if(epoch!==this.epoch||network!==this.network)return;this.assert();await network.send(update,messageId);if(epoch===this.epoch&&this.error){this.error='';this.changed();}}).catch(error=>{if(epoch===this.epoch){this.error=String(error);this.changed();}});}
  private async publishFull(){if(!this.network)return;this.enqueue(this.seed());await this.sending;}
  detach(){this.epoch++;this.needsCatchup=false;this.network=undefined;for(const entry of this.sessions.values()){entry.off?.();entry.off=undefined;}this.changed();}
- async leave(){this.assert();if(this.leaving||!this.network)return false;this.leaving=true;const network=this.network;network?.retire?.();this.detach();const sessions=[...this.sessions];for(const[s]of sessions)s.stopEditingForExit();const settled=await Promise.all(sessions.map(([s])=>s.settleSave()));await network?.leave();this.assert();if(settled.some(ok=>!ok)){this.error='local_tool_live_save_reconciliation_failed';this.leaving=false;this.changed();return false;}for(const[s,e]of sessions)if(this.sessions.get(s)===e)e.reload();this.leaving=false;return true;}
- async control(action:'undo'|'redo'|'save'|'leave',field?:string){this.assert();if(action==='leave')return this.leave();await this.validate();if(action==='save'){if(this.network)this.seed();return this.session(field).save();}return this.session(field).reverse(action==='redo');}
- dispose(){this.detach();this.alive=false;liveDocumentHosts.delete(this);for(const entry of this.sessions.values())entry.offState();this.listeners.clear();this.sessions.clear();}
+ async leave(){this.assert();if(this.leaving||!this.network)return false;this.leaving=true;this.schedulerStopped=true;this.scheduleEpoch++;this.exitEpoch++;this.cancelTimer();const network=this.network;network?.retire?.();this.detach();const sessions=[...this.sessions];for(const[s]of sessions)s.stopEditingForExit();const settled=await Promise.all(sessions.map(([s])=>s.settleSave()));await network?.leave();this.assert();if(settled.some(ok=>!ok)){this.error='local_tool_live_save_reconciliation_failed';this.leaving=false;this.changed();return false;}for(const[s,e]of sessions)if(this.sessions.get(s)===e)e.reload();this.leaving=false;this.schedulerStopped=false;this.reconcileAutosave();this.changed();return true;}
+ private cancelTimer(){if(this.timer!==undefined){clearTimeout(this.timer);this.timer=undefined;}}
+ private dirty(){return[...this.sessions.keys()].some(s=>s.dirty);}
+ private documentSave(){return!!this.network||this.savePreference.mode==='automatic';}
+ private autosaveState():'manual'|'idle'|'waiting'|'saving'|'blocked'{if(this.savePreference.mode==='manual')return'manual';if(this.documentFlight||[...this.sessions.keys()].some(s=>s.busy))return'saving';if(this.autosaveError)return'blocked';return this.dirty()?'waiting':'idle';}
+ private reconcileAutosave(){
+  if(!this.alive||!this.current()||this.leaving||this.schedulerStopped||!this.savePreference.ready||this.savePreference.mode!=='automatic'||this.autosaveError||!this.dirty()){this.cancelTimer();return;}
+  if(this.documentFlight||this.waitingFlights){this.cancelTimer();return;}
+  const sessions=[...this.sessions.keys()];
+  if(sessions.some(s=>s.busy)){
+   this.cancelTimer();const waiting=Promise.all(sessions.map(s=>s.settleSave())).then(()=>{}).finally(()=>{if(this.waitingFlights===waiting)this.waitingFlights=undefined;this.reconcileAutosave();this.changed();});this.waitingFlights=waiting;return;
+  }
+  if(!this.saveReady()||sessions.some(s=>!s.editable)){this.cancelTimer();return;}
+  if(this.timer!==undefined)return;
+  const epoch=this.scheduleEpoch;this.timer=setTimeout(()=>{this.timer=undefined;if(epoch!==this.scheduleEpoch||!this.alive||!this.current()||this.schedulerStopped||this.autosaveError||this.savePreference.mode!=='automatic')return;void this.requestSave(undefined,true).catch(error=>{if(this.alive&&epoch===this.scheduleEpoch){this.autosaveError=String(error);this.cancelTimer();this.changed();}});},500);
+ }
+ private async requestSave(field?:string,automatic=false):Promise<boolean>{
+  this.assert();if(this.leaving||this.schedulerStopped)return false;
+  if(!automatic&&!this.documentSave()){await this.validate();if(this.leaving||this.schedulerStopped)return false;const ok=await this.session(field).save();if(ok&&this.autosaveError){this.autosaveError='';this.changed();}return ok;}
+  const exitEpoch=this.exitEpoch,scheduleEpoch=this.scheduleEpoch;
+  if(this.documentFlight){await this.documentFlight;if(!this.alive||!this.current()||this.leaving||exitEpoch!==this.exitEpoch)return false;if(automatic&&(scheduleEpoch!==this.scheduleEpoch||this.savePreference.mode!=='automatic'))return false;return this.requestSave(field,automatic);}
+  const flight=Promise.resolve().then(async()=>{await this.validate();if(this.leaving||this.schedulerStopped||exitEpoch!==this.exitEpoch)return false;if(automatic&&(scheduleEpoch!==this.scheduleEpoch||this.savePreference.mode!=='automatic'))return false;
+   if(automatic&&(!this.saveReady()||[...this.sessions.keys()].some(s=>!s.editable)))return false;
+   this.seed();const selected=field?this.session(field):[...this.sessions.keys()].find(s=>s.dirty)??this.sessions.keys().next().value;if(!selected)return true;
+   const ok=await selected.save();if(ok)this.autosaveError='';else if(automatic&&[...this.sessions.keys()].some(s=>!!s.error))this.autosaveError=selected.error||'local_tool_autosave_failed';return ok;
+  });this.documentFlight=flight;
+  try{return await flight;}catch(error){if(this.alive&&this.current()&&(!automatic||scheduleEpoch===this.scheduleEpoch)&&!(error instanceof Error&&error.message==='local_tool_live_recovery_not_shareable')){this.autosaveError=String(error);this.cancelTimer();}throw error;}finally{if(this.documentFlight===flight)this.documentFlight=undefined;this.reconcileAutosave();this.changed();}
+ }
+ async retry(field?:string){this.assert();const session=this.session(field);if(this.autosaveError&&[...this.sessions.keys()].every(s=>!s.error))return this.requestSave(field);if(!this.documentSave()){const ok=await session.retry();if(ok){this.autosaveError='';this.changed();}return ok;}if([...this.sessions.keys()].some(s=>s!==session&&!s.shareable))return false;return session.retry(()=>this.requestSave(field));}
+ async flush(field?:string){this.assert();if(!this.documentSave())return this.session(field).flush();do{if(!this.saveReady())return false;if(!await this.requestSave(field))return false;}while(this.dirty());return[...this.sessions.keys()].every(s=>!s.pending);}
+ async control(action:'undo'|'redo'|'save'|'leave'|'retry',field?:string){this.assert();if(action==='leave')return this.leave();if(action==='save'){this.session(field);return this.requestSave(field);}if(action==='retry')return this.retry(field);await this.validate();return this.session(field).reverse(action==='redo');}
+ dispose(){this.schedulerStopped=true;this.scheduleEpoch++;this.exitEpoch++;this.cancelTimer();this.offPreference();this.detach();this.alive=false;liveDocumentHosts.delete(this);for(const entry of this.sessions.values()){entry.offState();entry.offSaved();}this.listeners.clear();this.sessions.clear();}
 }

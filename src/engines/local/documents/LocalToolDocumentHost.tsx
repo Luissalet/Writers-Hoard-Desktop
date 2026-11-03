@@ -1,4 +1,5 @@
 import {LocalDocumentContentHost} from '../liveContent/host';
+import {DocumentSavePreference} from '../liveContent/savePreference';
 import LocalPresenceSurface from '../presence/Surface';
 import {LocalDocumentPresenceHost} from '../presence/host';
 import LocalPresenceShare from '../presence/Share';
@@ -34,6 +35,7 @@ export interface LocalToolDocumentHostProps {projectId:string;eraId?:string;docu
 export default function LocalToolDocumentHost(props:LocalToolDocumentHostProps){return <SourceDocumentSession key={JSON.stringify([props.projectId,props.eraId??null,props.documentId,props.namespace??null,props.view??'editor'])} {...props}/>;}
 function SourceDocumentSession({projectId,eraId,documentId,namespace,view='editor',interactive=false,readOnly=false,chrome=true,retainPresentation=false,showUnavailable=true,allowedNamespaces}:LocalToolDocumentHostProps){
  const {locale}=useTranslation(),es=locale==='es',parent=useEnginePane(),ancestors=useContext(LocalToolHostAncestors),identity=JSON.stringify([projectId,eraId??null,'local-tool',documentId]);
+ const [savePreference]=useState(()=>new DocumentSavePreference());
  const [instanceId]=useState(()=>`source-document-${crypto.randomUUID()}`),[fullscreen,setFullscreen]=useState(false),[busy,setBusy]=useState(false),[blocked,setBlocked]=useState(false),alive=useRef(true);
  useLayoutEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  const record=useLiveQuery(async()=>({read:await readSourceToolDocument({projectId,eraId},documentId,namespace).catch(reason=>{if(reason instanceof Error&&reason.message==='project_missing')return undefined;throw reason;}),project:await db.projects.get(projectId)}),[projectId,eraId,documentId,namespace]);
@@ -72,11 +74,11 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
   const publisher=canEdit?mountedSourceDocuments.createPublisher({projectId,eraId},documentId,documentNamespace,instanceId):undefined;
   const documentFields=publisher?Object.freeze({instanceId,publish:publisher.publish}):undefined;
   const client=createLocalToolClient(projectId,definition,{eraId,documentId,navigate,openBeside:bindingOpenBeside,requireSelectedRelease:true,releaseHash:hash,readOnly:!canEdit,isCurrent:()=>active,capturePublishedFields:publisher?.capture});
-  const content=canEdit?new LocalDocumentContentHost(instanceId,()=>active,client,hash):undefined;
+  const content=canEdit?new LocalDocumentContentHost(instanceId,()=>active,client,hash,savePreference):undefined;
   const presence=canEdit?new LocalDocumentPresenceHost(client,instanceId,()=>active,content):undefined;
   setBinding({client,definition,namespace:documentNamespace,hash,canEdit,navigate,documentFields,presence,content});
   return()=>{active=false;publisher?.dispose();presence?.dispose();content?.dispose();};
- },[projectId,definition,eraId,documentId,navigate,bindingOpenBeside,hash,canEdit,documentNamespace,instanceId]);
+ },[projectId,definition,eraId,documentId,navigate,bindingOpenBeside,hash,canEdit,documentNamespace,instanceId,savePreference]);
  // A navigation-only rebind retains the editor draft while the layout effect issues a new client.
  // Cleanup still permanently revokes the previous emitted client.
  const selectedClient=binding&&binding.definition===definition&&binding.namespace===documentNamespace&&binding.hash===hash&&binding.canEdit===canEdit?binding.client:undefined;

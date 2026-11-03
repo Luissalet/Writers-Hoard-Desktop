@@ -7,5 +7,5 @@ export const LOCAL_LIVE_CONTENT_HANDLERS={
  wh_local_tool_live_query:(args:ToolArgs)=>host(args).query(),
  wh_local_tool_live_rich_capture:(args:ToolArgs)=>host(args).capture(requireString(args,'field'),args.request as LocalToolJson),
  wh_local_tool_live_apply:(args:ToolArgs)=>{if(!Array.isArray(args.actions)||!args.actions.length)throw Error('local_tool_live_actions_required');return host(args).apply(requireString(args,'field'),args.actions as LocalToolStateAction[]);},
- wh_local_tool_live_control:(args:ToolArgs)=>{if(!['undo','redo','save','leave'].includes(String(args.action)))throw Error('local_tool_live_control_invalid');return host(args).control(args.action as 'undo'|'redo'|'save'|'leave',optString(args,'field'));},
+ wh_local_tool_live_control:(args:ToolArgs)=>{if(args.action==='set-save-mode'){if(args.mode!=='manual'&&args.mode!=='automatic')throw Error('local_tool_save_mode_invalid');return host(args).setSaveMode(args.mode);}if(!['undo','redo','save','leave','retry'].includes(String(args.action)))throw Error('local_tool_live_control_invalid');return host(args).control(args.action as 'undo'|'redo'|'save'|'leave'|'retry',optString(args,'field'));},
 };
