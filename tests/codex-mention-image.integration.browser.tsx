@@ -8,6 +8,8 @@ import { deleteProject, exportProjectData, importProjectData } from '@/db/operat
 import { createProjectZipArchive, importProjectZip } from '@/services/zipBackup';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import NoteCard from '@/engines/notes/components/NoteCard';
+import NoteRichEditor from '@/engines/notes/components/NoteRichEditor';
+import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
 import ReadingView from '@/engines/writings/components/ReadingView';
 import { EnginePaneContext } from '@/engines/_shared/EnginePaneContext';
 import { hydrateCodexLinkImages } from '@/services/codexReference/imageReading';
@@ -62,6 +64,23 @@ export async function testCodexMentionImageIntegration():Promise<string[]> {
     await saveWorldEra(P,{id:'past',name:'Past',description:'',revision:0,createdAt:1,updatedAt:1},null);
     const past={projectId:P,eraId:'past'},read=await readWorldDocument(past,'codex',E);assert(read,'Inherited entry exists');
     await hideEraDocument(past,'codex',E,read.version);
+    // Exercise the actual Notes caller, not a directly mounted Tiptap editor.
+    let wrapperWrites=0;
+    const renderNoteWrapper=async(projectId:string,eraId?:string)=>act(async()=>{
+      root.render(<MemoryRouter><EnginePaneContext.Provider value={{instanceId:'note-wrapper-pane',projectId:P,eraId:'past',visible:true}}><NoteRichEditor html={html} projectId={projectId} eraId={eraId} noteId={note.id} onChange={()=>{wrapperWrites++;}}/></EnginePaneContext.Provider></MemoryRouter>);await pause();
+    });
+    const wrapperThumb=()=>host.querySelector<HTMLImageElement>('[data-note-rich-editor] .ProseMirror img[data-wh-codex-thumbnail="true"]');
+    await renderNoteWrapper(P);
+    await until(()=>Boolean(host.querySelector('[data-note-rich-editor] .ProseMirror')),'Real Notes wrapper editor health');
+    assert(Boolean(host.querySelector('[data-codex-block-controls]')),'Real Notes wrapper must expose reference controls');
+    await until(()=>wrapperThumb()?.getAttribute('src')===A,'Explicit Base in Notes must show its admitted avatar despite an era pane');
+    await renderNoteWrapper(P,'past');await act(async()=>{await pause();await pause();});
+    assert(!wrapperThumb(),'Notes era with a hidden entry must not use its Base avatar');
+    await renderNoteWrapper(P);await until(()=>wrapperThumb()?.getAttribute('src')===A,'Notes Base return restores only the derived avatar');
+    await renderNoteWrapper(GLOBAL_NOTES_SCOPE);await act(async()=>{await pause();await pause();});
+    assert(!wrapperThumb()&&!host.querySelector('[data-codex-block-controls]'),'Inbox has no local project references even inside a project era pane');
+    assert(wrapperWrites===0&&(await db.notes.get(note.id))?.richHtml===html,'Notes context changes must not emit/persist the derived projection');
+    passed.push('Real NoteRichEditor caller passes explicit Base/era/owner, preserves Inbox isolation and projects avatars without prose writes');
     await act(async()=>{root.render(<MemoryRouter><EnginePaneContext.Provider value={{instanceId:'past-pane',projectId:P,eraId:'past',visible:true}}><NoteCard note={note} onUpdate={()=>{throw Error('No repair writes');}} onDelete={()=>{}}/></EnginePaneContext.Provider></MemoryRouter>);await pause();});
     await act(async()=>{await pause();await pause();});
     assert(!thumb(host),'Hidden era entry must not fall back to Base avatar');

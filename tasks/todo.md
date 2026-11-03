@@ -2191,3 +2191,10 @@ Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se rep
 - [x] Passive-preview follow-up40c2400a approved at revision2 and integrated Main/primary; Root BraveR6 preserves exact HTML/IDs without development warnings. The fixed-grid milestone is delivered; two-libraryR5 remains partial and the broader parity ledger stays open.
 
 Variable axes, cell merge/split, shared images and adoption of old origins remain open. Coordination: writers2178; contract: decision2184. Local checkpoint and composition are authorized; Root coordinates formal submission and Main integration. No push.
+
+
+## 2028 - Notes caller correction after real Brave RED
+
+- [x] Fix a permanent oracle on the real NoteRichEditor wrapper before implementation: explicit Base despite an era pane, hidden era, Base return and Inbox isolation, no prose writes.
+- [x] Preserve the first RED, pass project/era/owner context through the existing editor, then run the unchanged area plus wrapper case.
+- [x] Freeze a new cut, run quick/build once with guards and commit explicit paths; Root repeats Brave and accepts a freshly authorized Native preparation.
