@@ -1,5 +1,11 @@
 # Writers Hoard — Desktop
 
+## Local document content sharing
+
+Source `48ba665b` is integrated after approval in submission1. **Share document content too** before Create/Join exchanges every field through the existing rich editors and author Undo; people and cursors remain the default. **Save to this library** writes only here. **Leave without saving here** reconciles an existing Save and reloads this library's current Source while other views retain their shared draft.
+
+Author Source/UI controls, the independent53+3 review, Root's real Brave checks and a new two-key Native run passed with separate evidence. Native made58tool calls/66RPC/58IPC across two processes, including cold reopening without an editor. Final quick/build also passed. Main integration, the Google manual and continuity updates are complete; autosave1952, hosting, performance1917, physical IME and the other parity gaps remain open. [Acceptance and limits](tasks/vvd1095/verification-live-content1913.md).
+
 ## Integrated shared blocks and explicit draft fields
 
 Undoing a container now preserves another author's active paragraphs, text identities and marks. Only the causal structure needed to represent those contributions remains; explicit hiding and independent Undo are respected. Save, Redo and cold reopening use the same writer. [Structural Undo and verification](tasks/vvd1095/verification-undo-support1932.md).
