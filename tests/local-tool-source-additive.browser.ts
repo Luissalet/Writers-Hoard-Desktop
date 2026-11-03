@@ -82,6 +82,12 @@ async function scenario(promote:boolean){
    race={id,policyId,view,latest};
    await reject('strict V2 release without opt-in cannot pin',()=>pinLocalToolRelease(projectId,namespace,v2Unopted.contentHash,pin1.revision));
    await reject('unopted Source writer cannot reset the existing causal origin',()=>createLocalToolClient(projectId,unopted,{documentId:id}).convergence!.start(latest));
+   const legacyEra=await saveWorldEra(projectId,{id:'legacy-additive-era',name:'Own V1 era',description:'',revision:0,createdAt:1,updatedAt:1},null);
+   const legacyScope={projectId,eraId:legacyEra.id},legacyView=(await readWorldDocument(legacyScope,'local-tool',id))!;
+   const variant=structuredClone(legacyView.document);
+   variant.root.data={name:'V1 era edit'};
+   const saved=await saveEraDocument(legacyScope,'local-tool',variant,legacyView.version);
+   equal('generic Era replacement works under the selected V1 even with V2 installed',[saved.provenance,saved.document.root.data,(await writer.read()).data],['variant',{name:'V1 era edit'},{name:'Last V1 Ω'}]);
   }
   const read=()=>readSourceToolDocument(scope,documentId,namespace);
   const history=async()=>JSON.stringify(await db.documentHistory.where('projectId').equals(projectId).toArray(),(_key,value)=>value===undefined?{testUndefined:true}:value);

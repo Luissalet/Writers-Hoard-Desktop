@@ -7,7 +7,7 @@ import {convergenceCanonical,convergenceHash,validateLocalToolConvergenceUpdate}
 import {createLocalToolGenesis,prepareLocalToolAdoption,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,prepareSourceAdditiveCheckpoint,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
-import {isSourceAdditivePredecessor} from './additive';
+import {isSourceAdditivePredecessor} from './additiveOrigin';
 export type {SourceConvergenceOptions} from './store';
 export interface SourceConvergenceReadOptions {stateVectorBase64?:string}
 interface StoredPlan {
@@ -34,7 +34,7 @@ export function startSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
  return db.transaction('rw',db.tables,async()=>{
   const plan=await transformSourceToolDocument<StoredPlan>(scope,id,read=>{
    const actual=source(read,id,definition.namespace);baseline(actual,value,id,definition.namespace,true);
-   if(isSourceAdditivePredecessor(actual.document,definition)){
+   if(isSourceAdditivePredecessor(actual.document,definition.sourceAdditive?.from)){
     const checkpoint=actual.document.convergence?.checkpoint;
     if(!checkpoint)throw Error('local_tool_source_additive_write_unavailable');
     sourceToolSnapshot(actual,definition);
@@ -65,7 +65,7 @@ async function prepare<T extends LocalToolJson>(scope:WorldEraScope,id:string,de
    const actual=source(read,id,definition.namespace),inherited=!!scope.eraId&&actual.provenance==='base';
    guard(actual,inherited); // CAS/lineage is checked before any new branch or epoch is prepared.
    const addition=definition.sourceAdditive;
-   if(promote&&addition&&isSourceAdditivePredecessor(actual.document,definition)){
+   if(promote&&addition&&isSourceAdditivePredecessor(actual.document,addition.from)){
     const original=actual.document.convergence;
     if(inherited||!original||original.conflict)throw Error('local_tool_source_additive_incompatible');
     const contract=sourceConvergenceContract(actual.document,definition,options,false,true);
