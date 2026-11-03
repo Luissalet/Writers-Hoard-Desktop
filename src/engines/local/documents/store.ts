@@ -12,6 +12,7 @@ import {cloneLocalToolJson,LocalToolStateError,type LocalToolJson} from '../stat
 import {validateLocalToolCodecState} from '../stateCodec';
 import {validateSourceToolDocument,type SourceToolDocument} from './types';
 import {forkSourceToolDocument} from './portability';
+import {parseSourceToolDocumentState} from './additive';
 import type {LocalToolConvergenceContract} from '../convergence/types';
 import {assertTableAxesOrigin,convergenceCodecHash,convergenceHash,convergenceIdentityOf,validateConvergenceMetadata} from '../convergence/format';
 import {effectiveRichAdoptionContract} from '../convergence/richAdoption';
@@ -61,6 +62,7 @@ async function mutate(scope:WorldEraScope,id:string,expected:number|null,expecte
 export interface SourceConvergenceOptions {authorId:string;validationId:string;schemaEpoch:string;/** Host-only local flag; not a commit notification. */onPrepared?:(causalChanged:boolean)=>void}
 /** Current executable validation comes from the selected host, never old persisted metadata. */
 export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false):LocalToolConvergenceContract<T>{
+ if(definition.sourceAdditive)throw Error('local_tool_source_additive_write_unavailable');
  const codec=definition.codec??document.codec;if(!codec)throw Error('local_tool_convergence_codec_required');
  assertTableAxesOrigin(codec,document.codec,document.convergence?.checkpoint.engine.version);
  const contract={namespace:definition.namespace,codec,validationId:options.validationId,schemaEpoch:options.schemaEpoch,validateState:definition.validateState,...(definition.richAdoption?{richAdoption:definition.richAdoption}:{})};
@@ -88,12 +90,13 @@ export async function archiveSourceToolDocument(scope:WorldEraScope,id:string,na
 /** Export may copy its already-admitted old-epoch view without executing a newly pinned validator. */
 export function sourceToolSnapshot<T extends LocalToolJson>(read:SourceToolRead,definition:LocalToolDefinition<T>,validate=true):LocalToolSnapshot<T>{
  const document=read.document,convergence=document.convergence;
- return{revision:document.revision,updatedAt:document.updatedAt,data:validate?parseLocalToolState(definition,document.data):cloneLocalToolJson(document.data) as T,provenance:read.provenance,document:{id:document.id,namespace:definition.namespace,title:document.title,version:read.version,lineage:read.lineage},...(convergence?{convergence:{...convergenceIdentityOf(convergence.checkpoint),...(convergence.conflict?{conflict:structuredClone(convergence.conflict)}:{})}}:{})};
+ return{revision:document.revision,updatedAt:document.updatedAt,data:validate?parseSourceToolDocumentState(definition,document):cloneLocalToolJson(document.data) as T,provenance:read.provenance,document:{id:document.id,namespace:definition.namespace,title:document.title,version:read.version,lineage:read.lineage},...(convergence?{convergence:{...convergenceIdentityOf(convergence.checkpoint),...(convergence.conflict?{conflict:structuredClone(convergence.conflict)}:{})}}:{})};
 }
 export async function readSourceToolState<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>):Promise<LocalToolSnapshot<T>>{
  const read=await readSourceToolDocument(scope,id,definition.namespace);if(!read)throw Error('source_tool_document_missing');return sourceToolSnapshot(read,definition);
 }
 export async function saveSourceToolState<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,data:T,expected:number|null,expectedVersion?:string,convergenceOptions?:SourceConvergenceOptions):Promise<LocalToolSnapshot<T>>{
+ if(definition.sourceAdditive)throw Error('local_tool_source_additive_write_unavailable');
  const safe=parseLocalToolState(definition,data);if(!expectedVersion)throw Error('source_tool_document_version_required');
  return db.transaction('rw',db.tables,async()=>{
   await transformSourceToolDocument(scope,id,read=>{
