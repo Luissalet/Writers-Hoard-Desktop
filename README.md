@@ -1,10 +1,16 @@
 # Writers Hoard — Desktop
 
+## Links in existing shared documents
+
+An updated local tool can explicitly offer **Enable links** for its known older rich-text contract. It preserves the document, text, formatting and author Undo. The same shared room continues, including views that join later; Manual mode writes only through **Save to this library**, and leaving without saving reloads that library while other views retain their work. Optional Automatic saving keeps its existing behavior.
+
+Source `624474ba06e2903293e6d6a4814cf07eec31cf0c` is approved at writers1958/revision2 and integrated locally without push. SDK and MCP use the same writer. [Author API](docs/local-tool-sdk.md#explicit-adoption-of-an-existing-engine3-rich-history) · [verification and limits](tasks/vvd1095/verification-rich-links1958.md#existing-shared-histories). Images/tables in this shared profile, extensible persisted schemas, physical IME, large-history responsiveness and hosting remain open. Earlier delivery notes below retain their historical scope.
+
 ## Shared rich-text performance
 
 R5 and source `ca7c553f` reduce repeated work while preserving author Undo, marks, identities and the existing Save flow. The latest original100-gesture/10k test measured321ms mean and367ms p95, compared with the historical511/594ms. This remains a partial improvement; large histories still need work before accepting interactive performance.
 
-The R6 version passed area checks, a new two-key MCP/cold reopening run and real Brave editing. [Evidence and limits](tasks/vvd1095/verification-rich-performance1917.md). Autosave, physical IME, hosting and overall parity remain open.
+The R6 version passed area checks, a new two-key MCP/cold reopening run and real Brave editing. [Evidence and limits](tasks/vvd1095/verification-rich-performance1917.md). Optional autosave is delivered separately; physical IME, hosting and overall parity remain open.
 
 
 ## Local document content sharing
@@ -946,4 +952,4 @@ A Save confirms only its captured cut: later edits remain pending. Switching to 
 
 Local tools can opt into causal links in paragraph or block fields. The normal editor adds Link with its current address, Apply, Remove and Cancel; author Undo/Redo, Manual/Automatic saving and local content sharing use the existing Source writer. The installed Linked notebook demonstrates two compatible fields and one legacy field. The HTML editor keeps its existing behavior.
 
-Source `93e1766088185d209110af5f9f7b8b94bc687109` is approved at writers1958/revision1 and integrated locally without push. This covers new native4/profile2 documents. Adopting existing shared histories, images/tables in this profile, physical IME, large-history responsiveness and the remaining parity work stay open. [API](docs/local-tool-sdk.md#causal-links-in-new-shared-documents-profile2) · [verification and scope](tasks/vvd1095/verification-rich-links1958.md).
+Source `93e1766088185d209110af5f9f7b8b94bc687109` is approved at writers1958/revision1 and integrated locally without push. That first milestone covers new native4/profile2 documents; the subsequent existing-history adoption is documented above. Images/tables in this profile, physical IME, large-history responsiveness and the remaining parity work stay open. [API](docs/local-tool-sdk.md#causal-links-in-new-shared-documents-profile2) · [verification and scope](tasks/vvd1095/verification-rich-links1958.md).

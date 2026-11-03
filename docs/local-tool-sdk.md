@@ -1130,7 +1130,7 @@ New Native acceptance uses the original shipping definition/client/context:115to
 
 This acceptance covers NEW native4/profile2 origins only. No adoption declaration, transfer of old-client authority, mixed3/4 room promotion or generic migration is implemented by this increment. The separately agreed adoption milestone remains open; earlier first-cut pending notes are historical preparation, not an additional unperformed acceptance.
 
-## Explicit adoption of an existing engine3 rich history (review cut)
+## Explicit adoption of an existing engine3 rich history
 
 A current definition may declare `richAdoption:{transition:'rich-links-3-to-4/1',from:{namespace,codec,validationId,schemaEpoch}}`. `from` is the exact recorded old metadata, including its literal codec; it is not inferred from a function name or another document. The known pair changes eligible paragraph/tree profile1 fields to profile2 while leaving every other field descriptor unchanged. The current validator still runs. This is a document-specific adoption capability, not a general identity alias or an automatic schema reset.
 
@@ -1153,7 +1153,7 @@ A synchronous SDK `replica.receive(original)` can report `local_tool_rich_adopti
 
 The local relay promotes the **same** room with its accumulated bytes, members and message identities. A later join treats the invite as a locator: it verifies full history, D and the current declared pair before membership and binding. Source3/active4 liveness uses that local proof; it does not relabel an original3 envelope or confirm Source. Opening a same-lineage copy from an invite is not admission. Selection, stored formatting, focus and local folded toggles are carried only across the same owner's schema transition. Conservative project transfer retains history; identity-remapping import remains a fork.
 
-This second milestone is a review cut. Independent acceptance, final browser/Native MCP checks and integration are tracked separately in [the1958 verification record](../tasks/vvd1095/verification-rich-links1958.md); the first milestone's accepted evidence is not reused as adoption evidence.
+This second milestone is integrated in Source `624474ba06e2903293e6d6a4814cf07eec31cf0c`, approved at writers1958/revision2. [The verification record](../tasks/vvd1095/verification-rich-links1958.md#existing-shared-histories) separates independent recovery/Source-owner and real-room tests, Root Brave Save/Leave/cold checks, and the Native run's successful adoption phase from its later readonly setup failure. First-milestone evidence is not relabelled as adoption evidence.
 
 The optional `full` argument of the explicit durable `adopt` must already be an engine4 update. Supplying a healthy engine3 export rejects atomically with `local_tool_rich_adoption_invalid`; use ordinary `import` for engine3 contributions. The operation never reports a successful adoption while leaving its result at3.
 
