@@ -3,14 +3,16 @@ import { listWikiAddresses, serveWikiEdition, withdrawWikiAddress } from '@/serv
 import { WIKI_HOST_SLUG, type WikiHostAddress, type WikiHostAudience } from '@/services/wikiProfiles/hostingTypes';
 import type { WikiProfile } from '@/services/wikiProfiles/types';
 
-export default function WikiHostingPanel({ projectId, profile, locale, control, button }: {
-  projectId: string;
+export default function WikiHostingPanel({ projectId, profile, projectTitles, locale, control, button }: {
+  projectId?: string;
   profile?: WikiProfile;
+  projectTitles?: Readonly<Record<string, string>>;
   locale: 'es' | 'en';
   control: string;
   button: string;
 }) {
   const es = locale === 'es';
+  const library = projectId === undefined;
   const [addresses, setAddresses] = useState<WikiHostAddress[]>();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
@@ -47,12 +49,16 @@ export default function WikiHostingPanel({ projectId, profile, locale, control, 
   }
 
   return <details className="border-t border-border pt-4" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary className="cursor-pointer font-display text-lg">{es ? 'Enlaces de la wiki' : 'Wiki links'}</summary>
+    <summary className="cursor-pointer font-display text-lg">{library
+      ? (es ? 'Enlaces de wiki publicados' : 'Published wiki links')
+      : (es ? 'Enlaces de la wiki' : 'Wiki links')}</summary>
     <div className="mt-3 space-y-3">
-    <p className="text-sm text-text-muted">{es
+    <p className="text-sm text-text-muted">{library
+      ? (es ? 'Puedes retirar enlaces aunque su proyecto ya no esté en tu biblioteca.' : 'You can withdraw links even when their project is no longer in your library.')
+      : es
       ? 'El enlace muestra la edición elegida. Los cambios del mundo no aparecen hasta que publiques otra edición en esa dirección.'
       : 'The link shows the selected edition. World changes appear only when you publish another edition to that address.'}</p>
-    {profile && selected && <form className="flex flex-wrap items-end gap-3" onSubmit={event => {
+    {projectId && profile && selected && <form className="flex flex-wrap items-end gap-3" onSubmit={event => {
       event.preventDefault();
       if (addresses && (!existing || existing.profileId === profile.id)) {
         void update(() => serveWikiEdition({ projectId, profileId: profile.id, slug, editionId: selected.id, audience, expectedRevision: existing?.revision ?? 0 }));
@@ -78,16 +84,18 @@ export default function WikiHostingPanel({ projectId, profile, locale, control, 
     </form>}
     {!!addresses?.length && <ul className="space-y-2">
       {addresses.map(address => <li key={address.slug} className="flex flex-wrap items-center gap-2 text-sm">
+        {library && <span className="text-text-muted">{projectTitles?.[address.projectId] ?? (es ? 'Proyecto fuera de la biblioteca' : 'Project outside the library')}</span>}
         {address.url ? <a className="break-all underline" href={address.url} target="_blank" rel="noreferrer">{address.url}</a>
           : <span>{address.slug} · {es ? 'Retirado' : 'Withdrawn'}</span>}
         {profile?.id === address.profileId && <button type="button" className={button} disabled={busy} onClick={() => {
           setSlug(address.slug); setAudience(address.audience); setEditionId(address.editionId);
         }}>{es ? 'Usar esta ruta' : 'Use this path'}</button>}
         {address.active && <button type="button" className={button} disabled={busy} onClick={() => {
-          void update(() => withdrawWikiAddress({ projectId, profileId: address.profileId, slug: address.slug, expectedRevision: address.revision }));
+          void update(() => withdrawWikiAddress({ projectId: address.projectId, profileId: address.profileId, slug: address.slug, expectedRevision: address.revision }));
         }}>{es ? 'Retirar enlace' : 'Withdraw link'}</button>}
       </li>)}
     </ul>}
+    {addresses?.length === 0 && library && <p className="text-sm text-text-muted">{es ? 'Todavía no hay enlaces publicados.' : 'There are no published links yet.'}</p>}
     {error && <div className="flex flex-wrap items-center gap-3">
       <p role="alert" className="text-sm text-danger">{error === 'wiki_host_conflict'
         ? (es ? 'La dirección ya está en uso o ha cambiado. Actualiza la lista.' : 'The address is in use or has changed. Refresh the list.')

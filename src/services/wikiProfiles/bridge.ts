@@ -17,11 +17,17 @@ export const WIKI_PROFILE_HANDLERS={
  wh_wiki_profile_changes:(args:ToolArgs)=>wikiProfileChanges(resolveProjectId(args),requireString(args,'profileId')),
  wh_wiki_edition_read:(args:ToolArgs)=>getWikiEdition(resolveProjectId(args),requireString(args,'profileId'),requireString(args,'editionId')),
  wh_wiki_profile_restore_config:async(args:ToolArgs)=>restoreWikiConfiguration(await resolveProjectForEngine(args,'codex'),requireString(args,'profileId'),requireString(args,'editionId'),revision(args)!),
- wh_wiki_host_list:async(args:ToolArgs)=>({ addresses: await listWikiAddresses({ projectId:resolveProjectId(args),profileId:args.profileId===undefined?undefined:requireString(args,'profileId') }) }),
+ async wh_wiki_host_list(args:ToolArgs){
+   if(args.allProjects===true){
+     if(args.projectId!==undefined || args.profileId!==undefined) throw Error('wiki_host_owner_invalid');
+     return {addresses:await listWikiAddresses({})};
+   }
+   return {addresses:await listWikiAddresses({projectId:resolveProjectId(args),profileId:args.profileId===undefined?undefined:requireString(args,'profileId')})};
+ },
  async wh_wiki_host_publish(args:ToolArgs){
    const audience = args.audience;
    if(audience!=='public' && audience!=='unlisted') throw Error('wiki_host_audience_invalid');
    return serveWikiEdition({projectId:await resolveProjectForEngine(args,'codex'),profileId:requireString(args,'profileId'),editionId:requireString(args,'editionId'),slug:requireString(args,'slug'),audience,expectedRevision:revision(args)!});
  },
- wh_wiki_host_withdraw:async(args:ToolArgs)=>withdrawWikiAddress({projectId:await resolveProjectForEngine(args,'codex'),profileId:requireString(args,'profileId'),slug:requireString(args,'slug'),expectedRevision:revision(args)!}),
+ wh_wiki_host_withdraw:(args:ToolArgs)=>withdrawWikiAddress({projectId:resolveProjectId(args),profileId:requireString(args,'profileId'),slug:requireString(args,'slug'),expectedRevision:revision(args)!}),
 };

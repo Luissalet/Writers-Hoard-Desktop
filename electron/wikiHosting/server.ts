@@ -126,8 +126,11 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
       if (store().prepare('SELECT 1 FROM wiki_addresses LIMIT 1').get()) await start();
     },
     list(owner: WikiHostListScope) {
-      if (!isId(owner.projectId) || (owner.profileId !== undefined && !isId(owner.profileId))) throw Error('wiki_host_owner_invalid');
-      const rows = store().prepare('SELECT slug, projectId, profileId, editionId, audience, sha256, revision, active, token FROM wiki_addresses WHERE projectId=? AND (? IS NULL OR profileId=?) ORDER BY slug').all(owner.projectId, owner.profileId ?? null, owner.profileId ?? null);
+      if ((owner.projectId !== undefined && !isId(owner.projectId)) ||
+        (owner.profileId !== undefined && (!isId(owner.profileId) || owner.projectId === undefined))) throw Error('wiki_host_owner_invalid');
+      const project = owner.projectId ?? null;
+      const profile = owner.profileId ?? null;
+      const rows = store().prepare('SELECT slug, projectId, profileId, editionId, audience, sha256, revision, active, token FROM wiki_addresses WHERE (? IS NULL OR projectId=?) AND (? IS NULL OR profileId=?) ORDER BY slug').all(project, project, profile, profile);
       return (rows as Omit<Row, 'html'>[]).map(summary);
     },
     async publish(input: WikiHostPublication) {

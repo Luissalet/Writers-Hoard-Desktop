@@ -108,6 +108,20 @@ test('management stays on the Writer origin and the reader never serves applicat
     assert.equal((await published.json() as unknown[]).length, 1);
     const foreign = await post('list', { projectId: 'foreign' }, origin);
     assert.deepEqual(await foreign.json(), []);
+
+    const second = await post('publish', { ...input, projectId: 'project-b', slug: 'second-world' }, origin);
+    assert.equal(second.status, 200);
+    const secondRow = await second.json() as { url: string };
+    const library = await post('list', {}, origin);
+    assert.equal(library.status, 200, 'The library must find published links without an open project');
+    const addresses = await library.json() as { slug: string; projectId: string; profileId: string; revision: number }[];
+    assert.deepEqual(addresses.map(address => address.projectId), ['project-a', 'project-b']);
+    const [firstAddress] = addresses;
+    const withdraw = { ...firstAddress, expectedRevision: firstAddress.revision };
+    assert.equal((await post('withdraw', { ...withdraw, projectId: 'project-b' }, origin)).status, 409);
+    assert.equal((await post('withdraw', withdraw, origin)).status, 200);
+    assert.equal((await request(row.url)).status, 404);
+    assert.equal(await (await request(secondRow.url)).text(), htmlA);
   } finally {
     await new Promise<void>(resolve => editor.close(() => resolve()));
     await host.close();
