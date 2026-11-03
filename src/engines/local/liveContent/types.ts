@@ -14,6 +14,6 @@ export interface LocalToolDocumentContent {
  capture(field:string,request:LocalToolJson):Promise<LocalToolJson>;
  apply(field:string,actions:readonly LocalToolStateAction[]):Promise<boolean>;
  setSaveMode(mode:LocalToolSaveMode):Promise<void>;
- control(action:'undo'|'redo'|'save'|'leave'|'retry',field?:string):Promise<boolean>;
+ control(action:'undo'|'redo'|'save'|'leave'|'retry'|'adopt',field?:string):Promise<boolean>;
 }
-export interface ContentNetwork {roomId?:string;send(update:LocalToolConvergenceUpdate,messageId:string):Promise<void>;retire?():void;leave():Promise<void>}
+export interface ContentNetwork {roomId?:string;identity?:LocalToolConvergenceIdentity;send(update:LocalToolConvergenceUpdate,messageId:string):Promise<void>;requestFull?(requestId:string):Promise<LocalToolConvergenceUpdate|undefined>;retire?():void;leave():Promise<void>}

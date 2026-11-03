@@ -5,6 +5,7 @@ import type {LocalToolConvergenceIdentity,LocalToolConvergenceCheckpoint,LocalTo
 /** Small read descriptor; complete causal bytes are available through explicit export. */
 export type LocalToolConvergenceSnapshot=LocalToolConvergenceIdentity&{conflict?:LocalToolValidationConflict};
 export interface LocalToolConvergenceImportOptions {expectedLineage?:string}
+export interface LocalToolAdoptionReceiptSuccessor {previous:string;successor:string}
 export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
  richBlockEmptyItemCapture(field:string,nodeId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockExit').RichBlockEmptyItemCapture}>;
  richBlockSplitCapture(field:string,nodeId:string,at:number):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./blockText').RichBlockSplitCapture}>;
@@ -18,6 +19,7 @@ export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
  richJoinCapture(field:string,leftNodeId:string,rightNodeId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:RichJoinCapture}>;
  textRange(field:string,from:number,to:number):Promise<{snapshot:LocalToolSnapshot<T>;range:LocalToolPlainRange}>;
  start(baseline:LocalToolSnapshot<T>):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint;changed:boolean}>;
+ adopt(baseline:LocalToolSnapshot<T>,full?:LocalToolConvergenceUpdate):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint;changed:boolean;pending:boolean;receipts?:LocalToolAdoptionReceiptSuccessor[]}>;
  export(options?:{stateVectorBase64?:string}):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint|null;update:LocalToolConvergenceUpdate|null;pending:boolean}>;
- import(update:LocalToolConvergenceUpdate,options?:LocalToolConvergenceImportOptions):Promise<{snapshot:LocalToolSnapshot<T>;changed:boolean;causalChanged:boolean;pending:boolean}>;
+ import(update:LocalToolConvergenceUpdate,options?:LocalToolConvergenceImportOptions):Promise<{snapshot:LocalToolSnapshot<T>;changed:boolean;causalChanged:boolean;pending:boolean;receipts?:LocalToolAdoptionReceiptSuccessor[]}>;
 }

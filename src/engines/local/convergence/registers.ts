@@ -1,32 +1,13 @@
+import type {CausalTransaction,RegisterVersion,RegisterActivation,Toggle} from './formatTypes';
+export type {CausalTransaction,RegisterVersion,RegisterActivation,Toggle} from './formatTypes';
+import {JsonMap} from './json';
+export {JsonMap,JsonArray} from './json';
 import * as Y from 'yjs';
 import type {LocalToolJson} from '../stateTypes';
 import {localToolStateEqual} from '../stateActions';
 import {convergenceCanonical,convergenceClone} from './format';
 const clone=<T>(value:T):T=>convergenceClone(value);
 
-/** JSON text protects opaque UTF-16 strings from the engine's UTF-8 Any encoding. */
-export class JsonMap<T>{
- constructor(inner:Y.Map<string>){this.inner=inner;}
- readonly inner:Y.Map<string>;
- get(key:string):T|undefined{const text=this.inner.get(key);if(text===undefined)return undefined;if(typeof text!=='string')throw Error('local_tool_convergence_json_invalid');return JSON.parse(text) as T;}
- has(key:string){return this.inner.has(key);}
- set(key:string,value:T){this.inner.set(key,JSON.stringify(value));}
- keys(){return this.inner.keys();}
- *values():IterableIterator<T>{for(const key of this.keys())yield this.get(key)!;}
- *[Symbol.iterator]():IterableIterator<[string,T]>{for(const key of this.keys())yield[key,this.get(key)!];}
- observe(callback:()=>void){this.inner.observe(callback);}
-}
-export class JsonArray<T>{
- constructor(inner:Y.Array<string>){this.inner=inner;}
- readonly inner:Y.Array<string>;
- toArray():T[]{return this.inner.toArray().map(text=>{if(typeof text!=='string')throw Error('local_tool_convergence_json_invalid');return JSON.parse(text) as T;});}
- insert(index:number,values:T[]){this.inner.insert(index,values.map(value=>JSON.stringify(value)));}
- push(values:T[]){this.inner.push(values.map(value=>JSON.stringify(value)));}
-}
-export interface CausalTransaction {id:string;parents:string[]}
-export interface RegisterVersion {id:string;root:string;key:string;present:boolean;value:LocalToolJson;txId:string}
-export interface RegisterActivation {id:string;versionId:string;enabled:boolean;txId:string}
-export interface Toggle {id:string;enabled:boolean}
 export class Registers {
  readonly transactions:JsonMap<CausalTransaction>;
  readonly versions:JsonMap<RegisterVersion>;

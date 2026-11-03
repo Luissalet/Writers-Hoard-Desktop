@@ -1129,3 +1129,32 @@ Source `93e1766088185d209110af5f9f7b8b94bc687109` is approved exactly at writers
 New Native acceptance uses the original shipping definition/client/context:115tools/123RPC/115IPC, four genuine keys/four stdio, public durable apply plus live apply, field1/batch negatives, per-field Manual Save and Auto link/Unicode insertion. Another Electron in the same actual profile/origin reads the exact saved data/IDs before mounting; a new instance remembers Auto. Final89tables/150own-index queries are empty, all keys revoked and processes closed. Keys control one author; the legacy3 control is an explicitly declared headless QA definition, not an installed example. [Evidence and limitations](../tasks/vvd1095/verification-rich-links1958.md).
 
 This acceptance covers NEW native4/profile2 origins only. No adoption declaration, transfer of old-client authority, mixed3/4 room promotion or generic migration is implemented by this increment. The separately agreed adoption milestone remains open; earlier first-cut pending notes are historical preparation, not an additional unperformed acceptance.
+
+## Explicit adoption of an existing engine3 rich history (review cut)
+
+A current definition may declare `richAdoption:{transition:'rich-links-3-to-4/1',from:{namespace,codec,validationId,schemaEpoch}}`. `from` is the exact recorded old metadata, including its literal codec; it is not inferred from a function name or another document. The known pair changes eligible paragraph/tree profile1 fields to profile2 while leaving every other field descriptor unchanged. The current validator still runs. This is a document-specific adoption capability, not a general identity alias or an automatic schema reset.
+
+While durable Source remains3, read, capture, export, start and a normal editor mount retain3 and write nothing. The editor offers **Enable links** as an explicit live intention; `context.documentContent.control('adopt',field)` and `wh_local_tool_live_control action:'adopt'` use that same path. The coordinator seeds every mounted field before and after adoption. The draft becomes4 with its original3 origin plus an append-only declaration D; Manual Source is still3 until Save. Native4 documents keep their native origin and need no artificial D. A field kept at profile1 remains strict even in an engine4 document.
+
+For an explicit durable adoption, use the exact observed Source snapshot:
+
+```ts
+const observed = await client.read();
+const adopted = await client.convergence!.adopt(observed);
+// Optional second argument: a complete adopted draft H captured once beforehand.
+// H and the baseline are copied synchronously before storage awaits.
+```
+
+`wh_local_tool_convergence_adopt` exposes the durable operation with the same baseline and optional `full`. It uses the existing Source RW/CAS writer, document, lineage and genesis. A stale baseline rejects without resetting history. Save captures FULL H before busy/change callbacks when Source still3; a later J is not covered by ACK H and remains pending for the next write. Normal import also captures the supplied envelope before its first await. Neither API substitutes a newer export for a retained H.
+
+`adopt` and `import` may return `receipts:[{previous,successor}]` for existing receipts owned by that exact live `client.state` port. The successor is usable only after the outer transaction completes; inside a caller-owned RW, returning from the nested method is not completion. On commit the previous handle retires. On abort the old handle survives and the proposed successor never becomes usable. Another pane, a new cold client, a JSON recipe or a revoked lease receives no authority. Keep the returned mapping in the live owner; do not persist it as document state. Existing core editor owner receipts survive its in-place adoption independently of this Source-port mapping.
+
+A synchronous SDK `replica.receive(original)` can report `local_tool_rich_adoption_dependency_missing` or `local_tool_rich_legacy_dependency_missing`. Preserve the ORIGINAL packet. Obtain a complete update from its live emitter, receive that full, then retry the unchanged original. A known contradiction is rejected rather than hidden by a missing parent; ordinary integrated pending and current-policy conflicts remain separate. The document host retains all deferred originals per session/epoch and coalesces repair requests. Leave/retarget retire only that instance's continuations.
+
+The local relay promotes the **same** room with its accumulated bytes, members and message identities. A later join treats the invite as a locator: it verifies full history, D and the current declared pair before membership and binding. Source3/active4 liveness uses that local proof; it does not relabel an original3 envelope or confirm Source. Opening a same-lineage copy from an invite is not admission. Selection, stored formatting, focus and local folded toggles are carried only across the same owner's schema transition. Conservative project transfer retains history; identity-remapping import remains a fork.
+
+This second milestone is a review cut. Independent acceptance, final browser/Native MCP checks and integration are tracked separately in [the1958 verification record](../tasks/vvd1095/verification-rich-links1958.md); the first milestone's accepted evidence is not reused as adoption evidence.
+
+The optional `full` argument of the explicit durable `adopt` must already be an engine4 update. Supplying a healthy engine3 export rejects atomically with `local_tool_rich_adoption_invalid`; use ordinary `import` for engine3 contributions. The operation never reports a successful adoption while leaving its result at3.
+
+Recuperación del segundo hito: el host conserva una única solicitud documental mientras otra Session aún tiene originales sin clasificar por composición. La comparación de identidad entre candidatos usa identidad frente identidad, nunca frente el paquete completo. La verificación SDK transitoria siempre valida formato, D y política actual; sólo el join nuevo exige además completitud antes de membresía. Recepción viva/identidad/liveness pueden retener pending ordinario o conflicto normal y mantienen el borrador sin publicar/guardar mientras sea incompleto. Regresiones Source/coordinador directas:25 de recuperación con IDs/tail,23 de pending legítimo y join estricto,22 de Source4 guardada por otro cliente mientras local sigue pending. Sus RED y controles SDK se conservan; no son pruebas SSE/Native ni aceptación independiente.

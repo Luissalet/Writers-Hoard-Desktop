@@ -24,11 +24,11 @@ export interface BlockBookmark {anchor:RichRange|null;head:RichRange|null}
 export function blockBookmark(session:RichEditorSession,doc:PMNode,anchor:number,head:number):BlockBookmark {
  const capture=(pos:number)=>{const leaves=blockPMLeaves(doc),n=leaves.find(n=>pos>=n.pos+1&&pos<=n.pos+1+n.node.content.size);return n?.id?session.replica.richRange(session.field,n.id,pos-n.pos-1,pos-n.pos-1):null;};return{anchor:capture(anchor),head:capture(head)};
 }
-export function projectBlockView(session:RichEditorSession,tr:Transaction,bookmark:BlockBookmark):Transaction {
+export function projectBlockView(session:RichEditorSession,tr:Transaction,bookmark:BlockBookmark,restoreSelection=false):Transaction {
  const target=blockPMDocument(tr.doc.type.schema,session.blockDocument()),from=tr.doc.content.findDiffStart(target.content),oldAnchor=tr.selection.anchor,oldHead=tr.selection.head,stored=tr.storedMarks;
  if(from!==null){const end=tr.doc.content.findDiffEnd(target.content);if(!end)throw Error('local_tool_blocks_projection_invalid');const overlap=from-Math.min(end.a,end.b);tr.replace(from,end.a+Math.max(0,overlap),target.slice(from,end.b+Math.max(0,overlap)));}
  const resolve=(point:RichRange|null,fallback:number)=>{if(!point)return tr.mapping.map(fallback);const effective=session.replica.resolveRichPoint(point);if(effective.detached)return tr.mapping.map(fallback);const leaf=blockPMLeaves(tr.doc).find(n=>n.id===effective.nodeId);return leaf?leaf.pos+1+Math.min(effective.offset,leaf.node.content.size):tr.mapping.map(fallback);};
- if(tr.docChanged){const a=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.anchor,oldAnchor))),h=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.head,oldHead)));tr.setSelection(TextSelection.between(tr.doc.resolve(a),tr.doc.resolve(h)));}
+ if(tr.docChanged||restoreSelection){const a=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.anchor,oldAnchor))),h=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.head,oldHead)));tr.setSelection(TextSelection.between(tr.doc.resolve(a),tr.doc.resolve(h)));}
  return tr.setStoredMarks(stored).setMeta(RICH_INTERNAL,true).setMeta('preventClearDocument',true).setMeta('addToHistory',false);
 }
 export type BlockFormat='paragraph'|'h1'|'h2'|'h3'|'bullet-list'|'ordered-list'|'blockquote'|'toggle'|'unwrap';
