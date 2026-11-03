@@ -111,6 +111,18 @@ export class PlainRuns {
   }
   return{text:string(values),bindings};
  }
+ /** Full validation first; visibility filters that same physical order in this call only. */
+ retainedAndVisible(base?:readonly PlainSpan[],extra:readonly NewRun[]=[],intents:readonly Visibility[]=[]):{full:PlainView;visible:PlainSpan[]}{
+  const all=this.allSpans(extra),full=this.materialize(all,extra),lengths=new Map(all.map(span=>[span.runId,span.to]));
+  const visible:PlainSpan[]=[],segments=new Map<string,Visibility[]>(),positions=new Map<string,number>();
+  for(const span of full.bindings){
+   let parts=segments.get(span.runId);if(!parts){parts=this.segments(span.runId,lengths.get(span.runId)!,base,intents);segments.set(span.runId,parts);positions.set(span.runId,0);}
+   let at=positions.get(span.runId)!;
+   for(let offset=span.from;offset<span.to;offset++){while(at+1<parts.length&&parts[at].to<=offset)at++;if(parts[at]?.visible)addSpan(visible,span.runId,offset);}
+   positions.set(span.runId,at);
+  }
+  return{full,visible};
+ }
  validate():void{
   const seen=new Set<string>(),places=new Map<string,Placement>();
   for(const[key,run]of this.content){if(!run||run.id!==key||!run.id||!Number.isSafeInteger(run.length)||run.length<=0||typeof run.bytes!=='string'||typeof run.txId!=='string')return fail();decode(run);}
@@ -194,6 +206,8 @@ export class PlainDraft {
   const left=prefix?bounds(before.bindings,prefix-1,prefix)[0]:undefined;this.insert(left?unit(left.runId,left.from):null,text.slice(prefix,text.length-suffix));
  }
  clear():void{for(const span of this.source.allSpans(this.runs))this.intents.push({...span,visible:false});}
+ /** Metadata of this overlay only; reading it never prepares visibility keys or a text view. */
+ insertedRuns():NewRun[]{return convergenceClone(this.runs);}
  finish():PlainPlan{
   const spans=normalize(this.intents),view=this.view();return{runs:convergenceClone(this.runs),spans,view,changed:!!(this.runs.length||spans.length)};
  }

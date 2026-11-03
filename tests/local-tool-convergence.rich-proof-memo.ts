@@ -27,7 +27,8 @@ export async function runRichSnapshotProofMemo(save:(name:string,value:unknown)=
   equal('real author Undo complete',live.undo(edit.receiptId).pending,false);equal('Undo hides X',text(live),'ab');equal('warm before reuse',append(live,'w').pending,false);
   const range=live.richRange('body','P',3,3),descriptor=Object.getOwnPropertyDescriptor(crypto,'randomUUID'),normal=crypto.randomUUID.bind(crypto);let serial=0,forced=0,collision:ReturnType<typeof live.apply>|undefined;
   try{
-   Object.defineProperty(crypto,'randomUUID',{configurable:true,writable:true,value:()=>++serial===3?(forced++,old.key):normal()});
+   // The run is first and its mark key is second; metadata reads allocate no discarded visibility keys.
+   Object.defineProperty(crypto,'randomUUID',{configurable:true,writable:true,value:()=>++serial===2?(forced++,old.key):normal()});
    collision=live.apply([{type:'rich-text-splice',field:'body',nodeId:'P',range,text:'U',marks:['bold']}]);
   }finally{if(descriptor)Object.defineProperty(crypto,'randomUUID',descriptor);else delete(crypto as unknown as Record<string,unknown>).randomUUID;}
   equal('one declared mark UUID reused',forced,1);assert.ok(collision);assert.ok(collision.receiptId);equal('new raw data accepted',collision.conflict,null);equal('inactive retained proof rechecked without receive',collision.pending,true);equal('collision raw text',text(live),'abwU');

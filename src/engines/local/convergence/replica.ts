@@ -340,9 +340,9 @@ function validateTreeTextAction(r:Roots,contract:LocalToolConvergenceContract,id
 function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,identity:LocalToolConvergenceIdentity,baseline?:T):ActionPlan<T> {
  if(!Object.values(r.codec.fields).some(f=>f.kind==='rich'))return preparePlainActions(r,contract,actions,authorId,identity,baseline);
  if(!Array.isArray(actions)||!actions.length)throw Error('local_tool_actions_invalid');
- const before=admitted(r,contract),generic=actions.filter(a=>r.codec.fields[a.field]?.kind!=='rich');
+ const before=admitted(r,contract),touchedRich=new Set<string>(),generic=actions.filter(a=>{const field=a.field;if(r.codec.fields[field]?.kind==='rich'){touchedRich.add(field);return false;}return true;});
  const base:ActionPlan<T>=generic.length?preparePlainActions(r,contract,generic,authorId,identity,baseline,false):{actions:[],proposal:clone(before.data) as T,bindings:clone(before.bindings),plainBindings:clone(before.plainBindings??{}),plainPlans:{},changed:false};
- const proposal=clone(base.proposal) as ObjectData,richBindings=clone(before.richBindings??{}),blockBindings=clone(before.blockBindings??{}),blockPlans:Record<string,RichBlockPlan>={},richPlans:Record<string,RichPlan>={},richPresence:Record<string,boolean>={};
+ const proposal=clone(base.proposal) as ObjectData,richBindings=clone(Object.fromEntries(Object.entries(before.richBindings??{}).filter(([field])=>!touchedRich.has(field)))),blockBindings=clone(before.blockBindings??{}),blockPlans:Record<string,RichBlockPlan>={},richPlans:Record<string,RichPlan>={},richPresence:Record<string,boolean>={};
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'){
   const own=actions.filter(a=>a.field===field);if(!own.length)continue;const old=(before.data as ObjectData)[field],binding=before.richBindings?.[field];const isBlocks=blockField(r,field);const draft=r.rich(field).draft(old!==undefined&&binding?{data:leafData(r,field,old),bindings:binding}:undefined);let present=typeof proposal[field]!=='undefined',structure=(isBlocks&&old!==undefined?clone(old):old) as unknown as RichBlockDocument;
   for(const action of own){
@@ -358,11 +358,13 @@ function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConve
     const value=action.type==='set'?action.value:undefined;if(value!==undefined)validateRichDocument(value);if(value===undefined&&!present||value!==undefined&&present&&localToolStateEqual(draft.finish().view.data,value))continue;draft.replace(value);present=value!==undefined;
    }else{if(!present||!action.type.startsWith('rich-'))throw Error('local_tool_rich_action_invalid');if(isBlocks&&action.type!=='rich-text-splice'&&action.type!=='rich-mark')throw Error('local_tool_blocks_structural_actions_required');const excludes=validateRichCapture(r,r.rich(field).doc,contract,identity,action as RichAction);draft.apply(action as RichAction,identity,excludes);}
   }
-  const plan=draft.finish();richPlans[field]=plan;richPresence[field]=present;if(present){
+  const plan=draft.finish();touchedRich.delete(field);richPlans[field]=plan;richPresence[field]=present;if(present){
    if(isBlocks){const leaves=new Map(plan.view.data.content.map(p=>[p.id,p]));for(const b of structure.blocks)if(Object.hasOwn(b,'content'))b.content=clone(leaves.get(b.id)?.content??[]);proposal[field]=structure as unknown as LocalToolJson;richBindings[field]={nodes:richBlockLeaves(structure).content.map(p=>plan.view.bindings.nodes.find(n=>n.id===p.id)!)};}
    else{proposal[field]=plan.view.data as unknown as LocalToolJson;richBindings[field]=plan.view.bindings;}
   }else{delete proposal[field];delete richBindings[field];delete blockBindings[field];}
  }
+ // A field observed by the initial partition need not be rebuilt after callbacks.
+ for(const field of touchedRich)if(Object.hasOwn(before.richBindings??{},field))richBindings[field]=clone(before.richBindings![field]);
  if(!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
  return{...base,proposal:proposal as T,plainPlans:base.plainPlans??{},richPlans,richPresence,richBindings,blockPlans,blockBindings,changed:base.changed||!localToolStateEqual(before.data,proposal)||Object.values(richPlans).some(p=>p.changed)||Object.values(blockPlans).some(p=>p.writes.length>0)};
 }

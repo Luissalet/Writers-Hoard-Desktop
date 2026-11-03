@@ -37,7 +37,7 @@ function point(id:string):{buffer:string;runId:string;offset:number}{
 }
 const plainPoint=(id:string)=>{const p=point(id);return JSON.stringify([p.runId,p.offset]);};
 const refKey=(ref:RichRef)=>'unit'in ref?'u:'+ref.unit:'e:'+ref.edge;
-const spans=(ids:readonly string[]):RichSpan[]=>{const out:RichSpan[]=[];for(const id of ids){const p=point(id),last=out.at(-1);if(last&&last.buffer===p.buffer&&last.runId===p.runId&&last.to===p.offset)last.to++;else out.push({buffer:p.buffer,runId:p.runId,from:p.offset,to:p.offset+1});}return out;};
+const spans=(ids:readonly string[],readPoint:(id:string)=>ReturnType<typeof point>=point):RichSpan[]=>{const out:RichSpan[]=[];for(const id of ids){const p=readPoint(id),last=out.at(-1);if(last&&last.buffer===p.buffer&&last.runId===p.runId&&last.to===p.offset)last.to++;else out.push({buffer:p.buffer,runId:p.runId,from:p.offset,to:p.offset+1});}return out;};
 const covers=(items:readonly RichSpan[],id:string,p=point(id))=>items.some(s=>s.buffer===p.buffer&&s.runId===p.runId&&s.from<=p.offset&&p.offset<s.to);
 function insert<T extends {id:string}>(list:T[],after:string|null,value:T){const at=after===null?-1:list.findIndex(p=>p.id===after);if(after!==null&&at<0)return fail();list.splice(at+1,0,value);}
 const marksEqual=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
@@ -83,9 +83,10 @@ export class RichRuns {
  draft(baseline?:RichView){return new RichDraft(this,baseline);}
  private state(plan?:RichPlan){
   const include=(r:{txId:string})=>!this.historical||this.registers.transactionAvailable(r.txId);
-  // Canonical decoded points only; no lineage arrays or state survives this scan.
-  const points=new Map<string,Readonly<ReturnType<typeof point>>>();
-  const decodePoint=(id:string)=>{let parsed=points.get(id);if(!parsed){parsed=Object.freeze(point(id));points.set(id,parsed);}return parsed;};
+  // Syntax only, private to this scan; existence and routing remain separate checks.
+  type ScanPoint=Readonly<ReturnType<typeof point>&{runKey:string}>;
+  const points=new Map<string,ScanPoint>();
+  const decodePoint=(id:string)=>{let parsed=points.get(id);if(!parsed){const value=point(id);parsed=Object.freeze({...value,runKey:JSON.stringify([value.buffer,value.runId])});points.set(id,parsed);}return parsed;};
   const nodes=new Map<string,Node>(),buffers=new Map([...this.buffers].filter(([,r])=>include(r))),edges=new Map([...this.edges].filter(([,r])=>include(r))),lineages=new Map([...this.lineages].filter(([,r])=>include(r)));
   for(const[key,node]of this.nodes){if(!include(node))continue;if(key!==node.birthId||nodes.has(node.id))throw Error('local_tool_rich_identity_collision');nodes.set(node.id,node);}
   for(const n of plan?.nodes??[])nodes.set(n.id,n);for(const b of plan?.buffers??[])buffers.set(b.id,b);for(const e of plan?.edges??[])edges.set(e.id,e);for(const l of plan?.lineages??[])lineages.set(JSON.stringify([l.buffer,l.runId]),l);
@@ -112,16 +113,19 @@ export class RichRuns {
    if(b.txId!=='@plan'&&!this.registers.transactionAvailable(b.txId))continue;
    const source=this.plain(b.id),prepared=plan?.plain[b.id],extra=prepared?.runs??[],all=[...source.allSpans(),...extra.map(r=>({runId:r.id,from:0,to:r.length}))];
    for(const span of all){const key=JSON.stringify([b.id,span.runId]);if(runSizes.has(key))duplicateRuns.add(key);runSizes.set(key,span.to-span.from);}
-   const base=baseline?spans([...baselineUnits.keys()].filter(id=>decodePoint(id).buffer===b.id)).map(({runId,from,to})=>({runId,from,to})):undefined;
-   const full=source.materialize(all,extra),shown=source.materialize(base,extra,prepared?.spans??[]),ids:string[]=[];
-   for(const span of full.bindings)for(let offset=span.from;offset<span.to;offset++){const id=unit(b.id,span.runId,offset);known.set(id,full.text.charAt(ids.length));ids.push(id);}
-   physical.set(b.id,ids);for(const s of shown.bindings)for(let i=s.from;i<s.to;i++)visible.add(unit(b.id,s.runId,i));
+   const base=baseline?spans([...baselineUnits.keys()].filter(id=>decodePoint(id).buffer===b.id),decodePoint).map(({runId,from,to})=>({runId,from,to})):undefined;
+   const{full,visible:shown}=source.retainedAndVisible(base,extra,prepared?.spans??[]),ids:string[]=[];
+   for(const span of full.bindings){
+    const buffer=b.id,runId=span.runId,runKey=JSON.stringify([buffer,runId]),syntax=typeof buffer==='string'&&!!buffer&&typeof runId==='string'&&!!runId;
+    for(let offset=span.from;offset<span.to;offset++){const id=unit(buffer,runId,offset);if(!points.has(id)&&syntax&&Number.isSafeInteger(offset)&&offset>=0)points.set(id,Object.freeze({buffer,runId,offset:offset===0?0:offset,runKey}));known.set(id,full.text.charAt(ids.length));ids.push(id);}
+   }
+   physical.set(b.id,ids);for(const s of shown)for(let i=s.from;i<s.to;i++)visible.add(unit(b.id,s.runId,i));
   }
   const lineage=(ref:RichRef):RichRef[]=>{
    const path:RichRef[]=[],seen=new Set<string>();let current:RichRef|null=ref;
    while(current){
     const key=refKey(current);if(seen.has(key))return fail();seen.add(key);path.push(current);
-    if('unit'in current){if(!known.has(current.unit))throw Error('local_tool_rich_dependency_missing');const p=decodePoint(current.unit);current=lineages.get(JSON.stringify([p.buffer,p.runId]))?.ref??null;}
+    if('unit'in current){if(!known.has(current.unit))throw Error('local_tool_rich_dependency_missing');const p=decodePoint(current.unit);current=lineages.get(p.runKey)?.ref??null;}
     else{const edge=edges.get(current.edge);if(!edge||edge.txId!=='@plan'&&!this.registers.transactionAvailable(edge.txId))throw Error('local_tool_rich_dependency_missing');current=edge.fallback;}
    }
    return path;
@@ -168,7 +172,7 @@ export class RichRuns {
     };
     for(const versions of entryIndex('routing').byKey.values())for(const version of versions)if(version.present)inspect(version.value);
     for(const write of staged('routing'))inspect(write.value);
-    if(baseline)for(const[id,u]of baselineUnits){const p=decodePoint(id),key=JSON.stringify([p.buffer,p.runId]),prior=proof.get(key);if(prior){prior.count++;prior.uniform&&=prior.route===u.route;}else proof.set(key,{count:1,route:u.route,uniform:true});}
+    if(baseline)for(const[id,u]of baselineUnits){const p=decodePoint(id),key=p.runKey,prior=proof.get(key);if(prior){prior.count++;prior.uniform&&=prior.route===u.route;}else proof.set(key,{count:1,route:u.route,uniform:true});}
     sharing={blocked,baseline:proof,safe};
    }
    if(!sharing.safe||sharing.blocked.has(key)||duplicateRuns.has(key))return false;
@@ -178,7 +182,7 @@ export class RichRuns {
   const routes=new Map<string,Readonly<Chosen>|undefined>(),runRoutes=new Map<string,Readonly<Chosen>|undefined>();
   const route=(ref:RichRef):Readonly<Chosen>|undefined=>{
    if('unit'in ref&&known.has(ref.unit)){
-    const p=decodePoint(ref.unit),key=JSON.stringify([p.buffer,p.runId]);
+    const p=decodePoint(ref.unit),key=p.runKey;
     if(shareRun(key)){if(runRoutes.has(key))return runRoutes.get(key);const chosen=resolveRoute(ref),value=chosen?Object.freeze(chosen):undefined;runRoutes.set(key,value);return value;}
    }
    const key=refKey(ref);if(routes.has(key))return routes.get(key);const chosen=resolveRoute(ref),value=chosen?Object.freeze(chosen):undefined;routes.set(key,value);return value;
@@ -194,7 +198,7 @@ export class RichRuns {
   const segmentIds=(segment:Segment)=>{
    const belongs=(id:string)=>route({unit:id})?.value.segment===segment.id;
    const out=(physical.get(segment.buffer)??[]).filter(belongs),groups=new Map<string,string[]>();
-   for(const buffer of bufferOrder)if(buffer!==segment.buffer)for(const id of physical.get(buffer)??[])if(belongs(id)){const p=decodePoint(id),key=JSON.stringify([p.buffer,p.runId]);const group=groups.get(key)??[];group.push(id);groups.set(key,group);}
+   for(const buffer of bufferOrder)if(buffer!==segment.buffer)for(const id of physical.get(buffer)??[])if(belongs(id)){const p=decodePoint(id),key=p.runKey;const group=groups.get(key)??[];group.push(id);groups.set(key,group);}
    const pending=[...groups];
    for(let pass=0;pending.length&&pass<=groups.size;pass++)for(const before of[true,false])for(let i=before?0:pending.length-1;before?i<pending.length:i>=0;before?i++:i--){
     const [key,ids]=pending[i],l=lineages.get(key);if((l?.before===true)!==before)continue;let ref=l?.ref??null;const seen=new Set<string>();while(ref&&'edge'in ref){if(seen.has(ref.edge))return fail();seen.add(ref.edge);ref=edges.get(ref.edge)?.fallback??null;}
@@ -398,7 +402,7 @@ export class RichDraft {
   if(this.source.hasNode(node)||this.plan.nodes.some(n=>n.id===node))return fail();this.plan.nodes.push({id:node,birthId:uuid(),txId:'@plan'});const b=this.buffer(node,fallback,deferHomeRoute);this.write('membership',node,true);this.place(node,afterId);this.append(b.buffer,null,text,{edge:b.edge},marks);return b;
  }
  private append(buffer:string,after:string|null,text:string,ref:RichRef,marks:RichMark[],before=false){
-  if(!text)return;const draft=this.text(buffer),previous=new Set(draft.finish().runs.map(r=>r.id));draft.splice({afterPlacementId:after,deleteIds:[]},text);const added=draft.finish().runs.filter(r=>!previous.has(r.id));
+  if(!text)return;const draft=this.text(buffer),previous=new Set(draft.insertedRuns().map(r=>r.id));draft.splice({afterPlacementId:after,deleteIds:[]},text);const added=draft.insertedRuns().filter(r=>!previous.has(r.id));
   for(const r of added){this.plan.lineages.push({buffer,runId:r.id,ref,before,txId:'@plan'});for(const mark of marks)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark,enabled:true});}this.preparePlain();
  }
  apply(action:RichAction,identity:LocalToolConvergenceIdentity,excludes?:readonly RichSpan[]):void {
