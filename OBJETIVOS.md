@@ -1,5 +1,9 @@
 # Objetivos de autoría local
 
+## Ejes de tablas compartidas entregados
+
+2047 añade filas y columnas mutables en un perfil optativo, con edición de intersecciones, Deshacer, Save, reapertura y portabilidad. Siguen el ancho de columnas (2082), combinar o dividir celdas, imágenes y adopción de documentos anteriores. [Verificación](tasks/vvd1095/verification-table-axes2047.md).
+
 ## Enlaces servidos para la wiki
 
 La primera entrega2056 permite publicar y retirar en el host propio una edición guardada por URL pública o privada. Quedan gestión tras borrar todo un proyecto (2085), contraseña e invitaciones, servidor permanente independiente de Writer, dominios, programación y publicación servida de manuscritos. [Verificación y alcance](tasks/vvd1095/verification-wiki-hosting2056.md).
