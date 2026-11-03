@@ -20,7 +20,8 @@
     "paperwork",
     "mail",
     "pdf-tools",
-    "editable-publications"
+    "editable-publications",
+    "hosted-reading-links"
   ],
   "placeholders": [
     "WRITER_DIR",
