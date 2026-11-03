@@ -34,6 +34,7 @@ import { autoUpdater } from 'electron-updater';
 import { createUpdateController } from './updates';
 import { startMediaServer, stopMediaServer } from './media/server';
 import { BLANK_PATH, RENDERER_ORIGIN, startRendererServer, stopRendererServer } from './rendererServer';
+import { wikiHostingConfig } from './wikiHosting/config';
 import { migrateLegacyFileOrigin } from './originMigration';
 import {
   AI_BRIDGE_PORT,
@@ -2383,7 +2384,7 @@ if (!gotLock) {
 
     if (!isDev) {
       try {
-        await startRendererServer(PACKAGED_RENDERER_DIR);
+        await startRendererServer(PACKAGED_RENDERER_DIR, undefined, wikiHostingConfig(app.getPath('userData')));
       } catch (err) {
         const busy = (err as NodeJS.ErrnoException)?.code === 'EADDRINUSE';
         dialog.showErrorBox(
