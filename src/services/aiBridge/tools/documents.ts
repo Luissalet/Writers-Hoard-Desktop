@@ -95,7 +95,7 @@ export async function whFormatWriting(args: ToolArgs) {
   } finally { editor.destroy(); }
 }
 
-const TABLE_OPERATIONS = ['addRowBefore', 'addRowAfter', 'deleteRow', 'addColumnBefore', 'addColumnAfter', 'deleteColumn', 'mergeCells', 'splitCell', 'deleteTable'] as const;
+const TABLE_OPERATIONS = ['addRowBefore', 'addRowAfter', 'deleteRow', 'addColumnBefore', 'addColumnAfter', 'deleteColumn', 'mergeCells', 'splitCell', 'toggleHeaderRow', 'deleteTable'] as const;
 
 export async function whEditWritingDocument(args: ToolArgs) {
   const writing = await writingFor(args, true);
