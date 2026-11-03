@@ -1,5 +1,5 @@
 import {localToolRichTables} from '../stateCodec';
-import {insertFixedTable,controlFixedTable,pasteFixedTableText} from './tableProsemirror';
+import {insertFixedTable,controlFixedTable,controlTableAxis,pasteFixedTableText,rejectCrossCellClipboard} from './tableProsemirror';
 import Link from '@tiptap/extension-link';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import {useLocalToolDocumentContent} from '../liveContent/hooks';
@@ -7,7 +7,7 @@ import {documentContentHost} from '../liveContent/host';
 import type {LocalToolSaveMode} from '../liveContent/types';
 import LocalPresenceRichCarets from '../presence/Carets';
 import type {LocalToolDocumentPresence} from '../presence/types';
-import {blockNodes,formatBlocks,selectedBlockLeaves,blockTextKey} from './blockProsemirror';
+import {axisCellAtPosition,blockNodes,formatBlocks,selectedBlockLeaves,blockTextKey} from './blockProsemirror';
 import {useEffect,useId,useLayoutEffect,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {getSchema,Node,Mark,Extension,mergeAttributes,type Editor} from '@tiptap/core';
@@ -112,7 +112,7 @@ function RichSurface({transition,adopt,presence,sharing,documentSave,saveReady,s
  };
  const [linkForm,setLinkForm]=useState(false),[linkUrl,setLinkUrl]=useState('');
  const [extensions]=useState(()=>[
-  ...(isBlocks?blockNodes(collapsed.current,session.tables):[
+  ...(isBlocks?blockNodes(collapsed.current,session.tables,session.axes):[
   Node.create({name:'doc',topNode:true,content:'paragraph+'}),
   Node.create({name:'paragraph',group:'block',content:'inline*',draggable:true,addAttributes(){return{id:{default:null,parseHTML:element=>element.getAttribute('data-writer-paragraph'),renderHTML:attributes=>attributes.id?{'data-writer-paragraph':attributes.id}:{}}};},parseHTML(){return[{tag:'p'}];},renderHTML({HTMLAttributes}){return['p',mergeAttributes(HTMLAttributes),0];}}),
   Node.create({name:'text',group:'inline'})
@@ -128,6 +128,7 @@ function RichSurface({transition,adopt,presence,sharing,documentSave,saveReady,s
   onCreate({editor:ready}){editorRef.current=ready;const error=extra.error||richExtensionPluginError(ready.state);if(error)session.fail(Error(error),true);else{drain(ready);if(!session.error&&!ready.state.doc.eq(sessionPMDocument(session,ready.schema)))session.fail(Error('local_tool_rich_editor_extension_unjournaled_content'),true);}ready.setEditable(session.editable&&!readOnly,false);},
   onTransaction({editor:committed}){if(!editorRef.current)editorRef.current=committed;const error=extra.error||richExtensionPluginError(committed.state);if(error){session.fail(Error(error),true);committed.setEditable(false,false);}else if(editorRef.current===committed)drain(committed);},
   editorProps:{attributes:{class:'min-h-36 rounded-lg border border-border bg-elevated p-3 text-text-primary focus:outline-none',role:'textbox','aria-multiline':'true','aria-label':label??(es?'Texto compartido':'Shared text'),...(session.tables?{style:'white-space:pre-wrap'}:{})},handleDOMEvents:{
+   copy(view,event){return rejectCrossCellClipboard(session,view,event);},cut(view,event){return rejectCrossCellClipboard(session,view,event);},
    compositionstart(view){if(!session.beginComposition())return false;composition.current={state:view.state,ended:false,frame:0};return false;},
    compositionend(){const active=composition.current;if(active){active.ended=true;active.frame=requestAnimationFrame(()=>{if(composition.current===active)finishComposition();});}return false;},
   },handlePaste(view,event){return pasteFixedTableText(session,view,event);},handleKeyDown(_view,event){if(event.defaultPrevented||event.altKey||event.isComposing)return false;if(composition.current?.ended)finishComposition();if(isBlocks&&!event.ctrlKey&&!event.metaKey&&(event.key==='Enter'||event.key==='Backspace'||event.key==='Delete'||event.key==='Tab')&&blockTextKey(session,_view,event.key,event.shiftKey)){event.preventDefault();return true;}if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();return session.reverse(event.shiftKey);}if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='y'){event.preventDefault();return session.reverse(true);}return false;}}
@@ -164,5 +165,7 @@ function TableControls({session,editor,readOnly,es}:{session:RichEditorSession;e
   for(let depth=from.depth;depth>0;depth--){const node=from.node(depth);if(node.type.name==='table')return typeof node.attrs.id==='string'?node.attrs.id:null;}
   return null;
  }});
- return <div className="flex flex-wrap gap-2" aria-label={es?'Tabla':'Table'}><button type="button" className={button} disabled={!editor||!session.editable||readOnly||!!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)insertFixedTable(session,editor.view);}}>{es?'Insertar tabla':'Insert table'}</button>{(['up','down','hide']as const).map(action=><button key={action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlFixedTable(session,editor.view,action);}}>{({up:es?'Subir tabla':'Move table up',down:es?'Bajar tabla':'Move table down',hide:es?'Eliminar tabla':'Remove table'})[action]}</button>)}</div>;
+ const cell=useEditorState({editor,selector:({editor:current})=>session.axes&&current?axisCellAtPosition(current.state.doc,current.state.selection.from):null});
+ const axisLabel={rows:{before:es?'Insertar fila antes':'Insert row before',after:es?'Insertar fila después':'Insert row after',hide:es?'Eliminar fila':'Remove row'},columns:{before:es?'Insertar columna antes':'Insert column before',after:es?'Insertar columna después':'Insert column after',hide:es?'Eliminar columna':'Remove column'}};
+ return <div className="flex flex-wrap gap-2" aria-label={es?'Tabla':'Table'}><button type="button" className={button} disabled={!editor||!session.editable||readOnly||!!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)insertFixedTable(session,editor.view);}}>{es?'Insertar tabla':'Insert table'}</button>{(['up','down','hide']as const).map(action=><button key={action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlFixedTable(session,editor.view,action);}}>{({up:es?'Subir tabla':'Move table up',down:es?'Bajar tabla':'Move table down',hide:es?'Eliminar tabla':'Remove table'})[action]}</button>)}{session.axes&&(['rows','columns']as const).flatMap(axis=>(['before','after','hide']as const).map(action=><button key={axis+action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!cell} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlTableAxis(session,editor.view,axis,action);}}>{axisLabel[axis][action]}</button>))}</div>;
 }

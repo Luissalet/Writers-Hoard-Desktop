@@ -2193,6 +2193,15 @@ Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se rep
 Variable axes, cell merge/split, shared images and adoption of old origins remain open. Coordination: writers2178; contract: decision2184. Local checkpoint and composition are authorized; Root coordinates formal submission and Main integration. No push.
 
 
+## 2047 — Filas y columnas en tablas compartidas
+
+- [x] Decisión2233 y contrato por campo, con ejes independientes y celdas dispersas.
+- [x] Acciones y capturas Source/SDK/MCP, soporte causal de Undo y controles del ejemplo normal.
+- [x] Causal de portabilidad conservado y corrección del fork de fragmentos con anclas retiradas.
+- [ ] Aceptación final sobre el corte compuesto, revisión y cierre.
+
+Coordinación en Ágora writers2228. Quedan abiertos merge/split, anchos, imágenes causales y adopción de historias anteriores.
+
 ## 2028 - Notes caller correction after real Brave RED
 
 - [x] Fix a permanent oracle on the real NoteRichEditor wrapper before implementation: explicit Base despite an era pane, hidden era, Base return and Inbox isolation, no prose writes.

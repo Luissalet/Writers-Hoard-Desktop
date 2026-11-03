@@ -14,11 +14,11 @@ export {createRecordingLocalToolAudio} from './audioTesting';
 import {evaluateLocalToolIndex,queryLocalToolIndexRows,type LocalToolDocumentQuery} from './documentIndex';
 import {createLocalToolOpenDocumentRegistry,normalizeLocalToolOpenDocumentQuery,normalizeLocalToolPublishedOpenDocumentQuery,type LocalToolOpenDocumentQuery,type LocalToolOpenDocuments} from './openDocuments';
 import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
-import {forkSourceToolConvergence} from './documents/portability';
+import {forkSourceToolDocument} from './documents/portability';
 import {createLocalToolStateActions,prepareLocalToolConvergenceBranch,prepareLocalToolStateAdoption} from './stateRuntime';
 import {localToolConvergenceContext} from './convergence/context';
-import {validateLocalToolConvergenceUpdate,convergenceCodecHash,convergenceClone,convergenceHash,convergenceIdentity,convergenceIdentityOf} from './convergence/format';
-import {createLocalToolGenesis,prepareLocalToolAdoption,forkLocalToolGenesis,inspectLocalToolConvergence,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReplacement,prepareLocalToolReverse,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from './convergence/replica';
+import {assertTableAxesOrigin,validateLocalToolConvergenceUpdate,convergenceCodecHash,convergenceClone,convergenceHash,convergenceIdentity,convergenceIdentityOf} from './convergence/format';
+import {createLocalToolGenesis,prepareLocalToolAdoption,inspectLocalToolConvergence,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReplacement,prepareLocalToolReverse,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from './convergence/replica';
 import type {LocalToolConvergenceContract,LocalToolConvergencePreparation,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate} from './convergence/types';
 import type {LocalToolStateAction} from './stateActions';
 import {createLocalToolDefaults,readDefaultsState,prepareDefaultsSave} from './defaults';
@@ -95,7 +95,7 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
   return{revision:document.revision,updatedAt:document.updatedAt,data:validate?parseLocalToolState(definition,document.data):cloneLocalToolJson(document.data) as T,provenance:read.provenance,document:{id:document.id,namespace:document.namespace,title:document.title,version:JSON.stringify([document.generation??document.createdAt,document.revision,document.updatedAt,read.version]),lineage:JSON.stringify([document.generation??document.createdAt,0])},...(convergence?{convergence:{...convergenceIdentityOf(convergence.checkpoint),...(convergence.conflict?{conflict:structuredClone(convergence.conflict)}:{})}}:{})};
  };
  const documentContract=(document:SourceToolDocument,adopting=false):LocalToolConvergenceContract<T>=>{
-  const codec=definition.codec??document.codec,context=localToolConvergenceContext(definition,codec);if(!codec||!context)throw Error('local_tool_convergence_codec_required');
+  const codec=definition.codec??document.codec,context=localToolConvergenceContext(definition,codec);if(!codec||!context)throw Error('local_tool_convergence_codec_required');assertTableAxesOrigin(codec,document.codec,document.convergence?.checkpoint.engine.version);
   const current={namespace:definition.namespace,codec,...context,validateState:definition.validateState,...(definition.richAdoption?{richAdoption:definition.richAdoption}:{})};return document.convergence&&!adopting?effectiveRichAdoptionContract(document.convergence.checkpoint,current):current;
  };
  const documentContext=(scope:WorldEraScope,read:LocalToolWorldRead,original:SourceToolDocument,adopting=false)=>{
@@ -103,7 +103,7 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
   const contract=documentContract(original,adopting),stored=original.convergence.checkpoint,knownAdoption=adopting&&!!contract.richAdoption&&stored.engine.version==='3';if(knownAdoption)effectiveRichAdoptionContract(stored,contract);const epochChanged=!knownAdoption&&(stored.validationId!==contract.validationId||stored.schemaEpoch!==contract.schemaEpoch||stored.codecHash!==convergenceCodecHash(contract.codec)),inherited=!!scope.eraId&&read.provenance==='base';
   let document=original;
   if(epochChanged)document={...original,generation:crypto.randomUUID(),codec:structuredClone(contract.codec),convergence:{checkpoint:createLocalToolGenesis(original.data as T,contract)}};
-  else if(inherited)document={...original,generation:crypto.randomUUID(),convergence:{checkpoint:forkLocalToolGenesis(original.data,contract)}};
+  else if(inherited)document={...forkSourceToolDocument(original),generation:crypto.randomUUID()};
   const checkpoint=document.convergence!.checkpoint,replicaOptions={authorId:JSON.stringify(['fixture',hostIdentity,scope.projectId,scope.eraId??null,document.id]),contract},view=inspectLocalToolConvergence(checkpoint,replicaOptions);
   if(convergenceHash(view.data)!==convergenceHash(document.data)||convergenceHash(view.conflict)!==convergenceHash(document.convergence!.conflict??null))throw Error('source_tool_convergence_projection_mismatch');
   return{document,checkpoint,replicaOptions,view,reset:epochChanged||inherited};
@@ -164,6 +164,8 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
     return documentSnapshot(scope,working,documentId);
    }const next={...current,data:parseLocalToolState(definition,data),revision:current.revision+1,updatedAt:Math.max(Date.now(),current.updatedAt+1),...(definition.codec?{codec:structuredClone(definition.codec)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})};if(!definition.index)delete next.index;validateSourceToolDocument(next);if(scope.eraId)working.documents.set(key(scope,'local-tool',documentId),{...scope,kind:'local-tool',id:documentId,document:{root:next as unknown as EraDocument['root'],children:{}},version:`fixture:${++version}`,revision:(read?.variantRevision??0)+1});else{const owner=project(scope,working);working.projects.set(scope.projectId,{...owner,sourceToolDocuments:[...(owner.sourceToolDocuments??[]).filter(row=>row.id!==documentId),next]});}return createClient(scope,readOnly,working,documentId).read();}const row=project(scope,working),prepared=prepareLocalToolSave(row,definition,data,expected,scope.eraId);working.projects.set(scope.projectId,prepared.project);return prepared.snapshot;}),
    ...(documentId?{convergence:Object.freeze({
+  richTableAxisCapture:async(field:string,tableId:string,axis:import('./convergence/tableAxesFormat').RichTableAxis,afterId:string|null)=>{const r=fixtureRich({kind:'table-axis',field,tableId,axis,afterId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/tableAxesEditing').RichTableAxisCapture};},
+  richTableCellCapture:async(field:string,tableId:string,rowId:string,columnId:string,afterId:string|null=null)=>{const r=fixtureRich({kind:'table-cell',field,tableId,rowId,columnId,afterId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/tableAxesEditing').RichTableCellCapture};},
   richBlockEmptyItemCapture:async(field:string,nodeId:string)=>{const r=fixtureRich({kind:'block-empty-item',field,nodeId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/blockExit').RichBlockEmptyItemCapture};},
   richBlockSplitCapture:async(field:string,nodeId:string,at:number)=>{const r=fixtureRich({kind:'block-split',field,nodeId,at});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/blockText').RichBlockSplitCapture};},
   richBlockJoinCapture:async(field:string,leftNodeId:string,rightNodeId:string)=>{const r=fixtureRich({kind:'block-join',field,leftNodeId,rightNodeId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/blockText').RichBlockJoinCapture};},
@@ -181,7 +183,7 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
      const old=current?.document.root as unknown as SourceToolDocument|undefined,root=document.root as unknown as SourceToolDocument,convergence=root.convergence??old?.convergence;
      if(convergence){
       payload=structuredClone(document);const next=payload.root as unknown as SourceToolDocument;next.convergence=structuredClone(convergence);next.codec??=old?.codec;
-      if(!old||current?.provenance==='base'||convergenceHash(next.data)!==convergenceHash(old.data)||convergenceHash(next.convergence)!==convergenceHash(old.convergence??null)||next.namespace!==old.namespace){next.convergence=forkSourceToolConvergence(next);next.generation=crypto.randomUUID();}
+      if(!old||current?.provenance==='base'||convergenceHash(next.data)!==convergenceHash(old.data)||convergenceHash(next.convergence)!==convergenceHash(old.convergence??null)||next.namespace!==old.namespace)Object.assign(next,forkSourceToolDocument(next),{generation:crypto.randomUUID()});
       validateSourceToolDocument(next);
      }
     }

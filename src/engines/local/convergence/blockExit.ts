@@ -43,7 +43,7 @@ export function prepareBlockExit(source:RichBlocks,data:RichBlockDocument,bindin
  const item=get(intent.itemId),list=get(intent.listId),leaf=get(intent.leafId),at=intent.itemIds.indexOf(item.id),prefix=intent.itemIds.slice(0,at),suffix=intent.itemIds.slice(at+1),place={parentId:list.parentId,slot:list.slot,afterId:list.afterId};
  if(at<0)return fail();
  const tailAttrs=()=>{const attrs=convergenceClone(list.attrs);if(list.type==='ordered-list'){const start=Number(attrs.start??1)+at+1;if(!Number.isSafeInteger(start))return fail();attrs.start=start;}return attrs;};
- const tail=(parentId:string|null,slot:'body'|'summary',afterId:string|null,reuse:boolean)=>{
+ const tail=(parentId:string|null,slot:RichBlockPlacement['slot'],afterId:string|null,reuse:boolean)=>{
   let id:string;if(reuse){id=list.id;move(id,{parentId,slot,afterId});const attrs=tailAttrs();if(convergenceCanonical(attrs)!==convergenceCanonical(list.attrs)){list.attrs=attrs;write('attrs',id,attrs);}}
   else{id=action.continuationListId??fail();if(source.registers.entries(source.root('kind'),id).length||result.data.blocks.some(b=>b.id===id))return fail();const attrs=tailAttrs();result.data.blocks.push({id,type:list.type,attrs,parentId,slot,afterId});for(const[name,value]of Object.entries({kind:list.type,attrs,membership:true,placement:{parentId,slot,afterId}}))write(name as RichBlockPlan['writes'][number]['name'],id,value);}
   let previous:string|null=null;for(const child of suffix){move(child,{parentId:id,slot:'body',afterId:previous});previous=child;}return id;
@@ -59,5 +59,5 @@ export function prepareBlockExit(source:RichBlocks,data:RichBlockDocument,bindin
   let last=leaf.id;if(suffix.length)last=tail(item.id,'body',leaf.id,!prefix.length);else if(!prefix.length)hide(list.id);
   for(const id of intent.ownerSuffix){move(id,{parentId:item.id,slot:'body',afterId:last});last=id;}
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes);return result;
 }

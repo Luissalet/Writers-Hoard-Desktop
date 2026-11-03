@@ -7,7 +7,7 @@ export interface RichBlockEditCapture {
  format:'writers-hoard-block-edit/1';identity:LocalToolConvergenceIdentity;field:string;
  nodeIds:string[];bindings:RichBlockBinding[];frontier:string[];destination?:RichBlockPlacement;
 }
-export type RichBlockEditingAction=import('./tableEditing').RichTableInsertAction
+export type RichBlockEditingAction=import('./tableEditing').RichTableInsertAction|import('./tableAxesEditing').RichTableCreateAction
  |{type:'rich-block-list-indent';field:string;capture:RichBlockEditCapture;direction:'in'|'out';listId?:string}
  |{type:'rich-block-insert';field:string;capture:RichBlockEditCapture;block:{id:string;type:'paragraph'|'heading';attrs:Record<string,LocalToolJson>};text:string;marks?:RichMark[];link?:{href:string}}
  |{type:'rich-block-transform';field:string;capture:RichBlockEditCapture;kind:RichBlockKind;attrs:Record<string,LocalToolJson>}

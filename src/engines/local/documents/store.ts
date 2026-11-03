@@ -11,9 +11,9 @@ import {parseLocalToolState} from '../clientContract';
 import {cloneLocalToolJson,LocalToolStateError,type LocalToolJson} from '../stateTypes';
 import {validateLocalToolCodecState} from '../stateCodec';
 import {validateSourceToolDocument,type SourceToolDocument} from './types';
-import {forkSourceToolConvergence} from './portability';
+import {forkSourceToolDocument} from './portability';
 import type {LocalToolConvergenceContract} from '../convergence/types';
-import {convergenceCodecHash,convergenceHash,convergenceIdentityOf,validateConvergenceMetadata} from '../convergence/format';
+import {assertTableAxesOrigin,convergenceCodecHash,convergenceHash,convergenceIdentityOf,validateConvergenceMetadata} from '../convergence/format';
 import {effectiveRichAdoptionContract} from '../convergence/richAdoption';
 import {createLocalToolGenesis,inspectLocalToolConvergence,prepareLocalToolReplacement} from '../convergence/replica';
 function announce(projectId:string){let tx=Dexie.currentTransaction;const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});if(!tx){emit();return;}while(tx.parent)tx=tx.parent;tx.on('complete',emit);}
@@ -54,7 +54,7 @@ function checkSourceCAS(read:SourceToolRead|undefined,expected:number|null,expec
 async function mutate(scope:WorldEraScope,id:string,expected:number|null,expectedVersion:string|null,change:(current?:SourceToolDocument)=>SourceToolDocument):Promise<SourceToolDocument>{
  return transformSourceToolDocument(scope,id,read=>{
   checkSourceCAS(read,expected,expectedVersion);let current=read?.document;
-  if(current?.convergence&&scope.eraId&&read?.provenance==='base')current={...current,generation:crypto.randomUUID(),convergence:forkSourceToolConvergence(current)};
+  if(current?.convergence&&scope.eraId&&read?.provenance==='base')current={...forkSourceToolDocument(current),generation:crypto.randomUUID()};
   const next=change(current);return{next,result:next};
  });
 }
@@ -62,6 +62,7 @@ export interface SourceConvergenceOptions {authorId:string;validationId:string;s
 /** Current executable validation comes from the selected host, never old persisted metadata. */
 export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false):LocalToolConvergenceContract<T>{
  const codec=definition.codec??document.codec;if(!codec)throw Error('local_tool_convergence_codec_required');
+ assertTableAxesOrigin(codec,document.codec,document.convergence?.checkpoint.engine.version);
  const contract={namespace:definition.namespace,codec,validationId:options.validationId,schemaEpoch:options.schemaEpoch,validateState:definition.validateState,...(definition.richAdoption?{richAdoption:definition.richAdoption}:{})};
  validateConvergenceMetadata(contract);return document.convergence&&!adopting?effectiveRichAdoptionContract(document.convergence.checkpoint,contract):contract;
 }
@@ -75,7 +76,7 @@ export function prepareSourceConvergenceContext<T extends LocalToolJson>(origina
  if(epochChanged){
   const checkpoint=createLocalToolGenesis(original.data as T,contract);
   document={...original,generation:crypto.randomUUID(),codec:structuredClone(contract.codec),convergence:{checkpoint}};
- }else if(inherited)document={...original,generation:crypto.randomUUID(),convergence:forkSourceToolConvergence(original)};
+ }else if(inherited)document={...forkSourceToolDocument(original),generation:crypto.randomUUID()};
  const checkpoint=document.convergence!.checkpoint,replicaOptions={authorId:options.authorId,contract};
  const view=inspectLocalToolConvergence(checkpoint,replicaOptions);
  if(convergenceHash(view.data)!==convergenceHash(document.data)||convergenceHash(view.conflict)!==convergenceHash(document.convergence!.conflict??null))throw Error('source_tool_convergence_projection_mismatch');
