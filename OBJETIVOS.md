@@ -1,5 +1,9 @@
 # Objetivos de autoría local
 
+## Continuación tras los controles de tabla2009
+
+Los controles contextuales del editor HTML normal ya están integrados (`d9039d3`,2009/revisión1), incluidos teclado, guardar/reabrir y MCP encabezado. No reimplementar ese menú/barra como ausencia global. [Alcance y pruebas](tasks/vvd1095/verification-table-context2009.md). Continúan la tabla causal compartida2003 aún sin integrar, imágenes y sus bytes entre bibliotecas, ejes variables/combinar/redimensionar en ese perfil, menciones con imagen2014, schema ampliable, IME físico, rendimiento1917 y hosting. La referencia real confirma imágenes/menciones sin pago; sólo se excluyen suboperaciones externas demostradas.
+
 ## Trabajo restante tras entregar enlaces1958
 
 La adopción explícita de historias compartidas existentes está integrada en Main (`624474ba`,1958/revisión2), además de enlaces nuevos, contenido vivo1913 y guardado automático opcional1952. [Estado y pruebas](tasks/vvd1095/verification-rich-links1958.md#existing-shared-histories). No volver a implementar esos flujos por los pendientes históricos conservados debajo.

@@ -1,5 +1,11 @@
 # Writers Hoard — Escritorio
 
+## Controles junto a la tabla
+
+El editor enriquecido normal muestra controles de filas, columnas, encabezado, combinar, dividir y eliminar junto a la celda activa. Se pueden usar con Alt+F10, flechas, Enter y Escape, con la selección y Deshacer de la tabla existente. El menú Tabla sigue disponible. MCP añade `toggleHeaderRow` al editor documental existente.
+
+Fuente `d9039d3`, aprobada en writers2009/revisión1 e integrada sin push. Brave real, revisión de tablas anidadas/diálogos y puente MCP con dos claves y otro proceso frío tienen [pruebas y límites separados](tasks/vvd1095/verification-table-context2009.md). Esta entrega corresponde al editor HTML normal; el perfil causal compartido sigue en2003.
+
 ## Enlaces en documentos compartidos existentes
 
 Una herramienta local actualizada puede ofrecer **Activar enlaces** para su contrato anterior conocido. Conserva documento, texto, formato y Deshacer del autor. La misma sala compartida continúa y admite vistas que entran después. En Manual, **Guardar en esta biblioteca** confirma los cambios; **Salir sin guardar aquí** recupera la copia local y las demás vistas conservan su trabajo. El modo Automático opcional mantiene su funcionamiento.

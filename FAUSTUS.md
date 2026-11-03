@@ -1,5 +1,11 @@
 # Writer publishing workspace
 
+## Controles contextuales de tablas normales —2009
+
+Fuente `d9039d3ee5c3a02f7fda07a355170ddc2cd31f62` aprobada2009/revisión1 e integrada Main/primary sin push. Diez acciones junto a la celda comparten TableKit, selección y Undo del editor normal; conservan el menú y añaden filas/columnas antes. Alt+F10, flechas/Home/End, Enter/Espacio y Escape; se retiran al salir, pasar a readonly o cambiar editor. `wh_edit_writing_document` incorpora `toggleHeaderRow` con CAS y Undo normales.
+
+[Pruebas atribuidas](tasks/vvd1095/verification-table-context2009.md): autor20/legacy26/quick/build; revisor33 en tabla anidada y diálogo escalado; Brave acción/Undo/Save/reopen; Native55tools observadas (53éxitos y2rechazos),63RPC/67IPC/12UndoHTTP y otroElectron frío,89zero final/4revocaciones/EOF/PIDs cerrados. No son55tools positivas ni recibosRedo persistentes. Las tablas compartidas2003 y su arreglo posterior de selección siguen separadas y sin integrar; no paridad1095.
+
 ## Estado actual: enlaces en historias compartidas existentes
 
 Fuente `624474ba06e2903293e6d6a4814cf07eec31cf0c` aprobada en1958/revisión2 e integrada Main sin push. **Activar enlaces** actualiza explícitamente el borrador de la pareja conocida3→4, conserva historial/propietario y continúa en la misma sala. Manual requiere Guardar; salir sin guardar recarga sólo la biblioteca local. SDK, `wh_local_tool_live_control action:adopt` y `wh_local_tool_convergence_adopt` usan los mismos editores y writer Source. No hay adopción por leer o montar.

@@ -1,5 +1,11 @@
 # Writers Hoard — Desktop
 
+## Contextual table controls
+
+The normal rich-text editor shows row, column, header, merge, split and deletion controls beside the active cell. Alt+F10, arrow keys, Enter and Escape support keyboard use; each action shares the existing table selection and Undo. The Table menu remains available. MCP adds `toggleHeaderRow` to the existing writing-document editor.
+
+Source `d9039d3` is approved at writers2009/revision1 and integrated locally without push. Real Brave, independent nested-table/dialog checks and a new two-key MCP/cold-process run have [separate evidence and limits](tasks/vvd1095/verification-table-context2009.md). This delivery concerns the normal HTML editor; tables in the shared causal SDK profile remain in task2003.
+
 ## Links in existing shared documents
 
 An updated local tool can explicitly offer **Enable links** for its known older rich-text contract. It preserves the document, text, formatting and author Undo. The same shared room continues, including views that join later; Manual mode writes only through **Save to this library**, and leaving without saving reloads that library while other views retain their work. Optional Automatic saving keeps its existing behavior.
