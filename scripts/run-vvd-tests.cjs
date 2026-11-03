@@ -146,6 +146,8 @@ const suites = [
   ['local-tool-open-documents-recovery.browser.tsx', 'testLocalToolOpenDocumentsQueryRecovery', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-convergence-controls.layout.browser.tsx', 'testLocalToolConvergenceControlsLayout', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-convergence.persistence.browser.ts', 'testLocalToolConvergencePersistence', 240000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-source-additive.browser.ts', 'testSourceAdditivePinAndRead', 120000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-source-additive.browser.ts', 'testSourceAdditivePromotion', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['table-row-order.pure.ts', 'testTableRowOrderPure', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['table-row-order.browser.tsx', 'testTableRowOrderContracts', 240000, 'scripts/run-codex-properties-ui.cjs'],
   ['table-row-order.browser.tsx', 'testTableRowOrderUi', 240000, 'scripts/run-codex-properties-ui.cjs'],

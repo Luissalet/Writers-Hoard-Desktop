@@ -11,7 +11,7 @@ import {validateLocalToolInstallations,type LocalToolInstallation} from './insta
 import {localToolContentHash} from './releaseFormat.mjs';
 import {parseLocalToolState} from './clientContract';
 import {parseSourceToolDocumentState} from './documents/additive';
-import {validateSourceToolDocument} from './documents/types';
+import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
 import {localToolNamespace} from './stateTypes';
 export function resolveProjectLocalTool(namespace:string,project:Pick<Project,'localToolInstallations'>){validateLocalToolInstallations(project.localToolInstallations);const pin=project.localToolInstallations?.[namespace],definition=getLocalToolDefinition(namespace,pin?.contentHash);if(!definition)throw Error(pin?.contentHash?'local_tool_pinned_release_unavailable':getLocalToolReleases(namespace).length?'local_tool_pin_required':'local_tool_source_unavailable');return definition;}
 export async function pinLocalToolRelease(projectId:string,namespace:string,contentHash:string|null,expectedRevision:number|null):Promise<LocalToolInstallation>{
@@ -25,7 +25,8 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
   const row=document as {namespace?:unknown;data:Parameters<typeof parseLocalToolState>[1]};
   if(row.namespace!==namespace)return;
   if(!definition.document)throw Error('local_tool_document_host_required');
-  if(definition.sourceAdditive){validateSourceToolDocument(document);parseSourceToolDocumentState(definition,document);}
+  const source=row as Partial<SourceToolDocument>;
+  if(definition.sourceAdditive||source.codec?.sourceDefault||source.convergence?.checkpoint.engine.version==='8'){validateSourceToolDocument(document);parseSourceToolDocumentState(definition,document);}
   else parseLocalToolState(definition,row.data);
  };
  const retained=[...(project.sourceToolDocuments??[])];
