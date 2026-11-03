@@ -4,6 +4,7 @@ import { mkdtemp, rm, rmdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { createWikiHost } from '../electron/wikiHosting/server';
 import { wikiHostingManagement } from '../electron/wikiHosting/management';
@@ -124,6 +125,78 @@ test('management stays on the Writer origin and the reader never serves applicat
     assert.equal(await (await request(secondRow.url)).text(), htmlA);
   } finally {
     await new Promise<void>(resolve => editor.close(() => resolve()));
+    await host.close();
+    await rm(file, { force: true });
+    await rmdir(directory);
+  }
+});
+
+
+test('publication covers follow the edition address, even across audience changes and cold recovery', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'writer-wiki-cover-test-'));
+  const file = path.join(directory, 'sites.sqlite');
+  const prior = new DatabaseSync(file);
+  prior.exec(`CREATE TABLE wiki_addresses (
+    slug TEXT PRIMARY KEY, projectId TEXT NOT NULL, profileId TEXT NOT NULL,
+    editionId TEXT NOT NULL, audience TEXT NOT NULL, sha256 TEXT NOT NULL,
+    revision INTEGER NOT NULL, active INTEGER NOT NULL, token TEXT, html TEXT NOT NULL
+  )`);
+  prior.prepare('INSERT INTO wiki_addresses VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run('covered', owner.projectId, owner.profileId, 'a', 'public', sha(htmlA), 1, 1, null, htmlA);
+  prior.close();
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jH1sAAAAASUVORK5CYII=';
+  const coverImage = 'data:image/png;base64,' + png;
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>Frozen B</title></head><body>Edition B</body></html>';
+  const input = { ...owner, ...edition('b', html), slug: 'covered', audience: 'unlisted' as const };
+  let host = createWikiHost({ file, port: 0 });
+  try {
+    await host.resume();
+    const [old] = host.list(owner);
+    assert.equal(old.revision, 1);
+    assert.equal(await (await request(old.url!)).text(), htmlA);
+    assert.equal(old.coverUrl, undefined);
+    const hidden = await host.publish({ ...input, expectedRevision: 1, coverImage });
+    assert.equal(hidden.sha256, sha(html));
+    assert.equal(hidden.coverUrl, hidden.url + '/cover');
+    assert.equal((await request(old.url + '/cover')).status, 404);
+    assert.equal((await request(hidden.coverUrl!.replace(/\/u\/[^/]+/, '/u/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'))).status, 404);
+    const metadata = await request(hidden.url!);
+    const served = await metadata.text();
+    assert.equal(served.replace(`<meta property="og:image" content="${hidden.coverUrl}">`, ''), html);
+    assert.notEqual(served, html);
+    assert.equal(metadata.headers.get('etag'), '"' + sha(served) + '"');
+    const image = await request(hidden.coverUrl!);
+    assert.equal(image.headers.get('content-type'), 'image/png');
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()), Buffer.from(png, 'base64'));
+    const head = await request(hidden.coverUrl!, 'HEAD');
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '');
+    assert.equal((await request(hidden.coverUrl!, 'POST')).status, 405);
+    await assert.rejects(host.publish({ ...input, expectedRevision: 2, coverImage: 'data:image/png;base64,PHN2Zz4=' }), /wiki_host_cover_invalid/);
+    await assert.rejects(host.publish({ ...input, expectedRevision: 1, coverImage: null }), /wiki_host_conflict/);
+    const retained = await host.publish({ ...input, expectedRevision: 2 });
+    assert.equal(retained.coverUrl, hidden.coverUrl);
+    await host.close();
+    host = createWikiHost({ file, port: Number(new URL(hidden.url!).port) });
+    await host.resume();
+    assert.deepEqual(host.list(owner), [retained]);
+    assert.equal((await request(retained.coverUrl!)).status, 200);
+    const publicLink = await host.publish({ ...input, expectedRevision: 3, audience: 'public' });
+    assert.equal(publicLink.coverUrl, old.url + '/cover');
+    assert.equal((await request(hidden.coverUrl!)).status, 404);
+    assert.equal((await request(publicLink.coverUrl!)).status, 200);
+    const removed = await host.publish({ ...input, expectedRevision: 4, audience: 'public', coverImage: null });
+    assert.equal(removed.coverUrl, undefined);
+    assert.equal(await (await request(removed.url!)).text(), html);
+    assert.equal((await request(publicLink.coverUrl!)).status, 404);
+    const restored = await host.publish({ ...input, expectedRevision: 5, coverImage });
+    host.withdraw({ ...owner, slug: input.slug, expectedRevision: 6 });
+    assert.equal((await request(restored.coverUrl!)).status, 404);
+    await host.close();
+    host = createWikiHost({ file, port: Number(new URL(hidden.url!).port) });
+    await host.resume();
+    assert.equal((await request(restored.coverUrl!)).status, 404);
+  } finally {
     await host.close();
     await rm(file, { force: true });
     await rmdir(directory);

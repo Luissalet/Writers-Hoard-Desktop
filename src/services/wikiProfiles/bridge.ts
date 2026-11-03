@@ -27,7 +27,9 @@ export const WIKI_PROFILE_HANDLERS={
  async wh_wiki_host_publish(args:ToolArgs){
    const audience = args.audience;
    if(audience!=='public' && audience!=='unlisted') throw Error('wiki_host_audience_invalid');
-   return serveWikiEdition({projectId:await resolveProjectForEngine(args,'codex'),profileId:requireString(args,'profileId'),editionId:requireString(args,'editionId'),slug:requireString(args,'slug'),audience,expectedRevision:revision(args)!});
+   const coverImage = args.coverImage;
+   if(coverImage!==undefined && coverImage!==null && typeof coverImage!=='string') throw Error('wiki_host_cover_invalid');
+   return serveWikiEdition({coverImage,projectId:await resolveProjectForEngine(args,'codex'),profileId:requireString(args,'profileId'),editionId:requireString(args,'editionId'),slug:requireString(args,'slug'),audience,expectedRevision:revision(args)!});
  },
  wh_wiki_host_withdraw:(args:ToolArgs)=>withdrawWikiAddress({projectId:resolveProjectId(args),profileId:requireString(args,'profileId'),slug:requireString(args,'slug'),expectedRevision:revision(args)!}),
 };

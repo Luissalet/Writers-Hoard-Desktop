@@ -7,10 +7,24 @@ import { WIKI_HOST_SLUG, type WikiHostAddress, type WikiHostChange, type WikiHos
 
 const BIND = '127.0.0.1';
 const TOKEN = /^[A-Za-z0-9_-]{32}$/;
-const hash = (html: string) => createHash('sha256').update(html).digest('hex');
+const hash = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 const isId = (id: string) => typeof id === 'string' && id.length > 0 && id.length <= 200;
 
-type Row = Omit<WikiHostAddress, 'active' | 'url'> & { active: number; token: string | null; html: string };
+type AddressRow = Omit<WikiHostAddress, 'active' | 'url' | 'coverUrl'> & { active: number; token: string | null };
+type Row = AddressRow & { html: string; cover: string | null };
+const ADDRESS_COLUMNS = 'slug, projectId, profileId, editionId, audience, sha256, revision, active, token, cover IS NOT NULL AS hasCover';
+
+function decodeCover(value: unknown) {
+  const match = typeof value === 'string' && /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+=*)$/.exec(value);
+  if (!match) throw Error('wiki_host_cover_invalid');
+  const [, mime, encoded] = match;
+  const bytes = Buffer.from(encoded, 'base64');
+  const valid = mime === 'image/png' ? bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+    : mime === 'image/jpeg' ? bytes.subarray(0, 3).toString('hex') === 'ffd8ff'
+    : bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  if (!valid || bytes.toString('base64') !== encoded) throw Error('wiki_host_cover_invalid');
+  return { mime, bytes };
+}
 
 function checkOwner(owner: WikiHostOwner) {
   if (!isId(owner.projectId) || !isId(owner.profileId)) throw Error('wiki_host_owner_invalid');
@@ -46,6 +60,9 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
           revision INTEGER NOT NULL, active INTEGER NOT NULL, token TEXT, html TEXT NOT NULL
         );
       `);
+      if (!opened.prepare('PRAGMA table_info(wiki_addresses)').all().some(column => column.name === 'cover')) {
+        opened.exec('ALTER TABLE wiki_addresses ADD COLUMN cover TEXT');
+      }
       db = opened;
       return db;
     } catch (error) {
@@ -58,12 +75,13 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
     return store().prepare('SELECT * FROM wiki_addresses WHERE slug=?').get(slug) as Row | undefined;
   }
 
-  function summary(row: Omit<Row, 'html'>): WikiHostAddress {
+  function summary(row: AddressRow & { hasCover: number }): WikiHostAddress {
     const base = publicUrl?.origin ?? origin;
+    const url = row.active && base ? base + '/wiki/' + row.slug + (row.token ? '/u/' + row.token : '') : null;
     return {
       projectId: row.projectId, profileId: row.profileId, slug: row.slug, editionId: row.editionId,
       sha256: row.sha256, audience: row.audience, revision: row.revision, active: !!row.active,
-      url: row.active && base ? base + '/wiki/' + row.slug + (row.token ? '/u/' + row.token : '') : null,
+      url, ...(url && row.hasCover ? { coverUrl: url + '/cover' } : {}),
     };
   }
 
@@ -76,8 +94,12 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
       res.writeHead(421).end();
       return;
     }
-    const [prefix, section, slug, mode, token, ...extra] = (req.url ?? '').split('?')[0].split('/');
-    if (prefix !== '' || section !== 'wiki' || !WIKI_HOST_SLUG.test(slug ?? '') || extra.length || (mode !== undefined && (mode !== 'u' || !TOKEN.test(token ?? '')))) {
+    const [prefix, section, slug, ...suffix] = (req.url ?? '').split('?')[0].split('/');
+    const coverRequest = suffix.at(-1) === 'cover';
+    if (coverRequest) suffix.pop();
+    const token = suffix[1];
+    if (prefix !== '' || section !== 'wiki' || !WIKI_HOST_SLUG.test(slug ?? '') ||
+      (suffix.length !== 0 && (suffix.length !== 2 || suffix[0] !== 'u' || !TOKEN.test(token ?? '')))) {
       res.writeHead(404).end();
       return;
     }
@@ -90,17 +112,29 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
       res.writeHead(404).end();
       return;
     }
+    if (row.token) res.setHeader('X-Robots-Tag', 'noindex');
+    if (coverRequest) {
+      if (!row.cover) { res.writeHead(404).end(); return; }
+      const { mime, bytes } = decodeCover(row.cover);
+      res.writeHead(200, {
+        'Content-Type': mime, 'Content-Length': bytes.length, ETag: '"' + hash(bytes) + '"',
+      }).end(req.method === 'HEAD' ? undefined : bytes);
+      return;
+    }
     if (hash(row.html) !== row.sha256) {
       res.writeHead(500).end();
       return;
     }
-    if (row.token) res.setHeader('X-Robots-Tag', 'noindex');
+    const coverUrl = row.cover && summary({ ...row, hasCover: 1 }).coverUrl;
+    const meta = coverUrl ? `<meta property="og:image" content="${coverUrl}">` : '';
+    const html = meta ? row.html.replace(/<\/head>|^<!doctype html>(?![\s\S]*<\/head>)/i,
+      tag => tag.toLowerCase() === '</head>' ? meta + tag : tag + meta) : row.html;
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Length': Buffer.byteLength(row.html),
+      'Content-Length': Buffer.byteLength(html),
       'Content-Security-Policy': "frame-ancestors 'none'",
-      ETag: '"' + row.sha256 + '"',
-    }).end(req.method === 'HEAD' ? undefined : row.html);
+      ETag: '"' + (meta ? hash(html) : row.sha256) + '"',
+    }).end(req.method === 'HEAD' ? undefined : html);
   }
 
   const server = createServer((req, res) => {
@@ -130,8 +164,8 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
         (owner.profileId !== undefined && (!isId(owner.profileId) || owner.projectId === undefined))) throw Error('wiki_host_owner_invalid');
       const project = owner.projectId ?? null;
       const profile = owner.profileId ?? null;
-      const rows = store().prepare('SELECT slug, projectId, profileId, editionId, audience, sha256, revision, active, token FROM wiki_addresses WHERE (? IS NULL OR projectId=?) AND (? IS NULL OR profileId=?) ORDER BY slug').all(project, project, profile, profile);
-      return (rows as Omit<Row, 'html'>[]).map(summary);
+      const rows = store().prepare(`SELECT ${ADDRESS_COLUMNS} FROM wiki_addresses WHERE (? IS NULL OR projectId=?) AND (? IS NULL OR profileId=?) ORDER BY slug`).all(project, project, profile, profile);
+      return (rows as (AddressRow & { hasCover: number })[]).map(summary);
     },
     async publish(input: WikiHostPublication) {
       checkChange(input);
@@ -139,33 +173,35 @@ export function createWikiHost(options: { file: string; port: number; publicOrig
         typeof input.html !== 'string' || !/^<!doctype html>/i.test(input.html) || hash(input.html) !== input.sha256) {
         throw Error('wiki_host_artifact_changed');
       }
+      if (input.coverImage !== undefined && input.coverImage !== null) decodeCover(input.coverImage);
       await start();
       const token = input.audience === 'unlisted' ? randomBytes(24).toString('base64url') : null;
       const sql = `
-        INSERT INTO wiki_addresses (slug, projectId, profileId, editionId, audience, sha256, revision, active, token, html)
-        SELECT ?, ?, ?, ?, ?, ?, 1, 1, ?, ?
+        INSERT INTO wiki_addresses (slug, projectId, profileId, editionId, audience, sha256, revision, active, token, html, cover)
+        SELECT ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?
         WHERE ?=0 OR EXISTS(SELECT 1 FROM wiki_addresses WHERE slug=?)
         ON CONFLICT(slug) DO UPDATE SET editionId=excluded.editionId, audience=excluded.audience,
           sha256=excluded.sha256, revision=wiki_addresses.revision+1, active=1,
           token=CASE WHEN wiki_addresses.audience=excluded.audience THEN wiki_addresses.token ELSE excluded.token END,
-          html=excluded.html
+          html=excluded.html, cover=CASE WHEN ? THEN excluded.cover ELSE wiki_addresses.cover END
         WHERE wiki_addresses.projectId=excluded.projectId AND wiki_addresses.profileId=excluded.profileId
           AND wiki_addresses.revision=?
-        RETURNING slug, projectId, profileId, editionId, audience, sha256, revision, active, token
+        RETURNING ${ADDRESS_COLUMNS}
       `;
       const row = store().prepare(sql).get(input.slug, input.projectId, input.profileId, input.editionId, input.audience,
-        input.sha256, token, input.html, input.expectedRevision, input.slug, input.expectedRevision);
+        input.sha256, token, input.html, input.coverImage ?? null, input.expectedRevision, input.slug,
+        Number(input.coverImage !== undefined), input.expectedRevision);
       if (!row) throw Error('wiki_host_conflict');
-      return summary(row as Omit<Row, 'html'>);
+      return summary(row as AddressRow & { hasCover: number });
     },
     withdraw(input: WikiHostChange) {
       checkChange(input);
       const row = store().prepare(`
         UPDATE wiki_addresses SET active=0, revision=revision+1 WHERE slug=? AND projectId=? AND profileId=? AND revision=? AND active=1
-        RETURNING slug, projectId, profileId, editionId, audience, sha256, revision, active, token
+        RETURNING ${ADDRESS_COLUMNS}
       `).get(input.slug, input.projectId, input.profileId, input.expectedRevision);
       if (!row) throw Error('wiki_host_conflict');
-      return summary(row as Omit<Row, 'html'>);
+      return summary(row as AddressRow & { hasCover: number });
     },
     async close() {
       try {

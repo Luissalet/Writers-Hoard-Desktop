@@ -15,6 +15,7 @@ export interface WikiHostAddress extends WikiHostOwner {
   revision: number;
   active: boolean;
   url: string | null;
+  coverUrl?: string;
 }
 
 export interface WikiHostChange extends WikiHostOwner {
@@ -22,9 +23,14 @@ export interface WikiHostChange extends WikiHostOwner {
   expectedRevision: number;
 }
 
-export interface WikiHostPublication extends WikiHostChange {
+export interface WikiHostSelection extends WikiHostChange {
   editionId: string;
   audience: WikiHostAudience;
+  /** Omit to retain a cover, or pass null to remove it. */
+  coverImage?: string | null;
+}
+
+export interface WikiHostPublication extends WikiHostSelection {
   sha256: string;
   html: string;
 }
