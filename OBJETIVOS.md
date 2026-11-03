@@ -1,5 +1,9 @@
 # Objetivos de autoría local
 
+## Enlaces servidos para la wiki
+
+La primera entrega2056 permite publicar y retirar en el host propio una edición guardada por URL pública o privada. Quedan gestión tras borrar todo un proyecto (2085), contraseña e invitaciones, servidor permanente independiente de Writer, dominios, programación y publicación servida de manuscritos. [Verificación y alcance](tasks/vvd1095/verification-wiki-hosting2056.md).
+
 ## Imágenes en menciones normales entregadas
 
 Notas y Escritura ya pueden mostrar u ocultar el avatar de una ficha por mención enlazada; Notas guardadas, Lector, wiki y documento como imagen respetan el ámbito admitido. Siguen pendientes el compilador general de Word/EPUB/Markdown/PDF y la preferencia e imágenes del perfil causal compartido. [Pruebas y límites](tasks/vvd1095/verification-mention-image2028.md).

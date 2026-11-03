@@ -1,5 +1,9 @@
 # Writers Hoard — Desktop
 
+## Hosted wiki editions
+
+Save a wiki profile and capture a local edition. Open **Wiki links**, select that edition and a path, and choose a public address or a private link. You can update the same address to a later edition, or withdraw it without removing any of the local editions. Writer's built-in host serves only that frozen wiki. [Setup, MCP and evidence](tasks/vvd1095/verification-wiki-hosting2056.md).
+
 ## Images on Codex mentions
 
 Notes and Writings can show or hide the Codex entry image on each text link. The link, alias and formatting stay intact, and Undo restores the choice. The editor and supported readers use the scoped local avatar without adding image bytes to the prose. The writing MCP tool supports the same choice. [Use and verified scope](tasks/vvd1095/verification-mention-image2028.md).
