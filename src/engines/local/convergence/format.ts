@@ -16,9 +16,9 @@ export const convergenceEngine=(codec:LocalToolStateCodec):LocalToolConvergenceI
 export function assertTableAxesOrigin(codec:LocalToolStateCodec,stored:LocalToolStateCodec|undefined,version:LocalToolConvergenceIdentity['engine']['version']|undefined):void {
  const previous=version??(stored&&convergenceEngine(stored).version),next=convergenceEngine(codec).version;
  if((previous==='6'||previous==='7'||next==='6'||next==='7')&&previous!==next)throw Error('local_tool_convergence_identity_mismatch');
- if(previous==='7'&&stored){
-  const widthFields=(value:LocalToolStateCodec)=>Object.keys(value.fields).filter(field=>localToolRichTableWidths(value.fields[field])).sort();
-  if(convergenceCanonical(widthFields(stored))!==convergenceCanonical(widthFields(codec)))throw Error('local_tool_convergence_identity_mismatch');
+ if(previous==='7'){
+  const tableFields=(value:LocalToolStateCodec)=>Object.fromEntries(Object.entries(value.fields).filter(([,field])=>localToolRichTables(field)));
+  if(!stored||convergenceCanonical(tableFields(stored))!==convergenceCanonical(tableFields(codec)))throw Error('local_tool_convergence_identity_mismatch');
  }
 }
 const fail=():never=>{throw Error('local_tool_convergence_format_invalid');};

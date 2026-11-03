@@ -8,6 +8,7 @@ import {createSourceToolDocument,readSourceToolDocument} from '@/engines/local/d
 import {remapSourceToolDocument} from '@/engines/local/documents/portability';
 import {createLocalToolClient} from '@/engines/local/storage';
 import {registerLocalToolModules} from '@/engines/local/registry';
+import {defineLocalTool} from '@/engines/local/sdk';
 import {createLocalToolReplica,exportLocalToolConvergenceCheckpoint} from '@/engines/local/convergence/replica';
 import {convergenceCanonical} from '@/engines/local/convergence/format';
 import type {RichBlockDocument} from '@/engines/local/convergence/blockFormat';
@@ -73,6 +74,34 @@ export async function testSourceTableWidths(){
   try{await wrong.convergence!.start(await old.read());}catch{rejected=true;}
   equal('absent new field does not upgrade old Source',rejected,true);
   equal('engine6 checkpoint after attempt is byte exact',(await old.convergence!.export()).checkpoint,oldStarted.checkpoint);
+
+  const siblingCodec={kind:'rich',profile:'blocks-tree/3',schema:'writers-blocks/2'} as const;
+  const siblingDefinition=defineLocalTool({...definition,namespace:'tests.width-sibling',codec:{version:2,fields:{...definition.codec!.fields,sibling:siblingCodec}}});
+  registerLocalToolModules({'./installed/tests.width-sibling/module.tsx':{default:siblingDefinition}});
+  await db.projects.update(projectId,{enabledEngines:['local-tool-'+namespace,'local-tool-'+legacy.namespace,'local-tool-'+siblingDefinition.namespace]});
+  const siblingId=(await createSourceToolDocument(scope,siblingDefinition.namespace,'Own absent sibling')).id;
+  const original=createLocalToolClient(projectId,siblingDefinition,{documentId:siblingId});
+  await original.convergence!.start(await original.read());
+  const position=await original.convergence!.richBlockEditCapture('body',[],{parentId:null,slot:'body',afterId:'P'});
+  await original.state!.apply(position.snapshot,[{type:'rich-table-create',field:'body',capture:position.capture,table:{id:'T',rows:[{id:'R',header:false}],columns:[{id:'C'}]}}]);
+  const currentWidth=await original.convergence!.richTableColumnWidthCapture('body','T','C');
+  const sized=await original.state!.apply(currentWidth.snapshot,[{type:'rich-table-column-width',field:'body',capture:currentWidth.capture,widthPx:196}]);
+  const savedSibling=await original.convergence!.export();
+  equal('engine7 width 196, absent fixed sibling and live receipt are healthy',[savedSibling.checkpoint!.engine.version,column(savedSibling.snapshot.data,'C'),Object.hasOwn(savedSibling.snapshot.data as object,'sibling'),typeof sized.receiptId],['7',{widthPx:196},false,'string']);
+  const siblingDoc=await readSourceToolDocument(scope,siblingId,siblingDefinition.namespace);
+  const storageImage=async()=>JSON.stringify([
+   await db.projects.get(projectId),await db.documentHistory.where('projectId').equals(projectId).toArray(),
+  ],(_key,value)=>value===undefined?{testUndefined:true}:value);
+  const beforeSibling=await storageImage();
+  const altered={...siblingDefinition,codec:{version:2 as const,fields:{...siblingDefinition.codec!.fields,sibling:{kind:'rich' as const,profile:'blocks-tree/4' as const,schema:'writers-blocks/3' as const}}}};
+  const incompatible=createLocalToolClient(projectId,altered,{documentId:siblingId});
+  let siblingError='';
+  try{await incompatible.convergence!.start(await incompatible.read());}catch(error){siblingError=String(error);}
+  equal('changing an absent fixed sibling to axes rejects before engine7 reset',siblingError,'Error: local_tool_convergence_identity_mismatch');
+  equal('rejected sibling change leaves full row and history exact',await storageImage(),beforeSibling);
+  equal('rejected sibling change leaves document identity and checkpoint exact',[await readSourceToolDocument(scope,siblingId,siblingDefinition.namespace),await original.convergence!.export()],[siblingDoc,savedSibling]);
+  const undo=await original.state!.undo(sized.receiptId!);
+  equal('original contract can still Undo the same 196 receipt',[column(undo.snapshot.data,'C'),undo.snapshot.convergence?.genesisId],[{},savedSibling.checkpoint!.genesisId]);
  }finally{
   if(await db.projects.get(projectId))await deleteProject(projectId);
   equal('Source width cleanup89zero',await empty(),true);
