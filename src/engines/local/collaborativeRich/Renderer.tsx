@@ -25,6 +25,8 @@ import {RICH_MARKS,type RichMark} from '../convergence/richTypes';
 import {useLocalToolAtomPending} from '../blocks/pending';
 import {nextLocalToolUndoStep,useLocalToolUndoController} from '../stateUndoContext';
 import {RichEditorSession} from './session';
+import {TableWidthControls,TableWidthSurface} from './tableWidthControls';
+import type {TableColumnLayout} from './tableAxesLayout';
 import {projectRichView,sessionPMDocument,blockSession,richBookmark,createRichAdmissionJournal,hasRichAcceptedWork,drainRichAccepted,commitRichComposition} from './prosemirror';
 
 const button='min-h-9 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold disabled:opacity-50';
@@ -112,7 +114,7 @@ function RichSurface({transition,adopt,presence,sharing,documentSave,saveReady,s
  };
  const [linkForm,setLinkForm]=useState(false),[linkUrl,setLinkUrl]=useState('');
  const [extensions]=useState(()=>[
-  ...(isBlocks?blockNodes(collapsed.current,session.tables,session.axes):[
+  ...(isBlocks?blockNodes(collapsed.current,session.tables,session.axes,session.widths):[
   Node.create({name:'doc',topNode:true,content:'paragraph+'}),
   Node.create({name:'paragraph',group:'block',content:'inline*',draggable:true,addAttributes(){return{id:{default:null,parseHTML:element=>element.getAttribute('data-writer-paragraph'),renderHTML:attributes=>attributes.id?{'data-writer-paragraph':attributes.id}:{}}};},parseHTML(){return[{tag:'p'}];},renderHTML({HTMLAttributes}){return['p',mergeAttributes(HTMLAttributes),0];}}),
   Node.create({name:'text',group:'inline'})
@@ -141,6 +143,7 @@ function RichSurface({transition,adopt,presence,sharing,documentSave,saveReady,s
  useLayoutEffect(()=>{if(editor&&!editor.isDestroyed)editor.view.setProps({attributes:{class:'min-h-36 rounded-lg border border-border bg-elevated p-3 text-text-primary focus:outline-none',role:'textbox','aria-multiline':'true','aria-label':label??(es?'Texto compartido':'Shared text'),'aria-placeholder':placeholder??(es?'Escribe aquí…':'Write here…')}});},[editor,label,placeholder,es]);
  useEffect(()=>()=>{const active=composition.current;if(active)cancelAnimationFrame(active.frame);composition.current=undefined;editorRef.current=null;},[]);
  const commit=async()=>{if(composition.current?.ended)finishComposition();return save();},recover=readOnly||!!session.error,hint=placeholder??(es?'Escribe aquí…':'Write here…');
+ const editorContent=<><EditorContent editor={editor}/><LocalPresenceRichCarets presence={presence} session={session} editor={editor}/>{editor?.isEmpty&&editor.state.doc.childCount===1&&hint&&<span aria-hidden="true" className="pointer-events-none absolute left-3 top-3 text-text-muted">{hint}</span>}</>;
  return <section className={['min-w-0 space-y-3',className].filter(Boolean).join(' ')} data-sdk-collaborative-rich={session.field}>
   <h4 className="font-display text-base text-text-primary">{label??(es?'Texto compartido':'Shared text')}</h4>
   {session.canAdopt&&<button type="button" className={button} disabled={readOnly||!saveReady} onClick={()=>void adopt().catch(reason=>session.fail(reason))}>{es?'Activar enlaces':'Enable links'}</button>}
@@ -148,7 +151,7 @@ function RichSurface({transition,adopt,presence,sharing,documentSave,saveReady,s
   {linkForm&&<form className="flex flex-wrap items-end gap-2" onSubmit={event=>{event.preventDefault();const href=normalizeEditorLinkHref(linkUrl);if(href&&editor){const chain=editor.chain().focus();if(editor.state.selection.empty&&editor.isActive('link'))chain.extendMarkRange('link');chain.setLink({href}).run();setLinkForm(false);}}}><label className="min-w-0 flex-1 text-sm text-text-muted">{es?'Dirección del enlace':'Link address'}<input autoFocus className="mt-1 block min-h-9 w-full rounded-lg border border-border bg-elevated px-3 text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold" value={linkUrl} disabled={!session.editable||readOnly} onChange={event=>setLinkUrl(event.target.value)} onKeyDown={event=>{if(event.key==='Escape'){setLinkForm(false);editor?.commands.focus();}}}/></label><button className={button} disabled={!linkUrl.trim()||!session.editable||readOnly} type="submit">{es?'Aplicar':'Apply'}</button><button className={button} disabled={!session.editable||readOnly} type="button" onClick={()=>{if(editor){const chain=editor.chain().focus();if(editor.state.selection.empty)chain.extendMarkRange('link');chain.unsetLink().run();}setLinkForm(false);}}>{es?'Quitar enlace':'Remove link'}</button><button className={button} type="button" onClick={()=>{setLinkForm(false);editor?.commands.focus();}}>{es?'Cancelar':'Cancel'}</button></form>}
   {session.tables&&<TableControls session={session} editor={editor} readOnly={readOnly} es={es}/> }
   {isBlocks&&<div className="flex flex-wrap gap-2" aria-label={es?'Formato de bloques':'Block formatting'}>{(['paragraph','h1','h2','h3','bullet-list','ordered-list','blockquote','toggle'] as const).map(kind=><button key={kind} type="button" className={button} disabled={!session.editable||readOnly} onMouseDown={event=>event.preventDefault()} onClick={()=>{if(editor)formatBlocks(session,selectedBlockLeaves(editor.state.doc,editor.state.selection.from,editor.state.selection.to),kind);}}>{({paragraph:es?'Párrafo':'Paragraph',h1:'H1',h2:'H2',h3:'H3','bullet-list':es?'Viñetas':'Bullet list','ordered-list':es?'Lista numerada':'Numbered list',blockquote:es?'Cita':'Blockquote',toggle:es?'Desplegable':'Toggle'})[kind]}</button>)}</div>}
-  <div className={isBlocks?"tiptap-editor relative":"relative"}><EditorContent editor={editor}/><LocalPresenceRichCarets presence={presence} session={session} editor={editor}/>{editor?.isEmpty&&editor.state.doc.childCount===1&&hint&&<span aria-hidden="true" className="pointer-events-none absolute left-3 top-3 text-text-muted">{hint}</span>}</div>
+  {session.widths?<TableWidthSurface session={session} readOnly={readOnly} className="tiptap-editor relative">{editorContent}</TableWidthSurface>:<div className={isBlocks?"tiptap-editor relative":"relative"}>{editorContent}</div>}
   {saveMode&&<div className="flex flex-wrap items-center gap-2 text-sm text-text-muted"><label className="flex items-center gap-2">{es?'Guardado':'Saving'}<select aria-label={es?'Modo de guardado':'Save mode'} className={button+' bg-elevated'} disabled={readOnly||!modeReady} value={saveMode} onChange={event=>void chooseMode(event.target.value as LocalToolSaveMode).catch(()=>{})}><option value="manual">Manual</option><option value="automatic">{es?'Automático':'Automatic'}</option></select></label>{saveMode==='automatic'&&<span>{es?'Guarda también los cambios recibidos en esta biblioteca.':'Also saves received changes in this library.'}</span>}</div>}
   {preferenceError&&<p role="alert" className="text-sm text-danger">{es?'No se pudo recordar el modo para los próximos documentos. Se mantiene la elección de este editor.':'Could not remember the mode for future documents. This editor keeps your choice.'}</p>}
   {autosaveError&&!session.error&&<p role="alert" className="text-sm text-danger">{es?'El guardado automático se ha detenido. Conservamos el borrador; revisa el error antes de volver a guardar.':'Automatic saving stopped. Your draft is retained; review the error before saving again.'}</p>}
@@ -166,6 +169,18 @@ function TableControls({session,editor,readOnly,es}:{session:RichEditorSession;e
   return null;
  }});
  const cell=useEditorState({editor,selector:({editor:current})=>session.axes&&current?axisCellAtPosition(current.state.doc,current.state.selection.from):null});
+ const width=useEditorState({editor,selector:({editor:current})=>{
+  if(!session.widths||!current)return null;
+  const {doc,selection}=current.state,selected=axisCellAtPosition(doc,selection.from);
+  if(!selected)return null;
+  for(let depth=selection.$from.depth;depth>0;depth--){
+   const node=selection.$from.node(depth);
+   if(node.type.name==='table')return (node.attrs.columnLayout as TableColumnLayout[]|null)?.find(column=>column.columnId===selected[2])?.widthPx??null;
+  }
+  return null;
+ }});
  const axisLabel={rows:{before:es?'Insertar fila antes':'Insert row before',after:es?'Insertar fila después':'Insert row after',hide:es?'Eliminar fila':'Remove row'},columns:{before:es?'Insertar columna antes':'Insert column before',after:es?'Insertar columna después':'Insert column after',hide:es?'Eliminar columna':'Remove column'}};
- return <div className="flex flex-wrap gap-2" aria-label={es?'Tabla':'Table'}><button type="button" className={button} disabled={!editor||!session.editable||readOnly||!!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)insertFixedTable(session,editor.view);}}>{es?'Insertar tabla':'Insert table'}</button>{(['up','down','hide']as const).map(action=><button key={action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlFixedTable(session,editor.view,action);}}>{({up:es?'Subir tabla':'Move table up',down:es?'Bajar tabla':'Move table down',hide:es?'Eliminar tabla':'Remove table'})[action]}</button>)}{session.axes&&(['rows','columns']as const).flatMap(axis=>(['before','after','hide']as const).map(action=><button key={axis+action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!cell} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlTableAxis(session,editor.view,axis,action);}}>{axisLabel[axis][action]}</button>))}</div>;
+ return <div className="flex flex-wrap gap-2" aria-label={es?'Tabla':'Table'}><button type="button" className={button} disabled={!editor||!session.editable||readOnly||!!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)insertFixedTable(session,editor.view);}}>{es?'Insertar tabla':'Insert table'}</button>{(['up','down','hide']as const).map(action=><button key={action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlFixedTable(session,editor.view,action);}}>{({up:es?'Subir tabla':'Move table up',down:es?'Bajar tabla':'Move table down',hide:es?'Eliminar tabla':'Remove table'})[action]}</button>)}{session.axes&&(['rows','columns']as const).flatMap(axis=>(['before','after','hide']as const).map(action=><button key={axis+action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!cell} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlTableAxis(session,editor.view,axis,action);}}>{axisLabel[axis][action]}</button>))}
+  {session.widths&&cell&&session.editable&&!readOnly&&<TableWidthControls key={JSON.stringify([cell[0],cell[2]])} session={session} tableId={cell[0]} columnId={cell[2]} current={width??null} es={es} button={button}/>}
+ </div>;
 }

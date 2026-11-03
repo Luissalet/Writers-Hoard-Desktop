@@ -2202,6 +2202,14 @@ Variable axes, cell merge/split, shared images and adoption of old origins remai
 
 Coordinación en Ágora writers2228. Quedan abiertos merge/split, anchos, imágenes causales y adopción de historias anteriores.
 
+## 2082 — Ancho de columna en tablas compartidas
+
+- [x] Decisión2275 y contraste del lector estricto anterior.
+- [x] Campo optativo engine7, captura y acción por ID, Undo causal y controles del editor y lector.
+- [ ] Pruebas finales del corte, revisión independiente y aceptación Brave/MCP.
+
+Coordinación en Ágora writers2266. El alcance incluye guardar, frío y portabilidad del ancho. Merge/split, imágenes y adopción de perfiles anteriores siguen sus propias tareas.
+
 ## 2028 - Notes caller correction after real Brave RED
 
 - [x] Fix a permanent oracle on the real NoteRichEditor wrapper before implementation: explicit Base despite an era pane, hidden era, Base return and Inbox isolation, no prose writes.

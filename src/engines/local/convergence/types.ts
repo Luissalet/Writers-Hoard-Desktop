@@ -20,6 +20,7 @@ export interface LocalToolReplicaEdit<T extends LocalToolJson=LocalToolJson> ext
 }
 /** SDK-visible capability; no host receipt recipe, database or callback in this object. */
 export interface LocalToolReplica<T extends LocalToolJson=LocalToolJson> {
+ richTableColumnWidthCapture(field:string,tableId:string,columnId:string):import('./tableAxesEditing').RichTableColumnWidthCapture;
  richTableAxisCapture(field:string,tableId:string,axis:import('./tableAxesFormat').RichTableAxis,afterId:string|null):import('./tableAxesEditing').RichTableAxisCapture;
  richTableCellCapture(field:string,tableId:string,rowId:string,columnId:string,afterId?:string|null):import('./tableAxesEditing').RichTableCellCapture;
  richBlockEmptyItemCapture(field:string,nodeId:string):import('./blockExit').RichBlockEmptyItemCapture;

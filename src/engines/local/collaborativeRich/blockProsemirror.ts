@@ -1,6 +1,6 @@
 import {tableCellOf} from '../convergence/tableFormat';
-import {TABLE_AXES_SCHEMA} from '../convergence/tableAxesFormat';
-import {tableAxesRows} from './tableAxesLayout';
+import {isTableAxesSchema,TABLE_WIDTHS_SCHEMA} from '../convergence/tableAxesFormat';
+import {tableAxesRows,tableWidthStyle,type TableColumnLayout} from './tableAxesLayout';
 import {Node,mergeAttributes} from '@tiptap/core';
 import type {Node as PMNode,Schema} from '@tiptap/pm/model';
 import {TextSelection,type Transaction,type EditorState} from '@tiptap/pm/state';
@@ -16,9 +16,10 @@ export function blockPMDocument(schema:Schema,data:RichBlockDocument):PMNode {
  const present=(value:PMNode|null):value is PMNode=>value!==null;
  const node=(block:RichBlock):PMNode|null=>{
   if(block.content)return leaf(block);
-  if(block.type==='table'&&data.schema===TABLE_AXES_SCHEMA){
+  if(block.type==='table'&&isTableAxesSchema(data.schema)){
    const rows=tableAxesRows(data,block.id);if(!rows.length)return null;
-   return schema.nodes.table.create({id:block.id,columns:rows[0].cells.map(c=>c.columnId)},rows.map(({row,cells})=>schema.nodes.tableRow.create({id:row.id},cells.map(cell=>{
+   const columnLayout=data.schema===TABLE_WIDTHS_SCHEMA?rows[0].cells.map(({columnId,widthPx})=>({columnId,widthPx})):undefined;
+   return schema.nodes.table.create({id:block.id,columns:rows[0].cells.map(c=>c.columnId),...(columnLayout?{columnLayout}:{})},rows.map(({row,cells})=>schema.nodes.tableRow.create({id:row.id},cells.map(cell=>{
     const content=cell.children.map(node).filter(present);
     return schema.nodes[row.attrs.header?'tableHeader':'tableCell'].create({columnId:cell.columnId,cellAddress:cell.address},content.length?content:[schema.nodes.paragraph.create({id:null,cellAddress:cell.address})]);
    }))));
@@ -104,14 +105,21 @@ export function blockTextKey(session:RichEditorSession,view:{state:EditorState;d
  return session.gesture(()=>{session.beforeViewChange?.();session.apply({type:'rich-block-join',field:session.field,capture});session.afterViewChange?.();const placed=blockPMLeaves(view.state.doc).find(n=>n.id===previous.id);if(placed)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,placed.pos+1+previous.node.content.size)));});
 }
 /** Collapse is local presentation keyed by block identity, outside saved state. */
-export function blockNodes(collapsed:Set<string>,tables=false,axes=false){
+export function blockNodes(collapsed:Set<string>,tables=false,axes=false,widths=false){
  const attributes={id:{default:null,parseHTML:(element:HTMLElement)=>element.getAttribute('data-writer-block'),renderHTML:(attrs:Record<string,unknown>)=>attrs.id?{'data-writer-block':attrs.id}:{}}};
  const ordinary=(name:string,tag:string,content:string,extra:Record<string,{default:unknown}>={})=>Node.create({name,group:name==='listItem'||name==='tableRow'?undefined:'block',content,draggable:true,addAttributes(){return{...attributes,...extra};},parseHTML(){return[{tag}];},renderHTML({HTMLAttributes}){return[tag,mergeAttributes(HTMLAttributes,...(name==='bulletList'?[{style:'list-style-type:disc'}]:name==='orderedList'?[{style:'list-style-type:decimal'}]:[])),0];}});
  return[
   Node.create({name:'doc',topNode:true,content:'block+'}),Node.create({name:'text',group:'inline'}),ordinary('paragraph','p','inline*',axes?{cellAddress:{default:null,rendered:false}}as Record<string,{default:unknown}>:{}),
   Node.create({name:'heading',group:'block',content:'inline*',draggable:true,addAttributes(){return{...attributes,level:{default:1}};},parseHTML(){return[1,2,3].map(level=>({tag:'h'+level,attrs:{level}}));},renderHTML({node,HTMLAttributes}){return['h'+Number(node.attrs.level),mergeAttributes(HTMLAttributes),0];}}),
   ...(tables?[
-   Node.create({name:'table',group:'block',content:'tableRow+',draggable:true,isolating:true,addAttributes(){return{...attributes,columns:{default:[]}};},parseHTML(){return[{tag:'table'}];},renderHTML({HTMLAttributes}){return['table',mergeAttributes({class:'my-3 w-full table-fixed border-collapse'},HTMLAttributes),['tbody',0]];}}),
+   Node.create({name:'table',group:'block',content:'tableRow+',draggable:true,isolating:true,addAttributes(){return{...attributes,columns:{default:[]},...(widths?{columnLayout:{default:null,rendered:false}}:{})};},parseHTML(){return[{tag:'table'}];},renderHTML({node,HTMLAttributes}){
+    const columns=node.attrs.columnLayout as TableColumnLayout[]|null|undefined;
+    const props=mergeAttributes({class:'my-3 w-full table-fixed border-collapse'},HTMLAttributes);
+    if(!columns?.length)return['table',props,['tbody',0]];
+    const style=tableWidthStyle(columns);
+    return['table',{...props,'data-writer-column-widths':'',...(style?{style:`width:${style.width}${style.minWidth?';min-width:'+style.minWidth:''}`}:{})},
+     ['colgroup',...columns.map(({columnId,widthPx})=>['col',{'data-writer-column':columnId,...(widthPx===null?{}:{style:`width:${widthPx}px`})}])],['tbody',0]];
+   }}),
    ordinary('tableRow','tr','(tableCell|tableHeader)+'),
    ...(['tableCell','tableHeader']as const).map(name=>Node.create({name,content:'block+',isolating:true,addAttributes(){return{...attributes,columnId:{default:null},...(axes?{cellAddress:{default:null,parseHTML:()=>null,renderHTML:(attrs:Record<string,unknown>)=>attrs.cellAddress?{'data-writer-cell-address':attrs.cellAddress}:{}}}:{})};},parseHTML(){return[{tag:name==='tableCell'?'td':'th'}];},renderHTML({HTMLAttributes}){return[name==='tableCell'?'td':'th',mergeAttributes({class:'min-w-12 border border-border p-2 align-top'+(name==='tableHeader'?' bg-elevated font-semibold':'')},HTMLAttributes),0];}})),
   ]:[]),
