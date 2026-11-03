@@ -4,7 +4,7 @@
 
 El primer incremento2003 permite a herramientas locales que optan por su perfil insertar tablas fijas, editar/formatear/enlazar por celda y mover/quitar/Deshacer sin perder aportaciones ajenas representables. Coexiste con los controles contextuales de Notas2009 ya entregados. Autor, revisión del núcleo/UI, Brave y puente autenticado tienen evidencia separada; la composición conserva ambos caminos y ha pasado sus dos focos y gates. [Estado, pruebas y límites](tasks/vvd1095/verification-shared-tables2003.md).
 
-El commit compuesto1cffcbdb está aprobado en2003/revisión1 e integrado en Main/primary. Queda la aceptación estrecha del seguimiento de la vista pasiva; no equivale a dos bibliotecas ni a paridad global. Continuar imágenes/bytes, ejes mutables, merge/split/anchos y adopción antigua en el perfil compartido, además de schema, IME, hosting y coste.1095 sigue abierta. Los apartados inferiores mantienen la historia y alcance de sus entregas anteriores.
+El commit compuesto1cffcbdb está aprobado en2003/revisión1 e integrado en Main/primary. El seguimiento40c2400a ya está aprobado en revisión2 e integrado, con aceptación BraveR6 de la vista pasiva. El primer hito de cuadrícula fija queda entregado; el intento R5 entre dos bibliotecas sigue parcial y no hay paridad global. Continuar imágenes/bytes, ejes mutables, merge/split/anchos y adopción antigua en el perfil compartido, además de schema, IME, hosting y coste.1095 sigue abierta. Los apartados inferiores mantienen la historia y alcance de sus entregas anteriores.
 
 
 ## Continuación tras los controles de tabla2009
