@@ -424,3 +424,12 @@ El resumen del proyecto y la paleta permiten crear una línea temporal o un tabl
 
 
 La cache privada de proyección de la réplica también está integrada en Source7d3f1365, aprobada1796r4. Reutiliza lecturas sin cambios e invalida por transacción/contexto, manteniendo copias públicas y las reglas históricas. Pruebas normales, Brave y un nuevo MCP Native con dos claves pasan; no hay una nueva medición100/50k ni aceptación de fluidez. Supera las notas anteriores de cache sólo Stage. Bloques1883 y borradores publicados1890 siguen aislados, pendientes de sus revisiones y aceptación completas. [Evidencia y límites](tasks/vvd1095/verification-sdk-rich-prose.md#private-replica-projection-source7d3f1365).
+
+
+## Guardado automático opcional del editor compartido —1952
+
+El editor normal y el SDK ofrecen Manual/Automático por instancia documental. Sin preferencia previa empieza Manual; elegir modo recuerda un predeterminado personal para futuras aperturas de esta biblioteca, sin imponerlo a otros paneles ya abiertos ni a otras personas. Automático reúne contribuciones admitidas no cubiertas durante500ms desde la primera, sin reiniciar el plazo por cada tecla o lectura, y usa el mismo Guardar/writer Source para todos los campos. Manual fuera de sala conserva Guardar independiente por campo.
+
+Composición/recuperación/readonly o contexto retirado impiden publicar un corte incompleto. El ACK de H no confirma J admitido después; pasar a Manual cancela futuros intentos y conserva el vuelo iniciado. Un error mantiene el borrador y exige Reintentar explícito. Salir sin guardar aquí inicia cero Save/retry y concilia sólo los ya iniciados; tras recargar, la nueva sesión local vuelve a guardar con la elección retenida. SDK setSaveMode y MCP live_control normal actúan sobre el host abierto; frío no lo fabrica.
+
+Fuente `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`, Main `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`, sin push. [Contrato y atribución](tasks/vvd1095/verification-autosave1952.md#current-acceptance-of-cut3). Esta adenda sucede a los pendientes históricos de Auto, sin reatribuir sus pruebas ni cerrar enlaces1958, rendimiento, IME físico, hosting o paridad1095.

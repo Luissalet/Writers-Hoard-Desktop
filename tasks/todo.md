@@ -2097,3 +2097,19 @@ Criterio: contrato2079 y research-inbox/writer-presence1893/LINK-FLOW-r2; no equ
 - [ ] Componer R5 aprobada antes de corte final/Native, revisión independiente y Brave; sin commit/Main/push por este autor.
 
 Criterio previo: research-inbox/writer-live-content-next/AUTOSAVE-ORACLES-r3.md y ROOT-autosave-agreement-r2.md. No se atribuye paridad ni ejecución a este plan.
+
+
+### Guardado automático1952 — aceptación actual de CUT3
+
+Este bloque sucede al plan inicial «worktree aislado» sin reescribir sus casillas históricas.
+
+- [x] Componer con R5/R6 aprobados: HEAD7c3,16rutas CUT3; conservar CUT1/CUT2 rechazados y sus RED. R7 marginal retirado no forma parte de este producto.
+- [x] Pasar área79+Source legacy, UI dirigidas, tipos/lint y gates finales CUT3: quick107.327s/build139.496s, ambosEOF0 y guardas exactas.
+- [x] Revisión funcional independiente:179aserciones candidatas, incluidas salud/setup, más12controles Manual del baseline acotado; no179criterios de paridad.
+- [x] BraveRoot CUT3: Manual/Auto, preferencia futura y aislamiento de panel/biblioteca, contribucionesB y SourceH/J, Undo/Redo recibidos, Leave y nueva ediciónAuto, reapertura normal.
+- [x] Native/MCP final: Native R2-final nuevo PASS:121tools/129RPC/121IPC (99/103/99 preparación y22/26/22 frío), cuatro claves/cuatro stdio y cuatro revocaciones401 sin IPC posterior; EOF/exit0 en ambas fases. Un SourceHost normal/dos campos, cliente original, Auto/Manual por MCP, Save por campo, sharing UI/SSE real, Undo/Redo, Leave y edición posterior. Otro Electron40936→30532 usa el mismo perfil real dSdFnR y origen59663, lee el corte exacto sin seed/host y una instancia nueva recuerda Auto/IDs; edición posterior se guarda automáticamente. Cleanup final89tablas/150índices0, ledger/hosts0, streams cerrados/unhandled[], siete PIDs ausentes y puerto cerrado. Recibo7f0b29ce/extracción1aa072ef,35329inputs/16Source/HEAD/índice exactos. Sin conteo de imports, carrera retenida, fallo inyectado o Retry positivo Native; Retry sanoFalse es sólo despacho. Dos claves no son dos personas; sin IME físico, fluidez, hosting o paridad completa..
+- [x] Aprobación exacta1952/revisión1 e integración: Source `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`, Main `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`; sin push.
+ManualGoogle actualizado una vez tras Main con CAS y readback íntegro (delta514UTF16). Memoria y grafos tienen recibo separado ROOT-continuity-auto1952-r1.json; no se atribuyen a las pruebas de producto.
+- [ ] Continuar1917/1958, hosting/IME físico/schema/imágenes/tablas y demás residuos1095/1796.
+
+[Contrato, límites y evidencia separada](vvd1095/verification-autosave1952.md#current-acceptance-of-cut3).

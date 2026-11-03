@@ -931,3 +931,12 @@ Project Overview and the command palette can create a timeline or cork board dir
 
 
 Quiet replica reads now reuse a private raw projection (Source7d3f1365, approved1796r4). Transaction/context changes invalidate it and public results remain detached copies. Functional Browser and new two-key Native checks pass; large-history typing performance remains open. [Evidence and limits](tasks/vvd1095/verification-sdk-rich-prose.md#private-replica-projection-source7d3f1365).
+
+
+## Optional automatic saving of shared rich documents —1952
+
+The normal shared rich editor offers **Manual** and **Automatic**. Manual is the initial default. A personal choice is remembered for future document instances in this library; panes already open and other libraries/people keep their own modes. Automatic coalesces admitted pending changes for500ms through the same whole-document Save and Source writer. Manual outside a room retains independent field saves.
+
+A Save confirms only its captured cut: later edits remain pending. Switching to Manual stops future attempts while an existing Save settles. Errors preserve the draft for explicit Retry. Leave starts no Save, waits only for writes already in flight and returns to the saved local Source; fresh local editing can save automatically again. SDK `documentContent.setSaveMode` and normal MCP `wh_local_tool_live_control` use this same open instance; a cold request does not create an editor.
+
+[API](docs/local-tool-sdk.md#automatic-saving-of-open-rich-documents) and [attributed acceptance](tasks/vvd1095/verification-autosave1952.md#current-acceptance-of-cut3) supersede earlier preparation notes about autosave being unavailable. Source `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`, integrated in Main as `0ac21d2cd02ef500a4ac08f6492d10b94710efe1` after independent acceptance; no push. Links1958, large-history responsiveness, physical IME, hosting and complete1095 parity remain open.
