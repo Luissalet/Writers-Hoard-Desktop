@@ -1,5 +1,9 @@
 # Writers Hoard — Desktop
 
+## Images on Codex mentions
+
+Notes and Writings can show or hide the Codex entry image on each text link. The link, alias and formatting stay intact, and Undo restores the choice. The editor and supported readers use the scoped local avatar without adding image bytes to the prose. The writing MCP tool supports the same choice. [Use and verified scope](tasks/vvd1095/verification-mention-image2028.md).
+
 ## Fixed tables in shared local tools
 
 Local tools that declare the new shared-table profile can insert fixed-size tables, write and format each cell, add links, move or remove the whole table, and Undo while preserving another author's contributions. Manual and Automatic saving, SDK and MCP keep the same document paths. Existing tools are not migrated just by opening them; Notes retain their normal contextual table toolbar and all earlier features.
