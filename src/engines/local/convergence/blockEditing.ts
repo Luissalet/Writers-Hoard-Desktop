@@ -1,4 +1,5 @@
 import {prepareTableInsert} from './tableEditing';
+import {prepareTableAxes} from './tableAxesEditing';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
 import {convergenceClone,assertConvergenceIdentity} from '@/engines/local/convergence/format';
@@ -15,9 +16,9 @@ function capturedPlacement(source:RichBlocks,capture:RichBlockEditCapture,id:str
  const kind=source.registers.versions.get(binding.kindVersionId),place=source.registers.versions.get(binding.placementVersionId);if(!kind?.present||!place?.present)return fail();
  return{id,type:kind.value as RichBlock['type'],...convergenceClone(place.value) as unknown as RichBlockPlacement};
 }
-export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-table-insert','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
+export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-table-create','rich-table-insert','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
 /** Stable sibling traversal. Anchors outside this slot act as retained head anchors. */
-export function richBlockChildren<T extends RichBlockPlacement&{id:string}>(data:{blocks:readonly T[]},parentId:string|null,slot:'body'|'summary'='body'):T[]{
+export function richBlockChildren<T extends RichBlockPlacement&{id:string}>(data:{blocks:readonly T[]},parentId:string|null,slot:RichBlockPlacement['slot']='body'):T[]{
  const children=data.blocks.filter(b=>b.parentId===parentId&&b.slot===slot),ids=new Set(children.map(b=>b.id)),out:T[]=[],seen=new Set<string>();
  const visit=(anchor:string|null)=>{for(const b of children.filter(b=>(b.afterId!==null&&ids.has(b.afterId)?b.afterId:null)===anchor).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0)){if(seen.has(b.id))return fail();seen.add(b.id);out.push(b);visit(b.id);}};
  visit(null);if(out.length!==children.length)return fail();return out;
@@ -35,7 +36,8 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
  const selected=action.capture.nodeIds.map(id=>result.data.blocks.find(b=>b.id===id)??fail());
  const move=(b:RichBlock,to:RichBlockPlacement)=>{Object.assign(b,to);write('placement',b.id,to);};
  const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const[name,value]of Object.entries({kind:block.type,attrs:block.attrs,membership:true,placement:{parentId:block.parentId,slot:block.slot,afterId:block.afterId}}))write(name as RichBlockPlan['writes'][number]['name'],block.id,value);};
- if(action.type==='rich-table-insert')return prepareTableInsert(source,data,bindings,action,intrinsicLastLeaf);
+ if(action.type==='rich-table-create')return prepareTableAxes(source,data,bindings,action,identity,intrinsicLastLeaf);
+ else if(action.type==='rich-table-insert')return prepareTableInsert(source,data,bindings,action,intrinsicLastLeaf);
  else if(action.type==='rich-block-list-indent'){
   if(selected.length!==1)return fail();
   const leafWitness=capturedPlacement(source,action.capture,selected[0].id),itemWitness=capturedPlacement(source,action.capture,leafWitness?.parentId??null),listWitness=capturedPlacement(source,action.capture,itemWitness?.parentId??null);
@@ -82,5 +84,6 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   for(const b of result.data.blocks)if(b.parentId===wrapper.parentId&&b.slot===wrapper.slot&&b.afterId===wrapper.id)move(b,{parentId:b.parentId,slot:b.slot,afterId:previous});
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables);return result;
+ if(source.axes&&action.type==='rich-block-hide')result.data.axisOrder=result.data.axisOrder!.filter(o=>result.data.blocks.some(b=>b.id===o.tableId));
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes);return result;
 }

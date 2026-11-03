@@ -1,4 +1,5 @@
-import {localToolRichLinks,localToolRichTables,isLocalToolRichBlockField} from '../stateCodec';
+import {localToolRichLinks,localToolRichTables,localToolRichTableAxes,isLocalToolRichBlockField} from '../stateCodec';
+import type {RichTableCellCapture} from '../convergence/tableAxesEditing';
 import type {LocalToolClient,LocalToolJson,LocalToolSnapshot} from '../sdk';
 import {createLocalToolReplica} from '../convergence/replica';
 import {assertConvergenceIdentity,convergenceIdentityOf,convergenceIdentity,convergenceClone,convergenceCanonical} from '../convergence/format';
@@ -63,13 +64,14 @@ export class RichEditorSession {
  busy=false;
  revision=0;
  constructor(client:LocalToolClient<LocalToolJson>,checkpoint:LocalToolConvergenceCheckpoint,snapshot:LocalToolSnapshot<LocalToolJson>,contract:LocalToolConvergenceContract,field:string,notify:()=>void,nextStep:()=>number){
-  if(!snapshot.document||!['3','4','5'].includes(checkpoint.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_editor_identity_invalid');
+  if(!snapshot.document||!['3','4','5','6'].includes(checkpoint.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_editor_identity_invalid');
   this.targetContract=contract;this.contract=effectiveRichAdoptionContract(checkpoint,contract);this.convergenceIdentity=convergenceIdentityOf(checkpoint);this.confirmedIdentity=convergenceIdentityOf(checkpoint);this.notify=notify;this.nextStep=nextStep;this.client=client;this.field=field;this.lineage=snapshot.document.lineage;this.confirmedVector=checkpoint.stateVectorBase64;
   this.replica=createLocalToolReplica(checkpoint,{authorId:'writer-editor:'+crypto.randomUUID(),contract});this.document();
  }
  get tables(){return localToolRichTables(this.contract.codec.fields[this.field]);}
+ get axes(){return localToolRichTableAxes(this.contract.codec.fields[this.field]);}
  get links(){return localToolRichLinks(this.contract.codec.fields[this.field]);}
- blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables);return value;}
+ blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables,this.axes);return value;}
  document():RichDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field],descriptor=this.contract.codec.fields[this.field];if(isLocalToolRichBlockField(descriptor))return richBlockLeaves(value as unknown as RichBlockDocument,this.links,this.tables);validateRichDocument(value,this.links);return value;}
  acceptedThrough(epoch:object){return this.accepted.get(epoch)??0;}
  hasAcceptedRecord(token:object){return this.acceptedRecords.has(token);}
@@ -172,6 +174,17 @@ export class RichEditorSession {
    }}
  }
  beginComposition(){if(!this.editable)return false;this.composing=true;this.changed();return true;}
+ /** A provisional empty-cell IME gesture must see any already received axis withdrawal. */
+ assertTableCellCommit(capture:RichTableCellCapture){
+  if(!this.composing)return;if(this.compositionReadFailure)throw this.compositionReadFailure.reason;
+  const updates=[...this.deferred.map(read=>read.update!),...this.deferredDrafts.map(entry=>entry.update)];if(!updates.length)return;
+  const view=createLocalToolReplica(this.replica.checkpoint(),{authorId:'table-cell-composition',contract:this.contract});
+  try{
+   let pending=false;for(const update of updates)pending=view.receive(update).pending;if(pending)throw Error('local_tool_table_cell_composition_stale');
+   const current=view.richTableCellCapture(capture.field,capture.tableId,capture.rowId,capture.columnId,capture.afterId);
+   if(convergenceCanonical(current.bindings)!==convergenceCanonical(capture.bindings)||view.inspect().conflict)throw Error('local_tool_table_cell_composition_stale');
+  }finally{view.destroy();}
+ }
  endComposition(){
   const readFailure=this.compositionReadFailure;this.compositionReadFailure=undefined;this.composing=false;const deferred=this.deferred;this.deferred=[];
   // Close the accepted local gesture first. Before callbacks can publish, require a fresh

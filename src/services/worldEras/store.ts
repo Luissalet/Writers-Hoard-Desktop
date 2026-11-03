@@ -8,7 +8,7 @@ import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import type { Project } from '@/types';
 import { validateWorldCalendar } from '@/engines/timeline/worldCalendar';
 import { validateLocalToolProjectStates } from '@/engines/local/stateTypes';
-import {forkSourceToolConvergence} from '@/engines/local/documents/portability';
+import {forkSourceToolDocument} from '@/engines/local/documents/portability';
 import {validateSourceToolDocument,type SourceToolDocument} from '@/engines/local/documents/types';
 import {convergenceHash} from '@/engines/local/convergence/format';
 import { validateWorkspaceAppearanceProject } from '@/services/workspaceAppearance/validation';
@@ -101,7 +101,7 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
         root.convergence=convergence;root.codec??=old?.codec;
         const changed=!old||current?.provenance==='base'||convergenceHash(root.data)!==convergenceHash(old.data)||convergenceHash(root.convergence)!==convergenceHash(old.convergence??null)||root.namespace!==old.namespace;
         if(changed){
-          root.convergence=forkSourceToolConvergence(root);root.generation=crypto.randomUUID();
+          Object.assign(root,forkSourceToolDocument(root),{generation:crypto.randomUUID()});
           // checkpoint writes also retain displaced causal state; generic data saves cannot erase it.
           if(options.checkpoint&&previous)history.push(...variantHistory(previous).slice(-1));
           if(current?.provenance==='base'){

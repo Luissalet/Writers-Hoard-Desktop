@@ -78,6 +78,8 @@ export class LocalDocumentContentHost {
  async capture(field:string,request:LocalToolJson):Promise<LocalToolJson>{
   request=convergenceClone(request);await this.validate();
   const s=this.session(field);if(!request||typeof request!=='object'||Array.isArray(request))throw Error('local_tool_live_capture_invalid');const r=request as Record<string,LocalToolJson>,node=String(r.nodeId??'');
+  if(r.kind==='table-axis')return convergenceClone(s.replica.richTableAxisCapture(field,String(r.tableId),r.axis as import('../convergence/tableAxesFormat').RichTableAxis,(r.afterId??null) as string|null)) as unknown as LocalToolJson;
+  if(r.kind==='table-cell')return convergenceClone(s.replica.richTableCellCapture(field,String(r.tableId),String(r.rowId),String(r.columnId),(r.afterId??null) as string|null)) as unknown as LocalToolJson;
   if(r.kind==='range')return convergenceClone(s.replica.richRange(field,node,Number(r.from),Number(r.to))) as unknown as LocalToolJson;
   if(r.kind==='split')return convergenceClone(s.replica.richSplitCapture(field,node,Number(r.at))) as unknown as LocalToolJson;
   if(r.kind==='join')return convergenceClone(s.replica.richJoinCapture(field,String(r.leftNodeId),String(r.rightNodeId))) as unknown as LocalToolJson;

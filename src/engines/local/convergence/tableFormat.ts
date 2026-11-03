@@ -1,5 +1,6 @@
 import type {LocalToolJson} from '../stateTypes';
 import type {RichBlock,RichBlockDocument} from './blockFormat';
+import {TABLE_AXES_SCHEMA,tableCellAddress} from './tableAxesFormat';
 export const TABLE_SCHEMA='writers-blocks/2' as const;
 export const TABLE_KINDS=['table','table-row','table-cell','table-header'] as const;
 export type RichTableKind=typeof TABLE_KINDS[number];
@@ -40,6 +41,7 @@ export function validateTableLayout(data:RichBlockDocument):void {
 
 /** Cells bound text edits; row/column surgery is outside the fixed-grid profile. */
 export function tableCellOf(data:RichBlockDocument,nodeId:string):string|null {
+ if(data.schema===TABLE_AXES_SCHEMA){const address=tableCellAddress(data,nodeId);return address?JSON.stringify(address):null;}
  const byId=new Map(data.blocks.map(b=>[b.id,b])),seen=new Set<string>();let b=byId.get(nodeId);
  while(b){if(seen.has(b.id))fail();seen.add(b.id);if(b.type==='table-cell'||b.type==='table-header')return b.id;b=b.parentId===null?undefined:byId.get(b.parentId);}return null;
 }
