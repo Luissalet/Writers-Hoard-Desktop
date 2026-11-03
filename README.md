@@ -6,7 +6,7 @@ Source tools with the editable axes profile can add or remove rows and columns i
 
 ## Hosted wiki editions
 
-Save a wiki profile and capture a local edition. Open **Wiki links**, select that edition and a path, and choose a public address or a private link. You can update the same address to a later edition, or withdraw it without removing any of the local editions. From Home, you can also withdraw a link after deleting its project. Writer's built-in host serves only that frozen wiki. [Managing links from Home](tasks/vvd1095/verification-wiki-addresses2085.md). [Setup, MCP and evidence](tasks/vvd1095/verification-wiki-hosting2056.md).
+Save a wiki profile and capture a local edition. Open **Wiki links**, select that edition and a path, and choose a public address or a private link. You can update the same address to a later edition, or withdraw it without removing any of the local editions. From Home, you can also withdraw a link after deleting its project. Writer's built-in host serves only that frozen wiki. [Managing links from Home](tasks/vvd1095/verification-wiki-addresses2085.md). A link can use a local PNG, JPEG or WebP as its preview image. [Cover images and MCP](tasks/vvd1095/verification-wiki-cover2091.md). [Setup, MCP and evidence](tasks/vvd1095/verification-wiki-hosting2056.md).
 
 ## Images on Codex mentions
 
