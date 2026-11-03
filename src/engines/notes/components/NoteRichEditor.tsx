@@ -17,6 +17,6 @@ export default function NoteRichEditor({ html, onChange, projectId = GLOBAL_NOTE
   const content = html === emitted?.normalized ? emitted.raw : html;
   useLayoutEffect(() => () => { guard.current.epoch++; }, [owner, guard]);
   return <div className="tiptap-editor min-w-0 rounded-lg border border-border" data-note-rich-editor>
-    <TiptapEditor key={owner} content={content} onEditorReady={ready} toolbarExtra={<NoteImageControls key={owner} editor={editor} owner={owner} projectId={projectId} activity={guard}/>} onChange={value=>{const next=normalizeNoteContent({richHtml:value});setEmitted({raw:value,normalized:next.richHtml!});onChange(next.text??'',next.richHtml!);}}/>
+    <TiptapEditor key={owner} referenceContext={projectId === GLOBAL_NOTES_SCOPE ? undefined : { projectId, eraId, scopeId: owner }} content={content} onEditorReady={ready} toolbarExtra={<NoteImageControls key={owner} editor={editor} owner={owner} projectId={projectId} activity={guard}/>} onChange={value=>{const next=normalizeNoteContent({richHtml:value});setEmitted({raw:value,normalized:next.richHtml!});onChange(next.text??'',next.richHtml!);}}/>
   </div>;
 }
