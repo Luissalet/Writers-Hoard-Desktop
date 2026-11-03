@@ -7,9 +7,9 @@
 - [x] Verify mounted controls and normal TiptapEditor integration (20 groups), legacy area (26 groups), renderer types, area lint and the scoped design detector; preserve focus failures and QA setup limits.
 - [x] Complete independent review, Root Brave and new two-key MCP acceptance against the frozen product routes; preserve exact-cut evidence and earlier observer failures.
 
-Plan: `research-inbox/writer-table-context-next/post-design-r1/PLAN.md`; SourceGO writers2185/24170. Table grammar2003 and the shared runner remain outside this change.
+Plan: `research-inbox/writer-table-context-next/post-design-r1/PLAN.md`; SourceGO writers2185/24170. Table grammar2003 remains outside this change; the shared runner gains only the finite registration for this UI test.
 
-Revisión funcional completada; integración pendiente: [evidencia y límites2009](vvd1095/verification-table-context2009.md). Las pruebas automatizadas usan foco de página emulado; Brave y el puente Native tienen evidencias independientes.
+Revisión funcional completada e integrada en Main/primary como d9039d3, sin push: [evidencia y límites2009](vvd1095/verification-table-context2009.md). Las pruebas automatizadas usan foco de página emulado; Brave y el puente Native tienen evidencias independientes.
 
 # Structural Undo support — task1932
 
