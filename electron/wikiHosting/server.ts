@@ -4,7 +4,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { crc32 } from 'node:zlib';
-import { WIKI_HOST_COVER_IMAGE, WIKI_HOST_SLUG, type WikiHostAddress, type WikiHostChange, type WikiHostListScope, type WikiHostOwner, type WikiHostPublication } from '../../src/services/wikiProfiles/hostingTypes';
+import {
+  READ_HOST_KEY_PREFIX, WIKI_HOST_COVER_IMAGE, WIKI_HOST_SLUG,
+  type ReadHostAddress, type ReadHostChange, type ReadHostListScope, type ReadHostOwner, type ReadHostPublication,
+  type WikiHostAddress, type WikiHostChange, type WikiHostListScope, type WikiHostOwner, type WikiHostPublication,
+} from '../../src/services/wikiProfiles/hostingTypes';
 
 const BIND = '127.0.0.1';
 const TOKEN = /^[A-Za-z0-9_-]{32}$/;
@@ -66,9 +70,22 @@ function wikiOrigin(options: WikiReaderOptions) {
   return publicUrl;
 }
 
+function checkReadOwner(owner: ReadHostOwner) {
+  if (!isId(owner.projectId) || !isId(owner.ownerKey)) throw Error('wiki_host_owner_invalid');
+}
+
+function checkReadChange(input: ReadHostChange) {
+  checkReadOwner(input);
+  if (typeof input.slug !== 'string' || !WIKI_HOST_SLUG.test(input.slug)) throw Error('wiki_host_slug_invalid');
+  if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw Error('wiki_host_revision_invalid');
+}
+
 const loopbackOrigin = (port: number) => `http://${BIND}:${port}`;
+/** Registry key → public path: wiki rows keep their bare slug, reading rows are prefixed. */
+const addressPath = (key: string) => key.startsWith(READ_HOST_KEY_PREFIX)
+  ? '/read/' + key.slice(READ_HOST_KEY_PREFIX.length) : '/wiki/' + key;
 const wikiAddressUrl = (row: AddressRow, base: string | undefined) =>
-  row.active && base ? base + '/wiki/' + row.slug + (row.token ? '/u/' + row.token : '') : null;
+  row.active && base ? base + addressPath(row.slug) + (row.token ? '/u/' + row.token : '') : null;
 
 function createWikiReader(options: WikiReaderOptions, publicUrl: URL | null, find: (slug: string) => Row | undefined) {
   let origin: string | undefined;
@@ -87,7 +104,9 @@ function createWikiReader(options: WikiReaderOptions, publicUrl: URL | null, fin
     const coverRequest = suffix.at(-1) === 'cover';
     if (coverRequest) suffix.pop();
     const token = suffix[1];
-    if (prefix !== '' || section !== 'wiki' || !WIKI_HOST_SLUG.test(slug ?? '') ||
+    const reading = section === 'read';
+    if (prefix !== '' || (section !== 'wiki' && !reading) || !WIKI_HOST_SLUG.test(slug ?? '') ||
+      (reading && coverRequest) ||
       (suffix.length !== 0 && (suffix.length !== 2 || suffix[0] !== 'u' || !TOKEN.test(token ?? '')))) {
       res.writeHead(404).end();
       return;
@@ -96,7 +115,7 @@ function createWikiReader(options: WikiReaderOptions, publicUrl: URL | null, fin
       res.writeHead(405, { Allow: 'GET, HEAD' }).end();
       return;
     }
-    const row = find(slug);
+    const row = find(reading ? READ_HOST_KEY_PREFIX + slug : slug);
     if (!row?.active || (row.token ?? undefined) !== token) {
       res.writeHead(404).end();
       return;
@@ -219,6 +238,15 @@ export function createWikiHost(options: WikiReaderOptions & { file: string; exte
     };
   }
 
+  function readSummary(row: AddressRow): ReadHostAddress {
+    const url = wikiAddressUrl(row, publicUrl?.origin ?? (options.externalReader ? loopbackOrigin(options.port) : reader?.origin()));
+    return {
+      kind: 'manuscript-edition', projectId: row.projectId, ownerKey: row.profileId,
+      slug: row.slug.slice(READ_HOST_KEY_PREFIX.length), editionId: row.editionId,
+      sha256: row.sha256, audience: row.audience, revision: row.revision, active: !!row.active, url,
+    };
+  }
+
   return {
     async resume() {
       if (!reader || (!db && !existsSync(options.file))) return;
@@ -229,7 +257,8 @@ export function createWikiHost(options: WikiReaderOptions & { file: string; exte
         (owner.profileId !== undefined && (!isId(owner.profileId) || owner.projectId === undefined))) throw Error('wiki_host_owner_invalid');
       const project = owner.projectId ?? null;
       const profile = owner.profileId ?? null;
-      const rows = store().prepare(`SELECT ${ADDRESS_COLUMNS} FROM wiki_addresses WHERE (? IS NULL OR projectId=?) AND (? IS NULL OR profileId=?) ORDER BY slug`).all(project, project, profile, profile);
+      // Reading-address keys contain ':' (READ_HOST_KEY_PREFIX); wiki slugs never do.
+      const rows = store().prepare(`SELECT ${ADDRESS_COLUMNS} FROM wiki_addresses WHERE instr(slug, ':')=0 AND (? IS NULL OR projectId=?) AND (? IS NULL OR profileId=?) ORDER BY slug`).all(project, project, profile, profile);
       return (rows as (AddressRow & { hasCover: number })[]).map(summary);
     },
     async publish(input: WikiHostPublication) {
@@ -267,6 +296,50 @@ export function createWikiHost(options: WikiReaderOptions & { file: string; exte
       `).get(input.slug, input.projectId, input.profileId, input.expectedRevision);
       if (!row) throw Error('wiki_host_conflict');
       return summary(row as AddressRow & { hasCover: number });
+    },
+    /** Manuscript editions under `/read/<slug>`: same registry, CAS, tokens and reader. */
+    readList(owner: ReadHostListScope) {
+      if ((owner.projectId !== undefined && !isId(owner.projectId)) ||
+        (owner.ownerKey !== undefined && (!isId(owner.ownerKey) || owner.projectId === undefined))) throw Error('wiki_host_owner_invalid');
+      const project = owner.projectId ?? null;
+      const key = owner.ownerKey ?? null;
+      const rows = store().prepare(`SELECT ${ADDRESS_COLUMNS} FROM wiki_addresses WHERE substr(slug, 1, ?)=? AND (? IS NULL OR projectId=?) AND (? IS NULL OR profileId=?) ORDER BY slug`)
+        .all(READ_HOST_KEY_PREFIX.length, READ_HOST_KEY_PREFIX, project, project, key, key);
+      return (rows as (AddressRow & { hasCover: number })[]).map(readSummary);
+    },
+    async readPublish(input: ReadHostPublication) {
+      checkReadChange(input);
+      if (!isId(input.editionId) || !['public', 'unlisted'].includes(input.audience) ||
+        typeof input.html !== 'string' || !/^<!doctype html>/i.test(input.html) || hash(input.html) !== input.sha256) {
+        throw Error('wiki_host_artifact_changed');
+      }
+      await reader?.start();
+      const key = READ_HOST_KEY_PREFIX + input.slug;
+      const token = input.audience === 'unlisted' ? randomBytes(24).toString('base64url') : null;
+      const row = store().prepare(`
+        INSERT INTO wiki_addresses (slug, projectId, profileId, editionId, audience, sha256, revision, active, token, html, cover)
+        SELECT ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, NULL
+        WHERE ?=0 OR EXISTS(SELECT 1 FROM wiki_addresses WHERE slug=?)
+        ON CONFLICT(slug) DO UPDATE SET editionId=excluded.editionId, audience=excluded.audience,
+          sha256=excluded.sha256, revision=wiki_addresses.revision+1, active=1,
+          token=CASE WHEN wiki_addresses.audience=excluded.audience THEN wiki_addresses.token ELSE excluded.token END,
+          html=excluded.html
+        WHERE wiki_addresses.projectId=excluded.projectId AND wiki_addresses.profileId=excluded.profileId
+          AND wiki_addresses.revision=?
+        RETURNING ${ADDRESS_COLUMNS}
+      `).get(key, input.projectId, input.ownerKey, input.editionId, input.audience, input.sha256, token, input.html,
+        input.expectedRevision, key, input.expectedRevision);
+      if (!row) throw Error('wiki_host_conflict');
+      return readSummary(row as AddressRow & { hasCover: number });
+    },
+    readWithdraw(input: ReadHostChange) {
+      checkReadChange(input);
+      const row = store().prepare(`
+        UPDATE wiki_addresses SET active=0, revision=revision+1 WHERE slug=? AND projectId=? AND profileId=? AND revision=? AND active=1
+        RETURNING ${ADDRESS_COLUMNS}
+      `).get(READ_HOST_KEY_PREFIX + input.slug, input.projectId, input.ownerKey, input.expectedRevision);
+      if (!row) throw Error('wiki_host_conflict');
+      return readSummary(row as AddressRow & { hasCover: number });
     },
     async close() {
       try {

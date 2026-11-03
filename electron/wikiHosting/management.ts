@@ -1,12 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { WIKI_HOST_MANAGE_PATH, type WikiHostChange, type WikiHostListScope, type WikiHostPublication } from '../../src/services/wikiProfiles/hostingTypes';
+import {
+  WIKI_HOST_MANAGE_PATH, type ReadHostChange, type ReadHostListScope, type ReadHostPublication,
+  type WikiHostChange, type WikiHostListScope, type WikiHostPublication,
+} from '../../src/services/wikiProfiles/hostingTypes';
 import type { createWikiHost } from './server';
 
 type Host = ReturnType<typeof createWikiHost>;
 type Command =
   | { action: 'list'; input: WikiHostListScope }
   | { action: 'publish'; input: WikiHostPublication }
-  | { action: 'withdraw'; input: WikiHostChange };
+  | { action: 'withdraw'; input: WikiHostChange }
+  | { action: 'read-list'; input: ReadHostListScope }
+  | { action: 'read-publish'; input: ReadHostPublication }
+  | { action: 'read-withdraw'; input: ReadHostChange };
 
 /** Management lives on the incumbent editor origin only. */
 export function wikiHostingManagement(host: Host, allowedHosts: () => readonly string[]) {
@@ -40,6 +46,12 @@ export function wikiHostingManagement(host: Host, allowedHosts: () => readonly s
       }
       else if (command?.action === 'publish' && command.input) reply(200, await host.publish(command.input));
       else if (command?.action === 'withdraw' && command.input) reply(200, host.withdraw(command.input));
+      else if (command?.action === 'read-list' && command.input) {
+        await host.resume();
+        reply(200, host.readList(command.input));
+      }
+      else if (command?.action === 'read-publish' && command.input) reply(200, await host.readPublish(command.input));
+      else if (command?.action === 'read-withdraw' && command.input) reply(200, host.readWithdraw(command.input));
       else reply(400, { error: 'wiki_host_request_invalid' });
     } catch (error) {
       const message = error instanceof Error && /^wiki_host_[a-z_]+$/.test(error.message) ? error.message : 'wiki_host_unavailable';

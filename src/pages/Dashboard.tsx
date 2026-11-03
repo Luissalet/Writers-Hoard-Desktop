@@ -61,6 +61,7 @@ import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import type { Project } from '@/types';
 import { getEngine } from '@/engines';
 import WikiHostingPanel from '@/engines/codex/WikiHostingPanel';
+import EditionHostingPanel from '@/services/publishedEditions/EditionHostingPanel';
 
 /** The chapter a card's "Continue" would open, and what to call the button. */
 interface ResumeTarget {
@@ -688,6 +689,13 @@ export default function Dashboard() {
             projectTitles={Object.fromEntries(projects.map(project => [project.id, project.title]))}
             control="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
             button="rounded-lg border border-border bg-surface px-3 py-2 text-sm hover:bg-elevated disabled:opacity-50" />
+          <div className="mt-3">
+            <EditionHostingPanel locale={locale}
+              projectTitles={Object.fromEntries(projects.map(project => [project.id, project.title]))}
+              editionTitles={Object.fromEntries(projects.flatMap(project => (project.publishedEditions ?? []).map(edition => [edition.id, edition.title])))}
+              control="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+              button="rounded-lg border border-border bg-surface px-3 py-2 text-sm hover:bg-elevated disabled:opacity-50" />
+          </div>
         </div>
 
         {error && <ReadErrorNotice onRetry={refresh} retrying={loading} />}
