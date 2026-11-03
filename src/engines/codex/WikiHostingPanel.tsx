@@ -1,7 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { listWikiAddresses, serveWikiEdition, withdrawWikiAddress } from '@/services/wikiProfiles/hosting';
 import { WIKI_HOST_SLUG, type WikiHostAddress, type WikiHostAudience } from '@/services/wikiProfiles/hostingTypes';
 import type { WikiProfile } from '@/services/wikiProfiles/types';
+
+function coverDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(Error('wiki_host_cover_invalid'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function WikiHostingPanel({ projectId, profile, projectTitles, locale, control, button }: {
   projectId?: string;
@@ -21,6 +30,8 @@ export default function WikiHostingPanel({ projectId, profile, projectTitles, lo
   const [slug, setSlug] = useState('');
   const [audience, setAudience] = useState<WikiHostAudience>('public');
   const [editionId, setEditionId] = useState('');
+  const coverInput = useRef<HTMLInputElement>(null);
+  const [removeCover, setRemoveCover] = useState(false);
   const editions = profile?.editions ?? [];
   const selected = editions.find(edition => edition.id === editionId) ?? editions.at(-1);
   const existing = addresses?.find(address => address.slug === slug);
@@ -43,6 +54,7 @@ export default function WikiHostingPanel({ projectId, profile, projectTitles, lo
     try {
       const next = await work();
       setAddresses(current => [...(current ?? []).filter(address => address.slug !== next.slug), next]);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'wiki_host_unavailable');
     } finally { setBusy(false); }
@@ -61,7 +73,17 @@ export default function WikiHostingPanel({ projectId, profile, projectTitles, lo
     {projectId && profile && selected && <form className="flex flex-wrap items-end gap-3" onSubmit={event => {
       event.preventDefault();
       if (addresses && (!existing || existing.profileId === profile.id)) {
-        void update(() => serveWikiEdition({ projectId, profileId: profile.id, slug, editionId: selected.id, audience, expectedRevision: existing?.revision ?? 0 }));
+        const file = coverInput.current?.files?.[0];
+        void update(async () => serveWikiEdition({
+          projectId, profileId: profile.id, slug, editionId: selected.id, audience,
+          expectedRevision: existing?.revision ?? 0,
+          coverImage: file ? await coverDataUrl(file) : removeCover ? null : undefined,
+        })).then(ok => {
+          if (ok) {
+            if (coverInput.current) coverInput.current.value = '';
+            setRemoveCover(false);
+          }
+        });
       }
     }}>
       <label className="grid gap-1 text-sm">{es ? 'Edición' : 'Edition'}
@@ -70,7 +92,7 @@ export default function WikiHostingPanel({ projectId, profile, projectTitles, lo
         </select>
       </label>
       <label className="grid gap-1 text-sm">{es ? 'Ruta del enlace' : 'Link path'}
-        <input className={control} value={slug} onChange={event => setSlug(event.target.value)} required pattern={WIKI_HOST_SLUG.source} placeholder={es ? 'mi-mundo' : 'my-world'} />
+        <input className={control} value={slug} disabled={busy} onChange={event => { setSlug(event.target.value); setRemoveCover(false); }} required pattern={WIKI_HOST_SLUG.source} placeholder={es ? 'mi-mundo' : 'my-world'} />
       </label>
       <label className="grid gap-1 text-sm">{es ? 'Quién puede verlo' : 'Who can see it'}
         <select className={control} value={audience} onChange={event => setAudience(event.target.value === 'unlisted' ? 'unlisted' : 'public')}>
@@ -78,6 +100,16 @@ export default function WikiHostingPanel({ projectId, profile, projectTitles, lo
           <option value="unlisted">{es ? 'Sólo con enlace privado' : 'Private link only'}</option>
         </select>
       </label>
+      <label className="grid gap-1 text-sm">{es ? 'Portada del enlace (opcional)' : 'Link cover (optional)'}
+        <input ref={coverInput} className={`${control} max-w-full`} type="file" accept="image/png,image/jpeg,image/webp"
+          disabled={busy} onChange={() => setRemoveCover(false)} />
+      </label>
+      {existing?.coverUrl && existing.profileId === profile.id && <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={removeCover} disabled={busy} onChange={event => {
+          setRemoveCover(event.target.checked);
+          if (event.target.checked && coverInput.current) coverInput.current.value = '';
+        }} />{es ? 'Quitar portada' : 'Remove cover'}
+      </label>}
       <button className={button} disabled={busy || !addresses || !slug || Boolean(existing && existing.profileId !== profile.id)}>
         {existing?.active ? (es ? 'Actualizar enlace' : 'Update link') : (es ? 'Publicar enlace' : 'Publish link')}
       </button>
@@ -87,8 +119,11 @@ export default function WikiHostingPanel({ projectId, profile, projectTitles, lo
         {library && <span className="text-text-muted">{projectTitles?.[address.projectId] ?? (es ? 'Proyecto fuera de la biblioteca' : 'Project outside the library')}</span>}
         {address.url ? <a className="break-all underline" href={address.url} target="_blank" rel="noreferrer">{address.url}</a>
           : <span>{address.slug} · {es ? 'Retirado' : 'Withdrawn'}</span>}
+        {address.coverUrl && <a className="underline" href={address.coverUrl} target="_blank" rel="noreferrer">{es ? 'Ver portada' : 'View cover'}</a>}
         {profile?.id === address.profileId && <button type="button" className={button} disabled={busy} onClick={() => {
           setSlug(address.slug); setAudience(address.audience); setEditionId(address.editionId);
+          setRemoveCover(false);
+          if (coverInput.current) coverInput.current.value = '';
         }}>{es ? 'Usar esta ruta' : 'Use this path'}</button>}
         {address.active && <button type="button" className={button} disabled={busy} onClick={() => {
           void update(() => withdrawWikiAddress({ projectId: address.projectId, profileId: address.profileId, slug: address.slug, expectedRevision: address.revision }));
@@ -99,6 +134,8 @@ export default function WikiHostingPanel({ projectId, profile, projectTitles, lo
     {error && <div className="flex flex-wrap items-center gap-3">
       <p role="alert" className="text-sm text-danger">{error === 'wiki_host_conflict'
         ? (es ? 'La dirección ya está en uso o ha cambiado. Actualiza la lista.' : 'The address is in use or has changed. Refresh the list.')
+        : error === 'wiki_host_cover_invalid'
+        ? (es ? 'No se pudo usar la portada. Elige una imagen PNG, JPEG o WebP.' : 'Could not use the cover. Choose a PNG, JPEG or WebP image.')
         : (es ? 'No se pudo gestionar el enlace de la wiki.' : 'Could not manage the wiki link.')}</p>
       <button type="button" className={button} disabled={busy} onClick={() => setReload(value => value + 1)}>{es ? 'Actualizar lista' : 'Refresh list'}</button>
     </div>}
