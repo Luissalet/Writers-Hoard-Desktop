@@ -5,6 +5,7 @@ import {buildWorldWiki,loadWorldWikiData} from '@/services/worldWikiExport';
 import {validateWikiOptions} from './validation';
 import {wikiProfileChanges} from './changes';
 import {listWikiProfiles,getWikiProfile,saveWikiProfile,deleteWikiProfile,publishWikiProfile,getWikiEdition,restoreWikiConfiguration} from './store';
+import { listWikiAddresses, serveWikiEdition, withdrawWikiAddress } from './hosting';
 function revision(args:ToolArgs,nullable=false){if(nullable&&args.expectedRevision===null)return null;if(typeof args.expectedRevision!=='number'||!Number.isSafeInteger(args.expectedRevision)||args.expectedRevision<0)throw Error('wiki_revision_required');return args.expectedRevision;}
 export const WIKI_PROFILE_HANDLERS={
  async wh_wiki_profiles_list(args:ToolArgs){return{profiles:await listWikiProfiles(resolveProjectId(args))};},
@@ -16,4 +17,11 @@ export const WIKI_PROFILE_HANDLERS={
  wh_wiki_profile_changes:(args:ToolArgs)=>wikiProfileChanges(resolveProjectId(args),requireString(args,'profileId')),
  wh_wiki_edition_read:(args:ToolArgs)=>getWikiEdition(resolveProjectId(args),requireString(args,'profileId'),requireString(args,'editionId')),
  wh_wiki_profile_restore_config:async(args:ToolArgs)=>restoreWikiConfiguration(await resolveProjectForEngine(args,'codex'),requireString(args,'profileId'),requireString(args,'editionId'),revision(args)!),
+ wh_wiki_host_list:async(args:ToolArgs)=>({ addresses: await listWikiAddresses({ projectId:resolveProjectId(args),profileId:args.profileId===undefined?undefined:requireString(args,'profileId') }) }),
+ async wh_wiki_host_publish(args:ToolArgs){
+   const audience = args.audience;
+   if(audience!=='public' && audience!=='unlisted') throw Error('wiki_host_audience_invalid');
+   return serveWikiEdition({projectId:await resolveProjectForEngine(args,'codex'),profileId:requireString(args,'profileId'),editionId:requireString(args,'editionId'),slug:requireString(args,'slug'),audience,expectedRevision:revision(args)!});
+ },
+ wh_wiki_host_withdraw:async(args:ToolArgs)=>withdrawWikiAddress({projectId:await resolveProjectForEngine(args,'codex'),profileId:requireString(args,'profileId'),slug:requireString(args,'slug'),expectedRevision:revision(args)!}),
 };

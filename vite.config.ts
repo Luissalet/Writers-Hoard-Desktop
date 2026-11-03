@@ -5,10 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import {localToolReleasePlugin} from './scripts/local-tool-release-plugin'
 import { modelReaderRuntimePlugin } from './scripts/model-reader-runtime-plugin'
+import { wikiHostingPlugin } from './scripts/wiki-hosting-plugin'
 
 export default defineConfig({
   base: process.env.VITE_BASE_URL || '/',
-  plugins: [react(), tailwindcss(), localToolPresencePlugin(), modelReaderRuntimePlugin(), localToolReleasePlugin()],
+  plugins: [react(), tailwindcss(), localToolPresencePlugin(), modelReaderRuntimePlugin(), localToolReleasePlugin(), wikiHostingPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

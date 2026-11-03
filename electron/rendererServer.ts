@@ -15,6 +15,8 @@ import {createPresenceRelay} from './presence/server';
 import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { wikiHostingManagement } from './wikiHosting/management';
+import { createWikiHost } from './wikiHosting/server';
 
 export const RENDERER_HOST = '127.0.0.1';
 export const RENDERER_PORT = 5174;
@@ -115,6 +117,7 @@ export function createRendererRequestHandler(root: string, expectedHost: string)
 
 let server: http.Server | null = null;
 let presence:ReturnType<typeof createPresenceRelay>|undefined;
+let wikiHost: ReturnType<typeof createWikiHost> | undefined;
 
 /**
  * Serve `root` at RENDERER_ORIGIN. Rejects with the listen error (EADDRINUSE
@@ -122,20 +125,35 @@ let presence:ReturnType<typeof createPresenceRelay>|undefined;
  * another port: another port is another origin, which is another, empty,
  * library.
  */
-export function startRendererServer(root: string, port = RENDERER_PORT): Promise<string> {
+export function startRendererServer(root: string, port = RENDERER_PORT, wikiOptions?: Parameters<typeof createWikiHost>[0]): Promise<string> {
   if (server) {const address=server.address();return Promise.resolve(`http://${RENDERER_HOST}:${address&&typeof address==='object'?address.port:port}`);}
   let actualPort=port;
   let handler=createRendererRequestHandler(root,`${RENDERER_HOST}:${actualPort}`);
   const relay=createPresenceRelay(()=>[`${RENDERER_HOST}:${actualPort}`]);
-  const candidate=http.createServer((req,res)=>{void relay.handle(req,res).then(handled=>{if(!handled)void handler(req,res);}).catch(()=>{if(!res.headersSent)res.writeHead(500);res.end();});});
+  let publication: typeof wikiHost;
+  try { if (wikiOptions) publication = createWikiHost(wikiOptions); }
+  catch (error) { console.warn('[wiki-hosting]', error); }
+  const manage = publication && wikiHostingManagement(publication, () => [`${RENDERER_HOST}:${actualPort}`]);
+  const candidate=http.createServer((req,res)=>{
+    void (async () => {
+      if (await manage?.(req,res)) return;
+      if (!await relay.handle(req,res)) await handler(req,res);
+    })().catch(()=>{if(!res.headersSent)res.writeHead(500);res.end();});
+  });
   return new Promise((resolve,reject)=>{
     const failed=(error:Error)=>{relay.close();reject(error);};candidate.once('error',failed);
-    candidate.listen(port,RENDERER_HOST,()=>{candidate.off('error',failed);const address=candidate.address();if(address&&typeof address==='object')actualPort=address.port;handler=createRendererRequestHandler(root,`${RENDERER_HOST}:${actualPort}`);server=candidate;presence=relay;resolve(`http://${RENDERER_HOST}:${actualPort}`);});
+    candidate.listen(port,RENDERER_HOST,()=>{
+      candidate.off('error',failed);const address=candidate.address();if(address&&typeof address==='object')actualPort=address.port;
+      handler=createRendererRequestHandler(root,`${RENDERER_HOST}:${actualPort}`);server=candidate;presence=relay;wikiHost=publication;
+      void publication?.resume().catch(error => console.warn('[wiki-hosting]', error));
+      resolve(`http://${RENDERER_HOST}:${actualPort}`);
+    });
   });
 }
 
 export function stopRendererServer(): void {
   presence?.close();presence=undefined;
+  void wikiHost?.close().catch(error => console.warn('[wiki-hosting]', error));wikiHost=undefined;
   server?.close();
   server = null;
 }
