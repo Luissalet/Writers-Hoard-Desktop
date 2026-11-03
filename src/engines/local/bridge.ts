@@ -1,4 +1,5 @@
 import {queryLocalToolPresence} from './presence/query';
+import {LOCAL_LIVE_CONTENT_HANDLERS} from './liveContent/bridge';
 import {recordRuntimeError,runtimeErrorIdentity} from './runtimeErrors';
 import {LOCAL_CONVERGENCE_HANDLERS} from './convergence/bridge';
 import {LOCAL_RUNTIME_HANDLERS} from './runtimeBridge';
@@ -31,6 +32,7 @@ async function invoke(args:ToolArgs,writes:boolean){const {source,releaseHash}=a
 async function stateClient(args:ToolArgs){const scoped=await client(args);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.state)throw new BridgeError('bad-args','This source has no declarative state codec.');return scoped;}
 async function defaultsClient(args:ToolArgs,readOnly=false){const scoped=await client(args,readOnly);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.defaults)throw new BridgeError('bad-args','This host does not provide shared tool defaults.');return scoped;}
 export const LOCAL_TOOL_HANDLERS={
+ ...LOCAL_LIVE_CONTENT_HANDLERS,
  ...LOCAL_RUNTIME_HANDLERS,
  ...LOCAL_CONVERGENCE_HANDLERS,
  ...LOCAL_APP_HANDLERS,

@@ -1044,4 +1044,36 @@ One SSE stream per renderer and normal POST updates use the same actual renderer
 
 `wh_local_tool_presence_query({projectId, eraId?, namespace, documentId})` reads the existing host projection without joining or opening a document. Two MCP keys read the same people; keys do not become peers. Presence is absent from document state, checkpoints, dirty state, Save, Undo, snapshots, history and backups. Profile preferences are separate explicit metadata. [Attributed checks and remaining limits](../tasks/vvd1095/verification-sdk-presence.md).
 
-Live exchange of document content is separate work (1913). This presence channel does not make an unsaved edit in one library appear in another.
+Presence alone never exchanges document content. Leave **Share document content too** unchecked to keep that mode, including hiding carets whose units are unknown locally.
+
+## Opt-in live document content
+
+Before **Create session** or **Join session**, explicitly select **Share document content too** to exchange the compatible document's draft. A room created for people/cursors cannot be upgraded by a joining member. A presence-only member of a content room receives no content. Opening a document or observing a hook never joins or publishes it.
+
+The unit is the complete Source document, including its codec fields. A field identifies the existing editor used for a capture or gesture; it is not a byte filter. Existing rich sessions keep their authors, unit IDs and author Undo. The coordinator exchanges admitted updates over those replicas and the existing local listener. It creates no second document writer or presentation replica. Late updates and duplicate deliveries combine causally; a retired membership cannot publish. A live room supplies catch-up on rejoin. When its last connection disappears the room ends; reopening a saved document does not recreate that room or replay drafts from disk.
+
+```tsx
+const { snapshot, content } = useLocalToolDocumentContent(client, context)
+// Observing this optional port does not join, create a profile, publish or save.
+const capture = await content?.capture('body', {
+  kind: 'range', nodeId: 'paragraph-id', from: 2, to: 2
+})
+if (capture) await content!.apply('body', [{
+  type: 'rich-text-splice', field: 'body', nodeId: 'paragraph-id',
+  range: capture, text: ' ΩÉ—李明🙂'
+}])
+await content?.control('undo', 'body')
+await content?.control('save', 'body')
+// Explicit document-wide local exit, without starting another Save:
+await content?.control('leave')
+```
+
+`getSnapshot()` reports `source: 'live'`, the existing instance ID, local draft revision, scope/document/lineage/codec identity, network epoch, room, registered fields and pending status. `query()` validates the current lease and reads the existing full field replicas. Returned JSON is detached. Captures include range, split/join, block-edit/wrap/move, block-split/join and empty-item. Apply submits the complete action array to the public engine once and integrates one receipt; an action for another field or an invalid second action rejects without a partial gesture. Projection failures and retained recovery cannot seed or export a room, including through another healthy field.
+
+**Save to this library** imports the integrated document cut through the existing Source writer. A room acknowledgement never confirms a local Save. Received draft contributions remain pending until the real Source covers them, including deletions; another pane in the same library may provide that durable confirmation. Edits accepted after the captured Save cut remain pending. A Source refresh that finishes during Save is reconciled rather than discarded.
+
+**Leave without saving here** first stops this document instance's content network and new gestures, then reconciles only its already-started Save operations. It starts no new Save, flush or retry. After acknowledgement it reloads the current saved Source in this library, which may include a Save by another pane. Other peers keep the shared contributions. A failed or uncertain write retains recovery instead of silently destroying the draft. Outside content sharing, **Discard and reload** keeps its existing behavior.
+
+The same open host provides `wh_local_tool_live_query`, `wh_local_tool_live_rich_capture`, `wh_local_tool_live_apply` and `wh_local_tool_live_control`. All require the exact project/era/namespace/document and `instanceId`; query/capture are readonly. There is no headless draft, implicit join or second actor from an MCP key. Existing durable document tools continue reading saved Source. [Current verification and delivery status](../tasks/vvd1095/verification-live-content1913.md).
+
+This first increment covers the normal shared rich profiles and the SDK port. It does not establish autosave, remote hosting, physical IME, every module or large-history interactive performance. Manual Save remains the current contract; a future explicit automatic mode can use the same cut-based writer without changing it implicitly.

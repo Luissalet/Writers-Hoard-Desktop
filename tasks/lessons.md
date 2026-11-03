@@ -4,6 +4,10 @@
 
 After creating a reference document, a rapid sidebar context-menu sequence renamed the existing Map instead of the new sheet. Its original Map name was restored through the loaded map header and verified in both header and sidebar; no terrain/content edit was made. Before any rename, read the newly opened editor's current value and verify it equals the intended synthetic document's previous name. Observe the context menu and loaded document kind separately; a matching menu label or an immediately returned tab name does not identify its target. Never batch creation, context-menu rename and another open without those checks.
 
+## Writer1913 — Verify that the declared compiler override ran
+
+A prepared test declared an effective fixture adaptation while a case-sensitive inherited onLoad filter missed the new filename. Before attributing a runtime to adapted bytes, match the exact input path, assert the observed override count, and pin both original/effective hashes plus the compiled artifact. Preserve failed attempts and correct their attribution; never repair an old receipt or weaken its functional assertions.
+
 ## Writer1095 — Claim the user's actual reference tab
 
 When Luis identifies his Brave tab as active, inspect the Browser inventory and claim that user tab through its Browser provider. A failed generic tab binding does not prove the extension is inactive. Do not ask Luis to reactivate a working extension or silently substitute an internal browser. Keep Writer QA in its isolated background browser and never use desktop input.
