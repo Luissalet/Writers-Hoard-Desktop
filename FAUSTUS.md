@@ -1,5 +1,11 @@
 # Writer publishing workspace
 
+## Estado actual: enlaces en historias compartidas existentes
+
+Fuente `624474ba06e2903293e6d6a4814cf07eec31cf0c` aprobada en1958/revisión2 e integrada Main sin push. **Activar enlaces** actualiza explícitamente el borrador de la pareja conocida3→4, conserva historial/propietario y continúa en la misma sala. Manual requiere Guardar; salir sin guardar recarga sólo la biblioteca local. SDK, `wh_local_tool_live_control action:adopt` y `wh_local_tool_convergence_adopt` usan los mismos editores y writer Source. No hay adopción por leer o montar.
+
+Brave real verifica dos bibliotecas, entrada tardía, Undo/Redo antes y después de Save, reapertura y Leave; revisión independiente verifica recuperación, sala/SSE y sucesores Source/abort/copia. El Native nuevo acredita adopción/Save en77tools y17lecturas frías antes de un fallo de setup readonly: el conjunto conserva FAIL, sin total94PASS ni readonly-live inventado. [Atribución completa](tasks/vvd1095/verification-rich-links1958.md#existing-shared-histories). Auto1952 ya está entregado; rendimiento1917, imágenes/tablas, schema ampliable, IME físico, hosting y la paridad1095 siguen abiertos. Este estado sucede a los pendientes históricos de enlaces y autoguardado que aparecen más abajo.
+
 ## Rendimiento parcial del texto rico — 03-11-2026
 
 R5 `2157bc37` y R6 `ca7c553f380ecead992303fa281988679c2fcce7` están aprobados1917/revisiones1 y2 e integrados Main/primary sin push. R6 reutiliza las identidades del recorrido físico al proyectar visibilidad, conservando validación, marcas, autoría e historia. La nueva medida original100gestos/10k da321,022263ms de media y366,7179ms p95; sigue sin aceptar fluidez ni50k.

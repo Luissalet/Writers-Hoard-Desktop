@@ -1,5 +1,11 @@
 # Objetivos de autoría local
 
+## Trabajo restante tras entregar enlaces1958
+
+La adopción explícita de historias compartidas existentes está integrada en Main (`624474ba`,1958/revisión2), además de enlaces nuevos, contenido vivo1913 y guardado automático opcional1952. [Estado y pruebas](tasks/vvd1095/verification-rich-links1958.md#existing-shared-histories). No volver a implementar esos flujos por los pendientes históricos conservados debajo.
+
+Continuar el contraste web y SDK de imágenes/tablas, esquema persistente ampliable, IME físico, rendimiento1917, hosting y las demás filas de [paridad restante](tasks/vvd1095/remaining-parity.md). Sólo una dependencia concreta de API externa o pago demostrada excluye su suboperación; no se declara paridad general.
+
 ## Rendimiento1917: ahorro integrado, fluidez pendiente — 03-11-2026
 
 R5 y R6 `ca7c553f` entregan ahorros parciales aprobados1917r1/r2. El último oráculo100gestos/10k midió321,022263ms de media y366,7179ms p95. Continuar hasta aceptar respuesta cercana o inferior a100ms p95 sin podar historia ni cambiar formato, autoría o validación;50k y el coste casi-todo-oculto siguen sin nueva medidaR6. No cerrar1917 por esta entrega.

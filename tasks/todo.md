@@ -2139,15 +2139,15 @@ ManualGoogle actualizado una vez tras Main con CAS y readback íntegro (delta514
 
 [Verificación permanente](vvd1095/verification-rich-links1958.md). Las casillas iniciales del plan quedan históricas; esta entrega sólo sustituye su primer hito. Memoria/grafos y documentación final tienen recibos propios de Root.
 
-## 1958 — segundo hito: adopción conocida3→4 (en curso)
+## 1958 — segundo hito: adopción conocida3→4 (entregado)
 
 - [x] Fijar decisión2138/R2 y diez oráculos antes de Source; conservar base1dcbec y primer hito entregado.
 - [x] Salud Source3 real17, core21, SourceRW22 y Session27; positivos históricos acotados, no aceptación del inspector posterior.
 - [x] Reproducir transición montada3→4 con href: RED real de esquema viejo conservado; arreglo montado19 antes de los últimos cambios (selección añadida pendiente de nueva ejecución).
 - [x] Implementar inspector de TODO original3 retenido, soporteD append-only y contradicción antes de missing; autor Relay0272 con recibos separados, revisión independiente final pendiente.
 - [x] Conectar monotoníaD/reentrada/compatibilidad de capturas al kernel y demostrar SourceOwner commit/abort/lease/otro pane/frío (37), Source24/Session27 y causales dirigidos; aceptación independiente pendiente.
-- [ ] Probar promoción de MISMA sala, ORIGINAL3 en vuelo, recuperación coalescida, join/reconnect/liveness y casos Source/UI/MCP con versión quieta.
-- [ ] Cerrar frontera pura Node/renderer sin ampliar tsconfig, registrar regresiones permanentes y pasar área/tipos/gates del corte final.
-- [ ] Congelar CUT nuevo para revisión independiente; Root coordina Brave/Native/commit/adenda/manual. Sin commit/Main/push del autor ni paridad global.
+- [x] Promoción de la misma sala, recuperación coalescida, join/reconnect/liveness, SourceOwner y UI/SDK/MCP verificados con ámbitos atribuidos; fallo parcial Native de setup conservado.
+- [x] Frontera pura sin ampliar tsconfig; área/tipos/regresiones y quick/build del runtime final, test corregido CUT5 y composición exacta documentados.
+- [x] CUT5 congelado, revisión independiente y aprobación formal1958/revisión2 de624474ba; Root integra54rutas Main sin push y completa la documentación de entrega. Manual/memoria tienen recibos separados.
 
-Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se repiten con etiquetas consumidas ni se atribuyen a bytes posteriores. Nuevos focos owner/relay/reentry/descriptor están preparados y todavía sin resultado.
+Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se repiten con etiquetas consumidas ni se atribuyen a bytes posteriores. Los focos owner/relay/reentry/descriptor y la aceptación final tienen resultados y límites en [la verificación](vvd1095/verification-rich-links1958.md#existing-shared-histories). Los estados de preparación anteriores se conservan como historial; no se cierran1095/1796.
