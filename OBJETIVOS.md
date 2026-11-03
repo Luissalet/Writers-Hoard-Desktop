@@ -6,7 +6,7 @@
 
 ## Enlaces servidos para la wiki
 
-La primera entrega2056 permite publicar y retirar en el host propio una edición guardada por URL pública o privada. Quedan gestión tras borrar todo un proyecto (2085), contraseña e invitaciones, servidor permanente independiente de Writer, dominios, programación y publicación servida de manuscritos. [Verificación y alcance](tasks/vvd1095/verification-wiki-hosting2056.md).
+La primera entrega2056 permite publicar y retirar en el host propio una edición guardada por URL pública o privada. Inicio también permite gestionar los enlaces tras borrar su proyecto (2085). Quedan contraseña e invitaciones, servidor permanente independiente de Writer, dominios, programación y publicación servida de manuscritos. [Verificación y alcance](tasks/vvd1095/verification-wiki-hosting2056.md).
 
 ## Imágenes en menciones normales entregadas
 
