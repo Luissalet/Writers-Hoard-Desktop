@@ -1,4 +1,4 @@
-export type {LocalToolDocumentContent,LocalToolDocumentContentSnapshot} from './liveContent/types';
+export type {LocalToolDocumentContent,LocalToolDocumentContentSnapshot,LocalToolSaveMode} from './liveContent/types';
 export {useLocalToolDocumentContent} from './liveContent/hooks';
 export type {RichBlockEmptyItemFrame,RichBlockEmptyItemCapture,RichBlockExitAction} from './convergence/blockExit';
 export {useLocalToolDocumentPresence,useLocalToolCollabPresence,useLocalToolDocumentPresenceById,useLocalToolDocumentAwareness} from './presence/hooks';
