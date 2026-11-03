@@ -433,6 +433,8 @@ npm run dev:desktop
 
 `npm run dev` abre solo la versión web. En Windows, `setup.bat` instala una vez y `run.bat` inicia la app sin reinstalar dependencias.
 
+`npm run test:sd-live` arranca el sd-server instalado (Ajustes de IA → imagen local) con un modelo del catálogo ya descargado y comprueba sobre el binario real que el sampler, el scheduler, los pasos y el CFG de cada imagen se respetan, que el PNG lleva su receta y que el servidor lee la lista estructurada de LoRA.
+
 ## Editor de documentos
 
 El editor añade fuentes, tamaños, colores, resaltado, estilos de párrafo,
