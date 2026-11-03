@@ -48,6 +48,13 @@ await Promise.all([
     entryPoints: ['src/engines/worldgen/forge/worldgenForge.ts'],
     outfile: 'dist-electron/forge/worldgenForge.cjs',
   }),
+  build({
+    ...common,
+    target: 'node22',
+    external: [],
+    entryPoints: ['electron/wikiHosting/readerCli.ts'],
+    outfile: 'dist-electron/wikiHosting/writer-wiki-host.cjs',
+  }),
   // AI bridge MCP adapter: a plain Node process an external client spawns.
   // `electron` is NOT external here — it must not be imported at all, since
   // there is no Electron runtime to resolve it. Keeping it out of the external
@@ -61,4 +68,4 @@ await Promise.all([
   }),
 ]);
 
-console.log('[electron] bundled main.cjs + preload.cjs + forge/*.cjs + aibridge/mcpStdio.cjs → dist-electron/');
+console.log('[electron] bundled main.cjs + preload.cjs + forge/*.cjs + aibridge/mcpStdio.cjs + wikiHosting/writer-wiki-host.cjs → dist-electron/');
