@@ -1,5 +1,9 @@
 # Writers Hoard — Desktop
 
+## Rows and columns in shared tables
+
+Source tools with the editable axes profile can add or remove rows and columns in shared tables. Each axis retains its identity, and an empty cell needs no authored block until you write in it. Undo, Save and the SDK use the same document. [Usage and verification](tasks/vvd1095/verification-table-axes2047.md).
+
 ## Hosted wiki editions
 
 Save a wiki profile and capture a local edition. Open **Wiki links**, select that edition and a path, and choose a public address or a private link. You can update the same address to a later edition, or withdraw it without removing any of the local editions. Writer's built-in host serves only that frozen wiki. [Setup, MCP and evidence](tasks/vvd1095/verification-wiki-hosting2056.md).
