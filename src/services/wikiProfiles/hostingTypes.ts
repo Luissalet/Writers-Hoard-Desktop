@@ -35,5 +35,6 @@ export interface WikiHostPublication extends WikiHostSelection {
   html: string;
 }
 
+export const WIKI_HOST_COVER_IMAGE = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})(?![\s\S])/;
 export const WIKI_HOST_MANAGE_PATH = '/__wh_wiki_host';
 export const WIKI_HOST_SLUG = /^[a-z0-9](?:[a-z0-9\x2d]{0,62}[a-z0-9])?$/;

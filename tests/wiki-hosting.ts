@@ -144,7 +144,7 @@ test('publication covers follow the edition address, even across audience change
   prior.prepare('INSERT INTO wiki_addresses VALUES (?,?,?,?,?,?,?,?,?,?)')
     .run('covered', owner.projectId, owner.profileId, 'a', 'public', sha(htmlA), 1, 1, null, htmlA);
   prior.close();
-  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jH1sAAAAASUVORK5CYII=';
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
   const coverImage = 'data:image/png;base64,' + png;
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>Frozen B</title></head><body>Edition B</body></html>';
   const input = { ...owner, ...edition('b', html), slug: 'covered', audience: 'unlisted' as const };
@@ -172,7 +172,17 @@ test('publication covers follow the edition address, even across audience change
     assert.equal(head.status, 200);
     assert.equal(await head.text(), '');
     assert.equal((await request(hidden.coverUrl!, 'POST')).status, 405);
-    await assert.rejects(host.publish({ ...input, expectedRevision: 2, coverImage: 'data:image/png;base64,PHN2Zz4=' }), /wiki_host_cover_invalid/);
+    for (const badCover of [
+      'data:image/png;base64,PHN2Zz4=',
+      'data:image/png;base64,iVBORw0KGgo=',
+      coverImage.replace('AwMCAO+ip1s', 'AwMCAO+jH1s'),
+      'data:image/jpeg;base64,/9j/',
+      'data:image/webp;base64,UklGRgQAAABXRUJQ',
+    ]) {
+      await assert.rejects(host.publish({ ...input, expectedRevision: 2, coverImage: badCover }), /wiki_host_cover_invalid/);
+      assert.deepEqual(host.list(owner), [hidden]);
+      assert.deepEqual(Buffer.from(await (await request(hidden.coverUrl!)).arrayBuffer()), Buffer.from(png, 'base64'));
+    }
     await assert.rejects(host.publish({ ...input, expectedRevision: 1, coverImage: null }), /wiki_host_conflict/);
     const retained = await host.publish({ ...input, expectedRevision: 2 });
     assert.equal(retained.coverUrl, hidden.coverUrl);
