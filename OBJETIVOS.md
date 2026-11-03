@@ -371,3 +371,10 @@ Fuente55d391be ya integrada y aprobada1796r2: perfil paragraphs-inline/1, cinco 
 
 
 La cache RAW7d3f1365 ya está Main y aprobada1796r4; supera su estado anterior de propuesta. Mantener abierto el rendimiento interactivo: no atribuirle el perfilCPU100 anterior de rutase247 ni una fluidez no medida. Completar bloques1883, publicación de borradores1890, IME físico, presencia y demás residuos1095 por sus propios cortes.
+
+
+## Continuación tras guardado automático opcional1952
+
+Manual/Automático optativo del editor compartido queda cubierto en el alcance de [1952](tasks/vvd1095/verification-autosave1952.md#current-acceptance-of-cut3), fuente `0ac21d2cd02ef500a4ac08f6492d10b94710efe1` y Main `0ac21d2cd02ef500a4ac08f6492d10b94710efe1`. No es ya un hueco total de guardar automáticamente. La preferencia personal recordada sólo determina futuras instancias locales; se conserva Manual por campo fuera de sala y el mismo Save/writer documental para Automático.
+
+Continuar1917 hasta respuesta interactiva acreditada,1958 enlaces causales (diseño, sin código), esquemas persistentes ampliables, imágenes/tablas del perfil compartido, IME físico, hosting y los demás residuos1095. El modo por defecto y los casos de referencia no contrastados mantienen su atribución; ningún resultado1952 equivale a paridad web/SDK completa. Las listas antiguas permanecen como checkpoints históricos, no como inventario actual.
