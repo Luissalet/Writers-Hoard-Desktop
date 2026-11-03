@@ -131,5 +131,7 @@ export class Registers {
   return this.maximum(staged.length?staged:values);
  }
  transactionAvailable(txId:string):boolean{return txId===this.context?.id||this.complete(txId);}
+ /** Birth frontier also exists while authoring before flush. */
+ transactionParents(txId:string):string[]|undefined {const tx=txId===this.context?.id?this.context:this.transactions.get(txId);return tx?[...tx.parents]:undefined;}
  currentTransactionId():string{if(!this.context)throw Error('local_tool_convergence_transaction_missing');return this.context.id;}
 }

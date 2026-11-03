@@ -1,5 +1,5 @@
 import {validateLocalToolCodec,validateLocalToolCodecState,validateLocalToolReference,type LocalToolStateCodec} from './stateCodecFormat';
-export {validateLocalToolCodec,validateLocalToolCodecState,validateLocalToolReference,localToolFieldKey,isLocalToolPlainField,localToolHasPlainFields,isLocalToolRichBlockField,localToolRichLinks} from './stateCodecFormat';
+export {validateLocalToolCodec,validateLocalToolCodecState,validateLocalToolReference,localToolFieldKey,isLocalToolPlainField,localToolHasPlainFields,isLocalToolRichBlockField,localToolRichLinks,localToolRichTables} from './stateCodecFormat';
 export type {LocalToolDocumentReference,LocalToolFieldCodec,LocalToolStateCodec} from './stateCodecFormat';
 import {validateLocalAssetRef,type LocalAssetRef} from './assets';
 /** Portable opt-in state identities; no database or application bootstrap. */

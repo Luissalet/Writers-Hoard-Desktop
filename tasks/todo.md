@@ -4,7 +4,10 @@
 - [x] Preserve the SDK HTML loss baseline (functional RED, closed hidden window).
 - [x] Implement the finite Link preference and derived projection in normal consumers.
 - [x] Verify scoped readers, clipboard, captured exports, fork/ZIP and the existing MCP writer in private functional QA; Native cold acceptance remains with Root.
-- [ ] Freeze the product paths and run area/types/lint/quick/build; peer and Root acceptance pending.
+- [x] Freeze C3 and verify author area17, independent Self12, renderer types/lint and quick/build; preserve the original Self failure and all C2 history.
+- [ ] Verify the d041 composition, then complete Root Brave and fresh two-key/cold MCP acceptance on the exact final Source.
+
+Explicit Self links retain their admitted avatar; automatic Self detection remains excluded. The common bridge normalizes only exact string true/false, while handler/command require booleans. Portable derived thumbnails and causal1958 remain outside this HTML increment.
 
 # Contextual table controls — task2009
 
@@ -2172,3 +2175,19 @@ ManualGoogle actualizado una vez tras Main con CAS y readback íntegro (delta514
 - [x] CUT5 congelado, revisión independiente y aprobación formal1958/revisión2 de624474ba; Root integra54rutas Main sin push y completa la documentación de entrega. Manual/memoria tienen recibos separados.
 
 Coordinación duradera: Ágora writers2128. Las ejecuciones anteriores no se repiten con etiquetas consumidas ni se atribuyen a bytes posteriores. Los focos owner/relay/reentry/descriptor y la aceptación final tienen resultados y límites en [la verificación](vvd1095/verification-rich-links1958.md#existing-shared-histories). Los estados de preparación anteriores se conservan como historial; no se cierran1095/1796.
+
+
+## 2003 — fixed collaborative tables, first increment
+
+- [x] Resolve2184 and preserve literal old reader/health; missing table profile RED before Source.
+- [x] Add engine5, finite per-field table capability and strict rectangular grammar without changing old profiles.
+- [x] Public atomic table insertion/move/hide and exact captures/receipts through the existing writer.
+- [x] Creation Undo scaffold and inherited home-route support; preserve B append without routingB, B Undo/Redo, explicit hide and current policy.
+- [x] Same session PM/keyboard/SDK/MCP and normal example; Source/eras/portable semantics.
+- [x] Area oracles, independent kernel/UI reviews, frozen CUT40, quick/build, Root Brave and fresh real bridge acceptance with a second key; scopes and limits remain separate.
+- [x] Compose with approved contextual controls and record finite combined checks20+27 and quick/build with new authority.
+- [x] Final composition1cffcbdb approved at2003/submission1 and integrated Main/primary, with the disclosed lease-gap receipt and verification after reacquiring it.
+- [x] Correct only passive-table key spreading; unchanged existing passive9 and Baseline lint pass.
+- [x] Passive-preview follow-up40c2400a approved at revision2 and integrated Main/primary; Root BraveR6 preserves exact HTML/IDs without development warnings. The fixed-grid milestone is delivered; two-libraryR5 remains partial and the broader parity ledger stays open.
+
+Variable axes, cell merge/split, shared images and adoption of old origins remain open. Coordination: writers2178; contract: decision2184. Local checkpoint and composition are authorized; Root coordinates formal submission and Main integration. No push.

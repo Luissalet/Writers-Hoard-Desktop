@@ -19,8 +19,11 @@ type Routing={spans:RichSpan[];edges:string[];node:string|null;segment:string;or
 type Marking={spans:RichSpan[];mark:RichMark;enabled:boolean}|{spans:RichSpan[];mark:'link';href:string|null};
 const markValue=(m:Marking):RichMarkValue|undefined=>m.mark==='link'?m.href===null?undefined:{type:'link',attrs:{href:m.href}}:m.enabled?{type:m.mark}:undefined;
 type Write={root:string;key:string;value:LocalToolJson};
-type Chosen={key:string;value:Routing};
+type Chosen={key:string;value:Routing;version?:RegisterVersion};
 export interface RichView {data:RichDocument;bindings:RichBindings}
+/** Private per-evaluation table support, never an activation or caller capability. */
+export interface RichTableSupport {scalars:Map<string,RegisterVersion>;routes:RegisterVersion[]}
+export interface RichTableWitness {unit:string;birthTx:string;ref:RichRef;route?:{version:RegisterVersion;node:string|null;segment:string}}
 export interface RichPlan {
  nodes:Node[];buffers:Buffer[];edges:Edge[];lineages:Lineage[];
  nodePlaces:{at:string|null;place:Place}[];segments:{at:string|null;place:Segment}[];
@@ -82,8 +85,8 @@ export class RichRuns {
  root(name:string){return this.prefix+name;}
  hasNode(id:string){return[...this.nodes.values()].some(n=>n.id===id);}
  plain(buffer:string){return new PlainRuns(this.doc,JSON.stringify(['rich3',this.field,buffer]),this.registers);}
- draft(baseline?:RichView){return new RichDraft(this,baseline);}
- private state(plan?:RichPlan){
+ draft(baseline?:RichView,support?:RichTableSupport){return new RichDraft(this,baseline,support);}
+ private state(plan?:RichPlan,support?:RichTableSupport){
   const include=(r:{txId:string})=>!this.historical||this.registers.transactionAvailable(r.txId);
   // Syntax only, private to this scan; existence and routing remain separate checks.
   type ScanPoint=Readonly<ReturnType<typeof point>&{runKey:string}>;
@@ -100,7 +103,7 @@ export class RichRuns {
   for(const p of plan?.nodePlaces??[])insert(order,p.at,p.place);for(const p of plan?.segments??[])insert(segments,p.at,p.place);
   // Caches belong to this immutable state scan, never to a document or mutable draft.
   const valuesMemo=new Map<string,readonly RegisterVersion[]>(),stagedMemo=new Map<string,readonly Write[]>();
-  const values=(name:string)=>{let cached=valuesMemo.get(name);if(!cached){cached=Object.freeze(this.registers.candidates(this.root(name)));valuesMemo.set(name,cached);}return cached;};
+  const values=(name:string)=>{let cached=valuesMemo.get(name);if(!cached){cached=Object.freeze([...this.registers.candidates(this.root(name)),...(name==='routing'?(support?.routes??[]):[])]);valuesMemo.set(name,cached);}return cached;};
   const staged=(name:string)=>{let cached=stagedMemo.get(name);if(!cached){cached=Object.freeze((plan?.writes??[]).filter(w=>w.root===this.root(name)));stagedMemo.set(name,cached);}return cached;};
   // Retained entries preserve root/key order, including inactive and absent versions.
   type EntryIndex={byKey:Map<string,readonly RegisterVersion[]>;rank:Map<RegisterVersion,number>};
@@ -109,7 +112,7 @@ export class RichRuns {
   const retained=(name:string,key:string)=>entryIndex(name).byKey.get(key)??[];
   const matchingRetained=(name:string,keys:Set<string>)=>{if(!keys.size)return[];const index=entryIndex(name),versions=[...keys].flatMap(key=>index.byKey.get(key)??[]);if(keys.size>1)versions.sort((a,b)=>index.rank.get(a)!-index.rank.get(b)!);return versions;};
   const baseline=plan?.baseline,baselineNodes=new Map((baseline?.bindings.nodes??[]).map(n=>[n.id,n])),baselineUnits=new Map((baseline?.bindings.nodes??[]).flatMap(n=>n.units.map(u=>[u.id,u] as const)));
-  const scalar=(name:string,key:string)=>{const own=lastMatching(staged(name),w=>w.key===key);if(own)return own.value;if(baseline){if(name==='membership')return baselineNodes.has(key);if(name==='selected')return baselineNodes.get(key)?.placement;if(name==='edge')return baselineNodes.get(key)?.edge;}return this.registers.winner(this.root(name),key)?.value;};
+  const scalar=(name:string,key:string)=>{const own=lastMatching(staged(name),w=>w.key===key);if(own)return own.value;if(baseline){if(name==='membership')return baselineNodes.has(key);if(name==='selected')return baselineNodes.get(key)?.placement;if(name==='edge')return baselineNodes.get(key)?.edge;}const current=this.registers.winner(this.root(name),key);return current?current.value:support?.scalars.get(JSON.stringify([name,key]))?.value;};
   const known=new Map<string,string>(),visible=new Set<string>(),physical=new Map<string,string[]>(),runSizes=new Map<string,number>(),duplicateRuns=new Set<string>();
   for(const b of buffers.values()){
    if(b.txId!=='@plan'&&!this.registers.transactionAvailable(b.txId))continue;
@@ -159,9 +162,9 @@ export class RichRuns {
   };
   const resolveRoute=(ref:RichRef):Chosen|undefined=>{
    let refs:RichRef[];try{refs=lineage(ref);}catch(error){if(String(error).includes('dependency_missing'))return undefined;throw error;}const bounded=routeReferences(refs),own=lastMatching(staged('routing'),w=>eligible(w.value as unknown as Routing,bounded));if(own)return{key:own.key,value:own.value as unknown as Routing};
-   if(baseline){const keys=new Set(bounded.flatMap(r=>'unit'in r&&baselineUnits.has(r.unit)?[baselineUnits.get(r.unit)!.route]:[]));const historical=routingMaximum(matchingRetained('routing',keys).filter(v=>eligible(v.value as unknown as Routing,refs)));if(historical)return{key:historical.key,value:historical.value as unknown as Routing};}
+   if(baseline){const keys=new Set(bounded.flatMap(r=>'unit'in r&&baselineUnits.has(r.unit)?[baselineUnits.get(r.unit)!.route]:[]));const historical=routingMaximum(matchingRetained('routing',keys).filter(v=>eligible(v.value as unknown as Routing,refs)));if(historical)return{key:historical.key,value:historical.value as unknown as Routing,version:historical};}
    const winner=routingMaximum(values('routing').filter(v=>eligible(v.value as unknown as Routing,bounded)));
-   return winner?{key:winner.key,value:winner.value as unknown as Routing}:undefined;
+   return winner?{key:winner.key,value:winner.value as unknown as Routing,version:winner}:undefined;
   };
   // Units of one run have the same ancestor tail. Share its scalar choice only
   // when no retained/current/draft payload mentions this run by unit, and its
@@ -216,8 +219,15 @@ export class RichRuns {
   };
   return{nodes,buffers,edges,lineages,order,segments,values,scalar,known,visible,physical,lineage,route,mark,segmentIds};
  }
- materialize(plan?:RichPlan):RichView {
-  const s=this.state(plan),content:RichParagraph[]=[],bindings:RichBindings={nodes:[]},emitted=new Set<string>();
+ /** Probe current physical contributions before leaf membership filtering. */
+ tableWitnesses():RichTableWitness[]{
+  const s=this.state(),out:RichTableWitness[]=[];
+  for(const id of s.visible){const p=point(id),run=this.plain(p.buffer).content.get(p.runId),lineage=s.lineages.get(JSON.stringify([p.buffer,p.runId]));if(!run||!lineage||!this.registers.transactionAvailable(run.txId))continue;const route=s.route({unit:id}),version=route?.version;out.push({unit:id,birthTx:run.txId,ref:lineage.ref,...(route&&version?{route:{version,node:route.value.node,segment:route.value.segment}}:{})});}
+  return out;
+ }
+ tableHome(ref:RichRef,support?:RichTableSupport){const s=this.state(undefined,support),route=s.route(ref);if(!route)return undefined;const version=route.version;return version?{version,node:route.value.node,segment:route.value.segment}:undefined;}
+ materialize(plan?:RichPlan,support?:RichTableSupport):RichView {
+  const s=this.state(plan,support),content:RichParagraph[]=[],bindings:RichBindings={nodes:[]},emitted=new Set<string>();
   for(const p of s.order){
    if(s.scalar('membership',p.node)!==true||s.scalar('selected',p.node)!==p.id)continue;
    if(!s.nodes.has(p.node))return fail();const paragraph:RichParagraph={id:p.node,type:'paragraph',content:[]},bound={id:p.node,placement:p.id,edge:s.scalar('edge',p.node) as string,units:[] as RichUnitBinding[]};
@@ -392,10 +402,11 @@ export class RichDraft {
  readonly plan:RichPlan={nodes:[],buffers:[],edges:[],lineages:[],nodePlaces:[],segments:[],plain:{},writes:[],view:{data:{type:'doc',content:[]},bindings:{nodes:[]}},changed:false};
  private readonly drafts=new Map<string,PlainDraft>();
  readonly source:RichRuns;
- constructor(source:RichRuns,baseline?:RichView){this.source=source;if(baseline)this.plan.baseline=copy(baseline);}
+ private readonly tableSupport:RichTableSupport|undefined;
+ constructor(source:RichRuns,baseline?:RichView,support?:RichTableSupport){this.source=source;this.tableSupport=support;if(baseline)this.plan.baseline=copy(baseline);}
  private write(name:string,key:string,value:unknown){this.plan.writes.push({root:this.source.root(name),key,value:copy(value) as LocalToolJson});this.plan.changed=true;}
  private preparePlain(){for(const [id,draft]of this.drafts){const plan=draft.finish();this.plan.plain[id]=plan;if(plan.changed)this.plan.changed=true;}}
- private refresh(){this.preparePlain();this.plan.view=this.source.materialize(this.plan);return this.plan.view;}
+ private refresh(){this.preparePlain();this.plan.view=this.source.materialize(this.plan,this.tableSupport);return this.plan.view;}
  private text(buffer:string){let d=this.drafts.get(buffer);if(!d){const p=this.source.plain(buffer);d=p.draft(p.materialize());this.drafts.set(buffer,d);}return d;}
  private segment(node:string,buffer:string,after:string|null){const id=uuid();this.plan.segments.push({at:after,place:{id,node,buffer}});return id;}
  private lastSegment(node:string){const own=this.plan.segments.filter(v=>v.place.node===node).at(-1)?.place.id;return own??this.source.segments.toArray().filter(v=>v.node===node).at(-1)?.id??null;}

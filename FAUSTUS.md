@@ -1,5 +1,12 @@
 # Writer publishing workspace
 
+## Tablas compartidas de tamaño fijo —2003
+
+Las herramientas Source que optan por `blocks-tree/3` y `writers-blocks/2` pueden insertar tablas fijas, editar texto/marcas/enlaces por celda, mover/quitar la tabla y Deshacer conservando las contribuciones representables de otro autor. `examples.shared-tables` muestra ese perfil junto a hermanos estrictos. SDK y `wh_local_tool_state_apply` usan `rich-table-insert` con la captura estructural normal; lectura/export, Manual/Auto y Source siguen los mismos mecanismos. El perfil se declara por campo, selecciona motor5 y no migra historias antiguas al abrirlas.
+
+La tabla necesaria puede sobrevivir a Undo de creación por texto o movimiento ajeno; ocultarla explícitamente sigue siendo otra acción y el último Undo de la aportación superviviente retira su soporte. Las Notas mantienen la barra contextual2009 y su TableKit existente. Filas/columnas mutables, merge/split/anchos e imágenes en el perfil causal, adopción antigua hacia tablas, schema ampliable, IME, hosting y coste siguen abiertos. [Contrato y evidencia atribuida](tasks/vvd1095/verification-shared-tables2003.md). Primer incremento aprobado2003/revisión1 e integrado como1cffcbdb, sin push ni paridad global. El seguimiento40c2400a del aviso de key está aprobado en revisión2 e integrado Main/primary: BraveR6 conserva HTML/IDs y no registra avisos tras el foco. Writer, manifest y MCP no cambian; se mantienen sus evidencias anteriores.
+
+
 ## Controles contextuales de tablas normales —2009
 
 Fuente `d9039d3ee5c3a02f7fda07a355170ddc2cd31f62` aprobada2009/revisión1 e integrada Main/primary sin push. Diez acciones junto a la celda comparten TableKit, selección y Undo del editor normal; conservan el menú y añaden filas/columnas antes. Alt+F10, flechas/Home/End, Enter/Espacio y Escape; se retiran al salir, pasar a readonly o cambiar editor. `wh_edit_writing_document` incorpora `toggleHeaderRow` con CAS y Undo normales.
