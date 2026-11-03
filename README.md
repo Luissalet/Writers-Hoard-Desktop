@@ -679,6 +679,7 @@ enrichment, UI and the bridge tools).
 | `test:inquiry` | Test the Investigation engine: pure logic, migration, Wikidata enrichment with mocked requests, the UI and the AI-bridge tools. |
 | `test:subscriptions` | Test subscription isolation, tool protocol, connection controls and external-assistant setup without calling providers. |
 | `test:packaged` | Smoke-test the already-built `release/win-unpacked` desktop app with an isolated temporary profile. |
+| `test:sd-live` | Start the installed local image runtime (sd-server) with an installed catalogue model and check on the real binary that per-image sampler/scheduler/steps/CFG are honoured, the PNG carries its recipe, and the structured LoRA list is read. Needs the image runtime and a model installed from AI settings. |
 | `bundle:budget` | Enforce renderer entry, lazy-chunk, and total JavaScript size limits. |
 | `audit:security` | Fail when npm reports a moderate-or-higher dependency vulnerability. |
 | `verify:quick` | Run both typechecks, shipping lint, and conformance. |
