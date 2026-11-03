@@ -116,6 +116,12 @@ if (focusNativeCheck.status !== 0 || focusNativeCheck.error) process.exit(focusN
 const tableRowsNativeCheck = spawnSync(electron, ['tests/table-row-order.native.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 280000 });
 if (tableRowsNativeCheck.status !== 0 || tableRowsNativeCheck.error) process.exit(tableRowsNativeCheck.status ?? 1);
 const suites = [
+  ['local-tool-collaborative-rich.table-selection.tsx', 'testTableSelectionControls', 120000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-collaborative-rich.tables.tsx', 'testMountedMovedTableSupport', 120000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-collaborative-rich.tables.tsx', 'testMountedFixedTables', 120000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-collaborative-rich.tables.tsx', 'testPassiveTablePreview', 120000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-tables.source.browser.ts', 'testSourceFixedTables', 120000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-tables.source.browser.ts', 'testSourceTableScopes', 120000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.browser.tsx', 'testEmptyItemEnter', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.mcp.browser.tsx', 'testEmptyItemMcp', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.positions.browser.tsx', 'testEmptyItemPositions', 180000, 'scripts/run-focused-browser-tests.cjs'],

@@ -1,5 +1,12 @@
 # Writers Hoard — Escritorio
 
+## Tablas fijas en herramientas compartidas
+
+Las herramientas locales que declaran el nuevo perfil de tablas compartidas pueden insertar tablas de tamaño fijo, escribir y dar formato en cada celda, añadir enlaces, mover o quitar la tabla completa y usar Deshacer conservando aportaciones ajenas. Manual, Automático, SDK y MCP mantienen los mismos caminos del documento. Abrir un módulo antiguo no lo migra: las Notas conservan su barra contextual de tablas y todas las funciones anteriores.
+
+Quitar una tabla es una acción explícita. Deshacer su creación puede conservar la estructura que necesita el trabajo de otra persona. Siguen abiertos filas/columnas mutables, combinar/dividir celdas, anchos, imágenes y adopción de orígenes anteriores hacia este perfil. [Uso, contrato, pruebas y estado de entrega](tasks/vvd1095/verification-shared-tables2003.md). La entrega de cuadrícula fija está aprobada e integrada localmente. El seguimiento de la vista pasiva también está aprobado e integrado; su comprobación real de navegador conserva la tabla guardada. No amplía el perfil ni cierra la paridad.
+
+
 ## Controles junto a la tabla
 
 El editor enriquecido normal muestra controles de filas, columnas, encabezado, combinar, dividir y eliminar junto a la celda activa. Se pueden usar con Alt+F10, flechas, Enter y Escape, con la selección y Deshacer de la tabla existente. El menú Tabla sigue disponible. MCP añade `toggleHeaderRow` al editor documental existente.

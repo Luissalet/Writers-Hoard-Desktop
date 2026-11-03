@@ -1,3 +1,4 @@
+import {tableCellOf} from './tableFormat';
 import type {LocalToolConvergenceIdentity} from './types';
 import type {RichBlocks,RichBlockPlan} from './blocks';
 import type {RichRuns,RichBindings} from './richRuns';
@@ -21,11 +22,12 @@ function capturedBlock(source:RichBlocks,capture:RichBlockJoinCapture,id:string|
 }
 export function captureBlockSplit(source:RichBlocks,rich:RichRuns,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,nodeId:string,at:number):RichBlockSplitCapture {
  const capture=captureBlockEdit(source,identity,data,bindings,[nodeId]);
- return{...capture,text:rich.splitCapture(identity,nodeId,at,'right',{data:richBlockLeaves(data,source.links),bindings:textBindings})};
+ return{...capture,text:rich.splitCapture(identity,nodeId,at,'right',{data:richBlockLeaves(data,source.links,source.tables),bindings:textBindings})};
 }
 /** Structural adjacency is proved before adapting the two own text witnesses. */
 export function captureBlockJoin(source:RichBlocks,rich:RichRuns,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,leftId:string,rightId:string):RichBlockJoinCapture {
  const capture=captureBlockEdit(source,identity,data,bindings,[leftId,rightId]),left=data.blocks.find(b=>b.id===leftId),right=data.blocks.find(b=>b.id===rightId);if(!left?.content||!right?.content)return fail();
+ if(source.tables&&tableCellOf(data,leftId)!==tableCellOf(data,rightId))return fail();
  const summaryBody=left.parentId===right.parentId&&left.slot==='summary'&&right.slot==='body'&&data.blocks.find(b=>b.id===left.parentId)?.type==='toggle';
  if(summaryBody){if(richBlockChildren(data,left.parentId,'body')[0]?.id!==rightId)return fail();}
  else if(left.parentId===right.parentId&&left.slot===right.slot){const siblings=richBlockChildren(data,left.parentId,left.slot),at=siblings.findIndex(b=>b.id===leftId);if(siblings[at+1]?.id!==rightId)return fail();}
@@ -33,7 +35,7 @@ export function captureBlockJoin(source:RichBlocks,rich:RichRuns,identity:LocalT
   const lp=data.blocks.find(b=>b.id===left.parentId),rp=data.blocks.find(b=>b.id===right.parentId);if(lp?.type!=='list-item'||rp?.type!=='list-item'||lp.parentId!==rp.parentId||lp.slot!==rp.slot)return fail();
   const items=richBlockChildren(data,lp.parentId,lp.slot),at=items.findIndex(b=>b.id===lp.id);if(items[at+1]?.id!==rp.id||richBlockChildren(data,lp.id).at(-1)?.id!==leftId||richBlockChildren(data,rp.id)[0]?.id!==rightId)return fail();
  }
- const flat=richBlockLeaves(data,source.links),pair={type:'doc' as const,content:[leftId,rightId].map(id=>flat.content.find(p=>p.id===id)!)};
+ const flat=richBlockLeaves(data,source.links,source.tables),pair={type:'doc' as const,content:[leftId,rightId].map(id=>flat.content.find(p=>p.id===id)!)};
  return{...capture,text:rich.joinCapture(identity,leftId,rightId,{data:pair,bindings:{nodes:[leftId,rightId].map(id=>textBindings.nodes.find(n=>n.id===id)!)}})};
 }
 export function validateBlockTextCapture(source:RichBlocks,rich:RichRuns,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,action:RichBlockTextAction):void {
@@ -42,6 +44,7 @@ export function validateBlockTextCapture(source:RichBlocks,rich:RichRuns,identit
 }
 export function prepareBlockText(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,action:RichBlockTextAction):RichBlockPlan&{textAction:RichAction} {
  const result:RichBlockPlan={data:convergenceClone(data),bindings:convergenceClone(bindings),writes:[]},selected=action.capture.nodeIds.map(id=>result.data.blocks.find(b=>b.id===id)??fail());
+ if(source.tables&&action.type==='rich-block-join'&&tableCellOf(data,selected[0].id)!==tableCellOf(data,selected[1].id))return fail();
  const write=(name:RichBlockPlan['writes'][number]['name'],id:string,value:unknown)=>result.writes.push({name,id,value:convergenceClone(value) as never});
  const move=(id:string,place:RichBlockPlacement)=>{const b=result.data.blocks.find(b=>b.id===id)??fail();Object.assign(b,place);write('placement',id,place);};
  const put=(id:string,type:'paragraph'|'list-item',place:RichBlockPlacement)=>{if(source.registers.entries(source.root('kind'),id).length||result.data.blocks.some(b=>b.id===id))return fail();const b={id,type,attrs:{},...place,...(type==='paragraph'?{content:[]}:{})};result.data.blocks.push(b);for(const[name,value]of Object.entries({kind:type,attrs:{},membership:true,placement:place}))write(name as RichBlockPlan['writes'][number]['name'],id,value);};

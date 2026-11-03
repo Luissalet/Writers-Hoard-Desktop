@@ -1,3 +1,4 @@
+import {tableCellOf} from '../convergence/tableFormat';
 import {Node,mergeAttributes} from '@tiptap/core';
 import type {Node as PMNode,Schema} from '@tiptap/pm/model';
 import {TextSelection,type Transaction,type EditorState} from '@tiptap/pm/state';
@@ -12,7 +13,7 @@ export function blockPMDocument(schema:Schema,data:RichBlockDocument):PMNode {
  const leaf=(block:RichBlock,summary=false)=>schema.nodes[summary?'blockSummary':block.type].create({id:block.id,...block.attrs,...(summary?{leafKind:block.type}: {})},block.content!.map(t=>schema.text(t.text,(t.marks??[]).map(m=>schema.marks[m.type].create(m.type==='link'?m.attrs:undefined)))));
  const node=(block:RichBlock):PMNode=>{
   if(block.content)return leaf(block);
-  const name=({'bullet-list':'bulletList','ordered-list':'orderedList','list-item':'listItem',blockquote:'blockquote',toggle:'toggle'} as Record<string,string>)[block.type];
+  const name=({'bullet-list':'bulletList','ordered-list':'orderedList','list-item':'listItem',blockquote:'blockquote',toggle:'toggle','table':'table','table-row':'tableRow','table-cell':'tableCell','table-header':'tableHeader'} as Record<string,string>)[block.type];
   const children=block.type==='toggle'?[...richBlockChildren(data,block.id,'summary').map(b=>leaf(b,true)),...richBlockChildren(data,block.id).map(node)]:richBlockChildren(data,block.id).map(node);
   return schema.nodes[name].create({id:block.id,...block.attrs},children);
  };
@@ -56,6 +57,16 @@ export function blockTextKey(session:RichEditorSession,view:{state:EditorState;d
  const state=view.state;
  const {from,to}=state.selection,leaves=blockPMLeaves(state.doc),index=leaves.findIndex(n=>n.id&&from>=n.pos+1&&to<=n.pos+1+n.node.content.size),leaf=leaves[index];if(!leaf?.id)return false;
  const offset=from-leaf.pos-1;
+ if(session.tables){
+  const data=session.blockDocument(),cell=tableCellOf(data,leaf.id);
+  if(cell&&key==='Tab'){
+   const byId=new Map(data.blocks.map(b=>[b.id,b])),row=byId.get(byId.get(cell)!.parentId!),table=byId.get(row!.parentId!),cells=richBlockChildren(data,table!.id).flatMap(r=>richBlockChildren(data,r.id)),at=cells.findIndex(c=>c.id===cell),next=cells[at+(outdent?-1:1)];if(!next)return false;
+   const target=leaves.find(n=>n.id&&tableCellOf(data,n.id)===next.id);if(target){view.dispatch(state.tr.setSelection(TextSelection.create(state.doc,target.pos+1)).setMeta('addToHistory',false));return true;}return true;
+  }
+  if(cell&&from===to&&key==='Backspace'&&offset===0&&(!leaves[index-1]?.id||tableCellOf(data,leaves[index-1].id!)!==cell))return true;
+  if(cell&&from===to&&key==='Delete'&&offset===leaf.node.content.size&&(!leaves[index+1]?.id||tableCellOf(data,leaves[index+1].id!)!==cell))return true;
+ }
+
  if(key==='Tab'){const data=session.blockDocument(),block=data.blocks.find(b=>b.id===leaf.id),item=data.blocks.find(b=>b.id===block?.parentId),list=data.blocks.find(b=>b.id===item?.parentId);if(item?.type!=='list-item'||!list)return false;if(!outdent&&richBlockChildren(data,list.id)[0]?.id===item.id||outdent&&data.blocks.find(b=>b.id===list.parentId)?.type!=='list-item')return false;return session.gesture(()=>{session.beforeViewChange?.();session.apply({type:'rich-block-list-indent',field:session.field,capture:session.replica.richBlockEditCapture(session.field,[leaf.id!]),direction:outdent?'out':'in',...(!outdent?{listId:crypto.randomUUID()}:{})});session.afterViewChange?.();});}
  if(key==='Enter')return session.gesture(()=>{
   session.beforeViewChange?.();if(to>from)session.apply({type:'rich-text-splice',field:session.field,nodeId:leaf.id!,range:session.replica.richRange(session.field,leaf.id!,offset,to-leaf.pos-1),text:''});
@@ -70,12 +81,17 @@ export function blockTextKey(session:RichEditorSession,view:{state:EditorState;d
  return session.gesture(()=>{session.beforeViewChange?.();session.apply({type:'rich-block-join',field:session.field,capture});session.afterViewChange?.();const placed=blockPMLeaves(view.state.doc).find(n=>n.id===previous.id);if(placed)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,placed.pos+1+previous.node.content.size)));});
 }
 /** Collapse is local presentation keyed by block identity, outside saved state. */
-export function blockNodes(collapsed:Set<string>){
+export function blockNodes(collapsed:Set<string>,tables=false){
  const attributes={id:{default:null,parseHTML:(element:HTMLElement)=>element.getAttribute('data-writer-block'),renderHTML:(attrs:Record<string,unknown>)=>attrs.id?{'data-writer-block':attrs.id}:{}}};
- const ordinary=(name:string,tag:string,content:string,extra:Record<string,{default:unknown}>={})=>Node.create({name,group:name==='listItem'?undefined:'block',content,draggable:true,addAttributes(){return{...attributes,...extra};},parseHTML(){return[{tag}];},renderHTML({HTMLAttributes}){return[tag,mergeAttributes(HTMLAttributes,...(name==='bulletList'?[{style:'list-style-type:disc'}]:name==='orderedList'?[{style:'list-style-type:decimal'}]:[])),0];}});
+ const ordinary=(name:string,tag:string,content:string,extra:Record<string,{default:unknown}>={})=>Node.create({name,group:name==='listItem'||name==='tableRow'?undefined:'block',content,draggable:true,addAttributes(){return{...attributes,...extra};},parseHTML(){return[{tag}];},renderHTML({HTMLAttributes}){return[tag,mergeAttributes(HTMLAttributes,...(name==='bulletList'?[{style:'list-style-type:disc'}]:name==='orderedList'?[{style:'list-style-type:decimal'}]:[])),0];}});
  return[
   Node.create({name:'doc',topNode:true,content:'block+'}),Node.create({name:'text',group:'inline'}),ordinary('paragraph','p','inline*'),
   Node.create({name:'heading',group:'block',content:'inline*',draggable:true,addAttributes(){return{...attributes,level:{default:1}};},parseHTML(){return[1,2,3].map(level=>({tag:'h'+level,attrs:{level}}));},renderHTML({node,HTMLAttributes}){return['h'+Number(node.attrs.level),mergeAttributes(HTMLAttributes),0];}}),
+  ...(tables?[
+   Node.create({name:'table',group:'block',content:'tableRow+',draggable:true,isolating:true,addAttributes(){return{...attributes,columns:{default:[]}};},parseHTML(){return[{tag:'table'}];},renderHTML({HTMLAttributes}){return['table',mergeAttributes({class:'my-3 w-full table-fixed border-collapse'},HTMLAttributes),['tbody',0]];}}),
+   ordinary('tableRow','tr','(tableCell|tableHeader)+'),
+   ...(['tableCell','tableHeader']as const).map(name=>Node.create({name,content:'block+',isolating:true,addAttributes(){return{...attributes,columnId:{default:null}};},parseHTML(){return[{tag:name==='tableCell'?'td':'th'}];},renderHTML({HTMLAttributes}){return[name==='tableCell'?'td':'th',mergeAttributes({class:'min-w-12 border border-border p-2 align-top'+(name==='tableHeader'?' bg-elevated font-semibold':'')},HTMLAttributes),0];}})),
+  ]:[]),
   ordinary('bulletList','ul','listItem*'),ordinary('orderedList','ol','listItem*',{start:{default:1}}),ordinary('listItem','li','block*'),ordinary('blockquote','blockquote','block*'),
   Node.create({name:'blockSummary',content:'inline*',addAttributes(){return{...attributes,leafKind:{default:'paragraph'},level:{default:1}};},parseHTML(){return[{tag:'summary'}];},renderHTML({HTMLAttributes}){return['summary',mergeAttributes(HTMLAttributes),0];}}),
   Node.create({name:'toggle',group:'block',content:'blockSummary block*',draggable:true,addAttributes(){return attributes;},parseHTML(){return[{tag:'details'}];},renderHTML({HTMLAttributes}){return['details',mergeAttributes(HTMLAttributes,{open:''}),0];},addNodeView(){return({node})=>{const dom=document.createElement('details');let blockId=String(node.attrs.id??'');dom.dataset.writerBlock=blockId;dom.open=!collapsed.has(blockId);const toggle=()=>{if(dom.open)collapsed.delete(blockId);else collapsed.add(blockId);};dom.addEventListener('toggle',toggle);return{dom,contentDOM:dom,update(next){if(next.type!==node.type||next.attrs.id!==blockId)return false;blockId=String(next.attrs.id);return true;},ignoreMutation(mutation){return mutation.type==='attributes'&&mutation.target===dom&&mutation.attributeName==='open';},destroy(){dom.removeEventListener('toggle',toggle);}};}}}),
