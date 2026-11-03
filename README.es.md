@@ -1,5 +1,18 @@
 # Writers Hoard — Escritorio
 
+## Tablas fijas en herramientas compartidas
+
+Las herramientas locales que declaran el nuevo perfil de tablas compartidas pueden insertar tablas de tamaño fijo, escribir y dar formato en cada celda, añadir enlaces, mover o quitar la tabla completa y usar Deshacer conservando aportaciones ajenas. Manual, Automático, SDK y MCP mantienen los mismos caminos del documento. Abrir un módulo antiguo no lo migra: las Notas conservan su barra contextual de tablas y todas las funciones anteriores.
+
+Quitar una tabla es una acción explícita. Deshacer su creación puede conservar la estructura que necesita el trabajo de otra persona. Siguen abiertos filas/columnas mutables, combinar/dividir celdas, anchos, imágenes y adopción de orígenes anteriores hacia este perfil. [Uso, contrato, pruebas y estado de entrega](tasks/vvd1095/verification-shared-tables2003.md). La revisión formal final y la integración Main se registran allí; no se afirma paridad completa.
+
+
+## Controles junto a la tabla
+
+El editor enriquecido normal muestra controles de filas, columnas, encabezado, combinar, dividir y eliminar junto a la celda activa. Se pueden usar con Alt+F10, flechas, Enter y Escape, con la selección y Deshacer de la tabla existente. El menú Tabla sigue disponible. MCP añade `toggleHeaderRow` al editor documental existente.
+
+Fuente `d9039d3`, aprobada en writers2009/revisión1 e integrada sin push. Brave real, revisión de tablas anidadas/diálogos y puente MCP con dos claves y otro proceso frío tienen [pruebas y límites separados](tasks/vvd1095/verification-table-context2009.md). Esta entrega corresponde al editor HTML normal; el perfil causal compartido sigue en2003.
+
 ## Enlaces en documentos compartidos existentes
 
 Una herramienta local actualizada puede ofrecer **Activar enlaces** para su contrato anterior conocido. Conserva documento, texto, formato y Deshacer del autor. La misma sala compartida continúa y admite vistas que entran después. En Manual, **Guardar en esta biblioteca** confirma los cambios; **Salir sin guardar aquí** recupera la copia local y las demás vistas conservan su trabajo. El modo Automático opcional mantiene su funcionamiento.

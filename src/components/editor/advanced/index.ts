@@ -3,3 +3,4 @@ export * from './extensions';
 export * from './interchange';
 export * from './proseStyle';
 export { default as AdvancedEditorToolbar } from './AdvancedEditorToolbar';
+export { default as TableControls } from './TableControls';

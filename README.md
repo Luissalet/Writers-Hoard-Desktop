@@ -1,5 +1,18 @@
 # Writers Hoard — Desktop
 
+## Fixed tables in shared local tools
+
+Local tools that declare the new shared-table profile can insert fixed-size tables, write and format each cell, add links, move or remove the whole table, and Undo while preserving another author's contributions. Manual and Automatic saving, SDK and MCP keep the same document paths. Existing tools are not migrated just by opening them; Notes retain their normal contextual table toolbar and all earlier features.
+
+Removing a table is an explicit action. Undoing its creation can instead retain the structure needed by another author's work. Mutable rows/columns, cell merge/split, sizing, images and adoption of older origins into this shared profile remain open. [Use, contract, evidence and delivery status](tasks/vvd1095/verification-shared-tables2003.md). Final formal review and Main integration are tracked there; this is not complete parity.
+
+
+## Contextual table controls
+
+The normal rich-text editor shows row, column, header, merge, split and deletion controls beside the active cell. Alt+F10, arrow keys, Enter and Escape support keyboard use; each action shares the existing table selection and Undo. The Table menu remains available. MCP adds `toggleHeaderRow` to the existing writing-document editor.
+
+Source `d9039d3` is approved at writers2009/revision1 and integrated locally without push. Real Brave, independent nested-table/dialog checks and a new two-key MCP/cold-process run have [separate evidence and limits](tasks/vvd1095/verification-table-context2009.md). This delivery concerns the normal HTML editor; tables in the shared causal SDK profile remain in task2003.
+
 ## Links in existing shared documents
 
 An updated local tool can explicitly offer **Enable links** for its known older rich-text contract. It preserves the document, text, formatting and author Undo. The same shared room continues, including views that join later; Manual mode writes only through **Save to this library**, and leaving without saving reloads that library while other views retain their work. Optional Automatic saving keeps its existing behavior.

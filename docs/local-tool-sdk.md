@@ -1174,10 +1174,13 @@ The normal installed `examples.shared-tables` notebook exposes a table-capable b
 
 Source reads/captures/readonly export do not write. The normal era start forks causal identity while retaining grid IDs/data; an era edit leaves Base intact. Same-ID ZIP restore retains causal bytes, while semantic copying creates a new genesis and refuses captures from the original origin. An epoch change can still export the old checkpoint readonly and cannot author into that old contract.
 
-This increment is fixed-grid only. Variable axes, cell merge/split, resizing, shared images and adoption of existing origins remain open; table support is not a claim of complete SDK/editor parity. Author evidence and remaining acceptance are recorded in `tasks/vvd1095/verification-rich-tables2003.md`.
+This increment is fixed-grid only. Variable axes, cell merge/split, resizing, shared images and adoption of existing origins remain open; table support is not a claim of complete SDK/editor parity. Current evidence and limits are recorded in `tasks/vvd1095/verification-shared-tables2003.md`; the earlier author-only record remains unchanged as historical evidence.
 
 
 A surviving whole-table move is also a structural witness when it creates no text or leaf. Its selected current placement must have observed that exact table at the placement transaction's parents. Undoing creation retains that moved table's fixed scaffold and position, never all other tables from the same creation receipt. Explicit hide still wins; independently undone moves and constructor placements alone cannot sustain a retired table.
 
 
 Table controls follow the current selection even when only the caret changes: entering a cell enables whole-table movement/removal and disables insertion inside that table; returning to an outside paragraph restores insertion. Receiving a table while the caret remains outside does not select it or alter that control state. Selection-only changes do not create document edits or Undo steps.
+
+
+The fixed-grid delivery has passed author tests, independent kernel and selection reviews, Root's real browser tests and a fresh authenticated bridge run. The latter observes 51 tool calls: 48 successes and 3 expected rejections (59 RPC/51 IPC), with four distinct keys across prepare/cold phases. A separate public SDK replica is author B; a second key is not a second author. Another Electron reads the same three saved Source documents/checkpoints/IDs and passive HTML from the same own profile/origin before seed, Host or Editor. Only the cold phase finishes with all89tables empty and ledger/SDK/editableDOM counts zero. Browser sharing uses two profiles/tabs of the same library, not independent libraries. The current branch composes the table delivery with the approved contextual controls of the existing HTML editor; it does not claim Main integration or complete parity before formal review.

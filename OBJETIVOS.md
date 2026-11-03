@@ -1,5 +1,16 @@
 # Objetivos de autoría local
 
+## Estado de esta rama: tablas fijas compartidas verificadas
+
+El primer incremento2003 permite a herramientas locales que optan por su perfil insertar tablas fijas, editar/formatear/enlazar por celda y mover/quitar/Deshacer sin perder aportaciones ajenas representables. Coexiste con los controles contextuales de Notas2009 ya entregados. Autor, revisión del núcleo/UI, Brave y puente autenticado tienen evidencia separada; la composición conserva ambos caminos y ha pasado sus dos focos y gates. [Estado, pruebas y límites](tasks/vvd1095/verification-shared-tables2003.md).
+
+Quedan revisión formal e integración Main del commit compuesto; no se afirman realizadas. Continuar imágenes/bytes, ejes mutables, merge/split/anchos y adopción antigua en el perfil compartido, además de schema, IME, hosting y coste.1095 sigue abierta. Los apartados inferiores mantienen la historia y alcance de sus entregas anteriores.
+
+
+## Continuación tras los controles de tabla2009
+
+Los controles contextuales del editor HTML normal ya están integrados (`d9039d3`,2009/revisión1), incluidos teclado, guardar/reabrir y MCP encabezado. No reimplementar ese menú/barra como ausencia global. [Alcance y pruebas](tasks/vvd1095/verification-table-context2009.md). Continúan la tabla causal compartida2003 aún sin integrar, imágenes y sus bytes entre bibliotecas, ejes variables/combinar/redimensionar en ese perfil, menciones con imagen2014, schema ampliable, IME físico, rendimiento1917 y hosting. La referencia real confirma imágenes/menciones sin pago; sólo se excluyen suboperaciones externas demostradas.
+
 ## Trabajo restante tras entregar enlaces1958
 
 La adopción explícita de historias compartidas existentes está integrada en Main (`624474ba`,1958/revisión2), además de enlaces nuevos, contenido vivo1913 y guardado automático opcional1952. [Estado y pruebas](tasks/vvd1095/verification-rich-links1958.md#existing-shared-histories). No volver a implementar esos flujos por los pendientes históricos conservados debajo.

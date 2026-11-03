@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const electron = require('electron');
 const root = path.resolve(__dirname, '..');
+const tableContextCheck = spawnSync(process.execPath, ['scripts/run-editor-table-context-tests.mjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 150000 });
+if (tableContextCheck.status !== 0 || tableContextCheck.error) process.exit(tableContextCheck.status ?? 1);
 const liveContentCheck = spawnSync(process.execPath, ['tests/local-tool-live-content.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (liveContentCheck.status !== 0 || liveContentCheck.error) process.exit(liveContentCheck.status ?? 1);
 const autosaveCheck = spawnSync(process.execPath, ['tests/local-tool-autosave.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 120000 });
