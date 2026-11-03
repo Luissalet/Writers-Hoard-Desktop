@@ -2113,3 +2113,16 @@ ManualGoogle actualizado una vez tras Main con CAS y readback íntegro (delta514
 - [ ] Continuar1917/1958, hosting/IME físico/schema/imágenes/tablas y demás residuos1095/1796.
 
 [Contrato, límites y evidencia separada](vvd1095/verification-autosave1952.md#current-acceptance-of-cut3).
+
+
+## Enlaces compartidos1958: primer hito
+
+- [x] Plan/oráculos acordados, WT aislado e634 y npm ci propio.
+- [x] Salud Source3 párrafo/árbol y capability probe: Save/cold/IDs/89zero; RED no-op silencioso rich-link en párrafo3 conservado.
+- [ ] Nativo4/perfil2 por campo, cinco marcas y readers3 estrictos, sin adopción.
+- [ ] PM/UI/SDK/MCP/ejemplo y pruebas Source/Auto/frío.
+- [ ] CUT/revisión/gates; Root coordina Brave/Native final.1958 sigue abierta.
+
+- [x]1958 CUT2: corrección dirigida del RED peer CUT1: acciones antiguas mark/move no leen link no consumido; regresión permanente counter0/semántica/IDs. CUT1/gates/RED peer conservados, nuevo corte y gates necesarios.
+
+- [x]1958 CUT3: corregir P2 peer de link opcional falsy en rich-block-insert; null/false/0/cadena vacía rechazan con checkpoint exacto, controles omitido/objeto válido y Undo conservados. Evidencia CUT2 intacta; nuevo corte/gates y revisión necesarios.

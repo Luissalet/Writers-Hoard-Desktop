@@ -28,7 +28,7 @@ function frame(data:RichBlockDocument,nodeId:string):RichBlockEmptyItemFrame {
 }
 export function captureBlockEmptyItem(source:RichBlocks,rich:RichRuns,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,nodeId:string):RichBlockEmptyItemCapture {
  const capture=captureBlockEdit(source,identity,data,bindings,[nodeId]),intent=frame(data,nodeId),ids=new Set([intent.leafId,intent.itemId,intent.listId,...intent.itemIds,...intent.listFollowers,...intent.ownerSuffix,...intent.outerFollowers,...[intent.parentId,intent.ownerId,intent.outerListId].filter((id):id is string=>id!==null)]);
- return{...capture,bindings:capture.bindings.filter(b=>ids.has(b.id)),frame:intent,empty:rich.range(identity,nodeId,0,0,'right',{data:richBlockLeaves(data),bindings:textBindings})};
+ return{...capture,bindings:capture.bindings.filter(b=>ids.has(b.id)),frame:intent,empty:rich.range(identity,nodeId,0,0,'right',{data:richBlockLeaves(data,source.links),bindings:textBindings})};
 }
 /** One atomic structural plan. No text action, temporary item or buffer replacement. */
 export function prepareBlockExit(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,textBindings:RichBindings,action:RichBlockExitAction):RichBlockPlan {
@@ -59,5 +59,5 @@ export function prepareBlockExit(source:RichBlocks,data:RichBlockDocument,bindin
   let last=leaf.id;if(suffix.length)last=tail(item.id,'body',leaf.id,!prefix.length);else if(!prefix.length)hide(list.id);
   for(const id of intent.ownerSuffix){move(id,{parentId:item.id,slot:'body',afterId:last});last=id;}
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links);return result;
 }

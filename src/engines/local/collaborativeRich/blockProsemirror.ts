@@ -9,7 +9,7 @@ import {richBlockChildren} from '@/engines/local/convergence/blockEditing';
 
 /** One layout adapter over admitted state; RAW cycles never reach PM. */
 export function blockPMDocument(schema:Schema,data:RichBlockDocument):PMNode {
- const leaf=(block:RichBlock,summary=false)=>schema.nodes[summary?'blockSummary':block.type].create({id:block.id,...block.attrs,...(summary?{leafKind:block.type}: {})},block.content!.map(t=>schema.text(t.text,(t.marks??[]).map(m=>schema.marks[m.type].create()))));
+ const leaf=(block:RichBlock,summary=false)=>schema.nodes[summary?'blockSummary':block.type].create({id:block.id,...block.attrs,...(summary?{leafKind:block.type}: {})},block.content!.map(t=>schema.text(t.text,(t.marks??[]).map(m=>schema.marks[m.type].create(m.type==='link'?m.attrs:undefined)))));
  const node=(block:RichBlock):PMNode=>{
   if(block.content)return leaf(block);
   const name=({'bullet-list':'bulletList','ordered-list':'orderedList','list-item':'listItem',blockquote:'blockquote',toggle:'toggle'} as Record<string,string>)[block.type];

@@ -1,10 +1,11 @@
+import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type * as Y from 'yjs';
 import type {LocalToolJson} from '../stateTypes';
 import {convergenceClone,convergenceCanonical,assertConvergenceIdentity} from './format';
 import {JsonMap,JsonArray,Registers,type RegisterVersion} from './registers';
 import {PlainRuns,type PlainDraft,type PlainPlan} from './plainRuns';
 import type {LocalToolConvergenceIdentity} from './types';
-import {RICH_MARKS,validateRichDocument,type RichAction,type RichDocument,type RichParagraph,type RichMark,type RichSpan,type RichRef,type RichRange,type RichSlice,type RichSplitCapture,type RichJoinCapture,type RichResolvedPoint} from './richTypes';
+import {RICH_MARKS,RICH_MARK_KEYS,validateRichDocument,richHref,type RichAction,type RichDocument,type RichParagraph,type RichMark,type RichMarkKey,type RichMarkValue,type RichSpan,type RichRef,type RichRange,type RichSlice,type RichSplitCapture,type RichJoinCapture,type RichResolvedPoint} from './richTypes';
 
 type Node={id:string;birthId:string;txId:string};
 type Buffer={id:string;txId:string};
@@ -13,10 +14,11 @@ type Lineage={buffer:string;runId:string;ref:RichRef;before:boolean;txId:string}
 type Place={id:string;node:string};
 type Segment={id:string;node:string;buffer:string};
 type Routing={spans:RichSpan[];edges:string[];node:string|null;segment:string;ordinal?:number;excludes?:RichSpan[]};
-type Marking={spans:RichSpan[];mark:RichMark;enabled:boolean};
+type Marking={spans:RichSpan[];mark:RichMark;enabled:boolean}|{spans:RichSpan[];mark:'link';href:string|null};
+const markValue=(m:Marking):RichMarkValue|undefined=>m.mark==='link'?m.href===null?undefined:{type:'link',attrs:{href:m.href}}:m.enabled?{type:m.mark}:undefined;
 type Write={root:string;key:string;value:LocalToolJson};
 type Chosen={key:string;value:Routing};
-export interface RichUnitBinding {id:string;route:string;segment:string;marks:Partial<Record<RichMark,string>>}
+export interface RichUnitBinding {id:string;route:string;segment:string;marks:Partial<Record<RichMarkKey,string>>}
 export interface RichBindings {nodes:{id:string;placement:string;edge:string;units:RichUnitBinding[]}[]}
 export interface RichView {data:RichDocument;bindings:RichBindings}
 export interface RichPlan {
@@ -70,9 +72,9 @@ export function richExclusions(ids:ReadonlySet<string>,included:ReadonlySet<stri
 export class RichRuns {
  readonly prefix:string;readonly nodes:JsonMap<Node>;readonly buffers:JsonMap<Buffer>;readonly edges:JsonMap<Edge>;readonly lineages:JsonMap<Lineage>;
  readonly order:JsonArray<Place>;readonly segments:JsonArray<Segment>;
- readonly doc:Y.Doc;readonly field:string;readonly registers:Registers;readonly historical:boolean;
- constructor(doc:Y.Doc,field:string,registers:Registers,historical=false){
-  this.doc=doc;this.field=field;this.registers=registers;this.historical=historical;
+ readonly doc:Y.Doc;readonly field:string;readonly registers:Registers;readonly historical:boolean;readonly links:boolean;readonly markKinds:readonly RichMarkKey[];
+ constructor(doc:Y.Doc,field:string,registers:Registers,historical=false,links=false){
+  this.doc=doc;this.field=field;this.registers=registers;this.historical=historical;this.links=links;this.markKinds=links?RICH_MARK_KEYS:RICH_MARKS;
   this.prefix='rich3:'+JSON.stringify(field)+':';
   this.nodes=new JsonMap(doc.getMap(this.prefix+'nodes'));this.buffers=new JsonMap(doc.getMap(this.prefix+'buffers'));this.edges=new JsonMap(doc.getMap(this.prefix+'edges'));this.lineages=new JsonMap(doc.getMap(this.prefix+'lineage'));
   this.order=new JsonArray(doc.getArray(this.prefix+'order'));this.segments=new JsonArray(doc.getArray(this.prefix+'segments'));
@@ -191,7 +193,7 @@ export class RichRuns {
    }
    const key=refKey(ref);if(routes.has(key))return routes.get(key);const chosen=resolveRoute(ref),value=chosen?Object.freeze(chosen):undefined;routes.set(key,value);return value;
   };
-  const mark=(id:string,kind:RichMark):{key:string;value:Marking}|undefined=>{
+  const mark=(id:string,kind:RichMarkKey):{key:string;value:Marking}|undefined=>{
    const own=lastMatching(staged('marks'),w=>{const v=w.value as unknown as Marking;return v.mark===kind&&covers(v.spans,id,decodePoint(id));});if(own)return{key:own.key,value:own.value as unknown as Marking};
    if(baselineUnits.has(id)){const key=baselineUnits.get(id)!.marks[kind];if(!key)return undefined;const historical=retained('marks',key).find(v=>v.present);return historical?{key,value:historical.value as unknown as Marking}:undefined;}
    const winner=this.registers.maximumCandidate(values('marks').filter(v=>{const m=v.value as unknown as Marking;return m.mark===kind&&covers(m.spans,id,decodePoint(id));}));return winner?{key:winner.key,value:winner.value as unknown as Marking}:undefined;
@@ -223,8 +225,8 @@ export class RichRuns {
    for(const segment of s.segments){if(segment.node!==p.node)continue;
     for(const id of s.segmentIds(segment)){
      if(!s.visible.has(id))continue;const routing=s.route({unit:id});if(!routing||routing.value.node!==p.node||routing.value.segment!==segment.id)continue;if(emitted.has(id))return fail();emitted.add(id);
-     const marks:RichMark[]=[],versions:Partial<Record<RichMark,string>>={};for(const kind of RICH_MARKS){const m=s.mark(id,kind);if(m){versions[kind]=m.key;if(m.value.enabled)marks.push(kind);}}
-     const signature=marks.map(type=>({type})),last=paragraph.content.at(-1),text=s.known.get(id)!;
+     const signature:RichMarkValue[]=[],versions:Partial<Record<RichMarkKey,string>>={};for(const kind of this.markKinds){const m=s.mark(id,kind);if(m){versions[kind]=m.key;const tag=markValue(m.value);if(tag)signature.push(tag);}}
+     const last=paragraph.content.at(-1),text=s.known.get(id)!;
      if(last&&marksEqual(last.marks??[],signature))last.text+=text;else paragraph.content.push({type:'text',text,...(signature.length?{marks:signature}:{})});
      bound.units.push({id,route:routing.key,segment:segment.id,marks:versions});
     }
@@ -254,7 +256,7 @@ export class RichRuns {
     const lineage=s.lineage(ref),at=lineage.findIndex(r=>'unit'in r&&retained.includes(r.unit)),ancestor=lineage[at],parent=lineage[at-1];
     if(ancestor&&'unit'in ancestor){
      let after=range.affinity==='left';
-     if(parent&&'edge'in parent){const edge=s.edges.get(parent.edge)!;after=this.registers.atFrontier([edge.txId],registers=>{const birth=new RichRuns(this.doc,this.field,registers,true).state(),home=birth.route({edge:edge.id})?.value.node,anchor=birth.route(ancestor)?.value.node;return home!==anchor;});}
+     if(parent&&'edge'in parent){const edge=s.edges.get(parent.edge)!;after=this.registers.atFrontier([edge.txId],registers=>{const birth=new RichRuns(this.doc,this.field,registers,true,this.links).state(),home=birth.route({edge:edge.id})?.value.node,anchor=birth.route(ancestor)?.value.node;return home!==anchor;});}
      cut=retained.indexOf(ancestor.unit)+(after?1:0);
     }
    }
@@ -298,11 +300,11 @@ export class RichRuns {
  checkBindings(view:RichView):void {this.bindingValidator()(view);}
  /** One immutable synchronous scan, shared across retained snapshot checks only. */
  bindingValidator():(view:RichView)=>void {
-  type Verified={node:string;route:string;segment:string;keys:readonly (string|undefined)[];marks:readonly RichMark[];text:string};
+  type Verified={node:string;route:string;segment:string;keys:readonly (string|undefined)[];marks:readonly RichMarkValue[];text:string};
   let scan:ReturnType<RichRuns['state']>|undefined;
   const routing=new Map<string,Routing>(),marking=new Map<string,Marking>(),verified=new Map<string,Verified[]>();
   return view=>{
-   validateRichDocument(view.data);const fresh=!scan,s=scan??=this.state(),seen=new Set<string>();
+   validateRichDocument(view.data,this.links);const fresh=!scan,s=scan??=this.state(),seen=new Set<string>();
    if(fresh){
     // Preserve candidate-first, then retained-entry priority, including inactive versions.
     for(const v of [...this.registers.candidates(this.root('routing')),...this.registers.entries(this.root('routing'))])if(v.present&&!routing.has(v.key))routing.set(v.key,v.value as unknown as Routing);
@@ -312,16 +314,16 @@ export class RichRuns {
    for(let i=0;i<view.bindings.nodes.length;i++){
     const b=view.bindings.nodes[i],p=view.data.content[i];if(p.id!==b.id||!s.nodes.has(b.id)||!s.order.some(v=>v.id===b.placement&&v.node===b.id)||!s.edges.has(b.edge))return fail();
     const actual:RichParagraph={id:p.id,type:'paragraph',content:[]};
-    for(const u of b.units){if(seen.has(u.id)||!s.known.has(u.id))return fail();seen.add(u.id);
+    for(const u of b.units){if(!this.links&&Object.hasOwn(u.marks,'link'))return fail();if(seen.has(u.id)||!s.known.has(u.id))return fail();seen.add(u.id);
      const known=verified.get(u.id)??[];
-     let unit=known.find(v=>v.node===b.id&&v.route===u.route&&v.segment===u.segment&&RICH_MARKS.every((kind,at)=>v.keys[at]===u.marks[kind]));
+     let unit=known.find(v=>v.node===b.id&&v.route===u.route&&v.segment===u.segment&&this.markKinds.every((kind,at)=>v.keys[at]===u.marks[kind]));
      if(!unit){
       const route=routing.get(u.route);
       if(!route||route.node!==b.id||route.segment!==u.segment||!s.segments.some(v=>v.id===u.segment&&v.node===b.id)||!routingEligible(route,s.lineage({unit:u.id})))return fail();
-      const marks:RichMark[]=[];for(const kind of RICH_MARKS){const key=u.marks[kind];if(!key)continue;const m=marking.get(key);if(!m||m.mark!==kind||!covers(m.spans,u.id))return fail();if(m.enabled)marks.push(kind);}
-      unit=Object.freeze({node:b.id,route:u.route,segment:u.segment,keys:Object.freeze(RICH_MARKS.map(kind=>u.marks[kind])),marks:Object.freeze(marks),text:s.known.get(u.id)!});known.push(unit);verified.set(u.id,known);
+      const marks:RichMarkValue[]=[];for(const kind of this.markKinds){const key=u.marks[kind];if(!key)continue;const m=marking.get(key);if(!m||m.mark!==kind||!covers(m.spans,u.id))return fail();const tag=markValue(m);if(tag)marks.push(tag);}
+      unit=Object.freeze({node:b.id,route:u.route,segment:u.segment,keys:Object.freeze(this.markKinds.map(kind=>u.marks[kind])),marks:Object.freeze(marks),text:s.known.get(u.id)!});known.push(unit);verified.set(u.id,known);
      }
-     const tags=unit.marks.map(type=>({type})),last=actual.content.at(-1);if(last&&marksEqual(last.marks??[],tags))last.text+=unit.text;else actual.content.push({type:'text',text:unit.text,...(tags.length?{marks:tags}:{})});
+     const tags=unit.marks,last=actual.content.at(-1);if(last&&marksEqual(last.marks??[],tags))last.text+=unit.text;else actual.content.push({type:'text',text:unit.text,...(tags.length?{marks:[...tags]}:{})});
     }
     if(convergenceCanonical(actual)!==convergenceCanonical(p))return fail();
    }
@@ -355,7 +357,7 @@ export class RichRuns {
   let missingMarkDependency=false;
   for(const version of this.registers.entries(this.root('marks'))){
    const value=version.value as unknown;
-   if(!version.present||!record(value)||Object.keys(value).length!==3||!Object.hasOwn(value,'spans')||!Object.hasOwn(value,'mark')||!Object.hasOwn(value,'enabled')||!RICH_MARKS.includes(value.mark as RichMark)||typeof value.enabled!=='boolean'||!Array.isArray(value.spans)||!value.spans.length)return fail();
+   if(!version.present||!record(value)||Object.keys(value).length!==3||!Object.hasOwn(value,'spans')||!Object.hasOwn(value,'mark')||(value.mark==='link'? !this.links||!Object.hasOwn(value,'href')||value.href!==null&&!richHref(value.href):!Object.hasOwn(value,'enabled')||!RICH_MARKS.includes(value.mark as RichMark)||typeof value.enabled!=='boolean')||!Array.isArray(value.spans)||!value.spans.length)return fail();
    const seen=new Map<string,{from:number;to:number}[]>();
    for(const span of value.spans){
     if(!record(span)||Object.keys(span).length!==4||typeof span.buffer!=='string'||!span.buffer||typeof span.runId!=='string'||!span.runId||!Number.isSafeInteger(span.from)||!Number.isSafeInteger(span.to)||Number(span.from)<0||Number(span.from)>=Number(span.to))return fail();
@@ -405,24 +407,26 @@ export class RichDraft {
  private insert(node:string,afterId:string|null,text:string,marks:RichMark[]=[],fallback:RichRef|null=null,deferHomeRoute=false){
   if(this.source.hasNode(node)||this.plan.nodes.some(n=>n.id===node))return fail();this.plan.nodes.push({id:node,birthId:uuid(),txId:'@plan'});const b=this.buffer(node,fallback,deferHomeRoute);this.write('membership',node,true);this.place(node,afterId);this.append(b.buffer,null,text,{edge:b.edge},marks);return b;
  }
- private append(buffer:string,after:string|null,text:string,ref:RichRef,marks:RichMark[],before=false){
+ private append(buffer:string,after:string|null,text:string,ref:RichRef,marks:RichMark[],before=false,link?:{href:string}){
   if(!text)return;const draft=this.text(buffer),previous=new Set(draft.insertedRuns().map(r=>r.id));draft.splice({afterPlacementId:after,deleteIds:[]},text);const added=draft.insertedRuns().filter(r=>!previous.has(r.id));
-  for(const r of added){this.plan.lineages.push({buffer,runId:r.id,ref,before,txId:'@plan'});for(const mark of marks)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark,enabled:true});}this.preparePlain();
+  for(const r of added){this.plan.lineages.push({buffer,runId:r.id,ref,before,txId:'@plan'});for(const mark of marks)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark,enabled:true});if(link)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark:'link',href:link.href});}this.preparePlain();
  }
  apply(action:RichAction,identity:LocalToolConvergenceIdentity,excludes?:readonly RichSpan[]):void {
   if(action.field!==this.source.field)return fail();
-  if(action.type==='rich-insert-paragraph'){if(typeof action.id!=='string'||!action.id||typeof action.text!=='string'||action.marks?.some(m=>!RICH_MARKS.includes(m)))return fail();this.insert(action.id,action.afterId,action.text,action.marks);}
+  if(action.type==='rich-insert-paragraph'){const link=action.link===undefined?undefined:this.link(action.link);if(typeof action.id!=='string'||!action.id||typeof action.text!=='string'||action.marks?.some(m=>!RICH_MARKS.includes(m)))return fail();const born=this.insert(action.id,action.afterId,'',action.marks);this.append(born.buffer,null,action.text,{edge:born.edge},action.marks??[],false,link);}
   else if(action.type==='rich-delete-paragraph'){if(!this.refresh().bindings.nodes.some(n=>n.id===action.id))return fail();this.write('membership',action.id,false);}
   else if(action.type==='rich-move-paragraph'){if(action.afterId===action.id||!this.refresh().bindings.nodes.some(n=>n.id===action.id))return fail();this.place(action.id,action.afterId);}
-  else if(action.type==='rich-text-splice'||action.type==='rich-mark'){
+  else if(action.type==='rich-text-splice'||action.type==='rich-mark'||action.type==='rich-link'){
    this.source.assertRange(action.range,identity);if(action.nodeId!==action.range.nodeId)return fail();
-   if(action.type==='rich-mark'){if(!RICH_MARKS.includes(action.mark)||typeof action.enabled!=='boolean')return fail();if(action.range.deleteIds.length)this.write('marks',uuid(),{spans:spans(action.range.deleteIds),mark:action.mark,enabled:action.enabled});}
+   if(action.type==='rich-link'){if(!this.source.links||action.href!==null&&typeof action.href!=='string')return fail();const href=action.href===null?null:normalizeEditorLinkHref(action.href);if(action.href!==null&&href===null)return fail();if(action.range.deleteIds.length)this.write('marks',uuid(),{spans:spans(action.range.deleteIds),mark:'link',href});}
+   else if(action.type==='rich-mark'){if(!RICH_MARKS.includes(action.mark)||typeof action.enabled!=='boolean')return fail();if(action.range.deleteIds.length)this.write('marks',uuid(),{spans:spans(action.range.deleteIds),mark:action.mark,enabled:action.enabled});}
    else{
+    const link=action.link===undefined?undefined:this.link(action.link);
     if(typeof action.text!=='string'||action.marks?.some(m=>!RICH_MARKS.includes(m)))return fail();
     for(const s of spans(action.range.deleteIds)){const d=this.text(s.buffer);d.splice({afterPlacementId:null,deleteIds:Array.from({length:s.to-s.from},(_,i)=>JSON.stringify([s.runId,s.from+i]))},'');}
     const left=action.range.left,right=action.range.right,preferred=action.range.affinity==='right'?right??left:left??right,ref:RichRef=preferred?{unit:preferred}:{edge:action.range.edge};
     const buffer=left?point(left).buffer:right?point(right).buffer:this.plan.edges.find(e=>e.id===action.range.edge)?.buffer??this.source.edges.get(action.range.edge)?.buffer;
-    if(!buffer)return fail();this.append(buffer,left&&point(left).buffer===buffer?plainPoint(left):null,action.text,ref,action.marks??[],preferred!==null&&preferred===right);
+    if(!buffer)return fail();this.append(buffer,left&&point(left).buffer===buffer?plainPoint(left):null,action.text,ref,action.marks??[],preferred!==null&&preferred===right,link);
    }
   }else if(action.type==='rich-split'){
    const c=action.capture;this.source.assertRange(c.range,identity);if(c.format!=='writers-hoard-rich-split/1'||!excludes)return fail();
@@ -445,8 +449,9 @@ export class RichDraft {
   }
   this.refresh();
  }
+ private link(value:unknown):{href:string}{if(!this.source.links||!record(value)||Object.keys(value).length!==1||typeof value.href!=='string')return fail();const href=normalizeEditorLinkHref(value.href);if(!href)return fail();return{href};}
  replace(value:RichDocument|undefined):void {
-  if(value!==undefined)validateRichDocument(value);
+  if(value!==undefined)validateRichDocument(value,this.source.links);
   for(const buffer of new Set([...this.source.buffers.keys(),...this.plan.buffers.map(b=>b.id)])){const p=this.source.plain(buffer);this.text(buffer).clear();const all=p.materialize(p.allSpans());const ids=all.bindings.flatMap(s=>Array.from({length:s.to-s.from},(_,i)=>unit(buffer,s.runId,s.from+i)));if(ids.length)this.route(ids,[],null,'');}
   for(const node of new Set([...this.source.nodes.values()].map(n=>n.id).concat(this.plan.nodes.map(n=>n.id))))this.write('membership',node,false);
   for(const edge of new Set([...this.source.edges.keys(),...this.plan.edges.map(e=>e.id)]))this.route([],[edge],null,'');
@@ -457,7 +462,7 @@ export class RichDraft {
    const own=this.plan.buffers.at(-1)!,edge=this.plan.edges.at(-1)!.id;
    this.append(own.id,null,p.content.map(t=>t.text).join(''),{edge},[]);
    const run=this.text(own.id).finish().runs[0];let offset=0;
-   for(const t of p.content){for(const m of t.marks??[])if(run)this.write('marks',uuid(),{spans:[{buffer:own.id,runId:run.id,from:offset,to:offset+t.text.length}],mark:m.type,enabled:true});offset+=t.text.length;}
+   for(const t of p.content){for(const m of t.marks??[])if(run)this.write('marks',uuid(),{spans:[{buffer:own.id,runId:run.id,from:offset,to:offset+t.text.length}],...(m.type==='link'?{mark:'link',href:m.attrs.href}:{mark:m.type,enabled:true})});offset+=t.text.length;}
    previous=p.id;
   }
   this.refresh();if(value!==undefined&&convergenceCanonical(this.plan.view.data)!==convergenceCanonical(value))return fail();

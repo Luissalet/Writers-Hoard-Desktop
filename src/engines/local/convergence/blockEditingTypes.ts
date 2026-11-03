@@ -9,7 +9,7 @@ export interface RichBlockEditCapture {
 }
 export type RichBlockEditingAction=
  |{type:'rich-block-list-indent';field:string;capture:RichBlockEditCapture;direction:'in'|'out';listId?:string}
- |{type:'rich-block-insert';field:string;capture:RichBlockEditCapture;block:{id:string;type:'paragraph'|'heading';attrs:Record<string,LocalToolJson>};text:string;marks?:RichMark[]}
+ |{type:'rich-block-insert';field:string;capture:RichBlockEditCapture;block:{id:string;type:'paragraph'|'heading';attrs:Record<string,LocalToolJson>};text:string;marks?:RichMark[];link?:{href:string}}
  |{type:'rich-block-transform';field:string;capture:RichBlockEditCapture;kind:RichBlockKind;attrs:Record<string,LocalToolJson>}
  |{type:'rich-block-container';field:string;capture:RichBlockEditCapture;container:{id:string;type:'blockquote'|'toggle';attrs:Record<string,LocalToolJson>}}
  |{type:'rich-block-hide';field:string;capture:RichBlockEditCapture}

@@ -5,8 +5,8 @@ import type {RichDocument} from '../convergence/richTypes';
 const reserved=new Set(['doc','paragraph','text','bold','italic','underline','strike','code','writerRichAdmission','clipboardTextSerializer','commands','delete','drop','editable','focusEvents','keymap','paste','tabindex','textDirection','history','undoRedo','collaboration','collaborationCursor','collaborationCaret']);
 const schemaHooks=['addGlobalAttributes','extendNodeSchema','extendMarkSchema'] as const;
 /** Compatibility contract, not an inspection sandbox for arbitrary author code. */
-export function prepareRichExtraExtensions(input:readonly AnyExtension[]|undefined){
- const members=[...(input??[])],names=new Set(reserved),extensions:AnyExtension[]=[];
+export function prepareRichExtraExtensions(input:readonly AnyExtension[]|undefined,links=false){
+ const members=[...(input??[])],names=new Set([...reserved,...(links?['link']:[])]),extensions:AnyExtension[]=[];
  let error='';
  const visit=(extension:AnyExtension,ancestors:Set<AnyExtension>)=>{
   if(!extension||extension.type!=='extension'||names.has(extension.name))throw Error('local_tool_rich_editor_extension_incompatible');
@@ -25,4 +25,4 @@ export function prepareRichExtraExtensions(input:readonly AnyExtension[]|undefin
 /** Known conflicting histories fail visibly. Renamed opaque history remains outside the contract. */
 export function richExtensionPluginError(state:EditorState){return state.plugins.some(plugin=>{const key:unknown=Reflect.get(plugin,'key');return typeof key==='string'&&/^(?:history|y-sync|y-undo|y-cursor)\$(?:\d+)?$/.test(key);})?'local_tool_rich_editor_extension_history':'';}
 /** Pure initial PM content: lifecycle edits start on the real Source identities, never a placeholder. */
-export function richEditorInitialContent(document:RichDocument):JSONContent{return{type:'doc',content:document.content.length?document.content.map(paragraph=>({type:'paragraph',attrs:{id:paragraph.id},content:paragraph.content.map(part=>({type:'text',text:part.text,...(part.marks?.length?{marks:part.marks.map(mark=>({type:mark.type}))}:{})}))})):[{type:'paragraph',attrs:{id:null}}]};}
+export function richEditorInitialContent(document:RichDocument):JSONContent{return{type:'doc',content:document.content.length?document.content.map(paragraph=>({type:'paragraph',attrs:{id:paragraph.id},content:paragraph.content.map(part=>({type:'text',text:part.text,...(part.marks?.length?{marks:part.marks.map(mark=>(mark.type==='link'?{type:mark.type,attrs:{...mark.attrs}}:{type:mark.type}))}:{})}))})):[{type:'paragraph',attrs:{id:null}}]};}
