@@ -26,7 +26,8 @@ export type LocalToolConvergenceIdentityV4=LocalToolConvergenceIdentityFields&{e
 export type LocalToolConvergenceIdentityV5=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'5';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
 export type LocalToolConvergenceIdentityV6=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'6';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
 export type LocalToolConvergenceIdentityV7=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'7';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
-export type LocalToolConvergenceIdentity=LocalToolConvergenceIdentityV1|LocalToolConvergenceIdentityV2|LocalToolConvergenceIdentityV3|LocalToolConvergenceIdentityV4|LocalToolConvergenceIdentityV5|LocalToolConvergenceIdentityV6|LocalToolConvergenceIdentityV7;
+export type LocalToolConvergenceIdentityV8=LocalToolConvergenceIdentityFields&{engine:{id:'writers-hoard-yjs-registers';version:'8';updateFormat:'yjs-v1';libraryVersion:'13.6.33'}};
+export type LocalToolConvergenceIdentity=LocalToolConvergenceIdentityV1|LocalToolConvergenceIdentityV2|LocalToolConvergenceIdentityV3|LocalToolConvergenceIdentityV4|LocalToolConvergenceIdentityV5|LocalToolConvergenceIdentityV6|LocalToolConvergenceIdentityV7|LocalToolConvergenceIdentityV8;
 export type LocalToolConvergenceCheckpoint=LocalToolConvergenceIdentity&{
  format:'writers-hoard-local-convergence/1';
  checkpointBase64:string;
