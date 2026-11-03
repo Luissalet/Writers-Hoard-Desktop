@@ -414,3 +414,25 @@ Continuar1917 hasta respuesta interactiva acreditada,1958 enlaces causales (dise
 El primer hito de1958 ya está en Main93e1766088185d209110af5f9f7b8b94bc687109: enlaces causales optativos en párrafos y bloques de documentos nuevos, UI/SDK/MCP, Undo autoral, Save/Auto e intercambio local verificados. [Alcance y pruebas](tasks/vvd1095/verification-rich-links1958.md). Queda superado el pendiente total de enlaces, sin cerrar la familia completa de texto compartido.
 
 Siguiente: implementar y probar la adopción explícita y acotada3→4 acordada en2138, conservando origen/historia, política actual, lecturas sin reset, recuperación de dependencias, sala y guardado del corte correcto.1958 permanece abierta y su worktree se conserva para ese segundo hito. Después continúan imágenes/tablas del perfil, esquema persistente ampliable, respuesta interactiva de historiales grandes1917, IME físico, hosting y los demás residuos1095. No excluir por estar ONLINE sin dependencia externa o pago demostrados.
+
+
+## Mejoras y límites conocidos trasladados desde PENDIENTES — 04-11-2026
+
+Ninguno necesita una decisión de Luis; son trabajo implementable o límites aceptados.
+
+Imagen local:
+- Preprocesador de ControlNet: extraer canny/pose/profundidad desde una imagen en el Estudio (hoy la pista debe traerse hecha). Las ControlNet del catálogo son sólo SD1.5 y una por arranque, sin `start_percent`/`end_percent`.
+- Z-Image en el catálogo: el pin `master-709-92a3b73` ya trae `--diffusion-model` y `--llm`, así que no hace falta subirlo; falta un rol de fichero `llm` en `buildSdServerArgs`, la entrada del catálogo y pasarla por `npm run test:sd-live`.
+- Preset SDXL fotorrealista con digest verificado.
+- Exportar el dataset de referencias a una carpeta además del ZIP.
+- Imágenes de Galería/Estudio fuera de Dexie: ficheros en `userData` con rutas relativas y protocolo `wh-media://`, como el scrapper.
+- PhotoMaker/PuLID como perfil de arranque del servidor (no son campos de petición en el pin).
+
+Mundo, escritura y mesa (límites aceptados):
+- Vault Markdown: sin tableros, Kanban, storyboards, hojas, diccionarios, árboles ni eras; sin sincronización viva con carpeta; menciones sólo la primera vez y sin cruzar etiquetas; la tool del puente devuelve ZIP base64 (25 MB) y no escribe en carpeta.
+- Excel: sin formato, celdas combinadas, gráficos, imágenes ni macros; fórmulas no calculables o con otra hoja salen como `#FORMULA!`. Dados sin física 3D. Compendio SRD 5.2 en inglés.
+- DOCX del manual de juego: un título de capítulo no ocupa las dos columnas; WebP/AVIF no entran; versalitas en mayúsculas. Restaurar desde el Archivo no se deshace con `wh_undo`.
+- Mapas: rejilla de juego que no casa en la costura si el tamaño no divide la circunferencia (r5); niebla y sucesos cambian cachés indexadas por ediciones (sólo rendimiento, r6); rótulos interactivos tras el primer dibujo; `capturePage` de ventana oculta puede dar un fotograma anterior (los oráculos leen DOM/IndexedDB/píxeles); la prueba de notas al pie de `test:critical` falló una vez por foco de ventana.
+
+Fallo abierto en carril bloqueado:
+- `scripts/run-world-graph-qa.cjs` y `scripts/run-workspace-library-qa.cjs` no arrancan en Vite dev: `Cannot access 'sources' before initialization` (`src/engines/local/registry.tsx:30`, importación circular). Avisado a codex-writer1095 en el Ágora (hilo 2088). Después, volver a medir el «Ajustar a la vista» intermitente del grafo con ventana estrecha (exponer `width`, `fitViewQueued` y `nodesInitialized` del store de React Flow en la vista de prueba).
