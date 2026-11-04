@@ -1,15 +1,29 @@
 import {useEffect,useId,useLayoutEffect,useRef,type ReactNode,type PointerEvent as ReactPointerEvent} from 'react';
 import {convergenceCanonical} from '../convergence/format';
-import {MIN_TABLE_COLUMN_WIDTH,validTableColumnWidth} from '../convergence/tableAxesFormat';
+import {MIN_TABLE_COLUMN_WIDTH,MIN_TABLE_ROW_HEIGHT,validTableColumnWidth,validTableRowHeight} from '../convergence/tableAxesFormat';
+import type {RichBlockEditCapture} from '../convergence/blockEditingTypes';
 import type {RichTableColumnWidthCapture} from '../convergence/tableAxesEditing';
 import type {RichEditorSession} from './session';
 import {tableWidthStyle} from './tableAxesLayout';
 import './tableWidths.css';
 
-type Drag={pointerId:number;clientX:number;startPx:number;table:HTMLTableElement;capture:RichTableColumnWidthCapture};
-const pointerWidth=(drag:Drag,clientX:number)=>Math.max(MIN_TABLE_COLUMN_WIDTH,Math.round(drag.startPx+clientX-drag.clientX));
-const target=({identity,field,tableId,columnId,table,column,birth,widthPx}:RichTableColumnWidthCapture)=>
+type DragBase={pointerId:number;startPx:number;table:HTMLTableElement};
+type Drag=DragBase&({axis:'column';start:number;capture:RichTableColumnWidthCapture}|{axis:'row';start:number;capture:RichBlockEditCapture;tableId:string;rowId:string});
+const pointerSize=(drag:Drag,event:PointerEvent)=>Math.max(drag.axis==='column'?MIN_TABLE_COLUMN_WIDTH:MIN_TABLE_ROW_HEIGHT,
+ Math.round(drag.startPx+(drag.axis==='column'?event.clientX:event.clientY)-drag.start));
+const columnTarget=({identity,field,tableId,columnId,table,column,birth,widthPx}:RichTableColumnWidthCapture)=>
  convergenceCanonical([identity,field,tableId,columnId,table,column,birth,widthPx]);
+function rowTarget(capture:RichBlockEditCapture,rowId:string){
+ const binding=capture.bindings.find(item=>item.id===rowId);
+ if(!binding)return null;
+ const {kindVersionId,membershipVersionId,placementVersionId,rowHeightVersionId}=binding;
+ return convergenceCanonical([capture.identity,capture.field,rowId,kindVersionId,membershipVersionId,placementVersionId,rowHeightVersionId??null]);
+}
+function applyHeight(session:RichEditorSession,capture:RichBlockEditCapture,heightPx:number|null){
+ if(!session.editable)return;
+ try{session.applyBatch([{type:'rich-table-row-height',field:session.field,capture,heightPx}]);}
+ catch(reason){session.fail(reason,true);}
+}
 function applyWidth(session:RichEditorSession,capture:RichTableColumnWidthCapture,widthPx:number|null){
  if(!session.editable||capture.widthPx===widthPx)return;
  try{session.applyBatch([{type:'rich-table-column-width',field:session.field,capture,widthPx}]);}
@@ -27,16 +41,26 @@ function useTableWidthDrag(session:RichEditorSession,enabled:boolean){
    const active=drag.current;
    if(!active)return undefined;
    try{
-    const {capture}=active;
-    if(!session.editable||!active.table.isConnected||
-      target(capture)!==target(session.replica.richTableColumnWidthCapture(session.field,capture.tableId,capture.columnId))){cancel();return undefined;}
+    if(!session.editable||!active.table.isConnected){cancel();return undefined;}
+    const unchanged=active.axis==='row'?
+     rowTarget(active.capture,active.rowId)===rowTarget(session.replica.richBlockEditCapture(session.field,[active.rowId]),active.rowId):
+     columnTarget(active.capture)===columnTarget(session.replica.richTableColumnWidthCapture(session.field,active.capture.tableId,active.capture.columnId));
+    if(!unchanged){cancel();return undefined;}
     return active;
    }catch{cancel();return undefined;}
   };
   const move=(event:PointerEvent)=>{
    const active=drag.current;if(!active||event.pointerId!==active.pointerId||!preview)return;
    if(!active.table.isConnected){cancel();return;}
-   const width=pointerWidth(active,event.clientX);
+   const size=pointerSize(active,event);
+   if(active.axis==='row'){
+    if(!validTableRowHeight(size))return;
+    const tableSelector=`#${CSS.escape(id)} table[data-writer-block=${CSS.escape(active.tableId)}]`;
+    preview.textContent=`${tableSelector} tr[data-writer-block=${CSS.escape(active.rowId)}]{height:${size}px!important}`;
+    event.preventDefault();
+    return;
+   }
+   const width=size;
    if(!validTableColumnWidth(width))return;
    const columns=[...active.table.querySelectorAll<HTMLTableColElement>(':scope > colgroup > col')].map(col=>{
     const columnId=col.getAttribute('data-writer-column')!;
@@ -52,8 +76,10 @@ function useTableWidthDrag(session:RichEditorSession,enabled:boolean){
    if(drag.current?.pointerId!==event.pointerId)return;
    const active=current();cancel();
    if(!active)return;
-   const width=pointerWidth(active,event.clientX);
-   if(width!==active.startPx&&validTableColumnWidth(width))applyWidth(session,active.capture,width);
+   const size=pointerSize(active,event);
+   if(size===active.startPx)return;
+   if(active.axis==='row'){if(validTableRowHeight(size))applyHeight(session,active.capture,size);}
+   else if(validTableColumnWidth(size))applyWidth(session,active.capture,size);
   };
   const pointerCancel=(event:PointerEvent)=>{if(event.pointerId===drag.current?.pointerId)cancel();};
   const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&drag.current){event.preventDefault();cancel();}};
@@ -78,12 +104,19 @@ function useTableWidthDrag(session:RichEditorSession,enabled:boolean){
   const table=cell?.closest<HTMLTableElement>('table[data-writer-column-widths]');
   if(!cell||!table||!event.currentTarget.contains(table))return;
   const bounds=cell.getBoundingClientRect();
-  if(event.clientX<bounds.right-7||event.clientX>bounds.right+1)return;
+  const atColumnEdge=event.clientX>=bounds.right-7&&event.clientX<=bounds.right+1;
+  const atRowEdge=session.rowHeights&&!atColumnEdge&&event.clientY>=bounds.bottom-6&&event.clientY<=bounds.bottom;
+  if(!atColumnEdge&&!atRowEdge)return;
   try{
-   const [tableId,,columnId]=JSON.parse(cell.getAttribute('data-writer-cell-address')!) as [string,string,string];
-   const capture=session.replica.richTableColumnWidthCapture(session.field,tableId,columnId);
-   const startPx=Math.max(MIN_TABLE_COLUMN_WIDTH,Math.round(bounds.width));
-   drag.current={pointerId:event.pointerId,clientX:event.clientX,startPx,table,capture};
+   const [tableId,rowId,columnId]=JSON.parse(cell.getAttribute('data-writer-cell-address')!) as [string,string,string];
+   const pointerId=event.pointerId;
+   if(atRowEdge){
+    const capture=session.replica.richBlockEditCapture(session.field,[rowId]);
+    drag.current={axis:'row',pointerId,start:event.clientY,startPx:Math.max(MIN_TABLE_ROW_HEIGHT,Math.round(bounds.height)),table,tableId,rowId,capture};
+   }else{
+    const capture=session.replica.richTableColumnWidthCapture(session.field,tableId,columnId);
+    drag.current={axis:'column',pointerId,start:event.clientX,startPx:Math.max(MIN_TABLE_COLUMN_WIDTH,Math.round(bounds.width)),table,capture};
+   }
    event.preventDefault();
    event.stopPropagation();
   }catch{/* The visible column may have been withdrawn before this event. */}
@@ -93,7 +126,7 @@ function useTableWidthDrag(session:RichEditorSession,enabled:boolean){
 
 export function TableWidthSurface({session,readOnly,className,children}:{session:RichEditorSession;readOnly:boolean;className:string;children:ReactNode}){
  const {id,sheet,onPointerDown}=useTableWidthDrag(session,!readOnly&&session.widths);
- return <div className={className} id={id} data-writer-width-surface={readOnly?undefined:''} onPointerDownCapture={onPointerDown}>
+ return <div className={className} id={id} data-writer-width-surface={readOnly?undefined:''} data-writer-height-surface={readOnly||!session.rowHeights?undefined:''} onPointerDownCapture={onPointerDown}>
   <style ref={sheet}/>
   {children}
  </div>;
@@ -114,5 +147,23 @@ export function TableWidthControls({session,tableId,columnId,current,es,button}:
   </label>
   <button type="submit" className={button}>{es?'Aplicar ancho':'Apply width'}</button>
   <button type="button" className={button} disabled={current===null} onClick={()=>submit(null)}>{es?'Ancho automático':'Automatic width'}</button>
+ </form>;
+}
+
+export function TableHeightControls({session,rowId,current,es,button}:{session:RichEditorSession;rowId:string;current:number|null;es:boolean;button:string}){
+ const input=useRef<HTMLInputElement>(null);
+ useLayoutEffect(()=>{if(input.current)input.current.value=current===null?'':String(current);},[current]);
+ const submit=(height:number|null)=>{
+  let capture;
+  try{capture=session.replica.richBlockEditCapture(session.field,[rowId]);}
+  catch{return;}
+  applyHeight(session,capture,height);
+ };
+ return <form className="flex flex-wrap items-end gap-2" onSubmit={event=>{event.preventDefault();const height=input.current?.valueAsNumber;if(validTableRowHeight(height))submit(height);}}>
+  <label className="grid gap-1 text-sm text-text-muted">{es?'Altura de fila (px)':'Row height (px)'}
+   <input ref={input} className={button+' w-24 bg-elevated'} type="number" min={MIN_TABLE_ROW_HEIGHT} step="1" placeholder="Auto" required />
+  </label>
+  <button type="submit" className={button}>{es?'Aplicar altura':'Apply height'}</button>
+  <button type="button" className={button} disabled={current===null} onClick={()=>submit(null)}>{es?'Altura automática':'Automatic height'}</button>
  </form>;
 }

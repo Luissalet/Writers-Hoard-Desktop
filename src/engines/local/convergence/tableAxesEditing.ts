@@ -48,7 +48,10 @@ export function captureTableCell(source:RichBlocks,identity:LocalToolConvergence
  source.check(data,bindings);return{format:'writers-hoard-table-cell/1',identity:convergenceClone(identity),field:source.field,tableId,rowId,columnId,afterId,bindings:cellWitness(source,data,bindings,tableId,rowId,columnId,afterId),frontier:source.registers.frontier()};
 }
 export function sameTableCellBindings(current:RichBlockBinding[],captured:RichBlockBinding[],presentationNodes:readonly string[]):boolean {
- const structure=(values:RichBlockBinding[])=>values.map(({attrsVersionId,...binding})=>presentationNodes.includes(binding.id)?binding:{...binding,attrsVersionId});
+ const structure=(values:RichBlockBinding[])=>values.map(binding=>{
+  const {id,kindVersionId,membershipVersionId,placementVersionId}=binding;
+  return presentationNodes.includes(id)?{id,kindVersionId,membershipVersionId,placementVersionId}:binding;
+ });
  return same(structure(current),structure(captured));
 }
 function widthWitness(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,tableId:string,columnId:string){
@@ -126,5 +129,5 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   result.textActions.push({type:'rich-insert-paragraph',field:action.field,id:p.id,afterId:lastLeaf,text:p.text,...(p.marks?{marks:p.marks}:{}),...(href?{link:{href}}:{})});
   }
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights);return result;
 }

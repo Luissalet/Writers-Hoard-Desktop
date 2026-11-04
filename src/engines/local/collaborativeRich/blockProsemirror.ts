@@ -1,5 +1,5 @@
 import {tableCellOf} from '../convergence/tableFormat';
-import {isTableAxesSchema,isTableWidthsSchema} from '../convergence/tableAxesFormat';
+import {isTableAxesSchema,isTableWidthsSchema,validTableRowHeight} from '../convergence/tableAxesFormat';
 import {tableAxesRows,tableWidthStyle,type TableColumnLayout} from './tableAxesLayout';
 import {restoreSourceCellSelection,sourceCellSelectionEnds} from './tableCellSelection';
 import {Node,mergeAttributes} from '@tiptap/core';
@@ -21,7 +21,7 @@ export function blockPMDocument(schema:Schema,data:RichBlockDocument):PMNode {
   if(block.type==='table'&&isTableAxesSchema(data.schema)){
    const rows=tableAxesRows(data,block.id);if(!rows.length)return null;
    const columnLayout=isTableWidthsSchema(data.schema)?rows[0].cells.map(({columnId,widthPx})=>({columnId,widthPx})):undefined;
-   return schema.nodes.table.create({id:block.id,columns:rows[0].cells.map(c=>c.columnId),...(columnLayout?{columnLayout}:{})},rows.map(({row,cells})=>schema.nodes.tableRow.create({id:row.id},cells.map(cell=>{
+   return schema.nodes.table.create({id:block.id,columns:rows[0].cells.map(c=>c.columnId),...(columnLayout?{columnLayout}:{})},rows.map(({row,cells})=>schema.nodes.tableRow.create({id:row.id,heightPx:row.attrs.heightPx??null},cells.map(cell=>{
     const content=cell.children.map(node).filter(present);
     return schema.nodes[row.attrs.header?'tableHeader':'tableCell'].create({columnId:cell.columnId,cellAddress:cell.address},content.length?content:[schema.nodes.paragraph.create({id:null,cellAddress:cell.address})]);
    }))));
@@ -118,7 +118,7 @@ export function blockTextKey(session:RichEditorSession,view:{state:EditorState;d
 /** Collapse is local presentation keyed by block identity, outside saved state. */
 export function blockNodes(collapsed:Set<string>,tables=false,axes=false,widths=false,images=false,imageCells=false){
  const attributes={id:{default:null,parseHTML:(element:HTMLElement)=>element.getAttribute('data-writer-block'),renderHTML:(attrs:Record<string,unknown>)=>attrs.id?{'data-writer-block':attrs.id}:{}}};
- const ordinary=(name:string,tag:string,content:string,extra:Record<string,{default:unknown}>={})=>Node.create({name,group:name==='listItem'||name==='tableRow'?undefined:'block',content,draggable:true,addAttributes(){return{...attributes,...extra};},parseHTML(){return[{tag}];},renderHTML({HTMLAttributes}){return[tag,mergeAttributes(HTMLAttributes,...(name==='bulletList'?[{style:'list-style-type:disc'}]:name==='orderedList'?[{style:'list-style-type:decimal'}]:[])),0];}});
+ const ordinary=(name:string,tag:string,content:string,extra:Record<string,{default:unknown;parseHTML?:(element:HTMLElement)=>unknown;renderHTML?:(attrs:Record<string,unknown>)=>Record<string,string>}>={})=>Node.create({name,group:name==='listItem'||name==='tableRow'?undefined:'block',content,draggable:true,addAttributes(){return{...attributes,...extra};},parseHTML(){return[{tag}];},renderHTML({HTMLAttributes}){return[tag,mergeAttributes(HTMLAttributes,...(name==='bulletList'?[{style:'list-style-type:disc'}]:name==='orderedList'?[{style:'list-style-type:decimal'}]:[])),0];}});
  return[
   Node.create({name:'doc',topNode:true,content:images?'(block|richImage)+':'block+'}),Node.create({name:'text',group:'inline'}),ordinary('paragraph','p','inline*',axes?{cellAddress:{default:null,rendered:false}}as Record<string,{default:unknown}>:{}),
   Node.create({name:'heading',group:'block',content:'inline*',draggable:true,addAttributes(){return{...attributes,level:{default:1}};},parseHTML(){return[1,2,3].map(level=>({tag:'h'+level,attrs:{level}}));},renderHTML({node,HTMLAttributes}){return['h'+Number(node.attrs.level),mergeAttributes(HTMLAttributes),0];}}),
@@ -131,7 +131,8 @@ export function blockNodes(collapsed:Set<string>,tables=false,axes=false,widths=
     return['table',{...props,'data-writer-column-widths':'',...(style?{style:`width:${style.width}${style.minWidth?';min-width:'+style.minWidth:''}`}:{})},
      ['colgroup',...columns.map(({columnId,widthPx})=>['col',{'data-writer-column':columnId,...(widthPx===null?{}:{style:`width:${widthPx}px`})}])],['tbody',0]];
    }}),
-   ordinary('tableRow','tr','(tableCell|tableHeader)+'),
+   ordinary('tableRow','tr','(tableCell|tableHeader)+',{heightPx:{default:null,parseHTML:()=>null,
+    renderHTML:(attrs):Record<string,string>=>validTableRowHeight(attrs.heightPx)?{style:'height:'+attrs.heightPx+'px'}:{}}}),
    ...(['tableCell','tableHeader']as const).map(name=>Node.create({name,content:imageCells?'(block|richImage)+':'block+',isolating:true,addAttributes(){return{...attributes,columnId:{default:null},...(axes?{colspan:{default:1,rendered:false},rowspan:{default:1,rendered:false},colwidth:{default:null,rendered:false},cellAddress:{default:null,parseHTML:()=>null,renderHTML:(attrs:Record<string,unknown>)=>attrs.cellAddress?{'data-writer-cell-address':attrs.cellAddress}:{}}}:{})};},parseHTML(){return[{tag:name==='tableCell'?'td':'th'}];},renderHTML({HTMLAttributes}){return[name==='tableCell'?'td':'th',mergeAttributes({class:'min-w-12 border border-border p-2 align-top'+(name==='tableHeader'?' bg-elevated font-semibold':'')},HTMLAttributes),0];}})),
   ]:[]),
   ordinary('bulletList','ul','listItem*'),ordinary('orderedList','ol','listItem*',{start:{default:1}}),ordinary('listItem','li','block*'),ordinary('blockquote','blockquote','block*'),

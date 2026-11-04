@@ -1,8 +1,8 @@
-import {TABLE_AXES_SCHEMA,TABLE_WIDTHS_SCHEMA} from './tableAxesFormat';
+import {TABLE_AXES_SCHEMA,TABLE_WIDTHS_SCHEMA,validTableRowHeight} from './tableAxesFormat';
 import {TableAxisOrder,type TableAxisInsertion} from './tableAxisOrder';
 import {TABLE_SCHEMA,TABLE_KINDS,tableCellOf} from './tableFormat';
 import {validateRichBlockAttributes} from './blockFormat';
-import {ALIGNMENT_BLOCK_SCHEMA,CELL_IMAGE_BLOCK_SCHEMA,IMAGE_BLOCK_SCHEMA,RASTER_BLOCK_SCHEMA,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from './imageFormat';
+import {ALIGNMENT_BLOCK_SCHEMA,CELL_IMAGE_BLOCK_SCHEMA,IMAGE_BLOCK_SCHEMA,RASTER_BLOCK_SCHEMA,TABLE_ROW_HEIGHTS_SCHEMA,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from './imageFormat';
 import type {LocalToolJson} from '../stateTypes';
 import type {RichView} from './richRuns';
 import type {LocalToolConvergenceIdentity} from './types';
@@ -14,7 +14,7 @@ const structureNames=['kind','attrs','membership','placement'] as const;
 const imageNames=['imageSource','imageSize'] as const;
 const alignedImageNames=[...imageNames,'imageAlignment'] as const;
 type StructureName=typeof structureNames[number];
-type Write={name:StructureName|typeof alignedImageNames[number];id:string;value:LocalToolJson};
+type Write={name:StructureName|typeof alignedImageNames[number]|'rowHeight';id:string;value:LocalToolJson};
 export type StructuralNode={block:RichBlock;binding:RichBlockBinding;retirement?:string;imageSupportFrontier?:string[]};
 export interface RichBlockPlan {data:RichBlockDocument;bindings:RichBlockBindings;writes:Write[];axisInserts?:TableAxisInsertion[]}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -28,10 +28,10 @@ function reposition(data:RichBlockDocument,id:string,to:RichBlockPlacement){
  Object.assign(block,to);
 }
 export class RichBlocks {
- readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;readonly images:boolean;readonly alignment:boolean;readonly rasterFormats:boolean;readonly imageCells:boolean;
- constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false,images=false,alignment=false,rasterFormats=false,imageCells=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;this.images=images;this.alignment=alignment;this.rasterFormats=rasterFormats;this.imageCells=imageCells;}
+ readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;readonly images:boolean;readonly alignment:boolean;readonly rasterFormats:boolean;readonly imageCells:boolean;readonly rowHeights:boolean;
+ constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false,images=false,alignment=false,rasterFormats=false,imageCells=false,rowHeights=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;this.images=images;this.alignment=alignment;this.rasterFormats=rasterFormats;this.imageCells=imageCells;this.rowHeights=rowHeights;}
  private get imageRegisters(){return this.alignment?alignedImageNames:imageNames;}
- root(name:string){return 'blocks3:'+JSON.stringify(this.field)+':'+(name==='imageSource'?'image-source':name==='imageSize'?'image-size':name==='imageAlignment'?'image-alignment':name);}
+ root(name:string){return 'blocks3:'+JSON.stringify(this.field)+':'+(name==='imageSource'?'image-source':name==='imageSize'?'image-size':name==='imageAlignment'?'image-alignment':name==='rowHeight'?'row-height':name);}
  private read(name:string,key:string){return this.registers.winner(this.root(name),key);}
  private binding(blockId:string):RichBlockBinding {
   const get=(name:string)=>{const version=this.read(name,blockId);if(!version?.present)return fail();return version.id;};
@@ -43,7 +43,7 @@ export class RichBlocks {
   const r=this.registers,all=new Map<string,StructuralNode>(),invalid=new Set<string>(),summaryWitness=new Map<string,string>();
   const historical=(frontier:string[])=>{
    const key=JSON.stringify([...frontier].sort()),cached=history.get(key);if(cached)return cached;
-   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells).structure(history));history.set(key,value);return value;
+   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights).structure(history));history.set(key,value);return value;
   };
   const version=(binding:RichBlockBinding,name:StructureName)=>r.versions.get(binding[`${name}VersionId`])??r.candidates(this.root(name)).find(v=>v.id===binding[`${name}VersionId`]);
   const assemble=(id:string,values:Record<StructureName,RegisterVersion>):StructuralNode=>({
@@ -154,6 +154,16 @@ export class RichBlocks {
  retainedStructure(){return this.structure();}
  project(rich:RichView,supported?:Map<string,StructuralNode>):{data:RichBlockDocument;bindings:RichBlockBindings;rich:RichView} {
   const structure=this.structure();for(const[id,node]of supported??[])if(!structure.has(id))structure.set(id,node);const all=new Map<string,RichBlock>(),leaves=new Map(rich.data.content.map(p=>[p.id,p]));
+  for(const [key,node] of structure){
+   const {block,binding}=node;
+   if(this.rowHeights&&block.type==='table-row'){
+    const height=this.read('rowHeight',key);
+    if(height?.present){
+     node.binding={...binding,rowHeightVersionId:height.id};
+     if(height.value!==null)node.block={...block,attrs:{...block.attrs,heightPx:height.value}};
+    }
+   }
+  }
   for(const[key,{block}]of structure){const leaf=leaves.get(key);if(richBlockLeaf(block.type)&&!leaf)throw Error('local_tool_blocks_dependency_missing');all.set(key,{...block,...(richBlockLeaf(block.type)?{content:convergenceClone(leaf!.content)}:{})});}
   // A known hidden ancestor omits a branch. Cycles remain finite raw catalogues.
   const cellVisible=(b:RichBlock)=>{const row=b.parentId===null?undefined:all.get(b.parentId),columnId=String(b.attrs.columnId),column=all.get(columnId);if(!column&&this.read('membership',columnId)?.value===false)return false;if(!column||!row)throw Error('local_tool_table_axes_dependency_missing');if(row.type!=='table-row'||column.type!=='table-column'||column.parentId!==row.parentId)fail();return true;};
@@ -163,15 +173,18 @@ export class RichBlocks {
   // Text and its bindings follow catalogue IDs, independently of intrinsic paragraph order.
   filtered.data.content=blocks.filter(b=>richBlockLeaf(b.type)).map(b=>filtered.data.content.find(p=>p.id===b.id)!);
   filtered.bindings.nodes=filtered.data.content.map(p=>filtered.bindings.nodes.find(n=>n.id===p.id)!);
-  return{data:{type:'block-doc',schema:this.imageCells?CELL_IMAGE_BLOCK_SCHEMA:this.rasterFormats?RASTER_BLOCK_SCHEMA:this.alignment?ALIGNMENT_BLOCK_SCHEMA:this.images?IMAGE_BLOCK_SCHEMA:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
+  return{data:{type:'block-doc',schema:this.rowHeights?TABLE_ROW_HEIGHTS_SCHEMA:this.imageCells?CELL_IMAGE_BLOCK_SCHEMA:this.rasterFormats?RASTER_BLOCK_SCHEMA:this.alignment?ALIGNMENT_BLOCK_SCHEMA:this.images?IMAGE_BLOCK_SCHEMA:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
  }
  check(data:RichBlockDocument,bindings:RichBlockBindings):void {
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);
   if(!object(bindings)||Object.keys(bindings).length!==2||bindings.format!=='writers-hoard-block-bindings/1'||!Array.isArray(bindings.nodes)||bindings.nodes.length!==data.blocks.length)return fail();
   for(let at=0;at<data.blocks.length;at++){
-   const b=data.blocks[at],bound=bindings.nodes[at],image=b.type==='image';if(!object(bound)||Object.keys(bound).length!==(image?(this.alignment?8:7):5)||bound.id!==b.id)return fail();
-   const expected={kind:b.type,attrs:image?{}:b.attrs,membership:true,placement:{parentId:b.parentId,slot:b.slot,afterId:b.afterId},imageSource:b.attrs.asset,imageSize:b.attrs.displaySize,imageAlignment:b.attrs.alignment};
-   for(const name of image?[...structureNames,...this.imageRegisters]:structureNames){
+   const b=data.blocks[at],bound=bindings.nodes[at],image=b.type==='image',row=this.rowHeights&&b.type==='table-row';
+   if(!object(bound)||bound.id!==b.id)return fail();
+   const height=row&&Object.hasOwn(bound,'rowHeightVersionId');
+   if(Object.keys(bound).length!==(image?(this.alignment?8:7):height?6:5)||row&&b.attrs.heightPx!==undefined&&!height)return fail();
+   const expected={kind:b.type,attrs:image?{}:row?{header:b.attrs.header}:b.attrs,membership:true,placement:{parentId:b.parentId,slot:b.slot,afterId:b.afterId},imageSource:b.attrs.asset,imageSize:b.attrs.displaySize,imageAlignment:b.attrs.alignment,rowHeight:b.attrs.heightPx??null};
+   for(const name of image?[...structureNames,...this.imageRegisters]:height?[...structureNames,'rowHeight'] as const:structureNames){
     const id=bound[`${name}VersionId`];if(typeof id!=='string')return fail();
     const version=this.registers.versions.get(id)??this.registers.candidates(this.root(name)).find(v=>v.id===id);
     if(!version||!version.present||version.root!==this.root(name)||version.key!==b.id||!this.registers.transactionAvailable(version.txId)||!equal(version.value,expected[name]))return fail();
@@ -180,7 +193,7 @@ export class RichBlocks {
   if(this.axes)new TableAxisOrder(this).check(data,bindings);
  }
  seed(data:RichBlockDocument){
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);
   for(const b of data.blocks)for(const {name,value} of blockBirthWrites(b,this.alignment))this.registers.write(this.root(name),b.id,true,value);
   if(this.axes)new TableAxisOrder(this).seed(data);
  }
@@ -194,7 +207,7 @@ export class RichBlocks {
   this.check(data,bindings);validateRichBlockPlacement(destination);const source=data.blocks.find(b=>b.id===nodeId);if(!source)return fail();
   if(this.tables&&(['table-row','table-column','table-cell','table-header'].includes(source.type)||tableCellOf(data,nodeId)!==(destination.parentId===null?null:tableCellOf(data,destination.parentId))))return fail();
   if(destination.afterId!==null&&!data.blocks.some(b=>b.id===destination.afterId&&b.parentId===destination.parentId&&b.slot===destination.slot))return fail();
-  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells);
+  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);
   const ids=new Set([nodeId,...(destination.parentId?[destination.parentId]:[]),...(destination.afterId?[destination.afterId]:[])]);
   return{format:'writers-hoard-block-move/1',identity:convergenceClone(identity),field:this.field,nodeId,destination:convergenceClone(destination),bindings:bindings.nodes.filter(b=>ids.has(b.id)).map(b=>convergenceClone(b)),frontier:this.registers.frontier()};
  }
@@ -217,7 +230,7 @@ export class RichBlocks {
    // Preserve the following siblings' relation to the replaced contiguous range.
    for(const block of result.data.blocks)if(block.parentId===original.parentId&&block.slot===original.slot&&block.afterId===nodeIds.at(-1)&&!nodeIds.includes(block.id))move(block.id,{parentId:block.parentId,slot:block.slot,afterId:action.wrapper.id});
   }
-  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells);return result;
+  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);return result;
  }
  commit(plan:RichBlockPlan){
   for(const w of plan.writes)this.registers.write(this.root(w.name),w.id,true,w.value);
@@ -238,6 +251,13 @@ export class RichBlocks {
    const birth=kinds[0];
    if(!birth||!this.registers.transactionAvailable(birth.txId)||!this.registers.transactionAvailable(v.txId)){missing=true;continue;}
    if(v.txId!==birth.txId&&!this.registers.ancestors(v.txId).has(birth.txId))return fail();
+  }
+  if(this.rowHeights)for(const version of this.registers.entries(this.root('rowHeight'))){
+   if(!version.present||version.value!==null&&!validTableRowHeight(version.value))return fail();
+   const kinds=this.registers.entries(this.root('kind'),version.key),birth=kinds[0];
+   if(kinds.length&&(kinds.length!==1||birth.value!=='table-row'))return fail();
+   if(!birth||!this.registers.transactionAvailable(birth.txId)||!this.registers.transactionAvailable(version.txId)){missing=true;continue;}
+   if(version.txId!==birth.txId&&!this.registers.ancestors(version.txId).has(birth.txId))return fail();
   }
   for(const name of ['kind','attrs','membership','placement'])for(const v of this.registers.entries(this.root(name))){
    if(!v.present)return fail();if(!this.registers.transactionAvailable(v.txId))missing=true;
@@ -261,8 +281,9 @@ export class RichBlocks {
 }
 
 export function blockBirthWrites(block:RichBlock,alignment=false):Write[]{
- const image=block.type==='image';
- const fields={kind:block.type,attrs:image?{}:block.attrs,membership:true,placement:{parentId:block.parentId,slot:block.slot,afterId:block.afterId},
-  ...(image?{imageSource:block.attrs.asset,imageSize:block.attrs.displaySize,...(alignment?{imageAlignment:block.attrs.alignment}:{})}:{})};
+ const image=block.type==='image',row=block.type==='table-row';
+ const fields={kind:block.type,attrs:image?{}:row&&validTableRowHeight(block.attrs.heightPx)?{header:block.attrs.header}:block.attrs,membership:true,placement:{parentId:block.parentId,slot:block.slot,afterId:block.afterId},
+  ...(image?{imageSource:block.attrs.asset,imageSize:block.attrs.displaySize,...(alignment?{imageAlignment:block.attrs.alignment}:{})}:{}),
+  ...(row&&validTableRowHeight(block.attrs.heightPx)?{rowHeight:block.attrs.heightPx}:{})};
  return Object.entries(fields).map(([name,value])=>({name:name as Write['name'],id:block.id,value}));
 }

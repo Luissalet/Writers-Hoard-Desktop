@@ -27,7 +27,7 @@ import {nextLocalToolUndoStep,useLocalToolUndoController} from '../stateUndoCont
 import {RichEditorSession} from './session';
 import {ImageControls,richImageKey,richImageNode} from './imageControls';
 import {copySourceCellSelection,sourceCellSelectionEnds,sourceTableCellSelection} from './tableCellSelection';
-import {TableWidthControls,TableWidthSurface} from './tableWidthControls';
+import {TableHeightControls,TableWidthControls,TableWidthSurface} from './tableWidthControls';
 import type {TableColumnLayout} from './tableAxesLayout';
 import {projectRichView,sessionPMDocument,blockSession,richBookmark,createRichAdmissionJournal,hasRichAcceptedWork,drainRichAccepted,commitRichComposition} from './prosemirror';
 
@@ -186,10 +186,20 @@ function TableControls({session,editor,readOnly,es}:{session:RichEditorSession;e
   }
   return null;
  }});
+ const height=useEditorState({editor,selector:({editor:current})=>{
+  if(!session.rowHeights||!current)return null;
+  const from=current.state.selection.$from;
+  for(let depth=from.depth;depth>0;depth--){
+   const node=from.node(depth);
+   if(node.type.name==='tableRow')return typeof node.attrs.heightPx==='number'?node.attrs.heightPx:null;
+  }
+  return null;
+ }});
  const axisLabel={rows:{before:es?'Insertar fila antes':'Insert row before',after:es?'Insertar fila después':'Insert row after',hide:es?'Eliminar fila':'Remove row'},columns:{before:es?'Insertar columna antes':'Insert column before',after:es?'Insertar columna después':'Insert column after',hide:es?'Eliminar columna':'Remove column'}};
  const headerRow=session.axes&&tableId?firstTableRow(session,tableId):undefined;
  return <div className="flex flex-wrap gap-2" aria-label={es?'Tabla':'Table'}><button type="button" className={button} disabled={!editor||!session.editable||readOnly||!!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)insertFixedTable(session,editor.view);}}>{es?'Insertar tabla':'Insert table'}</button>{(['up','down','hide']as const).map(action=><button key={action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlFixedTable(session,editor.view,action);}}>{({up:es?'Subir tabla':'Move table up',down:es?'Bajar tabla':'Move table down',hide:es?'Eliminar tabla':'Remove table'})[action]}</button>)}{session.axes&&(['rows','columns']as const).flatMap(axis=>(['before','after','hide']as const).map(action=><button key={axis+action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!cell} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlTableAxis(session,editor.view,axis,action);}}>{axisLabel[axis][action]}</button>))}
   {session.axes&&<button type="button" className={button} disabled={!editor||!session.editable||readOnly||!headerRow} aria-pressed={headerRow?.attrs.header===true} onMouseDown={event=>event.preventDefault()} onClick={()=>{if(editor)toggleTableHeader(session,editor.view);}}>{es?'Fila de cabecera':'Header row'}</button>}
+  {session.rowHeights&&cell&&session.editable&&!readOnly&&<TableHeightControls key={cell[1]} session={session} rowId={cell[1]} current={height??null} es={es} button={button}/>}
   {session.widths&&cell&&session.editable&&!readOnly&&<TableWidthControls key={JSON.stringify([cell[0],cell[2]])} session={session} tableId={cell[0]} columnId={cell[2]} current={width??null} es={es} button={button}/>}
  </div>;
 }

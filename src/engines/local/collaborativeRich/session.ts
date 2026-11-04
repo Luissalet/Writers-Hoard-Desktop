@@ -1,5 +1,5 @@
 import {localToolRichLinks,localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,isLocalToolRichBlockField} from '../stateCodec';
-import {localToolRichImageAlignment,localToolRichImageCells,localToolRichImageRaster,localToolRichImages} from '../stateCodecFormat';
+import {localToolRichImageAlignment,localToolRichImageCells,localToolRichTableRowHeights,localToolRichImageRaster,localToolRichImages} from '../stateCodecFormat';
 import {isRichImageEngine} from '../convergence/imageFormat';
 import {sameTableCellBindings,type RichTableCellCapture} from '../convergence/tableAxesEditing';
 import type {LocalToolClient,LocalToolJson,LocalToolSnapshot} from '../sdk';
@@ -76,11 +76,12 @@ export class RichEditorSession {
  get widths(){return localToolRichTableWidths(this.contract.codec.fields[this.field]);}
  get links(){return localToolRichLinks(this.contract.codec.fields[this.field]);}
  get images(){return localToolRichImages(this.contract.codec.fields[this.field]);}
+ get rowHeights(){return localToolRichTableRowHeights(this.contract.codec.fields[this.field]);}
  get imageCells(){return localToolRichImageCells(this.contract.codec.fields[this.field]);}
  get imageRaster(){return localToolRichImageRaster(this.contract.codec.fields[this.field]);}
  get imageAlignment(){return localToolRichImageAlignment(this.contract.codec.fields[this.field]);}
  get assets(){return this.client.assets;}
- blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables,this.axes,this.widths,this.images,this.imageAlignment,this.imageRaster,this.imageCells);return value;}
+ blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables,this.axes,this.widths,this.images,this.imageAlignment,this.imageRaster,this.imageCells,this.rowHeights);return value;}
  document():RichDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field],descriptor=this.contract.codec.fields[this.field];if(isLocalToolRichBlockField(descriptor))return richBlockLeaves(value as unknown as RichBlockDocument,this.links,this.tables);validateRichDocument(value,this.links);return value;}
  acceptedThrough(epoch:object){return this.accepted.get(epoch)??0;}
  hasAcceptedRecord(token:object){return this.acceptedRecords.has(token);}
