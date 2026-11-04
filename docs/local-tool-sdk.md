@@ -1259,6 +1259,10 @@ Import a PNG with `client.assets.import(file, 'image')`. Use the resulting `sha2
 
 MCP exposes `wh_local_asset_file_import`, `wh_local_asset_image_find` and `wh_local_tool_rich_image_capture`. Request `includeContent` on the lookup when the caller needs the original bytes. Existing state and live editor tools apply the same public actions. In a content session, Writer transfers and checks the PNG separately from the causal update. A project ZIP keeps the files used by earlier versions, including a replaced image that Undo can restore.
 
+### Portable diagram figures (1060)
+
+A `vitruvius.figure/1` capture (`.vfigure`, JSON with a base64 PNG preview, revision, optional page or state, and the complete native diagram source) becomes a shared image that keeps its source. In the editor, `Insert diagram figure` picks the file; with a figure image selected, `Update figure` replaces it from a newer capture and `Download figure source` saves the retained JSON. MCP: `wh_local_figure_import` verifies and decodes the PNG, stores the exact PNG as an image file and the exact JSON text as a data file named `figure-<png sha256>.vfigure`, and returns the image descriptor; insert it with `rich-image-insert` (or `rich-image-replace` to update). `wh_local_figure_source` returns the retained JSON for a descriptor. The document holds only the ordinary image descriptor, so Undo, Redo, rooms, ZIP and cold reopen behave like any shared image, and the source travels in the project ZIP with the other project files. Damaged captures and invalid revisions are rejected before any file is written. Code: `src/services/figureInterchange/`; test: `tests/local-tool-figures.source.browser.ts`.
+
 ### Shared table column widths (2082)
 
 The opt-in field profile is `blocks-tree/5` with `writers-blocks/4` in codec2. It selects engine7 even if the field is absent or has no table. Existing axes, fixed-table and strict sibling fields retain their grammars. A prior engine6 history cannot be activated as the new profile.

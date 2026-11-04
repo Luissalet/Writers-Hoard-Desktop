@@ -153,6 +153,7 @@ const suites = [
   ['local-tool-block-empty-item.positions.browser.tsx', 'testEmptyItemPositions', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-rich-save-status.browser.tsx', 'testRichSaveStatus', 60000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-editor.browser.tsx', 'testBlockEditor', 180000, 'scripts/run-focused-browser-tests.cjs'],
+  ['local-tool-figures.source.browser.ts', 'testSourceFigures', 200000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-editor.browser.tsx', 'testEmptyBlockEditor', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-editor.browser.tsx', 'testBlockCompositionOrder', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-collaborative-rich.binding.ts', 'testCollaborativeRichBinding', 180000, 'scripts/run-focused-browser-tests.cjs'],
