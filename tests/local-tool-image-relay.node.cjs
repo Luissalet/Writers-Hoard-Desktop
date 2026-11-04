@@ -9,7 +9,8 @@ async function main() {
   const bundled = await build({
     stdin: {
       contents: `export { testBinaryImageRelay } from './local-tool-image-relay.server.node';
-export { testSharedImageProfile, testSharedImageBirthUndo } from './local-tool-convergence.image-profile';`,
+export { testSharedImageProfile, testSharedImageBirthUndo } from './local-tool-convergence.image-profile';
+export { testSharedImageAlignment, testConcurrentImageAlignment, testImageAlignmentBirthUndo } from './local-tool-convergence.image-alignment';`,
       resolveDir: __dirname,
     },
     bundle: true,
@@ -22,8 +23,12 @@ export { testSharedImageProfile, testSharedImageBirthUndo } from './local-tool-c
   test._compile(bundled.outputFiles[0].text, __filename);
   test.exports.testSharedImageProfile();
   test.exports.testSharedImageBirthUndo();
+  test.exports.testSharedImageAlignment();
+  test.exports.testConcurrentImageAlignment();
+  test.exports.testImageAlignmentBirthUndo();
   const { checks, calls } = await test.exports.testBinaryImageRelay();
-  console.log(JSON.stringify({ checks: checks.length, calls }));
+  const aligned = await test.exports.testBinaryImageRelay(true);
+  console.log(JSON.stringify({ legacy: { checks: checks.length, calls }, aligned: { checks: aligned.checks.length, calls: aligned.calls } }));
 }
 
 main().catch(error => {

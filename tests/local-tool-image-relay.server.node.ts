@@ -9,10 +9,12 @@ import type {LocalToolJson} from '@/engines/local/stateTypes';
 
 import {testImageBase64} from './local-tool-image-fixture';
 
-export async function testBinaryImageRelay(){
+export async function testBinaryImageRelay(alignmentProfile=false){
  const bytesA=Buffer.from(testImageBase64,'base64'),bytesB=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAZElEQVR4nO3PMQ0AIRQEUTRg41q0IAWlJwgD/IJq2GSSLafY1/qYx/3rO+61vr12SAB9SAB9SAB96BqQcrTqBdC9ALoXQPf5gJSjVS+A7gXQvQC6zwekHK16AXQvgO4F0H08YAPEFUR5VhpNyAAAAABJRU5ErkJggg==','base64'),png=(bytes:Buffer)=>({sha256:createHash('sha256').update(bytes).digest('hex'),mime:'image/png' as const,size:bytes.byteLength}),assetA=png(bytesA),assetB=png(bytesB);
- const namespace='tests.binary-images',field='body',nodeId='own-image',contract:LocalToolConvergenceContract={namespace,validationId:'image-test',schemaEpoch:'image-test-1',codec:{version:2,fields:{body:{kind:'rich',profile:'blocks-tree/6',schema:'writers-blocks/5'}}},validateState:(value):value is LocalToolJson=>!!value&&typeof value==='object'&&!Array.isArray(value)};
- const genesis=createLocalToolGenesis({body:{type:'block-doc',schema:'writers-blocks/5',blocks:[{id:'P',type:'paragraph',attrs:{},parentId:null,slot:'body',afterId:null,content:[]}],axisOrder:[]}},contract),aReplica=createLocalToolReplica(genesis,{authorId:'own-A',contract});
+ const namespace='tests.binary-images',field='body',nodeId='own-image';
+ const imageField=alignmentProfile?{kind:'rich',profile:'blocks-tree/7',schema:'writers-blocks/6'} as const:{kind:'rich',profile:'blocks-tree/6',schema:'writers-blocks/5'} as const;
+ const contract:LocalToolConvergenceContract={namespace,validationId:'image-test',schemaEpoch:'image-test-1',codec:{version:2,fields:{body:imageField}},validateState:(value):value is LocalToolJson=>!!value&&typeof value==='object'&&!Array.isArray(value)};
+ const genesis=createLocalToolGenesis({body:{type:'block-doc',schema:imageField.schema,blocks:[{id:'P',type:'paragraph',attrs:{},parentId:null,slot:'body',afterId:null,content:[]}],axisOrder:[]}},contract),aReplica=createLocalToolReplica(genesis,{authorId:'own-A',contract});
  aReplica.apply([{type:'rich-image-insert',field,capture:aReplica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId:'P'}),id:nodeId,asset:assetA}]);
  const bReplica=createLocalToolReplica(aReplica.checkpoint(),{authorId:'own-B',contract}),seed=aReplica.export();
  const doc={projectId:'own-project',eraId:null,namespace,documentId:'own-doc',lineage:'own-lineage',convergence:convergenceIdentityOf(seed)};
@@ -47,9 +49,16 @@ export async function testBinaryImageRelay(){
   const stored=await binary(A,assetB.sha256,bytesB);assert(stored.ok);await stored.arrayBuffer();await denied(B,assetB.sha256);
   assert.equal((await update(A,'content',contribution)).ok,true);assert.equal((await update(A,'content',contribution)).duplicate,true);
   await update(B,'content',{messageId:'resize-one',update:resize});
+  if(alignmentProfile){
+   const aligned=aReplica.apply([{type:'rich-image-align',field,capture:aReplica.richImageCapture(field,nodeId,'alignment'),alignment:'right'}]);
+   const admitted=await update(A,'content',{messageId:'alignment-only',update:aligned.update});
+   assert.equal(admitted.ok,true);
+   assert.equal(admitted.needsImages,undefined);
+   ok('alignment-only delta retains both PNGs without another upload');
+  }
   const final=await update(B,'content-full-request',{requestId:'complete'});const combined=bReplica.receive(final.content);assert.equal(combined.pending,false);
   const visible=(bReplica.read() as unknown as {body:{blocks:{id:string;attrs:unknown}[]}}).body.blocks.find(block=>block.id===nodeId);
-  assert.deepEqual(visible?.attrs,{asset:assetB,displaySize:'small'});await sameBytes(B,assetA,bytesA);await sameBytes(B,assetB,bytesB);
+  assert.deepEqual(visible?.attrs,{asset:assetB,displaySize:'small',...(alignmentProfile?{alignment:'right'}:{})});await sameBytes(B,assetA,bytesA);await sameBytes(B,assetB,bytesB);
   assert.equal(Buffer.from(final.content.updateBase64,'base64').includes(bytesA),false);assert.equal(Buffer.from(final.content.updateBase64,'base64').includes(bytesB),false);
   ok('replacement and resize converge while old and new bytes use only the binary channel');
   await update(B,'join',{document:doc,content:true});await update(B,'leave');await denied(B,assetB.sha256);await denied(people,assetB.sha256);

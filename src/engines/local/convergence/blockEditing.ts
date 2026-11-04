@@ -36,7 +36,7 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
  const write=(name:RichBlockPlan['writes'][number]['name'],id:string,value:unknown)=>result.writes.push({name,id,value:convergenceClone(value) as LocalToolJson});
  const selected=action.capture.nodeIds.map(id=>result.data.blocks.find(b=>b.id===id)??fail());
  const move=(b:RichBlock,to:RichBlockPlacement)=>{Object.assign(b,to);write('placement',b.id,to);};
- const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const{name,value}of blockBirthWrites(block))write(name,block.id,value);};
+ const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const{name,value}of blockBirthWrites(block,source.alignment))write(name,block.id,value);};
  if(action.type==='rich-table-create')return prepareTableAxes(source,data,bindings,action,identity,intrinsicLastLeaf);
  else if(action.type==='rich-table-insert')return prepareTableInsert(source,data,bindings,action,intrinsicLastLeaf);
  else if(action.type==='rich-block-list-indent'){
@@ -65,7 +65,7 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
      typeof action.id!=='string'||!action.id||Object.keys(action).length!==5||
      place.afterId!==null&&!result.data.blocks.some(b=>b.id===place.afterId&&b.parentId===null&&b.slot==='body'))return fail();
   validateRichImageAsset(action.asset);
-  const block:RichBlock={id:action.id,type:'image',attrs:{asset:convergenceClone(action.asset),displaySize:'medium'},...convergenceClone(place)};
+  const block:RichBlock={id:action.id,type:'image',attrs:{asset:convergenceClone(action.asset),displaySize:'medium',...(source.alignment?{alignment:'left'}:{})},...convergenceClone(place)};
   for(const b of result.data.blocks)if(b.parentId===null&&b.slot==='body'&&b.afterId===place.afterId)move(b,{parentId:null,slot:'body',afterId:block.id});
   put(block);
  }else if(action.type==='rich-block-insert'){
@@ -95,5 +95,5 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
  if(source.axes&&action.type==='rich-block-hide')result.data.axisOrder=result.data.axisOrder!.filter(o=>result.data.blocks.some(b=>b.id===o.tableId));
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment);return result;
 }

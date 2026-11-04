@@ -1,5 +1,5 @@
 import {assertConvergenceIdentity,convergenceCanonical,convergenceClone} from './format';
-import {isRichImageSize,validateRichImageAsset,type RichImageAsset,type RichImageCapture,type RichImageChannel,type RichImageSize} from './imageFormat';
+import {isRichImageAlignment,isRichImageSize,validateRichImageAsset,type RichImageAlignment,type RichImageAsset,type RichImageCapture,type RichImageChannel,type RichImageSize} from './imageFormat';
 import type {RichBlockDocument,RichBlockBindings} from './blockFormat';
 import type {RichBlocks,RichBlockPlan} from './blocks';
 import type {LocalToolConvergenceIdentity} from './formatTypes';
@@ -7,14 +7,15 @@ import type {LocalToolConvergenceIdentity} from './formatTypes';
 export type {RichImageCapture,RichImageChannel} from './imageFormat';
 export type RichImageEditAction=
  |{type:'rich-image-replace';field:string;capture:RichImageCapture;asset:RichImageAsset}
- |{type:'rich-image-resize';field:string;capture:RichImageCapture;displaySize:RichImageSize};
-export const isImageEditAction=(action:{type:string}):action is RichImageEditAction=>action.type==='rich-image-replace'||action.type==='rich-image-resize';
+ |{type:'rich-image-resize';field:string;capture:RichImageCapture;displaySize:RichImageSize}
+ |{type:'rich-image-align';field:string;capture:RichImageCapture;alignment:RichImageAlignment};
+export const isImageEditAction=(action:{type:string}):action is RichImageEditAction=>action.type==='rich-image-replace'||action.type==='rich-image-resize'||action.type==='rich-image-align';
 const fail=():never=>{throw Error('local_tool_image_action_invalid');};
 
 function witness(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,nodeId:string,channel:RichImageChannel){
- if(!source.images||channel!=='source'&&channel!=='size'||!data.blocks.some(b=>b.id===nodeId&&b.type==='image'))return fail();
+ if(!source.images||channel!=='source'&&channel!=='size'&&(channel!=='alignment'||!source.alignment)||!data.blocks.some(b=>b.id===nodeId&&b.type==='image'))return fail();
  const binding=bindings.nodes.find(b=>b.id===nodeId);
- const versionId=channel==='source'?binding?.imageSourceVersionId:binding?.imageSizeVersionId;
+ const versionId=channel==='source'?binding?.imageSourceVersionId:channel==='size'?binding?.imageSizeVersionId:binding?.imageAlignmentVersionId;
  if(!binding||!versionId)return fail();
  return {kindVersionId:binding.kindVersionId,membershipVersionId:binding.membershipVersionId,placementVersionId:binding.placementVersionId,versionId};
 }
@@ -25,7 +26,11 @@ export function captureImage(source:RichBlocks,identity:LocalToolConvergenceIden
 }
 
 export function prepareImageEdit(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,action:RichImageEditAction,identity:LocalToolConvergenceIdentity):RichBlockPlan {
- const {capture}=action,replace=action.type==='rich-image-replace',channel=replace?'source':'size',payload=replace?'asset':'displaySize';
+ const {capture}=action;
+ const edit=action.type==='rich-image-replace'?{channel:'source',payload:'asset',register:'imageSource',value:action.asset} as const:
+  action.type==='rich-image-resize'?{channel:'size',payload:'displaySize',register:'imageSize',value:action.displaySize} as const:
+  {channel:'alignment',payload:'alignment',register:'imageAlignment',value:action.alignment} as const;
+ const {channel,payload,register,value}=edit;
  assertConvergenceIdentity(capture.identity,identity);
  if(action.field!==source.field||capture.field!==source.field||capture.channel!==channel||Object.keys(action).length!==4||!Object.hasOwn(action,payload))return fail();
  const current=witness(source,data,bindings,capture.nodeId,channel);
@@ -33,11 +38,11 @@ export function prepareImageEdit(source:RichBlocks,data:RichBlockDocument,bindin
     current.placementVersionId!==capture.placementVersionId||current.versionId!==capture.versionId)return fail();
  const result:RichBlockPlan={data:convergenceClone(data),bindings:convergenceClone(bindings),writes:[]};
  const node=result.data.blocks.find(b=>b.id===capture.nodeId)!;
- const value=replace?action.asset:action.displaySize;
- if(replace)validateRichImageAsset(value);else if(!isRichImageSize(value))return fail();
+ if(channel==='source')validateRichImageAsset(value);
+ else if(channel==='size'?!isRichImageSize(value):!isRichImageAlignment(value))return fail();
  if(convergenceCanonical(node.attrs[payload])!==convergenceCanonical(value)){
   node.attrs[payload]=convergenceClone(value);
-  result.writes.push({name:replace?'imageSource':'imageSize',id:node.id,value:convergenceClone(value)});
+  result.writes.push({name:register,id:node.id,value:convergenceClone(value)});
  }
  return result;
 }

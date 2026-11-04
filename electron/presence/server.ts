@@ -5,6 +5,7 @@ import type {PresenceJson as LocalToolJson,LocalToolPresenceProfile,LocalToolPre
 import type {LocalToolConvergenceUpdate} from '../../src/engines/local/convergence/formatTypes';
 import {prepareAdoptedRoomContent,contentPacketFingerprint,richAdoptionOrigin} from '../../src/engines/local/convergence/richAdoption';
 import {convergenceIdentityOf,validateLocalToolConvergenceUpdate} from '../../src/engines/local/convergence/format';
+import {isRichImageEngine} from '../../src/engines/local/convergence/imageFormat';
 import {collectRoomImageAssets} from '../../src/engines/local/convergence/imageRefs';
 import {RoomImages,type ImageBudget} from './imageRoom';
 interface Membership {epoch:string;seq:number;state:LocalToolJson|null;surface:LocalToolJson|null;activeOrder:number;content?:boolean}
@@ -69,7 +70,7 @@ export function createPresenceRelay(expectedHosts:()=>readonly string[],options:
     if(req.method==='GET'&&url.pathname===prefix+'events'){c.stream?.end();c.stream=res;res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-store','Connection':'keep-alive'});res.flushHeaders();res.on('drain',()=>flush(c));res.on('close',()=>{if(c.stream===res)disconnect(c);});emit();return true;}
     if(req.method==='POST'&&url.pathname===prefix+'close'){reply(res,200,{closed:true});disconnect(c);return true;}
     if(req.method==='POST'&&url.pathname===prefix+'profile'){const next=profile(input.profile);if(next.userId!==c.profile.userId)throw Error('presence_profile_reconnect_required');for(const peer of connections.values())if(peer.profile.userId===next.userId)peer.profile=next;emit();reply(res,200,{ok:true});return true;}
-    if(req.method==='POST'&&url.pathname===prefix+'create'){const room:Room={id:randomUUID(),document:document(input.document),members:new Map(),owner:c.id,createdAt:now()};if(input.content!==undefined){room.content=content(input.content,room);room.adoptedRich=legacyOrigin(room.content);if(room.adoptedRich)room.content=prepareAdoptedRoomContent(room.content,room.content);if(room.content.engine.version==='9')room.images=new RoomImages(imageBudget,collectRoomImageAssets(room.content));}const needsImages=room.images?.missing();rooms.set(room.id,room);reply(res,200,{roomId:room.id,document:room.document,...(needsImages?.length?{needsImages}:{})});return true;}
+    if(req.method==='POST'&&url.pathname===prefix+'create'){const room:Room={id:randomUUID(),document:document(input.document),members:new Map(),owner:c.id,createdAt:now()};if(input.content!==undefined){room.content=content(input.content,room);room.adoptedRich=legacyOrigin(room.content);if(room.adoptedRich)room.content=prepareAdoptedRoomContent(room.content,room.content);if(isRichImageEngine(room.content.engine.version))room.images=new RoomImages(imageBudget,collectRoomImageAssets(room.content));}const needsImages=room.images?.missing();rooms.set(room.id,room);reply(res,200,{roomId:room.id,document:room.document,...(needsImages?.length?{needsImages}:{})});return true;}
     if(req.method!=='POST'||url.pathname!==prefix+'update'){reply(res,404,{error:'presence_route_missing'});return true;}
     if(input.kind==='heartbeat'){reply(res,200,{ok:true});return true;}
     const roomId=text(input.roomId),instanceId=text(input.instanceId),epoch=text(input.epoch),room=rooms.get(roomId),membership=c.members.get(key(roomId,instanceId));

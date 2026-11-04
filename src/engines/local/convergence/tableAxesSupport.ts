@@ -13,7 +13,7 @@ export function deriveTableAxesSupport(source:RichBlocks,rich:RichRuns,read:(fro
  const contribute=(txId:string,node:string|null,ref?:RichRef,columnId?:string,whole=false)=>{
   const key=JSON.stringify([txId,node,ref??null,columnId??null,whole]);if(visited.has(key))return;visited.add(key);
   const parents=registers.transactionParents(txId);if(!parents?.length||!registers.transactionAvailable(txId))return;
-  const prior=read(parents);validateRichBlockDocument(prior.data,source.links,true,true,source.widths,source.images);
+  const prior=read(parents);validateRichBlockDocument(prior.data,source.links,true,true,source.widths,source.images,source.alignment);
   const home=node===null&&ref?prior.home(ref):undefined,target=node??home?.node;if(!target)return;
   const byId=new Map(prior.data.blocks.map(b=>[b.id,b])),targetBlock=byId.get(target);if(!targetBlock)return;
   const required=new Map<string,RichBlock>(),seen=new Set<string>();let cursor:RichBlock|undefined=targetBlock,table:RichBlock|undefined;

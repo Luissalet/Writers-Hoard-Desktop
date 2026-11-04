@@ -1,5 +1,6 @@
 import {localToolRichLinks,localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,isLocalToolRichBlockField} from '../stateCodec';
-import {localToolRichImages} from '../stateCodecFormat';
+import {localToolRichImageAlignment,localToolRichImages} from '../stateCodecFormat';
+import {isRichImageEngine} from '../convergence/imageFormat';
 import {sameTableCellBindings,type RichTableCellCapture} from '../convergence/tableAxesEditing';
 import type {LocalToolClient,LocalToolJson,LocalToolSnapshot} from '../sdk';
 import {createLocalToolReplica} from '../convergence/replica';
@@ -65,7 +66,8 @@ export class RichEditorSession {
  busy=false;
  revision=0;
  constructor(client:LocalToolClient<LocalToolJson>,checkpoint:LocalToolConvergenceCheckpoint,snapshot:LocalToolSnapshot<LocalToolJson>,contract:LocalToolConvergenceContract,field:string,notify:()=>void,nextStep:()=>number){
-  if(!snapshot.document||!['3','4','5','6','7','9'].includes(checkpoint.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_editor_identity_invalid');
+  const version=checkpoint.engine.version,supported=['3','4','5','6','7'].includes(version)||isRichImageEngine(version);
+  if(!snapshot.document||!supported||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_editor_identity_invalid');
   this.targetContract=contract;this.contract=effectiveRichAdoptionContract(checkpoint,contract);this.convergenceIdentity=convergenceIdentityOf(checkpoint);this.confirmedIdentity=convergenceIdentityOf(checkpoint);this.notify=notify;this.nextStep=nextStep;this.client=client;this.field=field;this.lineage=snapshot.document.lineage;this.confirmedVector=checkpoint.stateVectorBase64;
   this.replica=createLocalToolReplica(checkpoint,{authorId:'writer-editor:'+crypto.randomUUID(),contract});this.document();
  }
@@ -74,8 +76,9 @@ export class RichEditorSession {
  get widths(){return localToolRichTableWidths(this.contract.codec.fields[this.field]);}
  get links(){return localToolRichLinks(this.contract.codec.fields[this.field]);}
  get images(){return localToolRichImages(this.contract.codec.fields[this.field]);}
+ get imageAlignment(){return localToolRichImageAlignment(this.contract.codec.fields[this.field]);}
  get assets(){return this.client.assets;}
- blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables,this.axes,this.widths,this.images);return value;}
+ blockDocument():RichBlockDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field];validateRichBlockDocument(value,this.links,this.tables,this.axes,this.widths,this.images,this.imageAlignment);return value;}
  document():RichDocument {const data=this.replica.read();if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_rich_editor_state_invalid');const value=data[this.field],descriptor=this.contract.codec.fields[this.field];if(isLocalToolRichBlockField(descriptor))return richBlockLeaves(value as unknown as RichBlockDocument,this.links,this.tables);validateRichDocument(value,this.links);return value;}
  acceptedThrough(epoch:object){return this.accepted.get(epoch)??0;}
  hasAcceptedRecord(token:object){return this.acceptedRecords.has(token);}

@@ -79,7 +79,7 @@ export class LocalDocumentContentHost {
  async capture(field:string,request:LocalToolJson):Promise<LocalToolJson>{
   request=convergenceClone(request);await this.validate();
   const s=this.session(field);if(!request||typeof request!=='object'||Array.isArray(request))throw Error('local_tool_live_capture_invalid');const r=request as Record<string,LocalToolJson>,node=String(r.nodeId??'');
-  if(r.kind==='image'){if(r.channel!=='source'&&r.channel!=='size')throw Error('local_tool_live_capture_invalid');return convergenceClone(s.replica.richImageCapture(field,node,r.channel)) as unknown as LocalToolJson;}
+  if(r.kind==='image'){if(r.channel!=='source'&&r.channel!=='size'&&r.channel!=='alignment')throw Error('local_tool_live_capture_invalid');return convergenceClone(s.replica.richImageCapture(field,node,r.channel)) as unknown as LocalToolJson;}
   if(r.kind==='table-column-width')return convergenceClone(s.replica.richTableColumnWidthCapture(field,String(r.tableId),String(r.columnId))) as unknown as LocalToolJson;
   if(r.kind==='table-axis')return convergenceClone(s.replica.richTableAxisCapture(field,String(r.tableId),r.axis as import('../convergence/tableAxesFormat').RichTableAxis,(r.afterId??null) as string|null)) as unknown as LocalToolJson;
   if(r.kind==='table-cell')return convergenceClone(s.replica.richTableCellCapture(field,String(r.tableId),String(r.rowId),String(r.columnId),(r.afterId??null) as string|null)) as unknown as LocalToolJson;
