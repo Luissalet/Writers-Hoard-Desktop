@@ -8,14 +8,14 @@ const { build } = require('esbuild');
 async function main() {
   const bundle = await build({
     stdin: {
-      contents: "export * from '../src/engines/local/convergence/replica'; export { tableAxesRows } from '../src/engines/local/collaborativeRich/tableAxesLayout';",
+      contents: "export * from '../src/engines/local/convergence/replica'; export { tableAxesRows } from '../src/engines/local/collaborativeRich/tableAxesLayout'; export { richBlockChildren } from '../src/engines/local/convergence/blockEditing';",
       resolveDir: __dirname,
     },
     alias: { '@': path.resolve(__dirname, '../src') }, bundle: true, write: false, platform: 'node', format: 'cjs',
   });
   const moduleUnderTest = new Module(__filename, module);
   moduleUnderTest._compile(bundle.outputFiles[0].text, __filename);
-  const { createLocalToolGenesis, createLocalToolReplica, exportLocalToolConvergenceCheckpoint, tableAxesRows } = moduleUnderTest.exports;
+  const { createLocalToolGenesis, createLocalToolReplica, exportLocalToolConvergenceCheckpoint, tableAxesRows, richBlockChildren } = moduleUnderTest.exports;
   const field = 'body', table = 'T';
   const text = (text, marks) => ({ type: 'text', text, ...(marks ? { marks } : {}) });
   const cell = (header, ...runs) => ({ header, paragraphs: runs.length ? [runs] : [] });
@@ -219,6 +219,39 @@ async function main() {
     spans.undo(clippedTiles.receiptId);
     assert.deepEqual(physical(spans),stable);
     console.log('PASS merged paste clips either axis and repeats clipped edge tiles without changing outside cells');
+
+    const root = afterId => ({ parentId: null, slot: 'body', afterId });
+    spans.apply([{
+      type: 'rich-block-insert', field, capture: spans.richBlockEditCapture(field, [], root(null)),
+      block: { id: 'P-Caret', type: 'paragraph', attrs: {} }, text: 'Antes Ω🙂', marks: ['bold'],
+    }]);
+    const newTable = (replica, afterId) => ({
+      type: 'rich-table-create', field, capture: replica.richBlockEditCapture(field, [], root(afterId)),
+      table: { id: 'T-Caret', rows: ['R4','R5'].map(id => ({id,header:false})), columns: ['C4','C5','C6'].map(id => ({id})) },
+      matrix: combined,
+    });
+    const beforeCaret = spans.read(), caretCheckpoint = spans.checkpoint(), strict14 = a.checkpoint();
+    const split = { type: 'rich-block-split', field, capture: spans.richBlockSplitCapture(field, 'P-Caret', 3), newNodeId: 'P-Right' };
+    assert.throws(() => a.apply([newTable(a, null)]), /local_tool_table_axes_action_invalid/);
+    assert.deepEqual(a.checkpoint(), strict14);
+    assert.throws(() => spans.apply([split, {...newTable(spans, 'P-Caret'), matrix: [[merge]]}]), /local_tool_table_axes_action_invalid/);
+    assert.deepEqual(spans.checkpoint(), caretCheckpoint);
+    const standalone = spans.apply([split,newTable(spans, 'P-Caret')]);
+    assert.ok(standalone.receiptId);
+    const visible = richBlockChildren(spans.read().body, null);
+    assert.deepEqual(visible.map(block => block.id), ['P-Caret','T-Caret','P-Right','T']);
+    assert.deepEqual(visible[0].content, [text('Ant',[{type:'bold'}])]);
+    assert.deepEqual(visible[2].content, [text('es Ω🙂',[{type:'bold'}])]);
+    const pasted = tableAxesRows(spans.read().body, 'T-Caret');
+    assert.deepEqual(pasted.map(({cells})=>cells.filter(cell=>!cell.covered).map(cell=>[cell.rowSpan,cell.colSpan])), [[[2,2],[1,1]],[[1,1]]]);
+    assert.deepEqual(physical(spans), stable);
+    const standaloneState = spans.read(), revertStandalone = spans.undo(standalone.receiptId);
+    assert.deepEqual(spans.read(),beforeCaret);
+    const redoStandalone = spans.redo(revertStandalone.receiptId);
+    assert.deepEqual(spans.read(),standaloneState);
+    assert.equal(exportLocalToolConvergenceCheckpoint(spans.checkpoint()).pending,false);
+    assert.ok(redoStandalone.receiptId);
+    console.log('PASS a populated table and paragraph split share one atomic, reversible receipt');
   } finally {
     a.destroy();b?.destroy();cold?.destroy();legacy?.destroy();sameCellA?.destroy();sameCellB?.destroy();spans?.destroy();spanPeer?.destroy();spanCold?.destroy();
   }

@@ -7,8 +7,8 @@ import type {RichAction,RichMark} from './richTypes';
 import type {RichBlockEditCapture} from './blockEditingTypes';
 import {tableCellStyleId,validTableColumnWidth,type RichTableAxis} from './tableAxesFormat';
 import {TableAxisOrder,type TableAxisEntry,type TableAxisInsertion} from './tableAxisOrder';
-import {tablePasteArea,tablePasteContents,type RichTablePasteAction} from './tablePaste';
-import {tableCellSpanId} from './tableSpanGeometry';
+import {tablePasteArea,tablePasteContents,type RichTablePasteAction,type RichTablePasteMatrix} from './tablePaste';
+import {tableCellSpanId,type TableArea} from './tableSpanGeometry';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import {validateRichImageAsset,type RichImageAsset} from './imageFormat';
 export interface RichTableAxisCapture {format:'writers-hoard-table-axis/1';identity:LocalToolConvergenceIdentity;field:string;tableId:string;axis:RichTableAxis;table:RichBlockBinding;anchor:TableAxisEntry|null;frontier:string[]}
@@ -25,7 +25,7 @@ export interface RichTableColumnWidthCapture {
  widthPx:number|null;
  frontier:string[];
 }
-export type RichTableCreateAction={type:'rich-table-create';field:string;capture:RichBlockEditCapture;table:{id:string;rows:{id:string;header:boolean}[];columns:{id:string}[]}};
+export type RichTableCreateAction={type:'rich-table-create';field:string;capture:RichBlockEditCapture;table:{id:string;rows:{id:string;header:boolean}[];columns:{id:string}[]};matrix?:RichTablePasteMatrix};
 export type RichTableAxesAction={type:'rich-table-axis-insert';field:string;capture:RichTableAxisCapture;id:string;header?:boolean}|{type:'rich-table-axis-hide';field:string;capture:RichTableAxisCapture}|{type:'rich-table-cell-insert';field:string;capture:RichTableCellCapture;fragment:{id:string;paragraph:{id:string;text:string;marks?:RichMark[];link?:{href:string}}}}|{type:'rich-table-cell-image-insert';field:string;capture:RichTableCellCapture;fragmentId:string;id:string;asset:RichImageAsset}|{type:'rich-table-column-width';field:string;capture:RichTableColumnWidthCapture;widthPx:number|null};
 export const isTableAxesAction=(action:{type:string}):action is RichTableAxesAction=>['rich-table-axis-insert','rich-table-axis-hide','rich-table-cell-insert','rich-table-cell-image-insert','rich-table-column-width'].includes(action.type);
 const fail=():never=>{throw Error('local_tool_table_axes_action_invalid');};
@@ -84,31 +84,7 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   for(const item of [...priorInserts,...result.axisInserts!])if(item.tableId===tableId&&item.axis===dimension){const at=item.after===null?-1:physical.findIndex(e=>e.id===item.after);if(item.after!==null&&at<0)fail();physical.splice(at+1,0,{id:item.entryId,node:item.node});}
   order[dimension]=physical.filter(e=>visible.has(e.node)).map(e=>e.node);
  };
- if(action.type==='rich-table-create'){
-  const payload=convergenceClone(action.table),destination=action.capture.destination;
-  if(!destination||action.capture.nodeIds.length||!payload||Object.keys(payload).length!==3||!Array.isArray(payload.rows)||!payload.rows.length||!Array.isArray(payload.columns)||!payload.columns.length)return fail();
-  put({id:payload.id,type:'table',attrs:{},...convergenceClone(destination)});result.data.axisOrder!.push({tableId:payload.id,rows:[],columns:[]});
-  for(const dimension of ['rows','columns']as const){let previous:Pick<TableAxisEntry,'id'|'node'>|null=null;
-   for(const item of payload[dimension]){if(!item||Object.keys(item).length!==(dimension==='rows'?2:1)||dimension==='rows'&&typeof(item as {header:boolean}).header!=='boolean')fail();axis(payload.id,dimension,item.id,dimension==='rows'&&(item as {header:boolean}).header,previous);const inserted=result.axisInserts!.at(-1)!;previous={id:inserted.entryId,node:item.id};}
-  }
-  for(const b of result.data.blocks)if(b.id!==payload.id&&b.parentId===destination.parentId&&b.slot===destination.slot&&b.afterId===destination.afterId){b.afterId=payload.id;result.writes.push({name:'placement',id:b.id,value:{parentId:b.parentId,slot:b.slot,afterId:payload.id}});}
- }else if(action.type==='rich-table-paste'){
-  const {capture,target,matrix}=action,tableId=capture.nodeIds[0];
-  if(!source.cellHeaders||capture.nodeIds.length!==1||capture.destination||Object.keys(action).length!==5)return fail();
-  const order=table(source,data,tableId),area=tablePasteArea(order,target,matrix,source.links,source.cellSpans?data:undefined);
-  const replaced=tablePasteContents(data,order,area).filter(block=>block.type!=='table-cell-style');
-  const hidden=new Set(replaced.map(block=>block.id));
-  const spansToHide=new Set(replaced.filter(block=>block.type==='table-cell-span').map(block=>block.id));
-  for(const block of replaced)if(block.type==='table-cell')result.writes.push({name:'membership',id:block.id,value:false});
-  result.data.blocks=result.data.blocks.filter(block=>!hidden.has(block.id));
-  for(const [dimension,size] of [['rows',area.top+area.height],['columns',area.left+area.width]] as const){
-   let previous:Pick<TableAxisEntry,'id'|'node'>|undefined=new TableAxisOrder(source).entries(tableId,dimension).find(entry=>entry.node===order[dimension].at(-1));
-   if(!previous)return fail();
-   for(let index=order[dimension].length;index<size;index++){
-    axis(tableId,dimension,crypto.randomUUID(),false,previous);
-    const entry=result.axisInserts!.at(-1)!;previous={id:entry.entryId,node:entry.node};
-   }
-  }
+ const fillCells=(tableId:string,area:TableArea,matrix:RichTablePasteMatrix,spansToHide:Set<string>)=>{
   const actual=table(source,result.data,tableId),byId=new Map(result.data.blocks.map(block=>[block.id,block]));
   const paragraphs:NonNullable<RichBlockPlan['pasteParagraphs']>=[];
   for(let y=0;y<area.height;y++)for(let x=0;x<area.width;x++){
@@ -154,6 +130,40 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   }
   for(const id of spansToHide)result.writes.push({name:'membership',id,value:false});
   result.pasteParagraphs=paragraphs;
+ };
+ if(action.type==='rich-table-create'){
+  const payload=convergenceClone(action.table),destination=action.capture.destination,matrix=action.matrix;
+  if(matrix!==undefined&&(!source.cellSpans||Object.keys(action).length!==5||!Array.isArray(matrix)))return fail();
+  if(!destination||action.capture.nodeIds.length||!payload||Object.keys(payload).length!==3||!Array.isArray(payload.rows)||!payload.rows.length||!Array.isArray(payload.columns)||!payload.columns.length)return fail();
+  put({id:payload.id,type:'table',attrs:{},...convergenceClone(destination)});result.data.axisOrder!.push({tableId:payload.id,rows:[],columns:[]});
+  for(const dimension of ['rows','columns']as const){let previous:Pick<TableAxisEntry,'id'|'node'>|null=null;
+   for(const item of payload[dimension]){if(!item||Object.keys(item).length!==(dimension==='rows'?2:1)||dimension==='rows'&&typeof(item as {header:boolean}).header!=='boolean')fail();axis(payload.id,dimension,item.id,dimension==='rows'&&(item as {header:boolean}).header,previous);const inserted=result.axisInserts!.at(-1)!;previous={id:inserted.entryId,node:item.id};}
+  }
+  for(const b of result.data.blocks)if(b.id!==payload.id&&b.parentId===destination.parentId&&b.slot===destination.slot&&b.afterId===destination.afterId){b.afterId=payload.id;result.writes.push({name:'placement',id:b.id,value:{parentId:b.parentId,slot:b.slot,afterId:payload.id}});}
+  if(matrix!==undefined){
+   const order=table(source,result.data,payload.id),{rows,columns}=order;
+   if(matrix.length!==rows.length||matrix[0]?.length!==columns.length)return fail();
+   const area=tablePasteArea(order,{rows,columns,anchor:[rows[0],columns[0]],head:[rows.at(-1)!,columns.at(-1)!]},matrix,source.links,result.data);
+   fillCells(payload.id,area,matrix,new Set());
+  }
+ }else if(action.type==='rich-table-paste'){
+  const {capture,target,matrix}=action,tableId=capture.nodeIds[0];
+  if(!source.cellHeaders||capture.nodeIds.length!==1||capture.destination||Object.keys(action).length!==5)return fail();
+  const order=table(source,data,tableId),area=tablePasteArea(order,target,matrix,source.links,source.cellSpans?data:undefined);
+  const replaced=tablePasteContents(data,order,area).filter(block=>block.type!=='table-cell-style');
+  const hidden=new Set(replaced.map(block=>block.id));
+  const spansToHide=new Set(replaced.filter(block=>block.type==='table-cell-span').map(block=>block.id));
+  for(const block of replaced)if(block.type==='table-cell')result.writes.push({name:'membership',id:block.id,value:false});
+  result.data.blocks=result.data.blocks.filter(block=>!hidden.has(block.id));
+  for(const [dimension,size] of [['rows',area.top+area.height],['columns',area.left+area.width]] as const){
+   let previous:Pick<TableAxisEntry,'id'|'node'>|undefined=new TableAxisOrder(source).entries(tableId,dimension).find(entry=>entry.node===order[dimension].at(-1));
+   if(!previous)return fail();
+   for(let index=order[dimension].length;index<size;index++){
+    axis(tableId,dimension,crypto.randomUUID(),false,previous);
+    const entry=result.axisInserts!.at(-1)!;previous={id:entry.entryId,node:entry.node};
+   }
+  }
+  fillCells(tableId,area,matrix,spansToHide);
  }else if(action.type==='rich-table-axis-insert'||action.type==='rich-table-axis-hide'){
   const capture=action.capture,order=table(source,data,capture.tableId),now=axisWitness(source,data,bindings,capture.tableId,capture.axis,capture.anchor?.node??null);
   if(!same(now.table,capture.table)||!same(now.anchor,capture.anchor))fail();

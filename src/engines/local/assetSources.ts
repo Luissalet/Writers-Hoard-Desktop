@@ -12,7 +12,7 @@ export interface LocalAssetPort {current():Promise<LocalAssetSource>;source(ref:
 /** Authoring uses local bytes; receiving a causal cut is a separate operation. */
 export function requireLocalImageActions(assets:LocalToolAssets|undefined,actions:readonly import('./stateActions').LocalToolStateAction[],codec:LocalToolStateCodec|undefined){
  const images=actions.flatMap<{type:string;field:string;asset:unknown}>(action=>{
-  if(action.type==='rich-table-paste'){
+  if(action.type==='rich-table-paste'||action.type==='rich-table-create'&&action.matrix!==undefined){
    if(!Array.isArray(action.matrix))throw Error('local_tool_table_paste_invalid');
    return action.matrix.flatMap(row=>{
     if(!Array.isArray(row))throw Error('local_tool_table_paste_invalid');
@@ -29,7 +29,7 @@ export function requireLocalImageActions(assets:LocalToolAssets|undefined,action
  return (async()=>{for(const {type,field,asset} of images){
   const descriptor=codec?.fields[field];
   if(type==='rich-table-cell-image-insert'&&!localToolRichImageCells(descriptor))throw Error('local_tool_table_axes_action_invalid');
-  if(type==='rich-table-paste'&&!localToolRichTableCellHeaders(descriptor))throw Error('local_tool_table_paste_invalid');
+  if(type==='rich-table-paste'&&!localToolRichTableCellHeaders(descriptor)||type==='rich-table-create'&&!localToolRichTableCellSpans(descriptor))throw Error('local_tool_table_paste_invalid');
   validateRichImageAsset(asset,localToolRichImageRaster(descriptor));
   if(!assets||!await assets.resolveImage(asset))throw Error('local_asset_image_unavailable');
  }})();
