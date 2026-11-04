@@ -5,9 +5,23 @@ import {createLocalToolClient} from './storage';
 import type {LocalAssetRef,LocalAssetOverrides} from './assets';
 const client=async(args:ToolArgs,readOnly:boolean)=>{const projectId=resolveProjectId(args),project=await db.projects.get(projectId);if(!project)throw Error('project_missing');const namespace=requireString(args,'namespace'),source=resolveProjectLocalTool(namespace,project);if(!readOnly)await assertEngineEnabled(projectId,'local-tool-'+namespace);return createLocalToolClient(projectId,source,{eraId:optString(args,'eraId'),documentId:optString(args,'documentId'),readOnly,releaseHash:project.localToolInstallations?.[namespace]?.contentHash??null,requireSelectedRelease:true});};
 import {prepareBrowserAssetFile,storeAssetFile} from './assetFiles';
-import {assetBytes,assetBase64,assetFileInfo,assetFileHash} from './assetFileFormat';
+import {assetBytes,assetBase64,assetFileInfo,assetFileHash,isLocalAssetFileKind} from './assetFileFormat';
 import {assetAccepts,assetSlot} from './assets';
+import type {RichImageAsset} from './convergence/imageFormat';
 export const LOCAL_ASSET_HANDLERS={
+ async wh_local_asset_file_import(args:ToolArgs){
+  const file=args.file as {name?:unknown;kind?:unknown;mime?:unknown;base64?:unknown}|undefined;
+  if(!file||typeof file.name!=='string'||typeof file.mime!=='string'||typeof file.base64!=='string'||!isLocalAssetFileKind(file.kind))throw Error('local_asset_import_args_invalid');
+  const scoped=await client(args,false);
+  return scoped.assets.import(new File([assetBytes(file.base64)],file.name,{type:file.mime}),file.kind);
+ },
+ async wh_local_asset_image_find(args:ToolArgs){
+  const scoped=await client(args,true),descriptor=args.asset as RichImageAsset,image=await scoped.assets.resolveImage(descriptor);
+  if(!image)return{available:false};
+  let base64:string|undefined;
+  if(args.includeContent===true){const bytes=new Uint8Array(await image.blob.arrayBuffer());if(await assetFileHash(bytes)!==image.version)throw Error('local_asset_file_corrupt');base64=assetBase64(bytes);}
+  return{available:true,sha256:image.version,mime:image.mime,size:image.blob.size,...(base64===undefined?{}:{base64})};
+ },
  async wh_local_asset_slots(args:ToolArgs){const scoped=await client(args,true);return{slots:await scoped.assets.list(),installation:await scoped.assets.installation.read(),...(args.choiceKind?{choices:await scoped.assets.choices(args.choiceKind as 'font'|'data')}: {})};},
  async wh_local_asset_resolve(args:ToolArgs){const scoped=await client(args,true),overrides=(args.overrides??(args.documentId?(await scoped.read()).data as {assetOverrides?:LocalAssetOverrides}:{}).assetOverrides??{}) as LocalAssetOverrides,asset=await scoped.assets.slot(requireString(args,'slot'),overrides);if(!asset)return{available:false};return{available:true,kind:asset.kind,mime:asset.mime,size:asset.blob.size,version:asset.version,origin:asset.origin,slot:asset.slot,ref:asset.ref,...(args.includeContent&&(asset.kind==='font'||asset.kind==='data')?{content:{base64:assetBase64(new Uint8Array(await asset.blob.arrayBuffer())),sha256:await assetFileHash(new Uint8Array(await asset.blob.arrayBuffer()))}}:{})};},
  async wh_local_asset_override(args:ToolArgs){
