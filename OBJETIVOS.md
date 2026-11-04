@@ -6,7 +6,7 @@
 
 ## Ejes de tablas compartidas entregados
 
-2047 añade filas y columnas mutables en un perfil optativo, con edición de intersecciones, Deshacer, Save, reapertura y portabilidad. 2082 añade anchos por columna con arrastre, teclado y Deshacer inmediato. 2114 añade PNG raíz, tres tamaños y transferencia a otra biblioteca. Siguen combinar o dividir celdas, imágenes dentro de celdas, otros formatos, alineación y adopción de documentos anteriores. [Anchos compartidos](tasks/vvd1095/verification-table-width2082.md). [Verificación](tasks/vvd1095/verification-table-axes2047.md).
+2047 añade filas y columnas mutables en un perfil optativo, con edición de intersecciones, Deshacer, Save, reapertura y portabilidad. 2082 añade anchos por columna con arrastre, teclado y Deshacer inmediato. 2114 añade PNG raíz, tres tamaños y transferencia a otra biblioteca. Siguen combinar o dividir celdas, imágenes dentro de celdas, otros formatos y adopción de documentos anteriores. 2161 entrega la alineación en el perfil nuevo. [Anchos compartidos](tasks/vvd1095/verification-table-width2082.md). [Verificación](tasks/vvd1095/verification-table-axes2047.md).
 
 ## Enlaces servidos para la wiki
 

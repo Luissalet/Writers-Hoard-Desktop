@@ -1203,6 +1203,12 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### Image alignment in shared Source (2161)
+
+Choose codec2 `blocks-tree/7` with `writers-blocks/6` for an image field with independent alignment. This selects engine10. A new image starts at `left`. Capture `client.convergence.richImageCapture(field, nodeId, 'alignment')`, then apply `rich-image-align` with that capture and an `alignment` of `left`, `center` or `right`. The same capture channel is available through `wh_local_tool_rich_image_capture` and the live editor capture tool.
+
+Full width preserves the saved alignment. Undo changes the author's alignment while preserving a size or source edited by another author. Room transfer and ZIP retain the PNGs and alignment. Earlier image profiles retain their two attributes and use the same renderer and relay.
+
 ### PNG images in shared Source (2114)
 
 Declare `{kind: 'rich', profile: 'blocks-tree/6', schema: 'writers-blocks/5'}` in codec2 to opt into root image blocks. This selects engine9. The width, axis and link features remain available. Existing document histories retain their declared profile.
