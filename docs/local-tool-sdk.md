@@ -1203,6 +1203,12 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### Images inside shared table cells (2167)
+
+Choose codec2 `blocks-tree/9` with `writers-blocks/8` to use cell images in engine12. Capture the logical table, row and column through `client.convergence.richTableCellCapture(field, tableId, rowId, columnId, afterId)`. Use the resulting capture in `rich-table-cell-image-insert` with a fresh `fragmentId`, a fresh image `id`, and the descriptor of a locally imported asset. `afterId` is a fragment of the same logical cell, or null. The MCP equivalent is `wh_local_tool_rich_table_cell_capture` followed by `wh_local_tool_state_apply`.
+
+The operation creates the fragment and image together. Source, size and alignment continue to use independent image captures. Deleting the image leaves any other contents in its cell. A hidden row or column prevents a new insertion using its old capture. Project ZIP and room transfer preserve the image and the original files available to history.
+
 ### PNG, JPEG and WebP in shared Source (2164)
 
 Use codec2 `blocks-tree/8` with `writers-blocks/7` to select engine11 for that image field. Import a verified PNG, JPEG or WebP with `client.assets.import(file, 'image')`. Pass the returned SHA-256, MIME and byte size to `rich-image-insert` or `rich-image-replace`. Other image fields in the same definition keep the formats declared by their own profile.
