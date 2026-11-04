@@ -3,9 +3,11 @@ import type {RichBlockEditCapture} from './blockEditingTypes';
 import type {RichTableAxisOrder} from './tableAxesFormat';
 import {convergenceCanonical} from './format';
 import {validateRichDocument,type RichText} from './richTypes';
+import {isRichImageAlignment,isRichImageSize,validateRichImageAsset,type RichImageAlignment,type RichImageAsset,type RichImageSize} from './imageFormat';
 
 type Cell=readonly [rowId:string,columnId:string];
-export type RichTablePasteCell={header:boolean;paragraphs:RichText[][]};
+export type RichTablePasteImage={afterParagraph:number;asset:RichImageAsset;displaySize:RichImageSize;alignment:RichImageAlignment};
+export type RichTablePasteCell={header:boolean;paragraphs:RichText[][];images?:RichTablePasteImage[]};
 export type RichTablePasteTarget={rows:string[];columns:string[];anchor:Cell;head?:Cell};
 export type RichTablePasteAction={type:'rich-table-paste';field:string;capture:RichBlockEditCapture;target:RichTablePasteTarget;matrix:RichTablePasteCell[][]};
 
@@ -19,8 +21,17 @@ export function tablePasteArea(order:RichTableAxisOrder,target:RichTablePasteTar
  for(const row of matrix){
   if(!Array.isArray(row)||row.length!==width)return invalid();
   for(const cell of row){
-   if(!cell||Object.keys(cell).length!==2||typeof cell.header!=='boolean'||!Array.isArray(cell.paragraphs))return invalid();
+   if(!cell||Object.keys(cell).length!==(cell.images===undefined?2:3)||typeof cell.header!=='boolean'||!Array.isArray(cell.paragraphs))return invalid();
    validateRichDocument({type:'doc',content:cell.paragraphs.map((content,i)=>({type:'paragraph',id:String(i),content}))},links);
+   if(cell.images!==undefined){
+    if(!Array.isArray(cell.images)||!cell.images.length)return invalid();
+    let previous=-1;
+    for(const image of cell.images){
+     if(!image||Object.keys(image).length!==4||!Number.isSafeInteger(image.afterParagraph)||image.afterParagraph<previous||
+        image.afterParagraph>=cell.paragraphs.length||!isRichImageSize(image.displaySize)||!isRichImageAlignment(image.alignment))return invalid();
+     validateRichImageAsset(image.asset,true);previous=image.afterParagraph;
+    }
+   }
   }
  }
  const point=(cell:Cell)=>{

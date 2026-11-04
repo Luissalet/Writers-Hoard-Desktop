@@ -117,6 +117,22 @@ async function main() {
     assert.deepEqual(grid(sameCellB)[0][2], cell(false, text('Dos')));
     console.log('PASS concurrent pastes into one cell converge and can be undone independently');
 
+    const beforeImage = a.read(),asset = { sha256: 'e'.repeat(64), mime: 'image/webp', size: 244 };
+    const mixedImage = { header: false, paragraphs: [[text('Antes')], [text('Después')]], images: [{ asset, afterParagraph: 0, displaySize: 'small', alignment: 'right' }] };
+    const pastedImage = a.apply([action(a, ['R2', 'C1'], [[mixedImage]])]);
+    const children = tableAxesRows(a.read().body, table)[1].cells[0].children;
+    assert.deepEqual(children.map(child => child.type), ['paragraph', 'image', 'paragraph']);
+    assert.deepEqual(children[1].attrs, { asset, displaySize: 'small', alignment: 'right' });
+    const afterImage = a.read(),removeImage = a.undo(pastedImage.receiptId);
+    assert.deepEqual(a.read(), beforeImage);
+    a.redo(removeImage.receiptId);
+    assert.deepEqual(a.read(), afterImage);
+    const malformedImage = { ...mixedImage, images: [{ ...mixedImage.images[0], afterParagraph: 2 }] };
+    const beforeMalformed = a.checkpoint();
+    assert.throws(() => a.apply([action(a, ['R2', 'C1'], [[malformedImage]])]), /local_tool_table_paste_invalid/);
+    assert.deepEqual(a.checkpoint(), beforeMalformed);
+    console.log('PASS pasted images preserve ordered paragraphs and exact Undo and Redo');
+
     const previous = contractFor('blocks-tree/10', 'writers-blocks/9');
     legacy = createLocalToolReplica(createLocalToolGenesis(empty('writers-blocks/9'), previous), { authorId: 'Old', contract: previous });
     create(legacy);

@@ -4,6 +4,9 @@ import {Plugin,Selection} from '@tiptap/pm/state';
 import {CellSelection,cellAround,inSameTable} from '@tiptap/pm/tables';
 import {Decoration,DecorationSet,type EditorView} from '@tiptap/pm/view';
 import type {RichAction} from '../convergence/richTypes';
+import type {RichBlockEditingAction} from '../convergence/blockEditingTypes';
+import {isRichImageAlignment,isRichImageSize} from '../convergence/imageFormat';
+import {sourceImageClipboardData} from './imageClipboardData';
 import type {RichEditorSession} from './session';
 import {RICH_INTERNAL} from './prosemirror';
 
@@ -29,13 +32,32 @@ export function restoreSourceCellSelection(doc:PMNode,[anchor,head]:CellEnds):Se
  return remaining===undefined?null:Selection.near(doc.resolve(remaining+1));
 }
 
-function writeSourceCellClipboard(view:EditorView,selection:CellSelection,clipboard:DataTransfer):boolean {
- const {dom,text}=view.serializeForClipboard(selection.content());
- for(const image of dom.querySelectorAll('[data-writer-rich-image]'))image.remove();
+function cleanSourceCellClipboard(dom:HTMLElement){
  for(const cell of dom.querySelectorAll('td,th'))if(!cell.childElementCount)cell.append(dom.ownerDocument.createElement('p'));
  for(const element of dom.querySelectorAll('*'))for(const attribute of element.getAttributeNames()){
   if(attribute.startsWith('data-writer-')||['id','columns','columnid'].includes(attribute))element.removeAttribute(attribute);
  }
+}
+
+function writeSourceCellClipboard(view:EditorView,selection:CellSelection,clipboard:DataTransfer,images:PMNode[]):boolean {
+ const {dom,text}=view.serializeForClipboard(selection.content());
+ const placeholders=Array.from(dom.querySelectorAll('[data-writer-rich-image]'));
+ if(images.length){
+  if(placeholders.length!==images.length)return false;
+  const figures=new Map(Array.from(view.dom.querySelectorAll<HTMLElement>('figure[data-writer-image]'),element=>[element.getAttribute('data-writer-image'),element]));
+  for(const [index,placeholder] of placeholders.entries()){
+   const {id,displaySize,alignment}=images[index].attrs,figure=figures.get(id);
+   const source=figure&&sourceImageClipboardData.get(figure);
+   if(!source)return false;
+   const image=dom.ownerDocument.createElement('img');
+   image.setAttribute('src',source);
+   image.setAttribute('alt','');
+   if(isRichImageSize(displaySize))image.dataset.imageSize=displaySize;
+   if(isRichImageAlignment(alignment))image.dataset.imageAlignment=alignment;
+   placeholder.replaceWith(image);
+  }
+ }else for(const placeholder of placeholders)placeholder.remove();
+ cleanSourceCellClipboard(dom);
  const html=dom.innerHTML;
  try{
   clipboard.clearData();
@@ -45,11 +67,18 @@ function writeSourceCellClipboard(view:EditorView,selection:CellSelection,clipbo
  }catch{return false;}
 }
 
-export function copySourceCellSelection(view:EditorView,event:ClipboardEvent):boolean {
+function selectedSourceImages(selection:CellSelection):PMNode[]{
+ const images:PMNode[]=[];
+ selection.content().content.descendants(node=>{if(node.type.name==='richImage')images.push(node);});
+ return images;
+}
+
+export function copySourceCellSelection(view:EditorView,event:ClipboardEvent,session?:RichEditorSession):boolean {
  const selection=view.state.selection;
  if(!(selection instanceof CellSelection)||!sourceCellSelectionEnds(selection))return false;
  event.preventDefault();
- if(event.clipboardData)writeSourceCellClipboard(view,selection,event.clipboardData);
+ const images=session?.imageCells?selectedSourceImages(selection):[];
+ if(event.clipboardData)writeSourceCellClipboard(view,selection,event.clipboardData,images);
  return true;
 }
 
@@ -57,30 +86,36 @@ export function cutSourceCellSelection(session:RichEditorSession,view:EditorView
  const selection=view.state.selection,ends=sourceCellSelectionEnds(selection);
  if(!(selection instanceof CellSelection)||!ends)return false;
  event.preventDefault();
- if(!session.editable||!view.editable||view.composing||!event.clipboardData)return true;
+ if(!session.editable||!view.editable||view.composing)return true;
+ const images=session.imageCells?selectedSourceImages(selection):[];
+ if(!event.clipboardData||!writeSourceCellClipboard(view,selection,event.clipboardData,images))return true;
+ clearSourceCellSelection(session,view,selection,images);
+ return true;
+}
+
+function clearSourceCellSelection(session:RichEditorSession,view:EditorView,selection:CellSelection,images:PMNode[]){
  const leaves:{id:string;length:number}[]=[];
  let unsupported=false;
  selection.forEachCell(cell=>cell.descendants(node=>{
-  // The current clipboard serializer cannot transfer the original image.
-  if(node.type.name==='richImage'){unsupported=true;return false;}
+  if(node.type.name==='richImage')return false;
   if(!node.isTextblock||!node.content.size)return;
   if(typeof node.attrs.id!=='string'){unsupported=true;return false;}
   leaves.push({id:node.attrs.id,length:node.content.size});
   return false;
  }));
- if(unsupported)return true;
+ if(unsupported)return;
  try{
-  const field=session.field,actions:RichAction[]=leaves.map(({id,length})=>({
+  const field=session.field,actions:(RichAction|RichBlockEditingAction)[]=leaves.map(({id,length})=>({
    type:'rich-text-splice',field,nodeId:id,range:session.replica.richRange(field,id,0,length),text:'',
   }));
-  if(!writeSourceCellClipboard(view,selection,event.clipboardData)||!actions.length||!session.applyBatch(actions))return true;
+  if(images.length)actions.push({type:'rich-block-hide',field,capture:session.replica.richBlockEditCapture(field,images.map(image=>String(image.attrs.id)))});
+  if(!actions.length||!session.applyBatch(actions))return;
   const {state}=view,current=state.selection;
   if(current instanceof CellSelection){
    const caret=Selection.near(state.doc.resolve(current.$headCell.pos+1));
    view.dispatch(state.tr.setSelection(caret).setMeta('addToHistory',false));
   }
  }catch(reason){session.fail(reason,true);}
- return true;
 }
 
 /** Use ProseMirror's selection type without adding generic table writers to Source. */
