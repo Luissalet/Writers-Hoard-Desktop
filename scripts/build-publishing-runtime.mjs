@@ -1,6 +1,9 @@
 // Assemble Writer's owned publishing worker and native editorial/PDF engines.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { digestPublishingSource, MANIFEST_NAME } from './publishing-source-digest.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,4 +38,12 @@ if (!process.argv.includes('--setup-only')) {
     ...data('editorial/native/bin', 'native/bin'),
     ...data('LICENSE', '.'), ...data('PROVENANCE.json', '.'),
     path.join(source, 'worker.py')]);
+  // Record what this executable was built from; the contract test compares it with the repo.
+  const exe = path.join(root, 'publishing/runtime/writer-publishing-worker', process.platform === 'win32' ? 'writer-publishing-worker.exe' : 'writer-publishing-worker');
+  const digest = await digestPublishingSource(root);
+  await writeFile(path.join(path.dirname(exe), MANIFEST_NAME), JSON.stringify({
+    source_sha256: digest.sha256, source_files: digest.files,
+    worker_sha256: createHash('sha256').update(await readFile(exe)).digest('hex'),
+    built_at: new Date().toISOString(),
+  }, null, 2));
 }
