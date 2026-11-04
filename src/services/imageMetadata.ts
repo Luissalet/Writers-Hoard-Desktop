@@ -148,6 +148,29 @@ function chunks(bytes: Uint8Array): PngChunk[] {
   return out;
 }
 
+/** Check the complete PNG container before accepting it as a file asset. */
+export function isCompletePng(bytes: Uint8Array): boolean {
+  if (!isPng(bytes)) return false;
+  let at = 8;
+  let hasData = false;
+  while (at + 12 <= bytes.length) {
+    const length = readUint32(bytes, at);
+    const end = at + 12 + length;
+    if (length > 0x7fffffff || end > bytes.length) return false;
+    const type = String.fromCharCode(bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]);
+    if (!/^[A-Za-z]{4}$/.test(type) || crc32(bytes.subarray(at + 4, end - 4)) !== readUint32(bytes, end - 4)) return false;
+    if (at === 8) {
+      if (type !== 'IHDR' || length !== 13) return false;
+      const width = readUint32(bytes, at + 8), height = readUint32(bytes, at + 12);
+      if (!width || !height || width > 0x7fffffff || height > 0x7fffffff) return false;
+    } else if (type === 'IHDR') return false;
+    if (type === 'IDAT' && length) hasData = true;
+    if (type === 'IEND') return hasData && length === 0 && end === bytes.length;
+    at = end;
+  }
+  return false;
+}
+
 /** Split `keyword\0value` — the tEXt layout. Returns null when there is no separator. */
 function splitKeyedText(data: Uint8Array): { keyword: string; value: Uint8Array } | null {
   const nul = data.indexOf(0);

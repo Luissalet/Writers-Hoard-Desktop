@@ -1,9 +1,10 @@
 import {tableCellOf} from '../convergence/tableFormat';
 import {isTableAxesSchema,TABLE_WIDTHS_SCHEMA} from '../convergence/tableAxesFormat';
+import {IMAGE_BLOCK_SCHEMA} from '../convergence/imageFormat';
 import {tableAxesRows,tableWidthStyle,type TableColumnLayout} from './tableAxesLayout';
 import {Node,mergeAttributes} from '@tiptap/core';
 import type {Node as PMNode,Schema} from '@tiptap/pm/model';
-import {TextSelection,type Transaction,type EditorState} from '@tiptap/pm/state';
+import {NodeSelection,Selection,TextSelection,type Transaction,type EditorState} from '@tiptap/pm/state';
 import type {RichEditorSession} from '@/engines/local/collaborativeRich/session';
 import {RICH_INTERNAL} from '@/engines/local/collaborativeRich/prosemirror';
 import type {RichRange} from '@/engines/local/convergence/richTypes';
@@ -16,9 +17,10 @@ export function blockPMDocument(schema:Schema,data:RichBlockDocument):PMNode {
  const present=(value:PMNode|null):value is PMNode=>value!==null;
  const node=(block:RichBlock):PMNode|null=>{
   if(block.content)return leaf(block);
+  if(block.type==='image')return schema.nodes.richImage.create({id:block.id,...block.attrs});
   if(block.type==='table'&&isTableAxesSchema(data.schema)){
    const rows=tableAxesRows(data,block.id);if(!rows.length)return null;
-   const columnLayout=data.schema===TABLE_WIDTHS_SCHEMA?rows[0].cells.map(({columnId,widthPx})=>({columnId,widthPx})):undefined;
+   const columnLayout=data.schema===TABLE_WIDTHS_SCHEMA||data.schema===IMAGE_BLOCK_SCHEMA?rows[0].cells.map(({columnId,widthPx})=>({columnId,widthPx})):undefined;
    return schema.nodes.table.create({id:block.id,columns:rows[0].cells.map(c=>c.columnId),...(columnLayout?{columnLayout}:{})},rows.map(({row,cells})=>schema.nodes.tableRow.create({id:row.id},cells.map(cell=>{
     const content=cell.children.map(node).filter(present);
     return schema.nodes[row.attrs.header?'tableHeader':'tableCell'].create({columnId:cell.columnId,cellAddress:cell.address},content.length?content:[schema.nodes.paragraph.create({id:null,cellAddress:cell.address})]);
@@ -44,10 +46,11 @@ export function blockBookmark(session:RichEditorSession,doc:PMNode,anchor:number
 }
 export function projectBlockView(session:RichEditorSession,tr:Transaction,bookmark:BlockBookmark,restoreSelection=false):Transaction {
  const target=blockPMDocument(tr.doc.type.schema,session.blockDocument()),from=tr.doc.content.findDiffStart(target.content),oldAnchor=tr.selection.anchor,oldHead=tr.selection.head,stored=tr.storedMarks;
+ const selected=tr.selection instanceof NodeSelection&&tr.selection.node.type.name==='richImage'?tr.selection.node.attrs.id:undefined;
  if(from!==null){const end=tr.doc.content.findDiffEnd(target.content);if(!end)throw Error('local_tool_blocks_projection_invalid');const overlap=from-Math.min(end.a,end.b);tr.replace(from,end.a+Math.max(0,overlap),target.slice(from,end.b+Math.max(0,overlap)));}
  const resolve=(point:RichRange|null,fallback:number,address?:string)=>{if(point){const effective=session.replica.resolveRichPoint(point);if(!effective.detached){const leaf=blockPMLeaves(tr.doc).find(n=>n.id===effective.nodeId);if(leaf)return leaf.pos+1+Math.min(effective.offset,leaf.node.content.size);}}
   if(address){const leaves=blockPMLeaves(tr.doc),cell=leaves.find(n=>JSON.stringify(axisCellAtPosition(tr.doc,n.pos+1))===address);if(cell)return cell.pos+1;const exterior=leaves.find(n=>!axisCellAtPosition(tr.doc,n.pos+1));if(exterior)return exterior.pos+1;}return tr.mapping.map(fallback);};
- if(tr.docChanged||restoreSelection){const a=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.anchor,oldAnchor,bookmark.axisAnchor))),h=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.head,oldHead,bookmark.axisHead)));tr.setSelection(TextSelection.between(tr.doc.resolve(a),tr.doc.resolve(h)));}
+ if(tr.docChanged||restoreSelection){const a=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.anchor,oldAnchor,bookmark.axisAnchor))),h=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.head,oldHead,bookmark.axisHead)));let imagePos:number|undefined;if(selected)tr.doc.forEach((node,pos)=>{if(node.type.name==='richImage'&&node.attrs.id===selected)imagePos=pos;});tr.setSelection(imagePos!==undefined?NodeSelection.create(tr.doc,imagePos):session.images&&!blockPMLeaves(tr.doc).length?Selection.near(tr.doc.resolve(a)):TextSelection.between(tr.doc.resolve(a),tr.doc.resolve(h)));}
  return tr.setStoredMarks(stored).setMeta(RICH_INTERNAL,true).setMeta('preventClearDocument',true).setMeta('addToHistory',false);
 }
 export type BlockFormat='paragraph'|'h1'|'h2'|'h3'|'bullet-list'|'ordered-list'|'blockquote'|'toggle'|'unwrap';
@@ -105,11 +108,11 @@ export function blockTextKey(session:RichEditorSession,view:{state:EditorState;d
  return session.gesture(()=>{session.beforeViewChange?.();session.apply({type:'rich-block-join',field:session.field,capture});session.afterViewChange?.();const placed=blockPMLeaves(view.state.doc).find(n=>n.id===previous.id);if(placed)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,placed.pos+1+previous.node.content.size)));});
 }
 /** Collapse is local presentation keyed by block identity, outside saved state. */
-export function blockNodes(collapsed:Set<string>,tables=false,axes=false,widths=false){
+export function blockNodes(collapsed:Set<string>,tables=false,axes=false,widths=false,images=false){
  const attributes={id:{default:null,parseHTML:(element:HTMLElement)=>element.getAttribute('data-writer-block'),renderHTML:(attrs:Record<string,unknown>)=>attrs.id?{'data-writer-block':attrs.id}:{}}};
  const ordinary=(name:string,tag:string,content:string,extra:Record<string,{default:unknown}>={})=>Node.create({name,group:name==='listItem'||name==='tableRow'?undefined:'block',content,draggable:true,addAttributes(){return{...attributes,...extra};},parseHTML(){return[{tag}];},renderHTML({HTMLAttributes}){return[tag,mergeAttributes(HTMLAttributes,...(name==='bulletList'?[{style:'list-style-type:disc'}]:name==='orderedList'?[{style:'list-style-type:decimal'}]:[])),0];}});
  return[
-  Node.create({name:'doc',topNode:true,content:'block+'}),Node.create({name:'text',group:'inline'}),ordinary('paragraph','p','inline*',axes?{cellAddress:{default:null,rendered:false}}as Record<string,{default:unknown}>:{}),
+  Node.create({name:'doc',topNode:true,content:images?'(block|richImage)+':'block+'}),Node.create({name:'text',group:'inline'}),ordinary('paragraph','p','inline*',axes?{cellAddress:{default:null,rendered:false}}as Record<string,{default:unknown}>:{}),
   Node.create({name:'heading',group:'block',content:'inline*',draggable:true,addAttributes(){return{...attributes,level:{default:1}};},parseHTML(){return[1,2,3].map(level=>({tag:'h'+level,attrs:{level}}));},renderHTML({node,HTMLAttributes}){return['h'+Number(node.attrs.level),mergeAttributes(HTMLAttributes),0];}}),
   ...(tables?[
    Node.create({name:'table',group:'block',content:'tableRow+',draggable:true,isolating:true,addAttributes(){return{...attributes,columns:{default:[]},...(widths?{columnLayout:{default:null,rendered:false}}:{})};},parseHTML(){return[{tag:'table'}];},renderHTML({node,HTMLAttributes}){

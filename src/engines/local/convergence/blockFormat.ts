@@ -4,14 +4,15 @@ import type {LocalToolJson} from '../stateTypes';
 import type {RichDocument,RichText} from './richTypes';
 import {validateRichDocument} from './richTypes';
 import type {LocalToolConvergenceIdentity} from './formatTypes';
+import {IMAGE_BLOCK_SCHEMA,isRichImageSize,validateRichImageAsset} from './imageFormat';
 
 export const BLOCK_SCHEMA='writers-blocks/1' as const;
-export type RichBlockKind='paragraph'|'heading'|'bullet-list'|'ordered-list'|'list-item'|'blockquote'|'toggle'|RichTableKind|'table-column';
+export type RichBlockKind='paragraph'|'heading'|'bullet-list'|'ordered-list'|'list-item'|'blockquote'|'toggle'|RichTableKind|'table-column'|'image';
 export interface RichBlockPlacement {parentId:string|null;slot:'body'|'summary'|'columns';afterId:string|null}
 export interface RichBlock extends RichBlockPlacement {id:string;type:RichBlockKind;attrs:Record<string,LocalToolJson>;content?:RichText[]}
 /** A finite catalogue, including a finite raw image when concurrent placements cycle. */
-export interface RichBlockDocument {type:'block-doc';schema:typeof BLOCK_SCHEMA|typeof TABLE_SCHEMA|typeof TABLE_AXES_SCHEMA|typeof TABLE_WIDTHS_SCHEMA;blocks:RichBlock[];axisOrder?:RichTableAxisOrder[]}
-export interface RichBlockBinding {id:string;kindVersionId:string;attrsVersionId:string;membershipVersionId:string;placementVersionId:string}
+export interface RichBlockDocument {type:'block-doc';schema:typeof BLOCK_SCHEMA|typeof TABLE_SCHEMA|typeof TABLE_AXES_SCHEMA|typeof TABLE_WIDTHS_SCHEMA|typeof IMAGE_BLOCK_SCHEMA;blocks:RichBlock[];axisOrder?:RichTableAxisOrder[]}
+export interface RichBlockBinding {id:string;kindVersionId:string;attrsVersionId:string;membershipVersionId:string;placementVersionId:string;imageSourceVersionId?:string;imageSizeVersionId?:string}
 export interface RichBlockBindings {format:'writers-hoard-block-bindings/1';nodes:RichBlockBinding[]}
 export interface RichBlockCapture {format:'writers-hoard-block-capture/1';identity:LocalToolConvergenceIdentity;field:string;nodeIds:string[];bindings:RichBlockBinding[];frontier:string[]}
 export interface RichBlockMoveCapture {format:'writers-hoard-block-move/1';identity:LocalToolConvergenceIdentity;field:string;nodeId:string;destination:RichBlockPlacement;bindings:RichBlockBinding[];frontier:string[]}
@@ -30,19 +31,23 @@ export function validateRichBlockAttributes(kind:unknown,value:unknown,tables=fa
  else if(kind==='ordered-list'){if(keys.length>1||keys.length===1&&(!Object.hasOwn(value,'start')||!Number.isSafeInteger(value.start)||Number(value.start)<1))fail();}
  else if(!['paragraph','bullet-list','list-item','blockquote','toggle'].includes(kind as string)||keys.length)fail();
 }
-export function validateRichBlockDocument(value:unknown,links=false,tables=false,axes=false,widths=false):asserts value is RichBlockDocument {
- if(!object(value)||Object.keys(value).length!==(axes?4:3)||value.type!=='block-doc'||value.schema!==(widths?TABLE_WIDTHS_SCHEMA:axes?TABLE_AXES_SCHEMA:tables?TABLE_SCHEMA:BLOCK_SCHEMA)||axes&&!tables||widths&&!axes||!Array.isArray(value.blocks))return fail();
+export function validateRichBlockDocument(value:unknown,links=false,tables=false,axes=false,widths=false,images=false):asserts value is RichBlockDocument {
+ if(!object(value)||Object.keys(value).length!==(axes?4:3)||value.type!=='block-doc'||value.schema!==(images?IMAGE_BLOCK_SCHEMA:widths?TABLE_WIDTHS_SCHEMA:axes?TABLE_AXES_SCHEMA:tables?TABLE_SCHEMA:BLOCK_SCHEMA)||axes&&!tables||widths&&!axes||images&&!widths||!Array.isArray(value.blocks))return fail();
  const blocks=value.blocks as RichBlock[],all=new Map<string,RichBlock>();
  for(const [at,b]of blocks.entries()){
   if(!object(b)||!id(b.id)||all.has(b.id)||Object.keys(b).length!==(richBlockLeaf(b.type)?7:6))return fail();
   if(at>0&&blocks[at-1].id>=b.id)return fail();
-  validateRichBlockAttributes(b.type,b.attrs,tables,axes,widths);validateRichBlockPlacement({parentId:b.parentId,slot:b.slot,afterId:b.afterId},axes);
+  if(b.type==='image'){
+   if(!images||b.parentId!==null||b.slot!=='body'||!object(b.attrs)||Object.keys(b.attrs).length!==2||!isRichImageSize(b.attrs.displaySize))return fail();
+   validateRichImageAsset(b.attrs.asset);
+  }else validateRichBlockAttributes(b.type,b.attrs,tables,axes,widths);
+  validateRichBlockPlacement({parentId:b.parentId,slot:b.slot,afterId:b.afterId},axes);
   if(richBlockLeaf(b.type))validateRichDocument({type:'doc',content:[{id:b.id,type:'paragraph',content:b.content}]},links);else if(Object.hasOwn(b,'content'))fail();
   all.set(b.id,b);
  }
  for(const b of blocks){
   if(b.parentId===b.id||b.afterId===b.id)return fail();const parent=b.parentId===null?undefined:all.get(b.parentId);
-  if(b.parentId!==null&&!parent||parent&&richBlockLeaf(parent.type)||!parent&&b.slot!=='body')return fail();
+  if(b.parentId!==null&&!parent||parent&&(richBlockLeaf(parent.type)||parent.type==='image')||!parent&&b.slot!=='body')return fail();
   if(parent){
    if(b.slot==='summary'&&(parent.type!=='toggle'||!richBlockLeaf(b.type)))return fail();
    if(b.slot==='body'&&(parent.type==='bullet-list'||parent.type==='ordered-list')&&b.type!=='list-item')return fail();
@@ -56,6 +61,6 @@ export function validateRichBlockDocument(value:unknown,links=false,tables=false
  if(axes)validateTableAxesLayout(value as unknown as RichBlockDocument);else if(tables)validateTableLayout(value as unknown as RichBlockDocument);
 }
 /** Only this catalogue's own represented leaves, never the current RichRuns projection. */
-export function richBlockLeaves(value:RichBlockDocument,links=false,tables=false,axes=isTableAxesSchema(value.schema),widths=value.schema===TABLE_WIDTHS_SCHEMA):RichDocument {
- validateRichBlockDocument(value,links,tables,axes,widths);return{type:'doc',content:value.blocks.filter(b=>richBlockLeaf(b.type)).map(b=>({id:b.id,type:'paragraph',content:b.content!}))};
+export function richBlockLeaves(value:RichBlockDocument,links=false,tables=false,axes=isTableAxesSchema(value.schema),widths=value.schema===TABLE_WIDTHS_SCHEMA||value.schema===IMAGE_BLOCK_SCHEMA,images=value.schema===IMAGE_BLOCK_SCHEMA):RichDocument {
+ validateRichBlockDocument(value,links,tables,axes,widths,images);return{type:'doc',content:value.blocks.filter(b=>richBlockLeaf(b.type)).map(b=>({id:b.id,type:'paragraph',content:b.content!}))};
 }

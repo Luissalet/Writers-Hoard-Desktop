@@ -2,6 +2,7 @@ import {TABLE_AXES_SCHEMA,TABLE_WIDTHS_SCHEMA} from './tableAxesFormat';
 import {TableAxisOrder,type TableAxisInsertion} from './tableAxisOrder';
 import {TABLE_SCHEMA,TABLE_KINDS,tableCellOf} from './tableFormat';
 import {validateRichBlockAttributes} from './blockFormat';
+import {IMAGE_BLOCK_SCHEMA,isRichImageSize,validateRichImageAsset} from './imageFormat';
 import type {LocalToolJson} from '../stateTypes';
 import type {RichView} from './richRuns';
 import type {LocalToolConvergenceIdentity} from './types';
@@ -9,7 +10,10 @@ import {Registers,type RegisterVersion} from './registers';
 import {assertConvergenceIdentity,convergenceCanonical,convergenceClone} from './format';
 import {BLOCK_SCHEMA,validateRichBlockDocument,validateRichBlockPlacement,richBlockLeaf,type RichBlockKind,type RichBlockDocument,type RichBlock,type RichBlockBindings,type RichBlockBinding,type RichBlockPlacement,type RichBlockCapture,type RichBlockMoveCapture,type RichBlockCoreAction} from './blockTypes';
 export * from './blockTypes';
-type Write={name:'kind'|'attrs'|'membership'|'placement';id:string;value:LocalToolJson};
+const structureNames=['kind','attrs','membership','placement'] as const;
+const imageNames=['imageSource','imageSize'] as const;
+type StructureName=typeof structureNames[number];
+type Write={name:StructureName|typeof imageNames[number];id:string;value:LocalToolJson};
 export type StructuralNode={block:RichBlock;binding:RichBlockBinding;retirement?:string};
 export interface RichBlockPlan {data:RichBlockDocument;bindings:RichBlockBindings;writes:Write[];axisInserts?:TableAxisInsertion[]}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -23,31 +27,69 @@ function reposition(data:RichBlockDocument,id:string,to:RichBlockPlacement){
  Object.assign(block,to);
 }
 export class RichBlocks {
- readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;
- constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;}
- root(name:string){return 'blocks3:'+JSON.stringify(this.field)+':'+name;}
+ readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;readonly images:boolean;
+ constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false,images=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;this.images=images;}
+ root(name:string){return 'blocks3:'+JSON.stringify(this.field)+':'+(name==='imageSource'?'image-source':name==='imageSize'?'image-size':name);}
  private read(name:string,key:string){return this.registers.winner(this.root(name),key);}
  private binding(blockId:string):RichBlockBinding {
   const get=(name:string)=>{const version=this.read(name,blockId);if(!version?.present)return fail();return version.id;};
-  return{id:blockId,kindVersionId:get('kind'),attrsVersionId:get('attrs'),membershipVersionId:get('membership'),placementVersionId:get('placement')};
+  return{id:blockId,kindVersionId:get('kind'),attrsVersionId:get('attrs'),membershipVersionId:get('membership'),placementVersionId:get('placement'),
+   ...(this.images&&this.read('kind',blockId)?.value==='image'?{imageSourceVersionId:get('imageSource'),imageSizeVersionId:get('imageSize')}:{})};
  }
  /** Derived support never changes activations or the complete inverse of a receipt. */
  private structure(history=new Map<string,Map<string,StructuralNode>>()):Map<string,StructuralNode> {
   const r=this.registers,all=new Map<string,StructuralNode>(),invalid=new Set<string>(),summaryWitness=new Map<string,string>();
   const historical=(frontier:string[])=>{
    const key=JSON.stringify([...frontier].sort()),cached=history.get(key);if(cached)return cached;
-   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes).structure(history));history.set(key,value);return value;
+   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes,this.widths,this.images).structure(history));history.set(key,value);return value;
   };
-  const version=(binding:RichBlockBinding,name:Write['name'])=>r.versions.get(binding[`${name}VersionId`])??r.candidates(this.root(name)).find(v=>v.id===binding[`${name}VersionId`]);
-  const assemble=(id:string,values:Record<Write['name'],RegisterVersion>):StructuralNode=>({
+  const version=(binding:RichBlockBinding,name:StructureName)=>r.versions.get(binding[`${name}VersionId`])??r.candidates(this.root(name)).find(v=>v.id===binding[`${name}VersionId`]);
+  const assemble=(id:string,values:Record<StructureName,RegisterVersion>):StructuralNode=>({
    block:{id,type:values.kind.value as RichBlockKind,attrs:convergenceClone(values.attrs.value) as RichBlock['attrs'],...convergenceClone(values.placement.value) as unknown as RichBlockPlacement},
    binding:{id,kindVersionId:values.kind.id,attrsVersionId:values.attrs.id,membershipVersionId:values.membership.id,placementVersionId:values.placement.id},
   });
+  const attachImage=(node:StructuralNode,source:RegisterVersion,size:RegisterVersion):StructuralNode=>{
+   node.block.attrs={asset:convergenceClone(source.value),displaySize:size.value};
+   node.binding.imageSourceVersionId=source.id;node.binding.imageSizeVersionId=size.id;
+   return node;
+  };
+  const supportedImage=(id:string):StructuralNode|undefined=>{
+   const source=this.read('imageSource',id),size=this.read('imageSize',id);
+   for(const edit of [source,size]){
+    if(!edit?.present)continue;
+    const parents=r.transactions.get(edit.txId)?.parents;
+    const observed=parents?.length?historical(parents).get(id):undefined;
+    if(observed?.block.type!=='image')continue;
+    const birth=version(observed.binding,'membership'),retired=birth&&r.activation(birth.id);
+    if(!birth||birth.value!==true||edit.txId===birth.txId||!retired||retired.enabled)continue;
+    const fromBirth=(name:Write['name'])=>r.entries(this.root(name),id).find(candidate=>{
+     if(candidate.txId!==birth.txId||!candidate.present)return false;
+     const off=r.activation(candidate.id);
+     return off?.enabled===false&&off.txId===retired.txId;
+    });
+    const kind=fromBirth('kind'),attrs=fromBirth('attrs'),placement=this.read('placement',id)??fromBirth('placement');
+    const imageSource=source??fromBirth('imageSource'),imageSize=size??fromBirth('imageSize');
+    if(kind?.value!=='image'||!attrs||!placement?.present||!imageSource?.present||!imageSize?.present)continue;
+    const node=attachImage(assemble(id,{kind,attrs,membership:birth,placement}),imageSource,imageSize);
+    node.retirement=retired.txId;
+    return node;
+   }
+  };
   for(const key of new Set([...r.entries(this.root('kind')),...r.candidates(this.root('kind'))].map(v=>v.key))){
-   const membership=this.read('membership',key);if(membership?.value!==true)continue;
+   const membership=this.read('membership',key);
+   if(membership?.value!==true){
+    if(this.images&&!membership){const supported=supportedImage(key);if(supported)all.set(key,supported);}
+    continue;
+   }
    const values={kind:this.read('kind',key),attrs:this.read('attrs',key),membership,placement:this.read('placement',key)};
    if(Object.values(values).some(value=>!value?.present))throw Error('local_tool_blocks_dependency_missing');
-   all.set(key,assemble(key,values as Record<Write['name'],RegisterVersion>));
+   const node=assemble(key,values as Record<StructureName,RegisterVersion>);
+   if(node.block.type==='image'){
+    const source=this.read('imageSource',key),size=this.read('imageSize',key);
+    if(!source?.present||!size?.present)throw Error('local_tool_blocks_dependency_missing');
+    attachImage(node,source,size);
+   }
+   all.set(key,node);
   }
   const visiting=new Set<string>();
   const requireParent=(child:StructuralNode,inherited?:Map<string,StructuralNode>):void=>{
@@ -66,7 +108,7 @@ export class RichBlocks {
    const prior=r.transactions.get(retired.txId)?.parents;if(!prior?.length)return;
    const values=r.atFrontier(prior,view=>{
     if(view.winner(this.root('membership'),id)?.id!==membership.id)return undefined;
-    const picked={} as Record<Write['name'],RegisterVersion>;
+    const picked={} as Record<StructureName,RegisterVersion>;
     for(const name of ['kind','attrs','membership','placement'] as const){
      const active=r.winner(this.root(name),id),old=view.winner(this.root(name),id,value=>{
       const activation=r.activation(value.id);return activation?.enabled===true||activation?.enabled===false&&activation.txId===retired.txId;
@@ -116,24 +158,25 @@ export class RichBlocks {
   // Text and its bindings follow catalogue IDs, independently of intrinsic paragraph order.
   filtered.data.content=blocks.filter(b=>richBlockLeaf(b.type)).map(b=>filtered.data.content.find(p=>p.id===b.id)!);
   filtered.bindings.nodes=filtered.data.content.map(p=>filtered.bindings.nodes.find(n=>n.id===p.id)!);
-  return{data:{type:'block-doc',schema:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
+  return{data:{type:'block-doc',schema:this.images?IMAGE_BLOCK_SCHEMA:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
  }
  check(data:RichBlockDocument,bindings:RichBlockBindings):void {
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images);
   if(!object(bindings)||Object.keys(bindings).length!==2||bindings.format!=='writers-hoard-block-bindings/1'||!Array.isArray(bindings.nodes)||bindings.nodes.length!==data.blocks.length)return fail();
   for(let at=0;at<data.blocks.length;at++){
-   const b=data.blocks[at],bound=bindings.nodes[at];if(!object(bound)||Object.keys(bound).length!==5||bound.id!==b.id)return fail();
-   const expected={kind:b.type,attrs:b.attrs,membership:true,placement:{parentId:b.parentId,slot:b.slot,afterId:b.afterId}};
-   for(const name of ['kind','attrs','membership','placement'] as const){
-    const version=this.registers.versions.get(bound[`${name}VersionId`])??this.registers.candidates(this.root(name)).find(v=>v.id===bound[`${name}VersionId`]);
+   const b=data.blocks[at],bound=bindings.nodes[at],image=b.type==='image';if(!object(bound)||Object.keys(bound).length!==(image?7:5)||bound.id!==b.id)return fail();
+   const expected={kind:b.type,attrs:image?{}:b.attrs,membership:true,placement:{parentId:b.parentId,slot:b.slot,afterId:b.afterId},imageSource:b.attrs.asset,imageSize:b.attrs.displaySize};
+   for(const name of image?[...structureNames,...imageNames]:structureNames){
+    const id=bound[`${name}VersionId`];if(typeof id!=='string')return fail();
+    const version=this.registers.versions.get(id)??this.registers.candidates(this.root(name)).find(v=>v.id===id);
     if(!version||!version.present||version.root!==this.root(name)||version.key!==b.id||!this.registers.transactionAvailable(version.txId)||!equal(version.value,expected[name]))return fail();
    }
   }
   if(this.axes)new TableAxisOrder(this).check(data,bindings);
  }
  seed(data:RichBlockDocument){
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths);
-  for(const b of data.blocks)for(const [name,value]of Object.entries({kind:b.type,attrs:b.attrs,membership:true,placement:{parentId:b.parentId,slot:b.slot,afterId:b.afterId}}))this.registers.write(this.root(name),b.id,true,value as LocalToolJson);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images);
+  for(const b of data.blocks)for(const {name,value} of blockBirthWrites(b))this.registers.write(this.root(name),b.id,true,value);
   if(this.axes)new TableAxisOrder(this).seed(data);
  }
  capture(identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,nodeIds:string[]):RichBlockCapture {
@@ -146,7 +189,7 @@ export class RichBlocks {
   this.check(data,bindings);validateRichBlockPlacement(destination);const source=data.blocks.find(b=>b.id===nodeId);if(!source)return fail();
   if(this.tables&&(['table-row','table-column','table-cell','table-header'].includes(source.type)||tableCellOf(data,nodeId)!==(destination.parentId===null?null:tableCellOf(data,destination.parentId))))return fail();
   if(destination.afterId!==null&&!data.blocks.some(b=>b.id===destination.afterId&&b.parentId===destination.parentId&&b.slot===destination.slot))return fail();
-  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths);
+  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths,this.images);
   const ids=new Set([nodeId,...(destination.parentId?[destination.parentId]:[]),...(destination.afterId?[destination.afterId]:[])]);
   return{format:'writers-hoard-block-move/1',identity:convergenceClone(identity),field:this.field,nodeId,destination:convergenceClone(destination),bindings:bindings.nodes.filter(b=>ids.has(b.id)).map(b=>convergenceClone(b)),frontier:this.registers.frontier()};
  }
@@ -169,7 +212,7 @@ export class RichBlocks {
    // Preserve the following siblings' relation to the replaced contiguous range.
    for(const block of result.data.blocks)if(block.parentId===original.parentId&&block.slot===original.slot&&block.afterId===nodeIds.at(-1)&&!nodeIds.includes(block.id))move(block.id,{parentId:block.parentId,slot:block.slot,afterId:action.wrapper.id});
   }
-  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths);return result;
+  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths,this.images);return result;
  }
  commit(plan:RichBlockPlan){
   for(const w of plan.writes)this.registers.write(this.root(w.name),w.id,true,w.value);
@@ -182,15 +225,36 @@ export class RichBlocks {
  pending(){
   let missing=false;const known=new Set(this.registers.entries(this.root('kind')).map(v=>v.key));
   for(const key of known)for(const name of ['attrs','membership','placement'])if(!this.registers.entries(this.root(name),key).length)missing=true;
+  if(this.images)for(const name of imageNames)for(const v of this.registers.entries(this.root(name))){
+   if(!v.present)return fail();
+   if(name==='imageSource')validateRichImageAsset(v.value);else if(!isRichImageSize(v.value))return fail();
+   const kinds=this.registers.entries(this.root('kind'),v.key);
+   if(kinds.length&&(kinds.length!==1||kinds[0].value!=='image'))return fail();
+   const birth=kinds[0];
+   if(!birth||!this.registers.transactionAvailable(birth.txId)||!this.registers.transactionAvailable(v.txId)){missing=true;continue;}
+   if(v.txId!==birth.txId&&!this.registers.ancestors(v.txId).has(birth.txId))return fail();
+  }
   for(const name of ['kind','attrs','membership','placement'])for(const v of this.registers.entries(this.root(name))){
    if(!v.present)return fail();if(!this.registers.transactionAvailable(v.txId))missing=true;
-   if(name==='kind'&&!(['paragraph','heading','bullet-list','ordered-list','list-item','blockquote','toggle',...(this.tables?TABLE_KINDS:[]),...(this.axes?['table-column']:[])] as readonly string[]).includes(v.value as string))return fail();
+   if(name==='kind'&&!(['paragraph','heading','bullet-list','ordered-list','list-item','blockquote','toggle',...(this.tables?TABLE_KINDS:[]),...(this.axes?['table-column']:[]),...(this.images?['image']:[])] as readonly string[]).includes(v.value as string))return fail();
+   if(name==='kind'&&v.value==='image'&&imageNames.some(channel=>!this.registers.entries(this.root(channel),v.key).length))missing=true;
    if(name==='attrs'){
     if(!object(v.value))return fail();
-    if(this.tables){const kinds=this.registers.entries(this.root('kind'),v.key);if(kinds.length&&!kinds.some(kind=>{try{validateRichBlockAttributes(kind.value,v.value,true,this.axes,this.widths);return true;}catch{return false;}}))return fail();}
+    if(this.tables){const kinds=this.registers.entries(this.root('kind'),v.key);if(kinds.length&&!kinds.some(kind=>{if(kind.value==='image')return this.images&&Object.keys(v.value as object).length===0;try{validateRichBlockAttributes(kind.value,v.value,true,this.axes,this.widths);return true;}catch{return false;}}))return fail();}
    }if(name==='membership'&&typeof v.value!=='boolean')return fail();
-   if(name==='placement'){validateRichBlockPlacement(v.value,this.axes);if([v.value.parentId,v.value.afterId].some(ref=>ref!==null&&!known.has(ref)))missing=true;}
+   if(name==='placement'){
+    validateRichBlockPlacement(v.value,this.axes);
+    if(this.images&&this.registers.entries(this.root('kind'),v.key).some(kind=>kind.value==='image')&&(v.value.parentId!==null||v.value.slot!=='body'))return fail();
+    if([v.value.parentId,v.value.afterId].some(ref=>ref!==null&&!known.has(ref)))missing=true;
+   }
   }
   const axisPending=this.axes&&new TableAxisOrder(this).pending();return missing||axisPending;
  }
+}
+
+export function blockBirthWrites(block:RichBlock):Write[]{
+ const image=block.type==='image';
+ const fields={kind:block.type,attrs:image?{}:block.attrs,membership:true,placement:{parentId:block.parentId,slot:block.slot,afterId:block.afterId},
+  ...(image?{imageSource:block.attrs.asset,imageSize:block.attrs.displaySize}:{})};
+ return Object.entries(fields).map(([name,value])=>({name:name as Write['name'],id:block.id,value}));
 }
