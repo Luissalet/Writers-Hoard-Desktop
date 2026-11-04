@@ -1203,6 +1203,14 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### Resize a shared table row (2176)
+
+Use the opt-in `blocks-tree/10` field with schema `writers-blocks/9`. It includes the existing table and image features. **Table layout notebook** provides a ready-to-use example.
+
+In the editor, drag the lower edge of a cell to adjust its row. Escape cancels the preview. Select a cell to set **Row height (px)** or choose **Automatic height**. Content can make a row taller than the configured height.
+
+Through the SDK or MCP, take `richBlockEditCapture(field, [rowId])` and apply `{type: 'rich-table-row-height', field, capture, heightPx: 91}`. Use an integer of at least 24 pixels or `null` for automatic height. A changed height creates one receipt. The capture stays usable through a change of header, and Undo preserves independently authored header and cell content.
+
 ### Toggle a table row header (2174)
 
 In a shared table with editable rows, select any cell and use **Header row** to toggle the first row. The button reports whether the first row is a header.
