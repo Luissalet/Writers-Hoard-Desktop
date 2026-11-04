@@ -1207,7 +1207,7 @@ A semantic copy or era fork creates a fresh checkpoint. When a visible fragment 
 
 Use the opt-in `blocks-tree/11` field with schema `writers-blocks/10`. **Table paste notebook** accepts HTML tables made of paragraphs with the supported inline marks. A paste at the caret grows the table when needed. A rectangular selection repeats or clips the source pattern to the selected cells. Each pasted cell retains its header type, even when its text is empty. The whole paste is one Undo step.
 
-For SDK or MCP, take `richBlockEditCapture(field, [tableId])` and apply `rich-table-paste`. Its `target` contains the current ordered `rows` and `columns` IDs, an `anchor` pair `[rowId, columnId]`, and an optional `head` pair for a selection. The rectangular `matrix` contains cells with `header` and `paragraphs`. Each paragraph is an array of rich text runs. A changed destination or shape invalidates the capture.
+For SDK or MCP, take `richBlockEditCapture(field, [tableId])` and apply `rich-table-paste`. Its `target` contains the current ordered `rows` and `columns` IDs, an `anchor` pair `[rowId, columnId]`, and an optional `head` pair for a selection. The rectangular `matrix` contains cells with `header` and `paragraphs`. Each paragraph is an array of rich text runs. Optional `images` entries contain a local `asset` descriptor, `displaySize`, `alignment`, and `afterParagraph`. Use `-1` for an image before the first paragraph. The editor accepts embedded PNG, JPEG and WebP in the HTML. A changed destination or shape invalidates the capture.
 
 ### Resize a shared table row (2176)
 
@@ -1225,7 +1225,7 @@ Through the SDK or MCP, take a fresh `richBlockEditCapture(field, [rowId])` and 
 
 ### Select a range of table cells (2170)
 
-In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell. Ctrl+C copies the selected cells as plain text and HTML, including headers and empty cells. Ctrl+X copies the same data and clears the selected text in one Undo step. A rectangle containing an image is kept intact. Through the SDK or MCP, a single state batch of `rich-text-splice` actions can clear the captured text ranges in the same way.
+In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell. Ctrl+C copies the selected cells as plain text and HTML, including headers and empty cells. Ctrl+X copies the same data and clears the selected text in one Undo step. Local PNG, JPEG and WebP files are included in the HTML. If an image is unavailable or the clipboard write fails, the selection stays intact. Through the SDK or MCP, a single state batch of `rich-text-splice` actions can clear the captured text ranges in the same way.
 
 ### Images inside shared table cells (2167)
 
