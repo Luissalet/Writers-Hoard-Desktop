@@ -2,12 +2,13 @@ import {convergenceClone,convergenceCanonical,assertConvergenceIdentity} from '.
 import type {LocalToolConvergenceIdentity} from './types';
 import type {RichBlockDocument,RichBlockBindings,RichBlockBinding,RichBlock} from './blockFormat';
 import {validateRichBlockDocument} from './blockFormat';
-import type {RichBlocks,RichBlockPlan} from './blocks';
+import {blockBirthWrites,type RichBlocks,type RichBlockPlan} from './blocks';
 import type {RichAction,RichMark} from './richTypes';
 import type {RichBlockEditCapture} from './blockEditingTypes';
 import {validTableColumnWidth,type RichTableAxis} from './tableAxesFormat';
 import {TableAxisOrder,type TableAxisEntry,type TableAxisInsertion} from './tableAxisOrder';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
+import {validateRichImageAsset,type RichImageAsset} from './imageFormat';
 export interface RichTableAxisCapture {format:'writers-hoard-table-axis/1';identity:LocalToolConvergenceIdentity;field:string;tableId:string;axis:RichTableAxis;table:RichBlockBinding;anchor:TableAxisEntry|null;frontier:string[]}
 export interface RichTableCellCapture {format:'writers-hoard-table-cell/1';identity:LocalToolConvergenceIdentity;field:string;tableId:string;rowId:string;columnId:string;afterId:string|null;bindings:RichBlockBinding[];frontier:string[]}
 export interface RichTableColumnWidthCapture {
@@ -23,8 +24,8 @@ export interface RichTableColumnWidthCapture {
  frontier:string[];
 }
 export type RichTableCreateAction={type:'rich-table-create';field:string;capture:RichBlockEditCapture;table:{id:string;rows:{id:string;header:boolean}[];columns:{id:string}[]}};
-export type RichTableAxesAction={type:'rich-table-axis-insert';field:string;capture:RichTableAxisCapture;id:string;header?:boolean}|{type:'rich-table-axis-hide';field:string;capture:RichTableAxisCapture}|{type:'rich-table-cell-insert';field:string;capture:RichTableCellCapture;fragment:{id:string;paragraph:{id:string;text:string;marks?:RichMark[];link?:{href:string}}}}|{type:'rich-table-column-width';field:string;capture:RichTableColumnWidthCapture;widthPx:number|null};
-export const isTableAxesAction=(action:{type:string}):action is RichTableAxesAction=>['rich-table-axis-insert','rich-table-axis-hide','rich-table-cell-insert','rich-table-column-width'].includes(action.type);
+export type RichTableAxesAction={type:'rich-table-axis-insert';field:string;capture:RichTableAxisCapture;id:string;header?:boolean}|{type:'rich-table-axis-hide';field:string;capture:RichTableAxisCapture}|{type:'rich-table-cell-insert';field:string;capture:RichTableCellCapture;fragment:{id:string;paragraph:{id:string;text:string;marks?:RichMark[];link?:{href:string}}}}|{type:'rich-table-cell-image-insert';field:string;capture:RichTableCellCapture;fragmentId:string;id:string;asset:RichImageAsset}|{type:'rich-table-column-width';field:string;capture:RichTableColumnWidthCapture;widthPx:number|null};
+export const isTableAxesAction=(action:{type:string}):action is RichTableAxesAction=>['rich-table-axis-insert','rich-table-axis-hide','rich-table-cell-insert','rich-table-cell-image-insert','rich-table-column-width'].includes(action.type);
 const fail=():never=>{throw Error('local_tool_table_axes_action_invalid');};
 const same=(a:unknown,b:unknown)=>convergenceCanonical(a)===convergenceCanonical(b);
 function table(source:RichBlocks,data:RichBlockDocument,tableId:string){if(!source.axes||!data.blocks.some(b=>b.id===tableId&&b.type==='table'))return fail();return data.axisOrder?.find(o=>o.tableId===tableId)??fail();}
@@ -69,7 +70,7 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
  const result:RichBlockPlan&{textActions:RichAction[]}={data:convergenceClone(data),bindings:convergenceClone(bindings),writes:[],axisInserts:[],textActions:[]};
  const put=(block:RichBlock)=>{
   if(typeof block.id!=='string'||!block.id||source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))fail();
-  result.data.blocks.push(block);for(const[name,value]of Object.entries({kind:block.type,attrs:block.attrs,membership:true,placement:{parentId:block.parentId,slot:block.slot,afterId:block.afterId}}))result.writes.push({name:name as RichBlockPlan['writes'][number]['name'],id:block.id,value});
+  result.data.blocks.push(block);result.writes.push(...blockBirthWrites(block,source.alignment));
  };
  const axis=(tableId:string,dimension:RichTableAxis,id:string,header:boolean,anchor:Pick<TableAxisEntry,'id'|'node'>|null)=>{
   put({id,type:dimension==='rows'?'table-row':'table-column',attrs:dimension==='rows'?{header}:{},parentId:tableId,slot:dimension==='rows'?'body':'columns',afterId:null});
@@ -112,12 +113,19 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
  }else{
   const c=action.capture,order=table(source,data,c.tableId);if(!order.rows.includes(c.rowId)||!order.columns.includes(c.columnId))fail();
   const now=cellWitness(source,data,bindings,c.tableId,c.rowId,c.columnId,c.afterId);if(!sameTableCellBindings(now,c.bindings,source.widths?c.columnId:undefined))fail();
+  if(action.type==='rich-table-cell-image-insert'){
+   if(!source.imageCells||Object.keys(action).length!==6)return fail();
+   validateRichImageAsset(action.asset,source.rasterFormats);
+   put({id:action.fragmentId,type:'table-cell',attrs:{columnId:c.columnId},parentId:c.rowId,slot:'body',afterId:c.afterId});
+   put({id:action.id,type:'image',attrs:{asset:convergenceClone(action.asset),displaySize:'medium',alignment:'left'},parentId:action.fragmentId,slot:'body',afterId:null});
+  }else{
   const fragment=convergenceClone(action.fragment),p=fragment?.paragraph;if(!fragment||Object.keys(fragment).length!==2||!p||Object.keys(p).some(k=>!['id','text','marks','link'].includes(k))||typeof p.text!=='string'||p.marks!==undefined&&!Array.isArray(p.marks))fail();
   const href=p.link===undefined?undefined:p.link&&Object.keys(p.link).length===1&&typeof p.link.href==='string'?normalizeEditorLinkHref(p.link.href):null;if(p.link!==undefined&&!href)fail();
   const marks=[...(p.marks??[]).map(type=>({type})),...(href?[{type:'link' as const,attrs:{href}}]:[])];
   put({id:fragment.id,type:'table-cell',attrs:{columnId:c.columnId},parentId:c.rowId,slot:'body',afterId:c.afterId});
   put({id:p.id,type:'paragraph',attrs:{},parentId:fragment.id,slot:'body',afterId:null,content:p.text?[{type:'text',text:p.text,...(marks.length?{marks}:{})}]:[]});
   result.textActions.push({type:'rich-insert-paragraph',field:action.field,id:p.id,afterId:lastLeaf,text:p.text,...(p.marks?{marks:p.marks}:{}),...(href?{link:{href}}:{})});
+  }
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells);return result;
 }

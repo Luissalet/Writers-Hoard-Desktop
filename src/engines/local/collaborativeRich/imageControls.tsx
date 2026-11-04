@@ -6,6 +6,9 @@ import {useLayoutEffect,useRef,useState} from 'react';
 import {isRichImageAlignment,isRichImageSize,validateRichImageAsset,type RichImageAlignment,type RichImageAsset,type RichImageSize} from '../convergence/imageFormat';
 import type {RichBlockEditingAction} from '../convergence/blockEditingTypes';
 import type {RichImageEditAction} from '../convergence/imageEditing';
+import type {RichTableAxesAction} from '../convergence/tableAxesEditing';
+import {tableCellFragmentId} from '../convergence/tableAxesFormat';
+import {axisCellAtPosition} from './blockProsemirror';
 import type {RichEditorSession} from './session';
 import {RichImage} from './RichImage';
 import {MAX_MEDIA_BYTES} from '../../media/types';
@@ -27,7 +30,7 @@ export function richImageNode(session:RichEditorSession,es:boolean){
 }
 
 function selectBlock(view:EditorView,id:string,atom:boolean){
- let pos:number|undefined;view.state.doc.forEach((node,offset)=>{if(node.attrs.id===id)pos=offset;});
+ let pos:number|undefined;view.state.doc.descendants((node,offset)=>{if(node.attrs.id===id){pos=offset;return false;}});
  if(pos!==undefined)view.dispatch(view.state.tr.setSelection(atom?NodeSelection.create(view.state.doc,pos):TextSelection.create(view.state.doc,pos+1)).setMeta('addToHistory',false).scrollIntoView());
 }
 
@@ -41,11 +44,14 @@ export function richImageKey(session:RichEditorSession,view:EditorView,key:strin
  if(key==='Backspace'||key==='Delete')return removeImage(session,afterId);
  if(key!=='Enter')return false;
  const id=crypto.randomUUID(),field=session.field;
- if(session.applyBatch([{type:'rich-block-insert',field,capture:session.replica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId}),block:{id,type:'paragraph',attrs:{}},text:''}]))selectBlock(view,id,false);
+ const cell=session.imageCells?axisCellAtPosition(view.state.doc,image.from):null;
+ const action=cell?{type:'rich-table-cell-insert' as const,field,capture:session.replica.richTableCellCapture(field,...cell,tableCellFragmentId(session.blockDocument(),afterId)),fragment:{id:crypto.randomUUID(),paragraph:{id,text:''}}}:
+  {type:'rich-block-insert' as const,field,capture:session.replica.richBlockEditCapture(field,[],{parentId:null,slot:'body' as const,afterId}),block:{id,type:'paragraph' as const,attrs:{}},text:''};
+ if(session.applyBatch([action]))selectBlock(view,id,false);
  return true;
 }
 
-type FileAction=(asset:RichImageAsset)=>RichBlockEditingAction|RichImageEditAction;
+type FileAction=(asset:RichImageAsset)=>RichBlockEditingAction|RichImageEditAction|Extract<RichTableAxesAction,{type:'rich-table-cell-image-insert'}>;
 export function ImageControls({session,editor,readOnly,es,button}:{session:RichEditorSession;editor:Editor|null;readOnly:boolean;es:boolean;button:string}){
  const selected=useEditorState({editor,selector:({editor:current})=>{
   if(!current)return null;
@@ -67,9 +73,18 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
    let action:FileAction;
    if(replace){const image=selectedImage(view);if(!image)return;const capture=replica.richImageCapture(field,String(image.node.attrs.id),'source');action=asset=>({type:'rich-image-replace',field,capture,asset});}
    else{
-    const {$from}=view.state.selection,root=$from.depth?$from.node(1):$from.nodeAfter;
-    const afterId=typeof root?.attrs.id==='string'?root.attrs.id:null,id=crypto.randomUUID();
-    const capture=replica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId});action=asset=>({type:'rich-image-insert',field,id,capture,asset});
+    const {$from,$to}=view.state.selection,id=crypto.randomUUID();
+    const cell=session.imageCells?axisCellAtPosition(view.state.doc,$from.pos):null;
+    if(session.imageCells&&JSON.stringify(cell)!==JSON.stringify(axisCellAtPosition(view.state.doc,$to.pos))&&!(view.state.selection instanceof NodeSelection))throw Error('local_tool_image_cell_selection');
+    if(cell){
+     const target=selectedImage(view)?.node.attrs.id??$from.parent.attrs.id;
+     const afterId=typeof target==='string'?tableCellFragmentId(session.blockDocument(),target):null;
+     const capture=replica.richTableCellCapture(field,...cell,afterId),fragmentId=crypto.randomUUID();
+     action=asset=>({type:'rich-table-cell-image-insert',field,id,fragmentId,capture,asset});
+    }else{
+     const root=$from.depth?$from.node(1):$from.nodeAfter,afterId=typeof root?.attrs.id==='string'?root.attrs.id:null;
+     const capture=replica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId});action=asset=>({type:'rich-image-insert',field,id,capture,asset});
+    }
    }
    request.current={action,assets};setError('');input.current?.click();
   }catch{failure();}
@@ -87,7 +102,7 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
    const {sha256,mime,size}=await pending.assets.import(file,'image'),asset={sha256,mime,size};validateRichImageAsset(asset,session.imageRaster);
    if(!live.current||editor.isDestroyed||!session.editable||session.assets!==pending.assets)return;
    const action=pending.action(asset);if(!session.applyBatch([action])){failure();return;}
-   if(action.type==='rich-image-insert')selectBlock(editor.view,action.id,true);
+   if(action.type==='rich-image-insert'||action.type==='rich-table-cell-image-insert')selectBlock(editor.view,action.id,true);
   }catch{if(live.current)failure();}finally{if(live.current)setBusy(false);}
  };
  const control=(size?:RichImageSize)=>{

@@ -24,7 +24,7 @@ export function useRichProseHostContext(context:LocalToolHostContext,client:Loca
   const descriptor=canonical?.fields[props.field];if(props.client!==client||descriptor?.kind!=='prose'||descriptor.format!=='rich')return <p role="status">{props.context?.canEdit?'Rich prose is not declared for this field.':'Rich prose is read only.'}</p>;
   return <RichProseEditor key={binding.id+':'+props.field} {...props} readOnly={!canEdit}/>;
  },renderCollaborativeRich:(props:LocalToolCollaborativeRichProps)=>{
-  const descriptor=canonical?.fields[props.field];if(props.client!==client||!definition||!documentId||descriptor?.kind!=='rich'||!['paragraphs-inline/1','blocks-tree/1','paragraphs-inline/2','blocks-tree/2','blocks-tree/3','blocks-tree/4','blocks-tree/5','blocks-tree/6','blocks-tree/7','blocks-tree/8'].includes(descriptor.profile))return <p role="status">Collaborative rich text is not declared for this Source field.</p>;
+  const descriptor=canonical?.fields[props.field];if(props.client!==client||!definition||!documentId||descriptor?.kind!=='rich'||!['paragraphs-inline/1','blocks-tree/1','paragraphs-inline/2','blocks-tree/2','blocks-tree/3','blocks-tree/4','blocks-tree/5','blocks-tree/6','blocks-tree/7','blocks-tree/8','blocks-tree/9'].includes(descriptor.profile))return <p role="status">Collaborative rich text is not declared for this Source field.</p>;
   return <CollaborativeRichRenderer key={binding.id+':collaborative:'+props.field} {...props} definition={definition} readOnly={!canEdit||props.editable===false}/>;
  }};},[binding,codecText,view,canEdit,projectId,eraId,documentId,namespace,title,client,definition]);
 }

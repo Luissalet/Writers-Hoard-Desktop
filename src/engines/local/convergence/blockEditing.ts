@@ -95,5 +95,5 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
  if(source.axes&&action.type==='rich-block-hide')result.data.axisOrder=result.data.axisOrder!.filter(o=>result.data.blocks.some(b=>b.id===o.tableId));
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells);return result;
 }
