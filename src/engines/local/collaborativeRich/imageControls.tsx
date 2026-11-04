@@ -17,14 +17,14 @@ import {SOURCE_RASTER_MIMES} from '../../../services/sourceRasterFormat';
 
 const selectedImage=(view:EditorView)=>{const {selection}=view.state;return selection instanceof NodeSelection&&selection.node.type.name==='richImage'?selection:null;};
 
-// The document only carries a descriptor. Pasted HTML cannot create a Source image.
+// The document carries a descriptor. A table clipboard action resolves its bytes explicitly.
 // eslint-disable-next-line react-refresh/only-export-components
 export function richImageNode(session:RichEditorSession,es:boolean){
  return Node.create({name:'richImage',atom:true,selectable:true,isolating:true,
   addAttributes(){return{id:{default:null,rendered:false},asset:{default:null,rendered:false},displaySize:{default:'medium',rendered:false},...(session.imageAlignment?{alignment:{default:'left',rendered:false}}:{})};},
   renderHTML(){return['figure',{'data-writer-rich-image':''}];},
   addNodeView(){return ReactNodeViewRenderer(({node,selected})=><NodeViewWrapper contentEditable={false} className={selected?'outline outline-2 outline-accent-gold rounded':''}>
-   <RichImage assets={session.assets} id={node.attrs.id} asset={node.attrs.asset} displaySize={node.attrs.displaySize} alignment={node.attrs.alignment} es={es}/>
+   <RichImage assets={session.assets} id={node.attrs.id} asset={node.attrs.asset} displaySize={node.attrs.displaySize} alignment={node.attrs.alignment} es={es} clipboard={session.imageCells}/>
   </NodeViewWrapper>);},
  });
 }

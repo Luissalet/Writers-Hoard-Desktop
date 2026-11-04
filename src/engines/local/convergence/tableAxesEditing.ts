@@ -121,14 +121,24 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
     const marker:RichBlock={id,type:'table-cell-style',attrs:{columnId,header:cell.header},parentId:rowId,slot:'body',afterId:null};
     result.data.blocks.push(marker);result.writes.push(...blockBirthWrites(marker,source.alignment));
    }
-   if(!cell.paragraphs.some(content=>content.length))continue;
+   if(!cell.images?.length&&!cell.paragraphs.some(content=>content.length))continue;
    const fragmentId=crypto.randomUUID();
    put({id:fragmentId,type:'table-cell',attrs:{columnId},parentId:rowId,slot:'body',afterId:null});
    let afterId:string|null=null;
-   for(const content of cell.paragraphs){
+   let imageIndex=0;
+   const putImages=(afterParagraph:number)=>{
+    while(cell.images?.[imageIndex]?.afterParagraph===afterParagraph){
+     const {asset,displaySize,alignment}=cell.images[imageIndex++],id=crypto.randomUUID();
+     put({id,type:'image',attrs:{asset:convergenceClone(asset),displaySize,alignment},parentId:fragmentId,slot:'body',afterId});
+     afterId=id;
+    }
+   };
+   putImages(-1);
+   for(const [index,content] of cell.paragraphs.entries()){
     const id=crypto.randomUUID(),copy=convergenceClone(content);
     put({id,type:'paragraph',attrs:{},parentId:fragmentId,slot:'body',afterId,content:copy});
     paragraphs.push({id,type:'paragraph',content:copy});afterId=id;
+    putImages(index);
    }
   }
   result.pasteParagraphs=paragraphs;

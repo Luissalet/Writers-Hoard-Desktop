@@ -75,8 +75,9 @@ export async function testSourceTableCut(){
 
   await select('R2','C2');
   const imageClipboard=new DataTransfer();
+  Object.defineProperty(imageClipboard,'setData',{value:()=>{}});
   await cut(imageClipboard);
-  equal('A rectangle with an image leaves all content and clipboard intact',[contents(),Array.from(imageClipboard.types),button('Undo')?.disabled],[originalCells,[],true]);
+  equal('A failed clipboard write keeps the image and the rest of the rectangle intact',[contents(),Array.from(imageClipboard.types),button('Undo')?.disabled],[originalCells,[],true]);
   await select('R1','C2');
   await cut();
   const unwritable=new DataTransfer();
