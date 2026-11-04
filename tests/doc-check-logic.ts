@@ -1,6 +1,6 @@
 // Logic gate for the Markdown document check:  node scripts/run-doc-check-tests.mjs
 import assert from 'node:assert/strict';
-import { checkMarkdownDoc, checkMarkdownCorpus, DOC_KINDS, RULES } from '@/engines/docCheck';
+import { checkMarkdownDoc, checkMarkdownCorpus, DOC_KINDS, RULES } from '@/engines/docCheck/checker';
 
 const FACT = 'The export dialog remembers the last folder the author chose and offers it again on the next export.';
 const codes = (markdown: string, options = {}) => checkMarkdownDoc({ markdown }, options).diagnostics.map(d => d.rule);

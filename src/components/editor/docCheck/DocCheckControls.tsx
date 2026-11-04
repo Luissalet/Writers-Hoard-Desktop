@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import type { Editor } from '@tiptap/core';
 import { ClipboardCheck, ChevronDown } from 'lucide-react';
-import { checkMarkdownDoc, DOC_KINDS, type DocCheckReport, type DocKind } from '@/engines/docCheck';
+import { checkMarkdownDoc, DOC_KINDS, type DocCheckReport, type DocKind } from '@/engines/docCheck/checker';
 import { htmlToMarkdown } from '@/engines/writings/manuscriptExport';
 
 const KINDS = DOC_KINDS.filter(kind => kind !== 'generated');

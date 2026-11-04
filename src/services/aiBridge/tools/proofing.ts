@@ -1,7 +1,7 @@
 import { checkDocument, applySuggestion, type ProofingFinding } from '@/engines/writings/proofing';
 import { loadPersonalWords, editPersonalWord } from '@/services/proofing/dictionary';
 import { createWritingEditor, writingForEditorial, persistEditorialWriting } from './editorialDocument';
-import { checkMarkdownDoc, DOC_KINDS, type DocInput, type DocKind } from '@/engines/docCheck';
+import { checkMarkdownDoc, DOC_KINDS, type DocInput, type DocKind } from '@/engines/docCheck/checker';
 import { getWritings } from '@/engines/writings/operations';
 import { BridgeError, markdownFromHtml, optBoolean, optString, optStringArray, requireString, type ToolArgs } from './shared';
 export async function whCheckWritingLanguage(args: ToolArgs) {
