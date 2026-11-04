@@ -1,6 +1,7 @@
 import {tableCellOf} from '../convergence/tableFormat';
 import {isTableAxesSchema,isTableWidthsSchema} from '../convergence/tableAxesFormat';
 import {tableAxesRows,tableWidthStyle,type TableColumnLayout} from './tableAxesLayout';
+import {restoreSourceCellSelection,sourceCellSelectionEnds} from './tableCellSelection';
 import {Node,mergeAttributes} from '@tiptap/core';
 import type {Node as PMNode,Schema} from '@tiptap/pm/model';
 import {NodeSelection,Selection,TextSelection,type Transaction,type EditorState} from '@tiptap/pm/state';
@@ -46,10 +47,18 @@ export function blockBookmark(session:RichEditorSession,doc:PMNode,anchor:number
 export function projectBlockView(session:RichEditorSession,tr:Transaction,bookmark:BlockBookmark,restoreSelection=false):Transaction {
  const target=blockPMDocument(tr.doc.type.schema,session.blockDocument()),from=tr.doc.content.findDiffStart(target.content),oldAnchor=tr.selection.anchor,oldHead=tr.selection.head,stored=tr.storedMarks;
  const selected=tr.selection instanceof NodeSelection&&tr.selection.node.type.name==='richImage'?tr.selection.node.attrs.id:undefined;
+ const cellEnds=sourceCellSelectionEnds(tr.selection);
  if(from!==null){const end=tr.doc.content.findDiffEnd(target.content);if(!end)throw Error('local_tool_blocks_projection_invalid');const overlap=from-Math.min(end.a,end.b);tr.replace(from,end.a+Math.max(0,overlap),target.slice(from,end.b+Math.max(0,overlap)));}
  const resolve=(point:RichRange|null,fallback:number,address?:string)=>{if(point){const effective=session.replica.resolveRichPoint(point);if(!effective.detached){const leaf=blockPMLeaves(tr.doc).find(n=>n.id===effective.nodeId);if(leaf)return leaf.pos+1+Math.min(effective.offset,leaf.node.content.size);}}
   if(address){const leaves=blockPMLeaves(tr.doc),cell=leaves.find(n=>JSON.stringify(axisCellAtPosition(tr.doc,n.pos+1))===address);if(cell)return cell.pos+1;const exterior=leaves.find(n=>!axisCellAtPosition(tr.doc,n.pos+1));if(exterior)return exterior.pos+1;}return tr.mapping.map(fallback);};
- if(tr.docChanged||restoreSelection){const a=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.anchor,oldAnchor,bookmark.axisAnchor))),h=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.head,oldHead,bookmark.axisHead)));let imagePos:number|undefined;if(selected)tr.doc.descendants((node,pos)=>{if(node.type.name==='richImage'&&node.attrs.id===selected)imagePos=pos;});tr.setSelection(imagePos!==undefined?NodeSelection.create(tr.doc,imagePos):session.images&&!blockPMLeaves(tr.doc).length?Selection.near(tr.doc.resolve(a)):TextSelection.between(tr.doc.resolve(a),tr.doc.resolve(h)));}
+ if(tr.docChanged||restoreSelection){
+  const a=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.anchor,oldAnchor,bookmark.axisAnchor))),h=Math.max(0,Math.min(tr.doc.content.size,resolve(bookmark.head,oldHead,bookmark.axisHead)));
+  if(cellEnds)tr.setSelection(restoreSourceCellSelection(tr.doc,cellEnds)??Selection.near(tr.doc.resolve(a)));
+  else{
+   let imagePos:number|undefined;if(selected)tr.doc.descendants((node,pos)=>{if(node.type.name==='richImage'&&node.attrs.id===selected)imagePos=pos;});
+   tr.setSelection(imagePos!==undefined?NodeSelection.create(tr.doc,imagePos):session.images&&!blockPMLeaves(tr.doc).length?Selection.near(tr.doc.resolve(a)):TextSelection.between(tr.doc.resolve(a),tr.doc.resolve(h)));
+  }
+ }
  return tr.setStoredMarks(stored).setMeta(RICH_INTERNAL,true).setMeta('preventClearDocument',true).setMeta('addToHistory',false);
 }
 export type BlockFormat='paragraph'|'h1'|'h2'|'h3'|'bullet-list'|'ordered-list'|'blockquote'|'toggle'|'unwrap';
@@ -123,7 +132,7 @@ export function blockNodes(collapsed:Set<string>,tables=false,axes=false,widths=
      ['colgroup',...columns.map(({columnId,widthPx})=>['col',{'data-writer-column':columnId,...(widthPx===null?{}:{style:`width:${widthPx}px`})}])],['tbody',0]];
    }}),
    ordinary('tableRow','tr','(tableCell|tableHeader)+'),
-   ...(['tableCell','tableHeader']as const).map(name=>Node.create({name,content:imageCells?'(block|richImage)+':'block+',isolating:true,addAttributes(){return{...attributes,columnId:{default:null},...(axes?{cellAddress:{default:null,parseHTML:()=>null,renderHTML:(attrs:Record<string,unknown>)=>attrs.cellAddress?{'data-writer-cell-address':attrs.cellAddress}:{}}}:{})};},parseHTML(){return[{tag:name==='tableCell'?'td':'th'}];},renderHTML({HTMLAttributes}){return[name==='tableCell'?'td':'th',mergeAttributes({class:'min-w-12 border border-border p-2 align-top'+(name==='tableHeader'?' bg-elevated font-semibold':'')},HTMLAttributes),0];}})),
+   ...(['tableCell','tableHeader']as const).map(name=>Node.create({name,content:imageCells?'(block|richImage)+':'block+',isolating:true,addAttributes(){return{...attributes,columnId:{default:null},...(axes?{colspan:{default:1,rendered:false},rowspan:{default:1,rendered:false},colwidth:{default:null,rendered:false},cellAddress:{default:null,parseHTML:()=>null,renderHTML:(attrs:Record<string,unknown>)=>attrs.cellAddress?{'data-writer-cell-address':attrs.cellAddress}:{}}}:{})};},parseHTML(){return[{tag:name==='tableCell'?'td':'th'}];},renderHTML({HTMLAttributes}){return[name==='tableCell'?'td':'th',mergeAttributes({class:'min-w-12 border border-border p-2 align-top'+(name==='tableHeader'?' bg-elevated font-semibold':'')},HTMLAttributes),0];}})),
   ]:[]),
   ordinary('bulletList','ul','listItem*'),ordinary('orderedList','ol','listItem*',{start:{default:1}}),ordinary('listItem','li','block*'),ordinary('blockquote','blockquote','block*'),
   Node.create({name:'blockSummary',content:'inline*',addAttributes(){return{...attributes,leafKind:{default:'paragraph'},level:{default:1}};},parseHTML(){return[{tag:'summary'}];},renderHTML({HTMLAttributes}){return['summary',mergeAttributes(HTMLAttributes),0];}}),
