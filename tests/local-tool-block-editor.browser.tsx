@@ -89,6 +89,22 @@ export async function testBlockEditor(){
    equal('caret-paste-persists',leaves().map(n=>n.node.textContent),['NueMedio A Ω','Medio B 🙂vo A Ω','Nuevo B 🙂']);
    equal('caret-paste-persists-marks',[runs(0),runs(1)],[[['NueMedio A Ω',['bold']]],[['Medio B 🙂',['italic']],['vo A Ω',['bold']]]]);
   }
+  {
+   // Plain target: marks of the pasted runs must stay on the pasted text only, not leak into the prefix or suffix.
+   const leaves=()=>blockPMLeaves(editor!.state.doc);
+   const plain=new DataTransfer();plain.setData('text/html','<p>Antes Ω🙂</p><p>Despues</p>');plain.setData('text/plain','Antes Ω🙂\nDespues');
+   await act(async()=>{const view=editor!.view;view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:plain}));});await tick();
+   equal('plain-target-ready',leaves().map(n=>n.node.textContent),['Antes Ω🙂','Despues']);
+   const runs=(index:number)=>{const out:[string,string[]][]=[];leaves()[index].node.forEach(child=>out.push([child.text??'',child.marks.map(mark=>mark.type.name).sort()]));return out;};
+   const marked=new DataTransfer();marked.setData('text/html','<p><strong>Medio A Ω</strong></p><p><em>Medio B 🙂</em></p>');marked.setData('text/plain','Medio A Ω\nMedio B 🙂');
+   await select(leaves()[0].id!,3);
+   await act(async()=>{editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked}));});await tick();
+   equal('plain-target-text',leaves().map(n=>n.node.textContent),['AntMedio A Ω','Medio B 🙂es Ω🙂','Despues']);
+   equal('plain-target-prefix-stays-plain',runs(0),[['Ant',[]],['Medio A Ω',['bold']]]);
+   equal('plain-target-suffix-stays-plain',runs(1),[['Medio B 🙂',['italic']],['es Ω🙂',[]]]);
+   equal('plain-target-untouched-paragraph',runs(2),[['Despues',[]]]);
+   await click('Undo');equal('plain-target-one-Undo',leaves().map(n=>n.node.textContent),['Antes Ω🙂','Despues']);
+  }
   await mount(true);await wait(()=>editor?.isEditable===false,'readonly');const readonlyBefore=await client.convergence!.export();await act(async()=>{editor!.commands.insertContent('forbidden');});await tick();equal('readonly-no-doc-edit',(await client.convergence!.export()).checkpoint,readonlyBefore.checkpoint);equal('readonly-format-disabled',button('H1').disabled,true);
  }finally{peer?.destroy();await act(async()=>root.unmount());element.remove();useLocaleStore.setState({locale});}
  return checks;

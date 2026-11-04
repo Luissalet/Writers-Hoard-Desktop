@@ -45,11 +45,16 @@ export async function testSourceFigures(){
   equal('retained source is the exact figure text',source.ok&&source.result,{available:true,source:text});
   const plain=await runBridgeTool('wh_local_figure_source',{...scope,asset:{sha256:'0'.repeat(64)}});
   equal('ordinary image has no source',plain.ok&&plain.result,{available:false});
+  const newer=JSON.stringify({...figure,revision:4});
+  const update=await runBridgeTool('wh_local_figure_import',{...scope,figure:newer});
+  equal('same capture with a newer revision imports',update.ok&&(update.result as {revision:number}).revision,4);
+  const latest=await runBridgeTool('wh_local_figure_source',{...scope,asset:result.asset});
+  equal('update figure returns the newest source for the same capture',latest.ok&&latest.result,{available:true,source:newer});
   const saved=await convergence.export(),zip=await createProjectZipArchive(projectId);
   await importProjectZip(new File([zip.blob],'figures.zip'),{replaceProjectIds:[projectId]});db.close();await db.open();
   equal('cold ZIP keeps checkpoint',(await convergence.export()).checkpoint,saved.checkpoint);
   const cold=await runBridgeTool('wh_local_figure_source',{...scope,asset:result.asset});
-  equal('cold ZIP keeps the figure source',cold.ok&&cold.result,{available:true,source:text});
+  equal('cold ZIP keeps the figure source',cold.ok&&cold.result,{available:true,source:newer});
   return checks;
  }finally{await deleteProject(projectId);}
 }
