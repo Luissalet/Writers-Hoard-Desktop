@@ -8,12 +8,23 @@ import {prepareBrowserAssetFile,storeAssetFile} from './assetFiles';
 import {assetBytes,assetBase64,assetFileInfo,assetFileHash,isLocalAssetFileKind} from './assetFileFormat';
 import {assetAccepts,assetSlot} from './assets';
 import type {RichImageAsset} from './convergence/imageFormat';
+import {importPortableFigure,findFigureSource} from '@/services/figureInterchange/retain';
 export const LOCAL_ASSET_HANDLERS={
  async wh_local_asset_file_import(args:ToolArgs){
   const file=args.file as {name?:unknown;kind?:unknown;mime?:unknown;base64?:unknown}|undefined;
   if(!file||typeof file.name!=='string'||typeof file.mime!=='string'||typeof file.base64!=='string'||!isLocalAssetFileKind(file.kind))throw Error('local_asset_import_args_invalid');
   const scoped=await client(args,false);
   return scoped.assets.import(new File([assetBytes(file.base64)],file.name,{type:file.mime}),file.kind);
+ },
+ async wh_local_figure_import(args:ToolArgs){
+  const scoped=await client(args,false);
+  return importPortableFigure(scoped.assets,args.figure);
+ },
+ async wh_local_figure_source(args:ToolArgs){
+  const scoped=await client(args,true),asset=args.asset as {sha256?:unknown}|undefined;
+  if(!asset||typeof asset.sha256!=='string'||!/^[a-f0-9]{64}$/.test(asset.sha256))throw Error('local_asset_import_args_invalid');
+  const source=await findFigureSource(scoped.assets,{sha256:asset.sha256});
+  return source===null?{available:false}:{available:true,source};
  },
  async wh_local_asset_image_find(args:ToolArgs){
   const scoped=await client(args,true),descriptor=args.asset as RichImageAsset,image=await scoped.assets.resolveImage(descriptor);

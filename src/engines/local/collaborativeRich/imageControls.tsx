@@ -2,7 +2,9 @@ import {Node} from '@tiptap/core';
 import {NodeViewWrapper,ReactNodeViewRenderer,useEditorState,type Editor} from '@tiptap/react';
 import {NodeSelection,TextSelection} from '@tiptap/pm/state';
 import type {EditorView} from '@tiptap/pm/view';
-import {useLayoutEffect,useRef,useState} from 'react';
+import {useEffect,useLayoutEffect,useRef,useState} from 'react';
+import {importPortableFigure,findFigureSource} from '../../../services/figureInterchange/retain';
+import {FigureImportError} from '../../../services/figureInterchange/index';
 import {isRichImageAlignment,isRichImageSize,validateRichImageAsset,type RichImageAlignment,type RichImageAsset,type RichImageSize} from '../convergence/imageFormat';
 import type {RichBlockEditingAction} from '../convergence/blockEditingTypes';
 import type {RichImageEditAction} from '../convergence/imageEditing';
@@ -57,16 +59,28 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
   if(!current)return null;
   const image=selectedImage(current.view);if(!image)return null;
   const {id,displaySize,alignment}=image.node.attrs;
-  return {id:String(id),size:displaySize as RichImageSize,alignment:isRichImageAlignment(alignment)?alignment:undefined};
+  return {id:String(id),size:displaySize as RichImageSize,alignment:isRichImageAlignment(alignment)?alignment:undefined,sha:typeof image.node.attrs.asset?.sha256==='string'?image.node.attrs.asset.sha256 as string:''};
  }});
- const input=useRef<HTMLInputElement>(null),request=useRef<{action:FileAction;assets:NonNullable<RichEditorSession['assets']>}|undefined>(undefined),live=useRef(false);
- const [busy,setBusy]=useState(false),[error,setError]=useState('');
+ const input=useRef<HTMLInputElement>(null),figureInput=useRef<HTMLInputElement>(null),request=useRef<{action:FileAction;assets:NonNullable<RichEditorSession['assets']>;figure?:boolean}|undefined>(undefined),live=useRef(false);
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[figureSource,setFigureSource]=useState<{sha:string;text:string}|null>(null);
+ const selectedSha=selected?.sha??'',assetsPort=session.assets;
+ useEffect(()=>{
+  let active=true;
+  if(!selectedSha||!assetsPort){void Promise.resolve().then(()=>{if(active)setFigureSource(null);});return()=>{active=false;};}
+  void findFigureSource(assetsPort,{sha256:selectedSha}).then(text=>{if(active)setFigureSource(text===null?null:{sha:selectedSha,text});},()=>{if(active)setFigureSource(null);});
+  return()=>{active=false;};
+ },[selectedSha,assetsPort]);
+ const downloadFigure=()=>{
+  if(!figureSource||figureSource.sha!==selectedSha)return;
+  const url=URL.createObjectURL(new Blob([figureSource.text],{type:'application/json'})),link=document.createElement('a');
+  link.href=url;link.download=`figure-${selectedSha.slice(0,12)}.vfigure`;link.click();setTimeout(()=>URL.revokeObjectURL(url),0);
+ };
  useLayoutEffect(()=>{live.current=true;return()=>{live.current=false;request.current=undefined;};},[session,editor]);
  const disabled=!editor||readOnly||!session.editable||!session.assets||busy;
  const failure=()=>setError(session.imageRaster
   ?(es?'No se pudo usar la imagen. Elige un PNG, JPEG o WebP válido.':'Could not use the image. Choose a valid PNG, JPEG or WebP.')
   :(es?'No se pudo usar el PNG. Comprueba el archivo y vuelve a intentarlo.':'Could not use the PNG. Check the file and try again.'));
- const choose=(replace:boolean)=>{
+ const choose=(replace:boolean,figure=false)=>{
   if(disabled||!editor||!session.assets)return;
   const {field,replica,assets}=session,view=editor.view;
   try{
@@ -86,7 +100,7 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
      const capture=replica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId});action=asset=>({type:'rich-image-insert',field,id,capture,asset});
     }
    }
-   request.current={action,assets};setError('');input.current?.click();
+   request.current={action,assets,figure};setError('');(figure?figureInput:input).current?.click();
   }catch{failure();}
  };
  const importFile=async(file:File|undefined)=>{
@@ -94,6 +108,16 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
   if(!file||!pending||!editor||!session.editable||session.assets!==pending.assets)return;
   setBusy(true);
   try{
+   if(pending.figure){
+    let asset:RichImageAsset;
+    try{asset=(await importPortableFigure(pending.assets,await file.text())).asset;}
+    catch(cause){if(live.current)setError(cause instanceof FigureImportError?cause.message:es?'No se pudo usar la figura.':'Could not use the figure.');return;}
+    validateRichImageAsset(asset,session.imageRaster);
+    if(!live.current||editor.isDestroyed||!session.editable||session.assets!==pending.assets)return;
+    const action=pending.action(asset);if(!session.applyBatch([action])){failure();return;}
+    if(action.type==='rich-image-insert'||action.type==='rich-table-cell-image-insert')selectBlock(editor.view,action.id,true);
+    return;
+   }
    if(!session.imageRaster){
     const declared=file.type.trim().toLowerCase();
     if(declared?declared!=='image/png':file.size>MAX_MEDIA_BYTES||!isCompletePng(new Uint8Array(await file.arrayBuffer()))){failure();return;}
@@ -123,7 +147,11 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
  return <div className="flex flex-wrap gap-2" aria-label={es?'Imagen':'Image'}>
   <input ref={input} hidden type="file" accept={session.imageRaster?[...SOURCE_RASTER_MIMES,'.png','.jpg','.jpeg','.webp'].join(','):'image/png,.png'} onChange={event=>{const file=event.currentTarget.files?.[0];event.currentTarget.value='';void importFile(file);}}/>
   <button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(false)}>{session.imageRaster?(es?'Insertar imagen':'Insert image'):(es?'Insertar imagen PNG':'Insert PNG image')}</button>
+  <input ref={figureInput} hidden type="file" accept=".vfigure,.json,application/json" onChange={event=>{const file=event.currentTarget.files?.[0];event.currentTarget.value='';void importFile(file);}}/>
+  <button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(false,true)}>{es?'Insertar figura de diagrama':'Insert diagram figure'}</button>
   {selected&&<><button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(true)}>{es?'Reemplazar imagen':'Replace image'}</button>
+   {figureSource?.sha===selectedSha&&<><button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(true,true)}>{es?'Actualizar figura':'Update figure'}</button>
+    <button type="button" className={button} onMouseDown={event=>event.preventDefault()} onClick={downloadFigure}>{es?'Descargar fuente de la figura':'Download figure source'}</button></>}
    {(['small','medium','full'] as const).map(size=><button key={size} type="button" className={button} disabled={disabled} aria-pressed={selected.size===size} onMouseDown={event=>event.preventDefault()} onClick={()=>control(size)}>{({small:es?'Pequeña':'Small',medium:es?'Mediana':'Medium',full:es?'Ancho completo':'Full width'})[size]}</button>)}
    {session.imageAlignment&&<div role="group" aria-label={es?'Alineación de imagen':'Image alignment'} className="flex flex-wrap gap-2">
     {(['left','center','right'] as const).map(alignment=><button key={alignment} type="button" className={button} disabled={disabled} aria-pressed={selected.alignment===alignment} onMouseDown={event=>event.preventDefault()} onClick={()=>align(alignment)}>{alignmentLabel[alignment]}</button>)}
