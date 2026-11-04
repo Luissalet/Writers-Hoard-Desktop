@@ -88,6 +88,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Use the generated question keys (when the library has them) as extra rankings; false searches the passage text only.",
           "title": "Questions",
           "type": "boolean"
+        },
+        "exact": {
+          "default": true,
+          "description": "Also search the rare terms of the query verbatim (identifiers like voice_speak, CamelCase, ACRONYMS, tokens with digits, `backtick` or \"quoted\" text); each hit lists matched_terms. false skips that leg.",
+          "title": "Exact",
+          "type": "boolean"
         }
       },
       "required": [

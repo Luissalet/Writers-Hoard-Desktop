@@ -8,7 +8,7 @@ import { useContextProvider, useCopilotRefresh, useViewState } from "../copilot-
 import { queryTerms } from "../format.js";
 
 const MIN_CHARS = 3;
-const SEARCH_INITIAL = { q: "", mode: "hybrid", collection: "", source: "" };
+const SEARCH_INITIAL = { q: "", mode: "hybrid", collection: "", source: "", exact: true };
 
 const MODES = [
   { id: "hybrid", label: "Híbrida" },
@@ -22,6 +22,7 @@ export default function Buscar() {
   const [mode, setMode] = useState("hybrid");
   const [collection, setCollection] = useState("");
   const [source, setSource] = useState("");
+  const [exact, setExact] = useState(true);
   const [collections, setCollections] = useState([]);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -36,14 +37,14 @@ export default function Buscar() {
     input.current?.focus();
   }, []);
 
-  const run = async (query = q, m = mode, c = collection, src = source) => {
+  const run = async (query = q, m = mode, c = collection, src = source, ex = exact) => {
     if (query.trim().length < MIN_CHARS) {
       setResult(null);
       return;
     }
     setLoading(true);
     try {
-      setResult(await api.search({ q: query, mode: m, collection: c, source: src || undefined, limit: 20 }));
+      setResult(await api.search({ q: query, mode: m, collection: c, source: src || undefined, exact: ex ? undefined : "false", limit: 20 }));
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -57,7 +58,7 @@ export default function Buscar() {
     api.collections().then((r) => setCollections(r.collections)).catch(() => {});
     if (q.trim().length >= MIN_CHARS) run();
   });
-  useContextProvider(() => editorContext("search-form", null, SEARCH_INITIAL, { q, mode, collection, source }));
+  useContextProvider(() => editorContext("search-form", null, SEARCH_INITIAL, { q, mode, collection, source, exact }));
   useViewState("collection", collection || null);
   useViewState("passage", open ? { chunk_id: open.chunk_id, document_id: open.document_id, citation: open.citation } : null);
 
@@ -68,11 +69,12 @@ export default function Buscar() {
   };
   const change = (setter) => (value) => {
     setter(value);
-    const next = { mode, collection, source };
+    const next = { mode, collection, source, exact };
     if (setter === setMode) next.mode = value;
     else if (setter === setCollection) next.collection = value;
+    else if (setter === setExact) next.exact = value;
     else next.source = value;
-    run(q, next.mode, next.collection, next.source);
+    run(q, next.mode, next.collection, next.source, next.exact);
   };
 
   const empty = status && status.counts.documents === 0;
@@ -112,6 +114,10 @@ export default function Buscar() {
             <option value="faustus">Solo chats (Faustus)</option>
             <option value="links">Solo enlaces (Links Hoard)</option>
           </select>
+          <label className="help flex items-center gap-1" title="Busca tal cual los identificadores (voice_speak), siglas (R2T2), CamelCase, tokens con cifras y el texto entre comillas o acentos graves">
+            <input type="checkbox" checked={exact} onChange={(e) => change(setExact)(e.target.checked)} data-testid="search-exact" />
+            Términos exactos
+          </label>
         </div>
       </form>
       {modelState && modelState !== "ready" && (
@@ -154,6 +160,7 @@ export default function Buscar() {
                       <div className="cite truncate text-[14px]">{h.citation}</div>
                       {h.kind === "chat" && <span className="chip chip-accent">{h.date || "chat"}</span>}
                       {h.kind === "link" && <span className="chip chip-accent">enlace · {h.date || ""}</span>}
+                      {h.matched_terms?.map((t) => <span key={t} className="chip chip-accent" title="Término exacto encontrado tal cual" data-testid="matched-term">{t}</span>)}
                     </div>
                     <div className="help truncate" title={`${h.collection} › ${h.rel_path}${h.section ? ` › ${h.section}` : ""}`}>
                       {h.kind === "chat"

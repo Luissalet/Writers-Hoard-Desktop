@@ -10,6 +10,7 @@ from typing import Callable
 
 import numpy as np
 
+from . import exact_terms
 from .db import Database
 from .embedder import Embedder
 from .hoard_link.docs import textsearch, vecmath
@@ -22,6 +23,7 @@ PER_SECTION = 1  # hits shown per (document, page/section); the rest go into `al
 CANDIDATES = 40  # per retriever before fusion
 DENSE_MIN_SCORE = 0.2  # cosine below this is noise for MiniLM-class models
 SNIPPET_CHARS = 240
+EXACT_WEIGHT = 1.5  # the verbatim-terms leg (identifiers, acronyms, quoted text) outweighs BM25, which cannot tell voice_speak from "voice ... speak"
 QUESTION_WEIGHT = 1.25  # a query that matches a question the chunk answers is a more precise signal than a word overlap with its text
 
 Reranker = Callable[[str, list[dict]], list[dict]]  # hook: (query, hits) -> hits, reordered
@@ -133,6 +135,30 @@ class Search:
         top = vecmath.topk(searched, query, limit, DENSE_MIN_SCORE, normalized=True)
         return [(int(ids[rows[i]]), float(score)) for i, score in top]
 
+    def exact_leg(self, q: str, collection_ids: set[int] | None) -> tuple[list[tuple[int, float]], dict[int, list[str]], list[str]]:
+        """Chunks that contain the rare terms of `q` verbatim (`instr` on the chunk text, case-sensitive), ranked by IDF.
+        Returns (ranking, matched terms per chunk, terms that took part). Empty when the query has no such term."""
+        candidates = exact_terms.extract(q)
+        if not candidates:
+            return [], {}, []
+        where, params = "", []
+        if collection_ids is not None:
+            where = " AND d.collection_id IN (" + (",".join("?" for _ in collection_ids) or "NULL") + ")"
+            params = list(collection_ids)
+        base = "FROM chunks c JOIN documents d ON d.id = c.document_id WHERE "
+        postings: dict[str, set[int]] = {}
+        with self.db.lock:
+            try:
+                corpus = self.db.conn.execute("SELECT count(*) " + base + "1=1" + where, params).fetchone()[0]
+                for term in candidates:
+                    rows = self.db.conn.execute("SELECT c.id " + base + "instr(c.text, ?) > 0" + where, [term, *params]).fetchall()
+                    postings[term] = {r[0] for r in rows}
+            except Exception:
+                return [], {}, []
+        ranking, matched = exact_terms.rank(postings, corpus)
+        used = [t for t in candidates if exact_terms.keep(corpus, len(postings.get(t, ())))]
+        return ranking[:CANDIDATES], matched, used
+
     def _resolve_collection_ids(self, collection_id: int | None, source: str | None) -> set[int] | None:
         """Combine a single-collection filter with a source-kind filter (`source='faustus'` / `'links'`)."""
         ids: set[int] | None = {collection_id} if collection_id is not None else None
@@ -170,7 +196,7 @@ class Search:
         return legs, why
 
     def search(self, q: str, mode: str = "hybrid", limit: int = 10, collection_id: int | None = None,
-               source: str | None = None, since: str | None = None, until: str | None = None, questions: bool = True) -> dict:
+               source: str | None = None, since: str | None = None, until: str | None = None, questions: bool = True, exact: bool = True) -> dict:
         q = q.strip()
         if len(q) < MIN_QUERY_CHARS:
             raise ValueError(f"The query needs at least {MIN_QUERY_CHARS} characters.")
@@ -185,22 +211,26 @@ class Search:
         if mode in ("hybrid", "dense") and dense_ok:
             rankings.append(self.dense(q, CANDIDATES, collection_ids))
         question_legs, matched = self._question_legs(q, mode, dense_ok, collection_ids) if questions else ([], {})
-        if question_legs:  # the keys join the fusion as extra rankings; RRF keys on the chunk id, so a chunk found by its text and by its questions is one hit
-            fused = vecmath.rrf([[cid for cid, _ in r] for r in [*rankings, *question_legs]],
-                                weights=[1.0] * len(rankings) + [QUESTION_WEIGHT] * len(question_legs), k=RRF_K)
+        exact_ranking, exact_matched, exact_used = self.exact_leg(q, collection_ids) if (exact and mode in ("hybrid", "bm25")) else ([], {}, [])
+        extra = [exact_ranking] if exact_ranking else []
+        if question_legs or extra:  # the keys and the verbatim terms join the fusion as extra rankings; RRF keys on the chunk id, so a chunk found by its text and by its questions is one hit
+            fused = vecmath.rrf([[cid for cid, _ in r] for r in [*rankings, *question_legs, *extra]],
+                                weights=[1.0] * len(rankings) + [QUESTION_WEIGHT] * len(question_legs) + [EXACT_WEIGHT] * len(extra), k=RRF_K)
         else:
             fused = self.rrf(rankings) if mode == "hybrid" else [(cid, s) for cid, s in (rankings[0] if rankings else [])]
-        hits = self._hydrate(fused[: limit * 4 if (since or until) else limit * 2], q)
+        hits = self._hydrate(fused[: limit * 4 if (since or until) else limit * 2], q, exact_used)
         for hit in hits:
             if hit["chunk_id"] in matched:
                 hit["matched_question"] = matched[hit["chunk_id"]]
+            if hit["chunk_id"] in exact_matched:
+                hit["matched_terms"] = exact_matched[hit["chunk_id"]]
         hits = self._dedupe(hits)
         if since or until:
             hits = [h for h in hits if _in_date_range(h.get("date"), since, until)]
         hits = hits[:limit]
         if self.reranker is not None:
             hits = self.reranker(q, hits)
-        return {"query": q, "mode": mode, "hits": hits, "dense_available": dense_ok, "took_ms": round((time.perf_counter() - started) * 1000, 1)}
+        return {"query": q, "mode": mode, "hits": hits, "dense_available": dense_ok, "exact_terms": exact_used, "took_ms": round((time.perf_counter() - started) * 1000, 1)}
 
     def similar(self, chunk_id: int, limit: int = 10) -> list[dict]:
         chunk = self.queries.chunk(chunk_id)
@@ -218,9 +248,9 @@ class Search:
         return self._dedupe(hits)[:limit]
 
     # ---------- shaping ----------
-    def _hydrate(self, ranking: list[tuple[int, float]], q: str) -> list[dict]:
+    def _hydrate(self, ranking: list[tuple[int, float]], q: str, exact_terms: list[str] | None = None) -> list[dict]:
         rows = self.queries.chunks_by_ids([cid for cid, _ in ranking])
-        terms = textsearch.query_terms(q)
+        terms = textsearch.query_terms(q) + list(exact_terms or [])
         hits = []
         for chunk_id, score in ranking:
             row = rows.get(chunk_id)

@@ -33,6 +33,7 @@ class SearchArgs(BaseModel):
     since: str | None = Field(None, pattern="^\\d{4}-\\d{2}-\\d{2}$", description="ISO date (YYYY-MM-DD): only chats/documents dated on or after this.")
     until: str | None = Field(None, pattern="^\\d{4}-\\d{2}-\\d{2}$", description="ISO date (YYYY-MM-DD): only chats/documents dated on or before this.")
     questions: bool = Field(True, description="Use the generated question keys (when the library has them) as extra rankings; false searches the passage text only.")
+    exact: bool = Field(True, description="Also search the rare terms of the query verbatim (identifiers like voice_speak, CamelCase, ACRONYMS, tokens with digits, `backtick` or \"quoted\" text); each hit lists matched_terms. false skips that leg.")
 
 
 class ReadArgs(BaseModel):
@@ -79,21 +80,21 @@ class AddCollectionArgs(BaseModel):
 
 def _hit(h: dict) -> dict:
     keys = ("chunk_id", "document_id", "collection_id", "collection", "source_kind", "title", "kind", "rel_path",
-            "page", "section", "line", "date", "project", "url", "score", "citation", "snippet", "matched_question")
+            "page", "section", "line", "date", "project", "url", "score", "citation", "snippet", "matched_question", "matched_terms")
     return {k: h[k] for k in keys if k in h}
 
 
 def run_search(services: Services, args: SearchArgs) -> dict:
     if args.collection is not None and services.collections.get(args.collection) is None:
         raise LookupError(f"Collection {args.collection} does not exist.")
-    result = services.search.search(args.q, args.mode, args.limit, args.collection, source=args.source, since=args.since, until=args.until, questions=args.questions)
+    result = services.search.search(args.q, args.mode, args.limit, args.collection, source=args.source, since=args.since, until=args.until, questions=args.questions, exact=args.exact)
     hits = [_hit(h) for h in result["hits"]]
     note = None
     if not hits:
         note = "No passage matches. Try other words, mode bm25 for exact terms, or check library_status: the index may still be building."
     elif not result["dense_available"] and args.mode != "bm25":
         note = "The embedding model is not ready yet; results are keyword-only for now."
-    return {"query": args.q, "mode": result["mode"], "hits": hits, "count": len(hits), "took_ms": result["took_ms"], "note": note}
+    return {"query": args.q, "mode": result["mode"], "hits": hits, "count": len(hits), "exact_terms": result.get("exact_terms", []), "took_ms": result["took_ms"], "note": note}
 
 
 def run_read(services: Services, args: ReadArgs) -> dict:
