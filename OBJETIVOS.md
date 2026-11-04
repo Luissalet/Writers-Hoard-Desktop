@@ -1,10 +1,8 @@
 # Objetivos de autoría local
 
-## Lecturas y trámites por referencia a Links y Kafka — después de #1711 (04-11-2026)
+## Lecturas y trámites por referencia a Links y Kafka
 
-Writer ya llama a Links Hoard y Kafka's Hoard por el Hub y no lleva sus motores (`publishing/fusion/external.py`, barra de estado con Arrancar/Comprobar/Abrir, REST `/api/external`, MCP `wh_publishing_external_*`). Queda, sin perder nada de lo que ya hay:
-
-- Vistas: las de Writer (`src/engines/publishing/native/links` y `paperwork`) son copias de los clientes de esas apps de octubre. Añadir lo que las apps tienen ya y Writer no muestra: guardar un sitio entero y su historial (Links: `SiteSaver`, `/api/site/map`, `/api/crawls`), vigías de páginas de lista (`watch_list_preview`), y la página Sentidos y la capa de sonido de los digestos (los expedientes de Kafka y el catálogo MCP al día ya están: #2223).
+Las vistas de Writer (`src/engines/publishing/native/links` y `paperwork`) siguen a mano a los clientes de Links Hoard y Kafka's Hoard (al día el 04-11-2026, #2222/#2223). Cuando esas apps añadan páginas, portarlas igual (prefijo `/links` o `/paperwork`, `publishingUrl` para medios) y refrescar el catálogo con `scripts/refresh-external-catalog.py`.
 
 ## Evolución del estado de herramientas Source
 
