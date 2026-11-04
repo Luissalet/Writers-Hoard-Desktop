@@ -2,7 +2,7 @@
 
 ## Images in shared Source documents
 
-In **Shared image notebook**, insert or replace a PNG, choose Small, Medium or Full width, and remove the image with Undo available. Share document content to send the image to another local library. Each person can save the result in their own library. Project ZIPs include the PNG versions the document can restore. [Usage and verification](tasks/vvd1095/verification-shared-images2114.md).
+In **Shared image notebook**, insert or replace a PNG, choose Small, Medium or Full width, and remove the image with Undo available. Share document content to send the image to another local library. Each person can save the result in their own library. Project ZIPs include the PNG versions the document can restore. **Image alignment notebook** also offers Left, Center and Right. Full width keeps the alignment for when the image gets smaller. [Alignment and verification](tasks/vvd1095/verification-image-alignment2161.md). [Usage and verification](tasks/vvd1095/verification-shared-images2114.md).
 
 ## Adding a field to a Source tool
 

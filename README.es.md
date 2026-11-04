@@ -2,7 +2,7 @@
 
 ## Imágenes en documentos Source compartidos
 
-En **Cuaderno con imágenes compartidas**, inserta o reemplaza un PNG, elige Pequeña, Mediana o Ancho completo y quítalo con opción de Deshacer. Comparte el contenido para enviar la imagen a otra biblioteca local. Cada participante puede guardar en su propia biblioteca. El ZIP incluye los PNG que el documento puede recuperar. [Uso y pruebas](tasks/vvd1095/verification-shared-images2114.md).
+En **Cuaderno con imágenes compartidas**, inserta o reemplaza un PNG, elige Pequeña, Mediana o Ancho completo y quítalo con opción de Deshacer. Comparte el contenido para enviar la imagen a otra biblioteca local. Cada participante puede guardar en su propia biblioteca. El ZIP incluye los PNG que el documento puede recuperar. **Cuaderno de alineación de imágenes** añade Izquierda, Centro y Derecha. Ancho completo conserva la posición para cuando vuelvas a reducir la imagen. [Alineación y pruebas](tasks/vvd1095/verification-image-alignment2161.md). [Uso y pruebas](tasks/vvd1095/verification-shared-images2114.md).
 
 ## Añadir un campo a una herramienta Source
 
