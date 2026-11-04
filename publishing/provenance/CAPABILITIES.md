@@ -1,12 +1,12 @@
 # Preserved native tools
 
-Since 04-11-2026 the links and paperwork tools keep these names in Writer but run in Links Hoard and Kafka's Hoard, which Writer calls by reference (`publishing/fusion/external.py`).
+Since 04-11-2026 the links and paperwork tools keep these names in Writer but run in Links Hoard and Kafka's Hoard, which Writer calls by reference (`publishing/fusion/external.py`). Refreshed from the running apps with `scripts/refresh-external-catalog.py`.
 
 | Module | Tools |
 |---|---:|
 | library | 15 |
-| links | 46 |
-| paperwork | 314 |
+| links | 60 |
+| paperwork | 319 |
 
 | Module | Published name | Native name |
 |---|---|---|
@@ -40,6 +40,7 @@ Since 04-11-2026 the links and paperwork tools keep these names in Writer but ru
 | links | `refetch_link` | `refetch_link` |
 | links | `delete_link` | `delete_link` |
 | links | `watch_add` | `watch_add` |
+| links | `watch_list_preview` | `watch_list_preview` |
 | links | `watch_list` | `watch_list` |
 | links | `watch_items` | `watch_items` |
 | links | `watch_check` | `watch_check` |
@@ -61,6 +62,7 @@ Since 04-11-2026 the links and paperwork tools keep these names in Writer but ru
 | links | `site_sessions` | `site_sessions` |
 | links | `site_login` | `site_login` |
 | links | `site_logout` | `site_logout` |
+| links | `read_post` | `read_post` |
 | links | `media_delete` | `media_delete` |
 | links | `link_video` | `link_video` |
 | links | `link_video_analyze` | `link_video_analyze` |
@@ -71,6 +73,18 @@ Since 04-11-2026 the links and paperwork tools keep these names in Writer but ru
 | links | `video_find` | `video_find` |
 | links | `video_frame` | `video_frame` |
 | links | `video_digests` | `video_digests` |
+| links | `audio_describe` | `audio_describe` |
+| links | `audio_match` | `audio_match` |
+| links | `audio_find` | `audio_find` |
+| links | `audio_timeline` | `audio_timeline` |
+| links | `audio_measure` | `audio_measure` |
+| links | `map_site` | `map_site` |
+| links | `crawl_site` | `crawl_site` |
+| links | `crawl_status` | `crawl_status` |
+| links | `crawl_delete` | `crawl_delete` |
+| links | `audio_realness` | `audio_realness` |
+| links | `audio_sheet` | `audio_sheet` |
+| links | `audio_status` | `audio_status` |
 | paperwork | `kafka_overview` | `kafka_overview` |
 | paperwork | `kafka_status` | `kafka_status` |
 | paperwork | `deadlines_list` | `deadlines_list` |
@@ -86,6 +100,11 @@ Since 04-11-2026 the links and paperwork tools keep these names in Writer but ru
 | paperwork | `docs_list` | `docs_list` |
 | paperwork | `doc_get` | `doc_get` |
 | paperwork | `doc_compare` | `doc_compare` |
+| paperwork | `kafka_dossier` | `kafka_dossier` |
+| paperwork | `kafka_dossier_status` | `kafka_dossier_status` |
+| paperwork | `kafka_dossier_refresh` | `kafka_dossier_refresh` |
+| paperwork | `kafka_dossier_delete` | `kafka_dossier_delete` |
+| paperwork | `kafka_requirements_diff` | `kafka_requirements_diff` |
 | paperwork | `doc_search` | `doc_search` |
 | paperwork | `doc_add_file` | `doc_add_file` |
 | paperwork | `doc_add_text` | `doc_add_text` |

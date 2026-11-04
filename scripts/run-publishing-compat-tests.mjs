@@ -17,7 +17,7 @@ const base = process.env.WH_INSTALL_QA_ROOT || await mkdtemp(path.join(os.tmpdir
 await mkdir(base, { recursive: true });
 await writeFile(path.join(base, 'forbid-network.cjs'), `const fs=require('node:fs');const mark=${JSON.stringify(path.join(base, 'cold-io-attempt.txt'))};const fail=()=>{fs.appendFileSync(mark,'unexpected network/process attempt\\n');throw Error('Cold discovery attempted I/O')};require('node:http').request=fail;require('node:https').request=fail;require('node:child_process').spawn=fail;`);
 const worker = path.join(root, 'publishing/runtime/writer-publishing-worker/writer-publishing-worker.exe');
-assert.equal(createHash('sha256').update(await readFile(worker)).digest('hex'), 'a23e1688beb53aaf7aa1ea91006658f61b17eb70adf9703ffbdbea1e56d70e4f');
+assert.equal(createHash('sha256').update(await readFile(worker)).digest('hex'), '774a4aa5b056a6d6fe0f26b03a0166b3c19764b070bb56c46af604eb4b6ea261');
 const source = await readFile(path.join(root, 'electron/main.ts'), 'utf8');
 const tree = ts.createSourceFile('main.ts', source, ts.ScriptTarget.Latest, true);
 const ipc = [], protocols = [];

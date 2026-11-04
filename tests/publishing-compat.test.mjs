@@ -74,7 +74,7 @@ async function main() {
   assert.deepEqual((await service.status()).enabled, []);
   assert.equal(service.running, false);
   // No HTTP listener is running yet: discovery is entirely static.
-  for (const [module, count, selected] of [['borges', 378, ['library', 'links', 'paperwork']], ['library', 15, ['library']], ['links', 46, ['links']], ['kafka', 314, ['paperwork']], ['gutenberg', 19, ['publishing']]]) {
+  for (const [module, count, selected] of [['borges', 397, ['library', 'links', 'paperwork']], ['library', 15, ['library']], ['links', 60, ['links']], ['kafka', 319, ['paperwork']], ['gutenberg', 19, ['publishing']]]) {
     const peer = adapter(module, 'synthetic-unreachable-token', true);
     try {
       const initialized = await peer.rpc('initialize', { protocolVersion: '2025-06-18' });
@@ -113,7 +113,7 @@ async function main() {
   await api.setBridgeConfig({ enabled: true, writesEnabled: true });
   const token = await api.getBridgeToken();
   await api.startAiBridge({ version: 'qa949', hasWindow: () => true });
-  for (const [module, count] of [['borges', 378], ['links', 46], ['kafka', 314], ['gutenberg', 19]]) {
+  for (const [module, count] of [['borges', 397], ['links', 60], ['kafka', 319], ['gutenberg', 19]]) {
     const catalogue = await net.fetch(`http://127.0.0.1:64852/compat/${module}/api/agent/tools`);
     assert.equal(catalogue.status, 200);
     assert.equal((await catalogue.json()).tools.length, count);

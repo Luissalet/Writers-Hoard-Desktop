@@ -647,7 +647,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "save_link",
-    "description": "Save a URL to the read-later library (idempotent; waits for the fetch).\nSave a URL to the read-later library. Idempotent on the normalized URL (strips tracking params and trailing slash): saving an already-saved page returns it unchanged with existing: true. Waits up to 10s for the background fetch so it can return the real title, site and excerpt; if the fetch is still pending or failed, that is reported instead of guessed.\nSinÃ³nimos: guarda esto, guardar enlace, para luego, guarda este artÃ­culo, marcador, guardar pÃ¡gina",
+    "description": "Save a URL to the read-later library (idempotent; waits for the fetch).\nSave a URL to the read-later library. Idempotent on the normalized URL (strips tracking params and trailing slash): saving an already-saved page returns it unchanged with existing: true. Waits up to 10s for the background fetch so it can return the real title, site and excerpt; if the fetch is still pending or failed, that is reported instead of guessed.\nSinónimos: guarda esto, guardar enlace, para luego, guarda este artículo, marcador, guardar página",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -683,7 +683,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "list_links",
-    "description": "List saved links by state, tag, site or date.\nList saved links, most recent first. state: unread (default), read, archived or all. Optional tag, site and since (an ISO date, an age like 7d or hace 2 horas, or hoy/ayer/esta semana). Paginated (limit up to 100).\nSinÃ³nimos: enlaces, lo que guardÃ©, bandeja, quÃ© tengo guardado, lista de lecturas, pendientes de leer",
+    "description": "List saved links by state, tag, site or date.\nList saved links, most recent first. state: unread (default), read, archived or all. Optional tag, site and since (an ISO date, an age like 7d or hace 2 horas, or hoy/ayer/esta semana). Paginated (limit up to 100).\nSinónimos: enlaces, lo que guardé, bandeja, qué tengo guardado, lista de lecturas, pendientes de leer",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -707,7 +707,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 200
         },
         "since": {
-          "description": "since accepts epoch seconds, an ISO date or time (\"2026-09-25\", \"2026-09-25T10:30\"), an age (\"30m\", \"2h\", \"3d\", \"2w\", \"1mo\", \"hace 2 horas\", \"2 hours ago\"), or a word: hoy/today, ayer/yesterday, esta maÃ±ana/this morning, esta semana/this week, la semana pasada/last week, este mes/this month, el mes pasado/last month, Ãºltima hora/last hour.",
+          "description": "since accepts epoch seconds, an ISO date or time (\"2026-09-25\", \"2026-09-25T10:30\"), an age (\"30m\", \"2h\", \"3d\", \"2w\", \"1mo\", \"hace 2 horas\", \"2 hours ago\"), or a word: hoy/today, ayer/yesterday, esta mañana/this morning, esta semana/this week, la semana pasada/last week, este mes/this month, el mes pasado/last month, última hora/last hour.",
           "type": "string",
           "maxLength": 40
         },
@@ -732,7 +732,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "search_links",
-    "description": "Full-text search over saved links.\nFull-text search over title, description, extracted content, notes and tags. Returns the same shape as list_links.\nSinÃ³nimos: buscar enlace, encontrar artÃ­culo, buscar en lo guardado, dÃ³nde leÃ­, busca esto",
+    "description": "Full-text search over saved links.\nFull-text search over title, description, extracted content, notes and tags. Returns the same shape as list_links.\nSinónimos: buscar enlace, encontrar artículo, buscar en lo guardado, dónde leí, busca esto",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -759,7 +759,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "read_link",
-    "description": "Read a saved link's extracted text, paginated; summarize only from it.\nRead a saved link's extracted text, paginated by characters (max_chars, default 4000; offset to page further). Identify by id or url. Returns title, byline, site, the text slice, whether more remains, and highlights. Summarize only from this text, never from the title alone.\nSinÃ³nimos: leer artÃ­culo, texto del enlace, quÃ© dice, contenido del artÃ­culo, lÃ©eme esto",
+    "description": "Read a saved link's extracted text, paginated; summarize only from it.\nRead a saved link's extracted text, paginated by characters (max_chars, default 4000; offset to page further). Identify by id or url. Returns title, byline, site, the text slice, whether more remains, and highlights. Summarize only from this text, never from the title alone.\nSinónimos: leer artículo, texto del enlace, qué dice, contenido del artículo, léeme esto",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -790,7 +790,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "read_link_paragraphs",
-    "description": "Read saved article paragraphs with versioned reader anchors.\nReturns whole paragraphs paginated by index; offset counts paragraphs. IDs change when content changes.\nSinÃ³nimos: pÃ¡rrafos del artÃ­culo, pasajes, anclas, leer origen de una cita",
+    "description": "Read saved article paragraphs with versioned reader anchors.\nReturns whole paragraphs paginated by index; offset counts paragraphs. IDs change when content changes.\nSinónimos: párrafos del artículo, pasajes, anclas, leer origen de una cita",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -821,7 +821,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "ask_link",
-    "description": "Ask a question about saved article text, with paragraph citations.\nUses the Hub model; returns sentences with exact quotes, reader_url anchors and source_version. Reports partial context, invalid quotes, unavailable model or changed text. Exact quote checks do not verify interpretation. Does not fetch or edit the article.\nSinÃ³nimos: preguntar al artÃ­culo, responder con citas, explicar este enlace, respuesta con pÃ¡rrafos",
+    "description": "Ask a question about saved article text, with paragraph citations.\nUses the Hub model; returns sentences with exact quotes, reader_url anchors and source_version. Reports partial context, invalid quotes, unavailable model or changed text. Exact quote checks do not verify interpretation. Does not fetch or edit the article.\nSinónimos: preguntar al artículo, responder con citas, explicar este enlace, respuesta con párrafos",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -848,7 +848,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "tag_link",
-    "description": "Add or remove labels only; this does not mark a link as favorite.\nUse id or url. Unlisted tags are left untouched. A tag named favorita is still just a label; use mark_link with state favorite to change actual favorite status.\nSinÃ³nimos: etiquetar, poner etiqueta, quitar etiqueta, clasificar enlace",
+    "description": "Add or remove labels only; this does not mark a link as favorite.\nUse id or url. Unlisted tags are left untouched. A tag named favorita is still just a label; use mark_link with state favorite to change actual favorite status.\nSinónimos: etiquetar, poner etiqueta, quitar etiqueta, clasificar enlace",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -887,7 +887,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "edit_link",
-    "description": "Edit a saved link's title, notes or tags; omitted fields stay unchanged.\nRead the current link first. tags_add/tags_remove preserve other labels.\nSinÃ³nimos: editar enlace, cambiar tÃ­tulo, escribir notas, aÃ±adir etiquetas",
+    "description": "Edit a saved link's title, notes or tags; omitted fields stay unchanged.\nRead the current link first. tags_add/tags_remove preserve other labels.\nSinónimos: editar enlace, cambiar título, escribir notas, añadir etiquetas",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -948,7 +948,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "mark_link",
-    "description": "Set actual read, archive or favorite status (not a tag).\nSet state to read, unread, archived or favorite; on/off toggles it (default true). To mark a link as favorite, use this tool with state favorite, not tag_link.\nSinÃ³nimos: marcar leÃ­do, marcar como leÃ­do, archivar, marcar favorito, destacar, marcar sin leer",
+    "description": "Set actual read, archive or favorite status (not a tag).\nSet state to read, unread, archived or favorite; on/off toggles it (default true). To mark a link as favorite, use this tool with state favorite, not tag_link.\nSinónimos: marcar leído, marcar como leído, archivar, marcar favorito, destacar, marcar sin leer",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -983,7 +983,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "add_highlight",
-    "description": "Save a verbatim quote from read_link, with an optional note. Identify the link by id or url.\nThe quote must appear in the extracted article text; read_link first. If extraction is pending or failed, do not invent a quote.\nSinÃ³nimos: subrayar, destacar texto, guardar cita, anotar frase",
+    "description": "Save a verbatim quote from read_link, with an optional note. Identify the link by id or url.\nThe quote must appear in the extracted article text; read_link first. If extraction is pending or failed, do not invent a quote.\nSinónimos: subrayar, destacar texto, guardar cita, anotar frase",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1015,7 +1015,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "import_video_transcript",
-    "description": "Import subtitles of a saved YouTube video into searchable text.\nDownloads available Spanish or English captions, not the video, and makes them available to read_link, search_links and highlights. Requires Python yt-dlp; reports when captions are unavailable. Identify the saved video by id or url.\nSinÃ³nimos: transcribir vÃ­deo, leer subtÃ­tulos, importar transcripciÃ³n, resumir vÃ­deo de YouTube",
+    "description": "Import subtitles of a saved YouTube video into searchable text.\nDownloads available Spanish or English captions, not the video, and makes them available to read_link, search_links and highlights. Requires Python yt-dlp; reports when captions are unavailable. Identify the saved video by id or url.\nSinónimos: transcribir vídeo, leer subtítulos, importar transcripción, resumir vídeo de YouTube",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1034,14 +1034,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "link_digest",
-    "description": "Links saved since a date or an age (\"7d\", \"esta semana\"), with excerpts, grouped by site. Weekly recap.\nSinÃ³nimos: resumen de la semana, quÃ© guardÃ© esta semana, digest, novedades guardadas",
+    "description": "Links saved since a date or an age (\"7d\", \"esta semana\"), with excerpts, grouped by site. Weekly recap.\nSinónimos: resumen de la semana, qué guardé esta semana, digest, novedades guardadas",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "since": {
           "default": "7d",
-          "description": "since accepts epoch seconds, an ISO date or time (\"2026-09-25\", \"2026-09-25T10:30\"), an age (\"30m\", \"2h\", \"3d\", \"2w\", \"1mo\", \"hace 2 horas\", \"2 hours ago\"), or a word: hoy/today, ayer/yesterday, esta maÃ±ana/this morning, esta semana/this week, la semana pasada/last week, este mes/this month, el mes pasado/last month, Ãºltima hora/last hour.",
+          "description": "since accepts epoch seconds, an ISO date or time (\"2026-09-25\", \"2026-09-25T10:30\"), an age (\"30m\", \"2h\", \"3d\", \"2w\", \"1mo\", \"hace 2 horas\", \"2 hours ago\"), or a word: hoy/today, ayer/yesterday, esta mañana/this morning, esta semana/this week, la semana pasada/last week, este mes/this month, el mes pasado/last month, última hora/last hour.",
           "type": "string",
           "maxLength": 40
         }
@@ -1053,7 +1053,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "refetch_link",
-    "description": "Re-download and re-extract a saved link's page.\nRe-download and re-extract a saved link's page (id or url). Use when fetch_status is failed or the page changed.\nSinÃ³nimos: reintentar descarga, actualizar artÃ­culo, volver a leer, refrescar enlace",
+    "description": "Re-download and re-extract a saved link's page.\nRe-download and re-extract a saved link's page (id or url). Use when fetch_status is failed or the page changed.\nSinónimos: reintentar descarga, actualizar artículo, volver a leer, refrescar enlace",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1072,7 +1072,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "delete_link",
-    "description": "Permanently delete a saved link and its highlights (id or url). Irreversible; confirm with the user first.\nSinÃ³nimos: borrar enlace, eliminar artÃ­culo, quitar de la lista",
+    "description": "Permanently delete a saved link and its highlights (id or url). Irreversible; confirm with the user first.\nSinónimos: borrar enlace, eliminar artículo, quitar de la lista",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1091,7 +1091,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "watch_add",
-    "description": "Follow a feed, a GitHub repository or a page for new things.\nFollow a URL for new things: an RSS/Atom feed, a GitHub repository (releases by default; github: tags|commits) or a plain page (text changes). Auto-detects the kind (a page that advertises a feed becomes a feed watch). Checked every every_min minutes (default 60); new entries become watch items and, with auto_save (default), saved links with the given tags. The first check is a baseline: existing entries are not 'new'.\nSinÃ³nimos: sigue este feed, avÃ­same cuando, vigilar pÃ¡gina, suscribirme, nuevas releases, cuando cambie, seguir repositorio",
+    "description": "Follow a feed, a GitHub repository or a page for new things.\nFollow a URL for new things: an RSS/Atom feed, a GitHub repository (releases by default; github: tags|commits) or a plain page (text changes). Auto-detects the kind (a page that advertises a feed becomes a feed watch). kind list follows the repeated entries of a page without a feed (offers, products, posts) one by one, across `pages` next pages, stopping at the first page with nothing new; its selector is detected once (see watch_list_preview). Checked every every_min minutes (default 60); new entries become watch items and, with auto_save (default), saved links with the given tags. The first check is a baseline: existing entries are not 'new'.\nSinónimos: sigue este feed, avísame cuando, vigilar página, suscribirme, nuevas releases, cuando cambie, seguir repositorio",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1103,12 +1103,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "kind": {
           "default": "auto",
+          "description": "list: a page without a feed whose repeated entries (offers, products, posts) become items one by one",
           "type": "string",
           "enum": [
             "auto",
             "feed",
             "github",
-            "page"
+            "page",
+            "list"
           ]
         },
         "name": {
@@ -1144,6 +1146,19 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "tags",
             "commits"
           ]
+        },
+        "selector": {
+          "default": "",
+          "description": "list only: CSS selector of the entries; empty = detected once and stored",
+          "type": "string",
+          "maxLength": 300
+        },
+        "pages": {
+          "default": 3,
+          "description": "list only: pages to follow (rel=next or a Siguiente/Next link); stops at the first page with nothing new",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
         }
       },
       "required": [
@@ -1155,8 +1170,47 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
     "timeoutMs": 600000
   },
   {
+    "name": "watch_list_preview",
+    "description": "Preview what a list watch would read on a page, without saving.\nFor a page without a feed (job offers, products, posts, listings): finds the repeated entries (or uses the CSS selector you give), follows up to `pages` next pages and returns the entries (title, url, summary), the selector it would store and the pages read. Use it before watch_add with kind list to check the entries are the right ones.\nSinónimos: probar lista, qué leería, vista previa vigía, raspar listado, ofertas de una página",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The page that lists the entries"
+        },
+        "selector": {
+          "default": "",
+          "description": "CSS selector of the entries; empty = detect",
+          "type": "string",
+          "maxLength": 300
+        },
+        "pages": {
+          "default": 1,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "limit": {
+          "default": 20,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
     "name": "watch_list",
-    "description": "List the watches with last check, error and item count.\nList the watches (feeds, GitHub repositories, pages) with kind, interval, last check, last error and item count.\nSinÃ³nimos: quÃ© sigo, mis feeds, vigilancias, suscripciones, quÃ© estoy siguiendo",
+    "description": "List the watches with last check, error and item count.\nList the watches (feeds, GitHub repositories, pages) with kind, interval, last check, last error and item count.\nSinónimos: qué sigo, mis feeds, vigilancias, suscripciones, qué estoy siguiendo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1168,7 +1222,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "watch_items",
-    "description": "What the watches brought in: entries, releases, changes.\nWhat the watches brought in: new feed entries, releases and page changes, newest first. unread (default true) hides dismissed items; since is an ISO date; watch_id narrows to one watch. Each item has title, url, summary, published_at and the saved link_id when auto_save applied.\nSinÃ³nimos: novedades, quÃ© hay nuevo, quÃ© ha salido, Ãºltimas releases, cambios, lo que llegÃ³",
+    "description": "What the watches brought in: entries, releases, changes.\nWhat the watches brought in: new feed entries, releases and page changes, newest first. unread (default true) hides dismissed items; since is an ISO date; watch_id narrows to one watch. Each item has title, url, summary, published_at and the saved link_id when auto_save applied.\nSinónimos: novedades, qué hay nuevo, qué ha salido, últimas releases, cambios, lo que llegó",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1197,7 +1251,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "watch_check",
-    "description": "Check a watch now (or every due one) and return what was new.\nCheck a watch now (or every due watch when watch_id is omitted) instead of waiting for its schedule; returns what was new.\nSinÃ³nimos: comprueba ahora, actualiza el feed, mira si hay algo nuevo, refrescar vigilancias",
+    "description": "Check a watch now (or every due one) and return what was new.\nCheck a watch now (or every due watch when watch_id is omitted) instead of waiting for its schedule; returns what was new.\nSinónimos: comprueba ahora, actualiza el feed, mira si hay algo nuevo, refrescar vigilancias",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1213,7 +1267,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "watch_dismiss",
-    "description": "Mark a watch item as seen (or unseen with dismissed=false) so it leaves the unread list.\nSinÃ³nimos: visto, descartar novedad, marcar como leÃ­do, ya lo vi",
+    "description": "Mark a watch item as seen (or unseen with dismissed=false) so it leaves the unread list.\nSinónimos: visto, descartar novedad, marcar como leído, ya lo vi",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1236,7 +1290,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "watch_remove",
-    "description": "Stop following a watch (its items stay; saved links stay). Confirm with the user first.\nSinÃ³nimos: deja de seguir, quitar feed, cancelar suscripciÃ³n, dejar de vigilar",
+    "description": "Stop following a watch (its items stay; saved links stay). Confirm with the user first.\nSinónimos: deja de seguir, quitar feed, cancelar suscripción, dejar de vigilar",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1255,7 +1309,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "highlights_to_cards",
-    "description": "Turn saved highlights into Hypatia flashcards â€” subrayados a tarjetas, enviar a Hypatia\nSends highlights (default: every one not sent yet) to Hypatia through the hub as flashcards: front = the highlighted text, back = your note and the article title, source_ref = hoard://links/highlight/<id>. Each highlight goes once. Returns ok, status (ok, nothing_new, hub_down, hypatia_unavailable, hypatia_error, unknown_link), sent and skipped; never claims cards were made when status is not ok.\nSinÃ³nimos: pasar subrayados a tarjetas, flashcards de lo que leÃ­, estudiar mis subrayados, mandar a Hypatia, tarjetas de lecturas, repasar lo subrayado",
+    "description": "Turn saved highlights into Hypatia flashcards — subrayados a tarjetas, enviar a Hypatia\nSends highlights (default: every one not sent yet) to Hypatia through the hub as flashcards: front = the highlighted text, back = your note and the article title, source_ref = hoard://links/highlight/<id>. Each highlight goes once. Returns ok, status (ok, nothing_new, hub_down, hypatia_unavailable, hypatia_error, unknown_link), sent and skipped; never claims cards were made when status is not ok.\nSinónimos: pasar subrayados a tarjetas, flashcards de lo que leí, estudiar mis subrayados, mandar a Hypatia, tarjetas de lecturas, repasar lo subrayado",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1269,7 +1323,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string"
         },
         "since": {
-          "description": "since accepts epoch seconds, an ISO date or time (\"2026-09-25\", \"2026-09-25T10:30\"), an age (\"30m\", \"2h\", \"3d\", \"2w\", \"1mo\", \"hace 2 horas\", \"2 hours ago\"), or a word: hoy/today, ayer/yesterday, esta maÃ±ana/this morning, esta semana/this week, la semana pasada/last week, este mes/this month, el mes pasado/last month, Ãºltima hora/last hour.",
+          "description": "since accepts epoch seconds, an ISO date or time (\"2026-09-25\", \"2026-09-25T10:30\"), an age (\"30m\", \"2h\", \"3d\", \"2w\", \"1mo\", \"hace 2 horas\", \"2 hours ago\"), or a word: hoy/today, ayer/yesterday, esta mañana/this morning, esta semana/this week, la semana pasada/last week, este mes/this month, el mes pasado/last month, última hora/last hour.",
           "type": "string"
         },
         "deck": {
@@ -1292,7 +1346,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "resurface",
-    "description": "What to read today from the saved-but-unread â€” para leer hoy, rescata enlaces\nPicks count links (default 3) worth reading now: unread for a while (older first), favourites, ones with highlights and topics the user reads weigh more; a read link with highlights comes back for a re-read after two weeks. Never the same link twice within 14 days (30 for a re-read). The list is the same all day and changes tomorrow; each item says why (reason).\nSinÃ³nimos: quÃ© leo hoy, algo para leer, rescatar enlaces, lecturas pendientes, quÃ© tengo sin leer, recomiÃ©ndame un artÃ­culo",
+    "description": "What to read today from the saved-but-unread — para leer hoy, rescata enlaces\nPicks count links (default 3) worth reading now: unread for a while (older first), favourites, ones with highlights and topics the user reads weigh more; a read link with highlights comes back for a re-read after two weeks. Never the same link twice within 14 days (30 for a re-read). The list is the same all day and changes tomorrow; each item says why (reason).\nSinónimos: qué leo hoy, algo para leer, rescatar enlaces, lecturas pendientes, qué tengo sin leer, recomiéndame un artículo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1310,7 +1364,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "reading_plan",
-    "description": "Plan saved unread texts within your reading time â€” lecturas que caben en tus minutos\nUses known word counts and an assumed speed (default 200 words/minute), rounding each complete text up to a minute. Selects the fullest estimated budget up to max_items; ties favour favourites, fewer texts and older entries. Optional exact tag and site filters. Returns selected links, estimated/unused minutes and exclusions for missing text/counts or unsupported kinds. Does not fetch, mark read, reserve links or change daily resurfacing.\nSinÃ³nimos: tengo veinte minutos, plan de lectura, lecturas cortas, quÃ© puedo leer en diez minutos, tiempo para leer, reading time budget",
+    "description": "Plan saved unread texts within your reading time — lecturas que caben en tus minutos\nUses known word counts and an assumed speed (default 200 words/minute), rounding each complete text up to a minute. Selects the fullest estimated budget up to max_items; ties favour favourites, fewer texts and older entries. Optional exact tag and site filters. Returns selected links, estimated/unused minutes and exclusions for missing text/counts or unsupported kinds. Does not fetch, mark read, reserve links or change daily resurfacing.\nSinónimos: tengo veinte minutos, plan de lectura, lecturas cortas, qué puedo leer en diez minutos, tiempo para leer, reading time budget",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1356,7 +1410,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "list_tags",
-    "description": "List every tag in use (excluding archived links) with counts, most used first.\nSinÃ³nimos: etiquetas, quÃ© etiquetas tengo, lista de etiquetas",
+    "description": "List every tag in use (excluding archived links) with counts, most used first.\nSinónimos: etiquetas, qué etiquetas tengo, lista de etiquetas",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1368,7 +1422,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_download",
-    "description": "Download video, audio or photos from a URL â€” descargar, bÃ¡jame vÃ­deo, audio, fotos.\nSaves content to disk (yt-dlp / gallery-dl), not save_link. format auto|video|audio|image; quality/max_height cap resolution; sections cut ranges; save_link bookmarks with tag descarga. Waits by default; returns absolute path and size. Success only if ok and files non-empty; running: media_status; failed: media_retry.\nSinÃ³nimos: descÃ¡rgame esto, descarga este vÃ­deo, bÃ¡jame, bÃ¡jate, guarda el vÃ­deo, sÃ¡came el audio, pÃ¡salo a mp3, descargar de YouTube, descargar reel, descargar tweet, bajar mÃºsica, guardar el vÃ­deo en el disco, download video, Instagram fotos",
+    "description": "Download video, audio or photos from a URL — descargar, bájame vídeo, audio, fotos.\nSaves content to disk (yt-dlp / gallery-dl), not save_link. format auto|video|audio|image; quality/max_height cap resolution; sections cut ranges; save_link bookmarks with tag descarga. Waits by default; returns absolute path and size. Success only if ok and files non-empty; running: media_status; failed: media_retry.\nSinónimos: descárgame esto, descarga este vídeo, bájame, bájate, guarda el vídeo, sácame el audio, pásalo a mp3, descargar de YouTube, descargar reel, descargar tweet, bajar música, guardar el vídeo en el disco, download video, Instagram fotos",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1376,7 +1430,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "url": {
           "type": "string",
           "minLength": 1,
-          "description": "Link to the video, audio or post (YouTube, X, Instagram, TikTok, â€¦)"
+          "description": "Link to the video, audio or post (YouTube, X, Instagram, TikTok, …)"
         },
         "format": {
           "default": "auto",
@@ -1473,7 +1527,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maximum": 500
         },
         "cookies_browser": {
-          "description": "Browser whose login cookies to use (firefox, chrome, edge, braveâ€¦); default tries without, then each browser",
+          "description": "Browser whose login cookies to use (firefox, chrome, edge, brave…); default tries without, then each browser",
           "type": "string",
           "maxLength": 60
         },
@@ -1500,7 +1554,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_status",
-    "description": "Progress and result of media downloads â€” estado de las descargas, cÃ³mo va la descarga\nWith id: that download's status, progress, speed, eta and, when done, its files (absolute paths); wait_s (up to 150) blocks until it finishes or the time runs out. Without id: the most recent downloads (status filter: queued, downloading, processing, done, failed, cancelled, active or finished).\nSinÃ³nimos: cÃ³mo va la descarga, estado de la descarga, quÃ© he descargado, descargas en curso, dÃ³nde se guardÃ³, lista de descargas, ruta del archivo descargado",
+    "description": "Progress and result of media downloads — estado de las descargas, cómo va la descarga\nWith id: that download's status, progress, speed, eta and, when done, its files (absolute paths); wait_s (up to 150) blocks until it finishes or the time runs out. Without id: the most recent downloads (status filter: queued, downloading, processing, done, failed, cancelled, active or finished).\nSinónimos: cómo va la descarga, estado de la descarga, qué he descargado, descargas en curso, dónde se guardó, lista de descargas, ruta del archivo descargado",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1533,7 +1587,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_cancel",
-    "description": "Cancel a queued or running media download â€” cancelar descarga, parar la descarga\nA waiting download is removed from the queue; the running one is stopped and its whole process tree killed. Partial files are cleaned up.\nSinÃ³nimos: cancela la descarga, para la descarga, detÃ©n la descarga, no la descargues, abortar descarga",
+    "description": "Cancel a queued or running media download — cancelar descarga, parar la descarga\nA waiting download is removed from the queue; the running one is stopped and its whole process tree killed. Partial files are cleaned up.\nSinónimos: cancela la descarga, para la descarga, detén la descarga, no la descargues, abortar descarga",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1552,7 +1606,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_retry",
-    "description": "Retry a failed or cancelled media download â€” reintentar descarga, volver a descargar\nPuts the same download back in the queue (same url, format, quality and folder) and, with wait (default true), waits for the result like media_download.\nSinÃ³nimos: reintenta la descarga, vuelve a descargarlo, intÃ©ntalo otra vez, descargar de nuevo",
+    "description": "Retry a failed or cancelled media download — reintentar descarga, volver a descargar\nPuts the same download back in the queue (same url, format, quality and folder) and, with wait (default true), waits for the result like media_download.\nSinónimos: reintenta la descarga, vuelve a descargarlo, inténtalo otra vez, descargar de nuevo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1581,7 +1635,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_probe",
-    "description": "Inspect a link before downloading (title, duration, qualities) â€” comprobar enlace, ver formatos\nAsks yt-dlp (or gallery-dl for photo posts) what is behind a URL without downloading: title, uploader, duration, available video heights, whether it is a playlist or a photo post. Needs the network.\nSinÃ³nimos: quÃ© hay en este enlace, es un vÃ­deo o fotos, quÃ© calidades tiene, cuÃ¡nto dura, ver informaciÃ³n del vÃ­deo, comprobar si se puede descargar",
+    "description": "Inspect a link before downloading (title, duration, qualities) — comprobar enlace, ver formatos\nAsks yt-dlp (or gallery-dl for photo posts) what is behind a URL without downloading: title, uploader, duration, available video heights, whether it is a playlist or a photo post. Needs the network.\nSinónimos: qué hay en este enlace, es un vídeo o fotos, qué calidades tiene, cuánto dura, ver información del vídeo, comprobar si se puede descargar",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1609,7 +1663,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_info",
-    "description": "What is behind a link, for other apps and for the assistant â€” informaciÃ³n del enlace, metadatos del vÃ­deo\nSame as media_probe plus the fields the family clients need: id, extractor, thumbnail (URL), subtitle_langs (manual and automatic captions, deduplicated), is_live, description (up to 2000 characters), heights, is_playlist and, for a photo post, photo_post: true. Does not download anything. Needs the network.\nSinÃ³nimos: informaciÃ³n del vÃ­deo, quÃ© subtÃ­tulos tiene, miniatura del vÃ­deo, metadatos del enlace, idiomas de los subtÃ­tulos, es un directo",
+    "description": "What is behind a link, for other apps and for the assistant — información del enlace, metadatos del vídeo\nSame as media_probe plus the fields the family clients need: id, extractor, thumbnail (URL), subtitle_langs (manual and automatic captions, deduplicated), is_live, description (up to 2000 characters), heights, is_playlist and, for a photo post, photo_post: true. Does not download anything. Needs the network.\nSinónimos: información del vídeo, qué subtítulos tiene, miniatura del vídeo, metadatos del enlace, idiomas de los subtítulos, es un directo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1637,7 +1691,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_subtitles",
-    "description": "Get the captions of a video as text with timing â€” subtÃ­tulos, transcripciÃ³n de un vÃ­deo\nReads the subtitles of a video without downloading it: langs (default es, en) in order of preference, the first language that has captions wins, manual captions before automatic ones. Returns text (continuous speech, rolling auto-caption repeats removed), lang, source (manual or auto) and cues [{start_s, end_s, text}]. Fails with a clear message when there are none, listing the languages that exist.\nSinÃ³nimos: dame los subtÃ­tulos, transcripciÃ³n del vÃ­deo de YouTube, quÃ© dice el vÃ­deo, resumen del vÃ­deo sin descargarlo, texto del vÃ­deo, subtÃ­tulos automÃ¡ticos",
+    "description": "Get the captions of a video as text with timing — subtítulos, transcripción de un vídeo\nReads the subtitles of a video without downloading it: langs (default es, en) in order of preference, the first language that has captions wins, manual captions before automatic ones. Returns text (continuous speech, rolling auto-caption repeats removed), lang, source (manual or auto) and cues [{start_s, end_s, text}]. Fails with a clear message when there are none, listing the languages that exist.\nSinónimos: dame los subtítulos, transcripción del vídeo de YouTube, qué dice el vídeo, resumen del vídeo sin descargarlo, texto del vídeo, subtítulos automáticos",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1676,7 +1730,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_audio_for_asr",
-    "description": "Download the audio of a link as mono 16 kHz WAV for speech to text â€” audio para transcribir\nLike media_download with format audio, but the file is a mono 16 kHz PCM WAV (what the speech-to-text engines read), kept in the downloads folder's asr subfolder and never saved as a library link. sections cuts parts, max_duration_s refuses a longer video. Waits up to timeout_s (default 150) and returns the download view; files[0].path is the WAV. If it is still running, follow it with media_status.\nSinÃ³nimos: audio para transcribir, sacar el audio en wav, audio para whisper, preparar el audio para el reconocimiento de voz",
+    "description": "Download the audio of a link as mono 16 kHz WAV for speech to text — audio para transcribir\nLike media_download with format audio, but the file is a mono 16 kHz PCM WAV (what the speech-to-text engines read), kept in the downloads folder's asr subfolder and never saved as a library link. sections cuts parts, max_duration_s refuses a longer video. Waits up to timeout_s (default 150) and returns the download view; files[0].path is the WAV. If it is still running, follow it with media_status.\nSinónimos: audio para transcribir, sacar el audio en wav, audio para whisper, preparar el audio para el reconocimiento de voz",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1736,7 +1790,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "media_tools",
-    "description": "Show or update yt-dlp, gallery-dl and ffmpeg â€” herramientas de descarga, actualizar yt-dlp\nReports which of yt-dlp, gallery-dl and ffmpeg were found (path, version and how: env, PATH, sibling app folder, python module), the downloads folder and the install command when something is missing. update: true runs the updaters (yt-dlp -U or pip install -U) and returns the versions before and after.\nSinÃ³nimos: tengo yt-dlp, estÃ¡ instalado ffmpeg, actualizar yt-dlp, por quÃ© no descarga, instalar el descargador, versiÃ³n de yt-dlp, herramientas de descarga",
+    "description": "Show or update yt-dlp, gallery-dl and ffmpeg — herramientas de descarga, actualizar yt-dlp\nReports which of yt-dlp, gallery-dl and ffmpeg were found (path, version and how: env, PATH, sibling app folder, python module), the downloads folder and the install command when something is missing. update: true runs the updaters (yt-dlp -U or pip install -U) and returns the versions before and after.\nSinónimos: tengo yt-dlp, está instalado ffmpeg, actualizar yt-dlp, por qué no descarga, instalar el descargador, versión de yt-dlp, herramientas de descarga",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1763,7 +1817,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "site_sessions",
-    "description": "Which sites Links is signed in to for downloads â€” sesiones guardadas, iniciar sesiÃ³n en YouTube/X/Instagram\nLists the browsers it can use (the system default first; choice auto follows the default) and the sites with a login button (YouTube, X, Instagram, Threads, TikTok, Facebook, Reddit, Twitch, Vimeo, Pinterest, SoundCloud, Bilibili, Patreon): whether Links holds a signed-in session for each, since when, the browser it uses and the login window if one is open (state: opening, waiting, signing, saved, capturing, closed, expired, failed). No cookie values are returned.\nSinÃ³nimos: con quÃ© cuentas estÃ¡ conectado Links, sesiones de descarga, estoy logueado en YouTube, cookies de descargas",
+    "description": "Which sites Links is signed in to for downloads — sesiones guardadas, iniciar sesión en YouTube/X/Instagram\nLists the browsers it can use (the system default first; choice auto follows the default) and the sites with a login button (YouTube, X, Instagram, Threads, TikTok, Facebook, Reddit, Twitch, Vimeo, Pinterest, SoundCloud, Bilibili, Patreon): whether Links holds a signed-in session for each, since when, the browser it uses and the login window if one is open (state: opening, waiting, signing, saved, capturing, closed, expired, failed). No cookie values are returned.\nSinónimos: con qué cuentas está conectado Links, sesiones de descarga, estoy logueado en YouTube, cookies de descargas",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1775,7 +1829,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "site_login",
-    "description": "Open a sign-in window so downloads can use the account â€” iniciar sesiÃ³n con YouTube, X, Instagramâ€¦\nOpens a window of the user's default browser when it is a Chromium one (Brave, Chrome, Edge, Vivaldiâ€¦; else the first installed) on the computer where Links runs, on that site's login page, with a browser profile of Links' own. The user signs in there themselves; Links saves the session on its own and closes the window (or call with finish: true once they say they are done). Use it after a download failed with login, then media_retry. Never ask the user for their password and never type it.\nSinÃ³nimos: inicia sesiÃ³n en youtube para descargar, conÃ©ctate a mi cuenta de instagram, loguÃ©ate en X, usar mi cuenta para descargar",
+    "description": "Open a sign-in window so downloads can use the account — iniciar sesión con YouTube, X, Instagram…\nOpens a window of the user's default browser when it is a Chromium one (Brave, Chrome, Edge, Vivaldi…; else the first installed) on the computer where Links runs, on that site's login page, with a browser profile of Links' own. The user signs in there themselves; Links saves the session on its own and closes the window (or call with finish: true once they say they are done). Use it after a download failed with login, then media_retry. Never ask the user for their password and never type it.\nSinónimos: inicia sesión en youtube para descargar, conéctate a mi cuenta de instagram, loguéate en X, usar mi cuenta para descargar",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1812,7 +1866,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "site_logout",
-    "description": "Forget Links' session on a site â€” cerrar sesiÃ³n de YouTube/X/Instagram en Links\nDeletes that site's cookies from Links' browser profile and from the cookies file downloads use. The user's own browser is not touched.\nSinÃ³nimos: cierra la sesiÃ³n de youtube en links, olvida mi cuenta de instagram, quita la sesiÃ³n",
+    "description": "Forget Links' session on a site — cerrar sesión de YouTube/X/Instagram en Links\nDeletes that site's cookies from Links' browser profile and from the cookies file downloads use. The user's own browser is not touched.\nSinónimos: cierra la sesión de youtube en links, olvida mi cuenta de instagram, quita la sesión",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1832,8 +1886,29 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
     "timeoutMs": 600000
   },
   {
+    "name": "read_post",
+    "description": "Read a social post as text with the signed-in session — leer un tuit, leer un post de Instagram\nOpens the post (X, Instagram, Threads, TikTok, Facebook, Reddit or any page) in Links' browser profile, where the user signed in themselves with site_login, without a window, and returns author, text, the page description, the link card and the links it contains (t.co and other short links resolved). Only reads: nothing is posted or liked. A login wall fails with code LOGIN_NEEDED and the site to sign in to (then site_login).\nSinónimos: qué dice este tuit, lee este post, texto de la publicación, de qué repo habla este tuit, leer instagram",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
     "name": "media_delete",
-    "description": "Remove a download record, optionally its files â€” borrar descarga, quitar archivo descargado\nRemoves the record from the downloads list. With delete_files: true AND confirm: true it also deletes the downloaded files from the disk (permanent, there is no recycle bin): confirm with the user first. A running download must be cancelled first.\nSinÃ³nimos: borra la descarga, elimina el archivo descargado, quita de la lista de descargas, borrar el vÃ­deo descargado",
+    "description": "Remove a download record, optionally its files — borrar descarga, quitar archivo descargado\nRemoves the record from the downloads list. With delete_files: true AND confirm: true it also deletes the downloaded files from the disk (permanent, there is no recycle bin): confirm with the user first. A running download must be cancelled first.\nSinónimos: borra la descarga, elimina el archivo descargado, quita de la lista de descargas, borrar el vídeo descargado",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1860,7 +1935,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "link_video",
-    "description": "Transcript (with timestamps) and key frames of a saved video link — transcripción del vídeo, fotogramas clave\nReturns what the background analysis obtained for a saved video: status (none, queued, running, done, partial, failed, no_source), the transcript (status, via, language, text, timed segments) and the key frames (index, t_s, time, reason and the absolute path of the JPEG). Identify the link by id or url. If the status is none or no_source, offer link_video_analyze. Quote only what is returned.\nSinÃ³nimos: quÃ© dice el vÃ­deo, transcripciÃ³n del reel, resumen del vÃ­deo, fotogramas, capturas del vÃ­deo, subtÃ­tulos locales",
+    "description": "Transcript (with timestamps) and key frames of a saved video link — transcripción del vídeo, fotogramas clave\nReturns what the background analysis obtained for a saved video: status (none, queued, running, done, partial, failed, no_source), the transcript (status, via, language, text, timed segments) and the key frames (index, t_s, time, reason and the absolute path of the JPEG). Identify the link by id or url. If the status is none or no_source, offer link_video_analyze. Quote only what is returned.\nSinónimos: qué dice el vídeo, transcripción del reel, resumen del vídeo, fotogramas, capturas del vídeo, subtítulos locales",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1891,7 +1966,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "link_video_analyze",
-    "description": "Transcribe a saved video link and extract its key frames â€” analizar vÃ­deo, transcribir reel\nQueues (or repeats) the analysis of a saved link: a transcript through the family speech-to-text service (or faster-whisper on the CPU when installed) and key frames by scene change. The media is a file given in path, a finished download of the link, or - with download: true - the video downloaded with the application downloader. Idempotent: a finished analysis of the same file is returned unchanged unless force is true. wait (default true) follows it up to timeout_s; if it is still running, call link_video later.\nSinÃ³nimos: transcribe este reel, analiza el vÃ­deo, saca los fotogramas, transcribir vÃ­deo guardado, subtÃ­tulos del vÃ­deo, procesar vÃ­deo",
+    "description": "Transcribe a saved video link and extract its key frames — analizar vídeo, transcribir reel\nQueues (or repeats) the analysis of a saved link: a transcript through the family speech-to-text service (or faster-whisper on the CPU when installed) and key frames by scene change. The media is a file given in path, a finished download of the link, or - with download: true - the video downloaded with the application downloader. Idempotent: a finished analysis of the same file is returned unchanged unless force is true. wait (default true) follows it up to timeout_s; if it is still running, call link_video later.\nSinónimos: transcribe este reel, analiza el vídeo, saca los fotogramas, transcribir vídeo guardado, subtítulos del vídeo, procesar vídeo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1938,7 +2013,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "link_video_search",
-    "description": "Search the spoken words of all analysed videos â€” buscar en transcripciones\nFull-text search over the transcripts of saved videos. Returns the matching lines with the link, the title and the time (seconds and m:ss) where they are said.\nSinÃ³nimos: quÃ© vÃ­deo dice, dÃ³nde dijo, buscar en los reels, buscar en las transcripciones, frase en un vÃ­deo",
+    "description": "Search the spoken words of all analysed videos — buscar en transcripciones\nFull-text search over the transcripts of saved videos. Returns the matching lines with the link, the title and the time (seconds and m:ss) where they are said.\nSinónimos: qué vídeo dice, dónde dijo, buscar en los reels, buscar en las transcripciones, frase en un vídeo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -1965,7 +2040,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "video_digest",
-    "description": "Watch a video for you and return a cheap text digest â€” digiere este vÃ­deo, resume el vÃ­deo del tweet\nDownloads a video link (X/Twitter, YouTube, reels, any yt-dlp site; or path = a local file for a saved link), transcribes it, splits the picture into segments, reads screen text by OCR and summarizes chapters with local models, all on the user's PC. Returns status and the text of level (default brief = card + chapter index) with token counts and the paths of the files (digest.md, frames, contact sheet). focus: what you are looking for, so the summary answers it. Idempotent; queued/running: call again later. force redoes it.\nSinÃ³nimos: mira este vÃ­deo, de quÃ© va el vÃ­deo, resÃºmeme el vÃ­deo, transcribe el tweet, vÃ­deo largo, ver vÃ­deo sin tokens",
+    "description": "Watch a video for you and return a cheap text digest — digiere este vídeo, resume el vídeo del tweet\nDownloads a video link (X/Twitter, YouTube, reels, any yt-dlp site; or path = a local file for a saved link), transcribes it, splits the picture into segments, reads screen text by OCR and summarizes chapters with local models, all on the user's PC. Returns status and the text of level (default brief = card + chapter index) with token counts and the paths of the files (digest.md, frames, contact sheet). focus: what you are looking for, so the summary answers it. Idempotent; queued/running: call again later. force redoes it.\nSinónimos: mira este vídeo, de qué va el vídeo, resúmeme el vídeo, transcribe el tweet, vídeo largo, ver vídeo sin tokens",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2010,7 +2085,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "boolean"
         },
         "language": {
-          "description": "Spoken language hint for speech to text (es, enâ€¦)",
+          "description": "Spoken language hint for speech to text (es, en…)",
           "type": "string",
           "maxLength": 10
         },
@@ -2038,7 +2113,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "video_digest_read",
-    "description": "Read one layer or one time span of a video digest â€” leer el digest, tramo del vÃ­deo\nReturns the text of a finished digest: brief (card + chapter index), card, index, visual (every segment with literal screen text), transcript (literal, timed) or full. from/to (seconds or m:ss) cut the visual and transcript layers to that span, so a long video is read piece by piece.\nSinÃ³nimos: lee la transcripciÃ³n, quÃ© dice entre el minuto 3 y el 5, quÃ© sale en pantalla, capa visual del vÃ­deo",
+    "description": "Read one layer or one time span of a video digest — leer el digest, tramo del vídeo\nReturns the text of a finished digest: brief (card + chapter index), card, index, visual (every segment with literal screen text), sound (what the soundtrack sounds like, generated), transcript (literal, timed) or full. from/to (seconds or m:ss) cut the visual and transcript layers to that span, so a long video is read piece by piece.\nSinónimos: lee la transcripción, qué dice entre el minuto 3 y el 5, qué sale en pantalla, capa visual del vídeo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2057,6 +2132,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "card",
             "index",
             "visual",
+            "sound",
             "transcript",
             "full"
           ]
@@ -2087,7 +2163,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "video_ask",
-    "description": "Ask a question about a digested video, answered with checked quotes â€” pregunta al vÃ­deo\nThe local model answers from the transcript and the screen text (OCR) of one video; every sentence carries citations (s = speech, v = screen) with the time and a verbatim quote that the app checked against the source. Sentences whose quotes do not match are dropped. Needs a digest (video_digest) first.\nSinÃ³nimos: quÃ© dice el vÃ­deo sobre, en quÃ© minuto habla de, pregÃºntale al vÃ­deo, dÃ³nde explica",
+    "description": "Ask a question about a digested video, answered with checked quotes — pregunta al vídeo\nThe local model answers from the transcript and the screen text (OCR) of one video; every sentence carries citations (s = speech, v = screen) with the time and a verbatim quote that the app checked against the source. Sentences whose quotes do not match are dropped. Needs a digest (video_digest) first.\nSinónimos: qué dice el vídeo sobre, en qué minuto habla de, pregúntale al vídeo, dónde explica",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2114,7 +2190,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "video_find",
-    "description": "Search what is said and shown in digested videos â€” buscar en vÃ­deos, texto en pantalla\nFull-text search over transcripts and screen text (OCR) of one video (id/url) or all of them. Each hit has the time, the line with the lines before and after, or the screen text and its frame path.\nSinÃ³nimos: en quÃ© vÃ­deo sale, busca en el vÃ­deo, dÃ³nde aparece en pantalla, minuto en que dice",
+    "description": "Search what is said and shown in digested videos — buscar en vídeos, texto en pantalla\nFull-text search over transcripts, screen text (OCR) and the soundtrack readings of one video (id/url) or all of them. Each hit has the time, the line with the lines before and after, the screen text and its frame path, or the sound label (where: sound).\nSinónimos: en qué vídeo sale, busca en el vídeo, dónde aparece en pantalla, minuto en que dice",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2147,7 +2223,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "video_frame",
-    "description": "The exact frame of a video at an instant â€” fotograma en el minuto, captura del vÃ­deo\nExtracts the frame at t (seconds or m:ss) of a video whose digest exists and returns its absolute JPEG path, size and the tokens it would cost to look at. Use it only when the digest says the picture matters (a chart, a diagram, a UI).\nSinÃ³nimos: captura en el minuto, saca el fotograma, ensÃ©Ã±ame la imagen del segundo, frame del vÃ­deo",
+    "description": "The exact frame of a video at an instant — fotograma en el minuto, captura del vídeo\nExtracts the frame at t (seconds or m:ss) of a video whose digest exists and returns its absolute JPEG path, size and the tokens it would cost to look at. Use it only when the digest says the picture matters (a chart, a diagram, a UI).\nSinónimos: captura en el minuto, saca el fotograma, enséñame la imagen del segundo, frame del vídeo",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2181,7 +2257,7 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
   },
   {
     "name": "video_digests",
-    "description": "List the video digests and their state â€” digests de vÃ­deo, vÃ­deos digeridos\nThe latest digests: title, url, status, stage while running, focus, duration and the tokens of their brief level.\nSinÃ³nimos: quÃ© vÃ­deos he digerido, estado del digest, lista de vÃ­deos resumidos",
+    "description": "List the video digests and their state — digests de vídeo, vídeos digeridos\nThe latest digests: title, url, status, stage while running, focus, duration and the tokens of their brief level.\nSinónimos: qué vídeos he digerido, estado del digest, lista de vídeos resumidos",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -2195,6 +2271,571 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
       }
     },
     "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_describe",
+    "description": "Describe what a sound is — qué suena, identificar sonido, describir audio\nListens locally (CLAP + AudioSet, no cloud) to a file (path), a saved link (id) or a URL and says what it sounds like: closest descriptions of a calibrated vocabulary with z-score and verdict (strong z>=3, plausible, weak, no match), AudioSet labels, loudness and shape. Labels are estimates: report the verdict, not certainty. The first call loads the models (~1 min).\nSinónimos: qué suena aquí, qué es este ruido, identifica el sonido, de qué es este audio, describe el audio",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Absolute path of an audio or video file",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "id": {
+          "description": "A saved link that has a downloaded audio or video",
+          "type": "string"
+        },
+        "url": {
+          "description": "A link to download as audio when it is not saved yet",
+          "type": "string"
+        },
+        "start": {
+          "description": "Seconds: analyse from here",
+          "type": "number",
+          "minimum": 0
+        },
+        "end": {
+          "description": "Seconds: analyse up to here",
+          "type": "number",
+          "minimum": 0
+        },
+        "top": {
+          "default": 8,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "with_data": {
+          "default": false,
+          "description": "Add the numbers (z, cosine) next to the reading",
+          "type": "boolean"
+        }
+      }
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_match",
+    "description": "Check if a sound matches a description — suena a, comprobar sonido, ¿es esto un…?\nHow well a file, link or URL matches your words ('a dog barking', 'epic orchestral music'): z-score against a calibrated vocabulary, its rank, a verdict (strong, plausible, weak, no match) and what it sounds like instead. alts are competing descriptions to choose between.\nSinónimos: suena a, es un ladrido, contiene música épica, comprueba si hay aplausos, coincide con",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Absolute path of an audio or video file",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "id": {
+          "description": "A saved link that has a downloaded audio or video",
+          "type": "string"
+        },
+        "url": {
+          "description": "A link to download as audio when it is not saved yet",
+          "type": "string"
+        },
+        "start": {
+          "description": "Seconds: analyse from here",
+          "type": "number",
+          "minimum": 0
+        },
+        "end": {
+          "description": "Seconds: analyse up to here",
+          "type": "number",
+          "minimum": 0
+        },
+        "query": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 300
+        },
+        "alts": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 300
+          }
+        },
+        "with_data": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_find",
+    "description": "Find a sound by description — buscar en el audio, en qué minuto suena\nGive query and a source (path, id or url): the best moments inside it with start/end and z. Without a source it searches the soundtracks already indexed by video digests (words, instant); deep: true also ranks the downloaded audio and video files by how much they sound like the query (slow, CPU).\nSinónimos: en qué momento suena, busca el sonido de, dónde hay un portazo, encuentra la música, localiza el efecto",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Absolute path of an audio or video file",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "id": {
+          "description": "A saved link that has a downloaded audio or video",
+          "type": "string"
+        },
+        "url": {
+          "description": "A link to download as audio when it is not saved yet",
+          "type": "string"
+        },
+        "start": {
+          "description": "Seconds: analyse from here",
+          "type": "number",
+          "minimum": 0
+        },
+        "end": {
+          "description": "Seconds: analyse up to here",
+          "type": "number",
+          "minimum": 0
+        },
+        "query": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 300
+        },
+        "kind": {
+          "default": "auto",
+          "description": "event: a short hit; texture: a stretch; auto decides",
+          "type": "string",
+          "enum": [
+            "auto",
+            "event",
+            "texture"
+          ]
+        },
+        "top": {
+          "default": 5,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "deep": {
+          "default": false,
+          "description": "No source: also rank the downloaded files with the audio model",
+          "type": "boolean"
+        },
+        "with_data": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_timeline",
+    "description": "Timeline of a soundtrack — música, efectos y ambiente por tramos\nSections with what plays in each (genre, mood, instruments, ambience, AudioSet), tagged events (hits, whooshes, footsteps, voice), loudness (LUFS, true peak, LRA), drops and pulse. Source: path, id or url; start/end zoom in; detail low|normal|high trades time for tags.\nSinónimos: qué música suena, línea de tiempo del audio, banda sonora, secciones del audio, efectos de sonido",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Absolute path of an audio or video file",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "id": {
+          "description": "A saved link that has a downloaded audio or video",
+          "type": "string"
+        },
+        "url": {
+          "description": "A link to download as audio when it is not saved yet",
+          "type": "string"
+        },
+        "start": {
+          "description": "Seconds: analyse from here",
+          "type": "number",
+          "minimum": 0
+        },
+        "end": {
+          "description": "Seconds: analyse up to here",
+          "type": "number",
+          "minimum": 0
+        },
+        "detail": {
+          "default": "normal",
+          "type": "string",
+          "enum": [
+            "low",
+            "normal",
+            "high"
+          ]
+        },
+        "with_data": {
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_measure",
+    "description": "Measure an audio file — volumen, LUFS, picos, ruido, brillo\nNumbers without models (fast): integrated and short-term loudness, true peak, loudness range, noise floor, clipping, stereo width and correlation, brightness, bandwidth, attack, onsets per second. Source: path, id or url.\nSinónimos: cuánto volumen tiene, mide el audio, nivel de ruido, está saturado, picos del audio, loudness",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Absolute path of an audio or video file",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "id": {
+          "description": "A saved link that has a downloaded audio or video",
+          "type": "string"
+        },
+        "url": {
+          "description": "A link to download as audio when it is not saved yet",
+          "type": "string"
+        },
+        "start": {
+          "description": "Seconds: analyse from here",
+          "type": "number",
+          "minimum": 0
+        },
+        "end": {
+          "description": "Seconds: analyse up to here",
+          "type": "number",
+          "minimum": 0
+        },
+        "music": {
+          "default": false,
+          "description": "Also tempo and beats",
+          "type": "boolean"
+        },
+        "with_data": {
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "map_site",
+    "description": "List the pages of a website or section — mapear sitio, URLs de una web\nFinds URLs from robots.txt sitemaps, sitemap.xml (index and .gz too) and the start page's same-host links; include/exclude globs, path_prefix (default: the start URL's folder, \"/\" = whole site). Returns urls with title when known and saved (already in the library). Saves nothing; follow with crawl_site.\nSinónimos: mapa del sitio, sitemap, listar páginas de una web, qué páginas tiene este sitio, descubrir URLs",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "include": {
+          "default": [],
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "exclude": {
+          "default": [],
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "path_prefix": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "limit": {
+          "default": 200,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        },
+        "sitemaps": {
+          "default": true,
+          "type": "boolean"
+        },
+        "links": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "crawl_site",
+    "description": "Save a whole website or section as links — guardar un sitio entero\nStarts a background crawl (returns a job id at once): pages from sitemap/links, same host only, limit (default 50), depth, include/exclude, path_prefix; or an explicit urls list. Each page is extracted and saved as a normal link tagged site:<host> and crawl-<id>; saved URLs are skipped; robots.txt and Crawl-delay honoured. Poll crawl_status.\nSinónimos: guardar toda la documentación, descargar el sitio, rastrear web, copiar una web, guardar sección",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "urls": {
+          "maxItems": 2000,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "include": {
+          "default": [],
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "exclude": {
+          "default": [],
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "path_prefix": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "tags": {
+          "default": [],
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "delay_ms": {
+          "default": 500,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "concurrency": {
+          "default": 2,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        }
+      }
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "crawl_status",
+    "description": "Progress, cancel or resume of site crawls — estado del rastreo\nWith id: job progress (found/done/saved/skipped/failed, current page, per-page results). Without id: the recent jobs. action cancel stops it; resume reruns an interrupted/cancelled one, fetching only what is not saved yet.\nSinónimos: progreso del rastreo, cancelar rastreo, reanudar guardado del sitio, cómo va el crawl",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "action": {
+          "default": "status",
+          "type": "string",
+          "enum": [
+            "status",
+            "cancel",
+            "resume"
+          ]
+        }
+      }
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "crawl_delete",
+    "description": "Delete a site crawl's record — borrar un rastreo del historial\nRemoves a finished, cancelled, failed or interrupted crawl job from the history (crawl_status). Only the job record goes: the links it saved stay in the library with their site:/crawl- tags. A running job is refused; cancel it first with crawl_status action cancel.\nSinónimos: borrar rastreo, quitar del historial de rastreos, limpiar rastreos, eliminar trabajo de rastreo",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_realness",
+    "description": "Real recording or synthesized? — ¿sonido real o generado?\nEstimates per 4 s window and overall whether the audio was recorded or pro-produced (p_real) or leans synthesized, with its weak calibration stated. A hint to check, not a proof; it misses code-made layers under a louder real mix.\nSinónimos: es real el audio, audio generado por IA, sonido sintetizado, grabación o sintético, detecta audio falso",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Absolute path of an audio or video file",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "id": {
+          "description": "A saved link that has a downloaded audio or video",
+          "type": "string"
+        },
+        "url": {
+          "description": "A link to download as audio when it is not saved yet",
+          "type": "string"
+        },
+        "start": {
+          "description": "Seconds: analyse from here",
+          "type": "number",
+          "minimum": 0
+        },
+        "end": {
+          "description": "Seconds: analyse up to here",
+          "type": "number",
+          "minimum": 0
+        },
+        "ast": {
+          "default": false,
+          "description": "Also check AudioSet speech/music evidence",
+          "type": "boolean"
+        },
+        "with_data": {
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_sheet",
+    "description": "Picture of a soundtrack — hoja de sonido, espectrograma\nWrites a PNG (spectrogram, waveform, loudness, labelled events and sections) of a file, link or URL and returns its absolute path and size; open it only when the picture matters. start/end zoom; detail low|normal|high.\nSinónimos: espectrograma, dibuja el audio, forma de onda, hoja del audio, imagen del sonido",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Absolute path of an audio or video file",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "id": {
+          "description": "A saved link that has a downloaded audio or video",
+          "type": "string"
+        },
+        "url": {
+          "description": "A link to download as audio when it is not saved yet",
+          "type": "string"
+        },
+        "start": {
+          "description": "Seconds: analyse from here",
+          "type": "number",
+          "minimum": 0
+        },
+        "end": {
+          "description": "Seconds: analyse up to here",
+          "type": "number",
+          "minimum": 0
+        },
+        "detail": {
+          "default": "normal",
+          "type": "string",
+          "enum": [
+            "low",
+            "normal",
+            "high"
+          ]
+        }
+      }
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "audio_status",
+    "description": "State of Sentidos, the listening engine — motor de sonido, preparar modelos\nSays whether the engine is installed, its models (CLAP, AudioSet; ~1.1 GB, downloaded once) are ready and the worker runs. action setup builds the environment and downloads the models in the background (poll with status); start / stop control the worker (it also starts on the first audio_* call and stops when idle).\nSinónimos: está listo el audio, instala sentidos, descarga los modelos de sonido, arranca el motor de audio",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "action": {
+          "default": "status",
+          "type": "string",
+          "enum": [
+            "status",
+            "setup",
+            "start",
+            "stop"
+          ]
+        }
+      }
+    },
+    "writes": true,
     "group": "research",
     "timeoutMs": 600000
   },
@@ -2443,6 +3084,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 500,
           "title": "Url",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -2530,6 +3177,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           ],
           "default": null,
           "title": "Notes"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -2656,6 +3309,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           ],
           "default": null,
           "title": "Recurring"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -2712,6 +3371,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "default": false,
           "title": "Confirm",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -2735,6 +3400,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "minLength": 1,
           "title": "Minutes Id",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -2779,6 +3450,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Also write «Renta <year>.zip» next to the folder.",
           "title": "Zip",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "title": "TaxPackArgs",
@@ -2806,6 +3483,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 60,
           "title": "Tx Id",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3026,6 +3709,239 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
     "timeoutMs": 600000
   },
   {
+    "name": "kafka_dossier",
+    "description": "Dossier for a question over filed sources: cited claims and contradictions. Expediente de una pregunta.\nReads each source's archived text (PDF, mail, text, csv tables, OCR) with fixed rules: relevant passages with [d_id · p. N · l. M] citations, claims (date, amount, duration, percent, obligation) and a cross-source synthesis. Incompatible values are listed side by side with their sources and never resolved; the conclusion separates agreement, conflict and open questions. No model text. Saves the dossier (dos_…).\nSinónimos: expediente, dossier, contrastar documentos, contradicciones, qué dicen los papeles, fechas distintas, importes que no cuadran, cruzar fuentes",
+    "schema": {
+      "properties": {
+        "question": {
+          "description": "The question the dossier answers, e.g. «¿cuándo y por cuánto se firma la renovación?»",
+          "maxLength": 400,
+          "minLength": 3,
+          "title": "Question",
+          "type": "string"
+        },
+        "doc_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 12,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filed documents (d_…) to use as sources, 2 to 12 for a cross-check. Absent: the best full-text matches of the question.",
+          "title": "Doc Ids"
+        },
+        "lang": {
+          "default": "es",
+          "description": "Language of the synthesis texts and open questions.",
+          "enum": [
+            "es",
+            "en"
+          ],
+          "title": "Lang",
+          "type": "string"
+        },
+        "max_passages": {
+          "default": 6,
+          "description": "Relevant passages kept per source.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Max Passages",
+          "type": "integer"
+        },
+        "detail": {
+          "default": "summary",
+          "description": "summary: relevant claims only; full: every claim read from each source.",
+          "enum": [
+            "summary",
+            "full"
+          ],
+          "title": "Detail",
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "title": "DossierArgs",
+      "type": "object"
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "kafka_dossier_status",
+    "description": "Is a dossier up to date? Lists dossiers or one with its stale sections. Estado del expediente.\nCompares the text hash each source had when the dossier was built with the one it has now: fresh, changed or missing. Without dossier it lists all of them. Read-only.\nSinónimos: expediente desactualizado, ha cambiado una fuente, dossier obsoleto, estado del expediente",
+    "schema": {
+      "properties": {
+        "dossier": {
+          "default": "",
+          "description": "Dossier id (dos_…). Empty: list every dossier with its state.",
+          "maxLength": 60,
+          "title": "Dossier",
+          "type": "string"
+        },
+        "detail": {
+          "default": "state",
+          "description": "state: only fresh/stale per source; summary or full: also the dossier content.",
+          "enum": [
+            "state",
+            "summary",
+            "full"
+          ],
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "title": "DossierRef",
+      "type": "object"
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "kafka_dossier_refresh",
+    "description": "Recompute only the sections of a dossier whose source changed. Actualizar expediente.\nRe-reads the changed sources, drops deleted ones, rebuilds synthesis and conclusion; unchanged sources are kept as they were.\nSinónimos: actualizar expediente, refrescar dossier, recalcular lo que cambió",
+    "schema": {
+      "properties": {
+        "dossier": {
+          "default": "",
+          "description": "Dossier id (dos_…). Empty: list every dossier with its state.",
+          "maxLength": 60,
+          "title": "Dossier",
+          "type": "string"
+        },
+        "detail": {
+          "default": "state",
+          "description": "state: only fresh/stale per source; summary or full: also the dossier content.",
+          "enum": [
+            "state",
+            "summary",
+            "full"
+          ],
+          "title": "Detail",
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
+        }
+      },
+      "title": "DossierRef",
+      "type": "object"
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "kafka_dossier_delete",
+    "description": "Delete a dossier (derived data; the sources stay). Borrar expediente.\nNeeds confirm=true. Documents and their deadlines are not touched.\nSinónimos: borrar expediente, eliminar dossier",
+    "schema": {
+      "properties": {
+        "dossier": {
+          "description": "Dossier id (dos_…).",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Dossier",
+          "type": "string"
+        },
+        "confirm": {
+          "default": false,
+          "description": "Must be true: the dossier (derived data only) is removed; sources are untouched.",
+          "title": "Confirm",
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
+        }
+      },
+      "required": [
+        "dossier"
+      ],
+      "title": "DossierDeleteArgs",
+      "type": "object"
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "kafka_requirements_diff",
+    "description": "Clauses added, removed or modified between two versions, with affected claims. Qué requisitos cambiaron.\nAligns clauses by number (cláusula, artículo, N.) then by text similarity; for each change returns both texts with citations, the word changes and the dates, amounts, durations or obligations that differ. Works for two sources too. Archived text only; no legal reading.\nSinónimos: qué cambió, requisitos nuevos, cláusulas modificadas, comparar versiones del contrato, qué requisitos han cambiado",
+    "schema": {
+      "properties": {
+        "before": {
+          "description": "Earlier version or first source, d_…",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Before",
+          "type": "string"
+        },
+        "after": {
+          "description": "Later version or second source, d_…",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "lang": {
+          "default": "es",
+          "description": "Language of the displayed values.",
+          "enum": [
+            "es",
+            "en"
+          ],
+          "title": "Lang",
+          "type": "string"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Zero-based change index; use next_offset for more.",
+          "minimum": 0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "limit": {
+          "default": 30,
+          "description": "Maximum clause changes returned.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "before",
+        "after"
+      ],
+      "title": "RequirementsDiffArgs",
+      "type": "object"
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
     "name": "doc_search",
     "description": "Full-text search over every page, with snippets and citations. Buscar en los documentos.\nQuote only what the snippets say and cite them as [d_id · p. N].\nSinónimos: busca, encuentra, dónde pone, cuánto pagué, número de póliza, buscar en mis papeles",
     "schema": {
@@ -3126,6 +4042,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 160,
           "title": "Item",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3169,6 +4091,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 160,
           "title": "Item",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3368,6 +4296,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "default": null,
           "description": "Legal guarantee for this purchase, in years (default 3).",
           "title": "Warranty Years"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3396,6 +4330,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Also ask the local model when the rules leave the document in review.",
           "title": "Llm",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3423,6 +4363,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "default": false,
           "title": "Confirm",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3584,6 +4530,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 200,
           "title": "Query",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "title": "ScanArgs",
@@ -3650,6 +4602,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "minLength": 3,
           "title": "Message Id",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3672,6 +4630,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "minLength": 3,
           "title": "Message Id",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3721,6 +4685,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "minLength": 2,
           "title": "Path",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3744,6 +4714,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "minLength": 2,
           "title": "Path",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3767,6 +4743,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 1000,
           "title": "Folder",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "title": "FolderScanArgs",
@@ -3781,7 +4763,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
     "description": "Create warranties from delivered parcels in Phileas's Hoard. Garantías de compras entregadas.\nSinónimos: paquetes entregados, compras, sincronizar envíos, garantía legal 3 años",
     "schema": {
       "description": "A tool without arguments.",
-      "properties": {},
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
+        }
+      },
       "title": "Empty",
       "type": "object"
     },
@@ -3837,6 +4826,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           ],
           "title": "Channel",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3854,7 +4849,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
     "description": "Find and save the Telegram chat id after writing to the bot. Buscar chat de Telegram.\nSinónimos: configurar Telegram",
     "schema": {
       "description": "A tool without arguments.",
-      "properties": {},
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
+        }
+      },
       "title": "Empty",
       "type": "object"
     },
@@ -3872,6 +4874,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Setting key -> value. See kafka_status → settings for the keys.",
           "title": "Values",
           "type": "object"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3912,6 +4920,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 2000,
           "title": "Value",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -3962,7 +4976,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
     "description": "Archive old closed deadlines, roll recurring ones, tidy series and caches. Mantenimiento.\nSinónimos: limpiar, ordenar, archivar plazos hechos",
     "schema": {
       "description": "A tool without arguments.",
-      "properties": {},
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
+        }
+      },
       "title": "Empty",
       "type": "object"
     },
@@ -4026,6 +5047,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Password for protected inputs (used in memory only).",
           "title": "Password",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4094,6 +5121,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Also file each part in Kafka as a new document (doc_ids).",
           "title": "File Result",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4174,6 +5207,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Password of the PDF if it is protected.",
           "title": "Password",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4262,6 +5301,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Password of the PDF if it is protected.",
           "title": "Password",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4350,6 +5395,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "protect: allow editing.",
           "title": "Allow Modify",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4446,6 +5497,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Password of the PDF if it is protected.",
           "title": "Password",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4581,6 +5638,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Password of the PDF if it is protected.",
           "title": "Password",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4657,6 +5720,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           ],
           "title": "Orientation",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4711,6 +5780,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           ],
           "title": "Engine",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4780,6 +5855,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxLength": 1000,
           "title": "Out Dir",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -4869,6 +5950,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "minimum": 0,
           "title": "Time Limit S",
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5081,9 +6168,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
-      "required": [],
       "type": "object"
     },
     "writes": true,
@@ -5143,6 +6235,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5172,6 +6270,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "path": {
           "description": "Save as this file. Omit to save in place.",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5199,6 +6303,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "value": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5342,6 +6452,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "odd"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5373,6 +6489,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5408,6 +6530,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "to": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5443,6 +6571,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "description": "Points.",
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5481,6 +6615,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5530,6 +6670,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "separate": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5576,6 +6722,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5620,6 +6772,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "out_dir": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5684,6 +6842,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "title": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5719,6 +6883,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "title": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5750,6 +6920,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type": "integer"
           },
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5793,6 +6969,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "1-based position among the new parent's children, counted after the bookmark is removed (default: last).",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5827,6 +7009,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type": "integer"
           },
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5878,6 +7066,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "to": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5926,6 +7120,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "values": {
           "description": "Field name → value.",
           "type": "object"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -5954,6 +7154,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type": "string"
           },
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6033,6 +7239,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "signature"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6082,6 +7294,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6112,6 +7330,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6211,6 +7435,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "validate": {
           "description": "Validate tab: {\"min\": 0, \"max\": 100} (either may be left out) or \"none\"."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6261,6 +7491,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6318,6 +7554,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6343,6 +7585,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "field": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6413,6 +7661,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "whole_pages": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6443,6 +7697,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6464,6 +7724,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6523,6 +7789,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6680,6 +7952,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "even"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6781,6 +8059,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "exclusiveMinimum": 0,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6819,6 +8103,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxItems": 4,
           "minItems": 4,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6915,6 +8205,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "text": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -6946,6 +8242,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "page": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7027,6 +8329,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "width": {
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7091,6 +8399,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "width": {
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7122,6 +8436,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "page": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7145,6 +8465,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7166,6 +8492,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7375,6 +8707,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Line width in points.",
           "minimum": 0,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7419,6 +8757,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "text": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7468,6 +8812,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "completed"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7550,6 +8900,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7626,7 +8982,8 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional in Writer: when absent, Writer sends one naming itself and the tool."
         },
         "rect": {
           "items": {
@@ -7670,9 +9027,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
-      "required": [],
       "type": "object"
     },
     "writes": true,
@@ -7710,6 +9072,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "With `index`, instead of `id`.",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7749,6 +9117,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "With `index`, instead of `id`.",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7774,6 +9148,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "hidden": {
           "description": "Default true.",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7812,6 +9192,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7880,6 +9266,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "minimum": 0,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7915,6 +9307,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "With `index`, instead of `id`.",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -7986,6 +9384,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "high"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8007,6 +9411,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8050,6 +9460,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "path": {
           "description": "A file path (relative to --root when set).",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8082,6 +9498,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8140,6 +9562,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxItems": 4,
           "minItems": 4,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8213,6 +9641,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "start_number": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8280,6 +9714,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "text": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8333,6 +9773,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "exclusiveMinimum": 0,
           "maximum": 1,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8362,6 +9808,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "background"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8415,6 +9867,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maximum": 100,
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8552,6 +10010,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "value": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8605,6 +10069,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "figure": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8637,6 +10107,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8666,6 +10142,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "script": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8716,6 +10198,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "script": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8754,6 +10242,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "script": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8780,6 +10274,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8838,6 +10338,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "3b"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8908,6 +10414,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8971,6 +10483,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -8997,6 +10515,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "other": {
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9031,6 +10555,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9136,6 +10666,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "field": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9162,9 +10698,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
-      "required": [],
       "type": "object"
     },
     "writes": true,
@@ -9207,6 +10748,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "skip_text_pages": {
           "description": "Leave pages that already contain text alone (default true).",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9249,6 +10796,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9307,6 +10860,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9341,6 +10900,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9396,6 +10961,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "initials"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9458,6 +11029,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9482,6 +11059,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9562,6 +11145,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "page": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9689,6 +11278,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxItems": 4,
           "minItems": 4,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9847,6 +11442,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "description": "Paragraph only: rewrap to this width in points (dragging the box's edge).",
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9869,6 +11470,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9894,6 +11501,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "revision": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9952,6 +11565,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "remove_unreferenced_dests": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -9982,6 +11601,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "fields": {
           "description": "Default true.",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10003,6 +11628,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10024,6 +11655,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10088,6 +11725,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "confirm": {
           "type": "boolean",
           "description": "Required for destructive actions."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10163,9 +11806,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
-      "required": [],
       "type": "object"
     },
     "writes": true,
@@ -10225,6 +11873,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10254,6 +11908,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "path": {
           "description": "Save as this file. Omit to save in place.",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10281,6 +11941,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "value": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10424,6 +12090,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "odd"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10455,6 +12127,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10490,6 +12168,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "to": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10525,6 +12209,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "description": "Points.",
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10563,6 +12253,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10612,6 +12308,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "separate": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10658,6 +12360,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10702,6 +12410,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "out_dir": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10766,6 +12480,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "title": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10801,6 +12521,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "title": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10832,6 +12558,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type": "integer"
           },
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10875,6 +12607,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "1-based position among the new parent's children, counted after the bookmark is removed (default: last).",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10909,6 +12647,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type": "integer"
           },
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -10960,6 +12704,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "to": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11008,6 +12758,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "values": {
           "description": "Field name → value.",
           "type": "object"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11036,6 +12792,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type": "string"
           },
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11115,6 +12877,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "signature"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11164,6 +12932,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11194,6 +12968,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11293,6 +13073,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "validate": {
           "description": "Validate tab: {\"min\": 0, \"max\": 100} (either may be left out) or \"none\"."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11343,6 +13129,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11400,6 +13192,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11425,6 +13223,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "field": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11495,6 +13299,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "whole_pages": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11525,6 +13335,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11546,6 +13362,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11605,6 +13427,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11762,6 +13590,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "even"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11863,6 +13697,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "exclusiveMinimum": 0,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11901,6 +13741,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxItems": 4,
           "minItems": 4,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -11997,6 +13843,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "text": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12028,6 +13880,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "page": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12109,6 +13967,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "width": {
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12173,6 +14037,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "width": {
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12204,6 +14074,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "page": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12227,6 +14103,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12248,6 +14130,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12457,6 +14345,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "Line width in points.",
           "minimum": 0,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12501,6 +14395,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "text": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12550,6 +14450,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "completed"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12632,6 +14538,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12708,7 +14620,8 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional in Writer: when absent, Writer sends one naming itself and the tool."
         },
         "rect": {
           "items": {
@@ -12752,9 +14665,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
-      "required": [],
       "type": "object"
     },
     "writes": true,
@@ -12792,6 +14710,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "With `index`, instead of `id`.",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12831,6 +14755,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "With `index`, instead of `id`.",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12856,6 +14786,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "hidden": {
           "description": "Default true.",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12894,6 +14830,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "type"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12962,6 +14904,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "minimum": 0,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -12997,6 +14945,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "description": "With `index`, instead of `id`.",
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13068,6 +15022,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "high"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13089,6 +15049,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13132,6 +15098,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "path": {
           "description": "A file path (relative to --root when set).",
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13164,6 +15136,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13222,6 +15200,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxItems": 4,
           "minItems": 4,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13295,6 +15279,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "start_number": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13362,6 +15352,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "text": {
           "minLength": 1,
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13415,6 +15411,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "exclusiveMinimum": 0,
           "maximum": 1,
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13444,6 +15446,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "background"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13497,6 +15505,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maximum": 100,
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13634,6 +15648,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "value": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13687,6 +15707,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "figure": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13719,6 +15745,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13748,6 +15780,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "script": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13798,6 +15836,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "script": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13836,6 +15880,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "script": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13862,6 +15912,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13920,6 +15976,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "3b"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -13990,6 +16052,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14053,6 +16121,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14079,6 +16153,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "other": {
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14113,6 +16193,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14218,6 +16304,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "field": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14244,9 +16336,14 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
-      "required": [],
       "type": "object"
     },
     "writes": true,
@@ -14289,6 +16386,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "skip_text_pages": {
           "description": "Leave pages that already contain text alone (default true).",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14331,6 +16434,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14389,6 +16498,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           },
           "minItems": 1,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14423,6 +16538,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14478,6 +16599,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
             "initials"
           ],
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14540,6 +16667,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Optional Kafka document id (d_…) or prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14564,6 +16697,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "path": {
           "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14644,6 +16783,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "page": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14771,6 +16916,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "maxItems": 4,
           "minItems": 4,
           "type": "array"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14929,6 +17080,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "width": {
           "description": "Paragraph only: rewrap to this width in points (dragging the box's edge).",
           "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14951,6 +17108,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -14976,6 +17139,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "revision": {
           "minimum": 1,
           "type": "integer"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -15034,6 +17203,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         },
         "remove_unreferenced_dests": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -15064,6 +17239,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "fields": {
           "description": "Default true.",
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -15085,6 +17266,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -15106,6 +17293,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
           "type": "string",
           "pattern": "^(?:d_[0-9a-z]{6,}|pc_[0-9a-f]{12})$",
           "description": "Kafka document id (d_…) or a prior PDF artifact id (pc_…)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -15170,6 +17363,12 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
         "confirm": {
           "type": "boolean",
           "description": "Required for destructive actions."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "Required. Why you are making this change, in one sentence the person can read in the history (3-300 characters). Optional in Writer: when absent, Writer sends one naming itself and the tool."
         }
       },
       "required": [
@@ -16219,6 +18418,12 @@ export const PUBLISHING_ANNOTATIONS: Record<string, { readOnlyHint: boolean; des
     "idempotentHint": true,
     "openWorldHint": false
   },
+  "watch_list_preview": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
   "watch_list": {
     "readOnlyHint": true,
     "destructiveHint": false,
@@ -16345,6 +18550,12 @@ export const PUBLISHING_ANNOTATIONS: Record<string, { readOnlyHint: boolean; des
     "idempotentHint": true,
     "openWorldHint": false
   },
+  "read_post": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true
+  },
   "media_delete": {
     "readOnlyHint": false,
     "destructiveHint": true,
@@ -16401,6 +18612,78 @@ export const PUBLISHING_ANNOTATIONS: Record<string, { readOnlyHint: boolean; des
   },
   "video_digests": {
     "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_describe": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_match": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_find": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_timeline": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_measure": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "map_site": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true
+  },
+  "crawl_site": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true
+  },
+  "crawl_status": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "crawl_delete": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_realness": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_sheet": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "audio_status": {
+    "readOnlyHint": false,
     "destructiveHint": false,
     "idempotentHint": true,
     "openWorldHint": false
@@ -16494,6 +18777,38 @@ export const PUBLISHING_ANNOTATIONS: Record<string, { readOnlyHint: boolean; des
     "openWorldHint": false
   },
   "doc_compare": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "kafka_dossier": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "draftSafeHint": true
+  },
+  "kafka_dossier_status": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "kafka_dossier_refresh": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "draftSafeHint": true
+  },
+  "kafka_dossier_delete": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "kafka_requirements_diff": {
     "readOnlyHint": true,
     "destructiveHint": false,
     "idempotentHint": true,
