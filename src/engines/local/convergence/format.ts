@@ -1,7 +1,7 @@
 import {convergenceClone,convergenceCanonical,convergenceHash,convergenceBytes} from './json';
 export {convergenceClone,convergenceCanonical,convergenceHash,convergenceBase64,convergenceBytes} from './json';
 import {localToolNamespace} from '../stateTypes';
-import {validateLocalToolCodec,localToolHasPlainFields,localToolRichLinks,localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,type LocalToolStateCodec} from '../stateCodecFormat';
+import {validateLocalToolCodec,localToolHasPlainFields,localToolRichLinks,localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,localToolRichImages,type LocalToolStateCodec} from '../stateCodecFormat';
 import type {LocalToolConvergenceCheckpoint,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolValidationConflict,LocalToolPlainRange,LocalToolConvergenceIdentityV1,LocalToolConvergenceIdentityV2,LocalToolConvergenceIdentityV3} from './formatTypes';
 
 export const LOCAL_TOOL_CONVERGENCE_ENGINE:LocalToolConvergenceIdentityV1['engine']=Object.freeze({id:'writers-hoard-yjs-registers',version:'1',updateFormat:'yjs-v1',libraryVersion:'13.6.33'});
@@ -12,11 +12,13 @@ export const LOCAL_TOOL_TABLE_ENGINE=Object.freeze({...LOCAL_TOOL_CONVERGENCE_EN
 export const LOCAL_TOOL_TABLE_AXES_ENGINE=Object.freeze({...LOCAL_TOOL_CONVERGENCE_ENGINE,version:'6' as const});
 export const LOCAL_TOOL_TABLE_WIDTHS_ENGINE=Object.freeze({...LOCAL_TOOL_CONVERGENCE_ENGINE,version:'7' as const});
 export const LOCAL_TOOL_SOURCE_ADDITIVE_ENGINE=Object.freeze({...LOCAL_TOOL_CONVERGENCE_ENGINE,version:'8' as const});
-export const convergenceEngine=(codec:LocalToolStateCodec):LocalToolConvergenceIdentity['engine']=>codec.sourceDefault?LOCAL_TOOL_SOURCE_ADDITIVE_ENGINE:Object.values(codec.fields).some(localToolRichTableWidths)?LOCAL_TOOL_TABLE_WIDTHS_ENGINE:Object.values(codec.fields).some(localToolRichTableAxes)?LOCAL_TOOL_TABLE_AXES_ENGINE:Object.values(codec.fields).some(localToolRichTables)?LOCAL_TOOL_TABLE_ENGINE:Object.values(codec.fields).some(localToolRichLinks)?LOCAL_TOOL_LINK_ENGINE:codec.version===2?LOCAL_TOOL_RICH_ENGINE:localToolHasPlainFields(codec)?LOCAL_TOOL_PLAIN_ENGINE:LOCAL_TOOL_CONVERGENCE_ENGINE;
+export const LOCAL_TOOL_IMAGE_ENGINE=Object.freeze({...LOCAL_TOOL_CONVERGENCE_ENGINE,version:'9' as const});
+export const convergenceEngine=(codec:LocalToolStateCodec):LocalToolConvergenceIdentity['engine']=>codec.sourceDefault?LOCAL_TOOL_SOURCE_ADDITIVE_ENGINE:Object.values(codec.fields).some(localToolRichImages)?LOCAL_TOOL_IMAGE_ENGINE:Object.values(codec.fields).some(localToolRichTableWidths)?LOCAL_TOOL_TABLE_WIDTHS_ENGINE:Object.values(codec.fields).some(localToolRichTableAxes)?LOCAL_TOOL_TABLE_AXES_ENGINE:Object.values(codec.fields).some(localToolRichTables)?LOCAL_TOOL_TABLE_ENGINE:Object.values(codec.fields).some(localToolRichLinks)?LOCAL_TOOL_LINK_ENGINE:codec.version===2?LOCAL_TOOL_RICH_ENGINE:localToolHasPlainFields(codec)?LOCAL_TOOL_PLAIN_ENGINE:LOCAL_TOOL_CONVERGENCE_ENGINE;
 /** A new Source definition/epoch cannot silently change a table capability. */
 export function assertTableAxesOrigin(codec:LocalToolStateCodec,stored:LocalToolStateCodec|undefined,version:LocalToolConvergenceIdentity['engine']['version']|undefined):void {
  const previous=version??(stored&&convergenceEngine(stored).version),next=convergenceEngine(codec).version;
- if((previous==='6'||previous==='7'||next==='6'||next==='7')&&previous!==next)throw Error('local_tool_convergence_identity_mismatch');
+ if((['6','7','9'].some(version=>version===previous||version===next))&&previous!==next)throw Error('local_tool_convergence_identity_mismatch');
+ if(previous==='9'&&(!stored||convergenceCodecHash(stored)!==convergenceCodecHash(codec)))throw Error('local_tool_convergence_identity_mismatch');
  if(previous==='7'){
   const tableFields=(value:LocalToolStateCodec)=>Object.fromEntries(Object.entries(value.fields).filter(([,field])=>localToolRichTables(field)));
   if(!stored||convergenceCanonical(tableFields(stored))!==convergenceCanonical(tableFields(codec)))throw Error('local_tool_convergence_identity_mismatch');
@@ -32,11 +34,11 @@ export function validateConvergenceMetadata(value:LocalToolConvergenceMetadata):
  validateLocalToolCodec(value.codec);
 }
 export function convergenceIdentity(metadata:LocalToolConvergenceMetadata,genesisId:string):LocalToolConvergenceIdentity {
- validateConvergenceMetadata(metadata);if(!text(genesisId))fail();const fields={namespace:metadata.namespace,genesisId,codecHash:convergenceCodecHash(metadata.codec),validationId:metadata.validationId,schemaEpoch:metadata.schemaEpoch},engine=convergenceEngine(metadata.codec);if(engine.version==='1')return{...fields,engine};if(engine.version==='2')return{...fields,engine};if(engine.version==='3')return{...fields,engine};if(engine.version==='4')return{...fields,engine};if(engine.version==='5')return{...fields,engine};if(engine.version==='6')return{...fields,engine};if(engine.version==='7')return{...fields,engine};return{...fields,engine};
+ validateConvergenceMetadata(metadata);if(!text(genesisId))fail();const fields={namespace:metadata.namespace,genesisId,codecHash:convergenceCodecHash(metadata.codec),validationId:metadata.validationId,schemaEpoch:metadata.schemaEpoch},engine=convergenceEngine(metadata.codec);if(engine.version==='1')return{...fields,engine};if(engine.version==='2')return{...fields,engine};if(engine.version==='3')return{...fields,engine};if(engine.version==='4')return{...fields,engine};if(engine.version==='5')return{...fields,engine};if(engine.version==='6')return{...fields,engine};if(engine.version==='7')return{...fields,engine};if(engine.version==='8')return{...fields,engine};return{...fields,engine};
 }
 const identityKeys=['namespace','genesisId','engine','codecHash','validationId','schemaEpoch'] as const;
 export function validateConvergenceIdentity(value:unknown):asserts value is LocalToolConvergenceIdentity {
- if(!object(value)||!localToolNamespace(value.namespace)||!text(value.genesisId)||!text(value.validationId)||!text(value.schemaEpoch)||typeof value.codecHash!=='string'||! /^[a-f0-9]{64}$/.test(value.codecHash)||![LOCAL_TOOL_CONVERGENCE_ENGINE,LOCAL_TOOL_PLAIN_ENGINE,LOCAL_TOOL_RICH_ENGINE,LOCAL_TOOL_LINK_ENGINE,LOCAL_TOOL_TABLE_ENGINE,LOCAL_TOOL_TABLE_AXES_ENGINE,LOCAL_TOOL_TABLE_WIDTHS_ENGINE,LOCAL_TOOL_SOURCE_ADDITIVE_ENGINE].some(engine=>convergenceCanonical(value.engine)===convergenceCanonical(engine)))fail();
+ if(!object(value)||!localToolNamespace(value.namespace)||!text(value.genesisId)||!text(value.validationId)||!text(value.schemaEpoch)||typeof value.codecHash!=='string'||! /^[a-f0-9]{64}$/.test(value.codecHash)||![LOCAL_TOOL_CONVERGENCE_ENGINE,LOCAL_TOOL_PLAIN_ENGINE,LOCAL_TOOL_RICH_ENGINE,LOCAL_TOOL_LINK_ENGINE,LOCAL_TOOL_TABLE_ENGINE,LOCAL_TOOL_TABLE_AXES_ENGINE,LOCAL_TOOL_TABLE_WIDTHS_ENGINE,LOCAL_TOOL_SOURCE_ADDITIVE_ENGINE,LOCAL_TOOL_IMAGE_ENGINE].some(engine=>convergenceCanonical(value.engine)===convergenceCanonical(engine)))fail();
 }
 /** JSON-only shape validation. Does not execute an engine, registry or package callback. */
 export function validateLocalToolConvergenceCheckpoint(value:unknown):asserts value is LocalToolConvergenceCheckpoint {
