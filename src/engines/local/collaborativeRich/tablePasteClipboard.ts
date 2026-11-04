@@ -1,5 +1,9 @@
 import {DOMParser as ProseMirrorDOMParser,type Schema} from '@tiptap/pm/model';
 import type {EditorView} from '@tiptap/pm/view';
+import {TextSelection} from '@tiptap/pm/state';
+import type {LocalToolStateAction} from '../stateActions';
+import type {RichBlockDocument} from '../convergence/blockFormat';
+import {richBlockChildren} from '../convergence/blockEditing';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import {assetBytes,assetFileMime} from '../assetFileFormat';
 import {isRichImageAlignment,isRichImageSize,validateRichImageAsset} from '../convergence/imageFormat';
@@ -7,7 +11,7 @@ import {RICH_MARK_KEYS,type RichMarkValue,type RichText} from '../convergence/ri
 import {tablePasteArea,tablePasteContents,type RichTablePasteCell,type RichTablePasteImage,type RichTablePasteMatrix,type RichTablePasteTarget} from '../convergence/tablePaste';
 import {areaContains,tableSpans} from '../convergence/tableSpanGeometry';
 import {convergenceCanonical} from '../convergence/format';
-import {axisCellAtPosition} from './blockProsemirror';
+import {axisCellAtPosition,blockPMLeaves} from './blockProsemirror';
 import {restoreSourceCellSelection,sourceCellSelectionEnds} from './tableCellSelection';
 import type {RichEditorSession} from './session';
 
@@ -99,6 +103,44 @@ function clipboardTable(html:string,schema:Schema,document:Document,allowSpans:b
  return width&&matrix.every(row=>row.length===width&&Array.from(row).every(cell=>cell!==undefined))?matrix:null;
 }
 
+function clipboardCaret(view:EditorView):number {
+ const selection=view.dom.ownerDocument.getSelection(),node=selection?.anchorNode;
+ if(!view.hasFocus()||!selection?.isCollapsed||!node||!view.dom.contains(node))return view.state.selection.from;
+ // A paste can arrive before the editor has observed the latest DOM caret movement.
+ try{return view.posAtDOM(node,selection.anchorOffset);}catch{return view.state.selection.from;}
+}
+
+function pasteNewSourceTable(session:RichEditorSession,view:EditorView,data:RichBlockDocument,parsed:(ClipboardCell|null)[][],textMatrix:RichTablePasteMatrix):boolean{
+ const {state}=view,field=session.field;
+ const from=clipboardCaret(view),insideTable=!!axisCellAtPosition(state.doc,from);
+ const actions:LocalToolStateAction[]=[];
+ let afterId:string|null=null;
+ if(!insideTable){
+  const leaf=blockPMLeaves(state.doc).find(item=>from>=item.pos+1&&from<=item.pos+1+item.node.content.size);
+  if(!leaf||leaf.node.type.name!=='paragraph')return true;
+  const block=data.blocks.find(item=>item.id===leaf.id);
+  if(block?.parentId!==null&&data.blocks.length)return true;
+  if(block){
+   const offset=from-leaf.pos-1;
+   const siblings=richBlockChildren(data,null),at=siblings.findIndex(item=>item.id===block.id);
+   if(at<0)return true;
+   afterId=offset===0?siblings[at-1]?.id??null:block.id;
+   if(offset>0&&offset<leaf.node.content.size)actions.push({
+    type:'rich-block-split',field,capture:session.replica.richBlockSplitCapture(field,block.id,offset),newNodeId:crypto.randomUUID(),
+   });
+  }
+ }
+ const table={id:crypto.randomUUID(),rows:parsed.map(()=>({id:crypto.randomUUID(),header:false})),columns:parsed[0].map(()=>({id:crypto.randomUUID()}))};
+ const capture=session.replica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId});
+ return applyTableClipboard(session,view,parsed,textMatrix,matrix=>{
+  if(!session.applyBatch([...actions,{type:'rich-table-create',field,capture,table,matrix}]))return true;
+  const current=view.state;
+  const first=blockPMLeaves(current.doc).find(item=>axisCellAtPosition(current.doc,item.pos+1)?.[0]===table.id);
+  if(first)view.dispatch(current.tr.setSelection(TextSelection.create(current.doc,first.pos+1)).setMeta('addToHistory',false));
+  return true;
+ },()=>view.state.selection.empty&&clipboardCaret(view)===from&&convergenceCanonical(session.blockDocument())===convergenceCanonical(data));
+}
+
 export function pasteSourceTable(session:RichEditorSession,view:EditorView,event:ClipboardEvent):boolean{
  const html=event.clipboardData?.getData('text/html');
  if(!session.cellHeaders||!html||!/<table[\s>]/i.test(html))return false;
@@ -106,19 +148,26 @@ export function pasteSourceTable(session:RichEditorSession,view:EditorView,event
  const addresses=ends?.map(value=>JSON.parse(value) as [string,string,string]);
  const anchor=addresses?.[0]??axisCellAtPosition(view.state.doc,view.state.selection.from);
  const head=addresses?.[1];
- if(!anchor)return false;
+ if(!anchor&&!session.cellSpans)return false;
  event.preventDefault();
- if(!session.editable||!view.editable||view.composing||head&&head[0]!==anchor[0])return true;
- if(!ends&&!view.state.selection.empty&&JSON.stringify(axisCellAtPosition(view.state.doc,view.state.selection.to))!==JSON.stringify(anchor))return true;
- const [tableId,rowId,columnId]=anchor,document=session.blockDocument(),order=document.axisOrder?.find(item=>item.tableId===tableId);
- if(!order)return true;
- const parsed=clipboardTable(html,view.state.schema,view.dom.ownerDocument,session.cellSpans&&!!head);
+ if(!session.editable||!view.editable||view.composing||head&&head[0]!==anchor?.[0])return true;
+ const selection=view.state.selection;
+ if(!ends&&!selection.empty&&JSON.stringify(axisCellAtPosition(view.state.doc,selection.to))!==JSON.stringify(anchor))return true;
+ const data=session.blockDocument(),parsed=clipboardTable(html,view.state.schema,view.dom.ownerDocument,session.cellSpans);
  if(!parsed)return true;
+ const textMatrix=parsed.map(row=>row.map(cell=>cell?{header:cell.header,paragraphs:cell.paragraphs,...(cell.span?{span:cell.span}:{})}:null));
+ if(!head&&parsed.some(row=>row.some(cell=>cell?.span))){
+  if(!selection.empty)return true;
+  try{return pasteNewSourceTable(session,view,data,parsed,textMatrix);}
+  catch(reason){session.fail(reason,true);return true;}
+ }
+ if(!anchor)return true;
+ const [tableId,rowId,columnId]=anchor,order=data.axisOrder?.find(item=>item.tableId===tableId);
+ if(!order)return true;
  const target:RichTablePasteTarget={rows:order.rows,columns:order.columns,anchor:[rowId,columnId],...(head?{head:[head[1],head[2]]}:{})};
  const field=session.field,capture=session.replica.richBlockEditCapture(field,[tableId]);
- const textMatrix=parsed.map(row=>row.map(cell=>cell?{header:cell.header,paragraphs:cell.paragraphs,...(cell.span?{span:cell.span}:{})}:null));
  let area;
- try{area=tablePasteArea(order,target,textMatrix,session.links,session.cellSpans?document:undefined);}catch{return true;}
+ try{area=tablePasteArea(order,target,textMatrix,session.links,session.cellSpans?data:undefined);}catch{return true;}
  const apply=(matrix:RichTablePasteMatrix)=>{
   if(!session.applyBatch([{type:'rich-table-paste',field,capture,target,matrix}]))return true;
   const {state}=view,current=session.blockDocument(),updated=current.axisOrder?.find(item=>item.tableId===tableId);
@@ -134,17 +183,23 @@ export function pasteSourceTable(session:RichEditorSession,view:EditorView,event
   }
   return true;
  };
+ return applyTableClipboard(session,view,parsed,textMatrix,apply,()=>{
+  const current=session.blockDocument(),live=current.axisOrder?.find(item=>item.tableId===tableId);
+  return view.state.selection.eq(selection)&&!!live&&convergenceCanonical(live)===convergenceCanonical(order)&&
+   convergenceCanonical(tablePasteContents(current,live,area))===convergenceCanonical(tablePasteContents(data,order,area));
+ });
+}
+
+function applyTableClipboard(session:RichEditorSession,view:EditorView,parsed:(ClipboardCell|null)[][],textMatrix:RichTablePasteMatrix,apply:(matrix:RichTablePasteMatrix)=>boolean,stillCurrent:()=>boolean):boolean{
  const files=[...new Set(parsed.flatMap(row=>row.flatMap(cell=>(cell?.images??[]).map(image=>image.file))))];
  if(!files.length){
   try{return apply(textMatrix);}catch(reason){session.fail(reason,true);return true;}
  }
- const assets=session.assets,selection=view.state.selection;
+ const assets=session.assets;
  if(!assets?.importImages)return true;
  void assets.importImages(files).then(rows=>{
-  if(view.isDestroyed||!session.editable||session.assets!==assets||!view.state.selection.eq(selection))return;
-  const current=session.blockDocument(),live=current.axisOrder?.find(item=>item.tableId===tableId);
-  if(!live||convergenceCanonical(live)!==convergenceCanonical(order)||
-     convergenceCanonical(tablePasteContents(current,live,area))!==convergenceCanonical(tablePasteContents(document,order,area)))return;
+  if(view.isDestroyed||!session.editable||session.assets!==assets)return;
+  if(!stillCurrent())return;
   const imported=new Map(files.map((file,i)=>[file,rows[i]]));
   const matrix:RichTablePasteMatrix=parsed.map(row=>row.map(value=>{
    if(!value)return null;
