@@ -1209,6 +1209,12 @@ Use the opt-in `blocks-tree/11` field with schema `writers-blocks/10`. **Table p
 
 For SDK or MCP, take `richBlockEditCapture(field, [tableId])` and apply `rich-table-paste`. Its `target` contains the current ordered `rows` and `columns` IDs, an `anchor` pair `[rowId, columnId]`, and an optional `head` pair for a selection. The rectangular `matrix` contains cells with `header` and `paragraphs`. Each paragraph is an array of rich text runs. Optional `images` entries contain a local `asset` descriptor, `displaySize`, `alignment`, and `afterParagraph`. Use `-1` for an image before the first paragraph. The editor accepts embedded PNG, JPEG and WebP in the HTML. A changed destination or shape invalidates the capture.
 
+### Paste merged cells (2185)
+
+Use `blocks-tree/12` with schema `writers-blocks/11` and convergence engine 15. **Merged cells notebook** exposes this profile. Select a rectangle with Shift-click and paste an HTML table whose merged cells fit it. Copy retains `rowspan` and `colspan`. Undo treats the paste as one action, including the merged geometry. Earlier profiles keep their existing clipboard rules.
+
+For `rich-table-paste`, supply `target.head`. A merged matrix cell includes `span: {rows, columns}` on its top-left entry. Put `null` in every other coordinate covered by that cell. The selection dimensions must be whole multiples of the matrix dimensions. A paste can replace existing spans across the selected area. Row and column IDs stay stable. Paste of a new merged table from a caret and manual merge/split are separate work.
+
 ### Resize a shared table row (2176)
 
 Use the opt-in `blocks-tree/10` field with schema `writers-blocks/9`. It includes the existing table and image features. **Table layout notebook** provides a ready-to-use example.
