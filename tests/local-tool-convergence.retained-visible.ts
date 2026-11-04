@@ -29,6 +29,22 @@ export function runRetainedVisibleFocals(candidate=false){
   insert(p,'future','F');p.registers.atFrontier(frontier,registers=>observe('historical no future or new masks',new PlainRuns(p.doc,p.plain.field,registers),undefined,[],[],'Ayx\u0000🙂\ud800Z'));
   p.plain.content.set('missing',{id:'missing',length:1,bytes:'not-base64',txId:'missing-tx'});p.plain.order.push([{runId:'missing',after:null,txId:'missing-tx'}]);observe('unavailable run skipped without decoding',p.plain,undefined,[],[],'FAx\u0000🙂\ud800Z');
   p.plain.content.set('orphan',{id:'orphan',length:1,bytes:'not-base64',txId:parent.runs.length?p.registers.frontier()[0]:''});p.plain.order.push([{runId:'orphan',after:JSON.stringify(['absent-parent',0]),txId:p.registers.frontier()[0]}]);observe('unreachable orphan skipped without decoding',p.plain,undefined,[],[],'FAx\u0000🙂\ud800Z');groups.push('historical-unavailable-orphan');
+  const long=make(),chunk='A'.repeat(8192)+'🙂\ud800Z';
+  insert(long,'chunk-parent',chunk);
+  const left=JSON.stringify(['chunk-parent',8192]),right=JSON.stringify(['chunk-parent',chunk.length-1]);
+  insert(long,'short-one','x',left);insert(long,'short-two','y',left);
+  insert(long,'nested','Ω',JSON.stringify(['short-two',0]));insert(long,'after-last','!',right);
+  const physical=chunk.slice(0,8193)+'yΩx'+chunk.slice(8193)+'!';
+  eq('chunked physical bindings retain child order and exact split points',long.plain.materialize().bindings,[
+   {runId:'chunk-parent',from:0,to:8193},{runId:'short-two',from:0,to:1},
+   {runId:'nested',from:0,to:1},{runId:'short-one',from:0,to:1},
+   {runId:'chunk-parent',from:8193,to:chunk.length},{runId:'after-last',from:0,to:1},
+  ]);
+  observe('UTF16 across the chunk boundary and nested placements',long.plain,undefined,[],[],physical);
+  const windows=[{runId:'chunk-parent',from:8191,to:8193},{runId:'chunk-parent',from:8194,to:chunk.length},
+   {runId:'nested',from:0,to:1},{runId:'after-last',from:0,to:1}];
+  observe('two visible windows across a hidden anchored run',long.plain,windows,[],[],chunk.slice(8191,8193)+'Ω'+chunk.slice(8194)+'!');
+  groups.push('chunk-boundary-physical-order-and-windows');
   const bad=make();insert(bad,'bad','abc');commit(bad,()=>bad.registers.write(bad.plain.root,'bad-hidden-bounds',true,{runId:'bad',from:0,to:99,visible:false}));observe('hidden invalid bounds still rejects',bad.plain,undefined,[],[],undefined,'local_tool_plain_range_invalid');
   const malformed=make();insert(malformed,'bad','abc');const run=malformed.plain.content.get('bad')!;malformed.plain.content.set('bad',{...run,bytes:'AA=='});observe('full validates bytes before visibility',malformed.plain,[],[],[],undefined,'local_tool_plain_range_invalid');
   const duplicate=make();insert(duplicate,'same','ab');duplicate.plain.order.push([duplicate.plain.order.toArray()[0]]);observe('duplicate placement rejects before filter',duplicate.plain,undefined,[],[],undefined,'local_tool_plain_range_invalid');

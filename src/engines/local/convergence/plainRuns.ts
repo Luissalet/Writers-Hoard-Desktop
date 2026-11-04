@@ -28,8 +28,11 @@ function decode(run:Pick<Run,'bytes'|'length'>):Uint16Array{
  const bytes=convergenceBytes(run.bytes);if(bytes.length!==run.length*2)return fail();const values=new Uint16Array(run.length);
  for(let i=0;i<values.length;i++)values[i]=bytes[i*2]|bytes[i*2+1]<<8;return values;
 }
-const string=(values:number[])=>{let text='';for(let i=0;i<values.length;i+=8192)text+=String.fromCharCode(...values.slice(i,i+8192));return text;};
-function addSpan(spans:PlainSpan[],runId:string,offset:number){const last=spans.at(-1);if(last?.runId===runId&&last.to===offset)last.to++;else spans.push({runId,from:offset,to:offset+1});}
+function addSpan(spans:PlainSpan[],runId:string,from:number,to:number){
+ const last=spans.at(-1);
+ if(last?.runId===runId&&last.to===from)last.to=to;
+ else spans.push({runId,from,to});
+}
 function bounds(spans:readonly PlainSpan[],from:number,to:number):PlainSpan[]{
  const result:PlainSpan[]=[];let cursor=0;
  for(const span of spans){const length=span.to-span.from,start=Math.max(0,from-cursor),end=Math.min(length,to-cursor);if(start<end)result.push({runId:span.runId,from:span.from+start,to:span.from+end});cursor+=length;}
@@ -96,20 +99,48 @@ export class PlainRuns {
   return result;
  }
  materialize(base?:readonly PlainSpan[],extra:readonly NewRun[]=[],intents:readonly Visibility[]=[]):PlainView{
-  const{runs,placements}=this.records(extra),newIds=new Set(extra.map(value=>value.id)),children=new Map<string|null,string[]>(),byRun=new Map<string,Placement>();
-  for(const place of placements){if(byRun.has(place.runId))return fail();byRun.set(place.runId,place);const run=runs.get(place.runId);if(!run||!newIds.has(run.id)&&(!this.available(run)||!this.registers.transactionAvailable(place.txId)))continue;
-   if(place.after!==null){const anchor=point(place.after),parent=runs.get(anchor.runId);if(!parent||anchor.offset>=parent.length||!newIds.has(parent.id)&&!this.available(parent))continue;}
-   const list=children.get(place.after)??[];list.push(run.id);children.set(place.after,list);
+  const {runs,placements}=this.records(extra),newIds=new Set(extra.map(value=>value.id));
+  const roots:string[]=[],children=new Map<string,Map<number,string[]>>(),placed=new Set<string>();
+  for(const place of placements){
+   if(placed.has(place.runId))return fail();
+   placed.add(place.runId);
+   const run=runs.get(place.runId);
+   if(!run||!newIds.has(run.id)&&(!this.available(run)||!this.registers.transactionAvailable(place.txId)))continue;
+   if(place.after===null){roots.push(run.id);continue;}
+   const {runId,offset}=point(place.after),parent=runs.get(runId);
+   if(!parent||offset>=parent.length||!newIds.has(parent.id)&&!this.available(parent))continue;
+   const anchors=children.get(runId)??new Map<number,string[]>(),siblings=anchors.get(offset)??[];
+   siblings.push(run.id);anchors.set(offset,siblings);children.set(runId,anchors);
   }
-  const values:number[]=[],bindings:PlainSpan[]=[],decoded=new Map<string,Uint16Array>(),segments=new Map<string,Visibility[]>(),positions=new Map<string,number>();
-  const stack=(children.get(null)??[]).slice().reverse().map(runId=>({runId,offset:0}));
-  while(stack.length){const frame=stack.pop()!,run=runs.get(frame.runId)!;if(frame.offset>=run.length)continue;
-   let units=decoded.get(run.id);if(!units){units=decode(run);decoded.set(run.id,units);segments.set(run.id,this.segments(run.id,run.length,base,intents));positions.set(run.id,0);}
-   const spans=segments.get(run.id)!;let at=positions.get(run.id)!;while(at+1<spans.length&&spans[at].to<=frame.offset)at++;positions.set(run.id,at);
-   if(spans[at]?.visible){values.push(units[frame.offset]);addSpan(bindings,run.id,frame.offset);}
-   stack.push({runId:run.id,offset:frame.offset+1});for(const child of (children.get(unit(run.id,frame.offset))??[]).slice().reverse())stack.push({runId:child,offset:0});
+  type Frame={run:Run;units:Uint16Array;parts:Visibility[];anchors:[number,string[]][];offset:number;partAt:number;anchorAt:number};
+  const chunks:string[]=[],bindings:PlainSpan[]=[],stack:(string|Frame)[]=roots.reverse();
+  while(stack.length){
+   const next=stack.pop()!;
+   let frame:Frame;
+   if(typeof next==='string'){
+    const run=runs.get(next)!;
+    if(0>=run.length)continue;
+    frame={run,units:decode(run),parts:this.segments(run.id,run.length,base,intents),
+     anchors:[...(children.get(run.id)??[])].sort((a,b)=>a[0]-b[0]),offset:0,partAt:0,anchorAt:0};
+   }else frame=next;
+   const anchor=frame.anchors[frame.anchorAt],limit=anchor?anchor[0]+1:frame.run.length;
+   // Emit through the anchor itself, then its children, then resume the same run.
+   while(frame.offset<limit){
+    const part=frame.parts[frame.partAt],end=Math.min(part.to,limit);
+    if(part.visible){
+     addSpan(bindings,frame.run.id,frame.offset,end);
+     for(let i=frame.offset;i<end;i+=8192)chunks.push(String.fromCharCode(...frame.units.subarray(i,Math.min(i+8192,end))));
+    }
+    frame.offset=end;
+    if(end===part.to)frame.partAt++;
+   }
+   if(anchor){
+    frame.anchorAt++;
+    if(limit<frame.run.length)stack.push(frame);
+    for(let i=anchor[1].length-1;i>=0;i--)stack.push(anchor[1][i]);
+   }
   }
-  return{text:string(values),bindings};
+  return {text:chunks.join(''),bindings};
  }
  /** Full validation first; visibility filters that same physical order in this call only. */
  retainedAndVisible(base?:readonly PlainSpan[],extra:readonly NewRun[]=[],intents:readonly Visibility[]=[]):{full:PlainView;visible:PlainSpan[]}{
@@ -118,7 +149,12 @@ export class PlainRuns {
   for(const span of full.bindings){
    let parts=segments.get(span.runId);if(!parts){parts=this.segments(span.runId,lengths.get(span.runId)!,base,intents);segments.set(span.runId,parts);positions.set(span.runId,0);}
    let at=positions.get(span.runId)!;
-   for(let offset=span.from;offset<span.to;offset++){while(at+1<parts.length&&parts[at].to<=offset)at++;if(parts[at]?.visible)addSpan(visible,span.runId,offset);}
+   while(at<parts.length&&parts[at].from<span.to){
+    const part=parts[at],from=Math.max(part.from,span.from),to=Math.min(part.to,span.to);
+    if(part.visible&&from<to)addSpan(visible,span.runId,from,to);
+    if(part.to>span.to)break;
+    at++;
+   }
    positions.set(span.runId,at);
   }
   return{full,visible};
