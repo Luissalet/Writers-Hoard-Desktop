@@ -15,8 +15,7 @@ if (!existsSync(python)) run(process.env.PYTHON || 'python', ['-m', 'venv', path
 const workerOnly = process.argv.includes('--worker-only');
 if (!workerOnly) {
 run(python, ['-m', 'pip', 'install', '-r', 'publishing/requirements.txt']);
-if (process.platform === 'win32') run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm ci --omit=dev --no-audit --no-fund'], path.join(source, 'links_native'));
-else run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], path.join(source, 'links_native'));
+// Reading/links is Links Hoard's own app now: no Node engine is bundled for it.
 }
 if (!process.argv.includes('--setup-only')) {
   if (!workerOnly) {
@@ -34,7 +33,7 @@ if (!process.argv.includes('--setup-only')) {
     '--paths', source, '--paths', path.join(source, 'borges'), '--paths', path.join(source, 'editorial'),
     '--collect-all', 'borges', '--collect-all', 'kafka_hoard', '--collect-all', 'gutenberg_hoard', '--collect-all', 'hoard_link',
     '--collect-all', 'yt_dlp', '--collect-all', 'gallery_dl', '--collect-all', 'pip', '--collect-all', 'rapidocr',
-    ...data('fusion'), ...data('links_native/server'), ...data('links_native/package.json', 'links_native'), ...data('links_native/node_modules'),
+    ...data('fusion'),
     ...data('native/bin'), ...data('editorial/native/bin', 'native/bin'), ...data('scripts'),
     ...(existsSync(path.join(source, 'node_modules')) ? data('node_modules') : []), ...data('LICENSE', '.'), ...data('PROVENANCE.json', '.'),
     path.join(source, 'worker.py')]);
