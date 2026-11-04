@@ -9,7 +9,7 @@ import {validateRichBlockDocument,validateRichBlockPlacement,richBlockLeaf,type 
 import {blockBirthWrites,type RichBlockPlan,type RichBlocks} from '@/engines/local/convergence/blocks';
 import {validateRichImageAsset} from './imageFormat';
 import type {LocalToolConvergenceIdentity} from '@/engines/local/convergence/types';
-import type {RichAction} from '@/engines/local/convergence/richTypes';
+import {validateRichDocument,type RichAction} from '@/engines/local/convergence/richTypes';
 import type {RichBlockEditingAction,RichBlockEditCapture} from '@/engines/local/convergence/blockEditingTypes';
 
 const fail=():never=>{throw Error('local_tool_block_edit_invalid');};
@@ -19,7 +19,7 @@ function capturedPlacement(source:RichBlocks,capture:RichBlockEditCapture,id:str
  const kind=source.registers.versions.get(binding.kindVersionId),place=source.registers.versions.get(binding.placementVersionId);if(!kind?.present||!place?.present)return fail();
  return{id,type:kind.value as RichBlock['type'],...convergenceClone(place.value) as unknown as RichBlockPlacement};
 }
-export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-paste','rich-table-insert','rich-table-row-header','rich-table-row-height','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
+export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-paste','rich-table-insert','rich-table-row-header','rich-table-row-height','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-replace-with-paragraphs','rich-block-hide','rich-block-unwrap'].includes(value.type);}
 /** Stable sibling traversal. Anchors outside this slot act as retained head anchors. */
 export function richBlockChildren<T extends RichBlockPlacement&{id:string}>(data:{blocks:readonly T[]},parentId:string|null,slot:RichBlockPlacement['slot']='body'):T[]{
  const children=data.blocks.filter(b=>b.parentId===parentId&&b.slot===slot),ids=new Set(children.map(b=>b.id)),out:T[]=[],seen=new Set<string>();
@@ -34,7 +34,7 @@ export function captureBlockEdit(source:RichBlocks,identity:LocalToolConvergence
 }
 export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,action:RichBlockEditingAction,identity:LocalToolConvergenceIdentity,intrinsicLastLeaf:string|null,priorInserts:readonly TableAxisInsertion[]=[]):RichBlockPlan&{textActions:RichAction[]} {
  assertConvergenceIdentity(action.capture.identity,identity);if(action.field!==source.field||action.capture.field!==source.field)return fail();
- const result={data:convergenceClone(data),bindings:convergenceClone(bindings),writes:[] as RichBlockPlan['writes'],textActions:[] as RichAction[]};
+ const result:RichBlockPlan&{textActions:RichAction[]}={data:convergenceClone(data),bindings:convergenceClone(bindings),writes:[],textActions:[]};
  const write=(name:RichBlockPlan['writes'][number]['name'],id:string,value:unknown)=>result.writes.push({name,id,value:convergenceClone(value) as LocalToolJson});
  const selected=action.capture.nodeIds.map(id=>result.data.blocks.find(b=>b.id===id)??fail());
  const move=(b:RichBlock,to:RichBlockPlacement)=>{Object.assign(b,to);write('placement',b.id,to);};
@@ -106,6 +106,21 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   put(block);result.textActions.push({type:'rich-insert-paragraph',field:source.field,id:block.id,afterId:intrinsicLastLeaf,text:action.text,...(action.marks?{marks:action.marks}:{}),...(href?{link:{href}}:{})});
  }else if(action.type==='rich-block-transform'){
   if(!selected.length)return fail();for(const b of selected){const sameLeaf=richBlockLeaf(b.type)&&richBlockLeaf(action.kind),sameList=['bullet-list','ordered-list'].includes(b.type)&&['bullet-list','ordered-list'].includes(action.kind);if(!sameLeaf&&!sameList)return fail();b.type=action.kind;b.attrs=convergenceClone(action.attrs);write('kind',b.id,b.type);write('attrs',b.id,b.attrs);}
+ }else if(action.type==='rich-block-replace-with-paragraphs'){
+  const destination=action.capture.destination,roots=richBlockChildren(data,null);
+  if(Object.keys(action).length!==4||!destination||destination.parentId!==null||destination.slot!=='body'||destination.afterId!==null||
+     roots.length!==selected.length||roots.some((block,index)=>block.id!==selected[index].id)||
+     !Array.isArray(action.paragraphs)||!action.paragraphs.length)return fail();
+  validateRichDocument({type:'doc',content:action.paragraphs},source.links);
+  for(const root of roots)write('membership',root.id,false);
+  result.data.blocks=[];
+  if(source.axes)result.data.axisOrder=[];
+  let afterId:string|null=null;
+  for(const paragraph of action.paragraphs){
+   put({id:paragraph.id,type:'paragraph',parentId:null,slot:'body',afterId,attrs:{},content:paragraph.content});
+   afterId=paragraph.id;
+  }
+  result.pasteParagraphs=action.paragraphs;
  }else if(action.type==='rich-block-hide'){
   if(!selected.length)return fail();const hidden=new Set(selected.map(b=>b.id));let changed=true;while(changed){changed=false;for(const b of result.data.blocks)if(b.parentId!==null&&hidden.has(b.parentId)&&!hidden.has(b.id)){hidden.add(b.id);changed=true;}}
   for(const b of selected)write('membership',b.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));

@@ -1,4 +1,4 @@
-import {inlineCells,richInlineFormat,matchInlineLinks,type InlineFormat} from './inlineFormatting';
+import {clipboardParagraphRuns,inlineCells,richInlineFormat,matchInlineLinks,type InlineFormat} from './inlineFormatting';
 import {localToolStateEqual} from '../stateActions';
 import type {Node as PMNode,Slice} from '@tiptap/pm/model';
 import type {EditorState,Transaction} from '@tiptap/pm/state';
@@ -7,19 +7,42 @@ import {ReplaceStep,AddMarkStep,RemoveMarkStep} from '@tiptap/pm/transform';
 import type {EditorView} from '@tiptap/pm/view';
 import type {RichEditorSession} from './session';
 import {axisCellAtPosition,blockPMDocument,blockPMLeaves} from './blockProsemirror';
-import {RICH_MARKS} from '../convergence/richTypes';
+import {RICH_MARKS,type RichParagraph} from '../convergence/richTypes';
+import {richBlockChildren} from '../convergence/blockEditing';
 
 const signature=(doc:PMNode,withoutIds=false):unknown=>{const json=doc.toJSON();const walk=(node:Record<string,unknown>):unknown=>({type:node.type,...(node.attrs?{attrs:Object.fromEntries(Object.entries(node.attrs as Record<string,unknown>).filter(([key])=>!withoutIds||key!=='id'&&!(key==='cellAddress'&&node.type==='paragraph')))}:{}),content:(Array.isArray(node.content)?node.content as Record<string,unknown>[]:[]).filter(n=>n.type!=='text').map(walk)});return walk(json);};
 
-/** Treat Select All in a one-paragraph document as replacement of its text. */
-export function pasteSelectedRootParagraph(view:EditorView,event:ClipboardEvent,slice:Slice):boolean {
+/** Admit a full-document paragraph paste as one reversible edit. */
+export function pasteSelectedRootParagraphs(session:RichEditorSession,view:EditorView,event:ClipboardEvent,slice:Slice):boolean {
  const {state}=view,paragraph=state.doc.firstChild,incoming=slice.content.firstChild;
- if(!view.editable||view.composing||!(state.selection instanceof AllSelection)||
-    state.doc.childCount!==1||paragraph?.type.name!=='paragraph'||slice.content.childCount!==1||incoming?.type!==paragraph.type)return false;
- const tr=state.tr.replaceWith(1,1+paragraph.content.size,incoming.content);
- tr.setSelection(TextSelection.create(tr.doc,1+incoming.content.size));
+ if(!session.editable||!view.editable||view.composing||!(state.selection instanceof AllSelection)||!incoming)return false;
+ const html=event.clipboardData?.getData('text/html')??'';
+ if(/<(?:table|img|picture|video|audio|iframe|object|embed|svg)\b/i.test(html)||event.clipboardData?.files.length)return false;
+ if(state.doc.childCount===1&&paragraph?.type.name==='paragraph'&&slice.content.childCount===1&&incoming.type===paragraph.type){
+  const tr=state.tr.replaceWith(1,1+paragraph.content.size,incoming.content);
+  tr.setSelection(TextSelection.create(tr.doc,1+incoming.content.size));
+  event.preventDefault();
+  view.dispatch(tr.setMeta('paste',true).setMeta('uiEvent','paste').scrollIntoView());
+  return true;
+ }
+ const paragraphs:RichParagraph[]=[];
+ for(let index=0;index<slice.content.childCount;index++){
+  const content=clipboardParagraphRuns(slice.content.child(index));
+  if(!content)return false;
+  paragraphs.push({id:crypto.randomUUID(),type:'paragraph',content});
+ }
+ const roots=richBlockChildren(session.blockDocument(),null);
+ if(roots.length?state.doc.childCount!==roots.length||roots.some((block,index)=>state.doc.child(index).attrs.id!==block.id):
+    state.doc.childCount!==1||paragraph?.type.name!=='paragraph'||paragraph.attrs.id!==null)return false;
  event.preventDefault();
- view.dispatch(tr.setMeta('paste',true).setMeta('uiEvent','paste').scrollIntoView());
+ const {field,replica}=session;
+ try{
+  const capture=replica.richBlockEditCapture(field,roots.map(block=>block.id),{parentId:null,slot:'body',afterId:null});
+  if(session.applyBatch([{type:'rich-block-replace-with-paragraphs',field,capture,paragraphs}])){
+   const last=blockPMLeaves(view.state.doc).find(leaf=>leaf.id===paragraphs.at(-1)!.id);
+   if(last)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,last.pos+1+last.node.content.size)).scrollIntoView());
+  }
+ }catch(error){session.fail(error,true);}
  return true;
 }
 

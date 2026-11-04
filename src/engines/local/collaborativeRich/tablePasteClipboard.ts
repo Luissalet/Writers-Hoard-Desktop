@@ -4,10 +4,10 @@ import {TextSelection} from '@tiptap/pm/state';
 import type {LocalToolStateAction} from '../stateActions';
 import type {RichBlockDocument} from '../convergence/blockFormat';
 import {richBlockChildren} from '../convergence/blockEditing';
-import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
+import {clipboardParagraphRuns} from './inlineFormatting';
 import {assetBytes,assetFileMime} from '../assetFileFormat';
 import {isRichImageAlignment,isRichImageSize,validateRichImageAsset} from '../convergence/imageFormat';
-import {RICH_MARK_KEYS,type RichMarkValue,type RichText} from '../convergence/richTypes';
+import type {RichText} from '../convergence/richTypes';
 import {tablePasteArea,tablePasteContents,type RichTablePasteCell,type RichTablePasteImage,type RichTablePasteMatrix,type RichTablePasteTarget} from '../convergence/tablePaste';
 import {areaContains,tableSpans} from '../convergence/tableSpanGeometry';
 import {convergenceCanonical} from '../convergence/format';
@@ -21,23 +21,8 @@ type ClipboardCell=Omit<RichTablePasteCell,'images'>&{images?:ClipboardImage[]};
 function readClipboardParagraphs(element:HTMLElement,parser:ProseMirrorDOMParser):RichText[][]|null{
  const parsed=parser.parse(element),paragraphs:RichText[][]=[];
  for(let i=0;i<parsed.childCount;i++){
-  const paragraph=parsed.child(i),runs:RichText[]=[];
-  if(paragraph.type.name!=='paragraph')return null;
-  for(let j=0;j<paragraph.childCount;j++){
-   const node=paragraph.child(j),marks:RichMarkValue[]=[];
-   if(!node.isText||!node.text)return null;
-   for(const type of RICH_MARK_KEYS){
-    const mark=node.marks.find(value=>value.type.name===type);
-    if(!mark)continue;
-    if(type==='link'){
-     const href=typeof mark.attrs.href==='string'?normalizeEditorLinkHref(mark.attrs.href):null;
-     if(href)marks.push({type,attrs:{href}});
-    }else marks.push({type});
-   }
-   const previous=runs.at(-1);
-   if(previous&&JSON.stringify(previous.marks??[])===JSON.stringify(marks))previous.text+=node.text;
-   else runs.push({type:'text',text:node.text,...(marks.length?{marks}:{})});
-  }
+  const runs=clipboardParagraphRuns(parsed.child(i));
+  if(!runs)return null;
   paragraphs.push(runs);
  }
  return paragraphs;

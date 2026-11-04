@@ -60,6 +60,35 @@ export async function runRichBlocksCausals(save:(name:string,value:unknown)=>voi
   const redo=a2.redo(ua.receiptId!);eq('C2-redo-receipt',typeof redo.receiptId,'string');eq('C2-redo-pending',redo.pending,false);for(const p of both.slice(1))eq('C2-redo-receive-pending',p.receive(redo.update).pending,false);
   for(const p of both){eq('C2-redo-raw',p.inspect().conflict!.raw,raw);eq('C2-redo-fallback',p.read(),expectedFallback!);}
   const reopened=make(ab.checkpoint(),c.definition,'C2-cold');eq('C2-cold-inspect',reopened.inspect(),a2.inspect());groups.push('C2');
+
+  const full=await seed('C3',[paragraph('P','Antes Ω'),quote('Q','P'),paragraph('R','dentro 🙂','Q')]);
+  const writer=make(full.G,full.definition,'writer'),other=make(full.G,full.definition,'other');
+  const destination={parentId:null,slot:'body' as const,afterId:null};
+  const action:Extract<Parameters<Actor['apply']>[0][number],{type:'rich-block-replace-with-paragraphs'}>={
+   type:'rich-block-replace-with-paragraphs',field:'body',capture:writer.richBlockEditCapture('body',['P','Q'],destination),
+   paragraphs:[{id:'Z',type:'paragraph',content:[{type:'text',text:'Nuevo Ω',marks:[{type:'bold'}]}]},{id:'A',type:'paragraph',content:[]},
+    {id:'M',type:'paragraph',content:[{type:'text',text:'Nuevo 🙂',marks:[{type:'italic'}]}]}],
+  };
+  const beforeInvalid=writer.checkpoint();
+  assert.throws(()=>writer.apply([{...action,capture:writer.richBlockEditCapture('body',['P'],destination)}]),/local_tool_block_edit_invalid/);
+  assert.throws(()=>writer.apply([{...action,paragraphs:[{...action.paragraphs[0],id:'R'}]}]),/local_tool_block_edit_invalid/);
+  eq('C3-invalid-replacement-is-atomic',writer.checkpoint(),beforeInvalid);
+  const sameText=other.apply([{type:'rich-text-splice',field:'body',nodeId:'P',range:other.richRange('body','P',0,1),text:'A'}]);
+  writer.receive(sameText.update);
+  const originalC3=writer.read(),idsC3=ids(writer),stale=writer.checkpoint();
+  eq('C3-peer-change-has-same-visible-text',originalC3,full.data);
+  assert.throws(()=>writer.apply([action]),/local_tool_block_replace_stale/);
+  eq('C3-stale-replacement-is-atomic',writer.checkpoint(),stale);
+  const applied=edit('C3-replace',writer.apply([{...action,capture:writer.richBlockEditCapture('body',['P','Q'],destination)}]));
+  eq('C3-exact-paragraphs-in-anchor-order',body(writer).blocks.map(b=>[b.id,b.afterId,b.content]),[
+   ['A','Z',action.paragraphs[1].content],['M','A',action.paragraphs[2].content],['Z',null,action.paragraphs[0].content],
+  ]);
+  const replaced=writer.read();other.receive(applied.update);eq('C3-peer-sees-replacement',other.read(),replaced);
+  const restored=edit('C3-undo',writer.undo(applied.receiptId!));eq('C3-undo-exact-data',writer.read(),originalC3);
+  eq('C3-undo-original-unit-ids',ids(writer),idsC3);
+  const reapplied=edit('C3-redo',writer.redo(restored.receiptId!));eq('C3-redo-exact-data',writer.read(),replaced);
+  other.receive(restored.update);other.receive(reapplied.update);eq('C3-peer-sees-redo',other.read(),replaced);
+  eq('C3-cold-replacement',make(writer.checkpoint(),full.definition,'cold').read(),replaced);groups.push('C3');
  }catch(error){failure={message:String(error),stack:(error as Error).stack};}
  finally{for(const p of actors){try{p.destroy();destroyed++;}catch(error){failure??={message:String(error)};}}}
  const result={ok:failure===null,groups,checks,failure,cleanup:{created:actors.length,destroyed},carrierDocs:{created:docsCreated,destroyed:docsDestroyed},scope:'Product public API in RAM, before editor/Browser acceptance'};keep('RESULT',result);return result;
