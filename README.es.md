@@ -1,5 +1,9 @@
 # Writers Hoard — Escritorio
 
+## Imágenes en documentos Source compartidos
+
+En **Cuaderno con imágenes compartidas**, inserta o reemplaza un PNG, elige Pequeña, Mediana o Ancho completo y quítalo con opción de Deshacer. Comparte el contenido para enviar la imagen a otra biblioteca local. Cada participante puede guardar en su propia biblioteca. El ZIP incluye los PNG que el documento puede recuperar. [Uso y pruebas](tasks/vvd1095/verification-shared-images2114.md).
+
 ## Añadir un campo a una herramienta Source
 
 Una herramienta Source puede declarar un campo escalar nuevo con valor por defecto. Al elegir la versión nueva, el documento existente muestra ese valor. La primera edición conserva el historial y Deshacer recupera el valor por defecto cuando ya no queda un valor propio. [SDK y pruebas](tasks/vvd1095/verification-sdk-source-additive2088.md).
@@ -8,7 +12,7 @@ Una herramienta Source puede declarar un campo escalar nuevo con valor por defec
 
 Las herramientas locales que declaran el nuevo perfil de tablas compartidas pueden insertar tablas de tamaño fijo, escribir y dar formato en cada celda, añadir enlaces, mover o quitar la tabla completa y usar Deshacer conservando aportaciones ajenas. Manual, Automático, SDK y MCP mantienen los mismos caminos del documento. Abrir un módulo antiguo no lo migra: las Notas conservan su barra contextual de tablas y todas las funciones anteriores.
 
-Quitar una tabla es una acción explícita. Deshacer su creación puede conservar la estructura que necesita el trabajo de otra persona. Siguen abiertos filas/columnas mutables, combinar/dividir celdas, anchos, imágenes y adopción de orígenes anteriores hacia este perfil. [Uso, contrato, pruebas y estado de entrega](tasks/vvd1095/verification-shared-tables2003.md). La entrega de cuadrícula fija está aprobada e integrada localmente. El seguimiento de la vista pasiva también está aprobado e integrado; su comprobación real de navegador conserva la tabla guardada. No amplía el perfil ni cierra la paridad.
+Quitar una tabla es una acción explícita. Deshacer su creación puede conservar la estructura que necesita el trabajo de otra persona. Los perfiles posteriores añaden ejes editables, anchos y PNG. Siguen pendientes combinar o dividir celdas y adoptar orígenes anteriores. [Uso, contrato, pruebas y estado de entrega](tasks/vvd1095/verification-shared-tables2003.md). La entrega de cuadrícula fija está aprobada e integrada localmente. El seguimiento de la vista pasiva también está aprobado e integrado; su comprobación real de navegador conserva la tabla guardada. No amplía el perfil ni cierra la paridad.
 
 
 ## Controles junto a la tabla

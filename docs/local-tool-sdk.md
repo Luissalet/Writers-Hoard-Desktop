@@ -1203,6 +1203,14 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### PNG images in shared Source (2114)
+
+Declare `{kind: 'rich', profile: 'blocks-tree/6', schema: 'writers-blocks/5'}` in codec2 to opt into root image blocks. This selects engine9. The width, axis and link features remain available. Existing document histories retain their declared profile.
+
+Import a PNG with `client.assets.import(file, 'image')`. Use the resulting `sha256`, `mime` and `size` as the image descriptor. An insertion uses `richBlockEditCapture` with a root `body` destination and `rich-image-insert`. For an existing block, `client.convergence.richImageCapture(field, nodeId, 'source')` prepares `rich-image-replace`. Capture `'size'` for `rich-image-resize` with `small`, `medium` or `full`. Apply against a current snapshot. Use `rich-block-hide` to remove the visible block and preserve the file for Undo. `client.assets.resolveImage(descriptor)` reads the file in the current library.
+
+MCP exposes `wh_local_asset_file_import`, `wh_local_asset_image_find` and `wh_local_tool_rich_image_capture`. Request `includeContent` on the lookup when the caller needs the original bytes. Existing state and live editor tools apply the same public actions. In a content session, Writer transfers and checks the PNG separately from the causal update. A project ZIP keeps the files used by earlier versions, including a replaced image that Undo can restore.
+
 ### Shared table column widths (2082)
 
 The opt-in field profile is `blocks-tree/5` with `writers-blocks/4` in codec2. It selects engine7 even if the field is absent or has no table. Existing axes, fixed-table and strict sibling fields retain their grammars. A prior engine6 history cannot be activated as the new profile.
