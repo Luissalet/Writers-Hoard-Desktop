@@ -1,13 +1,28 @@
 import {inlineCells,richInlineFormat,matchInlineLinks,type InlineFormat} from './inlineFormatting';
 import {localToolStateEqual} from '../stateActions';
-import type {Node as PMNode} from '@tiptap/pm/model';
+import type {Node as PMNode,Slice} from '@tiptap/pm/model';
 import type {EditorState,Transaction} from '@tiptap/pm/state';
+import {AllSelection,TextSelection} from '@tiptap/pm/state';
 import {ReplaceStep,AddMarkStep,RemoveMarkStep} from '@tiptap/pm/transform';
+import type {EditorView} from '@tiptap/pm/view';
 import type {RichEditorSession} from './session';
 import {axisCellAtPosition,blockPMDocument,blockPMLeaves} from './blockProsemirror';
 import {RICH_MARKS} from '../convergence/richTypes';
 
 const signature=(doc:PMNode,withoutIds=false):unknown=>{const json=doc.toJSON();const walk=(node:Record<string,unknown>):unknown=>({type:node.type,...(node.attrs?{attrs:Object.fromEntries(Object.entries(node.attrs as Record<string,unknown>).filter(([key])=>!withoutIds||key!=='id'&&!(key==='cellAddress'&&node.type==='paragraph')))}:{}),content:(Array.isArray(node.content)?node.content as Record<string,unknown>[]:[]).filter(n=>n.type!=='text').map(walk)});return walk(json);};
+
+/** Treat Select All in a one-paragraph document as replacement of its text. */
+export function pasteSelectedRootParagraph(view:EditorView,event:ClipboardEvent,slice:Slice):boolean {
+ const {state}=view,paragraph=state.doc.firstChild,incoming=slice.content.firstChild;
+ if(!view.editable||view.composing||!(state.selection instanceof AllSelection)||
+    state.doc.childCount!==1||paragraph?.type.name!=='paragraph'||slice.content.childCount!==1||incoming?.type!==paragraph.type)return false;
+ const tr=state.tr.replaceWith(1,1+paragraph.content.size,incoming.content);
+ tr.setSelection(TextSelection.create(tr.doc,1+incoming.content.size));
+ event.preventDefault();
+ view.dispatch(tr.setMeta('paste',true).setMeta('uiEvent','paste').scrollIntoView());
+ return true;
+}
+
 /** Preflight the complete accepted shape before the first public text mutation. */
 export function authorBlockTransaction(session:RichEditorSession,tr:Transaction):void {
  if(!tr.docChanged)return;
