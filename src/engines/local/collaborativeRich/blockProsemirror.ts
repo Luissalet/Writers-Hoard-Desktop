@@ -48,7 +48,14 @@ export function projectBlockView(session:RichEditorSession,tr:Transaction,bookma
  const target=blockPMDocument(tr.doc.type.schema,session.blockDocument()),from=tr.doc.content.findDiffStart(target.content),oldAnchor=tr.selection.anchor,oldHead=tr.selection.head,stored=tr.storedMarks;
  const selected=tr.selection instanceof NodeSelection&&tr.selection.node.type.name==='richImage'?tr.selection.node.attrs.id:undefined;
  const cellEnds=sourceCellSelectionEnds(tr.selection);
- if(from!==null){const end=tr.doc.content.findDiffEnd(target.content);if(!end)throw Error('local_tool_blocks_projection_invalid');const overlap=from-Math.min(end.a,end.b);tr.replace(from,end.a+Math.max(0,overlap),target.slice(from,end.b+Math.max(0,overlap)));}
+ if(from!==null){
+  const end=tr.doc.content.findDiffEnd(target.content);if(!end)throw Error('local_tool_blocks_projection_invalid');
+  const overlap=from-Math.min(end.a,end.b);
+  tr.replace(from,end.a+Math.max(0,overlap),target.slice(from,end.b+Math.max(0,overlap)));
+  // A fitted slice across text in multiple cells can duplicate a cell boundary.
+  // Only the exact Source document should be dispatched.
+  if(!tr.doc.eq(target))tr.replaceWith(0,tr.doc.content.size,target.content);
+ }
  const resolve=(point:RichRange|null,fallback:number,address?:string)=>{if(point){const effective=session.replica.resolveRichPoint(point);if(!effective.detached){const leaf=blockPMLeaves(tr.doc).find(n=>n.id===effective.nodeId);if(leaf)return leaf.pos+1+Math.min(effective.offset,leaf.node.content.size);}}
   if(address){const leaves=blockPMLeaves(tr.doc),cell=leaves.find(n=>JSON.stringify(axisCellAtPosition(tr.doc,n.pos+1))===address);if(cell)return cell.pos+1;const exterior=leaves.find(n=>!axisCellAtPosition(tr.doc,n.pos+1));if(exterior)return exterior.pos+1;}return tr.mapping.map(fallback);};
  if(tr.docChanged||restoreSelection){
