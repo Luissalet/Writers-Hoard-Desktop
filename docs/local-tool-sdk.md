@@ -1219,7 +1219,7 @@ Through the SDK or MCP, take a fresh `richBlockEditCapture(field, [rowId])` and 
 
 ### Select a range of table cells (2170)
 
-In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell. Ctrl+C copies the selected cells as plain text and HTML, including headers and empty cells.
+In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell. Ctrl+C copies the selected cells as plain text and HTML, including headers and empty cells. Ctrl+X copies the same data and clears the selected text in one Undo step. A rectangle containing an image is kept intact. Through the SDK or MCP, a single state batch of `rich-text-splice` actions can clear the captured text ranges in the same way.
 
 ### Images inside shared table cells (2167)
 
