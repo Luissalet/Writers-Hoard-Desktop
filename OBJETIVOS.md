@@ -4,8 +4,7 @@
 
 Writer ya llama a Links Hoard y Kafka's Hoard por el Hub y no lleva sus motores (`publishing/fusion/external.py`, barra de estado con Arrancar/Comprobar/Abrir, REST `/api/external`, MCP `wh_publishing_external_*`). Queda, sin perder nada de lo que ya hay:
 
-- Vistas: las de Writer (`src/engines/publishing/native/links` y `paperwork`) son copias de los clientes de esas apps de octubre. Añadir lo que las apps tienen ya y Writer no muestra: guardar un sitio entero y su historial (Links: `SiteSaver`, `/api/site/map`, `/api/crawls`), vigías de páginas de lista (`watch_list_preview`), la página Sentidos y la capa de sonido de los digestos, y los expedientes y el diff de requisitos de Kafka (`kafka_dossier*`, `kafka_requirements_diff`).
-- Herramientas MCP: el catálogo congelado de Writer (`publishing/fusion/catalog.json`) expone las 46 de Links y 314 de Kafka de octubre; regenerarlo desde `/api/agent/tools` de las apps en marcha añadiría las nuevas (`audio_*`, `crawl_*`, `map_site`, `read_post`, `kafka_dossier*`) con sus esquemas actuales.
+- Vistas: las de Writer (`src/engines/publishing/native/links` y `paperwork`) son copias de los clientes de esas apps de octubre. Añadir lo que las apps tienen ya y Writer no muestra: guardar un sitio entero y su historial (Links: `SiteSaver`, `/api/site/map`, `/api/crawls`), vigías de páginas de lista (`watch_list_preview`), y la página Sentidos y la capa de sonido de los digestos (los expedientes de Kafka y el catálogo MCP al día ya están: #2223).
 
 ## Evolución del estado de herramientas Source
 
