@@ -143,6 +143,7 @@ const suites = [
   ['local-tool-table-selection.source.browser.tsx', 'testSourceTableSelection', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-table-header.source.browser.ts', 'testSourceTableHeader', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-table-height.source.browser.ts', 'testSourceTableHeight', 120000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-table-cut.source.browser.tsx', 'testSourceTableCut', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-block-empty-item.browser.tsx', 'testEmptyItemEnter', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.mcp.browser.tsx', 'testEmptyItemMcp', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.positions.browser.tsx', 'testEmptyItemPositions', 180000, 'scripts/run-focused-browser-tests.cjs'],
