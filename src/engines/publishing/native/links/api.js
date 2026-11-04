@@ -42,6 +42,28 @@ export const api = {
       return data;
     },
   },
+  site: {
+    map: (data) => request("POST", "/links/api/site/map", data),
+    crawl: (data) => request("POST", "/links/api/crawls", data),
+    crawls: () => request("GET", "/links/api/crawls"),
+    crawlGet: (id) => request("GET", `/links/api/crawls/${id}`),
+    crawlCancel: (id) => request("POST", `/links/api/crawls/${id}/cancel`),
+    crawlResume: (id) => request("POST", `/links/api/crawls/${id}/resume`),
+    crawlDelete: (id) => request("DELETE", `/links/api/crawls/${id}`),
+  },
+  posts: {
+    read: (url) => request("POST", "/links/api/posts/read", { url }),
+  },
+  sentidos: {
+    status: () => request("GET", "/links/api/sentidos/status"),
+    setup: () => request("POST", "/links/api/sentidos/setup"),
+    start: () => request("POST", "/links/api/sentidos/start"),
+    stop: () => request("POST", "/links/api/sentidos/stop"),
+    saveSettings: (data) => request("PUT", "/links/api/sentidos/settings", data),
+    sources: () => request("GET", "/links/api/sentidos/sources"),
+    run: (data) => request("POST", "/links/api/sentidos/run", data),
+    sheetUrl: (name) => publishingUrl(`/links/api/sentidos/sheet/${encodeURIComponent(name)}`),
+  },
   highlights: {
     list: (linkId) => request("GET", `/links/api/links/${linkId}/highlights`),
     create: (linkId, data) => request("POST", `/links/api/links/${linkId}/highlights`, data),
@@ -75,6 +97,7 @@ export const api = {
     remove: (id) => request("DELETE", `/links/api/watches/${id}`),
     check: (id) => request("POST", `/links/api/watches/${id}/check`),
     checkDue: () => request("POST", "/links/api/watches/check"),
+    listPreview: (data) => request("POST", "/links/api/watches/list-preview", data),
     items: (filter) => request("GET", `/links/api/watch-items${qs(filter)}`),
     dismiss: (id, dismissed = true) => request("POST", `/links/api/watch-items/${id}/${dismissed ? "dismiss" : "undismiss"}`),
   },

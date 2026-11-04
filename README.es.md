@@ -105,7 +105,7 @@ Las sesiones de ficción se planifican sin iniciar la partida: fecha/hora, zona 
 
 ## Biblioteca y publicación
 
-Writer incorpora la biblioteca y el motor/editor editorial completo de Gutenberg, y ofrece lecturas/enlaces y documentos/trámites/PDF por referencia a Links Hoard y Kafka's Hoard (apps propias, localizadas por Hoard Hub), como módulos independientes, apagados inicialmente. Una barra sobre esos dos módulos indica si cada app está en marcha, la arranca con el Hub y la abre. Conserva formatos y contratos MCP nativos. [Capacidades, verificación y traslado](docs/PUBLISHING.md). La ficción y el perfil/origen 5174 existentes se conservan.
+Writer incorpora la biblioteca y el motor/editor editorial completo de Gutenberg, y ofrece lecturas/enlaces y documentos/trámites/PDF por referencia a Links Hoard y Kafka's Hoard (apps propias, localizadas por Hoard Hub), como módulos independientes, apagados inicialmente. Una barra sobre esos dos módulos indica si cada app está en marcha, la arranca con el Hub y la abre. La vista de lecturas permite guardar un sitio entero, vigilar listas, leer un post y usar Sentidos; la de trámites, expedientes y el diff de requisitos cláusula a cláusula. Conserva formatos y contratos MCP nativos. [Capacidades, verificación y traslado](docs/PUBLISHING.md). La ficción y el perfil/origen 5174 existentes se conservan.
 
 ## Ficción interactiva
 
