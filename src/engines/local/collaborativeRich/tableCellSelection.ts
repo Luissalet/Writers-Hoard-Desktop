@@ -2,7 +2,7 @@ import {Extension} from '@tiptap/core';
 import type {Node as PMNode} from '@tiptap/pm/model';
 import {Plugin,Selection} from '@tiptap/pm/state';
 import {CellSelection,cellAround,inSameTable} from '@tiptap/pm/tables';
-import {Decoration,DecorationSet} from '@tiptap/pm/view';
+import {Decoration,DecorationSet,type EditorView} from '@tiptap/pm/view';
 import {RICH_INTERNAL} from './prosemirror';
 
 const roles={table:'table',tableRow:'row',tableCell:'cell',tableHeader:'header_cell'} as const;
@@ -25,6 +25,23 @@ export function restoreSourceCellSelection(doc:PMNode,[anchor,head]:CellEnds):Se
  if(a!==undefined&&h!==undefined)return CellSelection.create(doc,a,h);
  const remaining=a??h;
  return remaining===undefined?null:Selection.near(doc.resolve(remaining+1));
+}
+
+export function copySourceCellSelection(view:EditorView,event:ClipboardEvent):boolean {
+ const selection=view.state.selection;
+ if(!(selection instanceof CellSelection)||!sourceCellSelectionEnds(selection))return false;
+ event.preventDefault();
+ if(!event.clipboardData)return true;
+ const {dom,text}=view.serializeForClipboard(selection.content());
+ for(const image of dom.querySelectorAll('[data-writer-rich-image]'))image.remove();
+ for(const cell of dom.querySelectorAll('td,th'))if(!cell.childElementCount)cell.append(dom.ownerDocument.createElement('p'));
+ for(const element of dom.querySelectorAll('*'))for(const attribute of element.getAttributeNames()){
+  if(attribute.startsWith('data-writer-')||['id','columns','columnid'].includes(attribute))element.removeAttribute(attribute);
+ }
+ event.clipboardData.clearData();
+ event.clipboardData.setData('text/html',dom.innerHTML);
+ event.clipboardData.setData('text/plain',text);
+ return true;
 }
 
 /** Use ProseMirror's selection type without adding generic table writers to Source. */
