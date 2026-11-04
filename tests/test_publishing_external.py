@@ -189,3 +189,59 @@ async def test_identity_and_local_token_survive_reopen(tmp_path, hoards):
                 assert (await client.get('/api/writer-identity/' + module)).json() == identity
                 assert (app.state.modules[module].data_dir / 'mcp-token').read_bytes() == token
                 assert (await client.put('/api/modules/' + module, json={'enabled': False})).status_code == 200
+
+
+def test_hub_down_keeps_the_address_and_token_the_hub_gave(tmp_path, monkeypatch):
+    """A packaged worker cannot guess the family folder: after a Hub outage it uses the Hub's last answer."""
+    for env in ('WRITER_LINKS_URL', 'WRITER_KAFKA_URL'):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setattr(external, 'HUB_URL', 'http://hub.test')
+    monkeypatch.setattr(external, '_registry', {'at': 0.0, 'apps': None, 'error': '', 'last': {}, 'kept': {}})
+    monkeypatch.setattr(external, '_remembered', {})
+    secret = tmp_path / 'kafka-token'
+    secret.write_text('kafka-synthetic-token', encoding='utf-8')
+    listing = {'apps': [{'id': 'kafka', 'url': 'http://127.0.0.1:5300/', 'token_file': str(secret), 'state': 'running'}]}
+    monkeypatch.setattr(httpx.Client, 'get', lambda self, url, **k: httpx.Response(200, json=listing, request=httpx.Request('GET', url)))
+    external.remember('paperwork', tmp_path / 'paperwork')
+    assert external.target('paperwork', refresh=True)['source'] == 'hub'
+    down = lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError('hub down (synthetic)'))
+    monkeypatch.setattr(httpx.Client, 'get', down)
+    same_session = external.target('paperwork', refresh=True)
+    assert (same_session['source'], same_session['url'], same_session['token_file']) == ('last_hub', 'http://127.0.0.1:5300', str(secret))
+    # A fresh worker (Writer restarted while the Hub is still down) reads it back from the module folder.
+    monkeypatch.setattr(external, '_registry', {'at': 0.0, 'apps': None, 'error': '', 'last': {}, 'kept': {}})
+    fresh = external.target('paperwork', refresh=True)
+    assert (fresh['source'], fresh['url'], external.token(fresh)) == ('last_hub', 'http://127.0.0.1:5300', 'kafka-synthetic-token')
+    # A module never opened while the Hub answered still gets the family default.
+    assert external.target('links', refresh=True)['source'] == 'default'
+
+
+@pytest.mark.asyncio
+async def test_module_remembers_the_hub_answer_in_its_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(external, '_remembered', {})
+    app = external.create_app('links', tmp_path / 'links')
+    try:
+        assert external._remembered['links'] == tmp_path / 'links' / 'hoard-address.json'
+    finally:
+        await app.state.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('method,status,code', [('GET', 503, 'hoard_offline'), ('POST', 502, 'outcome_unknown')])
+async def test_connection_dropped_by_a_restarting_hoard_is_not_a_bare_500(tmp_path, monkeypatch, method, status, code):
+    """The Hoard accepted the connection and closed it (restart through the Hub): say so instead of a bare 500."""
+    def dropped(request):
+        raise httpx.RemoteProtocolError('Server disconnected without sending a response.', request=request)
+    monkeypatch.setattr(external, 'TRANSPORT', httpx.MockTransport(dropped))
+    monkeypatch.setenv('WRITER_LINKS_URL', 'http://links.test')
+    monkeypatch.setenv('WRITER_LINKS_TOKEN_FILE', '')
+    app = external.create_app('links', tmp_path / 'links')
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://writer.test') as client:
+            reply = await client.request(method, '/api/links', json={'url': 'https://example.test'} if method == 'POST' else None)
+        assert reply.status_code == status, reply.text
+        body = reply.json()
+        assert body['code'] == code and body['app'] == 'links' and 'RemoteProtocolError' in body['detail']
+        assert body['start']['mcp'] == 'wh_publishing_external_start'
+    finally:
+        await app.state.shutdown()

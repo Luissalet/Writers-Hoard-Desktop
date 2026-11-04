@@ -26,8 +26,39 @@ EXTERNAL = {
 }
 HOP = {'host', 'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-authorization',
        'proxy-connection', 'authorization', 'origin', 'referer', 'cookie'}
-_registry: dict = {'at': 0.0, 'apps': None, 'error': ''}
+_registry: dict = {'at': 0.0, 'apps': None, 'error': '', 'last': {}, 'kept': {}}
+_remembered: dict = {}  # module -> file in its data folder that keeps the Hub's last answer for it
 TRANSPORT = None  # tests put an in-memory Hoard here; None is the real network
+
+
+def remember(key: str, data_dir) -> None:
+    """Keep the Hub's last answer for this module in its folder: a packaged Writer cannot guess where the family
+    lives, so after a Hub outage it still finds the Hoard's address and token file."""
+    _remembered[key] = Path(data_dir) / 'hoard-address.json'
+
+
+def _keep(key: str, entry: dict) -> None:
+    path = _remembered.get(key)
+    if path is None or _registry['kept'].get(key) == entry:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entry, ensure_ascii=False), encoding='utf-8')
+        _registry['kept'][key] = entry
+    except OSError:
+        pass
+
+
+def _last_known(key: str) -> dict | None:
+    found = _registry['last'].get(EXTERNAL[key]['app'])
+    if found:
+        return found
+    path = _remembered.get(key)
+    try:
+        saved = json.loads(path.read_text(encoding='utf-8')) if path is not None and path.exists() else None
+    except (OSError, ValueError):
+        return None
+    return saved if isinstance(saved, dict) and saved.get('url') else None
 
 
 def _client(**options) -> httpx.AsyncClient:
@@ -42,6 +73,8 @@ def _hub_apps(refresh: bool = False):
         with httpx.Client(timeout=2.5, trust_env=False) as client:
             apps = client.get(HUB_URL + '/api/apps').raise_for_status().json().get('apps') or []
         _registry.update(at=time.monotonic(), apps={a.get('id'): a for a in apps if isinstance(a, dict)}, error='')
+        _registry['last'].update({a['id']: {'url': str(a['url']).rstrip('/'), 'token_file': a.get('token_file') or ''}
+                                  for a in apps if isinstance(a, dict) and a.get('id') and a.get('url')})
     except Exception as exc:  # noqa: BLE001 - the Hub is optional; a fixed fallback follows
         _registry.update(at=time.monotonic(), apps=None, error=f'{type(exc).__name__}: {exc}')
     return _registry['apps']
@@ -57,8 +90,14 @@ def target(key: str, refresh: bool = False) -> dict:
     apps = _hub_apps(refresh)
     app = (apps or {}).get(spec['app'])
     if app and app.get('url'):
-        return {'url': str(app['url']).rstrip('/'), 'token_file': app.get('token_file') or '', 'source': 'hub',
+        entry = {'url': str(app['url']).rstrip('/'), 'token_file': app.get('token_file') or ''}
+        _keep(key, entry)
+        return {**entry, 'source': 'hub',
                 'hub': {'state': app.get('state') or '', 'manually_stopped': bool(app.get('manually_stopped'))}}
+    known = _last_known(key) if apps is None else None
+    if known:  # the Hub does not answer: use what it said last time
+        return {'url': str(known['url']).rstrip('/'), 'token_file': str(known.get('token_file') or ''),
+                'source': 'last_hub', 'hub': None}
     return {'url': f"http://127.0.0.1:{spec['port']}", 'token_file': str(FAMILY / spec['folder'] / 'data' / 'mcp-token'),
             'source': 'default', 'hub': None}
 
@@ -150,6 +189,7 @@ def create_app(key: str, data_dir):
 
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
+    remember(key, data_dir)
     local_token = data_dir / 'mcp-token'
     if not local_token.exists():
         import secrets
@@ -193,6 +233,14 @@ def create_app(key: str, data_dir):
             upstream = await client.send(outgoing, stream=True)
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             return JSONResponse(offline_body(key, where, f'{type(exc).__name__}: {exc}'), status_code=503)
+        except httpx.TransportError as exc:
+            # The Hoard accepted the connection and dropped it before answering (it is restarting or stopping).
+            body = offline_body(key, where, f'{type(exc).__name__}: {exc}')
+            if request.method in ('GET', 'HEAD', 'OPTIONS'):
+                return JSONResponse(body, status_code=503)
+            body.update(code='outcome_unknown', error=f"{EXTERNAL[key]['name']} cortó la conexión antes de responder: la operación "
+                        'pudo aplicarse o no. Comprueba el estado antes de repetirla.')
+            return JSONResponse(body, status_code=502)
         base = urlsplit(where['url'])
         out = []
         for name, value in upstream.headers.raw:
