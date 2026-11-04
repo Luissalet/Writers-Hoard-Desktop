@@ -108,11 +108,11 @@
     "absorbs": [
       "scheherazade",
       "borges",
-      "kafka",
       "gutenberg"
     ],
     "uses": [
-      "links"
+      "links",
+      "kafka"
     ],
     "fiction": {
       "modules": [

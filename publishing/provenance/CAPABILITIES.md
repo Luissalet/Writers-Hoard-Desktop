@@ -1,5 +1,7 @@
 # Preserved native tools
 
+Since 04-11-2026 the links and paperwork tools keep these names in Writer but run in Links Hoard and Kafka's Hoard, which Writer calls by reference (`publishing/fusion/external.py`).
+
 | Module | Tools |
 |---|---:|
 | library | 15 |

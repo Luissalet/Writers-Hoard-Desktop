@@ -28,7 +28,6 @@ export interface PublishingOptions {
   command: string;
   args: string[];
   cwd: string;
-  nodeCommand?: string;
 }
 
 export class PublishingService {
@@ -170,7 +169,7 @@ export class PublishingService {
     if (this.child) return;
     const child = spawn(this.options.command, this.options.args, {
       cwd: this.options.cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', HOARD_EVENTS: '0', WRITER_PUBLISHING_NODE: this.options.nodeCommand || process.execPath, ELECTRON_RUN_AS_NODE: '1' },
+      env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', HOARD_EVENTS: '0' },
     });
     this.child = child;
     const lines = createInterface({ input: child.stdout });

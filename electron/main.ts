@@ -2326,7 +2326,7 @@ if (!gotLock) {
     configurePublishing({ configFile: path.join(app.getPath('userData'), 'publishing', 'modules.json'),
       dataDir: process.env.WH_PUBLISHING_DATA_DIR || path.join(app.getPath('userData'), 'publishing', 'data'),
       command: process.env.WH_PUBLISHING_PYTHON || (app.isPackaged ? path.join(publishingRoot, process.platform === 'win32' ? 'writer-publishing-worker.exe' : 'writer-publishing-worker') : path.join(publishingRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')),
-      args: app.isPackaged ? [] : [path.join(publishingRoot, 'worker.py')], cwd: publishingRoot, nodeCommand: process.execPath });
+      args: app.isPackaged ? [] : [path.join(publishingRoot, 'worker.py')], cwd: publishingRoot });
     const storyRoot = app.isPackaged ? path.join(process.resourcesPath, 'fiction') : path.join(__dirname, '..', 'story');
     configureFiction({
       configFile: path.join(app.getPath('userData'), 'fiction', 'modules.json'),
