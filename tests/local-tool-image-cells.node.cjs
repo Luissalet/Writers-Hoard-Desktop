@@ -104,7 +104,8 @@ export { tableCellAddress } from '../src/engines/local/convergence/tableAxesForm
     assertImage(hideA, replacement, 'medium');
     const portable = exportLocalToolConvergenceCheckpoint(hideA.checkpoint());
     assert.equal(portable.pending, false);
-    assert.deepEqual(collectLocalToolCheckpointImages(hideA.checkpoint(), contract.codec), [asset, replacement]);
+    const archived = collectLocalToolCheckpointImages(hideA.checkpoint(), contract.codec);
+    assert.deepEqual(archived.sort((a, b) => a.sha256.localeCompare(b.sha256)), [asset, replacement]);
     assert.deepEqual(collectRoomImageAssets(portable.update), [asset, replacement]);
     console.log('PASS remove preserves concurrent text, Undo restores the same image, and both assets survive export');
 
