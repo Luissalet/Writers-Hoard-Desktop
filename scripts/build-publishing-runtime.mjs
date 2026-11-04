@@ -30,7 +30,7 @@ if (!process.argv.includes('--setup-only')) {
     '--distpath', 'publishing/runtime', '--workpath', 'publishing/.build/work', '--specpath', 'publishing/.build',
     '--paths', source, '--paths', path.join(source, 'borges'), '--paths', path.join(source, 'editorial'),
     '--collect-all', 'borges', '--collect-all', 'gutenberg_hoard', '--collect-all', 'hoard_link',
-    '--collect-all', 'yt_dlp', '--collect-all', 'gallery_dl', '--collect-all', 'pip', '--collect-all', 'rapidocr',
+    '--collect-all', 'pip',
     ...data('fusion'),
     ...data('editorial/native/bin', 'native/bin'),
     ...data('LICENSE', '.'), ...data('PROVENANCE.json', '.'),

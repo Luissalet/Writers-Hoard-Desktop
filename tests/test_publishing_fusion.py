@@ -82,7 +82,7 @@ def test_worker_media_cli_dispatch_without_download_or_model():
     worker = str(ROOT / 'publishing/worker.py')
     version = subprocess.run([sys.executable, worker, '--version'], capture_output=True, text=True, timeout=20)
     assert version.returncode == 0 and version.stdout.startswith('Python ')
-    package = subprocess.run([sys.executable, worker, '-m', 'yt_dlp', '--version'], capture_output=True, text=True, timeout=20)
+    package = subprocess.run([sys.executable, worker, '-m', 'pip', '--version'], capture_output=True, text=True, timeout=20)
     assert package.returncode == 0 and package.stdout.strip()
     probe = subprocess.run([sys.executable, worker, '-c', 'print("owned-runtime-probe")'], capture_output=True, text=True, timeout=20)
     assert probe.returncode == 0 and probe.stdout.strip() == 'owned-runtime-probe'
