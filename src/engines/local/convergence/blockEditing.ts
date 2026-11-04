@@ -1,5 +1,6 @@
 import {prepareTableInsert} from './tableEditing';
 import {prepareTableAxes} from './tableAxesEditing';
+import {validTableRowHeight} from './tableAxesFormat';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
 import {convergenceCanonical,convergenceClone,assertConvergenceIdentity} from '@/engines/local/convergence/format';
@@ -17,7 +18,7 @@ function capturedPlacement(source:RichBlocks,capture:RichBlockEditCapture,id:str
  const kind=source.registers.versions.get(binding.kindVersionId),place=source.registers.versions.get(binding.placementVersionId);if(!kind?.present||!place?.present)return fail();
  return{id,type:kind.value as RichBlock['type'],...convergenceClone(place.value) as unknown as RichBlockPlacement};
 }
-export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-insert','rich-table-row-header','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
+export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-insert','rich-table-row-header','rich-table-row-height','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
 /** Stable sibling traversal. Anchors outside this slot act as retained head anchors. */
 export function richBlockChildren<T extends RichBlockPlacement&{id:string}>(data:{blocks:readonly T[]},parentId:string|null,slot:RichBlockPlacement['slot']='body'):T[]{
  const children=data.blocks.filter(b=>b.parentId===parentId&&b.slot===slot),ids=new Set(children.map(b=>b.id)),out:T[]=[],seen=new Set<string>();
@@ -39,12 +40,25 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
  const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const{name,value}of blockBirthWrites(block,source.alignment))write(name,block.id,value);};
  if(action.type==='rich-table-create')return prepareTableAxes(source,data,bindings,action,identity,intrinsicLastLeaf);
  else if(action.type==='rich-table-insert')return prepareTableInsert(source,data,bindings,action,intrinsicLastLeaf);
- else if(action.type==='rich-table-row-header'){
+ else if(action.type==='rich-table-row-header'||action.type==='rich-table-row-height'){
   const row=selected[0];
-  if(!source.axes||selected.length!==1||row.type!=='table-row'||action.capture.destination||typeof action.header!=='boolean'||Object.keys(action).length!==4)return fail();
+  if(!source.axes||selected.length!==1||row.type!=='table-row'||action.capture.destination||Object.keys(action).length!==4)return fail();
   const current=bindings.nodes.find(binding=>binding.id===row.id),captured=action.capture.bindings.find(binding=>binding.id===row.id);
-  if(!current||!captured||convergenceCanonical(current)!==convergenceCanonical(captured))return fail();
-  if(row.attrs.header!==action.header){row.attrs={header:action.header};write('attrs',row.id,row.attrs);}
+  if(!current||!captured)return fail();
+  const header=action.type==='rich-table-row-header';
+  const witness=({attrsVersionId,rowHeightVersionId,...structure}:typeof current)=>header?{...structure,attrsVersionId}:{...structure,rowHeightVersionId:rowHeightVersionId??null};
+  if(convergenceCanonical(witness(current))!==convergenceCanonical(witness(captured)))return fail();
+  if(action.type==='rich-table-row-header'){
+   if(typeof action.header!=='boolean')return fail();
+   if(row.attrs.header!==action.header){row.attrs.header=action.header;write('attrs',row.id,{header:action.header});}
+  }else{
+   const {heightPx}=action;
+   if(!source.rowHeights||heightPx!==null&&!validTableRowHeight(heightPx))return fail();
+   if((row.attrs.heightPx??null)!==heightPx){
+    if(heightPx===null)delete row.attrs.heightPx;else row.attrs.heightPx=heightPx;
+    write('rowHeight',row.id,heightPx);
+   }
+  }
  }
  else if(action.type==='rich-block-list-indent'){
   if(selected.length!==1)return fail();
@@ -102,5 +116,5 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
  if(source.axes&&action.type==='rich-block-hide')result.data.axisOrder=result.data.axisOrder!.filter(o=>result.data.blocks.some(b=>b.id===o.tableId));
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights);return result;
 }

@@ -18,3 +18,16 @@
 [data-writer-width-surface] table[data-writer-column-widths] :is(th, td)[data-writer-cell-address]:hover::after {
   border-inline-end: 2px solid currentColor;
 }
+
+[data-writer-height-surface] table[data-writer-column-widths] :is(th, td)[data-writer-cell-address]::before {
+  position: absolute;
+  inset: auto 7px 0 0;
+  height: 6px;
+  content: "";
+  cursor: row-resize;
+  touch-action: none;
+}
+
+[data-writer-height-surface] table[data-writer-column-widths] :is(th, td)[data-writer-cell-address]:hover::before {
+  border-block-end: 2px solid currentColor;
+}

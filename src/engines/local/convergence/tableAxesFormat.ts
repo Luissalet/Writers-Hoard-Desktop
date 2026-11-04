@@ -7,17 +7,19 @@ export const isTableWidthsSchema=(schema:unknown)=>schema===TABLE_WIDTHS_SCHEMA|
 export const isTableAxesSchema=(schema:unknown)=>schema===TABLE_AXES_SCHEMA||isTableWidthsSchema(schema);
 export const MIN_TABLE_COLUMN_WIDTH=48;
 export const validTableColumnWidth=(width:unknown):width is number=>typeof width==='number'&&Number.isSafeInteger(width)&&width>=MIN_TABLE_COLUMN_WIDTH;
+export const MIN_TABLE_ROW_HEIGHT=24;
+export const validTableRowHeight=(height:unknown):height is number=>typeof height==='number'&&Number.isSafeInteger(height)&&height>=MIN_TABLE_ROW_HEIGHT;
 export interface RichTableAxisOrder {tableId:string;rows:string[];columns:string[]}
 export type RichTableAxis='rows'|'columns';
 export const axisKind=(kind:unknown)=>kind==='table'||kind==='table-row'||kind==='table-column'||kind==='table-cell';
 const object=(v:unknown):v is Record<string,LocalToolJson>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const fail=():never=>{throw Error('local_tool_table_axes_invalid');};
 const ids=(v:unknown):v is string[]=>Array.isArray(v)&&v.every(id=>typeof id==='string'&&!!id)&&new Set(v).size===v.length;
-export function validateAxisAttributes(kind:unknown,value:unknown,widths=false):void {
+export function validateAxisAttributes(kind:unknown,value:unknown,widths=false,rowHeights=false):void {
  if(!object(value))return fail();const keys=Object.keys(value);
  if(kind==='table'){if(keys.length)fail();}
  else if(kind==='table-column'){if(keys.length&&(!widths||keys.length!==1||!validTableColumnWidth(value.widthPx)))fail();}
- else if(kind==='table-row'){if(keys.length!==1||typeof value.header!=='boolean')fail();}
+ else if(kind==='table-row'){if(typeof value.header!=='boolean'||!(keys.length===1||rowHeights&&keys.length===2&&validTableRowHeight(value.heightPx)))fail();}
  else if(kind==='table-cell'){if(keys.length!==1||typeof value.columnId!=='string'||!value.columnId)fail();}
  else fail();
 }
