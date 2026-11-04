@@ -46,12 +46,12 @@ export function createPresenceRelay(expectedHosts:()=>readonly string[],options:
   const current=()=>connections.get(c.id)===c&&rooms.get(roomId)===room;
   const lease=imageLease(c,instanceId,epoch);
   if(req.method==='GET'){
-   if(!member())throw Error('local_tool_live_not_joined');const bytes=images.read(sha);if(!bytes)throw Error('local_asset_image_unavailable');
-   c.lastSeen=now();res.writeHead(200,{'Content-Type':'image/png','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}).end(bytes);return;
+   if(!member())throw Error('local_tool_live_not_joined');const image=images.read(sha);if(!image)throw Error('local_asset_image_unavailable');
+   c.lastSeen=now();res.writeHead(200,{'Content-Type':image.mime,'Content-Length':image.bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}).end(image.bytes);return;
   }
   if(req.method!=='PUT'||!member()&&!bootstrap())throw Error('local_tool_live_not_joined');
   const target=images.uploadTarget(lease,sha,bootstrap());if(!target)throw Error('local_asset_image_unavailable');
-  c.lastSeen=now();await images.store(req,target,()=>current()&&(member()||bootstrap())&&images.uploadTarget(lease,sha,bootstrap())?.size===target.size);
+  c.lastSeen=now();await images.store(req,target,()=>{const offer=images.uploadTarget(lease,sha,bootstrap());return current()&&(member()||bootstrap())&&offer?.size===target.size&&offer.mime===target.mime;});
   reply(res,200,{ok:true});
  }
  function removeMember(c:Connection,roomId:string,instanceId:string){const old=c.members.get(key(roomId,instanceId));if(old)c.retired.add(tombstone(roomId,instanceId,old.epoch));c.members.delete(key(roomId,instanceId));const room=rooms.get(roomId);if(room){room.members.delete(key(c.id,instanceId));if(old)room.images?.retire(imageLease(c,instanceId,old.epoch));if(!room.members.size)removeRoom(room);}}

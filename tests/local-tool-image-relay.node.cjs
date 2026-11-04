@@ -27,8 +27,9 @@ export { testSharedImageAlignment, testConcurrentImageAlignment, testImageAlignm
   test.exports.testConcurrentImageAlignment();
   test.exports.testImageAlignmentBirthUndo();
   const { checks, calls } = await test.exports.testBinaryImageRelay();
-  const aligned = await test.exports.testBinaryImageRelay(true);
-  console.log(JSON.stringify({ legacy: { checks: checks.length, calls }, aligned: { checks: aligned.checks.length, calls: aligned.calls } }));
+  const aligned = await test.exports.testBinaryImageRelay('aligned');
+  const raster = await test.exports.testBinaryImageRelay('raster');
+  console.log(JSON.stringify({ legacy: { checks: checks.length, calls }, aligned: { checks: aligned.checks.length, calls: aligned.calls }, raster: { checks: raster.checks.length, calls: raster.calls } }));
 }
 
 main().catch(error => {

@@ -1,5 +1,5 @@
 import {MAX_MEDIA_BYTES,MAX_PROJECT_MEDIA_BYTES} from '../media/types';
-import {isCompletePng} from '../../services/imageMetadata';
+import {detectSourceRasterMime} from '../../services/sourceRasterFormat';
 export type LocalAssetFileKind='font'|'data'|'image';
 export const isLocalAssetFileKind=(value:unknown):value is LocalAssetFileKind=>value==='font'||value==='data'||value==='image';
 export interface LocalAssetFile {id:string;projectId:string;kind:LocalAssetFileKind;title:string;mime:string;size:number;sha256:string;blob:Blob;createdAt:number}
@@ -13,7 +13,7 @@ export function assetBase64(bytes:Uint8Array){let binary='';for(let offset=0;off
 export function assetBytes(base64:string){if(typeof base64!=='string'||!base64||base64.length%4||!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)||base64.length>Math.ceil(MAX_MEDIA_BYTES/3)*4)throw Error('local_asset_bytes_invalid');return Uint8Array.from(atob(base64),c=>c.charCodeAt(0));}
 export async function assetFileHash(bytes:Uint8Array<ArrayBuffer>){return[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(byte=>byte.toString(16).padStart(2,'0')).join('');}
 export function assetFileMime(kind:LocalAssetFileKind,name:string,mime:string,bytes:Uint8Array){if(kind==='font'){const format=name.split('.').pop()?.toLowerCase() as LocalFontFormat;if(!Object.hasOwn(FONT_MIMES,format)||!matchesFontSignature(bytes,format))throw Error('local_asset_font_invalid');return FONT_MIMES[format];}
- if(kind==='image'){const declared=mime.trim().toLowerCase();if(declared&&declared!=='image/png'||!isCompletePng(bytes))throw Error('local_asset_image_invalid');return 'image/png';}
+ if(kind==='image'){const declared=mime.trim().toLowerCase(),detected=detectSourceRasterMime(bytes);if(!detected||declared&&declared!==detected)throw Error('local_asset_image_invalid');return detected;}
  if(kind!=='data')throw Error('local_asset_file_kind_invalid');const normalized=mime.trim().toLowerCase()||'application/octet-stream';if(!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(normalized))throw Error('local_asset_mime_invalid');return normalized;}
 /** Preparation has no database/DOM effects; the browser separately decodes fonts. */
 export async function prepareAssetFile(file:File,kind:LocalAssetFileKind,projectId:string):Promise<LocalAssetFile>{if(!file.size||file.size>MAX_MEDIA_BYTES||!file.name.trim())throw Error('local_asset_file_invalid');const bytes=new Uint8Array(await file.arrayBuffer()),mime=assetFileMime(kind,file.name,file.type,bytes);return{id:crypto.randomUUID(),projectId,kind,title:file.name,mime,size:bytes.length,sha256:await assetFileHash(bytes),blob:new Blob([bytes],{type:mime}),createdAt:Date.now()};}
