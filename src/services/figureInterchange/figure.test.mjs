@@ -107,3 +107,21 @@ test('header inspection explicitly does not certify pixel decoding', () => {
   assert.equal(parsed.pngValidation, 'signature-and-dimensions');
   assert.deepEqual(Buffer.from(parsed.png), bytes.subarray(0, 33));
 });
+
+test('every figure import reason has a Spanish message and the UI picks it by locale', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { figureErrorText, FIGURE_ERROR_REASONS_ES } = await import('./messages.ts');
+  const reasons = new Set();
+  for (const file of ['index.ts', 'preview.ts']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    for (const match of text.matchAll(/(?:fail|FigureImportError)\(\s*(?:'[^']*'|`[^`]*`)\s*,\s*'([^']+)'/g)) reasons.add(match[1]);
+  }
+  assert.ok(reasons.size >= 20);
+  for (const reason of reasons) assert.ok(FIGURE_ERROR_REASONS_ES[reason], `missing Spanish text: ${reason}`);
+  let error;
+  try { parsePortableFigure('{"format":"nope"}'); } catch (cause) { error = cause; }
+  assert.ok(error instanceof FigureImportError);
+  assert.equal(figureErrorText(error, false), 'format: Expected vitruvius.figure/1.');
+  assert.equal(figureErrorText(error, true), 'format: Se esperaba vitruvius.figure/1.');
+  assert.equal(figureErrorText(new FigureImportError('x', 'Unknown reason.'), true), 'x: Unknown reason.');
+});
