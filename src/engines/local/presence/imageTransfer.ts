@@ -3,6 +3,7 @@ import {validateRichImageAsset,type RichImageAsset} from '../convergence/imageFo
 
 export interface ImageRoomLease {roomId:string;instanceId:string;epoch:string}
 type Connection={connectionId:string;token:string};
+const extension={ 'image/png':'png','image/jpeg':'jpg','image/webp':'webp' } as const;
 
 export async function requestRoomImage(origin:string,connection:Connection,lease:ImageRoomLease,asset:RichImageAsset,body?:Blob){
  const query=new URLSearchParams({roomId:lease.roomId,instanceId:lease.instanceId,epoch:lease.epoch});
@@ -16,7 +17,7 @@ export async function requestRoomImage(origin:string,connection:Connection,lease
 export async function sendRoomImages(required:unknown,assets:LocalToolAssets|undefined,current:()=>Promise<boolean>,send:(asset:RichImageAsset,blob:Blob)=>Promise<Response>){
  if(!Array.isArray(required)||!required.length||!assets)throw Error('local_asset_image_unavailable');
  for(const asset of required){
-  validateRichImageAsset(asset);
+  validateRichImageAsset(asset,true);
   if(!await current())throw Error('presence_host_unavailable');
   const resolved=await assets.resolveImage(asset);
   if(!await current())throw Error('presence_host_unavailable');
@@ -39,6 +40,6 @@ export async function receiveRoomImage(asset:RichImageAsset,assets:LocalToolAsse
  const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(n=>n.toString(16).padStart(2,'0')).join('');
  if(bytes.byteLength!==asset.size||hash!==asset.sha256)throw Error('local_asset_image_invalid');
  if(!await current())throw Error('presence_host_unavailable');
- await assets.import(new File([bytes],`image-${asset.sha256.slice(0,12)}.png`,{type:asset.mime}),'image');
+ await assets.import(new File([bytes],`image-${asset.sha256.slice(0,12)}.${extension[asset.mime]}`,{type:asset.mime}),'image');
  if(!await current())throw Error('presence_host_unavailable');
 }

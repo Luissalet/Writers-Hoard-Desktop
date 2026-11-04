@@ -8,6 +8,9 @@ import type {RichBlockEditingAction} from '../convergence/blockEditingTypes';
 import type {RichImageEditAction} from '../convergence/imageEditing';
 import type {RichEditorSession} from './session';
 import {RichImage} from './RichImage';
+import {MAX_MEDIA_BYTES} from '../../media/types';
+import {isCompletePng} from '../../../services/imageMetadata';
+import {SOURCE_RASTER_MIMES} from '../../../services/sourceRasterFormat';
 
 const selectedImage=(view:EditorView)=>{const {selection}=view.state;return selection instanceof NodeSelection&&selection.node.type.name==='richImage'?selection:null;};
 
@@ -54,7 +57,9 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  useLayoutEffect(()=>{live.current=true;return()=>{live.current=false;request.current=undefined;};},[session,editor]);
  const disabled=!editor||readOnly||!session.editable||!session.assets||busy;
- const failure=()=>setError(es?'No se pudo usar el PNG. Comprueba el archivo y vuelve a intentarlo.':'Could not use the PNG. Check the file and try again.');
+ const failure=()=>setError(session.imageRaster
+  ?(es?'No se pudo usar la imagen. Elige un PNG, JPEG o WebP válido.':'Could not use the image. Choose a valid PNG, JPEG or WebP.')
+  :(es?'No se pudo usar el PNG. Comprueba el archivo y vuelve a intentarlo.':'Could not use the PNG. Check the file and try again.'));
  const choose=(replace:boolean)=>{
   if(disabled||!editor||!session.assets)return;
   const {field,replica,assets}=session,view=editor.view;
@@ -74,7 +79,12 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
   if(!file||!pending||!editor||!session.editable||session.assets!==pending.assets)return;
   setBusy(true);
   try{
-   const {sha256,mime,size}=await pending.assets.import(file,'image'),asset={sha256,mime,size};validateRichImageAsset(asset);
+   if(!session.imageRaster){
+    const declared=file.type.trim().toLowerCase();
+    if(declared?declared!=='image/png':file.size>MAX_MEDIA_BYTES||!isCompletePng(new Uint8Array(await file.arrayBuffer()))){failure();return;}
+    if(!live.current||editor.isDestroyed||!session.editable||session.assets!==pending.assets)return;
+   }
+   const {sha256,mime,size}=await pending.assets.import(file,'image'),asset={sha256,mime,size};validateRichImageAsset(asset,session.imageRaster);
    if(!live.current||editor.isDestroyed||!session.editable||session.assets!==pending.assets)return;
    const action=pending.action(asset);if(!session.applyBatch([action])){failure();return;}
    if(action.type==='rich-image-insert')selectBlock(editor.view,action.id,true);
@@ -96,8 +106,8 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
  };
  const alignmentLabel=es?{left:'Alinear imagen a la izquierda',center:'Centrar imagen',right:'Alinear imagen a la derecha'}:{left:'Align image left',center:'Center image',right:'Align image right'};
  return <div className="flex flex-wrap gap-2" aria-label={es?'Imagen':'Image'}>
-  <input ref={input} hidden type="file" accept="image/png,.png" onChange={event=>{const file=event.currentTarget.files?.[0];event.currentTarget.value='';void importFile(file);}}/>
-  <button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(false)}>{es?'Insertar imagen PNG':'Insert PNG image'}</button>
+  <input ref={input} hidden type="file" accept={session.imageRaster?[...SOURCE_RASTER_MIMES,'.png','.jpg','.jpeg','.webp'].join(','):'image/png,.png'} onChange={event=>{const file=event.currentTarget.files?.[0];event.currentTarget.value='';void importFile(file);}}/>
+  <button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(false)}>{session.imageRaster?(es?'Insertar imagen':'Insert image'):(es?'Insertar imagen PNG':'Insert PNG image')}</button>
   {selected&&<><button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(true)}>{es?'Reemplazar imagen':'Replace image'}</button>
    {(['small','medium','full'] as const).map(size=><button key={size} type="button" className={button} disabled={disabled} aria-pressed={selected.size===size} onMouseDown={event=>event.preventDefault()} onClick={()=>control(size)}>{({small:es?'Pequeña':'Small',medium:es?'Mediana':'Medium',full:es?'Ancho completo':'Full width'})[size]}</button>)}
    {session.imageAlignment&&<div role="group" aria-label={es?'Alineación de imagen':'Image alignment'} className="flex flex-wrap gap-2">

@@ -2,7 +2,7 @@ import {TABLE_AXES_SCHEMA,TABLE_WIDTHS_SCHEMA} from './tableAxesFormat';
 import {TableAxisOrder,type TableAxisInsertion} from './tableAxisOrder';
 import {TABLE_SCHEMA,TABLE_KINDS,tableCellOf} from './tableFormat';
 import {validateRichBlockAttributes} from './blockFormat';
-import {ALIGNMENT_BLOCK_SCHEMA,IMAGE_BLOCK_SCHEMA,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from './imageFormat';
+import {ALIGNMENT_BLOCK_SCHEMA,IMAGE_BLOCK_SCHEMA,RASTER_BLOCK_SCHEMA,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from './imageFormat';
 import type {LocalToolJson} from '../stateTypes';
 import type {RichView} from './richRuns';
 import type {LocalToolConvergenceIdentity} from './types';
@@ -28,8 +28,8 @@ function reposition(data:RichBlockDocument,id:string,to:RichBlockPlacement){
  Object.assign(block,to);
 }
 export class RichBlocks {
- readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;readonly images:boolean;readonly alignment:boolean;
- constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false,images=false,alignment=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;this.images=images;this.alignment=alignment;}
+ readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;readonly images:boolean;readonly alignment:boolean;readonly rasterFormats:boolean;
+ constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false,images=false,alignment=false,rasterFormats=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;this.images=images;this.alignment=alignment;this.rasterFormats=rasterFormats;}
  private get imageRegisters(){return this.alignment?alignedImageNames:imageNames;}
  root(name:string){return 'blocks3:'+JSON.stringify(this.field)+':'+(name==='imageSource'?'image-source':name==='imageSize'?'image-size':name==='imageAlignment'?'image-alignment':name);}
  private read(name:string,key:string){return this.registers.winner(this.root(name),key);}
@@ -43,7 +43,7 @@ export class RichBlocks {
   const r=this.registers,all=new Map<string,StructuralNode>(),invalid=new Set<string>(),summaryWitness=new Map<string,string>();
   const historical=(frontier:string[])=>{
    const key=JSON.stringify([...frontier].sort()),cached=history.get(key);if(cached)return cached;
-   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes,this.widths,this.images,this.alignment).structure(history));history.set(key,value);return value;
+   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats).structure(history));history.set(key,value);return value;
   };
   const version=(binding:RichBlockBinding,name:StructureName)=>r.versions.get(binding[`${name}VersionId`])??r.candidates(this.root(name)).find(v=>v.id===binding[`${name}VersionId`]);
   const assemble=(id:string,values:Record<StructureName,RegisterVersion>):StructuralNode=>({
@@ -162,10 +162,10 @@ export class RichBlocks {
   // Text and its bindings follow catalogue IDs, independently of intrinsic paragraph order.
   filtered.data.content=blocks.filter(b=>richBlockLeaf(b.type)).map(b=>filtered.data.content.find(p=>p.id===b.id)!);
   filtered.bindings.nodes=filtered.data.content.map(p=>filtered.bindings.nodes.find(n=>n.id===p.id)!);
-  return{data:{type:'block-doc',schema:this.alignment?ALIGNMENT_BLOCK_SCHEMA:this.images?IMAGE_BLOCK_SCHEMA:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
+  return{data:{type:'block-doc',schema:this.rasterFormats?RASTER_BLOCK_SCHEMA:this.alignment?ALIGNMENT_BLOCK_SCHEMA:this.images?IMAGE_BLOCK_SCHEMA:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
  }
  check(data:RichBlockDocument,bindings:RichBlockBindings):void {
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats);
   if(!object(bindings)||Object.keys(bindings).length!==2||bindings.format!=='writers-hoard-block-bindings/1'||!Array.isArray(bindings.nodes)||bindings.nodes.length!==data.blocks.length)return fail();
   for(let at=0;at<data.blocks.length;at++){
    const b=data.blocks[at],bound=bindings.nodes[at],image=b.type==='image';if(!object(bound)||Object.keys(bound).length!==(image?(this.alignment?8:7):5)||bound.id!==b.id)return fail();
@@ -179,7 +179,7 @@ export class RichBlocks {
   if(this.axes)new TableAxisOrder(this).check(data,bindings);
  }
  seed(data:RichBlockDocument){
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats);
   for(const b of data.blocks)for(const {name,value} of blockBirthWrites(b,this.alignment))this.registers.write(this.root(name),b.id,true,value);
   if(this.axes)new TableAxisOrder(this).seed(data);
  }
@@ -193,7 +193,7 @@ export class RichBlocks {
   this.check(data,bindings);validateRichBlockPlacement(destination);const source=data.blocks.find(b=>b.id===nodeId);if(!source)return fail();
   if(this.tables&&(['table-row','table-column','table-cell','table-header'].includes(source.type)||tableCellOf(data,nodeId)!==(destination.parentId===null?null:tableCellOf(data,destination.parentId))))return fail();
   if(destination.afterId!==null&&!data.blocks.some(b=>b.id===destination.afterId&&b.parentId===destination.parentId&&b.slot===destination.slot))return fail();
-  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths,this.images,this.alignment);
+  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats);
   const ids=new Set([nodeId,...(destination.parentId?[destination.parentId]:[]),...(destination.afterId?[destination.afterId]:[])]);
   return{format:'writers-hoard-block-move/1',identity:convergenceClone(identity),field:this.field,nodeId,destination:convergenceClone(destination),bindings:bindings.nodes.filter(b=>ids.has(b.id)).map(b=>convergenceClone(b)),frontier:this.registers.frontier()};
  }
@@ -216,7 +216,7 @@ export class RichBlocks {
    // Preserve the following siblings' relation to the replaced contiguous range.
    for(const block of result.data.blocks)if(block.parentId===original.parentId&&block.slot===original.slot&&block.afterId===nodeIds.at(-1)&&!nodeIds.includes(block.id))move(block.id,{parentId:block.parentId,slot:block.slot,afterId:action.wrapper.id});
   }
-  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment);return result;
+  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats);return result;
  }
  commit(plan:RichBlockPlan){
   for(const w of plan.writes)this.registers.write(this.root(w.name),w.id,true,w.value);
@@ -231,7 +231,7 @@ export class RichBlocks {
   for(const key of known)for(const name of ['attrs','membership','placement'])if(!this.registers.entries(this.root(name),key).length)missing=true;
   if(this.images)for(const name of this.imageRegisters)for(const v of this.registers.entries(this.root(name))){
    if(!v.present)return fail();
-   if(name==='imageSource')validateRichImageAsset(v.value);else if(name==='imageSize'?!isRichImageSize(v.value):!isRichImageAlignment(v.value))return fail();
+   if(name==='imageSource')validateRichImageAsset(v.value,this.rasterFormats);else if(name==='imageSize'?!isRichImageSize(v.value):!isRichImageAlignment(v.value))return fail();
    const kinds=this.registers.entries(this.root('kind'),v.key);
    if(kinds.length&&(kinds.length!==1||kinds[0].value!=='image'))return fail();
    const birth=kinds[0];

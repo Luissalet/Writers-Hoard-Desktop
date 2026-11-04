@@ -38,7 +38,7 @@ export function prepareImageEdit(source:RichBlocks,data:RichBlockDocument,bindin
     current.placementVersionId!==capture.placementVersionId||current.versionId!==capture.versionId)return fail();
  const result:RichBlockPlan={data:convergenceClone(data),bindings:convergenceClone(bindings),writes:[]};
  const node=result.data.blocks.find(b=>b.id===capture.nodeId)!;
- if(channel==='source')validateRichImageAsset(value);
+ if(channel==='source')validateRichImageAsset(value,source.rasterFormats);
  else if(channel==='size'?!isRichImageSize(value):!isRichImageAlignment(value))return fail();
  if(convergenceCanonical(node.attrs[payload])!==convergenceCanonical(value)){
   node.attrs[payload]=convergenceClone(value);

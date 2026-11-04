@@ -119,5 +119,5 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   put({id:p.id,type:'paragraph',attrs:{},parentId:fragment.id,slot:'body',afterId:null,content:p.text?[{type:'text',text:p.text,...(marks.length?{marks}:{})}]:[]});
   result.textActions.push({type:'rich-insert-paragraph',field:action.field,id:p.id,afterId:lastLeaf,text:p.text,...(p.marks?{marks:p.marks}:{}),...(href?{link:{href}}:{})});
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats);return result;
 }

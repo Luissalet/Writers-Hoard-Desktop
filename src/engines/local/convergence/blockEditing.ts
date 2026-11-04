@@ -64,7 +64,7 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   if(!source.images||!place||place.parentId!==null||place.slot!=='body'||selected.length||
      typeof action.id!=='string'||!action.id||Object.keys(action).length!==5||
      place.afterId!==null&&!result.data.blocks.some(b=>b.id===place.afterId&&b.parentId===null&&b.slot==='body'))return fail();
-  validateRichImageAsset(action.asset);
+  validateRichImageAsset(action.asset,source.rasterFormats);
   const block:RichBlock={id:action.id,type:'image',attrs:{asset:convergenceClone(action.asset),displaySize:'medium',...(source.alignment?{alignment:'left'}:{})},...convergenceClone(place)};
   for(const b of result.data.blocks)if(b.parentId===null&&b.slot==='body'&&b.afterId===place.afterId)move(b,{parentId:null,slot:'body',afterId:block.id});
   put(block);
@@ -95,5 +95,5 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
  if(source.axes&&action.type==='rich-block-hide')result.data.axisOrder=result.data.axisOrder!.filter(o=>result.data.blocks.some(b=>b.id===o.tableId));
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats);return result;
 }

@@ -7,12 +7,14 @@ import {convergenceIdentityOf} from '@/engines/local/convergence/format';
 import type {LocalToolConvergenceContract} from '@/engines/local/convergence/types';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
 
+import {rasterFixtures} from './local-tool-image-formats.fixture';
 import {testImageBase64} from './local-tool-image-fixture';
 
-export async function testBinaryImageRelay(alignmentProfile=false){
- const bytesA=Buffer.from(testImageBase64,'base64'),bytesB=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAZElEQVR4nO3PMQ0AIRQEUTRg41q0IAWlJwgD/IJq2GSSLafY1/qYx/3rO+61vr12SAB9SAB9SAB96BqQcrTqBdC9ALoXQPf5gJSjVS+A7gXQvQC6zwekHK16AXQvgO4F0H08YAPEFUR5VhpNyAAAAABJRU5ErkJggg==','base64'),png=(bytes:Buffer)=>({sha256:createHash('sha256').update(bytes).digest('hex'),mime:'image/png' as const,size:bytes.byteLength}),assetA=png(bytesA),assetB=png(bytesB);
+export async function testBinaryImageRelay(profile:'legacy'|'aligned'|'raster'='legacy'){
+ const alignmentProfile=profile!=='legacy',raster=profile==='raster';
+ const bytesA=Buffer.from(raster?rasterFixtures[0].base64:testImageBase64,'base64'),bytesB=Buffer.from(raster?rasterFixtures[1].base64:'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAZElEQVR4nO3PMQ0AIRQEUTRg41q0IAWlJwgD/IJq2GSSLafY1/qYx/3rO+61vr12SAB9SAB9SAB96BqQcrTqBdC9ALoXQPf5gJSjVS+A7gXQvQC6zwekHK16AXQvgO4F0H08YAPEFUR5VhpNyAAAAABJRU5ErkJggg==','base64'),describe=(bytes:Buffer,mime:'image/png'|'image/jpeg'|'image/webp')=>({sha256:createHash('sha256').update(bytes).digest('hex'),mime,size:bytes.byteLength}),assetA=describe(bytesA,raster?'image/jpeg':'image/png'),assetB=describe(bytesB,raster?'image/webp':'image/png');
  const namespace='tests.binary-images',field='body',nodeId='own-image';
- const imageField=alignmentProfile?{kind:'rich',profile:'blocks-tree/7',schema:'writers-blocks/6'} as const:{kind:'rich',profile:'blocks-tree/6',schema:'writers-blocks/5'} as const;
+ const imageField=raster?{kind:'rich',profile:'blocks-tree/8',schema:'writers-blocks/7'} as const:alignmentProfile?{kind:'rich',profile:'blocks-tree/7',schema:'writers-blocks/6'} as const:{kind:'rich',profile:'blocks-tree/6',schema:'writers-blocks/5'} as const;
  const contract:LocalToolConvergenceContract={namespace,validationId:'image-test',schemaEpoch:'image-test-1',codec:{version:2,fields:{body:imageField}},validateState:(value):value is LocalToolJson=>!!value&&typeof value==='object'&&!Array.isArray(value)};
  const genesis=createLocalToolGenesis({body:{type:'block-doc',schema:imageField.schema,blocks:[{id:'P',type:'paragraph',attrs:{},parentId:null,slot:'body',afterId:null,content:[]}],axisOrder:[]}},contract),aReplica=createLocalToolReplica(genesis,{authorId:'own-A',contract});
  aReplica.apply([{type:'rich-image-insert',field,capture:aReplica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId:'P'}),id:nodeId,asset:assetA}]);
@@ -28,16 +30,17 @@ export async function testBinaryImageRelay(alignmentProfile=false){
  const connect=(id:string):Promise<Connection>=>post('connect',{profile:{userId:id,name:id,color:'#334477'}});
  const member=(c:Connection,roomId:string,instanceId:string,epoch='lease-1'):Member=>({...c,roomId,instanceId,epoch});
  const update=(m:Member,kind:string,body:object={},expected=200)=>post('update',{...m,kind,...body},expected);
- const binary=async(m:Member,sha:string,data?:Buffer)=>{calls++;const query=new URLSearchParams({roomId:m.roomId,instanceId:m.instanceId,epoch:m.epoch});return fetch(base+'image/'+sha+'?'+query,{method:data?'PUT':'GET',headers:{'x-writer-connection':m.connectionId,Authorization:'Bearer '+m.token,...(data?{'Content-Type':'image/png'}:{})},...(data?{body:Uint8Array.from(data)}:{})});};
- const sameBytes=async(m:Member,asset:{sha256:string},expected:Buffer)=>{const reply=await binary(m,asset.sha256);assert.equal(reply.status,200);assert.equal(reply.headers.get('content-type'),'image/png');assert.deepEqual(Buffer.from(await reply.arrayBuffer()),expected);};
+ const binary=async(m:Member,sha:string,data?:Buffer,mime=sha===assetA.sha256?assetA.mime:assetB.mime)=>{calls++;const query=new URLSearchParams({roomId:m.roomId,instanceId:m.instanceId,epoch:m.epoch});return fetch(base+'image/'+sha+'?'+query,{method:data?'PUT':'GET',headers:{'x-writer-connection':m.connectionId,Authorization:'Bearer '+m.token,...(data?{'Content-Type':mime}:{})},...(data?{body:Uint8Array.from(data)}:{})});};
+ const sameBytes=async(m:Member,asset:{sha256:string;mime:string},expected:Buffer)=>{const reply=await binary(m,asset.sha256);assert.equal(reply.status,200);assert.equal(reply.headers.get('content-type'),asset.mime);assert.deepEqual(Buffer.from(await reply.arrayBuffer()),expected);};
  const denied=async(m:Member,sha:string,data?:Buffer,status?:number)=>{const res=await binary(m,sha,data);assert(!res.ok);if(status!==undefined)assert.equal(res.status,status);await res.arrayBuffer();};
  try{
   const a=await connect('Alice'),b=await connect('Beatriz'),outsider=await connect('Otro');
   const room=await post('create',{...a,document:doc,content:seed});
-  assert.deepEqual(room.needsImages,[assetA],'A room carrying a real PNG must request its missing binary');ok('initial room requests the exact historical PNG descriptor');
+  assert.deepEqual(room.needsImages,[assetA],'A room carrying an image must request its missing binary');ok('initial room requests the exact historical image descriptor');
   const A=member(a,room.roomId,'a'),B=member(b,room.roomId,'b'),people=member(b,room.roomId,'people'),X=member(outsider,room.roomId,'x');
   await update(B,'join-prepare',{document:doc,content:true},400);await denied(X,assetA.sha256,bytesA);await denied({...A,token:'wrong'},assetA.sha256,bytesA,401);
-  const bad=Buffer.from(bytesA);bad[bad.length-1]^=1;await denied(A,assetA.sha256,bad);const uploaded=await binary(A,assetA.sha256,bytesA);assert(uploaded.ok);await uploaded.arrayBuffer();ok('bootstrap permits only owner and validates its actual PNG and digest');
+  const bad=Buffer.from(bytesA);bad[bad.length-1]^=1;await denied(A,assetA.sha256,bad);if(raster){const mislabeled=await binary(A,assetA.sha256,bytesA,'image/webp');assert(!mislabeled.ok);await mislabeled.arrayBuffer();}
+  const uploaded=await binary(A,assetA.sha256,bytesA);assert(uploaded.ok);await uploaded.arrayBuffer();ok('bootstrap permits only owner and validates its actual image MIME and digest');
   assert.deepEqual((await update(B,'join-prepare',{document:doc,content:true})).content,seed);
   await update(A,'join',{document:doc,content:true});await update(people,'join',{document:doc});await denied(people,assetA.sha256);await denied(X,assetA.sha256);
   await update(B,'join',{document:doc,content:true});await sameBytes(B,assetA,bytesA);ok('second member reads bytes only after joining document content');
@@ -54,7 +57,7 @@ export async function testBinaryImageRelay(alignmentProfile=false){
    const admitted=await update(A,'content',{messageId:'alignment-only',update:aligned.update});
    assert.equal(admitted.ok,true);
    assert.equal(admitted.needsImages,undefined);
-   ok('alignment-only delta retains both PNGs without another upload');
+   ok('alignment-only delta retains both images without another upload');
   }
   const final=await update(B,'content-full-request',{requestId:'complete'});const combined=bReplica.receive(final.content);assert.equal(combined.pending,false);
   const visible=(bReplica.read() as unknown as {body:{blocks:{id:string;attrs:unknown}[]}}).body.blocks.find(block=>block.id===nodeId);
