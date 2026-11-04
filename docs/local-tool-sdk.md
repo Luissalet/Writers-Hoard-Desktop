@@ -1211,9 +1211,9 @@ For SDK or MCP, take `richBlockEditCapture(field, [tableId])` and apply `rich-ta
 
 ### Paste merged cells (2185)
 
-Use `blocks-tree/12` with schema `writers-blocks/11` and convergence engine 15. **Merged cells notebook** exposes this profile. Select a rectangle with Shift-click and paste an HTML table whose merged cells fit it. Copy retains `rowspan` and `colspan`. Undo treats the paste as one action, including the merged geometry. Earlier profiles keep their existing clipboard rules.
+Use `blocks-tree/12` with schema `writers-blocks/11` and convergence engine 15. **Merged cells notebook** exposes this profile. Select a rectangle with Shift-click and paste an HTML table with merged cells. Copy retains `rowspan` and `colspan`. Undo treats the paste as one action, including the merged geometry. Earlier profiles keep their existing clipboard rules.
 
-For `rich-table-paste`, supply `target.head`. A merged matrix cell includes `span: {rows, columns}` on its top-left entry. Put `null` in every other coordinate covered by that cell. The selection dimensions must be whole multiples of the matrix dimensions. A paste can replace existing spans across the selected area. Row and column IDs stay stable. Paste of a new merged table from a caret and manual merge/split are separate work.
+For `rich-table-paste`, supply `target.head`. A merged matrix cell includes `span: {rows, columns}` on its top-left entry. Put `null` in every other coordinate covered by that cell. The matrix repeats across the selection. A span that reaches past a selection edge is clipped on that axis. A span clipped to a single cell becomes a regular cell. A paste can replace existing spans across the selected area. Row and column IDs stay stable. Paste of a new merged table from a caret and manual merge/split are separate work.
 
 ### Resize a shared table row (2176)
 
