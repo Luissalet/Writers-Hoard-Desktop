@@ -36,6 +36,23 @@ export async function testBlockEditor(){
   await click('Save changes');await wait(()=>button('Save changes').disabled,'Save ACK');const saved=(await client.read()).data;equal('normal-save-keeps-opaque',(saved as Record<string,LocalToolJson>).opaque,'Élodie你🙂');const savedBody=(saved as Record<string,LocalToolJson>).body as unknown as RichBlockDocument;equal('normal-save-has-toggle',savedBody.blocks.some(b=>b.type==='toggle'),true);
   const beforeCollapse=await client.convergence!.export(),details=element.querySelector<HTMLDetailsElement>('.tiptap details')!;details.open=false;details.dispatchEvent(new Event('toggle'));await tick();equal('collapse-is-local',(await client.convergence!.export()).checkpoint,beforeCollapse.checkpoint);equal('collapse-no-unsaved-edit',button('Save changes').disabled,true);
   await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen');equal('reopen-exact-text',editor!.getText().includes('gXh你🙂'),true);equal('reopen-toggle',element.querySelector('.tiptap details>summary')?.textContent,'gXh你🙂');equal('reopen-saved-data',(await client.read()).data,saved);
+  const clipboardData=new DataTransfer();
+  clipboardData.setData('text/html','<p><strong>Nuevo A Ω</strong></p><p><em>Nuevo B 🙂</em></p>');
+  clipboardData.setData('text/plain','Nuevo A Ω\nNuevo B 🙂');
+  await act(async()=>{
+   const view=editor!.view;
+   view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));
+   view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData}));
+  });
+  await tick();
+  equal('whole-paste-replaces-toggle',element.querySelector('.tiptap details'),null);
+  equal('whole-paste-mixed-marks',Array.from(element.querySelectorAll('.tiptap p strong,.tiptap p em'),node=>[node.tagName,node.textContent]),[['STRONG','Nuevo A Ω'],['EM','Nuevo B 🙂']]);
+  equal('whole-paste-caret-at-end',editor!.state.selection.from,editor!.state.doc.content.size-1);
+  await click('Undo');equal('whole-paste-one-Undo-restores-toggle',element.querySelector('.tiptap details>summary')?.textContent,'gXh你🙂');
+  await click('Redo');equal('whole-paste-one-Redo-restores-paragraphs',editor!.getText(),'Nuevo A Ω\n\nNuevo B 🙂');
+  await click('Save changes');await wait(()=>button('Save changes').disabled,'replacement Save ACK');
+  await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen replacement');
+  equal('whole-paste-persists-marks',Array.from(element.querySelectorAll('.tiptap p strong,.tiptap p em'),node=>node.textContent),['Nuevo A Ω','Nuevo B 🙂']);
   await mount(true);await wait(()=>editor?.isEditable===false,'readonly');const readonlyBefore=await client.convergence!.export();await act(async()=>{editor!.commands.insertContent('forbidden');});await tick();equal('readonly-no-doc-edit',(await client.convergence!.export()).checkpoint,readonlyBefore.checkpoint);equal('readonly-format-disabled',button('H1').disabled,true);
  }finally{peer?.destroy();await act(async()=>root.unmount());element.remove();useLocaleStore.setState({locale});}
  return checks;

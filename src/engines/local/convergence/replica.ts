@@ -430,12 +430,16 @@ function validateImageCapture(r:Roots,contract:LocalToolConvergenceContract,iden
 }
 
 function validateBlockCapture(r:Roots,contract:LocalToolConvergenceContract,identity:LocalToolConvergenceIdentity,action:Exclude<RichBlockAction,RichBlockTextAction|RichTableAxesAction|RichImageEditAction>,current?:RichBlockDocument):void {
+ const live=action.type==='rich-block-replace-with-paragraphs'?admitted(r,contract):undefined;
  const capture=action.capture,context=captureContext(r,contract,identity,capture.identity,capture.frontier);contract=context.contract;identity=context.identity;assertConvergenceIdentity(capture.identity,identity);if(capture.field!==action.field||!Array.isArray(capture.frontier))throw Error('local_tool_blocks_capture_invalid');
  r.registers.atFrontier(capture.frontier,registers=>{
   const historical=roots(r.registers.doc,contract.codec,registers),view=admitted(historical,contract),data=(view.data as ObjectData)[action.field] as unknown as RichBlockDocument,binding=view.blockBindings?.[action.field];
   if(!blockField(historical,action.field)||!binding)throw Error('local_tool_blocks_capture_invalid');const source=blocks(historical,action.field);
   const expected=action.type==='rich-block-exit-empty-item'?captureBlockEmptyItem(source,historical.rich(action.field),identity,data,binding,view.richBindings![action.field],action.capture.frame.leafId):isBlockEditingAction(action)?captureBlockEdit(source,identity,data,binding,action.capture.nodeIds,action.capture.destination):action.type==='rich-block-wrap'?source.capture(identity,data,binding,action.capture.nodeIds):source.moveCapture(identity,data,binding,action.capture.nodeId,action.capture.destination);
   if(convergenceCanonical(expected)!==convergenceCanonical(capture))throw Error('local_tool_blocks_capture_invalid');
+  if(live&&(convergenceCanonical((live.data as ObjectData)[action.field])!==convergenceCanonical(data)||
+     convergenceCanonical(live.blockBindings![action.field])!==convergenceCanonical(binding)||
+     convergenceCanonical(live.richBindings![action.field])!==convergenceCanonical(view.richBindings![action.field])))throw Error('local_tool_block_replace_stale');
   if(action.type==='rich-table-paste'){
    const tableId=action.capture.nodeIds[0],prior=data.axisOrder?.find(order=>order.tableId===tableId),live=current?.axisOrder?.find(order=>order.tableId===tableId);
    if(!source.cellHeaders||!prior||!live||!current)throw Error('local_tool_table_paste_invalid');
@@ -479,6 +483,7 @@ function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConve
      if(!isBlocks||!present)throw Error('local_tool_blocks_action_invalid');validateBlockCapture(r,contract,identity,action);const plan=prepareBlockExit(blocks(r,field),structure,blockBindings[field],draft.finish().view.bindings,action);if(blockPlans[field]){plan.writes=[...blockPlans[field].writes,...plan.writes];plan.axisInserts=[...(blockPlans[field].axisInserts??[]),...(plan.axisInserts??[])];}blockPlans[field]=plan;structure=plan.data;blockBindings[field]=plan.bindings;
     }else if(action.type==='rich-block-wrap'||action.type==='rich-block-move'||isBlockEditingAction(action)){
     if(!isBlocks||!present)throw Error('local_tool_blocks_action_invalid');
+    if(action.type==='rich-block-replace-with-paragraphs'&&own.length!==1)throw Error('local_tool_block_replace_invalid');
     validateBlockCapture(r,contract,identity,action,structure);
     const source=blocks(r,field),previous=blockPlans[field];
     const plan=isBlockEditingAction(action)?prepareBlockEdit(source,structure,blockBindings[field],action,actionIdentity,draft.finish().view.bindings.nodes.at(-1)?.id??null,previous?.axisInserts):source.prepare(structure,blockBindings[field],action,actionIdentity);
@@ -701,7 +706,7 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
  }
  const applyObserved=(actions:readonly LocalToolStateAction[],baseline?:T)=>{current();if(Array.isArray(actions))actions=actions.map(action=>{
    const descriptor=Object.getOwnPropertyDescriptor(action,'type');if(!descriptor||!('value'in descriptor))throw Error('local_tool_convergence_format_invalid');
-   if(descriptor.value==='rich-table-create'||descriptor.value==='rich-image-insert'||isTableAxesAction({type:descriptor.value})||isImageEditAction({type:descriptor.value}))return clone(action);
+   if(descriptor.value==='rich-block-replace-with-paragraphs'||descriptor.value==='rich-table-create'||descriptor.value==='rich-image-insert'||isTableAxesAction({type:descriptor.value})||isImageEditAction({type:descriptor.value}))return clone(action);
    const inline=['rich-text-splice','rich-insert-paragraph','rich-block-insert'].includes(descriptor.value);
    if(inline&&'link'in action&&!Object.hasOwn(action,'link'))throw Error('local_tool_convergence_format_invalid');
    return descriptor.value==='rich-link'||inline&&Object.hasOwn(action,'link')?clone(action):action;

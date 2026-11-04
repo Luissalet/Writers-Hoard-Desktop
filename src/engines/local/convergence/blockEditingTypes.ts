@@ -1,6 +1,6 @@
 import type {LocalToolConvergenceIdentity} from '@/engines/local/convergence/types';
 import type {RichBlockBinding,RichBlockKind,RichBlockPlacement} from '@/engines/local/convergence/blockTypes';
-import type {RichMark} from '@/engines/local/convergence/richTypes';
+import type {RichMark,RichParagraph} from '@/engines/local/convergence/richTypes';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
 
 export interface RichBlockEditCapture {
@@ -16,5 +16,6 @@ export type RichBlockEditingAction=import('./tableEditing').RichTableInsertActio
  |{type:'rich-block-insert';field:string;capture:RichBlockEditCapture;block:{id:string;type:'paragraph'|'heading';attrs:Record<string,LocalToolJson>};text:string;marks?:RichMark[];link?:{href:string}}
  |{type:'rich-block-transform';field:string;capture:RichBlockEditCapture;kind:RichBlockKind;attrs:Record<string,LocalToolJson>}
  |{type:'rich-block-container';field:string;capture:RichBlockEditCapture;container:{id:string;type:'blockquote'|'toggle';attrs:Record<string,LocalToolJson>}}
+ |{type:'rich-block-replace-with-paragraphs';field:string;capture:RichBlockEditCapture;paragraphs:RichParagraph[]}
  |{type:'rich-block-hide';field:string;capture:RichBlockEditCapture}
  |{type:'rich-block-unwrap';field:string;capture:RichBlockEditCapture};
