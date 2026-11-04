@@ -1,5 +1,9 @@
 # Writers Hoard — Desktop
 
+## Images in shared Source documents
+
+In **Shared image notebook**, insert or replace a PNG, choose Small, Medium or Full width, and remove the image with Undo available. Share document content to send the image to another local library. Each person can save the result in their own library. Project ZIPs include the PNG versions the document can restore. [Usage and verification](tasks/vvd1095/verification-shared-images2114.md).
+
 ## Adding a field to a Source tool
 
 A Source tool can declare one new scalar field with a default. An existing document shows the value after selecting the new version. The first edit keeps its history, and Undo restores the default when no authored value remains. [SDK and verification](tasks/vvd1095/verification-sdk-source-additive2088.md).
@@ -28,7 +32,7 @@ Notes and Writings can show or hide the Codex entry image on each text link. The
 
 Local tools that declare the new shared-table profile can insert fixed-size tables, write and format each cell, add links, move or remove the whole table, and Undo while preserving another author's contributions. Manual and Automatic saving, SDK and MCP keep the same document paths. Existing tools are not migrated just by opening them; Notes retain their normal contextual table toolbar and all earlier features.
 
-Removing a table is an explicit action. Undoing its creation can instead retain the structure needed by another author's work. Mutable rows/columns, cell merge/split, sizing, images and adoption of older origins into this shared profile remain open. [Use, contract, evidence and delivery status](tasks/vvd1095/verification-shared-tables2003.md). The fixed-grid delivery is approved and integrated locally. The passive-preview follow-up is also approved and integrated; its real browser check preserves the saved table appearance. This does not widen the profile or establish complete parity.
+Removing a table is an explicit action. Undoing its creation can instead retain the structure needed by another author's work. Later profiles add editable axes, column widths and PNG images. Cell merge/split and adoption of older origins remain open. [Use, contract, evidence and delivery status](tasks/vvd1095/verification-shared-tables2003.md). The fixed-grid delivery is approved and integrated locally. The passive-preview follow-up is also approved and integrated; its real browser check preserves the saved table appearance. This does not widen the profile or establish complete parity.
 
 
 ## Contextual table controls

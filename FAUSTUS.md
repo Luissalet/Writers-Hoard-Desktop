@@ -1,5 +1,9 @@
 # Writer publishing workspace
 
+## Imágenes en documentos Source compartidos — 2114
+
+El perfil optativo de imágenes admite PNG en el cuerpo raíz. El editor y el SDK conservan la fuente y el tamaño por separado, con Deshacer por autor. Compartir contenido envía los archivos a la otra biblioteca antes de mostrar el cambio. El ZIP conserva las versiones necesarias para recuperar imágenes. MCP importa y consulta los bytes y captura cambios por canal con el mismo writer Source. [Uso y pruebas](tasks/vvd1095/verification-shared-images2114.md).
+
 ## Comprobación de documentos Markdown y términos exactos en Borges — 04-11-2026
 
 Comprobación de documentos: panel «Comprobar documento» en las herramientas del documento del editor y herramienta MCP `wh_check_markdown_document` (el resultado trae `passed`, no `ok`, porque `ok` es la bandera del despachador). Reglas KND001-003, DUP001, VOL001, PTR001, FIN001, SUP001-002 en el módulo puro `src/engines/docCheck/checker.ts`; la convención y la sintaxis `<!-- doccheck: allow ... -- motivo -->` siguen a seiso (MIT, aviso en `THIRD_PARTY/NOTICE`), sin copiar su código. El panel comprueba el capítulo abierto; la comparación de hechos duplicados con otros capítulos solo la hace la herramienta MCP con `id`. Pruebas: `node scripts/run-doc-check-tests.mjs`, `tests/doc-check-ui.browser.tsx` (`testDocCheckUi`).
