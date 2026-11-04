@@ -16,6 +16,10 @@ Source tools with the editable axes profile can add or remove rows and columns i
 
 Save a wiki profile and capture a local edition. Open **Wiki links**, select that edition and a path, and choose a public address or a private link. You can update the same address to a later edition, or withdraw it without removing any of the local editions. From Home, you can also withdraw a link after deleting its project. Writer's built-in host serves only that frozen wiki. [Managing links from Home](tasks/vvd1095/verification-wiki-addresses2085.md). A link can use a local PNG, JPEG or WebP as its preview image. [Cover images and MCP](tasks/vvd1095/verification-wiki-cover2091.md). [Setup, MCP and evidence](tasks/vvd1095/verification-wiki-hosting2056.md). Run the optional [standalone reader](tasks/vvd1095/verification-wiki-independent2096.md) to keep serving those links after Writer closes.
 
+## Reading links for manuscript editions
+
+A saved manuscript edition can be served at its own `/read/<path>` link from **Published editions → Reading link for this edition**, public or by private link, through the same host and standalone reader as wiki links. The link serves the frozen edition byte for byte (chosen chapters only, no other manuscript, no world canon), can move to a later edition of the same manuscript and era, and can be withdrawn there or from Home. MCP: `wh_published_edition_host_list`, `wh_published_edition_host_publish`, `wh_published_edition_host_withdraw`. [Details](docs/published-editions.md#reading-links).
+
 ## Images on Codex mentions
 
 Notes and Writings can show or hide the Codex entry image on each text link. The link, alias and formatting stay intact, and Undo restores the choice. The editor and supported readers use the scoped local avatar without adding image bytes to the prose. The writing MCP tool supports the same choice. [Use and verified scope](tasks/vvd1095/verification-mention-image2028.md).
