@@ -2,9 +2,13 @@ import {MAX_MEDIA_BYTES} from '../../media/types';
 import type {LocalToolConvergenceIdentity} from './formatTypes';
 
 export const IMAGE_BLOCK_SCHEMA='writers-blocks/5' as const;
+export const ALIGNMENT_BLOCK_SCHEMA='writers-blocks/6' as const;
+export const isRichImageEngine=(version:unknown):version is '9'|'10'=>version==='9'||version==='10';
+export type RichImageAlignment='left'|'center'|'right';
+export const isRichImageAlignment=(value:unknown):value is RichImageAlignment=>value==='left'||value==='center'||value==='right';
 export type RichImageSize='small'|'medium'|'full';
 export type RichImageAsset={sha256:string;mime:'image/png';size:number};
-export type RichImageChannel='source'|'size';
+export type RichImageChannel='source'|'size'|'alignment';
 export interface RichImageCapture {
  format:'writers-hoard-image-capture/1';
  identity:LocalToolConvergenceIdentity;

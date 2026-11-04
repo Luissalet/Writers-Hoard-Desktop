@@ -3,7 +3,7 @@ import type {DocumentArchive} from '@/services/documentArchive/types';
 import type {DocumentHistoryEntry} from '@/services/documentHistory/types';
 import type {WorldEraVariant} from '@/services/worldEras/types';
 import type {LocalAssetFile} from '../assetFileFormat';
-import {validateRichImageAsset,type RichImageAsset} from '../convergence/imageFormat';
+import {isRichImageEngine,validateRichImageAsset,type RichImageAsset} from '../convergence/imageFormat';
 import {collectLocalToolCheckpointImages} from '../convergence/replica';
 import type {RichBlockDocument} from '../convergence/blockTypes';
 import {localToolRichImages} from '../stateCodecFormat';
@@ -23,7 +23,7 @@ export function validateSourceImageArchive(project:Pick<Project,'id'|'sourceTool
    for(const block of value?.blocks??[])if(block.type==='image'){const asset=block.attrs.asset;validateRichImageAsset(asset);requireFile(asset);}
   }
   const checkpoint=row.convergence?.checkpoint;
-  if(checkpoint?.engine.version==='9'&&!checked.has(checkpoint.checkpointBase64)){
+  if(checkpoint&&isRichImageEngine(checkpoint.engine.version)&&!checked.has(checkpoint.checkpointBase64)){
    for(const asset of collectLocalToolCheckpointImages(checkpoint,row.codec))requireFile(asset);
    checked.add(checkpoint.checkpointBase64);
   }

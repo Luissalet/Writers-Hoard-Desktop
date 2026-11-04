@@ -3,7 +3,7 @@ import {NodeViewWrapper,ReactNodeViewRenderer,useEditorState,type Editor} from '
 import {NodeSelection,TextSelection} from '@tiptap/pm/state';
 import type {EditorView} from '@tiptap/pm/view';
 import {useLayoutEffect,useRef,useState} from 'react';
-import {isRichImageSize,validateRichImageAsset,type RichImageAsset,type RichImageSize} from '../convergence/imageFormat';
+import {isRichImageAlignment,isRichImageSize,validateRichImageAsset,type RichImageAlignment,type RichImageAsset,type RichImageSize} from '../convergence/imageFormat';
 import type {RichBlockEditingAction} from '../convergence/blockEditingTypes';
 import type {RichImageEditAction} from '../convergence/imageEditing';
 import type {RichEditorSession} from './session';
@@ -15,10 +15,10 @@ const selectedImage=(view:EditorView)=>{const {selection}=view.state;return sele
 // eslint-disable-next-line react-refresh/only-export-components
 export function richImageNode(session:RichEditorSession,es:boolean){
  return Node.create({name:'richImage',atom:true,selectable:true,isolating:true,
-  addAttributes(){return{id:{default:null,rendered:false},asset:{default:null,rendered:false},displaySize:{default:'medium',rendered:false}};},
+  addAttributes(){return{id:{default:null,rendered:false},asset:{default:null,rendered:false},displaySize:{default:'medium',rendered:false},...(session.imageAlignment?{alignment:{default:'left',rendered:false}}:{})};},
   renderHTML(){return['figure',{'data-writer-rich-image':''}];},
   addNodeView(){return ReactNodeViewRenderer(({node,selected})=><NodeViewWrapper contentEditable={false} className={selected?'outline outline-2 outline-accent-gold rounded':''}>
-   <RichImage assets={session.assets} id={node.attrs.id} asset={node.attrs.asset} displaySize={node.attrs.displaySize} es={es}/>
+   <RichImage assets={session.assets} id={node.attrs.id} asset={node.attrs.asset} displaySize={node.attrs.displaySize} alignment={node.attrs.alignment} es={es}/>
   </NodeViewWrapper>);},
  });
 }
@@ -44,7 +44,12 @@ export function richImageKey(session:RichEditorSession,view:EditorView,key:strin
 
 type FileAction=(asset:RichImageAsset)=>RichBlockEditingAction|RichImageEditAction;
 export function ImageControls({session,editor,readOnly,es,button}:{session:RichEditorSession;editor:Editor|null;readOnly:boolean;es:boolean;button:string}){
- const selected=useEditorState({editor,selector:({editor:current})=>{if(!current)return null;const image=selectedImage(current.view);return image?{id:String(image.node.attrs.id),size:image.node.attrs.displaySize as RichImageSize}:null;}});
+ const selected=useEditorState({editor,selector:({editor:current})=>{
+  if(!current)return null;
+  const image=selectedImage(current.view);if(!image)return null;
+  const {id,displaySize,alignment}=image.node.attrs;
+  return {id:String(id),size:displaySize as RichImageSize,alignment:isRichImageAlignment(alignment)?alignment:undefined};
+ }});
  const input=useRef<HTMLInputElement>(null),request=useRef<{action:FileAction;assets:NonNullable<RichEditorSession['assets']>}|undefined>(undefined),live=useRef(false);
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  useLayoutEffect(()=>{live.current=true;return()=>{live.current=false;request.current=undefined;};},[session,editor]);
@@ -79,11 +84,25 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
   if(!selected||disabled)return;setError('');
   try{if(size){if(!isRichImageSize(size))return;const {field,replica}=session;session.applyBatch([{type:'rich-image-resize',field,capture:replica.richImageCapture(field,selected.id,'size'),displaySize:size}]);}else removeImage(session,selected.id);}catch{failure();}
  };
+ const align=(alignment:RichImageAlignment)=>{
+  if(!selected||disabled||selected.alignment===alignment)return;
+  setError('');
+  try {
+   const {field,replica}=session;
+   const capture=replica.richImageCapture(field,selected.id,'alignment');
+   if(session.applyBatch([{type:'rich-image-align',field,capture,alignment}]))return;
+  } catch { /* Keep the current selection and show a recoverable control error. */ }
+  setError(es?'No se pudo cambiar la alineación.':'Could not change the alignment.');
+ };
+ const alignmentLabel=es?{left:'Alinear imagen a la izquierda',center:'Centrar imagen',right:'Alinear imagen a la derecha'}:{left:'Align image left',center:'Center image',right:'Align image right'};
  return <div className="flex flex-wrap gap-2" aria-label={es?'Imagen':'Image'}>
   <input ref={input} hidden type="file" accept="image/png,.png" onChange={event=>{const file=event.currentTarget.files?.[0];event.currentTarget.value='';void importFile(file);}}/>
   <button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(false)}>{es?'Insertar imagen PNG':'Insert PNG image'}</button>
   {selected&&<><button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(true)}>{es?'Reemplazar imagen':'Replace image'}</button>
    {(['small','medium','full'] as const).map(size=><button key={size} type="button" className={button} disabled={disabled} aria-pressed={selected.size===size} onMouseDown={event=>event.preventDefault()} onClick={()=>control(size)}>{({small:es?'Pequeña':'Small',medium:es?'Mediana':'Medium',full:es?'Ancho completo':'Full width'})[size]}</button>)}
+   {session.imageAlignment&&<div role="group" aria-label={es?'Alineación de imagen':'Image alignment'} className="flex flex-wrap gap-2">
+    {(['left','center','right'] as const).map(alignment=><button key={alignment} type="button" className={button} disabled={disabled} aria-pressed={selected.alignment===alignment} onMouseDown={event=>event.preventDefault()} onClick={()=>align(alignment)}>{alignmentLabel[alignment]}</button>)}
+   </div>}
    <button type="button" className={button} disabled={disabled} onMouseDown={event=>event.preventDefault()} onClick={()=>control()}>{es?'Eliminar imagen':'Remove image'}</button></>}
   {busy&&<span role="status">{es?'Importando imagen…':'Importing image…'}</span>}{error&&<span role="alert" className="text-sm text-danger">{error}</span>}
  </div>;

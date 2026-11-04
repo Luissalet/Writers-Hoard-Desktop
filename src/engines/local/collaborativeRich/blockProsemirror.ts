@@ -1,6 +1,6 @@
 import {tableCellOf} from '../convergence/tableFormat';
 import {isTableAxesSchema,TABLE_WIDTHS_SCHEMA} from '../convergence/tableAxesFormat';
-import {IMAGE_BLOCK_SCHEMA} from '../convergence/imageFormat';
+import {ALIGNMENT_BLOCK_SCHEMA,IMAGE_BLOCK_SCHEMA} from '../convergence/imageFormat';
 import {tableAxesRows,tableWidthStyle,type TableColumnLayout} from './tableAxesLayout';
 import {Node,mergeAttributes} from '@tiptap/core';
 import type {Node as PMNode,Schema} from '@tiptap/pm/model';
@@ -20,7 +20,7 @@ export function blockPMDocument(schema:Schema,data:RichBlockDocument):PMNode {
   if(block.type==='image')return schema.nodes.richImage.create({id:block.id,...block.attrs});
   if(block.type==='table'&&isTableAxesSchema(data.schema)){
    const rows=tableAxesRows(data,block.id);if(!rows.length)return null;
-   const columnLayout=data.schema===TABLE_WIDTHS_SCHEMA||data.schema===IMAGE_BLOCK_SCHEMA?rows[0].cells.map(({columnId,widthPx})=>({columnId,widthPx})):undefined;
+   const columnLayout=data.schema===TABLE_WIDTHS_SCHEMA||data.schema===IMAGE_BLOCK_SCHEMA||data.schema===ALIGNMENT_BLOCK_SCHEMA?rows[0].cells.map(({columnId,widthPx})=>({columnId,widthPx})):undefined;
    return schema.nodes.table.create({id:block.id,columns:rows[0].cells.map(c=>c.columnId),...(columnLayout?{columnLayout}:{})},rows.map(({row,cells})=>schema.nodes.tableRow.create({id:row.id},cells.map(cell=>{
     const content=cell.children.map(node).filter(present);
     return schema.nodes[row.attrs.header?'tableHeader':'tableCell'].create({columnId:cell.columnId,cellAddress:cell.address},content.length?content:[schema.nodes.paragraph.create({id:null,cellAddress:cell.address})]);

@@ -129,6 +129,7 @@ const suites = [
   ['local-tool-collaborative-rich.table-width.tsx', 'testMountedTableWidths', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-table-width.source.browser.ts', 'testSourceTableWidths', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-images.source.browser.ts', 'testSourceImages', 120000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-image-alignment.source.browser.ts', 'testSourceImageAlignment', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-block-empty-item.browser.tsx', 'testEmptyItemEnter', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.mcp.browser.tsx', 'testEmptyItemMcp', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.positions.browser.tsx', 'testEmptyItemPositions', 180000, 'scripts/run-focused-browser-tests.cjs'],

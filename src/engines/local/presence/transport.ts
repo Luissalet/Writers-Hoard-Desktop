@@ -2,6 +2,7 @@ import type {LocalToolJson} from '../stateTypes';
 import type {LocalToolPresenceDocument,LocalToolPresenceProfile,PresenceRoomSnapshot,PresenceWireSnapshot} from './types';
 import type {LocalToolConvergenceUpdate} from '../convergence/types';
 import type {LocalToolAssets} from '../assets';
+import {isRichImageEngine} from '../convergence/imageFormat';
 import {collectRoomImageAssets} from '../convergence/imageRefs';
 import {receiveRoomImage,requestRoomImage,sendRoomImages,type ImageRoomLease} from './imageTransfer';
 import {contentPacketFingerprint} from '../convergence/richAdoption';
@@ -80,7 +81,7 @@ export class LocalPresenceTransport {
  async join(binding:Binding){
   if(!this.connection||!await binding.current())throw Error('presence_host_unavailable');let provisional=false;const epoch=this.epoch;
   try{const result=await this.request('update',{kind:'join',roomId:binding.roomId,instanceId:binding.instanceId,epoch:binding.epoch,document:binding.document,...(binding.content?{content:true}:{})});provisional=true;
-   if(result.content){const prepared=binding.prepareContent?.(result.content,result.room.document);if(prepared)binding.document=prepared;if(result.content.engine.version==='9')await this.hydrateImages(binding,result.content,binding.current);}if(epoch!==this.epoch||!await binding.current())throw Error('presence_host_unavailable');
+   if(result.content){const prepared=binding.prepareContent?.(result.content,result.room.document);if(prepared)binding.document=prepared;if(isRichImageEngine(result.content.engine.version))await this.hydrateImages(binding,result.content,binding.current);}if(epoch!==this.epoch||!await binding.current())throw Error('presence_host_unavailable');
    this.bindings.set(binding.instanceId,binding);this.rooms.set(binding.roomId,result.room);this.status='ready';this.changed();return result.content as LocalToolConvergenceUpdate|undefined;
   }catch(error){if(provisional)try{await this.request('update',{kind:'leave',roomId:binding.roomId,instanceId:binding.instanceId,epoch:binding.epoch});}catch{/* Retired provisional membership only. */}throw error;}
  }
@@ -93,7 +94,7 @@ export class LocalPresenceTransport {
    const bound=()=>epoch===this.epoch&&this.bindings.get(binding.instanceId)===binding&&!!binding.content;
    const current=async()=>bound()&&await binding.current()&&bound();
    if(!await current())continue;
-   if(update.engine.version==='9'){await this.hydrateImages(binding,update,current);if(!await current())continue;}
+   if(isRichImageEngine(update.engine.version)){await this.hydrateImages(binding,update,current);if(!await current())continue;}
    this.acceptContent(binding,update);
   }
  }
@@ -103,7 +104,7 @@ export class LocalPresenceTransport {
   const current=async()=>bound()&&await binding.current()&&bound();
   const result=await this.request('update',{kind:'content-full-request',roomId:binding.roomId,instanceId,epoch,requestId});
   if(!await current())return;
-  if(result.content?.engine.version==='9'){await this.hydrateImages(binding,result.content,current);if(!await current())return;}
+  if(result.content&&isRichImageEngine(result.content.engine.version)){await this.hydrateImages(binding,result.content,current);if(!await current())return;}
   return result.content as LocalToolConvergenceUpdate|undefined;
  }
  retireContent(instanceId:string,epoch:string){const binding=this.bindings.get(instanceId);if(binding?.epoch===epoch)binding.content=false;}
@@ -117,7 +118,7 @@ export class LocalPresenceTransport {
   if(!await current())throw Error('presence_host_unavailable');
   if(result.needsImages!==undefined){
    const connection=this.connection;
-   if(!connection||update.engine.version!=='9')throw Error('local_asset_image_unavailable');
+   if(!connection||!isRichImageEngine(update.engine.version))throw Error('local_asset_image_unavailable');
    await sendRoomImages(result.needsImages,binding.assets,current,(asset,blob)=>requestRoomImage(this.origin,connection,binding,asset,blob));
    result=await this.request('update',payload);
    if(result.needsImages!==undefined)throw Error('local_asset_image_unavailable');
@@ -125,7 +126,7 @@ export class LocalPresenceTransport {
   }
   if(result.content){
    binding.prepareContent?.(result.content,result.room.document);
-   if(result.content.engine.version==='9'){await this.hydrateImages(binding,result.content,current);if(!await current())return;}
+   if(isRichImageEngine(result.content.engine.version)){await this.hydrateImages(binding,result.content,current);if(!await current())return;}
    this.acceptContent(binding,result.content);this.rooms.set(binding.roomId,result.room);this.changed();
   }
  }
