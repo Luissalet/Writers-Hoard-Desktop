@@ -470,6 +470,8 @@ const D = {
   dos_nature_internal: ["Dentro de una fuente", "Inside one source"],
   dos_other: ["Fuera de la pregunta", "Not about the question"],
   dos_not_resolved: ["Sin resolver: comprueba el original o pregunta.", "Not resolved: check the original or ask."],
+  dos_ocr_chip: ["OCR", "OCR"],
+  dos_from_ocr: ["Una de las fuentes se leyó con reconocimiento de imagen (OCR): comprueba el valor en el original antes de darlo por bueno.", "One of the sources was read with image recognition (OCR): check the value in the original before relying on it."],
   dos_agreed: ["Coinciden todas las fuentes", "All sources agree"],
   dos_no_agreed: ["Ningún dato aparece igual en dos o más fuentes.", "No item appears the same in two or more sources."],
   dos_questions: ["Preguntas abiertas", "Open questions"],

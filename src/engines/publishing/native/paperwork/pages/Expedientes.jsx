@@ -29,12 +29,13 @@ function Cites({ items }) {
 }
 
 function Positions({ positions }) {
+  const { t } = useApp();
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {positions.map((p, i) => (
         <div key={i} className="panel panel-tight space-y-1">
           <div className="font-semibold">{p.display}</div>
-          {(p.sources || []).map((s, k) => <div key={k} className="help" style={{ overflowWrap: "anywhere" }}>{s.cite || s} {s.text ? `· ${s.text}` : ""}</div>)}
+          {(p.sources || []).map((s, k) => <div key={k} className="help" style={{ overflowWrap: "anywhere" }}>{s.cite || s} {s.text ? `· ${s.text}` : ""} {s.from_ocr && <Chip className="chip-amber">{t("dos_ocr_chip")}</Chip>}</div>)}
         </div>
       ))}
     </div>
@@ -56,6 +57,7 @@ function Conclusion({ d }) {
               {!g.relevant && <Chip>{t("dos_other")}</Chip>}
             </div>
             <Positions positions={g.positions} />
+            {g.positions.some((p) => (p.sources || []).some((s) => s.from_ocr)) && <p className="help">{t("dos_from_ocr")}</p>}
             <p className="help">{t("dos_not_resolved")}</p>
           </article>
         ))}
