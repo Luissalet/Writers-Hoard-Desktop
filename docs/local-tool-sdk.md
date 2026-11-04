@@ -1203,6 +1203,10 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### Select a range of table cells (2170)
+
+In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell.
+
 ### Images inside shared table cells (2167)
 
 Choose codec2 `blocks-tree/9` with `writers-blocks/8` to use cell images in engine12. Capture the logical table, row and column through `client.convergence.richTableCellCapture(field, tableId, rowId, columnId, afterId)`. Use the resulting capture in `rich-table-cell-image-insert` with a fresh `fragmentId`, a fresh image `id`, and the descriptor of a locally imported asset. `afterId` is a fragment of the same logical cell, or null. The MCP equivalent is `wh_local_tool_rich_table_cell_capture` followed by `wh_local_tool_state_apply`.
