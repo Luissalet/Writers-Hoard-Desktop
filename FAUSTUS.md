@@ -1,5 +1,11 @@
 # Writer publishing workspace
 
+## Comprobación de documentos Markdown y términos exactos en Borges — 04-11-2026
+
+Comprobación de documentos: panel «Comprobar documento» en las herramientas del documento del editor y herramienta MCP `wh_check_markdown_document` (el resultado trae `passed`, no `ok`, porque `ok` es la bandera del despachador). Reglas KND001-003, DUP001, VOL001, PTR001, FIN001, SUP001-002 en el módulo puro `src/engines/docCheck/checker.ts`; la convención y la sintaxis `<!-- doccheck: allow ... -- motivo -->` siguen a seiso (MIT, aviso en `THIRD_PARTY/NOTICE`), sin copiar su código. El panel comprueba el capítulo abierto; la comparación de hechos duplicados con otros capítulos solo la hace la herramienta MCP con `id`. Pruebas: `node scripts/run-doc-check-tests.mjs`, `tests/doc-check-ui.browser.tsx` (`testDocCheckUi`).
+
+Búsqueda de la biblioteca: pata de términos exactos en la fusión híbrida (`publishing/borges/exact_terms.py`), parámetro `exact` en `library_search` y `GET /library/api/search`, casilla «Términos exactos» en Buscar. Pruebas: `tests/test_borges_exact_terms.py`, `tests/library-exact-terms.browser.tsx` (`testLibraryExactTerms`).
+
 ## Campos nuevos en herramientas Source — 2088
 
 `sourceAdditive` declara un campo escalar y un valor por defecto para el origen Source indicado. Cambiar de versión no escribe el documento. SDK y MCP usan el mismo guardado para la primera edición y el mismo Deshacer de sesión. El historial se conserva al reabrir. [Contrato y verificación](tasks/vvd1095/verification-sdk-source-additive2088.md).

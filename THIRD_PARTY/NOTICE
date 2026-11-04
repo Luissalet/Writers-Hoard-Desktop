@@ -1,0 +1,6 @@
+seiso
+https://github.com/scarletkc/seiso - MIT License
+
+The document conventions checked by src/engines/docCheck (declared document kind, one fact one home, no fast-changing values in durable pages, concrete pointers, finished pages that do not address their requester, exceptions that need a reason, and the allow-comment syntax) follow seiso's published convention. The rules and their detection patterns are written for Writer; no seiso source code is copied. Permission notice of the MIT License applies to the convention:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the above copyright notice and this permission notice being included in all copies or substantial portions of the Software. The Software is provided "as is", without warranty of any kind.

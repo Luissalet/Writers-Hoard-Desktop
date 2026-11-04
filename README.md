@@ -492,7 +492,16 @@ Spanish proofing offers local spelling, a persistent project dictionary and
 optional local grammar suggestions. Grammar uses the bundled LanguageTool 6.6
 runtime and requires Java 17 or newer on the computer; spelling works without
 Java. Suggestions are reviewable and reversible, not guarantees of correctness.
-UI and MCP share these operations. See the
+UI and MCP share these operations. The "Check document" panel in the editor's
+document tools and the MCP tool `wh_check_markdown_document` check a text as
+Markdown against documentation rules: a declared kind (`kind:` in the
+frontmatter), one fact one home (repeats of another chapter are linked to the
+original), no fast-changing values in durable pages, concrete pointers instead
+of "see the code", and no addressing of the requester. Each diagnostic has a
+line, a rule code and a fix; `<!-- doccheck: allow DUP001 -- reason -->` is an
+exception, and without a reason it is a warning. The rules live in the pure
+module `src/engines/docCheck/checker.ts`; run `node scripts/run-doc-check-tests.mjs`.
+See the
 [editor comparison and measured Spanish corpus](docs/editor-comparison/README.md).
 
 Document print options can inherit the opened file's language and hyphenation,

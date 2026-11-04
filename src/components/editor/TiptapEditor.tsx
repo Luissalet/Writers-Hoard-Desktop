@@ -65,6 +65,7 @@ import { WikiHidden, WikiHiddenBlock, WikiSpoiler } from './wiki/marks';
 import { createEditorialExtensions } from '@/engines/writings/editorial';
 import EditorialControls from './editorial/EditorialControls';
 import ProofingControls from './proofing/ProofingControls';
+import DocCheckControls from './docCheck/DocCheckControls';
 import HeadingNavigator from './navigation/HeadingNavigator';
 import { CodexBlock } from './codexBlocks/CodexBlock';
 import CodexBlockControls from './codexBlocks/CodexBlockControls';
@@ -787,6 +788,7 @@ export default function TiptapEditor({
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><EditorialControls editor={editor} locale={locale} references={editorialReferences ?? []} /></div>
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><HeadingNavigator editor={editor} locale={locale} /></div>
         <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ProofingControls editor={editor} locale={locale} projectId={editorialProjectId} /></div>
+        <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><DocCheckControls editor={editor} locale={locale} /></div>
         <div className="min-w-0 grow basis-40"><WikiMarksControls editor={editor} locale={locale} extract={editorialProjectId ? { projectId: editorialProjectId, eraId: editorialEraId } : undefined} /></div>
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><CodexBlockControls editor={editor} projectId={editorialProjectId} entries={mentionEntries ?? []} locale={locale} /></div>}
         {editorialProjectId && <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><MediaBlockControls editor={editor} projectId={editorialProjectId} locale={locale} /></div>}

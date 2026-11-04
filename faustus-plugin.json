@@ -21,7 +21,8 @@
     "mail",
     "pdf-tools",
     "editable-publications",
-    "hosted-reading-links"
+    "hosted-reading-links",
+    "markdown-document-check"
   ],
   "placeholders": [
     "WRITER_DIR",

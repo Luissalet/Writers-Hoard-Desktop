@@ -477,8 +477,16 @@ La revisión del español ofrece ortografía local, diccionario persistente por
 proyecto y sugerencias gramaticales locales opcionales. La gramática usa
 LanguageTool 6.6 incluido y requiere Java 17 o posterior en el equipo; la
 ortografía funciona sin Java. Las sugerencias se revisan y se pueden deshacer.
-La interfaz y MCP comparten estas operaciones. Consulta
-la [comparativa y el corpus español medido](docs/editor-comparison/README.md).
+La interfaz y MCP comparten estas operaciones. El panel «Comprobar documento»
+de las herramientas del documento y la herramienta MCP `wh_check_markdown_document`
+comprueban un texto como Markdown con reglas de documentación: tipo declarado
+(`kind:` en el frontmatter), un hecho un hogar (lo repetido de otro capítulo se
+señala con enlace al original), sin valores que caducan en páginas duraderas,
+punteros concretos en lugar de «ver el código» y sin dirigirse a quien lo pidió.
+Cada diagnóstico trae línea, regla y cómo arreglarlo; `<!-- doccheck: allow DUP001 -- motivo -->`
+es una excepción y, sin motivo, es un aviso. Las reglas están en el módulo puro
+`src/engines/docCheck/checker.ts`; pruebas con `node scripts/run-doc-check-tests.mjs`.
+Consulta la [comparativa y el corpus español medido](docs/editor-comparison/README.md).
 
 Documento permite conservar el idioma y guionado del archivo abierto o elegir
 español/inglés y activar/desactivar guionado automático en una copia de descarga.
