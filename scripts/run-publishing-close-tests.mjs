@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { startSyntheticHoards } from './synthetic-hoards.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const run=process.argv[2];
 if(!run||!path.isAbsolute(run))throw Error('Pass a new absolute private QA directory');
@@ -17,6 +18,9 @@ const {PublishingService}=createRequire(import.meta.url)(entry);
 process.env.HOARD_EVENTS='0';process.env.BORGES_EMBED='none';
 const modules=process.argv.includes('--editorial-only')?['publishing']:['library','links','paperwork','publishing'];
 const frozen=process.argv.includes('--frozen');
+// Links Hoard and Kafka's Hoard are separate apps: the frozen worker talks to synthetic stand-ins, never the user's running ones.
+const hoards=frozen?await startSyntheticHoards(run):null;
+if(hoards)Object.assign(process.env,hoards.environment);
 const observations=[];
 for(const module of modules){
  const data=path.join(run,module);
@@ -79,5 +83,6 @@ if(!frozen){
  assert.deepEqual(JSON.parse(await fs.readFile(path.join(eofData,'paperwork-close.json'))),{attempts:3,closed:true});
  observations.push({case:'eof-retry',pid:child.pid,failedClose:2,thirdClose:true,closed:true});
 }
+if(hoards){await hoards.close();for(const [app,tool] of [['links','list_links'],['kafka','docs_list']])assert.ok(hoards.calls.some(c=>c.app===app&&c.tool===tool),'The frozen worker did not reach the synthetic '+app+' for '+tool+': '+JSON.stringify(hoards.calls));}
 await fs.writeFile(path.join(run,'receipt.json'),JSON.stringify({mode:frozen?'frozen':'source-real-factories',observations},null,2));
 console.log(JSON.stringify({status:'PASS',mode:frozen?'frozen':'source',cases:observations.length}));
