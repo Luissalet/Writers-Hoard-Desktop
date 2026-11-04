@@ -3,6 +3,7 @@ import os
 from borges.hoard_link.guard import check_request
 from borges.hoard_link.copilot import install_copilot
 from .specs import SPECS
+from .external import EXTERNAL
 
 
 def factory(key, data_dir, *, port, automatic=False, native_call=None, native_available=None):
@@ -23,7 +24,12 @@ def factory(key, data_dir, *, port, automatic=False, native_call=None, native_av
         from borges.main import create_app
         from borges import links_source
         from borges.extract import pdf
-        links_source.native_caller = lambda tool, args: native_call('links', tool, args)
+        def links_call(tool, args):
+            try:
+                return native_call('links', tool, args)
+            except Exception as exc:  # the reading module is OFF or Links Hoard is not running
+                raise links_source.LinksError(f'Links Hoard ({tool}): {exc}') from exc
+        links_source.native_caller = links_call
         from .native_docs import NativeDocs
         pdf.fam_docs = NativeDocs(native_call, native_available)
         config = Config.from_env()
@@ -31,14 +37,8 @@ def factory(key, data_dir, *, port, automatic=False, native_call=None, native_av
         config.watch = config.autostart = automatic
         config.defer_stale = not automatic
         return create_app(config)
-    if key == 'paperwork':
-        from kafka_hoard.config import Config, load_dotenv
-        from kafka_hoard.main import create_app
-        config = Config.from_env()
-        config.data_dir, config.port, config.data_dir_configured = data_dir, port, True
-        config.scheduler = automatic
-        config.secrets.update(load_dotenv(data_dir.parent / '.env'))
-        config.secrets.update(load_dotenv(data_dir / '.env'))
-        return create_app(config)
-    from .links_engine import create_app
-    return create_app(data_dir, port, automatic, native_call)
+    if key in EXTERNAL:
+        # Links Hoard and Kafka's Hoard run as their own apps; Writer calls them by reference.
+        from .external import create_app
+        return create_app(key, data_dir)
+    raise KeyError(f'Unknown publishing module: {key}')

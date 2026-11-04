@@ -32,23 +32,22 @@ async def test_native_factories_retry_real_owned_resources(key,tmp_path,monkeypa
         monkeypatch.setattr(resource,'close',close)
         live=lambda:native.state.services._stop_completed<5
     elif key=='links':
-        engine=native.state.engine
-        process=engine.process
-        original=engine.send
-        async def send(message):
-            nonlocal attempts
-            if message.get('type')=='stop':
-                attempts+=1
-                if attempts<3:raise OSError('Retained native Node process')
-            await original(message)
-        monkeypatch.setattr(engine,'send',send)
-        live=lambda:process.returncode is None
+        # Links Hoard is its own app: Writer owns only the HTTP client it reaches it with.
+        client=native.state.client
+        transport=client._transport
+        original=transport.aclose
+        closed=False
+        async def close():
+            nonlocal attempts,closed
+            attempts+=1
+            if attempts<3:raise OSError('Retained client to Links Hoard')
+            await original()
+            closed=True
+        monkeypatch.setattr(transport,'aclose',close)
+        live=lambda:not closed
     elif key=='paperwork':
-        llm=native.state.services.llm
-        link=llm._get_link()
-        loop=link.sync._ensure_loop()
-        inner=link.sync._twin()
-        transport=inner._client._transport
+        # Kafka's Hoard is its own app; a cancelled OFF must still not drop the client mid-close.
+        transport=native.state.client._transport
         original=transport.aclose
         released=False
         hold=threading.Event()
@@ -64,13 +63,7 @@ async def test_native_factories_retry_real_owned_resources(key,tmp_path,monkeypa
             await original()
             released=True
         monkeypatch.setattr(transport,'aclose',close)
-        # Reproduce HTTPX's real early CLOSED transition INSIDE transport
-        # cleanup, then demand two further failing OFFs and an effective third.
-        poisoned=asyncio.run_coroutine_threadsafe(inner._client.aclose(),loop)
-        with pytest.raises(OSError):poisoned.result()
-        assert inner._client.is_closed and not released
-        attempts=0
-        live=lambda:link.sync._loop is loop and link.sync._thread.is_alive() and not released
+        live=lambda:not released
     else:
         from gutenberg_hoard.engine_sessions import sessions
         await asyncio.to_thread(sessions.execute,[],session_id='synthetic-close')

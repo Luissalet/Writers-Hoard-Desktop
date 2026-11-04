@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import os from 'node:os';
@@ -12,7 +12,7 @@ import { build } from 'esbuild';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const directory = await mkdtemp(path.join(os.tmpdir(), 'writer-publishing-qa-'));
 process.env.BORGES_EMBED = 'none';
-let service, server, child;
+let service, server, child, hoards;
 try {
   const entry = path.join(directory, 'entry.cjs');
   await build({ stdin: { contents: `export { PublishingService } from './electron/publishing/service'; export { PUBLISHING_TOOLS } from './src/services/aiBridge/manifestPublishing'; export { BRIDGE_TOOLS } from './src/services/aiBridge/manifest'; export { createToolExecutor } from './src/services/aiRuntime/executorCore'; export { nativeWindow } from './src/engines/publishing/navigation';`, resolveDir: root }, outfile: entry, bundle: true, platform: 'node', format: 'cjs', alias: { '@': path.join(root, 'src') }, logLevel: 'warning' });
@@ -29,6 +29,26 @@ try {
   const native = JSON.parse(await readFile(path.join(root, 'publishing/catalog.json'), 'utf8'));
   assert.equal(new Set(PUBLISHING_TOOLS.map(tool => tool.name)).size, PUBLISHING_TOOLS.length);
   for (const tool of native) assert.deepEqual(PUBLISHING_TOOLS.find(item => item.name === tool.name).schema, tool.inputSchema);
+  // Links Hoard and Kafka's Hoard are their own apps: a synthetic stand-in plays both, never the real ones.
+  const stored = new Map(); const reached = [];
+  hoards = createServer(async (req, res) => {
+    const [, app, ...rest] = req.url.split('/'); const route = '/' + rest.join('/');
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    if (route === '/api/health') return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ service: app, version: 'qa' }));
+    if (req.headers.authorization !== `Bearer ${app}-qa-token`) return res.writeHead(401).end('{}');
+    reached.push(`${app} ${req.method} ${route.split('?')[0]}`);
+    if (route === '/api/documents/upload') { stored.set('d_1', body); return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ results: [{ documents: [{ id: 'd_1' }] }] })); }
+    if (route === '/api/documents/d_1/file') return res.writeHead(200, { 'Content-Type': 'application/octet-stream' }).end(stored.get('d_1'));
+    const call = body.length ? JSON.parse(body) : {};
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ tool: call.name, reason: call.reason || null }));
+  });
+  await new Promise(resolve => hoards.listen(0, '127.0.0.1', resolve));
+  for (const [variable, app] of [['WRITER_LINKS', 'links'], ['WRITER_KAFKA', 'kafka']]) {
+    await writeFile(path.join(directory, app + '-token'), `${app}-qa-token`);
+    process.env[variable + '_URL'] = `http://127.0.0.1:${hoards.address().port}/${app}`;
+    process.env[variable + '_TOKEN_FILE'] = path.join(directory, app + '-token');
+  }
   service = new PublishingService({ configFile: path.join(directory, 'modules.json'), dataDir: path.join(directory, 'data'), command: path.join(root, 'publishing/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'), args: [path.join(root, 'publishing/worker.py')], cwd: path.join(root, 'publishing') });
   assert.deepEqual((await service.status()).enabled, []);
   assert.equal(service.running, false);
@@ -89,8 +109,15 @@ try {
   const documents = upload.results.flatMap(item => item.documents || []);
   assert.ok(documents.length, JSON.stringify(upload));
   const streamed = await service.stream('GET', `/paperwork/api/documents/${documents[0].id}/file`, { range: 'bytes=17-8192' });
-  assert.equal(streamed.status, 200); // Native plain-text originals ignore Range.
-  assert.deepEqual(Buffer.from(await streamed.arrayBuffer()), bytes);
+  assert.equal(streamed.status, 200); // The stand-in, like plain-text originals, ignores Range.
+  const received = Buffer.from(await streamed.arrayBuffer());
+  assert.ok(received.includes(bytes) && received.equals(stored.get('d_1')), 'binary multipart reaches the Hoard and streams back byte-exact');
+  const wrote = await call('deadline_add', { title: 'Synthetic deadline', date: '2030-12-31' });
+  assert.match(JSON.stringify(wrote), /Requested from Writer's Hoard \(deadline_add\)/);
+  const external = await call('wh_publishing_external_hoards');
+  const hoardStates = external.hoards || (external.result && external.result.hoards) || [];
+  assert.deepEqual(hoardStates.map(item => [item.app, item.running, item.version]), [['links', true, 'qa'], ['kafka', true, 'qa']]);
+  for (const expected of ['links POST /api/agent/call', 'kafka POST /api/agent/call', 'kafka POST /api/ui/call', 'kafka POST /api/documents/upload', 'kafka GET /api/documents/d_1/file']) assert.ok(reached.includes(expected), `${expected} in ${reached}`);
   await call('wh_publishing_module_set', { module: 'publishing', enabled: true });
   const ranged = await service.stream('GET', '/publishing/static/icon.png', { range: 'bytes=17-8192' });
   assert.equal(ranged.status, 206);
@@ -101,11 +128,12 @@ try {
   await call('wh_publishing_link_project', { projectId: 'synthetic-project', module: 'publishing', kind: 'publication', object_id: 'native-pub-id', title: 'Private synthetic publication', artifact: { format: 'gutenberg' } });
   const linked = await call('wh_publishing_project_results', { projectId: 'synthetic-project' });
   assert.equal(linked.results[0].object_id, 'native-pub-id');
-  console.log(`PASS ${PUBLISHING_TOOLS.length} exact MCP schemas, four native module lifecycles, API/MCP project references, binary multipart/range streaming, scoped navigation and OFF discovery`);
+  console.log(`PASS ${PUBLISHING_TOOLS.length} exact MCP schemas, four module lifecycles (Links and Kafka by reference), API/MCP project references, binary multipart/range streaming, scoped navigation and OFF discovery`);
 } finally {
   if (child) { const exited = new Promise(resolve => child.once('exit', resolve)); child.stdin.end(); await exited; }
   await service?.close();
   if (server) await new Promise(resolve => server.close(resolve));
+  if (hoards) await new Promise(resolve => hoards.close(resolve));
   const resolved = path.resolve(directory);
   if (resolved.startsWith(path.resolve(os.tmpdir()) + path.sep)) await rm(resolved, { recursive: true, force: true });
   else { console.error('Unexpected QA directory; retained.'); process.exitCode = 1; }

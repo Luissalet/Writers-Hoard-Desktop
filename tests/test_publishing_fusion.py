@@ -49,7 +49,8 @@ async def test_native_api_tools_identity_and_reopen(tmp_path):
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:5174') as client:
             headers = {'Authorization': 'Bearer ' + app.state.token}
-            for module, tool in [('library', 'library_collections'), ('paperwork', 'docs_list'), ('publishing', 'gutenberg_publications'), ('links', 'list_links')]:
+            # links and paperwork call Links Hoard and Kafka's Hoard: tests/test_publishing_external.py
+            for module, tool in [('library', 'library_collections'), ('publishing', 'gutenberg_publications')]:
                 response = await client.put('/api/modules/' + module, json={'enabled': True})
                 assert response.status_code == 200, response.text
                 assert response.json()['automatic'] is False
@@ -65,25 +66,6 @@ async def test_native_api_tools_identity_and_reopen(tmp_path):
                 assert (await client.get('/api/writer-identity/' + module)).json() == identity
                 assert (app.state.modules[module].data_dir / 'mcp-token').read_bytes() == token
                 assert (await client.put('/api/modules/' + module, json={'enabled': False})).status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_paperwork_write_visible_through_native_tool_and_binary_upload(tmp_path):
-    app = create_app(tmp_path, port=5174)
-    async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:5174') as client:
-            assert (await client.put('/api/modules/paperwork', json={'enabled': True})).status_code == 200
-            saved = await client.post('/paperwork/api/ui/call', json={'name': 'deadline_add', 'arguments': {'title': 'Synthetic editorial deadline', 'date': '2030-12-31', 'kind': 'other'}})
-            assert saved.status_code == 200, saved.text
-            record = saved.json()
-            ident = record.get('id') or record.get('deadline', {}).get('id')
-            assert ident, record
-            response = await client.post('/api/agent/call', headers={'Authorization': 'Bearer ' + app.state.token}, json={'name': 'deadline_get', 'arguments': {'deadline': ident}})
-            assert response.status_code == 200, response.text
-            assert 'Synthetic editorial deadline' in response.text
-            uploaded = await client.post('/paperwork/api/documents/upload', files={'files': ('synthetic.txt', b'PRIVATE SYNTHETIC QA\x00tail\xff', 'text/plain')})
-            assert uploaded.status_code in (200, 201), uploaded.text
-            assert list((tmp_path / 'paperwork/files').rglob('*'))
 
 
 def test_stdio_catalog_starts_without_engine_or_socket(tmp_path):
