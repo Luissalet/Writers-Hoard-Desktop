@@ -232,9 +232,9 @@ async def serve(reader=None, app_factory=None):
 
 
 if __name__ == '__main__':
-    # The incorporated media resolver invokes this owned Python runtime with
-    # --version, -m and -c, including in frozen desktop builds. Without dispatch
-    # a frozen worker would report a false successful CLI probe on stdin EOF.
+    # Tools probing this owned Python runtime may call it with --version, -m
+    # and -c, including in frozen desktop builds. Without dispatch a frozen
+    # worker would report a false successful CLI probe on stdin EOF.
     args = sys.argv[1:]
     if not args:
         asyncio.run(serve())

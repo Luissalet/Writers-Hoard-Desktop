@@ -6,8 +6,6 @@ Writer ya llama a Links Hoard y Kafka's Hoard por el Hub y no lleva sus motores 
 
 - Vistas: las de Writer (`src/engines/publishing/native/links` y `paperwork`) son copias de los clientes de esas apps de octubre. Añadir lo que las apps tienen ya y Writer no muestra: guardar un sitio entero y su historial (Links: `SiteSaver`, `/api/site/map`, `/api/crawls`), vigías de páginas de lista (`watch_list_preview`), la página Sentidos y la capa de sonido de los digestos, y los expedientes y el diff de requisitos de Kafka (`kafka_dossier*`, `kafka_requirements_diff`).
 - Herramientas MCP: el catálogo congelado de Writer (`publishing/fusion/catalog.json`) expone las 46 de Links y 314 de Kafka de octubre; regenerarlo desde `/api/agent/tools` de las apps en marcha añadiría las nuevas (`audio_*`, `crawl_*`, `map_site`, `read_post`, `kafka_dossier*`) con sus esquemas actuales.
-- Paquete instalable: reconstruir el worker congelado (`npm run publishing:bundle -- --worker-only`) sin `kafka_hoard` ni el motor PDF; `scripts/run-publishing-compat-tests.mjs` sigue fijado al hash del ejecutable anterior y hay que actualizarlo con el nuevo.
-- Dependencias: revisar en `publishing/requirements.txt` las que sólo usaban las copias (`yt-dlp`, `gallery-dl`, `rapidocr`, `pypdf`, `pypdfium2`, `h11`) antes de quitarlas; `worker.py -m yt_dlp` tiene su propia prueba.
 
 ## Evolución del estado de herramientas Source
 

@@ -17,7 +17,7 @@ const base = process.env.WH_INSTALL_QA_ROOT || await mkdtemp(path.join(os.tmpdir
 await mkdir(base, { recursive: true });
 await writeFile(path.join(base, 'forbid-network.cjs'), `const fs=require('node:fs');const mark=${JSON.stringify(path.join(base, 'cold-io-attempt.txt'))};const fail=()=>{fs.appendFileSync(mark,'unexpected network/process attempt\\n');throw Error('Cold discovery attempted I/O')};require('node:http').request=fail;require('node:https').request=fail;require('node:child_process').spawn=fail;`);
 const worker = path.join(root, 'publishing/runtime/writer-publishing-worker/writer-publishing-worker.exe');
-assert.equal(createHash('sha256').update(await readFile(worker)).digest('hex'), 'c9e7623eae121b2758e077fe435ab6cdd9394815ceb5cc74a291614052c054ac');
+assert.equal(createHash('sha256').update(await readFile(worker)).digest('hex'), 'a23e1688beb53aaf7aa1ea91006658f61b17eb70adf9703ffbdbea1e56d70e4f');
 const source = await readFile(path.join(root, 'electron/main.ts'), 'utf8');
 const tree = ts.createSourceFile('main.ts', source, ts.ScriptTarget.Latest, true);
 const ipc = [], protocols = [];
@@ -44,11 +44,30 @@ await build({ ...common, entryPoints: [path.join(root, 'tests/publishing-compat.
 const preload = await readFile(path.join(root, 'dist-electron/preload.cjs'));
 await writeFile(path.join(base, 'preload.cjs'), Buffer.concat([preload, Buffer.from(`\nrequire('electron').contextBridge.exposeInMainWorld('qaNative', { report: value => require('electron').ipcRenderer.send('qa:report', value) });\n`)]));
 await writeFile(path.join(base, 'source-pins.json'), JSON.stringify({ worker_sha256: createHash('sha256').update(await readFile(worker)).digest('hex'), preload_sha256: createHash('sha256').update(preload).digest('hex'), main_source_sha256: createHash('sha256').update(source).digest('hex'), registrations_sha256: createHash('sha256').update(registrations).digest('hex') }, null, 2));
+// Links Hoard and Kafka's Hoard are their own apps: a synthetic stand-in answers for both, never the real ones.
+const { createServer } = await import('node:http');
+const hoards = createServer(async (req, res) => {
+  const [, appName, ...rest] = req.url.split('/');
+  const route = '/' + rest.join('/').split('?')[0];
+  const chunks = []; for await (const chunk of req) chunks.push(chunk);
+  if (route === '/api/health') return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ service: appName, version: 'qa' }));
+  if (req.headers.authorization !== `Bearer ${appName}-qa-token`) return res.writeHead(401, { 'Content-Type': 'application/json' }).end('{"error":"unauthorized"}');
+  const call = chunks.length ? JSON.parse(Buffer.concat(chunks)) : {};
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ synthetic: appName, tool: call.name || null, items: [] }));
+});
+await new Promise(resolve => hoards.listen(0, '127.0.0.1', resolve));
+const hoardEnvironment = { WRITER_HUB_URL: 'http://127.0.0.1:1' };
+for (const [variable, appName] of [['WRITER_LINKS', 'links'], ['WRITER_KAFKA', 'kafka']]) {
+  await writeFile(path.join(base, appName + '-token'), `${appName}-qa-token`);
+  hoardEnvironment[variable + '_URL'] = `http://127.0.0.1:${hoards.address().port}/${appName}`;
+  hoardEnvironment[variable + '_TOKEN_FILE'] = path.join(base, appName + '-token');
+}
 const executable = require('electron');
-const environment = { ...process.env, WH_INSTALL_QA_ROOT: base, WH_INSTALL_WRITER_ROOT: root, WH_INSTALL_NODE: process.execPath, WH_AIBRIDGE_PORT: '64852', HOARD_EVENTS: '0', BORGES_EMBED: 'none', HOARD_HUB_URL: 'http://127.0.0.1:1', FAUSTUS_URL: 'http://127.0.0.1:1', WH_USER_DATA_DIR: path.join(base, 'profile') };
+const environment = { ...process.env, ...hoardEnvironment, WH_INSTALL_QA_ROOT: base, WH_INSTALL_WRITER_ROOT: root, WH_INSTALL_NODE: process.execPath, WH_AIBRIDGE_PORT: '64852', HOARD_EVENTS: '0', BORGES_EMBED: 'none', HOARD_HUB_URL: 'http://127.0.0.1:1', FAUSTUS_URL: 'http://127.0.0.1:1', WH_USER_DATA_DIR: path.join(base, 'profile') };
 delete environment.ELECTRON_RUN_AS_NODE;
 const child = spawn(executable, [path.join(base, 'test.cjs')], { cwd: root, windowsHide: true, stdio: 'inherit', env: environment });
 const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
+await new Promise(resolve => hoards.close(resolve));
 assert.equal(code, 0, `Native contract fixture exited ${code}; evidence ${base}`);
 const receipt = JSON.parse(await readFile(path.join(base, 'receipt.json'), 'utf8'));
 assert.equal(receipt.status, 'PASS');
