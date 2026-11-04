@@ -1203,6 +1203,12 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### Paste a table rectangle (2180)
+
+Use the opt-in `blocks-tree/11` field with schema `writers-blocks/10`. **Table paste notebook** accepts HTML tables made of paragraphs with the supported inline marks. A paste at the caret grows the table when needed. A rectangular selection repeats or clips the source pattern to the selected cells. Each pasted cell retains its header type, even when its text is empty. The whole paste is one Undo step.
+
+For SDK or MCP, take `richBlockEditCapture(field, [tableId])` and apply `rich-table-paste`. Its `target` contains the current ordered `rows` and `columns` IDs, an `anchor` pair `[rowId, columnId]`, and an optional `head` pair for a selection. The rectangular `matrix` contains cells with `header` and `paragraphs`. Each paragraph is an array of rich text runs. A changed destination or shape invalidates the capture.
+
 ### Resize a shared table row (2176)
 
 Use the opt-in `blocks-tree/10` field with schema `writers-blocks/9`. It includes the existing table and image features. **Table layout notebook** provides a ready-to-use example.
