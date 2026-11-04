@@ -3,6 +3,7 @@ import type {RichBlocks} from './blocks';
 import type {RichBlockDocument,RichBlockBindings} from './blockFormat';
 import type {RichTableAxis,RichTableAxisOrder} from './tableAxesFormat';
 import {tableCellStyleId} from './tableAxesFormat';
+import {tableCellSpanId} from './tableSpanGeometry';
 export interface TableAxisEntry {id:string;node:string;txId:string;kindVersionId:string;attrsVersionId:string;membershipVersionId:string;placementVersionId:string;after:string|null}
 export interface TableAxisInsertion {tableId:string;axis:RichTableAxis;node:string;entryId:string;after:string|null}
 const fail=():never=>{throw Error('local_tool_table_axis_order_invalid');};
@@ -63,7 +64,8 @@ export class TableAxisOrder {
    }
   }
   if(this.source.cellHeaders)for(const version of this.source.registers.entries(this.source.root('kind'))){
-   if(!version.present||version.value!=='table-cell-style')continue;
+   const span=version.value==='table-cell-span';
+   if(!version.present||version.value!=='table-cell-style'&&(!this.source.cellSpans||!span))continue;
    const attrs=this.source.registers.entries(this.source.root('attrs'),version.key);
    const places=this.source.registers.entries(this.source.root('placement'),version.key);
    const initialAttrs=attrs.find(entry=>entry.txId===version.txId)?.value as {columnId:string}|undefined;
@@ -72,8 +74,16 @@ export class TableAxisOrder {
    const row=initialPlace.parentId,column=initialAttrs.columnId;
    if(!row||!column)return fail();
    const table=owner(row,'table-row'),columnTable=owner(column,'table-column');
-   if(table&&columnTable&&(columnTable!==table||version.key!==tableCellStyleId(table,row,column)))return fail();
+   if(table&&columnTable&&(columnTable!==table||version.key!==(span?tableCellSpanId(table,row,column):tableCellStyleId(table,row,column))))return fail();
    if(attrs.some(entry=>(entry.value as {columnId:string}).columnId!==column))return fail();
+   if(span&&table)for(const entry of attrs){
+    const value=entry.value as {rows:string[];columns:string[]};
+    if(value.rows[0]!==row)return fail();
+    for(const [ids,kind] of [[value.rows,'table-row'],[value.columns,'table-column']] as const)for(const id of ids){
+     const axisTable=owner(id,kind);
+     if(axisTable&&axisTable!==table)return fail();
+    }
+   }
    if(places.some(entry=>{const p=entry.value as {parentId:string|null;slot:string;afterId:string|null};return p.parentId!==row||p.slot!=='body'||p.afterId!==null;}))return fail();
   }
   return missing;

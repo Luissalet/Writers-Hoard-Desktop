@@ -59,5 +59,5 @@ export function prepareBlockExit(source:RichBlocks,data:RichBlockDocument,bindin
   let last=leaf.id;if(suffix.length)last=tail(item.id,'body',leaf.id,!prefix.length);else if(!prefix.length)hide(list.id);
   for(const id of intent.ownerSuffix){move(id,{parentId:item.id,slot:'body',afterId:last});last=id;}
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights,source.cellHeaders);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights,source.cellHeaders,source.cellSpans);return result;
 }

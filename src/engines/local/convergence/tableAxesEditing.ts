@@ -8,6 +8,7 @@ import type {RichBlockEditCapture} from './blockEditingTypes';
 import {tableCellStyleId,validTableColumnWidth,type RichTableAxis} from './tableAxesFormat';
 import {TableAxisOrder,type TableAxisEntry,type TableAxisInsertion} from './tableAxisOrder';
 import {tablePasteArea,tablePasteContents,type RichTablePasteAction} from './tablePaste';
+import {tableCellSpanId} from './tableSpanGeometry';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import {validateRichImageAsset,type RichImageAsset} from './imageFormat';
 export interface RichTableAxisCapture {format:'writers-hoard-table-axis/1';identity:LocalToolConvergenceIdentity;field:string;tableId:string;axis:RichTableAxis;table:RichBlockBinding;anchor:TableAxisEntry|null;frontier:string[]}
@@ -94,9 +95,10 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
  }else if(action.type==='rich-table-paste'){
   const {capture,target,matrix}=action,tableId=capture.nodeIds[0];
   if(!source.cellHeaders||capture.nodeIds.length!==1||capture.destination||Object.keys(action).length!==5)return fail();
-  const order=table(source,data,tableId),area=tablePasteArea(order,target,matrix,source.links);
+  const order=table(source,data,tableId),area=tablePasteArea(order,target,matrix,source.links,source.cellSpans?data:undefined);
   const replaced=tablePasteContents(data,order,area).filter(block=>block.type!=='table-cell-style');
   const hidden=new Set(replaced.map(block=>block.id));
+  const spansToHide=new Set(replaced.filter(block=>block.type==='table-cell-span').map(block=>block.id));
   for(const block of replaced)if(block.type==='table-cell')result.writes.push({name:'membership',id:block.id,value:false});
   result.data.blocks=result.data.blocks.filter(block=>!hidden.has(block.id));
   for(const [dimension,size] of [['rows',area.top+area.height],['columns',area.left+area.width]] as const){
@@ -111,6 +113,14 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   const paragraphs:NonNullable<RichBlockPlan['pasteParagraphs']>=[];
   for(let y=0;y<area.height;y++)for(let x=0;x<area.width;x++){
    const rowId=actual.rows[area.top+y],columnId=actual.columns[area.left+x],cell=matrix[y%matrix.length][x%matrix[0].length];
+   if(!cell)continue;
+   if(cell.span){
+    const id=tableCellSpanId(tableId,rowId,columnId);
+    const marker:RichBlock={id,type:'table-cell-span',attrs:{columnId,rows:actual.rows.slice(area.top+y,area.top+y+cell.span.rows),columns:actual.columns.slice(area.left+x,area.left+x+cell.span.columns)},parentId:rowId,slot:'body',afterId:null};
+    result.data.blocks.push(marker);
+    if(spansToHide.delete(id))result.writes.push({name:'attrs',id,value:marker.attrs});
+    else result.writes.push(...blockBirthWrites(marker,source.alignment));
+   }
    const id=tableCellStyleId(tableId,rowId,columnId),style=byId.get(id);
    if(style){
     if(style.attrs.header!==cell.header){
@@ -141,6 +151,7 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
     putImages(index);
    }
   }
+  for(const id of spansToHide)result.writes.push({name:'membership',id,value:false});
   result.pasteParagraphs=paragraphs;
  }else if(action.type==='rich-table-axis-insert'||action.type==='rich-table-axis-hide'){
   const capture=action.capture,order=table(source,data,capture.tableId),now=axisWitness(source,data,bindings,capture.tableId,capture.axis,capture.anchor?.node??null);
@@ -150,7 +161,7 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   }else{
    const id=capture.anchor?.node;if(!id||!order[capture.axis].includes(id))return fail();result.writes.push({name:'membership',id,value:false});
    result.data.axisOrder!.find(o=>o.tableId===capture.tableId)![capture.axis]=order[capture.axis].filter(n=>n!==id);
-   const hidden=new Set<string>([id]);if(capture.axis==='columns')for(const b of result.data.blocks)if((b.type==='table-cell'||b.type==='table-cell-style')&&b.attrs.columnId===id)hidden.add(b.id);
+   const hidden=new Set<string>([id]);if(capture.axis==='columns')for(const b of result.data.blocks)if((b.type==='table-cell'||b.type==='table-cell-style'||b.type==='table-cell-span')&&b.attrs.columnId===id)hidden.add(b.id);
    let changed=true;while(changed){changed=false;for(const b of result.data.blocks)if(b.parentId!==null&&hidden.has(b.parentId)&&!hidden.has(b.id)){hidden.add(b.id);changed=true;}}
    result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
   }
@@ -181,5 +192,5 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   result.textActions.push({type:'rich-insert-paragraph',field:action.field,id:p.id,afterId:lastLeaf,text:p.text,...(p.marks?{marks:p.marks}:{}),...(href?{link:{href}}:{})});
   }
  }
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights,source.cellHeaders);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);result.data.axisOrder!.sort((a,b)=>a.tableId<b.tableId?-1:a.tableId>b.tableId?1:0);validateRichBlockDocument(result.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights,source.cellHeaders,source.cellSpans);return result;
 }
