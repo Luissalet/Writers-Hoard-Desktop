@@ -23,7 +23,7 @@ export function blockPMDocument(schema:Schema,data:RichBlockDocument):PMNode {
    const columnLayout=isTableWidthsSchema(data.schema)?rows[0].cells.map(({columnId,widthPx})=>({columnId,widthPx})):undefined;
    return schema.nodes.table.create({id:block.id,columns:rows[0].cells.map(c=>c.columnId),...(columnLayout?{columnLayout}:{})},rows.map(({row,cells})=>schema.nodes.tableRow.create({id:row.id,heightPx:row.attrs.heightPx??null},cells.map(cell=>{
     const content=cell.children.map(node).filter(present);
-    return schema.nodes[row.attrs.header?'tableHeader':'tableCell'].create({columnId:cell.columnId,cellAddress:cell.address},content.length?content:[schema.nodes.paragraph.create({id:null,cellAddress:cell.address})]);
+    return schema.nodes[cell.header?'tableHeader':'tableCell'].create({columnId:cell.columnId,cellAddress:cell.address},content.length?content:[schema.nodes.paragraph.create({id:null,cellAddress:cell.address})]);
    }))));
   }
   const name=({'bullet-list':'bulletList','ordered-list':'orderedList','list-item':'listItem',blockquote:'blockquote',toggle:'toggle','table':'table','table-row':'tableRow','table-cell':'tableCell','table-header':'tableHeader'} as Record<string,string>)[block.type];

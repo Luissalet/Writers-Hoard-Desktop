@@ -2,6 +2,7 @@ import {JsonArray,convergenceCanonical} from './json';
 import type {RichBlocks} from './blocks';
 import type {RichBlockDocument,RichBlockBindings} from './blockFormat';
 import type {RichTableAxis,RichTableAxisOrder} from './tableAxesFormat';
+import {tableCellStyleId} from './tableAxesFormat';
 export interface TableAxisEntry {id:string;node:string;txId:string;kindVersionId:string;attrsVersionId:string;membershipVersionId:string;placementVersionId:string;after:string|null}
 export interface TableAxisInsertion {tableId:string;axis:RichTableAxis;node:string;entryId:string;after:string|null}
 const fail=():never=>{throw Error('local_tool_table_axis_order_invalid');};
@@ -60,6 +61,20 @@ export class TableAxisOrder {
     const anchor=birth(p.afterId,'table-cell'),anchorRow=owner(p.afterId,'table-cell');if(anchorRow&&anchorRow!==row)fail();if(!anchor)continue;
     const value=this.source.registers.entries(this.source.root('attrs'),p.afterId).find(a=>a.txId===anchor.txId);if(!value){missing=true;continue;}if((value.value as {columnId:string}).columnId!==col)fail();
    }
+  }
+  if(this.source.cellHeaders)for(const version of this.source.registers.entries(this.source.root('kind'))){
+   if(!version.present||version.value!=='table-cell-style')continue;
+   const attrs=this.source.registers.entries(this.source.root('attrs'),version.key);
+   const places=this.source.registers.entries(this.source.root('placement'),version.key);
+   const initialAttrs=attrs.find(entry=>entry.txId===version.txId)?.value as {columnId:string}|undefined;
+   const initialPlace=places.find(entry=>entry.txId===version.txId)?.value as {parentId:string|null}|undefined;
+   if(!initialAttrs||!initialPlace){missing=true;continue;}
+   const row=initialPlace.parentId,column=initialAttrs.columnId;
+   if(!row||!column)return fail();
+   const table=owner(row,'table-row'),columnTable=owner(column,'table-column');
+   if(table&&columnTable&&(columnTable!==table||version.key!==tableCellStyleId(table,row,column)))return fail();
+   if(attrs.some(entry=>(entry.value as {columnId:string}).columnId!==column))return fail();
+   if(places.some(entry=>{const p=entry.value as {parentId:string|null;slot:string;afterId:string|null};return p.parentId!==row||p.slot!=='body'||p.afterId!==null;}))return fail();
   }
   return missing;
  }

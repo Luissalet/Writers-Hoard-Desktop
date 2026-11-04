@@ -1,10 +1,11 @@
-import {TABLE_AXES_SCHEMA,TABLE_WIDTHS_SCHEMA,validTableRowHeight} from './tableAxesFormat';
+import {TABLE_AXES_SCHEMA,TABLE_WIDTHS_SCHEMA,validTableRowHeight,TABLE_CELL_STYLE_PREFIX} from './tableAxesFormat';
 import {TableAxisOrder,type TableAxisInsertion} from './tableAxisOrder';
 import {TABLE_SCHEMA,TABLE_KINDS,tableCellOf} from './tableFormat';
 import {validateRichBlockAttributes} from './blockFormat';
-import {ALIGNMENT_BLOCK_SCHEMA,CELL_IMAGE_BLOCK_SCHEMA,IMAGE_BLOCK_SCHEMA,RASTER_BLOCK_SCHEMA,TABLE_ROW_HEIGHTS_SCHEMA,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from './imageFormat';
+import {ALIGNMENT_BLOCK_SCHEMA,CELL_IMAGE_BLOCK_SCHEMA,IMAGE_BLOCK_SCHEMA,RASTER_BLOCK_SCHEMA,TABLE_ROW_HEIGHTS_SCHEMA,TABLE_CELL_HEADERS_SCHEMA,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from './imageFormat';
 import type {LocalToolJson} from '../stateTypes';
 import type {RichView} from './richRuns';
+import type {RichParagraph} from './richTypes';
 import type {LocalToolConvergenceIdentity} from './types';
 import {Registers,type RegisterVersion} from './registers';
 import {assertConvergenceIdentity,convergenceCanonical,convergenceClone} from './format';
@@ -16,7 +17,7 @@ const alignedImageNames=[...imageNames,'imageAlignment'] as const;
 type StructureName=typeof structureNames[number];
 type Write={name:StructureName|typeof alignedImageNames[number]|'rowHeight';id:string;value:LocalToolJson};
 export type StructuralNode={block:RichBlock;binding:RichBlockBinding;retirement?:string;imageSupportFrontier?:string[]};
-export interface RichBlockPlan {data:RichBlockDocument;bindings:RichBlockBindings;writes:Write[];axisInserts?:TableAxisInsertion[]}
+export interface RichBlockPlan {data:RichBlockDocument;bindings:RichBlockBindings;writes:Write[];axisInserts?:TableAxisInsertion[];pasteParagraphs?:RichParagraph[]}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const fail=():never=>{throw Error('local_tool_blocks_invalid');};
 const equal=(a:unknown,b:unknown)=>convergenceCanonical(a)===convergenceCanonical(b);
@@ -28,8 +29,8 @@ function reposition(data:RichBlockDocument,id:string,to:RichBlockPlacement){
  Object.assign(block,to);
 }
 export class RichBlocks {
- readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;readonly images:boolean;readonly alignment:boolean;readonly rasterFormats:boolean;readonly imageCells:boolean;readonly rowHeights:boolean;
- constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false,images=false,alignment=false,rasterFormats=false,imageCells=false,rowHeights=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;this.images=images;this.alignment=alignment;this.rasterFormats=rasterFormats;this.imageCells=imageCells;this.rowHeights=rowHeights;}
+ readonly registers:Registers;readonly field:string;readonly links:boolean;readonly tables:boolean;readonly axes:boolean;readonly widths:boolean;readonly images:boolean;readonly alignment:boolean;readonly rasterFormats:boolean;readonly imageCells:boolean;readonly rowHeights:boolean;readonly cellHeaders:boolean;
+ constructor(registers:Registers,field:string,links=false,tables=false,axes=false,widths=false,images=false,alignment=false,rasterFormats=false,imageCells=false,rowHeights=false,cellHeaders=false){this.registers=registers;this.field=field;this.links=links;this.tables=tables;this.axes=axes;this.widths=widths;this.images=images;this.alignment=alignment;this.rasterFormats=rasterFormats;this.imageCells=imageCells;this.rowHeights=rowHeights;this.cellHeaders=cellHeaders;}
  private get imageRegisters(){return this.alignment?alignedImageNames:imageNames;}
  root(name:string){return 'blocks3:'+JSON.stringify(this.field)+':'+(name==='imageSource'?'image-source':name==='imageSize'?'image-size':name==='imageAlignment'?'image-alignment':name==='rowHeight'?'row-height':name);}
  private read(name:string,key:string){return this.registers.winner(this.root(name),key);}
@@ -43,7 +44,7 @@ export class RichBlocks {
   const r=this.registers,all=new Map<string,StructuralNode>(),invalid=new Set<string>(),summaryWitness=new Map<string,string>();
   const historical=(frontier:string[])=>{
    const key=JSON.stringify([...frontier].sort()),cached=history.get(key);if(cached)return cached;
-   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights).structure(history));history.set(key,value);return value;
+   const value=r.atFrontier(frontier,view=>new RichBlocks(view,this.field,this.tables?this.links:false,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights,this.cellHeaders).structure(history));history.set(key,value);return value;
   };
   const version=(binding:RichBlockBinding,name:StructureName)=>r.versions.get(binding[`${name}VersionId`])??r.candidates(this.root(name)).find(v=>v.id===binding[`${name}VersionId`]);
   const assemble=(id:string,values:Record<StructureName,RegisterVersion>):StructuralNode=>({
@@ -166,17 +167,17 @@ export class RichBlocks {
   }
   for(const[key,{block}]of structure){const leaf=leaves.get(key);if(richBlockLeaf(block.type)&&!leaf)throw Error('local_tool_blocks_dependency_missing');all.set(key,{...block,...(richBlockLeaf(block.type)?{content:convergenceClone(leaf!.content)}:{})});}
   // A known hidden ancestor omits a branch. Cycles remain finite raw catalogues.
-  const cellVisible=(b:RichBlock)=>{const row=b.parentId===null?undefined:all.get(b.parentId),columnId=String(b.attrs.columnId),column=all.get(columnId);if(!column&&this.read('membership',columnId)?.value===false)return false;if(!column||!row)throw Error('local_tool_table_axes_dependency_missing');if(row.type!=='table-row'||column.type!=='table-column'||column.parentId!==row.parentId)fail();return true;};
-  const visible=(b:RichBlock)=>{const seen=new Set([b.id]);let parent=b.parentId,cell=this.axes&&b.type==='table-cell'?b:undefined;while(parent!==null){if(seen.has(parent))return true;seen.add(parent);const ancestor=all.get(parent);if(!ancestor){if(this.read('membership',parent)?.value===false)return false;break;}if(this.axes&&ancestor.type==='table-cell')cell=ancestor;parent=ancestor.parentId;}return !cell||cellVisible(cell);};
+  const cellVisible=(b:RichBlock)=>{const row=b.parentId===null?undefined:all.get(b.parentId),columnId=String(b.attrs.columnId),column=all.get(columnId);if(b.type==='table-cell-style'&&(!row||!column)||!column&&this.read('membership',columnId)?.value===false)return false;if(!column||!row)throw Error('local_tool_table_axes_dependency_missing');if(row.type!=='table-row'||column.type!=='table-column'||column.parentId!==row.parentId)fail();return true;};
+  const visible=(b:RichBlock)=>{const seen=new Set([b.id]);let parent=b.parentId,cell=this.axes&&(b.type==='table-cell'||b.type==='table-cell-style')?b:undefined;while(parent!==null){if(seen.has(parent))return true;seen.add(parent);const ancestor=all.get(parent);if(!ancestor){if(this.read('membership',parent)?.value===false)return false;break;}if(this.axes&&ancestor.type==='table-cell')cell=ancestor;parent=ancestor.parentId;}return !cell||cellVisible(cell);};
   const blocks=[...all.values()].filter(visible).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0),ids=new Set(blocks.filter(b=>richBlockLeaf(b.type)).map(b=>b.id));
   const filtered={data:{type:'doc' as const,content:rich.data.content.filter(p=>ids.has(p.id))},bindings:{nodes:rich.bindings.nodes.filter(p=>ids.has(p.id))}};
   // Text and its bindings follow catalogue IDs, independently of intrinsic paragraph order.
   filtered.data.content=blocks.filter(b=>richBlockLeaf(b.type)).map(b=>filtered.data.content.find(p=>p.id===b.id)!);
   filtered.bindings.nodes=filtered.data.content.map(p=>filtered.bindings.nodes.find(n=>n.id===p.id)!);
-  return{data:{type:'block-doc',schema:this.rowHeights?TABLE_ROW_HEIGHTS_SCHEMA:this.imageCells?CELL_IMAGE_BLOCK_SCHEMA:this.rasterFormats?RASTER_BLOCK_SCHEMA:this.alignment?ALIGNMENT_BLOCK_SCHEMA:this.images?IMAGE_BLOCK_SCHEMA:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
+  return{data:{type:'block-doc',schema:this.cellHeaders?TABLE_CELL_HEADERS_SCHEMA:this.rowHeights?TABLE_ROW_HEIGHTS_SCHEMA:this.imageCells?CELL_IMAGE_BLOCK_SCHEMA:this.rasterFormats?RASTER_BLOCK_SCHEMA:this.alignment?ALIGNMENT_BLOCK_SCHEMA:this.images?IMAGE_BLOCK_SCHEMA:this.widths?TABLE_WIDTHS_SCHEMA:this.axes?TABLE_AXES_SCHEMA:this.tables?TABLE_SCHEMA:BLOCK_SCHEMA,blocks,...(this.axes?{axisOrder:new TableAxisOrder(this).project({blocks})}: {})},bindings:{format:'writers-hoard-block-bindings/1',nodes:blocks.map(b=>structure.get(b.id)!.binding)},rich:filtered};
  }
  check(data:RichBlockDocument,bindings:RichBlockBindings):void {
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights,this.cellHeaders);
   if(!object(bindings)||Object.keys(bindings).length!==2||bindings.format!=='writers-hoard-block-bindings/1'||!Array.isArray(bindings.nodes)||bindings.nodes.length!==data.blocks.length)return fail();
   for(let at=0;at<data.blocks.length;at++){
    const b=data.blocks[at],bound=bindings.nodes[at],image=b.type==='image',row=this.rowHeights&&b.type==='table-row';
@@ -193,7 +194,7 @@ export class RichBlocks {
   if(this.axes)new TableAxisOrder(this).check(data,bindings);
  }
  seed(data:RichBlockDocument){
-  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);
+  validateRichBlockDocument(data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights,this.cellHeaders);
   for(const b of data.blocks)for(const {name,value} of blockBirthWrites(b,this.alignment))this.registers.write(this.root(name),b.id,true,value);
   if(this.axes)new TableAxisOrder(this).seed(data);
  }
@@ -205,9 +206,9 @@ export class RichBlocks {
  }
  moveCapture(identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,nodeId:string,destination:RichBlockPlacement):RichBlockMoveCapture {
   this.check(data,bindings);validateRichBlockPlacement(destination);const source=data.blocks.find(b=>b.id===nodeId);if(!source)return fail();
-  if(this.tables&&(['table-row','table-column','table-cell','table-header'].includes(source.type)||tableCellOf(data,nodeId)!==(destination.parentId===null?null:tableCellOf(data,destination.parentId))))return fail();
+  if(this.tables&&(['table-row','table-column','table-cell','table-header','table-cell-style'].includes(source.type)||tableCellOf(data,nodeId)!==(destination.parentId===null?null:tableCellOf(data,destination.parentId))))return fail();
   if(destination.afterId!==null&&!data.blocks.some(b=>b.id===destination.afterId&&b.parentId===destination.parentId&&b.slot===destination.slot))return fail();
-  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);
+  const proposed=convergenceClone(data);reposition(proposed,nodeId,destination);validateRichBlockDocument(proposed,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights,this.cellHeaders);
   const ids=new Set([nodeId,...(destination.parentId?[destination.parentId]:[]),...(destination.afterId?[destination.afterId]:[])]);
   return{format:'writers-hoard-block-move/1',identity:convergenceClone(identity),field:this.field,nodeId,destination:convergenceClone(destination),bindings:bindings.nodes.filter(b=>ids.has(b.id)).map(b=>convergenceClone(b)),frontier:this.registers.frontier()};
  }
@@ -218,7 +219,7 @@ export class RichBlocks {
   const put=(block:RichBlock)=>{if(this.registers.entries(this.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const[name,value]of Object.entries({kind:block.type,attrs:block.attrs,membership:true,placement:{parentId:block.parentId,slot:block.slot,afterId:block.afterId}}))write(name as Write['name'],block.id,value);};
   const move=(key:string,to:RichBlockPlacement)=>{const block=result.data.blocks.find(b=>b.id===key);if(!block)return fail();Object.assign(block,to);write('placement',key,to);};
   if(action.type==='rich-block-move'){
-   if(this.tables){const moving=data.blocks.find(b=>b.id===action.capture.nodeId);if(!moving||['table-row','table-column','table-cell','table-header'].includes(moving.type)||tableCellOf(data,moving.id)!==(action.capture.destination.parentId===null?null:tableCellOf(data,action.capture.destination.parentId)))return fail();}
+   if(this.tables){const moving=data.blocks.find(b=>b.id===action.capture.nodeId);if(!moving||['table-row','table-column','table-cell','table-header','table-cell-style'].includes(moving.type)||tableCellOf(data,moving.id)!==(action.capture.destination.parentId===null?null:tableCellOf(data,action.capture.destination.parentId)))return fail();}
    const before=new Map(result.data.blocks.map(b=>[b.id,{parentId:b.parentId,slot:b.slot,afterId:b.afterId}]));reposition(result.data,action.capture.nodeId,action.capture.destination);
    for(const b of result.data.blocks){const place={parentId:b.parentId,slot:b.slot,afterId:b.afterId};if(!equal(before.get(b.id),place))write('placement',b.id,place);}
   }
@@ -230,7 +231,7 @@ export class RichBlocks {
    // Preserve the following siblings' relation to the replaced contiguous range.
    for(const block of result.data.blocks)if(block.parentId===original.parentId&&block.slot===original.slot&&block.afterId===nodeIds.at(-1)&&!nodeIds.includes(block.id))move(block.id,{parentId:block.parentId,slot:block.slot,afterId:action.wrapper.id});
   }
-  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights);return result;
+  result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,this.links,this.tables,this.axes,this.widths,this.images,this.alignment,this.rasterFormats,this.imageCells,this.rowHeights,this.cellHeaders);return result;
  }
  commit(plan:RichBlockPlan){
   for(const w of plan.writes)this.registers.write(this.root(w.name),w.id,true,w.value);
@@ -261,11 +262,12 @@ export class RichBlocks {
   }
   for(const name of ['kind','attrs','membership','placement'])for(const v of this.registers.entries(this.root(name))){
    if(!v.present)return fail();if(!this.registers.transactionAvailable(v.txId))missing=true;
-   if(name==='kind'&&!(['paragraph','heading','bullet-list','ordered-list','list-item','blockquote','toggle',...(this.tables?TABLE_KINDS:[]),...(this.axes?['table-column']:[]),...(this.images?['image']:[])] as readonly string[]).includes(v.value as string))return fail();
+   if(name==='kind'&&!(['paragraph','heading','bullet-list','ordered-list','list-item','blockquote','toggle',...(this.tables?TABLE_KINDS:[]),...(this.axes?['table-column']:[]),...(this.cellHeaders?['table-cell-style']:[]),...(this.images?['image']:[])] as readonly string[]).includes(v.value as string))return fail();
+   if(name==='kind'&&this.cellHeaders&&(v.value==='table-cell-style')!==v.key.startsWith(TABLE_CELL_STYLE_PREFIX))return fail();
    if(name==='kind'&&v.value==='image'&&this.imageRegisters.some(channel=>!this.registers.entries(this.root(channel),v.key).length))missing=true;
    if(name==='attrs'){
     if(!object(v.value))return fail();
-    if(this.tables){const kinds=this.registers.entries(this.root('kind'),v.key);if(kinds.length&&!kinds.some(kind=>{if(kind.value==='image')return this.images&&Object.keys(v.value as object).length===0;try{validateRichBlockAttributes(kind.value,v.value,true,this.axes,this.widths);return true;}catch{return false;}}))return fail();}
+    if(this.tables){const kinds=this.registers.entries(this.root('kind'),v.key);if(kinds.length&&!kinds.some(kind=>{if(kind.value==='image')return this.images&&Object.keys(v.value as object).length===0;try{validateRichBlockAttributes(kind.value,v.value,true,this.axes,this.widths,false,this.cellHeaders);return true;}catch{return false;}}))return fail();}
    }if(name==='membership'&&typeof v.value!=='boolean')return fail();
    if(name==='placement'){
     validateRichBlockPlacement(v.value,this.axes);

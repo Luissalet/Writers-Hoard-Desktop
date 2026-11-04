@@ -1,5 +1,6 @@
 import {prepareTableInsert} from './tableEditing';
 import {prepareTableAxes} from './tableAxesEditing';
+import type {TableAxisInsertion} from './tableAxisOrder';
 import {validTableRowHeight} from './tableAxesFormat';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
@@ -18,7 +19,7 @@ function capturedPlacement(source:RichBlocks,capture:RichBlockEditCapture,id:str
  const kind=source.registers.versions.get(binding.kindVersionId),place=source.registers.versions.get(binding.placementVersionId);if(!kind?.present||!place?.present)return fail();
  return{id,type:kind.value as RichBlock['type'],...convergenceClone(place.value) as unknown as RichBlockPlacement};
 }
-export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-insert','rich-table-row-header','rich-table-row-height','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
+export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-paste','rich-table-insert','rich-table-row-header','rich-table-row-height','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
 /** Stable sibling traversal. Anchors outside this slot act as retained head anchors. */
 export function richBlockChildren<T extends RichBlockPlacement&{id:string}>(data:{blocks:readonly T[]},parentId:string|null,slot:RichBlockPlacement['slot']='body'):T[]{
  const children=data.blocks.filter(b=>b.parentId===parentId&&b.slot===slot),ids=new Set(children.map(b=>b.id)),out:T[]=[],seen=new Set<string>();
@@ -31,14 +32,14 @@ export function captureBlockEdit(source:RichBlocks,identity:LocalToolConvergence
  else if(!nodeIds.length)return fail();
  return{format:'writers-hoard-block-edit/1',identity:convergenceClone(identity),field:source.field,nodeIds:convergenceClone(nodeIds),bindings:convergenceClone(bindings.nodes),frontier:source.registers.frontier(),...(destination?{destination:convergenceClone(destination)}:{})};
 }
-export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,action:RichBlockEditingAction,identity:LocalToolConvergenceIdentity,intrinsicLastLeaf:string|null):RichBlockPlan&{textActions:RichAction[]} {
+export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,action:RichBlockEditingAction,identity:LocalToolConvergenceIdentity,intrinsicLastLeaf:string|null,priorInserts:readonly TableAxisInsertion[]=[]):RichBlockPlan&{textActions:RichAction[]} {
  assertConvergenceIdentity(action.capture.identity,identity);if(action.field!==source.field||action.capture.field!==source.field)return fail();
  const result={data:convergenceClone(data),bindings:convergenceClone(bindings),writes:[] as RichBlockPlan['writes'],textActions:[] as RichAction[]};
  const write=(name:RichBlockPlan['writes'][number]['name'],id:string,value:unknown)=>result.writes.push({name,id,value:convergenceClone(value) as LocalToolJson});
  const selected=action.capture.nodeIds.map(id=>result.data.blocks.find(b=>b.id===id)??fail());
  const move=(b:RichBlock,to:RichBlockPlacement)=>{Object.assign(b,to);write('placement',b.id,to);};
  const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const{name,value}of blockBirthWrites(block,source.alignment))write(name,block.id,value);};
- if(action.type==='rich-table-create')return prepareTableAxes(source,data,bindings,action,identity,intrinsicLastLeaf);
+ if(action.type==='rich-table-create'||action.type==='rich-table-paste')return prepareTableAxes(source,data,bindings,action,identity,intrinsicLastLeaf,priorInserts);
  else if(action.type==='rich-table-insert')return prepareTableInsert(source,data,bindings,action,intrinsicLastLeaf);
  else if(action.type==='rich-table-row-header'||action.type==='rich-table-row-height'){
   const row=selected[0];
@@ -51,6 +52,12 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   if(action.type==='rich-table-row-header'){
    if(typeof action.header!=='boolean')return fail();
    if(row.attrs.header!==action.header){row.attrs.header=action.header;write('attrs',row.id,{header:action.header});}
+   if(source.cellHeaders)for(const marker of result.data.blocks){
+    if(marker.type!=='table-cell-style'||marker.parentId!==row.id||marker.attrs.header===null)continue;
+    const now=bindings.nodes.find(binding=>binding.id===marker.id),then=action.capture.bindings.find(binding=>binding.id===marker.id);
+    if(!now||!then||now.attrsVersionId!==then.attrsVersionId)return fail();
+    marker.attrs={columnId:marker.attrs.columnId,header:null};write('attrs',marker.id,marker.attrs);
+   }
   }else{
    const {heightPx}=action;
    if(!source.rowHeights||heightPx!==null&&!validTableRowHeight(heightPx))return fail();
@@ -116,5 +123,5 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
  if(source.axes&&action.type==='rich-block-hide')result.data.axisOrder=result.data.axisOrder!.filter(o=>result.data.blocks.some(b=>b.id===o.tableId));
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells,source.rowHeights,source.cellHeaders);return result;
 }
