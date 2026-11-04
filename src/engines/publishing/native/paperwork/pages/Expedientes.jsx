@@ -1,10 +1,11 @@
 import { nativeWindow } from '../../../navigation';
 const window = nativeWindow('paperwork');
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useApp } from "../context.js";
 import { Busy, Chip, Empty, ErrorBox, Field, Icon, ICONS, Rel, Section, useBusy, useLoad } from "../components/ui.jsx";
 
+const DOSSIER_POLL_MS = 15000;
 const STATE_CLASS = { fresh: "chip-ok", changed: "chip-amber", missing: "chip-danger", stale: "chip-amber" };
 
 function DocPicker({ docs, picked, setPicked }) {
@@ -202,6 +203,17 @@ function List() {
   const [picked, setPicked] = useState([]);
   const docs = useLoad(() => api.call("docs_list", { limit: 200 }), [version]);
   const dossiers = useLoad(() => api.call("kafka_dossier_status", {}), [version]);
+  // Dossiers made elsewhere (the assistant, Kafka itself) show up without leaving the page: Kafka has no event stream for them,
+  // so reload when the window regains focus or becomes visible, and every 15 s while it is visible.
+  const reloadDossiers = useRef(dossiers.reload);
+  reloadDossiers.current = dossiers.reload;
+  useEffect(() => {
+    const again = () => { if (!document.hidden) reloadDossiers.current?.(); };
+    const timer = setInterval(again, DOSSIER_POLL_MS);
+    document.addEventListener("visibilitychange", again);
+    globalThis.addEventListener("focus", again);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", again); globalThis.removeEventListener("focus", again); };
+  }, []);
   const create = () => run("c", async () => {
     const r = await api.call("kafka_dossier", { question, doc_ids: picked.length ? picked : undefined, lang, detail: "summary" });
     setQuestion("");
