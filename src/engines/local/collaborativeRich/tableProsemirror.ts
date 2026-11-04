@@ -33,6 +33,20 @@ export function controlTableAxis(session:RichEditorSession,view:View,axis:RichTa
  return session.gesture(()=>{session.beforeViewChange?.();const capture=session.replica.richTableAxisCapture(session.field,tableId,axis,action==='before'?order[axis][index-1]??null:id);
   if(action==='hide')session.apply({type:'rich-table-axis-hide',field:session.field,capture});else session.apply({type:'rich-table-axis-insert',field:session.field,capture,id:crypto.randomUUID()});session.afterViewChange?.();});
 }
+export function firstTableRow(session:RichEditorSession,tableId:string){
+ const data=session.blockDocument(),id=data.axisOrder?.find(table=>table.tableId===tableId)?.rows[0];
+ return id===undefined?undefined:data.blocks.find(block=>block.id===id&&block.type==='table-row');
+}
+export function toggleTableHeader(session:RichEditorSession,view:View):boolean {
+ const tableId=session.axes?selectedTable(session,view):undefined,row=tableId?firstTableRow(session,tableId):undefined;
+ if(!row)return false;
+ return session.gesture(()=>{
+  session.beforeViewChange?.();
+  const field=session.field,capture=session.replica.richBlockEditCapture(field,[row.id]);
+  session.apply({type:'rich-table-row-header',field,capture,header:row.attrs.header!==true});
+  session.afterViewChange?.();
+ });
+}
 export function rejectCrossCellClipboard(session:RichEditorSession,view:View,event:ClipboardEvent):boolean {
  if(!session.axes)return false;const {from,to}=view.state.selection,a=axisCellAtPosition(view.state.doc,from),b=axisCellAtPosition(view.state.doc,to);if((a||b)&&JSON.stringify(a)!==JSON.stringify(b)){event.preventDefault();return true;}return false;
 }

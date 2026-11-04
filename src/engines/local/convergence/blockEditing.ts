@@ -2,7 +2,7 @@ import {prepareTableInsert} from './tableEditing';
 import {prepareTableAxes} from './tableAxesEditing';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
-import {convergenceClone,assertConvergenceIdentity} from '@/engines/local/convergence/format';
+import {convergenceCanonical,convergenceClone,assertConvergenceIdentity} from '@/engines/local/convergence/format';
 import {validateRichBlockDocument,validateRichBlockPlacement,richBlockLeaf,type RichBlock,type RichBlockDocument,type RichBlockBindings,type RichBlockPlacement} from '@/engines/local/convergence/blockTypes';
 import {blockBirthWrites,type RichBlockPlan,type RichBlocks} from '@/engines/local/convergence/blocks';
 import {validateRichImageAsset} from './imageFormat';
@@ -17,7 +17,7 @@ function capturedPlacement(source:RichBlocks,capture:RichBlockEditCapture,id:str
  const kind=source.registers.versions.get(binding.kindVersionId),place=source.registers.versions.get(binding.placementVersionId);if(!kind?.present||!place?.present)return fail();
  return{id,type:kind.value as RichBlock['type'],...convergenceClone(place.value) as unknown as RichBlockPlacement};
 }
-export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-insert','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
+export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-insert','rich-table-row-header','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
 /** Stable sibling traversal. Anchors outside this slot act as retained head anchors. */
 export function richBlockChildren<T extends RichBlockPlacement&{id:string}>(data:{blocks:readonly T[]},parentId:string|null,slot:RichBlockPlacement['slot']='body'):T[]{
  const children=data.blocks.filter(b=>b.parentId===parentId&&b.slot===slot),ids=new Set(children.map(b=>b.id)),out:T[]=[],seen=new Set<string>();
@@ -39,6 +39,13 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
  const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const{name,value}of blockBirthWrites(block,source.alignment))write(name,block.id,value);};
  if(action.type==='rich-table-create')return prepareTableAxes(source,data,bindings,action,identity,intrinsicLastLeaf);
  else if(action.type==='rich-table-insert')return prepareTableInsert(source,data,bindings,action,intrinsicLastLeaf);
+ else if(action.type==='rich-table-row-header'){
+  const row=selected[0];
+  if(!source.axes||selected.length!==1||row.type!=='table-row'||action.capture.destination||typeof action.header!=='boolean'||Object.keys(action).length!==4)return fail();
+  const current=bindings.nodes.find(binding=>binding.id===row.id),captured=action.capture.bindings.find(binding=>binding.id===row.id);
+  if(!current||!captured||convergenceCanonical(current)!==convergenceCanonical(captured))return fail();
+  if(row.attrs.header!==action.header){row.attrs={header:action.header};write('attrs',row.id,row.attrs);}
+ }
  else if(action.type==='rich-block-list-indent'){
   if(selected.length!==1)return fail();
   const leafWitness=capturedPlacement(source,action.capture,selected[0].id),itemWitness=capturedPlacement(source,action.capture,leafWitness?.parentId??null),listWitness=capturedPlacement(source,action.capture,itemWitness?.parentId??null);

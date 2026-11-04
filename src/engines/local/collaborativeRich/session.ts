@@ -191,7 +191,7 @@ export class RichEditorSession {
   try{
    let pending=false;for(const update of updates)pending=view.receive(update).pending;if(pending)throw Error('local_tool_table_cell_composition_stale');
    const current=view.richTableCellCapture(capture.field,capture.tableId,capture.rowId,capture.columnId,capture.afterId);
-   if(!sameTableCellBindings(current.bindings,capture.bindings,this.widths?capture.columnId:undefined)||view.inspect().conflict)throw Error('local_tool_table_cell_composition_stale');
+   if(!sameTableCellBindings(current.bindings,capture.bindings,this.widths?[capture.rowId,capture.columnId]:[capture.rowId])||view.inspect().conflict)throw Error('local_tool_table_cell_composition_stale');
   }finally{view.destroy();}
  }
  endComposition(){
