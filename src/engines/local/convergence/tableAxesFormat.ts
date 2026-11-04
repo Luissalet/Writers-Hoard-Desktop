@@ -21,15 +21,21 @@ export function validateAxisAttributes(kind:unknown,value:unknown,widths=false):
  else if(kind==='table-cell'){if(keys.length!==1||typeof value.columnId!=='string'||!value.columnId)fail();}
  else fail();
 }
+function cellAncestor(byId:ReadonlyMap<string,RichBlock>,nodeId:string){
+ const seen=new Set<string>();let block=byId.get(nodeId);
+ while(block){if(seen.has(block.id))return fail();seen.add(block.id);if(block.type==='table-cell')return block;block=block.parentId===null?undefined:byId.get(block.parentId);}
+}
+export function tableCellFragmentId(data:RichBlockDocument,nodeId:string):string|null {
+ return cellAncestor(new Map(data.blocks.map(block=>[block.id,block])),nodeId)?.id??null;
+}
 export function tableCellAddress(data:RichBlockDocument,nodeId:string):[string,string,string]|null {
- const byId=new Map(data.blocks.map(b=>[b.id,b])),seen=new Set<string>();let block=byId.get(nodeId);
- while(block){if(seen.has(block.id))return fail();seen.add(block.id);if(block.type==='table-cell'){
-  const row=block.parentId===null?undefined:byId.get(block.parentId),table=row?.parentId===null?undefined:byId.get(row?.parentId??'');
-  if(row?.type!=='table-row'||table?.type!=='table'||typeof block.attrs.columnId!=='string')return fail();return[table.id,row.id,block.attrs.columnId];
- }block=block.parentId===null?undefined:byId.get(block.parentId);}return null;
+ const byId=new Map(data.blocks.map(b=>[b.id,b])),block=cellAncestor(byId,nodeId);
+ if(!block)return null;
+ const row=block.parentId===null?undefined:byId.get(block.parentId),table=row?.parentId===null?undefined:byId.get(row?.parentId??'');
+ if(row?.type!=='table-row'||table?.type!=='table'||typeof block.attrs.columnId!=='string')return fail();return[table.id,row.id,block.attrs.columnId];
 }
 /** Sparse real fragments; empty logical cells do not appear as authored blocks. */
-export function validateTableAxesLayout(data:RichBlockDocument):void {
+export function validateTableAxesLayout(data:RichBlockDocument,imageCells=false):void {
  const byId=new Map(data.blocks.map(b=>[b.id,b])),children=(id:string)=>data.blocks.filter(b=>b.parentId===id),tables=data.blocks.filter(b=>b.type==='table');
  if(!Array.isArray(data.axisOrder)||data.axisOrder.length!==tables.length)return fail();
  for(const [at,order]of data.axisOrder.entries()){
@@ -47,8 +53,10 @@ export function validateTableAxesLayout(data:RichBlockDocument):void {
   if(b.type==='table-cell'){
    const address=tableCellAddress(data,b.id)!;const column=byId.get(address[2]);if(column?.type!=='table-column'||column.parentId!==address[0]||b.slot!=='body')fail();
    if(b.afterId!==null){const anchor=byId.get(b.afterId);if(anchor&&(anchor.type!=='table-cell'||JSON.stringify(tableCellAddress(data,anchor.id))!==JSON.stringify(address)))fail();}
-   const stack:RichBlock[]=[...children(b.id)],seen=new Set<string>();let leaf=false;
-   while(stack.length){const next=stack.pop()!;if(seen.has(next.id)||axisKind(next.type))fail();seen.add(next.id);if(next.type==='paragraph'||next.type==='heading')leaf=true;stack.push(...children(next.id));}if(!leaf)fail();
+   const stack:RichBlock[]=[...children(b.id)],seen=new Set<string>();
+   // A retained fragment anchor can be empty after its last image was removed.
+   let leaf=imageCells&&!stack.length;
+   while(stack.length){const next=stack.pop()!;if(seen.has(next.id)||axisKind(next.type))fail();seen.add(next.id);if(next.type==='paragraph'||next.type==='heading'||imageCells&&next.type==='image')leaf=true;stack.push(...children(next.id));}if(!leaf)fail();
   }
   if(b.type==='table'){let ancestor=parent;while(ancestor){if(ancestor.type==='table-cell')fail();ancestor=ancestor.parentId===null?undefined:byId.get(ancestor.parentId);}}
  }

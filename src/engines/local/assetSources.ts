@@ -4,16 +4,21 @@ export type LocalAssetSource=Pick<LocalToolDefinition,'namespace'|'assets'|'asse
 import type {LocalReleaseMetadata} from './releaseMetadata';
 import type {LocalAssetFile} from './assetFileFormat';
 import {validateRichImageAsset,type RichImageAsset} from './convergence/imageFormat';
-import {localToolRichImageRaster,type LocalToolStateCodec} from './stateCodecFormat';
+import {localToolRichImageCells,localToolRichImageRaster,type LocalToolStateCodec} from './stateCodecFormat';
 export async function resolveAssetSource(source:LocalAssetSource,manifest:LocalReleaseMetadata|undefined,ref:LocalAssetRef):Promise<LocalAssetResolved|null>{validateLocalAssetRef(ref);if(ref.kind==='source'&&ref.releaseHash&&ref.releaseHash!==manifest?.contentHash)return null;if(ref.kind!=='source'||ref.namespace!==source.namespace)return null;const slots:LocalAssetManifest=source.assets??{},key=assetSlot(slots,ref.slot);if(!key)return null;const spec=slots[key],load=source.assetFiles?.[spec.path];if(!load)return null;const descriptor=manifest?.files.find(file=>file.path===spec.path);if(manifest&&!descriptor)throw Error('local_asset_file_not_in_release');const blob=await load(),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer()))].map(byte=>byte.toString(16).padStart(2,'0')).join('');if(descriptor&&(descriptor.sha256!==hash||descriptor.bytes!==blob.size))throw Error('local_asset_hash_mismatch');return{blob,kind:spec.kind,mime:blob.type,version:JSON.stringify([manifest?.contentHash??null,key,hash]),ref:{...ref,slot:key},origin:'default',slot:key};}
 
 import {assetAccepts,type LocalAssetInstallation,type LocalAssetOverrides,type LocalToolAssets} from './assets';
 export interface LocalAssetPort {current():Promise<LocalAssetSource>;source(ref:Extract<LocalAssetRef,{kind:'source'}>):Promise<LocalAssetResolved|null>;user(ref:Extract<LocalAssetRef,{kind:'media'|'image'|'file'}>):Promise<LocalAssetResolved|null>;image?(asset:RichImageAsset):Promise<LocalAssetFile|undefined>;import?:LocalToolAssets['import'];choices(kind:import('./assets').LocalAssetKind):ReturnType<LocalToolAssets['choices']>;read():Promise<LocalAssetInstallation>;save(slot:string,ref:LocalAssetRef|null,version:string):Promise<LocalAssetInstallation>}
 /** Authoring uses local bytes; receiving a causal cut is a separate operation. */
 export function requireLocalImageActions(assets:LocalToolAssets|undefined,actions:readonly import('./stateActions').LocalToolStateAction[],codec:LocalToolStateCodec|undefined){
- const images=actions.filter(action=>action.type==='rich-image-insert'||action.type==='rich-image-replace');
+ const images=actions.filter(action=>action.type==='rich-image-insert'||action.type==='rich-image-replace'||action.type==='rich-table-cell-image-insert');
  if(!images.length)return undefined;
- return (async()=>{for(const {field,asset} of images){validateRichImageAsset(asset,localToolRichImageRaster(codec?.fields[field]));if(!assets||!await assets.resolveImage(asset))throw Error('local_asset_image_unavailable');}})();
+ return (async()=>{for(const {type,field,asset} of images){
+  const descriptor=codec?.fields[field];
+  if(type==='rich-table-cell-image-insert'&&!localToolRichImageCells(descriptor))throw Error('local_tool_table_axes_action_invalid');
+  validateRichImageAsset(asset,localToolRichImageRaster(descriptor));
+  if(!assets||!await assets.resolveImage(asset))throw Error('local_asset_image_unavailable');
+ }})();
 }
 
 export function createLocalAssetService(port:LocalAssetPort):LocalToolAssets{

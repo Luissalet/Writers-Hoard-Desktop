@@ -10,13 +10,14 @@ import {convergenceClone} from './format';
 export function deriveTableAxesSupport(source:RichBlocks,rich:RichRuns,read:(frontier:string[])=>HistoricalTableField):TableSupport {
  const result:TableSupport={nodes:new Map(),rich:{scalars:new Map(),routes:[]}},registers=source.registers,visited=new Set<string>();
  if(!registers.entries(source.root('membership')).some(v=>v.present&&v.value===true&&!registers.winner(source.root('membership'),v.key)))return result;
- const contribute=(txId:string,node:string|null,ref?:RichRef,columnId?:string,whole=false)=>{
-  const key=JSON.stringify([txId,node,ref??null,columnId??null,whole]);if(visited.has(key))return;visited.add(key);
+ const contribute=(txId:string,node:string|null,ref?:RichRef,columnId?:string,whole=false,imageParent=false)=>{
+  const key=JSON.stringify([txId,node,ref??null,columnId??null,whole,imageParent]);if(visited.has(key))return;visited.add(key);
   const parents=registers.transactionParents(txId);if(!parents?.length||!registers.transactionAvailable(txId))return;
-  const prior=read(parents);validateRichBlockDocument(prior.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats);
+  const prior=read(parents);validateRichBlockDocument(prior.data,source.links,true,true,source.widths,source.images,source.alignment,source.rasterFormats,source.imageCells);
   const home=node===null&&ref?prior.home(ref):undefined,target=node??home?.node;if(!target)return;
   const byId=new Map(prior.data.blocks.map(b=>[b.id,b])),targetBlock=byId.get(target);if(!targetBlock)return;
-  const required=new Map<string,RichBlock>(),seen=new Set<string>();let cursor:RichBlock|undefined=targetBlock,table:RichBlock|undefined;
+  if(imageParent&&(targetBlock.type!=='image'||targetBlock.parentId===null))return;
+  const required=new Map<string,RichBlock>(),seen=new Set<string>();let cursor:RichBlock|undefined=imageParent?byId.get(targetBlock.parentId!):targetBlock,table:RichBlock|undefined;
   while(cursor){if(seen.has(cursor.id))return;seen.add(cursor.id);required.set(cursor.id,cursor);if(cursor.type==='table'){table=cursor;break;}
    if(cursor.type==='table-cell'){const column=byId.get(String(cursor.attrs.columnId));if(column?.type!=='table-column')return;required.set(column.id,column);}
    cursor=cursor.parentId===null?undefined:byId.get(cursor.parentId);
@@ -52,6 +53,12 @@ export function deriveTableAxesSupport(source:RichBlocks,rich:RichRuns,read:(fro
  for(const version of registers.candidates(source.root('placement')))if(version.present&&registers.winner(source.root('placement'),version.key)?.id===version.id)contribute(version.txId,version.key,undefined,undefined,true);
  for(const {block,binding}of source.retainedStructure().values()){
   const version=registers.versions.get(binding.placementVersionId);if(version&&block.parentId!==null)contribute(version.txId,block.parentId,undefined,block.type==='table-cell'?String(block.attrs.columnId):undefined);
+  if(source.imageCells&&block.type==='image'&&block.parentId!==null){
+   for(const channel of ['imageSource','imageSize','imageAlignment'] as const){
+    const edit=registers.winner(source.root(channel),block.id);
+    if(edit?.present)contribute(edit.txId,block.id,undefined,undefined,false,true);
+   }
+  }
  }
  return result;
 }

@@ -1,7 +1,7 @@
 import {localToolRichLinks,localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,isLocalToolRichBlockField} from '../stateCodec';
 import {isTableAxesSchema,isTableWidthsSchema} from '../convergence/tableAxesFormat';
-import {RASTER_BLOCK_SCHEMA,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from '../convergence/imageFormat';
-import {localToolRichImageAlignment,localToolRichImageRaster,localToolRichImages} from '../stateCodecFormat';
+import {isImageRasterSchema,isRichImageAlignment,isRichImageSize,validateRichImageAsset} from '../convergence/imageFormat';
+import {localToolRichImageAlignment,localToolRichImageCells,localToolRichImageRaster,localToolRichImages} from '../stateCodecFormat';
 import type {LocalToolAssets} from '../assets';
 import {RichImage} from './RichImage';
 import {tableAxesRows,tableWidthStyle} from './tableAxesLayout';
@@ -21,7 +21,7 @@ export function richBaselineView(baseline:RichBaseline|undefined,client:LocalToo
  try{
   const identity=snapshot.document;if(!client.documentId||!identity||identity.id!==client.documentId||identity.namespace!==client.namespace||client.namespace!==definition.namespace)throw Error('rich_baseline_identity');
   const data=snapshot.data;if(!data||typeof data!=='object'||Array.isArray(data)||!Object.hasOwn(data,field))throw Error('rich_baseline_field');
-  const document=data[field],descriptor=definition.codec?.fields[field];if(isLocalToolRichBlockField(descriptor)){validateRichBlockDocument(document,localToolRichLinks(descriptor),localToolRichTables(descriptor),localToolRichTableAxes(descriptor),localToolRichTableWidths(descriptor),localToolRichImages(descriptor),localToolRichImageAlignment(descriptor),localToolRichImageRaster(descriptor));return{kind:'ready',snapshot,document:richBlockLeaves(document,localToolRichLinks(descriptor),localToolRichTables(descriptor)),blockDocument:document,fresh:!baseline.stale};}validateRichDocument(document,localToolRichLinks(descriptor));return{kind:'ready',snapshot,document,fresh:!baseline.stale};
+  const document=data[field],descriptor=definition.codec?.fields[field];if(isLocalToolRichBlockField(descriptor)){validateRichBlockDocument(document,localToolRichLinks(descriptor),localToolRichTables(descriptor),localToolRichTableAxes(descriptor),localToolRichTableWidths(descriptor),localToolRichImages(descriptor),localToolRichImageAlignment(descriptor),localToolRichImageRaster(descriptor),localToolRichImageCells(descriptor));return{kind:'ready',snapshot,document:richBlockLeaves(document,localToolRichLinks(descriptor),localToolRichTables(descriptor)),blockDocument:document,fresh:!baseline.stale};}validateRichDocument(document,localToolRichLinks(descriptor));return{kind:'ready',snapshot,document,fresh:!baseline.stale};
  }catch{return{kind:'invalid'};}
 }
 const tags:Record<RichMark,string>={bold:'strong',italic:'em',underline:'u',strike:'s',code:'code'};
@@ -38,7 +38,7 @@ export function RichBaselineText({assets,document,blockDocument,field,label,plac
 function BlockBaselineText({assets,document,field,label,placeholder,es}:{assets?:LocalToolAssets;document:RichBlockDocument;field:string;label:string;placeholder?:string;es:boolean}){
  const parts=(block:RichBlockDocument['blocks'][number])=>block.content?.map((part,index)=><span key={index}>{(part.marks??[]).reduceRight<ReactNode>((node,mark)=>mark.type==='link'?createElement('a',{href:mark.attrs.href,target:'_blank',rel:'noopener noreferrer nofollow',className:'underline text-accent-plum-light'},node):createElement(tags[mark.type],null,node),part.text)}</span>);
  const node=(block:RichBlockDocument['blocks'][number]):ReactNode=>{const props={key:block.id,'data-writer-block':block.id};
-  if(block.type==='image'){const {asset,displaySize,alignment}=block.attrs;validateRichImageAsset(asset,document.schema===RASTER_BLOCK_SCHEMA);return isRichImageSize(displaySize)?<RichImage key={block.id} id={block.id} assets={assets} asset={asset} displaySize={displaySize} alignment={isRichImageAlignment(alignment)?alignment:undefined} es={es}/>:null;}
+  if(block.type==='image'){const {asset,displaySize,alignment}=block.attrs;validateRichImageAsset(asset,isImageRasterSchema(document.schema));return isRichImageSize(displaySize)?<RichImage key={block.id} id={block.id} assets={assets} asset={asset} displaySize={displaySize} alignment={isRichImageAlignment(alignment)?alignment:undefined} es={es}/>:null;}
   if(block.type==='table'&&isTableAxesSchema(document.schema)){
    const rows=tableAxesRows(document,block.id);if(!rows.length)return null;
    const widths=isTableWidthsSchema(document.schema),columns=rows[0].cells;

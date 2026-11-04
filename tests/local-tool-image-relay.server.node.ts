@@ -10,14 +10,18 @@ import type {LocalToolJson} from '@/engines/local/stateTypes';
 import {rasterFixtures} from './local-tool-image-formats.fixture';
 import {testImageBase64} from './local-tool-image-fixture';
 
-export async function testBinaryImageRelay(profile:'legacy'|'aligned'|'raster'='legacy'){
- const alignmentProfile=profile!=='legacy',raster=profile==='raster';
+export async function testBinaryImageRelay(profile:'legacy'|'aligned'|'raster'|'cells'='legacy'){
+ const alignmentProfile=profile!=='legacy',cells=profile==='cells',raster=profile==='raster'||cells;
  const bytesA=Buffer.from(raster?rasterFixtures[0].base64:testImageBase64,'base64'),bytesB=Buffer.from(raster?rasterFixtures[1].base64:'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAZElEQVR4nO3PMQ0AIRQEUTRg41q0IAWlJwgD/IJq2GSSLafY1/qYx/3rO+61vr12SAB9SAB9SAB96BqQcrTqBdC9ALoXQPf5gJSjVS+A7gXQvQC6zwekHK16AXQvgO4F0H08YAPEFUR5VhpNyAAAAABJRU5ErkJggg==','base64'),describe=(bytes:Buffer,mime:'image/png'|'image/jpeg'|'image/webp')=>({sha256:createHash('sha256').update(bytes).digest('hex'),mime,size:bytes.byteLength}),assetA=describe(bytesA,raster?'image/jpeg':'image/png'),assetB=describe(bytesB,raster?'image/webp':'image/png');
  const namespace='tests.binary-images',field='body',nodeId='own-image';
- const imageField=raster?{kind:'rich',profile:'blocks-tree/8',schema:'writers-blocks/7'} as const:alignmentProfile?{kind:'rich',profile:'blocks-tree/7',schema:'writers-blocks/6'} as const:{kind:'rich',profile:'blocks-tree/6',schema:'writers-blocks/5'} as const;
+ const imageField=cells?{kind:'rich',profile:'blocks-tree/9',schema:'writers-blocks/8'} as const:raster?{kind:'rich',profile:'blocks-tree/8',schema:'writers-blocks/7'} as const:alignmentProfile?{kind:'rich',profile:'blocks-tree/7',schema:'writers-blocks/6'} as const:{kind:'rich',profile:'blocks-tree/6',schema:'writers-blocks/5'} as const;
  const contract:LocalToolConvergenceContract={namespace,validationId:'image-test',schemaEpoch:'image-test-1',codec:{version:2,fields:{body:imageField}},validateState:(value):value is LocalToolJson=>!!value&&typeof value==='object'&&!Array.isArray(value)};
  const genesis=createLocalToolGenesis({body:{type:'block-doc',schema:imageField.schema,blocks:[{id:'P',type:'paragraph',attrs:{},parentId:null,slot:'body',afterId:null,content:[]}],axisOrder:[]}},contract),aReplica=createLocalToolReplica(genesis,{authorId:'own-A',contract});
- aReplica.apply([{type:'rich-image-insert',field,capture:aReplica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId:'P'}),id:nodeId,asset:assetA}]);
+ const placement={parentId:null,slot:'body' as const,afterId:'P'};
+ if(cells){
+  aReplica.apply([{type:'rich-table-create',field,capture:aReplica.richBlockEditCapture(field,[],placement),table:{id:'T',rows:[{id:'R',header:false}],columns:[{id:'C'}]}}]);
+  aReplica.apply([{type:'rich-table-cell-image-insert',field,capture:aReplica.richTableCellCapture(field,'T','R','C'),fragmentId:'F',id:nodeId,asset:assetA}]);
+ }else aReplica.apply([{type:'rich-image-insert',field,capture:aReplica.richBlockEditCapture(field,[],placement),id:nodeId,asset:assetA}]);
  const bReplica=createLocalToolReplica(aReplica.checkpoint(),{authorId:'own-B',contract}),seed=aReplica.export();
  const doc={projectId:'own-project',eraId:null,namespace,documentId:'own-doc',lineage:'own-lineage',convergence:convergenceIdentityOf(seed)};
  let host='';const relay=createPresenceRelay(()=>[host]),server=http.createServer((req,res)=>{void relay.handle(req,res).then(found=>{if(!found)res.writeHead(404).end();});});
@@ -60,8 +64,8 @@ export async function testBinaryImageRelay(profile:'legacy'|'aligned'|'raster'='
    ok('alignment-only delta retains both images without another upload');
   }
   const final=await update(B,'content-full-request',{requestId:'complete'});const combined=bReplica.receive(final.content);assert.equal(combined.pending,false);
-  const visible=(bReplica.read() as unknown as {body:{blocks:{id:string;attrs:unknown}[]}}).body.blocks.find(block=>block.id===nodeId);
-  assert.deepEqual(visible?.attrs,{asset:assetB,displaySize:'small',...(alignmentProfile?{alignment:'right'}:{})});await sameBytes(B,assetA,bytesA);await sameBytes(B,assetB,bytesB);
+  const visible=(bReplica.read() as unknown as {body:{blocks:{id:string;parentId:string|null;attrs:unknown}[]}}).body.blocks.find(block=>block.id===nodeId);
+  assert.deepEqual(visible?.attrs,{asset:assetB,displaySize:'small',...(alignmentProfile?{alignment:'right'}:{})});assert.equal(visible?.parentId,cells?'F':null);await sameBytes(B,assetA,bytesA);await sameBytes(B,assetB,bytesB);
   assert.equal(Buffer.from(final.content.updateBase64,'base64').includes(bytesA),false);assert.equal(Buffer.from(final.content.updateBase64,'base64').includes(bytesB),false);
   ok('replacement and resize converge while old and new bytes use only the binary channel');
   await update(B,'join',{document:doc,content:true});await update(B,'leave');await denied(B,assetB.sha256);await denied(people,assetB.sha256);
