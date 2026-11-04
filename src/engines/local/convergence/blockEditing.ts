@@ -4,7 +4,8 @@ import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import type {LocalToolJson} from '@/engines/local/stateTypes';
 import {convergenceClone,assertConvergenceIdentity} from '@/engines/local/convergence/format';
 import {validateRichBlockDocument,validateRichBlockPlacement,richBlockLeaf,type RichBlock,type RichBlockDocument,type RichBlockBindings,type RichBlockPlacement} from '@/engines/local/convergence/blockTypes';
-import type {RichBlockPlan,RichBlocks} from '@/engines/local/convergence/blocks';
+import {blockBirthWrites,type RichBlockPlan,type RichBlocks} from '@/engines/local/convergence/blocks';
+import {validateRichImageAsset} from './imageFormat';
 import type {LocalToolConvergenceIdentity} from '@/engines/local/convergence/types';
 import type {RichAction} from '@/engines/local/convergence/richTypes';
 import type {RichBlockEditingAction,RichBlockEditCapture} from '@/engines/local/convergence/blockEditingTypes';
@@ -16,7 +17,7 @@ function capturedPlacement(source:RichBlocks,capture:RichBlockEditCapture,id:str
  const kind=source.registers.versions.get(binding.kindVersionId),place=source.registers.versions.get(binding.placementVersionId);if(!kind?.present||!place?.present)return fail();
  return{id,type:kind.value as RichBlock['type'],...convergenceClone(place.value) as unknown as RichBlockPlacement};
 }
-export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-table-create','rich-table-insert','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
+export function isBlockEditingAction(value:{type:string}):value is RichBlockEditingAction{return ['rich-image-insert','rich-table-create','rich-table-insert','rich-block-list-indent','rich-block-insert','rich-block-transform','rich-block-container','rich-block-hide','rich-block-unwrap'].includes(value.type);}
 /** Stable sibling traversal. Anchors outside this slot act as retained head anchors. */
 export function richBlockChildren<T extends RichBlockPlacement&{id:string}>(data:{blocks:readonly T[]},parentId:string|null,slot:RichBlockPlacement['slot']='body'):T[]{
  const children=data.blocks.filter(b=>b.parentId===parentId&&b.slot===slot),ids=new Set(children.map(b=>b.id)),out:T[]=[],seen=new Set<string>();
@@ -35,7 +36,7 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
  const write=(name:RichBlockPlan['writes'][number]['name'],id:string,value:unknown)=>result.writes.push({name,id,value:convergenceClone(value) as LocalToolJson});
  const selected=action.capture.nodeIds.map(id=>result.data.blocks.find(b=>b.id===id)??fail());
  const move=(b:RichBlock,to:RichBlockPlacement)=>{Object.assign(b,to);write('placement',b.id,to);};
- const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const[name,value]of Object.entries({kind:block.type,attrs:block.attrs,membership:true,placement:{parentId:block.parentId,slot:block.slot,afterId:block.afterId}}))write(name as RichBlockPlan['writes'][number]['name'],block.id,value);};
+ const put=(block:RichBlock)=>{if(source.registers.entries(source.root('kind'),block.id).length||result.data.blocks.some(b=>b.id===block.id))return fail();result.data.blocks.push(block);for(const{name,value}of blockBirthWrites(block))write(name,block.id,value);};
  if(action.type==='rich-table-create')return prepareTableAxes(source,data,bindings,action,identity,intrinsicLastLeaf);
  else if(action.type==='rich-table-insert')return prepareTableInsert(source,data,bindings,action,intrinsicLastLeaf);
  else if(action.type==='rich-block-list-indent'){
@@ -58,6 +59,15 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
    if(ownerWitness?.type!=='list-item'||!outerWitness||!listKind(outerWitness.type)||owner?.type!=='list-item'||!outer||!listKind(outer.type)||list.parentId!==owner.id||list.slot!==listWitness.slot||owner.parentId!==outer.id||owner.slot!==ownerWitness.slot)return fail();
    for(const b of siblings)if(b.afterId===item.id)move(b,{parentId:b.parentId,slot:b.slot,afterId:oldAfter});for(const b of richBlockChildren(result.data,outer.id))if(b.afterId===owner.id)move(b,{parentId:b.parentId,slot:b.slot,afterId:item.id});move(item,{parentId:outer.id,slot:'body',afterId:owner.id});if(siblings.length===1){write('membership',list.id,false);result.data.blocks=result.data.blocks.filter(b=>b.id!==list.id);}
   }
+ }else if(action.type==='rich-image-insert'){
+  const place=action.capture.destination;
+  if(!source.images||!place||place.parentId!==null||place.slot!=='body'||selected.length||
+     typeof action.id!=='string'||!action.id||Object.keys(action).length!==5||
+     place.afterId!==null&&!result.data.blocks.some(b=>b.id===place.afterId&&b.parentId===null&&b.slot==='body'))return fail();
+  validateRichImageAsset(action.asset);
+  const block:RichBlock={id:action.id,type:'image',attrs:{asset:convergenceClone(action.asset),displaySize:'medium'},...convergenceClone(place)};
+  for(const b of result.data.blocks)if(b.parentId===null&&b.slot==='body'&&b.afterId===place.afterId)move(b,{parentId:null,slot:'body',afterId:block.id});
+  put(block);
  }else if(action.type==='rich-block-insert'){
   const place=action.capture.destination;if(!place||selected.length||!['paragraph','heading'].includes(action.block.type)||typeof action.text!=='string')return fail();
   const href=action.link&&typeof action.link.href==='string'?normalizeEditorLinkHref(action.link.href):undefined;if(action.link!==undefined&&(!source.links||!href||Object.keys(action.link).length!==1))return fail();
@@ -85,5 +95,5 @@ export function prepareBlockEdit(source:RichBlocks,data:RichBlockDocument,bindin
   write('membership',wrapper.id,false);result.data.blocks=result.data.blocks.filter(b=>!hidden.has(b.id));
  }
  if(source.axes&&action.type==='rich-block-hide')result.data.axisOrder=result.data.axisOrder!.filter(o=>result.data.blocks.some(b=>b.id===o.tableId));
- result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths);return result;
+ result.data.blocks.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);validateRichBlockDocument(result.data,source.links,source.tables,source.axes,source.widths,source.images);return result;
 }

@@ -4,6 +4,7 @@ import {assetFixture,assertAsset} from './local-tool-assets.browser';
 import {createLocalToolClient} from '@/engines/local/storage';
 import {runBridgeTool} from '@/services/aiBridge/dispatch';
 import {testFontBase64} from './dictionary-test-font';
+import {testImageBase64} from './local-tool-image-fixture';
 import Dexie from 'dexie';
 import {createSourceToolDocument} from '@/engines/local/documents/store';
 import {LOCAL_ASSET_HANDLERS} from '@/engines/local/assetBridge';
@@ -44,6 +45,25 @@ export async function testLocalToolAssetFiles(){
   const prior=await db.localToolAssetFiles.count(),stale=await runBridgeTool('wh_local_asset_override',{projectId:P,namespace:source.namespace,slot:'data',level:'installation',expectedVersion:version,file:{name:'stale.txt',kind:'data',mime:'text/plain',base64:btoa('stale')}});
   assertAsset(!stale.ok&&await db.localToolAssetFiles.count()===prior,'Stale composite import left inventory');
   passed.push('Registered dispatcher atomically imports/selects and returns opt-in content; stale CAS leaves no file');
+  const imageArgs={projectId:P,namespace:source.namespace,file:{name:'lighthouse.png',kind:'image',mime:'image/png',base64:testImageBase64}};
+  const image=await runBridgeTool('wh_local_asset_file_import',imageArgs);
+  assertAsset(image.ok&&image.result.kind==='image'&&image.result.size===291,'Image dispatcher did not store real PNG');
+  const asset={sha256:image.result.sha256,mime:'image/png' as const,size:image.result.size};
+  // The second fixture replaces the dev definition for this namespace. A new
+  // client uses that definition; the previously mounted port remains stale.
+  let rejectedStaleImagePort=false;try{await client.assets.resolveImage(asset);}catch(error){rejectedStaleImagePort=error instanceof Error&&error.message==='local_tool_pin_conflict';}
+  assertAsset(rejectedStaleImagePort,'Image lookup accepted a superseded source port');
+  const live=createLocalToolClient(P,foreign.source),beforeImageReads=await db.localToolAssetFiles.count(),ours=await live.assets.resolveImage(asset),theirs=await foreign.client.assets.resolveImage(asset);
+  assertAsset(ours&&theirs===null,'Digest did not resolve only within the owning project');
+  const bitmap=await createImageBitmap(ours.blob);
+  try{assertAsset(bitmap.width===128&&bitmap.height===80,'Saved PNG did not decode with original dimensions');}finally{bitmap.close();}
+  const found=await runBridgeTool('wh_local_asset_image_find',{projectId:P,namespace:source.namespace,asset,includeContent:true});
+  assertAsset(found.ok&&found.result.available&&found.result.base64===testImageBase64,'Dispatcher did not return exact image bytes');
+  const missing=await runBridgeTool('wh_local_asset_image_find',{projectId:P+'-foreign',namespace:source.namespace,asset});
+  assertAsset(missing.ok&&!missing.result.available,'Digest found another project’s image');
+  const invalid=await runBridgeTool('wh_local_asset_file_import',{...imageArgs,file:{...imageArgs.file,base64:testImageBase64.slice(0,-16)}});
+  assertAsset(!invalid.ok&&await db.localToolAssetFiles.count()===beforeImageReads,'Truncated image or a read changed inventory');
+  passed.push('Normal dispatcher imports and decodes a 128×80 PNG, returns exact bytes by digest and leaves other projects and reads untouched');
   return passed;
  }finally{await deleteProject(P);await deleteProject(P+'-foreign');}
 }

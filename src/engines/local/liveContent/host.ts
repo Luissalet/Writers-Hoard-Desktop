@@ -1,3 +1,4 @@
+import {requireLocalImageActions} from '../assetSources';
 import {readSourceToolDocument} from '../documents/store';
 import type {RichEditorSession,RichSourceExport} from '../collaborativeRich/session';
 import type {LocalToolConvergenceUpdate,LocalToolConvergenceIdentity} from '../convergence/types';
@@ -48,7 +49,7 @@ export class LocalDocumentContentHost {
   this.releaseHash=releaseHash;this.savePreference=savePreference;this.saveMode=savePreference.mode;
   this.offPreference=savePreference.subscribe(()=>{if(this.saveMode!==savePreference.mode){this.saveMode=savePreference.mode;this.scheduleEpoch++;this.cancelTimer();}this.reconcileAutosave();this.changed();});
   this.instanceId=instanceId;this.current=current;this.client=client;
-  this.port=Object.freeze({instanceId,getSnapshot:()=>this.snapshot(),subscribe:(changed:()=>void)=>{this.listeners.add(changed);return()=>{this.listeners.delete(changed);};},query:()=>this.query(),capture:((field:string,request:LocalToolJson)=>this.capture(field,request)) as LocalToolDocumentContent['capture'],apply:async(field:string,actions:readonly LocalToolStateAction[])=>{const captured=convergenceClone(actions);if(!Array.isArray(captured)||!captured.length||captured.some(action=>action.field!==field))throw Error('local_tool_live_action_field_mismatch');await this.validate();return this.session(field).applyBatch(captured);},setSaveMode:(mode:LocalToolSaveMode)=>{this.assert();return this.savePreference.choose(mode,()=>this.validate());},control:(action:'undo'|'redo'|'save'|'leave'|'retry'|'adopt',field?:string)=>this.control(action,field)});
+  this.port=Object.freeze({instanceId,getSnapshot:()=>this.snapshot(),subscribe:(changed:()=>void)=>{this.listeners.add(changed);return()=>{this.listeners.delete(changed);};},query:()=>this.query(),capture:((field:string,request:LocalToolJson)=>this.capture(field,request)) as LocalToolDocumentContent['capture'],apply:async(field:string,actions:readonly LocalToolStateAction[])=>{const captured=convergenceClone(actions);if(!Array.isArray(captured)||!captured.length||captured.some(action=>action.field!==field))throw Error('local_tool_live_action_field_mismatch');await this.validate();const session=this.session(field),bytes=requireLocalImageActions(session.assets,captured);if(bytes){await bytes;await this.validate();if(this.session(field)!==session)throw Error('local_tool_live_host_unavailable');}return session.applyBatch(captured);},setSaveMode:(mode:LocalToolSaveMode)=>{this.assert();return this.savePreference.choose(mode,()=>this.validate());},control:(action:'undo'|'redo'|'save'|'leave'|'retry'|'adopt',field?:string)=>this.control(action,field)});
   hosts.set(this.port,this);liveDocumentHosts.add(this);
  }
  private assert(){if(!this.alive||!this.current())throw Error('local_tool_live_host_unavailable');}
@@ -78,6 +79,7 @@ export class LocalDocumentContentHost {
  async capture(field:string,request:LocalToolJson):Promise<LocalToolJson>{
   request=convergenceClone(request);await this.validate();
   const s=this.session(field);if(!request||typeof request!=='object'||Array.isArray(request))throw Error('local_tool_live_capture_invalid');const r=request as Record<string,LocalToolJson>,node=String(r.nodeId??'');
+  if(r.kind==='image'){if(r.channel!=='source'&&r.channel!=='size')throw Error('local_tool_live_capture_invalid');return convergenceClone(s.replica.richImageCapture(field,node,r.channel)) as unknown as LocalToolJson;}
   if(r.kind==='table-column-width')return convergenceClone(s.replica.richTableColumnWidthCapture(field,String(r.tableId),String(r.columnId))) as unknown as LocalToolJson;
   if(r.kind==='table-axis')return convergenceClone(s.replica.richTableAxisCapture(field,String(r.tableId),r.axis as import('../convergence/tableAxesFormat').RichTableAxis,(r.afterId??null) as string|null)) as unknown as LocalToolJson;
   if(r.kind==='table-cell')return convergenceClone(s.replica.richTableCellCapture(field,String(r.tableId),String(r.rowId),String(r.columnId),(r.afterId??null) as string|null)) as unknown as LocalToolJson;

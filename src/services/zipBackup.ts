@@ -302,6 +302,16 @@ async function writeProjectToZip(
   const projectDir = `projects/${sanitize(project.title)}__${project.id}`;
   const metadata: ProjectRecord = { ...project };
   try{validateLocalToolProjectStates(metadata);validateWorkspaceAppearanceProject(metadata);validatePublishedEditionsProject(metadata);validateCodexOptionLists(metadata.codexOptionLists);validateProjectArchiveMetadata(metadata);}catch(error){failures.push(failure('export',error,{projectId:project.id,projectDir,path:`${projectDir}/project.json`}));return;}
+  try {
+    const {validateSourceImageArchive}=await import('@/engines/local/documents/imageArchive');
+    const [files,variants,history,archives]=await Promise.all([
+      db.localToolAssetFiles.where('projectId').equals(project.id).toArray(),
+      db.worldEraVariants.where('projectId').equals(project.id).toArray(),
+      db.documentHistory.where('projectId').equals(project.id).toArray(),
+      db.documentArchives.where('projectId').equals(project.id).toArray(),
+    ]);
+    validateSourceImageArchive(metadata,files,variants,history,archives);
+  } catch(error) {failures.push(failure('export',error,{projectId:project.id,projectDir}));return;}
   if (metadata.coverImage) {
     const { blob, ext } = dataUrlToBlob(metadata.coverImage);
     if (blob.byteLength === 0) {
@@ -797,6 +807,11 @@ async function runStrategyPreflight(
       }
     }
     try{const rows=(table:string)=>sections.filter(section=>section.table===table).flatMap(section=>[...section.rows]);validateManuscriptContents(project.project as import('@/types').Project,rows('writings'),rows('worldEraVariants'),rows('publishingProfiles'),rows('documentArchives'));}catch(error){failures.push(failure('preflight',error,{projectId:project.projectId,projectDir:project.projectDir}));}
+    try {
+      const {validateSourceImageArchive}=await import('@/engines/local/documents/imageArchive');
+      const rows=<T,>(table:string)=>sections.filter(section=>section.table===table).flatMap(section=>section.rows as readonly T[]);
+      validateSourceImageArchive(project.project as import('@/types').Project,rows('localToolAssetFiles'),rows('worldEraVariants'),rows('documentHistory'),rows('documentArchives'));
+    } catch(error) {failures.push(failure('preflight',error,{projectId:project.projectId,projectDir:project.projectDir}));}
     scopedProjects.push({
       projectId: project.projectId,
       projectDir: project.projectDir,

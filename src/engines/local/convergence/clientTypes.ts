@@ -7,6 +7,7 @@ export type LocalToolConvergenceSnapshot=LocalToolConvergenceIdentity&{conflict?
 export interface LocalToolConvergenceImportOptions {expectedLineage?:string}
 export interface LocalToolAdoptionReceiptSuccessor {previous:string;successor:string}
 export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
+ richImageCapture(field:string,nodeId:string,channel:import('./imageFormat').RichImageChannel):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./imageFormat').RichImageCapture}>;
  richTableColumnWidthCapture(field:string,tableId:string,columnId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./tableAxesEditing').RichTableColumnWidthCapture}>;
  richTableAxisCapture(field:string,tableId:string,axis:import('./tableAxesFormat').RichTableAxis,afterId:string|null):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./tableAxesEditing').RichTableAxisCapture}>;
  richTableCellCapture(field:string,tableId:string,rowId:string,columnId:string,afterId?:string|null):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./tableAxesEditing').RichTableCellCapture}>;

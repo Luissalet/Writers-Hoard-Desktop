@@ -2,7 +2,7 @@ import type {LocalToolJson} from '../stateTypes';
 import type {RichBlock,RichBlockDocument} from './blockFormat';
 export const TABLE_AXES_SCHEMA='writers-blocks/3' as const;
 export const TABLE_WIDTHS_SCHEMA='writers-blocks/4' as const;
-export const isTableAxesSchema=(schema:unknown)=>schema===TABLE_AXES_SCHEMA||schema===TABLE_WIDTHS_SCHEMA;
+export const isTableAxesSchema=(schema:unknown)=>schema===TABLE_AXES_SCHEMA||schema===TABLE_WIDTHS_SCHEMA||schema==='writers-blocks/5';
 export const MIN_TABLE_COLUMN_WIDTH=48;
 export const validTableColumnWidth=(width:unknown):width is number=>typeof width==='number'&&Number.isSafeInteger(width)&&width>=MIN_TABLE_COLUMN_WIDTH;
 export interface RichTableAxisOrder {tableId:string;rows:string[];columns:string[]}

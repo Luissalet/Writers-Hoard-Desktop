@@ -80,6 +80,7 @@ export function prepareSourceConvergenceContext<T extends LocalToolJson>(origina
  const knownAdoption=adopting&&!!contract.richAdoption&&stored.engine.version==='3';if(knownAdoption)effectiveRichAdoptionContract(stored,contract);
  const epochChanged=!knownAdoption&&(stored.validationId!==contract.validationId||stored.schemaEpoch!==contract.schemaEpoch||stored.codecHash!==convergenceCodecHash(contract.codec));
  if(epochChanged&&stored.engine.version==='8')throw Error('local_tool_source_additive_incompatible');
+ if(epochChanged&&stored.engine.version==='9')throw Error('local_tool_convergence_identity_mismatch');
  let document=original;
  if(epochChanged){
   const checkpoint=createLocalToolGenesis(original.data as T,contract);
