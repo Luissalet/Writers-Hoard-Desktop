@@ -5,6 +5,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { publishingFetch } from './transport';
 import { publishingContext } from './context';
 import { nativeWindow, setNativeRoute } from './navigation';
+import ExternalHoardBar, { EXTERNAL_MODULES } from './ExternalHoardBar';
 
 const NativeSurface = lazy(() => import('./NativeSurface'));
 type Status = Awaited<ReturnType<NonNullable<Window['electronAPI']>['publishing']['status']>>;
@@ -18,6 +19,7 @@ export default function PublishingEngine() {
   const [status, setStatus] = useState<Status | null>(null);
   const [selected, setSelected] = useState('library');
   const [busy, setBusy] = useState(false);
+  const [reload, setReload] = useState(0);
   const [error, setError] = useState('');
   const { projects } = useProjects();
   const [projectId, setProjectId] = useState('');
@@ -41,6 +43,7 @@ export default function PublishingEngine() {
     window.addEventListener('focus', refresh);
     return () => { active = false; window.removeEventListener('focus', refresh); };
   }, [bridge]);
+  const isExternal = (EXTERNAL_MODULES as readonly string[]).includes(selected);
   const retained = (module: string) => status?.modules.find(item => item.id === module)?.state === 'error';
   async function toggle(module: string, enabled: boolean, automatic?: boolean) {
     if (!bridge) return;
@@ -77,13 +80,15 @@ export default function PublishingEngine() {
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
         <select aria-label={locale === 'es' ? 'Proyecto de Writer' : 'Writer project'} value={projectId} onChange={event => { setProjectId(event.target.value); setResults([]); }} className="rounded border border-border bg-bg-surface px-2 py-1"><option value="">{locale === 'es' ? 'Proyecto de Writer…' : 'Writer project…'}</option>{projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}</select>
         <button disabled={!projectId || !status?.enabled.includes(selected)} onClick={() => void linkCurrent()} className="rounded border border-border px-3 py-1 disabled:opacity-40">{locale === 'es' ? 'Vincular lo abierto' : 'Link current objects'}</button>
-        {status && <label className="flex items-center gap-2"><input type="checkbox" checked={status.modules.find(module => module.id === selected)?.automatic ?? false} disabled={busy || retained(selected)} onChange={event => void toggle(selected, status.enabled.includes(selected), event.target.checked)} />{locale === 'es' ? 'Automatismos de esta función' : 'Background jobs for this function'}</label>}
+        {status && isExternal && <span className="text-text-muted">{locale === 'es' ? 'Automatismos de esta función: en su propia app' : 'Background jobs for this function: in its own app'}</span>}
+        {status && !isExternal && <label className="flex items-center gap-2"><input type="checkbox" checked={status.modules.find(module => module.id === selected)?.automatic ?? false} disabled={busy || retained(selected)} onChange={event => void toggle(selected, status.enabled.includes(selected), event.target.checked)} />{locale === 'es' ? 'Automatismos de esta función' : 'Background jobs for this function'}</label>}
       </div>
       {projectId && results.length > 0 && <details className="mt-2 text-sm"><summary>{locale === 'es' ? 'Fuentes y resultados vinculados' : 'Linked sources and outputs'} ({results.length})</summary><ul className="mt-2 space-y-1">{results.map(result => <li key={`${result.module}:${result.kind}:${result.object_id}`}><span className="text-text-muted">{text[result.module as keyof typeof text]} · </span><button onClick={() => void openResult(result)} className="underline">{result.title || result.object_id}</button></li>)}</ul></details>}
+      {bridge && isExternal && <ExternalHoardBar module={selected} locale={locale === 'en' ? 'en' : 'es'} onBack={() => setReload(value => value + 1)} />}
       {error && <p role="alert" className="mt-2 text-sm text-red-300">{error}</p>}
     </header>
     {status?.enabled.includes(selected)
-      ? <Suspense fallback={<p aria-busy="true" className="p-6">…</p>}><NativeSurface key={selected} module={selected} /></Suspense>
+      ? <Suspense fallback={<p aria-busy="true" className="p-6">…</p>}><NativeSurface key={`${selected}:${reload}`} module={selected} /></Suspense>
       : <p className="m-auto max-w-xl p-8 text-center text-text-muted">{!bridge ? (locale === 'es' ? 'Disponible en Writer Desktop.' : 'Available in Writer Desktop.') : locale === 'es' ? 'Activa la función que quieras utilizar. Los motores y automatismos permanecen apagados hasta que los solicitas.' : 'Enable the function you want to use. Engines and background jobs stay off until requested.'}</p>}
   </section>;
 }

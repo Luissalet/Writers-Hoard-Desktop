@@ -28,7 +28,7 @@ class NativeDocs:
                     error = str(detail.get('message') or detail.get('error') or detail.get('detail') or error)
                 except (ValueError, AttributeError):
                     pass
-            return {'ok': False, 'via': 'kafka', 'kind': 'app_down' if status == 409 else 'auth' if status == 401 else 'tool_error', 'error': error}
+            return {'ok': False, 'via': 'kafka', 'kind': 'app_down' if status in (409, 503) else 'auth' if status == 401 else 'tool_error', 'error': error}
 
     def ocr_pdf(self, path, *, pages=None, dpi=200, lang='es', max_pages=40, timeout_s=900.0):
         try:

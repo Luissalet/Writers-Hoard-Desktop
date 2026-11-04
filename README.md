@@ -154,7 +154,7 @@ Fiction sessions can be planned separately from starting play, with date/time, l
 
 ## Library and publishing
 
-Writer incorporates the full library, reading/links, paperwork/PDF and Gutenberg editorial engine/editor as independent modules, initially OFF. Native formats and MCP contracts are retained. See [capabilities, verification and migration](docs/PUBLISHING.md). Existing fiction and profile/origin 5174 are preserved.
+Writer incorporates the full library and Gutenberg editorial engine/editor, and offers reading/links and paperwork/PDF by reference to Links Hoard and Kafka's Hoard (their own apps, found through Hoard Hub), as independent modules, initially OFF. A bar above those two modules shows whether each app is running, starts it through the Hub and opens it. Native formats and MCP contracts are retained. See [capabilities, verification and migration](docs/PUBLISHING.md). Existing fiction and profile/origin 5174 are preserved.
 
 ## Interactive fiction
 

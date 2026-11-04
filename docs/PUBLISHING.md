@@ -2,6 +2,16 @@
 
 ## English
 
+### Reading/links and paperwork by reference (04-11-2026)
+
+Links Hoard (port 5181) and Kafka's Hoard (port 5200) are again apps of their own in the Hoard family. Writer keeps its **Reading and links** and **Documents and paperwork** modules, their switches, views, project references and every native tool name, but no longer carries engine copies: when one of these modules is ON, Writer forwards its native paths (`/links/api/...`, `/paperwork/api/...`) and tool calls to the running Hoard, found through Hoard Hub's registry (`GET :8810/api/apps`, with the family default address when the Hub does not answer). Requests and responses stream both ways (uploads, files, Range, live events); the Hoard's token is read from the file the Hub names. Kafka's Hoard journals every agent write with a reason; when a Writer caller sends none, Writer adds `Requested from Writer's Hoard (<tool>)`.
+
+The data lives in those Hoards. On 04-11 their stores already held every record of Writer's earlier copies (links 16/16, watches 1/1, media 15/15, digests 11/11; documents 107/107, deadlines 34/34, pages 219/219) plus newer ones; Writer's old folders under `<userData>/publishing/data/{links,paperwork}` are left untouched.
+
+When a Hoard is not running, its module answers `503 {code: "hoard_offline", start: {...}}` and the bar above the module shows the state with **Start with Hoard Hub** (Hub `POST /api/apps/<id>/start`, then waits for its health) and **Check**; when the Hoard is back the view reloads. While it runs, the bar shows its address and version and **Open Links Hoard / Open Kafka's Hoard**. Background jobs of these two functions (watches, downloads, video digests; mail, watched folders, reminders) are managed in the Hoards themselves.
+
+REST: `GET /api/external`, `GET /api/external/{links|paperwork}`, `POST /api/external/{links|paperwork}/start`. MCP: `wh_publishing_external_hoards`, `wh_publishing_external_start {module, wait_s?}`. Overrides for tests or other installs: `WRITER_LINKS_URL`, `WRITER_LINKS_TOKEN_FILE`, `WRITER_KAFKA_URL`, `WRITER_KAFKA_TOKEN_FILE`, `WRITER_HUB_URL`. Code: `publishing/fusion/external.py`, `src/engines/publishing/ExternalHoardBar.tsx`. Tests: `tests/test_publishing_external.py` (in-memory Hoards and Hub), `npm run test:publishing` (synthetic HTTP Hoards through the real worker and MCP).
+
 Writer incorporates the complete owned library, reading/links, paperwork/PDF and editorial publishing packages. These are Writer modules, with their original data formats and tool names. Interactive fiction remains in its existing independent worker. Cicero remains separate; Borges belongs to Writer, not Hypatia. Home/Cook and People/Dorian are separate products. No unfinished Theseus work is included.
 
 Open **Library and publishing** in Writer. Each module starts OFF on a new profile. Enabling a module starts its owned engine on demand, over a private stdio worker and in-process ASGI dispatch. No former application server, repository or iframe is required. Background collectors, mail scanning, watches and recovery have a separate opt-in switch. Disabling the last module closes its private worker; disabling an individual module closes its native app/engine sessions. The complete editorial desktop editor opens only through its explicit command; an editor window explicitly opened by the user retains its native window lifecycle.
@@ -25,6 +35,16 @@ New data lives under `<Writer userData>/publishing/data/{library,links,paperwork
 Validation: `npm run test:publishing`, `publishing/.venv/Scripts/python.exe -m pytest -q tests/test_publishing_fusion.py`, renderer/Electron typechecks and the production renderer build. These fixtures use temporary stores, disable automatic jobs, use no model/GPU and do not migrate real data. They do not certify an installed release, native Rust binaries or browser interaction. Independent review, root-controlled CUA, native engine packaging/QA and real migration remain acceptance work before activation.
 
 ## Español
+
+### Lecturas/enlaces y documentos/trámites por referencia (04-11-2026)
+
+Links Hoard (puerto 5181) y Kafka's Hoard (puerto 5200) vuelven a ser apps propias de la familia Hoard. Writer conserva sus módulos **Lecturas y enlaces** y **Documentos y trámites**, sus interruptores, vistas, vínculos con proyectos y todos los nombres de herramientas nativas, pero ya no lleva copias de sus motores: con el módulo encendido, Writer reenvía sus rutas (`/links/api/...`, `/paperwork/api/...`) y llamadas MCP a la app en marcha, localizada por el registro de Hoard Hub (`GET :8810/api/apps`, o la dirección por defecto de la familia si el Hub no responde). Peticiones y respuestas fluyen en los dos sentidos (subidas, archivos, Range, eventos en vivo) con el token que indica el Hub. Kafka's Hoard anota cada escritura de un agente con un motivo; si quien llama desde Writer no lo da, Writer añade `Requested from Writer's Hoard (<herramienta>)`.
+
+Los datos viven en esas apps. El 04-11 ya tenían todos los registros de las copias anteriores de Writer (enlaces 16/16, vigías 1/1, medios 15/15, digestos 11/11; documentos 107/107, plazos 34/34, páginas 219/219) y otros más nuevos; las carpetas antiguas de Writer en `<userData>/publishing/data/{links,paperwork}` no se tocan.
+
+Si la app no está en marcha, el módulo responde `503 {code: "hoard_offline", start: {...}}` y la barra sobre el módulo lo muestra con **Arrancar con Hoard Hub** (el Hub la arranca y Writer espera a su salud) y **Comprobar**; al volver, la vista se recarga sola. Mientras funciona, la barra muestra dirección y versión y **Abrir Links Hoard / Abrir Kafka's Hoard**. Los automatismos de estas dos funciones (vigías, descargas, digestos de vídeo; correo, carpetas vigiladas, recordatorios) se gestionan en esas apps.
+
+REST: `GET /api/external`, `GET /api/external/{links|paperwork}`, `POST /api/external/{links|paperwork}/start`. MCP: `wh_publishing_external_hoards`, `wh_publishing_external_start {module, wait_s?}`. Variables para pruebas u otras instalaciones: `WRITER_LINKS_URL`, `WRITER_LINKS_TOKEN_FILE`, `WRITER_KAFKA_URL`, `WRITER_KAFKA_TOKEN_FILE`, `WRITER_HUB_URL`.
 
 Writer incorpora los paquetes completos de biblioteca, lecturas/enlaces, documentos/trámites/PDF y maquetación editorial. Conserva sus formatos y herramientas nativas, además de la ficción interactiva ya incorporada. Cicero sigue separado; Borges corresponde a Writer, no a Hypatia. Home/Cook y People/Dorian siguen separados. No se incluye ni se reanuda el trabajo pendiente de Theseus.
 

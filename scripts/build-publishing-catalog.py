@@ -10,6 +10,7 @@ from hoard_link import agentkit
 from gutenberg_hoard.agent_tools import TOOLS
 from fusion.search import SEARCH_TOOL
 from fusion.project_links import PROJECT_TOOLS
+from fusion.external import EXTERNAL_TOOLS
 
 catalog_path = ROOT / 'publishing/fusion/catalog.json'
 catalog = [tool for tool in json.loads(catalog_path.read_text(encoding='utf-8')) if tool.get('module') != 'publishing']
@@ -20,7 +21,7 @@ controls = [
     {'name': 'wh_publishing_module_set', 'description': 'Explicitly enable/disable one incorporated Writer module. All default OFF. Disabling closes its engine.', 'inputSchema': {'type': 'object', 'properties': {'module': {'type': 'string', 'enum': ['library', 'links', 'paperwork', 'publishing']}, 'enabled': {'type': 'boolean'}, 'automatic': {'type': 'boolean', 'description': 'Explicitly enable background collectors, watches and recovery. OFF by default.'}}, 'required': ['module', 'enabled']}},
 ]
 controls += [{**controls[0], 'name': 'borges_modules'}, {**controls[1], 'name': 'borges_set_module'}]
-tools = catalog + [SEARCH_TOOL] + controls + PROJECT_TOOLS
+tools = catalog + [SEARCH_TOOL] + controls + PROJECT_TOOLS + EXTERNAL_TOOLS
 bridge = [{'name': tool['name'], 'description': tool['description'], 'schema': tool['inputSchema'], 'writes': not tool.get('annotations', {}).get('readOnlyHint', False), 'group': 'research', 'timeoutMs': 600000} for tool in tools]
 target = ROOT / 'src/services/aiBridge/manifestPublishing.ts'
 target.write_text("import type { BridgeTool } from './schema';\n// Native schemas frozen without engine imports at discovery time.\nexport const PUBLISHING_TOOLS: BridgeTool[] = " + json.dumps(bridge, ensure_ascii=False, indent=2) + ';\n', encoding='utf-8')

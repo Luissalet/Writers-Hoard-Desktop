@@ -21,6 +21,9 @@ from pydantic import Field
 from .search import SEARCH_TOOL, search_all
 from .project_links import PROJECT_TOOLS, project_call
 from .cancellation import join_tasks
+from .external import EXTERNAL, EXTERNAL_TOOLS, external_call, status as external_status, status_all as external_status_all, start as external_start
+
+EXTERNAL_NAMES = {tool['name'] for tool in EXTERNAL_TOOLS}
 
 
 class Toggle(BaseModel):
@@ -214,6 +217,22 @@ def create_runtime(*, name, product, root, data_dir, specs, factory, port):
     async def module_list():
         return {"name": name, "modules": [m.status() for m in modules.values()]}
 
+    @app.get("/api/external")
+    async def external_list():
+        return await external_status_all()
+
+    @app.get("/api/external/{key}")
+    async def external_one(key: str):
+        if key not in EXTERNAL:
+            raise HTTPException(404, "Unknown external module")
+        return await external_status(key)
+
+    @app.post("/api/external/{key}/start")
+    async def external_launch(key: str):
+        if key not in EXTERNAL:
+            raise HTTPException(404, "Unknown external module")
+        return await external_start(key)
+
     @app.put("/api/modules/{key}")
     async def toggle_module(key: str, body: Toggle):
         module = module_for(key)
@@ -262,7 +281,7 @@ def create_runtime(*, name, product, root, data_dir, specs, factory, port):
 
     @app.get("/api/agent/tools")
     async def tools():
-        return {"service": product + "-hoard", "tools": controls + [SEARCH_TOOL] + PROJECT_TOOLS + [{k: v for k, v in t.items() if k not in ("module", "native_name")} for t in catalog],
+        return {"service": product + "-hoard", "tools": controls + [SEARCH_TOOL] + PROJECT_TOOLS + EXTERNAL_TOOLS + [{k: v for k, v in t.items() if k not in ("module", "native_name")} for t in catalog],
                 "instructions": "Independent modules, all OFF on first use. Never enable a collector merely to discover its tools. Existing tool names and schemas are preserved."}
 
     @app.post("/api/agent/call")
@@ -270,6 +289,11 @@ def create_runtime(*, name, product, root, data_dir, specs, factory, port):
         authorize(request)
         payload = await request.json()
         tool, args = payload.get("name"), payload.get("arguments") or {}
+        if tool in EXTERNAL_NAMES:
+            try:
+                return await external_call(tool, args)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
         if tool in ('wh_publishing_link_project', 'wh_publishing_project_results'):
             try:
                 return await asyncio.to_thread(project_call, data_dir, tool, args)

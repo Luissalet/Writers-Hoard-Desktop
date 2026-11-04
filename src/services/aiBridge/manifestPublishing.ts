@@ -15997,6 +15997,45 @@ export const PUBLISHING_TOOLS: BridgeTool[] = [
     "writes": false,
     "group": "research",
     "timeoutMs": 600000
+  },
+  {
+    "name": "wh_publishing_external_hoards",
+    "description": "Connection state of Links Hoard and Kafka's Hoard, the apps behind Writer's reading/links and paperwork modules: address, running, version and Hoard Hub state. Never starts anything. Estado de Links y Kafka.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    },
+    "writes": false,
+    "group": "research",
+    "timeoutMs": 600000
+  },
+  {
+    "name": "wh_publishing_external_start",
+    "description": "Start Links Hoard (module links) or Kafka's Hoard (module paperwork) through Hoard Hub and wait until it answers. Use when a reading or paperwork call reports hoard_offline. Arrancar Links o Kafka.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "type": "string",
+          "enum": [
+            "links",
+            "paperwork"
+          ]
+        },
+        "wait_s": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 90,
+          "default": 25
+        }
+      },
+      "required": [
+        "module"
+      ]
+    },
+    "writes": true,
+    "group": "research",
+    "timeoutMs": 600000
   }
 ];
 export const PUBLISHING_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; [key: string]: unknown }> = {
@@ -18418,5 +18457,17 @@ export const PUBLISHING_ANNOTATIONS: Record<string, { readOnlyHint: boolean; des
     "readOnlyHint": true,
     "destructiveHint": false,
     "idempotentHint": true
+  },
+  "wh_publishing_external_hoards": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "wh_publishing_external_start": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
   }
 };
