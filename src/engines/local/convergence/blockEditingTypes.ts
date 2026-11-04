@@ -8,6 +8,7 @@ export interface RichBlockEditCapture {
  nodeIds:string[];bindings:RichBlockBinding[];frontier:string[];destination?:RichBlockPlacement;
 }
 export type RichBlockEditingAction=import('./tableEditing').RichTableInsertAction|import('./tableAxesEditing').RichTableCreateAction
+ |{type:'rich-table-row-header';field:string;capture:RichBlockEditCapture;header:boolean}
  |{type:'rich-image-insert';field:string;capture:RichBlockEditCapture;id:string;asset:import('./imageFormat').RichImageAsset}
  |{type:'rich-block-list-indent';field:string;capture:RichBlockEditCapture;direction:'in'|'out';listId?:string}
  |{type:'rich-block-insert';field:string;capture:RichBlockEditCapture;block:{id:string;type:'paragraph'|'heading';attrs:Record<string,LocalToolJson>};text:string;marks?:RichMark[];link?:{href:string}}

@@ -47,9 +47,8 @@ function cellWitness(source:RichBlocks,data:RichBlockDocument,bindings:RichBlock
 export function captureTableCell(source:RichBlocks,identity:LocalToolConvergenceIdentity,data:RichBlockDocument,bindings:RichBlockBindings,tableId:string,rowId:string,columnId:string,afterId:string|null=null):RichTableCellCapture {
  source.check(data,bindings);return{format:'writers-hoard-table-cell/1',identity:convergenceClone(identity),field:source.field,tableId,rowId,columnId,afterId,bindings:cellWitness(source,data,bindings,tableId,rowId,columnId,afterId),frontier:source.registers.frontier()};
 }
-export function sameTableCellBindings(current:RichBlockBinding[],captured:RichBlockBinding[],columnId?:string):boolean {
- if(!columnId)return same(current,captured);
- const structure=(values:RichBlockBinding[])=>values.map(({attrsVersionId,...binding})=>binding.id===columnId?binding:{...binding,attrsVersionId});
+export function sameTableCellBindings(current:RichBlockBinding[],captured:RichBlockBinding[],presentationNodes:readonly string[]):boolean {
+ const structure=(values:RichBlockBinding[])=>values.map(({attrsVersionId,...binding})=>presentationNodes.includes(binding.id)?binding:{...binding,attrsVersionId});
  return same(structure(current),structure(captured));
 }
 function widthWitness(source:RichBlocks,data:RichBlockDocument,bindings:RichBlockBindings,tableId:string,columnId:string){
@@ -112,7 +111,7 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   }
  }else{
   const c=action.capture,order=table(source,data,c.tableId);if(!order.rows.includes(c.rowId)||!order.columns.includes(c.columnId))fail();
-  const now=cellWitness(source,data,bindings,c.tableId,c.rowId,c.columnId,c.afterId);if(!sameTableCellBindings(now,c.bindings,source.widths?c.columnId:undefined))fail();
+  const now=cellWitness(source,data,bindings,c.tableId,c.rowId,c.columnId,c.afterId);if(!sameTableCellBindings(now,c.bindings,source.widths?[c.rowId,c.columnId]:[c.rowId]))fail();
   if(action.type==='rich-table-cell-image-insert'){
    if(!source.imageCells||Object.keys(action).length!==6)return fail();
    validateRichImageAsset(action.asset,source.rasterFormats);

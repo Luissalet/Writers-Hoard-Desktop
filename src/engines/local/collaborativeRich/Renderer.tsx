@@ -1,5 +1,5 @@
 import {localToolRichTables} from '../stateCodec';
-import {insertFixedTable,controlFixedTable,controlTableAxis,pasteFixedTableText,rejectCrossCellClipboard} from './tableProsemirror';
+import {insertFixedTable,controlFixedTable,controlTableAxis,firstTableRow,toggleTableHeader,pasteFixedTableText,rejectCrossCellClipboard} from './tableProsemirror';
 import Link from '@tiptap/extension-link';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import {useLocalToolDocumentContent} from '../liveContent/hooks';
@@ -187,7 +187,9 @@ function TableControls({session,editor,readOnly,es}:{session:RichEditorSession;e
   return null;
  }});
  const axisLabel={rows:{before:es?'Insertar fila antes':'Insert row before',after:es?'Insertar fila después':'Insert row after',hide:es?'Eliminar fila':'Remove row'},columns:{before:es?'Insertar columna antes':'Insert column before',after:es?'Insertar columna después':'Insert column after',hide:es?'Eliminar columna':'Remove column'}};
+ const headerRow=session.axes&&tableId?firstTableRow(session,tableId):undefined;
  return <div className="flex flex-wrap gap-2" aria-label={es?'Tabla':'Table'}><button type="button" className={button} disabled={!editor||!session.editable||readOnly||!!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)insertFixedTable(session,editor.view);}}>{es?'Insertar tabla':'Insert table'}</button>{(['up','down','hide']as const).map(action=><button key={action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!tableId} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlFixedTable(session,editor.view,action);}}>{({up:es?'Subir tabla':'Move table up',down:es?'Bajar tabla':'Move table down',hide:es?'Eliminar tabla':'Remove table'})[action]}</button>)}{session.axes&&(['rows','columns']as const).flatMap(axis=>(['before','after','hide']as const).map(action=><button key={axis+action} type="button" className={button} disabled={!editor||!session.editable||readOnly||!cell} onMouseDown={e=>e.preventDefault()} onClick={()=>{if(editor)controlTableAxis(session,editor.view,axis,action);}}>{axisLabel[axis][action]}</button>))}
+  {session.axes&&<button type="button" className={button} disabled={!editor||!session.editable||readOnly||!headerRow} aria-pressed={headerRow?.attrs.header===true} onMouseDown={event=>event.preventDefault()} onClick={()=>{if(editor)toggleTableHeader(session,editor.view);}}>{es?'Fila de cabecera':'Header row'}</button>}
   {session.widths&&cell&&session.editable&&!readOnly&&<TableWidthControls key={JSON.stringify([cell[0],cell[2]])} session={session} tableId={cell[0]} columnId={cell[2]} current={width??null} es={es} button={button}/>}
  </div>;
 }
