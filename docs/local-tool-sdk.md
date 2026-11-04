@@ -1203,6 +1203,12 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### Toggle a table row header (2174)
+
+In a shared table with editable rows, select any cell and use **Header row** to toggle the first row. The button reports whether the first row is a header.
+
+Through the SDK or MCP, take a fresh `richBlockEditCapture(field, [rowId])` and send `{type: 'rich-table-row-header', field, capture, header: true}` or set `header` to `false`. The action works on any live row of an editable table. It changes the header flag, preserves the cells and their content, and requires a current capture. Setting the existing value produces no receipt. Undo and Redo use the existing shared history.
+
 ### Select a range of table cells (2170)
 
 In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell. Ctrl+C copies the selected cells as plain text and HTML, including headers and empty cells.
