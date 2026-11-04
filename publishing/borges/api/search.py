@@ -20,12 +20,13 @@ def search(
     since: str | None = Query(None, pattern="^\\d{4}-\\d{2}-\\d{2}$", description="ISO date; only chats/documents dated on or after this."),
     until: str | None = Query(None, pattern="^\\d{4}-\\d{2}-\\d{2}$", description="ISO date; only chats/documents dated on or before this."),
     questions: bool = Query(True, description="Use the generated question keys (when any exist) as extra rankings; false searches the text only."),
+    exact: bool = Query(True, description="Also search the rare terms of the query verbatim (identifiers, CamelCase, acronyms, tokens with digits, quoted or backtick text); hits carry matched_terms."),
 ):
     svc = services(request)
     if collection is not None and svc.collections.get(collection) is None:
         raise HTTPException(404, "Collection not found.")
     try:
-        return svc.search.search(q, mode, limit, collection, source=source, since=since, until=until, questions=questions)
+        return svc.search.search(q, mode, limit, collection, source=source, since=since, until=until, questions=questions, exact=exact)
     except ValueError as error:  # query too short
         raise HTTPException(400, str(error)) from error
     except RuntimeError as error:  # model failed to load mid-request

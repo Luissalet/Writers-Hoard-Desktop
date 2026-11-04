@@ -881,7 +881,8 @@
       "revision": "10db1fb08de326346822a6c79c941b51b30c087d",
       "path": "borges/search.py",
       "destination": "publishing/borges/search.py",
-      "sha256": "068dd5eb2d47feac8163a8365e85625011cf99d155778d86c4e53b7c45634083"
+      "sha256": "068dd5eb2d47feac8163a8365e85625011cf99d155778d86c4e53b7c45634083",
+      "adaptation": "04-11-2026: sha256 above is the file as imported. Adds the exact-terms leg to the RRF fusion (Search.exact_leg, EXACT_WEIGHT, the exact parameter, matched_terms on hits); the extraction and IDF scoring live in the Writer-original publishing/borges/exact_terms.py. agent_tools.py and api/search.py expose the exact parameter."
     },
     {
       "source": "Borges's Hoard",
