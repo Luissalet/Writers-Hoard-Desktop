@@ -5,6 +5,7 @@ import type {EditorView} from '@tiptap/pm/view';
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {importPortableFigure,findFigureSource} from '../../../services/figureInterchange/retain';
 import {FigureImportError} from '../../../services/figureInterchange/index';
+import {figureErrorText} from '../../../services/figureInterchange/messages';
 import {isRichImageAlignment,isRichImageSize,validateRichImageAsset,type RichImageAlignment,type RichImageAsset,type RichImageSize} from '../convergence/imageFormat';
 import type {RichBlockEditingAction} from '../convergence/blockEditingTypes';
 import type {RichImageEditAction} from '../convergence/imageEditing';
@@ -111,7 +112,7 @@ export function ImageControls({session,editor,readOnly,es,button}:{session:RichE
    if(pending.figure){
     let asset:RichImageAsset;
     try{asset=(await importPortableFigure(pending.assets,await file.text())).asset;}
-    catch(cause){if(live.current)setError(cause instanceof FigureImportError?cause.message:es?'No se pudo usar la figura.':'Could not use the figure.');return;}
+    catch(cause){if(live.current)setError(cause instanceof FigureImportError?figureErrorText(cause,es):es?'No se pudo usar la figura.':'Could not use the figure.');return;}
     validateRichImageAsset(asset,session.imageRaster);
     if(!live.current||editor.isDestroyed||!session.editable||session.assets!==pending.assets)return;
     const action=pending.action(asset);if(!session.applyBatch([action])){failure();return;}

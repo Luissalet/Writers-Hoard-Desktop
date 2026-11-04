@@ -24,10 +24,13 @@ export interface ParsedFigure {
 
 export class FigureImportError extends Error {
   field: string;
+  /** English reason without the field prefix; the UI translates it by this key. */
+  detail: string;
   constructor(field: string, message: string) {
     super(`${field}: ${message}`);
     this.name = 'FigureImportError';
     this.field = field;
+    this.detail = message;
   }
 }
 
