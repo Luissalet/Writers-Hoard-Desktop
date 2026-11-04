@@ -1203,6 +1203,12 @@ The normal Source example `examples.shared-table-axes` exposes row and column co
 
 A semantic copy or era fork creates a fresh checkpoint. When a visible fragment follows an anchor retired in the origin, the fork retains the visible fragment order within that cell and stores data matching its checkpoint. Same-ID ZIP restore retains the original causal bytes. Cell merge/split, width resizing, shared images and adoption of older table histories remain open.
 
+### PNG, JPEG and WebP in shared Source (2164)
+
+Use codec2 `blocks-tree/8` with `writers-blocks/7` to select engine11 for that image field. Import a verified PNG, JPEG or WebP with `client.assets.import(file, 'image')`. Pass the returned SHA-256, MIME and byte size to `rich-image-insert` or `rich-image-replace`. Other image fields in the same definition keep the formats declared by their own profile.
+
+`wh_local_asset_file_import` and `wh_local_asset_image_find` support all three MIME types. Image actions use the field's codec, and size and alignment have independent captures. Room transfer and project ZIP keep original bytes, including earlier image sources available through Undo or history.
+
 ### Image alignment in shared Source (2161)
 
 Choose codec2 `blocks-tree/7` with `writers-blocks/6` for an image field with independent alignment. This selects engine10. A new image starts at `left`. Capture `client.convergence.richImageCapture(field, nodeId, 'alignment')`, then apply `rich-image-align` with that capture and an `alignment` of `left`, `center` or `right`. The same capture channel is available through `wh_local_tool_rich_image_capture` and the live editor capture tool.
