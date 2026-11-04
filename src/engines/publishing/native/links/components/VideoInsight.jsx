@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
+import { publishingUrl } from "../../../transport";
 
 const STATUS_TEXT = {
   none: "Todavía sin analizar.",
@@ -91,7 +92,7 @@ export default function VideoInsight({ linkId, kind, notify }) {
           {frames.map((f) => (
             <button key={f.index} type="button" onClick={() => goTo(f)} className="shrink-0 text-left" aria-label={`Fotograma en ${f.time}`}
               style={{ outline: active === f.index ? "2px solid var(--accent, #2f6fed)" : "none", borderRadius: 6 }}>
-              <img src={f.url} alt={`Fotograma ${f.time}`} loading="lazy" style={{ height: 92, width: "auto", borderRadius: 6, display: "block" }} />
+              <img src={publishingUrl(f.url, "links")} alt={`Fotograma ${f.time}`} loading="lazy" style={{ height: 92, width: "auto", borderRadius: 6, display: "block" }} />
               <span className="help text-[11px]">{f.time}{f.reason === "scene" ? " · escena" : ""}</span>
             </button>
           ))}
