@@ -53,6 +53,42 @@ export async function testBlockEditor(){
   await click('Save changes');await wait(()=>button('Save changes').disabled,'replacement Save ACK');
   await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen replacement');
   equal('whole-paste-persists-marks',Array.from(element.querySelectorAll('.tiptap p strong,.tiptap p em'),node=>node.textContent),['Nuevo A Ω','Nuevo B 🙂']);
+  {
+   const leaves=()=>blockPMLeaves(editor!.state.doc),firstId=leaves()[0].id!,secondId=leaves()[1].id!;
+   const caretData=new DataTransfer();
+   caretData.setData('text/html','<p><strong>Medio A Ω</strong></p><p><em>Medio B 🙂</em></p>');
+   caretData.setData('text/plain','Medio A Ω\nMedio B 🙂');
+   await select(firstId,3);
+   await act(async()=>{editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:caretData}));});
+   await tick();
+   equal('caret-paste-no-recovery',element.querySelector('[role="alert"]'),null);
+   equal('caret-paste-splits-at-caret',leaves().map(n=>n.node.textContent),['NueMedio A Ω','Medio B 🙂vo A Ω','Nuevo B 🙂']);
+   equal('caret-paste-keeps-prefix-identity',leaves()[0].id,firstId);
+   equal('caret-paste-keeps-later-identity',leaves()[2].id,secondId);
+   const runs=(index:number)=>{const out:[string,string[]][]=[];leaves()[index].node.forEach(child=>out.push([child.text??'',child.marks.map(mark=>mark.type.name).sort()]));return out;};
+   equal('caret-paste-first-paragraph-runs',runs(0),[['NueMedio A Ω',['bold']]]);
+   equal('caret-paste-last-paragraph-runs',runs(1),[['Medio B 🙂',['italic']],['vo A Ω',['bold']]]);
+   await click('Undo');equal('caret-paste-one-Undo',leaves().map(n=>n.node.textContent),['Nuevo A Ω','Nuevo B 🙂']);
+   await click('Redo');equal('caret-paste-one-Redo',leaves().map(n=>n.node.textContent),['NueMedio A Ω','Medio B 🙂vo A Ω','Nuevo B 🙂']);
+   await click('Undo');
+   for(const [name,at,expected,keeper] of [['end',9,['Nuevo A ΩMedio A Ω','Medio B 🙂','Nuevo B 🙂'],0],['start',0,['Medio A Ω','Medio B 🙂Nuevo A Ω','Nuevo B 🙂'],1]] as const){
+    await select(leaves()[0].id!,at);
+    const edge=new DataTransfer();edge.setData('text/html','<p>Medio A Ω</p><p>Medio B 🙂</p>');edge.setData('text/plain','Medio A Ω\nMedio B 🙂');
+    const ownerId=leaves()[0].id;
+    await act(async()=>{editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:edge}));});await tick();
+    equal('caret-paste-'+name+'-text',leaves().map(n=>n.node.textContent),expected);
+    equal('caret-paste-'+name+'-keeps-identity',leaves()[keeper].id,ownerId);
+    if(editor!.state.selection.from!==leaves()[1].pos+1+'Medio B 🙂'.length)throw Error('caret-paste-'+name+'-caret-after-paste actual='+editor!.state.selection.from+' leaves='+JSON.stringify(leaves().map(n=>[n.pos,n.node.textContent.length])));
+    checks.push('caret-paste-'+name+'-caret-after-paste');
+    await click('Undo');equal('caret-paste-'+name+'-one-Undo',leaves().map(n=>n.node.textContent),['Nuevo A Ω','Nuevo B 🙂']);
+   }
+   await select(firstId,3);
+   await act(async()=>{editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:caretData}));});await tick();
+   await click('Save changes');await wait(()=>button('Save changes').disabled,'caret paste Save ACK');
+   await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen caret paste');
+   equal('caret-paste-persists',leaves().map(n=>n.node.textContent),['NueMedio A Ω','Medio B 🙂vo A Ω','Nuevo B 🙂']);
+   equal('caret-paste-persists-marks',[runs(0),runs(1)],[[['NueMedio A Ω',['bold']]],[['Medio B 🙂',['italic']],['vo A Ω',['bold']]]]);
+  }
   await mount(true);await wait(()=>editor?.isEditable===false,'readonly');const readonlyBefore=await client.convergence!.export();await act(async()=>{editor!.commands.insertContent('forbidden');});await tick();equal('readonly-no-doc-edit',(await client.convergence!.export()).checkpoint,readonlyBefore.checkpoint);equal('readonly-format-disabled',button('H1').disabled,true);
  }finally{peer?.destroy();await act(async()=>root.unmount());element.remove();useLocaleStore.setState({locale});}
  return checks;

@@ -7,7 +7,7 @@ import {ReplaceStep,AddMarkStep,RemoveMarkStep} from '@tiptap/pm/transform';
 import type {EditorView} from '@tiptap/pm/view';
 import type {RichEditorSession} from './session';
 import {axisCellAtPosition,blockPMDocument,blockPMLeaves} from './blockProsemirror';
-import {RICH_MARKS,type RichParagraph} from '../convergence/richTypes';
+import {RICH_MARKS,type RichMark,type RichParagraph,type RichText} from '../convergence/richTypes';
 import {richBlockChildren} from '../convergence/blockEditing';
 
 const signature=(doc:PMNode,withoutIds=false):unknown=>{const json=doc.toJSON();const walk=(node:Record<string,unknown>):unknown=>({type:node.type,...(node.attrs?{attrs:Object.fromEntries(Object.entries(node.attrs as Record<string,unknown>).filter(([key])=>!withoutIds||key!=='id'&&!(key==='cellAddress'&&node.type==='paragraph')))}:{}),content:(Array.isArray(node.content)?node.content as Record<string,unknown>[]:[]).filter(n=>n.type!=='text').map(walk)});return walk(json);};
@@ -43,6 +43,57 @@ export function pasteSelectedRootParagraphs(session:RichEditorSession,view:Edito
    if(last)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,last.pos+1+last.node.content.size)).scrollIntoView());
   }
  }catch(error){session.fail(error,true);}
+ return true;
+}
+
+/** Paste two or more paragraphs at a collapsed caret in a root paragraph as one reversible gesture. */
+export function pasteRootParagraphsAtCaret(session:RichEditorSession,view:EditorView,event:ClipboardEvent,slice:Slice):boolean {
+ const {state}=view,{selection}=state;
+ if(!session.editable||!view.editable||view.composing||!selection.empty||slice.content.childCount<2||axisCellAtPosition(state.doc,selection.from))return false;
+ const html=event.clipboardData?.getData('text/html')??'';
+ if(/<(?:table|img|picture|video|audio|iframe|object|embed|svg)\b/i.test(html)||event.clipboardData?.files.length)return false;
+ const leaf=blockPMLeaves(state.doc).find(item=>selection.from>=item.pos+1&&selection.from<=item.pos+1+item.node.content.size);
+ if(!leaf?.id||leaf.node.type.name!=='paragraph')return false;
+ const data=session.blockDocument(),block=data.blocks.find(item=>item.id===leaf.id);
+ if(!block||block.type!=='paragraph'||block.parentId!==null||block.slot!=='body')return false;
+ const incoming:RichText[][]=[];
+ for(let index=0;index<slice.content.childCount;index++){const runs=clipboardParagraphRuns(slice.content.child(index));if(!runs)return false;incoming.push(runs);}
+ const offset=selection.from-leaf.pos-1,length=leaf.node.content.size,field=session.field,{replica}=session;
+ const roots=richBlockChildren(data,null),at=roots.findIndex(item=>item.id===block.id);
+ if(at<0)return false;
+ event.preventDefault();
+ const ids=incoming.map(()=>crypto.randomUUID());
+ const insertRuns=(id:string,start:number,runs:RichText[])=>{
+  let position=start;
+  for(const run of runs){
+   const link=run.marks?.find(mark=>mark.type==='link'),marks=(run.marks??[]).filter(mark=>mark.type!=='link').map(mark=>mark.type) as RichMark[];
+   session.apply({type:'rich-text-splice',field,nodeId:id,range:replica.richRange(field,id,position,position),text:run.text,marks,...(link?.type==='link'?{link:{href:link.attrs.href}}:{})});
+   position+=run.text.length;
+  }
+  return position;
+ };
+ const addBlock=(id:string,afterId:string|null)=>session.apply({type:'rich-block-insert',field,capture:replica.richBlockEditCapture(field,[],{parentId:null,slot:'body',afterId}),block:{id,type:'paragraph',attrs:{}},text:''});
+ let caret:{id:string;position:number}|undefined;
+ session.gesture(()=>{
+  session.beforeViewChange?.();
+  const last=incoming.length-1;
+  if(offset===0){
+   // The paragraph keeps its identity as the last pasted paragraph and its whole text becomes the suffix.
+   let afterId=roots[at-1]?.id??null;
+   for(let index=0;index<last;index++){addBlock(ids[index],afterId);afterId=ids[index];insertRuns(ids[index],0,incoming[index]);}
+   caret={id:block.id,position:insertRuns(block.id,0,incoming[last])};
+  }else{
+   let previous=block.id;const lastId=ids[last];
+   if(offset<length)session.apply({type:'rich-block-split',field,capture:replica.richBlockSplitCapture(field,block.id,offset),newNodeId:lastId});
+   insertRuns(block.id,offset,incoming[0]);
+   for(let index=1;index<last;index++){addBlock(ids[index],previous);previous=ids[index];insertRuns(ids[index],0,incoming[index]);}
+   if(offset===length)addBlock(lastId,previous);
+   caret={id:lastId,position:insertRuns(lastId,0,incoming[last])};
+  }
+  session.afterViewChange?.();
+  const target=blockPMLeaves(view.state.doc).find(item=>item.id===caret!.id);
+  if(target)view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc,target.pos+1+caret!.position)).scrollIntoView());
+ });
  return true;
 }
 
