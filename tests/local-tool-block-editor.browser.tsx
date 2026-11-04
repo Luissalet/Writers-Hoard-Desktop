@@ -2,6 +2,7 @@ import assert from './local-tool-collaborative-rich.assert';
 import {act} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Extension,type Editor} from '@tiptap/core';
+import {AllSelection} from '@tiptap/pm/state';
 import {defineLocalTool,createLocalToolReplica,type LocalToolJson,type RichBlockDocument} from '@/engines/local/sdk';
 import {createFakeLocalToolHost} from '@/engines/local/testing';
 import CollaborativeRichRenderer from '@/engines/local/collaborativeRich/Renderer';
@@ -56,6 +57,25 @@ export async function testEmptyBlockEditor(){
  try{
   useLocaleStore.setState({locale:'en'});await act(async()=>root.render(<CollaborativeRichRenderer client={client} definition={definition} field="body" readOnly={false} extensions={[capture]}/>));await wait(()=>!!button('Activate shared editing'));equal('empty-passive-no-fake-ID',element.querySelectorAll('[data-writer-block]').length,0);await click('Activate shared editing');await wait(()=>!!editor?.isEditable);await act(async()=>{editor!.commands.insertContent('ab');});await tick();equal('first-input-real-leaf',blockPMLeaves(editor!.state.doc).filter(n=>n.id).length,1);await save();const id=blockPMLeaves(editor!.state.doc)[0].id!,original=await savedIds();
   await select(id,0,1);await act(async()=>{editor!.commands.insertContent('a');});await tick();equal('same-text-replacement-dirty',button('Save changes').disabled,false);await save();const replaced=await savedIds();equal('same-text-new-selected-unit',replaced[id][0]!==original[id][0],true);equal('same-text-keeps-other-unit',replaced[id][1],original[id][1]);await click('Undo');await save();equal('same-text-Undo-unit-identity',await savedIds(),original);
+  const long='R8 '+('Ω你🙂 abcdef '.repeat(900)).slice(0,9997);
+  const clipboardData=new DataTransfer();
+  clipboardData.setData('text/html','<p><em>'+long+'</em></p>');
+  clipboardData.setData('text/plain',long);
+  await act(async()=>{
+   const view=editor!.view;
+   view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));
+   view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData}));
+  });
+  await tick();
+  equal('select-all-paste-keeps-paragraph-id',blockPMLeaves(editor!.state.doc).map(leaf=>leaf.id),[id]);
+  equal('select-all-paste-keeps-long-italic-text',element.querySelector('.tiptap p > em')?.textContent,long);
+  equal('select-all-paste-keeps-editing-available',element.querySelector('[role="alert"]'),null);
+  await click('Undo');equal('select-all-paste-undo-restores-original-text',editor!.getText(),'ab');
+  await click('Redo');equal('select-all-paste-redo-restores-formatted-text',element.querySelector('.tiptap p > em')?.textContent,long);
+  await save();
+  const longSaved=((await client.read()).data as Record<string,LocalToolJson>).body as unknown as RichBlockDocument;
+  equal('select-all-paste-persists-id-and-italic',longSaved.blocks.map(block=>[block.id,block.content]),[[id,[{type:'text',text:long,marks:[{type:'italic'}]}]]]);
+  await click('Undo');await save();equal('select-all-paste-undo-restores-original-unit-ids',await savedIds(),original);
   await select(id,0,2);await click('Bullet list');await select(id,1);await key('Enter');equal('list-Enter-new-item',element.querySelectorAll('.tiptap ul>li').length,2);const second=blockPMLeaves(editor!.state.doc).find(n=>n.id!==id)!.id!;await key('Backspace');equal('list-Backspace-merges-items',element.querySelectorAll('.tiptap ul>li').length,1);equal('list-Backspace-text',editor!.state.doc.textContent,'ab');
   await select(id,1);await key('Enter');const right=blockPMLeaves(editor!.state.doc).find(n=>n.id!==id)!.id!;equal('fresh-item-ID-not-reused',right!==second,true);await save();const beforeIndent=await savedIds();await select(right,0);await key('Tab');equal('nested-list-real-DOM',element.querySelectorAll('.tiptap ul ul').length,1);await save();equal('indent-keeps-units',await savedIds(),beforeIndent);await select(right,0);await key('Tab',true);equal('outdent-removes-empty-nested-wrapper',element.querySelectorAll('.tiptap ul ul').length,0);equal('outdent-two-items',element.querySelectorAll('.tiptap ul>li').length,2);await save();equal('outdent-keeps-units',await savedIds(),beforeIndent);
   await click('Numbered list');await click('Numbered list');await select(id,0,1);await click('Toggle');await select(id,1);await key('Enter');equal('toggle-Enter-summary-kept',element.querySelector('.tiptap details>summary')?.textContent,'a');equal('toggle-Enter-body-real',element.querySelectorAll('.tiptap details>p').length,1);await key('Backspace');equal('toggle-Backspace-empty-body-removed',element.querySelectorAll('.tiptap details>p').length,0);equal('toggle-summary-retained',element.querySelector('.tiptap details>summary')?.textContent,'a');await save();
