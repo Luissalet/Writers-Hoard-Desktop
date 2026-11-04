@@ -114,9 +114,10 @@ export function prepareTableAxes(source:RichBlocks,data:RichBlockDocument,bindin
   for(let y=0;y<area.height;y++)for(let x=0;x<area.width;x++){
    const rowId=actual.rows[area.top+y],columnId=actual.columns[area.left+x],cell=matrix[y%matrix.length][x%matrix[0].length];
    if(!cell)continue;
-   if(cell.span){
+   const rowSpan=Math.min(cell.span?.rows??1,area.height-y),columnSpan=Math.min(cell.span?.columns??1,area.width-x);
+   if(rowSpan>1||columnSpan>1){
     const id=tableCellSpanId(tableId,rowId,columnId);
-    const marker:RichBlock={id,type:'table-cell-span',attrs:{columnId,rows:actual.rows.slice(area.top+y,area.top+y+cell.span.rows),columns:actual.columns.slice(area.left+x,area.left+x+cell.span.columns)},parentId:rowId,slot:'body',afterId:null};
+    const marker:RichBlock={id,type:'table-cell-span',attrs:{columnId,rows:actual.rows.slice(area.top+y,area.top+y+rowSpan),columns:actual.columns.slice(area.left+x,area.left+x+columnSpan)},parentId:rowId,slot:'body',afterId:null};
     result.data.blocks.push(marker);
     if(spansToHide.delete(id))result.writes.push({name:'attrs',id,value:marker.attrs});
     else result.writes.push(...blockBirthWrites(marker,source.alignment));

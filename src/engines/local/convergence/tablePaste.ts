@@ -69,7 +69,6 @@ export function tablePasteArea(order:RichTableAxisOrder,target:RichTablePasteTar
   const top=Math.min(area.top,span.area.top),left=Math.min(area.left,span.area.left);
   area={top,left,height:Math.max(area.top+area.height,span.area.top+span.area.height)-top,width:Math.max(area.left+area.width,span.area.left+span.area.width)-left};
  }
- if(hasSpans&&(area.height%matrix.length||area.width%width))return invalid();
  return area;
 }
 
