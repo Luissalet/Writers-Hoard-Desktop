@@ -1205,7 +1205,7 @@ A semantic copy or era fork creates a fresh checkpoint. When a visible fragment 
 
 ### Select a range of table cells (2170)
 
-In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell.
+In the shared table editor, click a cell and Shift-click another cell in the same table. Click normally or press Escape to return to the caret. The editor preserves the range while both cell addresses exist. When another author removes one endpoint, the caret returns to the remaining cell. Ctrl+C copies the selected cells as plain text and HTML, including headers and empty cells.
 
 ### Images inside shared table cells (2167)
 
