@@ -1,7 +1,6 @@
 import * as Y from 'yjs';
 import {JsonMap,convergenceCanonical} from './json';
-import type {LocalToolConvergenceIdentity} from './formatTypes';
-import type {RegisterVersion} from './registers';
+import type {LocalToolConvergenceIdentity,RegisterVersion} from './formatTypes';
 /** Finite table grammar declaration, including capable fields absent from data. */
 export function readTableFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,rich:readonly string[],blocks:readonly string[],links:readonly string[],expected?:readonly string[]):Set<string> {
  const fields=new JsonMap<string[]>(doc.getMap('table-fields')).get('value')??[];
