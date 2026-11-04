@@ -153,7 +153,6 @@ async function main() {
     assert.deepEqual(a.checkpoint(), before14);
     for (const malformed of [
       action(spans, ['R2', 'C1'], combined),
-      action(spans, ['R2', 'C1'], combined, ['R3', 'C2']),
       action(spans, ['R2', 'C1'], [[merge, null, null], [null, cell(false), cell(false)]], ['R3', 'C3']),
     ]) assert.throws(() => spans.apply([malformed]), /local_tool_table_paste_invalid/);
     assert.deepEqual(spans.checkpoint(), before);
@@ -194,6 +193,32 @@ async function main() {
     spans.undo(hideAxis.receiptId);
     assert.deepEqual(physical(spans), physical(spanCold));
     console.log('PASS spans can be replaced and shrink with hidden axes, both reversible');
+
+    const stable = physical(spans);
+    for (const [anchor,head,dimensions,expectedRows] of [
+      [['R2', 'C3'], ['R3', 'C3'], [2, 1], [3, 2, 0]],
+      [['R1', 'C2'], ['R1', 'C3'], [1, 2], [2, 2, 1]],
+      [['R1', 'C3'], ['R1', 'C3'], [1, 1], [3, 2, 1]],
+    ]) {
+      const clipped = spans.apply([action(spans, anchor, combined, head)]);
+      const shape = physical(spans);
+      const item = shape[Number(anchor[0][1])-1].find(cell => cell[2]==='Combinada' && cell[0]===dimensions[0] && cell[1]===dimensions[1]);
+      assert.ok(item);
+      assert.deepEqual(shape.map(row=>row.length),expectedRows);
+      assert.equal(shape[0][0][2],'Cambio ajeno');
+      spans.undo(clipped.receiptId);
+      assert.deepEqual(physical(spans),stable);
+    }
+    const tiledMerge = [[merge,null],[null,null]];
+    const clippedTiles = spans.apply([action(spans, ['R1','C1'], tiledMerge, ['R3','C3'])]);
+    assert.deepEqual(physical(spans),[
+      [[2,2,'Combinada'],[2,1,'Combinada']],
+      [],
+      [[1,2,'Combinada'],[1,1,'Combinada']],
+    ]);
+    spans.undo(clippedTiles.receiptId);
+    assert.deepEqual(physical(spans),stable);
+    console.log('PASS merged paste clips either axis and repeats clipped edge tiles without changing outside cells');
   } finally {
     a.destroy();b?.destroy();cold?.destroy();legacy?.destroy();sameCellA?.destroy();sameCellB?.destroy();spans?.destroy();spanPeer?.destroy();spanCold?.destroy();
   }
