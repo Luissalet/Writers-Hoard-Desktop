@@ -461,6 +461,22 @@ export class RichDraft {
   this.refresh();
  }
  private link(value:unknown):{href:string}{if(!this.source.links||!record(value)||Object.keys(value).length!==1||typeof value.href!=='string')return fail();const href=normalizeEditorLinkHref(value.href);if(!href)return fail();return{href};}
+ private appendParagraphContent(buffer:string,edge:string,content:RichParagraph['content']){
+  this.append(buffer,null,content.map(text=>text.text).join(''),{edge},[]);
+  const run=this.text(buffer).finish().runs[0];let offset=0;
+  for(const text of content){
+   for(const mark of text.marks??[])if(run)this.write('marks',uuid(),{spans:[{buffer,runId:run.id,from:offset,to:offset+text.text.length}],...(mark.type==='link'?{mark:'link',href:mark.attrs.href}:{mark:mark.type,enabled:true})});
+   offset+=text.text.length;
+  }
+ }
+ insertParagraphs(paragraphs:RichParagraph[]){
+  validateRichDocument({type:'doc',content:paragraphs},this.source.links);
+  let previous=this.refresh().bindings.nodes.at(-1)?.id??null;
+  for(const paragraph of paragraphs){
+   const {buffer,edge}=this.insert(paragraph.id,previous,'');
+   this.appendParagraphContent(buffer,edge,paragraph.content);previous=paragraph.id;
+  }
+ }
  replace(value:RichDocument|undefined):void {
   if(value!==undefined)validateRichDocument(value,this.source.links);
   for(const buffer of new Set([...this.source.buffers.keys(),...this.plan.buffers.map(b=>b.id)])){const p=this.source.plain(buffer);this.text(buffer).clear();const all=p.materialize(p.allSpans());const ids=all.bindings.flatMap(s=>Array.from({length:s.to-s.from},(_,i)=>unit(buffer,s.runId,s.from+i)));if(ids.length)this.route(ids,[],null,'');}
@@ -471,9 +487,7 @@ export class RichDraft {
    if(!this.source.hasNode(p.id)&&!this.plan.nodes.some(n=>n.id===p.id)){this.insert(p.id,previous,'');}
    else{this.write('membership',p.id,true);this.place(p.id,previous);this.buffer(p.id,null);}
    const own=this.plan.buffers.at(-1)!,edge=this.plan.edges.at(-1)!.id;
-   this.append(own.id,null,p.content.map(t=>t.text).join(''),{edge},[]);
-   const run=this.text(own.id).finish().runs[0];let offset=0;
-   for(const t of p.content){for(const m of t.marks??[])if(run)this.write('marks',uuid(),{spans:[{buffer:own.id,runId:run.id,from:offset,to:offset+t.text.length}],...(m.type==='link'?{mark:'link',href:m.attrs.href}:{mark:m.type,enabled:true})});offset+=t.text.length;}
+   this.appendParagraphContent(own.id,edge,p.content);
    previous=p.id;
   }
   this.refresh();if(value!==undefined&&convergenceCanonical(this.plan.view.data)!==convergenceCanonical(value))return fail();

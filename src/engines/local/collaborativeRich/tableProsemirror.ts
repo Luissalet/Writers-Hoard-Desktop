@@ -34,8 +34,12 @@ export function controlTableAxis(session:RichEditorSession,view:View,axis:RichTa
   if(action==='hide')session.apply({type:'rich-table-axis-hide',field:session.field,capture});else session.apply({type:'rich-table-axis-insert',field:session.field,capture,id:crypto.randomUUID()});session.afterViewChange?.();});
 }
 export function firstTableRow(session:RichEditorSession,tableId:string){
- const data=session.blockDocument(),id=data.axisOrder?.find(table=>table.tableId===tableId)?.rows[0];
- return id===undefined?undefined:data.blocks.find(block=>block.id===id&&block.type==='table-row');
+ const data=session.blockDocument(),order=data.axisOrder?.find(table=>table.tableId===tableId),id=order?.rows[0];
+ const row=id===undefined?undefined:data.blocks.find(block=>block.id===id&&block.type==='table-row');
+ if(!row||!order?.columns.length)return undefined;
+ if(!session.cellHeaders)return {id:row.id,header:row.attrs.header===true};
+ const overrides=new Map(data.blocks.filter(block=>block.type==='table-cell-style'&&block.parentId===row.id).map(block=>[block.attrs.columnId,block.attrs.header]));
+ return {id:row.id,header:order.columns.every(column=>(overrides.get(column)??row.attrs.header)===true)};
 }
 export function toggleTableHeader(session:RichEditorSession,view:View):boolean {
  const tableId=session.axes?selectedTable(session,view):undefined,row=tableId?firstTableRow(session,tableId):undefined;
@@ -43,7 +47,7 @@ export function toggleTableHeader(session:RichEditorSession,view:View):boolean {
  return session.gesture(()=>{
   session.beforeViewChange?.();
   const field=session.field,capture=session.replica.richBlockEditCapture(field,[row.id]);
-  session.apply({type:'rich-table-row-header',field,capture,header:row.attrs.header!==true});
+  session.apply({type:'rich-table-row-header',field,capture,header:!row.header});
   session.afterViewChange?.();
  });
 }

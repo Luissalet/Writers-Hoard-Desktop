@@ -21,6 +21,8 @@ const tableHeaderCheck = spawnSync(process.execPath, ['tests/local-tool-table-he
 if (tableHeaderCheck.status !== 0 || tableHeaderCheck.error) process.exit(tableHeaderCheck.status ?? 1);
 const tableHeightCheck = spawnSync(process.execPath, ['tests/local-tool-table-height.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (tableHeightCheck.status !== 0 || tableHeightCheck.error) process.exit(tableHeightCheck.status ?? 1);
+const tablePasteCheck = spawnSync(process.execPath, ['tests/local-tool-table-paste.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
+if (tablePasteCheck.status !== 0 || tablePasteCheck.error) process.exit(tablePasteCheck.status ?? 1);
 const imageRelayCheck = spawnSync(process.execPath, ['tests/local-tool-image-relay.node.cjs'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 60000 });
 if (imageRelayCheck.status !== 0 || imageRelayCheck.error) process.exit(imageRelayCheck.status ?? 1);
 const presenceSourceCheck = spawnSync(process.execPath, ['scripts/run-local-tool-presence-portability.cjs', `presence-source-${Date.now().toString(36)}-${process.pid}`, 'source'], { cwd: root, stdio: 'inherit', windowsHide: true, timeout: 300000 });
@@ -144,6 +146,7 @@ const suites = [
   ['local-tool-table-header.source.browser.ts', 'testSourceTableHeader', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-table-height.source.browser.ts', 'testSourceTableHeight', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-table-cut.source.browser.tsx', 'testSourceTableCut', 120000, 'scripts/run-codex-properties-ui.cjs'],
+  ['local-tool-table-paste.source.browser.tsx', 'testSourceTablePaste', 120000, 'scripts/run-codex-properties-ui.cjs'],
   ['local-tool-block-empty-item.browser.tsx', 'testEmptyItemEnter', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.mcp.browser.tsx', 'testEmptyItemMcp', 180000, 'scripts/run-focused-browser-tests.cjs'],
   ['local-tool-block-empty-item.positions.browser.tsx', 'testEmptyItemPositions', 180000, 'scripts/run-focused-browser-tests.cjs'],

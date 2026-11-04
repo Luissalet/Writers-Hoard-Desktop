@@ -18,11 +18,18 @@ export function tableAxesRows(data:RichBlockDocument,tableId:string){
   return {columnId,widthPx:validTableColumnWidth(width)?width:null};
  });
  return order.rows.map(rowId=>{
-  const row=byId.get(rowId)!,columns=new Map<string,RichBlockDocument['blocks']>();
-  for(const fragment of byParent.get(rowId)??[]){const columnId=String(fragment.attrs.columnId),siblings=columns.get(columnId)??[];siblings.push(fragment);columns.set(columnId,siblings);}
+  const row=byId.get(rowId)!,columns=new Map<string,RichBlockDocument['blocks']>(),headers=new Map<string,boolean>();
+  for(const fragment of byParent.get(rowId)??[]){
+   const columnId=String(fragment.attrs.columnId);
+   if(fragment.type==='table-cell-style'){
+    if(typeof fragment.attrs.header==='boolean')headers.set(columnId,fragment.attrs.header);
+    continue;
+   }
+   const siblings=columns.get(columnId)??[];siblings.push(fragment);columns.set(columnId,siblings);
+  }
   return{row,cells:ordered.map(({columnId,widthPx})=>{
    const fragments=richBlockChildren({blocks:columns.get(columnId)??[]},rowId);
-   return{tableId,rowId,columnId,widthPx,address:JSON.stringify([tableId,rowId,columnId]),children:fragments.flatMap(fragment=>richBlockChildren({blocks:byParent.get(fragment.id)??[]},fragment.id))};
+   return{tableId,rowId,columnId,widthPx,header:headers.get(columnId)??row.attrs.header===true,address:JSON.stringify([tableId,rowId,columnId]),children:fragments.flatMap(fragment=>richBlockChildren({blocks:byParent.get(fragment.id)??[]},fragment.id))};
   })};
  });
 }

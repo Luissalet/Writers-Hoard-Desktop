@@ -3,10 +3,11 @@ import {captureTableAxis,captureTableCell,captureTableColumnWidth,prepareTableAx
 import type {RichTableAxis} from './tableAxesFormat';
 import {deriveTableSupport,type TableSupport,type HistoricalTableField} from './tableSupport';
 import {deriveTableAxesSupport} from './tableAxesSupport';
-import {readImageFields,readTableAxisFields,readTableFields,readTableWidthFields,readTableRowHeightFields} from './tableFields';
+import {readImageFields,readTableAxisFields,readTableFields,readTableWidthFields,readTableRowHeightFields,readTableCellHeaderFields} from './tableFields';
 import {RichRuns,richExclusions,type RichPlan,type RichBindings} from './richRuns';
 import {captureBlockSplit,captureBlockJoin,validateBlockTextCapture,prepareBlockText,type RichBlockTextAction} from './blockText';
 import {captureBlockEdit,prepareBlockEdit,isBlockEditingAction,richBlockChildren} from './blockEditing';
+import {tablePasteArea,tablePasteContents} from './tablePaste';
 import {captureBlockEmptyItem,prepareBlockExit} from './blockExit';
 import {RichBlocks,richBlockLeaves,type RichBlockDocument,type RichBlockBindings,type RichBlockPlan,type RichBlockAction,type RichBlockPlacement} from './blocks';
 import {prepareRichSnapshotBindings,prepareRichSnapshotBatch,encodeRichSnapshotBindings,type StoredRichBindings,type PreparedRichSnapshot} from './richSnapshot';
@@ -14,7 +15,7 @@ import {validateRichDocument,type RichAction,type RichDocument,type RichRange,ty
 import * as Y from 'yjs';
 import {cloneLocalToolJson,type LocalToolJson} from '../stateTypes';
 import {validateLocalToolCodecState,isLocalToolPlainField,localToolRichLinks,localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,isLocalToolRichBlockField,type LocalToolStateCodec} from '../stateCodec';
-import {localToolRichImageAlignment,localToolRichImageCells,localToolRichTableRowHeights,localToolRichImageRaster,localToolRichImages} from '../stateCodecFormat';
+import {localToolRichImageAlignment,localToolRichImageCells,localToolRichTableRowHeights,localToolRichTableCellHeaders,localToolRichImageRaster,localToolRichImages} from '../stateCodecFormat';
 import {isRichImageEngine,type RichImageAsset} from './imageFormat';
 import {collectVersionedImageAssets} from './imageRefs';
 import {mergeLocalToolActions,localToolStateEqual,type LocalToolStateAction} from '../stateActions';
@@ -52,10 +53,10 @@ const roots=(doc:Y.Doc,codec:LocalToolStateCodec,provided?:Registers)=>{
  list:(field:string)=>({content:registers.map<ObjectData>('content:'+field),membership:registers.map<boolean>('membership:'+field),selected:registers.map<string>('selected:'+field),order:order(doc,field)}),codec,projectionReader:undefined as undefined|(()=>ValidView)};
 };
 type Roots=ReturnType<typeof roots>;
-const blocks=(r:Roots,field:string)=>new RichBlocks(r.registers,field,localToolRichLinks(r.codec.fields[field]),localToolRichTables(r.codec.fields[field]),localToolRichTableAxes(r.codec.fields[field]),localToolRichTableWidths(r.codec.fields[field]),localToolRichImages(r.codec.fields[field]),localToolRichImageAlignment(r.codec.fields[field]),localToolRichImageRaster(r.codec.fields[field]),localToolRichImageCells(r.codec.fields[field]),localToolRichTableRowHeights(r.codec.fields[field]));
+const blocks=(r:Roots,field:string)=>new RichBlocks(r.registers,field,localToolRichLinks(r.codec.fields[field]),localToolRichTables(r.codec.fields[field]),localToolRichTableAxes(r.codec.fields[field]),localToolRichTableWidths(r.codec.fields[field]),localToolRichImages(r.codec.fields[field]),localToolRichImageAlignment(r.codec.fields[field]),localToolRichImageRaster(r.codec.fields[field]),localToolRichImageCells(r.codec.fields[field]),localToolRichTableRowHeights(r.codec.fields[field]),localToolRichTableCellHeaders(r.codec.fields[field]));
 const blockField=(r:Roots,field:string)=>{const descriptor=r.codec.fields[field];return isLocalToolRichBlockField(descriptor);};
 function leafData(r:Roots,field:string,data:unknown):RichDocument {
- if(blockField(r,field))return richBlockLeaves(data as RichBlockDocument,localToolRichLinks(r.codec.fields[field]),localToolRichTables(r.codec.fields[field]),localToolRichTableAxes(r.codec.fields[field]),localToolRichTableWidths(r.codec.fields[field]),localToolRichImages(r.codec.fields[field]),localToolRichImageAlignment(r.codec.fields[field]),localToolRichImageRaster(r.codec.fields[field]),localToolRichImageCells(r.codec.fields[field]),localToolRichTableRowHeights(r.codec.fields[field]));validateRichDocument(data,localToolRichLinks(r.codec.fields[field]));return data;
+ if(blockField(r,field))return richBlockLeaves(data as RichBlockDocument,localToolRichLinks(r.codec.fields[field]),localToolRichTables(r.codec.fields[field]),localToolRichTableAxes(r.codec.fields[field]),localToolRichTableWidths(r.codec.fields[field]),localToolRichImages(r.codec.fields[field]),localToolRichImageAlignment(r.codec.fields[field]),localToolRichImageRaster(r.codec.fields[field]),localToolRichImageCells(r.codec.fields[field]),localToolRichTableRowHeights(r.codec.fields[field]),localToolRichTableCellHeaders(r.codec.fields[field]));validateRichDocument(data,localToolRichLinks(r.codec.fields[field]));return data;
 }
 function initializeRoots(doc:Y.Doc,codec:LocalToolStateCodec):Roots {
  const r=roots(doc,codec);for(const[field,descriptor]of Object.entries(codec.fields)){if(descriptor.kind==='rich')r.rich(field);else if(descriptor.kind==='list')r.list(field);else if(isLocalToolPlainField(descriptor))r.plain(field);}return r;
@@ -221,6 +222,7 @@ function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson
   const raster=alignments.filter(field=>localToolRichImageRaster(metadata.codec.fields[field]));if(raster.length)new JsonMap<string[]>(doc.getMap('image-raster-fields')).set('value',raster);
   const cells=raster.filter(field=>localToolRichImageCells(metadata.codec.fields[field]));if(cells.length)new JsonMap<string[]>(doc.getMap('image-cell-fields')).set('value',cells);
   const rowHeights=cells.filter(field=>localToolRichTableRowHeights(metadata.codec.fields[field]));if(rowHeights.length)new JsonMap<string[]>(doc.getMap('table-row-height-fields')).set('value',rowHeights);
+  const cellHeaders=rowHeights.filter(field=>localToolRichTableCellHeaders(metadata.codec.fields[field]));if(cellHeaders.length)new JsonMap<string[]>(doc.getMap('table-cell-header-fields')).set('value',cellHeaders);
   for(const[field,value]of Object.entries(data as ObjectData)){
    const descriptor=metadata.codec.fields[field];
    if(descriptor?.kind==='rich'){const draft=r.rich(field).draft();const leaves=leafData(r,field,value);draft.replace(leaves);if(blockField(r,field))blocks(r,field).seed(value as unknown as RichBlockDocument);const plan=draft.finish();r.rich(field).commit(plan);r.presence.set(field,true);richBindings[field]=plan.view.bindings;}else if(isLocalToolPlainField(descriptor)){
@@ -325,7 +327,8 @@ function checkPlainDocument(r:Roots,doc:Y.Doc):void {
  const axes=readTableAxisFields(doc,identity,rich.filter(f=>localToolRichTables(r.codec.fields[f])),rich.filter(f=>localToolRichTableAxes(r.codec.fields[f])));
  const widths=readTableWidthFields(doc,identity,axes,rich.filter(f=>localToolRichTableWidths(r.codec.fields[f])));
  const {cells}=readImageFields(doc,identity,widths,rich.filter(f=>localToolRichImages(r.codec.fields[f])),rich.filter(f=>localToolRichImageAlignment(r.codec.fields[f])),rich.filter(f=>localToolRichImageRaster(r.codec.fields[f])),rich.filter(f=>localToolRichImageCells(r.codec.fields[f])));
- readTableRowHeightFields(doc,identity,cells,rich.filter(f=>localToolRichTableRowHeights(r.codec.fields[f])));
+ const rowHeights=readTableRowHeightFields(doc,identity,cells,rich.filter(f=>localToolRichTableRowHeights(r.codec.fields[f])));
+ readTableCellHeaderFields(doc,identity,rowHeights,rich.filter(f=>localToolRichTableCellHeaders(r.codec.fields[f])));
  const expectedBlocks=rich.filter(f=>blockField(r,f));if(convergenceCanonical(blockFields(doc))!==convergenceCanonical(expectedBlocks))throw Error('local_tool_blocks_fields_invalid');for(const field of rich){r.rich(field).pending();if(blockField(r,field))blocks(r,field).pending();}
 }
 function preparePlainActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,identity:LocalToolConvergenceIdentity,baseline?:T,validateProposal=true):ActionPlan<T> {
@@ -424,13 +427,20 @@ function validateImageCapture(r:Roots,contract:LocalToolConvergenceContract,iden
  });
 }
 
-function validateBlockCapture(r:Roots,contract:LocalToolConvergenceContract,identity:LocalToolConvergenceIdentity,action:Exclude<RichBlockAction,RichBlockTextAction|RichTableAxesAction|RichImageEditAction>):void {
+function validateBlockCapture(r:Roots,contract:LocalToolConvergenceContract,identity:LocalToolConvergenceIdentity,action:Exclude<RichBlockAction,RichBlockTextAction|RichTableAxesAction|RichImageEditAction>,current?:RichBlockDocument):void {
  const capture=action.capture,context=captureContext(r,contract,identity,capture.identity,capture.frontier);contract=context.contract;identity=context.identity;assertConvergenceIdentity(capture.identity,identity);if(capture.field!==action.field||!Array.isArray(capture.frontier))throw Error('local_tool_blocks_capture_invalid');
  r.registers.atFrontier(capture.frontier,registers=>{
   const historical=roots(r.registers.doc,contract.codec,registers),view=admitted(historical,contract),data=(view.data as ObjectData)[action.field] as unknown as RichBlockDocument,binding=view.blockBindings?.[action.field];
   if(!blockField(historical,action.field)||!binding)throw Error('local_tool_blocks_capture_invalid');const source=blocks(historical,action.field);
   const expected=action.type==='rich-block-exit-empty-item'?captureBlockEmptyItem(source,historical.rich(action.field),identity,data,binding,view.richBindings![action.field],action.capture.frame.leafId):isBlockEditingAction(action)?captureBlockEdit(source,identity,data,binding,action.capture.nodeIds,action.capture.destination):action.type==='rich-block-wrap'?source.capture(identity,data,binding,action.capture.nodeIds):source.moveCapture(identity,data,binding,action.capture.nodeId,action.capture.destination);
   if(convergenceCanonical(expected)!==convergenceCanonical(capture))throw Error('local_tool_blocks_capture_invalid');
+  if(action.type==='rich-table-paste'){
+   const tableId=action.capture.nodeIds[0],prior=data.axisOrder?.find(order=>order.tableId===tableId),live=current?.axisOrder?.find(order=>order.tableId===tableId);
+   if(!source.cellHeaders||!prior||!live||!current)throw Error('local_tool_table_paste_invalid');
+   const area=tablePasteArea(prior,action.target,action.matrix,source.links);
+   if(convergenceCanonical(live)!==convergenceCanonical(prior)||
+      convergenceCanonical(tablePasteContents(data,prior,area))!==convergenceCanonical(tablePasteContents(current,live,area)))throw Error('local_tool_table_paste_stale');
+  }
  });
 }
 
@@ -464,7 +474,14 @@ function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConve
     }else if(action.type==='rich-block-exit-empty-item'){
      if(!isBlocks||!present)throw Error('local_tool_blocks_action_invalid');validateBlockCapture(r,contract,identity,action);const plan=prepareBlockExit(blocks(r,field),structure,blockBindings[field],draft.finish().view.bindings,action);if(blockPlans[field]){plan.writes=[...blockPlans[field].writes,...plan.writes];plan.axisInserts=[...(blockPlans[field].axisInserts??[]),...(plan.axisInserts??[])];}blockPlans[field]=plan;structure=plan.data;blockBindings[field]=plan.bindings;
     }else if(action.type==='rich-block-wrap'||action.type==='rich-block-move'||isBlockEditingAction(action)){
-    if(!isBlocks||!present)throw Error('local_tool_blocks_action_invalid');validateBlockCapture(r,contract,identity,action);const plan=isBlockEditingAction(action)?prepareBlockEdit(blocks(r,field),structure,blockBindings[field],action,actionIdentity,draft.finish().view.bindings.nodes.at(-1)?.id??null):blocks(r,field).prepare(structure,blockBindings[field],action,actionIdentity);if('textActions'in plan)for(const textAction of plan.textActions as RichAction[])draft.apply(textAction,actionIdentity);if(blockPlans[field]){plan.writes=[...blockPlans[field].writes,...plan.writes];plan.axisInserts=[...(blockPlans[field].axisInserts??[]),...(plan.axisInserts??[])];}blockPlans[field]=plan;structure=plan.data;blockBindings[field]=plan.bindings;
+    if(!isBlocks||!present)throw Error('local_tool_blocks_action_invalid');
+    validateBlockCapture(r,contract,identity,action,structure);
+    const source=blocks(r,field),previous=blockPlans[field];
+    const plan=isBlockEditingAction(action)?prepareBlockEdit(source,structure,blockBindings[field],action,actionIdentity,draft.finish().view.bindings.nodes.at(-1)?.id??null,previous?.axisInserts):source.prepare(structure,blockBindings[field],action,actionIdentity);
+    if('textActions'in plan)for(const textAction of plan.textActions as RichAction[])draft.apply(textAction,actionIdentity);
+    if(plan.pasteParagraphs?.length)draft.insertParagraphs(plan.pasteParagraphs);
+    if(previous){plan.writes=[...previous.writes,...plan.writes];plan.axisInserts=[...(previous.axisInserts??[]),...(plan.axisInserts??[])];}
+    blockPlans[field]=plan;structure=plan.data;blockBindings[field]=plan.bindings;
    }else if(action.type==='set'||action.type==='unset'){
     if(isBlocks)throw Error('local_tool_blocks_structural_actions_required');
     if(baseline!==undefined&&!localToolStateEqual((baseline as ObjectData)[field],(before.data as ObjectData)[field]))throw Error('conflict');
@@ -689,7 +706,7 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
   current();if(!['2','3','4','5','6','7'].includes(identity.engine.version)||!isLocalToolPlainField(contract.codec.fields[field]))throw Error('local_tool_plain_range_invalid');const view=admitted(r,contract),text=(view.data as ObjectData)[field];
   if(typeof text!=='string')throw Error('local_tool_plain_range_invalid');return{format:'writers-hoard-local-plain-range/1',identity:clone(identity),field,...r.plain(field).range({text,bindings:view.plainBindings?.[field]??[]},from,to)};
  };
- const rich=(field:string)=>{current();if(!['3','4','5','6','7','9','10','11','12','13'].includes(identity.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_field_invalid');return r.rich(field);};
+ const rich=(field:string)=>{current();if(!['3','4','5','6','7','9','10','11','12','13','14'].includes(identity.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_field_invalid');return r.rich(field);};
  const richView=(field:string)=>{const view=admitted(r,contract),data=leafData(r,field,(view.data as ObjectData)[field]),bindings=view.richBindings?.[field];if(!bindings)throw Error('local_tool_rich_bindings_invalid');return{data,bindings};};
  const replica:LocalToolReplica<T>=Object.freeze({
   richImageCapture:(field:string,nodeId:string,channel:RichImageChannel)=>{current();const view=admitted(r,contract);return captureImage(blocks(r,field),identity,(view.data as ObjectData)[field] as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings,nodeId,channel);},
@@ -790,8 +807,8 @@ export function exportLocalToolConvergenceCheckpoint(checkpoint:LocalToolConverg
  try{
   Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));checkDocumentIdentity(doc,identity);
   if(convergenceBase64(Y.encodeStateVector(doc))!==checkpoint.stateVectorBase64)throw Error('local_tool_convergence_vector_invalid');
-  const registers=new Registers(doc);registers.validate();let semantic=registers.pending();const linkFields=new JsonMap<string[]>(doc.getMap('rich-link-fields')).get('value')??[];if(!Array.isArray(linkFields)||new Set(linkFields).size!==linkFields.length||linkFields.some(f=>typeof f!=='string')||linkFields.length&&!['4','5','6','7','9','10','11','12','13'].includes(identity.engine.version))throw Error('local_tool_rich_links_fields_invalid');const links=new Set(linkFields);const richFields=new JsonMap<string[]>(doc.getMap('rich-fields')).get('value')??[];if(!Array.isArray(richFields)||new Set(richFields).size!==richFields.length||richFields.some(f=>typeof f!=='string')||richFields.length&&!['3','4','5','6','7','9','10','11','12','13'].includes(identity.engine.version))throw Error('local_tool_rich_fields_invalid');if(linkFields.some(field=>!richFields.includes(field)))throw Error('local_tool_rich_links_fields_invalid');for(const field of richFields)if(new RichRuns(doc,field,registers,false,links.has(field)).pending())semantic=true;
-  const richChecks:RichBindingChecks=new Map(),blockSet=new Set(blockFields(doc));const tables=readTableFields(doc,identity,richFields,[...blockSet],linkFields);const axes=readTableAxisFields(doc,identity,[...tables]),widths=readTableWidthFields(doc,identity,axes),{images,alignments,raster,cells}=readImageFields(doc,identity,widths),rowHeights=readTableRowHeightFields(doc,identity,cells);for(const field of blockSet){if(!richFields.includes(field))throw Error('local_tool_blocks_fields_invalid');if(new RichBlocks(registers,field,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field)).pending())semantic=true;}
+  const registers=new Registers(doc);registers.validate();let semantic=registers.pending();const linkFields=new JsonMap<string[]>(doc.getMap('rich-link-fields')).get('value')??[];if(!Array.isArray(linkFields)||new Set(linkFields).size!==linkFields.length||linkFields.some(f=>typeof f!=='string')||linkFields.length&&!['4','5','6','7','9','10','11','12','13','14'].includes(identity.engine.version))throw Error('local_tool_rich_links_fields_invalid');const links=new Set(linkFields);const richFields=new JsonMap<string[]>(doc.getMap('rich-fields')).get('value')??[];if(!Array.isArray(richFields)||new Set(richFields).size!==richFields.length||richFields.some(f=>typeof f!=='string')||richFields.length&&!['3','4','5','6','7','9','10','11','12','13','14'].includes(identity.engine.version))throw Error('local_tool_rich_fields_invalid');if(linkFields.some(field=>!richFields.includes(field)))throw Error('local_tool_rich_links_fields_invalid');for(const field of richFields)if(new RichRuns(doc,field,registers,false,links.has(field)).pending())semantic=true;
+  const richChecks:RichBindingChecks=new Map(),blockSet=new Set(blockFields(doc));const tables=readTableFields(doc,identity,richFields,[...blockSet],linkFields);const axes=readTableAxisFields(doc,identity,[...tables]),widths=readTableWidthFields(doc,identity,axes),{images,alignments,raster,cells}=readImageFields(doc,identity,widths),rowHeights=readTableRowHeightFields(doc,identity,cells),cellHeaders=readTableCellHeaderFields(doc,identity,rowHeights);for(const field of blockSet){if(!richFields.includes(field))throw Error('local_tool_blocks_fields_invalid');if(new RichBlocks(registers,field,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field),cellHeaders.has(field)).pending())semantic=true;}
   for(const version of registers.versions.values()){
    if(!version.present)continue;
    if(version.root.startsWith('selected:')&&!order(doc,version.root.slice('selected:'.length)).toArray().some(place=>place.placementId===version.value))semantic=true;
@@ -800,9 +817,9 @@ export function exportLocalToolConvergenceCheckpoint(checkpoint:LocalToolConverg
     if(!view||!object(view.bindings))throw Error('local_tool_convergence_bindings_invalid');
     const batch=prepareRichSnapshotBatch(Object.entries(view.richBindings??{}),([field,bindings])=>{
      if(!richFields.includes(field))throw Error('local_tool_rich_bindings_invalid');
-     try{const raw=(view.data as ObjectData)[field];if(blockSet.has(field))new RichBlocks(registers,field,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field)).check(raw as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings);const data=blockSet.has(field)?richBlockLeaves(raw as unknown as RichBlockDocument,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field)):raw;validateRichDocument(data,links.has(field));return readRichSnapshot(new RichRuns(doc,field,registers,false,links.has(field)),data,bindings);}catch{semantic=true;return null;}
+     try{const raw=(view.data as ObjectData)[field];if(blockSet.has(field))new RichBlocks(registers,field,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field),cellHeaders.has(field)).check(raw as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings);const data=blockSet.has(field)?richBlockLeaves(raw as unknown as RichBlockDocument,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field),cellHeaders.has(field)):raw;validateRichDocument(data,links.has(field));return readRichSnapshot(new RichRuns(doc,field,registers,false,links.has(field)),data,bindings);}catch{semantic=true;return null;}
     });
-    for(const{value:[field],prepared}of batch){try{const raw=(view.data as ObjectData)[field],data=blockSet.has(field)?richBlockLeaves(raw as unknown as RichBlockDocument,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field)):raw;validateRichDocument(data,links.has(field));let check=richChecks.get(field);if(!check){check=new RichRuns(doc,field,registers,false,links.has(field)).bindingValidator();richChecks.set(field,check);}check({data,bindings:prepared.read()});}catch{semantic=true;}}
+    for(const{value:[field],prepared}of batch){try{const raw=(view.data as ObjectData)[field],data=blockSet.has(field)?richBlockLeaves(raw as unknown as RichBlockDocument,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field),cellHeaders.has(field)):raw;validateRichDocument(data,links.has(field));let check=richChecks.get(field);if(!check){check=new RichRuns(doc,field,registers,false,links.has(field)).bindingValidator();richChecks.set(field,check);}check({data,bindings:prepared.read()});}catch{semantic=true;}}
     for(const[field,bindings]of Object.entries(view.plainBindings??{})){try{new PlainRuns(doc,field,registers).checkBindings({text:(view.data as ObjectData)[field] as string,bindings});}catch{semantic=true;}}
     for(const[field,bindings]of Object.entries(view.bindings)){const places=new Map(order(doc,field).toArray().map(place=>[place.placementId,place.id]));if(!Array.isArray(bindings))throw Error('local_tool_convergence_bindings_invalid');for(const {id,placementId}of bindings)if(places.get(placementId)!==id)semantic=true;}
    }
