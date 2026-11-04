@@ -1,9 +1,12 @@
 import type {LocalToolJson} from '../stateTypes';
 import type {LocalToolPresenceDocument,LocalToolPresenceProfile,PresenceRoomSnapshot,PresenceWireSnapshot} from './types';
 import type {LocalToolConvergenceUpdate} from '../convergence/types';
+import type {LocalToolAssets} from '../assets';
+import {collectRoomImageAssets} from '../convergence/imageRefs';
+import {receiveRoomImage,requestRoomImage,sendRoomImages,type ImageRoomLease} from './imageTransfer';
 import {contentPacketFingerprint} from '../convergence/richAdoption';
 import {assertConvergenceIdentity,convergenceIdentityOf,convergenceCanonical} from '../convergence/format';
-interface Binding {roomId:string;instanceId:string;epoch:string;document:LocalToolPresenceDocument;current:()=>Promise<boolean>;reconnected:()=>void;content?:boolean;receiveContent?:(update:LocalToolConvergenceUpdate)=>LocalToolPresenceDocument|void;prepareContent?:(update:LocalToolConvergenceUpdate,document:LocalToolPresenceDocument)=>LocalToolPresenceDocument|void;requestedFull?:(requestId:string)=>void}
+interface Binding extends ImageRoomLease {assets?:LocalToolAssets;document:LocalToolPresenceDocument;current:()=>Promise<boolean>;reconnected:()=>void;content?:boolean;receiveContent?:(update:LocalToolConvergenceUpdate)=>LocalToolPresenceDocument|void;prepareContent?:(update:LocalToolConvergenceUpdate,document:LocalToolPresenceDocument)=>LocalToolPresenceDocument|void;requestedFull?:(requestId:string)=>void}
 /** One lazily opened stream per renderer, independent of MCP or document storage. */
 export class LocalPresenceTransport {
  private connection:{connectionId:string;token:string}|undefined;
@@ -17,6 +20,7 @@ export class LocalPresenceTransport {
  private retry:ReturnType<typeof setTimeout>|undefined;
  private listeners=new Set<()=>void>();
  private bindings=new Map<string,Binding>();
+ private imageReads=new WeakMap<Binding,{epoch:number;ready:Map<string,Promise<void>>}>();
  private rooms=new Map<string,PresenceRoomSnapshot>();
  private epoch=0;
  status:'connecting'|'ready'|'disconnected'='disconnected';
@@ -40,31 +44,90 @@ export class LocalPresenceTransport {
   this.opening=opening;try{await opening;for(const binding of [...this.bindings.values()])if(await binding.current()){if(binding.content){const result=await this.prepareJoin(binding.roomId,binding.instanceId,binding.epoch,binding.document,()=>this.bindings.get(binding.instanceId)===binding);const prepared=binding.prepareContent?.(result.content,result.room.document);if(prepared)binding.document=prepared;if(!await binding.current())throw Error('presence_host_unavailable');}const content=await this.join(binding);if(content)this.acceptContent(binding,content);binding.reconnected();}}catch(error){if(epoch===this.epoch){this.status='disconnected';this.error=String(error);this.changed();}throw error;}finally{if(this.opening===opening)this.opening=undefined;}
  }
  private async reconnect(epoch:number){if(epoch!==this.epoch||this.retry)return;const profile=this.profile;if(!profile)return;await this.shutdown(false);if(!this.bindings.size)return;this.retry=setTimeout(()=>{this.retry=undefined;void(async()=>{try{await this.connect(profile,()=>this.bindings.size>0);}catch(error){this.status='disconnected';this.error=error instanceof Error?error.message:String(error);this.changed();}})();},1000);}
- async create(document:LocalToolPresenceDocument,content?:LocalToolConvergenceUpdate){const result=await this.request('create',{document,...(content?{content}:{})});return result.roomId as string;}
+ async create(document:LocalToolPresenceDocument,content?:LocalToolConvergenceUpdate,images?:{instanceId:string;assets?:LocalToolAssets;current:()=>boolean}){
+  const connection=this.connection,epoch=this.epoch;
+  const result=await this.request('create',{document,...(content?{content}:{})});
+  if(result.needsImages!==undefined){
+   if(!images||!connection)throw Error('local_asset_image_unavailable');
+   const scope={roomId:result.roomId as string,instanceId:images.instanceId,epoch:crypto.randomUUID()};
+   await sendRoomImages(result.needsImages,images.assets,async()=>this.epoch===epoch&&images.current(),(asset,blob)=>requestRoomImage(this.origin,connection,scope,asset,blob));
+  }
+  return result.roomId as string;
+ }
+ private async hydrateImages(binding:Binding,update:LocalToolConvergenceUpdate,current:()=>Promise<boolean>){
+  if(!binding.document.convergence)throw Error('local_tool_live_identity_invalid');
+  assertConvergenceIdentity(update,binding.document.convergence as import('../convergence/types').LocalToolConvergenceIdentity);
+  const needed=collectRoomImageAssets(update);
+  if(!needed.length)return;
+  const connection=this.connection,assets=binding.assets;
+  if(!connection||!assets)throw Error('local_asset_image_unavailable');
+  const epoch=this.epoch;
+  let cache=this.imageReads.get(binding);
+  if(cache?.epoch!==epoch){cache={epoch,ready:new Map()};this.imageReads.set(binding,cache);}
+  const ready=cache.ready,active=async()=>this.epoch===epoch&&await current()&&this.epoch===epoch;
+  for(const asset of needed){
+   let transfer=ready.get(asset.sha256);
+   if(!transfer){
+    transfer=receiveRoomImage(asset,assets,active,()=>requestRoomImage(this.origin,connection,binding,asset));
+    ready.set(asset.sha256,transfer);
+   }
+   try{await transfer;}catch(error){if(ready.get(asset.sha256)===transfer)ready.delete(asset.sha256);throw error;}
+  }
+ }
  async prepareJoin(roomId:string,instanceId:string,epoch:string,document:LocalToolPresenceDocument,current:()=>boolean){
   if(!this.connection||!current())throw Error('presence_host_unavailable');const connectionEpoch=this.epoch,result=await this.request('update',{kind:'join-prepare',roomId,instanceId,epoch,document,content:true});if(!current()||connectionEpoch!==this.epoch)throw Error('presence_host_unavailable');return result as {room:PresenceRoomSnapshot;content:LocalToolConvergenceUpdate};
  }
  async join(binding:Binding){
-  if(!this.connection||!await binding.current())throw Error('presence_host_unavailable');let provisional=false;
+  if(!this.connection||!await binding.current())throw Error('presence_host_unavailable');let provisional=false;const epoch=this.epoch;
   try{const result=await this.request('update',{kind:'join',roomId:binding.roomId,instanceId:binding.instanceId,epoch:binding.epoch,document:binding.document,...(binding.content?{content:true}:{})});provisional=true;
-   if(result.content){const prepared=binding.prepareContent?.(result.content,result.room.document);if(prepared)binding.document=prepared;}if(!await binding.current())throw Error('presence_host_unavailable');
+   if(result.content){const prepared=binding.prepareContent?.(result.content,result.room.document);if(prepared)binding.document=prepared;if(result.content.engine.version==='9')await this.hydrateImages(binding,result.content,binding.current);}if(epoch!==this.epoch||!await binding.current())throw Error('presence_host_unavailable');
    this.bindings.set(binding.instanceId,binding);this.rooms.set(binding.roomId,result.room);this.status='ready';this.changed();return result.content as LocalToolConvergenceUpdate|undefined;
   }catch(error){if(provisional)try{await this.request('update',{kind:'leave',roomId:binding.roomId,instanceId:binding.instanceId,epoch:binding.epoch});}catch{/* Retired provisional membership only. */}throw error;}
  }
  private acceptContent(binding:Binding,update:LocalToolConvergenceUpdate){
   const document=binding.receiveContent?.(update);if(document){if(!document.convergence)throw Error('local_tool_live_identity_invalid');assertConvergenceIdentity(update,document.convergence as import('../convergence/types').LocalToolConvergenceIdentity);binding.document=document;}
  }
- private async receiveContent(epoch:number,roomId:string,update:LocalToolConvergenceUpdate){for(const binding of [...this.bindings.values()])if(binding.content&&binding.roomId===roomId&&await binding.current()&&epoch===this.epoch&&this.bindings.get(binding.instanceId)===binding)this.acceptContent(binding,update);}
+ private async receiveContent(epoch:number,roomId:string,update:LocalToolConvergenceUpdate){
+  for(const binding of [...this.bindings.values()]){
+   if(!binding.content||binding.roomId!==roomId)continue;
+   const bound=()=>epoch===this.epoch&&this.bindings.get(binding.instanceId)===binding&&!!binding.content;
+   const current=async()=>bound()&&await binding.current()&&bound();
+   if(!await current())continue;
+   if(update.engine.version==='9'){await this.hydrateImages(binding,update,current);if(!await current())continue;}
+   this.acceptContent(binding,update);
+  }
+ }
  async fullContent(instanceId:string,epoch:string,requestId:string){
   const binding=this.bindings.get(instanceId),connectionEpoch=this.epoch;if(!binding?.content||binding.epoch!==epoch||!await binding.current())throw Error('presence_host_unavailable');
-  const result=await this.request('update',{kind:'content-full-request',roomId:binding.roomId,instanceId,epoch,requestId});if(connectionEpoch!==this.epoch||this.bindings.get(instanceId)!==binding||!await binding.current())return;return result.content as LocalToolConvergenceUpdate|undefined;
+  const bound=()=>connectionEpoch===this.epoch&&this.bindings.get(instanceId)===binding&&!!binding.content;
+  const current=async()=>bound()&&await binding.current()&&bound();
+  const result=await this.request('update',{kind:'content-full-request',roomId:binding.roomId,instanceId,epoch,requestId});
+  if(!await current())return;
+  if(result.content?.engine.version==='9'){await this.hydrateImages(binding,result.content,current);if(!await current())return;}
+  return result.content as LocalToolConvergenceUpdate|undefined;
  }
  retireContent(instanceId:string,epoch:string){const binding=this.bindings.get(instanceId);if(binding?.epoch===epoch)binding.content=false;}
  async content(instanceId:string,epoch:string,update:LocalToolConvergenceUpdate,messageId:string){
   const binding=this.bindings.get(instanceId),connectionEpoch=this.epoch;if(!binding?.content||binding.epoch!==epoch)throw Error('local_tool_live_not_joined');if(!await binding.current()||connectionEpoch!==this.epoch||this.bindings.get(instanceId)!==binding||!binding.content)throw Error('presence_host_unavailable');
   const changed=convergenceCanonical(convergenceIdentityOf(update))!==convergenceCanonical(binding.document.convergence);if(changed&&!(binding.document.convergence?.engine.version==='3'&&update.engine.version==='4'))throw Error('local_tool_live_identity_invalid');
-  const result=await this.request('update',{kind:changed?'content-adopt':'content',roomId:binding.roomId,instanceId,epoch,update,messageId});if(connectionEpoch!==this.epoch||this.bindings.get(instanceId)!==binding||!await binding.current())throw Error('presence_host_unavailable');
-  if(result.content){binding.prepareContent?.(result.content,result.room.document);this.acceptContent(binding,result.content);this.rooms.set(binding.roomId,result.room);this.changed();}
+  const bound=()=>connectionEpoch===this.epoch&&this.bindings.get(instanceId)===binding&&!!binding.content;
+  const current=async()=>bound()&&await binding.current()&&bound();
+  const payload={kind:changed?'content-adopt':'content',roomId:binding.roomId,instanceId,epoch,update,messageId};
+  let result=await this.request('update',payload);
+  if(!await current())throw Error('presence_host_unavailable');
+  if(result.needsImages!==undefined){
+   const connection=this.connection;
+   if(!connection||update.engine.version!=='9')throw Error('local_asset_image_unavailable');
+   await sendRoomImages(result.needsImages,binding.assets,current,(asset,blob)=>requestRoomImage(this.origin,connection,binding,asset,blob));
+   result=await this.request('update',payload);
+   if(result.needsImages!==undefined)throw Error('local_asset_image_unavailable');
+   if(!await current())throw Error('presence_host_unavailable');
+  }
+  if(result.content){
+   binding.prepareContent?.(result.content,result.room.document);
+   if(result.content.engine.version==='9'){await this.hydrateImages(binding,result.content,current);if(!await current())return;}
+   this.acceptContent(binding,result.content);this.rooms.set(binding.roomId,result.room);this.changed();
+  }
  }
  async update(instanceId:string,epoch:string,seq:number,kind:'state'|'surface',state:LocalToolJson|null,active=false){const binding=this.bindings.get(instanceId),connectionEpoch=this.epoch;if(!binding||binding.epoch!==epoch)return;if(!await binding.current())throw Error('presence_host_unavailable');if(connectionEpoch!==this.epoch||this.bindings.get(instanceId)!==binding)return;await this.request('update',{kind,roomId:binding.roomId,instanceId,epoch,seq,...(kind==='state'?{state}:{surface:state,active})});const valid=await binding.current();if(connectionEpoch!==this.epoch||this.bindings.get(instanceId)!==binding)throw Error('presence_host_unavailable');if(!valid){await this.leave(instanceId,binding.epoch);throw Error('presence_host_unavailable');}}
  async leave(instanceId:string,expectedEpoch?:string){const binding=this.bindings.get(instanceId);if(!binding||expectedEpoch!==undefined&&binding.epoch!==expectedEpoch)return;this.bindings.delete(instanceId);if(binding&&![...this.bindings.values()].some(b=>b.roomId===binding.roomId))this.rooms.delete(binding.roomId);if(binding&&this.connection)try{await this.request('update',{kind:'leave',roomId:binding.roomId,instanceId,epoch:binding.epoch});}catch{/* A departed stream already withdrew this membership. */}if(!this.bindings.size&&!this.operations.size)await this.shutdown(true);this.changed();}
