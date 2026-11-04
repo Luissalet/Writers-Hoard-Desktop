@@ -117,7 +117,7 @@ function RichSurface({transition,adopt,presence,sharing,documentSave,saveReady,s
  };
  const [linkForm,setLinkForm]=useState(false),[linkUrl,setLinkUrl]=useState('');
  const [extensions]=useState(()=>[
-  ...(isBlocks?blockNodes(collapsed.current,session.tables,session.axes,session.widths,session.images,session.imageCells):[
+  ...(isBlocks?blockNodes(collapsed.current,session.tables,session.axes,session.widths,session.images,session.imageCells,session.cellSpans):[
   Node.create({name:'doc',topNode:true,content:'paragraph+'}),
   Node.create({name:'paragraph',group:'block',content:'inline*',draggable:true,addAttributes(){return{id:{default:null,parseHTML:element=>element.getAttribute('data-writer-paragraph'),renderHTML:attributes=>attributes.id?{'data-writer-paragraph':attributes.id}:{}}};},parseHTML(){return[{tag:'p'}];},renderHTML({HTMLAttributes}){return['p',mergeAttributes(HTMLAttributes),0];}}),
   Node.create({name:'text',group:'inline'})

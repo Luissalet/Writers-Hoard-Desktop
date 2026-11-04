@@ -2,6 +2,8 @@ import type {RichBlockDocument} from '../convergence/blockFormat';
 import {richBlockChildren} from '../convergence/blockEditing';
 import {MIN_TABLE_COLUMN_WIDTH,validTableColumnWidth} from '../convergence/tableAxesFormat';
 
+import {tableSpans,type TableArea} from '../convergence/tableSpanGeometry';
+
 export interface TableColumnLayout {columnId:string;widthPx:number|null}
 export function tableWidthStyle(columns:readonly TableColumnLayout[]){
  if(!columns.some(column=>column.widthPx!==null))return undefined;
@@ -17,7 +19,9 @@ export function tableAxesRows(data:RichBlockDocument,tableId:string){
   const width=byId.get(columnId)?.attrs.widthPx;
   return {columnId,widthPx:validTableColumnWidth(width)?width:null};
  });
- return order.rows.map(rowId=>{
+ const spanAt=new Map<number,TableArea>();
+ for(const {area} of tableSpans(order,data.blocks))for(let y=area.top;y<area.top+area.height;y++)for(let x=area.left;x<area.left+area.width;x++)spanAt.set(y*order.columns.length+x,area);
+ return order.rows.map((rowId,y)=>{
   const row=byId.get(rowId)!,columns=new Map<string,RichBlockDocument['blocks']>(),headers=new Map<string,boolean>();
   for(const fragment of byParent.get(rowId)??[]){
    const columnId=String(fragment.attrs.columnId);
@@ -25,11 +29,13 @@ export function tableAxesRows(data:RichBlockDocument,tableId:string){
     if(typeof fragment.attrs.header==='boolean')headers.set(columnId,fragment.attrs.header);
     continue;
    }
+   if(fragment.type!=='table-cell')continue;
    const siblings=columns.get(columnId)??[];siblings.push(fragment);columns.set(columnId,siblings);
   }
-  return{row,cells:ordered.map(({columnId,widthPx})=>{
+  return{row,cells:ordered.map(({columnId,widthPx},x)=>{
+   const span=spanAt.get(y*order.columns.length+x),covered=!!span&&(span.top!==y||span.left!==x);
    const fragments=richBlockChildren({blocks:columns.get(columnId)??[]},rowId);
-   return{tableId,rowId,columnId,widthPx,header:headers.get(columnId)??row.attrs.header===true,address:JSON.stringify([tableId,rowId,columnId]),children:fragments.flatMap(fragment=>richBlockChildren({blocks:byParent.get(fragment.id)??[]},fragment.id))};
+   return{tableId,rowId,columnId,widthPx,covered,rowSpan:span?.height??1,colSpan:span?.width??1,header:headers.get(columnId)??row.attrs.header===true,address:JSON.stringify([tableId,rowId,columnId]),children:fragments.flatMap(fragment=>richBlockChildren({blocks:byParent.get(fragment.id)??[]},fragment.id))};
   })};
  });
 }

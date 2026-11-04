@@ -4,7 +4,8 @@ import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
 import {assetBytes,assetFileMime} from '../assetFileFormat';
 import {isRichImageAlignment,isRichImageSize,validateRichImageAsset} from '../convergence/imageFormat';
 import {RICH_MARK_KEYS,type RichMarkValue,type RichText} from '../convergence/richTypes';
-import {tablePasteArea,tablePasteContents,type RichTablePasteCell,type RichTablePasteImage,type RichTablePasteTarget} from '../convergence/tablePaste';
+import {tablePasteArea,tablePasteContents,type RichTablePasteCell,type RichTablePasteImage,type RichTablePasteMatrix,type RichTablePasteTarget} from '../convergence/tablePaste';
+import {areaContains,tableSpans} from '../convergence/tableSpanGeometry';
 import {convergenceCanonical} from '../convergence/format';
 import {axisCellAtPosition} from './blockProsemirror';
 import {restoreSourceCellSelection,sourceCellSelectionEnds} from './tableCellSelection';
@@ -38,12 +39,13 @@ function readClipboardParagraphs(element:HTMLElement,parser:ProseMirrorDOMParser
  return paragraphs;
 }
 
-function clipboardTable(html:string,schema:Schema,document:Document):ClipboardCell[][]|null{
+function clipboardTable(html:string,schema:Schema,document:Document,allowSpans:boolean):(ClipboardCell|null)[][]|null{
  const template=document.createElement('template');
  template.innerHTML=html;
  const tables=template.content.querySelectorAll('table');
  if(tables.length!==1)return null;
- const table=tables[0],parser=ProseMirrorDOMParser.fromSchema(schema),matrix:ClipboardCell[][]=[],files=new Map<string,File>();
+ const table=tables[0],parser=ProseMirrorDOMParser.fromSchema(schema),matrix:(ClipboardCell|null)[][]=Array.from(table.rows,()=>[]),files=new Map<string,File>();
+ if(!matrix.length)return null;
  const fileFor=(image:HTMLImageElement)=>{
   const src=image.getAttribute('src')??'',cached=files.get(src);
   if(cached)return cached;
@@ -55,10 +57,12 @@ function clipboardTable(html:string,schema:Schema,document:Document):ClipboardCe
    const file=new File([bytes],name,{type:mime});files.set(src,file);return file;
   }catch{return null;}
  };
- for(const row of Array.from(table.rows)){
-  const cells:ClipboardCell[]=[];
+ for(const [y,row] of Array.from(table.rows).entries()){
+  let x=0;
   for(const cell of Array.from(row.cells)){
-   if(cell.colSpan!==1||cell.rowSpan!==1||cell.querySelector('picture,video,audio,iframe,object,embed,svg'))return null;
+   while(matrix[y][x]!==undefined)x++;
+   const rows=cell.rowSpan,columns=cell.colSpan,merged=rows!==1||columns!==1;
+   if(merged&&!allowSpans||rows<1||y+rows>matrix.length||cell.querySelector('picture,video,audio,iframe,object,embed,svg'))return null;
    const paragraphs:RichText[][]=[],images:ClipboardImage[]=[],chunk=document.createElement('div');
    const flush=()=>{
     if(!chunk.hasChildNodes())return true;
@@ -83,12 +87,16 @@ function clipboardTable(html:string,schema:Schema,document:Document):ClipboardCe
     }
    }
    if(!flush())return null;
-   cells.push({header:cell.tagName==='TH',paragraphs,...(images.length?{images}:{})});
+   for(let r=y;r<y+rows;r++)for(let c=x;c<x+columns;c++){
+    if(matrix[r][c]!==undefined)return null;
+    matrix[r][c]=null;
+   }
+   matrix[y][x]={header:cell.tagName==='TH',paragraphs,...(merged?{span:{rows,columns}}:{}),...(images.length?{images}:{})};
+   x+=columns;
   }
-  if(!cells.length||matrix.length&&cells.length!==matrix[0].length)return null;
-  matrix.push(cells);
  }
- return matrix.length?matrix:null;
+ const width=matrix[0].length;
+ return width&&matrix.every(row=>row.length===width&&Array.from(row).every(cell=>cell!==undefined))?matrix:null;
 }
 
 export function pasteSourceTable(session:RichEditorSession,view:EditorView,event:ClipboardEvent):boolean{
@@ -104,24 +112,29 @@ export function pasteSourceTable(session:RichEditorSession,view:EditorView,event
  if(!ends&&!view.state.selection.empty&&JSON.stringify(axisCellAtPosition(view.state.doc,view.state.selection.to))!==JSON.stringify(anchor))return true;
  const [tableId,rowId,columnId]=anchor,document=session.blockDocument(),order=document.axisOrder?.find(item=>item.tableId===tableId);
  if(!order)return true;
- const parsed=clipboardTable(html,view.state.schema,view.dom.ownerDocument);
+ const parsed=clipboardTable(html,view.state.schema,view.dom.ownerDocument,session.cellSpans&&!!head);
  if(!parsed)return true;
  const target:RichTablePasteTarget={rows:order.rows,columns:order.columns,anchor:[rowId,columnId],...(head?{head:[head[1],head[2]]}:{})};
  const field=session.field,capture=session.replica.richBlockEditCapture(field,[tableId]);
- const textMatrix=parsed.map(row=>row.map(({header,paragraphs})=>({header,paragraphs})));
- const area=tablePasteArea(order,target,textMatrix,session.links);
- const apply=(matrix:RichTablePasteCell[][])=>{
+ const textMatrix=parsed.map(row=>row.map(cell=>cell?{header:cell.header,paragraphs:cell.paragraphs,...(cell.span?{span:cell.span}:{})}:null));
+ let area;
+ try{area=tablePasteArea(order,target,textMatrix,session.links,session.cellSpans?document:undefined);}catch{return true;}
+ const apply=(matrix:RichTablePasteMatrix)=>{
   if(!session.applyBatch([{type:'rich-table-paste',field,capture,target,matrix}]))return true;
-  const {state}=view,updated=session.blockDocument().axisOrder?.find(item=>item.tableId===tableId);
+  const {state}=view,current=session.blockDocument(),updated=current.axisOrder?.find(item=>item.tableId===tableId);
   if(updated){
-   const first=JSON.stringify([tableId,updated.rows[area.top],updated.columns[area.left]]);
-   const last=JSON.stringify([tableId,updated.rows[area.top+area.height-1],updated.columns[area.left+area.width-1]]);
+   const spans=session.cellSpans?tableSpans(updated,current.blocks):[];
+   const address=(top:number,left:number)=>{
+    const span=spans.find(item=>areaContains(item.area,{top,left,height:1,width:1}))?.area;
+    return JSON.stringify([tableId,updated.rows[span?.top??top],updated.columns[span?.left??left]]);
+   };
+   const first=address(area.top,area.left),last=address(area.top+area.height-1,area.left+area.width-1);
    const selection=restoreSourceCellSelection(state.doc,[first,last]);
    if(selection)view.dispatch(state.tr.setSelection(selection).setMeta('addToHistory',false));
   }
   return true;
  };
- const files=[...new Set(parsed.flatMap(row=>row.flatMap(cell=>(cell.images??[]).map(image=>image.file))))];
+ const files=[...new Set(parsed.flatMap(row=>row.flatMap(cell=>(cell?.images??[]).map(image=>image.file))))];
  if(!files.length){
   try{return apply(textMatrix);}catch(reason){session.fail(reason,true);return true;}
  }
@@ -133,13 +146,15 @@ export function pasteSourceTable(session:RichEditorSession,view:EditorView,event
   if(!live||convergenceCanonical(live)!==convergenceCanonical(order)||
      convergenceCanonical(tablePasteContents(current,live,area))!==convergenceCanonical(tablePasteContents(document,order,area)))return;
   const imported=new Map(files.map((file,i)=>[file,rows[i]]));
-  const matrix:RichTablePasteCell[][]=parsed.map(row=>row.map(({images,...cell})=>({
-   ...cell,...(images?{images:images.map(({file,...image})=>{
+  const matrix:RichTablePasteMatrix=parsed.map(row=>row.map(value=>{
+   if(!value)return null;
+   const {images,...cell}=value;
+   return {...cell,...(images?{images:images.map(({file,...image})=>{
     const {sha256,mime,size}=imported.get(file)!,asset={sha256,mime,size};
     validateRichImageAsset(asset,session.imageRaster);
     return {...image,asset};
-   })}:{}),
-  })));
+   })}:{})};
+  }));
   apply(matrix);
  }).catch(()=>{});
  return true;

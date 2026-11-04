@@ -4,24 +4,40 @@ import type {RichTableAxisOrder} from './tableAxesFormat';
 import {convergenceCanonical} from './format';
 import {validateRichDocument,type RichText} from './richTypes';
 import {isRichImageAlignment,isRichImageSize,validateRichImageAsset,type RichImageAlignment,type RichImageAsset,type RichImageSize} from './imageFormat';
+import {areaContains,areasIntersect,tableSpans,type TableArea} from './tableSpanGeometry';
 
 type Cell=readonly [rowId:string,columnId:string];
 export type RichTablePasteImage={afterParagraph:number;asset:RichImageAsset;displaySize:RichImageSize;alignment:RichImageAlignment};
-export type RichTablePasteCell={header:boolean;paragraphs:RichText[][];images?:RichTablePasteImage[]};
+export type RichTablePasteCell={header:boolean;paragraphs:RichText[][];images?:RichTablePasteImage[];span?:{rows:number;columns:number}};
+export type RichTablePasteMatrix=(RichTablePasteCell|null)[][];
 export type RichTablePasteTarget={rows:string[];columns:string[];anchor:Cell;head?:Cell};
-export type RichTablePasteAction={type:'rich-table-paste';field:string;capture:RichBlockEditCapture;target:RichTablePasteTarget;matrix:RichTablePasteCell[][]};
+export type RichTablePasteAction={type:'rich-table-paste';field:string;capture:RichBlockEditCapture;target:RichTablePasteTarget;matrix:RichTablePasteMatrix};
 
 const invalid=():never=>{throw Error('local_tool_table_paste_invalid');};
-export function tablePasteArea(order:RichTableAxisOrder,target:RichTablePasteTarget,matrix:RichTablePasteCell[][],links:boolean){
+export function tablePasteArea(order:RichTableAxisOrder,target:RichTablePasteTarget,matrix:RichTablePasteMatrix,links:boolean,spanData?:RichBlockDocument):TableArea{
  if(!target||Object.keys(target).length!==(target.head===undefined?3:4)||
     convergenceCanonical(target.rows)!==convergenceCanonical(order.rows)||
     convergenceCanonical(target.columns)!==convergenceCanonical(order.columns)||
     !Array.isArray(matrix)||!matrix.length||!Array.isArray(matrix[0])||!matrix[0].length)return invalid();
- const width=matrix[0].length;
- for(const row of matrix){
+ const width=matrix[0].length,covered=new Set<number>();
+ let hasSpans=false;
+ for(const [y,row] of matrix.entries()){
   if(!Array.isArray(row)||row.length!==width)return invalid();
-  for(const cell of row){
-   if(!cell||Object.keys(cell).length!==(cell.images===undefined?2:3)||typeof cell.header!=='boolean'||!Array.isArray(cell.paragraphs))return invalid();
+  for(const [x,cell] of row.entries()){
+   if(covered.has(y*width+x)){if(cell!==null)return invalid();continue;}
+   if(!cell||Object.keys(cell).length!==2+Number(cell.images!==undefined)+Number(cell.span!==undefined)||typeof cell.header!=='boolean'||!Array.isArray(cell.paragraphs))return invalid();
+   if(cell.span!==undefined){
+    const span=cell.span;
+    if(!spanData||!span||Object.keys(span).length!==2||!Number.isSafeInteger(span.rows)||!Number.isSafeInteger(span.columns)||
+       span.rows<1||span.columns<1||span.rows===1&&span.columns===1||span.rows>matrix.length-y||span.columns>width-x)return invalid();
+    hasSpans=true;
+    for(let r=y;r<y+span.rows;r++)for(let c=x;c<x+span.columns;c++){
+     if(r===y&&c===x)continue;
+     const position=r*width+c;
+     if(covered.has(position))return invalid();
+     covered.add(position);
+    }
+   }
    validateRichDocument({type:'doc',content:cell.paragraphs.map((content,i)=>({type:'paragraph',id:String(i),content}))},links);
    if(cell.images!==undefined){
     if(!Array.isArray(cell.images)||!cell.images.length)return invalid();
@@ -41,9 +57,20 @@ export function tablePasteArea(order:RichTableAxisOrder,target:RichTablePasteTar
   return {y,x};
  };
  const anchor=point(target.anchor);
- if(target.head===undefined)return {top:anchor.y,left:anchor.x,height:matrix.length,width};
+ const spans=spanData?tableSpans(order,spanData.blocks):[];
+ if(target.head===undefined){
+  const area={top:anchor.y,left:anchor.x,height:matrix.length,width};
+  if(hasSpans||spans.some(span=>areasIntersect(area,span.area)&&!areaContains(area,span.area)))return invalid();
+  return area;
+ }
  const head=point(target.head);
- return {top:Math.min(anchor.y,head.y),left:Math.min(anchor.x,head.x),height:Math.abs(anchor.y-head.y)+1,width:Math.abs(anchor.x-head.x)+1};
+ let area={top:Math.min(anchor.y,head.y),left:Math.min(anchor.x,head.x),height:Math.abs(anchor.y-head.y)+1,width:Math.abs(anchor.x-head.x)+1};
+ for(let span=spans.find(item=>areasIntersect(area,item.area)&&!areaContains(area,item.area));span;span=spans.find(item=>areasIntersect(area,item.area)&&!areaContains(area,item.area))){
+  const top=Math.min(area.top,span.area.top),left=Math.min(area.left,span.area.left);
+  area={top,left,height:Math.max(area.top+area.height,span.area.top+span.area.height)-top,width:Math.max(area.left+area.width,span.area.left+span.area.width)-left};
+ }
+ if(hasSpans&&(area.height%matrix.length||area.width%width))return invalid();
+ return area;
 }
 
 /** All represented cell contents and presentation in the portion that already exists. */

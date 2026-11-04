@@ -27,7 +27,7 @@ async function main() {
   const empty = schema => ({ body: { type: 'block-doc', schema, blocks: [], axisOrder: [] } });
   const contract = contractFor('blocks-tree/11', 'writers-blocks/10');
   const a = createLocalToolReplica(createLocalToolGenesis(empty('writers-blocks/10'), contract), { authorId: 'A', contract });
-  let b, cold, legacy, sameCellA, sameCellB;
+  let b, cold, legacy, sameCellA, sameCellB, spans, spanPeer, spanCold;
   const grid = replica => tableAxesRows(replica.read().body, table).map(({ cells }) => cells.map(item => ({
     header: item.header, paragraphs: item.children.map(child => child.content),
   })));
@@ -141,8 +141,61 @@ async function main() {
     assert.throws(() => legacy.apply([action(legacy, ['R2', 'C1'], mixed)]), /local_tool_table_paste_invalid/);
     assert.deepEqual(legacy.checkpoint(), oldCheckpoint);
     console.log('PASS previous profile remains strict and opens unchanged');
+
+    const spanContract = contractFor('blocks-tree/12', 'writers-blocks/11');
+    spans = createLocalToolReplica(createLocalToolGenesis(empty('writers-blocks/11'), spanContract), { authorId: 'Spans', contract: spanContract });
+    create(spans);
+    const merge = { ...cell(false, text('Combinada')), span: { rows: 2, columns: 2 } };
+    const combined = [[merge, null, cell(false, text('Derecha 1'))], [null, null, cell(false, text('Derecha 2'))]];
+    const pasteCombined = replica => action(replica, ['R2', 'C1'], combined, ['R3', 'C3']);
+    const before = spans.checkpoint(), initialAxes = spans.read().body.axisOrder, before14 = a.checkpoint();
+    assert.throws(() => a.apply([pasteCombined(a)]), /local_tool_table_paste_invalid/);
+    assert.deepEqual(a.checkpoint(), before14);
+    for (const malformed of [
+      action(spans, ['R2', 'C1'], combined),
+      action(spans, ['R2', 'C1'], combined, ['R3', 'C2']),
+      action(spans, ['R2', 'C1'], [[merge, null, null], [null, cell(false), cell(false)]], ['R3', 'C3']),
+    ]) assert.throws(() => spans.apply([malformed]), /local_tool_table_paste_invalid/);
+    assert.deepEqual(spans.checkpoint(), before);
+    assert.equal(before.engine.version, '15');
+    spanPeer = createLocalToolReplica(before, { authorId: 'Span peer', contract: spanContract });
+    const merged = spans.apply([pasteCombined(spans)]);
+    const separate = spanPeer.apply([action(spanPeer, ['R1', 'C1'], [[cell(true, text('Cambio ajeno'))]])]);
+    spanPeer.receive(merged.update);
+    spans.receive(separate.update);
+    const physical = replica => tableAxesRows(replica.read().body, table).map(({ cells }) => cells.filter(cell => !cell.covered).map(cell => [
+      cell.rowSpan, cell.colSpan, cell.children.flatMap(child => child.content ?? []).map(run => run.text).join(''),
+    ]));
+    assert.deepEqual(physical(spans), [
+      [[1, 1, 'Cambio ajeno'], [1, 1, ''], [1, 1, '']],
+      [[2, 2, 'Combinada'], [1, 1, 'Derecha 1']],
+      [[1, 1, 'Derecha 2']],
+    ]);
+    assert.deepEqual(spanPeer.read(), spans.read());
+    assert.deepEqual(spans.read().body.axisOrder, initialAxes);
+    const revert = spans.undo(merged.receiptId);
+    spanPeer.receive(revert.update);
+    assert.deepEqual(physical(spanPeer).map(row => row.length), [3, 3, 3]);
+    assert.equal(physical(spanPeer)[0][0][2], 'Cambio ajeno');
+    spanPeer.receive(spans.redo(revert.receiptId).update);
+    assert.deepEqual(spanPeer.read(), spans.read());
+    const coldCut = spans.checkpoint();
+    assert.equal(exportLocalToolConvergenceCheckpoint(coldCut).pending, false);
+    spanCold = createLocalToolReplica(coldCut, { authorId: 'Span cold', contract: spanContract });
+    assert.deepEqual(physical(spanCold), physical(spans));
+    console.log('PASS merged geometry, overlap guards, independent Undo and cold relay');
+
+    const remove = spans.apply([action(spans, ['R2', 'C1'], [[cell(false, text('Separada'))]], ['R2', 'C1'])]);
+    assert.deepEqual(physical(spans)[1], [[1, 1, 'Separada'], [1, 1, 'Separada'], [1, 1, 'Derecha 1']]);
+    spans.undo(remove.receiptId);
+    assert.deepEqual(physical(spans), physical(spanCold));
+    const hideAxis = spans.apply([{ type: 'rich-table-axis-hide', field, capture: spans.richTableAxisCapture(field, table, 'columns', 'C2') }]);
+    assert.deepEqual(physical(spans)[1], [[2, 1, 'Combinada'], [1, 1, 'Derecha 1']]);
+    spans.undo(hideAxis.receiptId);
+    assert.deepEqual(physical(spans), physical(spanCold));
+    console.log('PASS spans can be replaced and shrink with hidden axes, both reversible');
   } finally {
-    a.destroy();b?.destroy();cold?.destroy();legacy?.destroy();sameCellA?.destroy();sameCellB?.destroy();
+    a.destroy();b?.destroy();cold?.destroy();legacy?.destroy();sameCellA?.destroy();sameCellB?.destroy();spans?.destroy();spanPeer?.destroy();spanCold?.destroy();
   }
 }
 

@@ -5,17 +5,17 @@ import {isImageAlignmentEngine,isImageRasterEngine,isRichImageEngine} from './im
 /** Finite table grammar declaration, including capable fields absent from data. */
 export function readTableFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,rich:readonly string[],blocks:readonly string[],links:readonly string[],expected?:readonly string[]):Set<string> {
  const fields=new JsonMap<string[]>(doc.getMap('table-fields')).get('value')??[];
- if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!rich.includes(field)||!blocks.includes(field)||!links.includes(field))||['5','6','7','9','10','11','12','13','14'].includes(identity.engine.version)&&!fields.length||!['5','6','7','9','10','11','12','13','14'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_fields_invalid');
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!rich.includes(field)||!blocks.includes(field)||!links.includes(field))||['5','6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||!['5','6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_fields_invalid');
  return new Set(fields);
 }
 export function readTableAxisFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,tables:readonly string[],expected?:readonly string[]):Set<string> {
  const fields=new JsonMap<string[]>(doc.getMap('table-axis-fields')).get('value')??[];
- if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!tables.includes(field))||['6','7','9','10','11','12','13','14'].includes(identity.engine.version)&&!fields.length||!['6','7','9','10','11','12','13','14'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_axis_fields_invalid');
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!tables.includes(field))||['6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||!['6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_axis_fields_invalid');
  return new Set(fields);
 }
 export function readTableWidthFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,axes:ReadonlySet<string>,expected?:readonly string[]):Set<string> {
  const fields=doc.share.has('table-width-fields')?new JsonMap<string[]>(doc.getMap('table-width-fields')).get('value'):[];
- if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!axes.has(field))||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||['7','9','10','11','12','13','14'].includes(identity.engine.version)&&!fields.length||!['7','9','10','11','12','13','14'].includes(identity.engine.version)&&doc.share.has('table-width-fields')||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_width_fields_invalid');
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!axes.has(field))||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||['7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||!['7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&doc.share.has('table-width-fields')||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_width_fields_invalid');
  return new Set(fields);
 }
 export function readImageFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,widths:ReadonlySet<string>,expected?:readonly string[],expectedAlignments?:readonly string[],expectedRaster?:readonly string[],expectedCells?:readonly string[]){
@@ -41,7 +41,7 @@ export function readImageFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,
     expectedRaster&&convergenceCanonical(raster)!==convergenceCanonical(expectedRaster))throw Error('local_tool_image_raster_fields_invalid');
  if(!Array.isArray(cells)||cells.some(field=>typeof field!=='string'||!raster.includes(field))||
     new Set(cells).size!==cells.length||convergenceCanonical(cells)!==convergenceCanonical([...cells].sort())||
-    ['12','13','14'].includes(identity.engine.version)&&(!cells.length||cellRoot?.size!==1)||!['12','13','14'].includes(identity.engine.version)&&cellRoot||
+    ['12','13','14','15'].includes(identity.engine.version)&&(!cells.length||cellRoot?.size!==1)||!['12','13','14','15'].includes(identity.engine.version)&&cellRoot||
     expectedCells&&convergenceCanonical(cells)!==convergenceCanonical(expectedCells))throw Error('local_tool_image_cell_fields_invalid');
  if(root){
   for(const items of doc.store.clients.values())for(const item of items)if(item instanceof Y.Item&&(item.parent===root||item.parent===alignmentRoot||item.parent===rasterRoot||item.parent===cellRoot)&&item.deleted)throw Error('local_tool_image_fields_invalid');
@@ -59,7 +59,7 @@ export function readTableRowHeightFields(doc:Y.Doc,identity:LocalToolConvergence
  const fields=root?new JsonMap<string[]>(root).get('value'):[];
  if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!cells.has(field))||new Set(fields).size!==fields.length||
     convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||
-    (['13','14'].includes(identity.engine.version)?(!fields.length||root?.size!==1):!!root)||
+    (['13','14','15'].includes(identity.engine.version)?(!fields.length||root?.size!==1):!!root)||
     expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_row_height_fields_invalid');
  if(root)for(const items of doc.store.clients.values())for(const item of items)
   if(item instanceof Y.Item&&item.parent===root&&item.deleted)throw Error('local_tool_table_row_height_fields_invalid');
@@ -74,9 +74,21 @@ export function readTableCellHeaderFields(doc:Y.Doc,identity:LocalToolConvergenc
  const fields=root?new JsonMap<string[]>(root).get('value'):[];
  if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!rowHeights.has(field))||new Set(fields).size!==fields.length||
     convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||
-    (identity.engine.version==='14'?(!fields.length||root?.size!==1):!!root)||
+    (['14','15'].includes(identity.engine.version)?(!fields.length||root?.size!==1):!!root)||
     expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_cell_header_fields_invalid');
  if(root)for(const items of doc.store.clients.values())for(const item of items)
   if(item instanceof Y.Item&&item.parent===root&&item.deleted)throw Error('local_tool_table_cell_header_fields_invalid');
+ return new Set(fields);
+}
+
+export function readTableCellSpanFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,cellHeaders:ReadonlySet<string>,expected?:readonly string[]):Set<string> {
+ const root=doc.share.has('table-cell-span-fields')?doc.getMap<string>('table-cell-span-fields'):undefined;
+ const fields=root?new JsonMap<string[]>(root).get('value'):[];
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!cellHeaders.has(field))||new Set(fields).size!==fields.length||
+    convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||
+    (identity.engine.version==='15'?(!fields.length||root?.size!==1):!!root)||
+    expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_cell_span_fields_invalid');
+ if(root)for(const items of doc.store.clients.values())for(const item of items)
+  if(item instanceof Y.Item&&item.parent===root&&item.deleted)throw Error('local_tool_table_cell_span_fields_invalid');
  return new Set(fields);
 }
