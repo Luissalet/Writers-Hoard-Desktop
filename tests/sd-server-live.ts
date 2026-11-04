@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildSdJobPayload, buildSdServerArgs } from '@/services/aiRuntime/sdServer';
 import { LOCAL_IMAGE_CATALOG } from '@/services/aiRuntime/imageCatalog';
+import { describeOutcome, isMissingLoraRefusal, LORA_REFUSAL_ERROR, LORA_REFUSAL_LOG, LORA_REFUSAL_STATUS } from './sd-lora-refusal';
 import { parseA1111Parameters, readPngMetadata, readSdcppRecord } from '@/services/imageMetadata';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -103,8 +104,9 @@ export async function testSdServerLive(): Promise<string[]> {
     check(record?.seed === 4242, 'seed did not round-trip');
     results.push(`Real sd-server (${path.basename(dir)}, ${record?.generator?.commit ?? '?'}) honoured request ${sampler}/${scheduler}/${steps} steps/CFG ${guidance} over defaults ${defaults.sampler}/${defaults.scheduler ?? '-'}/${defaults.steps}/${defaults.cfg}; PNG recipe parsed (${png})`);
     const refused = await runJob(origin, buildSdJobPayload({ ...request, loras: [{ name: 'wh-live-missing-lora', fileName: 'wh-live-missing-lora.safetensors', weight: 0.8 }] }, entry));
-    check(!('status' in refused) || refused.status !== 'completed', 'a LoRA absent from the folder was accepted: the server ignored lora[]');
-    results.push(`Structured lora[] is read by the server: a missing LoRA is refused (${JSON.stringify('httpStatus' in refused ? refused.httpStatus : refused.status)})`);
+    for (let i = 0; i < 10 && !LORA_REFUSAL_LOG.test(log); i += 1) await sleep(300); // stderr may lag the HTTP answer
+    check(isMissingLoraRefusal(refused, log), `the refusal is not the missing-LoRA one (expected HTTP ${LORA_REFUSAL_STATUS} "${LORA_REFUSAL_ERROR}" plus an "invalid lora" server log line): ${describeOutcome(refused)} | log tail: ${log.slice(-300)}`);
+    results.push(`Structured lora[] is read by the server: a missing LoRA is refused with HTTP ${LORA_REFUSAL_STATUS} ${JSON.stringify(LORA_REFUSAL_ERROR)} and the server logs "invalid lora"`);
   } finally {
     child.kill();
   }
