@@ -50,3 +50,6 @@ __pycache__/
 /publishing/**/target/
 /publishing/**/bin/
 /src/engines/model-viewer/runtime.generated.txt
+
+# Local staging and evidence material
+/_stage/
