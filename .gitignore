@@ -53,3 +53,8 @@ __pycache__/
 
 # Local staging and evidence material
 /_stage/
+
+# Agent verification notes and evidence stay local
+tasks/evidence/
+tasks/vvd1095/
+tasks/*1041.md
