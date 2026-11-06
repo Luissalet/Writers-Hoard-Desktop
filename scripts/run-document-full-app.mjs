@@ -8,7 +8,7 @@ import { Scanner } from '@tailwindcss/oxide';
 import electron from 'electron';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const directory = process.env.WRITER_DOCUMENT_FULL_APP_QA || 'D:/LocalAI/research-inbox/wordcraft-writers-20261011/qa/full-app';
+const directory = process.env.WRITER_DOCUMENT_FULL_APP_QA || path.join(root, '_stage', 'document-full-app');
 await mkdir(directory, { recursive: true });
 const compiler = await compile(await readFile(path.join(root, 'src/index.css'), 'utf8'), { base: path.join(root, 'src'), onDependency() {} });
 const scanner = new Scanner({ sources: [{ base: path.join(root, 'src'), pattern: '**/*.{ts,tsx}', negated: false }] });
