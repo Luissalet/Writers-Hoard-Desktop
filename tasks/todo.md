@@ -2296,3 +2296,13 @@ Revision1's failed Brave result and revision2's correction remain separately rec
 - [x] Root genuine bridge with two keys and receipt-specific Undo; normal Native ZIP imported/restored in Brave and cold reopening preserves exact word IDs/mapping and later sibling edits.
 - [x] README and FAUSTUS describe the accepted Base contract, existing era routes and explicit ZIP transfer between private libraries.
 - [x] Complete joint manual/continuity receipts after visual work2326 acceptance: task2330 records one guarded manual-paragraph update with797 paragraphs/styles/lists preserved, append-only memory and two Writer concepts without embeddings or changes to previous graph rows/edges. Final documentation review and worktree retirement use that task's closing receipt.
+
+# SDK inline annotation documentation and continuity — task2352
+
+- [x] Read Source2336 revision2 approval/integration and Root Native/Brave receipts; keep author, independent and Root executions distinct.
+- [x] Document the declared single-class rich annotation contract and its UI/SDK/MCP, persistence and sharing boundaries in four Markdown paths; leave docs/local-tool-sdk.md unchanged.
+- [x] Update only manual SDK paragraph412 by one guarded insertion of336UTF16;799 paragraphs remain, the other798, styles/lists and full inverse resource are exact, including language401 and spelling386.
+- [x] Append3436bytes to memory with the1891477byte prefix exact; add two Writer concepts through Store with embedFalse,399/9/693 to401/9/695 with previous concepts/edges/history exact.
+- [ ] Receive formal review of the documentation cut, integrate approved paths under the merge lock without push and retire only this task's clean worktree.
+
+Source2336r2 is already integrated at327c0051. Native2339 is closed; the Source author retired its own worktree with a separate receipt. This checklist does not close arbitrary nodes, multiple annotation classes per field, annotated blocks, general migration, performance or global parity. Other pending work retains its own acceptance scope.
