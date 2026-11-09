@@ -722,7 +722,7 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
    return descriptor.value==='rich-link'||descriptor.value==='rich-annotation'||inline&&(Object.hasOwn(action,'link')||Object.hasOwn(action,'annotation'))?clone(action):action;
   });if(!Array.isArray(actions)||!actions.length||actions.some(action=>action.type!=='rich-text-splice'))invalidateSnapshotProofs();projectionEpoch={};const plan=prepareActions(r,contract,actions,options.authorId,identity,baseline);return author(plan,()=>mutateActions(r,plan));};
  const textRange=(field:string,from:number,to:number):LocalToolPlainRange=>{
-  current();if(!['2','3','4','5','6','7'].includes(identity.engine.version)||!isLocalToolPlainField(contract.codec.fields[field]))throw Error('local_tool_plain_range_invalid');const view=admitted(r,contract),text=(view.data as ObjectData)[field];
+  current();if(!['2','3','4','5','6','7','16'].includes(identity.engine.version)||!isLocalToolPlainField(contract.codec.fields[field]))throw Error('local_tool_plain_range_invalid');const view=admitted(r,contract),text=(view.data as ObjectData)[field];
   if(typeof text!=='string')throw Error('local_tool_plain_range_invalid');return{format:'writers-hoard-local-plain-range/1',identity:clone(identity),field,...r.plain(field).range({text,bindings:view.plainBindings?.[field]??[]},from,to)};
  };
  const rich=(field:string)=>{current();if(!['3','4','5','6','7','9','10','11','12','13','14','15','16'].includes(identity.engine.version)||contract.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_field_invalid');return r.rich(field);};
