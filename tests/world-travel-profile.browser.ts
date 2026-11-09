@@ -1,8 +1,10 @@
+import {travellerAt} from '@/engines/worldgen/core/journeyPlayback';
+import {clockAt,legClocks} from '@/engines/worldgen/core/routeWords';
 import { db } from '@/db';
 import type { Project } from '@/types';
 import { Biome, DEFAULT_PARAMS, type WorldData } from '@/engines/worldgen/core/types';
 import type { HumanGeography } from '@/engines/worldgen/core/settlements';
-import { effectiveHoursPerDay, normalizeTravelProfile, paceRestDays, planRoute, type TravelOptions } from '@/engines/worldgen/core/travel';
+import { effectiveHoursPerDay, hardPaceRestEvery, normalizeTravelProfile, paceRestDays, planRoute, type TravelOptions } from '@/engines/worldgen/core/travel';
 import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
 import { saveSnapshot } from '@/engines/worldgen/snapshots';
@@ -143,9 +145,66 @@ export async function testWorldTravelProfile(): Promise<string[]> {
       'Profiles refuse unknown classes, bad values and out-of-range factors; neutral factors are dropped',
       'World travel settings save with CAS, merge single-factor edits and undo field-wise; itineraries keep their pace, legs and profile snapshot and refuse a wrong leg count',
       'MCP get/set/plan: validation, stale revision refused, planning follows the world profile, undo restores it',
+      ...await testWorldHardRestBoundaries(),
+      ...await (await import('./world-hard-rest.browser')).testWorldHardRestPersistence(),
+      ...await (await import('./world-hard-rest.browser')).testWorldHardRestUI(),
     ];
   } finally {
     await db.worldSnapshots.delete(worldRuntimeKey('travel-world'));
     await db.generatedWorlds.delete('travel-world'); await db.projects.delete(P);
   }
+}
+
+/** Independent arithmetic oracle: 10.5 moving days needs rests after days 3, 6 and 9. */
+export async function testWorldHardRestOracle(): Promise<string[]> {
+  const w=flat(),g=geo(w),from={x:10,y:16},to={x:26,y:16};
+  const base:TravelOptions={mode:'foot',season:'summer',planetRadiusKm:100};
+  const raw=planRoute(w,g,from,to,base,'en');
+  assert(!raw.impossible&&raw.hours>0,'Synthetic rest oracle needs a possible route');
+  const movingDays=10.5,hoursPerDay=raw.hours/(movingDays*1.3);
+  assert(hoursPerDay>0&&hoursPerDay*1.3<=24,'Synthetic rest oracle must not hit the daily-hours cap');
+  const configured={hardRestEvery:3};
+  const options:TravelOptions={...base,hoursPerDay,pace:'hard',profile:configured as TravelOptions['profile']};
+  const route=planRoute(w,g,from,to,options,'en');
+  const legacy=planRoute(w,g,from,to,{...options,profile:{}},'en');
+  const failures:string[]=[];
+  if(!close(legacy.days,11.5)||legacy.restDays!==1)failures.push(`Legacy default: ${legacy.days} days, ${legacy.restDays} rest; expected11.5 and1`);
+  if(!close(route.days,13.5)||route.restDays!==3)failures.push(`Interval3: ${route.days} days, ${route.restDays} rest; expected13.5 and3`);
+  if(JSON.stringify(route.cells)!==JSON.stringify(legacy.cells)||!close(route.hours,legacy.hours))failures.push('Rest interval changed moving hours or route');
+  try{const normalized=normalizeTravelProfile(configured);if(JSON.stringify(normalized)!==JSON.stringify(configured))failures.push(`Normalization dropped interval: ${JSON.stringify(normalized)}`);}catch(error){failures.push(`Normalization: ${String(error)}`);}
+  assert(!failures.length,'Hard rest oracle: '+failures.join('; '));
+  return ['Legacy six-day rest default unchanged; configurable interval3 adds three rests to10.5 moving days without changing the path or moving hours'];
+}
+
+export async function testWorldHardRestBoundaries(): Promise<string[]> {
+  await testWorldHardRestOracle();
+  for(const [days,expected] of [[0,0],[3,0],[3.00001,1],[6,1],[6.00001,2],[10.5,3]]){
+    assert(paceRestDays('hard',days,3)===expected,`Interval3 boundary ${days}`);
+    assert(paceRestDays('steady',days,3)===0&&paceRestDays('easy',days,3)===0,`Rest outside hard at ${days}`);
+  }
+  assert(paceRestDays('hard',10.5,2)===5&&paceRestDays('hard',10.5,6)===1,'Other intervals');
+  assert(JSON.stringify(normalizeTravelProfile({hardRestEvery:6}))==='{}'&&hardPaceRestEvery()===6,'Legacy interval normalization');
+  for(const value of [0,-1,1.5,NaN,Infinity,'3',null,Number.MAX_SAFE_INTEGER+1]){
+    let rejected=false;try{normalizeTravelProfile({hardRestEvery:value});}catch{rejected=true;}
+    assert(rejected,`Invalid rest interval accepted ${String(value)}`);
+  }
+  assert(normalizeTravelProfile({hardRestEvery:Number.MAX_SAFE_INTEGER}).hardRestEvery===Number.MAX_SAFE_INTEGER,'Unjustified interval cap');
+  const w=flat(),g=geo(w),from={x:10,y:16},to={x:26,y:16},base:TravelOptions={mode:'horse',season:'summer',planetRadiusKm:100};
+  const raw=planRoute(w,g,from,to,base,'en'),hoursPerDay=raw.hours/(10.5*1.3),options:TravelOptions={...base,hoursPerDay,pace:'hard',profile:{hardRestEvery:3}};
+  const route=planRoute(w,g,from,to,options,'en');
+  assert(route.restEvery===3&&route.restDays===3&&close(route.days,13.5),'Route interval metadata');
+  const a=travellerAt(route,w.width,3.2)!,b=travellerAt(route,w.width,3.8)!;
+  assert(a.phase==='rest'&&b.phase==='rest'&&a.x===b.x&&a.y===b.y&&a.travelled===3&&a.stage?.night===3,'Rest after third moving day must hold at stage3');
+  assert(travellerAt(route,w.width,2.5)!.phase==='travel'&&travellerAt(route,w.width,4.2)!.phase==='travel'&&travellerAt(route,w.width,route.days)!.phase==='arrived','Playback boundaries');
+  const legacy=planRoute(w,g,from,to,{...options,profile:{}},'en');delete legacy.restEvery;
+  assert(travellerAt(legacy,w.width,6.5)?.phase==='rest','Legacy route replay fallback');
+  const arrival=clockAt(route.hours,hoursPerDay*1.3,7,true,hardPaceRestEvery(options.profile));
+  assert(arrival.day===14&&close(arrival.hour,7+(hoursPerDay*1.3)*.5),'Arrival clock counts three rests');
+  assert(clockAt(3*hoursPerDay*1.3,hoursPerDay*1.3,7,true,3).day===3,'No rest after exact arrival');
+  const clocks=legClocks({legs:[{hours:3*hoursPerDay*1.3,terrain:'plain',km:1,onRoad:false},{hours:1,terrain:'forest',km:1,onRoad:false}]},hoursPerDay*1.3,7,3);
+  assert(clocks[0].day===1&&clocks[1].day===5,'Stretch starts after required rest day');
+  const via=planRoute(w,g,from,to,{...options,via:[{x:18,y:16}]},'en');
+  assert(close(via.hours,route.hours)&&via.restDays===3&&close(via.days,13.5),'Via legs must rest globally rather than restarting each leg');
+  for(const pace of ['easy','steady'] as const){const configured=planRoute(w,g,from,to,{...base,pace,profile:{hardRestEvery:3}},'en'),plain=planRoute(w,g,from,to,{...base,pace},'en');assert(JSON.stringify(configured)===JSON.stringify(plain),'Interval changed '+pace);}
+  return ['Normalization preserves six-day legacy default, accepts positive safe integers and rejects invalid intervals', 'Independent rest boundaries3/6, alternate interval2 and unchanged easy/steady; rests apply once across via legs','Playback holds at stage3 on day4, resumes on day5 and arrives after all rests; legacy routes retain day7 pause','Arrival and stretch clocks count the configured rests and exact arrival does not add a later pause'];
 }
