@@ -1,3 +1,11 @@
+# Paste in headings and list items — task 2315
+
+- [x] Contrast heading start, middle and end, heading suffix and a list item in VVD.
+- [x] Preserve the failing Source regression before the change.
+- [x] Extend the existing text-block paste with the observed block types and owner.
+- [x] Verify editor, SDK, live bridge and Brave, Undo/Redo and reopening.
+- [x] Document and submit the tested change for independent review.
+
 # Paste across root paragraphs — task 2312
 
 - [x] Verify the two-paragraph clipboard case in VVD and restore the synthetic note.

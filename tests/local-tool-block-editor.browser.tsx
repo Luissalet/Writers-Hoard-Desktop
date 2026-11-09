@@ -190,6 +190,64 @@ export async function testBlockEditor(){
    await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen cross paste');
    equal('cross-paste-reopen-exact',editor!.state.doc.toJSON(),saved);
   }
+  {
+   const leaves=()=>blockPMLeaves(editor!.state.doc);
+   const seed=new DataTransfer();seed.setData('text/html','<p>ABCDEF</p><p>GHIJKL</p><p>MNOPQR</p>');seed.setData('text/plain','ABCDEF\nGHIJKL\nMNOPQR');
+   const reset=async()=>{await act(async()=>{const view=editor!.view;view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:seed}));});await tick();};
+   const marked=new DataTransfer();marked.setData('text/html','<p><strong>Uno Ω</strong></p><p><em>Dos 🙂</em></p>');marked.setData('text/plain','Uno Ω\nDos 🙂');
+   const paste=async()=>{await act(async()=>editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked})));await tick();};
+   await reset();const firstId=leaves()[0].id!,followingId=leaves()[1].id!;
+   await select(firstId,0,6);await click('H2');const headingOriginal=editor!.state.doc.toJSON();
+   await select(firstId,6);
+   await act(async()=>{
+    const view=editor!.view;view.focus();
+    const text=view.dom.querySelector('[data-writer-block="'+firstId+'"]')!.firstChild!;
+    const range=view.dom.ownerDocument.createRange(),native=view.dom.ownerDocument.getSelection()!;
+    range.setStart(text,2);range.collapse(true);native.removeAllRanges();native.addRange(range);
+    equal('heading-paste-caret-event-lag-reproduced',view.state.selection.from,7);
+    view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked}));
+   });await tick();
+   equal('heading-paste-current-native-caret',leaves().map(n=>n.node.textContent),['ABUno Ω','Dos 🙂CDEF','GHIJKL','MNOPQR']);
+   await click('Undo');equal('heading-paste-native-caret-one-Undo',editor!.state.doc.toJSON(),headingOriginal);
+   editor!.commands.blur();
+   for(const [label,from,to,first,last] of [
+    ['start',0,0,'Uno Ω','Dos 🙂ABCDEF'],['middle',2,2,'ABUno Ω','Dos 🙂CDEF'],
+    ['end',6,6,'ABCDEFUno Ω','Dos 🙂'],['selection',2,4,'ABUno Ω','Dos 🙂EF'],
+   ] as const){
+    await select(firstId,from,to);await paste();
+    equal('heading-paste-'+label+'-no-recovery',element.querySelector('[role="alert"]'),null);
+    equal('heading-paste-'+label+'-types',leaves().map(n=>n.node.type.name),['heading','paragraph','paragraph','paragraph']);
+    equal('heading-paste-'+label+'-text',leaves().map(n=>n.node.textContent),[first,last,'GHIJKL','MNOPQR']);
+    equal('heading-paste-'+label+'-identities',[leaves()[0].id,leaves()[2].id],[firstId,followingId]);
+    equal('heading-paste-'+label+'-level',leaves()[0].node.attrs.level,2);
+    const changed=editor!.state.doc.toJSON();await click('Undo');equal('heading-paste-'+label+'-one-Undo',editor!.state.doc.toJSON(),headingOriginal);
+    await click('Redo');equal('heading-paste-'+label+'-one-Redo',editor!.state.doc.toJSON(),changed);await click('Undo');
+   }
+   await select(firstId,0);await click('Paragraph');await select(followingId,0,6);await click('H2');const tailHeading=editor!.state.doc.toJSON();
+   await act(async()=>editor!.commands.setTextSelection({from:3,to:leaves()[1].pos+3}));await paste();
+   equal('heading-paste-tail-becomes-paragraph',leaves().map(n=>[n.node.type.name,n.node.textContent]),[['paragraph','ABUno Ω'],['paragraph','Dos 🙂IJKL'],['paragraph','MNOPQR']]);
+   equal('heading-paste-tail-keeps-identity',leaves()[1].id,followingId);await click('Undo');equal('heading-paste-tail-one-Undo',editor!.state.doc.toJSON(),tailHeading);
+   await reset();const listFirstId=leaves()[0].id!,listSecondId=leaves()[1].id!,outsideId=leaves()[2].id!;
+   await act(async()=>editor!.commands.setTextSelection({from:1,to:leaves()[1].pos+7}));await click('Bullet list');
+   const listOriginal=editor!.state.doc.toJSON();
+   for(const [label,from,to,first,last] of [
+    ['start',0,0,'Uno Ω','Dos 🙂ABCDEF'],['middle',2,2,'ABUno Ω','Dos 🙂CDEF'],
+    ['end',6,6,'ABCDEFUno Ω','Dos 🙂'],['selection',2,4,'ABUno Ω','Dos 🙂EF'],
+   ] as const){
+    await select(listFirstId,from,to);await paste();
+    equal('list-paste-'+label+'-no-recovery',element.querySelector('[role="alert"]'),null);
+    equal('list-paste-'+label+'-text',leaves().map(n=>n.node.textContent),[first,last,'GHIJKL','MNOPQR']);
+    equal('list-paste-'+label+'-keeps-item-count',element.querySelectorAll('.tiptap ul>li').length,2);
+    equal('list-paste-'+label+'-paragraphs-in-same-item',element.querySelectorAll('.tiptap ul>li:first-child>p').length,2);
+    equal('list-paste-'+label+'-follower-identities',[leaves()[2].id,leaves()[3].id],[listSecondId,outsideId]);
+    const changed=editor!.state.doc.toJSON();await click('Undo');equal('list-paste-'+label+'-one-Undo',editor!.state.doc.toJSON(),listOriginal);
+    await click('Redo');equal('list-paste-'+label+'-one-Redo',editor!.state.doc.toJSON(),changed);await click('Undo');
+   }
+   await select(listFirstId,2,4);await paste();const saved=editor!.state.doc.toJSON();
+   await click('Save changes');await wait(()=>button('Save changes').disabled,'container paste Save ACK');
+   await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen container paste');
+   equal('container-paste-reopen-exact',editor!.state.doc.toJSON(),saved);
+  }
   await mount(true);await wait(()=>editor?.isEditable===false,'readonly');const readonlyBefore=await client.convergence!.export();await act(async()=>{editor!.commands.insertContent('forbidden');});await tick();equal('readonly-no-doc-edit',(await client.convergence!.export()).checkpoint,readonlyBefore.checkpoint);equal('readonly-format-disabled',button('H1').disabled,true);
  }finally{peer?.destroy();await act(async()=>root.unmount());element.remove();useLocaleStore.setState({locale});}
  return checks;
