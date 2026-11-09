@@ -109,6 +109,7 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
   const localStates=(states:Project['localToolStates'])=>{const cloned=cloneLocalToolStates(states);if(cloned)for(const [namespace,state]of Object.entries(cloned)){const codec=project.localToolContracts?.[namespace];if(codec)state.data=remapLocalToolReferences(state.data,codec,(kind,id)=>remap(id,worldDocumentPrefixes[kind]),(kind,id)=>remap(id,kind==='image'?'img':kind==='file'?'asset-file':'media'),richProse);}return cloned;};
   return {
     ...(project.manuscriptCatalog?{manuscriptCatalog:remapManuscriptCatalog(project.manuscriptCatalog,remap)}:{}),
+    ...(project.todos ? { todos: { ...project.todos, items: project.todos.items.map(item => ({ ...item, links: item.links.map(link => ({ ...link, id: remap(link.id, link.kind === 'writing' ? 'wr' : 'codex') })) })) } } : {}),
     sourceToolDocuments: remapSourceToolDocuments(project.sourceToolDocuments, remap,richProse),
     writingToolDock: remapToolDockLayout(project.writingToolDock, remap,richProse),
     worldFolderImports: remapWorldFolderImports(project.worldFolderImports, (id,kind)=>remap(id,kind==='import'?WORLD_FOLDER_IMPORT_ID_PREFIX:kind==='era'?'era':worldDocumentPrefixes[kind])),
