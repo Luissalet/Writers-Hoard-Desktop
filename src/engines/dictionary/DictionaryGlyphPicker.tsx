@@ -35,24 +35,30 @@ export function DictionaryGlyphPalette({ mapping, locale, fontFamily, onChoose, 
 export default function DictionaryNativeFormInput({ label, value, onChange, mapping, locale, fontFamily }: {
   label: string; value: string; onChange: (value: string) => void; mapping: string; locale: 'en' | 'es'; fontFamily?: string;
 }) {
-  const copy = scriptCopy[locale], field = useRef<HTMLInputElement>(null), selection = useRef({ start: 0, end: 0 }), pendingFocus = useRef(false);
-  const [open, setOpen] = useState(false);
-  const capture = () => { const input = field.current; if (input) selection.current = { start: input.selectionStart ?? value.length, end: input.selectionEnd ?? value.length }; };
+  const copy = scriptCopy[locale], field = useRef<HTMLInputElement>(null), pendingFocus = useRef(false);
+  const [open, setOpen] = useState(false), [selection, setSelection] = useState({ start: 0, end: 0 });
+  const capture = () => {
+    const input = field.current, range = { start: input?.selectionStart ?? value.length, end: input?.selectionEnd ?? value.length };
+    setSelection(current => current.start === range.start && current.end === range.end ? current : range); return range;
+  };
   const focus = () => { pendingFocus.current = true; setOpen(false); };
+  const close = () => { capture(); focus(); };
   useLayoutEffect(() => {
     if (!pendingFocus.current || !field.current) return;
-    pendingFocus.current = false; field.current.focus(); field.current.setSelectionRange(selection.current.start, selection.current.end);
+    pendingFocus.current = false; field.current.focus(); field.current.setSelectionRange(selection.start, selection.end);
   });
   const choose = (glyph: string) => {
-    const start = Math.min(value.length, selection.current.start), end = Math.min(value.length, selection.current.end);
-    onChange(value.slice(0, start) + glyph + value.slice(end));
-    selection.current = { start: start + glyph.length, end: start + glyph.length }; focus();
+    const currentValue = field.current?.value ?? value, range = capture();
+    const start = Math.min(currentValue.length, range.start), end = Math.min(currentValue.length, range.end);
+    if (currentValue.length - (end - start) + glyph.length > 50000) return;
+    onChange(currentValue.slice(0, start) + glyph + currentValue.slice(end));
+    setSelection({ start: start + glyph.length, end: start + glyph.length }); focus();
   };
   return <div className="min-w-0 space-y-1">
     <label className="block space-y-1 text-sm text-text-primary">{label}<input ref={field} maxLength={50000} className={inputStyle} style={{ fontFamily }} value={value}
       onChange={event => { onChange(event.target.value); capture(); }} onSelect={capture}
-      onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); focus(); } }} /></label>
-    <button type="button" className={buttonStyle} aria-expanded={open} onMouseDown={event => event.preventDefault()} onClick={() => { if (open) focus(); else { capture(); setOpen(true); } }}><Languages size={15} aria-hidden="true" />{copy.insertGlyph}</button>
-    {open && <DictionaryGlyphPalette mapping={mapping} locale={locale} fontFamily={fontFamily} onChoose={choose} onClose={focus} canChoose={glyph => value.length - (selection.current.end - selection.current.start) + glyph.length <= 50000} />}
+      onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }} /></label>
+    <button type="button" className={buttonStyle} aria-expanded={open} onMouseDown={event => event.preventDefault()} onClick={() => { if (open) close(); else { capture(); setOpen(true); } }}><Languages size={15} aria-hidden="true" />{copy.insertGlyph}</button>
+    {open && <DictionaryGlyphPalette mapping={mapping} locale={locale} fontFamily={fontFamily} onChoose={choose} onClose={close} canChoose={glyph => value.length - (selection.end - selection.start) + glyph.length <= 50000} />}
   </div>;
 }

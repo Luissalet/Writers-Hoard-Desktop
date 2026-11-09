@@ -120,6 +120,49 @@ export async function testDictionaryGlyphKeyboardUI(): Promise<string[]> {
   } finally { await ui.cleanup(); }
 }
 
+/** Selection changes must update the already-open palette, without toggling it. */
+export async function testDictionaryGlyphLimitEnablesUI(): Promise<string[]> {
+  const ui = await mountDictionary();
+  try {
+    await ui.click('ama'); const input = ui.control('Native form override') as HTMLInputElement;
+    const full = 'x'.repeat(50000); await ui.change(input, full);
+    input.focus(); input.setSelectionRange(full.length, full.length); await ui.click('Insert glyph');
+    const palette = ui.host.querySelector('[role="region"][aria-label="Glyphs"]');
+    const glyph = ui.button('ⴱ'); assert(glyph?.disabled, 'At maxlength with a collapsed caret the glyph must initially be disabled');
+    await act(async () => { input.focus(); input.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); input.setSelectionRange(0, full.length); document.dispatchEvent(new Event('selectionchange')); input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true })); await pause(); });
+    assert(ui.host.querySelector('[role="region"][aria-label="Glyphs"]') === palette, 'Selecting text must keep the same palette open');
+    assert(!glyph.disabled, 'Selecting all in the open palette must immediately enable a glyph that replaces that selection');
+    await ui.click('ⴱ');
+    assert(input.value === 'ⴱ' && input.selectionStart === 1 && input.selectionEnd === 1, 'Replacement at maxlength must replace the selected text and restore its caret');
+    assert((await ui.saved()).words[1].nativeForm === 'Ω', 'A maxlength replacement remains an unsaved draft');
+    return ['An open native glyph palette reacts to selection growth at maxlength and enables a valid replacement without reopening'];
+  } finally { await ui.cleanup(); }
+}
+
+/** Collapse disables choices; even a click before the next selection render cannot overflow. */
+export async function testDictionaryGlyphLimitRejectsUI(): Promise<string[]> {
+  const ui = await mountDictionary();
+  try {
+    await ui.click('ama'); const input = ui.control('Native form override') as HTMLInputElement;
+    const full = 'x'.repeat(50000); await ui.change(input, full);
+    input.focus(); input.setSelectionRange(0, full.length); await ui.click('Insert glyph');
+    const palette = ui.host.querySelector('[role="region"][aria-label="Glyphs"]');
+    const glyph = ui.button('ⴱ'); assert(glyph && !glyph.disabled, 'A replacement that fits must initially be enabled');
+    await act(async () => { input.focus(); input.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); input.setSelectionRange(full.length, full.length); document.dispatchEvent(new Event('selectionchange')); input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true })); await pause(); });
+    const disabledAfterCollapse = glyph.disabled;
+    await act(async () => { glyph.click(); await pause(); });
+    assert(input.value === full && input.selectionStart === full.length && input.selectionEnd === full.length,
+      `An open-palette click after collapse must preserve maxlength text and caret; length=${input.value.length}, disabled=${disabledAfterCollapse}`);
+    assert(disabledAfterCollapse && ui.host.querySelector('[role="region"][aria-label="Glyphs"]') === palette, 'Collapsing the selection must disable the same open palette before choosing');
+    await act(async () => { input.focus(); input.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); input.setSelectionRange(0, full.length); document.dispatchEvent(new Event('selectionchange')); input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true })); await pause(); });
+    assert(!glyph.disabled, 'Selection growth must re-enable replacement before exercising the pending-selection race');
+    await act(async () => { input.setSelectionRange(full.length, full.length); assert(!glyph.disabled, 'The pending-selection race must reach an enabled choice before React updates selection state'); glyph.click(); await pause(); });
+    assert(input.value === full && input.selectionStart === full.length && input.selectionEnd === full.length && ui.host.querySelector('[role="region"][aria-label="Glyphs"]') === palette,
+      'The choose action must recheck the actual current range before a queued selection event/render, preserving text, caret and open palette when it does not fit');
+    assert((await ui.saved()).words[1].nativeForm === 'Ω', 'Rejected glyph choices must not save or alter the stored override');
+    return ['An open native glyph palette reacts to selection collapse and the choose action rechecks the actual range before a pending selection render, preventing maxlength overflow without losing text or caret'];
+  } finally { await ui.cleanup(); }
+}
 export async function testDictionaryGlyphsUI(): Promise<string[]> {
-  return [...await testDictionaryGlyphCaretUI(), ...await testDictionaryLetterMapUI(), ...await testDictionaryGlyphKeyboardUI()];
+  return [...await testDictionaryGlyphCaretUI(), ...await testDictionaryLetterMapUI(), ...await testDictionaryGlyphKeyboardUI(), ...await testDictionaryGlyphLimitEnablesUI(), ...await testDictionaryGlyphLimitRejectsUI()];
 }
