@@ -2312,8 +2312,8 @@ Source2336r2 is already integrated at327c0051. Native2339 is closed; the Source 
 - [x] Read Root's Source2349 approval/integration, final six focused cases and normal Brave JSON/duplicate acceptance.
 - [x] Close Native2353 after Root's genuine r4 warm/cold run and both ZIP imports in real Brave; preserve the r2/r3 observer failures and exact receipts.
 - [x] Document copied task links and the existing UI/MCP/JSON/ZIP routes in four Markdown paths, preserving attribution of the earlier57 area cases and the baseline88vs89 failure.
-- [x] Prepare exact manual, append-only memory and two Writer concept payloads under their leases; one fresh manual read, no external writes yet.
-- [ ] Receive Root GO for the concrete external payloads and record scoped writes/readback/preservation receipts.
+- [x] Prepare exact manual, append-only memory and two Writer concept payloads under their leases; one fresh manual read before Root review.
+- [x] Receive Root GO and apply one guarded manual insertion (+213UTF16,799 paragraphs/798 foreign exact), append4184bytes to memory with its full prior prefix intact, and add two Writer concepts without embeddings (401/9/695 to403/9/697), preserving previous rows/edges.
 - [ ] Receive formal documentation review, integrate only the approved paths under the merge lock without push and retire this task's clean documentation worktree.
 
 Source2349 revision1 is already integrated in main d61e174d. This task adds documentation only. Assignee/Mine, new era-specific task behavior, managed external assets and complete parity remain outside the increment. Native and Brave executions belong to Root; the offline reviewer did not rerun them. Other pending work keeps its existing acceptance scope.
