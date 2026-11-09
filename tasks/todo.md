@@ -5,7 +5,9 @@
 - [x] Add optional profile interval with six-day legacy default to normal UI and MCP.
 - [x] Keep duration, clocks, replay and global multi-leg rests consistent.
 - [x] Verify normal editor/save/open/reset, profile/trip persistence, CAS/Undo, Base/era, JSON/ZIP and project duplication.
-- [ ] Complete independent Root Browser/bridge review and integration, without push.
+- [x] Complete independent Root Browser/bridge review and integration: revision1 approved, source `a76ba8d3` integrated under the merge lock, without push.
+
+Review: Root profile17; author area41 and verify:quick0 remain separately attributed. Real Brave saved/reopened itinerary3 with world5 intact and showed the same arrival/rest interval in playback. Real stdio bridge used two distinct revoked keys for11MCP calls/12IPC replies; Undo used the normal authenticated HTTP endpoint. [Verification and limits](../docs/verification-travel-rests.md). Broader parity and the performance target remain open. External manual, memory and graph continuity use task2324.
 
 # Paste in headings and list items — task 2315
 
