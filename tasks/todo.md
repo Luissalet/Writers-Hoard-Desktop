@@ -2277,3 +2277,20 @@ Coordinación en Ágora writers2266. El alcance incluye guardar, frío y portabi
 - [x] Revision3 approved and integrated under the merge lock with five exact blobs and all foreign paths intact, without push.
 
 Fonts, other formatting, merged cells and unverified full parity remain outside this increment. Documentation and manual continuity use task2317.
+
+# Dictionary glyph palette and association editing — task2326
+
+- [x] Read current reference and Writer baselines; preserve normal mounted REDs before product changes.
+- [x] Insert local glyphs into the native input selection and retain focus, drafts and existing save route.
+- [x] Edit/reset one effective association against an explicit preset while preserving authored raw mapping lines.
+- [x] Keep the persistent model, operations and MCP writers unchanged; retain local fonts and declare glyph subsets.
+- [x] Area: eight script/UI groups and six Dictionary groups pass; quick checks pass after a dead native-field style removal; scoped detector reports no findings.
+- [ ] Independent review, real Brave and bridge acceptance on the frozen cut.
+- [ ] Commit by explicit paths as Luissalet and integrate only after revision-bound approval; no push.
+
+# Base dictionary archive bridge — task2327
+
+- [x] Source2327 revision1 independently approved and integrated at a6a5be43; nine focused, seventeen archive groups and quick checks pass.
+- [x] Root genuine bridge with two keys and receipt-specific Undo; normal Native ZIP imported/restored in Brave and cold reopening preserves exact word IDs/mapping and later sibling edits.
+- [x] README and FAUSTUS describe the accepted Base contract, existing era routes and explicit ZIP transfer between private libraries.
+- [ ] Complete joint manual/continuity receipts after visual work2326 acceptance; do not close2327 before that receipt.

@@ -14,6 +14,7 @@ import { dictionaryDrafts, useDictionaryDraft } from './drafts';
 import { DictionaryScriptSettings } from './DictionaryScriptSettings';
 import { useDictionaryFont } from './useDictionaryFont';
 import { scriptCopy } from './scriptCopy';
+import DictionaryNativeFormInput from './DictionaryGlyphPicker';
 import { useEnginePane } from '@/engines/_shared/EnginePaneContext';
 
 const input = 'w-full min-w-0 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold';
@@ -46,15 +47,16 @@ function LanguageForm({ projectId, existing, initial, copy, busy, onSave, onCanc
 export function WordForm({ projectId, initial, dictionary, copy, busy, entries, onSave, onCancel }: { projectId: string; initial: DictionaryWord; dictionary: WorldDictionary; copy: Copy; busy: boolean; entries: { id: string; title: string }[]; onSave: (word: DictionaryWord, base: DictionaryWord | undefined, clear: () => void) => void; onCancel: () => void }) {
   const { draft, setDraft, base, clear, recovered } = useDictionaryDraft(projectId, 'word', initial, dictionary.words.some(word => word.id === initial.id), dictionary.id);
   const { fontFamily } = useDictionaryFont(dictionary.font);
+  const { locale } = useTranslation();
   const fields = ['word', 'nativeForm', 'pronunciation', 'partOfSpeech', 'meaning', 'examples', 'phrases', 'derivatives', 'origin'] as const;
   return <form className="space-y-4 p-5" onSubmit={(event: FormEvent) => { event.preventDefault(); onSave(draft, base, clear); }}>
     <h3 className="font-display text-xl text-text-primary">{copy.editWord}</h3>
     {recovered && <p role="status" className="text-sm text-accent-gold">{copy.recovered}</p>}
     <fieldset disabled={busy} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      {fields.map(field => <label key={field} className={`block space-y-1 text-sm text-text-primary ${['meaning', 'examples', 'phrases', 'derivatives', 'origin'].includes(field) ? 'lg:col-span-2' : ''}`}>{copy[field]}
+      {fields.map(field => field === 'nativeForm' ? <DictionaryNativeFormInput key={field} label={copy.nativeForm} value={draft.nativeForm} onChange={nativeForm => setDraft(current => ({ ...current, nativeForm }))} mapping={dictionary.scriptMapping} locale={locale} fontFamily={fontFamily} /> : <label key={field} className={`block space-y-1 text-sm text-text-primary ${['meaning', 'examples', 'phrases', 'derivatives', 'origin'].includes(field) ? 'lg:col-span-2' : ''}`}>{copy[field]}
         {['meaning', 'examples', 'phrases', 'derivatives', 'origin'].includes(field)
           ? <textarea required={field === 'meaning'} maxLength={50000} className={input} rows={field === 'meaning' ? 3 : 2} value={draft[field]} onChange={e => setDraft({ ...draft, [field]: e.target.value })} />
-          : <input required={field === 'word'} autoFocus={field === 'word'} maxLength={50000} className={input} style={field === 'nativeForm' ? { fontFamily } : undefined} value={draft[field]} onChange={e => setDraft({ ...draft, [field]: e.target.value })} />}
+          : <input required={field === 'word'} autoFocus={field === 'word'} maxLength={50000} className={input} value={draft[field]} onChange={e => setDraft({ ...draft, [field]: e.target.value })} />}
       </label>)}
       <output className="break-words text-lg text-accent-gold lg:col-span-2" style={{ fontFamily }}>{nativeWord(draft, dictionary.scriptMapping)}</output>
       <fieldset className="space-y-2 lg:col-span-2" data-testid="dictionary-senses">
