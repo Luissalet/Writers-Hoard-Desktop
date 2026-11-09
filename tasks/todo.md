@@ -2306,3 +2306,14 @@ Revision1's failed Brave result and revision2's correction remain separately rec
 - [ ] Receive formal review of the documentation cut, integrate approved paths under the merge lock without push and retire only this task's clean worktree.
 
 Source2336r2 is already integrated at327c0051. Native2339 is closed; the Source author retired its own worktree with a separate receipt. This checklist does not close arbitrary nodes, multiple annotation classes per field, annotated blocks, general migration, performance or global parity. Other pending work retains its own acceptance scope.
+
+# Task-link portability documentation and continuity — task2367
+
+- [x] Read Root's Source2349 approval/integration, final six focused cases and normal Brave JSON/duplicate acceptance.
+- [x] Close Native2353 after Root's genuine r4 warm/cold run and both ZIP imports in real Brave; preserve the r2/r3 observer failures and exact receipts.
+- [x] Document copied task links and the existing UI/MCP/JSON/ZIP routes in four Markdown paths, preserving attribution of the earlier57 area cases and the baseline88vs89 failure.
+- [x] Prepare exact manual, append-only memory and two Writer concept payloads under their leases; one fresh manual read, no external writes yet.
+- [ ] Receive Root GO for the concrete external payloads and record scoped writes/readback/preservation receipts.
+- [ ] Receive formal documentation review, integrate only the approved paths under the merge lock without push and retire this task's clean documentation worktree.
+
+Source2349 revision1 is already integrated in main d61e174d. This task adds documentation only. Assignee/Mine, new era-specific task behavior, managed external assets and complete parity remain outside the increment. Native and Brave executions belong to Root; the offline reviewer did not rerun them. Other pending work keeps its existing acceptance scope.
