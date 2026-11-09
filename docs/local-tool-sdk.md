@@ -930,6 +930,12 @@ The era-value JSON wire also preserves own undefined metadata separately from mi
 Measured CPU fixture: the 101st apply took 310.5 ms at 10k and 997.3 ms at 50k UTF16 units, after retaining the declared history. These are individual public-engine wall times, not maxima, keystroke/Source-RW/Browser timings or a performance guarantee. The earlier list-proxy failures remain separate evidence. Rich collaborative editing, Unicode grapheme/IME binding, caret/presence and network/hosting are still open. No generic rich editor, transport or complete SDK parity follows from the plain-text opt-in.
 
 
+## Multi-paragraph paste within a root paragraph
+
+The shared block editor accepts several clipboard paragraphs at a caret or over a text selection inside one root paragraph. It keeps the prefix and suffix with their original marks and text identities, inserts the clipboard runs with their own marks, and groups the gesture into one editor Undo. Following blocks keep their identities. The editor uses the current native text selection when it still precedes the editor selection update.
+
+The operation uses the public `rich-text-splice`, `rich-block-split` and `rich-block-insert` actions. MCP callers can capture and apply those operations through the live document tools. Separate live apply calls have separate Undo receipts. This path accepts only a range inside one root paragraph.
+
 ## Optional rich editor extensions
 
 `LocalToolRichProseEditor` accepts optional `extensions?:AnyExtension[]`, using the public type from `@tiptap/core`. The application passes the same array through its `renderRichProse` capability to the native editor. Omitting it or supplying `[]` preserves the existing sdk-prose defaults; the full editor keeps its prior extension order. This does not change the `{kind:'prose',format:'rich'}` stored string contract.

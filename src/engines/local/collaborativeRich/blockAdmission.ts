@@ -46,19 +46,25 @@ export function pasteSelectedRootParagraphs(session:RichEditorSession,view:Edito
  return true;
 }
 
-/** Paste two or more paragraphs at a collapsed caret in a root paragraph as one reversible gesture. */
+/** Paste two or more paragraphs within one root paragraph as one reversible gesture. */
 export function pasteRootParagraphsAtCaret(session:RichEditorSession,view:EditorView,event:ClipboardEvent,slice:Slice):boolean {
- const {state}=view,{selection}=state;
- if(!session.editable||!view.editable||view.composing||!selection.empty||slice.content.childCount<2||axisCellAtPosition(state.doc,selection.from))return false;
+ const {state}=view;let selection=state.selection;
+ const native=view.dom.ownerDocument.getSelection();
+ if(view.hasFocus()&&native&&!native.isCollapsed&&native.anchorNode&&native.focusNode&&
+    view.dom.contains(native.anchorNode)&&view.dom.contains(native.focusNode)){
+  try{selection=TextSelection.create(state.doc,view.posAtDOM(native.anchorNode,native.anchorOffset),view.posAtDOM(native.focusNode,native.focusOffset));}
+  catch{return false;}
+ }
+ if(!session.editable||!view.editable||view.composing||!(selection instanceof TextSelection)||slice.content.childCount<2||axisCellAtPosition(state.doc,selection.from))return false;
  const html=event.clipboardData?.getData('text/html')??'';
  if(/<(?:table|img|picture|video|audio|iframe|object|embed|svg)\b/i.test(html)||event.clipboardData?.files.length)return false;
- const leaf=blockPMLeaves(state.doc).find(item=>selection.from>=item.pos+1&&selection.from<=item.pos+1+item.node.content.size);
+ const leaf=blockPMLeaves(state.doc).find(item=>selection.from>=item.pos+1&&selection.to<=item.pos+1+item.node.content.size);
  if(!leaf?.id||leaf.node.type.name!=='paragraph')return false;
  const data=session.blockDocument(),block=data.blocks.find(item=>item.id===leaf.id);
  if(!block||block.type!=='paragraph'||block.parentId!==null||block.slot!=='body')return false;
  const incoming:RichText[][]=[];
  for(let index=0;index<slice.content.childCount;index++){const runs=clipboardParagraphRuns(slice.content.child(index));if(!runs)return false;incoming.push(runs);}
- const offset=selection.from-leaf.pos-1,length=leaf.node.content.size,field=session.field,{replica}=session;
+ const offset=selection.from-leaf.pos-1,removed=selection.to-selection.from,length=leaf.node.content.size-removed,field=session.field,{replica}=session;
  const roots=richBlockChildren(data,null),at=roots.findIndex(item=>item.id===block.id);
  if(at<0)return false;
  event.preventDefault();
@@ -76,6 +82,7 @@ export function pasteRootParagraphsAtCaret(session:RichEditorSession,view:Editor
  let caret:{id:string;position:number}|undefined;
  session.gesture(()=>{
   session.beforeViewChange?.();
+  if(removed)session.apply({type:'rich-text-splice',field,nodeId:block.id,range:replica.richRange(field,block.id,offset,offset+removed),text:''});
   const last=incoming.length-1;
   if(offset===0){
    // The paragraph keeps its identity as the last pasted paragraph and its whole text becomes the suffix.

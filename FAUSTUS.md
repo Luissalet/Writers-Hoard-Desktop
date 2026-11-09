@@ -1,5 +1,7 @@
 # Writer publishing workspace
 
+En un párrafo raíz de Source compartido, pegar varios párrafos sobre un texto seleccionado conserva el texto de ambos extremos y el formato del portapapeles. Un solo Deshacer recupera el contenido anterior. El pegado lee la selección visible al llegar el evento, aunque acabe de cambiar con el teclado.
+
 ## Imágenes en documentos Source compartidos — 2114
 
 El perfil optativo de imágenes admite PNG en el cuerpo raíz. El editor y el SDK conservan la fuente y el tamaño por separado, con Deshacer por autor. Compartir contenido envía los archivos a la otra biblioteca antes de mostrar el cambio. El ZIP conserva las versiones necesarias para recuperar imágenes. MCP importa y consulta los bytes y captura cambios por canal con el mismo writer Source. El perfil optativo de 2161 añade un canal de alineación izquierda, centro o derecha y su acción `rich-image-align`. Deshacerlo conserva tamaño y fuente de otras personas. El perfil 2164 permite PNG, JPEG y WebP con sus bytes originales en el editor, el SDK y MCP. 2167 inserta también en una celda lógica mediante `rich-table-cell-image-insert` y la captura de celda. [Imágenes en celdas](tasks/vvd1095/verification-image-cells2167.md). [Formatos de imagen](tasks/vvd1095/verification-image-formats2164.md). [Alineación y pruebas](tasks/vvd1095/verification-image-alignment2161.md). [Uso y pruebas](tasks/vvd1095/verification-shared-images2114.md).
