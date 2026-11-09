@@ -930,11 +930,11 @@ The era-value JSON wire also preserves own undefined metadata separately from mi
 Measured CPU fixture: the 101st apply took 310.5 ms at 10k and 997.3 ms at 50k UTF16 units, after retaining the declared history. These are individual public-engine wall times, not maxima, keystroke/Source-RW/Browser timings or a performance guarantee. The earlier list-proxy failures remain separate evidence. Rich collaborative editing, Unicode grapheme/IME binding, caret/presence and network/hosting are still open. No generic rich editor, transport or complete SDK parity follows from the plain-text opt-in.
 
 
-## Multi-paragraph paste within a root paragraph
+## Multi-paragraph paste across root paragraphs
 
-The shared block editor accepts several clipboard paragraphs at a caret or over a text selection inside one root paragraph. It keeps the prefix and suffix with their original marks and text identities, inserts the clipboard runs with their own marks, and groups the gesture into one editor Undo. Following blocks keep their identities. The editor uses the current native text selection when it still precedes the editor selection update.
+The shared block editor accepts several clipboard paragraphs at a caret or over a text selection within consecutive root paragraphs. It keeps the prefix and suffix with their original marks and text identities, inserts the clipboard runs with their own marks, and groups the gesture into one editor Undo. Following blocks keep their identities. The editor uses the current native text selection when it still precedes the editor selection update.
 
-The operation uses the public `rich-text-splice`, `rich-block-split` and `rich-block-insert` actions. MCP callers can capture and apply those operations through the live document tools. Separate live apply calls have separate Undo receipts. This path accepts only a range inside one root paragraph.
+The operation uses the public `rich-text-splice`, `rich-block-split` and `rich-block-insert` actions. MCP callers can capture and apply those operations through the live document tools. Separate live apply calls have separate Undo receipts. The range endpoints and intervening blocks must be root paragraphs. Selected intermediate paragraphs are removed while the endpoint and following block identities are retained.
 
 ## Optional rich editor extensions
 

@@ -1,6 +1,6 @@
 # Writer publishing workspace
 
-En un párrafo raíz de Source compartido, pegar varios párrafos sobre un texto seleccionado conserva el texto de ambos extremos y el formato del portapapeles. Un solo Deshacer recupera el contenido anterior. El pegado lee la selección visible al llegar el evento, aunque acabe de cambiar con el teclado.
+En párrafos raíz consecutivos de Source compartido, pegar varios párrafos sobre un texto seleccionado conserva el texto de ambos extremos y el formato del portapapeles. Un solo Deshacer recupera el contenido anterior. El pegado lee la selección visible al llegar el evento, aunque acabe de cambiar con el teclado.
 
 ## Imágenes en documentos Source compartidos — 2114
 

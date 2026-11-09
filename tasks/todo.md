@@ -1,3 +1,11 @@
+# Paste across root paragraphs — task 2312
+
+- [x] Verify the two-paragraph clipboard case in VVD and restore the synthetic note.
+- [x] Reproduce the cross-paragraph Source failure.
+- [x] Preserve endpoint identities, text, marks and following blocks in one gesture.
+- [x] Verify normal editor, SDK, live bridge and Brave, including Undo and reopen.
+- [x] Prepare the tested change for independent review and update capability documentation.
+
 # Partial paragraph paste — task 2310
 
 - [x] Compare the selected-text replacement in VVD through Brave and restore the synthetic note.
