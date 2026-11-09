@@ -378,7 +378,7 @@ export async function testXlsxColumnWidths(): Promise<string[]> {
     assert(narrow.querySelector('div > button')&&narrow.querySelector('summary'),'Narrow column keeps sorting and column options');
     checks.push('Narrow header retains both accessible controls');
 
-    for(const [position,name,expected] of [[2,'Narrow renamed',61],[5,'Wide renamed',1200]] as const){
+    for(const [position,name,expected] of [[2,'Narrow QA with a very long unbroken name ABCDEFGHIJKLMNOPQRSTUVWXYZ',61],[5,'Wide renamed',1200]] as const){
       const header=host.querySelector('thead th:nth-child('+position+')')!;
       await click(header.querySelector('summary'),'Column options');
       await click(header.querySelector('details button'),'Edit column');
@@ -388,6 +388,15 @@ export async function testXlsxColumnWidths(): Promise<string[]> {
       await click(form.querySelector('button[type="submit"]'),'Save renamed column');
       await until(()=>!host.querySelector('form'),'Rename saved');
       eq('Renaming retains imported width '+expected,(await get()).columns[position-2].width,expected);
+      if(expected===61){
+        const renamed=host.querySelector('thead th:nth-child(2)')!,sort=renamed.querySelector<HTMLButtonElement>('div > button')!,label=sort.querySelector('span')!;
+        assert(sort.textContent?.includes(name)&&sort.title.includes(name),'Complete narrow name remains accessible');
+        assert(sort.classList.contains('min-w-0')&&sort.classList.contains('max-w-full')&&label.classList.contains('truncate')&&label.classList.contains('w-0'),'Long narrow name can shrink and truncate');
+        assert(sort.querySelector('svg.shrink-0')&&renamed.querySelector('summary')?.getAttribute('aria-label')?.includes(name),'Narrow sort icon and named menu remain available');
+        await click(sort,'Sort renamed narrow column');
+        await until(()=>renamed.getAttribute('aria-sort')==='ascending','Narrow sorting still works');
+        checks.push('Long renamed narrow header shrinks with complete accessible name and working sort');
+      }
     }
     for(const [index,expected] of [[0,61],[3,1200]] as const){
       const reply=await runBridgeTool('wh_table_get',{projectId,tableId});
