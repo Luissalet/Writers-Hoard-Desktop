@@ -15,6 +15,33 @@ import {collectRoomImageAssets} from '@/engines/local/convergence/imageRefs';
 import {testImageBase64} from './local-tool-image-fixture';
 import {rasterFixtures} from './local-tool-image-formats.fixture';
 import {LOCAL_TOOL_TOOLS} from '@/engines/local/manifest';
+import {validateRichBlockDocument} from '@/engines/local/convergence/blockFormat';
+import type {LocalToolFieldCodec} from '@/engines/local/stateCodec';
+
+/** Optional capability metadata remains valid at every pre-existing block profile level. */
+export async function testInlineAnnotationProfileMatrix(){
+ const controls:LocalToolFieldCodec[]=[
+  {kind:'rich',profile:'paragraphs-inline/1'},{kind:'rich',profile:'paragraphs-inline/2'},
+  {kind:'rich',profile:'blocks-tree/1',schema:'writers-blocks/1'},{kind:'rich',profile:'blocks-tree/2',schema:'writers-blocks/1'},
+  {kind:'rich',profile:'blocks-tree/3',schema:'writers-blocks/2'},{kind:'rich',profile:'blocks-tree/4',schema:'writers-blocks/3'},
+  {kind:'rich',profile:'blocks-tree/5',schema:'writers-blocks/4'},{kind:'rich',profile:'blocks-tree/6',schema:'writers-blocks/5'},
+  {kind:'rich',profile:'blocks-tree/7',schema:'writers-blocks/6'},{kind:'rich',profile:'blocks-tree/8',schema:'writers-blocks/7'},
+  {kind:'rich',profile:'blocks-tree/9',schema:'writers-blocks/8'},{kind:'rich',profile:'blocks-tree/10',schema:'writers-blocks/9'},
+  {kind:'rich',profile:'blocks-tree/11',schema:'writers-blocks/10'},{kind:'rich',profile:'blocks-tree/12',schema:'writers-blocks/11'},
+ ],checks:string[]=[];
+ for(const[index,control]of controls.entries()){
+  const namespace='qa.inline.matrix'+index,projectId='own-inline-matrix-'+crypto.randomUUID(),mixed=defineLocalTool({...definition,namespace,codec:{version:2,fields:{...definition.codec!.fields,control}}});
+  try{
+   registerLocalToolModules({['./installed/'+namespace+'/module.tsx']:{default:mixed}});await db.projects.add({id:projectId,title:'Own matrix',description:'Synthetic only',mode:'custom',type:'standalone',status:'draft',color:'#777',enabledEngines:['local-tool-'+namespace],createdAt:1,updatedAt:1});
+   const D=await createSourceToolDocument({projectId},namespace,'Own matrix'),client=createLocalToolClient(projectId,mixed,{documentId:D.id}),c=client.convergence!;await c.start(await client.read());
+   const captured=await c.richRange('body','opening',0,5);await client.state!.apply(captured.snapshot,[{type:'rich-annotation',field:'body',nodeId:'opening',range:captured.range,attrs:{clueKey:'matrix',state:'hint'}}]);
+   const saved=await c.export();if(saved.pending||Object.hasOwn(saved.snapshot.data,'control'))throw Error('Declared absent field changed or lost supported metadata '+index);
+   const reader=createLocalToolReplica(saved.checkpoint!,{authorId:'matrix-reader',contract:{namespace,codec:mixed.codec!,validationId:saved.checkpoint!.validationId,schemaEpoch:saved.checkpoint!.schemaEpoch,validateState:mixed.validateState}});try{if(annotationCanonical(reader.read())!==annotationCanonical(saved.snapshot.data))throw Error('Profile matrix snapshot mismatch '+index);}finally{reader.destroy();}
+   checks.push('normal mixed16 with absent '+control.kind+'/'+('profile'in control?control.profile:'')+' retains policy and snapshot');
+  }finally{if(await db.projects.get(projectId))await deleteProject(projectId);}
+ }
+ if(!(await Promise.all(db.tables.map(t=>t.count()))).every(n=>n===0))throw Error('Profile matrix left private data');checks.push('Profile matrix private DB empty');return checks;
+}
 
 export async function testInlineAnnotationManifest(){
  const range=LOCAL_TOOL_TOOLS.find(tool=>tool.name==='wh_local_tool_rich_range'),apply=LOCAL_TOOL_TOOLS.find(tool=>tool.name==='wh_local_tool_state_apply');if(!range||!apply)throw Error('Shipping MCP tool absent');
@@ -32,10 +59,17 @@ export async function testInlineAnnotationMixed(){
   eq('normal mixed starts engine16',(await c.start(await client.read())).checkpoint.engine.version,'16');
   const plain=await c.textRange('plain',1,2),plainChanged=await client.state!.apply(plain.snapshot,[{type:'text-splice',field:'plain',range:plain.range,text:'X'}]);eq('mixed16 declared plain API remains available',(await client.read()).data.plain,'aXΩ');await client.state!.undo(plainChanged.receiptId!);eq('mixed16 plain Undo exact',(await client.read()).data.plain,'abΩ');
   const range=await c.richRange('body','opening',0,5);await client.state!.apply(range.snapshot,[{type:'rich-annotation',field:'body',nodeId:'opening',range:range.range,attrs:{clueKey:'mixed',state:'hint'}}]);
-  const place=await c.richBlockEditCapture('outline',[],{parentId:null,slot:'body',afterId:null});await client.state!.apply(place.snapshot,[{type:'rich-table-create',field:'outline',capture:place.capture,table:{id:'T',rows:[{id:'R',header:false}],columns:[{id:'C'}]}}]);
+  const originalBody=(await client.read()).data.body,split=await c.richSplitCapture('body','opening',3);await client.state!.apply(split.snapshot,[{type:'rich-split',field:'body',capture:split.capture,newNodeId:'split-Q'}]);const moved=await client.state!.apply(await client.read(),[{type:'rich-move-paragraph',field:'body',id:'split-Q',afterId:null}]);await client.state!.undo(moved.receiptId!);const join=await c.richJoinCapture('body','opening','split-Q');await client.state!.apply(join.snapshot,[{type:'rich-join',field:'body',capture:join.capture}]);eq('mixed16 split move Undo join retain annotation',(await client.read()).data.body,originalBody);
+  const outline=async()=>{const data=(await client.read()).data.outline;validateRichBlockDocument(data,true,true,true,true,true,true,true,true,true,true,true);return data;};
+  const place=await c.richBlockEditCapture('outline',[],{parentId:null,slot:'body',afterId:null});await client.state!.apply(place.snapshot,[{type:'rich-table-create',field:'outline',capture:place.capture,table:{id:'T',rows:[{id:'R',header:false},{id:'R2',header:false}],columns:[{id:'C'},{id:'C2'}]}}]);
+  const axis=await c.richTableAxisCapture('outline','T','rows','R2'),axisAdded=await client.state!.apply(axis.snapshot,[{type:'rich-table-axis-insert',field:'outline',capture:axis.capture,id:'R3',header:false}]);eq('mixed16 axis insertion available',(await outline()).blocks.some(b=>b.id==='R3'),true);await client.state!.undo(axisAdded.receiptId!);eq('mixed16 axis Undo exact',(await outline()).blocks.some(b=>b.id==='R3'),false);
+  const width=await c.richTableColumnWidthCapture('outline','T','C2');await client.state!.apply(width.snapshot,[{type:'rich-table-column-width',field:'outline',capture:width.capture,widthPx:233}]);eq('mixed16 column width available',(await outline()).blocks.find(b=>b.id==='C2')?.attrs.widthPx,233);
+  const height=await c.richBlockEditCapture('outline',['R']);await client.state!.apply(height.snapshot,[{type:'rich-table-row-height',field:'outline',capture:height.capture,heightPx:79}]);const header=await c.richBlockEditCapture('outline',['R']);await client.state!.apply(header.snapshot,[{type:'rich-table-row-header',field:'outline',capture:header.capture,header:true}]);eq('mixed16 row height and header available',(await outline()).blocks.find(b=>b.id==='R')?.attrs,{header:true,heightPx:79});
+  const paste=await c.richBlockEditCapture('outline',['T']);await client.state!.apply(paste.snapshot,[{type:'rich-table-paste',field:'outline',capture:paste.capture,target:{rows:['R','R2'],columns:['C','C2'],anchor:['R2','C'],head:['R2','C2']},matrix:[[{header:true,paragraphs:[[{type:'text',text:'merged'}]],span:{rows:1,columns:2}},null]]}]);eq('mixed16 cell span available',(await outline()).blocks.some(b=>b.type==='table-cell-span'),true);eq('mixed16 cell header available',(await outline()).blocks.some(b=>b.type==='table-cell-style'&&b.attrs.header===true),true);
   const imported=await runBridgeTool('wh_local_asset_file_import',{projectId,namespace,documentId:D.id,file:{name:'own.png',kind:'image',mime:'image/png',base64:testImageBase64}});if(!imported.ok)throw Error(JSON.stringify(imported));
   const asset={sha256:imported.result.sha256,mime:'image/png' as const,size:imported.result.size};
   const cell=await c.richTableCellCapture('outline','T','R','C');await client.state!.apply(cell.snapshot,[{type:'rich-table-cell-image-insert',field:'outline',capture:cell.capture,id:'I',fragmentId:'F',asset}]);
+  const size=await c.richImageCapture('outline','I','size');await client.state!.apply(size.snapshot,[{type:'rich-image-resize',field:'outline',capture:size.capture,displaySize:'full'}]);const alignment=await c.richImageCapture('outline','I','alignment');await client.state!.apply(alignment.snapshot,[{type:'rich-image-align',field:'outline',capture:alignment.capture,alignment:'center'}]);eq('mixed16 image size and alignment available',(await outline()).blocks.find(b=>b.id==='I')?.attrs,{asset,displaySize:'full',alignment:'center'});
   const replacementFile=rasterFixtures[1],replacementImport=await runBridgeTool('wh_local_asset_file_import',{projectId,namespace,documentId:D.id,file:{name:replacementFile.name,kind:'image',mime:replacementFile.mime,base64:replacementFile.base64}});if(!replacementImport.ok)throw Error(JSON.stringify(replacementImport));const replacementAsset={sha256:replacementImport.result.sha256,mime:replacementFile.mime,size:replacementImport.result.size};
   const source=await c.richImageCapture('outline','I','source'),replaced=await client.state!.apply(source.snapshot,[{type:'rich-image-replace',field:'outline',capture:source.capture,asset:replacementAsset}]);
   const expectedAssets=[asset,replacementAsset].sort((a,b)=>a.sha256.localeCompare(b.sha256));eq('mixed retained original and replacement refs',collectRoomImageAssets((await c.export()).update!),expectedAssets);await client.state!.undo(replaced.receiptId!);eq('mixed dormant replacement survives Undo for replay',collectRoomImageAssets((await c.export()).update!),expectedAssets);
