@@ -20,6 +20,7 @@ export async function testInlineAnnotationCore(){
  const mark=(actor:LocalToolReplica<State>,node='P')=>actor.read().body.content.find(p=>p.id===node)!.content.flatMap(run=>Array.from({length:run.text.length},()=>run.marks?.find(m=>m.type==='annotation')?.attrs??null));
  const annotate=(actor:LocalToolReplica<State>,value:RichAnnotationAttrs|null,node='P',from=0,to=node==='P'?6:6)=>actor.apply([{type:'rich-annotation',field:'body',nodeId:node,range:actor.richRange('body',node,from,to),attrs:value}]);
  try{
+  for(const id of ['constructor','prototype','__proto__','toString']){validateAnnotationSpec({...spec,id});eq('opaque semantic ID preserved '+id,annotationSpec({kind:'rich',profile:'paragraphs-inline/3',annotation:{...spec,id}})?.id,id);}
   eq('same writer version16',G.engine,{id:'writers-hoard-yjs-registers',version:'16',updateFormat:'yjs-v1',libraryVersion:'13.6.33'});
   for(const invalid of [{...spec,other:true},{...spec,version:2},{...spec,attributes:{x:{type:'object'}}},{...spec,attributes:{x:{type:'number',enum:[1,1]}}},{...spec,attributes:{x:{type:'string',enum:[1]}}}])rejects('invalid descriptor rejects',()=>validateAnnotationSpec(invalid));
   for(const invalid of [{}, {...attrs('x'),extra:1},{...attrs('x'),weight:Infinity},{...attrs('x'),confirmed:0},{...attrs('x'),state:'missing'},{...attrs('x'),empty:'null'}])rejects('exact scalar attrs reject',()=>validateAnnotationAttrs(invalid,spec));

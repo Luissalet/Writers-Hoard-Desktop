@@ -14,7 +14,7 @@ export function annotationCanonical(value:unknown):string {
 }
 export function validateAnnotationSpec(value:unknown):asserts value is RichAnnotationSpec {
  cloneLocalToolJson(value as LocalToolJson);
- if(!object(value)||Object.keys(value).sort().join(',')!=='attributes,id,version'||typeof value.id!=='string'||!key(value.id)||value.version!==1||!object(value.attributes))return fail();
+ if(!object(value)||Object.keys(value).sort().join(',')!=='attributes,id,version'||typeof value.id!=='string'||!value.id||value.version!==1||!object(value.attributes))return fail();
  for(const[name,attribute]of Object.entries(value.attributes)){
   if(!key(name)||!object(attribute)||Object.keys(attribute).some(k=>k!=='type'&&k!=='enum')||!['string','number','boolean','null'].includes(attribute.type as string))return fail();
   if(attribute.enum!==undefined&&(!Array.isArray(attribute.enum)||!attribute.enum.length||attribute.enum.some(v=>!scalar(v,attribute.type as string))||new Set(attribute.enum.map(annotationCanonical)).size!==attribute.enum.length))return fail();
