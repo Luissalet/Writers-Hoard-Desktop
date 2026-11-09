@@ -81,5 +81,5 @@ export function validateLocalToolValidationConflict(value:unknown):asserts value
 export function validateLocalToolPlainRange(value:unknown):asserts value is LocalToolPlainRange {
  convergenceClone(value);
  if(!object(value)||!exact(value,['format','identity','field','afterPlacementId','deleteIds'])||value.format!=='writers-hoard-local-plain-range/1'||!text(value.field)||value.afterPlacementId!==null&&!text(value.afterPlacementId)||!Array.isArray(value.deleteIds)||value.deleteIds.some(id=>!text(id))||new Set(value.deleteIds).size!==value.deleteIds.length)return fail();
- validateConvergenceIdentity(value.identity);if(!exact(value.identity as unknown as Record<string,unknown>,identityKeys)||!['2','3','4','5','6','7'].includes(value.identity.engine.version))fail();
+ validateConvergenceIdentity(value.identity);if(!exact(value.identity as unknown as Record<string,unknown>,identityKeys)||!['2','3','4','5','6','7','16'].includes(value.identity.engine.version))fail();
 }
