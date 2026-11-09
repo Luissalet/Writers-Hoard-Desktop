@@ -1,21 +1,35 @@
 import * as Y from 'yjs';
 import {JsonMap,convergenceCanonical} from './json';
+import {convergenceCodecHash,convergenceEngine} from './format';
+import {localToolRichTables,localToolRichTableAxes,localToolRichTableWidths,localToolRichImages,localToolRichImageAlignment,localToolRichImageRaster,localToolRichImageCells,localToolRichTableRowHeights,localToolRichTableCellHeaders,localToolRichTableCellSpans,type LocalToolStateCodec,type LocalToolFieldCodec} from '../stateCodecFormat';
+/** Engine16 carries its immutable complete codec: capability is per field, never granted by ordinal. */
+function annotationFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,predicate:(field:LocalToolFieldCodec)=>boolean):string[]|undefined{
+ if(identity.engine.version!=='16')return;const root=doc.share.has('rich-annotation-codec')?doc.getMap<string>('rich-annotation-codec'):undefined,codec=root?new JsonMap<LocalToolStateCodec>(root).get('value'):undefined;
+ if(!codec||root?.size!==1||convergenceCodecHash(codec)!==identity.codecHash||convergenceEngine(codec).version!=='16')throw Error('local_tool_rich_annotation_invalid');
+ for(const items of doc.store.clients.values())for(const item of items)if(item instanceof Y.Item&&item.parent===root&&item.deleted)throw Error('local_tool_rich_annotation_invalid');
+ return Object.keys(codec.fields).filter(field=>predicate(codec.fields[field])).sort();
+}
+const sameFields=(fields:unknown,expected:readonly string[]|undefined)=>!expected||convergenceCanonical(fields)===convergenceCanonical(expected);
+const optionalRoot=(fields:readonly string[],root:{readonly size:number}|undefined)=>fields.length?root?.size!==1:!!root;
 import type {LocalToolConvergenceIdentity,RegisterVersion} from './formatTypes';
 import {isImageAlignmentEngine,isImageRasterEngine,isRichImageEngine} from './imageFormat';
 /** Finite table grammar declaration, including capable fields absent from data. */
 export function readTableFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,rich:readonly string[],blocks:readonly string[],links:readonly string[],expected?:readonly string[]):Set<string> {
  const fields=new JsonMap<string[]>(doc.getMap('table-fields')).get('value')??[];
- if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!rich.includes(field)||!blocks.includes(field)||!links.includes(field))||['5','6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||!['5','6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_fields_invalid');
+ if(!sameFields(fields,annotationFields(doc,identity,localToolRichTables)))throw Error('local_tool_table_fields_invalid');
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!rich.includes(field)||!blocks.includes(field)||!links.includes(field))||['5','6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||identity.engine.version!=='16'&&!['5','6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_fields_invalid');
  return new Set(fields);
 }
 export function readTableAxisFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,tables:readonly string[],expected?:readonly string[]):Set<string> {
  const fields=new JsonMap<string[]>(doc.getMap('table-axis-fields')).get('value')??[];
- if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!tables.includes(field))||['6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||!['6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_axis_fields_invalid');
+ if(!sameFields(fields,annotationFields(doc,identity,localToolRichTableAxes)))throw Error('local_tool_table_axis_fields_invalid');
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!field)||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||fields.some(field=>!tables.includes(field))||['6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||identity.engine.version!=='16'&&!['6','7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&fields.length||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_axis_fields_invalid');
  return new Set(fields);
 }
 export function readTableWidthFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,axes:ReadonlySet<string>,expected?:readonly string[]):Set<string> {
  const fields=doc.share.has('table-width-fields')?new JsonMap<string[]>(doc.getMap('table-width-fields')).get('value'):[];
- if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!axes.has(field))||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||['7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||!['7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&doc.share.has('table-width-fields')||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_width_fields_invalid');
+ if(!sameFields(fields,annotationFields(doc,identity,localToolRichTableWidths)))throw Error('local_tool_table_width_fields_invalid');
+ if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!axes.has(field))||new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||['7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&!fields.length||identity.engine.version!=='16'&&!['7','9','10','11','12','13','14','15'].includes(identity.engine.version)&&doc.share.has('table-width-fields')||expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_width_fields_invalid');
  return new Set(fields);
 }
 export function readImageFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,widths:ReadonlySet<string>,expected?:readonly string[],expectedAlignments?:readonly string[],expectedRaster?:readonly string[],expectedCells?:readonly string[]){
@@ -27,21 +41,23 @@ export function readImageFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,
  const raster=rasterRoot?new JsonMap<string[]>(rasterRoot).get('value'):[];
  const cellRoot=doc.share.has('image-cell-fields')?doc.getMap<string>('image-cell-fields'):undefined;
  const cells=cellRoot?new JsonMap<string[]>(cellRoot).get('value'):[];
- if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!widths.has(field))||
+ if(identity.engine.version==='16'&&(!sameFields(fields,annotationFields(doc,identity,localToolRichImages))||!sameFields(alignments,annotationFields(doc,identity,localToolRichImageAlignment))||!sameFields(raster,annotationFields(doc,identity,localToolRichImageRaster))||!sameFields(cells,annotationFields(doc,identity,localToolRichImageCells))))throw Error('local_tool_image_fields_invalid');
+
+ if(!Array.isArray(fields)||identity.engine.version==='16'&&optionalRoot(fields,root)||fields.some(field=>typeof field!=='string'||!widths.has(field))||
     new Set(fields).size!==fields.length||convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||
-    isRichImageEngine(identity.engine.version)&&!fields.length||!isRichImageEngine(identity.engine.version)&&root||
+    identity.engine.version!=='16'&&isRichImageEngine(identity.engine.version)&&!fields.length||!isRichImageEngine(identity.engine.version)&&root||
     expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_image_fields_invalid');
- if(!Array.isArray(alignments)||alignments.some(field=>typeof field!=='string'||!fields.includes(field))||
+ if(!Array.isArray(alignments)||identity.engine.version==='16'&&optionalRoot(alignments,alignmentRoot)||alignments.some(field=>typeof field!=='string'||!fields.includes(field))||
     new Set(alignments).size!==alignments.length||convergenceCanonical(alignments)!==convergenceCanonical([...alignments].sort())||
-    isImageAlignmentEngine(identity.engine.version)&&(!alignments.length||alignmentRoot?.size!==1)||!isImageAlignmentEngine(identity.engine.version)&&alignmentRoot||
+    identity.engine.version!=='16'&&isImageAlignmentEngine(identity.engine.version)&&(!alignments.length||alignmentRoot?.size!==1)||!isImageAlignmentEngine(identity.engine.version)&&alignmentRoot||
     expectedAlignments&&convergenceCanonical(alignments)!==convergenceCanonical(expectedAlignments))throw Error('local_tool_image_alignment_fields_invalid');
- if(!Array.isArray(raster)||raster.some(field=>typeof field!=='string'||!alignments.includes(field))||
+ if(!Array.isArray(raster)||identity.engine.version==='16'&&optionalRoot(raster,rasterRoot)||raster.some(field=>typeof field!=='string'||!alignments.includes(field))||
     new Set(raster).size!==raster.length||convergenceCanonical(raster)!==convergenceCanonical([...raster].sort())||
-    isImageRasterEngine(identity.engine.version)&&(!raster.length||rasterRoot?.size!==1)||!isImageRasterEngine(identity.engine.version)&&rasterRoot||
+    identity.engine.version!=='16'&&isImageRasterEngine(identity.engine.version)&&(!raster.length||rasterRoot?.size!==1)||!isImageRasterEngine(identity.engine.version)&&rasterRoot||
     expectedRaster&&convergenceCanonical(raster)!==convergenceCanonical(expectedRaster))throw Error('local_tool_image_raster_fields_invalid');
- if(!Array.isArray(cells)||cells.some(field=>typeof field!=='string'||!raster.includes(field))||
+ if(!Array.isArray(cells)||identity.engine.version==='16'&&optionalRoot(cells,cellRoot)||cells.some(field=>typeof field!=='string'||!raster.includes(field))||
     new Set(cells).size!==cells.length||convergenceCanonical(cells)!==convergenceCanonical([...cells].sort())||
-    ['12','13','14','15'].includes(identity.engine.version)&&(!cells.length||cellRoot?.size!==1)||!['12','13','14','15'].includes(identity.engine.version)&&cellRoot||
+    ['12','13','14','15'].includes(identity.engine.version)&&(!cells.length||cellRoot?.size!==1)||identity.engine.version!=='16'&&!['12','13','14','15'].includes(identity.engine.version)&&cellRoot||
     expectedCells&&convergenceCanonical(cells)!==convergenceCanonical(expectedCells))throw Error('local_tool_image_cell_fields_invalid');
  if(root){
   for(const items of doc.store.clients.values())for(const item of items)if(item instanceof Y.Item&&(item.parent===root||item.parent===alignmentRoot||item.parent===rasterRoot||item.parent===cellRoot)&&item.deleted)throw Error('local_tool_image_fields_invalid');
@@ -57,9 +73,10 @@ export function readImageFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,
 export function readTableRowHeightFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,cells:ReadonlySet<string>,expected?:readonly string[]):Set<string> {
  const root=doc.share.has('table-row-height-fields')?doc.getMap<string>('table-row-height-fields'):undefined;
  const fields=root?new JsonMap<string[]>(root).get('value'):[];
+ if(!sameFields(fields,annotationFields(doc,identity,localToolRichTableRowHeights)))throw Error('local_tool_table_row_height_fields_invalid');
  if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!cells.has(field))||new Set(fields).size!==fields.length||
     convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||
-    (['13','14','15'].includes(identity.engine.version)?(!fields.length||root?.size!==1):!!root)||
+    (identity.engine.version==='16'?optionalRoot(fields,root):['13','14','15'].includes(identity.engine.version)?(!fields.length||root?.size!==1):!!root)||
     expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_row_height_fields_invalid');
  if(root)for(const items of doc.store.clients.values())for(const item of items)
   if(item instanceof Y.Item&&item.parent===root&&item.deleted)throw Error('local_tool_table_row_height_fields_invalid');
@@ -72,9 +89,10 @@ export function readTableRowHeightFields(doc:Y.Doc,identity:LocalToolConvergence
 export function readTableCellHeaderFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,rowHeights:ReadonlySet<string>,expected?:readonly string[]):Set<string> {
  const root=doc.share.has('table-cell-header-fields')?doc.getMap<string>('table-cell-header-fields'):undefined;
  const fields=root?new JsonMap<string[]>(root).get('value'):[];
+ if(!sameFields(fields,annotationFields(doc,identity,localToolRichTableCellHeaders)))throw Error('local_tool_table_cell_header_fields_invalid');
  if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!rowHeights.has(field))||new Set(fields).size!==fields.length||
     convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||
-    (['14','15'].includes(identity.engine.version)?(!fields.length||root?.size!==1):!!root)||
+    (identity.engine.version==='16'?optionalRoot(fields,root):['14','15'].includes(identity.engine.version)?(!fields.length||root?.size!==1):!!root)||
     expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_cell_header_fields_invalid');
  if(root)for(const items of doc.store.clients.values())for(const item of items)
   if(item instanceof Y.Item&&item.parent===root&&item.deleted)throw Error('local_tool_table_cell_header_fields_invalid');
@@ -84,9 +102,10 @@ export function readTableCellHeaderFields(doc:Y.Doc,identity:LocalToolConvergenc
 export function readTableCellSpanFields(doc:Y.Doc,identity:LocalToolConvergenceIdentity,cellHeaders:ReadonlySet<string>,expected?:readonly string[]):Set<string> {
  const root=doc.share.has('table-cell-span-fields')?doc.getMap<string>('table-cell-span-fields'):undefined;
  const fields=root?new JsonMap<string[]>(root).get('value'):[];
+ if(!sameFields(fields,annotationFields(doc,identity,localToolRichTableCellSpans)))throw Error('local_tool_table_cell_span_fields_invalid');
  if(!Array.isArray(fields)||fields.some(field=>typeof field!=='string'||!cellHeaders.has(field))||new Set(fields).size!==fields.length||
     convergenceCanonical(fields)!==convergenceCanonical([...fields].sort())||
-    (identity.engine.version==='15'?(!fields.length||root?.size!==1):!!root)||
+    (identity.engine.version==='16'?optionalRoot(fields,root):identity.engine.version==='15'?(!fields.length||root?.size!==1):!!root)||
     expected&&convergenceCanonical(fields)!==convergenceCanonical(expected))throw Error('local_tool_table_cell_span_fields_invalid');
  if(root)for(const items of doc.store.clients.values())for(const item of items)
   if(item instanceof Y.Item&&item.parent===root&&item.deleted)throw Error('local_tool_table_cell_span_fields_invalid');

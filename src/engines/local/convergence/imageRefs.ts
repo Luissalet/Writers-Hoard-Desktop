@@ -25,7 +25,7 @@ export function collectRoomImageAssets(update:LocalToolConvergenceUpdate):RichIm
   Y.applyUpdate(doc,convergenceBytes(update.updateBase64));
   const origin=new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).get('value');
   if(convergenceCanonical(origin)!==convergenceCanonical(identity))throw Error('local_tool_live_identity_invalid');
-  const widths=new JsonMap<string[]>(doc.getMap('table-width-fields')).get('value');
+  const widths=update.engine.version==='16'&&!doc.share.has('table-width-fields')?[]:new JsonMap<string[]>(doc.getMap('table-width-fields')).get('value');
   if(!Array.isArray(widths))throw Error('local_tool_image_fields_invalid');
   const {images,raster}=readImageFields(doc,identity,new Set(widths));
   return collectVersionedImageAssets(new JsonMap<RegisterVersion>(doc.getMap('register-versions')).values(),images,raster)

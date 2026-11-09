@@ -15,9 +15,9 @@ export const isImageCellsSchema=(schema:unknown)=>schema===CELL_IMAGE_BLOCK_SCHE
 export const isImageRasterSchema=(schema:unknown)=>schema===RASTER_BLOCK_SCHEMA||isImageCellsSchema(schema);
 export const isImageAlignmentSchema=(schema:unknown)=>schema===ALIGNMENT_BLOCK_SCHEMA||isImageRasterSchema(schema);
 export const isImageBlockSchema=(schema:unknown)=>schema===IMAGE_BLOCK_SCHEMA||isImageAlignmentSchema(schema);
-export const isRichImageEngine=(version:unknown):version is '9'|'10'|'11'|'12'|'13'|'14'|'15'=>version==='9'||version==='10'||version==='11'||version==='12'||version==='13'||version==='14'||version==='15';
-export const isImageAlignmentEngine=(version:unknown):version is '10'|'11'|'12'|'13'|'14'|'15'=>version==='10'||version==='11'||version==='12'||version==='13'||version==='14'||version==='15';
-export const isImageRasterEngine=(version:unknown):version is '11'|'12'|'13'|'14'|'15'=>version==='11'||version==='12'||version==='13'||version==='14'||version==='15';
+export const isRichImageEngine=(version:unknown):version is '9'|'10'|'11'|'12'|'13'|'14'|'15'|'16'=>version==='9'||version==='10'||version==='11'||version==='12'||version==='13'||version==='14'||version==='15'||version==='16';
+export const isImageAlignmentEngine=(version:unknown):version is '10'|'11'|'12'|'13'|'14'|'15'|'16'=>version==='10'||version==='11'||version==='12'||version==='13'||version==='14'||version==='15'||version==='16';
+export const isImageRasterEngine=(version:unknown):version is '11'|'12'|'13'|'14'|'15'|'16'=>version==='11'||version==='12'||version==='13'||version==='14'||version==='15'||version==='16';
 export type RichImageAlignment='left'|'center'|'right';
 export const isRichImageAlignment=(value:unknown):value is RichImageAlignment=>value==='left'||value==='center'||value==='right';
 export type RichImageSize='small'|'medium'|'full';

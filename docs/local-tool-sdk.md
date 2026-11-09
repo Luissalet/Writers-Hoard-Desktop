@@ -1288,3 +1288,41 @@ The SDK prose editor preserves `data-wh-codex-image="true"` on a valid local Cod
 An explicitly linked appearance of the card currently being edited also keeps its image choice. Only automatic name detection excludes that card; explicit links use the complete admitted project/era entries.
 
 This HTML preference does not extend the causal1958/engine5 Link grammar, which remains href-only. Portable thumbnail presentation and the separate publishing HTML/PDF compiler remain pending; existing authored-image policies are preserved. [Contract, verification and consumer limits](../tasks/vvd1095/verification-mention-image2028.md).
+
+
+### Declarative inline annotations in new paragraph documents
+
+A new codec2 field can declare `profile:'paragraphs-inline/3'` with one portable annotation class. Its descriptor is part of the codec hash and schema epoch, not a runtime callback or a mutable registry. The same `writers-hoard-yjs-registers` writer selects engine16 for this document. Other fields retain exactly the capabilities declared by their own profiles: the engine ordinal does not grant annotations, tables or images to a field.
+
+```ts
+codec:{version:2,fields:{body:{
+  kind:'rich',profile:'paragraphs-inline/3',
+  annotation:{id:'story.clue',version:1,attributes:{
+    clueKey:{type:'string'},state:{type:'string',enum:['hint','revealed']}
+  }}
+}}}
+```
+
+Each class has exact, required scalar attributes (`string`, finite `number`, `boolean` or `null`), optionally constrained by a nonempty homogeneous enum. Missing/extra attributes and incompatible values reject atomically. Persisted runs contain `{type:'annotation',attrs:{clueKey:'north-door',state:'hint'}}` alongside the existing five stock marks and link. The whole attribute record is one causal value per unit; concurrent authors cannot produce a record assembled from different attribute winners. Opaque strings such as clue keys are not entity references and are not remapped during copying.
+
+Use the existing range and state APIs after the normal convergence start (including an explicit start of an inherited era branch):
+
+```ts
+await client.convergence.start(await client.read());
+const {snapshot,range}=await client.convergence.richRange('body','opening',6,11);
+await client.state.apply(snapshot,[{
+  type:'rich-annotation',field:'body',nodeId:'opening',range,
+  attrs:{clueKey:'north-door',state:'hint'},
+}]);
+// attrs:null removes only this annotation from the captured units.
+```
+
+`rich-insert-paragraph` and `rich-text-splice` can carry `annotation:{...}` for newly authored text. Omission inserts without an annotation; null is valid only as the removal value of `rich-annotation`. Existing stock `marks` and `link` inputs retain their meaning. The existing MCP `wh_local_tool_state_apply` accepts the same action; no new writer or external service is involved. An explicit action with equal attributes can still record a causal intention, matching explicit link/mark actions. The normal form avoids an unchanged gesture by comparing the values captured when it opens, so an empty gesture does not consume the next Undo.
+
+`LocalToolCollaborativeRichEditor` accepts optional `annotationPresentation` labels for the class, attributes and enum values. Labels do not change the portable descriptor. The normal toolbar captures selections before opening its attribute form; multi-paragraph changes use one existing batch and one scoped Undo. A collapsed caret inside an annotation edits its contiguous range. Boundaries are noninclusive; typing inside an annotation carries its complete attributes. Applying/removing annotations preserves stock formatting and links. Undo retracts only its author's contribution and preserves foreign text and annotations.
+
+The shared editor projects the declared annotation into a native ProseMirror mark. Compatible native HTML clipboard data carries the exact descriptor and attributes. An incompatible destination (including a legacy field) rejects the semantic paste without rewriting content, clipboard bytes or history and offers a recoverable local error. The installed `examples.inline-clues` package demonstrates a narrative clue key and state in ordinary shared prose.
+
+Engine16 checkpoints carry the complete immutable codec so readonly exports and independent SDK readers can verify the descriptor without the author package. Annotation bindings use `writers-hoard-rich-snapshot-bindings/3`; prior binding formats and profiles keep their existing validation. Mixed documents may also declare existing block/table/image profiles, including absent data fields; only those declared fields get those capabilities. Portable JSON, ZIP and Duplicate preserve descriptors and semantic attributes; semantic copies receive a distinct causal lineage. Base and era branches retain their own data and complete retained history. A package-free semantic preview labels the class and attributes as escaped text.
+
+This profile is for new documents. Selecting a new release, reading an old document, or calling start does not adopt or reset a legacy history into engine16. Descriptor/hash/epoch mismatches reject without partial writes or new history. There is no annotation support in block profiles, arbitrary node factory, general migration or automatic legacy adoption in this increment. Author tests cover the normal hidden Source host, replicas and portable entry points; independent Root Brave and two-key MCP acceptance is required separately before integration.
