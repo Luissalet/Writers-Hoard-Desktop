@@ -2284,7 +2284,7 @@ Fonts, other formatting, merged cells and unverified full parity remain outside 
 - [x] Insert local glyphs into the native input selection and retain focus, drafts and existing save route.
 - [x] Edit/reset one effective association against an explicit preset while preserving authored raw mapping lines.
 - [x] Keep the persistent model, operations and MCP writers unchanged; retain local fonts and declare glyph subsets.
-- [x] Area: eight script/UI groups and six Dictionary groups pass; quick checks pass after a dead native-field style removal; scoped detector reports no findings.
+- [x] Area r2: ten script/UI groups and six Dictionary groups pass, including open-palette selection growth/collapse and a pending-selection race. Revision1 failed independent Brave at the existing character limit; r2 makes selection reactive and rechecks insertion. Final r2 quick passes renderer/Electron types, shipping lint and conformance; detector ran once with no findings in r1.
 - [ ] Independent review, real Brave and bridge acceptance on the frozen cut.
 - [ ] Commit by explicit paths as Luissalet and integrate only after revision-bound approval; no push.
 
