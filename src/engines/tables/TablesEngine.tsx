@@ -139,6 +139,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   };
   const projected=storedTable?projectWorldTable(storedTable,entries,project?.codexTemplates??[]):undefined;
   const table=storedTable?{...storedTable,columns:projected!.columns}:undefined;
+  const editedColumnWidth = table?.columns.find(column => column.id === columnDraft?.id)?.width;
   const run = async (work: () => Promise<void>, done?: () => void) => { if (busy) return; setBusy(true); setError(''); try { await work(); done?.(); } catch (reason) { setError(`${copy.error} ${reason instanceof Error?reason.message:''}`); } finally { setBusy(false); } };
   const change = (update: (table: WorldTable) => void) => { if (table) void run(() => changeTable(projectId, table.id, update)); };
   const projectedEntries = new Map(table?.codexType || table?.codexAllTypes ? entries.filter(entry => table.codexAllTypes || entry.type === table.codexType).map(entry => [entry.id, projectCodexEntry(entry, project?.codexTemplates ?? [])]) : []);
@@ -240,7 +241,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
           <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.columnName}<input className={control} required value={columnDraft.name} onChange={event => setColumnDraft({ ...columnDraft, name: event.target.value })} /></label>
           {addingColumn && table.mode !== 'sheet' && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.columnKind}<select className={control} value={columnDraft.kind} onChange={event => setColumnDraft({ ...columnDraft, kind: event.target.value as DataColumn['kind'] })}>{kinds.map(kind => <option key={kind} value={kind}>{copy[kind]}</option>)}</select></label>}
           {addingColumn && table.codexType && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.field}<input className={control} value={columnDraft.field ?? ''} onChange={event => setColumnDraft({ ...columnDraft, field: event.target.value })} maxLength={200} /></label>}
-          {!addingColumn && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.width}<input type="number" min={100} max={600} className={`${control} w-28`} value={columnDraft.width ?? 180} onChange={event => setColumnDraft({ ...columnDraft, width: Number(event.target.value) })} /></label>}
+          {!addingColumn && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.width}<input type="number" min={Math.min(100, editedColumnWidth ?? 100)} max={Math.max(600, editedColumnWidth ?? 600)} className={`${control} w-28`} value={columnDraft.width ?? 180} onChange={event => setColumnDraft({ ...columnDraft, width: Number(event.target.value) })} /></label>}
           <button disabled={busy} type="submit" className={button}>{copy.save}</button><button type="button" className={button} onClick={() => setColumnDraft(null)}>{copy.cancel}</button>
         </form>}
         <div className="flex flex-wrap items-center gap-3 px-4 pb-3"><input className={`${control} min-w-40 flex-1`} aria-label={copy.search} placeholder={copy.search} value={query} onChange={event => { setQuery(event.target.value); setMatchAt(0); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); stepMatch(event.shiftKey ? -1 : 1); } }} />

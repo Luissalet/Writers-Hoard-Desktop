@@ -1,6 +1,6 @@
 // Excel workbooks (.xlsx) in and out, on this device. Import reads every
 // worksheet (names, order, hidden tabs, tab colours), cell text and numbers,
-// and formulas as formulas; it reports what it could not keep (formatting,
+// formulas as formulas and explicit positive column widths; it reports other losses (formatting,
 // merged cells, charts, functions the sheet does not compute) instead of
 // failing silently. Export writes one worksheet per tab with the formulas and
 // their computed values, so Excel and other spreadsheet programs open it.
@@ -9,7 +9,7 @@ import { cellKey, type WorldTable } from './types';
 import { sheetValues, SHEET_FUNCTIONS } from './formulas';
 
 export const XLSX_LIMITS = { bytes: 20_000_000, sheets: 50, rows: 20000, columns: 100 } as const;
-export interface ImportedSheet { name: string; hidden: boolean; color?: string; rows: string[][] }
+export interface ImportedSheet { name: string; hidden: boolean; color?: string; rows: string[][]; widths?: Record<number, number> }
 export interface XlsxReport { sheets: number; cells: number; formulas: number; unsupportedFunctions: string[]; truncated: string[]; dropped: string[] }
 
 /** A character reference, bounded to real characters: out-of-range or surrogate values become U+FFFD instead of aborting the import. */
@@ -21,6 +21,10 @@ const attribute = (tag: string, name: string) => { const match = new RegExp(`\\s
 const runs = (xml: string) => [...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>|<t(?:\s[^>]*)?\/>/g)].map(match => decode(match[1] ?? '')).join('');
 const columnNumber = (letters: string) => { let value = 0; for (const char of letters) value = value * 26 + char.charCodeAt(0) - 64; return value - 1; };
 const KNOWN = new Set<string>([...SHEET_FUNCTIONS, 'TRUE', 'FALSE']);
+// OOXML column widths use the normal font's maximum digit width. Fonts are not
+// imported, so exchange uses the documented Calibri 11 basis of 7 px at 96 dpi.
+const MAX_DIGIT_WIDTH = 7;
+const positiveWidth = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
 
 /** Move relative references (not $-anchored parts) by rows and columns, leaving quoted text alone. */
 export function moveReferences(formula: string, rows: number, columns: number): string {
@@ -62,6 +66,15 @@ export async function importXlsx(bytes: Uint8Array): Promise<{ sheets: ImportedS
     const grid: string[][] = [];
     const masters = new Map<string, { formula: string; row: number; column: number }>();
     let cut = false;
+    const widths: Record<number, number> = {};
+    for (const match of xml.matchAll(/<col\b[^>]*>/g)) {
+      const first = Number(attribute(match[0], 'min')), last = Number(attribute(match[0], 'max')), characters = Number(attribute(match[0], 'width'));
+      if (!Number.isSafeInteger(first) || first < 1 || !Number.isSafeInteger(last) || last < first || !positiveWidth(characters)) continue;
+      const pixels = Math.trunc(((256 * characters + Math.trunc(128 / MAX_DIGIT_WIDTH)) / 256) * MAX_DIGIT_WIDTH);
+      if (!positiveWidth(pixels)) continue;
+      if (last > XLSX_LIMITS.columns) cut = true;
+      for (let column = first - 1; column < Math.min(last, XLSX_LIMITS.columns); column++) widths[column] = pixels;
+    }
     for (const cell of xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const attrs = cell[1], body = cell[2] ?? '', ref = /\sr="([A-Z]+)(\d+)"/.exec(attrs);
       if (!ref) continue;
@@ -92,8 +105,8 @@ export async function importXlsx(bytes: Uint8Array): Promise<{ sheets: ImportedS
     if (cut) report.truncated.push(`${name}: past ${XLSX_LIMITS.rows} rows or ${XLSX_LIMITS.columns} columns`);
     if (/<mergeCell\b/.test(xml)) report.dropped.push(`${name}: merged cells (kept as separate cells)`);
     if (/<conditionalFormatting\b/.test(xml) || /\ss="\d+"/.test(xml)) report.dropped.push(`${name}: formatting`);
-    const width = Math.max(1, ...grid.map(line => line.length));
-    sheets.push({ name: name.slice(0, 200), hidden: state === 'hidden' || state === 'veryHidden', ...(color ? { color: `#${color.toLowerCase()}` } : {}), rows: grid.map(line => Array.from({ length: width }, (_, i) => line[i] ?? '')) });
+    const width = Math.max(1, ...grid.map(line => line.length), ...Object.keys(widths).map(column => Number(column) + 1));
+    sheets.push({ name: name.slice(0, 200), hidden: state === 'hidden' || state === 'veryHidden', ...(color ? { color: `#${color.toLowerCase()}` } : {}), rows: grid.map(line => Array.from({ length: width }, (_, i) => line[i] ?? '')), ...(Object.keys(widths).length ? { widths } : {}) });
     report.sheets++;
   }
   if (zip.file(/^xl\/charts\//).length) report.dropped.push('charts');
@@ -108,8 +121,8 @@ export async function importXlsx(bytes: Uint8Array): Promise<{ sheets: ImportedS
 export function sheetsToTables(imported: ImportedSheet[], workbookName: string): WorldTable[] {
   const workbookId = crypto.randomUUID();
   return imported.map((sheet, order) => {
-    const width = Math.max(1, sheet.rows[0]?.length ?? 1);
-    const columns = Array.from({ length: width }, (_, index) => ({ id: crypto.randomUUID(), name: cellKey(index, 0).replace(/\d+$/, ''), kind: 'text' as const }));
+    const width = Math.max(1, sheet.rows[0]?.length ?? 1, ...Object.keys(sheet.widths ?? {}).map(column => Number(column) + 1));
+    const columns = Array.from({ length: width }, (_, index) => ({ id: crypto.randomUUID(), name: cellKey(index, 0).replace(/\d+$/, ''), kind: 'text' as const, ...(positiveWidth(sheet.widths?.[index]) ? { width: sheet.widths![index] } : {}) }));
     return { id: crypto.randomUUID(), title: sheet.name, mode: 'sheet', columns, rows: (sheet.rows.length ? sheet.rows : [[]]).map(line => ({ id: crypto.randomUUID(), cells: Object.fromEntries(columns.flatMap((column, index) => line[index] ? [[column.id, line[index]]] : [])) })), workbook: { id: workbookId, name: workbookName.slice(0, 200), order, ...(sheet.color ? { color: sheet.color } : {}), ...(sheet.hidden ? { hidden: true } : {}) } } satisfies WorldTable;
   });
 }
@@ -160,8 +173,14 @@ function worksheetXml(table: WorldTable, header: boolean, unknown: Set<string>):
     const cells = table.columns.map((column, columnIndex) => { const raw = row.cells[column.id] ?? ''; return raw === '' ? '' : cellXml(cellKey(columnIndex, at), raw, values?.get(cellKey(columnIndex, rowIndex))); }).join('');
     if (cells) lines.push(`<row r="${at + 1}">${cells}</row>`);
   });
+  const columns = table.columns.flatMap((column, index) => {
+    if (!positiveWidth(column.width)) return [];
+    const width = Math.trunc(column.width / MAX_DIGIT_WIDTH * 256) / 256;
+    return positiveWidth(width) ? [`<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`] : [];
+  });
+  const columnXml = columns.length ? `<cols>${columns.join('')}</cols>` : '';
   const tab = table.workbook?.color ? `<sheetPr><tabColor rgb="FF${table.workbook.color.replace('#', '').toUpperCase()}"/></sheetPr>` : '';
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${tab}<sheetData>${lines.join('')}</sheetData></worksheet>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${tab}${columnXml}<sheetData>${lines.join('')}</sheetData></worksheet>`;
 }
 
 /** A workbook of these tables, in order. A sheet keeps its formulas (with values); a typed table gets its column names as the first row. */
