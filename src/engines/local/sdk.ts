@@ -1,3 +1,4 @@
+export type {RichAnnotationSpec,RichAnnotationAttrs,RichAnnotationScalar,AnnotationPresentation} from './convergence/annotationFormat';
 import {validateRichAdoption} from './convergence/richAdoption';
 import {prepareSourceAdditiveDeclaration,sourceAdditiveDefault,type LocalToolSourceAdditive} from './convergence/sourceAdditive';
 export type {LocalToolSourceAdditive} from './convergence/sourceAdditive';

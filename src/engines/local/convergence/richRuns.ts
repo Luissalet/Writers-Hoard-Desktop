@@ -1,3 +1,4 @@
+import {validateAnnotationAttrs,type RichAnnotationSpec,type RichAnnotationAttrs} from './annotationFormat';
 import type {RichUnitBinding,RichBindings} from './richTypes';
 export type {RichUnitBinding,RichBindings} from './richTypes';
 import {normalizeEditorLinkHref} from '@/utils/normalizeEditorLinkHref';
@@ -16,8 +17,8 @@ type Lineage={buffer:string;runId:string;ref:RichRef;before:boolean;txId:string}
 type Place={id:string;node:string};
 type Segment={id:string;node:string;buffer:string};
 type Routing={spans:RichSpan[];edges:string[];node:string|null;segment:string;ordinal?:number;excludes?:RichSpan[]};
-type Marking={spans:RichSpan[];mark:RichMark;enabled:boolean}|{spans:RichSpan[];mark:'link';href:string|null};
-const markValue=(m:Marking):RichMarkValue|undefined=>m.mark==='link'?m.href===null?undefined:{type:'link',attrs:{href:m.href}}:m.enabled?{type:m.mark}:undefined;
+type Marking={spans:RichSpan[];mark:RichMark;enabled:boolean}|{spans:RichSpan[];mark:'link';href:string|null}|{spans:RichSpan[];mark:'annotation';attrs:RichAnnotationAttrs|null};
+const markValue=(m:Marking):RichMarkValue|undefined=>m.mark==='annotation'?m.attrs===null?undefined:{type:'annotation',attrs:copy(m.attrs)}:m.mark==='link'?m.href===null?undefined:{type:'link',attrs:{href:m.href}}:m.enabled?{type:m.mark}:undefined;
 type Write={root:string;key:string;value:LocalToolJson};
 type Chosen={key:string;value:Routing;version?:RegisterVersion};
 export interface RichView {data:RichDocument;bindings:RichBindings}
@@ -75,9 +76,9 @@ export function richExclusions(ids:ReadonlySet<string>,included:ReadonlySet<stri
 export class RichRuns {
  readonly prefix:string;readonly nodes:JsonMap<Node>;readonly buffers:JsonMap<Buffer>;readonly edges:JsonMap<Edge>;readonly lineages:JsonMap<Lineage>;
  readonly order:JsonArray<Place>;readonly segments:JsonArray<Segment>;
- readonly doc:Y.Doc;readonly field:string;readonly registers:Registers;readonly historical:boolean;readonly links:boolean;readonly markKinds:readonly RichMarkKey[];
- constructor(doc:Y.Doc,field:string,registers:Registers,historical=false,links=false){
-  this.doc=doc;this.field=field;this.registers=registers;this.historical=historical;this.links=links;this.markKinds=links?RICH_MARK_KEYS:RICH_MARKS;
+ readonly doc:Y.Doc;readonly field:string;readonly registers:Registers;readonly historical:boolean;readonly links:boolean;readonly annotation?:RichAnnotationSpec;readonly markKinds:readonly RichMarkKey[];
+ constructor(doc:Y.Doc,field:string,registers:Registers,historical=false,links=false,annotation?:RichAnnotationSpec){
+  this.doc=doc;this.field=field;this.registers=registers;this.historical=historical;this.links=links;this.annotation=annotation;this.markKinds=annotation?[...RICH_MARK_KEYS,'annotation']:links?RICH_MARK_KEYS:RICH_MARKS;
   this.prefix='rich3:'+JSON.stringify(field)+':';
   this.nodes=new JsonMap(doc.getMap(this.prefix+'nodes'));this.buffers=new JsonMap(doc.getMap(this.prefix+'buffers'));this.edges=new JsonMap(doc.getMap(this.prefix+'edges'));this.lineages=new JsonMap(doc.getMap(this.prefix+'lineage'));
   this.order=new JsonArray(doc.getArray(this.prefix+'order'));this.segments=new JsonArray(doc.getArray(this.prefix+'segments'));
@@ -314,7 +315,7 @@ export class RichRuns {
   let scan:ReturnType<RichRuns['state']>|undefined;
   const routing=new Map<string,Routing>(),marking=new Map<string,Marking>(),verified=new Map<string,Verified[]>();
   return view=>{
-   validateRichDocument(view.data,this.links);const fresh=!scan,s=scan??=this.state(),seen=new Set<string>();
+   validateRichDocument(view.data,this.links,this.annotation);const fresh=!scan,s=scan??=this.state(),seen=new Set<string>();
    if(fresh){
     // Preserve candidate-first, then retained-entry priority, including inactive versions.
     for(const v of [...this.registers.candidates(this.root('routing')),...this.registers.entries(this.root('routing'))])if(v.present&&!routing.has(v.key))routing.set(v.key,v.value as unknown as Routing);
@@ -367,7 +368,8 @@ export class RichRuns {
   let missingMarkDependency=false;
   for(const version of this.registers.entries(this.root('marks'))){
    const value=version.value as unknown;
-   if(!version.present||!record(value)||Object.keys(value).length!==3||!Object.hasOwn(value,'spans')||!Object.hasOwn(value,'mark')||(value.mark==='link'? !this.links||!Object.hasOwn(value,'href')||value.href!==null&&!richHref(value.href):!Object.hasOwn(value,'enabled')||!RICH_MARKS.includes(value.mark as RichMark)||typeof value.enabled!=='boolean')||!Array.isArray(value.spans)||!value.spans.length)return fail();
+   if(!version.present||!record(value)||Object.keys(value).length!==3||!Object.hasOwn(value,'spans')||!Object.hasOwn(value,'mark')||(value.mark==='annotation'?!this.annotation||!Object.hasOwn(value,'attrs'):value.mark==='link'? !this.links||!Object.hasOwn(value,'href')||value.href!==null&&!richHref(value.href):!Object.hasOwn(value,'enabled')||!RICH_MARKS.includes(value.mark as RichMark)||typeof value.enabled!=='boolean')||!Array.isArray(value.spans)||!value.spans.length)return fail();
+   if(value.mark==='annotation'&&value.attrs!==null)validateAnnotationAttrs(value.attrs,this.annotation!);
    const seen=new Map<string,{from:number;to:number}[]>();
    for(const span of value.spans){
     if(!record(span)||Object.keys(span).length!==4||typeof span.buffer!=='string'||!span.buffer||typeof span.runId!=='string'||!span.runId||!Number.isSafeInteger(span.from)||!Number.isSafeInteger(span.to)||Number(span.from)<0||Number(span.from)>=Number(span.to))return fail();
@@ -418,18 +420,20 @@ export class RichDraft {
  private insert(node:string,afterId:string|null,text:string,marks:RichMark[]=[],fallback:RichRef|null=null,deferHomeRoute=false){
   if(this.source.hasNode(node)||this.plan.nodes.some(n=>n.id===node))return fail();this.plan.nodes.push({id:node,birthId:uuid(),txId:'@plan'});const b=this.buffer(node,fallback,deferHomeRoute);this.write('membership',node,true);this.place(node,afterId);this.append(b.buffer,null,text,{edge:b.edge},marks);return b;
  }
- private append(buffer:string,after:string|null,text:string,ref:RichRef,marks:RichMark[],before=false,link?:{href:string}){
+ private append(buffer:string,after:string|null,text:string,ref:RichRef,marks:RichMark[],before=false,link?:{href:string},annotation?:RichAnnotationAttrs){
   if(!text)return;const draft=this.text(buffer),previous=new Set(draft.insertedRuns().map(r=>r.id));draft.splice({afterPlacementId:after,deleteIds:[]},text);const added=draft.insertedRuns().filter(r=>!previous.has(r.id));
-  for(const r of added){this.plan.lineages.push({buffer,runId:r.id,ref,before,txId:'@plan'});for(const mark of marks)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark,enabled:true});if(link)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark:'link',href:link.href});}this.preparePlain();
+  for(const r of added){this.plan.lineages.push({buffer,runId:r.id,ref,before,txId:'@plan'});for(const mark of marks)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark,enabled:true});if(link)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark:'link',href:link.href});if(annotation)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark:'annotation',attrs:this.annotationAttrs(annotation)});}this.preparePlain();
  }
  apply(action:RichAction,identity:LocalToolConvergenceIdentity,excludes?:readonly RichSpan[]):void {
   if(action.field!==this.source.field)return fail();
-  if(action.type==='rich-insert-paragraph'){const link=action.link===undefined?undefined:this.link(action.link);if(typeof action.id!=='string'||!action.id||typeof action.text!=='string'||action.marks?.some(m=>!RICH_MARKS.includes(m)))return fail();const born=this.insert(action.id,action.afterId,'',action.marks);this.append(born.buffer,null,action.text,{edge:born.edge},action.marks??[],false,link);}
+  if(action.type==='rich-insert-paragraph'){if(Object.hasOwn(action,'annotation'))this.annotationAttrs(action.annotation);const link=action.link===undefined?undefined:this.link(action.link);if(typeof action.id!=='string'||!action.id||typeof action.text!=='string'||action.marks?.some(m=>!RICH_MARKS.includes(m)))return fail();const born=this.insert(action.id,action.afterId,'',action.marks);this.append(born.buffer,null,action.text,{edge:born.edge},action.marks??[],false,link,action.annotation);}
   else if(action.type==='rich-delete-paragraph'){if(!this.refresh().bindings.nodes.some(n=>n.id===action.id))return fail();this.write('membership',action.id,false);}
   else if(action.type==='rich-move-paragraph'){if(action.afterId===action.id||!this.refresh().bindings.nodes.some(n=>n.id===action.id))return fail();this.place(action.id,action.afterId);}
-  else if(action.type==='rich-text-splice'||action.type==='rich-mark'||action.type==='rich-link'){
+  else if(action.type==='rich-text-splice'||action.type==='rich-mark'||action.type==='rich-link'||action.type==='rich-annotation'){
+   if(action.type==='rich-text-splice'&&Object.hasOwn(action,'annotation'))this.annotationAttrs(action.annotation);
    this.source.assertRange(action.range,identity);if(action.nodeId!==action.range.nodeId)return fail();
-   if(action.type==='rich-link'){if(!this.source.links||action.href!==null&&typeof action.href!=='string')return fail();const href=action.href===null?null:normalizeEditorLinkHref(action.href);if(action.href!==null&&href===null)return fail();if(action.range.deleteIds.length)this.write('marks',uuid(),{spans:spans(action.range.deleteIds),mark:'link',href});}
+   if(action.type==='rich-annotation'){if(!this.source.annotation)return fail();const attrs=action.attrs===null?null:this.annotationAttrs(action.attrs);if(action.range.deleteIds.length)this.write('marks',uuid(),{spans:spans(action.range.deleteIds),mark:'annotation',attrs});}
+   else if(action.type==='rich-link'){if(!this.source.links||action.href!==null&&typeof action.href!=='string')return fail();const href=action.href===null?null:normalizeEditorLinkHref(action.href);if(action.href!==null&&href===null)return fail();if(action.range.deleteIds.length)this.write('marks',uuid(),{spans:spans(action.range.deleteIds),mark:'link',href});}
    else if(action.type==='rich-mark'){if(!RICH_MARKS.includes(action.mark)||typeof action.enabled!=='boolean')return fail();if(action.range.deleteIds.length)this.write('marks',uuid(),{spans:spans(action.range.deleteIds),mark:action.mark,enabled:action.enabled});}
    else{
     const link=action.link===undefined?undefined:this.link(action.link);
@@ -437,7 +441,7 @@ export class RichDraft {
     for(const s of spans(action.range.deleteIds)){const d=this.text(s.buffer);d.splice({afterPlacementId:null,deleteIds:Array.from({length:s.to-s.from},(_,i)=>JSON.stringify([s.runId,s.from+i]))},'');}
     const left=action.range.left,right=action.range.right,preferred=action.range.affinity==='right'?right??left:left??right,ref:RichRef=preferred?{unit:preferred}:{edge:action.range.edge};
     const buffer=left?point(left).buffer:right?point(right).buffer:this.plan.edges.find(e=>e.id===action.range.edge)?.buffer??this.source.edges.get(action.range.edge)?.buffer;
-    if(!buffer)return fail();this.append(buffer,left&&point(left).buffer===buffer?plainPoint(left):null,action.text,ref,action.marks??[],preferred!==null&&preferred===right,link);
+    if(!buffer)return fail();this.append(buffer,left&&point(left).buffer===buffer?plainPoint(left):null,action.text,ref,action.marks??[],preferred!==null&&preferred===right,link,action.annotation);
    }
   }else if(action.type==='rich-split'){
    const c=action.capture;this.source.assertRange(c.range,identity);if(c.format!=='writers-hoard-rich-split/1'||!excludes)return fail();
@@ -460,17 +464,18 @@ export class RichDraft {
   }
   this.refresh();
  }
+ private annotationAttrs(value:unknown):RichAnnotationAttrs{if(!this.source.annotation)return fail();validateAnnotationAttrs(value,this.source.annotation);return copy(value);}
  private link(value:unknown):{href:string}{if(!this.source.links||!record(value)||Object.keys(value).length!==1||typeof value.href!=='string')return fail();const href=normalizeEditorLinkHref(value.href);if(!href)return fail();return{href};}
  private appendParagraphContent(buffer:string,edge:string,content:RichParagraph['content']){
   this.append(buffer,null,content.map(text=>text.text).join(''),{edge},[]);
   const run=this.text(buffer).finish().runs[0];let offset=0;
   for(const text of content){
-   for(const mark of text.marks??[])if(run)this.write('marks',uuid(),{spans:[{buffer,runId:run.id,from:offset,to:offset+text.text.length}],...(mark.type==='link'?{mark:'link',href:mark.attrs.href}:{mark:mark.type,enabled:true})});
+   for(const mark of text.marks??[])if(run)this.write('marks',uuid(),{spans:[{buffer,runId:run.id,from:offset,to:offset+text.text.length}],...(mark.type==='link'?{mark:'link',href:mark.attrs.href}:mark.type==='annotation'?{mark:'annotation',attrs:this.annotationAttrs(mark.attrs)}:{mark:mark.type,enabled:true})});
    offset+=text.text.length;
   }
  }
  insertParagraphs(paragraphs:RichParagraph[]){
-  validateRichDocument({type:'doc',content:paragraphs},this.source.links);
+  validateRichDocument({type:'doc',content:paragraphs},this.source.links,this.source.annotation);
   let previous=this.refresh().bindings.nodes.at(-1)?.id??null;
   for(const paragraph of paragraphs){
    const {buffer,edge}=this.insert(paragraph.id,previous,'');
@@ -478,7 +483,7 @@ export class RichDraft {
   }
  }
  replace(value:RichDocument|undefined):void {
-  if(value!==undefined)validateRichDocument(value,this.source.links);
+  if(value!==undefined)validateRichDocument(value,this.source.links,this.source.annotation);
   for(const buffer of new Set([...this.source.buffers.keys(),...this.plan.buffers.map(b=>b.id)])){const p=this.source.plain(buffer);this.text(buffer).clear();const all=p.materialize(p.allSpans());const ids=all.bindings.flatMap(s=>Array.from({length:s.to-s.from},(_,i)=>unit(buffer,s.runId,s.from+i)));if(ids.length)this.route(ids,[],null,'');}
   for(const node of new Set([...this.source.nodes.values()].map(n=>n.id).concat(this.plan.nodes.map(n=>n.id))))this.write('membership',node,false);
   for(const edge of new Set([...this.source.edges.keys(),...this.plan.edges.map(e=>e.id)]))this.route([],[edge],null,'');

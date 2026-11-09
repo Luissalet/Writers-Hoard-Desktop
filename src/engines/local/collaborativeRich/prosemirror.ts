@@ -1,5 +1,5 @@
 import {isLocalToolRichBlockField} from '../stateCodec';
-import {inlineCells,richInlineFormat,matchInlineLinks,type InlineFormat} from './inlineFormatting';
+import {inlineCells,richInlineFormat,matchInlineLinks,matchInlineAnnotations,type InlineFormat} from './inlineFormatting';
 import {blockPMDocument,blockBookmark,projectBlockView} from './blockProsemirror';
 import {authorBlockTransaction,normalizeBlockIds,blockCompositionTransaction} from './blockAdmission';
 import type {Node as PMNode,Schema} from '@tiptap/pm/model';
@@ -19,25 +19,26 @@ function point(doc:PMNode,pos:number,bias:'left'|'right'){
  let i=list.findIndex(p=>pos<p.end||pos===p.end&&bias==='left');if(i<0)i=list.length-1;
  const p=list[i];return{index:i,offset:Math.max(0,Math.min(p.node.content.size,pos-p.start-1))};
 }
-function splice(session:RichEditorSession,nodeId:string,from:number,to:number,value:string,format:InlineFormat={marks:[]}){if(from===to&&!value)return;session.apply({type:'rich-text-splice',field:session.field,nodeId,range:session.replica.richRange(session.field,nodeId,from,to),text:value,marks:format.marks,...(format.link?{link:format.link}:{})});}
+function splice(session:RichEditorSession,nodeId:string,from:number,to:number,value:string,format:InlineFormat={marks:[]}){if(from===to&&!value)return;session.apply({type:'rich-text-splice',field:session.field,nodeId,range:session.replica.richRange(session.field,nodeId,from,to),text:value,marks:format.marks,...(format.link?{link:format.link}:{}),...(format.annotation?{annotation:format.annotation}:{})});}
 function insert(session:RichEditorSession,nodeId:string,at:number,value:string,marks:InlineFormat[]){
  let i=0;while(i<value.length){let end=i+1;while(end<value.length&&JSON.stringify(marks[end])===JSON.stringify(marks[i]))end++;splice(session,nodeId,at+i,at+i,value.slice(i,end),marks[i]??{marks:[]});i=end;}
 }
 function matchMarks(session:RichEditorSession,ids:string[],target:Paragraph[]){
  const current=session.document();if(current.content.length!==target.length||current.content.some((p,i)=>p.id!==ids[i]||text(p)!==target[i].node.textContent))throw Error('local_tool_rich_editor_translation_invalid');
  for(let n=0;n<ids.length;n++){
-  const want=inlineCells(target[n].node,session.links),have:InlineFormat[]=[];for(const part of current.content[n].content)for(let i=0;i<part.text.length;i++)have.push(richInlineFormat(part.marks));
+  const want=inlineCells(target[n].node,session.links,session.annotation),have:InlineFormat[]=[];for(const part of current.content[n].content)for(let i=0;i<part.text.length;i++)have.push(richInlineFormat(part.marks));
   for(const mark of RICH_MARKS){let at=0;while(at<want.length){const enabled=want[at].marks.includes(mark);if(have[at].marks.includes(mark)===enabled){at++;continue;}let to=at+1;while(to<want.length&&want[to].marks.includes(mark)===enabled&&have[to].marks.includes(mark)!==enabled)to++;session.apply({type:'rich-mark',field:session.field,nodeId:ids[n],range:session.replica.richRange(session.field,ids[n],at,to),mark,enabled});at=to;}}
-  matchInlineLinks(session,ids[n],want,have);
+  matchInlineLinks(session,ids[n],want,have);matchInlineAnnotations(session,ids[n],want,have);
  }
 }
-function newParagraph(session:RichEditorSession,afterId:string|null,node:PMNode){const id=crypto.randomUUID();session.apply({type:'rich-insert-paragraph',field:session.field,id,afterId,text:''});insert(session,id,0,node.textContent,inlineCells(node,session.links));return id;}
+function newParagraph(session:RichEditorSession,afterId:string|null,node:PMNode){const id=crypto.randomUUID();session.apply({type:'rich-insert-paragraph',field:session.field,id,afterId,text:''});insert(session,id,0,node.textContent,inlineCells(node,session.links,session.annotation));return id;}
 
 /** Translate actual PM steps, capturing only after earlier actions have completed. */
 function authorAcceptedRichTransaction(session:RichEditorSession,tr:Transaction):void {
  if(!tr.docChanged||tr.getMeta(RICH_INTERNAL))return;if(blockSession(session))return authorBlockTransaction(session,tr);
  // Reject an unrepresentable schema/step before the first local mutation.
  paragraphs(tr.before);paragraphs(tr.doc);
+ if(session.annotation)for(const doc of [...tr.docs,tr.doc])for(const paragraph of paragraphs(doc))inlineCells(paragraph.node,session.links,session.annotation);
  for(const step of tr.steps)if(!(step instanceof ReplaceStep||step instanceof AddMarkStep||step instanceof RemoveMarkStep||step instanceof ReplaceAroundStep))throw Error('local_tool_rich_editor_step_unsupported');
  const admitted=richPMDocument(tr.before.type.schema,session.document());if(admitted.childCount!==tr.before.childCount||admitted.content.content.some((p,i)=>!p.content.eq(tr.before.child(i).content)))throw Error('local_tool_rich_editor_admission_branch');
  let ids=session.document().content.map(p=>p.id);
@@ -74,7 +75,7 @@ function authorAcceptedRichTransaction(session:RichEditorSession,tr:Transaction)
    const produced=[first];let id=first,at=prefix.length;
    for(let n=0;n<wanted.length;n++){
     const node=wanted[n].node,start=n===0?prefix.length:0,end=node.content.size-(n===wanted.length-1?suffix.length:0);if(end<start)throw Error('local_tool_rich_editor_translation_invalid');
-    const value=node.textContent.slice(start,end);insert(session,id,at,value,inlineCells(node,session.links).slice(start,end));at+=value.length;
+    const value=node.textContent.slice(start,end);insert(session,id,at,value,inlineCells(node,session.links,session.annotation).slice(start,end));at+=value.length;
     if(n<wanted.length-1){const nextId=crypto.randomUUID();session.apply({type:'rich-split',field:session.field,capture:session.replica.richSplitCapture(session.field,id,at),newNodeId:nextId});id=nextId;produced.push(id);at=0;}
    }
    ids=[...ids.slice(0,from.index),...produced,...ids.slice(to.index+1)];matchMarks(session,ids,next);
@@ -91,7 +92,7 @@ export function richCompositionTransaction(before:EditorState,after:EditorState)
 }
 
 export function richPMDocument(schema:Schema,doc:RichDocument):PMNode{
- const content=doc.content.map(p=>schema.nodes.paragraph.create({id:p.id},p.content.map(t=>schema.text(t.text,(t.marks??[]).map(m=>schema.marks[m.type].create(m.type==='link'?m.attrs:undefined))))));
+ const content=doc.content.map(p=>schema.nodes.paragraph.create({id:p.id},p.content.map(t=>schema.text(t.text,(t.marks??[]).map(m=>schema.marks[m.type].create(m.type==='link'?m.attrs:m.type==='annotation'?{value:m.attrs}:undefined))))));
  return schema.nodes.doc.create(null,content.length?content:[schema.nodes.paragraph.create({id:null})]);
 }
 type Bookmark={anchor:RichRange|null;head:RichRange|null};
