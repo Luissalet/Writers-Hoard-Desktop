@@ -16,7 +16,32 @@ import {testImageBase64} from './local-tool-image-fixture';
 import {rasterFixtures} from './local-tool-image-formats.fixture';
 import {LOCAL_TOOL_TOOLS} from '@/engines/local/manifest';
 import {validateRichBlockDocument} from '@/engines/local/convergence/blockFormat';
-import type {LocalToolFieldCodec} from '@/engines/local/stateCodec';
+import {validateLocalToolCodecState,type LocalToolFieldCodec,type LocalToolStateCodec} from '@/engines/local/stateCodec';
+import {localToolSemanticPreview} from '@/engines/local/previewTypes';
+
+/** An absent optional field stays empty; present invalid data never becomes an empty preview. */
+export async function testInlineAnnotationOptionalPreview(){
+ const projectId='own-inline-optional-'+crypto.randomUUID(),checks:string[]=[];
+ const eq=(name:string,a:unknown,b:unknown)=>{if(annotationCanonical(a)!==annotationCanonical(b))throw Error(name+': '+JSON.stringify([a,b]));checks.push(name);};
+ const rejects=async(name:string,run:()=>unknown|Promise<unknown>)=>{let refused=false;try{await run();}catch{refused=true;}eq(name,refused,true);};
+ const annotationCodec:LocalToolStateCodec={version:2,fields:{body:{kind:'rich',profile:'paragraphs-inline/3',annotation:{id:'own.optional',version:1,attributes:{key:{type:'string'}}}}}},legacyCodec:LocalToolStateCodec={version:2,fields:{body:{kind:'rich',profile:'paragraphs-inline/2'}}};
+ const preview={version:1 as const,fields:[{key:'body',label:{en:'Body',es:'Cuerpo'}}]};
+ const tool=(namespace:string,codec:LocalToolStateCodec,initialState:Record<string,LocalToolJson>)=>defineLocalTool({...definition,namespace,codec,initialState,preview,validateState:(value:LocalToolJson):value is Record<string,LocalToolJson>=>{try{validateLocalToolCodecState(value,codec);return !!value&&typeof value==='object'&&!Array.isArray(value);}catch{return false;}},component:()=>null});
+ const old=tool('qa.inline.optional-legacy',legacyCodec,{}),empty=tool('qa.inline.optional-empty',annotationCodec,{}),present=tool('qa.inline.optional-present',annotationCodec,{body:{type:'doc',content:[{id:'P',type:'paragraph',content:[{type:'text',text:'Own clue',marks:[{type:'annotation',attrs:{key:'own-key'}}]}]}]}});
+ try{
+  eq('optional preview private library initially empty',await db.projects.count(),0);
+  registerLocalToolModules({'./installed/qa.inline.optional-legacy/module.tsx':{default:old},'./installed/qa.inline.optional-empty/module.tsx':{default:empty},'./installed/qa.inline.optional-present/module.tsx':{default:present}});
+  await db.projects.add({id:projectId,title:'Own optional preview',description:'Synthetic only',mode:'custom',type:'standalone',status:'draft',color:'#777',enabledEngines:[old,empty,present].map(d=>'local-tool-'+d.namespace),createdAt:1,updatedAt:1});
+  const legacyDocument=await createSourceToolDocument({projectId},old.namespace,'Legacy optional');eq('normal legacy absent field previews empty',sourceDocumentPreview(legacyDocument).fields,[{label:'Body',value:''}]);
+  const emptyDocument=await createSourceToolDocument({projectId},empty.namespace,'Initially absent'),emptyClient=createLocalToolClient(projectId,empty,{documentId:emptyDocument.id}),before=await db.projects.get(projectId);eq('normal annotation creator and read preserve absence',(await emptyClient.read()).data,{});eq('normal initial absent annotation previews empty',sourceDocumentPreview(emptyDocument).fields,[{label:'Body',value:''}]);eq('absent preview leaves Source exact',await db.projects.get(projectId),before);
+  const presentDocument=await createSourceToolDocument({projectId},present.namespace,'Present then unset'),client=createLocalToolClient(projectId,present,{documentId:presentDocument.id});await client.convergence!.start(await client.read());const original=(await client.read()).data,unset=await client.state!.apply(await client.read(),[{type:'unset',field:'body'}]),stored=(await readSourceToolDocument({projectId},presentDocument.id))!.document,afterUnset=await db.projects.get(projectId);eq('normal unset preserves valid absence',(await client.read()).data,{});eq('unset checkpoint remains valid',(await client.convergence!.export()).pending,false);eq('normal unset annotation previews empty',sourceDocumentPreview(stored).fields,[{label:'Body',value:''}]);eq('unset preview leaves Source exact',await db.projects.get(projectId),afterUnset);
+  const undone=await client.state!.undo(unset.receiptId!);eq('Undo unset restores exact semantic body',(await client.read()).data,original);await client.state!.redo(undone.receiptId!);eq('Redo unset restores absence',(await client.read()).data,{});
+  for(const bad of [null,{},'bad',{type:'doc',content:[{id:'P',type:'paragraph',content:[{type:'text',text:'Bad',marks:[{type:'annotation',attrs:{key:12}}]}]}]},{type:'doc',content:[{id:'P',type:'paragraph',content:[{type:'text',text:'Bad',marks:[{type:'annotation',attrs:{key:'ok',extra:true}}]}]}]}]){
+   await rejects('present invalid annotation still rejects preview',()=>localToolSemanticPreview('Invalid',{body:bad},preview,'en',annotationCodec));const exact=await db.projects.get(projectId);await rejects('present invalid annotation still rejects normal set',async()=>client.state!.apply(await client.read(),[{type:'set',field:'body',value:bad}]));eq('invalid present value leaves Source exact',await db.projects.get(projectId),exact);
+  }
+ }finally{if(await db.projects.get(projectId))await deleteProject(projectId);eq('optional preview all private tables empty',(await Promise.all(db.tables.map(t=>t.count()))).every(n=>n===0),true);}
+ return checks;
+}
 
 /** Optional capability metadata remains valid at every pre-existing block profile level. */
 export async function testInlineAnnotationProfileMatrix(){
