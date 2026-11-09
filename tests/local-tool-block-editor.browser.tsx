@@ -104,6 +104,55 @@ export async function testBlockEditor(){
    equal('plain-target-suffix-stays-plain',runs(1),[['Medio B 🙂',['italic']],['es Ω🙂',[]]]);
    equal('plain-target-untouched-paragraph',runs(2),[['Despues',[]]]);
    await click('Undo');equal('plain-target-one-Undo',leaves().map(n=>n.node.textContent),['Antes Ω🙂','Despues']);
+   const original=editor!.state.doc.toJSON(),firstId=leaves()[0].id!,followingId=leaves()[1].id!;
+   for(const [label,from,to,expected] of [
+    ['middle',2,5,['AnMedio A Ω','Medio B 🙂 Ω🙂','Despues']],
+    ['start',0,2,['Medio A Ω','Medio B 🙂tes Ω🙂','Despues']],
+    ['end',5,9,['AntesMedio A Ω','Medio B 🙂','Despues']],
+    ['all-text',0,9,['Medio A Ω','Medio B 🙂','Despues']],
+    ['backward',5,2,['AnMedio A Ω','Medio B 🙂 Ω🙂','Despues']],
+   ] as const){
+    await select(firstId,from,to);
+    await act(async()=>{editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked}));});await tick();
+    equal('selection-paste-'+label+'-no-recovery',element.querySelector('[role="alert"]'),null);
+    equal('selection-paste-'+label+'-text',leaves().map(n=>n.node.textContent),expected);
+    equal('selection-paste-'+label+'-preserves-following-id',leaves()[2].id,followingId);
+    equal('selection-paste-'+label+'-caret',editor!.state.selection.from,leaves()[1].pos+1+'Medio B 🙂'.length);
+    const pasted=editor!.state.doc.toJSON();
+    await click('Undo');equal('selection-paste-'+label+'-one-Undo',editor!.state.doc.toJSON(),original);
+    await click('Redo');equal('selection-paste-'+label+'-one-Redo',editor!.state.doc.toJSON(),pasted);
+    await click('Undo');
+   }
+   await select(firstId,0);
+   await act(async()=>{
+    const view=editor!.view;
+    view.focus();
+    const paragraph=view.dom.querySelector('[data-writer-block="'+firstId+'"]')!,text=paragraph.firstChild!;
+    const native=view.dom.ownerDocument.getSelection()!,range=view.dom.ownerDocument.createRange();
+    range.setStart(text,2);range.setEnd(text,5);native.removeAllRanges();native.addRange(range);
+    equal('selection-paste-native-event-lag-reproduced',view.state.selection.from,1);
+    view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked}));
+   });await tick();
+   equal('selection-paste-uses-current-native-range',leaves().map(n=>n.node.textContent),['AnMedio A Ω','Medio B 🙂 Ω🙂','Despues']);
+   await click('Undo');equal('selection-paste-native-range-one-Undo',editor!.state.doc.toJSON(),original);
+   editor!.commands.blur();
+   const three=new DataTransfer();
+   three.setData('text/html','<p><strong>Uno Ω</strong></p><p></p><p><em>Dos 🙂</em></p>');
+   three.setData('text/plain','Uno Ω\n\nDos 🙂');
+   await select(firstId,2,5);
+   await act(async()=>{editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:three}));});await tick();
+   equal('selection-paste-three-paragraphs',leaves().map(n=>n.node.textContent),['AnUno Ω','','Dos 🙂 Ω🙂','Despues']);
+   equal('selection-paste-three-preserves-ids',[leaves()[0].id,leaves()[3].id],[firstId,followingId]);
+   await click('Undo');equal('selection-paste-three-one-Undo',editor!.state.doc.toJSON(),original);
+   await select(firstId,2,5);
+   await act(async()=>{editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked}));});await tick();
+   equal('selection-paste-prefix-marks',runs(0),[['An',[]],['Medio A Ω',['bold']]]);
+   equal('selection-paste-suffix-marks',runs(1),[['Medio B 🙂',['italic']],[' Ω🙂',[]]]);
+   const replaced=editor!.state.doc.toJSON();
+   await click('Save changes');await wait(()=>button('Save changes').disabled,'selection paste Save ACK');
+   await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen selection paste');
+   equal('selection-paste-reopen-exact',editor!.state.doc.toJSON(),replaced);
+
   }
   await mount(true);await wait(()=>editor?.isEditable===false,'readonly');const readonlyBefore=await client.convergence!.export();await act(async()=>{editor!.commands.insertContent('forbidden');});await tick();equal('readonly-no-doc-edit',(await client.convergence!.export()).checkpoint,readonlyBefore.checkpoint);equal('readonly-format-disabled',button('H1').disabled,true);
  }finally{peer?.destroy();await act(async()=>root.unmount());element.remove();useLocaleStore.setState({locale});}

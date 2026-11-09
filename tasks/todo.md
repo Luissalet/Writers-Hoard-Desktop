@@ -1,3 +1,11 @@
+# Partial paragraph paste — task 2310
+
+- [x] Compare the selected-text replacement in VVD through Brave and restore the synthetic note.
+- [x] Reproduce the missing Source behavior and preserve the failing control.
+- [x] Extend the existing paragraph paste gesture and preserve surrounding text, marks and identities.
+- [x] Verify normal editor, SDK and live bridge, Undo/Redo, Save and reopen.
+- [x] Prepare the tested change for independent review and update capability documentation.
+
 # Additive Source field — task2088
 
 - [x] Reproduce the saved V1 failure and contrast the documented SDK default.
