@@ -229,7 +229,11 @@ Roll with `wh_dice_roll` instead of inventing results, and say natural 20s and 1
 as they came. Offer names from `wh_name_generate` (with the author's brief) and
 make a card only on request. Tasks and boards (`wh_todo_*`, `wh_kanban`) are the
 author's: add or change them when asked. In sheets, formulas may use Spanish or
-English function names; an Excel import says what it did not keep.
+English function names. Excel import/export preserves explicit positive column
+widths, including empty columns, with a Calibri 11 / 96 dpi conversion basis.
+Renaming a column retains its saved width. Other formatting, fonts and merged
+cells are not imported; the import report lists detected losses. See
+`docs/verification-xlsx-widths.md` for verification and scope.
 
 For Library creation, read `wh_workspace_library_get`, then pass `folderId` and
 `expectedLibraryRevision` to `wh_create_codex_entry`. An empty folder ID means

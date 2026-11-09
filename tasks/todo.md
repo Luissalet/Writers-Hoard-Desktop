@@ -2255,3 +2255,14 @@ Coordinación en Ágora writers2266. El alcance incluye guardar, frío y portabi
 - [x] Reproduce the missing thumbnail on the real NoteCard after a normal rerender with the same rich HTML. Preserve the original failure and prove that the same checks pass after correction.
 - [x] Verify avatar refresh, rich HTML replacement, existing era scoping and no note writes. Area19, renderer types and targeted NoteCard lint passed on the frozen cut.
 - [x] Commit the explicit paths and hand off the exact cut for Brave on the same saved note and final Native acceptance.
+
+
+## 2316 — XLSX column widths
+
+- [x] Read explicit positive column widths and ranges using the documented Calibri 11 / 96 dpi basis, including empty columns and sheets without cells.
+- [x] Preserve absent defaults and saved narrow/wide widths through UI edits, table bridge import/get/export and workbook round trips.
+- [x] Correct narrow header layout and long renamed labels after two real Brave geometry failures; retain sorting and column options.
+- [x] Independent TableTools31 and final verify:quick pass; Brave import, physical widths, rename, sorting, cold reopen and exported UI Blob checked.
+- [x] Revision3 approved and integrated under the merge lock with five exact blobs and all foreign paths intact, without push.
+
+Fonts, other formatting, merged cells and unverified full parity remain outside this increment. Documentation and manual continuity use task2317.

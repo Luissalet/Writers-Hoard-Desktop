@@ -401,7 +401,9 @@ turns one into a Codex card ("/nombre" in the editor; "/dados" rolls). Notes
 gain a to-do list (status, urgency, due days, links) and kanban boards, and a
 note takes a title and a cover. Sheets compute IF, SUMIF, COUNTIF, VLOOKUP and
 other functions (Spanish names too), open and save Excel workbooks with their
-tabs, and group sheets as tabs of a workbook. The board has a right-click menu,
+tabs and explicit column widths, and group sheets as tabs of a workbook. Widths
+use a Calibri 11 / 96 dpi conversion basis because fonts are not imported.
+Other formatting and merged cells are reported as losses. The board has a right-click menu,
 white, lined and chalk surfaces, an assets rail and comments about one card;
 the world graph has display settings, hidden cards and saved graphs; the
 project ambience has a soundscape mixer; the icon picker has categories,
