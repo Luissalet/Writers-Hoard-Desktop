@@ -5,6 +5,12 @@ const fields = { ...Object.fromEntries(['id', 'word', 'nativeForm', 'pronunciati
   seeAlso: { type: 'array', maxItems: 30, items: { type: 'string' }, description: 'Related words by spelling ("see also"); the word itself and repeats are dropped. An empty list removes them.' } };
 const tool = (name: string, description: string, writes: boolean, properties: Record<string, unknown> = {}, required: string[] = []): BridgeTool => ({ name, description, writes, engineId: 'dictionary', group: 'story', schema: { type: 'object', properties: { ...scope, ...properties }, required, additionalProperties: false } });
 export const DICTIONARY_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_dictionary_archive',
+    description: 'Archive one Shared base language with all its words, script and settings; return its recoverable archive ID. Read expectedVersion from wh_dictionary_get/search first. Uses the same archive as the language UI; restore with wh_archive_restore or normal Undo. Does not target an era: use wh_world_era_document_hide, wh_world_era_versions and wh_world_era_document_restore there.',
+    writes: true, engineId: 'dictionary', group: 'story',
+    schema: { type: 'object', properties: { projectId: PROJECT_ID, dictionaryId: s('Base dictionary ID in this project.'), expectedVersion: s('Version returned by get/search.'), eraId: s('Unsupported destination: supplying an era is refused, not treated as Base. Use wh_world_era_document_hide for an era.') }, required: ['dictionaryId', 'expectedVersion'], additionalProperties: false },
+  },
   tool('wh_dictionary_search', 'Find authored words, meanings, examples and native spellings in effective local dictionaries. Returns language identities and CAS versions; an empty query lists all entries. No translation or generated meaning.', false, { query: s('Text to find, including text selected in prose.') }),
   tool('wh_dictionary_get', 'Read a complete effective local dictionary and version before editing words, preserving native script, font and source fields.', false, { dictionaryId: s('Dictionary ID.') }, ['dictionaryId']),
   tool('wh_dictionary_create', 'Create a local language with an empty dictionary through normal storage. Detection is off until enabled by the normal language settings.', true, { name: s('Language name.'), description: s('Authored description.'), scriptMapping: s('Optional source=target script substitutions, one per line.'), color: s('Optional colour of the language\'s book in the list, #rrggbb.') }, ['name']),
