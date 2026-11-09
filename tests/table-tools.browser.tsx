@@ -373,6 +373,11 @@ export async function testXlsxColumnWidths(): Promise<string[]> {
     await act(async()=>{root.render(<MemoryRouter><TablesEngine projectId={projectId}/></MemoryRouter>);await pause(250);});
     await until(()=>host.querySelectorAll('thead tr:first-child th[style]').length===4,'Width headers');
     eq('Normal table headers display imported widths',Array.from(host.querySelectorAll<HTMLElement>('thead tr:first-child th[style]')).map(column=>column.style.width),['61px','168px','250px','1200px']);
+    eq('Only the narrow header stacks its controls',Array.from(host.querySelectorAll<HTMLElement>('thead tr:first-child th[style] > div')).map(controls=>controls.classList.contains('flex-col')),[true,false,false,false]);
+    const narrow=host.querySelector('thead th:nth-child(2)')!;
+    assert(narrow.querySelector('div > button')&&narrow.querySelector('summary'),'Narrow column keeps sorting and column options');
+    checks.push('Narrow header retains both accessible controls');
+
     for(const [position,name,expected] of [[2,'Narrow renamed',61],[5,'Wide renamed',1200]] as const){
       const header=host.querySelector('thead th:nth-child('+position+')')!;
       await click(header.querySelector('summary'),'Column options');
