@@ -46,7 +46,7 @@ export function pasteSelectedRootParagraphs(session:RichEditorSession,view:Edito
  return true;
 }
 
-/** Paste two or more paragraphs within one root paragraph as one reversible gesture. */
+/** Paste two or more paragraphs within consecutive root paragraphs as one reversible gesture. */
 export function pasteRootParagraphsAtCaret(session:RichEditorSession,view:EditorView,event:ClipboardEvent,slice:Slice):boolean {
  const {state}=view;let selection=state.selection;
  const native=view.dom.ownerDocument.getSelection();
@@ -58,15 +58,16 @@ export function pasteRootParagraphsAtCaret(session:RichEditorSession,view:Editor
  if(!session.editable||!view.editable||view.composing||!(selection instanceof TextSelection)||slice.content.childCount<2||axisCellAtPosition(state.doc,selection.from))return false;
  const html=event.clipboardData?.getData('text/html')??'';
  if(/<(?:table|img|picture|video|audio|iframe|object|embed|svg)\b/i.test(html)||event.clipboardData?.files.length)return false;
- const leaf=blockPMLeaves(state.doc).find(item=>selection.from>=item.pos+1&&selection.to<=item.pos+1+item.node.content.size);
- if(!leaf?.id||leaf.node.type.name!=='paragraph')return false;
- const data=session.blockDocument(),block=data.blocks.find(item=>item.id===leaf.id);
- if(!block||block.type!=='paragraph'||block.parentId!==null||block.slot!=='body')return false;
+ const leaves=blockPMLeaves(state.doc),leaf=leaves.find(item=>selection.from>=item.pos+1&&selection.from<=item.pos+1+item.node.content.size),
+  tail=leaves.find(item=>selection.to>=item.pos+1&&selection.to<=item.pos+1+item.node.content.size);
+ if(!leaf?.id||!tail?.id||leaf.node.type.name!=='paragraph'||tail.node.type.name!=='paragraph')return false;
+ const data=session.blockDocument(),roots=richBlockChildren(data,null),at=roots.findIndex(item=>item.id===leaf.id),end=roots.findIndex(item=>item.id===tail.id);
+ if(at<0||end<at||roots.slice(at,end+1).some(item=>item.type!=='paragraph'))return false;
+ const block=roots[at],lastBlock=roots[end],cross=at!==end;
  const incoming:RichText[][]=[];
  for(let index=0;index<slice.content.childCount;index++){const runs=clipboardParagraphRuns(slice.content.child(index));if(!runs)return false;incoming.push(runs);}
- const offset=selection.from-leaf.pos-1,removed=selection.to-selection.from,length=leaf.node.content.size-removed,field=session.field,{replica}=session;
- const roots=richBlockChildren(data,null),at=roots.findIndex(item=>item.id===block.id);
- if(at<0)return false;
+ const offset=selection.from-leaf.pos-1,tailOffset=selection.to-tail.pos-1,
+  removed=cross?leaf.node.content.size-offset:tailOffset-offset,length=leaf.node.content.size-removed,field=session.field,{replica}=session;
  event.preventDefault();
  const ids=incoming.map(()=>crypto.randomUUID());
  const insertRuns=(id:string,start:number,runs:RichText[])=>{
@@ -84,7 +85,18 @@ export function pasteRootParagraphsAtCaret(session:RichEditorSession,view:Editor
   session.beforeViewChange?.();
   if(removed)session.apply({type:'rich-text-splice',field,nodeId:block.id,range:replica.richRange(field,block.id,offset,offset+removed),text:''});
   const last=incoming.length-1;
-  if(offset===0){
+  if(cross){
+   if(tailOffset)session.apply({type:'rich-text-splice',field,nodeId:lastBlock.id,range:replica.richRange(field,lastBlock.id,0,tailOffset),text:''});
+   for(const middle of roots.slice(at+1,end)){
+    const size=middle.content!.reduce((total,run)=>total+run.text.length,0);
+    if(size)session.apply({type:'rich-text-splice',field,nodeId:middle.id,range:replica.richRange(field,middle.id,0,size),text:''});
+    session.apply({type:'rich-block-join',field,capture:replica.richBlockJoinCapture(field,block.id,middle.id)});
+   }
+   insertRuns(block.id,offset,incoming[0]);
+   let previous=block.id;
+   for(let index=1;index<last;index++){addBlock(ids[index],previous);previous=ids[index];insertRuns(ids[index],0,incoming[index]);}
+   caret={id:lastBlock.id,position:insertRuns(lastBlock.id,0,incoming[last])};
+  }else if(offset===0){
    // The paragraph keeps its identity as the last pasted paragraph and its whole text becomes the suffix.
    let afterId=roots[at-1]?.id??null;
    for(let index=0;index<last;index++){addBlock(ids[index],afterId);afterId=ids[index];insertRuns(ids[index],0,incoming[index]);}

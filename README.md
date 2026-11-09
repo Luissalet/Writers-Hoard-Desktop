@@ -1,6 +1,6 @@
 # Writers Hoard — Desktop
 
-In a shared Source root paragraph, pasting several paragraphs over selected text keeps the surrounding text and the pasted formatting. One Undo restores the original selection. The editor also reads the current visible selection when a keyboard selection has just changed.
+In consecutive root paragraphs of a shared Source document, pasting several paragraphs over selected text keeps the surrounding text and the pasted formatting. One Undo restores the original selection. The editor also reads the current visible selection when a keyboard selection has just changed.
 
 ## Images in shared Source documents
 

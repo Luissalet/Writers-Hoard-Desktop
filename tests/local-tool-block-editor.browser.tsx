@@ -154,6 +154,42 @@ export async function testBlockEditor(){
    equal('selection-paste-reopen-exact',editor!.state.doc.toJSON(),replaced);
 
   }
+  {
+   const leaves=()=>blockPMLeaves(editor!.state.doc);
+   const seed=new DataTransfer();seed.setData('text/html','<p>ABCDEF</p><p>GHIJKL</p><p>MNOPQR</p><p>STUVWX</p>');seed.setData('text/plain','ABCDEF\nGHIJKL\nMNOPQR\nSTUVWX');
+   await act(async()=>{const view=editor!.view;view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:seed}));});await tick();
+   const original=editor!.state.doc.toJSON(),ids=leaves().map(n=>n.id);
+   const marked=new DataTransfer();marked.setData('text/html','<p><strong>Uno Ω</strong></p><p><em>Dos 🙂</em></p>');marked.setData('text/plain','Uno Ω\nDos 🙂');
+   const cases=[
+    ['two',0,2,1,2,['ABUno Ω','Dos 🙂IJKL','MNOPQR','STUVWX'],[ids[0],ids[1],ids[2],ids[3]]],
+    ['backward',1,2,0,2,['ABUno Ω','Dos 🙂IJKL','MNOPQR','STUVWX'],[ids[0],ids[1],ids[2],ids[3]]],
+    ['three',0,2,2,2,['ABUno Ω','Dos 🙂OPQR','STUVWX'],[ids[0],ids[2],ids[3]]],
+    ['boundary',0,6,1,0,['ABCDEFUno Ω','Dos 🙂GHIJKL','MNOPQR','STUVWX'],[ids[0],ids[1],ids[2],ids[3]]],
+    ['whole-text',0,0,1,6,['Uno Ω','Dos 🙂','MNOPQR','STUVWX'],[ids[0],ids[1],ids[2],ids[3]]],
+   ] as const;
+   for(const [label,fromLeaf,from,toLeaf,to,expected,expectedIds] of cases){
+    const fromPos=leaves()[fromLeaf].pos+1+from,toPos=leaves()[toLeaf].pos+1+to;
+    await act(async()=>{editor!.commands.setTextSelection({from:fromPos,to:toPos});editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked}));});await tick();
+    equal('cross-paste-'+label+'-no-recovery',element.querySelector('[role="alert"]'),null);
+    equal('cross-paste-'+label+'-text',leaves().map(n=>n.node.textContent),expected);
+    equal('cross-paste-'+label+'-identities',leaves().map(n=>n.id),expectedIds);
+    equal('cross-paste-'+label+'-caret',editor!.state.selection.from,leaves()[1].pos+1+'Dos 🙂'.length);
+    const pasted=editor!.state.doc.toJSON();
+    await click('Undo');equal('cross-paste-'+label+'-one-Undo',editor!.state.doc.toJSON(),original);
+    await click('Redo');equal('cross-paste-'+label+'-one-Redo',editor!.state.doc.toJSON(),pasted);
+    await click('Undo');
+   }
+   const triple=new DataTransfer();triple.setData('text/html','<p><strong>Uno Ω</strong></p><p></p><p><em>Dos 🙂</em></p>');triple.setData('text/plain','Uno Ω\n\nDos 🙂');
+   await act(async()=>{editor!.commands.setTextSelection({from:3,to:leaves()[2].pos+3});editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:triple}));});await tick();
+   equal('cross-paste-empty-middle-text',leaves().map(n=>n.node.textContent),['ABUno Ω','','Dos 🙂OPQR','STUVWX']);
+   equal('cross-paste-empty-middle-preserves-ids',[leaves()[0].id,leaves()[2].id,leaves()[3].id],[ids[0],ids[2],ids[3]]);
+   await click('Undo');equal('cross-paste-empty-middle-one-Undo',editor!.state.doc.toJSON(),original);
+   await act(async()=>{editor!.commands.setTextSelection({from:3,to:leaves()[2].pos+3});editor!.view.dom.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:marked}));});await tick();
+   await click('Save changes');await wait(()=>button('Save changes').disabled,'cross paste Save ACK');
+   const saved=editor!.state.doc.toJSON();
+   await act(async()=>root.unmount());editor=undefined;root=createRoot(element);await mount();await wait(()=>!!editor?.isEditable,'reopen cross paste');
+   equal('cross-paste-reopen-exact',editor!.state.doc.toJSON(),saved);
+  }
   await mount(true);await wait(()=>editor?.isEditable===false,'readonly');const readonlyBefore=await client.convergence!.export();await act(async()=>{editor!.commands.insertContent('forbidden');});await tick();equal('readonly-no-doc-edit',(await client.convergence!.export()).checkpoint,readonlyBefore.checkpoint);equal('readonly-format-disabled',button('H1').disabled,true);
  }finally{peer?.destroy();await act(async()=>root.unmount());element.remove();useLocaleStore.setState({locale});}
  return checks;
