@@ -1,11 +1,26 @@
 import { db } from '@/db';
 import { getEraProject, readEraRow, readWorldDocument } from '@/services/worldEras/store';
-import { resolveProjectForEngine, requireString, optString, type ToolArgs } from '@/services/aiBridge/tools/shared';
+import { BridgeError, resolveProjectForEngine, requireString, optString, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
 import { emptyWord, nativeWord, normalizeSeeAlso, normalizeSenses, parseWordList, searchWords, type WorldDictionary } from './types';
-import { importWords, saveDictionary, saveWord } from './operations';
+import { importWords, removeDictionary, saveDictionary, saveWord } from './operations';
 const scope = async (args: ToolArgs) => ({ projectId: await resolveProjectForEngine(args, 'dictionary'), eraId: optString(args, 'eraId') });
 async function read(args: ToolArgs) { const target = await scope(args), source = await readWorldDocument(target, 'dictionary', requireString(args, 'dictionaryId')); if (!source) throw Error('dictionary_missing'); return { target, dictionary: source.document.root as unknown as WorldDictionary, version: source.version }; }
 export const DICTIONARY_HANDLERS = {
+  async wh_dictionary_archive(args: ToolArgs) {
+    if (args.eraId !== undefined) throw new BridgeError('bad-args', 'wh_dictionary_archive archives Shared base only. For an era use wh_world_era_document_hide, wh_world_era_versions and wh_world_era_document_restore.');
+    const projectId = await resolveProjectForEngine(args, 'dictionary'), dictionaryId = requireString(args, 'dictionaryId'), expectedVersion = requireString(args, 'expectedVersion');
+    return db.transaction('rw', db.tables, async () => {
+      const source = await readWorldDocument({ projectId }, 'dictionary', dictionaryId);
+      if (!source) throw new BridgeError('not-found', 'No Base dictionary with this ID in the project.');
+      if (source.version !== expectedVersion) throw new BridgeError('conflict', 'Dictionary changed; read wh_dictionary_get before archiving it.');
+      const previous = new Set((await db.documentArchives.where('sourceId').equals(dictionaryId).toArray()).map(row => row.id));
+      await removeDictionary(projectId, dictionaryId);
+      const copies = (await db.documentArchives.where('sourceId').equals(dictionaryId).toArray()).filter(row => !previous.has(row.id) && row.projectId === projectId && row.kind === 'dictionary');
+      if (copies.length !== 1) throw new Error('Dictionary archive receipt was not created.');
+      const archiveId = copies[0].id;
+      return withAudit({ archived: true, scope: 'base', projectId, dictionaryId, archiveId }, { projectId, entityId: dictionaryId, kind: 'delete', summary: `Archived Base dictionary ${String(source.document.root.name)}`, before: { __dictionaryArchive: archiveId } });
+    });
+  },
   async wh_dictionary_search(args: ToolArgs) { const target = await scope(args), project = await getEraProject(target), query = optString(args, 'query') ?? ''; return { dictionaries: await Promise.all((project.dictionaries ?? []).map(async dictionary => ({ id: dictionary.id, name: dictionary.name, version: (await readWorldDocument(target, 'dictionary', dictionary.id))!.version, words: searchWords(dictionary, query).map(word => ({ ...word, native: nativeWord(word, dictionary.scriptMapping) })) }))) }; },
   async wh_dictionary_get(args: ToolArgs) { const { dictionary, version } = await read(args); return { dictionary, version }; },
   async wh_dictionary_create(args: ToolArgs) { const target = await scope(args), dictionary: WorldDictionary = { id: crypto.randomUUID(), name: requireString(args, 'name'), description: optString(args, 'description') ?? '', scriptMapping: optString(args, 'scriptMapping') ?? '', detectInManuscript: false, ...(optString(args, 'color') ? { color: optString(args, 'color') } : {}), words: [] }; await saveDictionary(target.projectId, dictionary, undefined, target.eraId); return { dictionary, version: (await readWorldDocument(target, 'dictionary', dictionary.id))!.version }; },

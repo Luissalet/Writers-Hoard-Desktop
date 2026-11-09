@@ -29,6 +29,7 @@ import { assetFromFile, removeModelAsset } from '@/engines/model-viewer/model';
 import { modelViewerFixture } from './model-viewer-fixture';
 import { createRadarChart } from '@/engines/radar/model';
 import { saveRadarChart, deleteRadarChart } from '@/engines/radar/operations';
+import { testDictionaryArchive } from './dictionary-archive.browser';
 
 function assert(value:unknown,message:string):asserts value {if(!value)throw new Error(message);}
 const pause=(ms=30)=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -187,6 +188,7 @@ export async function testDocumentArchive():Promise<string[]> {
     await deleteCodexEntry(b.id);assert(await db.documentArchives.where('projectId').equals(pid).count(),'Missing project cleanup fixture');await deleteProject(pid);
     assert(!await db.documentArchives.where('projectId').equals(pid).count(),'Project deletion left archive data');
     passed.push('actual archive UI: active document confirmation, restore, project scoping; whole-project deletion clears archive without creating another');
+    passed.push(...await testDictionaryArchive());
     return passed;
   } finally {await unmount();await deleteProject(pid);await deleteProject(other);}
 }

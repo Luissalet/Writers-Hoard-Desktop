@@ -18,6 +18,7 @@ import {undoManuscript,type ManuscriptReceipt} from '@/engines/writings/manuscri
 
 import type { PublishingProfile } from '@/types/projectTools';
 import { db } from '@/db';
+import { restoreArchivedDocument } from '@/services/documentArchive/store';
 import { DELETABLE } from './tools/deletion';
 import { undoEnrichment } from '@/engines/inquiry/enrichment';
 import { BridgeError, type ToolArgs } from './tools/shared';
@@ -83,6 +84,13 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
   if(typeof entry.projectId==='string'&&entry.before&&typeof entry.before==='object'&&typeof (entry.before as Record<string,unknown>).__bannerReceipt==='string'){await undoBannerChange({projectId:entry.projectId,eraId:typeof entry.eraId==='string'?entry.eraId:undefined},String((entry.before as Record<string,unknown>).__bannerReceipt));return{undone:true,kind:'update',entityId:String(entry.entityId??''),what:'banner change'};}
   const kind = String(entry.kind ?? '');
   const entityId = typeof entry.entityId === 'string' ? entry.entityId : '';
+  if (entry.tool === 'wh_dictionary_archive') {
+    const archiveId = entry.before && typeof entry.before === 'object' ? (entry.before as Record<string, unknown>).__dictionaryArchive : undefined;
+    const archive = typeof archiveId === 'string' ? await db.documentArchives.get(archiveId) : undefined;
+    if (!archive || archive.projectId !== entry.projectId || archive.kind !== 'dictionary' || archive.sourceId !== entityId) throw new BridgeError('cannot-undo', 'This Base dictionary archive receipt is no longer available.');
+    await restoreArchivedDocument(archive.projectId, archive.id);
+    return { undone: true, kind: 'delete', entityId, what: String(entry.summary ?? 'Archived Base dictionary') };
+  }
   const summary = typeof entry.summary === 'string' ? entry.summary : 'that change';
   // One call can create several rows — four images, a page of clippings. Older
   // lines only ever recorded one, so `entityId` still stands on its own.
