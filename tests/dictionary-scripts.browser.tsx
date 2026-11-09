@@ -1,3 +1,4 @@
+import { testDictionaryGlyphsUI } from './dictionary-glyphs.browser';
 import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
@@ -111,6 +112,7 @@ export async function testDictionaryScripts(): Promise<string[]> {
     assert(!(await db.projects.get(P))!.dictionaries![0].font, 'Removing a local font persists while preserving the script mapping');
     await act(async () => { root.render(null); await pause(); }); assert(document.fonts.size === baseline, 'Closing dictionary releases saved and draft font registrations');
     passed.push('Dictionary UI: preset preview, real font upload, rejection preservation, durable cancelled drafts, failed-save retry and saved removal work end to end');
+    passed.push(...await testDictionaryGlyphsUI());
     return passed;
   } finally {
     await act(async () => { root.unmount(); }); dictionaryDrafts(P).clear(); await flushPendingWrites();

@@ -2277,3 +2277,22 @@ Coordinación en Ágora writers2266. El alcance incluye guardar, frío y portabi
 - [x] Revision3 approved and integrated under the merge lock with five exact blobs and all foreign paths intact, without push.
 
 Fonts, other formatting, merged cells and unverified full parity remain outside this increment. Documentation and manual continuity use task2317.
+
+# Dictionary glyph palette and association editing — task2326
+
+- [x] Read current reference and Writer baselines; preserve normal mounted REDs before product changes.
+- [x] Insert local glyphs into the native input selection and retain focus, drafts and existing save route.
+- [x] Edit/reset one effective association against an explicit preset while preserving authored raw mapping lines.
+- [x] Keep the persistent model, operations and MCP writers unchanged; retain local fonts and declare glyph subsets.
+- [x] Area r2: ten script/UI groups and six Dictionary groups pass, including open-palette selection growth/collapse and a pending-selection race. Revision1 failed independent Brave at the existing character limit; r2 makes selection reactive and rechecks insertion. Final r2 quick passes renderer/Electron types, shipping lint and conformance; detector ran once with no findings in r1.
+- [x] Independent revision2 review and Root area10, real Brave keyboard/focus/selection-limit/reset/Save/cold and normal/narrow visual acceptance; genuine bridge19MCP/19IPC with two revoked keys verifies the same saved values through existing APIs.
+- [x] Commit by explicit paths as Luissalet and integrate only after revision-bound approval: source `8848c659`, ten approved blobs and all foreign paths/remote refs retained under the merge lock; no push.
+
+Revision1's failed Brave result and revision2's correction remain separately recorded in [the verification](../docs/verification-dictionary-glyphs.md). Joint manual/memory/graph continuity has task2330 receipts; the global parity and performance objectives remain open.
+
+# Base dictionary archive bridge — task2327
+
+- [x] Source2327 revision1 independently approved and integrated at a6a5be43; nine focused, seventeen archive groups and quick checks pass.
+- [x] Root genuine bridge with two keys and receipt-specific Undo; normal Native ZIP imported/restored in Brave and cold reopening preserves exact word IDs/mapping and later sibling edits.
+- [x] README and FAUSTUS describe the accepted Base contract, existing era routes and explicit ZIP transfer between private libraries.
+- [x] Complete joint manual/continuity receipts after visual work2326 acceptance: task2330 records one guarded manual-paragraph update with797 paragraphs/styles/lists preserved, append-only memory and two Writer concepts without embeddings or changes to previous graph rows/edges. Final documentation review and worktree retirement use that task's closing receipt.
