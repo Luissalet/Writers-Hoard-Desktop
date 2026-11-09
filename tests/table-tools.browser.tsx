@@ -2,9 +2,11 @@
 // log), the name generator (13 styles, parts picked again or skipped, "make a
 // card", the "/" commands in the editor) and the to-do list (status, urgency,
 // due days, links, filters), in the panels and through the bridge.
+import JSZip from 'jszip';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 import { addDie, describeRoll, nudgeModifier, parseDice, rollDice } from '@/engines/dice/dice';
 import DiceTray from '@/engines/dice/DiceTray';
 import { generateIdea, generateNames, rerollPart, skipPart } from '@/engines/names/generate';
@@ -21,8 +23,9 @@ import { slashMatches } from '@/components/editor/blocks/slashCommands';
 import { sheetValues } from '@/engines/tables/formulas';
 import { insertRow } from '@/engines/tables/tableEdits';
 import type { WorldTable } from '@/engines/tables/types';
-import { exportXlsx, importXlsx, moveReferences } from '@/engines/tables/xlsx';
+import { exportXlsx, importXlsx, moveReferences, sheetsToTables } from '@/engines/tables/xlsx';
 import TablesEngine from '@/engines/tables/TablesEngine';
+import { updateTableColumn } from '@/engines/tables/calculations';
 import { MemoryRouter } from 'react-router-dom';
 import IconPicker from '@/components/common/IconPicker';
 import { ICON_CATEGORIES, ICON_GENRES, inGroup, recentIcons } from '@/components/common/iconCategories';
@@ -328,5 +331,76 @@ export async function testTableTools(): Promise<string[]> {
     await db.writings.where('projectId').equals(P).delete();
     await db.projects.delete(P);
   }
+  passed.push(...await testXlsxColumnWidths());
   return passed;
+}
+
+
+export async function testXlsxColumnWidths(): Promise<string[]> {
+  const projectId='own-xlsx-width-'+crypto.randomUUID(),host=document.createElement('div'),previousLocale=useLocaleStore.getState().locale;
+  document.body.append(host);
+  const root=createRoot(host),checks:string[]=[];
+  const eq=(name:string,actual:unknown,expected:unknown)=>{assert(JSON.stringify(actual)===JSON.stringify(expected),name+' '+JSON.stringify([actual,expected]));checks.push(name);};
+  try{
+    useLocaleStore.setState({locale:'es'});
+    const book:WorldTable[]=[{id:'widths',title:'Widths',mode:'sheet',columns:['a','b','c'].map(id=>({id,name:id.toUpperCase(),kind:'text'})),rows:[{id:'row',cells:{a:'One',b:'2',c:'=B1*2'}}]},
+      {id:'plain',title:'Plain',mode:'sheet',columns:[{id:'a',name:'A',kind:'text'}],rows:[{id:'row',cells:{a:'Plain'}}]}];
+    const zip=await JSZip.loadAsync(await (await exportXlsx(book)).arrayBuffer());
+    const sheet=await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+    const cols='<cols><col min="1" max="1" width="8.7109375"/><col min="2" max="3" width="24"/><col min="3" max="3" width="35.71484375"/><col min="4" max="4" width="171.42578125"/><col min="2" max="2" width="NaN"/><col min="2.5" max="3" width="80"/><col min="5" max="4" width="70"/><col min="5" max="5" width="-1"/><col min="6" max="6" width="0"/><col min="101" max="105" width="20"/></cols>';
+    zip.file('xl/worksheets/sheet1.xml',sheet.replace('<sheetData>',cols+'<sheetData>'));
+    const bytes=await zip.generateAsync({type:'uint8array'}),imported=await importXlsx(bytes);
+    const tables=sheetsToTables(imported.sheets,'Widths');
+    eq('XLSX imports explicit ranges overrides and empty columns',tables[0].columns.map(column=>column.width),[61,168,250,1200]);
+    eq('XLSX leaves absent widths absent',tables[1].columns.map(column=>column.width),[undefined]);
+    assert(imported.report.truncated.some(item=>item.includes('100 columns')),'Out-of-range column metadata is reported');
+    checks.push('XLSX reports metadata beyond the supported column limit');
+    const emptyZip=await JSZip.loadAsync(bytes);
+    emptyZip.file('xl/worksheets/sheet1.xml',sheet.replace(/<sheetData>[\s\S]*?<\/sheetData>/,'<cols><col min="3" max="3" width="24"/></cols><sheetData/>'));
+    const empty=sheetsToTables((await importXlsx(await emptyZip.generateAsync({type:'uint8array'}))).sheets,'Empty');
+    eq('XLSX retains explicit widths on a worksheet without cells',empty[0].columns.map(column=>column.width),[undefined,undefined,168]);
+    const invalid=await JSZip.loadAsync(await (await exportXlsx([{...book[0],columns:book[0].columns.map((column,index)=>({...column,width:[NaN,-10,0][index]}))}])).arrayBuffer());
+    eq('XLSX omits invalid stored widths from exported column records',(await invalid.file('xl/worksheets/sheet1.xml')!.async('string')).includes('<cols>'),false);
+    const roundtrip=sheetsToTables((await importXlsx(new Uint8Array(await (await exportXlsx(tables)).arrayBuffer()))).sheets,'Back');
+    eq('XLSX roundtrip preserves pixel widths and missing defaults',roundtrip.map(table=>table.columns.map(column=>column.width)),[[61,168,250,1200],[undefined]]);
+    await db.projects.add({id:projectId,title:'Width QA',description:'',mode:'custom',type:'standalone',color:'#777',status:'draft',enabledEngines:['tables'],createdAt:1,updatedAt:1} as Project);
+    let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
+    const made=await runBridgeTool('wh_table_import_xlsx',{projectId,base64:btoa(binary),title:'Width QA'});
+    assert(made.ok,'Bridge imports the width fixture');
+    const tableId=(made.result as {tabs:{tableId:string}[]}).tabs[0].tableId;
+    const get=async()=>{const reply=await runBridgeTool('wh_table_get',{projectId,tableId});assert(reply.ok,'Bridge reads imported table');return(reply.result as {table:WorldTable}).table;};
+    eq('Bridge imports the same column widths',(await get()).columns.map(column=>column.width),[61,168,250,1200]);
+    await act(async()=>{root.render(<MemoryRouter><TablesEngine projectId={projectId}/></MemoryRouter>);await pause(250);});
+    await until(()=>host.querySelectorAll('thead tr:first-child th[style]').length===4,'Width headers');
+    eq('Normal table headers display imported widths',Array.from(host.querySelectorAll<HTMLElement>('thead tr:first-child th[style]')).map(column=>column.style.width),['61px','168px','250px','1200px']);
+    for(const [position,name,expected] of [[2,'Narrow renamed',61],[5,'Wide renamed',1200]] as const){
+      const header=host.querySelector('thead th:nth-child('+position+')')!;
+      await click(header.querySelector('summary'),'Column options');
+      await click(header.querySelector('details button'),'Edit column');
+      const form=host.querySelector('form')!,input=form.querySelector<HTMLInputElement>('input[type="number"]')!;
+      eq('Column width remains valid in the editor '+expected,input.checkValidity(),true);
+      await type(form.querySelector('input:not([type="number"])'),name);
+      await click(form.querySelector('button[type="submit"]'),'Save renamed column');
+      await until(()=>!host.querySelector('form'),'Rename saved');
+      eq('Renaming retains imported width '+expected,(await get()).columns[position-2].width,expected);
+    }
+    for(const [index,expected] of [[0,61],[3,1200]] as const){
+      const reply=await runBridgeTool('wh_table_get',{projectId,tableId});
+      assert(reply.ok,'Read version for a column rename');
+      const current=reply.result as {table:WorldTable;version:string},draft={...current.table.columns[index],name:'Renamed without width '+expected};
+      delete draft.width;
+      await act(async()=>{await updateTableColumn({projectId},tableId,draft,current.version);});
+      eq('A property update without width retains imported width '+expected,(await get()).columns[index].width,expected);
+    }
+    const sent=await runBridgeTool('wh_table_export_xlsx',{projectId,tableId,wholeWorkbook:false});
+    assert(sent.ok,'Bridge exports imported widths');
+    const raw=atob((sent.result as {base64:string}).base64),back=await importXlsx(Uint8Array.from(raw,char=>char.charCodeAt(0)));
+    eq('Bridge export preserves the saved column widths',sheetsToTables(back.sheets,'Export')[0].columns.map(column=>column.width),[61,168,250,1200]);
+    return checks;
+  }finally{
+    await act(async()=>root.unmount());
+    host.remove();
+    if(await db.projects.get(projectId))await deleteProject(projectId);
+    useLocaleStore.setState({locale:previousLocale});
+  }
 }
