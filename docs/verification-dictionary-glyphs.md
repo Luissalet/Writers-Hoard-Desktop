@@ -1,0 +1,33 @@
+# Dictionary glyph and association editing — task2326
+
+Source `8848c659503cb26327b064909de8ac36ee3f9cd6` was independently approved at revision2 and integrated over the accepted Base archive source `a6a5be43`. Integration matched ten approved blobs, retained4689 other tracked paths and remote refs, and held `merge:Writers hoard desktop`. No push. This revision includes the initial implementation and its selection/limit correction; the first revision's failed Brave result remains part of the record.
+
+## Product behavior
+
+The normal native-form field offers Insert glyph. The palette inserts at the input's actual caret or replaces its selected range, returns focus and places the caret after the inserted character. It changes the existing draft and uses the normal Save, Cancel and recovery flow. Escape and Close preserve the input value and return focus/selection. Exploring a catalog changes no language settings.
+
+Language settings retain the raw mapping textarea and add one row per effective sound, including multicharacter keys and empty targets. Editing a key changes its last effective entry and retains every other authored line, including duplicate or ignored lines and CRLF/LF breaks. Reset requires an explicitly selected, visibly named preset reference. Selecting that reference does not apply the whole preset; resetting a row changes only that association. The existing whole-preset Apply action remains available.
+
+Local declared catalogs cover Tifinagh U+2D30–U+2D67 (56characters) and Runic U+16A0–U+16EA (75characters). Ogham and Glagolitic expose their existing preset destinations, and custom mapping destinations remain available. These are Unicode characters and declared subsets, not all Unicode or copied chart artwork/fonts. The author's local font flow remains. No persistent script ID, new storage model, writer, permission or MCP API was needed: existing settings, word editing and search read/write the same strings.
+
+## Original failures and correction
+
+Before implementation, two mounted tests on the normal DictionaryEngine failed because native-form glyph insertion and the single-association editor were absent. Root read the tests, consumer map and actual failures before SourceGO. Later, independent Brave on revision1 exposed F1: an open palette did not update availability correctly when selection changed at the existing50000-character limit. Revision2 observes those selection changes and revalidates the actual range when insertion acts, including the race before a selection event is processed.
+
+On the final source, Root's real Brave test put50000 characters in the input with the caret at the end: the glyph was disabled. Select-all enabled replacement; End disabled it again; select-all and choosing `ⴱ` replaced the whole range with that one character and left focus/caret1. The large test value was not saved; Root restored `Ω` and discarded the draft. This is a correctness result, not acceptance of the separate100ms performance objective.
+
+## Independent acceptance
+
+- Root executed the complete final script/UI area: ten reported groups, EOF/exit0. The author separately reports six legacy Dictionary groups and final quick0. The detector ran once in the earlier revision with no findings; it was not rerun to relabel a later cut. A compiler observer initially looked for an absent inherited `author` field; its correction compared the mandatory literal and left source unchanged.
+- Real Brave tested Tab from the palette selector to Close, the first glyph and the second glyph; Enter inserted `Ωⴱ` with focus/caret2. Replacing a selection produced `ⴱ` with caret1; Escape returned the original `Ω` and caret1. The ordinary Save persisted the result.
+- Selecting Tifinagh as a reference left the full mapping unchanged. Resetting `a` changed only `a` to `ⴰ`, deriving `ala → ⴰⵍⴰ` while `ama` kept `Ωⴱ`. The Runic palette on that association then returned `a` to `ᚨ` and focus to its own input, with the rest of the map exact. Full reload retained both words, meanings and mapping.
+- Normal-width and narrowed Browser views were independently inspected: controls remained legible, palette items wrapped and vertical scrolling was available without internal horizontal overflow. The requested narrow viewport was760×900; observed document/window width was844CSSpx, and the temporary override was restored. Screenshots `writer-glyphs-saved.jpg`, `writer-glyphs-narrow.jpg`, `writer-glyph-settings.jpg` and `writer-glyph-settings-narrow.jpg` exist and were inspected. Initial captures timed out; they succeeded after bringing the own tab forward through Browser CDP. `fromSurface:false` was rejected and produced no screenshot. No desktop control was used.
+- On the same final source, genuine stdio → authenticated HTTP → executor → IPC → dispatcher → Dexie completed19MCP calls and19IPC replies with two distinct keys. Existing get/settings/save_word/search preserved raw CRLF, duplicates, ignored lines, `sh`, supplementary Unicode and literal `Ωⴱ`. Omitting nativeForm retained it; an empty value returned to derivation; stale CAS and the unrelated project remained exact. These API checks do not establish the visual gesture, which is separately proved in Brave.
+
+Both Native keys were revoked and returned401, both adapters exited0 without stderr, and4634 compiler inputs across three builds matched. Own private projects and archives ended at0/0; other tables are not claimed empty. The Native profile was removed after absolute-target, no-reparse and own-process checks. The own Brave tab closed, Vite62012/session24138 ended on requested CtrlC (EOF1), ports stopped listening and the app lease was released. SourceHost was not mounted and no MCP connection directly to Brave's database is claimed.
+
+## Evidence and remaining scope
+
+Evidence root: `E:/Development/IA/Research/writer-parity-20261109/dictionary-next`. Revision2 is fixed in `SOURCE-CUT-2326-r2.json`; `ROOT-APPROVE-2326-r2.md`, `ROOT-SOURCE-CHECK-2326-r2.json`, `ROOT-BRAVE-RECEIPT-r2.json` and `INTEGRATION-2326-r2.json` retain independent attribution. `native2326/root-native-receipt.json`, `ROOT-INPUTS-CHECK.json` and `ROOT-CLEANUP.json` describe the genuine API path and cleanup. Original REDs, F1, previous green and quick failures remain preserved.
+
+The accepted [Base archive MCP feature](verification-dictionary-archive.md) has its own source, transport and normal ZIP-to-Brave restore proof. Task2330 records the joint manual, memory and two-concept Writer graph update. This increment does not establish complete parity for Dictionary, the SDK, other glyph catalogs, or the product. The separate extensible SDK work and its documentation remain outside these paths.
