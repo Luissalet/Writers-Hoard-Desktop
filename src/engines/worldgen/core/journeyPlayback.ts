@@ -7,7 +7,7 @@ import { HARD_PACE_REST_EVERY, type Route, type RouteStage } from './travel';
  * included). Each night falls where the planner put it (`route.stages`); between
  * nights the party moves along the route's own cells, so the marker follows the
  * roads and passes the planner chose rather than a straight line. A hard pace
- * spends a whole day resting after every `HARD_PACE_REST_EVERY` days on the move.
+ * spends a whole day resting after the result's own interval of days on the move (six for legacy results).
  */
 export interface TravellerState {
   x: number;
@@ -25,10 +25,10 @@ export interface TravellerState {
 export const MOVING_SHARE = 0.6;
 
 /** Days of rest completed before `t`, and whether `t` falls inside a rest day. */
-function restAt(t: number, restDays: number): { done: number; resting: boolean } {
+function restAt(t: number, restDays: number, restEvery: number): { done: number; resting: boolean } {
   let done = 0;
   for (let k = 1; k <= restDays; k++) {
-    const start = HARD_PACE_REST_EVERY * k + (k - 1);
+    const start = restEvery * k + (k - 1);
     if (t <= start) break;
     if (t < start + 1) return { done, resting: true };
     done++;
@@ -66,7 +66,7 @@ export function travelAnchors(route: Route, width: number): { travelled: number;
 export function travellerAt(route: Route, width: number, day: number, anchors = travelAnchors(route, width)): TravellerState | null {
   if (route.impossible || route.cells.length < 2) return null;
   const t = Math.max(0, Math.min(route.days, day));
-  const rest = restAt(t, route.restDays ?? 0);
+  const rest = restAt(t, route.restDays ?? 0, route.restEvery ?? HARD_PACE_REST_EVERY);
   const travelDays = anchors[anchors.length - 1].travelled;
   // Each day on the road is spent moving for its first MOVING_SHARE and halted
   // for the night the rest, so the banner visibly stops where each night falls.

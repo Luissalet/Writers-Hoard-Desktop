@@ -1,3 +1,12 @@
+# Configurable hard-pace rest interval — task2319
+
+- [x] Read actual reference evidence, preserve its scope and map all rest consumers.
+- [x] Preserve a failing independent arithmetic oracle before Source; obtain Root GO.
+- [x] Add optional profile interval with six-day legacy default to normal UI and MCP.
+- [x] Keep duration, clocks, replay and global multi-leg rests consistent.
+- [x] Verify normal editor/save/open/reset, profile/trip persistence, CAS/Undo, Base/era, JSON/ZIP and project duplication.
+- [ ] Complete independent Root Browser/bridge review and integration, without push.
+
 # Paste in headings and list items — task 2315
 
 - [x] Contrast heading start, middle and end, heading suffix and a list item in VVD.

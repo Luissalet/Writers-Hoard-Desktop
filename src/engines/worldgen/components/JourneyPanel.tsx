@@ -7,7 +7,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
-  describeDuration, effectiveHoursPerDay, GROUND_CLASSES, HARD_PACE_REST_EVERY, MODE_KEY, SEASON_KEY, TRAVEL_PACES,
+  describeDuration, effectiveHoursPerDay, GROUND_CLASSES, hardPaceRestEvery, MODE_KEY, SEASON_KEY, TRAVEL_PACES,
   TRAVEL_WAYS_MAX, TRAVEL_WAY_NAME_MAX,
   type GroundClass, type Route, type Season, type TravelMode, type TravelPace, type TravelProfile, type TravelWay,
 } from '../core/travel';
@@ -151,7 +151,7 @@ function JourneyPanelContent({
   // A way that keeps going through the night is on the move twenty-two hours a day, as the solver plans it.
   const hoursPerDay = effectiveHoursPerDay(way?.night ? { ...planOptions, hoursPerDay: 22 } : planOptions);
   /** A hard pace rests a day after every few on the move: the clock's calendar counts them. */
-  const restEvery = planOptions.pace === 'hard' ? HARD_PACE_REST_EVERY : 0;
+  const restEvery = planOptions.pace === 'hard' ? hardPaceRestEvery(planOptions.profile) : 0;
   /**
    * Travel settings belong to the world; an opened itinerary is planned with
    * the settings it was saved with. Only the author's own edits of the pace or
@@ -159,7 +159,7 @@ function JourneyPanelContent({
    * what is stored, so opening an old trip never rewrites the world and an
    * agent's change to another factor survives.
    */
-  const pending = useRef<{ pace?: TravelPace; factors: Map<string, TravelFactorEdit>; ways?: TravelWay[] | null }>({ factors: new Map() });
+  const pending = useRef<{ pace?: TravelPace; factors: Map<string, TravelFactorEdit>; ways?: TravelWay[] | null; hardRestEvery?: number }>({ factors: new Map() });
   const flushTimer = useRef(0);
   const flushSettings = () => {
     if (!worldRecord) return;
@@ -168,6 +168,7 @@ function JourneyPanelContent({
     if (edits.pace) change.pace = edits.pace === 'steady' ? null : edits.pace;
     if (edits.factors.size) change.factors = [...edits.factors.values()];
     if (edits.ways !== undefined) change.ways = edits.ways;
+    if (edits.hardRestEvery !== undefined) change.hardRestEvery = edits.hardRestEvery;
     if (!Object.keys(change).length) return;
     void saveWorldTravelSettings({ projectId: worldRecord.projectId, eraId: scope.eraId }, worldRecord.id, change)
       .then(() => setSettingsError(false))
@@ -181,7 +182,7 @@ function JourneyPanelContent({
   /** Adopt the world's settings when they change elsewhere, unless a trip is open or an edit is on its way. */
   useEffect(() => {
     if (!worldRecord || openedJourney) return;
-    if (pending.current.pace || pending.current.factors.size || pending.current.ways !== undefined) return;
+    if (pending.current.pace || pending.current.factors.size || pending.current.ways !== undefined || pending.current.hardRestEvery !== undefined) return;
     setPace(worldRecord.travelPace ?? 'steady');
     setProfile(worldRecord.travelProfile ?? {});
   }, [worldRecord?.travelRevision, worldRecord?.id, openedJourney]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -189,6 +190,7 @@ function JourneyPanelContent({
   /** Back to the built-in physics for the factors shown here; others the world has stay. */
   const resetProfile = () => {
     for (const table of ['speed', 'ground'] as const) for (const key of Object.keys(profile[table] ?? {})) pending.current.factors.set(`${table}:${key}`, { table, key, value: 1 });
+    pending.current.hardRestEvery = hardPaceRestEvery();
     setProfile((current) => (current.ways ? { ways: current.ways } : {})); scheduleSave();
   };
   /** The world's own ways: written whole, merged with the stored profile's other fields. */
@@ -441,7 +443,7 @@ function JourneyPanelContent({
                 <Chip key={p} on={pace === p} onClick={() => choosePace(p)}>{t(`worldgen.journey.pace.${p}`)}</Chip>
               ))}
             </div>
-            <p className="text-[10px] leading-snug text-white/40">{t(`worldgen.journey.pace.${pace}.hint`)}</p>
+            <p className="text-[10px] leading-snug text-white/40">{t(`worldgen.journey.pace.${pace}.hint`).replace('{n}', String(hardPaceRestEvery(profile)))}</p>
           </div>
           {via.length > 0 && (
             <div className="flex flex-col gap-1" aria-label={t('worldgen.journey.legs')}>
@@ -481,6 +483,13 @@ function JourneyPanelContent({
                   onChange={(event) => { const value = Math.round(Number(event.target.value)); if (Number.isFinite(value) && value >= 0 && value <= 23) setSetOffHour(value); }}
                   className="w-16 rounded border border-white/20 bg-white/5 px-1.5 py-0.5 text-right text-white/90" />
               </label>
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-white/60">{t('worldgen.journey.hardRestEvery')}</span>
+                <input type="number" min={1} step={1} aria-label={t('worldgen.journey.hardRestEvery')} data-testid="journey-hard-rest-every"
+                  value={hardPaceRestEvery(profile)}
+                  onChange={event => { const value = Number(event.target.value); if (!Number.isSafeInteger(value) || value < 1) return; pending.current.hardRestEvery = value; setProfile(current => { const next = { ...current }; if (value === hardPaceRestEvery()) delete next.hardRestEvery; else next.hardRestEvery = value; return next; }); scheduleSave(); }}
+                  className="w-16 rounded border border-white/20 bg-white/5 px-1.5 py-0.5 text-right text-white/90" />
+              </label>
               <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.speeds')}</span>
               {MODES.map((m) => (
                 <Factor key={m} label={t(MODE_KEY[m])} value={profile.speed?.[m] ?? 1} onChange={(value) => setFactor('speed', m, value)} />
@@ -518,7 +527,7 @@ function JourneyPanelContent({
                 <Factor key={g} label={t(`worldgen.journey.ground.${g}`)} value={profile.ground?.[g] ?? 1} onChange={(value) => setFactor('ground', g, value)} />
               ))}
               <p className="text-[10px] leading-snug text-white/40">{t('worldgen.journey.settingsNote')}</p>
-              {(profile.speed || profile.ground) && <button type="button" onClick={resetProfile} className="self-start text-[10px] text-white/55 underline">{t('worldgen.journey.settingsReset')}</button>}
+              {(profile.speed || profile.ground || profile.hardRestEvery) && <button type="button" onClick={resetProfile} className="self-start text-[10px] text-white/55 underline">{t('worldgen.journey.settingsReset')}</button>}
               {settingsError && <p role="alert" className="text-red-300">{t('worldgen.journey.settingsError')}</p>}
             </div>
           )}

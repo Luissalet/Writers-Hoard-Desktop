@@ -92,8 +92,7 @@ export const TRAVEL_PACES: TravelPace[] = ['easy', 'steady', 'hard'];
 export const PACE_HOURS: Record<TravelPace, number> = { easy: 0.75, steady: 1, hard: 1.3 };
 /**
  * A hard pace spends a full day resting after this many days on the move.
- * Six keeps a forced march honest: 1.3 × 6/7 ≈ 1.11, about a tenth faster
- * than steady over a long journey, never slower.
+ * Six is the legacy default; an author can choose another interval in the profile.
  */
 export const HARD_PACE_REST_EVERY = 6;
 
@@ -108,6 +107,8 @@ export const GROUND_CLASSES: GroundClass[] = ['open', 'dry', 'forest', 'jungle',
  * slow to cross off the road. Absent keys are 1.
  */
 export interface TravelProfile {
+  /** Moving days before a full day of rest at hard pace; absent = six. */
+  hardRestEvery?: number;
   speed?: Partial<Record<TravelMode, number>>;
   ground?: Partial<Record<GroundClass, number>>;
   /** The author's own ways of travelling (a griffin, a sledge, a sand ship), each built on a mode. */
@@ -167,7 +168,7 @@ export function normalizeTravelProfile(input: unknown): TravelProfile {
   if (input === undefined || input === null) return {};
   if (typeof input !== 'object' || Array.isArray(input)) throw new Error('Travel profile must be an object.');
   const raw = input as Record<string, unknown>, out: TravelProfile = {};
-  for (const key of Object.keys(raw)) if (key !== 'speed' && key !== 'ground' && key !== 'ways') throw new Error(`Unknown travel profile field "${key}".`);
+  for (const key of Object.keys(raw)) if (key !== 'speed' && key !== 'ground' && key !== 'ways' && key !== 'hardRestEvery') throw new Error(`Unknown travel profile field "${key}".`);
   const table = <K extends string>(value: unknown, keys: readonly K[], what: string): Partial<Record<K, number>> | undefined => {
     if (value === undefined) return undefined;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${what} must be an object of factors.`);
@@ -179,6 +180,10 @@ export function normalizeTravelProfile(input: unknown): TravelProfile {
     }
     return Object.keys(result).length ? result : undefined;
   };
+  if (raw.hardRestEvery !== undefined) {
+    if (typeof raw.hardRestEvery !== 'number' || !Number.isSafeInteger(raw.hardRestEvery) || raw.hardRestEvery < 1) throw new Error('hardRestEvery must be a positive safe integer.');
+    if (raw.hardRestEvery !== HARD_PACE_REST_EVERY) out.hardRestEvery = raw.hardRestEvery;
+  }
   const speed = table(raw.speed, ['foot', 'horse', 'cart', 'boat', 'ship'] as const, 'speed');
   const ground = table(raw.ground, GROUND_CLASSES, 'ground');
   const ways = normalizeTravelWays(raw.ways);
@@ -213,10 +218,12 @@ export function effectiveHoursPerDay(opts: Pick<TravelOptions, 'season' | 'hours
   // Nobody moves more than the whole day, whatever the pace or the way.
   return Math.min(24, base * PACE_HOURS[opts.pace ?? 'steady']);
 }
+/** The normalized profile's interval, with the legacy default for existing worlds and trips. */
+export function hardPaceRestEvery(profile?: TravelProfile): number { return profile?.hardRestEvery ?? HARD_PACE_REST_EVERY; }
 /** Rest days a hard pace adds to a journey of this many days on the move. */
-export function paceRestDays(pace: TravelPace | undefined, travelDays: number): number {
+export function paceRestDays(pace: TravelPace | undefined, travelDays: number, restEvery = HARD_PACE_REST_EVERY): number {
   if (pace !== 'hard' || !(travelDays > 0)) return 0;
-  return Math.floor(Math.max(0, Math.ceil(travelDays - 1e-9) - 1) / HARD_PACE_REST_EVERY);
+  return Math.floor(Math.max(0, Math.ceil(travelDays - 1e-9) - 1) / restEvery);
 }
 
 export interface RouteLeg {
@@ -284,6 +291,8 @@ export interface Route {
   impossible?: string;
   /** Full days of rest the pace required, already included in `days`. */
   restDays?: number;
+  /** Moving days between rests for this result; absent on legacy routes = six. */
+  restEvery?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -770,8 +779,8 @@ function solveRoute(
     planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371 * metricSheetScale(mapMetric(world)),
   };
   const withRest = (route: Route): Route => {
-    const restDays = paceRestDays(pace, route.days);
-    return restDays && !route.impossible ? { ...route, days: route.days + restDays, restDays } : route;
+    const restEvery = hardPaceRestEvery(opts.profile), restDays = paceRestDays(pace, route.days, restEvery);
+    return restDays && !route.impossible ? { ...route, days: route.days + restDays, restDays, restEvery } : route;
   };
   // "By way of X" is a chain of journeys, not one journey with a hint. Each leg
   // is solved on its own and the results are welded; a single search with a

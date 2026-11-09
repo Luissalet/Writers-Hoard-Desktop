@@ -1380,8 +1380,8 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
   const words = await import('@/engines/worldgen/core/routeWords');
   const setOffHour = setOffArg ?? words.DEFAULT_SET_OFF_HOUR;
   const perDay = effectiveHoursPerDay(way?.night ? { ...options, hoursPerDay: 22 } : options);
-  const { HARD_PACE_REST_EVERY } = await import('@/engines/worldgen/core/travel');
-  const restEvery = options.pace === 'hard' ? HARD_PACE_REST_EVERY : 0;
+  const { hardPaceRestEvery } = await import('@/engines/worldgen/core/travel');
+  const restEvery = options.pace === 'hard' ? hardPaceRestEvery(options.profile) : 0;
   const clocks = words.legClocks(route, perDay, setOffHour, restEvery);
   const arrival = words.clockAt(route.hours, perDay, setOffHour, true, restEvery);
   return {
@@ -1389,7 +1389,7 @@ export async function whPlanJourney(args: ToolArgs): Promise<unknown> {
     stops: stops.map(stop => stop.name),
     mode: way ? way.base : mode, ...(way ? { way: { id: way.id, name: way.name, flies: !!way.flies, night: !!way.night } } : {}), season, pace: pace ?? 'steady', legModes: way ? null : legModes ?? null,
     hoursPerDay: r(perDay, 2),
-    km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0,
+    km: r(route.km), directKm: r(route.directKm), hours: r(route.hours), days: r(route.days, 2), restDays: route.restDays ?? 0, restEvery,
     roadFraction: r(route.roadFraction, 2), ascentM: Math.round(route.ascentM), highestM: Math.round(route.highestM), lowestM: Math.round(route.lowestM),
     crossings: route.crossings.length, fords: route.crossings.filter(c => c.kind === 'river' && !c.bridge && !c.frozen).length, frozenRivers: route.crossings.filter(c => c.kind === 'river' && c.frozen).length, bridges: route.crossings.filter(c => c.kind === 'river' && c.bridge).length, realms: route.realms,
     ...(at ? { atDay: { day: r(at.day, 2), x: r(at.x), y: r(at.y), phase: at.phase, night: at.stage?.night ?? null, nearest: at.stage?.nearest?.name ?? null } } : {}),

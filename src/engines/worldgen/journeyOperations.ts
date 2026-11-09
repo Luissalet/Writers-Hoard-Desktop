@@ -38,7 +38,7 @@ export interface TravelSettingsReceipt {
 /** One factor set by hand; 1 removes it. Applied to the stored profile, so other factors changed elsewhere survive. */
 export interface TravelFactorEdit { table: 'speed' | 'ground'; key: string; value: number }
 
-export async function saveWorldTravelSettings(requested: { projectId: string; eraId?: string }, worldId: string, change: { profile?: unknown; pace?: unknown; factors?: TravelFactorEdit[]; ways?: unknown }, expectedRevision?: number): Promise<TravelSettingsReceipt> {
+export async function saveWorldTravelSettings(requested: { projectId: string; eraId?: string }, worldId: string, change: { profile?: unknown; pace?: unknown; factors?: TravelFactorEdit[]; ways?: unknown; hardRestEvery?: unknown }, expectedRevision?: number): Promise<TravelSettingsReceipt> {
   const scope = await worldSettingsScope(requested, worldId);
   const next: { profile?: TravelProfile; pace?: TravelPace } = {};
   if ('profile' in change) next.profile = normalizeTravelProfile(change.profile);
@@ -52,15 +52,16 @@ export async function saveWorldTravelSettings(requested: { projectId: string; er
     if (!current || current.projectId !== scope.projectId) throw new Error('World no longer belongs to this project');
     const revision = current.travelRevision ?? 0;
     if (expectedRevision !== undefined && expectedRevision !== revision) throw new Error(`Travel settings changed (revision ${revision}); read them again before saving.`);
-    if (change.factors?.length || 'ways' in change) {
-      const merged = structuredClone(next.profile ?? current.travelProfile ?? {}) as Record<string, Record<string, number>>;
+    if (change.factors?.length || 'ways' in change || 'hardRestEvery' in change) {
+      const merged = structuredClone(next.profile ?? current.travelProfile ?? {}) as Record<string, unknown>;
       // The world's own ways are written whole; null or an empty list removes them.
       if ('ways' in change) {
         if (change.ways === null || (Array.isArray(change.ways) && !change.ways.length)) delete merged.ways;
         else (merged as Record<string, unknown>).ways = change.ways;
       }
+      if ('hardRestEvery' in change) merged.hardRestEvery = change.hardRestEvery;
       for (const edit of change.factors ?? []) {
-        const table = { ...(merged[edit.table] ?? {}) };
+        const table = { ...((merged[edit.table] ?? {}) as Record<string, number>) };
         if (Math.abs(edit.value - 1) < 0.001) delete table[edit.key]; else table[edit.key] = Math.round(edit.value * 100) / 100;
         if (Object.keys(table).length) merged[edit.table] = table; else delete merged[edit.table];
       }
