@@ -22,7 +22,7 @@ export function priorSourceCodec(codec:LocalToolStateCodec,field:string):LocalTo
  return {version:codec.version,fields:Object.fromEntries(Object.entries(codec.fields).filter(([name])=>name!==field))};
 }
 
-/** A finite declaration of one new scalar, independent of package code and releases. */
+/** A finite declaration of one new scalar or empty simple map, independent of package code and releases. */
 export function prepareSourceAdditiveDeclaration(value:LocalToolSourceAdditive,namespace:string,codec:LocalToolStateCodec|undefined):LocalToolSourceAdditive {
  const declaration=cloneLocalToolJson(value as unknown as LocalToolJson) as unknown as LocalToolSourceAdditive;
  if(!declaration||Object.keys(declaration).sort().join(',')!=='defaultValue,field,from'||!declaration.from||
@@ -30,9 +30,10 @@ export function prepareSourceAdditiveDeclaration(value:LocalToolSourceAdditive,n
     !codec||codec.version!==1||declaration.from.namespace!==namespace)throw Error('local_tool_source_additive_invalid');
  validateConvergenceMetadata(declaration.from);
  const prior=declaration.from.codec;
- const {field}=declaration;
+ const {field}=declaration,descriptor=codec.fields[field],emptyMap=descriptor?.kind==='map'&&Object.keys(descriptor).length===1&&
+  !!declaration.defaultValue&&typeof declaration.defaultValue==='object'&&!Array.isArray(declaration.defaultValue)&&Object.keys(declaration.defaultValue).length===0;
  if(prior.version!==1||convergenceEngine(prior).version!=='1'||!['1','8'].includes(convergenceEngine(codec).version)||
-    Object.hasOwn(prior.fields,field)||codec.fields[field]?.kind!=='scalar'||
+    Object.hasOwn(prior.fields,field)||descriptor?.kind!=='scalar'&&!emptyMap||
     convergenceCanonical(priorSourceCodec(codec,field))!==convergenceCanonical(prior)||
     codec.sourceDefault&&convergenceCanonical(codec.sourceDefault)!==convergenceCanonical(sourceAdditiveDefault(declaration)))throw Error('local_tool_source_additive_invalid');
  return declaration;
