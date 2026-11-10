@@ -1,6 +1,6 @@
 # Herramientas Source contextuales de mapas
 
-Source2382 revisión2, commit `27b4e398b872112ec1e1f109a59a7877f5626bd4`, aprobado formalmente e integrado por Root en main bajo merge lock, sin push. Los17RAW/blobs de índice,4711blobs ajenos, remotos y untracked permanecen exactos y main limpio, según INTEGRATION2382-FINAL.json. Native real final warm/cold, auditoría independiente2441r1, aceptación Brave y revisión visual2443r1 están aprobados para esta capacidad. La continuidad documental2444 conserva su revisión e integración propias.
+Source2382 revisión2, commit `27b4e398b872112ec1e1f109a59a7877f5626bd4`, aprobado formalmente e integrado por Root en main bajo merge lock, sin push. Los17RAW/blobs de índice,4711blobs ajenos, remotos y untracked permanecen exactos y main limpio, según INTEGRATION2382-FINAL.json. Native real final warm/cold, auditoría independiente2441r1, aceptación Brave y revisión visual2443r1 están aprobados para esta capacidad. La primera entrega documental2444 está aprobada e integrada como `e0c419944445eeb6dda8197d818a8c5362a74a89`; la actualización final de estados tiene su revisión e integración propias.
 
 ## Uso
 
@@ -49,7 +49,13 @@ BRAVE-observations-final.json conserva33observaciones (lecturas, no33casos indep
 
 Las observaciones y capturas pertenecen a Root. El locale observado es en; la copia española figura en Source y en el focal que acepta las etiquetas declaradas. Dos errores de conexión del búfer final pertenecen a la extensión Zotero, chrome-extension://; no se observó error del origen app en ese búfer y no se afirma una consola global vacía. Root cerró su pestaña, restableció viewport y paró Vite propio PID105648/puerto65492 tras Ctrl+C (EOF1 esperado); no quedaron proceso ni listener. Los fixtures sintéticos permanecen en su origen aislado. No se tocaron perfiles reales ni datos de Luis.
 
-Manual/memoria/grafo tienen propuestas Research sin aplicar, sin nuevos Google/Store/modelos. SourceWT2382/rama/leases se conservan hasta coordinar su retirada, y el WT documental tiene ciclo propio. No se confunde integración Source ya completada con continuidad documental o externa aún pendiente.
+## Continuidad y cierre Source
+
+El manual ya fue actualizado por Root mediante una lectura fresca, una escritura CAS y una relectura completa:829párrafos/828ajenos exactos, párrafo412/tabt.0/índice41726 y+621UTF16. Estilos/listas/recurso inverso y revisiones antes/después son exactos en MANUAL2444-CHECK.json. Este autor no repitió Google; los baselines816/799 son históricos.
+
+Tras leer plan/payloads/script/API y cotejar27inputs y baselines completos, Root dio GO concreto al corte externo dbc52095. El autor ejecutó una sola vez apply-external.py con el Python de Faustus: EOF0/stderr0, sin producto/apps/modelos. Un append de4102bytes dejó memoria1906285→1910387, con prefijo y sufijo completos exactos, SHA final1228c18bf9173124b9120a5fbe4e4485c4251121f5f4ecf18006ff3617858239 y marcador único. Dos Store.upsert_concept normales con embed=False dejaron407conceptos/9aristas/701historiales; las405+9+699filas anteriores y schema se conservaron exactos. Los dos conceptos nuevos tienen embeddingNULL y dos historiales create/beforeNULL/after igual al recibo; ninguna arista explícita nueva. No existe una transacción atómica entre archivo y ambos upserts: los recibos incrementales registran el orden real. FINAL-RECEIPT y APPLICATION-EXIT son PASS; después se liberaron ambos leases globales.
+
+Source2382 quedó Done tras integración y coordinación documental. Su autor original retiró únicamente writer-map-tools2382 y codex/map-tools2382 por git worktree remove/git branch -d normales:6ancestros/41887hijos inspeccionados sin reparse,0procesos, limpio/ancestro de main,17Source RAW/índice exactos y main/ajenos/remotos/untracked intactos, sin force/push. El texto inicial del cierre decía8ancestros por transcripción; se conservó y se corrigió públicamente, con los recibos ejecutados siempre6 y sin repetir la retirada. Research y los perfiles históricos rechazados wh-inline-review-7oayFi/finite-debug permanecen; no se intentó retirarlos ni se afirma limpieza total. Los leasesSource quedaron liberados. DocsWT2444 se conserva para revisión e integración de este estado final; tiene ciclo de retirada propio.
 
 Referencias bajo `E:/Development/IA/Research/writer-parity-20261110/`:
 
@@ -59,6 +65,8 @@ Referencias bajo `E:/Development/IA/Research/writer-parity-20261110/`:
 - `map-tools-native-root/FIRST-NATIVE-FAILURE-CHECK.json`, `APPROVE-PREPARATION2432-r4.md` y el run final citado: `run-receipt.json`, `warm-receipt.json`, `cold-receipt.json`, `cleanup.json` y dos ZIP.
 - `map-tools-native-root/APPROVE-SOURCE2382-FINAL-r2.md`, `INTEGRATION2382-FINAL.json`, `FINAL-ACCEPTANCE2382-CHECK.json`, `APPROVE-NATIVE-AUDIT2441-r1.md` y `APPROVE-VISUAL2443-r1.md`.
 - `map-tools-native-root/BRAVE-REPORT-r1.md`, `BRAVE-observations-final.json`, `BRAVE-duplicate-era-E.png`, `BRAVE-historical-note.png`, `BRAVE-panel-narrow420.png`, `BRAVE-json-inherited-panel.png`.
-- `map-tools-continuity2444/PLAN.md` y propuestas manual/memoria/grafo: borradores no aplicados.
+- `map-tools-native-root/MANUAL2444-CHECK.json`, `GO-EXTERNAL2444.md` y `EXTERNAL2444-PREP-ROOT-CHECK.json`.
+- `map-tools-continuity2444/external-prep/CUT-EXTERNAL-PREP.json`, `PLAN-EXTERNAL.md`, `apply-external.py`, `PREFLIGHT.json`, `MEMORY-RECEIPT.json`, `STORE-RECEIPT-1.json`, `STORE-RECEIPT-2.json`, `GRAPH-AFTER.json`, `FINAL-RECEIPT.json`, `APPLICATION-EXIT.json` y `GLOBAL-LEASE-RELEASE.json`. Las propuestas previas y el borrador se preservan como historia, sin reescribir sus estados.
+- `map-tools-source2382/retire2382/RETIRE-2382.json`, `DONE-RECEIPT.json` y `COUNT-CORRECTION.md`; `map-tools-native-root/INTEGRATION-DOCS2444-FINAL-r1.json`.
 
-No se declara cierre1095, rendimiento100ms, paridad completa, generación/servicios externos ni snapshot histórico de las notas. La capacidad está aceptada e integrada; la revisión/integración documental y la continuidad externa conservan sus pasos pendientes.
+No se declara cierre1095, rendimiento100ms, paridad completa, generación/servicios externos ni snapshot histórico de las notas. La capacidad está aceptada e integrada y la continuidad externa está aplicada; la revisión/integración del estado documental final y la retirada propia de DocsWT conservan sus pasos pendientes.
