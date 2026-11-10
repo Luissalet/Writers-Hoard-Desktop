@@ -74,8 +74,37 @@ export function resolveRadarSeries(series: RadarSeries, axes: RadarAxis[], entri
   return { source: series, name: series.name || entry?.title || '—', values, issues, missingEntry: Boolean(series.linkedEntryId && !entry) };
 }
 export function addRadarAxis(chart: RadarChartDocument, label: string): RadarChartDocument {
-  if (chart.axes.length >= MAX_RADAR_AXES) throw new Error('radar_axis_limit'); const axis = { id: crypto.randomUUID(), label, min: 0, max: 10, unit: '' };
-  return { ...chart, axes: [...chart.axes, axis], series: chart.series.map(series => ({ ...series, values: { ...series.values, [axis.id]: 0 } })) };
+  return insertRadarAxis(chart, label);
+}
+function radarAxisPosition(chart: RadarChartDocument, beforeAxisId?: string | null): number {
+  if (beforeAxisId === undefined || beforeAxisId === null) return chart.axes.length;
+  if (typeof beforeAxisId !== 'string' || !beforeAxisId.trim()) throw new Error('radar_axis_anchor_invalid');
+  const position = chart.axes.findIndex(axis => axis.id === beforeAxisId);
+  if (position < 0) throw new Error('radar_axis_anchor_missing');
+  return position;
+}
+/** Normal axis defaults, inserted by stable identity without rewriting other values. */
+export function insertRadarAxis(chart: RadarChartDocument, label: string, beforeAxisId?: string | null): RadarChartDocument {
+  validateRadarChart(chart, true);
+  if (chart.axes.length >= MAX_RADAR_AXES) throw new Error('radar_axis_limit');
+  if (!text(label, 100)) throw new Error('radar_axis_label_invalid');
+  const position = radarAxisPosition(chart, beforeAxisId);
+  const axis = { id: crypto.randomUUID(), label, min: 0, max: 10, unit: '' };
+  if (chart.axes.some(item => item.id === axis.id)) throw new Error('radar_axis_identity_conflict');
+  const axes = [...chart.axes]; axes.splice(position, 0, axis);
+  return { ...chart, axes, series: chart.series.map(series => ({ ...series, values: { ...series.values, [axis.id]: 0 } })) };
+}
+/** Move the axis object itself; series values and bindings remain keyed by its ID. */
+export function moveRadarAxis(chart: RadarChartDocument, axisId: string, beforeAxisId?: string | null): RadarChartDocument {
+  validateRadarChart(chart, true);
+  const index = chart.axes.findIndex(axis => axis.id === axisId);
+  if (index < 0) throw new Error('radar_axis_missing');
+  const destination = radarAxisPosition(chart, beforeAxisId);
+  if (beforeAxisId === axisId) return chart;
+  const axes = chart.axes.filter(axis => axis.id !== axisId);
+  axes.splice(destination > index ? destination - 1 : destination, 0, chart.axes[index]);
+  if (axes.every((axis, position) => axis === chart.axes[position])) return chart;
+  return { ...chart, axes };
 }
 export function removeRadarAxis(chart: RadarChartDocument, id: string): RadarChartDocument {
   if (chart.axes.length <= 3) throw new Error('radar_axis_minimum');
