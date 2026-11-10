@@ -2347,3 +2347,15 @@ La fuente, el manual y la continuidad de memoria/grafo están entregados. Root a
 - [ ] Retirar únicamente el WT documental propio tras aprobación e integración finales; preservar Research.
 
 Source2382r2 está aprobado e integrado en27b4e398 y cerrado; el autor ya retiró su WT/rama y liberó sus leases. La primera entrega documental2444 está integrada como e0c41994 y la aplicación externa tiene recibos PASS; esta actualización de estados conserva revisión/integración propias. Los remanentes históricos rechazados no se tocaron ni se declaran retirados. Las notas de una vista histórica son las actuales guardadas en modo de lectura; no se añade historia de notas ligada a cada versión del mapa. El panel no acredita overlays, geometría por frame, ni paridad completa1095. Los planes ajenos y sus casillas anteriores se conservan.
+
+## Inserción y orden directo de ejes Radar: continuidad —2453
+
+- [x] Source2425 final9 en6ac8efa4: insertar en hueco, asa/Alt/arrastre por identidad, controles previos, borradores/Save/Discard y MCP insert/move/CAS/Base/era. Revisión independiente formal3 aprobada.
+- [x] Conservar los defectos reales de categoría y hueco denso, sus correcciones y recibos; pruebas existentes y sus cortes mantienen su atribución.
+- [x] Leer el Native genuino de Root:126MCP/125bridge por una negativa previa a IPC; cuatro claves401/stdio0, frío y portables,89tablas0/perfil ausente. El autor documental no lo reejecuta ni lo autoaudita.
+- [x] Leer aceptación Brave final de Root:22observaciones, dos ZIP actuales, Base/E/F, valores50/-25 y binding Codex8; reapertura durable JSON/E en pestaña nueva, sin atribuir reload al target antiguo.
+- [x] Leer informe independiente Native2452r1 y aceptación Root:20inputs/161artefactos exactos,710comprobaciones offline del auditor; no710tests de producto.
+- [x] Confirmar integración FF Source main5024→6ac8efa4 sin push y actualizar los cinco MD:9blobs exactos,8RAW exactos y test CRLF→LF declarado;4722rutas ajenas, remotes e untracked preservados.
+- [ ] Aprobar/integrar el corte Markdown por rutas; continuidad externa sólo tras GO concreto de Root, con propuestas de memoria y dos conceptos por API embed=False. Google lo actualiza Root con revisión fresca.
+
+Sin contrato nuevo de Undo persistido Radar ni paridad global. Evidencia y límites: docs/verification-radar-axis.md.
