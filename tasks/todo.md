@@ -2416,3 +2416,19 @@ La paridad continúa en el hilo1195 y en tareas nuevas. El Done y voto históric
 - [ ] Revisión Root, integración documental y retirada del WT propio tras recibos; sin push.
 
 La paridad continúa en el hilo 1195 y tareas nuevas; se preserva el Done histórico 1095. Esta entrega no anuncia paridad completa, salida física de altavoz, HRTF o reproducción positiva de una voz en era.
+
+
+## Audio espacial y estado actual del inventario — 2523 (2026-11-10)
+
+- [x] Source 2505 r2 aprobado e integrado Main 82 con 14 blobs/índice exactos; matiz 13 RAW y test completo CRLF→LF/Git conservado en verificación, sin segundo merge.
+- [x] Leer atribución de Source: 15 exports distintos/16 pasadas, 36 regresiones con 33 cuerpos literales y 3 readiness corregidas; seis DSP anteriores a fixes puros no se presentan como repetidos.
+- [x] Leer Brave 14 observaciones (no 14 tests), ver tres JPEG reales y acabado 2521 favorable: teclado Escape/Enter/blur, HRTF/pausa/reset/estéreo-pan/reload y 420 CSS.
+- [x] Leer Native final: 64 MCP/64 IPC, cuatro claves 401/cuatro stdio 0, voces positivas E/Q en mismo contexto, modelos Panner nativos, 89 tablas/Blob/presencia warm/cold exactas y cleanup 0. Callback retenido observado 0,7 ms; no benchmark o espera fija 1 s.
+- [x] Preparar seis MD con tres apéndices y dos avisos fechados sobre el historial intacto; no reinterpretar checks viejos como defectos actuales ni repetir apps/gates/detector.
+- [x] Source 2505 y peer 2513 Done, WT/rama Source retirados normalmente con recibo; helpers de esos WTs no se reejecutan.
+- [ ] Finalizar corte/commit/revisión documental Root y retiro posterior tras integración.
+- [ ] Rendimiento 2318 sigue abierto: no aceptación del objetivo 100 ms para historial retenido/50k; no se mide por esta entrega de audio.
+- [x] Manual espacial Root verificado: 619 UTF16/870 párrafos, recurso entero sólo con inserción prevista; sin Google por el documentador.
+- [ ] MEM/KG combinados siguen pendientes bajo la lease ajena; sin capturas/append/Store desde esta tarea.
+
+SourceMap 2455 y su documentación 441e, transporte 2475, precarga 2494 y documentación 471/Done 2501 ya están integrados; los antiguos pasos documentales inferiores se conservan como historia. La tarea 1095 es Done histórica; hilo 1195/paridad global siguen abiertos, sin porcentaje.
