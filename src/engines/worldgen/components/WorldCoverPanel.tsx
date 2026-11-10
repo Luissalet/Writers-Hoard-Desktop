@@ -129,6 +129,7 @@ function WorldCoverEditor({ scope, world, onSaved }: Props) {
     <div className="min-w-0 flex-1 space-y-2">
       <div><h3 className="text-sm font-semibold text-text-primary">{copy.title}</h3><p className="text-xs text-text-muted">{copy.description}</p></div>
       <p className="text-xs text-text-muted" data-testid="world-cover-source">{chosen ? copy.selected : world.thumbnail ? copy.fallback : copy.empty}</p>
+      {!loading && state && state.requestedScope.eraId && !state.scope.eraId && <p className="text-xs text-text-muted">{copy.inheritedNotice}</p>}
       <div className="flex flex-wrap gap-2">
         <label className={`${button} focus-within:ring-2 focus-within:ring-accent-gold ${disabled ? 'cursor-default opacity-40' : 'cursor-pointer'}`}>
           <ImagePlus size={15} aria-hidden="true" />{chosen ? copy.changeFile : copy.file}

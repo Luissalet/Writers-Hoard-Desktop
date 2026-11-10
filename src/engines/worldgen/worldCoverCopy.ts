@@ -1,6 +1,7 @@
 const es = {
   title: 'Portada del mapa',
   description: 'La imagen que aparece en la colección de mapas.',
+  inheritedNotice: 'Esta portada se comparte desde Base. Cambiarla o quitarla afecta a las eras que la heredan.',
   file: 'Elegir archivo',
   gallery: 'Elegir de la galería',
   changeFile: 'Cambiar archivo',
@@ -32,6 +33,7 @@ const es = {
 const en: typeof es = {
   title: 'Map cover',
   description: 'The image shown in the map collection.',
+  inheritedNotice: 'This cover is shared from Base. Changing or removing it affects eras that inherit it.',
   file: 'Choose file',
   gallery: 'Choose from gallery',
   changeFile: 'Change file',
