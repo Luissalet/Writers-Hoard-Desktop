@@ -1052,3 +1052,5 @@ Maps and World Generator can open **Tools for this map** beside the current map.
 Authors opt in with a validated `mapPanel` descriptor and a declared map-reference field. Initial `set` actions use normal validation and create the document and its binding atomically. The existing document-create and describe MCP tools expose that contract; `wh_local_tool_map_list` lists tools, documents and actual mounted map hosts, while `wh_local_tool_map_open` selects a compatible document in a live host after normal pending-save handling. An unavailable host does not launch the app or queue an open request.
 
 Source2382 revision2 (`27b4e398`) is approved and integrated locally in main without push. Root's genuine warm/cold bridge run and real Brave acceptance include both portable ZIPs, Base/era notes, read-only fullscreen and reopening after reload. [Use, SDK/MCP contract, evidence and limits](docs/verification-map-tools.md). This adds a contextual panel; map overlays, per-frame geometry and complete web/SDK parity are not established.
+
+The user manual and project knowledge records have been updated with this bounded capability.
