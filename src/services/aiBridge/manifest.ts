@@ -85,6 +85,7 @@ import {
   STORYBOARD_TOOLS,
   VIDEO_TOOLS,
   WORLDGEN_TOOLS,
+  WORLD_COVER_TOOLS,
 } from './manifestEngines';
 import { INQUIRY_TOOLS, SOURCE_TOOLS } from './manifestInquiry';
 import { FAMILY_TOOLS } from './manifestFamily';
@@ -1560,6 +1561,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('visual', inEngine('image-studio', IMAGE_STUDIO_TOOLS)),
   ...grouped('visual', inEngine('maps', inEra(MAP_TOOLS))),
   ...grouped('visual', inEngine('worldgen', inEra([...WORLDGEN_TOOLS, ...WORLD_STYLE_TOOLS]))),
+  ...grouped('visual', inEngine('worldgen', WORLD_COVER_TOOLS)),
   ...WORLD_ERA_TOOLS,
   ...grouped('writing', inEngine('writings', READER_TOOLS)),
   ...grouped('visual', inEngine('media', VOICE_MEMO_TOOLS)),
