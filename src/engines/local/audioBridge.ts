@@ -1,12 +1,14 @@
 import {getEraProject} from '@/services/worldEras/store';
 import {mediaAsset} from '@/engines/media/scope';
 import {BridgeError,optString,requireString,resolveProjectId,type ToolArgs} from '@/services/aiBridge/tools/shared';
-import {localAudioSessionStatus,transportLocalAudioSession,panLocalAudioSession,setLocalAudioBus,stopLocalAudioSession} from './audioBrowser';
+import {localAudioSessionStatus,preloadLocalAudioSession,releaseLocalAudioSessionPreloads,transportLocalAudioSession,panLocalAudioSession,setLocalAudioBus,stopLocalAudioSession} from './audioBrowser';
 import {LOCAL_AUDIO_BUSES,validateLocalAudioRef,type LocalAudioRef,type LocalAudioBus} from './audio';
 const scope=async(args:ToolArgs)=>{const target={projectId:resolveProjectId(args),eraId:optString(args,'eraId')};await getEraProject(target);return target;};
 export const LOCAL_AUDIO_HANDLERS={
- async wh_local_audio_status(args:ToolArgs){const target=await scope(args);return{...target,...localAudioSessionStatus(target,args.includeLevels===true,args.includePosition===true),domain:'sdk-owned',legacyPlayersIncluded:false};},
+ async wh_local_audio_status(args:ToolArgs){const target=await scope(args);return{...target,...localAudioSessionStatus(target,args.includeLevels===true,args.includePosition===true,args.includePreloads===true),domain:'sdk-owned',legacyPlayersIncluded:false};},
  async wh_local_audio_control(args:ToolArgs){const target=await scope(args),action=requireString(args,'action');
+  if(action==='preload'){if(!Array.isArray(args.refs))throw new BridgeError('bad-args','Use an array of local audio refs.');try{for(const ref of args.refs)validateLocalAudioRef(ref as LocalAudioRef);}catch{throw new BridgeError('bad-args','Use local media or explicit compiled source audio refs. Resolve a slot cascade with wh_local_asset_resolve first.');}return{...target,preparations:await preloadLocalAudioSession(target,args.refs as LocalAudioRef[]),started:false,queued:false,domain:'sdk-owned'};}
+  if(action==='release-preload'){if(args.preparationIds!==undefined&&(!Array.isArray(args.preparationIds)||args.preparationIds.some(id=>typeof id!=='string')))throw new BridgeError('bad-args','Use preparationIds as an array of IDs, or omit for all scoped retentions.');return{...target,released:releaseLocalAudioSessionPreloads(target,args.preparationIds as string[]|undefined),domain:'sdk-owned'};}
   if(action==='pause'||action==='resume'||action==='seek'){const id=requireString(args,'handleId');if(action==='seek'&&(typeof args.seconds!=='number'||!Number.isFinite(args.seconds)||args.seconds<0))throw new BridgeError('bad-args','Use a finite nonnegative position in seconds.');const result=await transportLocalAudioSession(target,id,action,args.seconds as number|undefined);if(!result)throw new BridgeError('not-found','SDK handle not found in this scope.');return{...target,...result,domain:'sdk-owned'};}
   if(action==='pan'){const id=requireString(args,'handleId');if(typeof args.pan!=='number'||!Number.isFinite(args.pan)||args.pan<-1||args.pan>1)throw new BridgeError('bad-args','Use a finite stereo pan from -1 to 1.');const handle=panLocalAudioSession(target,id,args.pan);if(!handle)throw new BridgeError('not-found','Active SDK handle not found in this scope.');return{...target,handle,domain:'sdk-owned'};}
   if(action==='stop')return{...target,stopped:stopLocalAudioSession(target,optString(args,'handleId'))};
@@ -17,6 +19,6 @@ export const LOCAL_AUDIO_HANDLERS={
    else{const {db}=await import('@/db'),{resolveProjectLocalTool}=await import('./releases'),{createLocalToolClient}=await import('./storage'),project=await db.projects.get(target.projectId);if(!project)throw new BridgeError('not-found','Project not found.');const definition=resolveProjectLocalTool(ref.namespace,project),client=createLocalToolClient(target.projectId,definition,{eraId:target.eraId,readOnly:true,requireSelectedRelease:true,releaseHash:project.localToolInstallations?.[ref.namespace]?.contentHash??null});try{const asset=ref.releaseHash?await client.assets.resolve(ref):await client.assets.slot(ref.slot);if(!asset||asset.kind!=='audio')throw new BridgeError('not-found','Audio source slot not found in this exact scope/release.');}finally{client.audio?.dispose();}}
    return{...target,...(ref.kind==='media'?{assetId:ref.id}:{}),ref,started:false,queued:false,status:'gesture-required',message:'Use the SDK sound control in this scope and press Play. Agent calls never synthesize a user gesture or enqueue autoplay.'};
   }
-  throw new BridgeError('bad-args','Use play, pause, resume, seek, stop, bus or pan.');
+  throw new BridgeError('bad-args','Use preload, release-preload, play, pause, resume, seek, stop, bus or pan.');
  },
 };
