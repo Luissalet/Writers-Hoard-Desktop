@@ -1,3 +1,4 @@
+import type {LocalToolMapContext,LocalMapAuthority} from '../mapTools/contracts';
 import {LocalDocumentContentHost} from '../liveContent/host';
 import {DocumentSavePreference} from '../liveContent/savePreference';
 import LocalPresenceSurface from '../presence/Surface';
@@ -30,10 +31,10 @@ import {LocalToolHostAncestors} from './hostContext';
 import {LocalToolAtomPendingContext} from '../blocks/pending';
 import {LocalToolUndoBoundary} from '../LocalToolUndoBoundary';
 import {mountedSourceDocuments} from '../queryOpenDocuments';
-export interface LocalToolDocumentHostProps {projectId:string;eraId?:string;documentId:string;namespace?:string;view?:LocalToolHostContext['view'];interactive?:boolean;readOnly?:boolean;chrome?:boolean;retainPresentation?:boolean;showUnavailable?:boolean;allowedNamespaces?:readonly string[]}
+export interface LocalToolDocumentHostProps {mapContext?:LocalToolMapContext;mapAuthority?:LocalMapAuthority;projectId:string;eraId?:string;documentId:string;namespace?:string;view?:LocalToolHostContext['view'];interactive?:boolean;readOnly?:boolean;chrome?:boolean;retainPresentation?:boolean;showUnavailable?:boolean;allowedNamespaces?:readonly string[]}
 /** Every surface mounts one real document; collection lists belong to its engine. */
 export default function LocalToolDocumentHost(props:LocalToolDocumentHostProps){return <SourceDocumentSession key={JSON.stringify([props.projectId,props.eraId??null,props.documentId,props.namespace??null,props.view??'editor'])} {...props}/>;}
-function SourceDocumentSession({projectId,eraId,documentId,namespace,view='editor',interactive=false,readOnly=false,chrome=true,retainPresentation=false,showUnavailable=true,allowedNamespaces}:LocalToolDocumentHostProps){
+function SourceDocumentSession({projectId,eraId,documentId,namespace,view='editor',interactive=false,readOnly=false,chrome=true,retainPresentation=false,showUnavailable=true,allowedNamespaces,mapContext,mapAuthority}:LocalToolDocumentHostProps){
  const {locale}=useTranslation(),es=locale==='es',parent=useEnginePane(),ancestors=useContext(LocalToolHostAncestors),identity=JSON.stringify([projectId,eraId??null,'local-tool',documentId]);
  const [savePreference]=useState(()=>new DocumentSavePreference());
  const [instanceId]=useState(()=>`source-document-${crypto.randomUUID()}`),[fullscreen,setFullscreen]=useState(false),[busy,setBusy]=useState(false),[blocked,setBlocked]=useState(false),alive=useRef(true);
@@ -57,7 +58,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  if(heldRelease){definition=retained.current!.definition;presentationHash=retained.current!.contentHash;}
  if(definition&&document&&!heldRelease)retained.current={document,definition,contentHash:hash};if(!definition&&retainPresentation){definition=retained.current?.definition;presentationHash=retained.current?.contentHash??null;}
  const allowed=!allowedNamespaces||!!document&&allowedNamespaces.includes(document.namespace);
- const canEdit=!!freshDocument&&!error&&!heldRelease&&allowed&&!!definition&&!!record?.project?.enabledEngines.includes('local-tool-'+document?.namespace)&&!readOnly&&(view!=='embed'||interactive&&definition.document?.embed==='interactive');
+ const canEdit=!!freshDocument&&!error&&!heldRelease&&allowed&&!!definition&&!!record?.project?.enabledEngines.includes('local-tool-'+document?.namespace)&&!readOnly&&(!mapAuthority||!mapAuthority.readOnly&&!!mapContext&&mapAuthority.isCurrent())&&(view!=='embed'||interactive&&definition.document?.embed==='interactive');
  const parentNavigate=parent?.navigate,parentOpenBeside=parent?.openBeside,documentNamespace=document?.namespace;
  const navRef=useRef({parentNavigate,parentOpenBeside});navRef.current={parentNavigate,parentOpenBeside};
  const stableNavigation=retainPresentation||!!definition?.app;
@@ -67,30 +68,31 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
  const stableOpenBeside=useMemo(()=>(to:string)=>navRef.current.parentOpenBeside?.(to),[]),bindingOpenBeside=stableNavigation&&parentOpenBeside?stableOpenBeside:parentOpenBeside;
  // Every committed setup owns a new irrevocable lease. StrictMode cleanup
  // cannot reactivate an older emitted client when the surface sets up again.
- const [binding,setBinding]=useState<{client:LocalToolClient<LocalToolJson>;definition:LocalToolDefinition;namespace:string;hash:string|null;canEdit:boolean;navigate:typeof navigate;documentFields?:import('../openDocuments').LocalToolDocumentFields;presence?:LocalDocumentPresenceHost;content?:LocalDocumentContentHost}>();
+ const [binding,setBinding]=useState<{client:LocalToolClient<LocalToolJson>;definition:LocalToolDefinition;namespace:string;hash:string|null;canEdit:boolean;navigate:typeof navigate;documentFields?:import('../openDocuments').LocalToolDocumentFields;presence?:LocalDocumentPresenceHost;content?:LocalDocumentContentHost;mapAuthority?:LocalMapAuthority}>();
  useLayoutEffect(()=>{
-  let active=true;
+  let active=true;const current=()=>active&&(!mapAuthority||mapAuthority.isCurrent());
   if(!definition||!documentNamespace){setBinding(undefined);return()=>{active=false;};}
   const publisher=canEdit?mountedSourceDocuments.createPublisher({projectId,eraId},documentId,documentNamespace,instanceId):undefined;
-  const documentFields=publisher?Object.freeze({instanceId,publish:publisher.publish}):undefined;
-  const client=createLocalToolClient(projectId,definition,{eraId,documentId,navigate,openBeside:bindingOpenBeside,requireSelectedRelease:true,releaseHash:hash,readOnly:!canEdit,isCurrent:()=>active,capturePublishedFields:publisher?.capture});
-  const content=canEdit?new LocalDocumentContentHost(instanceId,()=>active,client,hash,savePreference):undefined;
-  const presence=canEdit?new LocalDocumentPresenceHost(client,instanceId,()=>active,content):undefined;
-  setBinding({client,definition,namespace:documentNamespace,hash,canEdit,navigate,documentFields,presence,content});
+  const documentFields=publisher?Object.freeze({instanceId,publish:(...args:Parameters<typeof publisher.publish>)=>{if(!current())throw Error('local_tool_context_expired');return publisher.publish(...args);}}):undefined;
+  const client=createLocalToolClient(projectId,definition,{eraId,documentId,navigate,openBeside:bindingOpenBeside,requireSelectedRelease:true,releaseHash:hash,readOnly:!canEdit,isCurrent:current,mapAuthority,capturePublishedFields:publisher?.capture});
+  const content=canEdit?new LocalDocumentContentHost(instanceId,current,client,hash,savePreference):undefined;
+  const presence=canEdit?new LocalDocumentPresenceHost(client,instanceId,current,content):undefined;
+  setBinding({client,definition,namespace:documentNamespace,hash,canEdit,navigate,documentFields,presence,content,mapAuthority});
   return()=>{active=false;publisher?.dispose();presence?.dispose();content?.dispose();};
- },[projectId,definition,eraId,documentId,navigate,bindingOpenBeside,hash,canEdit,documentNamespace,instanceId,savePreference]);
+ },[projectId,definition,eraId,documentId,navigate,bindingOpenBeside,hash,canEdit,documentNamespace,instanceId,savePreference,mapAuthority]);
  // A navigation-only rebind retains the editor draft while the layout effect issues a new client.
  // Cleanup still permanently revokes the previous emitted client.
- const selectedClient=binding&&binding.definition===definition&&binding.namespace===documentNamespace&&binding.hash===hash&&binding.canEdit===canEdit?binding.client:undefined;
+ const selectedClient=binding&&binding.definition===definition&&binding.namespace===documentNamespace&&binding.hash===hash&&binding.canEdit===canEdit&&binding.mapAuthority===mapAuthority?binding.client:undefined;
  const client=selectedClient??(retainPresentation||hasPending||definition?.app?binding?.client:undefined);
  useLocalToolAudioLifecycle(client?.audio);
  const visible=parent?.visible??true;
  const primary=stableNavigation?parent?.primary:false;
  const pane=useMemo(()=>({instanceId,projectId,eraId,visible,primary,navigate,openBeside:parentOpenBeside}),[instanceId,projectId,eraId,visible,navigate,parentOpenBeside,primary]);
  useEffect(()=>registerEnginePaneScope(instanceId,{projectId,eraId,navigate}),[instanceId,projectId,eraId,navigate]);
- const changeFullscreen=async(next:boolean)=>{if(busy)return;setBusy(true);setBlocked(false);try{const result=await flushPendingWrites();if(alive.current){if(result.ok)setFullscreen(next);else setBlocked(true);}}finally{if(alive.current)setBusy(false);}};
+ const changeFullscreen=async(next:boolean)=>{if(busy)return;setBusy(true);setBlocked(false);try{const result=await flushPendingWrites();if(alive.current){if(result.ok&&(!mapAuthority||mapAuthority.isCurrent()))setFullscreen(next);else setBlocked(true);}}finally{if(alive.current)setBusy(false);}};
  const semantic=document?sourceDocumentPreview(document,locale):{title:'',fields:[]},preview=useLocalToolAssetPreview(semantic,projectId,document?.namespace??'',eraId);
- const context=useRichProseHostContext({view,canEdit,scope:{projectId,eraId},...(document?{document:{id:documentId,namespace:document.namespace,title:document.title}}:{})},client,document?.codec,definition);
+ const richContext=useRichProseHostContext({view,canEdit,scope:{projectId,eraId},...(document?{document:{id:documentId,namespace:document.namespace,title:document.title}}:{})},client,document?.codec,definition);
+ const context=useMemo(()=>({...richContext,...(mapContext?{map:mapContext}:{})}),[richContext,mapContext]);
  if(ancestors.includes(identity))return <p className="text-sm text-text-muted">{es?'Referencia circular al documento abierto.':'Circular reference to the open document.'}</p>;
  if(!record)return <p role="status">{es?'Cargando documento…':'Loading document…'}</p>;
  if(!document)return showUnavailable?<p role="alert">{es?'El documento no está disponible en este contexto.':'This document is unavailable in this context.'}</p>:null;
@@ -105,6 +107,6 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,view='edito
   <LocalToolAtomPendingContext.Provider value={reportPending}><LocalToolHostAncestors.Provider value={[...ancestors,identity]}><EnginePaneContext.Provider value={pane}><LocalToolUndoBoundary data-tool-editor-surface data-engine-pane-id={instanceId} onFocusCapture={()=>activateEnginePane(instanceId)} onPointerDownCapture={()=>activateEnginePane(instanceId)}>
    {fallback?<div className="prose prose-sm max-w-none break-words text-text-primary" dangerouslySetInnerHTML={{__html:renderRichProsePreview(preview,false)}}/>:<LocalToolTutorialHost definition={definition!} context={focusContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{tutorialContext=><LocalToolContextMenuHost context={tutorialContext} releaseHash={hash} identity={client} visible={visible&&!fullscreen}>{menuContext=><LocalRuntimeErrorBoundary namespace={document.namespace} contentHash={presentationHash}><LocalToolPendingBoundary><Component key={retainPresentation||definition?.app?documentId:`${documentId}:${eraId??'base'}:${hash??'development'}`} projectId={projectId} client={client} context={{...menuContext,...(componentContext.documentContent?{documentContent:componentContext.documentContent}:{}),...(componentContext.presence?{presence:componentContext.presence}:{}),...(componentContext.documentFields?{documentFields:componentContext.documentFields}:{}),...(componentContext.app?{app:componentContext.app}:{})}}/></LocalToolPendingBoundary></LocalRuntimeErrorBoundary>}</LocalToolContextMenuHost>}</LocalToolTutorialHost>}
   </LocalToolUndoBoundary></EnginePaneContext.Provider></LocalToolHostAncestors.Provider></LocalToolAtomPendingContext.Provider>
-  {fullscreen&&<Modal open fullscreen title={document.title} busy={busy} dismissible={false} onClose={()=>void changeFullscreen(false)}><div className="space-y-3 p-5"><button type="button" className="min-h-10 rounded-lg border border-border px-3 text-sm" disabled={busy} onClick={()=>void changeFullscreen(false)}>{es?'Guardar y volver':'Save and return'}</button>{blocked&&<p role="alert">{es?'El borrador sigue pendiente.':'The draft is still pending.'}</p>}<LocalToolDocumentHost projectId={projectId} eraId={eraId} documentId={documentId} namespace={namespace} view="fullscreen" readOnly={readOnly} chrome={false}/></div></Modal>}
+  {fullscreen&&<Modal open fullscreen title={document.title} busy={busy} dismissible={false} onClose={()=>void changeFullscreen(false)}><div className="space-y-3 p-5"><button type="button" className="min-h-10 rounded-lg border border-border px-3 text-sm" disabled={busy} onClick={()=>void changeFullscreen(false)}>{es?'Guardar y volver':'Save and return'}</button>{blocked&&<p role="alert">{es?'El borrador sigue pendiente.':'The draft is still pending.'}</p>}<LocalToolDocumentHost projectId={projectId} eraId={eraId} documentId={documentId} namespace={namespace} view="fullscreen" readOnly={mapAuthority?!canEdit:readOnly} interactive={interactive} mapContext={mapContext} mapAuthority={mapAuthority} retainPresentation={retainPresentation||!!mapAuthority} allowedNamespaces={allowedNamespaces} chrome={false}/></div></Modal>}
  </section>}</LocalToolFocusHost></LocalPresenceSurface>;
 }
