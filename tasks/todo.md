@@ -2356,6 +2356,8 @@ Source2382r2 está aprobado e integrado en27b4e398 y cerrado; el autor ya retir�
 - [x] Leer aceptación Brave final de Root:22observaciones, dos ZIP actuales, Base/E/F, valores50/-25 y binding Codex8; reapertura durable JSON/E en pestaña nueva, sin atribuir reload al target antiguo.
 - [x] Leer informe independiente Native2452r1 y aceptación Root:20inputs/161artefactos exactos,710comprobaciones offline del auditor; no710tests de producto.
 - [x] Confirmar integración FF Source main5024→6ac8efa4 sin push y actualizar los cinco MD:9blobs exactos,8RAW exactos y test CRLF→LF declarado;4722rutas ajenas, remotes e untracked preservados.
-- [ ] Aprobar/integrar el corte Markdown por rutas; continuidad externa sólo tras GO concreto de Root, con propuestas de memoria y dos conceptos por API embed=False. Google lo actualiza Root con revisión fresca.
+- [x] Leer manual ya actualizado por Root:830párrafos/829originales exactos, nueva viñeta409/tabt.0,+677UTF16, estilos/listas e inverso exactos; ninguna llamada Google duplicada.
+- [x] Confirmar retirada normal de WT/rama Source2425:6ancestros/41891hijos/0reparse/0procesos,9Source-main exactos/remotes/untracked intactos, sin Force; Research preservado y perfiles rechazados intactos.
+- [ ] Aprobar/integrar el corte Markdown por rutas; aplicar memoria y dos conceptos por API embed=False sólo tras GO concreto de Root y recibos finales; retirar después únicamente el WT documental propio.
 
 Sin contrato nuevo de Undo persistido Radar ni paridad global. Evidencia y límites: docs/verification-radar-axis.md.
