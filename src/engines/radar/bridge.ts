@@ -2,7 +2,7 @@ import { getEraProject, listEraRows, readEraRow } from '@/services/worldEras/sto
 import type { CodexEntry } from '@/types';
 import { projectCodexEntry } from '@/engines/codex/properties';
 import { BridgeError, optBoolean, optString, requireString, resolveProjectForEngine, resolveProjectId, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
-import { createRadarChart, resolveRadarSeries, setRadarValue } from './model';
+import { createRadarChart, insertRadarAxis, moveRadarAxis, resolveRadarSeries, setRadarValue } from './model';
 import { saveRadarChart, deleteRadarChart } from './operations';
 import { RADAR_SKELETONS, radarFromPreset, radarFromSkeleton } from './presets';
 import { exportRadarCsv, exportRadarJson, exportRadarSvgComplete, parseRadarCsv, parseRadarJson } from './interchange';
@@ -19,7 +19,31 @@ async function resolved(projectId: string, chart: RadarChartDocument, eraId?: st
   return chart.series.map(series => resolveRadarSeries(series, chart.axes, entries, projectId));
 }
 function revision(args: ToolArgs): number { if (typeof args.expectedRevision !== 'number' || !Number.isSafeInteger(args.expectedRevision)) throw new BridgeError('bad-args', 'Read the current expectedRevision before editing.'); return args.expectedRevision; }
+function axisAnchor(args: ToolArgs): string | undefined {
+  if (args.beforeAxisId === undefined || args.beforeAxisId === null) return undefined;
+  return requireString(args, 'beforeAxisId');
+}
 export const RADAR_HANDLERS = {
+  async wh_radar_axis_insert(args: ToolArgs) {
+    await resolveProjectForEngine(args, 'radar'); const { projectId, chart } = await current(args);
+    const expected = revision(args), anchor = axisAnchor(args);
+    if (args.label !== undefined && (typeof args.label !== 'string' || args.label.length > 100)) throw new BridgeError('bad-args', 'label must be a string of at most 100 characters.');
+    let draft: RadarChartDocument;
+    try { draft = insertRadarAxis(chart, args.label === undefined ? String(chart.axes.length + 1) : args.label, anchor); }
+    catch (reason) { throw new BridgeError('bad-args', reason instanceof Error ? reason.message : 'Cannot insert this axis.'); }
+    const axisId = draft.axes.find(axis => !chart.axes.some(previous => previous.id === axis.id))!.id;
+    const saved = await saveRadarChart(projectId, draft, expected, optString(args, 'eraId'));
+    return withAudit({ projectId, chart: saved, axisId }, { projectId, entityId: saved.id, summary: `Inserted radar axis in ${saved.title}` });
+  },
+  async wh_radar_axis_move(args: ToolArgs) {
+    await resolveProjectForEngine(args, 'radar'); const { projectId, chart } = await current(args);
+    const expected = revision(args), anchor = axisAnchor(args);
+    let draft: RadarChartDocument;
+    try { draft = moveRadarAxis(chart, requireString(args, 'axisId'), anchor); }
+    catch (reason) { throw new BridgeError('bad-args', reason instanceof Error ? reason.message : 'Cannot move this axis.'); }
+    const saved = await saveRadarChart(projectId, draft, expected, optString(args, 'eraId'));
+    return withAudit({ projectId, chart: saved }, { projectId, entityId: saved.id, summary: `Reordered radar axes in ${saved.title}` });
+  },
   async wh_radar_list(args: ToolArgs) {
     const projectId = resolveProjectId(args), project = await getEraProject({ projectId, eraId: optString(args, 'eraId') }); if (!project) throw new BridgeError('not-found', 'Project not found.');
     return { projectId, charts: (project.radarCharts ?? []).map(chart => ({ id: chart.id, title: chart.title, revision: chart.revision, axes: chart.axes.length, series: chart.series.length, isPreset: !!chart.isPreset, presetCategory: chart.presetCategory })), skeletons: RADAR_SKELETONS.map(item => ({ id: item.id, name: { es: item.es, en: item.en } })) };

@@ -1,15 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Plus, Volume2, VolumeX } from 'lucide-react';
 import { ProjectIcon } from '@/components/common/ProjectIcon';
 import type { RadarChartDocument } from './types';
-import { normalizedRadarValue, radarPoint, radarStep, radarNotches, radarValueAtPoint, snapRadarValue, type ResolvedRadarSeries } from './model';
+import { MAX_RADAR_AXES, normalizedRadarValue, radarPoint, radarStep, radarNotches, radarValueAtPoint, snapRadarValue, type ResolvedRadarSeries } from './model';
+import { radarCopy } from './copy';
 import { playRadarNotch, radarAudioEnabled, setRadarAudioEnabled, RADAR_AUDIO_CHANGED } from './audio';
-export default function RadarGraphic({ chart, series, onValue, locale = 'en' }: { chart: RadarChartDocument; series: ResolvedRadarSeries[]; onValue?: (seriesId: string, axisId: string, value: number, restore?: boolean) => void; locale?: 'en' | 'es' }) {
+export default function RadarGraphic({ chart, series, onValue, onInsertAxis, locale = 'en' }: { chart: RadarChartDocument; series: ResolvedRadarSeries[]; onValue?: (seriesId: string, axisId: string, value: number, restore?: boolean) => void; onInsertAxis?: (beforeAxisId: string) => void; locale?: 'en' | 'es' }) {
   const es = locale === 'es', svg = useRef<SVGSVGElement>(null), context = useRef<AudioContext | undefined>(undefined);
   const [sound, setSound] = useState(radarAudioEnabled), [announcement, setAnnouncement] = useState('');
   const [editingSeries, setEditingSeries] = useState('');
   const editableSeries = series.filter(item => item.source.visible !== false), selectedSeries = editableSeries.find(item => item.source.id === editingSeries)?.source.id ?? editableSeries[0]?.source.id;
   const drag = useRef<{ pointerId: number; seriesId: string; axisId: string; initial: number; last: number } | undefined>(undefined);
+  const canInsert = Boolean(onInsertAxis), copy = radarCopy[locale];
+  const [plotSize, setPlotSize] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const node = svg.current; if (!node || !canInsert) return;
+    const measure = () => { const bounds = node.getBoundingClientRect(); setPlotSize(previous => previous.width === bounds.width && previous.height === bounds.height ? previous : { width: bounds.width, height: bounds.height }); };
+    measure(); const observer = new ResizeObserver(measure); observer.observe(node); return () => observer.disconnect();
+  }, [canInsert]);
+  const scale = Math.min(plotSize.width / 720, plotSize.height / 610);
+  const gapPoints = canInsert && scale > 0 ? chart.axes.map((axis, index) => {
+    const previous = radarPoint((index + chart.axes.length - 1) % chart.axes.length, chart.axes.length, 1), next = radarPoint(index, chart.axes.length, 1);
+    return { axis, index, x: (plotSize.width - 720 * scale) / 2 + (previous.x + next.x) / 2 * scale, y: (plotSize.height - 610 * scale) / 2 + (previous.y + next.y) / 2 * scale };
+  }) : [];
   useEffect(() => { const refresh = () => setSound(radarAudioEnabled()); window.addEventListener(RADAR_AUDIO_CHANGED, refresh); return () => { window.removeEventListener(RADAR_AUDIO_CHANGED, refresh); void context.current?.close(); }; }, []);
   const tick = (fraction: number) => { if (!sound) return; try { context.current ??= new AudioContext(); void context.current.resume(); playRadarNotch(context.current, fraction); } catch { /* A device without audio remains fully editable. */ } };
   const points = (fraction: number) => chart.axes.map((_, index) => { const p = radarPoint(index, chart.axes.length, fraction); return `${p.x},${p.y}`; }).join(' ');
@@ -20,7 +33,8 @@ export default function RadarGraphic({ chart, series, onValue, locale = 'en' }: 
   </>;
   return <div className="min-w-0">
     {onValue && <div className="flex flex-wrap items-center justify-between gap-2 px-2 text-xs text-text-muted"><p className="max-w-prose">{es ? 'Arrastra un vértice. Con el foco: flechas, Inicio/Fin y Mayús para pasos mayores. Los valores del Codex son de solo lectura.' : 'Drag a vertex. When focused: arrows, Home/End and Shift for larger steps. Codex values are read-only.'}</p><button type="button" aria-pressed={sound} className="flex shrink-0 items-center gap-2 rounded-lg border border-border px-3 py-2 text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={() => { setSound(!sound); setRadarAudioEnabled(!sound); }}>{sound ? <Volume2 size={15} /> : <VolumeX size={15} />}{es ? sound ? 'Sonido activado' : 'Sonido silenciado' : sound ? 'Sound on' : 'Sound muted'}</button></div>}
-    <svg ref={svg} viewBox="0 0 720 610" role={onValue ? 'group' : 'img'} aria-label={chart.title || 'Radar'} className="max-h-128 w-full text-text-muted" style={{ touchAction: onValue ? 'none' : undefined }}>
+    <div className="relative">
+    <svg ref={svg} viewBox="0 0 720 610" role={onValue ? 'group' : 'img'} aria-label={chart.title || 'Radar'} className="block max-h-128 w-full text-text-muted" style={{ touchAction: onValue ? 'none' : undefined }}>
       {onValue ? <svg viewBox="0 0 720 610" width="720" height="610" role="img" aria-label={chart.title || 'Radar'}>{plot}</svg> : plot}
       {onValue && series.filter(item => item.source.visible !== false).flatMap(item => chart.axes.map((axis, index) => {
         const current = item.values[axis.id], p = radarPoint(index, chart.axes.length, normalizedRadarValue(axis, current));
@@ -47,6 +61,8 @@ export default function RadarGraphic({ chart, series, onValue, locale = 'en' }: 
           }}><title>{`${label}: ${current} ${axis.unit}. ${hint}`}</title></circle>;
       }))}
     </svg>
+    {onInsertAxis && gapPoints.map(({ axis, index, x, y }) => <button key={axis.id} type="button" aria-label={`${copy.insertAxisBefore} · ${axis.label || index + 1}`} title={`${copy.insertAxisBefore} · ${axis.label || index + 1}`} disabled={chart.axes.length >= MAX_RADAR_AXES} className="absolute flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-text-primary opacity-0 hover:bg-elevated hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-gold disabled:cursor-default" style={{ left: x, top: y, transform: 'translate(-50%, -50%)' }} onClick={() => onInsertAxis(axis.id)}><Plus size={16} aria-hidden="true" /></button>)}
+    </div>
     {onValue && editableSeries.length > 1 && <label className="mx-2 mb-2 block text-sm text-text-muted">{es ? 'Serie para arrastrar' : 'Series to drag'}<select aria-label={es ? 'Serie para arrastrar' : 'Series to drag'} className="mt-1 w-full rounded-lg border border-border bg-deep px-3 py-2 text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold" value={selectedSeries} onChange={event => setEditingSeries(event.target.value)}>{editableSeries.map(item => <option key={item.source.id} value={item.source.id}>{item.name}</option>)}</select></label>}
     {onValue && <output aria-live="polite" className="sr-only">{announcement}</output>}
   </div>;
