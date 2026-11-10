@@ -2363,3 +2363,39 @@ Source2382r2 está aprobado e integrado en27b4e398 y cerrado; el autor ya retir�
 - [ ] Revisar/integrar este último estado Markdown y retirar normalmente sólo el WT documental propio, con recibo de cierre2453; no se hará otro commit para marcar esa retirada.
 
 Sin contrato nuevo de Undo persistido Radar ni paridad global. Evidencia y límites: docs/verification-radar-axis.md.
+
+## Map vacío aditivo en Source: continuidad — 2473
+
+- [x] Cerrar preparación2465 como texto aprobado1, conservando sus cuerpos/corte9artefactos/8inputs y flags false, sin atribuir ejecución Native; lease propia liberada.
+- [x] Leer propuesta/consumidores2455 y contrato2460 con precisión posterior F4/F5 de debate2/revisión2467: presencia legítima por replacement del núcleo se conserva; scalar incompatible postD se rechaza; no nuevo Source Save ni CAS relajado.
+- [x] Preparar cinco Markdown por apéndices en WT propio desde9b, con cuatro prefijos originales preservados y sin npm/apps/Source de producto.
+- [x] Leer fallo real Brave de9d504ca: V1 guardada sin Start permanece legacy y la primera comprobaciónV2 falla;14rutas aprobadas sólo como Source, sin aceptación completa.
+- [x] Leer sucesor b7e1215 sobre9d,16rutas/CUT0cdf43b4/submission4 aprobada27732; integración main FF9b→b7e con16RAW/índice/HEAD exactos,4725blobs ajenos/remotes/untracked preservados, sin push; composición FF sólo de esta rama documental.
+- [x] Leer BraveR2 real sobre Source16: primer Add en la V1 fallida sin Activar, toggle/Undo/Rehacer, quitar/Undo, Descartar nombre, reload y V2 nueva sin Activar;registro de estados fallidos e intermedios y cuatro capturas reales,420CSS/scrollWidth420/región304, sin dispositivo táctil.
+- [x] Leer quick4/build actuales del autor: ambos EOF0 y53inputs estables, Source16 antes del commit; no equivalen a Native.
+- [x] Leer Native2 Root run121122 y auditoría independiente favorable2467:193MCP/193bridge,16IPC internos aparte,4claves401/4stdio0,6CLI0/29archivos bootstrap, cold sin reseed/89tablas0/perfil ausente. Native1 y su scaffold sin engineOrder conservados; Native2 añade sólo41bytes a la fixture, sin producto/oráculo.
+- [x] Leer aceptación Brave de ambos ZIP Native2 por Home/chooser: Overview sin loadError, Host que lista tres documentos y abre el principal, Base/E/F, Unicode/B/ownEra y reload F asentado. Observación F inmediata aún era E y screenshot Native2 expirado preservados; sin JPEG nuevo inventado. Apps/pestañas propias cerradas por Root.
+- [x] Leer manual actualizado por Root: una inserción de572UTF16 en el párrafo SDK, índice47734/tabt.0,832párrafos en esa lectura e inverso del recurso entero/estilos/listas exactos; sin repetir Google.
+- [x] Leer cierre y retirada normal Source2455: WT/rama ausentes,6ancestros/42178hijos/0reparse/0procesos,16Source-main exactos, remotes y demás WT preservados, sin Force.
+- [x] Preparar scripts externos r2 para captura RO y aplicación separada; Root los leyó y verificó15inputs/3AST. Sin ejecución, captura ni aplicación; lease MEMORY ajena aún en coordinación.
+- [ ] Actualizar memoria y grafo en una fase separada, sólo tras ambas leases y GO exacto con baseline/recibos actuales. La lease MEMORY ajena no se elude.
+- [ ] Revisar e integrar ahora el corte conjunto de seis Markdown mediante el único amend final autorizado, por rutas explícitas y sin push; sin esperar a MEM/KG.
+- [ ] Retirar normalmente sólo WT/rama documental propios al cerrar con aprobación/recibos; conservar Research y tareas/rutas ajenas.
+
+La función preserva scalar2088, mapas previos y reglas Base/era/portables. Las ejecuciones y capturas de Root se atribuyen por separado; no se añade UndoHTTP persistido ni se afirma paridad global. [Contrato y continuidad pendiente](vvd1095/verification-sdk-source-map-additive2455.md).
+
+## Transporte de audio local — 2475, continuidad conjunta
+
+- [x] Leer Source0e934069, revisión2/voto27820, once rutas y gates actuales; conservar r1/sobreUTF8, prefijo y recibos de área con su atribución.
+- [x] Leer Brave Root:19observaciones y4JPEG reales, Play auténtico, pausa/seek/resume/Stop, reapertura/reload y420CSS; sin altavoz o era positiva.
+- [x] Leer Native Root r4 EOF0 warm/cold/cleanup:28MCP/27IPC,4claves401/4stdio0,4648ocurrencias/4415inputs únicos, PCM real,89warm=cold/cleanup0/perfil ausente. Backend offline explícito; preparación2481 propia no se autoaudita.
+- [x] Leer revisión independiente de resultados favorable y aceptación Root; integración FF Main0e con11Source exactos, sin push, conservando los cuatro unstaged ajenos de Hermes2485 durante esa integración; no se declaró limpieza global entonces.
+- [x] Leer retirada Source2475: WT/rama ausentes,6ancestros/42179hijos/0reparse/0procesos,11Source-main exactos y cuatro cambios ajenos preservados, sin Force.
+- [x] Leer manual Audio Root:643UTF16, índice50116/tabt.0,834párrafos antes/después e inverso del recurso entero exacto; sin repetir Google.
+- [ ] Memoria/grafo Audio y SourceMap siguen pendientes de leases/GO en otra fase, sin capturas globales en esta entrega.
+- [x] Ampliar2473 a seis rutas y reclamar la nueva verificación antes de escribir; conservar29dd/patches y rebasar sólo el commit propio sobre Main actual con cinco borradores exactos.
+- [ ] Someter el único amend final conjunto a revisión Root; no integración o retirada documental por el autor todavía.
+- [ ] Revisar sucesor cerrado del guard externo: SDK26líneas Audio legítimas, otros15SourceMap exactos e inversión completa al blob anterior; r2 actual intacto.
+- [ ] Memoria/grafo sólo mediante sus leases y GO exacto; no captura o bypass de la lease MEMORY ajena. Ambos manuales ya están completados por Root.
+
+La paridad continúa en el hilo1195 y en tareas nuevas. El Done y voto históricos de la tarea1095 se preservan; no se presenta esa tarea como formalmente abierta.
