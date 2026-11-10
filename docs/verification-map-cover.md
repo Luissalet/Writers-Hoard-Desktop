@@ -24,13 +24,14 @@ Native final genuino de Root sobre21bffd: `map-cover-native-root/final-head/run-
 
 Brave real se atribuye por corte: sobre26cb, Archivo/Gallery/cambiar/quitar/Undo, selector vacío/cancelación, tarjeta, recargas y ancho420CSS; importó los dos ZIP físicos de Native4,24ámbitos y6rechecks fríos exactos. Son bibliotecas privadas separadas mediante ZIP explícito, no MCP directo a Brave. Sobre21bffd y esos mismos fixtures con core/serializers idénticos, verificó aviso ausente en Base/propio, presente heredado y tras reload, bytes correctos y panel normal/420CSS sin overflow propio ni consoleErrors. Se observó locale en; la copia en español se contrastó por Source/typecheck. No se afirma importar en Brave los ZIP nuevos del Native final ni ausencia de overflow en todas las barras de WorldView. Pestañas/viewport se restauraron y Vite Root quedó parado.
 
-El manual ya está actualizado por Root: una lectura fresca, una escritura CAS y una relectura completa;816párrafos/815ajenos, añadido255UTF16 al párrafo409, índice40425, estilos/listas/recurso inverso exactos. El snapshot offline anterior799 no se usa como revisión actual ni autoriza repetir esa escritura. Source2365 está cerrado y su autor retiró WT/rama, con15blobs main exactos y Research preservado. Memoria/grafo tienen payloads separados pendientes de GO; no se atribuyen como aplicados por este documento.
+El manual ya está actualizado por Root: una lectura fresca, una escritura CAS y una relectura completa;816párrafos/815ajenos, añadido255UTF16 al párrafo409, índice40425, estilos/listas/recurso inverso exactos. El snapshot offline anterior799 no se usa como revisión actual ni autoriza repetir esa escritura. Source2365 está cerrado y su autor retiró WT/rama, con15blobs main exactos y Research preservado. La continuidad2377 ya está aplicada tras lectura y GO final de Root sobre el corte524029ef: una sola llamada append de2561bytes, memoria1899097→1901658bytes y prefijo exacto; dos Store.upsert_concept con embed=False bajo el padre existente,403/9/697→405/9/699. Todas las filas de conceptos/historial y las nueve aristas anteriores permanecen exactas; los dos conceptos nuevos tienen embeddingNULL y su historial create normal. Recibos incrementales y verificación final PASS, EOF0/stderr0, sin nuevas llamadas Google o modelos.
 
 Referencias locales bajo `E:/Development/IA/Research/`:
 
 - `writer-parity-20261110/map-cover-native-root/APPROVE-SOURCE-r3.md`, `INTEGRATION-SOURCE-r3.json` y `SOURCE-CHECK-r3.json`.
 - `writer-parity-20261110/map-cover-native-root/ROOT-RESULT-CHECK-final.json`, `FINAL-INPUT-CHECK.json`, `BRAVE-final-head.json`, `BRAVE-REPORT-r1.md`, `BRAVE-ZIPS-r4.json` y `BRAVE-EXPECTED-r4.json`.
 - `writer-parity-20261110/map-cover-native-root/MANUAL-CHECK-current.json`.
+- `writer-parity-20261110/map-cover-continuity/r2/external-prep/CUT-EXTERNAL-PREP.json`, `ROOT-GO-FINAL.md`, `PREFLIGHT.json`, `MEMORY-RECEIPT.json`, `STORE-RECEIPT-1.json`, `STORE-RECEIPT-2.json`, `GRAPH-AFTER.json`, `FINAL-RECEIPT.json` y `APPLICATION-EXIT.json`.
 - `writer-parity-20261109/map-cover-red/retire2365/RETIRE-2365.json` y `REMOVAL.json`.
 
 ## Históricos y límites
