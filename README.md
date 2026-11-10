@@ -1036,3 +1036,11 @@ The SDK and existing MCP rich-range/state tools use the same captured text ident
 In Notes → To-do, tasks can link to chapters and Codex entries. Duplicating a project or importing its JSON connects those links to the copied documents. Task text, status, urgency, due dates and order stay intact. A normal project ZIP also keeps the links when opened in another library.
 
 Source2349 revision1 is approved and integrated in main `d61e174d`, without push. Existing MCP duplication and Todo tools use the same project data. [Contract, verification and limits](docs/verification-task-link-portability.md) distinguish the final focused tests, genuine two-process bridge and real Brave imports. This increment adds no assignee or Mine filter, no new era-specific task behavior and no claim of complete parity.
+
+## Local covers for generated maps
+
+In World Generator, choose a local file or a Gallery image for a map's collection card. You can change or remove the cover and undo the change. Without a chosen cover, the card uses its existing generated thumbnail when available.
+
+A cover inherited from Shared base is shared with the eras that inherit it; changing or removing it affects them too. The cover panel explains this before editing. A map with its own era version, including an era-only map, keeps that version's cover. The chosen bytes remain independent of the Gallery original. Normal JSON import, project duplication and ZIP transfer retain covers and their era history.
+
+Source2365 revision3 is approved and integrated locally as `21bffd61`, without push. The existing terrain, map exports and Reader keep their own presentation. [Usage, MCP contract, verification and limits](docs/verification-map-cover.md) distinguish the accepted map cover capability from the pending SDK map-lens work and complete parity.
