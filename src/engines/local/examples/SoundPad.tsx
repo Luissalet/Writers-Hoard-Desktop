@@ -12,7 +12,7 @@ const soundButton='inline-flex min-h-9 items-center justify-center rounded-lg bo
 function SoundCoordinate({label,value,commit,disabled,es}:{label:string;value:number;commit:(value:number)=>boolean;disabled:boolean;es:boolean}){
  const [draft,setDraft]=useState({value,text:String(value)}),[invalid,setInvalid]=useState(false),text=draft.value===value?draft.text:String(value);
  const finish=()=>{const next=Number(text);if(!text.trim()||!Number.isFinite(next)){setInvalid(true);return;}if(commit(next)){setDraft({value:next,text:String(next)});setInvalid(false);}};
- const key=(event:KeyboardEvent<HTMLInputElement>)=>{if(event.key==='Enter'){event.preventDefault();event.currentTarget.blur();}else if(event.key==='Escape'){event.preventDefault();setDraft({value,text:String(value)});setInvalid(false);}};
+ const key=(event:KeyboardEvent<HTMLInputElement>)=>{if(event.key==='Enter'){event.preventDefault();event.currentTarget.blur();}else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setDraft({value,text:String(value)});setInvalid(false);}};
  return <label className="flex min-w-0 flex-col gap-1 text-xs text-text-muted">{label}<input className={soundInput} type="text" inputMode="decimal" aria-label={label} aria-invalid={invalid||undefined} disabled={disabled} value={text} onChange={event=>{setDraft({value,text:event.target.value});setInvalid(false);}} onBlur={finish} onKeyDown={key}/>{invalid&&<span role="alert">{es?'Introduce un número finito.':'Enter a finite number.'}</span>}</label>;
 }
 /** Virtual listener belongs to this client, not to an individual sound hook. */
