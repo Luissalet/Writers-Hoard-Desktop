@@ -4,7 +4,7 @@ import type {WorldEraScope} from '@/services/worldEras/types';
 import type {LocalToolDefinition,LocalToolJson,LocalToolSnapshot,LocalToolStateAction} from '../sdk';
 import type {LocalToolConvergenceCheckpoint,LocalToolConvergencePreparation,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolReplicaOptions} from '../convergence/types';
 import {convergenceCanonical,convergenceHash,validateLocalToolConvergenceUpdate} from '../convergence/format';
-import {createLocalToolGenesis,prepareLocalToolAdoption,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,prepareSourceAdditiveCheckpoint,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
+import {createLocalToolGenesis,forkLocalToolGenesis,prepareLocalToolAdoption,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,prepareSourceAdditiveCheckpoint,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
 import {isSourceAdditivePredecessor} from './additiveOrigin';
@@ -64,18 +64,21 @@ async function prepare<T extends LocalToolJson>(scope:WorldEraScope,id:string,de
   const plan=await transformSourceToolDocument<StoredPlan>(scope,id,read=>{
    const actual=source(read,id,definition.namespace),inherited=!!scope.eraId&&actual.provenance==='base';
    guard(actual,inherited); // CAS/lineage is checked before any new branch or epoch is prepared.
-   const addition=definition.sourceAdditive;
-   if(promote&&addition&&isSourceAdditivePredecessor(actual.document,addition.from)){
+   const addition=definition.sourceAdditive,predecessor=!!(promote&&addition&&isSourceAdditivePredecessor(actual.document,addition.from));
+   if(promote&&addition&&(predecessor||!actual.document.convergence)){
     const original=actual.document.convergence;
-    if(inherited||!original||original.conflict)throw Error('local_tool_source_additive_incompatible');
-    const contract=sourceConvergenceContract(actual.document,definition,options,false,true);
-    const checkpoint=prepareSourceAdditiveCheckpoint(original.checkpoint,actual.document.data,addition.from,contract);
+    if(predecessor&&(inherited||original?.conflict))throw Error('local_tool_source_additive_incompatible');
+    const contract=sourceConvergenceContract(actual.document,definition,options,false,predecessor);
+    // An unstarted predecessor has no executable old validator or history to reset.
+    // Prepare its checked raw origin from complete metadata; persist only the final effect.
+    const origin=original?.checkpoint??(predecessor?forkLocalToolGenesis(actual.document.data,addition.from):createLocalToolGenesis(actual.document.data as T,contract));
+    const checkpoint=predecessor?prepareSourceAdditiveCheckpoint(origin,actual.document.data,addition.from,contract):origin;
     const prepared=change(actual,checkpoint,{authorId:options.authorId,contract},false);
     if(prepared.beforeFingerprint!==convergenceHash(checkpoint))throw Error('conflict');
-    if(!prepared.causalChanged)return{result:{checkpoint:original.checkpoint,update:null,changed:false,causalChanged:false,pending:false,receipt:null}};
+    if(!prepared.causalChanged)return{result:{checkpoint:original?.checkpoint??null,update:null,changed:false,causalChanged:false,pending:false,receipt:null}};
     const exported=exportLocalToolConvergenceCheckpoint(prepared.checkpoint);
     if(prepared.conflict||exported.pending)throw Error('local_tool_source_additive_incompatible');
-    const next={...touch(actual.document),codec:structuredClone(contract.codec),data:prepared.data,convergence:state(prepared)};
+    const next={...touch(actual.document),...(inherited?{generation:crypto.randomUUID()}:{}),codec:structuredClone(contract.codec),data:prepared.data,convergence:state(prepared)};
     return{next,result:{checkpoint:prepared.checkpoint,update:exported.update,changed:prepared.changed,causalChanged:true,pending:false,receipt:prepared.receipt}};
    }
    const context=prepareSourceConvergenceContext(actual.document,definition,options,inherited,adopting),{checkpoint,replicaOptions}=context;
@@ -100,8 +103,8 @@ export function adoptSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
 }
 export function applySourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],options:SourceConvergenceOptions){
  return prepare(scope,id,definition,options,read=>{
-  baseline(read,value,id,definition.namespace,false);
   const spec=definition.codec?.sourceDefault;
+  baseline(read,value,id,definition.namespace,!!spec&&!read.document.convergence);
   if(spec&&read.document.codec?.sourceDefault&&actions.some(action=>'field'in action&&action.field===spec.field)){
    // An effective baseline equal to the default cannot attest to sparse presence.
    baseline(read,value,id,definition.namespace,true);

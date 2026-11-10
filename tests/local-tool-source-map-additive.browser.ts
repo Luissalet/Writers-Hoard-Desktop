@@ -470,3 +470,99 @@ export async function testSourceMapAdditiveRoots(){
  }finally{author.destroy();}
  return checks;
 }
+
+// Source bootstrap regression: no start() call, no Source rows seeded through DB.
+import {renameSourceToolDocument as bootstrapRename} from '@/engines/local/documents/store';
+export async function testSourceAdditiveBootstrap(){
+ const checks:string[]=[];
+ for(const kind of ['map','scalar'] as const)checks.push(...await bootstrapScenario(kind));
+ return checks;
+}
+async function bootstrapScenario(kind:'map'|'scalar'){
+ const checks:string[]=[],namespace='tests.source-'+kind+'-bootstrap2455',projectId='bootstrap-'+crypto.randomUUID(),scope={projectId},copies:string[]=[];
+ const field=kind==='map'?'checks':'habitat',defaultValue=kind==='map'?{}:'Coast';
+ const equal=(label:string,actual:unknown,expected:unknown)=>{mapNeed(convergenceCanonical(actual)===convergenceCanonical(expected),kind+' '+label+': '+JSON.stringify(actual));checks.push(kind+' '+label);};
+ const all=async()=>JSON.stringify(await Promise.all(db.tables.map(async table=>({name:table.name,rows:await table.toArray()}))),(_key,value)=>value===undefined?{ownUndefined:true}:value);
+ const reject=async(label:string,run:()=>unknown)=>{const before=await all();let error:unknown;try{await run();}catch(value){error=value;}mapNeed(error,label+' must reject');equal(label+' retains complete private library',await all(),before);};
+ const valid=(value:LocalToolJson):value is Record<string,LocalToolJson>=>mapRecord(value)&&typeof value.name==='string'&&!!value.name&&mapRecord(value.other);
+ const one=defineLocalTool<Record<string,LocalToolJson>>({namespace,stateSchemaVersion:'1',name:{en:'Bootstrap V1',es:'Inicio V1'},description:{en:'Own normal Source fixture',es:'Prueba Source normal propia'},document:{defaultTitle:{en:'Own notebook',es:'Cuaderno propio'}},codec:{version:1,fields:{name:{kind:'scalar'},other:{kind:'map'}}},initialState:{name:'Initial',other:{keep:'Untouched Ω'}},validateState:valid,component:()=>null});
+ const from={namespace,codec:one.codec!,...localToolConvergenceContext(one)!};
+ const two=defineLocalTool<Record<string,LocalToolJson>>({...one,stateSchemaVersion:'2',codec:{version:1,fields:{name:{kind:'scalar'},other:{kind:'map'},[field]:kind==='map'?{kind:'map'}:{kind:'scalar'}}},sourceAdditive:{from,field,defaultValue},initialState:{...one.initialState,[field]:defaultValue},validateState:(value):value is Record<string,LocalToolJson>=>valid(value)&&(kind==='map'?mapRecord(value[field])&&Object.values(value[field]).every(entry=>mapRecord(entry)&&typeof entry.label==='string'&&typeof entry.done==='boolean'):typeof value[field]==='string')});
+ const bytes=new TextEncoder().encode(mapFixtureSource),hash=async(value:Uint8Array<ArrayBuffer>)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',value))].map(x=>x.toString(16).padStart(2,'0')).join('');
+ const manifest=async(version:string):Promise<LocalToolReleaseManifest>=>{const identity={format:'writers-hoard-local-tool-source/1',apiVersion:1,namespace,version,files:[{path:'module.tsx',sha256:await hash(bytes),bytes:bytes.length}]} satisfies Omit<LocalToolReleaseManifest,'contentHash'>;return{...identity,contentHash:await hash(new TextEncoder().encode(localToolReleaseIdentity(identity)))};};
+ const v1=await manifest('1.0.0'),v2=await manifest('2.0.0'),path=(v:LocalToolReleaseManifest)=>'./installed/'+namespace+'/versions/'+v.contentHash;
+ registerLocalToolModules({[path(v1)+'/module.tsx']:{default:one},[path(v2)+'/module.tsx']:{default:two}},{[path(v1)+'/release.json']:v1,[path(v2)+'/release.json']:v2});
+ try{
+  equal('starts with89empty tables',[db.tables.length,(await Promise.all(db.tables.map(t=>t.count()))).every(n=>n===0)],[89,true]);
+  await mapCreateProject({id:projectId,title:'Own bootstrap',description:'Synthetic regression',mode:'custom',type:'standalone',status:'draft',color:'#777777',enabledEngines:['local-tool-'+namespace],createdAt:1,updatedAt:1});
+  const pin=await pinLocalToolRelease(projectId,namespace,v1.contentHash,null);
+  const legacy=await createSourceToolDocument(scope,namespace,'Saved V1 without start'),abortLegacy=await createSourceToolDocument(scope,namespace,'Abort V1 without start'),casLegacy=await createSourceToolDocument(scope,namespace,'CAS V1 without start');
+  const old=createLocalToolClient(projectId,one,{documentId:legacy.id,releaseHash:v1.contentHash,requireSelectedRelease:true});mapNeed(old.state&&old.convergence,'V1 public ports unavailable');
+  await old.state.apply(await old.read(),[{type:'set',field:'name',value:'Saved before V2 Ω'}]);
+  const before=await readSourceToolDocument(scope,legacy.id,namespace);mapNeed(before,'Saved V1 missing');
+  equal('ordinary V1 state.apply saved name without checkpoint',[(await old.read()).data.name,(await old.convergence.export()).checkpoint],['Saved before V2 Ω',null]);
+  // A portable legacy input omits the optional generation; normal import remaps its ID.
+  const portable=kind==='map'?await mapExportProjectData(projectId):undefined;
+  if(portable?.project?.sourceToolDocuments)for(const document of portable.project.sourceToolDocuments)delete document.generation;
+  await pinLocalToolRelease(projectId,namespace,v2.contentHash,pin.revision);
+  const client=(id:string)=>createLocalToolClient(projectId,two,{documentId:id,releaseHash:v2.contentHash,requireSelectedRelease:true});
+  const current=client(legacy.id);mapNeed(current.state&&current.convergence,'V2 public ports unavailable');
+  const quiet=await all(),effective=await current.read();await current.read();const exported=await current.convergence.export();
+  equal('pin/read/export remain passive and project the default',[effective.data,exported.checkpoint,await all()],[{name:'Saved before V2 Ω',other:{keep:'Untouched Ω'},[field]:defaultValue},null,quiet]);
+  const operation=kind==='map'?{type:'map-set' as const,field,key:'first',value:{label:'First normal gesture',done:false}}:{type:'set' as const,field,value:defaultValue};
+  let first:Awaited<ReturnType<typeof current.state.apply>>;
+  try{first=await current.state.apply(effective,[operation]);}
+  catch(error){const message=error instanceof Error?error.message:String(error);equal('failed first gesture leaves all rows exact',await all(),quiet);console.log('SOURCE_ADDITIVE_BOOTSTRAP_RED '+JSON.stringify({kind,error:message,checkpoint:null}));throw Error('REQUIRED_CAPABILITY: normal Source first additive action without start must succeed; '+message);}
+  mapNeed(first.receiptId,'First bootstrap gesture needs normal receipt');
+  const after=await readSourceToolDocument(scope,legacy.id,namespace);mapNeed(after?.document.convergence,'First gesture did not persist checkpoint');
+  equal('first gesture keeps id/generation/lineage and one revision',[after.document.id,after.document.generation,after.lineage,after.document.revision,after.document.convergence.checkpoint.engine.version],[before.document.id,before.document.generation,before.lineage,before.document.revision+1,'8']);
+  equal('old authored data survives first action',[first.snapshot.data.name,first.snapshot.data.other],['Saved before V2 Ω',{keep:'Untouched Ω'}]);
+  equal('first gesture authors explicit added slot',mapData(after.document.data)[field],kind==='map'?{first:{label:'First normal gesture',done:false}}:defaultValue);
+  await current.state.undo(first.receiptId);
+  equal('Undo removes raw added slot and keeps projected default',[Object.hasOwn(mapData((await readSourceToolDocument(scope,legacy.id,namespace))!.document.data),field),(await current.read()).data[field]],[false,defaultValue]);
+  const noOp=kind==='map'?{type:'map-delete' as const,field,key:'absent'}:{type:'unset' as const,field};
+  const effectiveAction=kind==='map'?{type:'map-set' as const,field,key:'abort',value:{label:'Abort candidate',done:true}}:{type:'set' as const,field,value:'Hills'};
+  const invalid=kind==='map'?{type:'map-set' as const,field,key:'invalid',value:{label:'Invalid',done:'wrong'}}:{type:'set' as const,field,value:123};
+  for(const id of [abortLegacy.id,(await createSourceToolDocument(scope,namespace,'Native V2 without start')).id]){
+   const untouched=client(id);mapNeed(untouched.state&&untouched.convergence,'No-start ports missing');
+   const raw=await readSourceToolDocument(scope,id,namespace);mapNeed(raw,'Untouched document missing');const snapshot=await untouched.read(),start=await all();
+   const noop=await untouched.state.apply(snapshot,[noOp]);
+   equal('no-op discards every candidate without revision/checkpoint/receipt',[noop.receiptId,(await untouched.convergence.export()).checkpoint,await all()],[null,null,start]);
+   await reject('invalid first gesture',()=>untouched.state!.apply(snapshot,[invalid]));
+   let aborted:string|null=null,completed=false;
+   await reject('outer first-gesture abort',()=>db.transaction('rw',db.tables,async()=>{const result=await untouched.state!.apply(snapshot,[effectiveAction]);aborted=result.receiptId;completed=true;throw Error('own-bootstrap-abort');}));
+   equal('valid gesture reached outer abort with provisional receipt',[completed,typeof aborted],[true,'string']);
+   await reject('aborted receipt unavailable',()=>untouched.state!.undo(aborted!));
+   const saved=await untouched.state.apply(await untouched.read(),[operation]);mapNeed(saved.receiptId,'Native/predecessor first action needs receipt');
+   const persisted=await readSourceToolDocument(scope,id,namespace);mapNeed(persisted?.document.convergence,'Bootstrap checkpoint missing');
+   equal('native/predecessor bootstrap preserves existing lineage and generation',[persisted.document.id,persisted.document.generation,persisted.lineage,persisted.document.revision],[raw.document.id,raw.document.generation,raw.lineage,raw.document.revision+1]);
+   equal('normal no-package export reads new checkpoint',exportLocalToolConvergenceCheckpoint(persisted.document.convergence.checkpoint).pending,false);
+   await untouched.state.undo(saved.receiptId);equal('native/predecessor Undo restores sparse absence',Object.hasOwn(mapData((await readSourceToolDocument(scope,id,namespace))!.document.data),field),false);
+  }
+  if(kind==='map'){
+   const nativeBase=await createSourceToolDocument(scope,namespace,'Native Base without start'),baseClient=client(nativeBase.id);mapNeed(baseClient.convergence,'Base export port missing');
+   const baseBefore=await baseClient.convergence.export(),era=await saveWorldEra(projectId,{id:'bootstrap-era-'+crypto.randomUUID(),name:'Bootstrap era',description:'',revision:0,createdAt:1,updatedAt:1},null);
+   const eraScope={projectId,eraId:era.id},eraClient=createLocalToolClient(projectId,two,{documentId:nativeBase.id,eraId:era.id,releaseHash:v2.contentHash,requireSelectedRelease:true});mapNeed(eraClient.state&&eraClient.convergence,'Era bootstrap ports missing');
+   const inherited=await eraClient.read(),eraQuiet=await all(),noop=await eraClient.state.apply(inherited,[noOp]);
+   equal('inherited native no-op creates no variant or checkpoint',[noop.receiptId,(await eraClient.convergence.export()).checkpoint,(await readSourceToolDocument(eraScope,nativeBase.id,namespace))?.provenance,await all()],[null,null,'base',eraQuiet]);
+   const authored=await eraClient.state.apply(await eraClient.read(),[operation]);mapNeed(authored.receiptId,'Era bootstrap effect has no receipt');
+   const own=await readSourceToolDocument(eraScope,nativeBase.id,namespace);mapNeed(own,'Era Source missing after first effect');
+   equal('first inherited native effect creates its own causal branch',[own.provenance,own.document.id===nativeBase.id,own.document.generation!==nativeBase.generation,own.lineage!==inherited.document!.lineage],['variant',true,true,true]);
+   equal('era bootstrap leaves complete Base export unchanged',await baseClient.convergence.export(),baseBefore);
+   await eraClient.state.undo(authored.receiptId);
+   equal('era bootstrap Undo keeps own branch and empty default',[(await eraClient.read()).data[field],(await readSourceToolDocument(eraScope,nativeBase.id,namespace))?.document.generation,await baseClient.convergence.export()],[{},own.document.generation,baseBefore]);
+  }
+  const staleClient=client(casLegacy.id);mapNeed(staleClient.state,'CAS state missing');const stale=await staleClient.read();
+  await bootstrapRename(scope,casLegacy.id,namespace,'Renamed while no checkpoint',stale.revision!,stale.document!.version);
+  await reject('stale pre-bootstrap version rejects strictly',()=>staleClient.state!.apply(stale,[operation]));
+  if(portable){
+   const copyId=await mapImportProjectData(portable);copies.push(copyId);const row=(await db.projects.get(copyId))?.sourceToolDocuments?.find(doc=>doc.title==='Saved V1 without start');mapNeed(row,'Normal legacy JSON copy missing');
+   equal('legacy optional generation is absent after normal JSON import',Object.hasOwn(row,'generation'),false);
+   const selected=(await db.projects.get(copyId))!.localToolInstallations?.[namespace];await pinLocalToolRelease(copyId,namespace,v2.contentHash,selected?.revision??null);
+   const copied=createLocalToolClient(copyId,two,{documentId:row.id,releaseHash:v2.contentHash,requireSelectedRelease:true});mapNeed(copied.state,'Copied state missing');
+   const prior=await copied.read();await copied.state.apply(prior,[operation]);const durable=await readSourceToolDocument({projectId:copyId},row.id,namespace);mapNeed(durable,'Copied Source missing after bootstrap');
+   equal('bootstrap does not invent an absent legacy generation',[Object.hasOwn(durable.document,'generation'),durable.lineage,durable.document.id,durable.document.revision],[false,prior.document!.lineage,row.id,row.revision+1]);
+  }
+ }finally{for(const id of copies)if(await db.projects.get(id))await deleteProject(id);if(await db.projects.get(projectId))await deleteProject(projectId);equal('cleanup89zero',(await Promise.all(db.tables.map(t=>t.count()))).every(n=>n===0),true);}
+ return checks;
+}
