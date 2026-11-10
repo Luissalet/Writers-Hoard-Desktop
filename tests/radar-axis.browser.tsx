@@ -225,3 +225,24 @@ export async function testRadarAxisPointer():Promise<string[]>{
   return['Real native pointer capture defers order until drop; Escape, pointercancel handler and actual lost capture cancel; actual UI append invalidates stale gesture; normal Save preserves series/raw values/bindings'];
  }finally{await act(async()=>root.unmount());await clean(f);}
 }
+
+
+/** A normal center click must reach its own gap, even in a dense narrow chart. */
+export async function testRadarAxisDenseGraphic():Promise<string[]>{
+ const host=document.getElementById('root')!,root=createRoot(host),oldWidth=host.style.width,oldOverflow=host.style.overflow;
+ try{
+  for(const count of [3,5,23])for(const width of [240,320,720]){
+   let chart=createRadarChart('Dense gap hit targets');while(chart.axes.length<count)chart=addRadarAxis(chart,'Added '+chart.axes.length);if(count===3)chart={...chart,axes:chart.axes.slice(0,3)};
+   chart.axes=chart.axes.map((axis,index)=>({...axis,label:'Axis '+index}));const resolved=chart.series.map(series=>resolveRadarSeries(series,chart.axes,[],''));let selected='';
+   host.style.width=width+'px';host.style.overflow='auto';
+   await act(async()=>{root.render(<RadarGraphic chart={chart} series={resolved} onValue={()=>{}} onInsertAxis={id=>{selected=id;}}/>);await pause(120);});
+   const controls=[...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Insert axis before"]')];assert(controls.length===count,'Missing dense gap controls');
+   for(let index=0;index<controls.length;index++){
+    const control=controls[index];control.scrollIntoView({block:'center',inline:'center'});await pause(30);const r=control.getBoundingClientRect(),target=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button');
+    assert(target===control,`Dense ${count}-axis gap ${index} at width ${width} hits ${target?.getAttribute('aria-label')} instead of its own control`);
+    selected='';await click(target,'actual hit-tested gap');assert(selected===chart.axes[index].id,'Hit-tested center selected the wrong stable anchor');
+   }
+  }
+  return['Every gap center selects its own stable anchor at 3/5/23 axes and 240/320/720px host widths, including horizontal scrolling'];
+ }finally{await act(async()=>root.unmount());host.style.width=oldWidth;host.style.overflow=oldOverflow;}
+}
