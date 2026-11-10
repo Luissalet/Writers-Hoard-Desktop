@@ -103,8 +103,10 @@ export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergence
  if(remaining.get(txId)!==0)return invalid();
  for(const version of new JsonMap<RegisterVersion>(doc.getMap('register-versions')).values()){
   if(version.txId===txId)return invalid();
+  if(item.target.codec.fields[spec.field]?.kind==='map'&&version.root==='scalar'&&version.key===spec.field)return invalid();
   if(!ancestors.has(version.txId))continue;
   if(version.root==='scalar'&&version.key===spec.field||
+     item.target.codec.fields[spec.field]?.kind==='map'&&(version.root==='presence'&&version.key===spec.field||version.root==='map:'+spec.field)||
      version.root==='authored-valid-snapshot'&&record(version.value)&&hasSlot(version.value.data,spec.field))return invalid();
  }
  for(const activation of new JsonMap<RegisterActivation>(doc.getMap('register-activations')).values())if(activation.txId===txId)return invalid();

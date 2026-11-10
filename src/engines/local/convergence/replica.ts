@@ -47,6 +47,14 @@ const unbind=(bindings:Binding[],id:string)=>{const at=bindings.findIndex(value=
 const object=(value:unknown):value is ObjectData=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const listFields=(codec:LocalToolStateCodec)=>Object.entries(codec.fields).filter(([,field])=>field.kind==='list');
 const order=(doc:Y.Doc,field:string)=>new JsonArray<Placement>(doc.getArray<string>('order:'+JSON.stringify(field)));
+const sourceMapField=(codec:LocalToolStateCodec)=>codec.sourceDefault&&codec.fields[codec.sourceDefault.field]?.kind==='map'?codec.sourceDefault.field:undefined;
+/** Only the declared additive map has a virtual empty action basis; preserve sparse no-ops. */
+function mergeActions<T extends LocalToolJson>(codec:LocalToolStateCodec,baseline:T,current:T,actions:readonly LocalToolStateAction[]){
+ const field=sourceMapField(codec);if(field===undefined)return mergeLocalToolActions(codec,baseline,current,actions);
+ const result=mergeLocalToolActions(codec,projectSourceDefault(baseline,codec.sourceDefault),projectSourceDefault(current,codec.sourceDefault),actions);
+ if(object(current)&&!Object.hasOwn(current,field)&&object(result.data)&&object(result.data[field])&&!Object.keys(result.data[field]).length)delete result.data[field];
+ return{...result,data:result.data as T};
+}
 const roots=(doc:Y.Doc,codec:LocalToolStateCodec,provided?:Registers)=>{
  const registers=provided??new Registers(doc),plainRoots=new Map<string,PlainRuns>(),richRoots=new Map<string,RichRuns>();
  return{registers,rich:(field:string)=>{let rich=richRoots.get(field);if(!rich){rich=new RichRuns(doc,field,registers,!!provided,localToolRichLinks(codec.fields[field]),annotationSpec(codec.fields[field]));richRoots.set(field,rich);}return rich;},plain:(field:string)=>{let plain=plainRoots.get(field);if(!plain){plain=new PlainRuns(doc,field,registers);plainRoots.set(field,plain);}return plain;},scalar:registers.map<LocalToolJson>('scalar'),presence:registers.map<boolean>('presence'),valid:registers.map<StoredValidView>('authored-valid-snapshot'),
@@ -89,7 +97,13 @@ function projectRoots(r:Roots):ValidView {
   if(descriptor.kind==='rich'){delete data[field];if(r.presence.get(field)){const rich=localToolRichTables(descriptor)?undefined:r.rich(field).materialize();if(blockField(r,field)){const view=localToolRichTables(descriptor)?projectTableField(r,field):blocks(r,field).project(rich!);data[field]=view.data as unknown as LocalToolJson;richBindings[field]=view.rich.bindings;blockBindings[field]=view.bindings;}else{data[field]=rich!.data as unknown as LocalToolJson;richBindings[field]=rich!.bindings;}}}else if(isLocalToolPlainField(descriptor)){
    delete data[field];if(r.presence.get(field)){const view=r.plain(field).materialize();data[field]=view.text;plainBindings[field]=view.bindings;}
   }else if(descriptor.kind==='map'){
-   delete data[field];if(r.presence.get(field))data[field]=Object.fromEntries([...r.map(field)].map(([key,value])=>[key,clone(value)]));
+   delete data[field];
+   if(field!==sourceMapField(r.codec)){if(r.presence.get(field))data[field]=Object.fromEntries([...r.map(field)].map(([key,value])=>[key,clone(value)]));continue;}
+   const entries=[...r.map(field)],presence=r.registers.winner('presence',field);
+   // A seed presence remains authoritative even when undone. Sparse origins instead
+   // derive support from their active keys, so Undo of one author cannot hide another.
+   const implicit=!r.registers.entries('presence',field).some(version=>r.registers.transactionParents(version.txId)?.length===0);
+   if(presence?presence.present&&presence.value===true:implicit&&entries.length>0)data[field]=Object.fromEntries(entries.map(([key,value])=>[key,clone(value)]));
   }else if(descriptor.kind==='list'){
    delete data[field];if(!r.presence.get(field))continue;
    const list=r.list(field),items:ObjectData[]=[],anchors:Binding[]=[],order=list.order.toArray(),known=new Set(order.map(place=>place.placementId));
@@ -299,7 +313,7 @@ export function prepareSourceAdditiveCheckpoint(checkpoint:LocalToolConvergenceC
  }finally{doc.destroy();}
 }
 function prepareLegacyActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,validateProposal=true):{actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean} {
- const before=inspect(r,contract).data,{data:proposal}=mergeLocalToolActions(contract.codec,before,before,actions);
+ const before=inspect(r,contract).data,{data:proposal}=mergeActions(contract.codec,before,before,actions);
  if(validateProposal&&!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
  const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract);
  for(const action of prepared){
@@ -311,7 +325,7 @@ function prepareLegacyActions<T extends LocalToolJson>(r:Roots,contract:LocalToo
    action.placementId=authorId+':'+crypto.randomUUID();const id=action.type==='list-insert'?action.item[descriptor.idKey] as string:action.id;bind(bindings[action.field],id,action.placementId);
   }
  }
- const raw=projection(r).data;let rawChanged=true;try{rawChanged=!localToolStateEqual(raw,mergeLocalToolActions(contract.codec,raw,raw,actions).data);}catch{/* An intent valid on fallback can target an absent/different raw list identity. */}
+ const raw=projection(r).data;let rawChanged=true;try{rawChanged=!localToolStateEqual(raw,mergeActions(contract.codec,raw,raw,actions).data);}catch{/* An intent valid on fallback can target an absent/different raw list identity. */}
  return{actions:prepared,proposal,bindings,changed:!localToolStateEqual(before,proposal)||rawChanged};
 }
 function admitted(r:Roots,contract:LocalToolConvergenceContract):ValidView {
@@ -346,10 +360,10 @@ function checkPlainDocument(r:Roots,doc:Y.Doc):void {
 function preparePlainActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,identity:LocalToolConvergenceIdentity,baseline?:T,validateProposal=true):ActionPlan<T> {
  const initial=admitted(r,contract),before=initial.data as T;
  if(!Object.values(r.codec.fields).some(isLocalToolPlainField)){
-  if(baseline!==undefined)mergeLocalToolActions(contract.codec,baseline,before,actions);return prepareLegacyActions(r,contract,actions,authorId,validateProposal);
+  if(baseline!==undefined)mergeActions(contract.codec,baseline,before,actions);return prepareLegacyActions(r,contract,actions,authorId,validateProposal);
  }
  if(!Array.isArray(actions)||!actions.length)throw Error('local_tool_actions_invalid');
- const generic=actions.filter(action=>action.type!=='text-splice');if(generic.length)mergeLocalToolActions(contract.codec,baseline??before,before,generic);
+ const generic=actions.filter(action=>action.type!=='text-splice');if(generic.length)mergeActions(contract.codec,baseline??before,before,generic);
  const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract),plainBindings=clone(initial.plainBindings??{}),drafts=new Map<string,PlainDraft>(),plainPresence:Record<string,boolean>={};
  let proposal=clone(before) as ObjectData;
  const draft=(field:string)=>{let value=drafts.get(field);if(!value){const old=(initial.data as ObjectData)[field];value=r.plain(field).draft({text:typeof old==='string'?old:'',bindings:plainBindings[field]??[]});drafts.set(field,value);}return value;};
@@ -361,7 +375,7 @@ function preparePlainActions<T extends LocalToolJson>(r:Roots,contract:LocalTool
    const next=draft(action.field);next.splice(action.range,action.text);const view=next.view();proposal[action.field]=view.text;plainBindings[action.field]=view.bindings;continue;
   }
   // Three-way conflict checks already covered the generic subsequence. Apply in original order to the proposal overlay.
-  proposal=mergeLocalToolActions(contract.codec,proposal,proposal,[action]).data as ObjectData;
+  proposal=mergeActions(contract.codec,proposal,proposal,[action]).data as ObjectData;
   if(isLocalToolPlainField(descriptor)){
    const next=draft(action.field);if(action.type==='set')next.replace(action.value as string);else if(action.type==='unset')next.clear();else throw Error('local_tool_action_kind_invalid');
    plainPresence[action.field]=action.type!=='unset';if(action.type==='unset')delete plainBindings[action.field];else plainBindings[action.field]=next.view().bindings;continue;
@@ -375,7 +389,7 @@ function preparePlainActions<T extends LocalToolJson>(r:Roots,contract:LocalTool
  if(validateProposal&&!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
  const plainPlans=Object.fromEntries([...drafts].map(([field,value])=>[field,value.finish()]));
  const nonPlain=generic.filter(action=>!isLocalToolPlainField(contract.codec.fields[action.field])),raw=projection(r).data;
- let rawChanged=false;if(nonPlain.length){try{rawChanged=!localToolStateEqual(raw,mergeLocalToolActions(contract.codec,raw,raw,nonPlain).data);}catch{rawChanged=true;}}
+ let rawChanged=false;if(nonPlain.length){try{rawChanged=!localToolStateEqual(raw,mergeActions(contract.codec,raw,raw,nonPlain).data);}catch{rawChanged=true;}}
  return{actions:prepared,proposal:proposal as T,bindings,plainBindings,plainPlans,plainPresence,changed:!localToolStateEqual(before,proposal)||Object.values(plainPlans).some(plan=>plan.changed)||rawChanged};
 }
 function validateRichCapture<T extends LocalToolJson>(r:Roots,doc:Y.Doc,contract:LocalToolConvergenceContract<T>,identity:LocalToolConvergenceIdentity,action:RichAction):RichSpan[]|undefined {
