@@ -1054,3 +1054,11 @@ Authors opt in with a validated `mapPanel` descriptor and a declared map-referen
 Source2382 revision2 (`27b4e398`) is approved and integrated locally in main without push. Root's genuine warm/cold bridge run and real Brave acceptance include both portable ZIPs, Base/era notes, read-only fullscreen and reopening after reload. [Use, SDK/MCP contract, evidence and limits](docs/verification-map-tools.md). This adds a contextual panel; map overlays, per-frame geometry and complete web/SDK parity are not established.
 
 The user manual and project knowledge records have been updated with this bounded capability.
+
+## Direct radar axis editing
+
+In a radar chart, use **Insert axis before** at a gap to add a measure in that position. Reorder an axis from its handle by dragging or with Alt+Up/Down. Add axis and the existing up/down controls remain available. Each axis keeps its identity, scales, steps, colors and icons; series values, raw outliers and live Codex bindings stay attached to the same axis. A new axis starts at zero for every series.
+
+Edits use the normal draft, **Save chart** and confirmed **Discard draft**. Escape cancels a drag before drop. On narrow screens, a dense editable plot scrolls inside its chart so each gap remains distinct. Read-only charts show their content without author gestures. MCP adds `wh_radar_axis_insert` and `wh_radar_axis_move`, using the current chart revision and the normal Base/era writer. [Usage, contract and verification](docs/verification-radar-axis.md).
+
+Source2425 revision3 is independently approved and integrated locally in main at `6ac8efa4`, without push. Root completed the genuine warm/cold bridge run and real Brave acceptance with both current ZIPs; the separate Native audit2452 is approved. This documentation attributes those results to their authors and does not rerun that harness.
