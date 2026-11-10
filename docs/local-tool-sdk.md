@@ -533,6 +533,35 @@ Declarative readonly previews resolve captured bytes without mounting authored c
 
 Verification:18 author groups +6 independent groups +10 relevant legacy groups,34 distinct focused groups, not a global suite. Root's normal Brave imports/selection/Revert/save/reopen and readonly96px evidence are separate from dispatcher tests; no final-source stdio or hardware-listening claim. See the linked verification for source receipts, final integration/build and the separate manual receipt.
 
+## Prepare reusable local audio
+
+`LocalToolAudio` can decode local audio before the listener presses Play. This is Writer's own retention API; it does not copy an undocumented upstream ABI:
+
+```ts
+const audio = client.audio;
+const prepared = await audio?.preload([{kind: 'media', id: localAudioId}], {signal});
+// Ordered detached rows: id, ref, status, version, durationSeconds and optional error.
+const retained = audio?.getPreloads();       // passive; no resolver, decode or output
+const released = audio?.releasePreload(prepared?.map(row => row.id));
+// Omit IDs to release all of this owner's retentions; [] releases none.
+```
+
+`supportsPreload` reports the optional backend capability. Rows are `loading`, `ready`, `error`, `unavailable` or `cancelled`; ready includes decoded duration in seconds. Unavailable/cancelled results are not retained. A malformed list rejects before any partial preparation; an empty list does nothing. Abort applies while pending. Release, abort, disposal, retargeting or a revoked binding cannot attach a late result. Getter rows are detached and readiness is the last validated resource, not a promise of future availability: active watchers revoke changed/deleted assets and Play revalidates the effective binding/version before starting.
+
+Each input/request has an independent runtime UUID. Concurrent requests for the same effective binding/version and scope on one coordinator share a decode, while every owner keeps separate retentions. SDK release/dispose can release only that owner's rows. Private custom owners without `preloadScope` remain isolated; shared scopes are explicitly discriminated from private identities. Default SDK clients and the cold MCP owner use the normal Browser coordinator; an injected `audioEngine` is a different coordinator and does not share that cache. The cache keys include the effective canonical resource and version (compiled release/file hash for Source assets, scoped media identity/version for media), never only a slot label.
+
+Preparing performs decode-only work in `OfflineAudioContext`: no live output context, resume, source, voice graph, start, duck, focus, Play queue or database writes. Play still needs its normal gesture and creates a fresh voice; it uses a currently retained decoded buffer or its normal fallback. An acquired voice owns its buffer independently: releasing preparation never stops playing/paused voices or breaks resume/seek/pan/fades/buses/exclusive focus. Idle output contexts still close normally; a retained `AudioBuffer` can be reused by a fresh context. Releasing the last retention drops the cache reference. No cache/token/readiness survives reload or portable export.
+
+An optional custom backend `decode(blob)` returns `{durationSeconds, createVoice()}`. Decode must remain output-free; the factory runs only inside normal admitted Play. Existing backends with only `prepare(blob)` keep Play and honestly report preparation unavailable, as does the silent backend. `audioTesting.ts` remains an old-backend compatibility control.
+
+For resource selection, `assets.resolve(sourceRef)` reads the explicit compiled Source resource, whereas `assets.slot(slot, overrides)` applies the normal document/installation/default cascade. The existing SDK unpinned Source audio resolver keeps its slot behavior; use the resolved effective media ref, or a release-pinned Source ref when exact compiled bytes are required. AssetPad passes its effective resolved ref. For MCP, first call the existing `wh_local_asset_resolve` to obtain a cascade's effective `ref`; audio `preload` with an explicit Source ref resolves compiled bytes and does not invent an override cascade.
+
+The existing `wh_local_audio_control` adds `action:'preload'` with `refs`, returning `{preparations, started:false, queued:false}` in the normal project/era scope. A durable default-backend owner is created only for an explicit preparation request, so preparation works before any SDK Play/client exists. Concurrent cold calls share that owner, and it retires when no pending work, retentions or voices remain. `action:'release-preload'` accepts `preparationIds` or omits them to release all scoped owners; unlike SDK release, this scoped MCP action can release another owner's selected retention. Foreign scopes remain isolated. `wh_local_audio_status` adds `preparations` only with `includePreloads:true`; the ordinary DTO is unchanged and reading never creates an owner. Agent Play still returns gesture-required without queuing autoplay.
+
+`useSound` and `useAudioPlayer` expose `preload()`, `preparing`, `ready`, `preparations` and `releasePreload()` for that hook's current binding. Pending work can be discarded; StrictMode retarget/unmount aborts pending requests and releases only that hook's retentions, including two hooks sharing one audio owner. Stop retains its ordinary voice-only meaning. SoundPad and AssetPad have optional Prepare, status/duration and Discard preparation controls; Play remains available without prior preparation. These local controls use existing styles and do not add an Enable step or automatic mounting playback.
+
+Scope: reusable decoding and runtime retention, separate from listener positions, distance, spatial/HRTF, hardware delivery or a claim of global parity. Offline PCM, controlled Browser backend, hooks/examples and renderer dispatcher tests do not by themselves establish authenticated Native or real Brave acceptance.
+
 ## Pause, resume and seek local audio
 
 `LocalToolAudio` exposes Writer's own transport contract on the ID returned by `play`:
