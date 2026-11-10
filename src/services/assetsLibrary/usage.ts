@@ -12,7 +12,7 @@ import type { Project } from '@/types';
 import type { LibraryAsset } from './catalog';
 
 export type PlaceKind =
-  | 'codex-avatar' | 'codex-link' | 'board-node' | 'storyboard-panel' | 'video-segment' | 'map-background'
+  | 'codex-avatar' | 'codex-link' | 'board-node' | 'storyboard-panel' | 'video-segment' | 'map-background' | 'world-cover'
   | 'project-cover' | 'wiki-banner' | 'visual-ref' | 'generation-ref' | 'writing-block' | 'soundscape-strip'
   | 'codex-block' | 'diary-block' | 'board-text' | 'reader-audio' | 'published-edition' | 'image-recipe' | 'map-ambience';
 
@@ -33,7 +33,7 @@ async function imagePlaces(projectId: string, asset: LibraryAsset): Promise<Asse
   if (!image || image.projectId !== projectId) return [];
   const same = (shown?: string, original?: string) => Boolean((shown && shown === image.imageData) || (original && image.imageDataOriginal && original === image.imageDataOriginal));
   const places: AssetPlace[] = [];
-  const [entries, nodes, boards, panels, storyboards, segments, plans, maps, project, refs, others, recipes] = await Promise.all([
+  const [entries, nodes, boards, panels, storyboards, segments, plans, maps, project, refs, others, recipes, worlds, worldVariants] = await Promise.all([
     db.codexEntries.where('projectId').equals(projectId).toArray(),
     db.boardNodes.where('projectId').equals(projectId).toArray(),
     db.boards.where('projectId').equals(projectId).toArray(),
@@ -46,6 +46,8 @@ async function imagePlaces(projectId: string, asset: LibraryAsset): Promise<Asse
     db.visualRefs.where('projectId').equals(projectId).toArray(),
     db.inspirationImages.where('projectId').equals(projectId).toArray(),
     db.imageRecipes.where('projectId').equals(projectId).toArray(),
+    db.generatedWorlds.where('projectId').equals(projectId).toArray(),
+    db.worldEraVariants.where('projectId').equals(projectId).filter(row => row.kind === 'worldgen' && !row.archived && !row.hidden && !!row.document).toArray(),
   ]);
   for (const entry of entries) if (same(entry.avatar, entry.avatarOriginal)) places.push({ kind: 'codex-avatar', id: entry.id, name: clean(entry.title, entry.id) });
   const linked = new Set([...(image.linkedEntryIds ?? []), ...(image.linkedEntryId ? [image.linkedEntryId] : [])]);
@@ -57,6 +59,12 @@ async function imagePlaces(projectId: string, asset: LibraryAsset): Promise<Asse
   const planName = new Map(plans.map(row => [row.id, clean(row.title, row.id)]));
   for (const segment of segments) if (same(segment.visualImageData, segment.visualImageDataOriginal)) places.push({ kind: 'video-segment', id: segment.id, name: `${planName.get(segment.videoPlanId) ?? ''} › ${clean(segment.title, segment.id)}`.replace(/^ › /, '') });
   for (const map of maps) if (map.backgroundImage && map.backgroundImage === image.imageData) places.push({ kind: 'map-background', id: map.id, name: clean(map.title, map.id) });
+  for (const world of worlds) if (same(world.coverImage, world.coverImage)) places.push({ kind: 'world-cover', id: world.id, name: clean(world.title, world.id) });
+  // Inherited worlds are already counted on Base; only actual own roots add a place.
+  for (const variant of worldVariants) {
+    const root = variant.document!.root, cover = typeof root.coverImage === 'string' ? root.coverImage : undefined;
+    if (same(cover, cover)) places.push({ kind: 'world-cover', id: JSON.stringify([variant.eraId, variant.entityId]), name: `${clean(project?.worldEras?.find(era => era.id === variant.eraId)?.name, variant.eraId)} › ${clean(typeof root.title === 'string' ? root.title : undefined, variant.entityId)}` });
+  }
   if (project?.coverImage && project.coverImage === image.imageData) places.push({ kind: 'project-cover', id: project.id, name: clean(project.title, project.id) });
   for (const profile of project?.wikiProfiles ?? []) if (profile.options.home?.banner && profile.options.home.banner === image.imageData) places.push({ kind: 'wiki-banner', id: profile.id, name: clean(profile.name, profile.id) });
   for (const ref of refs) {

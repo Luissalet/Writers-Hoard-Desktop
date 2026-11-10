@@ -20,6 +20,8 @@ import WorldView, {
   type WaypointFocus,
 } from './WorldView';
 import WorldDomainCreatePanel from './WorldDomainCreatePanel';
+import WorldCoverPanel from './WorldCoverPanel';
+import { worldCoverCopy } from '../worldCoverCopy';
 
 export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   const scope = useWorldEraScope(projectId);
@@ -165,6 +167,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
       />
       {activeWorld && (
         <>
+          <WorldCoverPanel scope={scope} world={activeWorld} onSaved={refresh} />
           <WorldView
             key={worldRuntimeKey(activeWorld.id, scope.eraId)}
             projectId={projectId}
@@ -203,6 +206,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
         onCreate={handleCreate}
         onDelete={handleDelete}
         placeholder={t('worldgenEngine.namePlaceholder')}
+        preview={item => item.coverImage || item.thumbnail ? { src: item.coverImage || item.thumbnail!, alt: worldCoverCopy(locale).preview(item.title) } : null}
       />
     </div>
   );

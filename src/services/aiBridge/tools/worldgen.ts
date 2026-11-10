@@ -80,6 +80,31 @@ import {
 
 const ENGINE = 'worldgen';
 
+async function loadCoverWorld(args: ToolArgs): Promise<GeneratedWorld> {
+  try { return await loadWorld(args); }
+  catch (error) {
+    if (error instanceof Error && ['project_missing', 'world_era_missing'].includes(error.message)) throw new BridgeError('not-found', 'The project or era no longer exists.');
+    throw error;
+  }
+}
+
+export async function whGetWorldCover(args: ToolArgs): Promise<unknown> {
+  const world = await loadCoverWorld(args);
+  const { getWorldCover, WorldCoverError } = await import('@/engines/worldgen/worldCover');
+  try { return await getWorldCover({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id); }
+  catch (error) { if (error instanceof WorldCoverError) throw new BridgeError(error.code === 'bad-value' ? 'bad-args' : error.code, error.message); throw error; }
+}
+
+export async function whSetWorldCover(args: ToolArgs): Promise<unknown> {
+  const world = await loadCoverWorld(args); await assertEngineEnabled(world.projectId, ENGINE);
+  const { saveWorldCover, WorldCoverError } = await import('@/engines/worldgen/worldCover');
+  try {
+    const receipt = await saveWorldCover({ projectId: world.projectId, eraId: worldEraToolScope(args)?.eraId }, world.id, args.coverImage as string | null, args.expectedRevision as number, args.expectedOwnerToken as string);
+    const result = { worldId: world.id, requestedScope: receipt.requestedScope, scope: receipt.ownerScope, ownerToken: receipt.ownerToken, coverImage: receipt.afterImage, revision: receipt.revision, changed: receipt.changed };
+    return receipt.changed ? withAudit(result, { projectId: world.projectId, entityId: world.id, summary: `changed the cover of map "${world.title}"`, before: { __worldCover: receipt } }) : result;
+  } catch (error) { if (error instanceof WorldCoverError) throw new BridgeError(error.code === 'bad-value' ? 'bad-args' : error.code, error.message); throw error; }
+}
+
 export async function whGetWorldScale(args: ToolArgs): Promise<unknown> {
   const world = await loadWorld(args);
   const { getWorldScale } = await import('@/engines/worldgen/worldScale');

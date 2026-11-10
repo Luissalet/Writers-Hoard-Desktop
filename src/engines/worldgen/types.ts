@@ -78,6 +78,11 @@ export interface GeneratedWorld {
   manuscriptLinks?: import('@/types/projectTools').EntityLink[];
   /** Small JPEG data URL preview for dashboards / future use. */
   thumbnail?: string;
+  /** Local image chosen for the collection card, independent of generated pixels. */
+  coverImage?: string;
+  /** Increments for cover changes on the current owner, including removal and Undo.
+   * Restoring an older version may restore its counter; ownerToken distinguishes that owner state. */
+  coverRevision?: number;
   /** The author's chosen look; absent fields keep the built-in defaults. See presentation.ts. */
   presentation?: WorldPresentation;
   /** Increments on every saved presentation change, for compare-and-swap writers. */

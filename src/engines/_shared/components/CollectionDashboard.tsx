@@ -26,6 +26,8 @@ export interface CollectionDashboardProps<T extends { id: string; title: string;
   placeholder?: string;
   /** Optional guided-tour anchor (`data-tour`) for this list. */
   tourAnchor?: string;
+  /** Optional document preview; only callers with an image surface opt in. */
+  preview?: (item: T) => { src: string; alt: string } | null | undefined;
 }
 
 export default function CollectionDashboard<T extends { id: string; title: string; createdAt: number }>({
@@ -39,6 +41,7 @@ export default function CollectionDashboard<T extends { id: string; title: strin
   onDelete,
   placeholder,
   tourAnchor,
+  preview,
 }: CollectionDashboardProps<T>) {
   const { t } = useTranslation();
   const [showNew, setShowNew] = useState(false);
@@ -112,6 +115,7 @@ export default function CollectionDashboard<T extends { id: string; title: strin
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
           {items.map(item => {
             const isActive = item.id === activeId;
+            const image = preview?.(item);
             return (
               <div
                 key={item.id}
@@ -120,6 +124,7 @@ export default function CollectionDashboard<T extends { id: string; title: strin
                 }`}
               >
                 <button onClick={() => onSelect(item.id)} className="w-full text-left p-3">
+                  {image?.src && <img src={image.src} alt={image.alt} className="mb-2 h-24 w-full rounded object-cover" data-testid="collection-preview" data-item-id={item.id} />}
                   <div className="flex items-center gap-2 mb-1">
                     <Icon size={12} className={isActive ? 'text-accent-gold' : 'text-text-dim'} />
                     <span

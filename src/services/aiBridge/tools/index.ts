@@ -219,6 +219,8 @@ import {
   whAddWaypoint,
   whFindPlace,
   whGetWorld,
+  whGetWorldCover,
+  whSetWorldCover,
   whRenderWorldMap,
   whGetWorldPresentation,
   whGetWorldScale,
@@ -580,6 +582,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   // World generator
   wh_list_worlds: whListWorlds,
   wh_get_world: whGetWorld,
+  wh_get_world_cover: whGetWorldCover,
+  wh_set_world_cover: whSetWorldCover,
   wh_render_world_map: whRenderWorldMap,
   wh_get_world_presentation: whGetWorldPresentation,
   wh_get_world_scale: whGetWorldScale,
