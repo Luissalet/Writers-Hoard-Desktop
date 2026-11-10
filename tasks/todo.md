@@ -2317,3 +2317,16 @@ Source2336r2 is already integrated at327c0051. Native2339 is closed; the Source 
 - [ ] Receive formal documentation review, integrate only the approved paths under the merge lock without push and retire this task's clean documentation worktree.
 
 Source2349 revision1 is already integrated in main d61e174d. This task adds documentation only. Assignee/Mine, new era-specific task behavior, managed external assets and complete parity remain outside the increment. Native and Brave executions belong to Root; the offline reviewer did not rerun them. Other pending work keeps its existing acceptance scope.
+
+## Portada local de mapas: documentación y continuidad —2377
+
+- [x] Leer Source2365r3 y la aceptación Root; conservar r2FAIL y r3warmPASS/coldFAIL con sus límites, sin reetiquetarlos como PASS.
+- [x] Aprobar e integrar el producto `21bffd6134907c9e3ff64c2f51b76771d132ada6` por fast-forward bajo merge lock,15blobs exactos/4703ajenos/índice/remotes conservados, sin push; el autor retiró su WT/rama y cerró2365 con recibo propio.
+- [x] Aceptar Native final sobre21bffd:181MCP/180relay+13UndoHTTP=193bridge,17internos aparte, cuatro claves401, frío exacto y89tablas contadas vacías; preservar el límite del primer archivo de getter reutilizado por cold.
+- [x] Aceptar Brave: dos ZIP Native4 de26cb,24ámbitos y6fríos; sobre21bffd, aviso ausente en Base/propio y presente heredado tras reload, bytes y panel420CSS exactos, sin extrapolar a todo WorldView.
+- [x] Actualizar el manual por Root una sola vez con lectura fresca/CAS/relectura completa:816párrafos/815ajenos, párrafo409 y255UTF16, estilos/listas/recurso inverso exactos. El snapshot offline799 queda sólo como historia; no repetir Google.
+- [x] Concretar y aplicar en WT documental propio sólo README.md, FAUSTUS.md, tasks/todo.md y docs/verification-map-cover.md, conservando tres prefijos y planes ajenos; preparar append de memoria y dos conceptos parent_id/embed=False.
+- [ ] Recibir revisión Root del corte documental, integrar sólo esas cuatro rutas bajo merge lock sin push y retirar el WT documental propio.
+- [ ] Tras lectura y GO específico de los payloads revisados, aplicar el append de memoria y dos conceptos/relaciones propios sin embeddings, conservar filas/aristas/prefijo ajenos y registrar sus recibos.
+
+La fuente y el manual están entregados; la continuidad de memoria/grafo y la revisión/integración documental conservan sus casillas pendientes.1095, paridad completa y panel SDK/map-lens mantienen sus planes y aceptación independientes. [Contrato y atribución](../docs/verification-map-cover.md). No se reescriben casillas anteriores ni se cierra trabajo ajeno.
