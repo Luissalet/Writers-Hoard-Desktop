@@ -1,6 +1,9 @@
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { worldgenScopeOperations, worldRuntimeKey } from '../era';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEraNavigate } from '@/services/worldEras/navigation';
+import MapToolWorkspace from '@/engines/local/mapTools/MapToolWorkspace';
+import { localMapTargetPath } from '@/engines/local/mapTools/catalog';
 import { useSearchParams } from 'react-router-dom';
 import { Mountain } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -25,6 +28,9 @@ import { worldCoverCopy } from '../worldCoverCopy';
 
 export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   const scope = useWorldEraScope(projectId);
+  const navigate = useEraNavigate();
+  const guardRef = useRef<(action: () => void | Promise<void>) => Promise<boolean>>(async () => false);
+  const requestChange = useCallback((action: () => void | Promise<void>) => guardRef.current(action), []);
   const { t, locale } = useTranslation();
   const {
     items: worlds,
@@ -39,20 +45,26 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   const [focusSpatial, setFocusSpatial] = useState<SpatialFocus | null>(null);
   const [focusRegion, setFocusRegion] = useState<RegionFocus | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryRef = useRef(searchParams);
+  useLayoutEffect(() => { queryRef.current = searchParams; }, [searchParams]);
 
   useAutoSelect(worlds, activeWorldId, setActiveWorldId);
 
   useEffect(() => {
     const worldId = searchParams.get('world');
     if (!worldId || !worlds.some((candidate) => candidate.id === worldId)) return;
+    let alive = true;
     const timer = window.setTimeout(() => {
+      void requestChange(() => {
+      if (!alive || queryRef.current.get('world') !== worldId) return;
       setActiveWorldId(worldId);
-      const next = new URLSearchParams(searchParams);
+      const next = new URLSearchParams(queryRef.current);
       next.delete('world');
       setSearchParams(next, { replace: true });
+      });
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [searchParams, setSearchParams, worlds]);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [searchParams, setSearchParams, worlds, requestChange]);
 
   useEnsureDefault({
     items: worlds,
@@ -76,33 +88,42 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
     if (!wpId) return;
     let alive = true;
     worldgenScopeOperations(scope).waypoints.getOne(wpId).then((wp) => {
-      if (!alive || !wp) return;
+      if (!alive || !wp || wp.projectId !== projectId || !worlds.some(world => world.id === wp.worldId)) return;
+      void requestChange(() => {
+      if (!alive || queryRef.current.get('waypoint') !== wpId) return;
       setActiveWorldId(wp.worldId);
       setFocusWaypoint({ id: wp.id, token: Date.now() });
       // Consume the param so refreshes don't re-trigger.
-      const next = new URLSearchParams(searchParams);
+      const next = new URLSearchParams(queryRef.current);
       next.delete('waypoint');
       setSearchParams(next, { replace: true });
+      });
     });
     return () => {
       alive = false;
     };
-  }, [searchParams, setSearchParams, scope]);
+  }, [searchParams, setSearchParams, scope, projectId, worlds, requestChange]);
 
   useEffect(() => {
     const placeId = searchParams.get('place');
     if (!placeId) return;
     const split = placeId.indexOf('::');
     if (split < 1) return;
-    const timer = window.setTimeout(() => {
-      setActiveWorldId(placeId.slice(0, split));
+    const ownerId = placeId.slice(0, split);
+    let alive = true;
+    void worldgenScopeOperations(scope).worlds.getOne(ownerId).then(owner => {
+      if (!alive || owner?.projectId !== projectId) return;
+      void requestChange(() => {
+      if (!alive || queryRef.current.get('place') !== placeId) return;
+      setActiveWorldId(ownerId);
       setFocusSpatial({ id: placeId.slice(split + 2), token: Date.now() });
-      const next = new URLSearchParams(searchParams);
+      const next = new URLSearchParams(queryRef.current);
       next.delete('place');
       setSearchParams(next, { replace: true });
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [searchParams, setSearchParams]);
+      });
+    });
+    return () => { alive = false; };
+  }, [searchParams, setSearchParams, scope, projectId, requestChange]);
 
   useEffect(() => {
     const regionId = searchParams.get('region');
@@ -110,21 +131,24 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
     const owner = worlds.find((candidate) =>
       candidate.regions?.some((region) => region.id === regionId));
     if (!owner) return;
+    let alive = true;
     const timer = window.setTimeout(() => {
+      void requestChange(() => {
+      if (!alive || queryRef.current.get('region') !== regionId) return;
       setActiveWorldId(owner.id);
       setFocusRegion({ id: regionId, token: Date.now() });
-      const next = new URLSearchParams(searchParams);
+      const next = new URLSearchParams(queryRef.current);
       next.delete('region');
       setSearchParams(next, { replace: true });
+      });
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [searchParams, setSearchParams, worlds]);
-
-  if (loading && worlds.length === 0) return <EngineSpinner />;
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [searchParams, setSearchParams, worlds, requestChange]);
 
   const activeWorld = worlds.find((w) => w.id === activeWorldId);
 
   const handleCreate = async (name: string) => {
+    await requestChange(async () => {
     const world = {
       id: generateId('world'),
       projectId,
@@ -135,35 +159,46 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
       updatedAt: Date.now(),
     };
     await addWorld(world);
-    setActiveWorldId(world.id);
+    await requestChange(() => setActiveWorldId(world.id));
+    });
   };
 
   const handleDelete = async (id: string) => {
+    await requestChange(async () => {
     await removeWorld(id);
     if (activeWorldId === id) {
       const remaining = worlds.filter((w) => w.id !== id);
-      setActiveWorldId(remaining.length > 0 ? remaining[0].id : '');
+      await requestChange(() => setActiveWorldId(remaining.length > 0 ? remaining[0].id : ''));
     }
+    });
   };
 
   return (
-    <div className="space-y-4" data-testid="worldgen-engine">
+    <MapToolWorkspace scope={scope} kind="worldgen" target={activeWorld ? { kind: 'worldgen', documentId: activeWorld.id } : null} onSelectTarget={(target, selection) => {
+      if (target.kind === 'worldgen') { setActiveWorldId(target.documentId); return; }
+      const [pathname, search] = localMapTargetPath(scope, target).split('?');
+      const query = new URLSearchParams(search);
+      if (selection) { query.set('mapTool', selection.namespace); query.set('mapDocument', selection.documentId); query.set('mapRelease', selection.expectedContentHash ?? 'development'); }
+      navigate(pathname + '?' + query);
+    }}>
+    {({ requestChange: guard }) => { guardRef.current = guard; return <div className="space-y-4" data-testid="worldgen-engine">
+      {loading && worlds.length === 0 && <EngineSpinner />}
       {error && <ReadErrorNotice onRetry={refresh} retrying={refetching} />}
       {worlds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex min-w-0 items-center gap-2 text-text-primary">
           <Mountain size={19} className="shrink-0 text-accent-gold" />
           <span className="sr-only">{t('worldgen.itemNoun')}</span>
-          <select value={activeWorldId} onChange={event => setActiveWorldId(event.target.value)} className="min-w-0 max-w-full rounded-lg border border-border bg-surface px-3 py-2 text-base font-semibold">
+          <select value={activeWorldId} onChange={event => { const id = event.target.value; void requestChange(() => setActiveWorldId(id)); }} className="min-w-0 max-w-full rounded-lg border border-border bg-surface px-3 py-2 text-base font-semibold">
             {worlds.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </select>
         </label>
         {activeWorld?.originWorldId && worlds.some(item => item.id === activeWorld.originWorldId) &&
-          <button onClick={() => setActiveWorldId(activeWorld.originWorldId!)} className="text-sm text-accent-gold underline underline-offset-4">{worldWorkspaceCopy(locale).openOriginal}</button>}
+          <button onClick={() => { void requestChange(() => setActiveWorldId(activeWorld.originWorldId!)); }} className="text-sm text-accent-gold underline underline-offset-4">{worldWorkspaceCopy(locale).openOriginal}</button>}
       </div>}
       <WorldDomainCreatePanel
         key={`create:${projectId}:${scope.eraId ?? ''}:${activeWorldId}`}
         scope={scope}
-        onCreated={async (worldId, isCurrent) => { await refresh(); if (isCurrent()) setActiveWorldId(worldId); }}
+        onCreated={async (worldId, isCurrent) => { await refresh(); if (isCurrent()) await requestChange(() => { if (isCurrent()) setActiveWorldId(worldId); }); }}
       />
       {activeWorld && (
         <>
@@ -174,9 +209,11 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
             world={activeWorld}
             onRefreshWorld={refresh}
             onCreateAlternative={async (params) => {
+              await requestChange(async () => {
               const alternative = await createWorldAlternative(activeWorld.id, params, `${worldWorkspaceCopy(locale).alternativeName} ${activeWorld.title}`, scope);
               await refresh();
-              setActiveWorldId(alternative.id);
+              await requestChange(() => setActiveWorldId(alternative.id));
+              });
             }}
             onSaveEdits={(edits) => editWorld(activeWorld.id, { edits })}
             onSaveRegions={async (regions, baseline) => { await saveWorldRegionChanges(projectId, activeWorld.id, baseline ?? activeWorld.regions ?? [], regions, undefined, scope.eraId); }}
@@ -202,12 +239,13 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
         itemNoun={t('worldgen.itemNoun')}
         items={worlds}
         activeId={activeWorldId}
-        onSelect={setActiveWorldId}
+        onSelect={id => { void requestChange(() => setActiveWorldId(id)); }}
         onCreate={handleCreate}
         onDelete={handleDelete}
         placeholder={t('worldgenEngine.namePlaceholder')}
         preview={item => item.coverImage || item.thumbnail ? { src: item.coverImage || item.thumbnail!, alt: worldCoverCopy(locale).preview(item.title) } : null}
       />
-    </div>
+    </div>; }}
+    </MapToolWorkspace>
   );
 }

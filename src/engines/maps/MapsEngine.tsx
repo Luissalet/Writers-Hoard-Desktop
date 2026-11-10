@@ -2,7 +2,9 @@ import { useEraNavigate } from '@/services/worldEras/navigation';
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { readEraRow, listEraRows } from '@/services/worldEras/store';
 import type { MapPin, WorldMap } from '@/types';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import MapToolWorkspace from '@/engines/local/mapTools/MapToolWorkspace';
+import { localMapTargetPath } from '@/engines/local/mapTools/catalog';
 import { ExternalLink, Link2, Map } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -32,6 +34,8 @@ import { mapGroundCopy } from '@/components/maps/mapGroundCopy';
 export default function MapsEngine({ projectId }: EngineComponentProps) {
   const { t, locale } = useTranslation();
   const scope = useWorldEraScope(projectId);
+  const guardRef = useRef<(action: () => void | Promise<void>) => Promise<boolean>>(async () => false);
+  const requestChange = useCallback((action: () => void | Promise<void>) => guardRef.current(action), []);
   // Timeline moments map eras can stand for. A map stays usable when the
   // timeline cannot be read: the history then simply offers no events.
   const projectEvents = useLiveQuery(() => (scope.eraId ? listEraRows<TimelineEvent>(scope, 'timelineEvents') : db.timelineEvents.where('projectId').equals(projectId).toArray()).catch(() => [] as TimelineEvent[]), [projectId, scope.eraId]) ?? [];
@@ -42,10 +46,12 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     const entries = await Promise.all(ids.map(async (id) => [id, (await resolveWorldCalendar(projectId, id, scope.eraId).catch(() => null))?.calendar ?? null] as const));
     return { project: (await resolveWorldCalendar(projectId, undefined, scope.eraId).catch(() => null))?.calendar ?? null, byTimeline: Object.fromEntries(entries) };
   }, [projectId, scope.eraId, timelineIds]);
+  const calendarForEvent = useCallback((event: TimelineEvent) => calendars?.byTimeline[event.timelineId] ?? calendars?.project ?? null, [calendars]);
   const navigate = useEraNavigate();
   const { items: maps, loading: mapsLoading, addItem: addMap, editItem: editMap, removeItem: removeMap, refresh: refreshMaps } = useWorldMaps(projectId);
   const [activeMapId, setActiveMapId] = useState<string>('');
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
+  const selectPreviewVersion = useCallback((id: string | null) => { void requestChange(() => setPreviewVersionId(id)); }, [requestChange]);
   const [restoreEpoch, setRestoreEpoch] = useState(0);
   // A replacement image waiting for the author's confirmation (only when the map already has one).
   const [pendingGround, setPendingGround] = useState<string | null>(null);
@@ -76,10 +82,13 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     if (!deepLinkedPinId) return;
     let cancelled = false;
     void (scope.eraId ? readEraRow<MapPin>(scope, 'mapPins', deepLinkedPinId) : mapPinOps.getOne(deepLinkedPinId)).then((pin) => {
-      if (!cancelled && pin?.mapId && pin.projectId === projectId) setActiveMapId(pin.mapId);
+      if (!cancelled && pin?.mapId && pin.projectId === projectId) void requestChange(async () => {
+        const map = scope.eraId ? await readEraRow<WorldMap>(scope, 'worldMaps', pin.mapId) : await worldMapOps.getOne(pin.mapId);
+        if (!cancelled && map?.projectId === projectId) setActiveMapId(pin.mapId);
+      });
     });
     return () => { cancelled = true; };
-  }, [deepLinkedPinId, projectId, scope]);
+  }, [deepLinkedPinId, projectId, scope, requestChange]);
 
   // Deep link: `/project/:id/maps?map=<id>` — what the anchor adapter emits for
   // a note anchored on the map itself (`AnnotationSurface` uses the map id).
@@ -90,10 +99,10 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     if (!deepLinkedMapId) return;
     let cancelled = false;
     void (scope.eraId ? readEraRow<WorldMap>(scope, 'worldMaps', deepLinkedMapId) : worldMapOps.getOne(deepLinkedMapId)).then((map) => {
-      if (!cancelled && map?.projectId === projectId) setActiveMapId(map.id);
+      if (!cancelled && map?.projectId === projectId) void requestChange(() => { if (!cancelled) setActiveMapId(map.id); });
     });
     return () => { cancelled = true; };
-  }, [deepLinkedMapId, projectId, scope]);
+  }, [deepLinkedMapId, projectId, scope, requestChange]);
 
   useEnsureDefault({
     items: maps,
@@ -109,11 +118,11 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     onCreated: setActiveMapId,
   });
 
-  if (mapsLoading && maps.length === 0) return <EngineSpinner />;
   const activeMap = maps.find((map) => map.id === activeMapId);
   const previewVersion = activeMap?.versions?.find(version => version.id === previewVersionId);
 
   const handleCreateMap = async (name: string) => {
+    await requestChange(async () => {
     const map = {
       id: generateId('map'),
       projectId,
@@ -122,10 +131,12 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
       updatedAt: Date.now(),
     };
     await addMap(map);
-    setActiveMapId(map.id);
+    await requestChange(() => setActiveMapId(map.id));
+    });
   };
 
   const handleDeleteMap = async (id: string) => {
+    await requestChange(async () => {
     const featureIds = maps.find(map => map.id === id)?.features?.map(feature => feature.id) ?? [];
     const pinIds = (await listEraRows<MapPin>(scope, 'mapPins')).filter(pin => pin.mapId === id).map(pin => pin.id);
     await deleteWithDraftCleanup(pinDrafts, pinIds, () => removeMap(id));
@@ -133,14 +144,16 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     if (activeMapId === id) {
       const remaining = maps.filter((m) => m.id !== id);
       if (remaining.length > 0) {
-        setActiveMapId(remaining[0].id);
+        await requestChange(() => setActiveMapId(remaining[0].id));
       } else {
-        setActiveMapId('');
+        await requestChange(() => setActiveMapId(''));
       }
     }
+    });
   };
 
   const applyGround = async (image: string, change: { mode: GroundFitMode; oldSize: GroundSize | null; newSize: GroundSize }) => {
+    await requestChange(async () => {
     await changeMapGround(activeMapId, { image, ...change, versionName: mapGroundCopy[locale].versionName }, scope);
     // Unsaved shape drafts are in the old picture's coordinates: move them with the saved shapes.
     if (change.mode === 'keep' && change.oldSize && featureDrafts.size) {
@@ -151,6 +164,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     setPendingGround(null);
     setPreviewVersionId(null);
     setRestoreEpoch(value => value + 1);
+    });
   };
 
   const handleUploadBackground = (image: string) => {
@@ -163,26 +177,36 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <MapToolWorkspace scope={scope} kind="maps" target={activeMap ? { kind: 'maps', documentId: activeMap.id } : null} readOnly={!!previewVersion} presentation={previewVersion ? { kind: 'map-version', versionId: previewVersion.id } : { kind: 'current' }} onSelectTarget={(target, selection) => {
+      if (target.kind === 'maps') { setActiveMapId(target.documentId); return; }
+      const [pathname, search] = localMapTargetPath(scope, target).split('?');
+      const query = new URLSearchParams(search);
+      if (selection) { query.set('mapTool', selection.namespace); query.set('mapDocument', selection.documentId); query.set('mapRelease', selection.expectedContentHash ?? 'development'); }
+      navigate(pathname + '?' + query);
+    }}>
+    {({ requestChange: guard }) => { guardRef.current = guard; return <div className="space-y-4">
+      {mapsLoading && maps.length === 0 && <EngineSpinner />}
       {activeMapId && (
         <>
           {activeMap && <MapVersionHistory
             key={activeMap.id}
             versions={activeMap.versions ?? []}
             selectedId={previewVersion?.id ?? null}
-            onSelect={setPreviewVersionId}
+            onSelect={selectPreviewVersion}
             onCapture={async metadata => { await captureMapVersion(activeMapId, metadata, scope); await refreshMaps(); }}
             onUpdate={async (id, metadata) => { await updateMapVersion(activeMapId, id, metadata, scope); await refreshMaps(); }}
-            onDelete={async id => { await deleteMapVersion(activeMapId, id, scope); await refreshMaps(); }}
+            onDelete={async id => { await requestChange(async () => { await deleteMapVersion(activeMapId, id, scope); await refreshMaps(); }); }}
             events={projectEvents}
-            calendar={(event: TimelineEvent) => calendars?.byTimeline[event.timelineId] ?? calendars?.project ?? null}
+            calendar={calendarForEvent}
             onRestore={async (id, recoveryName) => {
+              await requestChange(async () => {
               await restoreMapVersion(activeMapId, id, recoveryName, scope);
               await Promise.all([refreshMaps(), refreshPins()]);
               pins.forEach(pin => pinDrafts.delete(pin.id));
               (activeMap.features ?? []).forEach(feature => featureDrafts.delete(feature.id));
               setPreviewVersionId(null);
               setRestoreEpoch(value => value + 1);
+              });
             }}
           />}
           {activeMap?.source === 'worldgen' && activeMap.sourceWorldId && (
@@ -193,7 +217,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
               </span>
               <button
                 type="button"
-                onClick={() => navigate(`/project/${projectId}/worldgen?world=${encodeURIComponent(activeMap.sourceWorldId!)}`)}
+                onClick={() => { void requestChange(() => navigate(`/project/${projectId}/worldgen?world=${encodeURIComponent(activeMap.sourceWorldId!)}`)); }}
                 className="flex items-center gap-1 rounded border border-border bg-elevated px-2 py-1 text-[11px] hover:border-accent-gold/40"
               >
                 <ExternalLink size={11} /> {t('mapsEngine.openWorld')}
@@ -214,7 +238,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             onChangeNamedLayers={(layers) => editMap(activeMapId, { layers })}
             onChangeFeatures={(features) => editMap(activeMapId, { features })}
             onChangeLayers={(layerVisibility) => editMap(activeMapId, { layerVisibility })}
-            onOpenEntry={(entryId) => navigate(`/project/${projectId}/codex?entry=${encodeURIComponent(entryId)}`)}
+            onOpenEntry={(entryId) => { void requestChange(() => navigate(`/project/${projectId}/codex?entry=${encodeURIComponent(entryId)}`)); }}
             drafts={pinDrafts}
             codexEntries={codexEntries}
             onUploadBackground={handleUploadBackground}
@@ -270,11 +294,12 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
         itemNoun={t('maps.itemNoun')}
         items={maps}
         activeId={activeMapId}
-        onSelect={setActiveMapId}
+        onSelect={id => { void requestChange(() => setActiveMapId(id)); }}
         onCreate={handleCreateMap}
         onDelete={handleDeleteMap}
         placeholder={t('mapsEngine.namePlaceholder')}
       />
-    </div>
+    </div>; }}
+    </MapToolWorkspace>
   );
 }

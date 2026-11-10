@@ -1,9 +1,11 @@
+import {mergeLocalToolActions} from '../stateActions';
+import {localToolMapTarget} from '../mapTools/contracts';
 import {resolveProjectLocalTool} from '../releases';
 import Dexie from 'dexie';
 import {db} from '@/db';
 import {notifyProjectsChanged} from '@/db/operations';
 import {notifyDataChanged} from '@/engines/_shared/dataChanged';
-import {announceEraChange} from '@/services/worldEras/store';
+import {announceEraChange,readWorldDocument} from '@/services/worldEras/store';
 import type {WorldEraScope,EraRow,WorldEraVariant,WorldEraVariantState} from '@/services/worldEras/types';
 import {archiveMetadataWithMutation} from '@/services/documentArchive/metadata';
 import type {LocalToolDefinition,LocalToolSnapshot} from '../sdk';
@@ -92,9 +94,36 @@ export function prepareSourceConvergenceContext<T extends LocalToolJson>(origina
  if(convergenceHash(view.data)!==convergenceHash(document.data)||convergenceHash(view.conflict)!==convergenceHash(document.convergence!.conflict??null))throw Error('source_tool_convergence_projection_mismatch');
  return{document,checkpoint,replicaOptions,view,reset:epochChanged||inherited,epochChanged};
 }
-export async function createSourceToolDocument(scope:WorldEraScope,namespace:string,title:string):Promise<SourceToolDocument>{return db.transaction('rw',db.tables,()=>Dexie.Promise.resolve(db.projects.get(scope.projectId)).then(project=>{if(!project)throw Error('project_missing');const definition=resolveProjectLocalTool(namespace,project);if(!definition.document||!title.trim())throw Error('source_tool_document_title_required');const id=crypto.randomUUID(),now=Date.now(),data=parseLocalToolState(definition,definition.initialState),spec=definition.codec?.sourceDefault;
- if(spec&&data&&typeof data==='object'&&!Array.isArray(data)&&Object.hasOwn(data,spec.field)&&convergenceCanonical(data[spec.field])===convergenceCanonical(spec.defaultValue))delete data[spec.field];
- return mutate(scope,id,null,null,()=>({id,generation:crypto.randomUUID(),namespace,title:title.trim(),revision:1,createdAt:now,updatedAt:now,data,...(definition.codec?{codec:structuredClone(definition.codec)}:{}),...(definition.preview?{preview:structuredClone(definition.preview)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})}));}));}
+export interface SourceToolCreateOptions {initialActions?:unknown}
+/** One normal creation RW; contextual hosts may nest it in their own guarded RW. */
+export async function createSourceToolDocument(scope:WorldEraScope,namespace:string,title:string,options?:SourceToolCreateOptions):Promise<SourceToolDocument>{
+ return db.transaction('rw',db.tables,async()=>{
+  const project=await db.projects.get(scope.projectId);if(!project)throw Error('project_missing');
+  const definition=resolveProjectLocalTool(namespace,project);if(!definition.document||!title.trim())throw Error('source_tool_document_title_required');
+  const id=crypto.randomUUID(),now=Date.now();let data=parseLocalToolState(definition,definition.initialState);
+  if(options?.initialActions!==undefined){
+   if(!Array.isArray(options.initialActions))throw Error('source_tool_initial_actions_invalid');
+   const actions=cloneLocalToolJson(options.initialActions);
+   if(actions.some(action=>!action||typeof action!=='object'||Array.isArray(action)||action.type!=='set'))throw Error('source_tool_initial_actions_invalid');
+   if(actions.length){
+    if(!definition.codec)throw Error('local_tool_codec_required');
+    data=parseLocalToolState(definition,mergeLocalToolActions(definition.codec,data,data,actions).data);
+   }
+  }
+  const panel=definition.mapPanel;
+  if(panel){
+   const target=data&&typeof data==='object'&&!Array.isArray(data)?data[panel.targetField]:undefined;
+   if(target!==null){
+    if(!localToolMapTarget(target)||!panel.kinds.includes(target.kind))throw Error('local_tool_map_binding_invalid');
+    const read=await readWorldDocument(scope,target.kind,target.documentId);
+    if(!read||read.document.root.id!==target.documentId||read.document.root.projectId!==scope.projectId)throw Error('local_tool_map_target_unavailable');
+   }
+  }
+  const spec=definition.codec?.sourceDefault;
+  if(spec&&data&&typeof data==='object'&&!Array.isArray(data)&&Object.hasOwn(data,spec.field)&&convergenceCanonical(data[spec.field])===convergenceCanonical(spec.defaultValue))delete data[spec.field];
+  return mutate(scope,id,null,null,()=>({id,generation:crypto.randomUUID(),namespace,title:title.trim(),revision:1,createdAt:now,updatedAt:now,data,...(definition.codec?{codec:structuredClone(definition.codec)}:{}),...(definition.preview?{preview:structuredClone(definition.preview)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})}));
+ });
+}
 export async function renameSourceToolDocument(scope:WorldEraScope,id:string,namespace:string,title:string,expected:number,expectedVersion:string){if(!title.trim())throw Error('source_tool_document_title_required');return mutate(scope,id,expected,expectedVersion,current=>{if(!current||current.namespace!==namespace)throw Error('source_tool_document_missing');return{...current,title:title.trim(),revision:current.revision+1,updatedAt:Math.max(Date.now(),current.updatedAt+1)};});}
 export async function archiveSourceToolDocument(scope:WorldEraScope,id:string,namespace:string,expected:number,expectedVersion:string):Promise<void>{await db.transaction('rw',db.tables,async()=>{const read=await readSourceToolDocument(scope,id,namespace);if(!read||read.document.revision!==expected||read.version!==expectedVersion)throw new LocalToolStateError('conflict');if(scope.eraId){const previous=await db.worldEraVariants.where('[projectId+eraId+kind+entityId]').equals([scope.projectId,scope.eraId,'local-tool',id]).first();await db.worldEraVariants.put({id:previous?.id??crypto.randomUUID(),projectId:scope.projectId,eraId:scope.eraId,kind:'local-tool',entityId:id,hidden:true,document:{root:read.document as unknown as EraRow,children:{}},history:retain(previous),revision:(previous?.revision??0)+1,updatedAt:Date.now()});announceEraChange(scope.projectId);return;}await archiveMetadataWithMutation('local-tool',scope.projectId,id,async()=>{const project=await db.projects.get(scope.projectId);if(!project)throw Error('project_missing');await db.projects.update(scope.projectId,{sourceToolDocuments:(project.sourceToolDocuments??[]).filter(row=>row.id!==id),updatedAt:Math.max(Date.now(),project.updatedAt+1)});announce(scope.projectId);});});}
 /** Export may copy its already-admitted old-epoch view without executing a newly pinned validator. */
