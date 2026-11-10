@@ -533,6 +533,32 @@ Declarative readonly previews resolve captured bytes without mounting authored c
 
 Verification:18 author groups +6 independent groups +10 relevant legacy groups,34 distinct focused groups, not a global suite. Root's normal Brave imports/selection/Revert/save/reopen and readonly96px evidence are separate from dispatcher tests; no final-source stdio or hardware-listening claim. See the linked verification for source receipts, final integration/build and the separate manual receipt.
 
+## Pause, resume and seek local audio
+
+`LocalToolAudio` exposes Writer's own transport contract on the ID returned by `play`:
+
+```ts
+const id = await client.audio?.play({kind: 'media', id: localAudioId});
+if (id) {
+  client.audio?.pause(id);                     // boolean: retained, silent handle
+  client.audio?.seek(id, 12.5);                 // seconds; paused stays paused
+  const position = client.audio?.getPosition(id); // {positionSeconds, durationSeconds} | null
+  const resumed = await client.audio?.resume(id); // boolean; same owner and ID
+}
+```
+
+State is `loading`, `playing` or `paused`; a stopped or ended handle is removed. Pausing keeps the decoded buffer and freezes its position on the audio context clock. Resume and a playing seek create a fresh one-shot source, retire the old source and preserve gain, pan, bus, loop and ownership. Seeking a loop wraps at duration; a non-looping seek clamps, and reaching duration ends the handle even while paused. A finite, nonnegative seek is required; invalid input changes nothing. Unknown, foreign-owner, unavailable, loading or revoked handles return false/null. Prepared backends without transport keep play/update/stop and honestly return false/null; the optional backend transport does not manufacture position measurements.
+
+Paused voices contribute no ducking or measured levels. Their configuration remains editable without resuming or preempting other voices. An effective exclusive resume preempts other SDK voices; a rejected or superseded resume does not. Pause, seek, stop, a focus change, another resume, a newer exclusive request, source replacement or lease revocation invalidate an older pending resume. Resume checks the existing source version and owner again after asynchronous context admission.
+
+An already running, authorized Browser context may resume a retained handle without a new gesture. A suspended context is resumed only during real user activation; rejection remains visible and leaves the handle paused. Resume never creates/reopens a context or queues autoplay. Reading position does not unlock, create or resume audio. These runtime handles and positions are not document data or portable saved playback.
+
+`useSound` and `useAudioPlayer` expose `paused`, `pause()`, `resume()`, `seek(seconds)` and `getPosition()` for their own handles. `playing` excludes paused voices. They retain their existing no-mount-playback, StrictMode, retarget and unmount cleanup. The normal SoundPad example includes Pause, Resume and a labelled position/duration slider for the last played handle; its sampling is local, opt-in and suspended while hidden or not playing. AssetPad also distinguishes paused state.
+
+The existing `wh_local_audio_control` accepts `pause`, `resume` and `seek` with a required scoped `handleId`; seek also requires `seconds`. The result includes `changed`, the retained `handle` or null after end, and `position` or null. `wh_local_audio_status` accepts `includePosition:true`; only then each row includes `position`. Its legacy `playing` collection includes loading/playing/paused SDK handles: inspect each row's status. Project/era ownership is unchanged. Agent `play` still returns `gesture-required`, `started:false`, `queued:false`; it never synthesizes activation or starts legacy Soundscape/Reader players.
+
+Scope: local decoded audio transport, not spatial/listener/HRTF, hardware loudness, physical delivery or an upstream ABI claim. Offline PCM, controlled context admission, React hooks/example and renderer dispatcher are separate evidence from real Browser and authenticated Native acceptance.
+
 ## Measured audio levels and stereo pan
 
 Source `fcf94f61a99a7541ac4029916e023f7405e3a14d` is approved CAS20 after a fresh review/vote and integrated FF-only into main from07f6777. Thirteen committed routes comprise the11-path author freeze, independent oracle and runner registration of11 exports. Final review:29 distinct groups (7 author +4 independent +18 legacy). Root's normal Brave flow is verified separately. Manual update/readback is complete (415 UTF-16 units,198 paragraphs,197 other texts and styles preserved; both locks released). Exact-main session58713 exited0: verify:quick34 engines/64 tables/6515 locale keys/22 locale files/0 warnings, shipping lint0, renderer/Electron types PASS, Vite43.33s, Electron PASS, Node937 tools/schema2 checks PASS and the original Node author-kit four scenarios plus headless assertion PASS. Main is clean and the merge lock released. MEMORY and the documentation commit/integration remain pending. These are Writer's own signatures, not matching upstream parameters. [Evidence and current gates](../tasks/vvd1095/verification-sdk-audio-levels.md).
