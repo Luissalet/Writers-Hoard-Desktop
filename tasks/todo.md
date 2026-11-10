@@ -2331,3 +2331,16 @@ Source2349 revision1 is already integrated in main d61e174d. This task adds docu
 - [x] Tras lectura y GO final de Root sobre el corte524029ef, aplicar una sola vez el append de2561bytes y dos conceptos parent_id mediante Store embed=False: prefijo de memoria íntegro y403+9+697filas previas exactas,405/9/699finales; recibos incrementales, EOF0/stderr0, sin repetir Google.
 
 La fuente, el manual y la continuidad de memoria/grafo están entregados. Root aprobó la revisión documental2; la revisión del delta final de estado y la integración/retirada documental conservan su casilla pendiente.1095, paridad completa y panel SDK/map-lens mantienen sus planes y aceptación independientes. [Contrato y atribución](../docs/verification-map-cover.md). No se reescriben casillas anteriores ni se cierra trabajo ajeno.
+
+## Herramientas Source contextuales de mapa: documentación —2444
+
+- [x] Crear tarea2444/hilo2700, WT nuevo desde27b4e398 y cuatro leases documentales; mantener Source2382/17rutas/índice/HEAD intactos, sin dependencias ni ejecución de producto.
+- [x] Documentar panel maps/worldgen, descriptor opt-in, varios SourceDocs, creación inicial atómica, Base/época/readonly/drafts, MCP list/open y límites de notas históricas.
+- [x] Separar los gates Source, la ejecución Native genuina de Root y sus observaciones Brave ya comunicadas; preservar el primer fallo Native y no atribuirlo al producto.
+- [x] Preparar propuestas de manual en castellano, append de memoria y dos conceptos, sin escrituras externas ni reutilizar baselines externos como estado actual.
+- [x] Incorporar aceptación final Brave (33observaciones/16estados, JSON Base/E/F y reload), auditoría2441r1 y visual2443r1 aprobadas; Source2382r2 integrado por Root como27b4e398,17blobs/4711ajenos/remotos/índice exactos, sin push.
+- [x] Preparar corte documental y commit Luissalet por las cuatro rutas, con prefijos y Source17 exactos; conservar el borrador previo.
+- [ ] Recibir revisión formal del corte documental y entregar a Root para integrar bajo su merge lock, sin push.
+- [ ] Aplicar continuidad externa sólo tras revisión y GO concreto de Root sobre payloads y estado actual; retirar únicamente este WT documental tras integración aprobada.
+
+Source2382r2 está aprobado e integrado en main27b4e398; la continuidad documental2444 aún necesita revisión e integración propias. SourceWT2382 y sus17leases se conservan hasta coordinar su retirada; no se declara limpieza completa ni se tocan los perfiles rechazados anteriores. Las notas de una vista histórica son las actuales guardadas en modo de lectura; no se añade historia de notas ligada a cada versión del mapa. El panel no acredita overlays, geometría por frame, ni paridad completa1095. Los planes ajenos y sus casillas anteriores se conservan.
