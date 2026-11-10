@@ -33,7 +33,8 @@ export default function RadarGraphic({ chart, series, onValue, onInsertAxis, loc
   </>;
   return <div className="min-w-0">
     {onValue && <div className="flex flex-wrap items-center justify-between gap-2 px-2 text-xs text-text-muted"><p className="max-w-prose">{es ? 'Arrastra un vértice. Con el foco: flechas, Inicio/Fin y Mayús para pasos mayores. Los valores del Codex son de solo lectura.' : 'Drag a vertex. When focused: arrows, Home/End and Shift for larger steps. Codex values are read-only.'}</p><button type="button" aria-pressed={sound} className="flex shrink-0 items-center gap-2 rounded-lg border border-border px-3 py-2 text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold" onClick={() => { setSound(!sound); setRadarAudioEnabled(!sound); }}>{sound ? <Volume2 size={15} /> : <VolumeX size={15} />}{es ? sound ? 'Sonido activado' : 'Sonido silenciado' : sound ? 'Sound on' : 'Sound muted'}</button></div>}
-    <div className="relative">
+    <div className="overflow-x-auto">
+    <div className="relative" style={{ minWidth: canInsert ? Math.max(180, chart.axes.length * 24) : undefined }}>
     <svg ref={svg} viewBox="0 0 720 610" role={onValue ? 'group' : 'img'} aria-label={chart.title || 'Radar'} className="block max-h-128 w-full text-text-muted" style={{ touchAction: onValue ? 'none' : undefined }}>
       {onValue ? <svg viewBox="0 0 720 610" width="720" height="610" role="img" aria-label={chart.title || 'Radar'}>{plot}</svg> : plot}
       {onValue && series.filter(item => item.source.visible !== false).flatMap(item => chart.axes.map((axis, index) => {
@@ -62,6 +63,7 @@ export default function RadarGraphic({ chart, series, onValue, onInsertAxis, loc
       }))}
     </svg>
     {onInsertAxis && gapPoints.map(({ axis, index, x, y }) => <button key={axis.id} type="button" aria-label={`${copy.insertAxisBefore} · ${axis.label || index + 1}`} title={`${copy.insertAxisBefore} · ${axis.label || index + 1}`} disabled={chart.axes.length >= MAX_RADAR_AXES} className="absolute flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-text-primary opacity-0 hover:bg-elevated hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-gold disabled:cursor-default" style={{ left: x, top: y, transform: 'translate(-50%, -50%)' }} onClick={() => onInsertAxis(axis.id)}><Plus size={16} aria-hidden="true" /></button>)}
+    </div>
     </div>
     {onValue && editableSeries.length > 1 && <label className="mx-2 mb-2 block text-sm text-text-muted">{es ? 'Serie para arrastrar' : 'Series to drag'}<select aria-label={es ? 'Serie para arrastrar' : 'Series to drag'} className="mt-1 w-full rounded-lg border border-border bg-deep px-3 py-2 text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold" value={selectedSeries} onChange={event => setEditingSeries(event.target.value)}>{editableSeries.map(item => <option key={item.source.id} value={item.source.id}>{item.name}</option>)}</select></label>}
     {onValue && <output aria-live="polite" className="sr-only">{announcement}</output>}
