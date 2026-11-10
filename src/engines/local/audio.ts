@@ -1,9 +1,10 @@
+import {copyLocalAudioPose,copyLocalAudioSpatial,localAudioInitialListener,localAudioSpatialFrame,localAudioSpatialModels,normalizeLocalAudioListener,normalizeLocalAudioSpatial,type LocalAudioListener,type LocalAudioListenerPose,type LocalAudioSpatialOptions,type LocalAudioSpatialState,type LocalAudioPanningModel} from './audioSpatial';
 import {validateLocalAssetRef,type LocalAssetRef} from './assets';
 export const LOCAL_AUDIO_BUSES=['music','ambience','sfx','voice','ui'] as const;
 export type LocalAudioBus=typeof LOCAL_AUDIO_BUSES[number];
 export type LocalAudioFocus='mix'|'duck'|'exclusive';
 export type LocalAudioRef=Extract<LocalAssetRef,{kind:'source'}>|{kind:'media';id:string}
-export interface LocalAudioOptions {bus?:LocalAudioBus;focus?:LocalAudioFocus;volume?:number;pan?:number;loop?:boolean;fadeInMs?:number;signal?:AbortSignal}
+export interface LocalAudioOptions {bus?:LocalAudioBus;focus?:LocalAudioFocus;volume?:number;pan?:number;loop?:boolean;fadeInMs?:number;signal?:AbortSignal;spatial?:LocalAudioSpatialOptions}
 export interface LocalAudioUpdate {volume?:number;pan?:number;loop?:boolean;bus?:LocalAudioBus;focus?:LocalAudioFocus;fadeMs?:number}
 export interface LocalAudioState {id:string;ref:LocalAudioRef;bus:LocalAudioBus;focus:LocalAudioFocus;volume:number;pan:number;loop:boolean;status:'loading'|'playing'|'paused';effectiveVolume:number}
 export interface LocalAudioPreparation {id:string;ref:LocalAudioRef;status:'loading'|'ready'|'error'|'unavailable'|'cancelled';version:string|null;durationSeconds:number|null;error?:string}
@@ -13,7 +14,8 @@ export interface LocalAudioPosition {positionSeconds:number;durationSeconds:numb
 export interface LocalAudioChannelLevels {rms:number;peak:number}
 export interface LocalAudioLevels extends LocalAudioChannelLevels {left:LocalAudioChannelLevels;right:LocalAudioChannelLevels}
 export interface LocalToolAudio {
- readonly available:boolean;readonly supportsPan:boolean;readonly supportsPreload:boolean;
+ readonly available:boolean;readonly supportsPan:boolean;readonly supportsPreload:boolean;readonly supportsSpatial:boolean;readonly spatialModels:readonly LocalAudioPanningModel[];
+ getListener():LocalAudioListener|null;setListener(pose:LocalAudioListenerPose):boolean;resetListener():boolean;getSpatial(id:string):LocalAudioSpatialState|null;setSpatial(id:string,value:LocalAudioSpatialOptions|null):boolean;
  preload(refs:readonly LocalAudioRef[],options?:{signal?:AbortSignal}):Promise<readonly LocalAudioPreparation[]>;
  getPreloads():readonly LocalAudioPreparation[];releasePreload(ids?:readonly string[]):number;
  play(ref:LocalAudioRef,options?:LocalAudioOptions):Promise<string|null>;
@@ -25,8 +27,8 @@ export interface LocalToolAudio {
  getLevels(id:string):LocalAudioLevels|null;
  getState():readonly LocalAudioState[];subscribe(changed:()=>void):()=>void;
 }
-export interface LocalAudioVoice {start(volume:number,loop:boolean,fadeMs:number,ended:()=>void):void;update(volume:number,loop:boolean,fadeMs:number):void;stop(fadeMs:number):void;setPan?(pan:number,fadeMs:number):void;getLevels?():LocalAudioLevels|null;pause?():boolean;resume?():boolean;seek?(seconds:number):boolean;getPosition?():LocalAudioPosition|null}
-export interface LocalAudioBackend {available:boolean;supportsPan?:boolean;unlock():boolean;resume?():Promise<boolean>;prepare(blob:Blob):Promise<LocalAudioVoice>;decode?(blob:Blob):Promise<LocalAudioPrepared>;close():void}
+export interface LocalAudioVoice {readonly spatialModels?:readonly LocalAudioPanningModel[];setSpatial?(frame:LocalAudioSpatialState|null):void;start(volume:number,loop:boolean,fadeMs:number,ended:()=>void):void;update(volume:number,loop:boolean,fadeMs:number):void;stop(fadeMs:number):void;setPan?(pan:number,fadeMs:number):void;getLevels?():LocalAudioLevels|null;pause?():boolean;resume?():boolean;seek?(seconds:number):boolean;getPosition?():LocalAudioPosition|null}
+export interface LocalAudioBackend {available:boolean;readonly spatialModels?:readonly LocalAudioPanningModel[];supportsPan?:boolean;unlock():boolean;resume?():Promise<boolean>;prepare(blob:Blob):Promise<LocalAudioVoice>;decode?(blob:Blob):Promise<LocalAudioPrepared>;close():void}
 export interface LocalAudioOwner {resolve(ref:LocalAudioRef):Promise<LocalAudioResolved|null>;preloadScope?:string;current?:()=>boolean}
 const level=(value:number|undefined,fallback:number)=>{if(value===undefined)return fallback;if(!Number.isFinite(value)||value<0||value>1)throw Error('local_audio_volume_invalid');return value;};
 const pan=(value:number|undefined,fallback=0)=>{const next=value??fallback;if(!Number.isFinite(next)||next<-1||next>1)throw Error('local_audio_pan_invalid');return next;};
@@ -38,11 +40,12 @@ interface PreloadEntry {promise:Promise<LocalAudioPrepared>;resource?:LocalAudio
 interface PreparationEntry extends LocalAudioPreparation {owner:symbol;entry?:PreloadEntry;key?:string}
 const audioRefKey=(ref:LocalAudioRef)=>JSON.stringify(ref.kind==='media'?['media',ref.id]:['source',ref.namespace,ref.slot,ref.releaseHash??null]);
 const preparationCopy=(row:LocalAudioPreparation):LocalAudioPreparation=>({id:row.id,ref:{...row.ref},status:row.status,version:row.version,durationSeconds:row.durationSeconds,...(row.error!==undefined?{error:row.error}:{})});
-interface RecordEntry extends LocalAudioState {owner:symbol;voice?:LocalAudioVoice;version?:string;cacheKey?:string;transportEpoch:number}
+interface RecordEntry extends LocalAudioState {owner:symbol;voice?:LocalAudioVoice;version?:string;cacheKey?:string;spatial?:LocalAudioSpatialState;transportEpoch:number}
 const transport=(voice:LocalAudioVoice|undefined):voice is LocalAudioVoice&Required<Pick<LocalAudioVoice,'pause'|'resume'|'seek'|'getPosition'>>=>!!voice&&typeof voice.pause==='function'&&typeof voice.resume==='function'&&typeof voice.seek==='function'&&typeof voice.getPosition==='function';
 /** One coordinator per host. Backend injection enables silent deterministic contract tests. */
 export function createLocalAudioEngine(backend:LocalAudioBackend){
- const records=new Map<string,RecordEntry>(),levels=new Map<LocalAudioBus,number>(),listeners=new Set<()=>void>();let serial=0,pending=0,exclusiveGeneration=0,ownerSerial=0;
+ const models=localAudioSpatialModels(backend.spatialModels);
+ const records=new Map<string,RecordEntry>(),levels=new Map<LocalAudioBus,number>(),listeners=new Set<()=>void>();let pending=0,exclusiveGeneration=0,ownerSerial=0;
  const preparations=new Map<string,PreparationEntry>(),cache=new Map<string,PreloadEntry>();
  const publish=()=>{for(const changed of listeners)changed();};
  const idle=()=>{if(!records.size&&!pending)backend.close();};
@@ -53,7 +56,14 @@ export function createLocalAudioEngine(backend:LocalAudioBackend){
  return{available:backend.available,getBusLevels:()=>Object.fromEntries(LOCAL_AUDIO_BUSES.map(name=>[name,levels.get(name)??1])),createOwner(owner:LocalAudioOwner):LocalToolAudio{
   const identity=Symbol(),privateScope=`owner-${++ownerSerial}`,cacheKey=(ref:LocalAudioRef,source:LocalAudioResolved)=>JSON.stringify([owner.preloadScope===undefined?['private',privateScope]:['shared',owner.preloadScope],source.cacheKey??audioRefKey(ref),source.version]),owned=(id:string)=>{const row=records.get(id);return row?.owner===identity?row:undefined;};let disposed=false;
   const valid=()=>!disposed&&(owner.current?.()??true);
-  const api:LocalToolAudio={available:backend.available,supportsPan:backend.supportsPan===true,supportsPreload:backend.available&&typeof backend.decode==='function',
+  const ownerId=crypto.randomUUID();let listenerPose=localAudioInitialListener();
+  const spatialVoice=(voice:LocalAudioVoice,model:LocalAudioPanningModel|undefined)=>typeof voice.setSpatial==='function'&&Array.isArray(voice.spatialModels)&&(model===undefined?voice.spatialModels.length>0:voice.spatialModels.includes(model));
+  const api:LocalToolAudio={available:backend.available,supportsPan:backend.supportsPan===true,supportsPreload:backend.available&&typeof backend.decode==='function',supportsSpatial:backend.available&&models.length>0,spatialModels:backend.available?models:Object.freeze([]),
+   getListener:()=>valid()&&api.supportsSpatial?{ownerId,...copyLocalAudioPose(listenerPose)}:null,
+   setListener(pose){const next=normalizeLocalAudioListener(pose);if(!valid()||!api.supportsSpatial)return false;const plan=[];for(const row of records.values())if(row.owner===identity&&row.spatial){const frame=localAudioSpatialFrame(row.spatial,next);if(row.voice&&!spatialVoice(row.voice,frame.panningModel))return false;plan.push({voice:row.voice,frame});}for(const step of plan)step.voice?.setSpatial?.(step.frame);listenerPose=next;publish();return true;},
+   resetListener(){return api.setListener(localAudioInitialListener());},
+   getSpatial(id){const row=owned(id);return valid()&&row?.spatial?copyLocalAudioSpatial(row.spatial):null;},
+   setSpatial(id,value){const next=value===null?null:normalizeLocalAudioSpatial(value),row=owned(id);if(!valid()||!row||!api.supportsSpatial||next&&!models.includes(next.panningModel))return false;const frame=next?localAudioSpatialFrame(next,listenerPose):null;if(row.voice&&!spatialVoice(row.voice,frame?.panningModel))return false;row.voice?.setSpatial?.(frame);row.spatial=next??undefined;publish();return true;},
    async preload(refs,options={}){
     if(!Array.isArray(refs))throw Error('local_audio_preload_refs_invalid');for(const ref of refs)validateLocalAudioRef(ref);
     return Promise.all(refs.map(value=>({...value})).map(async ref=>{
@@ -80,11 +90,12 @@ export function createLocalAudioEngine(backend:LocalAudioBackend){
    getPreloads:()=>!valid()?[]:[...preparations.values()].filter(row=>row.owner===identity).map(preparationCopy),
    releasePreload(ids){if(ids!==undefined&&(!Array.isArray(ids)||ids.some(id=>typeof id!=='string')))throw Error('local_audio_preload_ids_invalid');let released=0;for(const row of [...preparations.values()])if(row.owner===identity&&(!ids||ids.includes(row.id)))released+=Number(releasePreparation(row.id));return released;},
    async play(ref,options={}){
-    validateLocalAudioRef(ref);const selectedBus=bus(options.bus,'sfx'),selectedFocus=focus(options.focus,'mix'),volume=level(options.volume,1),fade=duration(options.fadeInMs),selectedPan=pan(options.pan);
+    validateLocalAudioRef(ref);const selectedSpatial=options.spatial===undefined?undefined:normalizeLocalAudioSpatial(options.spatial);if(selectedSpatial&&(!backend.available||!models.includes(selectedSpatial.panningModel)))throw Error('local_audio_spatial_unavailable');const selectedBus=bus(options.bus,'sfx'),selectedFocus=focus(options.focus,'mix'),volume=level(options.volume,1),fade=duration(options.fadeInMs),selectedPan=pan(options.pan);
     if(selectedPan!==0&&!backend.supportsPan)throw Error('local_audio_pan_unavailable');
+    if(selectedSpatial)localAudioSpatialFrame(selectedSpatial,listenerPose);
     if(!valid()||options.signal?.aborted||!backend.available||!backend.unlock())return null;
     pending++;const exclusiveRequest=selectedFocus==='exclusive'?++exclusiveGeneration:undefined;
-    const id=`local-audio-${++serial}`,row:RecordEntry={id,owner:identity,ref:{...ref},bus:selectedBus,focus:selectedFocus,volume,pan:selectedPan,loop:options.loop??false,status:'loading',effectiveVolume:volume,transportEpoch:0};records.set(id,row);publish();
+    const id='local-audio-'+crypto.randomUUID(),row:RecordEntry={id,owner:identity,ref:{...ref},bus:selectedBus,focus:selectedFocus,volume,pan:selectedPan,loop:options.loop??false,status:'loading',effectiveVolume:volume,transportEpoch:0,spatial:selectedSpatial};records.set(id,row);publish();
     const abort=()=>stop(id);options.signal?.addEventListener('abort',abort,{once:true});
     try{
      const source=await owner.resolve(ref);if(!source||!valid()||!owned(id)){stop(id);return null;}
@@ -94,6 +105,8 @@ export function createLocalAudioEngine(backend:LocalAudioBackend){
      const voice=resource?await resource.createVoice():await backend.prepare(source.blob);
      const latest=await owner.resolve(ref);
      if(!latest||cacheKey(ref,latest)!==key||!valid()||!owned(id)||exclusiveRequest!==undefined&&exclusiveRequest!==exclusiveGeneration){voice.stop(0);stop(id);return null;}
+     if(row.spatial&&!spatialVoice(voice,row.spatial.panningModel)){voice.stop(0);throw Error('local_audio_spatial_unavailable');}
+     try{if(row.spatial)voice.setSpatial!(localAudioSpatialFrame(row.spatial,listenerPose));}catch(error){voice.stop(0);throw error;}
      if(row.pan!==0&&!voice.setPan){voice.stop(0);throw Error('local_audio_pan_unavailable');}
      try{voice.setPan?.(row.pan,0);}catch(error){voice.stop(0);throw error;}
      row.voice=voice;row.version=source.version;row.cacheKey=key;row.status='playing';rebalance();voice.start(row.effectiveVolume,row.loop,fade,()=>stop(id));if(exclusiveRequest!==undefined)for(const other of [...records.keys()])if(other!==id)stop(other);publish();return owned(id)?id:null;
@@ -126,4 +139,4 @@ export function createLocalAudioEngine(backend:LocalAudioBackend){
   };return Object.freeze(api);
  }};
 }
-export const silentLocalToolAudio=():LocalToolAudio=>({available:false,supportsPan:false,supportsPreload:false,preload:async refs=>{if(!Array.isArray(refs))throw Error('local_audio_preload_refs_invalid');for(const ref of refs)validateLocalAudioRef(ref);return refs.map(ref=>({id:'local-audio-preparation-'+crypto.randomUUID(),ref:{...ref},status:'unavailable',version:null,durationSeconds:null}));},getPreloads:()=>[],releasePreload:()=>0,getLevels:()=>null,pause:()=>false,resume:async()=>false,seek:()=>false,getPosition:()=>null,play:async()=>null,update:()=>{},stop:()=>{},stopAll:()=>{},dispose:()=>{},setBusLevel:()=>{},getState:()=>[],subscribe:()=>()=>{}});
+export const silentLocalToolAudio=():LocalToolAudio=>({available:false,supportsPan:false,supportsPreload:false,supportsSpatial:false,spatialModels:Object.freeze([]),getListener:()=>null,setListener:pose=>{normalizeLocalAudioListener(pose);return false;},resetListener:()=>false,getSpatial:()=>null,setSpatial:(_id,value)=>{if(value!==null)normalizeLocalAudioSpatial(value);return false;},preload:async refs=>{if(!Array.isArray(refs))throw Error('local_audio_preload_refs_invalid');for(const ref of refs)validateLocalAudioRef(ref);return refs.map(ref=>({id:'local-audio-preparation-'+crypto.randomUUID(),ref:{...ref},status:'unavailable',version:null,durationSeconds:null}));},getPreloads:()=>[],releasePreload:()=>0,getLevels:()=>null,pause:()=>false,resume:async()=>false,seek:()=>false,getPosition:()=>null,play:async(_ref,options={})=>{if(options.spatial!==undefined){normalizeLocalAudioSpatial(options.spatial);throw Error('local_audio_spatial_unavailable');}return null;},update:()=>{},stop:()=>{},stopAll:()=>{},dispose:()=>{},setBusLevel:()=>{},getState:()=>[],subscribe:()=>()=>{}});

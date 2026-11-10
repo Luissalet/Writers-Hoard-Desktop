@@ -1,0 +1,20 @@
+export const LOCAL_AUDIO_SPATIAL_MODELS=Object.freeze(['equalpower','HRTF'] as const);
+export type LocalAudioPanningModel=typeof LOCAL_AUDIO_SPATIAL_MODELS[number];
+export interface AudioVec3 {x:number;y:number;z:number}
+export interface LocalAudioListenerPose {position:AudioVec3;forward:AudioVec3;up:AudioVec3}
+export interface LocalAudioListener extends LocalAudioListenerPose {ownerId:string}
+export interface LocalAudioSpatialOptions {position:AudioVec3;panningModel?:LocalAudioPanningModel;refDistance?:number;maxDistance?:number;rolloffFactor?:number}
+export type LocalAudioSpatialState=Required<LocalAudioSpatialOptions>;
+const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
+const number=(value:unknown,code:string)=>{if(typeof value!=='number'||!Number.isFinite(value)||!Number.isFinite(Math.fround(value)))throw Error(code);return value;};
+const vector=(value:unknown,code:string):AudioVec3=>{if(!object(value))throw Error(code);return{x:number(value.x,code),y:number(value.y,code),z:number(value.z,code)};};
+const cross=(a:AudioVec3,b:AudioVec3):AudioVec3=>({x:a.y*b.z-a.z*b.y,y:a.z*b.x-a.x*b.z,z:a.x*b.y-a.y*b.x});
+const unit=(value:AudioVec3,code:string):AudioVec3=>{const size=Math.hypot(value.x,value.y,value.z);if(!Number.isFinite(size)||size===0)throw Error(code);return{x:value.x/size,y:value.y/size,z:value.z/size};};
+export const localAudioInitialListener=():LocalAudioListenerPose=>({position:{x:0,y:0,z:0},forward:{x:0,y:0,z:-1},up:{x:0,y:1,z:0}});
+export const copyLocalAudioPose=(value:LocalAudioListenerPose):LocalAudioListenerPose=>({position:{...value.position},forward:{...value.forward},up:{...value.up}});
+export function normalizeLocalAudioListener(value:unknown):LocalAudioListenerPose{const code='local_audio_listener_invalid';if(!object(value))throw Error(code);const position=vector(value.position,code),forward=unit(vector(value.forward,code),code),right=unit(cross(forward,unit(vector(value.up,code),code)),code),up=cross(right,forward);return{position,forward,up};}
+export function normalizeLocalAudioSpatial(value:unknown):LocalAudioSpatialState{const code='local_audio_spatial_invalid';if(!object(value))throw Error(code);const position=vector(value.position,code),panningModel=value.panningModel===undefined?'equalpower':value.panningModel,refDistance=number(value.refDistance===undefined?1:value.refDistance,code),maxDistance=number(value.maxDistance===undefined?10000:value.maxDistance,code),rolloffFactor=number(value.rolloffFactor===undefined?1:value.rolloffFactor,code);if(!LOCAL_AUDIO_SPATIAL_MODELS.includes(panningModel as LocalAudioPanningModel)||refDistance<=0||Math.fround(refDistance)<=0||maxDistance<refDistance||rolloffFactor<0)throw Error(code);return{position,panningModel:panningModel as LocalAudioPanningModel,refDistance,maxDistance,rolloffFactor};}
+export const copyLocalAudioSpatial=(value:LocalAudioSpatialState):LocalAudioSpatialState=>({...value,position:{...value.position}});
+/** Project world coordinates into one virtual owner's fixed output frame. Never writes context.listener. */
+export function localAudioSpatialFrame(value:LocalAudioSpatialState,listener:LocalAudioListenerPose):LocalAudioSpatialState{const code='local_audio_spatial_invalid',right=cross(listener.forward,listener.up),d={x:value.position.x-listener.position.x,y:value.position.y-listener.position.y,z:value.position.z-listener.position.z},dot=(a:AudioVec3,b:AudioVec3)=>a.x*b.x+a.y*b.y+a.z*b.z;return{...value,position:{x:number(dot(d,right),code),y:number(dot(d,listener.up),code),z:number(-dot(d,listener.forward),code)}};}
+export function localAudioSpatialModels(value:readonly LocalAudioPanningModel[]|undefined):readonly LocalAudioPanningModel[]{if(value===undefined)return Object.freeze([]);if(!Array.isArray(value)||value.some(model=>!LOCAL_AUDIO_SPATIAL_MODELS.includes(model))||new Set(value).size!==value.length)throw Error('local_audio_spatial_models_invalid');return Object.freeze([...value]);}

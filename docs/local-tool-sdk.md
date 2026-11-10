@@ -533,6 +533,51 @@ Declarative readonly previews resolve captured bytes without mounting authored c
 
 Verification:18 author groups +6 independent groups +10 relevant legacy groups,34 distinct focused groups, not a global suite. Root's normal Brave imports/selection/Revert/save/reopen and readonly96px evidence are separate from dispatcher tests; no final-source stdio or hardware-listening claim. See the linked verification for source receipts, final integration/build and the separate manual receipt.
 
+## Spatial audio for each owner
+
+`LocalToolAudio` has its own virtual listener and optional point emitter on each owned voice. This is Writer's API; metres, ownership and lifecycle are its own contract. It keeps the native context listener fixed so two clients on the same coordinator/output context can use different listener poses.
+
+```ts
+const audio = client.audio;
+if (audio?.supportsSpatial) {
+  // Passive getter: a detached runtime identity/pose, not a saved person or global listener.
+  const listener = audio.getListener();
+  audio.setListener({
+    position: {x: 0, y: 0, z: 0},
+    forward: {x: 0, y: 0, z: -1},
+    up: {x: 0, y: 1, z: 0},
+  });
+  const handle = await audio.play(localRef, {
+    spatial: {position: {x: 1, y: 0, z: -1}, panningModel: 'HRTF'},
+  });
+  if (handle) {
+    const world = audio.getSpatial(handle);
+    // Full replacement, retaining non-position settings explicitly when moving.
+    if (world) audio.setSpatial(handle, {...world, position: {x: -1, y: 0, z: -1}});
+    audio.setSpatial(handle, null); // restore the stereo route on the same handle
+  }
+  audio.resetListener(); // initial pose, release this owner's explicit pose retention
+}
+```
+
+`spatialModels` is a readonly list of the models this backend supports. `equalpower` is the default only when `spatial` is supplied; `HRTF` is used only when requested. Omitting spatial preserves existing stereo playback, pan, gain/buses/duck, exclusive focus and transport. Models use the browser's real `PannerNode`, not a manually computed pan labelled HRTF. Equalpower ignores elevation; HRTF uses the browser's response and may differ across engines/devices. No room, reverb, obstruction, Doppler, microphone, physical tracking or external service is implied.
+
+World coordinates are right handed: +X right, +Y up and -Z forward in the initial pose. Coordinates and distances use metres. The listener starts at the origin with forward(0,0,-1)/up(0,1,0); forward/up are normalized into an orthogonal frame, and zero/parallel or nonfinite vectors reject. Spatial defaults are inverse distance, `refDistance:1`, `maxDistance:10000`, `rolloffFactor:1`; refDistance is positive, maxDistance is at least refDistance, and rolloffFactor is nonnegative. Rolloff0 disables distance attenuation. All inputs and derived coordinates must be finite/representable. A listener change validates the complete plan for every affected voice before altering pose, rows or nodes. Invalid configuration throws without partial application; unavailable model/method or inaccessible owner/handle returns false/null. A new unsupported spatial Play fails before admission instead of falling back silently to stereo.
+
+`getListener()` and `getSpatial(handleId)` return detached copies without resolving assets, creating output/context/graph/decode, or registering a client. Spatial setters are synchronous and keep the same handle, buffer, gain/pan and transport position. `setSpatial` replaces the whole configuration, with defaults for omitted optional fields; null disables it. On a loading handle the latest configuration is used at admission. On a paused handle it changes configuration without starting/resuming. Listener changes affect only that owner, not another client/project/era or its nonspatial voices. Pan remains a stereo adjustment after spatial positioning; pan0 avoids an additional stereo shift.
+
+An explicit successful `setListener` retains/registers that owner before Play, without creating live output. Reset releases only that pose retention and recalculates any remaining spatial voices to the initial pose. Voice Stop, preparation release and listener reset retain their separate meanings. Dispose or revoked project/era/pin/host lease ends the owner's runtime use. A pose alone does not keep an output context open. A new/cold owner does not inherit another owner's pose even when both share decoded buffers; ownerIds/poses are runtime state, never document data or portable playback.
+
+Each audible spatial segment has its own processor. Pause and playing seek retire the old source/Panner; resume creates a fresh Panner/source at the retained offset, including HRTF when selected. A paused seek creates neither until resume. Pause/stop/seek-end cut remaining response; a requested fade runs first. Natural end is gated at resource duration by an independent audio-clock gate before destination and meters, separate from volume/bus/duck automation. `onended` later performs cleanup; it is not a sample-exact JS clock. Loop/seek/resume reprogram that boundary. This policy deliberately cuts HRIR tail past resource duration; it does not preserve a full tail or prove hardware perception. Prepared bytes are shared independently of these per-voice nodes and listener poses.
+
+Custom backends may advertise `spatialModels`; their factory must return a voice with the corresponding real model list and `setSpatial(frameOrNull)` method. Voice frames already contain transformed listener-relative coordinates; SDK getters retain world coordinates. Legacy backends and silent audio keep ordinary Play/transport/preparation support and report spatial unavailable. A factory contradicting its advertised capability cannot start its new spatial voice or preempt valid existing audio.
+
+`useSound` and `useAudioPlayer` add `setSpatial(optionsOrNull)` for that hook's handles and `getSpatial()` for its last surviving handle. A setter after that hook's Play has begun is remembered by generation: when that exact Play returns its ID, the latest explicit configuration is reconciled before the hook returns/exposes it. Abort, retarget and unmount invalidate that reconciliation. This is not a guarantee about the first sample already emitted at admission; direct SDK/MCP `setSpatial` on an observed loading handle is the pre-admission route. An explicit per-Play override is preserved when no later hook setter occurred. Hook cleanup never resets the shared client listener or another hook's configuration.
+
+The existing MCP `wh_local_audio_status` adds `owners` only with `includeSpatial:true`: registered rows contain ownerId, position/forward/up and spatialModels. Only under that flag each playing row also has ownerId and complete world spatial config (or null; legacy ownerId may be null). Ordinary status and the independent position/levels/preparation flags keep their old shape. The existing control tool adds `listener` (ownerId + full pose), `listener-reset` (ownerId), and `spatial` (handleId + explicit object/null). There is no first-owner selection, broadcast or ephemeral owner created by lookup; an unknown/foreign scoped ID is not-found, malformed values are bad-args and supported syntax with unavailable capability returns changed:false intact. Listener controls return changed/listener; spatial returns changed/handle/spatial/position plus IDs. A cold preload owner can be configured by its discovered ID; a later SDK owner remains distinct.
+
+SoundPad's normal Audio mode selects Stereo/Equalpower/HRTF. Choosing a spatial mode explicitly configures/registers this panel's listener before Play; merely mounting stays passive. Emitter and listener fields use metres; yaw is in degrees around +Y, with0 facing -Z and +90 facing +X. Enter or blur commits a completed finite coordinate; Escape restores its displayed value. Listener position edits preserve API-provided orientation, while the yaw control deliberately sets horizontal forward/up. Controls show this panel's context and configuration, not raw owner UUIDs or measured loudness. Play never requires spatial selection or preparation, and AssetPad/Reader/Soundscape/wiki keep their existing flow.
+
 ## Prepare reusable local audio
 
 `LocalToolAudio` can decode local audio before the listener presses Play. This is Writer's own retention API; it does not copy an undocumented upstream ABI:
