@@ -2399,3 +2399,20 @@ La función preserva scalar2088, mapas previos y reglas Base/era/portables. Las 
 - [ ] Memoria/grafo sólo mediante sus leases y GO exacto; no captura o bypass de la lease MEMORY ajena. Ambos manuales ya están completados por Root.
 
 La paridad continúa en el hilo1195 y en tareas nuevas. El Done y voto históricos de la tarea1095 se preservan; no se presenta esa tarea como formalmente abierta.
+
+
+## Continuidad de precarga de audio SDK/MCP — 2501 (2026-11-10)
+
+- [x] Plan y cinco claims exactos antes de editar; WT propio físico desde 873178bd, sin dependencias, conservando los cuatro prefijos completos.
+- [x] Leer contrato/SDK y evidencia Source: diez focos y 26 regresiones; delta posterior sólo let/const; quick 161,14 s/build 176,28 s finales 0 con 4745 inputs estables.
+- [x] Leer Brave Root: preparar/descartar sin cortar pausa o reproducción, selección/override/restablecer, Play directo, reload sin retenciones y 420 CSS; 51 observaciones no son 51 tests; una captura real y timeouts previos preservados.
+- [x] Añadir borradores funcionales README/FAUSTUS/DESIGN y verificación, sin código o apps.
+- [x] Leer Native Root r2: 45+5 MCP/50 IPC, cuatro claves 401/cuatro stdio 0, Browser decode 7/salida 0 y PCM custom explícita, 89 tablas warm/cold exactas y limpieza 0. R1 de oráculo cancelado conservada sin cambiar Source.
+- [x] Leer revisión independiente 2493 y CAS 2494 revisión 1, Source Main 873 integrado por Root con diez RAW/HEAD/índice exactos y 4735 rutas ajenas conservadas; sin push.
+- [x] Leer manual Root: 836 párrafos antes/después, +517 UTF16 en 52910/tabt.0, recurso inverso/estilos/listas ajenos exactos, sin repetir Google.
+- [x] Source 2494 y peer 2493 Done; WT/admin/rama Source ausentes tras retiro normal. Postcheck corrige sólo comparación del newline del inventario, sin repetir retirada.
+- [ ] Memoria/grafo pendientes de lease ajena; sin captura, append o Store en esta entrega.
+- [x] Preparar delta final de cinco MD, cuatro prefijos y Source 10 intactos, sin dependencias/apps/suites.
+- [ ] Revisión Root, integración documental y retirada del WT propio tras recibos; sin push.
+
+La paridad continúa en el hilo 1195 y tareas nuevas; se preserva el Done histórico 1095. Esta entrega no anuncia paridad completa, salida física de altavoz, HRTF o reproducción positiva de una voz en era.
