@@ -1085,3 +1085,12 @@ In SoundPad or AssetPad, use **Prepare** to decode the selected local audio and 
 SDK authors can use `audio.preload(refs, {signal})`, `getPreloads()` and `releasePreload(ids)`. Owners retain independent runtime IDs while matching resources on the same coordinator and project/era can share a decode. The normal Browser backend prepares without an output context or voice graph; normal Play performs its own admission and revalidates the resource. Existing MCP audio tools also prepare, read and release resources before any SDK Play or client exists. [Usage, ownership, MCP contract and attributed verification](tasks/vvd1095/verification-sdk-audio-preload2494.md).
 
 Source `873178bd` is independently approved and integrated locally in main without push. Root completed real Brave and authenticated warm/cold Native acceptance; the user manual is updated. The Source worktree and branch are retired. Memory and project knowledge updates remain pending their shared lease.
+
+
+## Spatial audio for each client
+
+In SoundPad, choose **Equalpower** or **HRTF** in Audio mode, then set the emitter and this client's listener in metres. Listener yaw uses degrees: 0 faces -Z and +90 faces +X. Enter or leaving a field commits a finite value; Escape restores that coordinate. **Reset listener** resets only this listener. Stereo remains the default, and choosing/configuring a mode does not start audio.
+
+Each SDK client/owner has its own virtual listener, including clients sharing one output context. Spatial voices use real native Panner nodes while retaining stereo pan, gain/buses, preparation and transport. Paused changes stay paused; resume and seek use fresh processors at the retained offset. MCP's existing audio tools expose scoped owner/handle controls and an optional spatial status view. Reload returns to stopped stereo with the local media still available. [API, evidence and limits](tasks/vvd1095/verification-sdk-audio-spatial2505.md).
+
+Source `82eafc27` is independently approved at revision 2 and integrated locally in main without push. Brave, authenticated warm/cold Native and the separate UI finish review have bounded acceptance. This does not unify Soundscape/Reader/wiki players, prove hardware perception or complete global parity. Shared-rich-text performance and memory/knowledge continuity remain tracked separately. The user manual is updated; memory/knowledge application is still pending its shared lease.
