@@ -222,6 +222,9 @@ export async function testActualMapReviewReadonly(){
    await wait(()=>!!mount.querySelector('button[data-map-tool-document="'+source.id+'"]'),'actual bound document not listed');
    await click(mount.querySelector<HTMLButtonElement>('button[data-map-tool-document="'+source.id+'"]')!);
    await wait(()=>!!mount.querySelector('[data-map-review]'),'actual installed author did not mount');
+   const mapRead=await readWorldDocument(scope,'maps',mapId),inherited=ownEra&&mapRead?.provenance==='base';
+   const checkScopeHeader=(parent:ParentNode)=>{const line=parent.querySelector('[data-map-review] > header > p')?.textContent??'',labels=ownEra?['Current era','Época actual']:['Base'];portNeed(labels.some(label=>line.includes(' · '+label)),'Actual map-review header lacks readable Base/current-era context');if(scope.eraId)portNeed(!line.includes(scope.eraId),'Implementation era ID leaked in actual map-review header');portNeed(/inherited from Base|heredado de Base/.test(line)===inherited,'Actual map-review inherited indicator changed');};
+   checkScopeHeader(mount);
    await wait(()=>mount.querySelector('[data-map-review-saved-note]')?.textContent?.includes(token)===true,'readonly actual example hides saved note');
    const savedView=mount.querySelector('[data-map-review-saved-note]')!;
    portNeed(savedView.querySelector('strong')?.textContent==='saved markup','Readonly saved markup flattened or escaped');
@@ -231,6 +234,7 @@ export async function testActualMapReviewReadonly(){
    await click(button(mount,/^(Fullscreen|Pantalla completa)$/));
    await wait(()=>document.querySelector('[data-source-document-view="fullscreen"] [data-map-review-saved-note]')?.textContent?.includes(token)===true,'actual readonly fullscreen hides saved note');
    portNeed(!document.querySelector('[data-source-document-view="fullscreen"] [contenteditable="true"]'),'Readonly fullscreen exposes editable prose');
+   checkScopeHeader(document.querySelector('[data-source-document-view="fullscreen"]')!);
    await click(button(document,/^(Save and return|Guardar y volver)$/));
    await wait(()=>!document.querySelector('[data-source-document-view="fullscreen"]'),'Readonly fullscreen failed to close');
    await render(false);
@@ -246,6 +250,7 @@ export async function testActualMapReviewReadonly(){
    await click(button(mount,/^(Discard changes|Descartar cambios)$/));
    await wait(()=>portPending().dirty===dirtyBefore,'Normal actual editor Discard did not recover pending state');
    portNeed((await portFlush()).ok&&await snapshot()===before,'Readonly enter/fullscreen/draft/Discard changed full durable Source/control snapshot');
+   checks.push((ownEra?'E':'Base')+': readable Base/current-era headers in actual panel/fullscreen, internal era ID absent and inherited indicator matches real map');
    checks.push((ownEra?'E':'Base')+': actual installed module shows saved rich note in genuine map-version and readonly fullscreen; current editor buffers DOM edit, readonly keeps same draft node, normal Discard recovers; full snapshots exact');
   }finally{await portAct(async()=>root.unmount());mount.remove();await deleteProject(projectId);await deleteProject(controlId);portNeed((await Promise.all(db.tables.map(table=>table.count()))).every(count=>count===0),'Actual map-review oracle own89tables not empty');}
  }
