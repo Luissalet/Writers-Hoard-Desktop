@@ -1076,3 +1076,12 @@ Source b7e1215 is integrated in main. Authenticated MCP, real package installati
 In an owned SoundPad block, choose local media and press Play, then Pause, Resume or the labelled position slider. Pausing keeps the same handle and freezes its digital position; seeking while paused changes the offset without starting playback. Volume, stereo pan, buses, loop and Stop remain available. Reopening a document leaves audio stopped.
 
 SDK audio and useSound/useAudioPlayer expose pause, resume, seek and position/duration. Existing MCP audio tools control a prepared handle in its project/era and can request position explicitly. Agent Play keeps its normal gesture-required/no-autoplay response. These are runtime controls; no saved playback, physical-speaker or spatial/HRTF claim. [Usage and verification](tasks/vvd1095/verification-sdk-audio-transport2475.md).
+
+
+## Prepare local audio before Play
+
+In SoundPad or AssetPad, use **Prepare** to decode the selected local audio and see its preparation status and duration. **Discard preparation** releases that retained resource; a playing or paused voice keeps its own buffer and position. Stop still stops the voice, and Play remains available without preparing first. Changing the selection releases the previous preparation. Reopening or reloading starts stopped with no retained preparation.
+
+SDK authors can use `audio.preload(refs, {signal})`, `getPreloads()` and `releasePreload(ids)`. Owners retain independent runtime IDs while matching resources on the same coordinator and project/era can share a decode. The normal Browser backend prepares without an output context or voice graph; normal Play performs its own admission and revalidates the resource. Existing MCP audio tools also prepare, read and release resources before any SDK Play or client exists. [Usage, ownership, MCP contract and attributed verification](tasks/vvd1095/verification-sdk-audio-preload2494.md).
+
+Source `873178bd` is independently approved and integrated locally in main without push. Root completed real Brave and authenticated warm/cold Native acceptance; the user manual is updated. The Source worktree and branch are retired. Memory and project knowledge updates remain pending their shared lease.

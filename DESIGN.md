@@ -466,3 +466,12 @@ El cuaderno mantiene el mismo host en Base y épocas. La época con estado propi
 Los controles de transporte permanecen junto a Play, Stop, volumen y panorama, con etiquetas traducidas. Pausar y Reanudar reflejan el estado del último handle propio. El rango Posición en segundos muestra posición/duración; queda inactivo sin handle y puede cambiar el offset en pausa. En pausa se muestra En pausa y no hay niveles activos; al detener se retiran posición y mediciones.
 
 Los botones se distribuyen en varias filas cuando falta ancho, manteniendo labels y scroll vertical normal del editor. La posición se muestrea sólo para el handle vivo/visible; montar, reabrir o cambiar de documento no reproduce sonido. No se añade un reproductor alternativo o un control espacial.
+
+
+## Preparación en Sonidos locales y AssetPad
+
+Preparar, estado/duración y Descartar preparación se sitúan junto a los controles de audio existentes, con las mismas superficies, tipografía, foco y traducciones es/en. El estado de preparación usa su anuncio accesible independiente del transporte: Preparado no significa Reproduciendo. Se puede descartar una petición pendiente; Play no exige una preparación previa. Detener y Descartar preparación conservan acciones diferentes y visibles.
+
+Los controles se distribuyen en varias filas cuando falta ancho, con scroll normal del editor. Cambiar el recurso, retargetear o desmontar retira sólo las retenciones del hook correspondiente, incluidas dos instancias que comparten owner. Liberar una preparación no cambia la pausa o la posición de una voz adquirida. Montar, guardar, reabrir y recargar no reproducen sonido. [Verificación y alcance visual](tasks/vvd1095/verification-sdk-audio-preload2494.md).
+
+Root comprobó estos controles en Brave a 420 CSS de ancho, con scrollWidth 420 y una captura estrecha real. El registro mantiene los timeouts anteriores y los estados intermedios; esa comprobación no implica una prueba táctil o de salida física de altavoz.
