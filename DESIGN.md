@@ -452,3 +452,17 @@ El gráfico conserva su presentación vectorial, superficies carbón, tipografí
 Cuando hay inserción editable, el ancho mínimo del gráfico crece con el número de ejes y un scroll horizontal interno mantiene separados los destinos densos. Es respuesta local del radar a su geometría; no introduce otro token, paleta, raster o formato. La vista de lectura mantiene su tamaño y carece de controles de autor. La categoría de preset limita la entrada a200caracteres, conforme al documento existente.
 
 La revisión visual independiente observa tres capturas reales de Electron1440/640 y sus límites declarados; la corrección de huecos densos procede de un fallo Brave real a23ejes/420CSS y de la regresión con hit-test, seguida del gesto normal corregido. No existe PNG Brave denso acreditado por este corte. Source formal3 está aprobado e integrado en main6ac8efa4, sin push; Root completó Brave con22observaciones y dos importaciones ZIP normales, y aceptó la auditoría independiente Native2452r1. El WT/rama Source ya se retiró normalmente; manual, memoria y grafo están actualizados con recibos finales verificados por Root. La atribución final y los recibos están en docs/verification-radar-axis.md.
+
+### Cuaderno Source con comprobaciones
+
+El cuaderno usa las superficies carbón, tipografía, bordes y foco dorado existentes. Nombre dispone de etiqueta, Guardar y Descartar; las comprobaciones tienen checkbox, etiqueta y una acción de quitar nombrada por su contenido. Cada fila conserva su clave, sin prometer orden de lista para un map. Deshacer/Rehacer sigue el hook normal y los controles muestran su estado ocupado. El catálogo es/en nombra las acciones.
+
+La primera comprobación se guarda sin un paso preparatorio de Activar intercambio, tanto en una V1 anterior como en un documento V2 nuevo. El Host remonta por documento/época/release y permite recuperar o descartar localmente un borrador al pasar a readonly, con Guardar deshabilitado. Las cuatro capturas Brave R2 reales muestran nombre, otros valores y comprobaciones en vista normal y estrecha; a420CSS el documento mide420 de scrollWidth y la región de la herramienta unos304. Tab permite desplazar la vista normal hasta los controles. Este alcance no acredita dispositivo táctil, todos los estados visuales ni Native; la evidencia y el fallo anterior se conservan en tasks/vvd1095/verification-sdk-source-map-additive2455.md.
+
+El cuaderno mantiene el mismo host en Base y épocas. La época con estado propio muestra sus comprobaciones; las que heredan Base muestran las compartidas. Los controles de nombre y comprobaciones conservan su ubicación y etiquetas en ambos ámbitos.
+
+## Pausa y posición en Sonidos locales
+
+Los controles de transporte permanecen junto a Play, Stop, volumen y panorama, con etiquetas traducidas. Pausar y Reanudar reflejan el estado del último handle propio. El rango Posición en segundos muestra posición/duración; queda inactivo sin handle y puede cambiar el offset en pausa. En pausa se muestra En pausa y no hay niveles activos; al detener se retiran posición y mediciones.
+
+Los botones se distribuyen en varias filas cuando falta ancho, manteniendo labels y scroll vertical normal del editor. La posición se muestrea sólo para el handle vivo/visible; montar, reabrir o cambiar de documento no reproduce sonido. No se añade un reproductor alternativo o un control espacial.

@@ -1062,3 +1062,17 @@ In a radar chart, use **Insert axis before** at a gap to add a measure in that p
 Edits use the normal draft, **Save chart** and confirmed **Discard draft**. Escape cancels a drag before drop. On narrow screens, a dense editable plot scrolls inside its chart so each gap remains distinct. Read-only charts show their content without author gestures. MCP adds `wh_radar_axis_insert` and `wh_radar_axis_move`, using the current chart revision and the normal Base/era writer. [Usage, contract and verification](docs/verification-radar-axis.md).
 
 Source2425 revision3 is independently approved and integrated locally in main at `6ac8efa4`, without push. Root completed the genuine warm/cold bridge run and real Brave acceptance with both current ZIPs; the separate Native audit2452 is approved. This documentation attributes those results to their authors and does not rerun that harness. The user manual is updated, and the Source worktree and branch have been retired normally. Project knowledge records are updated, and the first two documentation commits are integrated locally in main without push.
+
+## Add an empty map to a Source tool
+
+Choose the new release in **Manage engines → Local tool versions** to add one empty map to an existing Source document while keeping its saved name and other fields. Opening the document shows the empty field without saving. Its first effective edit saves normally, including a V1 document that never activated change exchange; there is no preparatory Activate step.
+
+The `examples.source-map-notebook` packages demonstrate this with Checks: add a label, check or remove an item, and use session Undo/Redo. Name edits have explicit Save and Discard. Keys keep independent contributions, so undoing one author's change preserves another author's separate key. SDK and MCP use the same Source writer and existing Base/era and copy rules. [Usage, contract and verification](tasks/vvd1095/verification-sdk-source-map-additive2455.md).
+
+Source b7e1215 is integrated in main. Authenticated MCP, real package installation, a separate cold process and both final ZIP imports in Brave have passed their bounded acceptance. Brave also verifies first edits without Activate, Undo/Redo, reload and the narrow layout. The manual is updated. Memory and project knowledge updates remain pending.
+
+## Pause, resume and seek local audio
+
+In an owned SoundPad block, choose local media and press Play, then Pause, Resume or the labelled position slider. Pausing keeps the same handle and freezes its digital position; seeking while paused changes the offset without starting playback. Volume, stereo pan, buses, loop and Stop remain available. Reopening a document leaves audio stopped.
+
+SDK audio and useSound/useAudioPlayer expose pause, resume, seek and position/duration. Existing MCP audio tools control a prepared handle in its project/era and can request position explicitly. Agent Play keeps its normal gesture-required/no-autoplay response. These are runtime controls; no saved playback, physical-speaker or spatial/HRTF claim. [Usage and verification](tasks/vvd1095/verification-sdk-audio-transport2475.md).
