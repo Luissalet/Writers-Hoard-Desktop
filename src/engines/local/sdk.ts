@@ -56,6 +56,7 @@ export {useLocalToolDocumentFields} from './useLocalToolDocumentFields';
 export type {LocalToolOpenDocumentQuery,LocalToolOpenDocumentRow,LocalToolOpenDocuments,LocalToolPublishedOpenDocumentQuery,LocalToolPublishedOpenDocumentRow,LocalToolDocumentFields} from './openDocuments';
 export {useSound,useAudioPlayer} from './useLocalToolAudio';
 export type {LocalToolAudio,LocalAudioPreparation,LocalAudioPrepared,LocalAudioPosition,LocalAudioLevels,LocalAudioChannelLevels,LocalAudioRef,LocalAudioOptions,LocalAudioUpdate,LocalAudioState,LocalAudioBus,LocalAudioFocus} from './audio';
+export type {AudioVec3,LocalAudioPanningModel,LocalAudioListenerPose,LocalAudioListener,LocalAudioSpatialOptions,LocalAudioSpatialState} from './audioSpatial';
 export type {LocalToolWorldClient} from './useLocalToolWorld';
 export type {LocalToolBlockDefinition,LocalToolOwnedBlockDefinition,LocalToolWorldBlockDefinition,LocalToolWorldBlockProps} from './blocks/definitions';
 export type {LocalToolBlockEnvelope,LocalToolOwnedBlockEnvelope,LocalToolWorldBlockEnvelope,LocalToolBlockOwner,LocalToolBlockDataOwner} from './blocks/types';
