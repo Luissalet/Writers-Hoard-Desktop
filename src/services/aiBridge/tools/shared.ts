@@ -44,6 +44,8 @@ export interface AuditEnvelope {
   entityIds?: string[];
   summary?: string;
   before?: unknown;
+  /** False for a successful write request that left the document unchanged. */
+  reversible?: false;
   /**
    * Dexie table the row lives in. Only deletions record it, because only they
    * need it: undoing a delete means putting the row back, and by then there is

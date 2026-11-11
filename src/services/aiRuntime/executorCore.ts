@@ -163,6 +163,6 @@ export function createToolExecutor(deps: ExecutorDeps) {
     if (outcome.result && typeof outcome.result === 'object') {
       delete (outcome.result as Record<string, unknown>).__audit;
     }
-    return { ...outcome, args, auditIndex: auditIndex ?? undefined };
+    return { ...outcome, args, auditIndex: audit?.reversible === false ? undefined : auditIndex ?? undefined };
   };
 }
