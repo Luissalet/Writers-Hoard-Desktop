@@ -5,10 +5,11 @@ const harness=require('../scripts/run-codex-properties-ui.cjs'),root=path.resolv
 process.env.HOARD_EVENTS='0';
 const sourceBlock=process.env.WH_NATIVE_SOURCE_BLOCK_FOCUS==='1';
 const sourceCommand=process.env.WH_NATIVE_SOURCE_UNDO_COMMAND==='1';
-assert(!(sourceBlock&&sourceCommand),'Select one Native Source scenario');
-const sourceScenario=sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
+const sourceProvider=process.env.WH_NATIVE_SOURCE_UNDO_PROVIDER==='1';
+assert([sourceBlock,sourceCommand,sourceProvider].filter(Boolean).length<=1,'Select one Native Source scenario');
+const sourceScenario=sourceProvider?'source-undo-provider':sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
 const revocations=[];
-const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
+const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceProvider?'source-provider-native-':sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
 const preloadFile=path.join(directory,'focus-preload.cjs'),adapterFile=path.join(directory,'focus-stdio.cjs');
 // QuickNote is unrelated to focus; this fixture does not capture/relay notes or start its window.
 fs.writeFileSync(preloadFile,"const{contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('electronAPI',{platform:process.platform,quickNote:{setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}},aiBridge:{onRequest:callback=>{const listener=(_,payload)=>callback(payload);ipcRenderer.on('aibridge:request',listener);return()=>ipcRenderer.removeListener('aibridge:request',listener);},reply:payload=>ipcRenderer.invoke('aibridge:reply',payload)}});");
@@ -68,7 +69,7 @@ async function drive(win){
  async function call(session,name,args,relayed=true){const prior=replies.length,response=await session.rpc('tools/call',{name,arguments:args});toolCalls++;assert(!response.error);assert.equal(replies.length-prior,relayed?1:0);assert.equal(response.result.content.length,1);assert.equal(response.result.content[0].type,'text');const outcome={isError:response.result.isError===true,value:JSON.parse(response.result.content[0].text)};transcript.push({session:session.report().label,name,args,outcome,ipcReplies:replies.length-prior});return outcome;}
  async function ok(session,name,args){const result=await call(session,name,args);assert.equal(result.isError,false,JSON.stringify(result.value));return result.value;}
  if(sourceScenario){
-  const run=sourceCommand?driveSourceCommand:driveSourceBlock;
+  const run=sourceProvider?driveSourceProvider:sourceCommand?driveSourceCommand:driveSourceBlock;
   await run({a,b,ok,renderer,fixture});
   await renderer('__focusNativeFinish',{ok:true});
   return;
@@ -235,8 +236,90 @@ async function driveSourceCommand({a,b,ok,renderer,fixture}){
  save('source-command-observations.json',{before,principal,mounted,opened,savedA,visibleA,undone,visibleUndo,listedByB,savedB,visibleB,closed});
  checks.push({label:'Two keys used one Source command instance, real Undo changed only its stack, closed instance unavailable'});
 }
+async function driveSourceProvider({a,b,ok,renderer,fixture}){
+ const scope={projectId:fixture.projectId,namespace:fixture.namespace,documentId:fixture.documentId};
+ const LIST='wh_local_tool_undo_provider_list',RUN='wh_local_tool_undo_provider_run',READ='wh_local_tool_read';
+ const read=session=>ok(session,READ,scope);
+ const list=async session=>{
+  const {providers}=await ok(session,LIST,scope);
+  assert(Array.isArray(providers));
+  return providers.filter(provider=>provider.providerId==='rehearsal-order');
+ };
+ const binding=({instanceId,providerId,providerToken})=>({instanceId,providerId,providerToken});
+ const directions=(provider,canUndo,canRedo)=>assert.deepEqual([provider.canUndo,provider.canRedo],[canUndo,canRedo]);
+ const run=async(session,provider,mode,available,applied)=>{
+  const {_undo,...result}=await ok(session,RUN,{...scope,...binding(provider),mode});
+  assert.deepEqual(result,{available,applied});
+ };
+ const prepared=await renderer('__focusNativeProviderPrepare');
+ const before=await read(b),initial=before.data.items;
+ assert.equal(before.document.id,fixture.documentId);
+ assert.equal(before.document.namespace,fixture.namespace);
+ assert.equal(before.provenance,'base');
+ assert.equal(initial.length,3);
+ assert.equal(new Set(initial.map(item=>item.id)).size,3);
+ const original=initial.map(item=>item.text);
+ assert.deepEqual(prepared,original);
+ const main=await list(b);
+ assert.equal(main.length,1);
+ assert(typeof main[0].instanceId==='string'&&main[0].instanceId.length>0);
+ assert(typeof main[0].providerToken==='string'&&main[0].providerToken.length>0);
+ directions(main[0],false,false);
+ const companionFrom=providers=>{
+  assert.equal(providers.length,2);
+  assert.deepEqual(providers.find(provider=>provider.instanceId===main[0].instanceId),main[0]);
+  const companion=providers.find(provider=>provider.instanceId!==main[0].instanceId);
+  assert(companion&&typeof companion.instanceId==='string'&&companion.instanceId.length>0);
+  assert(typeof companion.providerToken==='string'&&companion.providerToken.length>0);
+  assert.notEqual(companion.providerToken,main[0].providerToken);
+  assert.deepEqual(companion.label,{en:'Rehearsal order',es:'Orden de ensayo'});
+  return companion;
+ };
+ const opened=await renderer('__focusNativeProviderOpen');
+ assert.equal(opened.documentId,fixture.documentId);
+ const observed=async(saved,rehearsal,canUndo,canRedo,writerUndo=false)=>renderer('__focusNativeProviderObserve',{saved,rehearsal,canUndo,canRedo,writerUndo});
+ await observed(original,original,false,false);
+ await renderer('__focusNativeProviderMove',original[0]);
+ const reordered=[initial[1],initial[0],initial[2]],rehearsal=reordered.map(item=>item.text);
+ const moved=await observed(original,rehearsal,true,false);
+ const companion=companionFrom(await list(a));
+ directions(companion,true,false);
+ assert.deepEqual(await read(b),before);
+ await run(a,companion,'undo',true,true);
+ const undoneModel=await observed(original,original,false,true);
+ assert.deepEqual(await read(b),before);
+ const redoProvider=companionFrom(await list(b));
+ assert.deepEqual(binding(redoProvider),binding(companion));
+ directions(redoProvider,false,true);
+ await run(b,redoProvider,'redo',true,true);
+ const redoneModel=await observed(original,rehearsal,true,false);
+ assert.deepEqual(await read(a),before);
+ await renderer('__focusNativeProviderApply');
+ const appliedDOM=await observed(rehearsal,rehearsal,false,false,true);
+ const afterApply=await read(b);
+ const identity=({revision,updatedAt,data,document:{version,...document},...rest})=>({document,...rest});
+ assert.equal(afterApply.revision,before.revision+1);
+ assert.deepEqual(identity(afterApply),identity(before));
+ assert.deepEqual(afterApply.data,{...before.data,items:reordered});
+ await renderer('__focusNativeProviderWriterUndo');
+ const writerUndoDOM=await observed(original,original,false,false);
+ const restored=await read(a);
+ assert.equal(restored.revision,before.revision+2);
+ assert.deepEqual(identity(restored),identity(before));
+ assert.deepEqual(restored.data,before.data);
+ const latest=companionFrom(await list(a));
+ directions(latest,false,false);
+ const closed=await renderer('__focusNativeProviderClose');
+ assert.equal(closed,opened.paneId);
+ assert.deepEqual(await list(b),main);
+ await run(b,latest,'undo',false,false);
+ assert.deepEqual(await read(a),restored);
+ const afterClose=await renderer('__focusNativeProviderPrincipal',original);
+ save('source-provider-observations.json',{before,main,opened,companion,moved,undoneModel,redoProvider,redoneModel,afterApply,appliedDOM,restored,writerUndoDOM,latest,closed,afterClose});
+ checks.push({label:'Two keys used one rehearsal provider without writing; Apply and Writer Undo changed the saved order; retired token unavailable'});
+}
 process.argv[2]='tests/local-tool-focus.native.renderer.ts';
-process.argv[3]=sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
+process.argv[3]=sourceProvider?'testLocalToolSourceProviderNative':sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
 harness.main({preloadFile,setup,window:async win=>{window=win;bridge.setBridgeWindowResolver(()=>win);win.webContents.once('did-finish-load',()=>{driver=drive(win).catch(async error=>{failure=error.stack||String(error);console.error(failure);await win.webContents.executeJavaScript(`window.__focusNativeFinish?.(${JSON.stringify({ok:false,error:failure})});0`).catch(()=>{});});});},close:async()=>{
  await driver;
  if(failure)throw Error(failure);

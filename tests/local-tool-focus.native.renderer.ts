@@ -56,7 +56,7 @@ export async function testLocalToolFocusNative(){
 }
 
 /** Opt-in scenario with the normal LinkedNotebook and ProjectWorkspace. */
-export async function testLocalToolSourceBlockNative(sourceCommand=false){
+export async function testLocalToolSourceBlockNative(sourceCommand=false,sourceProvider=false){
  check(await db.projects.count()===0,'Private Source block profile must start empty');
  const pendingCounts=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
  const pendingBefore=pendingCounts();
@@ -139,6 +139,59 @@ export async function testLocalToolSourceBlockNative(sourceCommand=false){
     });
     Reflect.set(window,'__focusNativeCommandCheckPrincipal',()=>{checkPrincipal();return true;});
    }
+   if(sourceProvider){
+    const region=(root:ParentNode|null)=>host(root)?.querySelector('section[aria-label="Rehearsal order"]');
+    const texts=(root:ParentNode|null|undefined,selector:string)=>Array.from(root?.querySelectorAll(selector)??[],node=>node.textContent??'');
+    const saved=(root:ParentNode|null)=>texts(host(root),'section[aria-label="Linked notebook"] ul > li > span');
+    const order=(root:ParentNode|null)=>texts(region(root),'ol[aria-label="Rehearsal items"] > li > span');
+    const equals=(actual:string[],expected:string[])=>JSON.stringify(actual)===JSON.stringify(expected);
+    const rehearsalControl=(label:string,root:ParentNode|null=panel())=>Array.from(region(root)?.querySelectorAll<HTMLButtonElement>('button')??[]).find(button=>button.textContent?.trim()===label);
+    const directions=(root:ParentNode|null,undo:boolean,redo:boolean)=>rehearsalControl('Undo rehearsal',root)?.disabled===!undo&&rehearsalControl('Redo rehearsal',root)?.disabled===!redo;
+    const clickControl=async(button:HTMLButtonElement|undefined|null,label:string)=>{
+     check(button&&!button.disabled,label+' unavailable');
+     await act(async()=>{button.click();});
+    };
+    const principalClean=(expected:string[])=>equals(saved(primary()),expected)&&equals(order(primary()),expected)&&directions(primary(),false,false);
+    Reflect.set(window,'__focusNativeProviderPrepare',async()=>{
+     await until(()=>!!region(primary())&&control(['Add review checklist'],primary())?.disabled===false,'Principal rehearsal and setup command unavailable');
+     await clickControl(control(['Add review checklist'],primary()),'Add review checklist');
+     await until(()=>saved(primary()).length===3&&principalClean(saved(primary()))&&control(['Undo'],primary())?.disabled===false,'Prepared rows did not settle in the real principal');
+     samePrimary();
+     return saved(primary());
+    });
+    Reflect.set(window,'__focusNativeProviderOpen',async()=>{
+     await clickControl(control(['Open items beside'],primary()),'Open items beside');
+     await until(()=>!!fixture.observe().companion?.items&&!!region(panel()),'Companion rehearsal did not mount');
+     samePrimary();
+     return {paneId:fixture.observe().companion?.paneId,documentId:host(panel())?.dataset.sourceDocumentHost};
+    });
+    Reflect.set(window,'__focusNativeProviderObserve',async(input:{saved:string[];rehearsal:string[];canUndo:boolean;canRedo:boolean;writerUndo:boolean})=>{
+     await until(()=>principalClean(input.saved)&&equals(saved(panel()),input.saved)&&equals(order(panel()),input.rehearsal)
+      &&directions(panel(),input.canUndo,input.canRedo)&&(!input.writerUndo||control(['Undo'])?.disabled===false),
+     'Saved order, rehearsal order or their real Undo/Redo controls did not settle');
+     samePrimary();
+     return {primarySaved:saved(primary()),primaryRehearsal:order(primary()),companionSaved:saved(panel()),companionRehearsal:order(panel()),canUndo:rehearsalControl('Undo rehearsal')?.disabled===false,canRedo:rehearsalControl('Redo rehearsal')?.disabled===false};
+    });
+    Reflect.set(window,'__focusNativeProviderMove',async(text:string)=>{
+     const button=Array.from(region(panel())?.querySelectorAll<HTMLButtonElement>('button[aria-label]')??[]).find(item=>item.getAttribute('aria-label')==='Move '+text+' down');
+     await clickControl(button,'Move first rehearsal row down');
+    });
+    Reflect.set(window,'__focusNativeProviderApply',()=>clickControl(rehearsalControl('Apply order'),'Apply order'));
+    Reflect.set(window,'__focusNativeProviderWriterUndo',()=>clickControl(control(['Undo']),'Normal Writer Undo'));
+    Reflect.set(window,'__focusNativeProviderClose',async()=>{
+     const paneId=fixture.observe().companion?.paneId;
+     check(paneId,'Companion pane missing before close');
+     await clickControl(document.querySelector<HTMLButtonElement>(`[data-testid="workspace-close-tab-${paneId}"]`),'Close companion');
+     await until(()=>!panel()&&fixture.observe().companion===null,'Companion rehearsal did not unmount');
+     samePrimary();
+     return paneId;
+    });
+    Reflect.set(window,'__focusNativeProviderPrincipal',(expected:string[])=>{
+     samePrimary();
+     check(principalClean(expected),'Stale companion provider affected the principal');
+     return {saved:saved(primary()),rehearsal:order(primary())};
+    });
+   }
    Reflect.set(window,'__focusNativeBlockSnapshot',snapshot);
    Reflect.set(window,'__focusNativeBlockObserve',async(block:'notes'|'items')=>{
     await until(()=>{
@@ -188,6 +241,7 @@ export async function testLocalToolSourceBlockNative(sourceCommand=false){
   const cleanup={projects:await db.projects.count(),sourceHosts:document.querySelectorAll('[data-source-document-host]').length,pendingExact:JSON.stringify(pendingCounts())===JSON.stringify(pendingBefore)};
   check(cleanup.projects===0&&cleanup.sourceHosts===0&&cleanup.pendingExact,'Source block fixture cleanup failed');
   Reflect.set(window,'__focusNativeBlockCleanupReceipt',cleanup);
+  if(sourceProvider)return ['two keys used the same rehearsal provider, Apply and normal Undo changed saved order, and closing retired its token'];
   return sourceCommand
    ? ['two keys ran the same Source command instance, real companion Undo reversed it and closing retired it']
    : ['actual ProjectWorkspace Source block opened with two keys, same document saved and undone, unavailable without workspace'];
@@ -197,4 +251,9 @@ export async function testLocalToolSourceBlockNative(sourceCommand=false){
 
 export async function testLocalToolSourceCommandNative(){
  return testLocalToolSourceBlockNative(true);
+}
+
+
+export async function testLocalToolSourceProviderNative(){
+ return testLocalToolSourceBlockNative(false,true);
 }

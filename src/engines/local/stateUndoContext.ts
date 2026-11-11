@@ -3,6 +3,8 @@ import {createContext, useContext, useLayoutEffect, useRef} from 'react';
 interface ToolUndoController {
   undoStep?: number;
   redoStep?: number;
+  unrankedUndo?: boolean;
+  unrankedRedo?: boolean;
   undo(): Promise<boolean>;
   redo(): Promise<boolean>;
 }
@@ -12,8 +14,8 @@ let step = 0;
 export const nextLocalToolUndoStep = () => ++step;
 
 
-export function useLocalToolUndoController(controller: ToolUndoController) {
+export function useLocalToolUndoController(controller: ToolUndoController | ControllerReader) {
   const register = useContext(ToolUndoContext), current = useRef(controller);
   useLayoutEffect(() => { current.current = controller; });
-  useLayoutEffect(() => register?.(() => current.current), [register]);
+  useLayoutEffect(() => register?.(() => typeof current.current === 'function' ? current.current() : current.current), [register]);
 }

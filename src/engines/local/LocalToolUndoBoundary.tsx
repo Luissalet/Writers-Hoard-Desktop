@@ -20,10 +20,12 @@ export function LocalToolUndoBoundary({children, ...props}: HTMLAttributes<HTMLD
     const textField = target instanceof HTMLElement ? target.closest('textarea,[role="textbox"]') : null;
     if (target instanceof HTMLElement && (target.isContentEditable || textField && event.currentTarget.contains(textField) || target instanceof HTMLInputElement && !['button','submit','reset','checkbox','radio','range','color','file'].includes(target.type))) return;
     const field = mode === 'undo' ? 'undoStep' : 'redoStep';
-    const ready = [...readers.current].map(read => read()).filter(controller => controller[field] !== undefined).sort((a, b) => b[field]! - a[field]!)[0];
+    const unranked = mode === 'undo' ? 'unrankedUndo' : 'unrankedRedo';
+    const ready = [...readers.current].map(read => read()).filter(controller => controller[unranked] || controller[field] !== undefined).sort((a, b) => Number(!!b[unranked]) - Number(!!a[unranked]) || (b[field] ?? 0) - (a[field] ?? 0))[0];
     if (!ready) return;
     event.preventDefault();
-    void ready[mode]();
+    // Author providers retain their own error feedback; a failed attempt never cascades.
+    void ready[mode]().catch(() => undefined);
   };
   return <ToolUndoContext.Provider value={register}><div {...props} data-local-tool-undo-boundary onKeyDown={onKeyDown}>{children}</div></ToolUndoContext.Provider>;
 }

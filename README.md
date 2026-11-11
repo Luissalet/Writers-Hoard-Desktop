@@ -1108,3 +1108,7 @@ In Linked Notebook, **Open notes beside** and **Open items beside** keep the ful
 ## Undo an author command in a Source notebook
 
 In Linked Notebook, **Add review checklist** adds the two review items in one step. The companion and the main view read the same saved document. Use **Undo** and **Redo** in the view that ran the command. A new edit after Undo starts its next branch. Tool authors can define a command as a batch of Writer actions and use the editor's existing history. [SDK and verification](tasks/vvd1095/verification-sdk-author-undo2602.md).
+
+## Rehearse an item order before saving
+
+In Linked Notebook, move items in **Rehearsal order** and use its Undo or Redo to try another arrangement. Each open view has its own rehearsal. **Apply order** saves one edit that the editor's regular Undo can reverse. Source tool authors can register a live model's Undo and Redo for the current editor or companion. [SDK and verification](tasks/vvd1095/verification-sdk-undo-provider2614.md).

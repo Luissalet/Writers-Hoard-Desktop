@@ -486,6 +486,18 @@ The returned `{available,run}` lets the component offer its command in an editab
 
 `useLocalToolState` also routes Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y to the focused document, owned block or legacy tool. Native text-field Undo remains native; the action stack belongs to the current source surface. It does not reverse arbitrary tool calls or effects elsewhere.
 
+### Live Undo providers for author models
+
+Use `useLocalToolUndoProvider(client, context, handle)` when a component owns a live model and its own Undo/Redo stack. A handle supplies `id`, a stable `model` object, optional `{en,es}` label, synchronous `canUndo(model)` and `canRedo(model)`, and asynchronous `undo(model,operation)` and `redo(model,operation)` returning a boolean. Pass `null` to withdraw it. The hook returns `{available,canUndo,canRedo,busy,error,undo,redo}`. Its operations return `{available,applied}`. The model, stack and callbacks stay in this renderer session.
+
+Give an effective edit a step from `nextLocalToolUndoStep()` to order it with normal receipts in the current pane. Expose the top step through `lastStep(model, 'undo' | 'redo')`; an available direction must return a positive safe integer. Assign a new step when Undo or Redo adds an entry to the opposite branch. A provider without `lastStep` takes precedence while available. Getters are read during selection and must be synchronous and free of side effects. The author updates its own UI when its model changes. A failed or ineffective callback does not move the stack for you or fall through to another controller.
+
+The hook captures the current model and callbacks before awaiting access. Inline handle objects can change on render without changing the model identity. After awaiting inside a callback, check `operation.isCurrent()` before mutating your model. Replacing the model or retiring its view invalidates the old registration even if its author ID is reused. The host cannot roll back arbitrary effects already accepted by the author. Calls already in flight do not update a replacement model's feedback.
+
+`wh_local_tool_undo_provider_list` lists `{instanceId,providerId,providerToken,label?,canUndo,canRedo}` for an exact `projectId`, `namespace`, `documentId` and optional `eraId` (omit for Shared base). `wh_local_tool_undo_provider_run` adds those three identifiers and `mode: 'undo' | 'redo'`. Use the token from the current list: it belongs to a registration of the specific model. The tool runs the same guarded provider operation as the UI. It does not select another provider, apply a writer receipt, or queue work for a closed view. Keyboard selection still uses the current pane's ordered history and leaves text-field Undo native.
+
+In the Linked Notebook, **Rehearsal order** lets you try a different order for the saved items in the current pane. Its own Undo/Redo does not save the document. **Apply order** uses a normal Writer edit, which can be reversed by the editor's regular Undo; a changed saved baseline leaves the rehearsal in place for review. Providers are available in normal editable Source editors and companions. The fullscreen modal, contextual map, app, embed and Owned hosts do not publish them. This contract does not add a shared journal, batching or anchors.
+
 Verification: `tests/local-tool-index.browser.tsx` / `testLocalToolIndex` covers the real scoped client, ordinary dispatcher/MCP handler, normal search, actual Initiative form/live filter, era isolation/hiding, ZIP restore, product clone, release selection and the shared author-kit evaluator. Native transport and Browser evidence are recorded separately.
 
 ## Live world document reads
