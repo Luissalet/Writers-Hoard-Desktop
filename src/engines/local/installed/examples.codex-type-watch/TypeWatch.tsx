@@ -1,7 +1,5 @@
 import {useEffect,useState} from 'react';
-import {ProjectIcon} from '@/components/common/ProjectIcon';
-import {codexTypeColors,codexTypeIcons} from '@/components/codex/codexTypeMeta';
-import {useLocalToolLocale,type CodexTypeCatalogueRow,type LocalToolCodexTypes,type LocalToolProps} from '../../sdk';
+import {LocalToolCodexTypeIcon,useLocalToolLocale,type CodexTypeCatalogueRow,type LocalToolCodexTypes,type LocalToolProps} from '../../sdk';
 import type {TypeWatchState} from './module';
 
 export default function TypeWatch({client}:LocalToolProps<TypeWatchState>){
@@ -26,7 +24,7 @@ export default function TypeWatch({client}:LocalToolProps<TypeWatchState>){
    </select>
   </label>
   <h3 className="flex items-center gap-2 font-medium text-text-primary">
-   <ProjectIcon name={row.icon} fallback={codexTypeIcons[row.category]} size={18} style={{color:row.color??codexTypeColors[row.category]}}/>
+   <LocalToolCodexTypeIcon type={row} size={18}/>
    {row.name}
   </h3>
   {row.hiddenFromPickers&&<p className="text-sm text-text-muted">{es?'Oculto en los selectores de creación':'Hidden from creation pickers'}</p>}

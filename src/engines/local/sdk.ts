@@ -92,6 +92,8 @@ import {prepareLocalToolStateFields,rememberCompiledLocalToolFields,type LocalTo
 export type {LocalToolAgentField,LocalToolStateFields} from './agentStateFields';
 export type {LocalToolCodexTypes} from './codexTypes';
 export type {CodexTypeCatalogueRow} from '../codex/typeCatalogue';
+export {LocalToolCodexTypeIcon} from './LocalToolCodexTypeIcon';
+export type {LocalToolCodexTypeIconProps} from './LocalToolCodexTypeIcon';
 import {validateLocalToolIndexSpec,type LocalToolDocumentQuery,type LocalToolIndexRow,type LocalToolIndexSpec} from './documentIndex';
 export {evaluateLocalToolIndex,queryLocalToolIndexRows} from './documentIndex';
 export type {LocalToolDocumentQuery,LocalToolIndexSpec,LocalToolIndexRow,LocalToolIndexPredicate} from './documentIndex';
