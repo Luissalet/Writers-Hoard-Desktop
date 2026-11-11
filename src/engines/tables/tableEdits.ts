@@ -108,6 +108,24 @@ function uniqueName(table: WorldTable, wanted: string): string {
 
 export const DEFAULT_TABLE_COLUMN_WIDTH = 180;
 
+export function validateTableColumnName(columns: readonly DataColumn[], columnId: string, requested: string): string {
+  const name = requested.trim();
+  if (!name || name.includes(']') || columns.some(column => column.id !== columnId && column.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    throw Error('table_column_name_invalid');
+  }
+  return name;
+}
+
+export function renameTableColumn(table: WorldTable, columnId: string, requested: string, expectedName: string) {
+  if (table.mode !== 'table' || table.codexType || table.codexAllTypes || table.codexTemplateId) throw Error('table_column_rename_unsupported');
+  const column = table.columns.find(item => item.id === columnId);
+  if (!column || column.name !== expectedName) throw Error('table_column_name_conflict');
+  const name = validateTableColumnName(table.columns, columnId, requested);
+  const changed = name !== column.name;
+  if (changed) column.name = name;
+  return { name, changed };
+}
+
 export function tableColumnWidthLimits(current?: number) {
   return { min: Math.min(100, current ?? 100), max: Math.max(600, current ?? 600) };
 }

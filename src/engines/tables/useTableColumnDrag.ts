@@ -102,6 +102,7 @@ export function useTableColumnDrag(
 
   return {
     target: preview?.owner === owner ? preview.target : undefined,
+    hasActivePointer: () => active.current !== undefined,
     bind(id: string) {
       return {
         style: enabled ? handleStyle : undefined,

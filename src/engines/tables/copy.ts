@@ -1,6 +1,8 @@
 const en = {
   dragColumn: 'Drag to move this column', columnOrderConflict: 'The columns changed while dragging. Try again from their new order.',
   resizeColumn: 'Resize column', columnWidthConflict: 'The column width changed while resizing. Try again from its saved width.',
+  renameColumn: 'Rename column', columnNameConflict: 'The column name changed. Reopen the editor from its saved name.',
+  columnNameInvalid: 'Use a unique column name without a closing bracket.',
   manualOrder: 'Manual order', insertAbove: 'Insert row above', rowActions: 'Row actions', dragRow: 'Drag row to move it', moveRowUp: 'Move row up', moveRowDown: 'Move row down', rowMoved: 'Row moved', rowInserted: 'Row inserted', rowConflict: 'The table changed. Review its saved rows before trying again.', manualOrderNotice: 'Row order saved. The current sorting and grouping still apply.',
   title: 'Tables and sheets', intro: 'Keep typed records, edit Codex entries in a grid, or calculate an economy without leaving your project.',
   newTable: 'New document', table: 'Table', sheet: 'Formula sheet', live: 'Live Codex table', name: 'Document name', create: 'Create', cancel: 'Cancel',
@@ -23,6 +25,8 @@ const en = {
 const es: typeof en = {
   dragColumn: 'Arrastra para mover esta columna', columnOrderConflict: 'Las columnas cambiaron durante el arrastre. Vuelve a intentarlo desde el orden actual.',
   resizeColumn: 'Cambiar ancho de columna', columnWidthConflict: 'El ancho de la columna cambió durante el ajuste. Vuelve a intentarlo desde el ancho guardado.',
+  renameColumn: 'Renombrar columna', columnNameConflict: 'El nombre de la columna cambió. Vuelve a abrir el editor desde el nombre guardado.',
+  columnNameInvalid: 'Usa un nombre de columna único y sin corchete de cierre.',
   manualOrder: 'Orden manual', insertAbove: 'Insertar fila encima', rowActions: 'Acciones de fila', dragRow: 'Arrastrar fila para moverla', moveRowUp: 'Subir fila', moveRowDown: 'Bajar fila', rowMoved: 'Fila movida', rowInserted: 'Fila insertada', rowConflict: 'La tabla ha cambiado. Revisa las filas guardadas antes de reintentarlo.', manualOrderNotice: 'Orden de filas guardado. La ordenación y la agrupación actuales siguen aplicadas.',
   title: 'Tablas y hojas', intro: 'Organiza registros tipados, edita fichas del Códice en una tabla o calcula una economía sin salir del proyecto.',
   newTable: 'Nuevo documento', table: 'Tabla', sheet: 'Hoja de cálculo', live: 'Tabla del Códice', name: 'Nombre del documento', create: 'Crear', cancel: 'Cancelar',
