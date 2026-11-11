@@ -1,4 +1,5 @@
-import { useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from 'react';
+import { serializeTableClipboard } from './tableClipboard';
 
 interface CellPosition { rowId: string; columnId: string }
 interface CellSelection {
@@ -15,6 +16,8 @@ interface TableCellNavigationOptions {
   rows: readonly { id: string }[];
   columns: readonly { id: string }[];
   appendRow?: () => Promise<string | undefined>;
+  readCell: (row: number, column: number) => string;
+  pasteFrom: (text: string, row: number, column: number) => void;
 }
 
 const arrowSteps: Record<string, readonly [number, number]> = {
@@ -32,7 +35,7 @@ function positionAt(target: EventTarget | null): CellPosition | undefined {
   return rowId !== undefined && columnId !== undefined ? { rowId, columnId } : undefined;
 }
 
-export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows, columns, appendRow }: TableCellNavigationOptions) {
+export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows, columns, appendRow, readCell, pasteFrom }: TableCellNavigationOptions) {
   const id = useId();
   const hintId = id + '-hint';
   const [selection, setSelection] = useState<CellSelection>();
@@ -53,6 +56,12 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
   }
   const active = scoped && (added ?? (visible(scoped.focus) ? scoped.focus : cellAt(0, 0)));
   const anchor = active && !added && visible(scoped?.anchor) ? scoped.anchor : active;
+  const bounds = active && anchor ? {
+    firstRow: Math.min(rowIndices.get(anchor.rowId)!, rowIndices.get(active.rowId)!),
+    lastRow: Math.max(rowIndices.get(anchor.rowId)!, rowIndices.get(active.rowId)!),
+    firstColumn: Math.min(columnIndices.get(anchor.columnId)!, columnIndices.get(active.columnId)!),
+    lastColumn: Math.max(columnIndices.get(anchor.columnId)!, columnIndices.get(active.columnId)!),
+  } : undefined;
   const cellId = (position: CellPosition) => id + '-' + encodeURIComponent(JSON.stringify([position.rowId, position.columnId]));
   const activeId = active ? cellId(active) : undefined;
   const lookup = (position: CellPosition) => tableRef.current?.querySelector<HTMLElement>('#' + CSS.escape(cellId(position)));
@@ -102,8 +111,9 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
     const clear = () => { if (flushing.current.get(work) === owner) flushing.current.delete(work); };
     void work.then(clear, clear);
   };
+  const hasPendingWrite = () => [...flushing.current.values()].includes(owner);
   const appendFrom = (grid: HTMLTableElement, position: CellPosition) => {
-    if (!appendRow || appending.current?.owner === owner || [...flushing.current.values()].includes(owner)) return;
+    if (!appendRow || appending.current?.owner === owner || hasPendingWrite()) return;
     const request = { owner };
     appending.current = request;
     void appendRow().then(rowId => {
@@ -161,14 +171,29 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
     if (next) focusGrid(grid, next);
   };
 
+  const onCopy = (event: ClipboardEvent<HTMLTableElement>) => {
+    if (event.target !== event.currentTarget || !bounds) return;
+    const values: string[][] = [];
+    for (let row = bounds.firstRow; row <= bounds.lastRow; row++) {
+      const cells: string[] = [];
+      for (let column = bounds.firstColumn; column <= bounds.lastColumn; column++) cells.push(readCell(row, column));
+      values.push(cells);
+    }
+    event.clipboardData.setData('text/plain', serializeTableClipboard(values));
+    event.preventDefault();
+  };
+  const onPaste = (event: ClipboardEvent<HTMLTableElement>) => {
+    if (event.target !== event.currentTarget || !bounds) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!text) return;
+    event.preventDefault();
+    if (!hasPendingWrite()) pasteFrom(text, bounds.firstRow, bounds.firstColumn);
+  };
   const isSelected = (position: CellPosition) => {
-    if (!active || !anchor) return false;
-    const row = rowIndices.get(position.rowId), col = columnIndices.get(position.columnId);
-    if (row === undefined || col === undefined) return false;
-    const firstRow = rowIndices.get(anchor.rowId)!, lastRow = rowIndices.get(active.rowId)!;
-    const firstCol = columnIndices.get(anchor.columnId)!, lastCol = columnIndices.get(active.columnId)!;
-    return row >= Math.min(firstRow, lastRow) && row <= Math.max(firstRow, lastRow) &&
-      col >= Math.min(firstCol, lastCol) && col <= Math.max(firstCol, lastCol);
+    if (!bounds) return false;
+    const row = rowIndices.get(position.rowId), column = columnIndices.get(position.columnId);
+    return row !== undefined && column !== undefined &&
+      row >= bounds.firstRow && row <= bounds.lastRow && column >= bounds.firstColumn && column <= bounds.lastColumn;
   };
   const cellProps = (rowId: string, columnId: string) => {
     if (!enabled) return {};
@@ -181,6 +206,6 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
   return { enabled, hintId, cellProps, trackWrite, gridProps: enabled ? {
     role: 'grid' as const, tabIndex: 0, 'aria-activedescendant': activeId, 'aria-multiselectable': true,
     'aria-describedby': hintId,
-    onFocus, onPointerDown, onDoubleClick, onKeyDown,
+    onFocus, onPointerDown, onDoubleClick, onKeyDown, onCopy, onPaste,
   } : {} };
 }

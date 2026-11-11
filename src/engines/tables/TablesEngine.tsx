@@ -15,6 +15,7 @@ import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
 import { canChangeTableColumnKind, CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, duplicateRows, filterRows, findMatches, insertRow, isLiveTable, isNormalTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, TABLE_COLUMN_KINDS, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
 import { useTableColumnDrag } from './useTableColumnDrag';
 import { useTableCellNavigation } from './useTableCellNavigation';
+import { parseTableClipboard, pasteTableCells } from './tableClipboard';
 import TableColumnHeader from './TableColumnHeader';
 import CsvDialog from './CsvDialog';
 import WorkbookTabs from './WorkbookTabs';
@@ -136,14 +137,20 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       return await editTableRows(target, tableId, action, version, result => {
         if (!result.receiptId) return;
         const receiptId = result.receiptId;
-        recordUndoable({ projectId: target.projectId, kind: 'asset', label: action.action === 'move-row' ? copy.rowMoved : copy.rowInserted, notice: action.action === 'move-row' ? copy.rowMoved : copy.rowInserted, undo: async () => {
+        const label = { 'move-row': copy.rowMoved, 'insert-row': copy.rowInserted, 'paste-cells': copy.cellsPasted }[action.action];
+        recordUndoable({ projectId: target.projectId, kind: 'asset', label, notice: label, undo: async () => {
           try { await undoTableRows(target, receiptId); }
           catch (failure) { if (failure instanceof WorldEraConflict || failure instanceof Error && failure.message === 'table_row_receipt_missing') throw new UndoStaleError(); throw failure; }
         } });
-        if (current()) setNotice(sorts.length || groupRules.length ? copy.manualOrderNotice : action.action === 'move-row' ? copy.rowMoved : copy.rowInserted);
+        if (current()) setNotice(action.action !== 'paste-cells' && (sorts.length || groupRules.length) ? copy.manualOrderNotice : label);
       });
-    } catch (failure) { if (current()) setError(`${copy.error} ${failure instanceof WorldEraConflict ? copy.rowConflict : failure instanceof Error ? failure.message : ''}`); }
-    finally { if (current()) setRowPending(null); }
+    } catch (failure) {
+      if (current()) {
+        const reason = failure instanceof WorldEraConflict ? copy.rowConflict
+          : action.action === 'paste-cells' ? copy.cellPasteInvalid : failure instanceof Error ? failure.message : '';
+        setError(`${copy.error} ${reason}`);
+      }
+    } finally { if (current()) setRowPending(null); }
   }
   const beginRowDrag = (id: string, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!event.isPrimary || event.button !== 0 || !rowReady || rowWorking || busy) return;
@@ -323,29 +330,55 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     }
     return { epoch: selectionEpoch, rows, anchor: previous?.anchor };
   });
+  const restrictRows = hasSearch || conditions.length > 0 || foldedGroups.size > 0;
+  const rowsVisibleInView = (source: WorldTable, rowIds: readonly string[]) => {
+    if (!restrictRows) return true;
+    const wanted = new Set(rowIds);
+    const probe = projectWorldTable(source, []);
+    const subset = probe.rows.filter(row => wanted.has(row.id));
+    const display = new Map(probe.displayRows.filter(row => wanted.has(row.id)).map(row => [row.id, row]));
+    const raw = (item: DataRow, column: DataColumn) => item.cells[column.id] ?? '';
+    const shown = (item: DataRow, column: DataColumn) => display.get(item.id)?.cells[column.id] ?? raw(item, column);
+    const matching = filterRows(subset, conditions, (item, id) => {
+      const column = columnById(id);
+      return column ? shown(item, column) : undefined;
+    });
+    const searched = hasSearch ? new Set(matchSearch(matching, raw, shown).map(match => match.rowId)) : undefined;
+    const shownRows = searched ? matching.filter(row => searched.has(row.id)) : matching;
+    return projectTableGroups(shownRows, groupRules, (item, id) => groupValue(item, id, raw, shown),
+      foldedGroups, locale).expandedRows.length === rowIds.length;
+  };
   const appendKeyboardRow = async () => {
     if (!storedTable) return;
-    if (hasSearch || conditions.length || foldedGroups.size) {
+    if (restrictRows) {
       const blank: DataRow = { id: crypto.randomUUID(), cells: {} };
-      const probe = projectWorldTable({ ...storedTable, rows: [...storedTable.rows, blank] }, []);
-      const row = probe.rows.at(-1)!, display = probe.displayRows.at(-1)!;
-      const raw = (item: DataRow, column: DataColumn) => item.cells[column.id] ?? '';
-      const shown = (_item: DataRow, column: DataColumn) => display.cells[column.id] ?? raw(row, column);
-      const matching = filterRows([row], conditions, (item, id) => {
-        const column = columnById(id);
-        return column ? shown(item, column) : undefined;
-      });
-      if (!matching.length || hasSearch && !matchSearch(matching, raw, shown).length) return;
-      if (foldedGroups.size && !projectTableGroups(matching, groupRules, (item, id) =>
-        groupValue(item, id, raw, shown), foldedGroups, locale).expandedRows.length) return;
+      if (!rowsVisibleInView({ ...storedTable, rows: [...storedTable.rows, blank] }, [blank.id])) return;
     }
     return (await changeRows({ action: 'insert-row' }))?.row?.id;
+  };
+  const pasteFrom = (text: string, row: number, column: number) => {
+    if (!table || !storedTable || !rowReady || rowWorking || busy) return;
+    try {
+      const values = parseTableClipboard(text);
+      const rowIds = expandedRows.slice(row, row + values.length).map(item => item.id);
+      const columnIds = table.columns.slice(column, column + values[0].length).map(item => item.id);
+      const paste = { rowIds, columnIds, values };
+      if (restrictRows && rowIds.length < values.length) {
+        const draft = structuredClone(storedTable);
+        const predicted = pasteTableCells(draft, paste);
+        if (!rowsVisibleInView(draft, predicted.rowIds.slice(rowIds.length))) throw Error('table_paste_hidden_rows');
+      }
+      void changeRows({ action: 'paste-cells', ...paste });
+    } catch {
+      setError(copy.cellPasteInvalid);
+    }
   };
   const keyboard = useTableCellNavigation({
     enabled: !!table && isNormalTable(table),
     owner: rowOwner.current.epoch,
     viewKey: JSON.stringify([query, conditions, sorts, groupRules, [...foldedGroups]]),
     tableRef, rows: expandedRows, columns: table?.columns ?? [], appendRow: appendKeyboardRow,
+    readCell: (row, column) => rowValue(expandedRows[row], table!.columns[column]), pasteFrom,
   });
   const visiblePosition = new Map(visible.map((row, index) => [row.id, index]));
   const updateFolded = (update: (folded: Set<string>) => void) => setGroupFolds(previous => {
