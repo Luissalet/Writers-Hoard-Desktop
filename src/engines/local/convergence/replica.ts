@@ -129,11 +129,18 @@ function readRichSnapshot(rich:RichRuns,data:RichDocument,value:unknown):Prepare
   if(span.to>length)throw Error('local_tool_rich_bindings_invalid');
  },rich.links,rich.annotation);
 }
-function readValidSnapshot(r:Roots,value:unknown):ValidView {
+function prepareValidSnapshot(r:Roots,value:unknown) {
  if(!object(value)||!object(value.data)||!object(value.bindings))throw Error('local_tool_convergence_bindings_invalid');const view=value as unknown as StoredValidView,stored=view.richBindings??{};
  if(!object(stored))throw Error('local_tool_rich_bindings_invalid');const prepared:[string,PreparedRichSnapshot][]=[];
  for(const[field,bindings]of Object.entries(stored)){if(r.codec.fields[field]?.kind!=='rich')throw Error('local_tool_rich_bindings_invalid');const data=(view.data as ObjectData)[field];if(blockField(r,field))blocks(r,field).check(data as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings);prepared.push([field,readRichSnapshot(r.rich(field),leafData(r,field,data),bindings)]);}
+ return{view,prepared};
+}
+function materializeValidSnapshot(view:StoredValidView,prepared:readonly [string,PreparedRichSnapshot][]):ValidView {
  return{...view,...(Object.hasOwn(view,'richBindings')?{richBindings:Object.fromEntries(prepared.map(([field,bindings])=>[field,bindings.read()]))}:{})} as ValidView;
+}
+function readValidSnapshot(r:Roots,value:unknown):ValidView {
+ const {view,prepared}=prepareValidSnapshot(r,value);
+ return materializeValidSnapshot(view,prepared);
 }
 function writeValidSnapshot(r:Roots,view:ValidView):void {
  const packed:StoredValidView={...view,...(view.richBindings?{richBindings:Object.fromEntries(Object.entries(view.richBindings).map(([field,bindings])=>{const data=(view.data as ObjectData)[field];return[field,encodeRichSnapshotBindings(leafData(r,field,data),bindings,localToolRichLinks(r.codec.fields[field]),annotationSpec(r.codec.fields[field]))];}))}:{})};
@@ -144,8 +151,8 @@ function writeValidSnapshot(r:Roots,view:ValidView):void {
  }
  r.valid.set('view',packed);
 }
-function checkBindings(r:Roots,view:ValidView,plainChecks?:PlainBindingChecks,richChecks?:RichBindingChecks):void {
- if(!object(view.data)||!object(view.bindings))throw Error('local_tool_convergence_bindings_invalid');checkRichBindings(r,view,richChecks);
+function checkBindings(r:Roots,view:ValidView,plainChecks?:PlainBindingChecks,richChecks?:RichBindingChecks,proven?:ReadonlySet<string>):void {
+ if(!object(view.data)||!object(view.bindings))throw Error('local_tool_convergence_bindings_invalid');checkRichBindings(r,view,richChecks,proven);
  for(const[field,descriptor]of listFields(r.codec)){
   if(descriptor.kind!=='list')continue;const rows=view.data[field];
   if(rows===undefined){if(Object.hasOwn(view.bindings,field))throw Error('local_tool_convergence_bindings_invalid');continue;}
@@ -164,12 +171,13 @@ function checkBindings(r:Roots,view:ValidView,plainChecks?:PlainBindingChecks,ri
   }else r.plain(field).checkBindings({text:value,bindings:plain[field]});
  }
 }
-function checkRichBindings(r:Roots,view:ValidView,checks?:RichBindingChecks):void {
+function checkRichBindings(r:Roots,view:ValidView,checks?:RichBindingChecks,proven?:ReadonlySet<string>):void {
  const bindings=view.richBindings??{};
  const structure=view.blockBindings??{};if(!object(structure)||Object.keys(structure).some(field=>!blockField(r,field)))throw Error('local_tool_blocks_bindings_invalid');
  if(Object.keys(bindings).some(field=>r.codec.fields[field]?.kind!=='rich'))throw Error('local_tool_rich_bindings_invalid');
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'){
-  const data=(view.data as ObjectData)[field];if(data===undefined){if(Object.hasOwn(bindings,field)||Object.hasOwn(structure,field))throw Error('local_tool_rich_bindings_invalid');continue;}
+  const data=(view.data as ObjectData)[field];if(data===undefined){if(Object.hasOwn(bindings,field)||Object.hasOwn(structure,field)||proven?.has(field))throw Error('local_tool_rich_bindings_invalid');continue;}
+  if(proven?.has(field))continue;
   if(blockField(r,field))blocks(r,field).check(data as unknown as RichBlockDocument,view.blockBindings?.[field] as RichBlockBindings);const leaves=leafData(r,field,data);if(!bindings[field])throw Error('local_tool_rich_bindings_invalid');
   if(checks){let check=checks.get(field);if(!check){check=r.rich(field).bindingValidator();checks.set(field,check);}check({data:leaves,bindings:bindings[field]});}
   else r.rich(field).checkBindings({data:leaves,bindings:bindings[field]});
@@ -200,6 +208,18 @@ function currentBindings(r:Roots,contract:LocalToolConvergenceContract):Bindings
  const raw=projection(r);return clone(accepts(contract,raw.data)?raw.bindings:validFallback(r,contract).bindings);
 }
 type SnapshotBindingProofs={context?:string;valid:Map<string,string>};
+function checkRetainedSnapshot(r:Roots,value:unknown,plainChecks:PlainBindingChecks,richChecks:RichBindingChecks):void {
+ const {view,prepared}=prepareValidSnapshot(r,value),proven=new Set<string>();
+ const expanded=prepared.filter(([field,bindings])=>{
+  if(blockField(r,field))return true;
+  const compact=bindings.unmarkedCompact?.();if(!compact)return true;
+  try{
+   if(!r.rich(field).provesUnmarkedCompact(leafData(r,field,(view.data as ObjectData)[field]),compact))return true;
+  }catch{return true;}
+  proven.add(field);return false;
+ });
+ checkBindings(r,materializeValidSnapshot(view,expanded),plainChecks,richChecks,proven);
+}
 function semanticPending(r:Roots,proofs?:SnapshotBindingProofs):boolean {
  if(sourceListField(r.codec)!==undefined&&sourceListHistoryPending(r.registers.doc))return true;
  if(r.registers.pending())return true;
@@ -214,7 +234,7 @@ function semanticPending(r:Roots,proofs?:SnapshotBindingProofs):boolean {
  for(const version of r.registers.entries('authored-valid-snapshot'))if(version.present){
   const encoded=valid?r.registers.versions.inner.get(version.id):undefined;
   if(typeof encoded==='string'&&valid?.get(version.id)===encoded)continue;
-  try{checkBindings(r,readValidSnapshot(r,version.value),plainChecks,richChecks);if(typeof encoded==='string')valid?.set(version.id,encoded);}catch{return true;}
+  try{checkRetainedSnapshot(r,version.value,plainChecks,richChecks);if(typeof encoded==='string')valid?.set(version.id,encoded);}catch{return true;}
  }
  for(const[field]of listFields(r.codec)){
   const placements=new Set(r.list(field).order.toArray().map(place=>place.placementId));

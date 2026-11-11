@@ -4,10 +4,10 @@ import {RICH_MARKS,RICH_MARK_KEYS,validateRichDocument,type RichDocument,type Ri
 
 export const RICH_SNAPSHOT_BINDINGS_FORMAT='writers-hoard-rich-snapshot-bindings/1' as const;
 interface SnapshotSpan extends RichSpan {route:string;segment:string;marks:Partial<Record<RichMarkKey,string>>}
-interface SnapshotNode {id:string;placement:string;edge:string;spans:SnapshotSpan[]}
+export interface SnapshotNode {id:string;placement:string;edge:string;spans:SnapshotSpan[]}
 export interface CompactRichBindings {format:typeof RICH_SNAPSHOT_BINDINGS_FORMAT|'writers-hoard-rich-snapshot-bindings/2'|'writers-hoard-rich-snapshot-bindings/3';nodes:SnapshotNode[]}
 export type StoredRichBindings=RichBindings|CompactRichBindings;
-export interface PreparedRichSnapshot {read:()=>RichBindings}
+export interface PreparedRichSnapshot {read:()=>RichBindings;unmarkedCompact?:()=>readonly SnapshotNode[]|undefined}
 export type RichSnapshotSpanCheck=(span:Readonly<RichSpan>)=>void;
 function fail():never {throw Error('local_tool_rich_bindings_invalid');}
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)&&(Object.getPrototypeOf(v)===Object.prototype||Object.getPrototypeOf(v)===null);
@@ -57,7 +57,7 @@ function preflight(data:RichDocument,stored:unknown,links=false,writing=false,an
 export function prepareRichSnapshotBindings(data:RichDocument,stored:unknown,checkSpan?:RichSnapshotSpanCheck,links=false,annotation?:RichAnnotationSpec):PreparedRichSnapshot {
  const prepared=preflight(data,stored,links,false,annotation);
  for(const node of prepared.nodes)for(const span of node.spans)checkSpan?.(Object.freeze({buffer:span.buffer,runId:span.runId,from:span.from,to:span.to}));
- return{read:()=>{
+ return{unmarkedCompact:()=>!prepared.legacy&&prepared.nodes.every(node=>node.spans.every(span=>Object.keys(span.marks).length===0))?prepared.nodes:undefined,read:()=>{
   if(prepared.legacy)return stored as RichBindings;
   return{nodes:prepared.nodes.map(node=>{const units:RichUnitBinding[]=[];for(const span of node.spans)for(let offset=span.from;offset<span.to;offset++)units.push({id:JSON.stringify([span.buffer,span.runId,offset]),route:span.route,segment:span.segment,marks:{...span.marks}});return{id:node.id,placement:node.placement,edge:node.edge,units};})};
  }};

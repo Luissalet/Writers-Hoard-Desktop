@@ -7,6 +7,7 @@ import type {LocalToolJson} from '../stateTypes';
 import {convergenceClone,convergenceCanonical,assertConvergenceIdentity} from './format';
 import {JsonMap,JsonArray,Registers,type RegisterVersion} from './registers';
 import {PlainRuns,type PlainDraft,type PlainPlan} from './plainRuns';
+import type {SnapshotNode} from './richSnapshot';
 import type {LocalToolConvergenceIdentity} from './types';
 import {RICH_MARKS,RICH_MARK_KEYS,validateRichDocument,richHref,type RichAction,type RichDocument,type RichParagraph,type RichMark,type RichMarkKey,type RichMarkValue,type RichSpan,type RichRef,type RichRange,type RichSlice,type RichSplitCapture,type RichJoinCapture,type RichResolvedPoint} from './richTypes';
 
@@ -87,12 +88,8 @@ export class RichRuns {
  hasNode(id:string){return[...this.nodes.values()].some(n=>n.id===id);}
  plain(buffer:string){return new PlainRuns(this.doc,JSON.stringify(['rich3',this.field,buffer]),this.registers);}
  draft(baseline?:RichView,support?:RichTableSupport){return new RichDraft(this,baseline,support);}
- private state(plan?:RichPlan,support?:RichTableSupport){
+ private metadata(plan?:RichPlan){
   const include=(r:{txId:string})=>!this.historical||this.registers.transactionAvailable(r.txId);
-  // Syntax only, private to this scan; existence and routing remain separate checks.
-  type ScanPoint=Readonly<ReturnType<typeof point>&{runKey:string}>;
-  const points=new Map<string,ScanPoint>();
-  const decodePoint=(id:string)=>{let parsed=points.get(id);if(!parsed){const value=point(id);parsed=Object.freeze({...value,runKey:JSON.stringify([value.buffer,value.runId])});points.set(id,parsed);}return parsed;};
   const nodes=new Map<string,Node>(),buffers=new Map([...this.buffers].filter(([,r])=>include(r))),edges=new Map([...this.edges].filter(([,r])=>include(r))),lineages=new Map([...this.lineages].filter(([,r])=>include(r)));
   for(const[key,node]of this.nodes){if(!include(node))continue;if(key!==node.birthId||nodes.has(node.id))throw Error('local_tool_rich_identity_collision');nodes.set(node.id,node);}
   for(const n of plan?.nodes??[])nodes.set(n.id,n);for(const b of plan?.buffers??[])buffers.set(b.id,b);for(const e of plan?.edges??[])edges.set(e.id,e);for(const l of plan?.lineages??[])lineages.set(JSON.stringify([l.buffer,l.runId]),l);
@@ -102,6 +99,23 @@ export class RichRuns {
   const retainedSegments=this.historical?new Set(this.registers.entries(this.root('routing')).filter(v=>v.present).map(v=>(v.value as unknown as Routing).segment)):null;
   const order=this.order.toArray().filter(p=>!retainedPlaces||retainedPlaces.has(p.id)),segments=this.segments.toArray().filter(p=>!retainedSegments||retainedSegments.has(p.id));
   for(const p of plan?.nodePlaces??[])insert(order,p.at,p.place);for(const p of plan?.segments??[])insert(segments,p.at,p.place);
+  return{nodes,buffers,edges,lineages,order,segments};
+ }
+ private lineageFrom(ref:RichRef,edges:ReadonlyMap<string,Edge>,lineages:ReadonlyMap<string,Lineage>,hasUnit:(id:string)=>boolean,runKey:(id:string)=>string):RichRef[]{
+  const path:RichRef[]=[],seen=new Set<string>();let current:RichRef|null=ref;
+  while(current){
+   const key=refKey(current);if(seen.has(key))return fail();seen.add(key);path.push(current);
+   if('unit'in current){if(!hasUnit(current.unit))throw Error('local_tool_rich_dependency_missing');current=lineages.get(runKey(current.unit))?.ref??null;}
+   else{const edge=edges.get(current.edge);if(!edge||edge.txId!=='@plan'&&!this.registers.transactionAvailable(edge.txId))throw Error('local_tool_rich_dependency_missing');current=edge.fallback;}
+  }
+  return path;
+ }
+ private state(plan?:RichPlan,support?:RichTableSupport){
+  const {nodes,buffers,edges,lineages,order,segments}=this.metadata(plan);
+  // Syntax only, private to this scan; existence and routing remain separate checks.
+  type ScanPoint=Readonly<ReturnType<typeof point>&{runKey:string}>;
+  const points=new Map<string,ScanPoint>();
+  const decodePoint=(id:string)=>{let parsed=points.get(id);if(!parsed){const value=point(id);parsed=Object.freeze({...value,runKey:JSON.stringify([value.buffer,value.runId])});points.set(id,parsed);}return parsed;};
   // Caches belong to this immutable state scan, never to a document or mutable draft.
   const valuesMemo=new Map<string,readonly RegisterVersion[]>(),stagedMemo=new Map<string,readonly Write[]>();
   const values=(name:string)=>{let cached=valuesMemo.get(name);if(!cached){cached=Object.freeze([...this.registers.candidates(this.root(name)),...(name==='routing'?(support?.routes??[]):[])]);valuesMemo.set(name,cached);}return cached;};
@@ -131,15 +145,7 @@ export class RichRuns {
    }
    physical.set(b.id,ids);
   }
-  const lineage=(ref:RichRef):RichRef[]=>{
-   const path:RichRef[]=[],seen=new Set<string>();let current:RichRef|null=ref;
-   while(current){
-    const key=refKey(current);if(seen.has(key))return fail();seen.add(key);path.push(current);
-    if('unit'in current){if(!known.has(current.unit))throw Error('local_tool_rich_dependency_missing');const p=decodePoint(current.unit);current=lineages.get(p.runKey)?.ref??null;}
-    else{const edge=edges.get(current.edge);if(!edge||edge.txId!=='@plan'&&!this.registers.transactionAvailable(edge.txId))throw Error('local_tool_rich_dependency_missing');current=edge.fallback;}
-   }
-   return path;
-  };
+  const lineage=(ref:RichRef)=>this.lineageFrom(ref,edges,lineages,id=>known.has(id),id=>decodePoint(id).runKey);
   const eligible=(value:Routing,refs:RichRef[])=>routingEligible(value,refs,decodePoint);
   // Only eligible versions enter this reduction. Ordinals order one transaction;
   // causal precedence and UUID ties between transactions stay in Registers.
@@ -309,6 +315,72 @@ export class RichRuns {
   const s=this.state();if(!s.nodes.has(range.nodeId)||!s.edges.has(range.edge))return fail();for(const id of [...range.deleteIds,...(range.left?[range.left]:[]),...(range.right?[range.right]:[])])if(!s.known.has(id))return fail();
  }
  checkBindings(view:RichView):void {this.bindingValidator()(view);}
+ /** Positive proof for an unmarked compact snapshot after structural and span preflight. */
+ provesUnmarkedCompact(data:RichDocument,compact:readonly SnapshotNode[]):boolean {
+  if(this.historical||compact.length!==data.content.length)return false;
+  const {nodes,buffers,edges,lineages,order,segments}=this.metadata();
+  type Fragment={from:number;to:number;start:number};
+  type Retained={text:string;byRun:Map<string,Fragment[]>};
+  const retained=new Map<string,Retained>();
+  const inspect=(id:string):Retained|undefined=>{
+   const previous=retained.get(id);if(previous)return previous;
+   const buffer=buffers.get(id);
+   if(!buffer||buffer.id!==id||!this.registers.transactionAvailable(buffer.txId))return;
+   const source=this.plain(id),full=source.materialize(source.allSpans()),byRun=new Map<string,Fragment[]>();
+   let at=0;
+   for(const span of full.bindings){
+    const parts=byRun.get(span.runId)??[];parts.push({from:span.from,to:span.to,start:at});byRun.set(span.runId,parts);
+    at+=span.to-span.from;
+   }
+   if(at!==full.text.length)return;
+   for(const parts of byRun.values()){
+    parts.sort((a,b)=>a.from-b.from);
+    for(let i=1;i<parts.length;i++)if(parts[i].from<parts[i-1].to)return;
+   }
+   const view={text:full.text,byRun};retained.set(id,view);return view;
+  };
+  const read=(span:RichSpan):string|undefined=>{
+   const view=inspect(span.buffer),parts=view?.byRun.get(span.runId);if(!view||!parts)return;
+   let at=span.from;const chunks:string[]=[];
+   for(const part of parts){
+    if(part.to<=at)continue;if(part.from>at)return;
+    const end=Math.min(span.to,part.to),start=part.start+at-part.from;
+    chunks.push(view.text.slice(start,start+end-at));at=end;
+    if(at===span.to)return chunks.join('');
+   }
+  };
+  const hasUnit=(id:string)=>{const p=point(id);return inspect(p.buffer)?.byRun.get(p.runId)?.some(span=>span.from<=p.offset&&p.offset<span.to)===true;};
+  const routeByKey=new Map<string,Routing>();
+  for(const v of [...this.registers.candidates(this.root('routing')),...this.registers.entries(this.root('routing'))]){
+   if(v.present&&!routeByKey.has(v.key))routeByKey.set(v.key,v.value as unknown as Routing);
+  }
+  for(let i=0;i<compact.length;i++){
+   const b=compact[i],p=data.content[i];
+   if(p.id!==b.id||!nodes.has(b.id)||!order.some(v=>v.id===b.placement&&v.node===b.id)||!edges.has(b.edge))return false;
+   const text:string[]=[];
+   for(const span of b.spans){
+    if(Object.keys(span.marks).length)return false;
+    const value=read(span),route=routeByKey.get(span.route);
+    if(value===undefined||!route||route.node!==b.id||route.segment!==span.segment||!segments.some(v=>v.id===span.segment&&v.node===b.id))return false;
+    // All units in one run share the lineage after the first reference.
+    // The first reference can change eligibility only at a mask boundary.
+    const offsets=new Set([span.from]);
+    for(const mask of [...route.spans,...(route.excludes??[])])if(mask.buffer===span.buffer&&mask.runId===span.runId){
+     if(span.from<mask.from&&mask.from<span.to)offsets.add(mask.from);
+     if(span.from<mask.to&&mask.to<span.to)offsets.add(mask.to);
+    }
+    for(const offset of offsets){
+     const refs=this.lineageFrom({unit:unit(span.buffer,span.runId,offset)},edges,lineages,hasUnit,id=>{const p=point(id);return JSON.stringify([p.buffer,p.runId]);});
+     if(!routingEligible(route,refs))return false;
+    }
+    text.push(value);
+   }
+   const joined=text.join('');
+   const actual:RichParagraph={id:p.id,type:'paragraph',content:joined?[{type:'text',text:joined}]:[]};
+   if(convergenceCanonical(actual)!==convergenceCanonical(p))return false;
+  }
+  return true;
+ }
  /** One immutable synchronous scan, shared across retained snapshot checks only. */
  bindingValidator():(view:RichView)=>void {
   type Verified={node:string;route:string;segment:string;keys:readonly (string|undefined)[];marks:readonly RichMarkValue[];text:string};
