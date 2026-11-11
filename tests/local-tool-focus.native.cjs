@@ -10,11 +10,12 @@ const sourcePushed=process.env.WH_NATIVE_SOURCE_PUSHED_UNDO==='1';
 const sourceOwned=process.env.WH_NATIVE_SOURCE_OWNED_BLOCK_PANEL==='1';
 const sourceDerived=process.env.WH_NATIVE_SOURCE_DERIVED_AGENT==='1';
 const sourceCatalogue=process.env.WH_NATIVE_RUNTIME_CATALOGUE==='1';
+const sourceCodexTypes=process.env.WH_NATIVE_CODEX_TYPES==='1';
 const packageSha=bytes=>require('node:crypto').createHash('sha256').update(bytes).digest('hex');
-assert([sourceBlock,sourceCommand,sourceProvider,sourcePushed,sourceOwned,sourceDerived,sourceCatalogue].filter(Boolean).length<=1,'Select one Native Source scenario');
-const sourceScenario=sourceCatalogue?'runtime-package-catalogue':sourceDerived?'source-derived-agent':sourceOwned?'source-owned-block-panel':sourcePushed?'source-pushed-undo':sourceProvider?'source-undo-provider':sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
+assert([sourceBlock,sourceCommand,sourceProvider,sourcePushed,sourceOwned,sourceDerived,sourceCatalogue,sourceCodexTypes].filter(Boolean).length<=1,'Select one Native Source scenario');
+const sourceScenario=sourceCodexTypes?'source-codex-types':sourceCatalogue?'runtime-package-catalogue':sourceDerived?'source-derived-agent':sourceOwned?'source-owned-block-panel':sourcePushed?'source-pushed-undo':sourceProvider?'source-undo-provider':sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
 const revocations=[];
-const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceCatalogue?'runtime-catalogue-native-':sourceDerived?'source-derived-native-':sourceOwned?'source-owned-native-':sourcePushed?'source-pushed-native-':sourceProvider?'source-provider-native-':sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
+const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceCodexTypes?'codex-types-native-':sourceCatalogue?'runtime-catalogue-native-':sourceDerived?'source-derived-native-':sourceOwned?'source-owned-native-':sourcePushed?'source-pushed-native-':sourceProvider?'source-provider-native-':sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
 const preloadFile=path.join(directory,'focus-preload.cjs'),adapterFile=path.join(directory,'focus-stdio.cjs');
 // QuickNote is unrelated to focus; this fixture does not capture/relay notes or start its window.
 fs.writeFileSync(preloadFile,"const{contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('electronAPI',{platform:process.platform,quickNote:{setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}},aiBridge:{onRequest:callback=>{const listener=(_,payload)=>callback(payload);ipcRenderer.on('aibridge:request',listener);return()=>ipcRenderer.removeListener('aibridge:request',listener);},reply:payload=>ipcRenderer.invoke('aibridge:reply',payload)}});");
@@ -50,7 +51,7 @@ async function close(){
  console.log('FOCUS_NATIVE_EVIDENCE '+evidence);console.log('FOCUS_NATIVE_PRIVATE_TEMP '+directory);console.log('FOCUS_NATIVE_RESULT '+JSON.stringify(result));assert.equal(errors.length,0,errors.join('\n'));
 }
 async function adapter(token,label){
- const child=spawn(process.execPath,[adapterFile],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,ELECTRON_RUN_AS_NODE:'1',WH_BRIDGE_TOKEN:token,WH_BRIDGE_TOKEN_FILE:'',WH_BRIDGE_URL:`http://127.0.0.1:${port}`,WH_PUBLISHING_MODULE:'',...(sourceOwned||sourceDerived||sourceCatalogue?{WH_BRIDGE_GROUPS:''}:{}),WH_MCP_NO_AUTOSTART:'0',HOARD_EVENTS:'0'}});
+ const child=spawn(process.execPath,[adapterFile],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,ELECTRON_RUN_AS_NODE:'1',WH_BRIDGE_TOKEN:token,WH_BRIDGE_TOKEN_FILE:'',WH_BRIDGE_URL:`http://127.0.0.1:${port}`,WH_PUBLISHING_MODULE:'',...(sourceOwned||sourceDerived||sourceCatalogue||sourceCodexTypes?{WH_BRIDGE_GROUPS:''}:{}),WH_MCP_NO_AUTOSTART:'0',HOARD_EVENTS:'0'}});
  const waiting=new Map();let next=0,stderr='',ended=false,actualExit=null;child.stderr.on('data',chunk=>{stderr+=chunk.toString();});
  const exit=new Promise(resolve=>{child.once('close',(code,signal)=>resolve({code,signal}));child.once('error',error=>resolve({error:String(error)}));});
  const lines=createInterface({input:child.stdout});lines.on('line',line=>{try{const value=JSON.parse(line),pending=waiting.get(value.id);assert(pending,'Unexpected stdio reply');clearTimeout(pending.timer);waiting.delete(value.id);pending.resolve(value);}catch(error){failure=String(error);for(const pending of waiting.values())pending.reject(error);waiting.clear();}});
@@ -74,7 +75,7 @@ async function drive(win){
  async function call(session,name,args,relayed=true){const prior=replies.length,response=await session.rpc('tools/call',{name,arguments:args});toolCalls++;assert(!response.error);assert.equal(replies.length-prior,relayed?1:0);assert.equal(response.result.content.length,1);assert.equal(response.result.content[0].type,'text');const outcome={isError:response.result.isError===true,value:JSON.parse(response.result.content[0].text)};const loggedArgs=sourceCatalogue&&args.file?{file:{name:args.file.name,mime:args.file.mime,bytes:Buffer.from(args.file.base64,'base64').length,fileSha256:packageSha(Buffer.from(args.file.base64,'base64'))}}:args;transcript.push({session:session.report().label,name,args:loggedArgs,outcome,ipcReplies:replies.length-prior});return outcome;}
  async function ok(session,name,args){const result=await call(session,name,args);assert.equal(result.isError,false,JSON.stringify(result.value));return result.value;}
  if(sourceScenario){
-  const run=sourceCatalogue?driveRuntimeCatalogue:sourceDerived?driveSourceDerived:sourceOwned?driveSourceOwned:sourcePushed?driveSourcePushed:sourceProvider?driveSourceProvider:sourceCommand?driveSourceCommand:driveSourceBlock;
+  const run=sourceCodexTypes?driveCodexTypes:sourceCatalogue?driveRuntimeCatalogue:sourceDerived?driveSourceDerived:sourceOwned?driveSourceOwned:sourcePushed?driveSourcePushed:sourceProvider?driveSourceProvider:sourceCommand?driveSourceCommand:driveSourceBlock;
   await run({a,b,ok,call,renderer,fixture});
   await renderer('__focusNativeFinish',{ok:true});
   return;
@@ -726,12 +727,129 @@ async function driveRuntimeCatalogue({a,b,ok,call,renderer,fixture}){
  save('runtime-catalogue-observations.json',{aTools,bTools,before,inspected,rejected,installed,inventoryGood,unselected,enabled,pinned,selected,described,document,baseline,written,after,indexed});
  checks.push({label:'Data-only inspection, exact mismatch rejection, explicit runtime pin and one derived operation on a real Source document'});
 }
+
+async function driveCodexTypes({a,b,ok,call,renderer,fixture}){
+ const {projectId,controlId,namespace,documentId,eraId,parentId,childId}=fixture;
+ const GET='wh_codex_templates',SAVE='wh_save_codex_template',READ='wh_local_tool_read';
+ const base={projectId},doc={...base,namespace,documentId},era={...doc,eraId},control={projectId:controlId,catalogue:true};
+ const list=async session=>{
+  const prior=replies.length,response=await session.rpc('tools/list',{});
+  assert(!response.error);
+  assert.equal(replies.length,prior,'Discovery reached IPC');
+  return [GET,SAVE,READ].map(name=>{
+   const matches=response.result.tools.filter(tool=>tool.name===name);
+   assert.equal(matches.length,1);
+   return matches[0];
+  });
+ };
+ const discoveryA=await list(a),discoveryB=await list(b);
+ assert.deepEqual(discoveryB,discoveryA);
+ const [getSchema,saveSchema]=discoveryA.map(tool=>tool.inputSchema);
+ assert.equal(getSchema.properties.catalogue.type,'boolean');
+ assert.equal(getSchema.properties.templateId.type,'string');
+ assert.equal(getSchema.additionalProperties,false);
+ assert.equal(getSchema.properties.eraId.type,'string');
+ assert.deepEqual(saveSchema.required,['template','expectedRevision']);
+ assert.deepEqual(saveSchema.properties.expectedRevision.anyOf,[{type:'null'},{type:'integer'}]);
+
+ const rank={id:'rank',key:'Rank',label:'Rank',kind:'number',required:true},capacity={id:'capacity',key:'Capacity',label:'Capacity',kind:'number'};
+ const leader={key:'Leader',label:'Leader',targetType:'character'};
+ const expected=(name,icon,color,properties)=>{
+  const parent={id:parentId,name,category:'faction',path:name,icon,color,hiddenFromPickers:false,privateType:false,properties,references:[]};
+  const child={...parent,id:childId,name:'Branch',parentId,path:name+' / Branch',hiddenFromPickers:true,references:[leader]};
+  return [parent,child];
+ };
+ const initial=expected('Guild','Shield','#441177',[rank]);
+ const changed=expected('Guild Δ','BookOpen','#113355',[rank,capacity]);
+ const protectedBefore=await renderer('__focusNativeTypesProtected');
+ assert.deepEqual(protectedBefore.variants,[]);
+ assert.equal(protectedBefore.metadata.worldEras[0].id,eraId);
+ const legacy=await ok(a,GET,base);
+ assert.deepEqual(Object.keys(legacy).sort(),['effectiveTemplates','projectId','templates']);
+ assert.equal(legacy.projectId,projectId);
+ const parent=legacy.templates.find(row=>row.id===parentId),child=legacy.effectiveTemplates.find(row=>row.id===childId);
+ assert.equal(parent.revision,1);
+ assert.equal(parent.content,'<p>Private template body A</p>');
+ assert.deepEqual(parent.fields,{Rank:'17'});
+ assert.deepEqual(child.fields,{Rank:'17'});
+ assert.deepEqual(await ok(a,GET,{...base,catalogue:true}),{projectId,types:initial});
+ assert.deepEqual(await ok(b,GET,{...base,eraId,catalogue:true,templateId:childId}),{projectId,types:[initial[1]]});
+ const invalidFilter=await call(b,GET,{...base,templateId:childId});
+ assert.equal(invalidFilter.isError,true);
+ assert.equal(invalidFilter.value.code,'bad-args');
+ const controlBefore=await ok(b,GET,control);
+ assert.deepEqual(controlBefore,{projectId:controlId,types:[expected('Other guild','Shield','#441177',[rank])[0]]});
+ const baseDocument=await ok(a,READ,doc),eraDocument=await ok(b,READ,era);
+ assert.equal(baseDocument.document.id,documentId);
+ assert.equal(eraDocument.document.id,documentId);
+ assert.equal(eraDocument.provenance,'base');
+ assert.deepEqual(baseDocument.data,{});
+
+ const observe=(types,deliveryCount,afterSignal)=>renderer('__focusNativeTypesObserve',{path:types[1].path,deliveryCount,afterSignal});
+ const assertObservation=(result,types,delivered,iconClass,color)=>{
+  assert.equal(result.errors,0);
+  assert.deepEqual(result.delivered,delivered);
+  assert.deepEqual(result.base,types);
+  assert.deepEqual(result.era,types);
+  assert.deepEqual(result.selected,types[1]);
+  assert.deepEqual(result.ui.options,types.map(row=>({id:row.id,label:row.path})));
+  assert.equal(result.ui.selected,childId);
+  assert.equal(result.ui.heading,'Branch');
+  assert(result.ui.icon.split(/\s+/).includes(iconClass));
+  assert.equal(result.ui.color,color);
+  assert.equal(result.ui.hidden,true);
+ };
+ const before=await observe(initial,1);
+ assertObservation(before,initial,[initial],'lucide-shield','rgb(68, 17, 119)');
+ assert.deepEqual(before.ui.lines,['Rank · number · Required','Leader · Reference']);
+
+ const savedA=await ok(a,SAVE,{...base,expectedRevision:parent.revision,template:{...parent,name:'Guild Δ',icon:'BookOpen',color:'#113355',propertyDefinitions:[rank,capacity]}});
+ assert.equal(savedA.projectId,projectId);
+ assert.equal(savedA.template.revision,parent.revision+1);
+ assert.deepEqual(savedA.template.fields,parent.fields);
+ assert.equal(savedA.template.content,parent.content);
+ assert.deepEqual(await ok(a,GET,{...base,catalogue:true}),{projectId,types:changed});
+ const afterA=await observe(changed,2);
+ assertObservation(afterA,changed,[initial,changed],'lucide-book-open','rgb(17, 51, 85)');
+ assert.notEqual(afterA.ui.iconGeometry,before.ui.iconGeometry);
+ assert.deepEqual(afterA.ui.lines,['Rank · number · Required','Capacity · number','Leader · Reference']);
+ assert.deepEqual(await renderer('__focusNativeTypesProtected'),protectedBefore);
+
+ const body='<p>Private template body B</p>';
+ const savedB=await ok(b,SAVE,{...base,expectedRevision:savedA.template.revision,template:{...savedA.template,content:body}});
+ assert.equal(savedB.projectId,projectId);
+ assert.equal(savedB.template.revision,savedA.template.revision+1);
+ assert.deepEqual(savedB.template.fields,parent.fields);
+ const afterLegacy=await ok(b,GET,base);
+ assert.deepEqual(afterLegacy.templates.find(row=>row.id===parentId),savedB.template);
+ assert.equal(afterLegacy.templates.find(row=>row.id===parentId).content,body);
+ assert.deepEqual(await ok(b,GET,{...base,catalogue:true}),{projectId,types:changed});
+ const afterB=await observe(changed,2,afterA.signals);
+ assert(afterB.signals>afterA.signals);
+ assertObservation(afterB,changed,[initial,changed],'lucide-book-open','rgb(17, 51, 85)');
+ assert.deepEqual(afterB.ui,afterA.ui);
+ assert.deepEqual(await ok(a,GET,control),controlBefore);
+ assert.deepEqual(await ok(b,READ,doc),baseDocument);
+ assert.deepEqual(await ok(a,READ,era),eraDocument);
+ const protectedAfter=await renderer('__focusNativeTypesProtected');
+ assert.deepEqual(protectedAfter,protectedBefore);
+ save('codex-types-observations.json',{discoveryA,discoveryB,legacy,invalidFilter,controlBefore,baseDocument,eraDocument,protectedBefore,before,savedA,afterA,savedB,afterLegacy,afterB,protectedAfter});
+ checks.push({label:'Real project-scoped Codex catalogue and CAS, inherited in the same named-era Source host, with a bounded body-only watch observation'});
+}
 process.argv[2]='tests/local-tool-focus.native.renderer.ts';
-process.argv[3]=sourceCatalogue?'testLocalToolRuntimeCatalogueNative':sourceDerived?'testLocalToolSourceDerivedNative':sourceOwned?'testLocalToolSourceOwnedNative':sourcePushed?'testLocalToolSourcePushedNative':sourceProvider?'testLocalToolSourceProviderNative':sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
+process.argv[3]=sourceCodexTypes?'testLocalToolCodexTypesNative':sourceCatalogue?'testLocalToolRuntimeCatalogueNative':sourceDerived?'testLocalToolSourceDerivedNative':sourceOwned?'testLocalToolSourceOwnedNative':sourcePushed?'testLocalToolSourcePushedNative':sourceProvider?'testLocalToolSourceProviderNative':sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
 harness.main({preloadFile,setup,window:async win=>{window=win;bridge.setBridgeWindowResolver(()=>win);win.webContents.once('did-finish-load',()=>{driver=drive(win).catch(async error=>{failure=error.stack||String(error);console.error(failure);await win.webContents.executeJavaScript(`window.__focusNativeFinish?.(${JSON.stringify({ok:false,error:failure})});0`).catch(()=>{});});});},close:async()=>{
  await driver;
  if(failure)throw Error(failure);
- if(sourceCatalogue){
+ if(sourceCodexTypes){
+  const cleanup=await window.webContents.executeJavaScript('window.__focusNativeTypesCleanupReceipt');
+  assert.equal(cleanup.projects,0);
+  assert.equal(cleanup.sourceHosts,0);
+  assert.equal(cleanup.pendingExact,true);
+  assert.equal(Object.keys(cleanup.tableCounts).length,89);
+  assert(Object.values(cleanup.tableCounts).every(count=>count===0));
+  save('cleanup.json',cleanup);
+ }else if(sourceCatalogue){
   const cleanup=await window.webContents.executeJavaScript('window.__focusNativeCatalogueCleanupReceipt');
   assert.equal(cleanup.allTablesEmpty,true);
   assert.equal(cleanup.pendingExact,true);

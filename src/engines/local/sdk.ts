@@ -90,6 +90,8 @@ import type { ContentSearchHit } from '@/services/projectSearchIndex';
 import {validateLocalOperationSchema} from './operationSchema';
 import {prepareLocalToolStateFields,rememberCompiledLocalToolFields,type LocalToolStateFields} from './agentStateFields';
 export type {LocalToolAgentField,LocalToolStateFields} from './agentStateFields';
+export type {LocalToolCodexTypes} from './codexTypes';
+export type {CodexTypeCatalogueRow} from '../codex/typeCatalogue';
 import {validateLocalToolIndexSpec,type LocalToolDocumentQuery,type LocalToolIndexRow,type LocalToolIndexSpec} from './documentIndex';
 export {evaluateLocalToolIndex,queryLocalToolIndexRows} from './documentIndex';
 export type {LocalToolDocumentQuery,LocalToolIndexSpec,LocalToolIndexRow,LocalToolIndexPredicate} from './documentIndex';
@@ -102,6 +104,7 @@ export interface LocalToolCodexQuery{query?:string;type?:CodexEntryType;ids?:rea
 export interface LocalToolOpenDocumentOptions{placement?:'beside';blockId?:string}
 export interface LocalToolClient<T extends LocalToolJson>{
   readonly openDocuments?:import('./openDocuments').LocalToolOpenDocuments;
+  readonly codexTypes?:import('./codexTypes').LocalToolCodexTypes;
   readonly convergence?:import('./convergence/clientTypes').LocalToolDocumentConvergence<T>;
   readonly theme?:import('./themes').LocalToolThemeSource;
   readonly defaults?:import('./defaults').LocalToolDefaults;

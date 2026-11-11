@@ -529,3 +529,168 @@ export async function testLocalToolRuntimeCatalogueNative(){
  Reflect.set(window,'__focusNativeCatalogueCleanupReceipt',{tableCounts,pendingExact,allTablesEmpty:true});
  return ['actual two-key runtime catalogue inspection, mismatch rollback, explicit pin and one generated Source operation'];
 }
+
+/** Real Source renderer and SDK catalogue in a private, named-era workspace. */
+export async function testLocalToolCodexTypesNative(){
+ const [
+  {default:definition},{registerLocalToolModules},{getEngine},{createSourceToolDocument},{createLocalToolClient},
+  {saveWorldEra},{saveCodexTemplate},{deleteProject},{createRoot},{MemoryRouter,Route,Routes,useParams},
+  {default:MainLayout},{default:ProjectWorkspace},{useLocaleStore},{tabsStorageKey},{getActiveEnginePaneScope},
+ ]=await Promise.all([
+  import('@/engines/local/installed/examples.codex-type-watch/module'),import('@/engines/local/registry'),
+  import('@/engines/_registry'),import('@/engines/local/documents/store'),import('@/engines/local/storage'),
+  import('@/services/worldEras/store'),import('@/engines/codex/templates'),import('@/db/operations'),import('react-dom/client'),import('react-router-dom'),
+  import('@/components/layout/MainLayout'),import('@/components/project/workspace/ProjectWorkspace'),
+  import('@/stores/localeStore'),import('@/components/project/workspace/workspaceTabs'),import('@/engines/_shared/EnginePaneContext'),
+ ]);
+ const namespace=definition.namespace;
+ check(namespace==='examples.codex-type-watch','Expected the installed Codex type example');
+ registerLocalToolModules({'./installed/examples.codex-type-watch/module.tsx':{default:definition}});
+ const engine=getEngine('local-tool-'+namespace);
+ check(engine,'Normal Codex type example engine is absent');
+ const projectId='native-codex-types-'+crypto.randomUUID(),controlId='native-codex-types-'+crypto.randomUUID();
+ const eraId='native-codex-types-era',parentId='native-codex-parent',childId='native-codex-child';
+ const pending=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
+ const counts=async()=>Object.fromEntries(await Promise.all(db.tables.map(async table=>[table.name,await table.count()])));
+ const initial=await counts(),pendingBefore=pending();
+ check(Object.values(initial).every(count=>count===0),'Codex types requires an empty private database');
+ const container=document.createElement('div');
+ container.style.height='100vh';
+ document.body.append(container);
+ const root=createRoot(container);
+ const {locale:previousLocale,loaded:previousLocaleLoaded}=useLocaleStore.getState();
+ let completionTimer:ReturnType<typeof setTimeout>|undefined;
+ const disposers:(()=>void)[]=[],created:string[]=[];
+ try{
+  for(const [id,title] of [[projectId,'Native type project'],[controlId,'Native control project']]){
+   await db.projects.add({id,title,description:'Native Codex types 2644',mode:'custom',type:'standalone',status:'draft',color:'#777777',
+    enabledEngines:[engine.id,'codex'],engineOrder:[engine.id,'codex'],createdAt:1,updatedAt:1});
+   created.push(id);
+  }
+  await saveWorldEra(projectId,{id:eraId,name:'Named type era',description:'Shared project catalogue',revision:0,createdAt:1,updatedAt:1},null);
+  const draft={id:parentId,name:'Guild',category:'faction' as const,color:'#441177',icon:'Shield',fields:{Rank:'17'},content:'<p>Private template body A</p>',
+   revision:0,createdAt:1,updatedAt:1,propertyDefinitions:[{id:'rank',key:'Rank',label:'Rank',kind:'number' as const,required:true}]};
+  await saveCodexTemplate(projectId,draft,null);
+  await saveCodexTemplate(projectId,{id:childId,name:'Branch',category:'faction',parentTemplateId:parentId,fields:{},content:'',
+   revision:0,createdAt:1,updatedAt:1,hiddenFromPickers:true,referenceFieldDefinitions:[{key:'Leader',label:'Leader',targetType:'character'}]},null);
+  await saveCodexTemplate(controlId,{...draft,name:'Other guild',fields:{Rank:'25'},content:'<p>Independent template body</p>'},null);
+  const own=await createSourceToolDocument({projectId},namespace,'Native type document');
+  const baseClient=createLocalToolClient(projectId,definition,{documentId:own.id});
+  const eraClient=createLocalToolClient(projectId,definition,{documentId:own.id,eraId});
+  const basePort=baseClient.codexTypes,eraPort=eraClient.codexTypes;
+  check(basePort&&eraPort,'Normal SDK catalogue ports are absent');
+  const inherited=await eraClient.read();
+  check(inherited.provenance==='base'&&inherited.document?.id===own.id,'Named era did not inherit the real Base Source document');
+  const beforeRollbackProject=await db.projects.get(projectId),beforeRollbackCatalogue=await eraPort.list();
+  check(beforeRollbackProject?.codexTemplates?.some(row=>row.id===parentId),'Rollback fixture has no parent template');
+  const rollbackName='Uncommitted Native guild',rollbackSentinel=new Error('native-codex-types-rollback');
+  const rollbackDeliveries:(typeof beforeRollbackCatalogue)[]=[];
+  let stopRollbackWatch:(()=>void)|undefined,rollbackErrors=0,temporaryVisibleInTransaction=false,rolledBack=false;
+  const exactSnapshot=(value:unknown)=>JSON.stringify(value,(_key,field)=>field===undefined?{nativeUndefined:true}:field);
+  try{
+   try{
+    await db.transaction('rw',db.projects,async()=>{
+     const temporary=beforeRollbackProject.codexTemplates!.map(row=>row.id===parentId?{...row,name:rollbackName}:row);
+     await db.projects.update(projectId,{codexTemplates:temporary});
+     stopRollbackWatch=eraPort.watch(rows=>rollbackDeliveries.push(structuredClone(rows)),()=>{rollbackErrors++;});
+     // An IndexedDB read in the same transaction confirms the write and gives
+     // the observer a turn, without waiting on any observer delivery.
+     const ambient=await db.projects.get(projectId);
+     temporaryVisibleInTransaction=ambient?.codexTemplates?.find(row=>row.id===parentId)?.name===rollbackName;
+     check(temporaryVisibleInTransaction,'Rollback probe never observed its temporary row in the transaction');
+     throw rollbackSentinel;
+    });
+   }catch(error){
+    if(error!==rollbackSentinel)throw error;
+    rolledBack=true;
+   }
+   check(rolledBack,'Expected rollback sentinel');
+   await until(()=>rollbackDeliveries.length>0||rollbackErrors>0,'Rollback observer never completed after the abort');
+   const afterRollbackProject=await db.projects.get(projectId),afterRollbackCatalogue=await eraPort.list();
+   check(exactSnapshot(afterRollbackProject)===exactSnapshot(beforeRollbackProject),'Rollback changed the project row');
+   check(exactSnapshot(afterRollbackCatalogue)===exactSnapshot(beforeRollbackCatalogue),'Rollback changed the effective catalogue');
+   check(rollbackErrors===0&&rollbackDeliveries.length===1&&exactSnapshot(rollbackDeliveries[0])===exactSnapshot(beforeRollbackCatalogue),
+    'Rollback observer did not deliver exactly the committed catalogue');
+  }finally{
+   stopRollbackWatch?.();
+  }
+  const rollbackProbe={temporaryVisibleInTransaction,rolledBack,projectExact:true,catalogueExact:true,rollbackErrors,rollbackDeliveries};
+  const delivered:unknown[]=[];
+  let errors=0,signals=0;
+  disposers.push(eraPort.watch(rows=>delivered.push(structuredClone(rows)),()=>{errors++;}));
+  disposers.push(eraClient.subscribe(()=>{signals++;}));
+  const Engine=engine.component;
+  function Workspace(){
+   const {id}=useParams();
+   return createElement(ProjectWorkspace,{projectId:id!,engines:[engine!],children:createElement(Engine,{projectId:id!})});
+  }
+  const url='/project/'+encodeURIComponent(projectId)+'/'+engine.id+'?'+new URLSearchParams({document:own.id,era:eraId});
+  useLocaleStore.setState({locale:'en',loaded:true});
+  await act(async()=>{
+   root.render(createElement(MemoryRouter,{initialEntries:[url]},createElement(Routes,null,
+    createElement(Route,{element:createElement(MainLayout)},createElement(Route,{path:'/project/:id/:tab',element:createElement(Workspace)})))));
+   await pause();
+  });
+  const host=()=>container.querySelector<HTMLElement>('[data-source-document-host="'+own.id+'"]');
+  const view=()=>host()?.querySelector<HTMLElement>('section[aria-label="Codex type catalogue"]');
+  const state=()=>{
+   const section=view(),select=section?.querySelector('select'),heading=section?.querySelector('h3'),icon=heading?.querySelector('svg');
+   if(!section||!select||!heading||!icon)return undefined;
+   return {selected:select.value,options:Array.from(select.options,option=>({id:option.value,label:option.text})),heading:heading.textContent?.trim(),
+    icon:icon.getAttribute('class'),iconGeometry:icon.innerHTML,color:icon.style.color,lines:Array.from(section.querySelectorAll('li'),line=>line.textContent?.trim()),
+    hidden:section.textContent?.includes('Hidden from creation pickers')===true};
+  };
+  await until(()=>state()?.options.some(option=>option.id===childId)===true&&delivered.length===1,'Normal Source type catalogue did not become ready');
+  const mounted=host(),select=view()?.querySelector('select');
+  check(mounted?.dataset.sourceDocumentView==='editor'&&select,'Expected the normal Source editor');
+  await act(async()=>{
+   Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value')!.set!.call(select,childId);
+   select.dispatchEvent(new Event('change',{bubbles:true}));
+   await pause();
+  });
+  await until(()=>state()?.selected===childId&&state()?.heading==='Branch','Could not select the real child type');
+  Reflect.set(window,'__focusNativeTypesObserve',async({path,deliveryCount,afterSignal}:{path:string;deliveryCount:number;afterSignal?:number})=>{
+   await until(()=>state()?.options.some(option=>option.id===childId&&option.label===path)===true&&delivered.length>=deliveryCount
+    &&(afterSignal===undefined||signals>afterSignal),'Codex UI/watch/committed notification did not reach the expected state');
+   const base=await basePort.list(),era=await eraPort.list(),selected=await eraPort.read(childId);
+   if(afterSignal!==undefined)await act(async()=>{await new Promise<void>(resolve=>setTimeout(resolve,150));});
+   check(host()===mounted&&view()?.querySelector('select')===select,'Source host or selected type control remounted');
+   check(getActiveEnginePaneScope()?.projectId===projectId&&getActiveEnginePaneScope()?.eraId===eraId,'Source pane moved outside the named era');
+   // Project SDK rows through the same JSON representation as the MCP response.
+   return JSON.parse(JSON.stringify({ui:state(),base,era,selected,delivered,errors,signals}));
+  });
+  Reflect.set(window,'__focusNativeTypesProtected',async()=>{
+   const project=await db.projects.get(projectId),control=await db.projects.get(controlId);
+   check(project&&control,'Native fixture project disappeared');
+   const {updatedAt,codexTemplates,...metadata}=project;
+   const variants=await db.worldEraVariants.where('projectId').equals(projectId).toArray();
+   return {metadata,control,variants,pending:pending()};
+  });
+  const finished=new Promise<{ok:boolean;error?:string}>(resolve=>{
+   completionTimer=setTimeout(()=>resolve({ok:false,error:'Codex type Native driver did not finish'}),180000);
+   Reflect.set(window,'__focusNativeFinish',resolve);
+  });
+  Reflect.set(window,'__focusNativeReady',{projectId,controlId,namespace,documentId:own.id,eraId,parentId,childId,rollbackProbe,sourceHostMounted:true});
+  const completion=await finished;
+  check(completion.ok,completion.error??'Codex type Native driver failed');
+ }finally{
+  clearTimeout(completionTimer);
+  for(const dispose of disposers)dispose();
+  await act(async()=>root.unmount());
+  container.remove();
+  for(const id of created){
+   const row=await db.projects.get(id);
+   check(!row||row.description==='Native Codex types 2644','Refuse unrelated project cleanup');
+   if(row)await deleteProject(id);
+   localStorage.removeItem(tabsStorageKey(id));
+  }
+  useLocaleStore.setState({locale:previousLocale,loaded:previousLocaleLoaded});
+ }
+ const tableCounts=await counts();
+ const cleanup={tableCounts,projects:await db.projects.count(),sourceHosts:document.querySelectorAll('[data-source-document-host]').length,
+  pendingExact:JSON.stringify(pending())===JSON.stringify(pendingBefore)};
+ check(Object.keys(tableCounts).length===Object.keys(initial).length&&Object.values(tableCounts).every(count=>count===0)
+  &&cleanup.projects===0&&cleanup.sourceHosts===0&&cleanup.pendingExact,'Codex type Native fixture cleanup failed');
+ Reflect.set(window,'__focusNativeTypesCleanupReceipt',cleanup);
+ return ['two genuine Native keys exercised project Codex type CAS and effective catalogue in a live named-era Source editor'];
+}
