@@ -158,6 +158,13 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
       columns: table.columns.map(column => ({ ...column, id: column.id.startsWith('property:')?column.id:remap(column.id, 'column'),calculation:column.calculation?{...column.calculation,rowBindings:Object.fromEntries(Object.entries(column.calculation.rowBindings).map(([name,id])=>[name,id.startsWith('property:')?id:remap(id,'column')])),columnBindings:Object.fromEntries(Object.entries(column.calculation.columnBindings).map(([name,id])=>[name,id.startsWith('property:')?id:remap(id,'column')]))}:undefined })),
       rows: table.rows.map(row => ({ id: remap(row.id, 'row'), cells: Object.fromEntries(table.columns.map(column => [remap(column.id, 'column'), column.kind === 'reference' ? entry(row.cells[column.id]) ?? '' : row.cells[column.id] ?? ''])) })),
     })),
+    ...(Array.isArray(project.tableGroupingViews) ? {
+      tableGroupingViews: project.tableGroupingViews.filter(view => typeof view?.tableId === 'string' && Array.isArray(view.rules)).map(view => ({
+        tableId: remap(view.tableId, 'table'),
+        ...(typeof view.eraId === 'string' ? { eraId: remap(view.eraId, 'era') } : {}),
+        rules: view.rules.filter(rule => typeof rule?.columnId === 'string').map(rule => ({ ...rule, columnId: rule.columnId.startsWith('property:') ? rule.columnId : remap(rule.columnId, 'column') })),
+      })),
+    } : {}),
     relationTrees: project.relationTrees?.map(tree => ({
       ...tree, id: remap(tree.id, 'tree'), revision: 0,
       copiedFrom: tree.copiedFrom ? remap(tree.copiedFrom, 'tree') : undefined,

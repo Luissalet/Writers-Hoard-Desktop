@@ -84,6 +84,7 @@ export interface Project {
   entityDetectionPreferences?: import('@/services/entityDetection/types').EntityDetectionPreferences;
   /** Typed records and formula sheets, kept with portable project metadata. */
   dataTables?: import('@/engines/tables/types').WorldTable[];
+  tableGroupingViews?: import('@/engines/tables/types').TableGroupingView[];
   wikiOptions?: import('./worldWiki').WorldWikiOptions;
   wikiProfiles?: import('@/services/wikiProfiles/types').WikiProfile[];
   readerPresentation?: import('@/engines/writings/readerPresentationTypes').ReaderPresentation;

@@ -1,30 +1,57 @@
 import { shiftSheetReferences } from './tableEdits';
 import {csvNumeric,detectCsvDelimiter,type CsvOptions,type CsvDelimiter} from './csv';
-import { getEraProject, updateEraProjectMetadata, listEraRows } from '@/services/worldEras/store';
+import { assertWorldEra, getEraProject, updateEraProjectMetadata, listEraRows, readWorldDocument } from '@/services/worldEras/store';
 import { db } from '@/db';
 import Dexie from 'dexie';
 import { archiveMetadataWithMutation } from '@/services/documentArchive/metadata';
 import { notifyProjectsChanged } from '@/db/operations';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
-import { validateCell, type DataColumn, type WorldTable } from './types';
+import { validateCell, type DataColumn, type TableGroupRule, type WorldTable } from './types';
+import type { Project } from '@/types';
+import { effectiveTableColumns } from './projection';
+import { effectiveTableGrouping, storedTableGrouping } from './viewGroups';
 
-async function mutate(projectId: string, change: (tables: WorldTable[]) => void|Promise<void>, eraId?: string): Promise<void> {
+async function mutate(projectId: string, change: (tables: WorldTable[], project: Project) => void|Promise<void>, eraId?: string): Promise<void> {
   await db.transaction('rw', eraId ? db.tables : [db.projects,db.codexEntries,db.worldEraVariants,db.worldEraAssets], async () => {
     const project = await (eraId ? getEraProject({ projectId, eraId }) : db.projects.get(projectId)); if (!project) throw new Error('Project not found.');
-    const tables = structuredClone(project.dataTables ?? []); await change(tables);
+    const tables = structuredClone(project.dataTables ?? []); await change(tables, project);
     await updateEraProjectMetadata({ projectId, eraId }, { dataTables: tables, updatedAt: Date.now() });
   });
   const notify=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',table:'projects',projectId});});
   let outer=Dexie.currentTransaction;if(outer){while(outer.parent)outer=outer.parent;outer.on('complete',notify);}else notify();
 }
-export function addTable(projectId: string, table: WorldTable, eraId?: string): Promise<void> {
-  return mutate(projectId, async tables => { if (tables.some(item => item.id === table.id)) throw new Error('Duplicate table.'); await validateReferences(projectId,table,eraId);tables.push(table); }, eraId);
+export function addTable(projectId: string, table: WorldTable, eraId?: string, grouping?: readonly TableGroupRule[]): Promise<void> {
+  return mutate(projectId, async (tables, project) => {
+    if (tables.some(item => item.id === table.id)) throw new Error('Duplicate table.');
+    await validateReferences(projectId, table, eraId);
+    if (grouping?.length) await writeGrouping(project, table, grouping, eraId);
+    tables.push(table);
+  }, eraId);
 }
 export function deleteTable(projectId: string, tableId: string, eraId?: string): Promise<void> {
   return (eraId ? async (remove: () => Promise<void>) => remove() : (remove: () => Promise<void>) => archiveMetadataWithMutation('tables',projectId,tableId,remove))(()=>mutate(projectId, tables => { const index = tables.findIndex(table => table.id === tableId); if (index >= 0) tables.splice(index, 1); }, eraId));
 }
 export function changeTable(projectId: string, tableId: string, change: (table: WorldTable) => void|Promise<void>, eraId?: string): Promise<void> {
   return mutate(projectId, async tables => { const table = tables.find(table => table.id === tableId); if (!table) throw new Error('Table not found.');const before=structuredClone(table); await change(table);await validateReferences(projectId,table,eraId,before); }, eraId);
+}
+export function saveTableGrouping(projectId: string, tableId: string, rules: readonly TableGroupRule[], expected: string, eraId?: string): Promise<void> {
+  return db.transaction('rw', eraId ? db.tables : [db.projects], async () => {
+    const scope = { projectId, eraId };
+    const project = await assertWorldEra(scope);
+    const table = eraId ? (await readWorldDocument(scope, 'tables', tableId))?.document.root as WorldTable | undefined : project.dataTables?.find(item => item.id === tableId);
+    if (!table) throw new Error('Table not found.');
+    if (JSON.stringify(storedTableGrouping(project.tableGroupingViews, tableId, eraId)) !== expected) throw new Error('This table grouping changed. Review its current settings.');
+    await writeGrouping(project, table, rules, eraId);
+  });
+}
+async function writeGrouping(project: Project, table: WorldTable, rules: readonly TableGroupRule[], eraId?: string): Promise<void> {
+  const grouping = effectiveTableGrouping(rules, effectiveTableColumns(table, project.codexTemplates ?? []));
+  if (grouping.length !== rules.length) throw new Error('The grouping columns are no longer available.');
+  const views = Array.isArray(project.tableGroupingViews) ? project.tableGroupingViews : [];
+  const next = views.filter(view => view?.tableId !== table.id || view.eraId !== eraId);
+  // An empty era view explicitly overrides Base without creating a table variant.
+  if (grouping.length || eraId) next.push({ tableId: table.id, ...(eraId ? { eraId } : {}), rules: grouping });
+  await db.projects.update(project.id, { tableGroupingViews: next });
 }
 export function saveCell(projectId: string, tableId: string, rowId: string, columnId: string, value: string, expected: string, eraId?: string): Promise<void> {
   return changeTable(projectId, tableId, table => {

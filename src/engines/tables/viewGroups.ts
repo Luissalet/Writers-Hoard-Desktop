@@ -1,4 +1,26 @@
-export type TableGroupRule = { columnId: string; direction: 'asc' | 'desc' };
+import type { DataColumn, TableGroupingView, TableGroupRule } from './types';
+
+export function storedTableGrouping(views: readonly TableGroupingView[] | undefined, tableId: string, eraId?: string): readonly TableGroupRule[] {
+  if (!Array.isArray(views)) return [];
+  const own = views.find(view => view?.tableId === tableId && view.eraId === eraId);
+  const base = eraId ? views.find(view => view?.tableId === tableId && view.eraId === undefined) : undefined;
+  const rules = (own ?? base)?.rules;
+  return Array.isArray(rules) ? rules : [];
+}
+
+/** A saved view can outlive a deleted or hidden schema column. */
+export function effectiveTableGrouping(rules: unknown, columns: readonly DataColumn[]): TableGroupRule[] {
+  const result: TableGroupRule[] = [];
+  if (!Array.isArray(rules)) return result;
+  for (const rule of rules) {
+    if (result.length === 2) break;
+    if (!rule || typeof rule.columnId !== 'string' || (rule.direction !== 'asc' && rule.direction !== 'desc')) continue;
+    if (columns.some(column => column.id === rule.columnId) && !result.some(other => other.columnId === rule.columnId)) {
+      result.push({ columnId: rule.columnId, direction: rule.direction });
+    }
+  }
+  return result;
+}
 
 type GroupValue = { identity: string; label: string; number?: number };
 type GroupHeader = { kind: 'group'; key: string; label: string; depth: number; count: number; expanded: boolean; hidden: boolean };
