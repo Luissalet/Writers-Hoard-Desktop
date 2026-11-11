@@ -9,7 +9,8 @@ import {resolveProjectLocalTool} from '../releases';
 import type {LocalToolStateAction} from '../stateActions';
 import {applyOwnedBlockActions,createLocalToolBlockEnvelope,validateBlockForDefinition} from './definitions';
 import {findLocalToolBlocksInHtml,patchLocalToolBlockHtml,serializeLocalToolBlock,validateLocalToolBlocksInHtml,type LocalToolBlockEnvelope,type LocalToolBlockOwner} from './types';
-import {prepareLocalToolOwner,refreshLocalToolOwnerAtom} from './editorHost';
+import {assertOwnedAtomRemovalAllowed,ownedAtomEditors,prepareLocalToolOwner,refreshLocalToolOwnerAtom} from './editorHost';
+import {beginOwnedAtomRemoval,retireOwnedAtom,restoreOwnedAtom} from './panelSessions';
 export interface LocalToolBlockRead {owner:LocalToolBlockOwner;ownerVersion:string;envelope:LocalToolBlockEnvelope}
 interface Receipt {identity:string;mode:'undo'|'redo';afterVersion:string;blockId:string;before?:LocalToolBlockEnvelope;position:number;claimed:boolean}
 const receipts=new Map<string,Receipt>();
@@ -21,7 +22,50 @@ export async function listLocalToolBlocks(scope:WorldEraScope,owner:LocalToolBlo
 function outer(tx:Transaction){while(tx.parent)tx=tx.parent;return tx;}
 async function writeContent(scope:WorldEraScope,owner:LocalToolBlockOwner,current:EraDocumentRead,content:string){if(owner.kind==='codex'){const base=current.document.root as unknown as CodexEntry;await saveCodexDraft(base,{...base,content},scope);}else{const base=current.document.root as unknown as Writing;await eraWritingOperations(scope).updateWritingAtVersion(base.id,{content},base.updatedAt);}}
 interface Change {blockId:string;envelope?:LocalToolBlockEnvelope;insertAt?:number}
-function mutate(scope:WorldEraScope,owner:LocalToolBlockOwner,expectedVersion:string,build:(current:EraDocumentRead)=>Promise<Change>|Change,mode:'undo'|'redo'='undo',previous?:{id:string;receipt:Receipt}){return db.transaction('rw',db.tables,tx=>Dexie.Promise.resolve(ownerRead(scope,owner)).then(current=>{if(current.version!==expectedVersion)throw Error('local_tool_block_owner_conflict');return Dexie.Promise.resolve(build(current)).then(change=>{const content=String(current.document.root.content),spans=findLocalToolBlocksInHtml(content),before=spans.find(span=>span.envelope.id===change.blockId);if(change.insertAt!==undefined&&before)throw Error('local_tool_block_identity_occupied');const next=change.insertAt!==undefined?content.slice(0,change.insertAt)+serializeLocalToolBlock(scope.projectId,change.envelope!)+content.slice(change.insertAt):patchLocalToolBlockHtml(content,change.blockId,change.envelope,scope.projectId);validateLocalToolBlocksInHtml(next,scope.projectId);return Dexie.Promise.resolve(writeContent(scope,owner,current,next)).then(()=>Dexie.Promise.resolve(ownerRead(scope,owner))).then(after=>{const receiptId='local-block-'+crypto.randomUUID(),transaction=outer(tx),record:Receipt={identity:identity(scope,owner),mode,afterVersion:after.version,blockId:change.blockId,before:before?.envelope,position:before?.from??change.insertAt!,claimed:false};transaction.on('complete',()=>Dexie.ignoreTransaction(()=>{if(previous)receipts.delete(previous.id);receipts.set(receiptId,record);refreshLocalToolOwnerAtom(scope,owner,change.blockId,change.envelope,after.document.root);announceEraChange(scope.projectId);}));if(previous)transaction.on('abort',()=>{previous.receipt.claimed=false;});return{ownerVersion:after.version,blockId:change.blockId,...(change.envelope?{envelope:change.envelope}:{}),receiptId};});});}));}
+function mutate(
+ scope:WorldEraScope,owner:LocalToolBlockOwner,expectedVersion:string,
+ build:(current:EraDocumentRead)=>Promise<Change>|Change,
+ mode:'undo'|'redo'='undo',previous?:{id:string;receipt:Receipt},
+) {
+ return db.transaction('rw',db.tables,tx=>Dexie.Promise.resolve(ownerRead(scope,owner)).then(current=>{
+  if(current.version!==expectedVersion)throw Error('local_tool_block_owner_conflict');
+  return Dexie.Promise.resolve(build(current)).then(change=>{
+   const content=String(current.document.root.content);
+   const before=findLocalToolBlocksInHtml(content).find(span=>span.envelope.id===change.blockId);
+   if(change.insertAt!==undefined&&before)throw Error('local_tool_block_identity_occupied');
+   const next=change.insertAt!==undefined
+    ?content.slice(0,change.insertAt)+serializeLocalToolBlock(scope.projectId,change.envelope!)+content.slice(change.insertAt)
+    :patchLocalToolBlockHtml(content,change.blockId,change.envelope,scope.projectId);
+   validateLocalToolBlocksInHtml(next,scope.projectId);
+   const removal=!change.envelope&&before?.envelope.scope==='host';
+   const insertion=change.insertAt!==undefined&&change.envelope?.scope==='host';
+   const transaction=outer(tx);
+   if(removal){
+    assertOwnedAtomRemovalAllowed(scope,owner,change.blockId);
+    const release=beginOwnedAtomRemoval(scope,owner,change.blockId);
+    transaction.on('abort',release);
+    transaction.on('complete',release);
+   }
+   return Dexie.Promise.resolve(writeContent(scope,owner,current,next))
+    .then(()=>Dexie.Promise.resolve(ownerRead(scope,owner))).then(after=>{
+     if(removal)assertOwnedAtomRemovalAllowed(scope,owner,change.blockId);
+     const receiptId='local-block-'+crypto.randomUUID();
+     const record:Receipt={identity:identity(scope,owner),mode,afterVersion:after.version,
+      blockId:change.blockId,before:before?.envelope,position:before?.from??change.insertAt!,claimed:false};
+     transaction.on('complete',()=>Dexie.ignoreTransaction(()=>{
+      if(previous)receipts.delete(previous.id);
+      receipts.set(receiptId,record);
+      if(removal)retireOwnedAtom(scope,owner,change.blockId,ownedAtomEditors(scope,owner,change.blockId));
+      if(insertion)restoreOwnedAtom(scope,owner,change.blockId,ownedAtomEditors(scope,owner));
+      refreshLocalToolOwnerAtom(scope,owner,change.blockId,change.envelope,after.document.root);
+      announceEraChange(scope.projectId);
+     }));
+     if(previous)transaction.on('abort',()=>{previous.receipt.claimed=false;});
+     return{ownerVersion:after.version,blockId:change.blockId,...(change.envelope?{envelope:change.envelope}:{}),receiptId};
+    });
+  });
+ }));
+}
 export async function insertLocalToolBlock(scope:WorldEraScope,owner:LocalToolBlockOwner,namespace:string,key:string,expectedVersion:string){await prepareLocalToolOwner(scope,owner);return mutate(scope,owner,expectedVersion,async current=>{const project=await db.projects.get(scope.projectId);if(!project?.enabledEngines.includes('local-tool-'+namespace))throw Error('local_tool_engine_disabled');const source=resolveProjectLocalTool(namespace,project),definition=source.blocks?.find(block=>block.key===key);if(!definition)throw Error('local_tool_block_source_unavailable');const envelope=createLocalToolBlockEnvelope(namespace,definition);return{blockId:envelope.id,envelope,insertAt:String(current.document.root.content).length};});}
 export async function applyLocalToolBlockActions(scope:WorldEraScope,owner:LocalToolBlockOwner,baseline:LocalToolBlockRead,actions:readonly LocalToolStateAction[]){if(identity(scope,owner)!==identity(scope,baseline.owner))throw Error('local_tool_block_scope_invalid');await prepareLocalToolOwner(scope,owner);return mutate(scope,owner,baseline.ownerVersion,async current=>{const span=findLocalToolBlocksInHtml(String(current.document.root.content)).find(span=>span.envelope.id===baseline.envelope.id);if(!span||span.envelope.scope!=='host'||baseline.envelope.scope!=='host')throw Error('local_tool_block_owned_required');const project=await db.projects.get(scope.projectId);if(!project?.enabledEngines.includes('local-tool-'+span.envelope.namespace))throw Error('local_tool_engine_disabled');const source=resolveProjectLocalTool(span.envelope.namespace,project),definition=source.blocks?.find(block=>block.key===span.envelope.key);if(!definition||definition.scope!=='host')throw Error('local_tool_block_source_unavailable');validateBlockForDefinition(span.envelope,definition);if(baseline.envelope.revision>span.envelope.revision||JSON.stringify(baseline.envelope.codec)!==JSON.stringify(span.envelope.codec))throw Error('local_tool_block_conflict');const {envelope}=applyOwnedBlockActions(span.envelope,definition,baseline.envelope.data,actions);validateBlockForDefinition(envelope,definition);return{blockId:envelope.id,envelope};});}
 export async function removeLocalToolBlock(scope:WorldEraScope,owner:LocalToolBlockOwner,blockId:string,expectedVersion:string){await prepareLocalToolOwner(scope,owner);return mutate(scope,owner,expectedVersion,()=>({blockId}));}

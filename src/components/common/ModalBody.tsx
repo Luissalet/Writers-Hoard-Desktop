@@ -20,6 +20,8 @@ interface ModalProps {
   ariaLabel?: string;
   children: ReactNode;
   wide?: boolean;
+  /** Allow an existing editor to coexist with another pane in the workspace. */
+  withinPane?: boolean;
   /** Large visual inspectors that still need modal focus semantics. */
   fullscreen?: boolean;
   /** Prevent closing and announce work while a submit is in flight. */
@@ -90,6 +92,7 @@ export default function Modal({
   ariaLabel,
   children,
   wide,
+  withinPane = false,
   fullscreen = false,
   busy = false,
   dismissible = true,
@@ -98,6 +101,8 @@ export default function Modal({
 }: ModalProps) {
   const { t } = useTranslation();
   const pane = useEnginePane();
+  const scoped = withinPane && pane?.dialogTarget !== undefined;
+  const target = scoped ? pane?.dialogTarget : typeof document === 'undefined' ? null : document.body;
   const systemReduceMotion = useReducedMotion();
   const motionPreference = useAppStore((state) => state.motion);
   const reduceMotion = motionPreference === 'reduce'
@@ -116,30 +121,37 @@ export default function Modal({
   useEffect(() => { restoreFocusRef.current = restoreFocus; }, [restoreFocus]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !target) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
     previousFocusRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
     modalStack.push(dialog);
-    makeBackgroundInert();
+    const paneBackground = scoped ? Array.from(target.parentElement?.children ?? []).filter(
+      (element): element is HTMLElement => element instanceof HTMLElement && element !== target && !element.inert,
+    ) : [];
+    for (const element of paneBackground) element.inert = true;
+    if (!scoped) makeBackgroundInert();
 
     const focusTimer = window.setTimeout(() => {
+      if (scoped && dialog.closest('[hidden], [inert]')) return;
       const preferred = initialFocusRef?.current;
       const first = visibleFocusable(dialog)[0];
       (preferred && dialog.contains(preferred) ? preferred : first ?? dialog).focus();
     }, 0);
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (modalStack.at(-1) !== dialog) return;
+      if (!scoped && modalStack.at(-1) !== dialog) return;
+      if (scoped && (inertOwners > 0 || dialog.closest('[hidden], [inert]') ||
+        !(event.target instanceof Node) || !dialog.contains(event.target))) return;
       if (event.key === 'Escape') {
         if (busyRef.current || !dismissibleRef.current) return;
         event.preventDefault();
         onCloseRef.current();
         return;
       }
-      if (event.key !== 'Tab') return;
+      if (scoped || event.key !== 'Tab') return;
       const focusable = visibleFocusable(dialog);
       if (focusable.length === 0) {
         event.preventDefault();
@@ -163,26 +175,29 @@ export default function Modal({
       document.removeEventListener('keydown', handleKeyDown);
       const index = modalStack.lastIndexOf(dialog);
       if (index >= 0) modalStack.splice(index, 1);
-      restoreBackground();
+      for (const element of paneBackground) element.inert = false;
+      if (!scoped) restoreBackground();
       const previous = previousFocusRef.current;
       const restore = restoreFocusRef.current;
       window.setTimeout(() => {
+        if (scoped && (target.closest('[hidden], [inert]') || !target.isConnected ||
+          (document.activeElement !== document.body && !dialog.contains(document.activeElement)))) return;
         if (restore) restore();
         else if (previous?.isConnected) previous.focus();
       }, 0);
     };
-  }, [initialFocusRef, open]);
+  }, [initialFocusRef, open, scoped, target]);
 
   // An exiting dialog must stop being a dialog immediately: keeping the
   // semantic node alive for an animation leaves focus and screen readers in
   // an already-closed overlay. The entrance can animate safely; closing is
   // deliberately synchronous.
-  if (typeof document === 'undefined' || !open) return null;
+  if (!target || !open) return null;
 
   return createPortal(
     <motion.div
       data-engine-pane-id={pane?.instanceId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className={`${scoped ? 'pointer-events-auto absolute overflow-y-auto' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm`}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: reduceMotion ? 0.08 : 0.15 }}
@@ -193,7 +208,7 @@ export default function Modal({
       <motion.div
         ref={dialogRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal={scoped ? undefined : true}
         aria-labelledby={title ? titleId : undefined}
         aria-label={title ? undefined : ariaLabel ?? t('common.dialog')}
         aria-busy={busy || undefined}
@@ -202,7 +217,7 @@ export default function Modal({
           fullscreen
             ? 'w-[min(96vw,100rem)] max-h-[94vh]'
             : wide ? 'w-full max-w-3xl' : 'w-full max-w-lg'
-        }`}
+        } ${scoped ? 'max-h-full flex flex-col' : ''}`}
         initial={reduceMotion ? { opacity: 0 } : { scale: 0.95, opacity: 0 }}
         animate={reduceMotion ? { opacity: 1 } : { scale: 1, opacity: 1 }}
         transition={{ duration: reduceMotion ? 0.08 : 0.15 }}
@@ -225,11 +240,11 @@ export default function Modal({
         )}
         <div className={fullscreen
           ? 'max-h-[94vh] overscroll-contain overflow-y-auto'
-          : 'max-h-[70vh] overscroll-contain overflow-y-auto p-6'}>
+          : `max-h-[70vh] overscroll-contain overflow-y-auto p-6 ${scoped ? 'min-h-0' : ''}`}>
           {children}
         </div>
       </motion.div>
     </motion.div>,
-    document.body,
+    target,
   );
 }

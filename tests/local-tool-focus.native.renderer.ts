@@ -320,3 +320,61 @@ export async function testLocalToolSourceProviderNative(){
 export async function testLocalToolSourcePushedNative(){
  return testLocalToolSourceBlockNative(false,false,true);
 }
+
+/** Opt-in scenario with the normal Owned editor and ProjectWorkspace. */
+export async function testLocalToolSourceOwnedNative(){
+ check(await db.projects.count()===0,'Private Owned profile must start empty');
+ const pending=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
+ const pendingBefore=pending();
+ const {withOwnedBlockPanelFixture}=await import('./local-tool-beside.browser');
+ let completionTimer:ReturnType<typeof setTimeout>;
+ const finished=new Promise<{ok:boolean;error?:string}>(resolve=>{
+  completionTimer=setTimeout(()=>resolve({ok:false,error:'Owned panel Native driver did not finish'}),180000);
+  Reflect.set(window,'__focusNativeFinish',resolve);
+ });
+ const panels=()=>Array.from(document.querySelectorAll<HTMLElement>('[data-owned-block-panel]'));
+ const unavailable=()=>Array.from(document.querySelectorAll<HTMLElement>('[data-owned-block-panel-unavailable]'));
+ try{
+  await withOwnedBlockPanelFixture(async fixture=>{
+   const {projectId,ownerKind,ownerId,blockId,otherOwnerId,otherEraId}=fixture;
+   const inline=()=>Array.from(document.querySelectorAll<HTMLElement>('[data-wh-source-live-view][data-source-block-id]')).filter(node=>node.dataset.sourceBlockId===blockId&&!node.closest('[data-owned-block-panel]'));
+   await until(()=>inline().length===1,'Actual Owned inline editor did not mount');
+   const original=inline()[0],primary=document.querySelector('[data-testid="workspace-primary"]');
+   check(primary&&panels().length===0&&unavailable().length===0,'Owned Native fixture must start without a focal panel');
+   const saved=async()=>{
+    const project=await db.projects.get(projectId);
+    const codex=await db.codexEntries.where('projectId').equals(projectId).toArray();
+    const variants=await db.worldEraVariants.where('projectId').equals(projectId).toArray();
+    const eras=project?.worldEras??[];
+    check(project&&codex.some(row=>row.id===ownerId)&&codex.some(row=>row.id===otherOwnerId)&&eras.some(row=>row.id===otherEraId),'Owned fixture lost a durable control');
+    return {project,codex:codex.sort((a,b)=>a.id.localeCompare(b.id)),variants:variants.sort((a,b)=>a.id.localeCompare(b.id)),namedEraIds:eras.map(row=>row.id),pending:pending()};
+   };
+   const paneId=(node:HTMLElement|undefined)=>node?.closest<HTMLElement>('[data-engine-pane-id]')?.dataset.enginePaneId;
+   Reflect.set(window,'__focusNativeOwnedSnapshot',saved);
+   Reflect.set(window,'__focusNativeOwnedObserve',async(expected:{phase:'initial'|'open'|'retired';paneId?:string})=>{
+    await until(()=>{
+     if(expected.phase==='initial')return inline().length===1&&inline()[0]===original&&!panels().length&&!unavailable().length;
+     if(expected.phase==='retired')return inline().length===0&&unavailable().length===1&&paneId(unavailable()[0])===expected.paneId;
+     const rows=panels(),panel=rows[0],id=paneId(panel);
+     return inline().length===1&&inline()[0]===original&&rows.length===1&&panel.dataset.ownedBlockPanel===blockId&&
+      !panel.closest('[hidden]')&&!!id&&(!expected.paneId||id===expected.paneId)&&!unavailable().length;
+    },'Owned panel DOM did not settle in phase '+expected.phase);
+    await act(async()=>{await pause();});
+    check(document.querySelector('[data-testid="workspace-primary"]')===primary,'Focal open replaced the primary workspace');
+    const shown=expected.phase==='retired'?unavailable()[0]:panels()[0];
+    return {phase:expected.phase,paneId:paneId(shown)??null,inlineCount:inline().length,sameInline:inline()[0]===original,
+     panelCount:panels().length,unavailableCount:unavailable().length,blockId:shown?.dataset.ownedBlockPanel??null,
+     title:shown?.querySelector('h2,h3')?.textContent?.trim()??null};
+   });
+   Reflect.set(window,'__focusNativeOwnedRetire',fixture.retireOwner);
+   Reflect.set(window,'__focusNativeReady',{projectId,ownerKind,ownerId,blockId,otherOwnerId,otherEraId,ownedHostMounted:true});
+   const completion=await finished;
+   check(completion.ok,completion.error??'Owned panel Native driver failed');
+  });
+  const cleanup={projects:await db.projects.count(),ownedInline:document.querySelectorAll('[data-wh-source-live-view][data-source-block-id]').length,
+   ownedPanels:panels().length,unavailablePanels:unavailable().length,pendingExact:JSON.stringify(pending())===JSON.stringify(pendingBefore)};
+  check(cleanup.projects===0&&cleanup.ownedInline===0&&cleanup.ownedPanels===0&&cleanup.unavailablePanels===0&&cleanup.pendingExact,'Owned Native fixture cleanup failed');
+  Reflect.set(window,'__focusNativeOwnedCleanupReceipt',cleanup);
+  return ['two authenticated keys used the same exact Owned companion without writing or retargeting'];
+ }finally{clearTimeout(completionTimer!);}
+}

@@ -17,19 +17,21 @@ import { flushPendingWrites } from '@/services/pendingWrites';
 import { undoLast } from '@/services/undoJournal';
 import { useLastUndoable } from '@/services/useUndoJournal';
 import { matchesShortcut, TAB_REOPEN_SHORTCUT } from '@/components/common/shortcuts';
-import { EnginePaneContext, activateEnginePane, registerEnginePaneScope, getActiveEnginePaneScope } from '@/engines/_shared/EnginePaneContext';
+import { EnginePaneContext, activateEnginePane, registerEnginePaneScope, getActiveEnginePaneScope, type OpenBesideGuard } from '@/engines/_shared/EnginePaneContext';
+import OwnedBlockPanel, {OwnedBlockPanelUnavailable} from '@/engines/local/blocks/OwnedBlockPanel';
 import PaneRouter from './PaneRouter';
-import { paneEngineId, workspaceEra, routeInEra, workspaceRoute, workspaceRouteKey, type WorkspaceRoute } from './routes';
+import { ownedBlockPanelToken, paneEngineId, workspaceEra, routeInEra, workspaceRoute, workspaceRouteKey, type WorkspaceRoute } from './routes';
 import { workspaceCopy } from './copy';
 import { libraryCopy } from './library/copy';
 import ProjectSoundtrack from './ProjectSoundtrack';
 import WorkspaceTabBar from './WorkspaceTabBar';
 import { findFreshUntouchedDocument, freshUntouchedDocument, keepFreshDocument, routeDocument } from './freshDocument';
 import type { WorkspaceDocument } from './library/types';
-import { closeTabs, duplicateTab, idsToCloseOthers, idsToCloseRight, loadTabsState, newTabId, renameTab, reopenClosed, routeOf, saveTabsState, tabJumpIndex, TAB_LIMIT, togglePin, type PaneTab, type TabsState } from './workspaceTabs';
+import { closeTabs, duplicateTab, idsToCloseOthers, idsToCloseRight, isPersistentWorkspaceTab, loadTabsState, newTabId, renameTab, reopenClosed, routeOf, saveTabsState, tabJumpIndex, TAB_LIMIT, togglePin, type PaneTab, type TabsState } from './workspaceTabs';
 
 const button = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
-const isBlockRoute = (route: WorkspaceRoute) => /^\/project\/[^/]+\/local-tool-[^/]+\/?$/.test(route.pathname) && new URLSearchParams(route.search).has('block');
+const isBlockRoute = (route: WorkspaceRoute) => ownedBlockPanelToken(route) !== null ||
+  /^\/project\/[^/]+\/local-tool-[^/]+\/?$/.test(route.pathname) && new URLSearchParams(route.search).has('block');
 const changesBlockView = (before: WorkspaceRoute, after: WorkspaceRoute) =>
   workspaceRouteKey(before) !== workspaceRouteKey(after) && (isBlockRoute(before) || isBlockRoute(after));
 const ArchiveEngine = lazy(() => import('@/engines/archive/ArchiveEngine'));
@@ -56,15 +58,16 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   const [primaryOverlay, setPrimaryOverlay] = useState<HTMLDivElement | null>(null);
   const [primaryMeasure, primaryWidth] = usePaneWidth();
   const primaryId = `primary:${projectId}`;
-  const requestBeside=useRef<(to:string,isCurrent?:()=>boolean)=>Promise<boolean>>(async()=>false);
+  const requestBeside=useRef<(to:string,isCurrent?:OpenBesideGuard)=>Promise<boolean>>(async()=>false);
   const workspaceSession=useRef<object|undefined>(undefined);
   useLayoutEffect(()=>{
     const session={projectId};
     workspaceSession.current=session;
     return()=>{workspaceSession.current=undefined;};
   },[projectId]);
-  const openBeside=useCallback((to:string,isCurrent?:()=>boolean)=>requestBeside.current(to,isCurrent),[]);
+  const openBeside=useCallback((to:string,isCurrent?:OpenBesideGuard)=>requestBeside.current(to,isCurrent),[]);
   const active = tabs.find(tab => tab.id === activeId) ?? tabs[0];
+  const promoteRoute = active && isPersistentWorkspaceTab(active) ? routeOf(active) : undefined;
   const liveTabs = tabs.filter(tab => enabledIds.includes(tab.engineId));
   const reportTitle = useCallback((id: string, title: string | undefined) => setTabs(previous => previous.map(tab => tab.id === id && tab.documentTitle !== title ? { ...tab, documentTitle: title } : tab)), []);
   const split = liveTabs.length > 0;
@@ -84,15 +87,16 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   useLayoutEffect(()=>{guardNavigation.current=guarded;},[guarded]);
   const primaryNavigate = useCallback((to: string) => {
     const before=workspaceRoute(location),after=workspaceRoute(to,before);
+    if(ownedBlockPanelToken(after)!==null)return;
     const apply=()=>navigate(workspaceRouteKey(after));
     if(changesBlockView(before,after))void guardNavigation.current(apply);else apply();
   }, [navigate, location]);
-  const primaryPane = useMemo(() => ({ instanceId: primaryId, projectId, eraId, visible: true, primary: true, width: primaryWidth, overlayTarget: split ? primaryOverlay : null, openBeside, navigate: primaryNavigate }), [primaryId, projectId, eraId, primaryOverlay, primaryWidth, split, primaryNavigate, openBeside]);
+  const primaryPane = useMemo(() => ({ instanceId: primaryId, projectId, eraId, visible: true, primary: true, width: primaryWidth, overlayTarget: split ? primaryOverlay : null, dialogTarget: primaryOverlay, openBeside, navigate: primaryNavigate }), [primaryId, projectId, eraId, primaryOverlay, primaryWidth, split, primaryNavigate, openBeside]);
   useEffect(() => registerEnginePaneScope(primaryId, { projectId, eraId, navigate: primaryPane.navigate, openBeside }), [primaryId, projectId, eraId, primaryPane.navigate, openBeside]);
   useEffect(() => { activateEnginePane(primaryId); }, [location.pathname, location.search, primaryId]);
   const open = useCallback((route: WorkspaceRoute, forceNew = false, besideOnly = false): boolean => {
     const engineId = paneEngineId(route, projectId, latest.current.enabledIds);
-    if (!engineId) { if(!besideOnly)void guarded(() => navigate(workspaceRouteKey(route))); return false; }
+    if (!engineId) { if(!besideOnly&&ownedBlockPanelToken(route)===null)void guarded(() => navigate(workspaceRouteKey(route))); return false; }
     const currentTabs=latest.current.state.tabs;
     const existing = !forceNew && currentTabs.find(tab => workspaceRouteKey(routeOf(tab)) === workspaceRouteKey(route));
     if (existing) { setActiveId(existing.id); activateEnginePane(existing.id); return true; }
@@ -107,8 +111,11 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
     requestBeside.current=(to,isCurrent)=>{
       const route=workspaceRoute(to),session=workspaceSession.current;
       const focal=isBlockRoute(route);
-      return guarded(()=>{
-        if(!session||workspaceSession.current!==session||(focal&&isCurrent&&!isCurrent()))return false;
+      return guarded(async ()=>{
+        if(!session||workspaceSession.current!==session)return false;
+        if(ownedBlockPanelToken(route)!==null&&!isCurrent)return false;
+        if(focal&&isCurrent&&!await isCurrent())return false;
+        if(workspaceSession.current!==session)return false;
         if(!focal&&!paneEngineId(route,projectId,latest.current.enabledIds)){navigate(workspaceRouteKey(route));return true;}
         return open(route,false,focal);
       });
@@ -117,7 +124,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   },[guarded,open,navigate,projectId]);
   const navigateTab = useCallback((id: string, route: WorkspaceRoute, replace = false, guardEraChange = false) => {
     const tab = tabs.find(item => item.id === id), engineId = paneEngineId(route, projectId, enabledIds);
-    if (!tab) return;
+    if (!tab || ownedBlockPanelToken(route)!==null) return;
     if (!engineId) { void guarded(() => navigate(workspaceRouteKey(route))); return; }
     if (engineId !== tab.engineId) { open(route); return; }
     const apply=()=>setTabs(previous => previous.map(item => item.id !== id ? item : { ...item, history: replace ? item.history.map((old, index) => index === item.index ? route : old) : [...item.history.slice(0, item.index + 1), route], index: replace ? item.index : item.index + 1 }));
@@ -182,7 +189,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
     if (!next) { setError(copy.limit); return; }
     setError(''); applyState(next); activateEnginePane(next.activeId);
   };
-  const duplicate = (id: string) => { const next = duplicateTab(tabs, id, newTabId()); if (!next) { setError(copy.limit); return; } setError(''); setTabs(next); };
+  const duplicate = (id: string) => { const source=tabs.find(tab=>tab.id===id); if(source&&!isPersistentWorkspaceTab(source))return; const next = duplicateTab(tabs, id, newTabId()); if (!next) { setError(copy.limit); return; } setError(''); setTabs(next); };
   const keys = useRef<(event: KeyboardEvent) => void>(() => {});
   useLayoutEffect(() => { keys.current = event => {
     // Not while a key is held down, not while a dialog owns the keyboard.
@@ -200,6 +207,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   const openLibraryDocument = async (url: string, destination: 'main' | 'beside'): Promise<boolean> => {
     if (navigationPending.current) return false;
     const route = workspaceRoute(url);
+    if(ownedBlockPanelToken(route)!==null)return false;
     if (destination === 'beside' && !paneEngineId(route, projectId, enabledIds)) return false;
     if (destination === 'beside' && tabs.length >= TAB_LIMIT && !tabs.some(tab => workspaceRouteKey(routeOf(tab)) === workspaceRouteKey(route))) { setError(copy.limit); return false; }
     navigationPending.current=true;
@@ -222,10 +230,10 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
     </div>
     {error && <p role="alert" className="border-b border-border px-4 py-3 text-sm text-danger">{error}</p>}
     <div className={`grid min-h-0 flex-1 overflow-auto ${split ? 'grid-cols-1 xl:grid-cols-[minmax(0,var(--primary-fr))_minmax(0,var(--secondary-fr))]' : 'grid-cols-1'}`} style={{ '--primary-fr': `${ratio}fr`, '--secondary-fr': `${100 - ratio}fr` } as CSSProperties}>
-      <EnginePaneContext.Provider value={primaryPane}><LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={primaryTheme}><div data-testid="workspace-primary" data-engine-pane-id={primaryId} aria-label={split ? copy.primary : undefined} onPointerDownCapture={() => activateEnginePane(primaryId)} onFocusCapture={() => activateEnginePane(primaryId)} style={primaryTheme} data-workspace-performance={primaryAppearance?.effective.performance || undefined} data-workspace-prose={primaryAppearance?.effective.proseFont || undefined} className={`workspace-appearance-pane relative flex min-w-0 flex-col overflow-hidden ${split ? 'min-h-[30rem] xl:min-h-0' : ''}`}><WorkspaceDecoration values={primaryAppearance?.effective} /><WorldEraToolbar projectId={projectId} eraId={eraId} onChange={next => void guarded(() => navigate(workspaceRouteKey(routeInEra(workspaceRoute(location), next))))} /><WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${primaryId}:${eraId ?? 'base'}`} ref={primaryMeasure} className="min-h-0 flex-1 overflow-y-auto p-6">{children}</div><div ref={setPrimaryOverlay} className="pointer-events-none absolute inset-0 z-30" /></div></LocalToolAppliedThemeProvider></EnginePaneContext.Provider>
+      <EnginePaneContext.Provider value={primaryPane}><LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={primaryTheme}><div data-testid="workspace-primary" data-engine-pane-id={primaryId} aria-label={split ? copy.primary : undefined} onPointerDownCapture={() => activateEnginePane(primaryId)} onFocusCapture={() => activateEnginePane(primaryId)} style={primaryTheme} data-workspace-performance={primaryAppearance?.effective.performance || undefined} data-workspace-prose={primaryAppearance?.effective.proseFont || undefined} className={`workspace-appearance-pane relative flex min-w-0 flex-col overflow-hidden ${split ? 'min-h-[30rem] xl:min-h-0' : ''}`}><WorkspaceDecoration values={primaryAppearance?.effective} /><WorldEraToolbar projectId={projectId} eraId={eraId} onChange={next => void guarded(() => navigate(workspaceRouteKey(routeInEra(workspaceRoute(location), next))))} /><WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${primaryId}:${eraId ?? 'base'}`} ref={primaryMeasure} className="min-h-0 flex-1 overflow-y-auto p-6">{ownedBlockPanelToken(workspaceRoute(location))===null?children:<OwnedBlockPanelUnavailable/>}</div><div ref={setPrimaryOverlay} className="pointer-events-none absolute inset-0 z-30" /></div></LocalToolAppliedThemeProvider></EnginePaneContext.Provider>
       {split && <aside className="flex min-h-[30rem] min-w-0 flex-col overflow-hidden border-t border-border bg-deep xl:min-h-0 xl:border-l xl:border-t-0" aria-label={copy.title} data-testid="workspace-secondary">
         <header {...focusChrome} className="space-y-2 border-b border-border p-3">
-          <div className="flex flex-wrap items-center gap-2"><span className="mr-auto text-sm font-semibold text-text-primary">{copy.title}</span><button type="button" className={button} data-testid="workspace-duplicate-main" disabled={busy || tabs.length >= TAB_LIMIT || !paneEngineId(workspaceRoute(location), projectId, enabledIds)} aria-label={copy.duplicate} title={copy.duplicate} onClick={() => open(workspaceRoute(location), true)}><Copy size={15} aria-hidden="true" /></button><button type="button" className={button} data-testid="workspace-to-main" disabled={busy || !active} aria-label={copy.main} title={copy.main} onClick={() => active && void guarded(() => navigate(workspaceRouteKey(routeOf(active))))}><ArrowUpRight size={15} aria-hidden="true" /></button></div>
+          <div className="flex flex-wrap items-center gap-2"><span className="mr-auto text-sm font-semibold text-text-primary">{copy.title}</span><button type="button" className={button} data-testid="workspace-duplicate-main" disabled={busy || tabs.length >= TAB_LIMIT || !paneEngineId(workspaceRoute(location), projectId, enabledIds)} aria-label={copy.duplicate} title={copy.duplicate} onClick={() => open(workspaceRoute(location), true)}><Copy size={15} aria-hidden="true" /></button><button type="button" className={button} data-testid="workspace-to-main" disabled={busy || !promoteRoute} aria-label={copy.main} title={copy.main} onClick={() => promoteRoute && void guarded(() => navigate(workspaceRouteKey(promoteRoute)))}><ArrowUpRight size={15} aria-hidden="true" /></button></div>
           <div className="flex flex-wrap items-center gap-2"><label className="min-w-32 flex-1"><span className="sr-only">{copy.add}</span><select data-testid="workspace-engine-choice" className="min-h-9 w-full rounded-lg border border-border bg-deep px-2 text-sm text-text-primary" value={choice || engines[0]?.id || ''} onChange={event => setChoice(event.target.value)}>{engines.map(engine => <option key={engine.id} value={engine.id}>{t(`engines.${engine.id}.name`) === `engines.${engine.id}.name` ? engine.name : t(`engines.${engine.id}.name`)}</option>)}</select></label><button type="button" className={button} disabled={busy || tabs.length >= TAB_LIMIT} data-testid="workspace-add-tab" onClick={() => open(workspaceRoute(`/project/${encodeURIComponent(projectId)}/${choice || engines[0]?.id}`, workspaceRoute(location)), true)}><Plus size={15} aria-hidden="true" />{copy.newTab}</button></div>
           <WorkspaceTabBar tabs={liveTabs} openCount={tabs.length} activeId={active?.id} engines={engines} closed={closed} busy={busy} onSelect={select} onClose={closeTab} onRename={(id, label) => setTabs(previous => renameTab(previous, id, label))} onPin={id => setTabs(previous => togglePin(previous, id))} onDuplicate={duplicate} onCloseOthers={id => { const ids = idsToCloseOthers(tabs, id); if (ids.length) requestClose(ids); }} onCloseRight={id => { const ids = idsToCloseRight(tabs, id); if (ids.length) requestClose(ids); }} onReopen={(at, exact) => reopen(at, exact)} />
         </header>
@@ -238,9 +246,9 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   </div>;
 }
 
-function SecondaryTab({ tab, projectId, engine, visible, onEraChange, onTitle, onNavigate, onBack, openBeside }: { openBeside:(to:string,isCurrent?:()=>boolean)=>Promise<boolean>; tab: PaneTab; projectId: string; engine: EngineDefinition; visible: boolean; onEraChange: (eraId?: string) => void; onTitle: (id: string, title: string | undefined) => void; onNavigate: (route: WorkspaceRoute, replace?: boolean) => void; onBack: (delta: number) => void }) {
+function SecondaryTab({ tab, projectId, engine, visible, onEraChange, onTitle, onNavigate, onBack, openBeside }: { openBeside:(to:string,isCurrent?:OpenBesideGuard)=>Promise<boolean>; tab: PaneTab; projectId: string; engine: EngineDefinition; visible: boolean; onEraChange: (eraId?: string) => void; onTitle: (id: string, title: string | undefined) => void; onNavigate: (route: WorkspaceRoute, replace?: boolean) => void; onBack: (delta: number) => void }) {
   const { locale, t } = useTranslation(), copy = workspaceCopy[locale], route = routeOf(tab);
-  const eraId = workspaceEra(route);
+  const eraId = workspaceEra(route), ownedToken = ownedBlockPanelToken(route);
   const { appearance, style: theme } = useWorkspaceAppearance({ projectId, eraId });
   const [overlayTarget, setOverlayTarget] = useState<HTMLDivElement | null>(null);
   const [measure, width] = usePaneWidth();
@@ -251,12 +259,12 @@ function SecondaryTab({ tab, projectId, engine, visible, onEraChange, onTitle, o
   const navigation = useRef(onNavigate);
   useLayoutEffect(() => { navigation.current = onNavigate; });
   const paneNavigate = useCallback((to: string) => navigation.current(workspaceRoute(to, route)), [route]);
-  const pane = useMemo(() => ({ instanceId: tab.id, projectId, eraId, visible, width, overlayTarget, reportTitle: setTitle, openBeside, navigate: paneNavigate }), [paneNavigate, tab.id, projectId, eraId, visible, setTitle, width, overlayTarget, openBeside]);
+  const pane = useMemo(() => ({ instanceId: tab.id, projectId, eraId, visible, width, overlayTarget, dialogTarget: overlayTarget, reportTitle: setTitle, openBeside, navigate: paneNavigate }), [paneNavigate, tab.id, projectId, eraId, visible, setTitle, width, overlayTarget, openBeside]);
   useEffect(() => registerEnginePaneScope(tab.id, { projectId, eraId, navigate: pane.navigate }), [tab.id, projectId, eraId, pane.navigate]);
   return <EnginePaneContext.Provider value={pane}><PaneRouter projectId={projectId} engineId={engine.id} route={route} onNavigate={onNavigate} onBack={onBack}>
-    <LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={theme}><div id={`panel-${tab.id}`} role="tabpanel" aria-labelledby={`tab-${tab.id}`} hidden={!visible} inert={!visible} data-engine-pane-id={tab.id} data-testid={`workspace-panel-${tab.id}`} style={theme} data-workspace-performance={appearance?.effective.performance || undefined} data-workspace-prose={appearance?.effective.proseFont || undefined} className="workspace-appearance-pane relative flex min-h-0 flex-1 flex-col overflow-hidden [&[hidden]]:hidden" onPointerDownCapture={() => activateEnginePane(tab.id)} onFocusCapture={() => activateEnginePane(tab.id)}><WorkspaceDecoration values={appearance?.effective} /><WorldEraToolbar projectId={projectId} eraId={eraId} onChange={onEraChange} /><WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${tab.id}:${eraId ?? 'base'}`} ref={measure} className="min-h-0 flex-1 overflow-y-auto p-4">
+    <LocalToolAppliedThemeProvider scope={{ projectId, eraId }} style={theme}><div id={`panel-${tab.id}`} role="tabpanel" aria-labelledby={`tab-${tab.id}`} hidden={!visible} inert={!visible} data-engine-pane-id={tab.id} data-testid={`workspace-panel-${tab.id}`} style={theme} data-workspace-performance={appearance?.effective.performance || undefined} data-workspace-prose={appearance?.effective.proseFont || undefined} className="workspace-appearance-pane relative flex min-h-0 flex-1 flex-col overflow-hidden [&[hidden]]:hidden" onPointerDownCapture={() => activateEnginePane(tab.id)} onFocusCapture={() => activateEnginePane(tab.id)}><WorkspaceDecoration values={appearance?.effective} />{ownedToken===null&&<WorldEraToolbar projectId={projectId} eraId={eraId} onChange={onEraChange} />}<WorkspaceAppearance projectId={projectId} eraId={eraId} /><div key={`${tab.id}:${eraId ?? 'base'}`} ref={measure} className="min-h-0 flex-1 overflow-y-auto p-4">
       {tab.index > 0 && <button type="button" className={`${button} mb-3`} aria-label={copy.back} onClick={() => onBack(-1)}><ArrowLeft size={15} aria-hidden="true" />{copy.back}</button>}
-      <EngineErrorBoundary resetKey={`${projectId}:${tab.id}:${engine.id}`} title={t('project.engineError.title')} message={t('project.engineError.message')} retryLabel={t('project.engineError.retry')} detailsLabel={t('project.engineError.details')}>{everShown && <Suspense fallback={<p className="p-5 text-sm text-text-muted">{copy.loading}</p>}><engine.component projectId={projectId} /></Suspense>}</EngineErrorBoundary>
+      <EngineErrorBoundary resetKey={`${projectId}:${tab.id}:${engine.id}`} title={t('project.engineError.title')} message={t('project.engineError.message')} retryLabel={t('project.engineError.retry')} detailsLabel={t('project.engineError.details')}>{everShown && <Suspense fallback={<p className="p-5 text-sm text-text-muted">{copy.loading}</p>}>{ownedToken===null?<engine.component projectId={projectId} />:<OwnedBlockPanel token={ownedToken} scope={{projectId,eraId}} ownerKind={engine.id}/>}</Suspense>}</EngineErrorBoundary>
     </div><div ref={setOverlayTarget} className="pointer-events-none absolute inset-0 z-30" /></div></LocalToolAppliedThemeProvider>
   </PaneRouter></EnginePaneContext.Provider>;
 }

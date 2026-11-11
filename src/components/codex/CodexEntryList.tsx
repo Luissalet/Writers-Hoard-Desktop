@@ -1,6 +1,6 @@
 import { useWorldEraScope } from '@/services/worldEras/hooks';
 import { projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { liveQuery } from 'dexie';
 import { Plus, Search, User, HelpCircle, Image as ImageIcon, Wand2, X, Eye, Users } from 'lucide-react';
 import { db } from '@/db';
@@ -117,6 +117,13 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const scope = useWorldEraScope(projectId);
   const [drafts] = useState(() => codexDraftStore(projectId, scope.eraId));
   const [editEntry, setEditEntry] = useState<CodexEntry | null>(null);
+  const ownerCloseGuard = useRef<(() => boolean) | null>(null);
+  const registerOwnerCloseGuard = useCallback((guard: (() => boolean) | null) => { ownerCloseGuard.current = guard; }, []);
+  const closeForm = () => {
+    if (editEntry && ownerCloseGuard.current?.() === false) return;
+    setShowForm(false);
+    setEditEntry(null);
+  };
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<CodexEntryType | 'all'>('all');
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
@@ -306,7 +313,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
       )}
 
       {/* Create/Edit Modal */}
-      <Modal open={showForm || !!editEntry} busy={savingForm} dismissible={!formDirty} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? t('codex.editEntry') : t('codex.newCodexEntry')} wide>
+      <Modal open={showForm || !!editEntry} withinPane={!!editEntry} busy={savingForm} dismissible={!formDirty} onClose={closeForm} title={editEntry ? t('codex.editEntry') : t('codex.newCodexEntry')} wide>
         <CodexEntryForm
           key={editEntry?.id ?? 'new'}
           projectId={projectId}
@@ -314,6 +321,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           template={editEntry ? undefined : formTemplate}
           onPendingChange={setSavingForm}
           onDirtyChange={setFormDirty}
+          registerOwnerCloseGuard={editEntry ? registerOwnerCloseGuard : undefined}
           onSave={async (entry, base) => {
             if (editEntry) {
               await onEdit(entry.id, entry, base);
@@ -323,10 +331,9 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
               // back on the grid to hunt for it.
               setSelectedEntryId(entry.id);
             }
-            setShowForm(false);
-            setEditEntry(null);
+            closeForm();
           }}
-          onCancel={() => { setShowForm(false); setEditEntry(null); }}
+          onCancel={closeForm}
         />
       </Modal>
       <GuidedCardDialog projectId={projectId} open={showGuide} locale={locale} onClose={() => setShowGuide(false)} onCreate={onAdd} />

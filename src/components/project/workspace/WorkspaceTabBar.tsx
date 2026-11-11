@@ -3,7 +3,7 @@ import { Copy, LayoutList, Pencil, Pin, PinOff, RotateCcw, X } from 'lucide-reac
 import type { EngineDefinition } from '@/engines/_types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { workspaceCopy } from './copy';
-import { routeOf, TAB_LIMIT, type ClosedTab, type PaneTab } from './workspaceTabs';
+import { isPersistentWorkspaceTab, routeOf, TAB_LIMIT, type ClosedTab, type PaneTab } from './workspaceTabs';
 
 const tool = 'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
 
@@ -34,6 +34,7 @@ export default function WorkspaceTabBar(props: WorkspaceTabBarProps) {
   const engineName = (id: string) => { const label = t(`engines.${id}.name`); return label === `engines.${id}.name` ? engines.find(item => item.id === id)?.name ?? id : label; };
   const nameOf = (tab: PaneTab) => tab.label || tab.documentTitle || engineName(tab.engineId);
   const active = tabs.find(tab => tab.id === activeId) ?? tabs[0];
+  const temporary = !!active && !isPersistentWorkspaceTab(active);
   const rightOfActive = active ? tabs.slice(tabs.indexOf(active) + 1).some(tab => !tab.pinned) : false;
   const othersOpen = active ? tabs.some(tab => tab.id !== active.id && !tab.pinned) : false;
   const renaming = !!active && renamingId === active.id;
@@ -46,8 +47,8 @@ export default function WorkspaceTabBar(props: WorkspaceTabBarProps) {
     <div className="flex flex-wrap items-center gap-1.5" role="toolbar" aria-label={copy.tabTools} data-testid="workspace-tab-tools">
       {active && <>
         <button type="button" className={tool} disabled={busy} data-testid="workspace-tab-rename" onClick={() => { setDraft(active.label ?? ''); setRenamingId(active.id); }}><Pencil size={13} aria-hidden="true" />{copy.rename}</button>
-        <button type="button" className={tool} disabled={busy} data-testid="workspace-tab-pin" aria-pressed={!!active.pinned} onClick={() => props.onPin(active.id)}>{active.pinned ? <PinOff size={13} aria-hidden="true" /> : <Pin size={13} aria-hidden="true" />}{active.pinned ? copy.unpin : copy.pin}</button>
-        <button type="button" className={tool} disabled={busy || openCount >= TAB_LIMIT} title={openCount >= TAB_LIMIT ? copy.limit : undefined} data-testid="workspace-tab-duplicate" onClick={() => props.onDuplicate(active.id)}><Copy size={13} aria-hidden="true" />{copy.duplicateTab}</button>
+        <button type="button" className={tool} disabled={busy || temporary} data-testid="workspace-tab-pin" aria-pressed={!!active.pinned} onClick={() => props.onPin(active.id)}>{active.pinned ? <PinOff size={13} aria-hidden="true" /> : <Pin size={13} aria-hidden="true" />}{active.pinned ? copy.unpin : copy.pin}</button>
+        <button type="button" className={tool} disabled={busy || temporary || openCount >= TAB_LIMIT} title={openCount >= TAB_LIMIT ? copy.limit : undefined} data-testid="workspace-tab-duplicate" onClick={() => props.onDuplicate(active.id)}><Copy size={13} aria-hidden="true" />{copy.duplicateTab}</button>
         <button type="button" className={tool} disabled={busy || !othersOpen} data-testid="workspace-tab-close-others" onClick={() => props.onCloseOthers(active.id)}>{copy.closeOthers}</button>
         <button type="button" className={tool} disabled={busy || !rightOfActive} data-testid="workspace-tab-close-right" onClick={() => props.onCloseRight(active.id)}>{copy.closeRight}</button>
       </>}

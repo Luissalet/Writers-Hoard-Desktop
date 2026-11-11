@@ -129,6 +129,7 @@ interface TiptapEditorProps {
   onEditorReady?: (editor: Editor | null) => void;
   entityCandidateContext?: import('@/services/entityDetection/dismissalTypes').EntityCandidateContext;
   copilotIdentity?: WriterEditorIdentity;
+  allowOwnedBlockPanel?:boolean;
   documentOwner?:LocalToolBlockOwner|((editor:Editor,position:number)=>LocalToolBlockOwner|undefined);
   prepareExternal?:()=>Promise<boolean>;
   canAcceptExternalBlock?:()=>boolean;
@@ -252,7 +253,7 @@ export default function TiptapEditor({
   footnoteStyle = 'numbers',
   ghostText,
   referenceContext,
-  documentOwner,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,
+  allowOwnedBlockPanel,documentOwner,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,
 }: TiptapEditorProps) {
   const { t, locale } = useTranslation();
   const richProfile=contentProfile==='sdk-prose';
@@ -262,7 +263,7 @@ export default function TiptapEditor({
   const blockScopeId = paneReferenceScope(referenceContext?.scopeId ?? copilotIdentity?.objectId, pane);
   const emittedHtmlRef=useRef<string|null>(null);
   const sourceEditorRef=useRef<Editor|null>(null),sourceContext=useRef<LocalToolEditorContext>({projectId:editorialProjectId??'',owner:()=>undefined});
-  useLayoutEffect(()=>{sourceContext.current={projectId:editorialProjectId??'',eraId:editorialEraId,prepareExternal,acceptExternal:canAcceptExternalBlock,committed:(owner,root)=>{if(typeof documentOwner!=='function'&&typeof root.content==='string')emittedHtmlRef.current=root.content;onExternalBlockCommit?.(owner,root);},owner:(editor,position)=>typeof documentOwner==='function'?documentOwner(editor,position):documentOwner??(copilotIdentity?.kind==='writings'?{kind:'writings',documentId:copilotIdentity.objectId}:undefined)};},[editorialProjectId,editorialEraId,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,documentOwner,copilotIdentity]);
+  useLayoutEffect(()=>{sourceContext.current={projectId:editorialProjectId??'',eraId:editorialEraId,allowOwnedBlockPanel:allowOwnedBlockPanel??(copilotIdentity?.kind==='writings'&&documentOwner===undefined),prepareExternal,acceptExternal:canAcceptExternalBlock,committed:(owner,root)=>{if(typeof documentOwner!=='function'&&typeof root.content==='string')emittedHtmlRef.current=root.content;onExternalBlockCommit?.(owner,root);},owner:(editor,position)=>typeof documentOwner==='function'?documentOwner(editor,position):documentOwner??(copilotIdentity?.kind==='writings'?{kind:'writings',documentId:copilotIdentity.objectId}:undefined)};},[editorialProjectId,editorialEraId,allowOwnedBlockPanel,prepareExternal,onExternalBlockCommit,canAcceptExternalBlock,documentOwner,copilotIdentity]);
   const [sourceHost]=useState<LocalToolEditorHost>(()=>({context:()=>sourceContext.current,editor:()=>sourceEditorRef.current}));
   useEffect(()=>richProfile?undefined:registerLocalToolEditor(sourceHost),[sourceHost,richProfile]);
   const [codexBlockHost] = useState(() => createCodexBlockHost({ projectId: editorialProjectId, scopeId: blockScopeId }));

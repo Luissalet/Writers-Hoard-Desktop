@@ -16,7 +16,7 @@
 // is empty, blocked or corrupt simply gives the old behaviour: no tabs.
 
 import type { WorkspaceRoute } from './routes';
-import { paneEngineId, workspaceRouteKey } from './routes';
+import { ownedBlockPanelToken, paneEngineId, workspaceRouteKey } from './routes';
 import { tabsStorageKey } from '@/services/workspaceTabsKey';
 
 export interface PaneTab {
@@ -54,6 +54,7 @@ export const LABEL_MAX = 60;
 export const emptyTabsState = (): TabsState => ({ tabs: [], activeId: '', closed: [] });
 
 export const routeOf = (tab: Pick<PaneTab, 'history' | 'index'>): WorkspaceRoute => tab.history[tab.index];
+export const isPersistentWorkspaceTab = (tab: Pick<PaneTab, 'history'>) => tab.history.every(route => ownedBlockPanelToken(route) === null);
 export const newTabId = () => `companion:${crypto.randomUUID()}`;
 
 /** Pinned tabs first, otherwise the order they were opened in. */
@@ -72,13 +73,13 @@ export function renameTab(tabs: readonly PaneTab[], id: string, label: string): 
 }
 
 export function togglePin(tabs: readonly PaneTab[], id: string): PaneTab[] {
-  return pinnedFirst(tabs.map(tab => tab.id === id ? { ...tab, pinned: tab.pinned ? undefined : true } : tab));
+  return pinnedFirst(tabs.map(tab => tab.id === id && isPersistentWorkspaceTab(tab) ? { ...tab, pinned: tab.pinned ? undefined : true } : tab));
 }
 
 /** A copy right after its source (after the pinned ones), with its own history. Null at the limit. */
 export function duplicateTab(tabs: readonly PaneTab[], id: string, copyId: string): PaneTab[] | null {
   const source = tabs.find(tab => tab.id === id);
-  if (!source || tabs.length >= TAB_LIMIT) return null;
+  if (!source || !isPersistentWorkspaceTab(source) || tabs.length >= TAB_LIMIT) return null;
   const copy: PaneTab = { ...source, id: copyId, history: [...source.history], pinned: undefined };
   const at = tabs.indexOf(source) + 1;
   return pinnedFirst([...tabs.slice(0, at), copy, ...tabs.slice(at)]);
@@ -98,7 +99,7 @@ export function closeTabs(state: TabsState, ids: readonly string[], preferred?: 
   const removed = state.tabs.filter(tab => doomed.has(tab.id));
   if (!removed.length) return state;
   const tabs = state.tabs.filter(tab => !doomed.has(tab.id));
-  const remembered: ClosedTab[] = removed.map(({ engineId, history, index, documentTitle, label, pinned }) => ({ engineId, history, index, documentTitle, label, pinned }));
+  const remembered: ClosedTab[] = removed.filter(isPersistentWorkspaceTab).map(({ engineId, history, index, documentTitle, label, pinned }) => ({ engineId, history, index, documentTitle, label, pinned }));
   const closed = [...remembered.reverse(), ...state.closed].slice(0, CLOSED_LIMIT);
   let activeId = state.activeId;
   if (doomed.has(activeId) || !tabs.some(tab => tab.id === activeId)) {
@@ -151,14 +152,14 @@ export function parseTabsState(raw: unknown, projectId: string, enabledIds: read
   const tabs: PaneTab[] = [], seen = new Set<string>();
   for (const item of Array.isArray(input.tabs) ? input.tabs : []) {
     const row = item as Record<string, unknown>, h = history(row?.history, row?.index), id = text(row?.id, 100);
-    if (!h || !id || seen.has(id) || !id.startsWith('companion:') || !usable(row.engineId, h.history, h.index) || tabs.length >= TAB_LIMIT) continue;
+    if (!h || !isPersistentWorkspaceTab(h) || !id || seen.has(id) || !id.startsWith('companion:') || !usable(row.engineId, h.history, h.index) || tabs.length >= TAB_LIMIT) continue;
     seen.add(id);
     tabs.push({ id, engineId: row.engineId as string, ...h, documentTitle: text(row.documentTitle), label: typeof row.label === 'string' ? cleanLabel(row.label) : undefined, pinned: row.pinned === true ? true : undefined });
   }
   const closed: ClosedTab[] = [];
   for (const item of Array.isArray(input.closed) ? input.closed : []) {
     const row = item as Record<string, unknown>, h = history(row?.history, row?.index);
-    if (!h || !usable(row.engineId, h.history, h.index) || closed.length >= CLOSED_LIMIT) continue;
+    if (!h || !isPersistentWorkspaceTab(h) || !usable(row.engineId, h.history, h.index) || closed.length >= CLOSED_LIMIT) continue;
     closed.push({ engineId: row.engineId as string, ...h, documentTitle: text(row.documentTitle), label: typeof row.label === 'string' ? cleanLabel(row.label) : undefined, pinned: row.pinned === true ? true : undefined });
   }
   const ordered = pinnedFirst(tabs), activeId = typeof input.activeId === 'string' && ordered.some(tab => tab.id === input.activeId) ? input.activeId : ordered[0]?.id ?? '';
@@ -174,8 +175,10 @@ export function loadTabsState(projectId: string, enabledIds: readonly string[]):
 
 export function saveTabsState(projectId: string, state: TabsState): void {
   try {
-    if (!state.tabs.length && !state.closed.length) { window.localStorage.removeItem(tabsStorageKey(projectId)); return; }
-    window.localStorage.setItem(tabsStorageKey(projectId), JSON.stringify(state));
+    const tabs = state.tabs.filter(isPersistentWorkspaceTab), closed = state.closed.filter(isPersistentWorkspaceTab);
+    const activeId = tabs.some(tab => tab.id === state.activeId) ? state.activeId : tabs[0]?.id ?? '';
+    if (!tabs.length && !closed.length) { window.localStorage.removeItem(tabsStorageKey(projectId)); return; }
+    window.localStorage.setItem(tabsStorageKey(projectId), JSON.stringify({tabs, closed, activeId}));
   } catch { /* Storage is a convenience: blocked, full or private mode just means no memory. */ }
 }
 
