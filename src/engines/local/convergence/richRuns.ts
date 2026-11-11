@@ -425,6 +425,15 @@ export class RichDraft {
   for(const r of added){this.plan.lineages.push({buffer,runId:r.id,ref,before,txId:'@plan'});for(const mark of marks)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark,enabled:true});if(link)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark:'link',href:link.href});if(annotation)this.write('marks',uuid(),{spans:[{buffer,runId:r.id,from:0,to:r.length}],mark:'annotation',attrs:this.annotationAttrs(annotation)});}this.preparePlain();
  }
  apply(action:RichAction,identity:LocalToolConvergenceIdentity,excludes?:readonly RichSpan[]):void {
+  this.applyAction(action,identity,excludes);
+  this.refresh();
+ }
+ /** A sole leaf splice needs only the final projection and owned plan copy. */
+ applySingleSplice(action:Extract<RichAction,{type:'rich-text-splice'}>,identity:LocalToolConvergenceIdentity,excludes?:readonly RichSpan[]):RichPlan {
+  this.applyAction(action,identity,excludes);
+  return this.finish();
+ }
+ private applyAction(action:RichAction,identity:LocalToolConvergenceIdentity,excludes?:readonly RichSpan[]):void {
   if(action.field!==this.source.field)return fail();
   if(action.type==='rich-insert-paragraph'){if(Object.hasOwn(action,'annotation'))this.annotationAttrs(action.annotation);const link=action.link===undefined?undefined:this.link(action.link);if(typeof action.id!=='string'||!action.id||typeof action.text!=='string'||action.marks?.some(m=>!RICH_MARKS.includes(m)))return fail();const born=this.insert(action.id,action.afterId,'',action.marks);this.append(born.buffer,null,action.text,{edge:born.edge},action.marks??[],false,link,action.annotation);}
   else if(action.type==='rich-delete-paragraph'){if(!this.refresh().bindings.nodes.some(n=>n.id===action.id))return fail();this.write('membership',action.id,false);}
@@ -462,7 +471,6 @@ export class RichDraft {
    if(previous)this.route([],c.edges,c.leftNodeId,previous,excludes);
    for(const value of this.source.orderRouting(routes,this.plan))this.route(value.ids,[],value.node,value.segment,excludes);this.write('membership',c.rightNodeId,false);
   }
-  this.refresh();
  }
  private annotationAttrs(value:unknown):RichAnnotationAttrs{if(!this.source.annotation)return fail();validateAnnotationAttrs(value,this.source.annotation);return copy(value);}
  private link(value:unknown):{href:string}{if(!this.source.links||!record(value)||Object.keys(value).length!==1||typeof value.href!=='string')return fail();const href=normalizeEditorLinkHref(value.href);if(!href)return fail();return{href};}

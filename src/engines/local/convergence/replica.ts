@@ -496,6 +496,7 @@ function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConve
  const proposal=clone(base.proposal) as ObjectData,richBindings=clone(Object.fromEntries(Object.entries(before.richBindings??{}).filter(([field])=>!touchedRich.has(field)))),blockBindings=clone(before.blockBindings??{}),blockPlans:Record<string,RichBlockPlan>={},richPlans:Record<string,RichPlan>={},richPresence:Record<string,boolean>={};
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'){
   const own=actions.filter(a=>a.field===field);if(!own.length)continue;const old=(before.data as ObjectData)[field],binding=before.richBindings?.[field];const isBlocks=blockField(r,field);const draft=r.rich(field).draft(old!==undefined&&binding?{data:leafData(r,field,old),bindings:binding}:undefined,localToolRichTables(descriptor)?projectTableField(r,field).support.rich:undefined);let present=typeof proposal[field]!=='undefined',structure=(isBlocks&&old!==undefined?clone(old):old) as unknown as RichBlockDocument;
+  let finalSplice:RichPlan|undefined;
   for(const action of own){
    const capture=action.type==='rich-text-splice'||action.type==='rich-mark'||action.type==='rich-link'||action.type==='rich-annotation'?action.range:action.type==='rich-split'?action.capture.range:action.type==='rich-join'||action.type==='rich-block-wrap'||action.type==='rich-block-move'||action.type==='rich-block-split'||action.type==='rich-block-join'||action.type==='rich-block-exit-empty-item'||isBlockEditingAction(action)||isTableAxesAction(action)||isImageEditAction(action)?action.capture:undefined,actionIdentity=capture?captureContext(r,contract,identity,capture.identity,capture.frontier).identity:identity;
    if(isImageEditAction(action)){
@@ -524,9 +525,12 @@ function prepareActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConve
     if(isBlocks)throw Error('local_tool_blocks_structural_actions_required');
     if(baseline!==undefined&&!localToolStateEqual((baseline as ObjectData)[field],(before.data as ObjectData)[field]))throw Error('conflict');
     const value=action.type==='set'?action.value:undefined;if(value!==undefined)validateRichDocument(value,localToolRichLinks(r.codec.fields[field]),annotationSpec(r.codec.fields[field]));if(value===undefined&&!present||value!==undefined&&present&&localToolStateEqual(draft.finish().view.data,value))continue;draft.replace(value);present=value!==undefined;
-   }else{if(!present||!action.type.startsWith('rich-'))throw Error('local_tool_rich_action_invalid');if(isBlocks&&action.type!=='rich-text-splice'&&action.type!=='rich-mark'&&action.type!=='rich-link')throw Error('local_tool_blocks_structural_actions_required');const excludes=validateRichCapture(r,r.rich(field).doc,contract,identity,action as RichAction);draft.apply(action as RichAction,actionIdentity,excludes);}
+   }else{if(!present||!action.type.startsWith('rich-'))throw Error('local_tool_rich_action_invalid');if(isBlocks&&action.type!=='rich-text-splice'&&action.type!=='rich-mark'&&action.type!=='rich-link')throw Error('local_tool_blocks_structural_actions_required');const excludes=validateRichCapture(r,r.rich(field).doc,contract,identity,action as RichAction);
+    if(!isBlocks&&own.length===1&&action.type==='rich-text-splice')finalSplice=draft.applySingleSplice(action,actionIdentity,excludes);
+    else draft.apply(action as RichAction,actionIdentity,excludes);
+   }
   }
-  const plan=draft.finish();touchedRich.delete(field);richPlans[field]=plan;richPresence[field]=present;if(present){
+  const plan=finalSplice??draft.finish();touchedRich.delete(field);richPlans[field]=plan;richPresence[field]=present;if(present){
    if(isBlocks){const leaves=new Map(plan.view.data.content.map(p=>[p.id,p]));for(const b of structure.blocks)if(Object.hasOwn(b,'content'))b.content=clone(leaves.get(b.id)?.content??[]);proposal[field]=structure as unknown as LocalToolJson;richBindings[field]={nodes:(leafData(r,field,structure as unknown as LocalToolJson) as RichDocument).content.map(p=>plan.view.bindings.nodes.find(n=>n.id===p.id)!)};}
    else{proposal[field]=plan.view.data as unknown as LocalToolJson;richBindings[field]=plan.view.bindings;}
   }else{delete proposal[field];delete richBindings[field];delete blockBindings[field];}
