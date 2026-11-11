@@ -623,3 +623,9 @@ En Cuaderno vinculado, **Añadir pauta de revisión** incorpora los dos apuntes 
 En Cuaderno vinculado, **Orden de ensayo** permite mover Apuntes y deshacer o rehacer sus movimientos durante la sesión. Cada vista mantiene su ensayo. **Aplicar orden** guarda una edición que se revierte con el Deshacer normal. Si los apuntes guardados cambiaron durante el ensayo, Aplicar conserva el ensayo para que puedas revisarlo o descartarlo.
 
 `useLocalToolUndoProvider` registra el modelo vivo del autor y su historial en el editor Source ordinario o su compañero. El teclado usa la pila de esa vista. MCP lista y ejecuta Deshacer o Rehacer mediante `wh_local_tool_undo_provider_list` y `wh_local_tool_undo_provider_run` para la instancia y el token vigentes. [Uso, contrato y verificación](tasks/vvd1095/verification-sdk-undo-provider2614.md).
+
+## Deshacer marcas agrupadas en Source
+
+En Cuaderno vinculado, **Lista para revisar** marca apuntes temporalmente en cada vista. Las marcas consecutivas se deshacen y rehacen juntas. Al cerrar la vista se pierde su selección. Los apuntes guardados y el orden de ensayo conservan sus estados.
+
+`useLocalToolUndoableCommand` registra las inversas de un modelo del autor. `LocalToolUndoAnchor` dirige el teclado al historial de la región activa. La lista publica voluntariamente `review-shortlist` para usar el mismo historial mediante las herramientas MCP de proveedor. [Contrato y verificación](tasks/vvd1095/verification-sdk-pushed-undo2620.md).

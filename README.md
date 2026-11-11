@@ -1112,3 +1112,7 @@ In Linked Notebook, **Add review checklist** adds the two review items in one st
 ## Rehearse an item order before saving
 
 In Linked Notebook, move items in **Rehearsal order** and use its Undo or Redo to try another arrangement. Each open view has its own rehearsal. **Apply order** saves one edit that the editor's regular Undo can reverse. Source tool authors can register a live model's Undo and Redo for the current editor or companion. [SDK and verification](tasks/vvd1095/verification-sdk-undo-provider2614.md).
+
+## Group review marks in a Source pane
+
+In Linked Notebook, use **Review shortlist** to mark the items you want to review. Consecutive marks undo and redo together. Each pane keeps its selection for that session, while saved items keep their order and content. Source tool authors can record inverses for their own models and place keyboard Undo and Redo in a local region. [SDK and verification](tasks/vvd1095/verification-sdk-pushed-undo2620.md).

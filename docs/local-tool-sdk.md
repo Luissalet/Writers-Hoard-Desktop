@@ -500,6 +500,20 @@ In the Linked Notebook, **Rehearsal order** lets you try a different order for t
 
 Verification: `tests/local-tool-index.browser.tsx` / `testLocalToolIndex` covers the real scoped client, ordinary dispatcher/MCP handler, normal search, actual Initiative form/live filter, era isolation/hiding, ZIP restore, product clone, release selection and the shared author-kit evaluator. Native transport and Browser evidence are recorded separately.
 
+### Inverse commands and local undo anchors
+
+Use `useLocalToolUndoableCommand(client, context, model)` to record inverses for a session model that you edit yourself. Pass a stable model object or `null`. After an effective edit, call `push({label: {en, es}, undo, redo, isStale?, batchKey?})`. A push records the callbacks and returns whether it accepted the entry. The edit itself belongs to the author. The hook returns `{available, canUndo, canRedo, busy, error, push, undo, redo}`. Its `undo()` and `redo()` return promises of booleans.
+
+An inverse receives the registered model and an operation with `isCurrent()`. Check that method after any wait and before writing to the model. Return `true` when the operation took effect. A synchronous `isStale(model, mode)` may retire an entry before its callback runs. If a callback refuses or throws, the hook reports the error. A partially applied group stays on its original stack and resumes the same direction at the unfinished command. During a pending callback or an unfinished group, new pushes return false. Use an editable Source mount and handle a refused push in the author's edit flow.
+
+Consecutive accepted pushes with the same nonempty `batchKey` in the same model and mount form one step. A shared undo step recorded between pushes, including a step in another view, starts a new group. Undo runs a group from last to first and Redo from first to last. A completed inversion records its own step. An effective push clears the model's redo stack.
+
+Wrap a region in `<LocalToolUndoAnchor>` and call the hook from a component inside it. Keyboard Undo and Redo use the deepest active anchor that contains the target and has a candidate. At the same level an unranked provider takes precedence, then the newest step. Outside the anchor the root history remains available. Native text editing retains its keyboard shortcuts. An anchor routes existing histories and creates no entries of its own.
+
+In Linked Notebook, **Review shortlist** records which items you intend to review in the current pane. Mark several items consecutively and use **Undo selection** to reverse the group. Each pane keeps its selection for the current editable mount. The shortlist displays current items and skips inverses for items that have been removed. These commands run in the Source editor session.
+
+Pass `{expose: {id, label?}}` as the fourth argument to publish this journal through the existing `wh_local_tool_undo_provider_list` and `wh_local_tool_undo_provider_run`. Local controls, keyboard shortcuts and MCP use the same live provider. Enabling or removing exposure, or changing its ID, retires the prior journal and token even when the model object stays the same. Use a stable ID for a session. The shortlist opts in as `review-shortlist`.
+
 ## Live world document reads
 
 The additive SDK exports `useLocalToolWorldList(client, kind)` and `useLocalToolWorldRead(client, kind, id)` read the same public `client.world.list/read` methods used by headless operations. List returns `{rows, loading, error, retry}`; read returns `{document, loading, error, retry}`, where a missing document is `undefined`. The client may be the restricted world-block client; that type now includes its optional `subscribe` method. The existing `WorldCardList` uses the list hook and offers visible read errors, Retry and the original Open action.
