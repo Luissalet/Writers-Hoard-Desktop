@@ -88,6 +88,8 @@ import type { EraDocument, EraDocumentKind, EraDocumentRead } from '@/services/w
 import type { LocalMediaAsset } from '@/engines/media/types';
 import type { ContentSearchHit } from '@/services/projectSearchIndex';
 import {validateLocalOperationSchema} from './operationSchema';
+import {prepareLocalToolStateFields,type LocalToolStateFields} from './agentStateFields';
+export type {LocalToolAgentField,LocalToolStateFields} from './agentStateFields';
 import {validateLocalToolIndexSpec,type LocalToolDocumentQuery,type LocalToolIndexRow,type LocalToolIndexSpec} from './documentIndex';
 export {evaluateLocalToolIndex,queryLocalToolIndexRows} from './documentIndex';
 export type {LocalToolDocumentQuery,LocalToolIndexSpec,LocalToolIndexRow,LocalToolIndexPredicate} from './documentIndex';
@@ -124,7 +126,17 @@ export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:st
 export interface LocalToolHostContext {blockPresentation?:'inline'|'panel';map?:import('./mapTools/contracts').LocalToolMapContext;documentContent?:import('./liveContent/types').LocalToolDocumentContent;presence?:import('./presence/types').LocalToolDocumentPresence;documentFields?:import('./openDocuments').LocalToolDocumentFields;undoCommands?:import('./undoCommands').LocalToolCommandMount;app?:import('./apps/types').LocalAppDetails;focus?:{readonly blockId:string};focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode;renderCollaborativeRich?:(props:import('./CollaborativeRich').LocalToolCollaborativeRichProps)=>import('react').ReactNode}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
 export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;mapPanel?:import('./mapTools/contracts').LocalToolMapPanelSpec;sourceAdditive?:LocalToolSourceAdditive;richAdoption?:import('./convergence/types').LocalToolRichAdoption;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
-export function defineLocalTool<T extends LocalToolJson>(definition:Omit<LocalToolDefinition<T>,'apiVersion'>):LocalToolDefinition<T>{
+type LocalToolAuthorDefinition<T extends LocalToolJson>=Omit<LocalToolDefinition<T>,'apiVersion'|'codec'>&(
+  {codec?:LocalToolStateCodec;stateFields?:never}|{codec?:never;stateFields:LocalToolStateFields}
+);
+export function defineLocalTool<T extends LocalToolJson>(input:LocalToolAuthorDefinition<T>):LocalToolDefinition<T>{
+  const {stateFields,...provided}=input;
+  if(stateFields!==undefined&&provided.codec!==undefined)throw Error('local_tool_state_fields_conflict');
+  const derived=stateFields===undefined?undefined:prepareLocalToolStateFields<T>(stateFields,!!provided.document);
+  const definition=derived?{...provided,codec:derived.codec,
+    ...(!provided.index&&derived.index?{index:derived.index}:{}),
+    operations:[...provided.operations??[],...derived.operations],
+  }:provided;
   const stateSchemaVersion=definition.stateSchemaVersion??'1';
   if(definition.richAdoption){if(!definition.codec)throw Error('local_tool_rich_adoption_invalid');const target=localToolConvergenceContext({...definition,apiVersion:1,stateSchemaVersion});validateRichAdoption(definition.richAdoption,{namespace:definition.namespace,codec:definition.codec,...target!});}
   if(typeof stateSchemaVersion!=='string'||!stateSchemaVersion.trim()||stateSchemaVersion.length>200||Array.from(stateSchemaVersion).some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127))throw Error('local_tool_state_schema_version_invalid');

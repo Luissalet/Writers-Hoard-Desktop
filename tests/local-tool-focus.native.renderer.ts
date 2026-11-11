@@ -1,5 +1,5 @@
 import '@/services/aiBridge/dispatch';
-import {act} from 'react';
+import {act,createElement} from 'react';
 import {mountLocalToolFocusFixture} from './local-tool-focus.browser';
 import {db} from '@/db';
 import {readSourceToolDocument} from '@/engines/local/documents/store';
@@ -377,4 +377,105 @@ export async function testLocalToolSourceOwnedNative(){
   Reflect.set(window,'__focusNativeOwnedCleanupReceipt',cleanup);
   return ['two authenticated keys used the same exact Owned companion without writing or retargeting'];
  }finally{clearTimeout(completionTimer!);}
+}
+
+/** Opt-in with the real compiled Quest log module and Source editor. */
+export async function testLocalToolSourceDerivedNative(){
+ check(await db.projects.count()===0,'Private derived-agent profile must start empty');
+ const pending=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
+ const pendingBefore=pending();
+ const [
+  {default:definition},{registerLocalToolModules},{getEngine},{createSourceToolDocument},{createLocalToolClient},
+  {saveWorldEra},{deleteProject},{createRoot},{MemoryRouter,Route,Routes,useParams},
+  {default:MainLayout},{default:ProjectWorkspace},{useLocaleStore},{tabsStorageKey},
+ ]=await Promise.all([
+  import('@/engines/local/installed/examples.derived-quest/module'),import('@/engines/local/registry'),
+  import('@/engines/_registry'),import('@/engines/local/documents/store'),import('@/engines/local/storage'),
+  import('@/services/worldEras/store'),import('@/db/operations'),import('react-dom/client'),import('react-router-dom'),
+  import('@/components/layout/MainLayout'),import('@/components/project/workspace/ProjectWorkspace'),
+  import('@/stores/localeStore'),import('@/components/project/workspace/workspaceTabs'),
+ ]);
+ const namespace=definition.namespace;
+ check(namespace==='examples.derived-quest','Compiled Quest log module differs');
+ registerLocalToolModules({'./installed/examples.derived-quest/module.tsx':{default:definition}});
+ const engine=getEngine('local-tool-'+namespace);
+ check(engine,'Normal Quest log engine absent');
+ const projectId='native-derived-'+crypto.randomUUID(),eraId='derived-control-era';
+ const container=document.createElement('div');
+ container.style.height='100vh';
+ document.body.append(container);
+ const root=createRoot(container);
+ let created=false,completionTimer:ReturnType<typeof setTimeout>|undefined;
+ const {locale:previousLocale,loaded:previousLocaleLoaded}=useLocaleStore.getState();
+ try{
+  await db.projects.add({id:projectId,title:'Derived operation fixture',description:'Local Native QA',mode:'custom',type:'standalone',status:'draft',color:'#777777',
+   enabledEngines:[engine.id],engineOrder:[engine.id],createdAt:1,updatedAt:1});
+  created=true;
+  await saveWorldEra(projectId,{id:eraId,name:'Named control era',description:'Keep its own Quest state',revision:0,createdAt:1,updatedAt:1},null);
+  const own=await createSourceToolDocument({projectId},namespace,'Native quest document',{initialActions:[
+   {type:'set',field:'title',value:'Native quest Ω'},{type:'set',field:'briefing',value:'Unexposed briefing β'},
+  ]});
+  const sibling=await createSourceToolDocument({projectId},namespace,'Independent control quest',{initialActions:[
+   {type:'set',field:'title',value:'Independent control'},{type:'set',field:'score',value:3},
+  ]});
+  const eraClient=createLocalToolClient(projectId,definition,{documentId:own.id,eraId});
+  const inherited=await eraClient.read();
+  check(inherited.provenance==='base'&&inherited.document,'Named era did not begin from the real Source document');
+  await eraClient.save({...inherited.data,score:19},inherited.revision,inherited.document.version);
+  check((await eraClient.read()).provenance==='variant','Named control has no real era variant');
+  const Engine=engine.component;
+  function Workspace(){
+   const {id}=useParams();
+   return createElement(ProjectWorkspace,{projectId:id!,engines:[engine!],children:createElement(Engine,{projectId:id!})});
+  }
+  const url='/project/'+encodeURIComponent(projectId)+'/'+engine.id+'?document='+encodeURIComponent(own.id);
+  useLocaleStore.setState({locale:'en',loaded:true});
+  await act(async()=>{
+   root.render(createElement(MemoryRouter,{initialEntries:[url]},createElement(Routes,null,
+    createElement(Route,{element:createElement(MainLayout)},createElement(Route,{path:'/project/:id/:tab',element:createElement(Workspace)})))));
+   await pause();
+  });
+  const host=()=>container.querySelector<HTMLElement>('[data-source-document-host="'+own.id+'"]');
+  const state=()=>{
+   const view=host()?.querySelector<HTMLElement>('section[aria-label="Quest log"]'),title=view?.querySelector<HTMLInputElement>('form input');
+   if(!view||!title||title.disabled)return undefined;
+   const objectives=Array.from(view.querySelectorAll<HTMLLabelElement>('ul li label'),label=>({text:label.textContent?.trim(),done:label.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked}));
+   return {title:title.value,score:view.querySelector('[aria-live="polite"]')?.textContent?.trim(),objectives};
+  };
+  await until(()=>state()?.title==='Native quest Ω','The normal Quest log Source editor did not become ready');
+  const mounted=host();
+  check(mounted?.dataset.sourceDocumentView==='editor','Expected the normal Source editor surface');
+  Reflect.set(window,'__focusNativeDerivedObserve',async(expected:{title:string;score:number;objectives:{text:string;done:boolean}[]})=>{
+   const wanted={title:expected.title,score:'Score: '+expected.score+' · Not ready',objectives:expected.objectives.map(({text,done})=>({text,done}))};
+   await until(()=>JSON.stringify(state())===JSON.stringify(wanted),'Quest log UI did not observe the exact persisted edit');
+   check(host()===mounted,'Quest log Source host remounted during the MCP operation');
+   return state();
+  });
+  Reflect.set(window,'__focusNativeDerivedControls',async()=>{
+   const project=await db.projects.get(projectId);
+   check(project,'Native fixture project disappeared');
+   const {updatedAt,sourceToolDocuments,...projectMetadata}=project;
+   const variants=await db.worldEraVariants.where('projectId').equals(projectId).toArray();
+   const documents=sourceToolDocuments??[];
+   return {projectMetadata,documentIds:documents.map(row=>row.id).sort(),otherDocuments:documents.filter(row=>row.id!==own.id),variants:variants.sort((a,b)=>a.id.localeCompare(b.id)),pending:pending()};
+  });
+  const finished=new Promise<{ok:boolean;error?:string}>(resolve=>{
+   completionTimer=setTimeout(()=>resolve({ok:false,error:'Derived operation Native driver did not finish'}),180000);
+   Reflect.set(window,'__focusNativeFinish',resolve);
+  });
+  Reflect.set(window,'__focusNativeReady',{projectId,namespace,documentId:own.id,controlId:sibling.id,eraId,sourceHostMounted:true});
+  const completion=await finished;
+  check(completion.ok,completion.error??'Derived operation Native driver failed');
+ }finally{
+  clearTimeout(completionTimer);
+  await act(async()=>root.unmount());
+  container.remove();
+  if(created)await deleteProject(projectId);
+  localStorage.removeItem(tabsStorageKey(projectId));
+  useLocaleStore.setState({locale:previousLocale,loaded:previousLocaleLoaded});
+ }
+ const cleanup={projects:await db.projects.count(),sourceHosts:document.querySelectorAll('[data-source-document-host]').length,pendingExact:JSON.stringify(pending())===JSON.stringify(pendingBefore)};
+ check(cleanup.projects===0&&cleanup.sourceHosts===0&&cleanup.pendingExact&&await db.worldEraVariants.where('projectId').equals(projectId).count()===0,'Derived Native fixture cleanup failed');
+ Reflect.set(window,'__focusNativeBlockCleanupReceipt',cleanup);
+ return ['two Native keys described and used compiled Quest log operations with exact baselines, scoped Undo, and protected controls'];
 }
