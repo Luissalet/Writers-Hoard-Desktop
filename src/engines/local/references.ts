@@ -13,4 +13,78 @@ export function encodeLocalToolDocumentDrag(value:LocalToolDocumentDrag):string{
 export function decodeLocalToolDocumentDrag(text:string):LocalToolDocumentDrag{return JSON.parse(encodeLocalToolDocumentDrag(JSON.parse(text))) as LocalToolDocumentDrag;}
 export function writeLocalToolDocumentDrag(transfer:Pick<DataTransfer,'setData'|'effectAllowed'>,scope:{projectId:string;eraId?:string},reference:LocalToolDocumentReference):void{transfer.setData(LOCAL_TOOL_DOCUMENT_MIME,encodeLocalToolDocumentDrag({format:'writers-hoard-document/1',projectId:scope.projectId,...(scope.eraId?{eraId:scope.eraId}:{}),reference}));transfer.effectAllowed='copy';}
 export function localToolReferenceForEngine(engineId:string,id:string):LocalToolDocumentReference|undefined{if(engineId.startsWith('local-tool-'))return{kind:'local-tool',documentId:id};const kind=({'dialog':'dialog-scene','dialog-scene':'dialog-scene','codex':'codex','writings':'writings','maps':'maps','worldgen':'worldgen','board':'board','timeline':'timeline','notes':'notes','dictionary':'dictionary','tables':'tables','genealogy':'genealogy','relation-tree':'genealogy','relation-trees':'genealogy','character-sheets':'character-sheets','radar':'radar','model-viewer':'model-viewer','media':'media'} as Record<string,EraDocumentKind>)[engineId];return kind?{kind,documentId:id}:undefined;}
-export function createLocalToolReferences(client:Pick<LocalToolClient<LocalToolJson>,'projectId'|'world'|'openDocument'>,destination?:(reference:LocalToolDocumentReference)=>Promise<LocalToolReferenceDestination>){return Object.freeze({async resolve(reference:LocalToolDocumentReference,options?:LocalToolReferenceResolveOptions):Promise<LocalToolResolvedReference>{validateLocalToolReference(reference);const resolved=options?.includePath===true?destination?await destination(reference):{read:await client.world.read(reference.kind,reference.documentId),path:null}:undefined,read=resolved?resolved.read:await client.world.read(reference.kind,reference.documentId);return{reference:{...reference},available:!!read,title:read?localToolReferenceTitle(read):reference.documentId,...(read?{provenance:read.provenance}:{}),...(resolved?{path:resolved.path}:{})};},async open(reference:LocalToolDocumentReference){validateLocalToolReference(reference);await client.openDocument(reference.kind,reference.documentId);},async acceptDrag(text:string){const drag=decodeLocalToolDocumentDrag(text);if(drag.projectId!==client.projectId)throw Error('local_tool_reference_foreign_project');const read=await client.world.read(drag.reference.kind,drag.reference.documentId);if(!read)throw Error('world_document_missing');return{reference:drag.reference,available:true,title:localToolReferenceTitle(read),provenance:read.provenance} as LocalToolResolvedReference;}});}
+type ReadReferenceBatch = (
+  references: readonly LocalToolDocumentReference[],
+) => Promise<readonly (LocalToolWorldRead | undefined)[]>;
+
+function describeReference(
+  reference: LocalToolDocumentReference, read: LocalToolWorldRead | undefined, path?: string | null,
+): LocalToolResolvedReference {
+  return {
+    reference: { ...reference },
+    available: !!read,
+    title: read ? localToolReferenceTitle(read) : reference.documentId,
+    ...(read ? { provenance: read.provenance } : {}),
+    ...(path !== undefined ? { path } : {}),
+  };
+}
+
+export function createLocalToolReferences(
+  client: Pick<LocalToolClient<LocalToolJson>, 'projectId' | 'world' | 'openDocument'>,
+  destination?: (reference: LocalToolDocumentReference) => Promise<LocalToolReferenceDestination>,
+  readMany?: ReadReferenceBatch,
+) {
+  const resolveMany = readMany && (async (
+    references: readonly LocalToolDocumentReference[],
+  ): Promise<LocalToolResolvedReference[]> => {
+    if (!Array.isArray(references)) throw Error('local_tool_reference_batch_invalid');
+    const unique: LocalToolDocumentReference[] = [];
+    const positions = new Map<string, number>();
+    const requested: { reference: LocalToolDocumentReference; position: number }[] = [];
+    for (let index = 0, length = references.length; index < length; index++) {
+      const input: unknown = Object.hasOwn(references, index) ? references[index] : undefined;
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw Error('local_tool_reference_invalid');
+      const keys = Object.keys(input);
+      if (keys.length !== 2 || !keys.includes('kind') || !keys.includes('documentId')) throw Error('local_tool_reference_invalid');
+      const fields = input as Record<string, unknown>;
+      const reference = { kind: fields.kind, documentId: fields.documentId };
+      validateLocalToolReference(reference);
+      const key = JSON.stringify([reference.kind, reference.documentId]);
+      let position = positions.get(key);
+      if (position === undefined) {
+        position = unique.length;
+        positions.set(key, position);
+        unique.push(reference);
+      }
+      requested.push({ reference, position });
+    }
+    if (!unique.length) return [];
+    const rows = await readMany(unique);
+    return requested.map(({ reference, position }) => describeReference(reference, rows[position]));
+  });
+
+  return Object.freeze({
+    async resolve(reference: LocalToolDocumentReference, options?: LocalToolReferenceResolveOptions): Promise<LocalToolResolvedReference> {
+      validateLocalToolReference(reference);
+      if (options?.includePath === true) {
+        const resolved = destination
+          ? await destination(reference)
+          : { read: await client.world.read(reference.kind, reference.documentId), path: null };
+        return describeReference(reference, resolved.read, resolved.path);
+      }
+      return describeReference(reference, await client.world.read(reference.kind, reference.documentId));
+    },
+    ...(resolveMany ? { resolveMany } : {}),
+    async open(reference: LocalToolDocumentReference) {
+      validateLocalToolReference(reference);
+      await client.openDocument(reference.kind, reference.documentId);
+    },
+    async acceptDrag(text: string) {
+      const drag = decodeLocalToolDocumentDrag(text);
+      if (drag.projectId !== client.projectId) throw Error('local_tool_reference_foreign_project');
+      const read = await client.world.read(drag.reference.kind, drag.reference.documentId);
+      if (!read) throw Error('world_document_missing');
+      return describeReference(drag.reference, read);
+    },
+  });
+}

@@ -23,6 +23,7 @@ import type {LocalToolConvergenceContract,LocalToolConvergencePreparation,LocalT
 import type {LocalToolStateAction} from './stateActions';
 import {createLocalToolDefaults,readDefaultsState,prepareDefaultsSave} from './defaults';
 import {createLocalToolReferences} from './references';
+import type {LocalToolDocumentReference} from './stateCodec';
 import {createLocalToolCodexTypes} from './codexTypes';
 /** Author-facing memory host. Imports no DB, application registry, sockets or browser globals. */
 import type {CodexEntry} from '@/types';
@@ -147,6 +148,17 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
  };
  const createClient=(scope:WorldEraScope,readOnly=false,draft?:Memory,documentId?:string,capturePublication?:()=>()=>void):LocalToolClient<T>=>{
   const state=()=>draft??memory,writable=()=>{if(readOnly)throw Error('local_tool_query_is_read_only');},write=<R>(run:(working:Memory)=>Promise<R>)=>{writable();return draft?run(draft):transaction(run,scope.projectId);};
+  const readReferences=async(references:readonly LocalToolDocumentReference[])=>{
+   const snapshot=state(),byKind=new Map<EraDocumentKind,Map<string,LocalToolWorldRead>>();
+   return references.map(({kind,documentId})=>{
+    let rows=byKind.get(kind);
+    if(!rows){
+     rows=new Map(effective(scope,kind,snapshot).map(row=>[row.document.root.id,row]));
+     byKind.set(kind,rows);
+    }
+    return rows.get(documentId);
+   });
+  };
   const actionCodec=definition.codec;
   const actionIdentity=JSON.stringify(['fixture',hostIdentity,scope.projectId,scope.eraId??null,definition.namespace,actionCodec,documentId??null]);
   const continueAdoption=<R extends {pending:boolean}>(working:Memory,result:R)=>{
@@ -232,7 +244,7 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
   });
   const fixtureRich=(request:import('./convergence/richTypes').RichCaptureRequest)=>{const{document}=documentRead(scope,state(),documentId!);if(!document.convergence)throw Error('local_tool_convergence_not_started');const captured=captureLocalToolRich(document.convergence.checkpoint,{authorId:JSON.stringify(['fixture-rich',hostIdentity,scope.projectId,scope.eraId??null,documentId]),contract:documentContract(document)},request);if(convergenceHash(captured.data)!==convergenceHash(document.data))throw Error('source_tool_convergence_projection_mismatch');return{snapshot:documentSnapshot(scope,state(),documentId!,false),capture:captured.capture};};
   const codexTypes=createLocalToolCodexTypes(async()=>project(scope,memory).codexTemplates??[],base.subscribe,()=>!draft||hooks.has(draft));
-  const client:LocalToolClient<T>={...base,openDocuments,codexTypes,audio,assets,refs:createLocalToolReferences(base,async reference=>{const read=await base.world.read(reference.kind,reference.documentId),path=read?(overrides.referencePath?await overrides.referencePath(reference.kind,reference.documentId,{...scope}):referencePaths.find(row=>sameScope(scope,row)&&row.kind===reference.kind&&row.id===reference.documentId)?.path??null):null;return{read,path};}),...(actionCodec?{state:createLocalToolStateActions<T>(actionCodec,actionIdentity,run=>write(async working=>{const callbacks=hooks.get(working);if(!callbacks)throw Error('fake_host_transaction_missing');return run({receiptTransaction:callbacks,client:createClient(scope,readOnly,working,documentId),...(documentId?{convergence:{apply:async(baseline,actions)=>memoryChange(scope,working,documentId,'apply',baseline,actions),reverse:async receipt=>memoryChange(scope,working,documentId,'reverse',receipt)}}:{}),onCommit:callback=>callbacks.commit.push(callback),onAbort:callback=>callbacks.abort.push(callback)});}))}:{})};
+  const client:LocalToolClient<T>={...base,openDocuments,codexTypes,audio,assets,refs:createLocalToolReferences(base,async reference=>{const read=await base.world.read(reference.kind,reference.documentId),path=read?(overrides.referencePath?await overrides.referencePath(reference.kind,reference.documentId,{...scope}):referencePaths.find(row=>sameScope(scope,row)&&row.kind===reference.kind&&row.id===reference.documentId)?.path??null):null;return{read,path};},readReferences),...(actionCodec?{state:createLocalToolStateActions<T>(actionCodec,actionIdentity,run=>write(async working=>{const callbacks=hooks.get(working);if(!callbacks)throw Error('fake_host_transaction_missing');return run({receiptTransaction:callbacks,client:createClient(scope,readOnly,working,documentId),...(documentId?{convergence:{apply:async(baseline,actions)=>memoryChange(scope,working,documentId,'apply',baseline,actions),reverse:async receipt=>memoryChange(scope,working,documentId,'reverse',receipt)}}:{}),onCommit:callback=>callbacks.commit.push(callback),onAbort:callback=>callbacks.abort.push(callback)});}))}:{})};
   const defaultsCurrent=()=>{if(draft&&!hooks.has(draft))throw Error('local_tool_context_expired');};
   const defaults=createLocalToolDefaults(client,{receiptScope:JSON.stringify(['fixture',hostIdentity]),read:async()=>{defaultsCurrent();return readDefaultsState(project(scope,state()));},atomic:run=>{
    defaultsCurrent();return write(async working=>{

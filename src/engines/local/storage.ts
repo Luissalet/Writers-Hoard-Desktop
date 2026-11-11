@@ -18,6 +18,7 @@ import type {LocalToolDocumentConvergence} from './convergence/clientTypes';
 import {createLocalToolStateActions,prepareLocalToolConvergenceBranch,prepareLocalToolStateAdoption} from './stateRuntime';
 import {createLocalToolDefaults,readDefaultsState,prepareDefaultsSave} from './defaults';
 import {createLocalToolReferences,type LocalToolReferenceDestination} from './references';
+import type {LocalToolDocumentReference} from './stateCodec';
 import {createLocalToolCodexTypes} from './codexTypes';
 import Dexie,{type Transaction} from 'dexie';
 import {db} from '@/db';
@@ -78,6 +79,14 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   }
   check();return{read,path};
  };
+ const readReferences=(references:readonly LocalToolDocumentReference[])=>db.transaction('r',db.tables,async()=>{
+  await project();
+  const rows:(EraDocumentRead|undefined)[]=[];
+  // A Base document read keeps the transaction alive while its version is hashed.
+  for(const reference of references)rows.push(await readWorldDocument(scope,reference.kind,reference.documentId));
+  current();
+  return rows;
+ });
  const base={projectId,namespace,eraId:scope.eraId,documentId:options.documentId,audio,assets,locale,icons:createRuntimeLocalToolIcons(),
   subscribe:(changed:()=>void)=>{
    let active=true,pending:ReturnType<typeof setTimeout>|undefined;
@@ -153,7 +162,7 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   readCodexTemplates,base.subscribe,()=>{try{current();return true;}catch{return false;}},
   ()=>Dexie.ignoreTransaction(readCodexTemplates),
  );
- const client:LocalToolClient<T>={...base,openDocuments,codexTypes,...(convergence?{convergence}:{}),theme,refs:createLocalToolReferences(base,reference=>destination(reference.kind,reference.documentId,true)),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();if(options.mapAuthority){await mapWritable();writable();}const convergenceOptions=options.documentId?await convergenceOptionsFor():undefined;const result=await run({client,receiptTransaction:outer,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),...(options.documentId&&convergenceOptions?{convergence:{
+ const client:LocalToolClient<T>={...base,openDocuments,codexTypes,...(convergence?{convergence}:{}),theme,refs:createLocalToolReferences(base,reference=>destination(reference.kind,reference.documentId,true),readReferences),...(definition.codec?{state:createLocalToolStateActions<T>(definition.codec,JSON.stringify([projectId,scope.eraId??null,namespace,options.releaseHash??null,definition.codec,options.documentId??null]),run=>{writable();return db.transaction('rw',options.documentId?db.tables:[db.projects],async tx=>{const row=await project();let outer:Transaction=tx;while(outer.parent)outer=outer.parent;writable();if(options.mapAuthority){await mapWritable();writable();}const convergenceOptions=options.documentId?await convergenceOptionsFor():undefined;const result=await run({client,receiptTransaction:outer,identity:JSON.stringify([projectId,scope.eraId??null,namespace,row.localToolInstallations?.[namespace]?.contentHash??null,definition.codec,options.documentId??null]),...(options.documentId&&convergenceOptions?{convergence:{
  apply:async(baseline,actions)=>{const bytes=requireLocalImageActions(assets,actions,definition.codec);if(bytes)await bytes;writable();return applySourceToolConvergence(scope,options.documentId!,definition,baseline,actions,convergenceOptions);},
  reverse:recipe=>reverseSourceToolConvergence(scope,options.documentId!,definition,recipe,convergenceOptions),
  }}:{}),onCommit:callback=>outer.on('complete',()=>Dexie.ignoreTransaction(callback)),onAbort:callback=>outer.on('abort',()=>Dexie.ignoreTransaction(callback))});writable();if(options.mapAuthority){await mapWritable();writable();}return result;});})}:{})};
