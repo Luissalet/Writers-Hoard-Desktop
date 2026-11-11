@@ -3,12 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { db } from '@/db';
 import { deleteProject } from '@/db/operations';
-import type { Project } from '@/types';
+import type { CodexEntry, Project } from '@/types';
 import type { WorldTable } from '@/engines/tables/types';
 import TablesEngine from '@/engines/tables/TablesEngine';
 import { editTableRows, undoTableRows } from '@/engines/tables/rowActions';
 import { changeTable, saveCell } from '@/engines/tables/operations';
-import { readWorldDocument } from '@/services/worldEras/store';
+import { hideEraDocument, readWorldDocument, resetEraDocument } from '@/services/worldEras/store';
 import { runBridgeTool } from '@/services/aiBridge/dispatch';
 import { clearUndoJournal, getUndoJournal, undoLast } from '@/services/undoJournal';
 import { useLocaleStore } from '@/stores/localeStore';
@@ -72,6 +72,65 @@ export async function testTableRowOrderContracts(): Promise<string[]> {
     assert((await read(P, table.id, 'past')).provenance === 'variant' && JSON.stringify((await read(P, table.id, 'past')).document.root) === ownBefore, 'Own-era Undo lost authored root');
     await rejects(() => undoTableRows({ projectId: P, eraId: 'wrong' }, own.receiptId!), 'Foreign scope accepted');
     passed.push('Inherited era returns to current Base; own-era root remains own and scope-bound');
+    const live: WorldTable = { id: 'live-all', title: 'All cards', mode: 'table', codexAllTypes: true, columns: [
+      { id: 'title', name: 'Name', kind: 'text', field: 'title' },
+      { id: 'amount', name: 'Amount', kind: 'number', field: 'amount' },
+      { id: 'total', name: 'Total', kind: 'number', calculation: { formula: '=SUM([Amount])', resultType: 'decimal', rowBindings: {}, columnBindings: { Amount: 'amount' } } },
+    ], rows: [] };
+    const typed = { ...live, id: 'live-typed', codexAllTypes: false, codexType: 'character' as const };
+    const templated = { ...typed, id: 'live-template', codexTemplateId: 'row-template' };
+    const cards: CodexEntry[] = ['Ada', 'Bryn', 'Cor', 'Dara'].map((id, index) => ({
+      id, projectId: P, title: id, type: index === 2 ? 'location' : 'character',
+      ...(index < 2 ? { templateId: 'row-template' } : {}), content: '', fields: { amount: ['1e16', '-1e16', '1', '0'][index] }, relations: [], tags: [], createdAt: 1, updatedAt: 1,
+    }));
+    await db.codexEntries.bulkPut(cards.slice(0, 3));
+    const project = (await db.projects.get(P))!;
+    await db.projects.update(P, { dataTables: [...project.dataTables!, live, typed, templated] });
+    const fetchLive = async (target = live, eraId?: string) => {
+      const result = await runBridgeTool('wh_table_get', { projectId: P, tableId: target.id, eraId });
+      assert(result.ok, JSON.stringify(result));
+      return result.result as { table: WorldTable; version: string };
+    };
+    const liveBefore = await fetchLive();
+    assert(liveBefore.table.rows.every(row => row.cells.total === '1'), 'Positive control for ordered floating-point aggregation failed');
+    const first = await runBridgeTool('wh_table_edit', { projectId: P, tableId: live.id, expectedVersion: liveBefore.version, action: 'move-row', rowId: 'Cor', beforeRowId: 'Ada' });
+    assert(first.ok, JSON.stringify(first));
+    const rootBeforeNoOp = JSON.stringify(await db.projects.get(P));
+    const afterFirst = await fetchLive();
+    assert(order(afterFirst.table) === 'Cor,Ada,Bryn' && !Object.hasOwn(afterFirst.table, 'liveRowOrder'), 'Live MCP lost the effective order or leaked raw IDs');
+    assert(afterFirst.table.rows.every(row => row.cells.total === '1'), 'Moving a live row changed whole-column calculations');
+    const repeat = await editTableRows(scope, live.id, { action: 'move-row', rowId: 'Cor', beforeRowId: 'Ada' }, afterFirst.version);
+    assert(!repeat.receiptId && repeat.version === afterFirst.version && JSON.stringify(await db.projects.get(P)) === rootBeforeNoOp, 'Live no-op wrote metadata');
+    await rejects(() => editTableRows(scope, live.id, { action: 'move-row', rowId: 'Bryn' }, liveBefore.version), 'Live move accepted stale CAS');
+    await rejects(() => editTableRows(scope, live.id, { action: 'insert-row' }, afterFirst.version), 'Live insert accepted fake row');
+
+    const typedRead = await fetchLive(typed), templatedRead = await fetchLive(templated);
+    assert(order(typedRead.table) === 'Ada,Bryn' && order(templatedRead.table) === 'Ada,Bryn', 'Live table selection lost effective type or template');
+    await rejects(() => editTableRows(scope, typed.id, { action: 'move-row', rowId: 'Ada', beforeRowId: 'Cor' }, typedRead.version), 'Type view accepted anchor of another type');
+    await rejects(() => editTableRows(scope, typed.id, { action: 'move-row', rowId: 'Cor', beforeRowId: 'Ada' }, typedRead.version), 'Type view accepted a moved card of another type');
+    await db.codexEntries.put(cards[3]);
+    const templatedMove = await editTableRows(scope, templated.id, { action: 'move-row', rowId: 'Bryn', beforeRowId: 'Ada' }, templatedRead.version);
+    assert(templatedMove.receiptId && order((await fetchLive(templated)).table) === 'Bryn,Ada' && order((await fetchLive(typed)).table) === 'Ada,Bryn,Dara', 'Template view move escaped its own table');
+    assert(order((await fetchLive()).table) === 'Cor,Ada,Bryn,Dara', 'New card did not append to the effective manual order');
+    const codexBefore = JSON.stringify(await db.codexEntries.where('projectId').equals(P).toArray());
+    const hiddenRead = (await readWorldDocument(era, 'codex', 'Ada'))!;
+    await hideEraDocument(era, 'codex', 'Ada', hiddenRead.version);
+    const eraBefore = await fetchLive(live, 'past');
+    assert(order(eraBefore.table) === 'Cor,Bryn,Dara', 'Hidden era card remained visible');
+    await rejects(() => editTableRows(era, live.id, { action: 'move-row', rowId: 'Bryn', beforeRowId: 'Ada' }, eraBefore.version), 'Hidden era anchor accepted');
+    const eraMoved = await editTableRows(era, live.id, { action: 'move-row', rowId: 'Dara', beforeRowId: 'Cor' }, eraBefore.version);
+    assert(eraMoved.receiptId && order((await fetchLive(live, 'past')).table) === 'Dara,Cor,Bryn', 'Era live move failed');
+    const hiddenVariant = (await db.worldEraVariants.where('[projectId+eraId]').equals([P, 'past']).toArray()).find(variant => variant.entityId === 'Ada');
+    assert(hiddenVariant, 'Hidden card tombstone missing');
+    await resetEraDocument(era, 'codex', 'Ada', hiddenVariant.revision);
+    assert(order((await fetchLive(live, 'past')).table) === 'Dara,Cor,Ada,Bryn', 'Restored card lost its retained position');
+    assert(order((await fetchLive()).table) === 'Cor,Ada,Bryn,Dara', 'Era changed Base live row order');
+    await undoTableRows(era, eraMoved.receiptId);
+    assert((await read(P, live.id, 'past')).provenance === 'base' && order((await fetchLive(live, 'past')).table) === 'Cor,Ada,Bryn,Dara', 'Live era Undo did not restore Base inheritance');
+    const storedLive = (await read(P, live.id)).document.root as unknown as WorldTable;
+    assert(storedLive.rows.length === 0, 'Move wrote projected values to the table');
+    assert(JSON.stringify(await db.codexEntries.where('projectId').equals(P).toArray()) === codexBefore, 'Live order edit mutated Base Codex records');
+    passed.push('Live MCP and writer order all-type/template views by scoped Codex ID, retain hidden positions and support inherited era Undo');
     return passed;
   } finally { await deleteProject(P); }
 }

@@ -12,8 +12,12 @@ const MAX_COLUMNS = 100;
 const MAX_ROWS = 20000;
 export const TABLE_COLUMN_KINDS = ['text', 'number', 'reference', 'checkbox'] as const;
 
+export function isLiveTable(table: WorldTable): boolean {
+  return Boolean(table.codexType || table.codexTemplateId || table.codexAllTypes);
+}
+
 export function isNormalTable(table: WorldTable): boolean {
-  return table.mode === 'table' && !table.codexType && !table.codexTemplateId && !table.codexAllTypes;
+  return table.mode === 'table' && !isLiveTable(table);
 }
 
 export function canChangeTableColumnKind(table: WorldTable, column: DataColumn): boolean {
@@ -62,13 +66,17 @@ const inserted = (at: number) => (index: number) => (index >= at ? index + 1 : i
 
 /** Move a saved row before another, or to the end. Sheet addresses stay literal coordinates. */
 export function moveRow(table: WorldTable, rowId: string, beforeRowId?: string): boolean {
-  if (table.codexType || table.codexTemplateId || table.codexAllTypes) throw Error('table_live_order_requires_view');
-  const from = table.rows.findIndex(row => row.id === rowId);
-  const anchor = beforeRowId === undefined ? table.rows.length : table.rows.findIndex(row => row.id === beforeRowId);
+  if (isLiveTable(table)) throw Error('table_live_order_requires_view');
+  return moveRowBefore(table.rows, row => row.id, rowId, beforeRowId);
+}
+
+export function moveRowBefore<T>(rows: T[], identify: (row: T) => string, rowId: string, beforeRowId?: string): boolean {
+  const from = rows.findIndex(row => identify(row) === rowId);
+  const anchor = beforeRowId === undefined ? rows.length : rows.findIndex(row => identify(row) === beforeRowId);
   if (from < 0 || anchor < 0) throw Error('table_row_missing');
   if (from === anchor || from + 1 === anchor) return false;
-  const [row] = table.rows.splice(from, 1);
-  table.rows.splice(anchor > from ? anchor - 1 : anchor, 0, row);
+  const [row] = rows.splice(from, 1);
+  rows.splice(anchor > from ? anchor - 1 : anchor, 0, row);
   return true;
 }
 
