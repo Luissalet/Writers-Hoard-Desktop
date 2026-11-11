@@ -2,7 +2,7 @@ import {prepareLocalToolMapPanel} from './mapTools/contracts';
 export type {LocalToolMapPanelSpec,LocalToolMapTarget,LocalToolMapContext} from './mapTools/contracts';
 export type {RichAnnotationSpec,RichAnnotationAttrs,RichAnnotationScalar,AnnotationPresentation} from './convergence/annotationFormat';
 import {validateRichAdoption} from './convergence/richAdoption';
-import {prepareSourceAdditiveDeclaration,sourceAdditiveDefault,type LocalToolSourceAdditive} from './convergence/sourceAdditive';
+import {prepareSourceAdditiveDeclaration,sourceAdditiveCodecDefaults,type LocalToolSourceAdditive} from './convergence/sourceAdditive';
 export type {LocalToolSourceAdditive} from './convergence/sourceAdditive';
 import {localToolConvergenceContext} from './convergence/context';
 export type {LocalToolDocumentContent,LocalToolDocumentContentSnapshot,LocalToolSaveMode} from './liveContent/types';
@@ -156,8 +156,8 @@ export function defineLocalTool<T extends LocalToolJson>(input:LocalToolAuthorDe
   const sourceAdditive=definition.sourceAdditive===undefined?undefined:prepareSourceAdditiveDeclaration(definition.sourceAdditive,definition.namespace,definition.codec);
   if(definition.index)validateLocalToolIndexSpec(definition.index);
   const blockKeys=new Set<string>();for(const block of definition.blocks??[]){if(blockKeys.has(block.key))throw Error('local_tool_block_key_duplicate');blockKeys.add(block.key);validateLocalToolBlockDefinition(definition.namespace,block);}
-  if(definition.codec?.sourceDefault&&!sourceAdditive)throw Error('local_tool_source_additive_invalid');
-  const codec=definition.codec&&sourceAdditive?{...definition.codec,sourceDefault:sourceAdditiveDefault(sourceAdditive)}:definition.codec;
+  if((definition.codec?.sourceDefault||definition.codec?.sourceDefaults)&&!sourceAdditive)throw Error('local_tool_source_additive_invalid');
+  const codec=definition.codec&&sourceAdditive?{...definition.codec,...sourceAdditiveCodecDefaults(sourceAdditive)}:definition.codec;
   const initialState=cloneLocalToolJson(definition.initialState);if(definition.validateState(initialState)!==true)throw new LocalToolStateError('invalid-state');
   if(codec)validateLocalToolCodecState(initialState,codec);
   const mapPanel=definition.mapPanel===undefined?undefined:prepareLocalToolMapPanel(definition.mapPanel,definition.document,codec,initialState);

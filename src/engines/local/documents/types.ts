@@ -1,3 +1,4 @@
+import {sourceDefaultHash} from '../stateCodecFormat';
 import {validateLocalToolPreviewSpec,type LocalToolPreviewSpec} from '../previewTypes';
 /** Pure portable documents. No code registry, DB, React or source module loading. */
 import {cloneLocalToolJson,localToolNamespace,type LocalToolJson} from '../stateTypes';
@@ -17,6 +18,6 @@ export function validateSourceToolConvergence(value:unknown,namespace:string,cod
  if(!row||typeof row!=='object'||Array.isArray(row)||!codec||!Object.hasOwn(row,'checkpoint')||Object.keys(row).some(key=>!['checkpoint','conflict'].includes(key)))throw Error('source_tool_convergence_invalid');
  validateLocalToolConvergenceCheckpoint(row.checkpoint);
  if(row.checkpoint.namespace!==namespace||row.checkpoint.codecHash!==convergenceCodecHash(codec)||
-    (row.checkpoint.engine.version==='8')!==!!codec.sourceDefault)throw Error('source_tool_convergence_identity_mismatch');
+    (row.checkpoint.engine.version==='8')!==!!sourceDefaultHash(codec))throw Error('source_tool_convergence_identity_mismatch');
  if(row.conflict!==undefined){validateLocalToolValidationConflict(row.conflict);if(row.conflict===null||row.conflict.validationId!==row.checkpoint.validationId)throw Error('source_tool_convergence_conflict_invalid');}
 }

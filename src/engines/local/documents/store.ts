@@ -1,3 +1,4 @@
+import {sourceDefaultEntries,sourceDefaultHash} from '../stateCodecFormat';
 import {mergeLocalToolActions} from '../stateActions';
 import {localToolMapTarget} from '../mapTools/contracts';
 import {resolveProjectLocalTool} from '../releases';
@@ -67,10 +68,10 @@ export interface SourceConvergenceOptions {authorId:string;validationId:string;s
 /** Current executable validation comes from the selected host, never old persisted metadata. */
 export function sourceConvergenceContract<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,options:Omit<SourceConvergenceOptions,'authorId'>,adopting=false,promoting=false):LocalToolConvergenceContract<T>{
  const codec=definition.codec??document.codec;if(!codec)throw Error('local_tool_convergence_codec_required');
- if(!promoting&&(definition.sourceAdditive||document.codec?.sourceDefault||document.convergence?.checkpoint.engine.version==='8'))assertSourceAdditiveTarget(document,definition);
+ if(!promoting&&(definition.sourceAdditive||sourceDefaultHash(document.codec)||document.convergence?.checkpoint.engine.version==='8'))assertSourceAdditiveTarget(document,definition);
  if(document.convergence?.checkpoint.engine.version==='1'&&document.codec&&!promoting&&convergenceEngine(codec).version==='1'){
   const added=Object.keys(codec.fields).filter(field=>!Object.hasOwn(document.codec!.fields,field));
-  if(added.length===1&&codec.fields[added[0]].kind==='scalar'&&convergenceCanonical(priorSourceCodec(codec,added[0]))===convergenceCanonical(document.codec))throw Error('local_tool_source_additive_required');
+  if(added.length===1&&codec.fields[added[0]].kind==='scalar'&&convergenceCanonical(priorSourceCodec(codec,added))===convergenceCanonical(document.codec))throw Error('local_tool_source_additive_required');
  }
  assertTableAxesOrigin(codec,document.codec,document.convergence?.checkpoint.engine.version);
  const contract={namespace:definition.namespace,codec,validationId:options.validationId,schemaEpoch:options.schemaEpoch,validateState:definition.validateState,...(definition.richAdoption?{richAdoption:definition.richAdoption}:{})};
@@ -119,8 +120,11 @@ export async function createSourceToolDocument(scope:WorldEraScope,namespace:str
     if(!read||read.document.root.id!==target.documentId||read.document.root.projectId!==scope.projectId)throw Error('local_tool_map_target_unavailable');
    }
   }
-  const spec=definition.codec?.sourceDefault;
-  if(spec&&data&&typeof data==='object'&&!Array.isArray(data)&&Object.hasOwn(data,spec.field)&&convergenceCanonical(data[spec.field])===convergenceCanonical(spec.defaultValue))delete data[spec.field];
+  if(data&&typeof data==='object'&&!Array.isArray(data)){
+   for(const [field,defaultValue] of sourceDefaultEntries(definition.codec)){
+    if(Object.hasOwn(data,field)&&convergenceCanonical(data[field])===convergenceCanonical(defaultValue))delete data[field];
+   }
+  }
   return mutate(scope,id,null,null,()=>({id,generation:crypto.randomUUID(),namespace,title:title.trim(),revision:1,createdAt:now,updatedAt:now,data,...(definition.codec?{codec:structuredClone(definition.codec)}:{}),...(definition.preview?{preview:structuredClone(definition.preview)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})}));
  });
 }
@@ -141,7 +145,7 @@ export async function saveSourceToolState<T extends LocalToolJson>(scope:WorldEr
   await transformSourceToolDocument(scope,id,read=>{
    checkSourceCAS(read,expected,expectedVersion);if(!read||read.document.namespace!==definition.namespace)throw Error('source_tool_document_missing');
    let current=read.document,nextData=cloneLocalToolJson(safe);
-   if(current.codec?.sourceDefault||current.convergence?.checkpoint.engine.version==='8')throw Error('local_tool_source_additive_write_unavailable');
+   if(sourceDefaultHash(current.codec)||current.convergence?.checkpoint.engine.version==='8')throw Error('local_tool_source_additive_write_unavailable');
    if(current.convergence){
     if(!convergenceOptions)throw Error('source_tool_convergence_context_required');
     const context=prepareSourceConvergenceContext(current,definition,convergenceOptions,!!scope.eraId&&read.provenance==='base');

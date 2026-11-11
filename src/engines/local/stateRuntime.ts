@@ -1,3 +1,4 @@
+import {sourceDefaultHash} from './stateCodecFormat';
 import type {LocalToolAdoptionReceiptSuccessor} from './convergence/clientTypes';
 import {assertConvergenceIdentity,convergenceIdentityOf} from './convergence/format';
 import type {LocalToolConvergenceIdentity} from './convergence/formatTypes';
@@ -85,7 +86,7 @@ export function createLocalToolStateActions<T extends LocalToolJson>(codec:Local
   const hasPlainIntent=hasRichIntent||actions.some(action=>action.type==='text-splice');
   if(hasPlainIntent&&!current.convergence)throw Error('local_tool_plain_convergence_required');
   const merged=hasPlainIntent?undefined:mergeLocalToolActions(codec,baseline.data,current.data,actions);
-  if(current.convergence||current.document&&codec.sourceDefault){
+  if(current.convergence||current.document&&sourceDefaultHash(codec)){
    if(!transaction.convergence)throw Error('local_tool_convergence_host_unavailable');
    const result=await transaction.convergence.apply(baseline,actions);
    return{snapshot:result.snapshot,receiptId:recordConvergence(transaction,result.snapshot,result.receipt,mode,true)};

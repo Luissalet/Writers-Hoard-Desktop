@@ -1,3 +1,4 @@
+import {sourceDefaultHash} from '@/engines/local/stateCodecFormat';
 import {projectWritingOwner} from '@/engines/writings/manuscriptStore';
 import { applyEraReaderCover, validateProjectCoverMetadata } from '@/engines/writings/coverDesign/model';
 import {validateToolDockProjectMetadata,renewToolDockGeneration} from '@/engines/writings/toolDock/types';
@@ -101,7 +102,7 @@ export function saveEraDocument(scope: WorldEraScope, kind: EraDocumentKind, doc
       const changed=!old||current?.provenance==='base'||convergenceHash(root.data)!==convergenceHash(old.data)||convergenceHash(convergence??null)!==convergenceHash(old.convergence??null)||root.namespace!==old.namespace;
       if(changed||convergenceHash(root.codec??null)!==convergenceHash(old?.codec??null)){
         const from=old&&sourceAdditiveOriginFor(old.namespace,project.localToolInstallations?.[old.namespace]?.contentHash);
-        if(root.codec?.sourceDefault||old?.codec?.sourceDefault||old&&isSourceAdditivePredecessor(old,from))throw Error('local_tool_source_additive_write_unavailable');
+        if(sourceDefaultHash(root.codec)||sourceDefaultHash(old?.codec)||old&&isSourceAdditivePredecessor(old,from))throw Error('local_tool_source_additive_write_unavailable');
       }
       if(convergence){
         root.convergence=convergence;root.codec??=old?.codec;

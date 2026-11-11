@@ -27,8 +27,9 @@ import {JsonMap,JsonArray,Registers,type Toggle} from './registers';
 import {PlainRuns,type PlainSpan,type PlainPlan,type PlainDraft} from './plainRuns';
 import {appendRichAdoption,readRichAdoption,richAdoptionOrigin,inspectLegacyRichUpdate,validateRichAdoption,checkRichAdoptionAncestors,checkRichAdoptionMonotonicity,effectiveRichAdoptionContract} from './richAdoption';
 import {appendSourceAdditiveAuthority,checkSourceAdditiveHistory,SOURCE_ADDITIVE_ROOT} from './sourceAdditiveHistory';
-import {projectSourceDefault} from './sourceAdditive';
-import {appendSourceListPlacement,sourceListField,sourceListHistoryPending} from './sourceListHistory';
+import {projectSourceDefaults} from './sourceAdditive';
+import {hasSourceDefault,sourceDefaultEntries,sourceDefaultHash} from '../stateCodecFormat';
+import {appendSourceListPlacement,sourceListFields,sourceListHistoryPending} from './sourceListHistory';
 
 type ObjectData=Record<string,LocalToolJson>;
 type Binding={id:string;placementId:string};
@@ -48,12 +49,17 @@ const unbind=(bindings:Binding[],id:string)=>{const at=bindings.findIndex(value=
 const object=(value:unknown):value is ObjectData=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const listFields=(codec:LocalToolStateCodec)=>Object.entries(codec.fields).filter(([,field])=>field.kind==='list');
 const order=(doc:Y.Doc,field:string)=>new JsonArray<Placement>(doc.getArray<string>('order:'+JSON.stringify(field)));
-const sourceMapField=(codec:LocalToolStateCodec)=>codec.sourceDefault&&codec.fields[codec.sourceDefault.field]?.kind==='map'?codec.sourceDefault.field:undefined;
-/** Only the declared additive collection has a virtual empty action basis; preserve sparse no-ops. */
+/** Additive collections start empty even when their persisted fields are still absent. */
 function mergeActions<T extends LocalToolJson>(codec:LocalToolStateCodec,baseline:T,current:T,actions:readonly LocalToolStateAction[]){
- const list=sourceListField(codec),field=sourceMapField(codec)??list;if(field===undefined)return mergeLocalToolActions(codec,baseline,current,actions);
- const result=mergeLocalToolActions(codec,projectSourceDefault(baseline,codec.sourceDefault),projectSourceDefault(current,codec.sourceDefault),actions);
- if(object(current)&&!Object.hasOwn(current,field)&&object(result.data)&&(list!==undefined?Array.isArray(result.data[field])&&result.data[field].length===0:object(result.data[field])&&!Object.keys(result.data[field]).length))delete result.data[field];
+ if(!sourceDefaultHash(codec))return mergeLocalToolActions(codec,baseline,current,actions);
+ const collections=sourceDefaultEntries(codec).filter(([field])=>['map','list'].includes(codec.fields[field].kind));
+ if(!collections.length)return mergeLocalToolActions(codec,baseline,current,actions);
+ const result=mergeLocalToolActions(codec,projectSourceDefaults(baseline,collections),projectSourceDefaults(current,collections),actions);
+ if(object(current)&&object(result.data)){
+  for(const [field,defaultValue] of collections){
+   if(!Object.hasOwn(current,field)&&localToolStateEqual(result.data[field],defaultValue))delete result.data[field];
+  }
+ }
  return{...result,data:result.data as T};
 }
 const roots=(doc:Y.Doc,codec:LocalToolStateCodec,provided?:Registers)=>{
@@ -99,14 +105,14 @@ function projectRoots(r:Roots):ValidView {
    delete data[field];if(r.presence.get(field)){const view=r.plain(field).materialize();data[field]=view.text;plainBindings[field]=view.bindings;}
   }else if(descriptor.kind==='map'){
    delete data[field];
-   if(field!==sourceMapField(r.codec)){if(r.presence.get(field))data[field]=Object.fromEntries([...r.map(field)].map(([key,value])=>[key,clone(value)]));continue;}
+   if(!hasSourceDefault(r.codec,field)){if(r.presence.get(field))data[field]=Object.fromEntries([...r.map(field)].map(([key,value])=>[key,clone(value)]));continue;}
    const entries=[...r.map(field)],presence=r.registers.winner('presence',field);
    // A seed presence remains authoritative even when undone. Sparse origins instead
    // derive support from their active keys, so Undo of one author cannot hide another.
    const implicit=!r.registers.entries('presence',field).some(version=>r.registers.transactionParents(version.txId)?.length===0);
    if(presence?presence.present&&presence.value===true:implicit&&entries.length>0)data[field]=Object.fromEntries(entries.map(([key,value])=>[key,clone(value)]));
   }else if(descriptor.kind==='list'){
-   delete data[field];const additive=field===sourceListField(r.codec),presence=additive?r.registers.winner('presence',field):undefined;
+   delete data[field];const additive=hasSourceDefault(r.codec,field),presence=additive?r.registers.winner('presence',field):undefined;
    const implicit=additive&&!r.registers.entries('presence',field).some(version=>r.registers.transactionParents(version.txId)?.length===0);
    if(additive?presence?!(presence.present&&presence.value===true):!implicit:!r.presence.get(field))continue;
    const list=r.list(field),items:ObjectData[]=[],anchors:Binding[]=[],order=list.order.toArray(),known=new Set(order.map(place=>place.placementId));
@@ -189,7 +195,7 @@ function contractCopy<T extends LocalToolJson>(contract:LocalToolConvergenceCont
  return{namespace:contract.namespace,codec:clone(contract.codec),validationId:contract.validationId,schemaEpoch:contract.schemaEpoch,validateState:contract.validateState,...(contract.richAdoption?{richAdoption:clone(contract.richAdoption)}:{})};
 }
 function accepts(contract:LocalToolConvergenceContract,data:LocalToolJson):boolean {
- try{validateLocalToolCodecState(data,contract.codec);return contract.validateState(cloneLocalToolJson(projectSourceDefault(data,contract.codec.sourceDefault)))===true;}catch{return false;}
+ try{validateLocalToolCodecState(data,contract.codec);const effective=sourceDefaultHash(contract.codec)?projectSourceDefaults(data,sourceDefaultEntries(contract.codec)):data;return contract.validateState(cloneLocalToolJson(effective))===true;}catch{return false;}
 }
 function validFallback<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>):ValidView {
  const plainChecks:PlainBindingChecks=new Map(),richChecks:RichBindingChecks=new Map();
@@ -221,7 +227,7 @@ function checkRetainedSnapshot(r:Roots,value:unknown,plainChecks:PlainBindingChe
  checkBindings(r,materializeValidSnapshot(view,expanded),plainChecks,richChecks,proven);
 }
 function semanticPending(r:Roots,proofs?:SnapshotBindingProofs):boolean {
- if(sourceListField(r.codec)!==undefined&&sourceListHistoryPending(r.registers.doc))return true;
+ if(sourceDefaultHash(r.codec)&&sourceListFields(r.codec).length&&sourceListHistoryPending(r.registers.doc))return true;
  if(r.registers.pending())return true;
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'&&(r.rich(field).pending()||blockField(r,field)&&blocks(r,field).pending()))return true;
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(isLocalToolPlainField(descriptor)&&r.plain(field).pending())return true;
@@ -263,7 +269,7 @@ function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson
  const r=initializeRoots(doc,metadata.codec),bindings:Bindings={},plainBindings:PlainBindings={},richBindings:Record<string,RichBindings>={},plainFields=Object.keys(metadata.codec.fields).filter(field=>isLocalToolPlainField(metadata.codec.fields[field])).sort();
  doc.transact(()=>{
   new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).set('value',clone(identity));
-  if(metadata.codec.sourceDefault)appendSourceAdditiveAuthority(doc,metadata);
+  if(sourceDefaultHash(metadata.codec))appendSourceAdditiveAuthority(doc,metadata);
   r.registers.begin();
   if(plainFields.length)new JsonMap<string[]>(doc.getMap('plain-fields')).set('value',plainFields);const richFields=Object.keys(metadata.codec.fields).filter(f=>metadata.codec.fields[f].kind==='rich').sort();if(richFields.length)new JsonMap<string[]>(doc.getMap('rich-fields')).set('value',richFields);if(identity.engine.version==='16')new JsonMap<LocalToolStateCodec>(doc.getMap('rich-annotation-codec')).set('value',metadata.codec);const linkFields=richFields.filter(f=>localToolRichLinks(metadata.codec.fields[f]));if(linkFields.length)new JsonMap<string[]>(doc.getMap('rich-link-fields')).set('value',linkFields);const blockFields=richFields.filter(f=>blockField(r,f));if(blockFields.length)new JsonMap<string[]>(doc.getMap('block-fields')).set('value',blockFields);const tables=richFields.filter(field=>localToolRichTables(metadata.codec.fields[field]));if(tables.length)new JsonMap<string[]>(doc.getMap('table-fields')).set('value',tables);const axes=richFields.filter(field=>localToolRichTableAxes(metadata.codec.fields[field]));if(axes.length)new JsonMap<string[]>(doc.getMap('table-axis-fields')).set('value',axes);const widths=axes.filter(field=>localToolRichTableWidths(metadata.codec.fields[field]));if(widths.length)new JsonMap<string[]>(doc.getMap('table-width-fields')).set('value',widths);const images=widths.filter(field=>localToolRichImages(metadata.codec.fields[field]));if(images.length)new JsonMap<string[]>(doc.getMap('image-fields')).set('value',images);const alignments=images.filter(field=>localToolRichImageAlignment(metadata.codec.fields[field]));if(alignments.length)new JsonMap<string[]>(doc.getMap('image-alignment-fields')).set('value',alignments);
   const raster=alignments.filter(field=>localToolRichImageRaster(metadata.codec.fields[field]));if(raster.length)new JsonMap<string[]>(doc.getMap('image-raster-fields')).set('value',raster);
@@ -279,7 +285,7 @@ function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson
     r.presence.set(field,true);for(const[key,item]of Object.entries(value as ObjectData))r.map(field).set(key,clone(item));
    }else if(descriptor?.kind==='list'){
     r.presence.set(field,true);const list=r.list(field);bindings[field]=[];
-    for(const item of value as ObjectData[]){const id=item[descriptor.idKey] as string,placementId=crypto.randomUUID();list.content.set(id,clone(item));list.membership.set(id,true);list.selected.set(id,placementId);if(field===sourceListField(metadata.codec))appendSourceListPlacement(doc,field,r.registers.currentTransactionId(),id,placementId,()=>list.order.push([{id,placementId}]));else list.order.push([{id,placementId}]);bind(bindings[field],id,placementId);}
+    for(const item of value as ObjectData[]){const id=item[descriptor.idKey] as string,placementId=crypto.randomUUID();list.content.set(id,clone(item));list.membership.set(id,true);list.selected.set(id,placementId);if(hasSourceDefault(metadata.codec,field))appendSourceListPlacement(doc,field,r.registers.currentTransactionId(),id,placementId,()=>list.order.push([{id,placementId}]));else list.order.push([{id,placementId}]);bind(bindings[field],id,placementId);}
    }else r.scalar.set(field,clone(value));
   }
   writeValidSnapshot(r,Object.keys(metadata.codec.fields).some(field=>blockField(r,field))?projectRoots(r):{data:clone(data),bindings,...(Object.keys(richBindings).length?{richBindings}:{}),...(plainFields.length?{plainBindings}:{})});r.registers.flush();
@@ -325,7 +331,7 @@ export function createLocalToolGenesis<T extends LocalToolJson>(data:T,contract:
 /** Prepare only a candidate. The Source writer decides whether a user action commits it. */
 export function prepareSourceAdditiveCheckpoint(checkpoint:LocalToolConvergenceCheckpoint,data:LocalToolJson,from:LocalToolConvergenceMetadata,target:LocalToolConvergenceContract):LocalToolConvergenceCheckpoint {
  assertConvergenceIdentity(checkpoint,convergenceIdentity(from,checkpoint.genesisId));
- if(checkpoint.engine.version!=='1'||!target.codec.sourceDefault||exportLocalToolConvergenceCheckpoint(checkpoint).pending||!accepts(target,data))throw Error('local_tool_source_additive_incompatible');
+ if(checkpoint.engine.version!=='1'||!sourceDefaultHash(target.codec)||exportLocalToolConvergenceCheckpoint(checkpoint).pending||!accepts(target,data))throw Error('local_tool_source_additive_incompatible');
  const doc=new Y.Doc({gc:false}),identity=convergenceIdentity(target,checkpoint.genesisId);
  try{
   Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));
@@ -339,9 +345,10 @@ export function prepareSourceAdditiveCheckpoint(checkpoint:LocalToolConvergenceC
 function prepareLegacyActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,validateProposal=true):{actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean} {
  const before=inspect(r,contract).data,{data:proposal}=mergeActions(contract.codec,before,before,actions);
  if(validateProposal&&!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
- const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract),addedList=sourceListField(contract.codec);
- if(addedList!==undefined&&!Object.hasOwn(bindings,addedList)&&prepared.some(action=>action.field===addedList&&action.type.startsWith('list-')))bindings[addedList]=[];
+ const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract);
  for(const action of prepared){
+  const field=action.field;
+  if(action.type.startsWith('list-')&&hasSourceDefault(contract.codec,field)&&!Object.hasOwn(bindings,field))bindings[field]=[];
   if(action.type==='list-delete')unbind(bindings[action.field],action.id);
   else if(action.type==='list-insert'||action.type==='list-move'){
    const descriptor=contract.codec.fields[action.field];if(descriptor.kind!=='list')throw Error('local_tool_convergence_list_invalid');
@@ -590,7 +597,7 @@ function mutate(r:Roots,actions:readonly ReadyAction[]):void {
     const at=action.anchorPlacement===null?-1:list.order.toArray().findIndex(place=>place.placementId===action.anchorPlacement);
     if(action.anchorPlacement!==null&&at<0)throw Error('local_tool_convergence_anchor_invalid');
     const insert=()=>list.order.insert(at+1,[{id,placementId:action.placementId!}]);
-    if(field===sourceListField(r.codec))appendSourceListPlacement(r.registers.doc,field,r.registers.currentTransactionId(),id,action.placementId!,insert);else insert();
+    if(hasSourceDefault(r.codec,field))appendSourceListPlacement(r.registers.doc,field,r.registers.currentTransactionId(),id,action.placementId!,insert);else insert();
     list.selected.set(id,action.placementId!);
    }
   }
