@@ -3,7 +3,8 @@ import {registerPendingFlusher} from '@/services/pendingWrites';
 import {useEffect,useId,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {useTranslation} from '@/i18n/useTranslation';
-import {type LocalToolJson,type LocalToolProps} from '../sdk';
+import {useLocalToolUndoCommand,type LocalToolJson,type LocalToolProps} from '../sdk';
+import type {LocalToolStateAction} from '../stateActions';
 import {useLocalToolState} from '../useLocalToolState';
 import {LocalToolReferencePicker} from '../ReferencePicker';
 import type {LocalToolDocumentReference} from '../stateCodec';
@@ -16,6 +17,19 @@ export function LinkedNotebook({client,context}:LocalToolProps<LinkedNotebookSta
  const [draft,setDraft]=useState<string>(),[item,setItem]=useState(''),[openError,setOpenError]=useState(false),flusherId=useId();
  const state=useLocalToolState(client,{observe:!!client.documentId,hasDraft:draft!==undefined||!!item.trim()});
  const focus=context?.focus?.blockId;
+ const review=useLocalToolUndoCommand(client,focus==='notes'?undefined:context,state,{
+  id:'add-review-checklist',label:{en:'Add review checklist',es:'Añadir pauta de revisión'},
+  inputSchema:{type:'object',properties:{locale:{type:'string',enum:['en','es']}},additionalProperties:false},
+  plan(snapshot,input){
+   const items=snapshot.data.items,texts=input.locale==='es'?['Revisar la continuidad','Comprobar los nombres']:['Review continuity','Check names'];
+   let afterId=items.at(-1)?.id??null;
+   return texts.filter(text=>!items.some(row=>row.text===text)).map((text):LocalToolStateAction=>{
+    const id=crypto.randomUUID(),action:LocalToolStateAction={type:'list-insert',field:'items',item:{id,text},afterId};
+    afterId=id;
+    return action;
+   });
+  },
+ });
  const showNotes=focus!=='items',showItems=focus!=='notes',whole=showNotes&&showItems;
  const openBlock=(blockId:string)=>{
   if(!client.documentId)return;
@@ -59,6 +73,7 @@ export function LinkedNotebook({client,context}:LocalToolProps<LinkedNotebookSta
    <div className="flex flex-wrap gap-2">
     <input aria-label={es?'Nuevo apunte':'New item'} value={item} onChange={event=>setItem(event.target.value)} className="min-h-10 min-w-0 flex-1 rounded-lg border border-border bg-elevated px-3"/>
     <button type="button" className={button} disabled={!state.snapshot||state.busy||!item.trim()} onClick={()=>{const rows=state.snapshot!.data.items;void state.apply([{type:'list-insert',field:'items',item:{id:crypto.randomUUID(),text:item},afterId:rows.at(-1)?.id??null}]).then(ok=>{if(ok)setItem('');});}}>{es?'Añadir apunte':'Add item'}</button>
+    {review.available&&<button type="button" className={button} disabled={!state.snapshot||state.busy||draft!==undefined||!!item.trim()} onClick={()=>void review.run({locale:es?'es':'en'}).catch(()=>undefined)}>{es?'Añadir pauta de revisión':'Add review checklist'}</button>}
    </div>
    <ul className="space-y-2">{state.snapshot?.data.items.map(row=><li key={row.id} className="flex items-center justify-between gap-3">
     <span className="min-w-0 break-words">{row.text}</span>

@@ -31,14 +31,43 @@ export function useLocalToolState<T extends LocalToolJson>(client:LocalToolClien
   });
   return()=>{active=false;unsubscribe?.();};
  },[client,observe]);
- const run=async(action:(current:()=>boolean)=>Promise<void>)=>{
+ const run=async(action:(current:()=>boolean)=>Promise<void>,propagateError=false)=>{
   const owner=binding.current;
   if(!owner?.active||owner.client!==client||working.current)return false;
   const current=()=>owner.active&&binding.current===owner;
   working.current=true;setBusy(true);setError('');
   try{await action(current);return current();}
-  catch(reason){if(current())setError(reason instanceof Error?reason.message:String(reason));return false;}
+  catch(reason){if(current())setError(reason instanceof Error?reason.message:String(reason));if(propagateError)throw reason;return false;}
   finally{if(current()){working.current=false;setBusy(false);}}
+ };
+ const rememberEdit=(result:Awaited<ReturnType<NonNullable<typeof client.state>['apply']>>)=>{
+  setSnapshot(result.snapshot);
+  if(result.receiptId){const step={id:result.receiptId,step:nextLocalToolUndoStep()};setUndo(rows=>[...rows,step]);}
+  setRedo([]);
+ };
+ const applyCommand=async(expectedClient:LocalToolClient<T>,plan:(snapshot:LocalToolSnapshot<T>)=>readonly LocalToolStateAction[],isCurrent:()=>boolean,checkAccess:()=>Promise<boolean>)=>{
+  const writer=client.state;
+  if(expectedClient!==client||loadedClient!==client||!snapshot||!writer)return false;
+  let applied=false;
+  await run(async current=>{
+   const available=()=>current()&&isCurrent()&&!draftRef.current;
+   if(!available())return;
+   try{
+    if(!await checkAccess()||!available())return;
+    const baseline=await client.read();
+    if(!available())return;
+    const actions=plan(baseline);
+    if(!available())return;
+    if(!actions.length){setSnapshot(baseline);return;}
+    const result=await writer.apply(baseline,actions);
+    applied=!!result.receiptId;
+    if(applied&&current()&&isCurrent())rememberEdit(result);
+    else if(!applied&&available())setSnapshot(result.snapshot);
+   }catch(reason){
+    if(current()&&isCurrent())throw reason;
+   }
+  },true);
+  return applied;
  };
  const undoState=()=>run(async current=>{
   if(loadedClient!==client||!client.state||!undo.length)return;
@@ -52,11 +81,11 @@ export function useLocalToolState<T extends LocalToolJson>(client:LocalToolClien
  });
  const ready=loadedClient===client&&!busy&&!hasDraft;
  useLocalToolUndoController({undoStep:ready?undo.at(-1)?.step:undefined,redoStep:ready?redo.at(-1)?.step:undefined,undo:undoState,redo:redoState});
- return{snapshot:loadedClient===client?snapshot:undefined,error,busy,canUndo:loadedClient===client&&!!undo.length,canRedo:loadedClient===client&&!!redo.length,
+ return{snapshot:loadedClient===client?snapshot:undefined,error,busy,applyCommand,canUndo:loadedClient===client&&!!undo.length,canRedo:loadedClient===client&&!!redo.length,
   reload:()=>run(async current=>{const next=await client.read();if(current()){setSnapshot(next);setLoadedClient(client);}}),
   apply:(actions:readonly LocalToolStateAction[],baseline?:LocalToolSnapshot<T>)=>run(async current=>{
    if(loadedClient!==client||!snapshot||!client.state)throw Error('local_tool_codec_required');
    const result=await client.state.apply(baseline??snapshot,actions);if(!current())return;
-   setSnapshot(result.snapshot);if(result.receiptId)setUndo(rows=>[...rows,{id:result.receiptId!,step:nextLocalToolUndoStep()}]);setRedo([]);
+   rememberEdit(result);
   }),undo:undoState,redo:redoState};
 }

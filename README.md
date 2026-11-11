@@ -1103,3 +1103,8 @@ A new Source release can add one empty stable-ID list while keeping its previous
 ## Open a Source block beside its document
 
 In Linked Notebook, **Open notes beside** and **Open items beside** keep the full document in the main pane. Each companion opens the selected section of the same document. Open the same section again to select its tab. Saving and undoing changes in the companion updates the document in both views. [SDK and verification](tasks/vvd1095/verification-sdk-source-block-focus2590.md).
+
+
+## Undo an author command in a Source notebook
+
+In Linked Notebook, **Add review checklist** adds the two review items in one step. The companion and the main view read the same saved document. Use **Undo** and **Redo** in the view that ran the command. A new edit after Undo starts its next branch. Tool authors can define a command as a batch of Writer actions and use the editor's existing history. [SDK and verification](tasks/vvd1095/verification-sdk-author-undo2602.md).

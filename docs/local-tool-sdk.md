@@ -476,6 +476,14 @@ Queries read current effective roots, including era hiding/overrides, without a 
 
 Descriptors survive normal JSON/ZIP, era/history/archive and clone flows. Clone remaps declared reference paths using Writer logical IDs, preserving opaque text and stable local item IDs. References are queryable edges, not a new durable graph service. Backup import still installs no source code. No server, SQL, account, network, model or payment is needed. Automatic codec-derived index schemas, upstream undocumented `IndexWhere` operators and online collaboration are not claimed.
 
+### Reversible author commands
+
+Use `useLocalToolUndoCommand(client, context, state, spec)` from the SDK with the same `state` controller returned by `useLocalToolState(client)`. Give the command an ID, English and Spanish labels, a JSON object `inputSchema`, and a synchronous `plan(snapshot,input)` that returns ordinary Writer state actions. The host reads the snapshot for the mounted document, validates the input and executes the complete batch with the normal writer. One effective batch adds one receipt to the editor's Undo/Redo history. An empty or ineffective batch leaves the current branch intact. Keep side effects in the writer actions so the existing receipt can reverse them.
+
+The returned `{available,run}` lets the component offer its command in an editable Source view. A draft or another operation on the controller can block the command. A view that closes or changes binding retires its command scope. In the first version, ordinary editor and companion views expose commands; the fullscreen modal, contextual map, app, embed and Owned hosts do not.
+
+`wh_local_tool_command_list` returns the descriptors registered by the current renderer for a document's project, era and namespace when the engine and release still match that view. `wh_local_tool_command_run` additionally requires the descriptor's opaque `instanceId` and `commandId`, with optional `input`. The instance ID belongs to the current binding and differs from the pane's DOM ID. Use a fresh descriptor after visibility or binding changes. The command runs through the same dispatcher as the UI. Undo and Redo are available from the editor's controls and shortcuts.
+
 `useLocalToolState` also routes Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y to the focused document, owned block or legacy tool. Native text-field Undo remains native; the action stack belongs to the current source surface. It does not reverse arbitrary tool calls or effects elsewhere.
 
 Verification: `tests/local-tool-index.browser.tsx` / `testLocalToolIndex` covers the real scoped client, ordinary dispatcher/MCP handler, normal search, actual Initiative form/live filter, era isolation/hiding, ZIP restore, product clone, release selection and the shared author-kit evaluator. Native transport and Browser evidence are recorded separately.
