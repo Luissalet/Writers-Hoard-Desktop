@@ -6,6 +6,7 @@ import type {LocalToolConvergenceIdentity,LocalToolConvergenceCheckpoint,LocalTo
 export type LocalToolConvergenceSnapshot=LocalToolConvergenceIdentity&{conflict?:LocalToolValidationConflict};
 export interface LocalToolConvergenceImportOptions {expectedLineage?:string}
 export interface LocalToolAdoptionReceiptSuccessor {previous:string;successor:string}
+export interface LocalToolConvergenceStartOptions {migrate?:boolean}
 /** A verified view of an earlier additive stage, with no writable baseline. */
 export interface LocalToolSourceProjection {
  identity:LocalToolConvergenceIdentity;
@@ -33,7 +34,7 @@ export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
  richSplitCapture(field:string,nodeId:string,at:number,options?:{affinity:'left'|'right'}):Promise<{snapshot:LocalToolSnapshot<T>;capture:RichSplitCapture}>;
  richJoinCapture(field:string,leftNodeId:string,rightNodeId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:RichJoinCapture}>;
  textRange(field:string,from:number,to:number):Promise<{snapshot:LocalToolSnapshot<T>;range:LocalToolPlainRange}>;
- start(baseline:LocalToolSnapshot<T>):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint;changed:boolean}>;
+ start(baseline:LocalToolSnapshot<T>,options?:LocalToolConvergenceStartOptions):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint;changed:boolean}>;
  adopt(baseline:LocalToolSnapshot<T>,full?:LocalToolConvergenceUpdate):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint;changed:boolean;pending:boolean;receipts?:LocalToolAdoptionReceiptSuccessor[]}>;
  export(options?:{stateVectorBase64?:string}):Promise<{snapshot:LocalToolSnapshot<T>;checkpoint:LocalToolConvergenceCheckpoint|null;update:LocalToolConvergenceUpdate|null;pending:boolean}>;
  import(update:LocalToolConvergenceUpdate,options?:LocalToolConvergenceImportOptions):Promise<{snapshot:LocalToolSnapshot<T>;changed:boolean;causalChanged:boolean;pending:boolean;receipts?:LocalToolAdoptionReceiptSuccessor[]}>;
