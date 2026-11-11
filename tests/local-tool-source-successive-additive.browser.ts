@@ -18,7 +18,7 @@ import fixtureSource from './local-tool-source-successive-additive.browser.ts?ra
 
 type State = Record<string, LocalToolJson>;
 
-export async function testSourceSuccessiveAdditive(priorList = false): Promise<string[]> {
+export async function testSourceSuccessiveAdditive(priorList = false, writeAs = false): Promise<string[]> {
   const namespace = 'tests.source-additive-successive' + (priorList ? '-lists' : '');
   const projectId = 'qa-source-successive-' + crypto.randomUUID();
   const scope = { projectId };
@@ -309,6 +309,60 @@ export async function testSourceSuccessiveAdditive(priorList = false): Promise<s
           expect('Browser and memory projections enforce the active validator', results.map(result => result.status),
             ['rejected', 'rejected', 'rejected']);
         } finally { await db.projects.update(projectId, { sourceToolDocuments: originalRows }); }
+      }
+      if (writeAs) {
+        const previous = convergenceHash(metadata(middle));
+        const options = { asIdentity: previous };
+        const edits: LocalToolStateAction[] = [
+          { type: 'set', field: 'habitat', value: 'Swamp' },
+          { type: 'map-set', field: 'stats', key: 'armor', value: 10 },
+        ];
+        const active = await api.read();
+        const editedNeighbor = await api.state!.apply(active, [{ type: 'set', field: 'threat', value: 8 }]);
+        const latestRead = await api.read();
+        const rawBefore = await raw(document.id);
+        class EarlierActions extends Array<LocalToolStateAction> {
+          override some(): boolean { return false; }
+        }
+        const derivedArray = new EarlierActions(...edits, { type: 'set', field: 'threat', value: 9 });
+        const denied = await Promise.allSettled([
+          api.state!.apply(active, edits, options),
+          api.state!.apply(latestRead, [...edits, { type: 'set', field: 'threat', value: 9 }], options),
+          api.state!.apply(latestRead, edits, { asIdentity: '0'.repeat(64) }),
+          api.state!.apply(older as unknown as typeof active, edits, options),
+          api.state!.apply({ ...latestRead, data: { ...latestRead.data, threat: 9 } }, edits, options),
+          api.state!.apply(latestRead, derivedArray, options),
+        ]);
+        expect('Earlier stage rejects stale, out-of-stage, unknown or fabricated input ' + document.id,
+          denied.map(result => result.status), Array(6).fill('rejected'));
+        expect('Rejected earlier edits preserve the exact document ' + document.id, await raw(document.id), rawBefore);
+        const observed = structuredClone(latestRead), submitted = structuredClone(edits);
+        const writing = api.state!.apply(observed, submitted, options);
+        observed.revision = 0;
+        submitted.push({ type: 'set', field: 'threat', value: 9 });
+        const written = await writing;
+        const expectedActive = { ...latestRead.data, habitat: 'Swamp', stats: { ...(latestRead.data.stats as State), armor: 10 } };
+        expect('Earlier stage edits shared fields and retains newer fields ' + document.id,
+          [written.snapshot.data, written.snapshot.revision, written.snapshot.convergence?.genesisId, !!written.receiptId],
+          [expectedActive, latestRead.revision! + 1, latestRead.convergence?.genesisId, true]);
+        const afterWrite = await raw(document.id);
+        const repeated = await api.state!.apply(await api.read(), edits, options);
+        expect('An equal earlier edit has no revision or receipt ' + document.id,
+          [repeated.receiptId, await raw(document.id)], [null, afterWrite]);
+        expect('Earlier stage reads the new values it wrote ' + document.id,
+          (await api.convergence!.readAs(previous)).data,
+          { ...expectedOlder, habitat: 'Swamp', stats: expectedActive.stats });
+        expect('Undo for an earlier edit preserves the neighboring V3 write ' + document.id,
+          (await api.state!.undo(written.receiptId!)).snapshot.data, latestRead.data);
+        await api.state!.undo(editedNeighbor.receiptId!);
+        const memory = createFakeLocalToolHost(latest, { projects: [
+          { id: projectId, updatedAt: 1, sourceToolDocuments: [rawBefore!.document] },
+        ] }).createClient(scope, false, document.id);
+        const memoryBase = await memory.read();
+        const memoryWrite = await memory.state!.apply(memoryBase, edits, options);
+        expect('Memory host applies and undoes the same previous-stage edits ' + document.id,
+          [memoryWrite.snapshot.data, (await memory.state!.undo(memoryWrite.receiptId!)).snapshot.data],
+          [expectedActive, latestRead.data]);
       }
       await api.state!.undo(extra.receiptId!);
       expect('V3 Undo ' + document.id, (await api.state!.undo(change.receiptId!)).snapshot.data, expected[index]);

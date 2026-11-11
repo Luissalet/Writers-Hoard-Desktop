@@ -77,7 +77,7 @@ export type {LocalToolReferenceResolveOptions,LocalToolResolvedReference} from '
 import type {LocalToolStateActions} from './stateRuntime';
 export type {LocalToolStateCodec,LocalToolContracts,LocalToolDocumentReference} from './stateCodec';
 export type {LocalToolStateAction} from './stateActions';
-export type {LocalToolActionResult,LocalToolStateActions} from './stateRuntime';
+export type {LocalToolActionResult,LocalToolStateActions,LocalToolStateApplyOptions} from './stateRuntime';
 export type {LocalToolDefaults,LocalToolDefaultEntry,LocalToolDefaultSnapshot,LocalToolDefaultResult} from './defaults';
 export {useLocalToolDefaults} from './useLocalToolDefaults';
 import type {ComponentType} from 'react';

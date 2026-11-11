@@ -9,11 +9,12 @@ import {cloneLocalToolJson,type LocalToolJson} from './stateTypes';
 import {localToolStateEqual,mergeLocalToolActions,type LocalToolStateAction} from './stateActions';
 import type {LocalToolOwnedBlockEnvelope} from './blocks/types';
 export interface LocalToolActionResult<T extends LocalToolJson>{snapshot:LocalToolSnapshot<T>;receiptId:string|null}
-export interface LocalToolStateActions<T extends LocalToolJson>{apply(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[]):Promise<LocalToolActionResult<T>>;undo(receiptId:string):Promise<LocalToolActionResult<T>>;redo(receiptId:string):Promise<LocalToolActionResult<T>>}
+export interface LocalToolStateApplyOptions {asIdentity:string}
+export interface LocalToolStateActions<T extends LocalToolJson>{apply(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],options?:LocalToolStateApplyOptions):Promise<LocalToolActionResult<T>>;undo(receiptId:string):Promise<LocalToolActionResult<T>>;redo(receiptId:string):Promise<LocalToolActionResult<T>>}
 /** Host-only port. Package clients cannot supply envelopes to this receipt mechanism. */
 export interface LocalToolOwnedEvolutionPort<T extends LocalToolJson>{pending():boolean;capture():LocalToolOwnedBlockEnvelope;apply(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[]):Promise<{snapshot:LocalToolSnapshot<T>;changed:boolean}>;restore(expectedVersion:string,envelope:LocalToolOwnedBlockEnvelope):Promise<LocalToolSnapshot<T>>}
 /** Host-only preparation port. A returned recipe is not usable until outer commit. */
-export interface LocalToolConvergenceActionPort<T extends LocalToolJson>{apply(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[]):Promise<{snapshot:LocalToolSnapshot<T>;receipt?:LocalToolConvergenceReceipt|null}>;reverse(receipt:LocalToolConvergenceReceipt):Promise<{snapshot:LocalToolSnapshot<T>;receipt?:LocalToolConvergenceReceipt|null}>}
+export interface LocalToolConvergenceActionPort<T extends LocalToolJson>{apply(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],asIdentity?:string):Promise<{snapshot:LocalToolSnapshot<T>;receipt?:LocalToolConvergenceReceipt|null}>;reverse(receipt:LocalToolConvergenceReceipt):Promise<{snapshot:LocalToolSnapshot<T>;receipt?:LocalToolConvergenceReceipt|null}>}
 export interface LocalToolActionTransaction<T extends LocalToolJson>{/** Stable outer transaction identity, shared by all prepared calls. */receiptTransaction?:object;convergence?:LocalToolConvergenceActionPort<T>;client:LocalToolClient<T>;identity?:string;ownedEvolution?:LocalToolOwnedEvolutionPort<T>;onCommit(callback:()=>void):void;onAbort(callback:()=>void):void}
 interface ReceiptBase {identity:string;mode:'undo'|'redo';claimed:boolean;owner?:object;successorIdentity?:LocalToolConvergenceIdentity}
 type Receipt=(ReceiptBase&{kind:'convergence';recipe:LocalToolConvergenceReceipt})|(ReceiptBase&{kind:'actions';baseline:LocalToolSnapshot<LocalToolJson>;actions:LocalToolStateAction[]})|(ReceiptBase&{kind:'owned-evolution';before:LocalToolOwnedBlockEnvelope;after:LocalToolOwnedBlockEnvelope});
@@ -68,13 +69,18 @@ export function createLocalToolStateActions<T extends LocalToolJson>(codec:Local
   const receiptId='local-state-'+(++nextReceipt)+'-'+Math.random().toString(36).slice(2),record:Receipt={kind:'owned-evolution',identity:receiptIdentity(transaction,current),mode,before:structuredClone(before),after:structuredClone(after),claimed:false};
   transaction.onCommit(()=>receipts.set(receiptId,record));return receiptId;
  };
- const applyIn=async(transaction:LocalToolActionTransaction<T>,baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],mode:'undo'|'redo'):Promise<LocalToolActionResult<T>>=>{
+ const applyIn=async(transaction:LocalToolActionTransaction<T>,baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],mode:'undo'|'redo',asIdentity?:string):Promise<LocalToolActionResult<T>>=>{
   if(!baseline||baseline.revision!==null&&(!Number.isSafeInteger(baseline.revision)||baseline.revision<0))throw Error('local_tool_actions_baseline_invalid');
   const current=await transaction.client.read();
   if(current.block&&(!baseline.block||baseline.block.id!==current.block.id||baseline.block.lineage!==current.block.lineage))throw Error('local_tool_block_lineage_conflict');
   if(current.document&&(!baseline.document||baseline.document.id!==current.document.id||baseline.document.lineage!==current.document.lineage))throw Error('source_tool_document_lineage_conflict');
   if((current.convergence?.genesisId??null)!==(baseline.convergence?.genesisId??null))throw Error('source_tool_document_lineage_conflict');
   if(baseline.revision!==null&&(current.revision===null||baseline.revision>current.revision))throw Error('local_tool_actions_baseline_invalid');
+  if(asIdentity!==undefined){
+   if(!current.document||!current.convergence||!transaction.convergence)throw Error('local_tool_source_stage_write_unavailable');
+   if(baseline.revision!==current.revision||baseline.document?.version!==current.document.version||
+      !localToolStateEqual(baseline.data,current.data)||!localToolStateEqual(baseline.convergence,current.convergence))throw Error('conflict');
+  }
   const owned=transaction.ownedEvolution;
   if(owned?.pending()){
    const before=owned.capture(),result=await owned.apply(baseline,actions);
@@ -88,7 +94,7 @@ export function createLocalToolStateActions<T extends LocalToolJson>(codec:Local
   const merged=hasPlainIntent?undefined:mergeLocalToolActions(codec,baseline.data,current.data,actions);
   if(current.convergence||current.document&&sourceDefaultHash(codec)){
    if(!transaction.convergence)throw Error('local_tool_convergence_host_unavailable');
-   const result=await transaction.convergence.apply(baseline,actions);
+   const result=await transaction.convergence.apply(baseline,actions,asIdentity);
    return{snapshot:result.snapshot,receiptId:recordConvergence(transaction,result.snapshot,result.receipt,mode,true)};
   }
   if(!merged!.inverse.length)return{snapshot:current,receiptId:null};
@@ -121,5 +127,12 @@ export function createLocalToolStateActions<T extends LocalToolJson>(codec:Local
   const result=await applyIn(transaction,receipt.baseline as LocalToolSnapshot<T>,receipt.actions,mode==='undo'?'redo':'undo');transaction.onCommit(()=>receipts.delete(receiptId));return result;
   }catch(error){receipt.claimed=false;throw error;}
  });
- const port=Object.freeze({apply:(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[])=>atomic(transaction=>applyIn(transaction,baseline,actions,'undo')),undo:(receiptId:string)=>reverse('undo',receiptId),redo:(receiptId:string)=>reverse('redo',receiptId)});liveReceiptOwners.set(port,{key:ownerKey,owned:ownedReceipts});return port;
+ const apply=async(baseline:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],options?:LocalToolStateApplyOptions)=>{
+  const asIdentity=options?.asIdentity;
+  if(asIdentity===undefined)return atomic(transaction=>applyIn(transaction,baseline,actions,'undo'));
+  // The guard and writer must see the same input, including across validator callbacks.
+  const observed=structuredClone(baseline),submitted=structuredClone(actions);
+  return atomic(transaction=>applyIn(transaction,observed,submitted,'undo',asIdentity));
+ };
+ const port=Object.freeze({apply,undo:(receiptId:string)=>reverse('undo',receiptId),redo:(receiptId:string)=>reverse('redo',receiptId)});liveReceiptOwners.set(port,{key:ownerKey,owned:ownedReceipts});return port;
 }
