@@ -9,7 +9,7 @@ import { addTable, changeTable, deleteTable, saveAuditedTableCell, importCsv, pr
 import { exportXlsxReport, importXlsx, sheetsToTables } from './xlsx';
 import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
-import { sheetValues } from './formulas';
+import { sheetColumnTotals, sheetValues } from './formulas';
 import { cellKey, tableCsv, validateCell, type ColumnKind, type WorldTable } from './types';
 import { changeTableColumnKind, CONDITION_OPS, duplicateColumn, duplicateRow, duplicateRows, filterRows, insertColumn, isLiveTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, type TableCondition, type TableSort } from './tableEdits';
 const scope = async (args: ToolArgs) => ({ projectId: await resolveProjectForEngine(args, 'tables'), eraId: optString(args, 'eraId') });
@@ -38,7 +38,15 @@ export const TABLE_HANDLERS = {
   async wh_table_save_calculation(args:ToolArgs){const target=await scope(args);return saveTableCalculation(target,{tableId:requireString(args,'tableId'),columnId:optString(args,'columnId'),name:requireString(args,'name'),formula:requireString(args,'formula'),resultType:requireString(args,'resultType') as SaveTableCalculation['resultType'],expectedVersion:requireString(args,'expectedVersion'),expectedTemplateRevision:typeof args.expectedTemplateRevision==='number'?args.expectedTemplateRevision:undefined});},
   async wh_table_remove_column(args:ToolArgs){await removeTableColumn(await scope(args),requireString(args,'tableId'),requireString(args,'columnId'),requireString(args,'expectedVersion'));return{removed:true};},
   async wh_tables_list(args: ToolArgs) { const target = await scope(args), project = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId); return { tables: (project?.dataTables ?? []).map(table => ({ id: table.id, title: table.title, mode: table.mode, codexType: table.codexType,codexTemplateId:table.codexTemplateId, columns: table.columns.length, rows: table.codexType ? null : table.rows.length })) }; },
-  async wh_table_get(args: ToolArgs) { const { table, rows,displayRows,calculatedColumnIds, version } = await read(args); const effective = { ...table, rows }; delete effective.liveRowOrder; return { table: effective,displayRows,calculatedColumnIds, version, ...(table.mode === 'sheet' ? { computed: Object.fromEntries(sheetValues(table)) } : {}) }; },
+  async wh_table_get(args: ToolArgs) {
+    const { table, rows, displayRows, calculatedColumnIds, version } = await read(args);
+    const effective = { ...table, rows };
+    delete effective.liveRowOrder;
+    const result = { table: effective, displayRows, calculatedColumnIds, version };
+    if (table.mode !== 'sheet') return result;
+    const computed = sheetValues(table);
+    return { ...result, computed: Object.fromEntries(computed), columnTotals: Object.fromEntries(sheetColumnTotals(table, computed)) };
+  },
   async wh_table_create(args: ToolArgs) {
     const target = await scope(args), columns = args.columns, rows = args.rows ?? [];
     if (!Array.isArray(columns) || !columns.length || !Array.isArray(rows) || args.mode !== undefined && args.mode !== 'table' && args.mode !== 'sheet') throw Error('table_shape_invalid');

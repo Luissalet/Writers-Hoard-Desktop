@@ -255,3 +255,16 @@ export function sheetValues(table: WorldTable): Map<string, CellValue> {
   for (const key of raw.keys()) { try { read(key); } catch (reason) { cache.set(key, reason instanceof Error ? reason.message : '#ERROR!'); } }
   return cache;
 }
+
+export function sheetColumnTotals(table: WorldTable, values: ReadonlyMap<string, CellValue>): Map<string, CellValue> {
+  const totals = new Map<string, CellValue>();
+  table.columns.forEach((column, columnIndex) => {
+    if (column.kind !== 'number') return;
+    const sum = table.rows.reduce((total, _, rowIndex) => {
+      const value = values.get(cellKey(columnIndex, rowIndex));
+      return typeof value === 'number' ? total + value : total;
+    }, 0);
+    totals.set(column.id, Number.isFinite(sum) ? sum : '#NUM!');
+  });
+  return totals;
+}
