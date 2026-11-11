@@ -28,6 +28,7 @@ type Value = FormulaValue;
 export type FormulaNode = { value: Value } | { ref: string } | { column: string } | { op: string; args: FormulaNode[] };
 type Node = FormulaNode;
 const fail = (code: string): never => { throw new Error(code); };
+const recoverableFormulaErrors = new Set(['#VALUE!', '#DIV/0!', '#NAME?', '#REF!', '#NUM!', '#N/A', '#N/A!', '#FORMULA!', '#CALC!']);
 const number = (value: Value): number => typeof value === 'boolean' || typeof value === 'string' && !value.trim() || !Number.isFinite(Number(value)) ? fail('#VALUE!') : Number(value);
 
 /** Parse into inert nodes so IF/IFS evaluate only their selected branch. */
@@ -68,10 +69,21 @@ export function evaluatePropertyFormula(node: Node, read: (id: string) => Value,
   if ('column' in node) return fail('#VALUE!');
   const { op, args } = node;
   if(aggregateMemo&&['SUM','AVERAGE','AVG','COUNT','MIN','MAX'].includes(op)&&!propertyFormulaDependencies(node).rows.size){if(aggregateMemo.has(node))return aggregateMemo.get(node)!;const value=evaluatePropertyFormula(node,read,readColumn);aggregateMemo.set(node,value);return value;}
-  if (!['IF', 'IFS', '&', 'CONCATENATE', 'CONCAT', 'UPPER', 'LOWER', 'TRIM', 'LEN', 'NOT', 'AND', 'OR', '=', '<>', '!=', '<', '>', '<=', '>=', '+', '-', '*', '/', '^', 'NEGATE', 'POSITIVE', 'ABS', 'ROUND', 'CEILING', 'FLOOR', 'MIN', 'MAX', 'SUM', 'AVERAGE', 'AVG', 'COUNT'].includes(op)) return fail('#NAME?');
+  if (!['IF', 'IFS', 'IFERROR', '&', 'CONCATENATE', 'CONCAT', 'UPPER', 'LOWER', 'TRIM', 'LEN', 'NOT', 'AND', 'OR', '=', '<>', '!=', '<', '>', '<=', '>=', '+', '-', '*', '/', '^', 'NEGATE', 'POSITIVE', 'ABS', 'ROUND', 'CEILING', 'FLOOR', 'MIN', 'MAX', 'SUM', 'AVERAGE', 'AVG', 'COUNT'].includes(op)) return fail('#NAME?');
   const get = (index: number) => args[index] ? evaluatePropertyFormula(args[index], read,readColumn,aggregateMemo) : fail('#VALUE!');
   if (op === 'IF') { if (args.length < 2 || args.length > 3) fail('#VALUE!'); return get(0) ? get(1) : args[2] ? get(2) : false; }
   if (op === 'IFS') { if (args.length % 2) fail('#VALUE!'); for (let i = 0; i < args.length; i += 2) if (get(i)) return get(i + 1); return fail('#N/A!'); }
+  if (op === 'IFERROR') {
+    if (!args.length || args.length > 2) fail('#VALUE!');
+    const finite = (value: Value): Value =>
+      typeof value === 'number' && !Number.isFinite(value) ? fail('#NUM!') : value;
+    try {
+      return finite(get(0));
+    } catch (reason) {
+      if (args.length === 2 && reason instanceof Error && recoverableFormulaErrors.has(reason.message)) return finite(get(1));
+      throw reason;
+    }
+  }
   const aggregate=['SUM','AVERAGE','AVG','COUNT','MIN','MAX'].includes(op);
   const values = args.flatMap(arg => 'column' in arg ? aggregate && readColumn?readColumn(arg.column):fail('#VALUE!') : [evaluatePropertyFormula(arg, read,readColumn,aggregateMemo)]);
   const nums = () => values.map(number);
