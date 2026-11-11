@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { projectTableGroups } from '../src/engines/tables/viewGroups.ts';
+import { effectiveTableGrouping, projectTableGroups } from '../src/engines/tables/viewGroups.ts';
 import { findMatches } from '../src/engines/tables/tableEdits.ts';
 
 const group = (columnId, direction = 'asc') => ({ columnId, direction });
@@ -54,6 +54,34 @@ test('blank, zero, decimals, false and Unicode identities remain distinct', () =
   assert.deepEqual(ungrouped.orderedRows, rows);
 });
 
+test('four saved levels keep a numeric leaf order and fold only the selected branch', () => {
+  const columns = ['region', 'people', 'hold', 'souls'].map(id => ({ id }));
+  const stored = [
+    group('region'), group('people'), group('retired'), group('hold'),
+    group('people', 'desc'), group('souls', 'desc'),
+  ];
+  const rules = effectiveTableGrouping(stored, columns);
+  assert.deepEqual(rules, [group('region'), group('people'), group('hold'), group('souls', 'desc')]);
+  const rows = [
+    { id: 'low', region: 'North', people: 'Clans', hold: 'Grey Ω', souls: '900' },
+    { id: 'other', region: 'North', people: 'Clans', hold: 'Stone Δ', souls: '10' },
+    { id: 'high', region: 'North', people: 'Clans', hold: 'Grey Ω', souls: '1200' },
+    { id: 'south', region: 'South', people: 'Clans', hold: 'Grey Ω', souls: '300' },
+  ];
+  const readGroup = (row, id) => ({
+    identity: row[id], label: row[id], number: id === 'souls' ? Number(row[id]) : undefined,
+  });
+  const open = projectTableGroups(rows, rules, readGroup, new Set(), 'en');
+  assert.deepEqual(ids(open.orderedRows), ['high', 'low', 'other', 'south']);
+  const path = open.pathsByRow.get('high');
+  assert.equal(path.length, 4);
+  assert.notEqual(path[2], open.pathsByRow.get('south')[2]);
+  const closed = projectTableGroups(rows, rules, readGroup, new Set([path[2]]), 'en');
+  assert.deepEqual(ids(closed.expandedRows), ['other', 'south']);
+  assert.deepEqual(closed.pathsByRow.get('high'), path);
+  assert.deepEqual(headers(closed).filter(header => header.hidden).map(header => header.depth), [3, 3]);
+});
+
 test('search matches linked titles and returns each matching cell once', () => {
   const rows = [{ id: 'r:1' }, { id: 'r:2' }];
   const columns = [{ id: 'reference', name: 'Reference', kind: 'reference' }];
@@ -64,4 +92,15 @@ test('search matches linked titles and returns each matching cell once', () => {
   assert.deepEqual(findMatches(rows.slice(0, 1), columns, 'codex-id', () => 'codex-id'), [
     { rowId: 'r:1', columnId: 'reference' },
   ]);
+});
+
+test('a deep grouping imported with a wide table does not use the JavaScript call stack', () => {
+  const columns = Array.from({ length: 6000 }, (_, index) => ({ id: String(index) }));
+  const rules = effectiveTableGrouping(columns.map(({ id }) => group(id)), columns);
+  const rows = [{ id: 'only row' }];
+  const read = () => ({ identity: 'a', label: 'a' });
+  const open = projectTableGroups(rows, rules, read, new Set(), 'en');
+  assert.equal(open.items.length, 6001);
+  assert.equal(open.pathsByRow.get('only row').length, 6000);
+  assert.equal(open.expandedRows[0], rows[0]);
 });

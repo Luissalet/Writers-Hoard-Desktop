@@ -62,10 +62,11 @@ export function remapTableView(view: Partial<TableViewSettings>, column: (id: st
 export function effectiveTableGrouping(rules: unknown, columns: readonly DataColumn[]): TableGroupRule[] {
   const result: TableGroupRule[] = [];
   if (!Array.isArray(rules)) return result;
+  const remainingColumns = new Set(columns.map(column => column.id));
   for (const rule of rules) {
-    if (result.length === 2) break;
+    if (!remainingColumns.size) break;
     if (!rule || typeof rule.columnId !== 'string' || (rule.direction !== 'asc' && rule.direction !== 'desc')) continue;
-    if (columns.some(column => column.id === rule.columnId) && !result.some(other => other.columnId === rule.columnId)) {
+    if (remainingColumns.delete(rule.columnId)) {
       result.push({ columnId: rule.columnId, direction: rule.direction });
     }
   }
@@ -75,6 +76,7 @@ export function effectiveTableGrouping(rules: unknown, columns: readonly DataCol
 type GroupValue = { identity: string; label: string; number?: number };
 type GroupHeader = { kind: 'group'; key: string; label: string; depth: number; count: number; expanded: boolean; hidden: boolean };
 type RowItem<T> = { kind: 'row'; row: T; hidden: boolean };
+type GroupPath = { key: string; parent?: GroupPath };
 
 /**
  * Groups the already filtered and sorted rows. Grouping changes their display
@@ -92,16 +94,24 @@ export function projectTableGroups<T extends { id: string }>(
   const items: (GroupHeader | RowItem<T>)[] = [];
   const pathsByRow = new Map<string, readonly string[]>();
   const compare = rules.length ? new Intl.Collator(locale, { numeric: true }) : undefined;
-  const visit = (branch: readonly T[], depth: number, prefix: readonly [string, string][], ancestors: readonly string[], visible: boolean) => {
+  const stack: { branch: readonly T[]; depth: number; path?: GroupPath; visible: boolean; header?: GroupHeader }[] = [
+    { branch: rows, depth: 0, visible: true },
+  ];
+  while (stack.length) {
+    const { branch, depth, path, visible, header } = stack.pop()!;
+    if (header) items.push(header);
     const rule = rules[depth];
     if (!rule) {
+      const ancestors: string[] = [];
+      for (let ancestor = path; ancestor; ancestor = ancestor.parent) ancestors.push(ancestor.key);
+      ancestors.reverse();
       for (const row of branch) {
         orderedRows.push(row);
         pathsByRow.set(row.id, ancestors);
         items.push({ kind: 'row', row, hidden: !visible });
         if (visible) expandedRows.push(row);
       }
-      return;
+      continue;
     }
     const groups = new Map<string, { value: GroupValue; rows: T[] }>();
     for (const row of branch) {
@@ -111,19 +121,24 @@ export function projectTableGroups<T extends { id: string }>(
       else groups.set(value.identity, { value, rows: [row] });
     }
     const sign = rule.direction === 'desc' ? -1 : 1;
-    for (const group of [...groups.values()].sort((a, b) => {
+    const orderedGroups = [...groups.values()].sort((a, b) => {
       const left = a.value, right = b.value;
       const type = (value: GroupValue) => !value.identity ? 0 : value.number !== undefined ? 1 : 2;
       const order = type(left) - type(right) ||
         (left.number !== undefined && right.number !== undefined ? left.number - right.number : compare!.compare(left.label, right.label));
       return sign * (order || (left.identity < right.identity ? -1 : left.identity > right.identity ? 1 : 0));
-    })) {
-      const path: readonly [string, string][] = [...prefix, [rule.columnId, group.value.identity]];
-      const key = JSON.stringify(path), expanded = !collapsed.has(key);
-      items.push({ kind: 'group', key, label: group.value.label, depth, count: group.rows.length, expanded, hidden: !visible });
-      visit(group.rows, depth + 1, path, [...ancestors, key], visible && expanded);
+    });
+    // Push siblings in reverse order so their rows follow their headers.
+    for (let index = orderedGroups.length - 1; index >= 0; index--) {
+      const group = orderedGroups[index];
+      // Each encoded pair is self-delimiting, including names containing brackets or quotes.
+      const key = (path?.key ?? '') + JSON.stringify([rule.columnId, group.value.identity]);
+      const expanded = !collapsed.has(key);
+      stack.push({
+        branch: group.rows, depth: depth + 1, path: { key, parent: path }, visible: visible && expanded,
+        header: { kind: 'group', key, label: group.value.label, depth, count: group.rows.length, expanded, hidden: !visible },
+      });
     }
-  };
-  visit(rows, 0, [], [], true);
+  }
   return { orderedRows, expandedRows, items, pathsByRow };
 }
