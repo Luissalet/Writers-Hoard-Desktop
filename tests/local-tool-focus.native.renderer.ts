@@ -54,3 +54,91 @@ export async function testLocalToolFocusNative(){
   return['actual MainLayout Source UI retained drafts/nodes during two-key stdio/HTTP/executor/IPC focus get/set; unmounted hosts unavailable'];
  }finally{clearTimeout(completionTimer!);off();if(!closed)await fixture.cleanup();}
 }
+
+/** Opt-in scenario with the normal LinkedNotebook and ProjectWorkspace. */
+export async function testLocalToolSourceBlockNative(){
+ check(await db.projects.count()===0,'Private Source block profile must start empty');
+ const pendingCounts=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
+ const pendingBefore=pendingCounts();
+ const {withSourceBlockFocusFixture}=await import('./local-tool-beside.browser');
+ let completionTimer:ReturnType<typeof setTimeout>;
+ const finished=new Promise<{ok:boolean;error?:string}>(resolve=>{
+  completionTimer=setTimeout(()=>resolve({ok:false,error:'Source block Native driver did not finish'}),180000);
+  Reflect.set(window,'__focusNativeFinish',resolve);
+ });
+ try{
+  await withSourceBlockFocusFixture(async fixture=>{
+   const scope={projectId:fixture.projectId};
+   const primary=()=>document.querySelector('[data-testid="workspace-primary"]');
+   const panel=()=>document.querySelector('[data-testid^="workspace-panel-"]:not([hidden])');
+   const host=(root:ParentNode|null)=>Array.from(root?.querySelectorAll<HTMLElement>('[data-source-document-host]')??[]).find(node=>node.dataset.sourceDocumentHost===fixture.documentId);
+   const primaryRoute=()=>document.querySelector('[data-testid="beside-main-location"]')?.textContent;
+   const primaryHost=host(primary()),routeBefore=primaryRoute();
+   check(primaryHost&&routeBefore,'Actual primary Source host/route missing');
+   const snapshot=async()=>{
+    const project=await db.projects.get(fixture.projectId);
+    const source=await readSourceToolDocument(scope,fixture.documentId,fixture.namespace);
+    check(project&&source,'Own Source document vanished');
+    const variants=await db.worldEraVariants.where('projectId').equals(fixture.projectId).toArray();
+    return {project,source,variants,pending:getPendingWritesSnapshot(),location:location.href};
+   };
+   const initial=await snapshot(),data=initial.source.document.data as {notes?:string;items?:{text:string}[]};
+   const marker=data.items?.[0]?.text;
+   check(data.notes&&marker&&marker!==data.notes,'Fixture needs distinct persisted Notes and Items markers');
+   const noteIn=(root:ParentNode|null)=>host(root)?.querySelector<HTMLTextAreaElement>('textarea');
+   const control=(labels:string[])=>Array.from(host(panel())?.querySelectorAll<HTMLButtonElement>('button')??[]).find(node=>labels.includes(node.textContent?.trim()??''));
+   const samePrimary=()=>{
+    check(host(primary())===primaryHost&&primaryRoute()===routeBefore,'Block opening replaced the primary host or route');
+   };
+   Reflect.set(window,'__focusNativeBlockSnapshot',snapshot);
+   Reflect.set(window,'__focusNativeBlockObserve',async(block:'notes'|'items')=>{
+    await until(()=>{
+     const {main,companion}=fixture.observe();
+     if(!main?.notes||!main.items||!companion||!host(panel()))return false;
+     return block==='notes'
+      ? companion.notes&&!companion.items&&companion.noteValue===data.notes&&noteIn(panel())?.disabled===false
+      : companion.items&&!companion.notes&&companion.text.includes(marker);
+    },'Selected block did not render in the actual companion');
+    samePrimary();
+    const view=fixture.observe();
+    check(view.main?.text.includes(marker)&&noteIn(primary())?.value===data.notes,'Primary did not keep both persisted fields');
+    check(view.companion?.paneId,'Missing actual companion ID');
+    return {main:view.main,companion:view.companion,primaryRoute:routeBefore,documentId:host(panel())?.dataset.sourceDocumentHost};
+   });
+   Reflect.set(window,'__focusNativeBlockEdit',async(notes:string)=>{
+    const input=noteIn(panel());
+    check(input&&!input.disabled,'Active Notes block not editable');
+    await act(async()=>{
+     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(input,notes);
+     input.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    const save=control(['Save notes','Guardar notas']);
+    check(save&&!save.disabled,'Normal Save notes control unavailable');
+    await act(async()=>{save.click();});
+    await until(()=>noteIn(primary())?.value===notes&&control(['Undo','Deshacer'])?.disabled===false,'Saved edit not observed by the full document and focused Undo');
+    samePrimary();
+    return snapshot();
+   });
+   Reflect.set(window,'__focusNativeBlockUndo',async(notes:string)=>{
+    const undo=control(['Undo','Deshacer']);
+    check(undo&&!undo.disabled,'Focused Undo unavailable');
+    await act(async()=>{undo.click();});
+    await until(()=>noteIn(primary())?.value===notes&&noteIn(panel())?.value===notes&&control(['Redo','Rehacer'])?.disabled===false,'Undo did not restore both views');
+    samePrimary();
+    return snapshot();
+   });
+   Reflect.set(window,'__focusNativeBlockUnmount',async()=>{
+    await fixture.unmountWorkspace();
+    const view=fixture.observe();
+    check(view.main===null&&view.companion===null&&!primary(),'Workspace port must be unmounted before the no-shell call');
+   });
+   Reflect.set(window,'__focusNativeReady',{...scope,documentId:fixture.documentId,namespace:fixture.namespace,sourceHostMounted:true});
+   const completion=await finished;
+   check(completion.ok,completion.error??'Source block Native driver failed');
+  });
+  const cleanup={projects:await db.projects.count(),sourceHosts:document.querySelectorAll('[data-source-document-host]').length,pendingExact:JSON.stringify(pendingCounts())===JSON.stringify(pendingBefore)};
+  check(cleanup.projects===0&&cleanup.sourceHosts===0&&cleanup.pendingExact,'Source block fixture cleanup failed');
+  Reflect.set(window,'__focusNativeBlockCleanupReceipt',cleanup);
+  return ['actual ProjectWorkspace Source block opened with two keys, same document saved and undone, unavailable without workspace'];
+ }finally{clearTimeout(completionTimer!);}
+}

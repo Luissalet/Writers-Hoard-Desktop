@@ -6,7 +6,9 @@ import {createFakeLocalToolHost} from '@/engines/local/testing';
 import fixture from './tests/fixtures/local-tools/author-kit';
 import {authorFixtures,AUTHOR_PROJECT as P} from './tests/fixtures/local-tools/author-data';
 export async function run(){
- const calls:unknown[][]=[],host=createFakeLocalToolHost(fixture,authorFixtures(),{navigate:async(...args)=>{calls.push(args);}}),scope={projectId:P},client=host.createClient(scope,true),before=host.inspect();
+ const data=authorFixtures();
+ data.documents!.push({projectId:P,kind:'local-tool',id:'source-a',document:{root:{id:'source-a'},children:{}}});
+ const calls:unknown[][]=[],host=createFakeLocalToolHost(fixture,data,{navigate:async(...args)=>{calls.push(args);}}),scope={projectId:P},client=host.createClient(scope,true),before=host.inspect();
  const old={kind:'navigate',scope,documentKind:'codex',documentId:'author-card'};
  await client.openDocument('codex','author-card');
  await client.openDocument('codex','author-card',{});
@@ -24,7 +26,12 @@ export async function run(){
  assert.deepEqual(calls.at(-1),['codex','author-card',era,{placement:'beside'}]);
  assert.deepEqual(host.inspect(),before);
  console.log('PASS explicit beside records scoped placement in readonly Base and effective era without changing business snapshots');
+ await client.openDocument('local-tool','source-a',{blockId:'notes & Ω'});
+ assert.deepEqual(host.commands.at(-1),{kind:'navigate',scope,documentKind:'local-tool',documentId:'source-a',placement:'beside',blockId:'notes & Ω'});
+ assert.deepEqual(calls.at(-1),['local-tool','source-a',scope,{placement:'beside',blockId:'notes & Ω'}]);
  const count=host.commands.length,callbackCount=calls.length;
+ await assert.rejects(()=>client.openDocument('codex','author-card',{blockId:'notes'}),/local_tool_block_focus_document_kind_invalid/);
+ await assert.rejects(()=>client.openDocument('local-tool','source-a',{blockId:' '}),/local_tool_block_id_invalid/);
  await assert.rejects(()=>client.openDocument('codex','missing',{placement:'beside'}),/world_document_missing/);
  await assert.rejects(()=>client.openDocument('codex','foreign-card',{placement:'beside'}),/world_document_missing/);
  assert.equal(host.commands.length,count);assert.equal(calls.length,callbackCount);

@@ -24,7 +24,8 @@ import {db} from '@/db';
 import {assertEngineEnabled,BridgeError,optString,requireString,resolveProjectId,type ToolArgs} from '@/services/aiBridge/tools/shared';
 import {getLocalToolDefinition,getLocalToolReleases,listLocalToolDefinitions,localToolEngineId} from './definitions';
 import {pinLocalToolRelease,resolveProjectLocalTool} from './releases';
-import {createLocalToolClient} from './storage';
+import {createLocalToolClient,sourceToolBlockDestination} from './storage';
+import {getPrimaryEnginePaneOpenBeside} from '@/engines/_shared/EnginePaneContext';
 import {runLocalToolOperation,LocalToolOperationError} from './execution';
 import {cloneLocalToolJson,type LocalToolJson} from './stateTypes';
 async function sourceFor(args:ToolArgs,inspect=false){const namespace=requireString(args,'namespace'),explicit=inspect?optString(args,'contentHash'):undefined,projectId=inspect?optString(args,'projectId'):resolveProjectId(args);if(explicit){const source=getLocalToolDefinition(namespace,explicit);if(!source)throw new BridgeError('not-found','This exact release is not compiled into this app.');return{source,releaseHash:explicit};}if(projectId){const project=await db.projects.get(projectId);if(!project)throw new BridgeError('not-found','Project not found.');try{return{source:resolveProjectLocalTool(namespace,project),releaseHash:project.localToolInstallations?.[namespace]?.contentHash??null};}catch(error){throw new BridgeError('not-found',error instanceof Error?error.message:String(error));}}const source=getLocalToolDefinition(namespace);if(!source)throw new BridgeError('not-found','Choose a project pin or inspect an exact compiled contentHash.');return{source,releaseHash:null};}
@@ -46,6 +47,16 @@ export const LOCAL_TOOL_HANDLERS={
  ...LOCAL_ASSET_HANDLERS,
  ...LOCAL_TOOL_BLOCK_HANDLERS,
  async wh_local_tool_presence_query(args:ToolArgs){return queryLocalToolPresence({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'namespace'),requireString(args,'documentId'));},
+ async wh_local_tool_document_open(args:ToolArgs){
+  const projectId=requireString(args,'projectId'),documentId=requireString(args,'documentId'),blockId=requireString(args,'blockId'),eraId=optString(args,'eraId');
+  const open=getPrimaryEnginePaneOpenBeside(projectId);
+  if(!open)return {available:false,applied:false};
+  const target=await sourceToolBlockDestination({projectId,eraId},documentId,blockId);
+  if(getPrimaryEnginePaneOpenBeside(projectId)!==open)return {available:false,applied:false};
+  if(!target)throw new BridgeError('not-found','The source document is unavailable in this scope.');
+  const applied=await open(target.path);
+  return {available:applied||getPrimaryEnginePaneOpenBeside(projectId)===open,applied};
+ },
  async wh_local_tool_open_document_query(args:ToolArgs){const source=optString(args,'source')??'saved';if(!['saved','published'].includes(source)||source==='saved'&&Object.hasOwn(args,'instanceId'))throw Error('local_tool_open_document_query_invalid');const query=Object.fromEntries(['namespace','fields',...(source==='published'?['instanceId']:[])].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));const port=createBrowserLocalToolOpenDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')});return{documents:await(source==='published'?port.queryPublished!(query as unknown as LocalToolOpenDocumentQuery):port.query(query as unknown as LocalToolOpenDocumentQuery))};},
  async wh_local_tool_document_query(args:ToolArgs){const query=Object.fromEntries(['namespace','where','reference','offset','limit'].filter(key=>Object.hasOwn(args,key)).map(key=>[key,args[key]]));return{documents:await queryLocalToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},query)};},
  async wh_local_tool_document_list(args:ToolArgs){return{documents:await listSourceToolDocuments({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'namespace'))};},

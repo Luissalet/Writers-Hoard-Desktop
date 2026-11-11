@@ -29,6 +29,9 @@ import type { WorkspaceDocument } from './library/types';
 import { closeTabs, duplicateTab, idsToCloseOthers, idsToCloseRight, loadTabsState, newTabId, renameTab, reopenClosed, routeOf, saveTabsState, tabJumpIndex, TAB_LIMIT, togglePin, type PaneTab, type TabsState } from './workspaceTabs';
 
 const button = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
+const isBlockRoute = (route: WorkspaceRoute) => /^\/project\/[^/]+\/local-tool-[^/]+\/?$/.test(route.pathname) && new URLSearchParams(route.search).has('block');
+const changesBlockView = (before: WorkspaceRoute, after: WorkspaceRoute) =>
+  workspaceRouteKey(before) !== workspaceRouteKey(after) && (isBlockRoute(before) || isBlockRoute(after));
 const ArchiveEngine = lazy(() => import('@/engines/archive/ArchiveEngine'));
 const WorkspaceLibrary = lazy(() => import('./library/WorkspaceLibrary'));
 
@@ -46,50 +49,90 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   const [closing, setClosing] = useState<{ ids: string[]; docs: WorkspaceDocument[]; remove: WorkspaceDocument[] } | null>(null);
   const lastUndo = useLastUndoable(projectId);
   const [choice, setChoice] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [ratio, setRatio] = useState(50);
+  const navigationPending=useRef(false);
   const [archiveEraId, setArchiveEraId] = useState<string>(), [libraryEraId, setLibraryEraId] = useState<string>();
   const focusedEra = () => { const focused = getActiveEnginePaneScope(); return focused?.projectId === projectId ? focused.eraId : eraId; };
   const [archiveOpen, setArchiveOpen] = useState(false), [libraryOpen, setLibraryOpen] = useState(false), [libraryBusy, setLibraryBusy] = useState(false);
   const [primaryOverlay, setPrimaryOverlay] = useState<HTMLDivElement | null>(null);
   const [primaryMeasure, primaryWidth] = usePaneWidth();
   const primaryId = `primary:${projectId}`;
-  const requestBeside=useRef<(to:string)=>void>(()=>{});
-  const openBeside=useCallback((to:string)=>requestBeside.current(to),[]);
+  const requestBeside=useRef<(to:string,isCurrent?:()=>boolean)=>Promise<boolean>>(async()=>false);
+  const workspaceSession=useRef<object|undefined>(undefined);
+  useLayoutEffect(()=>{
+    const session={projectId};
+    workspaceSession.current=session;
+    return()=>{workspaceSession.current=undefined;};
+  },[projectId]);
+  const openBeside=useCallback((to:string,isCurrent?:()=>boolean)=>requestBeside.current(to,isCurrent),[]);
   const active = tabs.find(tab => tab.id === activeId) ?? tabs[0];
   const liveTabs = tabs.filter(tab => enabledIds.includes(tab.engineId));
   const reportTitle = useCallback((id: string, title: string | undefined) => setTabs(previous => previous.map(tab => tab.id === id && tab.documentTitle !== title ? { ...tab, documentTitle: title } : tab)), []);
   const split = liveTabs.length > 0;
-  const primaryNavigate = useCallback((to: string) => navigate(workspaceRouteKey(workspaceRoute(to, workspaceRoute(location)))), [navigate, location]);
-  const primaryPane = useMemo(() => ({ instanceId: primaryId, projectId, eraId, visible: true, primary: true, width: primaryWidth, overlayTarget: split ? primaryOverlay : null, openBeside, navigate: primaryNavigate }), [primaryId, projectId, eraId, primaryOverlay, primaryWidth, split, primaryNavigate, openBeside]);
-  useEffect(() => registerEnginePaneScope(primaryId, { projectId, eraId, navigate: primaryPane.navigate }), [primaryId, projectId, eraId, primaryPane.navigate]);
-  useEffect(() => { activateEnginePane(primaryId); }, [location.pathname, location.search, primaryId]);
-  const guarded = useCallback(async (action: () => void | Promise<void>) => {
-    if (busy) return;
+  const guarded = useCallback(async (action: () => boolean | void | Promise<boolean | void>): Promise<boolean> => {
+    if (navigationPending.current) return false;
+    navigationPending.current=true;
     setBusy(true); setError('');
-    try { if ((await flushPendingWrites()).ok) await action(); else setError(copy.failure); }
+    try {
+      if ((await flushPendingWrites()).ok) return await action() !== false;
+      setError(copy.failure);
+    }
     catch { setError(copy.failure); }
-    finally { setBusy(false); }
-  }, [busy, copy.failure]);
-  const open = useCallback((route: WorkspaceRoute, forceNew = false) => {
-    const engineId = paneEngineId(route, projectId, enabledIds);
-    if (!engineId) { void guarded(() => navigate(workspaceRouteKey(route))); return; }
-    const existing = !forceNew && tabs.find(tab => workspaceRouteKey(routeOf(tab)) === workspaceRouteKey(route));
-    if (existing) { setActiveId(existing.id); activateEnginePane(existing.id); return; }
-    if (tabs.length >= TAB_LIMIT) { setError(copy.limit); return; }
+    finally { navigationPending.current=false; setBusy(false); }
+    return false;
+  }, [copy.failure]);
+  const guardNavigation=useRef(guarded);
+  useLayoutEffect(()=>{guardNavigation.current=guarded;},[guarded]);
+  const primaryNavigate = useCallback((to: string) => {
+    const before=workspaceRoute(location),after=workspaceRoute(to,before);
+    const apply=()=>navigate(workspaceRouteKey(after));
+    if(changesBlockView(before,after))void guardNavigation.current(apply);else apply();
+  }, [navigate, location]);
+  const primaryPane = useMemo(() => ({ instanceId: primaryId, projectId, eraId, visible: true, primary: true, width: primaryWidth, overlayTarget: split ? primaryOverlay : null, openBeside, navigate: primaryNavigate }), [primaryId, projectId, eraId, primaryOverlay, primaryWidth, split, primaryNavigate, openBeside]);
+  useEffect(() => registerEnginePaneScope(primaryId, { projectId, eraId, navigate: primaryPane.navigate, openBeside }), [primaryId, projectId, eraId, primaryPane.navigate, openBeside]);
+  useEffect(() => { activateEnginePane(primaryId); }, [location.pathname, location.search, primaryId]);
+  const open = useCallback((route: WorkspaceRoute, forceNew = false, besideOnly = false): boolean => {
+    const engineId = paneEngineId(route, projectId, latest.current.enabledIds);
+    if (!engineId) { if(!besideOnly)void guarded(() => navigate(workspaceRouteKey(route))); return false; }
+    const currentTabs=latest.current.state.tabs;
+    const existing = !forceNew && currentTabs.find(tab => workspaceRouteKey(routeOf(tab)) === workspaceRouteKey(route));
+    if (existing) { setActiveId(existing.id); activateEnginePane(existing.id); return true; }
+    if (currentTabs.length >= TAB_LIMIT) { setError(copy.limit); return false; }
     const id = `companion:${crypto.randomUUID()}`;
-    setTabs(previous => [...previous, { id, engineId, history: [route], index: 0 }]); setActiveId(id); activateEnginePane(id); setError('');
-  }, [copy.limit, enabledIds, guarded, navigate, projectId, tabs]);
-  useLayoutEffect(()=>{requestBeside.current=to=>{void guarded(()=>open(workspaceRoute(to)));};return()=>{requestBeside.current=()=>{};};},[guarded,open]);
-  const navigateTab = useCallback((id: string, route: WorkspaceRoute, replace = false) => {
+    const tab={id,engineId,history:[route],index:0};
+    latest.current.state={...latest.current.state,tabs:[...currentTabs,tab],activeId:id};
+    setTabs(previous => [...previous, tab]); setActiveId(id); activateEnginePane(id); setError('');
+    return true;
+  }, [copy.limit, guarded, navigate, projectId]);
+  useLayoutEffect(()=>{
+    requestBeside.current=(to,isCurrent)=>{
+      const route=workspaceRoute(to),session=workspaceSession.current;
+      const focal=isBlockRoute(route);
+      return guarded(()=>{
+        if(!session||workspaceSession.current!==session||(focal&&isCurrent&&!isCurrent()))return false;
+        if(!focal&&!paneEngineId(route,projectId,latest.current.enabledIds)){navigate(workspaceRouteKey(route));return true;}
+        return open(route,false,focal);
+      });
+    };
+    return()=>{requestBeside.current=async()=>false;};
+  },[guarded,open,navigate,projectId]);
+  const navigateTab = useCallback((id: string, route: WorkspaceRoute, replace = false, guardEraChange = false) => {
     const tab = tabs.find(item => item.id === id), engineId = paneEngineId(route, projectId, enabledIds);
     if (!tab) return;
     if (!engineId) { void guarded(() => navigate(workspaceRouteKey(route))); return; }
     if (engineId !== tab.engineId) { open(route); return; }
-    setTabs(previous => previous.map(item => item.id !== id ? item : { ...item, history: replace ? item.history.map((old, index) => index === item.index ? route : old) : [...item.history.slice(0, item.index + 1), route], index: replace ? item.index : item.index + 1 }));
+    const apply=()=>setTabs(previous => previous.map(item => item.id !== id ? item : { ...item, history: replace ? item.history.map((old, index) => index === item.index ? route : old) : [...item.history.slice(0, item.index + 1), route], index: replace ? item.index : item.index + 1 }));
+    if(guardEraChange||changesBlockView(routeOf(tab),route))void guarded(apply);else apply();
   }, [enabledIds, guarded, navigate, open, projectId, tabs]);
+  const stepTab = (tab: PaneTab, delta: number) => {
+    const index=Math.max(0,Math.min(tab.history.length-1,tab.index+delta));
+    if(index===tab.index)return;
+    const apply=()=>setTabs(previous=>previous.map(item=>item.id===tab.id?{...item,index}:item));
+    if(changesBlockView(routeOf(tab),tab.history[index]))void guarded(apply);else apply();
+  };
   // What is on screen right now. Handlers that wait (saving, asking) read it AFTER the wait, so an update that
   // landed in between (a tab renamed, a title reported, another tab opened) is never overwritten.
-  const latest = useRef<{ state: TabsState; route: WorkspaceRoute }>({ state: { tabs, activeId: active?.id ?? '', closed }, route: workspaceRoute(location) });
-  useLayoutEffect(() => { latest.current = { state: { tabs, activeId: active?.id ?? '', closed }, route: workspaceRoute(location) }; });
+  const latest = useRef<{ state: TabsState; route: WorkspaceRoute; enabledIds: readonly string[] }>({ state: { tabs, activeId: active?.id ?? '', closed }, route: workspaceRoute(location), enabledIds });
+  useLayoutEffect(() => { latest.current = { state: { tabs, activeId: active?.id ?? '', closed }, route: workspaceRoute(location), enabledIds }; });
   const currentState = (): TabsState => latest.current.state;
   const applyState = (next: TabsState) => { const previousActive = latest.current.state.activeId; latest.current = { ...latest.current, state: next }; setTabs(next.tabs); setActiveId(next.activeId); setClosed(next.closed); if (next.activeId && next.activeId !== previousActive) activateEnginePane(next.activeId); else if (!next.tabs.length) activateEnginePane(primaryId); };
   const select = (id: string) => { setActiveId(id); activateEnginePane(id); };
@@ -155,17 +198,18 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   useEffect(() => { const listener = (event: KeyboardEvent) => keys.current(event); window.addEventListener('keydown', listener); return () => window.removeEventListener('keydown', listener); }, []);
   useEffect(() => { saveTabsState(projectId, { tabs, activeId, closed }); }, [projectId, tabs, activeId, closed]);
   const openLibraryDocument = async (url: string, destination: 'main' | 'beside'): Promise<boolean> => {
-    if (busy) return false;
+    if (navigationPending.current) return false;
     const route = workspaceRoute(url);
     if (destination === 'beside' && !paneEngineId(route, projectId, enabledIds)) return false;
     if (destination === 'beside' && tabs.length >= TAB_LIMIT && !tabs.some(tab => workspaceRouteKey(routeOf(tab)) === workspaceRouteKey(route))) { setError(copy.limit); return false; }
+    navigationPending.current=true;
     setBusy(true); setError('');
     try {
       if (!(await flushPendingWrites()).ok) { setError(copy.failure); return false; }
       if (destination === 'beside') open(route); else navigate(url);
       setLibraryOpen(false); return true;
     } catch { setError(copy.failure); return false; }
-    finally { setBusy(false); }
+    finally { navigationPending.current=false; setBusy(false); }
   };
   return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="project-workspace">
     <RuntimeTrialBanner key={projectId} projectId={projectId}/>
@@ -185,7 +229,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
           <div className="flex flex-wrap items-center gap-2"><label className="min-w-32 flex-1"><span className="sr-only">{copy.add}</span><select data-testid="workspace-engine-choice" className="min-h-9 w-full rounded-lg border border-border bg-deep px-2 text-sm text-text-primary" value={choice || engines[0]?.id || ''} onChange={event => setChoice(event.target.value)}>{engines.map(engine => <option key={engine.id} value={engine.id}>{t(`engines.${engine.id}.name`) === `engines.${engine.id}.name` ? engine.name : t(`engines.${engine.id}.name`)}</option>)}</select></label><button type="button" className={button} disabled={busy || tabs.length >= TAB_LIMIT} data-testid="workspace-add-tab" onClick={() => open(workspaceRoute(`/project/${encodeURIComponent(projectId)}/${choice || engines[0]?.id}`, workspaceRoute(location)), true)}><Plus size={15} aria-hidden="true" />{copy.newTab}</button></div>
           <WorkspaceTabBar tabs={liveTabs} openCount={tabs.length} activeId={active?.id} engines={engines} closed={closed} busy={busy} onSelect={select} onClose={closeTab} onRename={(id, label) => setTabs(previous => renameTab(previous, id, label))} onPin={id => setTabs(previous => togglePin(previous, id))} onDuplicate={duplicate} onCloseOthers={id => { const ids = idsToCloseOthers(tabs, id); if (ids.length) requestClose(ids); }} onCloseRight={id => { const ids = idsToCloseRight(tabs, id); if (ids.length) requestClose(ids); }} onReopen={(at, exact) => reopen(at, exact)} />
         </header>
-        {liveTabs.map(tab => <SecondaryTab key={tab.id} tab={tab} openBeside={openBeside} projectId={projectId} engine={engines.find(item => item.id === tab.engineId)!} visible={tab.id === active?.id} onEraChange={next => void guarded(() => navigateTab(tab.id, routeInEra(routeOf(tab), next), true))} onTitle={reportTitle} onNavigate={(route, replace) => navigateTab(tab.id, route, replace)} onBack={delta => setTabs(previous => previous.map(item => item.id === tab.id ? { ...item, index: Math.max(0, Math.min(item.history.length - 1, item.index + delta)) } : item))} />)}
+        {liveTabs.map(tab => <SecondaryTab key={tab.id} tab={tab} openBeside={openBeside} projectId={projectId} engine={engines.find(item => item.id === tab.engineId)!} visible={tab.id === active?.id} onEraChange={next => navigateTab(tab.id, routeInEra(routeOf(tab), next), true, true)} onTitle={reportTitle} onNavigate={(route, replace) => navigateTab(tab.id, route, replace)} onBack={delta => stepTab(tab,delta)} />)}
       </aside>}
     </div>
     <Modal open={!!closing} onClose={() => setClosing(null)} title={copy.freshTitle} dismissible={false}>{closing && <div className="space-y-4" data-testid="workspace-fresh-prompt"><p className="text-sm text-text-primary">{copy.freshBody.replace('{title}', closing.docs[0].title || copy.untitled)}</p><div className="flex flex-wrap justify-end gap-2"><button type="button" className={button} data-testid="workspace-fresh-cancel" onClick={() => setClosing(null)}>{copy.freshCancel}</button><button type="button" className={`${button} text-danger`} data-testid="workspace-fresh-delete" onClick={() => decideFresh('delete')}>{copy.freshDelete}</button><button type="button" autoFocus className={button} data-testid="workspace-fresh-keep" onClick={() => decideFresh('keep')}>{copy.freshKeep}</button></div></div>}</Modal>
@@ -194,7 +238,7 @@ export default function ProjectWorkspace({ projectId, engines, children }: { pro
   </div>;
 }
 
-function SecondaryTab({ tab, projectId, engine, visible, onEraChange, onTitle, onNavigate, onBack, openBeside }: { openBeside:(to:string)=>void; tab: PaneTab; projectId: string; engine: EngineDefinition; visible: boolean; onEraChange: (eraId?: string) => void; onTitle: (id: string, title: string | undefined) => void; onNavigate: (route: WorkspaceRoute, replace?: boolean) => void; onBack: (delta: number) => void }) {
+function SecondaryTab({ tab, projectId, engine, visible, onEraChange, onTitle, onNavigate, onBack, openBeside }: { openBeside:(to:string,isCurrent?:()=>boolean)=>Promise<boolean>; tab: PaneTab; projectId: string; engine: EngineDefinition; visible: boolean; onEraChange: (eraId?: string) => void; onTitle: (id: string, title: string | undefined) => void; onNavigate: (route: WorkspaceRoute, replace?: boolean) => void; onBack: (delta: number) => void }) {
   const { locale, t } = useTranslation(), copy = workspaceCopy[locale], route = routeOf(tab);
   const eraId = workspaceEra(route);
   const { appearance, style: theme } = useWorkspaceAppearance({ projectId, eraId });

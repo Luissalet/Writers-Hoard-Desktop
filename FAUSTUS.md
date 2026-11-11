@@ -603,3 +603,10 @@ Source `82eafc27`, revisión 2, está integrado en Main sin push, con Native rea
 ## Lista vacía añadida a Source
 
 Una definición Source puede añadir una lista vacía con `sourceAdditive`, predecessor completo e `idKey` estable. Leer y seleccionar versión son pasivos; el primer `state.apply` efectivo es atómico y conserva los campos anteriores. Los clientes SDK y las herramientas MCP normales comparten acciones list y Undo scoped; las claves MCP no identifican autores de réplica. El cuaderno shipping V1/V2 permite guardar nombre y editar, marcar, ordenar o quitar pasos con Deshacer/Rehacer. No habilita migración general, cambio de tipos, semillas no vacías ni promoción de una V1 heredada. [Contrato, evidencia y límites](tasks/vvd1095/verification-sdk-source-list-additive2540.md).
+
+
+## Abrir un bloque Source al lado
+
+`client.openDocument('local-tool', documentId, {blockId: 'notes'})` pide abrir un bloque del documento en un compañero. El componente recibe `context.focus?.blockId` y decide qué sección mostrar, también en pantalla completa. La vista principal conserva el documento completo. Guardar y Deshacer desde la vista lateral usan el mismo documento y el ámbito efectivo del panel.
+
+`wh_local_tool_document_open` recibe `projectId`, `documentId`, `blockId` y, para una época, `eraId`. `available` informa de si hay un espacio de trabajo que pueda atenderlo y `applied` de si la navegación admitió la solicitud. `wh_workspace_tabs` permite consultar la ruta. La apertura respeta el tratamiento habitual de borradores. [Uso y verificación](tasks/vvd1095/verification-sdk-source-block-focus2590.md).

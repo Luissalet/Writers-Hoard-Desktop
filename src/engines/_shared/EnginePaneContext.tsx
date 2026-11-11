@@ -8,7 +8,7 @@ export interface EnginePaneValue {
   primary?: boolean;
   navigate?: (to: string) => void;
   /** Open a fixed embedded editor’s link without retargeting its owner. */
-  openBeside?: (to: string) => void;
+  openBeside?: (to: string, isCurrent?: () => boolean) => void | Promise<boolean>;
   reportTitle?: (title: string | undefined) => void;
   width?: number;
   overlayTarget?: HTMLElement | null;
@@ -16,12 +16,15 @@ export interface EnginePaneValue {
 export const EnginePaneContext = createContext<EnginePaneValue | null>(null);
 export const useEnginePane = () => useContext(EnginePaneContext);
 let lastActivePane: string | undefined;
-export interface ActiveEnginePaneScope { projectId: string; eraId?: string; navigate?: (to: string) => void }
+export interface ActiveEnginePaneScope { projectId: string; eraId?: string; navigate?: (to: string) => void; openBeside?: (to: string, isCurrent?: () => boolean) => Promise<boolean> }
 const paneScopes = new Map<string, ActiveEnginePaneScope>();
 /** Focus context for commands outside the pane tree, never a storage-wide active era. */
 export function registerEnginePaneScope(instanceId: string, scope: ActiveEnginePaneScope): () => void {
   paneScopes.set(instanceId, scope);
   return () => { if (paneScopes.get(instanceId) === scope) paneScopes.delete(instanceId); };
+}
+export function getPrimaryEnginePaneOpenBeside(projectId: string) {
+  return paneScopes.get(`primary:${projectId}`)?.openBeside;
 }
 export function getActiveEnginePaneScope(): ActiveEnginePaneScope | undefined {
   const scope = paneScopes.get(lastActivePane ?? '') ?? paneScopes.values().next().value;

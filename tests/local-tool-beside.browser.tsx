@@ -5,6 +5,7 @@ import {MemoryRouter, Route, Routes, useLocation, useParams} from 'react-router-
 import {db} from '@/db';
 import {deleteProject} from '@/db/operations';
 import {getEngine} from '@/engines/_registry';
+import {getPrimaryEnginePaneOpenBeside} from '@/engines/_shared/EnginePaneContext';
 import {registerLocalToolModules} from '@/engines/local/registry';
 import {defineLocalTool, type LocalToolClient, type LocalToolProps} from '@/engines/local/sdk';
 import {createLocalToolClient} from '@/engines/local/storage';
@@ -15,8 +16,9 @@ import {createSourceToolDocument} from '@/engines/local/documents/store';
 import {createLocalToolBlockEnvelope} from '@/engines/local/blocks/definitions';
 import {serializeLocalToolBlock} from '@/engines/local/blocks/types';
 import ProjectWorkspace from '@/components/project/workspace/ProjectWorkspace';
+import {createWorkspaceFocusController,WorkspaceFocusContext} from '@/components/project/workspace/workspaceFocus';
 import {workspaceDocumentKey} from '@/components/project/workspace/library/types';
-import {getPendingWritesSnapshot} from '@/services/pendingWrites';
+import {getPendingWritesSnapshot,registerPendingFlusher} from '@/services/pendingWrites';
 import {useLocaleStore} from '@/stores/localeStore';
 import {authorCard} from './fixtures/local-tools/author-data';
 
@@ -60,9 +62,10 @@ interface Fixture {
   ownerId: string; ownerTitle: string; blockId: string;
   emitted: Map<string, LocalToolClient<LinkedNotebookState>>;
   business(): Promise<string>;
+  unmountWorkspace(): Promise<void>;
 }
 
-async function withFixture<T>(label: string, observeClient: boolean, run: (fixture: Fixture) => Promise<T>): Promise<T> {
+async function withFixture<T>(label: string, observeClient: boolean, run: (fixture: Fixture) => Promise<T>, blockFocus = false): Promise<T> {
   const projectId = `beside-${label}-${crypto.randomUUID()}`, targetId = `${projectId}-target`, ownerId = `${projectId}-owner`;
   const targetTitle = `Target B ${label}`, targetMarker = `EFFECTIVE_TARGET_${targetId}`, ownerTitle = `Owner O ${label}`, blockId = `${projectId}-world-cards`;
   const emitted = new Map<string, LocalToolClient<LinkedNotebookState>>();
@@ -83,7 +86,13 @@ async function withFixture<T>(label: string, observeClient: boolean, run: (fixtu
   const sourceEngineId = `local-tool-${documentNotebook.namespace}`;
   const engineIds = [sourceEngineId, 'codex', `local-tool-${initiative.namespace}`];
   const engines = engineIds.map(id => { const engine = getEngine(id); assert(engine, `Registered engine missing ${id}`); return engine; });
-  const root = createRoot(node('#root'));
+  const root = createRoot(node('#root')), focus = blockFocus ? createWorkspaceFocusController() : undefined;
+  let mounted = true;
+  const unmountWorkspace = async () => {
+    if (!mounted) return;
+    mounted = false;
+    await act(async () => { root.unmount(); await pause(); });
+  };
   useLocaleStore.setState({locale: 'en', loaded: true});
   try {
     await db.projects.put({id: projectId, title: `Beside ${label}`, description: '', mode: 'custom', type: 'standalone', status: 'draft', color: '#777777', enabledEngines: engineIds, engineOrder: engineIds, createdAt: 1, updatedAt: 1});
@@ -95,7 +104,7 @@ async function withFixture<T>(label: string, observeClient: boolean, run: (fixtu
     const source = await createSourceToolDocument({projectId}, documentNotebook.namespace, `Source A ${label}`);
     const initialClient = createLocalToolClient(projectId, documentNotebook, {documentId: source.id});
     const initial = await initialClient.read();
-    await initialClient.save({...documentNotebook.initialState, notes: `Saved Source A ${label}`, linked: {kind: 'codex', documentId: targetId}}, initial.revision, initial.document?.version);
+    await initialClient.save({...documentNotebook.initialState, notes: `Saved Source A ${label}`, linked: {kind: 'codex', documentId: targetId}, ...(blockFocus ? {items: [{id: 'checklist', text: 'Block focus checklist item Ω'}]} : {})}, initial.revision, initial.document?.version);
     const sourceRoute = `/project/${projectId}/${sourceEngineId}?document=${source.id}`;
     const targetRoute = `/project/${projectId}/codex?entry=${targetId}`;
     // This principal changes its actual registered engine when the router changes.
@@ -110,17 +119,18 @@ async function withFixture<T>(label: string, observeClient: boolean, run: (fixtu
         </ProjectWorkspace></>;
     }
     await act(async () => {
-      root.render(<MemoryRouter initialEntries={[sourceRoute]}><Routes><Route path="/project/:id/:tab" element={<RoutedWorkspace/>}/></Routes></MemoryRouter>);
+      const tree = <MemoryRouter initialEntries={[sourceRoute]}><Routes><Route path="/project/:id/:tab" element={<RoutedWorkspace/>}/>{blockFocus&&<Route path="/project/:id/ordinary-destination" element={<output data-testid="legacy-beside-fallback"/>}/>}</Routes></MemoryRouter>;
+      root.render(focus ? <WorkspaceFocusContext.Provider value={focus}>{tree}</WorkspaceFocusContext.Provider> : tree);
       await pause();
     });
     await until(() => !!sourceHost(main(), source.id)?.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)') && !button(sourceHost(main(), source.id)!, 'Open linked document').disabled, 'Real documentary LinkedNotebook did not become ready');
     const fixture: Fixture = {
-      projectId, sourceId: source.id, sourceEngineId, sourceRoute, targetId, targetTitle, targetMarker, targetRoute, ownerId, ownerTitle, blockId, emitted,
+      projectId, sourceId: source.id, sourceEngineId, sourceRoute, targetId, targetTitle, targetMarker, targetRoute, ownerId, ownerTitle, blockId, emitted, unmountWorkspace,
       business: async () => JSON.stringify({project: await db.projects.get(projectId), cards: (await db.codexEntries.where('projectId').equals(projectId).toArray()).sort((left, right) => left.id.localeCompare(right.id))}),
     };
     return await run(fixture);
   } finally {
-    await act(async () => { root.unmount(); await pause(); });
+    await unmountWorkspace();
     emitted.clear(); await deleteProject(projectId);
   }
 }
@@ -470,4 +480,152 @@ export async function testLocalToolBesideAll(): Promise<string[]> {
 /** Product CSS runner handshake only; ROOT executes this export in its later UI batch. */
 export async function testLocalToolBesideCssUi(): Promise<string[]> {
   return [...await pickerFlow(true), 'Actual product CSS ES/EN at 1280/390: layout, native Tab, dispatcher correlation and 40px target, no page overflow; before/normal global target modal captures. Unfocused-document visual focus is explicitly skipped; real Brave focus evidence is separate'];
+}
+
+interface SourceBlockFocusView {
+  paneId: string;
+  notes: boolean;
+  items: boolean;
+  noteValue: string | null;
+  text: string;
+}
+export interface SourceBlockFocusFixture {
+  projectId: string;
+  documentId: string;
+  namespace: string;
+  unmountWorkspace(): Promise<void>;
+  observe(): {main: SourceBlockFocusView | null; companion: SourceBlockFocusView | null};
+}
+
+export async function withSourceBlockFocusFixture<T>(run: (fixture: SourceBlockFocusFixture) => Promise<T>): Promise<T> {
+  return withFixture('block-focus', false, fixture => {
+    const observe = (pane: HTMLElement | null): SourceBlockFocusView | null => {
+      const host = pane && sourceHost(pane, fixture.sourceId);
+      if (!host || !pane?.dataset.enginePaneId) return null;
+      const notes = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Notes"]');
+      return {paneId: pane.dataset.enginePaneId, notes: !!notes, items: !!host.querySelector('[aria-label="New item"]'),
+        noteValue: notes?.value ?? null, text: host.textContent ?? ''};
+    };
+    return run({projectId: fixture.projectId, documentId: fixture.sourceId, namespace: documentNotebook.namespace,
+      unmountWorkspace: fixture.unmountWorkspace, observe: () => ({main: observe(document.querySelector<HTMLElement>('[data-testid="workspace-primary"]')), companion: observe(activeCompanion())})});
+  }, true);
+}
+
+export async function testSourceBlockFocus(): Promise<string[]> {
+  return withSourceBlockFocusFixture(async fixture => {
+    const {projectId, documentId} = fixture;
+    const original = 'Saved Source A block-focus', edited = 'Updated notes from the side panel Ω', item = 'Block focus checklist item Ω';
+    const source = createLocalToolClient(projectId, documentNotebook, {documentId, readOnly: true});
+    const snapshot = async () => JSON.stringify({document: await source.read(), project: await db.projects.get(projectId),
+      variants: await db.worldEraVariants.where('projectId').equals(projectId).sortBy('id')});
+    const open = async (blockId: string, eraId?: string, target = documentId) => {
+      const reply = await runBridgeTool('wh_local_tool_document_open', {projectId, documentId: target, blockId, ...(eraId ? {eraId} : {})});
+      assert(reply.ok, 'Open block dispatcher rejected: ' + JSON.stringify(reply));
+      return reply.result as {available: boolean; applied: boolean};
+    };
+    const tabs = async () => {
+      const reply = await runBridgeTool('wh_workspace_tabs', {projectId});
+      assert(reply.ok, 'Could not read workspace tabs');
+      return (reply.result as {tabs: {id: string; route: string}[]}).tabs;
+    };
+    const change = async (input: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, value);
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        await pause();
+      });
+    };
+    const before = await snapshot();
+    const primaryPort = getPrimaryEnginePaneOpenBeside(projectId);
+    assert(primaryPort, 'The live primary workspace port is absent');
+    let current = true;
+    const retiring = createLocalToolClient(projectId, documentNotebook, {documentId, isCurrent: () => current, openBeside: primaryPort});
+    let startFlush!: () => void, finishFlush!: () => void;
+    const entered = new Promise<void>(resolve => { startFlush = resolve; });
+    const pausedFlush = new Promise<void>(resolve => { finishFlush = resolve; });
+    const unregister = registerPendingFlusher('source-block-focus-retiring', async () => { startFlush(); await pausedFlush; return true; });
+    try {
+      await act(async () => {
+        const opening = rejected(() => retiring.openDocument('local-tool', documentId, {blockId: 'notes'}), 'local_tool_context_expired');
+        await Promise.race([entered, opening]);
+        current = false;
+        finishFlush();
+        await opening;
+        await pause();
+      });
+    } finally { finishFlush(); unregister(); }
+    assert(!fixture.observe().companion && (await tabs()).length === 0 && await snapshot() === before, 'The revoked SDK client opened a tab or wrote business data');
+    const full = sourceHost(main(), documentId)!;
+    assert(fixture.observe().main?.items && fixture.observe().main?.noteValue === original && full.textContent?.includes(item), 'Full document was not mounted');
+    await click(button(full, 'Open notes beside'));
+    await until(() => fixture.observe().companion?.noteValue === original, 'Notes did not open in the real workspace');
+    const first = fixture.observe().companion!;
+    assert(!first.items && fixture.observe().main?.items && mainLocation()?.includes('block=') === false, 'Focal notes displaced or filtered the full document');
+
+    let duplicate: {available: boolean; applied: boolean}[] = [];
+    await act(async () => { duplicate = await Promise.all([open('notes'), open('notes')]); await pause(); });
+    assert(duplicate.some(reply => reply.applied) && (await tabs()).length === 1 && fixture.observe().companion?.paneId === first.paneId, 'Duplicate requests did not reuse the admitted Notes tab');
+
+    const draft = node<HTMLInputElement>('[aria-label="New item"]', full);
+    await change(draft, 'Pending draft stays in the principal');
+    let blocked = {available: false, applied: false};
+    await act(async () => { blocked = await open('items'); await pause(); });
+    assert(blocked.available && !blocked.applied && (await tabs()).length === 1 && fixture.observe().companion?.paneId === first.paneId &&
+      draft.value === 'Pending draft stays in the principal' && await snapshot() === before, 'A declined guard changed routes, data or pending input');
+    await change(draft, '');
+
+    await act(async () => { assert((await open('items')).applied, 'Items request was refused'); await pause(); });
+    await until(() => fixture.observe().companion?.text.includes(item) === true, 'Items did not mount in the second companion');
+    const second = fixture.observe().companion!;
+    assert(!second.notes && second.paneId !== first.paneId && (await tabs()).length === 2 && await snapshot() === before, 'The two block identities or business snapshot changed');
+
+    await click(document.getElementById('tab-' + first.paneId)!);
+    const currentNotes = () => sourceHost(activeCompanion()!, documentId)!;
+    await click(button(currentNotes(), 'Fullscreen'));
+    await until(() => !!document.querySelector('[data-source-document-view="fullscreen"] textarea:not(:disabled)'), 'Focused fullscreen did not mount');
+    const fullscreen = node('[data-source-document-view="fullscreen"]');
+    assert(!fullscreen.querySelector('[aria-label="New item"]'), 'Fullscreen lost the Notes focus');
+    await click(button(node('[role="dialog"]'), 'Save and return'));
+    await until(() => !document.querySelector('[data-source-document-view="fullscreen"]'), 'Focused fullscreen did not return');
+    assert(await snapshot() === before, 'Opening or closing focused views wrote business data');
+
+    await change(node<HTMLTextAreaElement>('textarea', currentNotes()), edited);
+    await click(button(currentNotes(), 'Save notes'));
+    await until(() => fixture.observe().main?.noteValue === edited && !button(currentNotes(), 'Undo').disabled, 'The same document did not observe the focused save');
+    const saved = await source.read();
+    assert(saved.data.notes === edited && saved.data.items.length === 1 && saved.data.items[0].text === item, 'Focused save changed another block or another document');
+    await click(button(currentNotes(), 'Undo'));
+    await until(() => fixture.observe().main?.noteValue === original, 'Focused Undo did not reverse the same document');
+    const afterUndo = await snapshot();
+    await click(node('[data-testid="workspace-close-tab-' + first.paneId + '"]'));
+    await until(() => !document.getElementById('tab-' + first.paneId), 'Notes tab did not close');
+    await click(button(full, 'Open notes beside'));
+    await until(() => fixture.observe().companion?.noteValue === original, 'Reopened Notes did not read the persisted result');
+    assert(fixture.observe().companion?.paneId !== first.paneId && await snapshot() === afterUndo, 'Closing or reopening wrote data or reused the closed instance');
+
+    await act(async () => { assert((await open('unknown & Ω')).applied, 'Unknown block route was not admitted'); await pause(); });
+    await until(() => fixture.observe().companion?.items === true && fixture.observe().companion?.noteValue === original, 'Unknown block did not render the whole tool');
+    assert((await tabs()).some(tab => new URLSearchParams(tab.route.split('?')[1]).get('block') === 'unknown & Ω'), 'Block identity was not encoded losslessly');
+
+    const eraId = 'block-focus-era';
+    await saveWorldEra(projectId, {id: eraId, name: 'Past', description: '', revision: 0, createdAt: 1, updatedAt: 1}, null);
+    const inherited = await snapshot();
+    await act(async () => { assert((await open('notes', eraId)).applied, 'Inherited block was not admitted'); await pause(); });
+    await until(() => fixture.observe().companion?.noteValue === original && fixture.observe().companion?.text.includes(eraId) === true, 'Inherited block lost the requested era');
+    assert(await snapshot() === inherited, 'Opening an inherited block created a variant or changed Base');
+    const hidden = await createSourceToolDocument({projectId}, fixture.namespace, 'Hidden in Past');
+    const scope = {projectId, eraId};
+    await hideEraDocument(scope, 'local-tool', hidden.id, (await readWorldDocument(scope, 'local-tool', hidden.id))!.version);
+    const hiddenReply = await runBridgeTool('wh_local_tool_document_open', {...scope, documentId: hidden.id, blockId: 'notes'});
+    assert(!hiddenReply.ok && (await tabs()).length === 4, 'The hidden document was not refused');
+    const beside = getPrimaryEnginePaneOpenBeside(projectId);
+    assert(beside, 'The real workspace port was unavailable before leaving');
+    await act(async () => { assert(await beside('/project/' + projectId + '/ordinary-destination'), 'Legacy destination refused fallback'); await pause(); });
+    await until(() => !!document.querySelector('[data-testid="legacy-beside-fallback"]'), 'An ordinary non-pane destination did not navigate the principal');
+    await fixture.unmountWorkspace();
+    const unmounted = await snapshot();
+    const unavailable = await open('notes');
+    assert(!unavailable.available && !unavailable.applied && fixture.observe().main === null && await snapshot() === unmounted, 'Opening without a mounted workspace had an effect');
+    return ['Real Source block panes retain full view, dedup, pending draft, fullscreen, normal save and Undo, close/reopen, unknown fallback, scoped inheritance and unavailable shell'];
+  });
 }
