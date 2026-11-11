@@ -6,6 +6,10 @@ import type {CausalTransaction,RegisterVersion,RegisterActivation} from './forma
 export const SOURCE_LIST_FORMAT='writers-hoard-source-additive-list/1';
 export const SOURCE_MULTI_FORMAT='writers-hoard-source-additive-fields/1';
 export const SOURCE_LIST_PLACEMENT_FORMAT='writers-hoard-source-list-placement/1';
+export const SOURCE_SCALAR_FORMAT='writers-hoard-source-additive/1';
+export const SOURCE_SUCCESSIVE_FORMAT='writers-hoard-source-additive-successive/1';
+export type SourceAuthorityFormat=typeof SOURCE_SCALAR_FORMAT|typeof SOURCE_LIST_FORMAT|typeof SOURCE_MULTI_FORMAT|typeof SOURCE_SUCCESSIVE_FORMAT;
+export interface SourceListStage {format:SourceAuthorityFormat; fields:readonly string[]; promotionTxId?:string}
 export const SOURCE_LIST_AUTHORITY_ROOT='convergence-source-additive';
 const invalid=():never=>{throw Error('local_tool_source_additive_history_invalid');};
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -52,78 +56,113 @@ const parse=(unit:Unit):Record<string,unknown>=>{
  if(!record(v))return invalid();return v;
 };
 /** No winning-map shortcut: retained/deleted register bodies can expose a forbidden old slot. */
-export function sourceListRetainedRegisters(doc:Y.Doc):{versions:RegisterVersion[];activations:RegisterActivation[]}{
+export function sourceListRetainedRegisters(doc:Y.Doc,immutable=false):{versions:RegisterVersion[];activations:RegisterActivation[]}{
  // A GC struct no longer carries a parent/payload. A complete new-list proof cannot
  // invent its origin. Normal register/list Undo retains Items rather than deleting them.
  for(const structs of doc.store.clients.values())for(const item of structs)if(!(item instanceof Y.Item))return invalid();
  const read=physical(doc),versions:RegisterVersion[]=[],activations:RegisterActivation[]=[];
- for(const unit of read.root(doc.share.get('register-versions'))){
+ const retained=(name:string):Unit[]=>{
+  const units=read.root(doc.share.get(name));
+  if(immutable&&(units.some(unit=>unit.deleted)||new Set(units.map(unit=>unit.key)).size!==units.length))return invalid();
+  return units;
+ };
+ for(const unit of retained('register-versions')){
   const v=parse(unit);if(v.id!==unit.key||!text(v.id)||!text(v.root)||typeof v.key!=='string'||typeof v.present!=='boolean'||!text(v.txId)||!Object.hasOwn(v,'value'))return invalid();
   versions.push({id:v.id,root:v.root,key:v.key,present:v.present,value:v.value as RegisterVersion['value'],txId:v.txId});
  }
- for(const unit of read.root(doc.share.get('register-activations'))){
+ for(const unit of retained('register-activations')){
   const v=parse(unit);if(v.id!==unit.key||!text(v.id)||!text(v.versionId)||typeof v.enabled!=='boolean'||!text(v.txId))return invalid();
   activations.push({id:v.id,versionId:v.versionId,enabled:v.enabled,txId:v.txId});
  }
  return{versions,activations};
 }
-/** True means a valid physical prefix still lacks its semantic flush dependency. */
+const transactionId=(value:Record<string,unknown>):unknown=>record(value.promotion)?value.promotion.txId:undefined;
+
 export function sourceListHistoryPending(doc:Y.Doc):boolean {
  const authority=doc.share.get(SOURCE_LIST_AUTHORITY_ROOT);if(!authority)return false;
  if(!(authority instanceof Y.Array))return invalid();
- const first=new JsonArray<{format?:string;target?:{codec?:LocalToolStateCodec};promotion?:{txId?:string}}>(authority).toArray()[0];
- if(first?.format!==SOURCE_LIST_FORMAT&&first?.format!==SOURCE_MULTI_FORMAT)return false;
- const codec=first.target?.codec;if(!codec)return invalid();
- const fields=sourceListFields(codec);
- if(!fields.length)return first.format===SOURCE_LIST_FORMAT?invalid():false;
- return inspectSourceListHistory(doc,fields,first.format,first.promotion?.txId);
+ const [first,...rest]=new JsonArray<{format:SourceAuthorityFormat;target?:{codec?:LocalToolStateCodec};promotion?:{txId?:string;from?:{codec?:LocalToolStateCodec}}}>(authority).toArray();
+ if(!first?.target?.codec)return invalid();
+ const stages:SourceListStage[]=[{format:first.format,fields:sourceListFields(first.target.codec),promotionTxId:first.promotion?.txId}];
+ for(const item of rest){
+  if(item?.format!==SOURCE_SUCCESSIVE_FORMAT)continue;
+  const from=item.promotion?.from?.codec,target=item.target?.codec;
+  if(!from||!target)return invalid();
+  stages.push({format:item.format,fields:sourceListFields(target).filter(field=>!Object.hasOwn(from.fields,field)),promotionTxId:item.promotion?.txId});
+ }
+ return stages.some(stage=>stage.fields.length)||stages.length>1?inspectSourceListStages(doc,stages):false;
 }
-/** Definition-free placement birth proof. Ordinary lists and scalar/map authorities never call it. */
-export function inspectSourceListHistory(doc:Y.Doc,fields:readonly string[],format:typeof SOURCE_LIST_FORMAT|typeof SOURCE_MULTI_FORMAT,promotionTxId?:string):boolean {
+
+/** Definition-free physical proof. A witness must descend from the stage that introduced its list. */
+export function inspectSourceListStages(doc:Y.Doc,stages:readonly SourceListStage[]):boolean {
  const read=physical(doc),authority=doc.share.get(SOURCE_LIST_AUTHORITY_ROOT);
- if(!(authority instanceof Y.Array))return invalid();
- const orders=new Map(fields.map(field=>[field,doc.share.get('order:'+JSON.stringify(field))]));
- const declarations=read.root(authority),headers=declarations.filter(unit=>parse(unit).format===format);
- if(headers.length!==1)return invalid();const header=headers[0];
- if(header.deleted||header.key!==null||header.origin!==null)return invalid();
+ if(!(authority instanceof Y.Array)||!stages.length)return invalid();
+ const declarations=read.root(authority);
+ const entries=declarations.map(unit=>({unit,value:parse(unit)}));
+ const headers=stages.map(stage=>{
+  const matches=entries.filter(({value})=>value.format===stage.format&&transactionId(value)===stage.promotionTxId);
+  if(matches.length!==1)return invalid();
+  return matches[0].unit;
+ });
+ const headerSet=new Set(headers);
+ if(headerSet.size!==headers.length)return invalid();
+ const fieldStage=new Map<string,number>();
+ for(const [index,stage] of stages.entries())for(const field of stage.fields){
+  if(fieldStage.has(field))return invalid();
+  fieldStage.set(field,index);
+ }
+ const orders=new Map([...fieldStage.keys()].map(field=>[field,doc.share.get('order:'+JSON.stringify(field))]));
  const transactions=read.root(doc.share.get('causal-transactions')),byTx=new Map<string,Unit[]>();
  for(const unit of transactions){if(unit.key===null)return invalid();const list=byTx.get(unit.key)??[];list.push(unit);byTx.set(unit.key,list);}
  const body=(id:string):Unit|undefined=>{
   const units=byTx.get(id);if(!units)return undefined;if(units.length!==1||units[0].deleted)return invalid();
   const v=parse(units[0]);if(v.id!==id||!Array.isArray(v.parents)||v.parents.some(p=>!text(p)||p===id)||new Set(v.parents).size!==v.parents.length)return invalid();return units[0];
  };
+ if(stages.length>1)for(const id of byTx.keys())body(id);
  const byClient=new Map<number,Unit[]>();
  for(const unit of transactions){const rows=byClient.get(unit.client)??[];rows.push(unit);byClient.set(unit.client,rows);}
  for(const rows of byClient.values())rows.sort((a,b)=>a.clock-b.clock);
  const nextTransaction=(client:number,clock:number):Unit|undefined=>{const rows=byClient.get(client)??[];let low=0,high=rows.length;while(low<high){const middle=(low+high)>>>1;if(rows[middle].clock<=clock)low=middle+1;else high=middle;}return rows[low];};
- const graph=new JsonMap<CausalTransaction>(doc.getMap('causal-transactions')),relations=new Map<string,boolean|undefined>();
- const relation=(id:string,seen=new Set<string>()):boolean|undefined=>{
-  if(seen.has(id))return invalid();if(id===promotionTxId)return true;if(relations.has(id))return relations.get(id);
-  const tx=graph.get(id);if(!tx){relations.set(id,undefined);return undefined;}
-  if(tx.id!==id||!Array.isArray(tx.parents)||tx.parents.some(p=>!text(p)||p===id)||new Set(tx.parents).size!==tx.parents.length)return invalid();
-  const next=new Set(seen);next.add(id);
-  let missing=false,observes=false;
-  for(const parent of tx.parents){const value=relation(parent,next);if(value===undefined)missing=true;else if(value)observes=true;}
-  const result=missing?undefined:promotionTxId===undefined||observes;relations.set(id,result);return result;
- };
- if(promotionTxId){
-  const tx=body(promotionTxId);if(!tx||tx.client!==header.client||tx.clock+1!==header.clock)return invalid();
+ const graph=new JsonMap<CausalTransaction>(doc.getMap('causal-transactions'));
+ const relations=stages.map(({promotionTxId})=>{
+  const cache=new Map<string,boolean|undefined>();
+  const relation=(id:string,seen=new Set<string>()):boolean|undefined=>{
+   if(seen.has(id))return invalid();if(id===promotionTxId)return true;if(cache.has(id))return cache.get(id);
+   const tx=graph.get(id);if(!tx){cache.set(id,undefined);return undefined;}
+   if(tx.id!==id||!Array.isArray(tx.parents)||tx.parents.some(p=>!text(p)||p===id)||new Set(tx.parents).size!==tx.parents.length)return invalid();
+   const next=new Set(seen);next.add(id);
+   let missing=false,observes=false;
+   for(const parent of tx.parents){const value=relation(parent,next);if(value===undefined)missing=true;else if(value)observes=true;}
+   const result=missing?undefined:promotionTxId===undefined||observes;cache.set(id,result);return result;
+  };
+  return relation;
+ });
+ const anchors=headers.map(header=>{
+  const cache=new Map<string,boolean>();
+  return(start:Unit):boolean=>{
+   const seen=new Set<string>(),path:string[]=[];let cursor:Unit|undefined=start,result=false;
+   while(cursor){const id=point(cursor.client,cursor.clock);if(seen.has(id))return invalid();seen.add(id);path.push(id);
+    if(cursor.deleted||cursor.root!==authority||cursor.key!==null)return invalid();
+    if(cursor.client===header.client&&cursor.clock===header.clock){result=true;break;}
+    if(cache.has(id)){result=cache.get(id)!;break;}
+    if(!cursor.origin)break;cursor=read.at(cursor.origin.client,cursor.origin.clock);
+   }
+   for(const id of path)cache.set(id,result);return result;
+  };
+ });
+ for(const [index,header] of headers.entries()){
+  if(header.deleted||header.key!==null||(index===0?header.origin!==null:!header.origin||!anchors[index-1](header)))return invalid();
+  const {promotionTxId}=stages[index];
+  if(promotionTxId){
+   const tx=body(promotionTxId);if(!tx||tx.client!==header.client||tx.clock+1!==header.clock)return invalid();
+  }else if(index!==0)return invalid();
  }
- const anchors=new Map<string,boolean>();
- const anchored=(start:Unit):boolean=>{
-  const seen=new Set<string>(),path:string[]=[];let cursor:Unit|undefined=start,result=false;
-  while(cursor){const id=point(cursor.client,cursor.clock);if(seen.has(id))return invalid();seen.add(id);path.push(id);
-   if(cursor.deleted||cursor.root!==authority||cursor.key!==null)return invalid();
-   if(cursor.client===header.client&&cursor.clock===header.clock){result=true;break;}
-   if(anchors.has(id)){result=anchors.get(id)!;break;}
-   if(!cursor.origin)break;cursor=read.at(cursor.origin.client,cursor.origin.clock);
-  }
-  for(const id of path)anchors.set(id,result);return result;
- };
  const witnesses=new Map<string,{unit:Unit;value:Witness}>();let pending=false;
- for(const unit of declarations){
-  if(unit===header)continue;const v=parse(unit);
-  if(unit.deleted||unit.key!==null||!exact(v,['format','field','txId','id','placementId'])||v.format!==SOURCE_LIST_PLACEMENT_FORMAT||!text(v.field)||!orders.has(v.field)||!text(v.txId)||!text(v.id)||!text(v.placementId)||!anchored(unit))return invalid();
+ for(const {unit,value:v} of entries){
+  if(headerSet.has(unit))continue;
+  if(unit.deleted||unit.key!==null||!exact(v,['format','field','txId','id','placementId'])||v.format!==SOURCE_LIST_PLACEMENT_FORMAT||!text(v.field)||!text(v.txId)||!text(v.id)||!text(v.placementId))return invalid();
+  const stage=fieldStage.get(v.field);
+  if(stage===undefined||!anchors[stage](unit))return invalid();
   if(witnesses.has(v.placementId))return invalid();
   const witness:Witness={format:SOURCE_LIST_PLACEMENT_FORMAT,field:v.field,txId:v.txId,id:v.id,placementId:v.placementId};witnesses.set(v.placementId,{unit,value:witness});
   const placement=read.at(unit.client,unit.clock+1);
@@ -133,8 +172,8 @@ export function inspectSourceListHistory(doc:Y.Doc,fields:readonly string[],form
   const tx=body(v.txId),next=nextTransaction(unit.client,placement.clock);
   if(next&&next.key!==v.txId)return invalid();
   if(!tx){pending=true;continue;}
-  if(tx.client!==unit.client||tx.clock<=placement.clock||next!==tx||v.txId===promotionTxId)return invalid();
-  const observes=relation(v.txId);if(observes===undefined)pending=true;else if(!observes)return invalid();
+  if(tx.client!==unit.client||tx.clock<=placement.clock||next!==tx||v.txId===stages[stage].promotionTxId)return invalid();
+  const observes=relations[stage](v.txId);if(observes===undefined)pending=true;else if(!observes)return invalid();
  }
  for(const [field,order] of orders)for(const unit of read.root(order)){
   const p=parse(unit);if(unit.deleted||unit.key!==null||!exact(p,['id','placementId'])||!text(p.id)||!text(p.placementId))return invalid();
