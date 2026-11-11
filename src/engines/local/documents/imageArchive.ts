@@ -8,6 +8,7 @@ import {collectLocalToolCheckpointImages} from '../convergence/replica';
 import type {RichBlockDocument} from '../convergence/blockTypes';
 import {localToolRichImageRaster,localToolRichImages} from '../stateCodecFormat';
 import {SOURCE_TOOL_DOCUMENTS_KEY,SOURCE_TOOL_DOCUMENT_KIND,type SourceToolDocument} from './types';
+import {validateSourceListDocumentHistory} from './portability';
 
 /** All representations that can be opened or restored from a project ZIP. */
 export function validateSourceImageArchive(project:Pick<Project,'id'|'sourceToolDocuments'>,files:readonly LocalAssetFile[],variants:readonly WorldEraVariant[],history:readonly DocumentHistoryEntry[],archives:readonly DocumentArchive[]){
@@ -17,6 +18,7 @@ export function validateSourceImageArchive(project:Pick<Project,'id'|'sourceTool
  const requireFile=(asset:RichImageAsset)=>{if(!available.has(key(asset)))throw Error('local_asset_image_archive_missing');};
  const check=(candidate:unknown)=>{
   if(!candidate)return;const row=candidate as SourceToolDocument;
+  validateSourceListDocumentHistory(row);
   if(!row.codec||!row.data||typeof row.data!=='object'||Array.isArray(row.data))return;
   for(const [field,descriptor] of Object.entries(row.codec.fields))if(localToolRichImages(descriptor)){
    const value=row.data[field] as unknown as RichBlockDocument|undefined;
