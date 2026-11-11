@@ -843,6 +843,14 @@ Undo can restore raw field absence while the Source view continues to project th
 
 A normal partial update can remain pending until its causal suffix arrives; it is not a complete portable snapshot. Full copies/imports of this list profile require complete history. Normal JSON copies and project duplicates fork admitted data into a new causal origin; same-ID ZIP restore retains its checkpoint. The [V1](../tests/fixtures/local-tools/source-list-notebook/v1/module.tsx) and [V2](../tests/fixtures/local-tools/source-list-notebook/v2/module.tsx) notebook examples save a name and add, edit, check, reorder or remove review steps with Undo/Redo. [Evidence and limits](../tasks/vvd1095/verification-sdk-source-list-additive2540.md).
 
+### Add several fields in one Source release
+
+In the new `defineLocalTool` definition, pass `sourceAdditive: { from, fields: { habitat: 'Coast', threat: 4, traits: [], stats: {} } }`. Declare the matching scalar, stable-ID list and map descriptors in the codec. Keep the previous descriptors and the full predecessor identity in `from`. The release can keep its declared `stateSchemaVersion` when the only change is adding fields.
+
+Reads project every missing default without writing a slot. Apply a batch with the normal Source state actions or `wh_local_tool_state_apply`. The first effective batch promotes the existing document and stores only the authored slots in a single revision. A no-op keeps the predecessor. An explicit scalar write equal to its default still has a receipt. Undo removes the authored effects while continuing to show the defaults. Different lists and maps keep their own identities and edits, including when two lists contain the same item ID.
+
+This form starts from the initial register profile and requires empty defaults for maps and stable-ID lists. The existing singular declaration remains available. See [verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md).
+
 ## Add fields to an existing Owned block
 
 An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.
