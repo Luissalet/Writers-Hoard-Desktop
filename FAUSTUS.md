@@ -604,6 +604,8 @@ Source `82eafc27`, revisión 2, está integrado en Main sin push, con Native rea
 
 Una definición Source puede añadir una lista vacía con `sourceAdditive`, predecessor completo e `idKey` estable. Leer y seleccionar versión son pasivos; el primer `state.apply` efectivo es atómico y conserva los campos anteriores. Los clientes SDK y las herramientas MCP normales comparten acciones list y Undo scoped; las claves MCP no identifican autores de réplica. El cuaderno shipping V1/V2 permite guardar nombre y editar, marcar, ordenar o quitar pasos con Deshacer/Rehacer. No habilita migración general, cambio de tipos, semillas no vacías ni promoción de una V1 heredada. [Contrato, evidencia y límites](tasks/vvd1095/verification-sdk-source-list-additive2540.md).
 
+Una versión Source puede ampliar otra versión aditiva o saltar un ancestro declarado. Conserva los valores y el origen, y guarda el primer cambio efectivo en una revisión. [Ampliaciones sucesivas](tasks/vvd1095/verification-sdk-source-multiple2745.md#encadenar-ampliaciones-desde-otra-versión-aditiva).
+
 
 ## Abrir un bloque Source al lado
 

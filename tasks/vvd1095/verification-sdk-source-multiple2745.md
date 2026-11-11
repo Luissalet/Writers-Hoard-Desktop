@@ -2,7 +2,7 @@
 
 En la definición nueva, usa `sourceAdditive: { from, fields: { habitat: 'Coast', threat: 4, traits: [], stats: {} } }` con los descriptores correspondientes. `from` identifica el codec y el esquema exactos del predecesor. Los campos existentes conservan sus descriptores. Esta declaración admite escalares, mapas vacíos y listas vacías con IDs estables. [SDK local](../../docs/local-tool-sdk.md#add-several-fields-in-one-source-release)
 
-Seleccionar la versión y abrir el documento muestra los valores por defecto sin guardarlos. La primera tanda efectiva conserva el origen y guarda una sola revisión. Deshacer quita las escrituras propias y vuelve a mostrar los valores por defecto. Usa las acciones del SDK o `wh_local_tool_state_apply` y el Deshacer habitual. Las adiciones sucesivas sobre un documento ya promovido y las migraciones no aditivas siguen abiertas.
+Seleccionar la versión y abrir el documento muestra los valores por defecto sin guardarlos. La primera tanda efectiva conserva el origen y guarda una sola revisión. Deshacer quita las escrituras propias y vuelve a mostrar los valores por defecto. Usa las acciones del SDK o `wh_local_tool_state_apply` y el Deshacer habitual. La sección inferior documenta las adiciones sucesivas. Las migraciones no aditivas siguen abiertas.
 
 ## Verificación
 
@@ -11,3 +11,13 @@ Seleccionar la versión y abrir el documento muestra los valores por defecto sin
 - Puente real Native. Dos claves y 22 llamadas MCP verificaron lectura pasiva, promoción, Deshacer, ámbito de era y Base intacta. Dos revocaciones dieron 401 sin IPC, las sesiones terminaron con EOF 0 y quedaron 89 tablas privadas vacías. El perfil y los bundles de prueba se retiraron. Quick y build r2 finalizaron con EOF 0.
 
 La revisión 1 de #2745 aprobó `f755eba9b2d8c6f492659dab98f93db6e95d044e`, integrado por fast-forward. El manual de Google recoge la transición. Recibos en `Research/writer-parity-20261110/sdk-additive-multiple`.
+
+## Encadenar ampliaciones desde otra versión aditiva
+
+La versión V3 declara el predecesor exacto V2 en `from`. Para abrir directamente los documentos de V1, incluye V1 en `ancestors`. Cada identidad contiene `namespace`, `codec`, `validationId` y `schemaEpoch`. Declara sólo los campos nuevos en `fields` y conserva los descriptores de los anteriores. El nuevo codec proyecta los defaults de ambas etapas.
+
+La lectura y una operación sin cambios dejan intacto el checkpoint de V1 o V2. La primera edición de V3 conserva el origen y los cambios de V2. Registra las fronteras necesarias junto a la escritura en una sola revisión. Deshacer conserva los cambios anteriores y recupera la ausencia de los campos recién escritos. Pin comprueba el historial retenido. El formato no autoriza cambios de tipo ni migraciones no aditivas.
+
+El SDK oficial de VVD en Brave probó V1→V3 y V1→V2→V3, sin eventos de actualización al leer. Writer reprodujo el límite anterior y pasó 29 comprobaciones de la referencia y 22 de listas en dos etapas. Probó ausencia de escritura, pin inválido, frío, Deshacer y entregas parciales en ambos órdenes. Siete regresiones incluyeron historial físico y copias. Native r3 pasó 31 llamadas MCP con dos claves. Quick y Build r3 EOF 0.
+
+La revisión 1 de #2777 aprobó `6d298436f0f1bd579042f08f1e3620cde9c1a49d`, integrado por fast-forward. El manual de Google describe ambas rutas. Recibos en Research/writer-parity-20261110/sdk-additive-successive.
