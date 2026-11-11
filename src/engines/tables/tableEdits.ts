@@ -119,6 +119,16 @@ export function duplicateRow(table: WorldTable, rowId: string): DataRow {
   return insertRow(table, at + 1, table.rows[at].cells);
 }
 
+/** Duplicate each requested row once, directly below its source. */
+export function duplicateRows(table: WorldTable, rowIds: readonly string[]): DataRow[] {
+  if (isLiveTable(table)) throw Error('table_live_codex_requires_entry');
+  const ids = [...new Set(rowIds)];
+  if (table.rows.length + ids.length > MAX_ROWS) throw Error('Row limit reached.');
+  const available = new Set(table.rows.map(row => row.id));
+  if (ids.some(id => !available.has(id))) throw Error('table_row_missing');
+  return ids.map(id => duplicateRow(table, id));
+}
+
 /** Remove the given rows; returns how many went. */
 export function removeRows(table: WorldTable, rowIds: readonly string[]): number {
   if (table.codexType) throw new Error('table_live_codex_rows_are_cards');

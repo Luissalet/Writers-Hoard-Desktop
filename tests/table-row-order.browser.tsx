@@ -131,6 +131,38 @@ export async function testTableRowOrderContracts(): Promise<string[]> {
     assert(storedLive.rows.length === 0, 'Move wrote projected values to the table');
     assert(JSON.stringify(await db.codexEntries.where('projectId').equals(P).toArray()) === codexBefore, 'Live order edit mutated Base Codex records');
     passed.push('Live MCP and writer order all-type/template views by scoped Codex ID, retain hidden positions and support inherited era Undo');
+
+    const siblingId = `${P}-sibling`, beforeBatch = await read(P, siblingId);
+    const realTransaction = db.transaction;
+    const previousDescriptor = Object.getOwnPropertyDescriptor(db, 'transaction');
+    let scheduledPeer = false, ownVersion = '', peerVersion = '';
+    // Hold the first write's resolution after commit until another writer changes its version.
+    Object.defineProperty(db, 'transaction', { configurable: true, writable: true, value: function (this: typeof db, ...args: unknown[]) {
+      const pending = Reflect.apply(realTransaction, this, args) as Promise<unknown>;
+      if (args[0] !== 'rw' || scheduledPeer) return pending;
+      scheduledPeer = true;
+      return pending.then(async result => {
+        ownVersion = (await read(P, siblingId)).version;
+        await changeTable(P, siblingId, current => { current.title = 'Peer rename'; });
+        peerVersion = (await read(P, siblingId)).version;
+        return result;
+      });
+    } });
+    let batch: Awaited<ReturnType<typeof runBridgeTool>>;
+    try {
+      batch = await runBridgeTool('wh_table_edit', { projectId: P, tableId: siblingId, expectedVersion: beforeBatch.version,
+        action: 'duplicate-rows', rowIds: ['Alfa', 'Charlie'] });
+    } finally {
+      if (previousDescriptor) Object.defineProperty(db, 'transaction', previousDescriptor);
+      else Reflect.deleteProperty(db, 'transaction');
+    }
+    assert(batch.ok && scheduledPeer && ownVersion && peerVersion && ownVersion !== peerVersion, 'Duplicate batch and intervening write did not both commit');
+    const response = batch.result as { rows: WorldTable['rows']; version: string };
+    const finalSibling = (await read(P, siblingId)).document.root as unknown as WorldTable;
+    assert(response.rows.length === 2 && finalSibling.title === 'Peer rename', 'Duplicate batch or peer change was lost');
+    assert(response.version === ownVersion, 'Duplicate batch returned the intervening writer version');
+    passed.push('Batch duplication returns its own committed version across a later peer write');
+
     return passed;
   } finally { await deleteProject(P); }
 }
@@ -162,6 +194,60 @@ export async function testTableRowOrderUi(): Promise<string[]> {
     assert(order((await read(P, table.id)).document.root as unknown as WorldTable) === 'Charlie,Alfa,Bravo', 'UI order not persisted');
     return ['Normal TablesEngine Insert above, journal Undo, keyboard action and native pointer handlers preserve row IDs'];
   } finally { await act(async () => { root.unmount(); await wait(); }); clearUndoJournal(); await deleteProject(P); }
+}
+
+
+export async function testTableRowRangeUi(): Promise<string[]> {
+  const P = 'qa-table-range-ui', table = await seed(P), host = document.getElementById('root');
+  assert(host, 'Missing renderer root');
+  const previousLocale = useLocaleStore.getState().locale;
+  useLocaleStore.setState({ locale: 'en' });
+  const root = createRoot(host);
+  const checkbox = (id: string) => host.querySelector<HTMLInputElement>(`tr[data-row-id="${id}"] input[type="checkbox"]`)!;
+  const selected = () => ['Alfa', 'Bravo', 'Charlie'].filter(id => checkbox(id)?.checked).join();
+  const clickRow = async (id: string, shiftKey = false) => {
+    assert(checkbox(id), `Missing checkbox for ${id}`);
+    await act(async () => {
+      checkbox(id).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey }));
+    });
+  };
+  const clickButton = async (text: string) => {
+    const button = [...host.querySelectorAll('button')].find(element => element.textContent?.trim() === text);
+    assert(button && !button.disabled, `Missing enabled button ${text}`);
+    await act(async () => { button.click(); });
+  };
+  const readBase = () => read(P, table.id);
+  try {
+    await act(async () => { root.render(<MemoryRouter><TablesEngine projectId={P} /></MemoryRouter>); });
+    await until(() => !!checkbox('Alfa'), 'Manual table did not mount');
+    const before = await readBase();
+
+    await clickRow('Alfa');
+    await clickRow('Charlie', true);
+    assert(selected() === 'Alfa,Bravo,Charlie', 'Range missed its middle row');
+    await clickRow('Bravo', true);
+    assert(selected() === 'Alfa,Bravo,Charlie', 'Shift on a checked row removed it');
+    await clickButton('Clear selection');
+    await clickRow('Charlie', true);
+    assert(selected() === 'Charlie', 'Clearing selection retained the previous anchor');
+    await clickRow('Charlie');
+    assert(selected() === '', 'Ordinary click did not clear the checkbox');
+    await clickRow('Alfa', true);
+    assert(selected() === 'Alfa,Bravo,Charlie', 'A plain uncheck did not anchor the next range');
+
+    await clickButton('SiblingTable');
+    await until(() => !host.querySelector('[data-testid="table-selection"]'), 'Sibling inherited the selection');
+    await clickButton('QA row orderTable');
+    await until(() => !!checkbox('Alfa'), 'Original table did not reopen');
+    assert(selected() === '', 'Selection returned after changing tables');
+    const after = await readBase();
+    assert(after.version === before.version && JSON.stringify(after.document.root) === JSON.stringify(before.document.root), 'Selection wrote the table');
+    return ['Shift-click spans visible rows, keeps a checked target, resets by table and does not write row data'];
+  } finally {
+    await act(async () => { root.unmount(); });
+    useLocaleStore.setState({ locale: previousLocale });
+    await deleteProject(P);
+  }
 }
 
 let manualRoot: ReturnType<typeof createRoot> | undefined;
