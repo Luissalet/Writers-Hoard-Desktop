@@ -479,3 +479,53 @@ export async function testLocalToolSourceDerivedNative(){
  Reflect.set(window,'__focusNativeBlockCleanupReceipt',cleanup);
  return ['two Native keys described and used compiled Quest log operations with exact baselines, scoped Undo, and protected controls'];
 }
+
+/** Runtime package catalogue in a private renderer, using the real loader and dispatcher. */
+export async function testLocalToolRuntimeCatalogueNative(){
+ const [{getLocalToolCatalog},{getEngine},{deleteProject}]=await Promise.all([
+  import('@/engines/local/definitions'),import('@/engines/_registry'),import('@/db/operations'),
+ ]);
+ const namespace='qa.package-quest2639',projectId='native-package-catalogue-'+crypto.randomUUID(),marker='Native package catalogue 2639';
+ const packages=new Map([
+  ['b4f952ccdb61fc223a3af47a8d6fa1ebe62ed29e2eed24fb82e9b95d663ee09d','86b84bab388d85ec275d66a379f74f64ee6a40d498f30ee1eaa13afff9f47632'],
+  ['bd4408edc8ba59c0ed540571802bb131dd41af749ebb20eef3693367435eb19c','b16a89c79f4810f7c7301a3aa5b8e2afdf8393ba00fd6d24d620f2bb2ba2df67'],
+ ]);
+ const counts=async()=>Object.fromEntries(await Promise.all(db.tables.map(async table=>[table.name,await table.count()])));
+ const pending=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
+ const initial=await counts(),pendingBefore=pending();
+ check(Object.values(initial).every(count=>count===0),'Runtime catalogue requires an empty private database');
+ let created=false,completionTimer:ReturnType<typeof setTimeout>|undefined;
+ try{
+  await db.projects.add({id:projectId,title:marker,description:marker,mode:'custom',type:'standalone',status:'draft',color:'#777777',
+   enabledEngines:[],engineOrder:[],createdAt:1,updatedAt:1});
+  created=true;
+  Reflect.set(window,'__focusNativeCatalogueSnapshot',async()=>{
+   const registry={engine:!!getEngine('local-tool-'+namespace),hashes:[...(getLocalToolCatalog(namespace)?.releases.keys()??[])].sort()};
+   const rows=await db.transaction('r',db.tables,()=>Promise.all(db.tables.map(async table=>[table.name,await table.toArray()])));
+   return {registry,db:JSON.stringify(rows),pending:pending()};
+  });
+  const finished=new Promise<{ok:boolean;error?:string}>(resolve=>{
+   completionTimer=setTimeout(()=>resolve({ok:false,error:'Runtime catalogue Native driver did not finish'}),180000);
+   Reflect.set(window,'__focusNativeFinish',resolve);
+  });
+  Reflect.set(window,'__focusNativeReady',{projectId,namespace,runtimeRendererReady:true});
+  const completion=await finished;
+  check(completion.ok,completion.error??'Runtime catalogue Native driver failed');
+ }finally{
+  clearTimeout(completionTimer);
+  if(created){
+   const project=await db.projects.get(projectId);
+   check(!project||project.description===marker,'Refuse unrelated project cleanup');
+   if(project)await deleteProject(projectId);
+   for(const [hash,fileSha256] of packages){
+    const row=await db.localToolPackages.get(hash);
+    check(!row||row.namespace===namespace&&row.fileSha256===fileSha256,'Refuse unrelated package cleanup');
+    if(row)await db.localToolPackages.delete(hash);
+   }
+  }
+ }
+ const tableCounts=await counts(),pendingExact=JSON.stringify(pending())===JSON.stringify(pendingBefore);
+ check(Object.keys(tableCounts).length===Object.keys(initial).length&&Object.values(tableCounts).every(count=>count===0)&&pendingExact,'Runtime catalogue fixture cleanup failed');
+ Reflect.set(window,'__focusNativeCatalogueCleanupReceipt',{tableCounts,pendingExact,allTablesEmpty:true});
+ return ['actual two-key runtime catalogue inspection, mismatch rollback, explicit pin and one generated Source operation'];
+}

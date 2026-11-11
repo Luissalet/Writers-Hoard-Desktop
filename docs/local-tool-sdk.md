@@ -1025,6 +1025,33 @@ The normal package manager accepts a complete own runtime JSON file without rebu
 
 MCP shares inspect/install/list/export: inspect/install take file:{name,mime,base64}, list accepts an optional package/member namespace, export takes the exact contentHash and returns the complete JSON file. Data backups do not install code implicitly. The author CLI supports pack --runtime --source DIR --output FILE with local-tool.runtime.json.
 
+### Preview derived operations before installing a runtime package
+
+Add an optional `catalogue` array to `local-tool.runtime.json`. Each item names a tool member and a local JSON file:
+
+    "catalogue": [{"namespace":"me.quest-log","file":"src/fields.json"}]
+
+The file contains `documentBacked`, `stateFields` and, optionally, the tool's explicit `index`. Import the same file in the tool entry; pass its `stateFields` and optional `index` to `defineLocalTool`. Set `documentBacked` to match whether the definition supplies `document`. For example:
+
+    {
+      "documentBacked": true,
+      "stateFields": {
+        "version": 1,
+        "fields": {
+          "title": {
+            "codec": {"kind":"scalar"},
+            "agent": {
+              "description": {"en":"Quest title","es":"Título del encargo"},
+              "schema": {"type":"string"},
+              "index": true
+            }
+          }
+        }
+      }
+    }
+
+Use `pack --runtime` to compile the package and `check --runtime` to view its `catalogue`. Writer's package panel and `wh_local_package_inspect` also show it before installation. These previews do not run the tool. The package hash includes the catalogue. Installation compares the catalogue with the compiled tool's derived operations, document scope and effective index before saving or registering it. Handwritten operations are outside this preview; a handwritten index takes precedence. Packages without the optional declaration and Source/1 author packages keep their existing format and behavior.
+
 Probar creates a normal project from an installed member and explicitly selected dependencies; Keep removes only the trial marker and retains editor/draft/route/data. Discard uses normal pending writes and deletes only that still-marked project; unresolved drafts remain recoverable. Usage reads saved project pins and legacy/document/era/archive instances without evaluating packages or returning prose. [Exact signatures and portability](../tasks/vvd1095/verification-sdk-runtime-trials.md).
 
 wh_local_package_errors({namespace?,contentHash?,phase?}) returns errors/sessionOnly:true. The manager observes that same renderer memory. wh_local_package_errors_clear accepts the same AND filters; no filters clear all current history. Neither tool loads code or changes projects, pins or package availability. Clearing does not repair a factory or reset a boundary; use normal loader/view Retry or explicitly retry an operation. Closing or reloading starts an empty history.

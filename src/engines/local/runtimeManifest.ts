@@ -43,7 +43,7 @@ export const LOCAL_RUNTIME_TOOLS:BridgeTool[]=[
       ],
       "additionalProperties": false
     },
-    "description": "Inspect a canonical own local runtime package from complete JSON bytes without executing its code or writing data. No filesystem path or URL."
+    "description": "Inspect a canonical own local runtime package from complete JSON bytes, including its optional derived operations and index catalogue, without executing its code or writing data. No filesystem path or URL."
   },
   {
     "name": "wh_local_package_install",
