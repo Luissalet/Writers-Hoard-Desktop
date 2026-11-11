@@ -156,6 +156,9 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
     radarCharts: project.radarCharts?.map(chart => ({ ...chart, id: remap(chart.id, 'radar'), revision: 0, series: chart.series.map(series => ({ ...series, linkedEntryId: entry(series.linkedEntryId) })) })),
     dataTables: project.dataTables?.map(table => ({
       ...table, id: remap(table.id, 'table'),codexTemplateId:templateLink(table.codexTemplateId),
+      ...(Array.isArray(table.liveRowOrder) ? {
+        liveRowOrder: [...new Set(table.liveRowOrder.filter(id => typeof id === 'string' && id.length).map(id => remap(id, 'codex')))],
+      } : {}),
       columns: table.columns.map(column => ({ ...column, id: column.id.startsWith('property:')?column.id:remap(column.id, 'column'),calculation:column.calculation?{...column.calculation,rowBindings:Object.fromEntries(Object.entries(column.calculation.rowBindings).map(([name,id])=>[name,id.startsWith('property:')?id:remap(id,'column')])),columnBindings:Object.fromEntries(Object.entries(column.calculation.columnBindings).map(([name,id])=>[name,id.startsWith('property:')?id:remap(id,'column')]))}:undefined })),
       rows: table.rows.map(row => ({ id: remap(row.id, 'row'), cells: Object.fromEntries(table.columns.map(column => [remap(column.id, 'column'), column.kind === 'reference' ? entry(row.cells[column.id]) ?? '' : row.cells[column.id] ?? ''])) })),
     })),

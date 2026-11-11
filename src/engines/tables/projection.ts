@@ -3,6 +3,7 @@ import type {CodexTemplate,CodexPropertyDefinition} from '@/engines/codex/templa
 import {effectiveCodexTemplate} from '@/engines/codex/templateHierarchy';
 import {evaluatePropertyFormula,parsePropertyFormula,projectCodexEntry,propertyDefinitions,formatCalculationValue,type FormulaValue,type FormulaNode} from '@/engines/codex/properties';
 import type {DataColumn,DataRow,WorldTable,TableCalculation} from './types';
+import { isLiveTable } from './tableEdits';
 const tokens=(source:string)=>source.match(/@\[[^\]]+\]|\[[^\]]+\]|"(?:[^"\\]|\\.)*"|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[\p{L}_][\p{L}\p{N}_]*/gu)??[];
 export function tableDefinitions(table:WorldTable,templates:readonly CodexTemplate[]):CodexPropertyDefinition[]{const template=templates.find(item=>item.id===table.codexTemplateId);return template?propertyDefinitions(effectiveCodexTemplate(template,templates)):[];}
 export function effectiveTableColumns(table:WorldTable,templates:readonly CodexTemplate[]):DataColumn[]{
@@ -28,9 +29,26 @@ export function columnCalculation(table:WorldTable,column:DataColumn,templates:r
  const columns=effectiveTableColumns(table,templates),rowBindings=Object.fromEntries(Object.entries(definition.formulaBindings??{}).map(([name,id])=>[name,columns.find(column=>column.propertyId===id||column.field===definitions.find(item=>item.id===id)?.key)?.id??`missing:${id}`]));
  return{formula:definition.formula,rowBindings,columnBindings:{},resultType:definition.resultType??(definition.kind==='number'?'decimal':'text')};
 }
+export function liveTableEntries(table: WorldTable, entries: readonly CodexEntry[]): CodexEntry[] {
+ return entries.filter(entry => table.codexAllTypes || (table.codexTemplateId ? entry.templateId === table.codexTemplateId : entry.type === table.codexType));
+}
+
+export function orderLiveTableRows<T extends { id: string }>(table: WorldTable, rows: T[]): T[] {
+ if (!Array.isArray(table.liveRowOrder) || !table.liveRowOrder.length) return rows;
+ const remaining = new Map(rows.map(row => [row.id, row]));
+ const ordered: T[] = [];
+ for (const id of table.liveRowOrder) {
+  const entry = remaining.get(id);
+  if (!entry) continue;
+  ordered.push(entry);
+  remaining.delete(id);
+ }
+ return ordered.concat([...remaining.values()]);
+}
+
 /** One effective, uncached projection for UI, API, CSV and image export. */
 export function projectWorldTable(table:WorldTable,entries:readonly CodexEntry[],templates:readonly CodexTemplate[]=[]):{columns:DataColumn[];rows:DataRow[];displayRows:DataRow[];calculatedColumnIds:string[]}{
- const columns=effectiveTableColumns(table,templates),definitions=tableDefinitions(table,templates),live=Boolean(table.codexType||table.codexTemplateId||table.codexAllTypes),selected=entries.filter(entry=>table.codexAllTypes?true:table.codexTemplateId?entry.templateId===table.codexTemplateId:entry.type===table.codexType);
+ const columns=effectiveTableColumns(table,templates),definitions=tableDefinitions(table,templates),live=isLiveTable(table),selected=live?liveTableEntries(table,entries):[];
  const projections=new Map(selected.map(entry=>[entry.id,projectCodexEntry(entry,templates)]));
  const source:DataRow[]=live?selected.map(entry=>({id:entry.id,cells:Object.fromEntries(columns.map(column=>[column.id,column.field==='title'?entry.title:column.field==='__type'?entry.type:projections.get(entry.id)?.fields[column.field??column.name]??'']))})):table.rows;
  const calculatedColumnIds=columns.filter(column=>column.calculation||live&&selected.some(entry=>projections.get(entry.id)?.properties[column.field??column.name]?.calculated)||definitions.some(definition=>definition.id===column.propertyId&&definition.formula)).map(column=>column.id);
@@ -40,7 +58,9 @@ export function projectWorldTable(table:WorldTable,entries:readonly CodexEntry[]
   else{const raw=row.cells[id]??'';if(!raw.trim())return fail('');if(raw.startsWith('#'))return fail(raw);value=column.kind==='number'?Number(raw):raw;}
   if(typeof value==='number'&&!Number.isFinite(value))fail('#NUM!');cache.set(key,value);return value;
  }finally{visiting.delete(key);}};
- const rows=source.map(row=>({id:row.id,cells:Object.fromEntries(columns.map(column=>{if(!column.calculation)return[column.id,row.cells[column.id]??''];try{return[column.id,String(read(row,column.id))];}catch(reason){return[column.id,reason instanceof Error?reason.message:'#CALC!'];}}))}));
+ const computedRows=source.map(row=>({id:row.id,cells:Object.fromEntries(columns.map(column=>{if(!column.calculation)return[column.id,row.cells[column.id]??''];try{return[column.id,String(read(row,column.id))];}catch(reason){return[column.id,reason instanceof Error?reason.message:'#CALC!'];}}))}));
+ // Evaluate in the natural order, then apply the manual order to the result.
+ const rows=live?orderLiveTableRows(table,computedRows):computedRows;
  const displayRows=rows.map(row=>({id:row.id,cells:Object.fromEntries(columns.map(column=>[column.id,column.calculation?formatCalculationValue(row.cells[column.id],column.calculation.resultType):projections.get(row.id)?.properties[column.field??column.name]?.displayValue??row.cells[column.id]]))}));
  return{columns,rows,displayRows,calculatedColumnIds};
 }

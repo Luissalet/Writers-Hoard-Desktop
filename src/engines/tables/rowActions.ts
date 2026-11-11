@@ -1,9 +1,11 @@
 import Dexie, { type Transaction } from 'dexie';
 import { db } from '@/db';
-import { announceEraChange, readWorldDocument, resetEraDocument, saveEraDocument } from '@/services/worldEras/store';
+import type { CodexEntry } from '@/types';
+import { announceEraChange, listEraRows, readWorldDocument, resetEraDocument, saveEraDocument } from '@/services/worldEras/store';
 import { WorldEraConflict, type EraDocumentRead, type WorldEraScope } from '@/services/worldEras/types';
 import { changeTable } from './operations';
-import { insertRow, moveRow } from './tableEdits';
+import { insertRow, isLiveTable, moveRow, moveRowBefore } from './tableEdits';
+import { liveTableEntries, orderLiveTableRows } from './projection';
 import type { DataRow, WorldTable } from './types';
 
 export type TableRowAction = { action: 'move-row'; rowId: string; beforeRowId?: string } | { action: 'insert-row'; at?: number; beforeRowId?: string };
@@ -19,9 +21,17 @@ export async function editTableRows(scope: WorldEraScope, tableId: string, actio
     if (!read) throw Error('table_missing');
     if (read.version !== expectedVersion) throw new WorldEraConflict();
     const before = tableFrom(read), next = structuredClone(before);
-    if (next.codexType || next.codexTemplateId || next.codexAllTypes) throw Error('table_live_order_requires_view');
     let row: DataRow | undefined;
-    if (action.action === 'move-row') {
+    if (isLiveTable(next)) {
+      if (action.action !== 'move-row') throw Error('table_live_order_requires_view');
+      const entries = await listEraRows<CodexEntry>(scope, 'codexEntries');
+      const ordered = orderLiveTableRows(next, liveTableEntries(next, entries)).map(entry => entry.id);
+      const saved = Array.isArray(next.liveRowOrder) ? next.liveRowOrder.filter(id => typeof id === 'string' && id.length) : [];
+      const retained = [...new Set([...saved, ...ordered])];
+      if (!moveRowBefore(ordered, id => id, action.rowId, action.beforeRowId)) return { tableId, version: read.version };
+      moveRowBefore(retained, id => id, action.rowId, action.beforeRowId);
+      next.liveRowOrder = retained;
+    } else if (action.action === 'move-row') {
       if (!moveRow(next, action.rowId, action.beforeRowId)) return { tableId, version: read.version };
     } else {
       if (action.beforeRowId !== undefined && action.at !== undefined) throw Error('table_row_position_invalid');
