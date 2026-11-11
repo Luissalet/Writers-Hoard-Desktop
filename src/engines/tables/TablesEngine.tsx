@@ -14,6 +14,7 @@ import { WorldEraConflict } from '@/services/worldEras/types';
 import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
 import { canChangeTableColumnKind, CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, duplicateRows, filterRows, findMatches, insertRow, isLiveTable, isNormalTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, TABLE_COLUMN_KINDS, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
 import { useTableColumnDrag } from './useTableColumnDrag';
+import { useTableCellNavigation } from './useTableCellNavigation';
 import TableColumnHeader from './TableColumnHeader';
 import CsvDialog from './CsvDialog';
 import WorkbookTabs from './WorkbookTabs';
@@ -132,7 +133,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     const current = () => rowOwner.current === owner && owner.mounted && owner.epoch === epoch;
     setRowPending(epoch); setError('');
     try {
-      await editTableRows(target, tableId, action, version, result => {
+      return await editTableRows(target, tableId, action, version, result => {
         if (!result.receiptId) return;
         const receiptId = result.receiptId;
         recordUndoable({ projectId: target.projectId, kind: 'asset', label: action.action === 'move-row' ? copy.rowMoved : copy.rowInserted, notice: action.action === 'move-row' ? copy.rowMoved : copy.rowInserted, undo: async () => {
@@ -255,10 +256,12 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const candidates = filterRows(rows, conditions, (row, id) => { const column = columnById(id); return column ? displayValue(row, column) : undefined; });
   const matchesByRow = new Map<string, { rowId: string; columnId: string }[]>();
   const hasSearch = Boolean(query.trim());
-  if (table && hasSearch) for (const match of findMatches(candidates, table.columns, query, (row, column) => {
-    const value = rowValue(row, column);
-    return [value, displayValue(row, column), column.kind === 'reference' ? entryTitles.get(value) ?? '' : ''];
-  })) {
+  const matchSearch = (source: DataRow[], raw = rowValue, shown = displayValue) =>
+    findMatches(source, table?.columns ?? [], query, (row, column) => {
+      const value = raw(row, column);
+      return [value, shown(row, column), column.kind === 'reference' ? entryTitles.get(value) ?? '' : ''];
+    });
+  if (table && hasSearch) for (const match of matchSearch(candidates)) {
     const rowMatches = matchesByRow.get(match.rowId);
     if (rowMatches) rowMatches.push(match);
     else matchesByRow.set(match.rowId, [match]);
@@ -288,13 +291,15 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       : groupRules.filter((_, index) => index !== depth);
     saveView({ rules }, resetFolds);
   };
-  const { orderedRows: visible, expandedRows, items: groupItems, pathsByRow } = projectTableGroups(filteredRows, groupRules, (row, id) => {
+  const groupValue = (row: DataRow, id: string, rawValue = rowValue, shownValue = displayValue) => {
     const column = columnById(id)!;
-    const raw = rowValue(row, column), identity = raw.trim() ? raw : '';
+    const raw = rawValue(row, column), identity = raw.trim() ? raw : '';
     const number = identity && column.kind === 'number' ? Number(identity) : undefined;
     const title = column.kind === 'reference' ? entryTitles.get(raw) : undefined;
-    return { identity, label: identity ? title ?? displayValue(row, column) : '', number: Number.isFinite(number) ? number : undefined };
-  }, foldedGroups, locale);
+    return { identity, label: identity ? title ?? shownValue(row, column) : '', number: Number.isFinite(number) ? number : undefined };
+  };
+  const { orderedRows: visible, expandedRows, items: groupItems, pathsByRow } =
+    projectTableGroups(filteredRows, groupRules, groupValue, foldedGroups, locale);
   const selectRow = (rowId: string, checked: boolean, extend: boolean) => setRowSelection(current => {
     const previous = current?.epoch === selectionEpoch ? current : undefined;
     const rows = new Set(previous?.rows);
@@ -317,6 +322,30 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       else rows.delete(row.id);
     }
     return { epoch: selectionEpoch, rows, anchor: previous?.anchor };
+  });
+  const appendKeyboardRow = async () => {
+    if (!storedTable) return;
+    if (hasSearch || conditions.length || foldedGroups.size) {
+      const blank: DataRow = { id: crypto.randomUUID(), cells: {} };
+      const probe = projectWorldTable({ ...storedTable, rows: [...storedTable.rows, blank] }, []);
+      const row = probe.rows.at(-1)!, display = probe.displayRows.at(-1)!;
+      const raw = (item: DataRow, column: DataColumn) => item.cells[column.id] ?? '';
+      const shown = (_item: DataRow, column: DataColumn) => display.cells[column.id] ?? raw(row, column);
+      const matching = filterRows([row], conditions, (item, id) => {
+        const column = columnById(id);
+        return column ? shown(item, column) : undefined;
+      });
+      if (!matching.length || hasSearch && !matchSearch(matching, raw, shown).length) return;
+      if (foldedGroups.size && !projectTableGroups(matching, groupRules, (item, id) =>
+        groupValue(item, id, raw, shown), foldedGroups, locale).expandedRows.length) return;
+    }
+    return (await changeRows({ action: 'insert-row' }))?.row?.id;
+  };
+  const keyboard = useTableCellNavigation({
+    enabled: !!table && isNormalTable(table),
+    owner: rowOwner.current.epoch,
+    viewKey: JSON.stringify([query, conditions, sorts, groupRules, [...foldedGroups]]),
+    tableRef, rows: expandedRows, columns: table?.columns ?? [], appendRow: appendKeyboardRow,
   });
   const visiblePosition = new Map(visible.map((row, index) => [row.id, index]));
   const updateFolded = (update: (folded: Set<string>) => void) => setGroupFolds(previous => {
@@ -446,7 +475,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
           <button type="button" className={button} onClick={clearRowSelection}>{copy.clearSelection}</button></div>}
         {table.mode === 'sheet' && <p className="px-4 pb-3 text-xs leading-relaxed text-text-muted">{copy.formulaHelp}</p>}
         <div className="min-h-0 flex-1 overflow-auto border-y border-border">
-          <table ref={tableRef} className="w-max min-w-full border-collapse text-sm text-text-primary"><thead className="sticky top-0 z-10 bg-surface"><tr><th className="border-r border-b border-border px-3 py-2 text-text-muted">{!live && <input type="checkbox" data-testid="table-select-all" aria-label={copy.selectAll} className="mr-2 accent-accent-gold" disabled={!expandedRows.length} checked={expandedRows.length > 0 && expandedRows.every(row => selectedRows.has(row.id))} onChange={event => selectShownRows(event.target.checked)} />}#</th>{table.columns.map((column, index) => <TableColumnHeader key={JSON.stringify([rowKey, column.id])} column={column}
+          <table ref={tableRef} {...keyboard.gridProps} aria-label={keyboard.enabled ? table.title : undefined} className="w-max min-w-full border-collapse text-sm text-text-primary"><thead className="sticky top-0 z-10 bg-surface"><tr><th className="border-r border-b border-border px-3 py-2 text-text-muted">{!live && <input type="checkbox" data-testid="table-select-all" aria-label={copy.selectAll} className="mr-2 accent-accent-gold" disabled={!expandedRows.length} checked={expandedRows.length > 0 && expandedRows.every(row => selectedRows.has(row.id))} onChange={event => selectShownRows(event.target.checked)} />}#</th>{table.columns.map((column, index) => <TableColumnHeader key={JSON.stringify([rowKey, column.id])} column={column}
             sort={sorts[0]?.id === column.id ? sorts[0].descending ? 'descending' : 'ascending' : 'none'}
             drop={columnDrag.target?.id === column.id ? columnDrag.target.side : undefined}
             resize={canResizeColumns ? { label: `${copy.resizeColumn} ${column.name}`, disabled: columnsBusy, save: (width, expected) => resizeColumn(column.id, width, expected) } : undefined}>
@@ -500,7 +529,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
               </tr>;
               const row = item.row, index = visiblePosition.get(row.id)!;
               const savedIndex = rowPosition.get(row.id) ?? -1;
-              return <TableRow key={`row:${row.id}`} row={row} hidden={item.hidden} savedIndex={savedIndex} columns={table.columns} calculatedColumnIds={allTypes ? table.columns.map(column => column.id) : projected?.calculatedColumnIds??[]} display={displayValue} calculatedFields={live ? Object.entries(projectedEntries.get(row.id)?.properties ?? {}).filter(([, value]) => value.calculated).map(([key]) => key) : []} entries={entries} sheet={table.mode === 'sheet'} disabled={busy || allTypes} copy={copy} value={rowValue} save={saveValue} openEntry={id => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(id)}`)} selected={selectedRows.has(row.id)} onSelect={live ? undefined : (checked, extend) => selectRow(row.id, checked, extend)} matchColumnId={currentMatch?.rowId === row.id ? currentMatch.columnId : undefined} onDuplicate={live ? undefined : () => change(current => { duplicateRow(current, row.id); })} onInsertBelow={live ? undefined : () => change(current => { const at = current.rows.findIndex(item => item.id === row.id); insertRow(current, at + 1); })} rowOrderDisabled={!rowReady || rowWorking || busy} onInsertAbove={live ? undefined : () => void changeRows({ action: 'insert-row', beforeRowId: row.id })} onMoveUp={index === 0 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index - 1].id })} onMoveDown={index === visible.length - 1 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index + 2]?.id })} onRowPointerDown={event => beginRowDrag(row.id, event)} onRowPointerMove={moveRowPointer} onRowPointerEnd={endRowPointer} dropBefore={rowDrop?.epoch === rowOwner.current.epoch && rowDrop.id === row.id} action={live ? () => setEntryDraft(entries.find(entry => entry.id === row.id)!) : () => requestDelete(copy.removeRow, () => changeTable(projectId, table.id, current => { current.rows = current.rows.filter(item => item.id !== row.id); }))} live={live} />;
+              return <TableRow key={`row:${row.id}`} row={row} keyboard={keyboard} hidden={item.hidden} savedIndex={savedIndex} columns={table.columns} calculatedColumnIds={allTypes ? table.columns.map(column => column.id) : projected?.calculatedColumnIds??[]} display={displayValue} calculatedFields={live ? Object.entries(projectedEntries.get(row.id)?.properties ?? {}).filter(([, value]) => value.calculated).map(([key]) => key) : []} entries={entries} sheet={table.mode === 'sheet'} disabled={busy || allTypes} copy={copy} value={rowValue} save={saveValue} openEntry={id => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(id)}`)} selected={selectedRows.has(row.id)} onSelect={live ? undefined : (checked, extend) => selectRow(row.id, checked, extend)} matchColumnId={currentMatch?.rowId === row.id ? currentMatch.columnId : undefined} onDuplicate={live ? undefined : () => change(current => { duplicateRow(current, row.id); })} onInsertBelow={live ? undefined : () => change(current => { const at = current.rows.findIndex(item => item.id === row.id); insertRow(current, at + 1); })} rowOrderDisabled={!rowReady || rowWorking || busy} onInsertAbove={live ? undefined : () => void changeRows({ action: 'insert-row', beforeRowId: row.id })} onMoveUp={index === 0 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index - 1].id })} onMoveDown={index === visible.length - 1 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index + 2]?.id })} onRowPointerDown={event => beginRowDrag(row.id, event)} onRowPointerMove={moveRowPointer} onRowPointerEnd={endRowPointer} dropBefore={rowDrop?.epoch === rowOwner.current.epoch && rowDrop.id === row.id} action={live ? () => setEntryDraft(entries.find(entry => entry.id === row.id)!) : () => requestDelete(copy.removeRow, () => changeTable(projectId, table.id, current => { current.rows = current.rows.filter(item => item.id !== row.id); }))} live={live} />;
             })}</tbody>
           </table>
           {visible.length === 0 && <p className="p-5 text-sm text-text-muted">{copy.noRows}</p>}
@@ -508,7 +537,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
         <footer className="flex flex-wrap items-center justify-between gap-3 p-4" data-table-row-end={storedTable?.id}>{allTypes ? <p className="text-xs text-text-muted" data-testid="table-all-types-note">{copy.allTypesNote}</p> : <button className={button} disabled={busy || rows.length >= 20000} onClick={() => {
           if (table.codexType) { const now = Date.now(); setEntryDraft({ id: crypto.randomUUID(), projectId, type: table.codexType, templateId:table.codexTemplateId, title: '', fields: {}, content: '', tags: [], relations: [], createdAt: now, updatedAt: now }); }
           else change(current => { current.rows.push({ id: crypto.randomUUID(), cells: {} }); });
-        }}><Plus size={16} />{table.codexType ? copy.newCard : copy.addRow}</button>}<p className="text-xs text-text-muted">{copy.cellHint}</p></footer>
+        }}><Plus size={16} />{table.codexType ? copy.newCard : copy.addRow}</button>}<p className="text-xs text-text-muted" id={keyboard.enabled ? keyboard.hintId : undefined}>{copy.cellHint}{keyboard.enabled && ` ${copy.cellKeyboardHint}`}</p></footer>
       </div>}
     </div>
     <ConfirmDialog open={Boolean(confirmation)} destructive message={confirmation?.message ?? ''} onCancel={() => setConfirmation(null)} onConfirm={async () => { if (confirmation) await run(confirmation.work, () => setConfirmation(null)); }} />
@@ -560,27 +589,31 @@ function TableFilters({ columns, conditions, stored, revision, copy, busy, save,
   </div>;
 }
 
-function TableRow({ row, savedIndex, columns, calculatedColumnIds,display,calculatedFields, entries, sheet, disabled, copy, hidden, value, save, openEntry, action, live, selected, onSelect, matchColumnId, onDuplicate, onInsertBelow, rowOrderDisabled, onInsertAbove, onMoveUp, onMoveDown, onRowPointerDown, onRowPointerMove, onRowPointerEnd, dropBefore }: {
-  row: DataRow; savedIndex: number; columns: DataColumn[];calculatedColumnIds:string[];display:(row:DataRow,column:DataColumn)=>string; calculatedFields: string[]; entries: CodexEntry[]; sheet: boolean; disabled: boolean; copy: typeof tableCopy.en; hidden: boolean;
+function TableRow({ row, keyboard, savedIndex, columns, calculatedColumnIds,display,calculatedFields, entries, sheet, disabled, copy, hidden, value, save, openEntry, action, live, selected, onSelect, matchColumnId, onDuplicate, onInsertBelow, rowOrderDisabled, onInsertAbove, onMoveUp, onMoveDown, onRowPointerDown, onRowPointerMove, onRowPointerEnd, dropBefore }: {
+  row: DataRow; keyboard: Pick<ReturnType<typeof useTableCellNavigation>, 'enabled' | 'cellProps' | 'trackWrite'>; savedIndex: number; columns: DataColumn[];calculatedColumnIds:string[];display:(row:DataRow,column:DataColumn)=>string; calculatedFields: string[]; entries: CodexEntry[]; sheet: boolean; disabled: boolean; copy: typeof tableCopy.en; hidden: boolean;
   value: (row: DataRow, column: DataColumn) => string; save: (row: DataRow, column: DataColumn, value: string) => Promise<void>; openEntry: (id: string) => void; action: () => void; live: boolean;
   selected?: boolean; onSelect?: (checked: boolean, extend: boolean) => void; matchColumnId?: string; onDuplicate?: () => void; onInsertBelow?: () => void; rowOrderDisabled?: boolean; onInsertAbove?: () => void; onMoveUp?: () => void; onMoveDown?: () => void; onRowPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerEnd?: (event: ReactPointerEvent<HTMLButtonElement>, cancelled?: boolean) => void; dropBefore?: boolean;
 }) {
   return <tr hidden={hidden} className={selected ? 'bg-accent-gold/10' : 'hover:bg-surface/50'} data-row-id={row.id} style={dropBefore ? { boxShadow: 'inset 0 2px 0 var(--color-accent-gold)' } : undefined}><th className="border-r border-b border-border px-3 text-xs font-normal tabular-nums text-text-muted">{onRowPointerDown && <button type="button" data-table-row-handle disabled={rowOrderDisabled} aria-label={`${copy.dragRow} ${savedIndex + 1}`} title={copy.dragRow} className="inline-flex h-9 w-9 items-center justify-center rounded text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40" style={{ touchAction: 'none' }} onPointerDown={onRowPointerDown} onPointerMove={onRowPointerMove} onPointerUp={event => onRowPointerEnd?.(event)} onPointerCancel={event => onRowPointerEnd?.(event, true)} onLostPointerCapture={event => onRowPointerEnd?.(event, true)}><GripVertical size={15} /></button>}{onSelect && <input type="checkbox" data-testid={`table-select-row-${savedIndex + 1}`} aria-label={`${copy.selectRow} ${savedIndex + 1}`} className="mr-2 accent-accent-gold" checked={!!selected} onChange={event => onSelect(event.target.checked, 'shiftKey' in event.nativeEvent && event.nativeEvent.shiftKey === true)} />}{savedIndex + 1}</th>{columns.map((column, columnIndex) => {
     const raw = row.cells[column.id] ?? ''; const computed = value(row, column); const label = `${cellKey(columnIndex, savedIndex)} ${column.name}`;
-    return <td key={column.id} data-cell={`${row.id}:${column.id}`} data-match={matchColumnId === column.id ? 'current' : undefined} className="border-r border-b border-border p-0 align-top" style={{ maxWidth: column.width ?? 180, ...(matchColumnId === column.id ? { outline: '2px solid #c4973b', outlineOffset: -2 } : {}) }}>
-      {calculatedColumnIds.includes(column.id)?<output className={`block min-h-11 break-words px-3 py-2 ${computed.startsWith('#')?'text-danger':'text-text-primary'}`} aria-label={label}>{display(row,column)||'—'}</output>:<TableCell raw={raw} label={label} column={column} entries={entries} sheet={sheet} disabled={disabled || calculatedFields.includes(column.field ?? column.name)} copy={copy} save={value => save(row, column, value)} openEntry={openEntry} />}
+    return <td key={column.id} {...keyboard.cellProps(row.id, column.id)} data-cell={`${row.id}:${column.id}`} data-match={matchColumnId === column.id ? 'current' : undefined} className="border-r border-b border-border p-0 align-top data-[keyboard-selected=true]:bg-accent-gold/10 data-[keyboard-active=true]:ring-1 data-[keyboard-active=true]:ring-inset data-[keyboard-active=true]:ring-accent-gold" style={{ maxWidth: column.width ?? 180, ...(matchColumnId === column.id ? { outline: '2px solid #c4973b', outlineOffset: -2 } : {}) }}>
+      {calculatedColumnIds.includes(column.id)?<output className={`block min-h-11 break-words px-3 py-2 ${computed.startsWith('#')?'text-danger':'text-text-primary'}`} aria-label={label}>{display(row,column)||'—'}</output>:<TableCell raw={raw} label={label} column={column} entries={entries} sheet={sheet} keyboard={keyboard.enabled} trackWrite={keyboard.enabled ? keyboard.trackWrite : undefined} disabled={disabled || calculatedFields.includes(column.field ?? column.name)} copy={copy} save={value => save(row, column, value)} openEntry={openEntry} />}
       {sheet && raw.startsWith('=') && <output className={`block px-3 pb-2 text-xs ${computed.startsWith('#') ? 'text-danger' : 'text-accent-gold'}`} aria-label={`${copy.value} ${label}`}>{computed}</output>}
     </td>;
   })}<td className="border-b border-border px-2 whitespace-nowrap">{onRowPointerDown && <details className="relative inline-block"><summary aria-label={`${copy.rowActions} ${savedIndex + 1}`} className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold"><Settings2 size={15}/></summary><div className="absolute right-0 z-20 flex w-48 flex-col gap-1 rounded-lg border border-border bg-surface p-1 shadow-lg" onClick={event => { if ((event.target as Element).closest('button')) event.currentTarget.parentElement?.removeAttribute('open'); }}>{onInsertAbove && <button type="button" disabled={rowOrderDisabled} className={`${button} w-full justify-start`} onClick={onInsertAbove}>{copy.insertAbove}</button>}<button type="button" disabled={rowOrderDisabled || !onMoveUp} className={`${button} w-full justify-start`} onClick={onMoveUp}>{copy.moveRowUp}</button><button type="button" disabled={rowOrderDisabled || !onMoveDown} className={`${button} w-full justify-start`} onClick={onMoveDown}>{copy.moveRowDown}</button></div></details>}{onInsertBelow && <button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={`${copy.insertBelow} ${savedIndex + 1}`} title={copy.insertBelow} onClick={onInsertBelow}><Plus size={15} /></button>}{onDuplicate && <button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={`${copy.duplicateRow} ${savedIndex + 1}`} title={copy.duplicateRow} onClick={onDuplicate}><Copy size={15} /></button>}<button className="rounded p-2 text-text-muted hover:bg-elevated" disabled={disabled} aria-label={live ? copy.editCard : `${copy.remove} ${savedIndex + 1}`} onClick={action}>{live ? <Settings2 size={15} /> : <Trash2 size={15} />}</button></td></tr>;
 }
 
-function TableCell({ raw, label, column, entries, sheet, disabled, copy, save, openEntry }: { raw: string; label: string; column: DataColumn; entries: CodexEntry[]; sheet: boolean; disabled: boolean; copy: typeof tableCopy.en; save: (value: string) => Promise<void>; openEntry: (id: string) => void }) {
+function TableCell({ raw, label, column, entries, sheet, keyboard, trackWrite, disabled, copy, save, openEntry }: { raw: string; label: string; column: DataColumn; entries: CodexEntry[]; sheet: boolean; keyboard: boolean; trackWrite?: (work: Promise<boolean>) => void; disabled: boolean; copy: typeof tableCopy.en; save: (value: string) => Promise<void>; openEntry: (id: string) => void }) {
   const field = useDebouncedField(raw, save, { delayMs: 750 });
+  const onBlur = () => {
+    if (trackWrite) trackWrite(field.flush());
+    else field.onBlur();
+  };
   return <>
-    {!sheet && column.kind === 'checkbox' ? <input className="m-3 accent-accent-gold" type="checkbox" aria-label={label} checked={field.value === 'true'} disabled={disabled} onChange={event => field.onChange(String(event.target.checked))} onBlur={field.onBlur} />
-      : !sheet && column.kind === 'reference' ? <div className="flex items-center"><select className="min-w-0 flex-1 bg-transparent p-3 outline-accent-gold" aria-label={label} value={field.value} disabled={disabled} onChange={event => field.onChange(event.target.value)} onBlur={field.onBlur}><option value="">{copy.noLink}</option>{field.value && !entries.some(entry => entry.id === field.value) && <option value={field.value}>{copy.missingLink}</option>}{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select>{entries.some(entry => entry.id === field.value) && <button className="mr-2 rounded p-1 text-accent-gold" aria-label={copy.openCard} onClick={() => openEntry(field.value)}><ExternalLink size={14} /></button>}</div>
-        : !sheet && column.kind === 'text' ? <textarea aria-label={label} title={`${copy.cellHint} Shift+Enter: ↵`} rows={Math.min(8, field.value.split('\n').length)} className="block min-h-11 w-full min-w-0 resize-y bg-transparent px-3 py-2 outline-accent-gold focus:bg-elevated" value={field.value} disabled={disabled} onChange={event => field.onChange(event.target.value)} onBlur={field.onBlur} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { event.preventDefault(); field.onChange(raw); event.currentTarget.blur(); } }} />
-          : <input aria-label={label} title={copy.cellHint} className="min-h-11 w-full min-w-0 bg-transparent px-3 py-2 outline-accent-gold focus:bg-elevated" value={field.value} disabled={disabled} onChange={event => field.onChange(event.target.value)} onBlur={field.onBlur} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { field.onChange(raw); event.currentTarget.blur(); } }} />}
+    {!sheet && column.kind === 'checkbox' ? <input className="m-3 accent-accent-gold" type="checkbox" aria-label={label} checked={field.value === 'true'} disabled={disabled} onChange={event => field.onChange(String(event.target.checked))} onBlur={onBlur} />
+      : !sheet && column.kind === 'reference' ? <div className="flex items-center"><select className="min-w-0 flex-1 bg-transparent p-3 outline-accent-gold" aria-label={label} value={field.value} disabled={disabled} onChange={event => field.onChange(event.target.value)} onBlur={onBlur}><option value="">{copy.noLink}</option>{field.value && !entries.some(entry => entry.id === field.value) && <option value={field.value}>{copy.missingLink}</option>}{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select>{entries.some(entry => entry.id === field.value) && <button className="mr-2 rounded p-1 text-accent-gold" aria-label={copy.openCard} onClick={() => openEntry(field.value)}><ExternalLink size={14} /></button>}</div>
+        : !sheet && column.kind === 'text' ? <textarea aria-label={label} tabIndex={keyboard ? -1 : undefined} title={`${copy.cellHint} Shift+Enter: ↵`} rows={Math.min(8, field.value.split('\n').length)} className="block min-h-11 w-full min-w-0 resize-y bg-transparent px-3 py-2 outline-accent-gold focus:bg-elevated" value={field.value} disabled={disabled} onChange={event => field.onChange(event.target.value)} onBlur={onBlur} onKeyDown={event => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { event.preventDefault(); field.onChange(raw); event.currentTarget.blur(); } }} />
+          : <input aria-label={label} tabIndex={keyboard ? -1 : undefined} title={copy.cellHint} className="min-h-11 w-full min-w-0 bg-transparent px-3 py-2 outline-accent-gold focus:bg-elevated" value={field.value} disabled={disabled} onChange={event => field.onChange(event.target.value)} onBlur={onBlur} onKeyDown={event => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { field.onChange(raw); event.currentTarget.blur(); } }} />}
     {field.error && <div role="alert" className="px-3 pb-2 text-xs text-danger"><p>{copy.error}</p><button className="mt-2 underline underline-offset-2" onClick={() => { void field.retry(); }}>{copy.retry}</button></div>}
   </>;
 }
