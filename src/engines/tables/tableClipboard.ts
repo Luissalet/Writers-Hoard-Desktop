@@ -1,5 +1,5 @@
 import { parseCsv } from './operations';
-import { insertRow, isNormalTable } from './tableEdits';
+import { insertRow, isLiveTable, isNormalTable } from './tableEdits';
 import { validateCell, type WorldTable } from './types';
 
 export interface TableCellPaste {
@@ -25,13 +25,14 @@ export function parseTableClipboard(text: string): string[][] {
   return parseCsv(text, '\t');
 }
 
-/** Write the given cells in view order, then append any remaining rows. */
+/** Write the cells in view order. Only normal tables can append overflow rows. */
 export function pasteTableCells(table: WorldTable, paste: TableCellPaste): TableCellPasteResult {
-  if (!isNormalTable(table)) throw Error('table_paste_requires_normal_table');
-  const { rowIds, columnIds, values } = paste;
-  const width = values[0]?.length ?? 0;
-  if (!width || columnIds.length < 1 || columnIds.length > width || rowIds.length > values.length ||
-      values.some(row => row.length !== width || row.some(value => typeof value !== 'string')) ||
+  const sheet = table.mode === 'sheet' && !isLiveTable(table);
+  if (!sheet && !isNormalTable(table)) throw Error('table_paste_requires_normal_table');
+  const { rowIds, columnIds, values: input } = paste;
+  const width = input[0]?.length ?? 0;
+  if (!width || columnIds.length < 1 || columnIds.length > width || rowIds.length > input.length ||
+      sheet && !rowIds.length || input.some(row => row.length !== width || row.some(value => typeof value !== 'string')) ||
       new Set(rowIds).size !== rowIds.length || new Set(columnIds).size !== columnIds.length) {
     throw Error('table_paste_shape_invalid');
   }
@@ -42,8 +43,9 @@ export function pasteTableCells(table: WorldTable, paste: TableCellPaste): Table
   const rows = rowIds.map(id => rowsById.get(id) ?? missing());
   const targetColumns = columnIds.map(id => columnsById.get(id) ?? missing());
   if (targetColumns.some(column => column.calculation)) throw Error('table_paste_readonly');
-  for (const row of values) {
-    if (targetColumns.some((column, index) => !validateCell(column, row[index]))) throw Error('table_paste_value_invalid');
+  const values = sheet ? input.slice(0, rowIds.length) : input;
+  if (!sheet && values.some(row => targetColumns.some((column, index) => !validateCell(column, row[index])))) {
+    throw Error('table_paste_value_invalid');
   }
 
   const addedRows = values.length - rows.length;

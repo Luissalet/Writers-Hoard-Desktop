@@ -96,7 +96,10 @@ export const TABLE_HANDLERS = {
       }
       const result = await editTableRows(target, table.id, change, expected);
       const summary = { 'move-row': 'Moved table row', 'insert-row': 'Inserted table row', 'paste-cells': 'Pasted table cells' }[action];
-      return result.receiptId ? withAudit(result, { projectId: target.projectId, entityId: table.id, kind: 'update', summary, before: { __tableRowReceipt: result.receiptId } }) : result;
+      if (!result.receiptId) return withAudit(result, {
+        projectId: target.projectId, kind: 'update', summary: 'Table rows unchanged', reversible: false,
+      });
+      return withAudit(result, { projectId: target.projectId, entityId: table.id, kind: 'update', summary, before: { __tableRowReceipt: result.receiptId } });
     }
     if (table.codexAllTypes) throw Error('table_all_types_read_only');
     return db.transaction('rw', db.tables, async () => {

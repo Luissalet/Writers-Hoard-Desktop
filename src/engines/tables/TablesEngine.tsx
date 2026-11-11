@@ -363,7 +363,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       const rowIds = expandedRows.slice(row, row + values.length).map(item => item.id);
       const columnIds = table.columns.slice(column, column + values[0].length).map(item => item.id);
       const paste = { rowIds, columnIds, values };
-      if (restrictRows && rowIds.length < values.length) {
+      if (table.mode !== 'sheet' && restrictRows && rowIds.length < values.length) {
         const draft = structuredClone(storedTable);
         const predicted = pasteTableCells(draft, paste);
         if (!rowsVisibleInView(draft, predicted.rowIds.slice(rowIds.length))) throw Error('table_paste_hidden_rows');
@@ -381,9 +381,12 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     owner: rowOwner.current.epoch,
     viewKey: JSON.stringify([query, conditions, sorts, groupRules, [...foldedGroups]]),
     tableRef, rows: expandedRows, columns: table?.columns ?? [], appendRow: normalKeyboard ? appendKeyboardRow : undefined,
-    readCell: normalKeyboard ? (row, column) => rowValue(expandedRows[row], table!.columns[column]) : undefined,
-    pasteFrom: normalKeyboard ? pasteFrom : undefined,
-    clearRange: normalKeyboard ? ({ firstRow, lastRow, firstColumn, lastColumn }) => {
+    readCell: (row, column) => {
+      const item = expandedRows[row], target = table!.columns[column];
+      return sheetKeyboard ? item.cells[target.id] ?? '' : rowValue(item, target);
+    },
+    pasteFrom,
+    clearRange: ({ firstRow, lastRow, firstColumn, lastColumn }) => {
       const columnIds = table!.columns.slice(firstColumn, lastColumn + 1)
         .filter(column => !projected?.calculatedColumnIds.includes(column.id))
         .map(column => column.id);
@@ -391,7 +394,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       const rowIds = expandedRows.slice(firstRow, lastRow + 1).map(row => row.id);
       const values = rowIds.map(() => columnIds.map(() => ''));
       void changeRows({ action: 'paste-cells', rowIds, columnIds, values }, undefined, copy.cellsCleared);
-    } : undefined,
+    },
   });
   const visiblePosition = new Map(visible.map((row, index) => [row.id, index]));
   const updateFolded = (update: (folded: Set<string>) => void) => setGroupFolds(previous => {
