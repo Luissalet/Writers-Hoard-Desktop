@@ -17,6 +17,7 @@ import type { EraRow } from '@/services/worldEras/types';
 import { missingRequiredProperties, projectCodexEntry, propertyDefinitions } from '@/engines/codex/properties';
 import { applyCodexTemplate, saveCodexTemplate, deleteCodexTemplate, type CodexTemplate } from '@/engines/codex/templates';
 import { effectiveCodexTemplate } from '@/engines/codex/templateHierarchy';
+import { projectCodexTypeCatalogue } from '@/engines/codex/typeCatalogue';
 import {createLibraryCodex} from '@/components/project/workspace/library/createCodex';
 import {WorkspaceLibraryConflict,WorkspaceLibraryInvalidAction} from '@/components/project/workspace/library/model';
 import { applyTemplateSync, previewTemplateSync, type TemplateSyncOptions, type TemplateSyncPreview } from '@/engines/codex/templateSync';
@@ -239,6 +240,9 @@ export async function whCodexTemplates(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args), project = await db.projects.get(projectId);
   if (!project) throw new BridgeError('not-found', 'Project not found.');
   const templates = project.codexTemplates ?? [];
+  const catalogue=optBoolean(args,'catalogue')===true,templateId=optString(args,'templateId');
+  if(!catalogue&&templateId!==undefined)throw new BridgeError('bad-args','templateId requires catalogue:true.');
+  if(catalogue)return {projectId,types:projectCodexTypeCatalogue(templates).filter(row=>templateId===undefined||row.id===templateId)};
   return { projectId, templates, effectiveTemplates: templates.map(template => effectiveCodexTemplate(template, templates)) };
 }
 export async function whSaveCodexTemplate(args: ToolArgs): Promise<unknown> {
