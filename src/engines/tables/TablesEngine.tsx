@@ -33,7 +33,7 @@ import { saveCodexDraft } from '@/engines/codex/operations';
 import { createCodexEntry } from '@/db/operations';
 import { cellKey, validateCell, type DataColumn, type DataRow, type TableViewSettings, type WorldTable } from './types';
 import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped, saveTableView } from './operations';
-import { sheetValues } from './formulas';
+import { sheetColumnTotals, sheetValues } from './formulas';
 import { tableCopy } from './copy';
 import { confirmedTableFilters, effectiveTableView, filterStamp, projectTableGroups, storedTableView, tableViewParts } from './viewGroups';
 import { useDebouncedField } from '@/engines/_shared/useDebouncedField';
@@ -243,6 +243,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   };
   const rows:DataRow[]=projected?.rows??[];
   const values = table?.mode === 'sheet' ? sheetValues(table) : null;
+  const columnTotals = table && values ? sheetColumnTotals(table, values) : undefined;
   const displayById = new Map(projected?.displayRows.map(row => [row.id, row]) ?? []);
   const entryTitles = new Map(entries.map(entry => [entry.id, entry.title]));
   const rowPosition = new Map((live ? rows : table?.rows ?? []).map((row, index) => [row.id, index]));
@@ -580,6 +581,20 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
               const savedIndex = rowPosition.get(row.id) ?? -1;
               return <TableRow key={`row:${row.id}`} row={row} keyboard={keyboard} hidden={item.hidden} savedIndex={savedIndex} columns={table.columns} calculatedColumnIds={allTypes ? table.columns.map(column => column.id) : projected?.calculatedColumnIds??[]} display={displayValue} calculatedFields={live ? Object.entries(projectedEntries.get(row.id)?.properties ?? {}).filter(([, value]) => value.calculated).map(([key]) => key) : []} entries={entries} sheet={table.mode === 'sheet'} disabled={busy || allTypes} copy={copy} value={rowValue} save={saveValue} openEntry={id => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(id)}`)} selected={selectedRows.has(row.id)} onSelect={live ? undefined : (checked, extend) => selectRow(row.id, checked, extend)} matchColumnId={currentMatch?.rowId === row.id ? currentMatch.columnId : undefined} onDuplicate={live ? undefined : () => change(current => { duplicateRow(current, row.id); })} onInsertBelow={live ? undefined : () => change(current => { const at = current.rows.findIndex(item => item.id === row.id); insertRow(current, at + 1); })} rowOrderDisabled={!rowReady || rowWorking || busy} onInsertAbove={live ? undefined : () => void changeRows({ action: 'insert-row', beforeRowId: row.id })} onMoveUp={index === 0 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index - 1].id })} onMoveDown={index === visible.length - 1 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index + 2]?.id })} onRowPointerDown={event => beginRowDrag(row.id, event)} onRowPointerMove={moveRowPointer} onRowPointerEnd={endRowPointer} dropBefore={rowDrop?.epoch === rowOwner.current.epoch && rowDrop.id === row.id} action={live ? () => setEntryDraft(entries.find(entry => entry.id === row.id)!) : () => requestDelete(copy.removeRow, () => changeTable(projectId, table.id, current => { current.rows = current.rows.filter(item => item.id !== row.id); }))} live={live} />;
             })}</tbody>
+            {Boolean(columnTotals?.size) && <tfoot className="sticky bottom-0 z-10 bg-surface">
+              <tr>
+                <th scope="row" className="border-r border-t border-border px-3 py-2 text-text-muted">{copy.sheetSum}</th>
+                {table.columns.map(column => {
+                  const total = columnTotals?.get(column.id);
+                  return <td key={column.id} className="border-r border-t border-border px-3 py-2 text-right tabular-nums">
+                    {total !== undefined && <output aria-label={copy.sheetColumnSum.replace('{column}', column.name)}>
+                      {total}
+                    </output>}
+                  </td>;
+                })}
+                <td className="border-t border-border" />
+              </tr>
+            </tfoot>}
           </table>
           {visible.length === 0 && <p className="p-5 text-sm text-text-muted">{copy.noRows}</p>}
         </div>
