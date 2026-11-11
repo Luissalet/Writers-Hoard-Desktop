@@ -2,11 +2,12 @@ import * as Y from 'yjs';
 import {JsonArray,JsonMap,Registers} from './registers';
 import {assertConvergenceIdentity,convergenceCanonical,convergenceCodecHash,convergenceHash,convergenceIdentity,validateConvergenceIdentity,validateConvergenceMetadata} from './format';
 import {priorSourceCodec} from './sourceAdditive';
+import {SOURCE_LIST_FORMAT,SOURCE_LIST_AUTHORITY_ROOT,inspectSourceListHistory,sourceListRetainedRegisters,sourceListField} from './sourceListHistory';
 import type {CausalTransaction,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,RegisterActivation,RegisterVersion} from './formatTypes';
 
-export const SOURCE_ADDITIVE_ROOT='convergence-source-additive';
+export const SOURCE_ADDITIVE_ROOT=SOURCE_LIST_AUTHORITY_ROOT;
 interface SourceAdditiveAuthority {
- format:'writers-hoard-source-additive/1';
+ format:'writers-hoard-source-additive/1'|typeof SOURCE_LIST_FORMAT;
  target:LocalToolConvergenceMetadata;
  promotion?:{txId:string;frontier:string[];from:LocalToolConvergenceMetadata};
 }
@@ -17,7 +18,7 @@ const metadata=(value:LocalToolConvergenceMetadata):LocalToolConvergenceMetadata
 const hasSlot=(value:unknown,field:string)=>record(value)&&Object.hasOwn(value,field);
 
 export function appendSourceAdditiveAuthority(doc:Y.Doc,target:LocalToolConvergenceMetadata,from?:LocalToolConvergenceMetadata):void {
- const authority:SourceAdditiveAuthority={format:'writers-hoard-source-additive/1',target:metadata(target)};
+ const authority:SourceAdditiveAuthority={format:sourceListField(target.codec)===undefined?'writers-hoard-source-additive/1':SOURCE_LIST_FORMAT,target:metadata(target)};
  if(from){
   const registers=new Registers(doc);
   const origin=new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).get('value');
@@ -38,18 +39,23 @@ export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergence
   if(item instanceof Y.Item&&item.deleted&&(item.parent===root||item.parent===identityRoot))return invalid();
  }
  const entries=new JsonArray<SourceAdditiveAuthority>(root).toArray();
- if(entries.length!==1)return invalid();
+ if(!entries.length)return invalid();
  const item=entries[0];
  if(!record(item)||!exact(item,item.promotion===undefined?['format','target']:['format','target','promotion'])||
-    item.format!=='writers-hoard-source-additive/1'||!exact(item.target,['namespace','codec','validationId','schemaEpoch']))return invalid();
+    !['writers-hoard-source-additive/1',SOURCE_LIST_FORMAT].includes(item.format)||!exact(item.target,['namespace','codec','validationId','schemaEpoch']))return invalid();
  validateConvergenceMetadata(item.target);
  const spec=item.target.codec.sourceDefault;
  if(!spec)return invalid();
+ const list=sourceListField(item.target.codec)!==undefined;
+ if(list?item.format!==SOURCE_LIST_FORMAT:item.format!=='writers-hoard-source-additive/1'||entries.length!==1)return invalid();
+ const retained=list?sourceListRetainedRegisters(doc):undefined;
+ if(list&&retained!.versions.some(version=>version.root==='scalar'&&version.key===spec.field))return invalid();
  const origin=new JsonMap<LocalToolConvergenceIdentity>(identityRoot).get('value');
  validateConvergenceIdentity(origin);
  assertConvergenceIdentity(active,convergenceIdentity(item.target,origin.genesisId));
  if(item.promotion===undefined){
   assertConvergenceIdentity(origin,active);
+  if(list)inspectSourceListHistory(doc,spec.field);
   return;
  }
  if(!exact(item.promotion,['txId','frontier','from']))return invalid();
@@ -101,13 +107,15 @@ export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergence
   }
  }
  if(remaining.get(txId)!==0)return invalid();
- for(const version of new JsonMap<RegisterVersion>(doc.getMap('register-versions')).values()){
+ for(const version of retained?.versions??new JsonMap<RegisterVersion>(doc.getMap('register-versions')).values()){
   if(version.txId===txId)return invalid();
   if(item.target.codec.fields[spec.field]?.kind==='map'&&version.root==='scalar'&&version.key===spec.field)return invalid();
   if(!ancestors.has(version.txId))continue;
   if(version.root==='scalar'&&version.key===spec.field||
      item.target.codec.fields[spec.field]?.kind==='map'&&(version.root==='presence'&&version.key===spec.field||version.root==='map:'+spec.field)||
-     version.root==='authored-valid-snapshot'&&record(version.value)&&hasSlot(version.value.data,spec.field))return invalid();
+     list&&(version.root==='presence'&&version.key===spec.field||['content:','membership:','selected:'].some(prefix=>version.root===prefix+spec.field))||
+     version.root==='authored-valid-snapshot'&&record(version.value)&&(hasSlot(version.value.data,spec.field)||list&&hasSlot(version.value.bindings,spec.field)))return invalid();
  }
- for(const activation of new JsonMap<RegisterActivation>(doc.getMap('register-activations')).values())if(activation.txId===txId)return invalid();
+ for(const activation of retained?.activations??new JsonMap<RegisterActivation>(doc.getMap('register-activations')).values())if(activation.txId===txId)return invalid();
+ if(list)inspectSourceListHistory(doc,spec.field,txId);
 }

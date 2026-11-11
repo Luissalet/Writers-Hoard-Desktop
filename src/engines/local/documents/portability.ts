@@ -3,11 +3,19 @@ import {cloneLocalToolJson,type LocalToolJson} from '../stateTypes';
 import {remapLocalToolReferences,type LocalToolRichProseRemap} from '../stateCodec';
 import {worldDocumentPrefixes} from '@/services/worldEras/documentPrefixes';
 import {remapLocalToolIndexReferences} from '../documentIndex';
-import {prepareLocalToolFork} from '../convergence/replica';
+import {prepareLocalToolFork,exportLocalToolConvergenceCheckpoint} from '../convergence/replica';
 import {validateSourceToolDocument,validateSourceToolDocuments,type SourceToolDocument} from './types';
+/** Full copies/restores cannot reseed away an incomplete new-list proof.
+ * Live partial receive keeps its existing pending semantics. */
+export function validateSourceListDocumentHistory(document:SourceToolDocument):void{
+ const codec=document.codec,spec=codec?.sourceDefault,checkpoint=document.convergence?.checkpoint;
+ if(!spec||codec?.fields[spec.field]?.kind!=='list'||!checkpoint)return;
+ if(exportLocalToolConvergenceCheckpoint(checkpoint).pending)throw Error('local_tool_source_additive_history_invalid');
+}
 /** New identity/branch starts from the admitted view, never from patched opaque causal bytes. */
 export function forkSourceToolDocument(document:SourceToolDocument):SourceToolDocument{
  if(!document.convergence)return document;
+ validateSourceListDocumentHistory(document);
  if(!document.codec)throw Error('source_tool_convergence_invalid');
  const {validationId,schemaEpoch}=document.convergence.checkpoint;
  const {data,checkpoint}=prepareLocalToolFork(document.data,{namespace:document.namespace,codec:document.codec,validationId,schemaEpoch});

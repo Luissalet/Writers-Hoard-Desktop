@@ -28,6 +28,7 @@ import {PlainRuns,type PlainSpan,type PlainPlan,type PlainDraft} from './plainRu
 import {appendRichAdoption,readRichAdoption,richAdoptionOrigin,inspectLegacyRichUpdate,validateRichAdoption,checkRichAdoptionAncestors,checkRichAdoptionMonotonicity,effectiveRichAdoptionContract} from './richAdoption';
 import {appendSourceAdditiveAuthority,checkSourceAdditiveHistory,SOURCE_ADDITIVE_ROOT} from './sourceAdditiveHistory';
 import {projectSourceDefault} from './sourceAdditive';
+import {appendSourceListPlacement,sourceListField,sourceListHistoryPending} from './sourceListHistory';
 
 type ObjectData=Record<string,LocalToolJson>;
 type Binding={id:string;placementId:string};
@@ -48,11 +49,11 @@ const object=(value:unknown):value is ObjectData=>!!value&&typeof value==='objec
 const listFields=(codec:LocalToolStateCodec)=>Object.entries(codec.fields).filter(([,field])=>field.kind==='list');
 const order=(doc:Y.Doc,field:string)=>new JsonArray<Placement>(doc.getArray<string>('order:'+JSON.stringify(field)));
 const sourceMapField=(codec:LocalToolStateCodec)=>codec.sourceDefault&&codec.fields[codec.sourceDefault.field]?.kind==='map'?codec.sourceDefault.field:undefined;
-/** Only the declared additive map has a virtual empty action basis; preserve sparse no-ops. */
+/** Only the declared additive collection has a virtual empty action basis; preserve sparse no-ops. */
 function mergeActions<T extends LocalToolJson>(codec:LocalToolStateCodec,baseline:T,current:T,actions:readonly LocalToolStateAction[]){
- const field=sourceMapField(codec);if(field===undefined)return mergeLocalToolActions(codec,baseline,current,actions);
+ const list=sourceListField(codec),field=sourceMapField(codec)??list;if(field===undefined)return mergeLocalToolActions(codec,baseline,current,actions);
  const result=mergeLocalToolActions(codec,projectSourceDefault(baseline,codec.sourceDefault),projectSourceDefault(current,codec.sourceDefault),actions);
- if(object(current)&&!Object.hasOwn(current,field)&&object(result.data)&&object(result.data[field])&&!Object.keys(result.data[field]).length)delete result.data[field];
+ if(object(current)&&!Object.hasOwn(current,field)&&object(result.data)&&(list!==undefined?Array.isArray(result.data[field])&&result.data[field].length===0:object(result.data[field])&&!Object.keys(result.data[field]).length))delete result.data[field];
  return{...result,data:result.data as T};
 }
 const roots=(doc:Y.Doc,codec:LocalToolStateCodec,provided?:Registers)=>{
@@ -105,13 +106,15 @@ function projectRoots(r:Roots):ValidView {
    const implicit=!r.registers.entries('presence',field).some(version=>r.registers.transactionParents(version.txId)?.length===0);
    if(presence?presence.present&&presence.value===true:implicit&&entries.length>0)data[field]=Object.fromEntries(entries.map(([key,value])=>[key,clone(value)]));
   }else if(descriptor.kind==='list'){
-   delete data[field];if(!r.presence.get(field))continue;
+   delete data[field];const additive=field===sourceListField(r.codec),presence=additive?r.registers.winner('presence',field):undefined;
+   const implicit=additive&&!r.registers.entries('presence',field).some(version=>r.registers.transactionParents(version.txId)?.length===0);
+   if(additive?presence?!(presence.present&&presence.value===true):!implicit:!r.presence.get(field))continue;
    const list=r.list(field),items:ObjectData[]=[],anchors:Binding[]=[],order=list.order.toArray(),known=new Set(order.map(place=>place.placementId));
    for(const place of order)if(list.membership.get(place.id)===true&&r.registers.winner('selected:'+field,place.id,version=>!version.present||known.has(version.value as string))?.value===place.placementId){
     const item=list.content.get(place.id);if(!item||item[descriptor.idKey]!==place.id)throw Error('local_tool_convergence_list_invalid');
     items.push(clone(item));bind(anchors,place.id,place.placementId);
    }
-   data[field]=items;bindings[field]=anchors;
+   if(!additive||presence||items.length){data[field]=items;bindings[field]=anchors;}
   }
  }
  return{data,bindings,...(Object.keys(blockBindings).length?{blockBindings}:{}),...(Object.keys(richBindings).length?{richBindings}:{}),...(Object.values(r.codec.fields).some(isLocalToolPlainField)?{plainBindings}:{})};
@@ -198,6 +201,7 @@ function currentBindings(r:Roots,contract:LocalToolConvergenceContract):Bindings
 }
 type SnapshotBindingProofs={context?:string;valid:Map<string,string>};
 function semanticPending(r:Roots,proofs?:SnapshotBindingProofs):boolean {
+ if(sourceListField(r.codec)!==undefined&&sourceListHistoryPending(r.registers.doc))return true;
  if(r.registers.pending())return true;
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(descriptor.kind==='rich'&&(r.rich(field).pending()||blockField(r,field)&&blocks(r,field).pending()))return true;
  for(const[field,descriptor]of Object.entries(r.codec.fields))if(isLocalToolPlainField(descriptor)&&r.plain(field).pending())return true;
@@ -255,7 +259,7 @@ function seed(doc:Y.Doc,metadata:LocalToolConvergenceMetadata,data:LocalToolJson
     r.presence.set(field,true);for(const[key,item]of Object.entries(value as ObjectData))r.map(field).set(key,clone(item));
    }else if(descriptor?.kind==='list'){
     r.presence.set(field,true);const list=r.list(field);bindings[field]=[];
-    for(const item of value as ObjectData[]){const id=item[descriptor.idKey] as string,placementId=crypto.randomUUID();list.content.set(id,clone(item));list.membership.set(id,true);list.selected.set(id,placementId);list.order.push([{id,placementId}]);bind(bindings[field],id,placementId);}
+    for(const item of value as ObjectData[]){const id=item[descriptor.idKey] as string,placementId=crypto.randomUUID();list.content.set(id,clone(item));list.membership.set(id,true);list.selected.set(id,placementId);if(field===sourceListField(metadata.codec))appendSourceListPlacement(doc,field,r.registers.currentTransactionId(),id,placementId,()=>list.order.push([{id,placementId}]));else list.order.push([{id,placementId}]);bind(bindings[field],id,placementId);}
    }else r.scalar.set(field,clone(value));
   }
   writeValidSnapshot(r,Object.keys(metadata.codec.fields).some(field=>blockField(r,field))?projectRoots(r):{data:clone(data),bindings,...(Object.keys(richBindings).length?{richBindings}:{}),...(plainFields.length?{plainBindings}:{})});r.registers.flush();
@@ -315,7 +319,8 @@ export function prepareSourceAdditiveCheckpoint(checkpoint:LocalToolConvergenceC
 function prepareLegacyActions<T extends LocalToolJson>(r:Roots,contract:LocalToolConvergenceContract<T>,actions:readonly LocalToolStateAction[],authorId:string,validateProposal=true):{actions:ReadyAction[];proposal:T;bindings:Bindings;changed:boolean} {
  const before=inspect(r,contract).data,{data:proposal}=mergeActions(contract.codec,before,before,actions);
  if(validateProposal&&!accepts(contract,proposal))throw Error('local_tool_convergence_authored_state_invalid');
- const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract);
+ const prepared=clone(actions) as ReadyAction[],bindings=currentBindings(r,contract),addedList=sourceListField(contract.codec);
+ if(addedList!==undefined&&!Object.hasOwn(bindings,addedList)&&prepared.some(action=>action.field===addedList&&action.type.startsWith('list-')))bindings[addedList]=[];
  for(const action of prepared){
   if(action.type==='list-delete')unbind(bindings[action.field],action.id);
   else if(action.type==='list-insert'||action.type==='list-move'){
@@ -560,7 +565,9 @@ function mutate(r:Roots,actions:readonly ReadyAction[]):void {
     if(action.type==='list-insert'){list.content.set(id,clone(action.item));list.membership.set(id,true);}
     const at=action.anchorPlacement===null?-1:list.order.toArray().findIndex(place=>place.placementId===action.anchorPlacement);
     if(action.anchorPlacement!==null&&at<0)throw Error('local_tool_convergence_anchor_invalid');
-    list.order.insert(at+1,[{id,placementId:action.placementId!}]);list.selected.set(id,action.placementId!);
+    const insert=()=>list.order.insert(at+1,[{id,placementId:action.placementId!}]);
+    if(field===sourceListField(r.codec))appendSourceListPlacement(r.registers.doc,field,r.registers.currentTransactionId(),id,action.placementId!,insert);else insert();
+    list.selected.set(id,action.placementId!);
    }
   }
  }
@@ -840,7 +847,7 @@ export function exportLocalToolConvergenceCheckpoint(checkpoint:LocalToolConverg
  try{
   Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));checkDocumentIdentity(doc,identity);
   if(convergenceBase64(Y.encodeStateVector(doc))!==checkpoint.stateVectorBase64)throw Error('local_tool_convergence_vector_invalid');
-  const annotationCodec=readAnnotationCodec(doc,identity);const registers=new Registers(doc);registers.validate();let semantic=registers.pending();const linkFields=new JsonMap<string[]>(doc.getMap('rich-link-fields')).get('value')??[];if(!Array.isArray(linkFields)||new Set(linkFields).size!==linkFields.length||linkFields.some(f=>typeof f!=='string')||linkFields.length&&!['4','5','6','7','9','10','11','12','13','14','15','16'].includes(identity.engine.version))throw Error('local_tool_rich_links_fields_invalid');const links=new Set(linkFields);const richFields=new JsonMap<string[]>(doc.getMap('rich-fields')).get('value')??[];if(!Array.isArray(richFields)||new Set(richFields).size!==richFields.length||richFields.some(f=>typeof f!=='string')||richFields.length&&!['3','4','5','6','7','9','10','11','12','13','14','15','16'].includes(identity.engine.version))throw Error('local_tool_rich_fields_invalid');if(linkFields.some(field=>!richFields.includes(field)))throw Error('local_tool_rich_links_fields_invalid');for(const field of richFields)if(new RichRuns(doc,field,registers,false,links.has(field),annotationSpec(annotationCodec?.fields[field])).pending())semantic=true;
+  const annotationCodec=readAnnotationCodec(doc,identity);const registers=new Registers(doc);registers.validate();let semantic=registers.pending()||identity.engine.version==='8'&&sourceListHistoryPending(doc);const linkFields=new JsonMap<string[]>(doc.getMap('rich-link-fields')).get('value')??[];if(!Array.isArray(linkFields)||new Set(linkFields).size!==linkFields.length||linkFields.some(f=>typeof f!=='string')||linkFields.length&&!['4','5','6','7','9','10','11','12','13','14','15','16'].includes(identity.engine.version))throw Error('local_tool_rich_links_fields_invalid');const links=new Set(linkFields);const richFields=new JsonMap<string[]>(doc.getMap('rich-fields')).get('value')??[];if(!Array.isArray(richFields)||new Set(richFields).size!==richFields.length||richFields.some(f=>typeof f!=='string')||richFields.length&&!['3','4','5','6','7','9','10','11','12','13','14','15','16'].includes(identity.engine.version))throw Error('local_tool_rich_fields_invalid');if(linkFields.some(field=>!richFields.includes(field)))throw Error('local_tool_rich_links_fields_invalid');for(const field of richFields)if(new RichRuns(doc,field,registers,false,links.has(field),annotationSpec(annotationCodec?.fields[field])).pending())semantic=true;
   const richChecks:RichBindingChecks=new Map(),blockSet=new Set(blockFields(doc));const tables=readTableFields(doc,identity,richFields,[...blockSet],linkFields);const axes=readTableAxisFields(doc,identity,[...tables]),widths=readTableWidthFields(doc,identity,axes),{images,alignments,raster,cells}=readImageFields(doc,identity,widths),rowHeights=readTableRowHeightFields(doc,identity,cells),cellHeaders=readTableCellHeaderFields(doc,identity,rowHeights),cellSpans=readTableCellSpanFields(doc,identity,cellHeaders);for(const field of blockSet){if(!richFields.includes(field))throw Error('local_tool_blocks_fields_invalid');if(new RichBlocks(registers,field,links.has(field),tables.has(field),axes.has(field),widths.has(field),images.has(field),alignments.has(field),raster.has(field),cells.has(field),rowHeights.has(field),cellHeaders.has(field),cellSpans.has(field)).pending())semantic=true;}
   for(const version of registers.versions.values()){
    if(!version.present)continue;

@@ -1,0 +1,14 @@
+{
+  "format": "writers-hoard-local-tool-source/1",
+  "apiVersion": 1,
+  "namespace": "examples.source-list-notebook",
+  "version": "2.0.0",
+  "files": [
+    {
+      "path": "module.tsx",
+      "sha256": "c379483107d529fa1fd490971c3095c86c533235651a002e2f9092c7cc41c7a3",
+      "bytes": 14322
+    }
+  ],
+  "contentHash": "52b7909a65b9f6b01dd4e1fb268435c5be34a17996af7a48ac34efad2e37c48d"
+}
