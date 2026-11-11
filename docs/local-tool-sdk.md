@@ -871,6 +871,14 @@ MCP exposes the same projection through `wh_local_tool_read` with `documentId` a
 
 [Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#leer-los-campos-de-una-etapa-anterior).
 
+### Edit the fields of an earlier Source stage
+
+Read the full active snapshot, then call `client.state.apply(baseline, actions, { asIdentity })` with the earlier stage hash. Every action must address a field declared by that stage. The active revision and document version must still match the snapshot. The normal writer preserves newer fields and returns its Undo receipt for an effective edit.
+
+MCP exposes the same option as `asIdentity` on `wh_local_tool_state_apply`. Use `wh_local_tool_read` without `readAs` for the write baseline. This operation requires the stage in the saved document's history. An era that still inherits Base cannot write with this selector.
+
+[Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#editar-los-campos-de-una-etapa-anterior).
+
 ## Add fields to an existing Owned block
 
 An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.

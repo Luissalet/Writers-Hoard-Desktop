@@ -1099,7 +1099,7 @@ Source `82eafc27` is independently approved at revision 2 and integrated locally
 
 A new Source release can add one empty stable-ID list while keeping its previous fields. The normal notebook example upgrades V1 to V2, then adds, edits, checks, reorders and removes review steps with Undo/Redo. Reads and version selection leave the stored predecessor unchanged; the first effective action creates the declared history atomically. This is one declared addition, not a general migration API. [API and bounded evidence](tasks/vvd1095/verification-sdk-source-list-additive2540.md).
 
-A Source release can build on an earlier additive release or skip a declared ancestor. It preserves prior values and origin, and saves the first effective change in one revision. [Chain additive releases](tasks/vvd1095/verification-sdk-source-multiple2745.md#encadenar-ampliaciones-desde-otra-versión-aditiva). [Read an earlier stage](tasks/vvd1095/verification-sdk-source-multiple2745.md#leer-los-campos-de-una-etapa-anterior) to access its fields from the current Source state.
+A Source release can build on an earlier additive release or skip a declared ancestor. It preserves prior values and origin, and saves the first effective change in one revision. [Chain additive releases](tasks/vvd1095/verification-sdk-source-multiple2745.md#encadenar-ampliaciones-desde-otra-versión-aditiva). [Read an earlier stage](tasks/vvd1095/verification-sdk-source-multiple2745.md#leer-los-campos-de-una-etapa-anterior) to access its fields from the current Source state. [Edit fields of an earlier stage](tasks/vvd1095/verification-sdk-source-multiple2745.md#editar-los-campos-de-una-etapa-anterior) using the active snapshot.
 
 
 ## Open a Source block beside its document

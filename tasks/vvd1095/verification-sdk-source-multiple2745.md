@@ -29,3 +29,9 @@ Con V3 activa, `convergence.readAs(identityHash)` devuelve los campos acreditado
 La respuesta incluye las dos identidades, el ámbito, un indicador de conflicto y el dato admitido. La proyección no cambia la versión seleccionada, los bytes ni el historial. El escritor usa la lectura normal del estado activo.
 
 Brave RED confirmó que faltaba el método. Brave GREEN pasó 46 comprobaciones de referencia y 36 de dos listas. El caso de conflicto devuelve el dato admitido. También pasaron las regresiones de ampliación múltiple, entregas parciales y archivos. Native r3 pasó 39 llamadas MCP con dos claves, incluido el ámbito heredado de una era. Quick y Build r3 EOF 0. El SDK de navegador y el host en memoria rechazan estados que cumplen el codec pero incumplen el validador activo. Las copias mantienen la validación portátil. La revisión 1 de #2839 aprobó `7ff7d4a0e50fecc7b8faaea55e2604ba551a5cd1`, integrado por fast-forward. El manual de Google describe esta lectura.
+
+## Editar los campos de una etapa anterior
+
+Con V3 activa, `state.apply(baseline, actions, { asIdentity })` admite un hash acreditado de V2. El puente acepta `asIdentity` en `wh_local_tool_state_apply`. Parte de una lectura normal exacta de V3 y limita la tanda a campos de V2. Los campos más nuevos conservan sus valores y el recibo normal permite Deshacer la tanda. Una era que todavía hereda Base rechaza este selector antes de crear una variante.
+
+El SDK oficial permitió escribir hábitat y armadura desde V2 con V3 activa. Brave RED reprodujo la falta de la restricción de etapa en Writer. Brave GREEN pasó 60 comprobaciones focales y 50 con dos listas. Native r3 pasó 51 llamadas MCP con dos claves. Verificó estado exacto, rechazo de una lectura obsoleta, repetición sin revisión, Deshacer y era heredada sin materializar. Quick y Build r3 terminaron con código 0. Revisión 2 de #2845 aprobó `0e960dda15d3828d73a528d97998b050069e38f7`, integrado por fast-forward.
