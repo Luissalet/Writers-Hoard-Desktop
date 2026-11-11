@@ -33,7 +33,9 @@ export async function testTableCellClipboard(): Promise<string[]> {
   const projectId = 'qa-table-clipboard-' + crypto.randomUUID();
   const table: WorldTable = { id: 'table', title: 'Clipboard QA', mode: 'table',
     columns: [{ id: 'name', name: 'Name', kind: 'text' }, { id: 'region', name: 'Region', kind: 'text' },
-      { id: 'amount', name: 'Amount', kind: 'number' }],
+      { id: 'amount', name: 'Amount', kind: 'number' },
+      { id: 'total', name: 'Total', kind: 'number',
+        calculation: { formula: '=1+2', rowBindings: {}, columnBindings: {}, resultType: 'whole' } }],
     rows: [{ id: 'alfa', cells: { name: 'Alfa', region: 'North', amount: '2' } },
       { id: 'bravo', cells: { name: 'Bravo', region: 'South', amount: '3' } },
       { id: 'charlie', cells: { name: 'Charlie', region: '', amount: '9' } }] };
@@ -68,8 +70,10 @@ export async function testTableCellClipboard(): Promise<string[]> {
     assert(target, 'Missing cell editor');
     await act(async () => { target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse' })); });
   };
-  const key = async (key: string, shiftKey = false) => {
-    await act(async () => { grid().dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true })); });
+  const key = async (key: string, shiftKey = false, target: Element = grid()) => {
+    const event = new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
+    await act(async () => { target.dispatchEvent(event); });
+    return event.defaultPrevented;
   };
   const event = async (name: 'copy' | 'paste', data: DataTransfer, target: Element = grid()) => {
     const event = new ClipboardEvent(name, { clipboardData: data, bubbles: true, cancelable: true });
@@ -114,7 +118,35 @@ export async function testTableCellClipboard(): Promise<string[]> {
     await until(() => input('B2 Region').value === '', 'Pasting an empty cell did not clear its destination');
     const cleared = (await read())?.document.root as unknown as WorldTable;
     assert(cleared.rows[1].cells.region === '' && cleared.rows[1].cells.amount === '3', 'Paste cleared unrelated cells');
-    return ['TSV quoting and typed validation', 'Grid copy and rectangular paste preserve unrelated cells and row IDs', 'One Undo restores the whole block'];
+    await act(async () => { await undoLast(projectId); });
+    await until(() => input('B2 Region').value === 'South' &&
+      grid().querySelector<HTMLButtonElement>('[data-table-row-handle]')?.disabled === false, 'Blank paste Undo did not settle');
+
+    await pick('C1 Amount');
+    await key('ArrowRight', true);
+    await key('ArrowDown', true);
+    assert(await key('Delete'), 'Delete was not handled by the grid');
+    await until(() => input('C1 Amount').value === '' && input('C2 Amount').value === '' &&
+      grid().querySelector<HTMLButtonElement>('[data-table-row-handle]')?.disabled === false, 'Delete did not clear the numeric range');
+    const range = (await read())?.document.root as unknown as WorldTable;
+    assert(range.rows.length === 3 && range.rows[2].cells.amount === '9' && range.rows[0].cells.name === 'Alfa' &&
+      range.rows[1].cells.region === 'South' && range.columns[3].calculation?.formula === '=1+2' &&
+      host.querySelector('output[aria-label="D2 Total"]')?.textContent === '3', 'Clear changed a cell outside the editable range');
+    assert(getUndoJournal().filter(entry => entry.projectId === projectId).length === 1, 'Range clear should be one Undo');
+    await act(async () => { await undoLast(projectId); });
+    await until(() => input('C1 Amount').value === '2' && input('C2 Amount').value === '3' &&
+      grid().querySelector<HTMLButtonElement>('[data-table-row-handle]')?.disabled === false, 'Range Undo did not settle');
+    assert(JSON.stringify((await read())?.document.root) === JSON.stringify(before.document.root), 'Clear Undo did not restore the table');
+
+    await pick('A1 Name');
+    await key('Enter');
+    assert(!await key('Backspace', false, input('A1 Name')), 'Grid intercepted ordinary editor Backspace');
+    await key('Escape', false, input('A1 Name'));
+    assert(await key('Backspace'), 'Grid did not handle Backspace');
+    await until(() => input('A1 Name').value === '', 'Backspace did not clear the single selected cell');
+    assert(input('A2 Name').value === 'Bravo' && input('B1 Region').value === 'North', 'Backspace changed a neighboring cell');
+    return ['TSV quoting and typed validation', 'Grid copy and paste preserve unrelated cells and row IDs',
+      'One Undo restores the whole block', 'Delete and Backspace clear only editable selected cells'];
   } finally {
     await act(async () => { root.unmount(); });
     clearUndoJournal();

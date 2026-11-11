@@ -8,6 +8,12 @@ interface CellSelection {
   anchor: CellPosition;
   appended?: { position: CellPosition; viewKey: string };
 }
+interface CellBounds {
+  firstRow: number;
+  lastRow: number;
+  firstColumn: number;
+  lastColumn: number;
+}
 interface TableCellNavigationOptions {
   enabled: boolean;
   owner: number;
@@ -18,6 +24,7 @@ interface TableCellNavigationOptions {
   appendRow?: () => Promise<string | undefined>;
   readCell: (row: number, column: number) => string;
   pasteFrom: (text: string, row: number, column: number) => void;
+  clearRange: (bounds: CellBounds) => void;
 }
 
 const arrowSteps: Record<string, readonly [number, number]> = {
@@ -35,7 +42,7 @@ function positionAt(target: EventTarget | null): CellPosition | undefined {
   return rowId !== undefined && columnId !== undefined ? { rowId, columnId } : undefined;
 }
 
-export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows, columns, appendRow, readCell, pasteFrom }: TableCellNavigationOptions) {
+export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows, columns, appendRow, readCell, pasteFrom, clearRange }: TableCellNavigationOptions) {
   const id = useId();
   const hintId = id + '-hint';
   const [selection, setSelection] = useState<CellSelection>();
@@ -143,6 +150,11 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
       event.preventDefault();
       if (fromGrid) beginEdit(position);
       else focusGrid(grid, position);
+      return;
+    }
+    if (fromGrid && bounds && !event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {
+      event.preventDefault();
+      if (!event.repeat && !hasPendingWrite()) clearRange(bounds);
       return;
     }
     const arrow = fromGrid && Object.hasOwn(arrowSteps, event.key) ? arrowSteps[event.key] : undefined;

@@ -128,7 +128,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   }, [storedTable, scope, rowKey]);
   const rowReady = rowRead?.key === rowKey && rowRead.table === storedTable;
   const rowWorking = rowPending === rowOwner.current.epoch;
-  async function changeRows(action: TableRowAction, version = rowReady ? rowRead!.version : undefined) {
+  async function changeRows(action: TableRowAction, version = rowReady ? rowRead!.version : undefined, undoLabel?: string) {
     if (!storedTable || !version || rowWorking || busy) return;
     const owner = rowOwner.current, epoch = owner.epoch, target = { ...scope }, tableId = storedTable.id;
     const current = () => rowOwner.current === owner && owner.mounted && owner.epoch === epoch;
@@ -137,7 +137,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       return await editTableRows(target, tableId, action, version, result => {
         if (!result.receiptId) return;
         const receiptId = result.receiptId;
-        const label = { 'move-row': copy.rowMoved, 'insert-row': copy.rowInserted, 'paste-cells': copy.cellsPasted }[action.action];
+        const label = undoLabel ?? { 'move-row': copy.rowMoved, 'insert-row': copy.rowInserted, 'paste-cells': copy.cellsPasted }[action.action];
         recordUndoable({ projectId: target.projectId, kind: 'asset', label, notice: label, undo: async () => {
           try { await undoTableRows(target, receiptId); }
           catch (failure) { if (failure instanceof WorldEraConflict || failure instanceof Error && failure.message === 'table_row_receipt_missing') throw new UndoStaleError(); throw failure; }
@@ -379,6 +379,15 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     viewKey: JSON.stringify([query, conditions, sorts, groupRules, [...foldedGroups]]),
     tableRef, rows: expandedRows, columns: table?.columns ?? [], appendRow: appendKeyboardRow,
     readCell: (row, column) => rowValue(expandedRows[row], table!.columns[column]), pasteFrom,
+    clearRange: ({ firstRow, lastRow, firstColumn, lastColumn }) => {
+      const columnIds = table!.columns.slice(firstColumn, lastColumn + 1)
+        .filter(column => !projected?.calculatedColumnIds.includes(column.id))
+        .map(column => column.id);
+      if (!columnIds.length) return;
+      const rowIds = expandedRows.slice(firstRow, lastRow + 1).map(row => row.id);
+      const values = rowIds.map(() => columnIds.map(() => ''));
+      void changeRows({ action: 'paste-cells', rowIds, columnIds, values }, undefined, copy.cellsCleared);
+    },
   });
   const visiblePosition = new Map(visible.map((row, index) => [row.id, index]));
   const updateFolded = (update: (folded: Set<string>) => void) => setGroupFolds(previous => {
