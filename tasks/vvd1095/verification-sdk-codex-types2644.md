@@ -1,0 +1,21 @@
+# Catálogo observable de tipos del Códex en Source (S04)
+
+Una herramienta local Source puede leer los tipos reutilizables del Códex mediante el puerto opcional `client.codexTypes`: `list()` devuelve el catálogo y `read(templateId)` lee un tipo concreto. Las filas reflejan el esquema y la presentación efectivos, incluida la herencia: propiedades declaradas, referencias, jerarquía, icono y color. Excluyen el cuerpo, los valores predeterminados y las claves importadas ajenas al esquema. Base y las eras comparten el catálogo de su proyecto; otro proyecto conserva el suyo.
+
+`watch(onRows, onError?)` entrega el catálogo comprometido inicial y, después, sólo los cambios efectivos. Si se inicia dentro de una transacción, espera la primera entrega fuera de ella. Una edición de cuerpo que no cambia la proyección no genera evento; una transacción abortada no publica su estado. Cancela al desmontar el consumidor; la revocación del host también impide entregas tardías. El ejemplo **Catálogo de tipos del Códex** (`examples.codex-type-watch`) muestra un consumidor Source; los tipos se siguen editando en el gestor habitual.
+
+En MCP, `wh_codex_templates` conserva la respuesta anterior por defecto. `catalogue:true` opta por la misma proyección de lectura y admite un `templateId` exacto; pasar el filtro sin ese modo se rechaza. `eraId` es un argumento global: no cambia la taxonomía compartida por las eras del proyecto. No se añaden CRUD, escrituras por suscripción ni API externa. [Contrato del SDK](../../docs/local-tool-sdk.md#read-and-watch-codex-types).
+
+## Evidencia por corte
+
+Source2644 / hilo 2910, commit `f3d276b19866b8a5a1853c84f06bbe1d92720fea`, trece rutas. CAS 1 aprobada y Main por fast-forward, sin push (`61c7efdf`). El Manual recibió 243 unidades UTF-16, con relectura exacta y 762 nodos de cuerpo/79 listas conservados (`b5f03cad`). Recibos en `Research/writer-parity-20261110/sdk-codex-types-source`.
+
+| Corte | Qué acredita |
+| --- | --- |
+| Investigación2643 / hilo 2909, `05de151e` | El laboratorio público expuso `entityType`, `all`, `schema`, `watch` y `renderIcon`; `all()` devolvió vacío. No se invocaron `watch` ni `renderIcon`: no se acredita un evento remoto ni el comportamiento del icono de referencia. Se restauró el ejemplo y no se modificó un mundo personal. |
+| Brave extensión 3, recibo `6660e0f3` sobre producto r2 | Dos pestañas del mismo proyecto: gestor del Códex y Source observador. Inicialmente vacío; un borrador no aparece, y guardar actualiza nombres y propiedades Unicode sin recargar ni cambiar la ruta Source. Se observó el icono y se reabrió en frío. El recibo conserva dos errores de una extensión ajena a Writer; no hubo captura. No es prueba Brave del r4 ni de transporte MCP. |
+| Producto r4 `4af08a4c`: autor, Quick y build r2 | Cuatro PASS de autor: Base/era e herencia sin valores ni filas ajenas; entrega inicial, cambios efectivos y cancelación; lectura comprometida aun cuando una lectura directa ve un cambio pendiente; revocación durante la lectura que suprime resultado y error. R4 proyecta el esquema explícito y omite claves importadas ajenas. Quick y build exit 0 sobre producto r4 (log de build `f4caf8de`). |
+| Native r1, intento conservado | Tras el probe de rollback, la prueba paró en una expectativa incorrecta del oráculo: que `eraId` no figurara en el esquema, aunque el transporte lo añade como argumento global. No acredita un fallo de producto ni un PASS del escenario completo. |
+| Native r2, `a89c2e04`, candidato `d9ccbe7f` | Dos claves auténticas: 15 llamadas MCP, 19 RPC y 15 respuestas IPC. Respuesta legada conservada; catálogo, filtro exacto con era, rechazo del filtro sin modo y control de otro proyecto. Cambios heredados por CAS en el mismo Source montado en era nombrada; un cambio de sólo cuerpo no añadió evento en la observación acotada. Rollback real: fila y catálogo originales exactos. Dos revocaciones 401 sin IPC nuevo, ambos EOF 0, 89 tablas vacías y puerto/perfil cerrados. |
+
+La prueba pública y el consumidor Writer no establecen equivalencia ABI, cobertura de Reader/wiki, `WorldPick` ni paridad SDK general. El positivo es la lectura del catálogo efectivo local y la suscripción a cambios comprometidos en el alcance del proyecto.
