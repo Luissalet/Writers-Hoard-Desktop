@@ -180,6 +180,8 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const savedView = storedTableView(project?.tableGroupingViews, storedTable?.id ?? '', scope.eraId);
   const view = effectiveTableView(savedView, table?.columns ?? []);
   const { conditions, sorts, rules: groupRules } = view;
+  const groupedColumns = new Set(groupRules.map(rule => rule.columnId));
+  const groupControlCount = Math.min(table?.columns.length ?? 0, groupRules.length + 1);
   const candidates = filterRows(rows, conditions, (row, id) => { const column = columnById(id); return column ? displayValue(row, column) : undefined; });
   const matchesByRow = new Map<string, { rowId: string; columnId: string }[]>();
   const hasSearch = Boolean(query.trim());
@@ -213,7 +215,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const setGroupColumn = (depth: number, columnId: string) => {
     const rules = columnId
       ? [...groupRules.slice(0, depth), { columnId, direction: groupRules[depth]?.direction ?? 'asc' as const }, ...groupRules.slice(depth + 1)]
-      : groupRules.slice(0, depth);
+      : groupRules.filter((_, index) => index !== depth);
     saveView({ rules }, resetFolds);
   };
   const { orderedRows: visible, expandedRows, items: groupItems, pathsByRow } = projectTableGroups(filteredRows, groupRules, (row, id) => {
@@ -323,10 +325,11 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
         </form>}
         <div className="flex flex-wrap items-center gap-3 px-4 pb-3"><input className={`${control} min-w-40 flex-1`} aria-label={copy.search} placeholder={copy.search} value={query} onChange={event => { setQuery(event.target.value); setMatchAt(0); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); stepMatch(event.shiftKey ? -1 : 1); } }} />
           {query.trim() && <span className="flex items-center gap-1 text-xs tabular-nums text-text-muted" data-testid="table-find"><button type="button" className={button} aria-label={copy.findPrevious} disabled={!matches.length} onClick={() => stepMatch(-1)}><ChevronUp size={14} /></button><span data-testid="table-find-count">{matches.length ? `${Math.min(matchAt, matches.length - 1) + 1}/${matches.length}` : '0/0'}</span><button type="button" className={button} aria-label={copy.findNext} disabled={!matches.length} onClick={() => stepMatch(1)}><ChevronDown size={14} /></button></span>}
-          {sorts.length > 0 && <button type="button" className={button} disabled={busy} onClick={() => saveView({ sorts: [] })}>{copy.clearSort}</button>}{(groupRules.length && table.columns.length > 1 ? [0, 1] : [0]).map(depth => {
-            const rule = groupRules[depth], label = depth ? copy.groupThen : copy.group;
+          {sorts.length > 0 && <button type="button" className={button} disabled={busy} onClick={() => saveView({ sorts: [] })}>{copy.clearSort}</button>}{Array.from({ length: groupControlCount }, (_, depth) => {
+            const rule = groupRules[depth];
+            const label = depth === 0 ? copy.group : depth === 1 ? copy.groupThen : copy.groupLevel.replace('{number}', String(depth + 1));
             return <div key={depth} className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 text-sm text-text-muted">{label}<select className={control} value={rule?.columnId ?? ''} disabled={busy} onChange={event => setGroupColumn(depth, event.target.value)}><option value="">{copy.none}</option>{table.columns.filter(column => !groupRules.some((other, index) => index !== depth && other.columnId === column.id)).map(column => <option key={column.id} value={column.id}>{column.name}</option>)}</select></label>
+              <label className="flex items-center gap-2 text-sm text-text-muted">{label}<select className={control} value={rule?.columnId ?? ''} disabled={busy} onChange={event => setGroupColumn(depth, event.target.value)}><option value="">{copy.none}</option>{table.columns.filter(column => column.id === rule?.columnId || !groupedColumns.has(column.id)).map(column => <option key={column.id} value={column.id}>{column.name}</option>)}</select></label>
               {rule && <select className={control} aria-label={copy.groupOrder + ' · ' + label} value={rule.direction} disabled={busy} onChange={event => {
                 const direction = event.target.value === 'desc' ? 'desc' : 'asc';
                 saveView({ rules: groupRules.map((current, index) => index === depth ? { ...current, direction } : current) });
@@ -363,7 +366,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
             <tbody>{groupItems.map(item => {
               if (item.kind === 'group') return <tr key={`group:${item.key}`} hidden={item.hidden} data-table-group-depth={item.depth + 1}>
                 <th colSpan={table.columns.length + 2} className="bg-elevated px-2 py-1 text-left font-medium">
-                  <button type="button" aria-expanded={item.expanded} className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent-gold" style={{ paddingInlineStart: item.depth ? '1.75rem' : undefined }} onClick={() => updateFolded(folded => {
+                  <button type="button" aria-expanded={item.expanded} className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent-gold" style={{ paddingInlineStart: item.depth ? 'min(' + (0.5 + item.depth * 1.25) + 'rem, 35%)' : undefined }} onClick={() => updateFolded(folded => {
                     if (folded.has(item.key)) folded.delete(item.key);
                     else folded.add(item.key);
                   })}>{item.expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}<span className="break-words">{item.label || copy.emptyGroup}</span><span className="text-xs text-text-muted">{item.count} {item.count === 1 ? copy.oneRow : copy.count}</span></button>
