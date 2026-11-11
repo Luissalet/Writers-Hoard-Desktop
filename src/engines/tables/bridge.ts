@@ -1,7 +1,7 @@
 import { db } from '@/db';
 import { getEraProject, listEraRows, readWorldDocument } from '@/services/worldEras/store';
 import { resolveProjectForEngine, requireString, optString, withAudit, type ToolArgs } from '@/services/aiBridge/tools/shared';
-import { editTableRows } from './rowActions';
+import { editTableRows, type TableRowAction } from './rowActions';
 import {projectWorldTable} from './projection';
 import {createTypeTable,saveTableCalculation,removeTableColumn,type SaveTableCalculation} from './calculations';
 import type { CodexEntry } from '@/types';
@@ -79,12 +79,24 @@ export const TABLE_HANDLERS = {
         return { ...result, version: (await readWorldDocument(target, 'tables', table.id))!.version };
       });
     }
-    if (action === 'move-row' || action === 'insert-row') {
-      if (action === 'move-row' && (args.at !== undefined || args.columnId !== undefined || args.rowIds !== undefined || args.name !== undefined || args.kind !== undefined || args.copyLabel !== undefined)) throw Error('table_row_action_invalid');
-      if (args.beforeRowId !== undefined && (typeof args.beforeRowId !== 'string' || !args.beforeRowId)) throw Error('table_row_position_invalid');
-      const change = action === 'move-row' ? { action, rowId: requireString(args, 'rowId'), beforeRowId: optString(args, 'beforeRowId') } as const : { action, ...(typeof args.at === 'number' ? { at: args.at } : {}), ...(args.beforeRowId !== undefined ? { beforeRowId: String(args.beforeRowId) } : {}) } as const;
+    if (action === 'move-row' || action === 'insert-row' || action === 'paste-cells') {
+      let change: TableRowAction;
+      if (action === 'paste-cells') {
+        const { rowIds, columnIds, values } = args;
+        if (!Array.isArray(rowIds) || rowIds.some(id => typeof id !== 'string') ||
+            !Array.isArray(columnIds) || columnIds.some(id => typeof id !== 'string') ||
+            !Array.isArray(values) || values.some(row => !Array.isArray(row))) throw Error('table_paste_shape_invalid');
+        change = { action, rowIds, columnIds, values };
+      } else {
+        if (action === 'move-row' && (args.at !== undefined || args.columnId !== undefined || args.rowIds !== undefined || args.name !== undefined || args.kind !== undefined || args.copyLabel !== undefined || args.columnIds !== undefined || args.values !== undefined)) throw Error('table_row_action_invalid');
+        if (args.beforeRowId !== undefined && (typeof args.beforeRowId !== 'string' || !args.beforeRowId)) throw Error('table_row_position_invalid');
+        change = action === 'move-row'
+          ? { action, rowId: requireString(args, 'rowId'), beforeRowId: optString(args, 'beforeRowId') }
+          : { action, ...(typeof args.at === 'number' ? { at: args.at } : {}), ...(args.beforeRowId !== undefined ? { beforeRowId: String(args.beforeRowId) } : {}) };
+      }
       const result = await editTableRows(target, table.id, change, expected);
-      return result.receiptId ? withAudit(result, { projectId: target.projectId, entityId: table.id, kind: 'update', summary: action === 'move-row' ? 'Moved table row' : 'Inserted table row', before: { __tableRowReceipt: result.receiptId } }) : result;
+      const summary = { 'move-row': 'Moved table row', 'insert-row': 'Inserted table row', 'paste-cells': 'Pasted table cells' }[action];
+      return result.receiptId ? withAudit(result, { projectId: target.projectId, entityId: table.id, kind: 'update', summary, before: { __tableRowReceipt: result.receiptId } }) : result;
     }
     if (table.codexAllTypes) throw Error('table_all_types_read_only');
     return db.transaction('rw', db.tables, async () => {

@@ -6,10 +6,11 @@ import { WorldEraConflict, type EraDocumentRead, type WorldEraScope } from '@/se
 import { changeTable } from './operations';
 import { insertRow, isLiveTable, moveRow, moveRowBefore } from './tableEdits';
 import { liveTableEntries, orderLiveTableRows } from './projection';
+import { pasteTableCells, type TableCellPaste, type TableCellPasteResult } from './tableClipboard';
 import type { DataRow, WorldTable } from './types';
 
-export type TableRowAction = { action: 'move-row'; rowId: string; beforeRowId?: string } | { action: 'insert-row'; at?: number; beforeRowId?: string };
-export interface TableRowResult { tableId: string; version: string; row?: DataRow; receiptId?: string }
+export type TableRowAction = { action: 'move-row'; rowId: string; beforeRowId?: string } | { action: 'insert-row'; at?: number; beforeRowId?: string } | ({ action: 'paste-cells' } & TableCellPaste);
+export interface TableRowResult { tableId: string; version: string; row?: DataRow; paste?: TableCellPasteResult; receiptId?: string }
 interface Receipt { scope: WorldEraScope; tableId: string; before: WorldTable; provenance: EraDocumentRead['provenance']; afterVersion: string; claimed?: Transaction }
 const receipts = new Map<string, Receipt>();
 const outer = (transaction: Transaction): Transaction => transaction.parent ? outer(transaction.parent) : transaction;
@@ -21,8 +22,11 @@ export async function editTableRows(scope: WorldEraScope, tableId: string, actio
     if (!read) throw Error('table_missing');
     if (read.version !== expectedVersion) throw new WorldEraConflict();
     const before = tableFrom(read), next = structuredClone(before);
-    let row: DataRow | undefined;
-    if (isLiveTable(next)) {
+    let row: DataRow | undefined, paste: TableCellPasteResult | undefined;
+    if (action.action === 'paste-cells') {
+      paste = pasteTableCells(next, action);
+      if (!paste.changedCells && !paste.addedRows) return { tableId, version: read.version, paste };
+    } else if (isLiveTable(next)) {
       if (action.action !== 'move-row') throw Error('table_live_order_requires_view');
       const entries = await listEraRows<CodexEntry>(scope, 'codexEntries');
       const ordered = orderLiveTableRows(next, liveTableEntries(next, entries)).map(entry => entry.id);
@@ -43,7 +47,7 @@ export async function editTableRows(scope: WorldEraScope, tableId: string, actio
     const after = (await readWorldDocument(scope, 'tables', tableId))!, receiptId = crypto.randomUUID(), owner = outer(transaction);
     receipts.set(receiptId, { scope: { ...scope }, tableId, before: structuredClone(before), provenance: read.provenance, afterVersion: after.version });
     owner.on('abort', () => { receipts.delete(receiptId); });
-    const result: TableRowResult = { tableId, version: after.version, ...(row ? { row } : {}), receiptId };
+    const result: TableRowResult = { tableId, version: after.version, ...(row ? { row } : {}), ...(paste ? { paste } : {}), receiptId };
     if (committed) owner.on('complete', () => Dexie.ignoreTransaction(() => committed(result)));
     return result;
   });
