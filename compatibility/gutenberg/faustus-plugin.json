@@ -74,5 +74,6 @@
       "repository": "https://github.com/Luissalet/Writers-Hoard-Desktop"
     }
   },
-  "notes": "Capabilities and native data belong to Writer's Hoard. Modules are enabled explicitly in the owner."
+  "notes": "Capabilities and native data belong to Writer's Hoard. Modules are enabled explicitly in the owner.",
+  "skills": {"slugs": ["hallmark-page-design", "web-accessibility-design", "docs-release-review"], "limit": 3}
 }

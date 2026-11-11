@@ -136,5 +136,6 @@
       "repository": "https://github.com/Luissalet/Writers-Hoard-Desktop"
     }
   },
-  "notes": "Capabilities and native data belong to Writer's Hoard. Modules are enabled explicitly in the owner."
+  "notes": "Capabilities and native data belong to Writer's Hoard. Modules are enabled explicitly in the owner.",
+  "skills": {"slugs": ["read-later-digest", "deep-research", "web-to-clean-markdown", "notes-from-templates"], "limit": 4}
 }

@@ -760,3 +760,7 @@ Las herramientas Source locales pueden declarar un perfil propio de texto enriqu
 
 
 El resumen del proyecto y la paleta permiten crear una línea temporal o un tablero de corcho a partir del título, además de escritos, notas y esquemas. Las opciones respetan los motores habilitados; la creación y la apertura conservan la era del panel, donde los esquemas no están disponibles. MCP ofrece las mismas opciones y Deshacer normal. [Uso y pruebas](tasks/vvd1095/verification-quick-create-engines.md#delivery44a4d4af).
+
+## Skills para los agentes que se conectan
+
+Esta app lleva procedimientos de la biblioteca de skills del espacio de trabajo de la familia para los agentes que se conectan: writer: `manuscript-continuity-edit`, `writing-plans`, `notes-from-templates`; borges: `read-later-digest`, `deep-research`, `web-to-clean-markdown`, `notes-from-templates`; gutenberg: `hallmark-page-design`, `web-accessibility-design`, `docs-release-review`; scheherazade: `manuscript-continuity-edit`, `game-design-document`. Aparecen en lo que el agente lee al conectarse, se leen con `skills_list` y `skill_read`, se buscan y asignan con `skills_library` y `skills_assign`, y se ofrecen como prompts. Se eligen en la página de skills (`/api/agent/skills/page`) o en la pestaña Skills del hub; el bloque `skills` de `faustus-plugin.json` guarda lo que la app pide por defecto.
