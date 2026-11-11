@@ -323,6 +323,19 @@ const resolved = await client.refs.resolve(reference, {includePath: true});
 
 `LocalToolReferenceResolveOptions` and `LocalToolResolvedReference` are public SDK types. The result type declares `path?:string|null` because the option is optional. Omitting options, passing `{}`, or passing `{includePath:false}` preserves the previous JSON shape exactly: no `path` property and no additional destination resolution. `refs.open`, `acceptDrag`, ordinary `openDocument` and its optional beside placement keep their existing contracts.
 
+### Resolve a batch of document references
+
+`client.refs.resolveMany?.(references)` accepts an array of `{kind, documentId}` references. It returns one metadata row for each input in the same order. Repeated references share one read and keep their positions in the result. The lookup uses the effective project and era, so an era override supplies its title and an era-hidden document returns `available:false`. Missing rows keep the input ID as their fallback title. An empty array returns an empty array.
+
+```ts
+const references = await client.refs.resolveMany?.([
+  { kind: 'codex', documentId: characterId },
+  { kind: 'notes', documentId: noteId },
+]);
+```
+
+An older client can omit the method. Use `refs.resolve` with `includePath:true` when you need an app path. The read-only MCP tool `wh_local_tool_reference_resolve_many` accepts the same `references` array, the selected source `namespace`, and the usual project and era scope. It returns `{references}`.
+
 ### Open a Source block beside the document
 
 A Source document can give an author-defined block its own companion view. Use the same document ID and pass the exact block ID.
