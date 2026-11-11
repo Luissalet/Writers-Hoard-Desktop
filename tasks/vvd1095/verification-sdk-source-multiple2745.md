@@ -21,3 +21,11 @@ La lectura y una operación sin cambios dejan intacto el checkpoint de V1 o V2. 
 El SDK oficial de VVD en Brave probó V1→V3 y V1→V2→V3, sin eventos de actualización al leer. Writer reprodujo el límite anterior y pasó 29 comprobaciones de la referencia y 22 de listas en dos etapas. Probó ausencia de escritura, pin inválido, frío, Deshacer y entregas parciales en ambos órdenes. Siete regresiones incluyeron historial físico y copias. Native r3 pasó 31 llamadas MCP con dos claves. Quick y Build r3 EOF 0.
 
 La revisión 1 de #2777 aprobó `6d298436f0f1bd579042f08f1e3620cde9c1a49d`, integrado por fast-forward. El manual de Google describe ambas rutas. Recibos en Research/writer-parity-20261110/sdk-additive-successive.
+
+## Leer los campos de una etapa anterior
+
+Con V3 activa, `convergence.readAs(identityHash)` devuelve los campos acreditados de V1 o V2 a partir del dato actual. `wh_local_tool_read` admite el mismo `readAs` con `documentId`. Para la etapa inmediatamente anterior, consulta `fromHash` del codec que muestra `wh_local_tool_describe`. Los campos de V3 quedan fuera de la vista anterior y sus ediciones de campos compartidos siguen visibles.
+
+La respuesta incluye las dos identidades, el ámbito, un indicador de conflicto y el dato admitido. La proyección no cambia la versión seleccionada, los bytes ni el historial. El escritor usa la lectura normal del estado activo.
+
+Brave RED confirmó que faltaba el método. Brave GREEN pasó 46 comprobaciones de referencia y 36 de dos listas. El caso de conflicto devuelve el dato admitido. También pasaron las regresiones de ampliación múltiple, entregas parciales y archivos. Native r3 pasó 39 llamadas MCP con dos claves, incluido el ámbito heredado de una era. Quick y Build r3 EOF 0. El SDK de navegador y el host en memoria rechazan estados que cumplen el codec pero incumplen el validador activo. Las copias mantienen la validación portátil. La revisión 1 de #2839 aprobó `7ff7d4a0e50fecc7b8faaea55e2604ba551a5cd1`, integrado por fast-forward. El manual de Google describe esta lectura.

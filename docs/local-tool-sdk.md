@@ -861,6 +861,16 @@ The selected package can open a document that skipped V2 or that V2 already edit
 
 [Verification and examples](../tasks/vvd1095/verification-sdk-source-multiple2745.md#encadenar-ampliaciones-desde-otra-versión-aditiva).
 
+### Read an earlier Source stage
+
+Use `client.convergence.readAs(identityHash)` on a Source document to read the fields of an earlier additive stage from the current data. The immediate predecessor hash is `fromHash` in the selected codec. It identifies the earlier `namespace`, `codec`, `validationId` and `schemaEpoch`.
+
+Both the selected release and the document's portable history must identify the stage. The result contains the old and active identities, Base or era provenance, a conflict indicator and the admitted data restricted to the earlier fields. Missing fields use that stage's defaults. Newer edits to earlier fields remain visible. A new origin or fork that lacks the stage cannot use its identity.
+
+MCP exposes the same projection through `wh_local_tool_read` with `documentId` and `readAs`. Keep using the normal active read for a write baseline. Projection does not alter the pin or document.
+
+[Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#leer-los-campos-de-una-etapa-anterior).
+
 ## Add fields to an existing Owned block
 
 An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.
