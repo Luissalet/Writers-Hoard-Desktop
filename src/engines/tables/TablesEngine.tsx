@@ -12,7 +12,7 @@ import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, 
 import { editTableRows, undoTableRows, type TableRowAction } from './rowActions';
 import { WorldEraConflict } from '@/services/worldEras/types';
 import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
-import { canChangeTableColumnKind, CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, isLiveTable, isNormalTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, TABLE_COLUMN_KINDS, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
+import { canChangeTableColumnKind, CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, duplicateRows, filterRows, findMatches, insertRow, isLiveTable, isNormalTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, TABLE_COLUMN_KINDS, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
 import { useTableColumnDrag } from './useTableColumnDrag';
 import TableColumnHeader from './TableColumnHeader';
 import CsvDialog from './CsvDialog';
@@ -40,6 +40,8 @@ const control = 'min-h-9 rounded-lg border border-border bg-deep px-3 py-2 text-
 const button = `${control} inline-flex items-center justify-center gap-2 hover:bg-elevated disabled:cursor-not-allowed`;
 const codexTypes: CodexEntryType[] = ['character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
 const emptyFolds: ReadonlySet<string> = new Set();
+const emptyRowSelection: ReadonlySet<string> = new Set();
+type RowSelection = { epoch: number; rows: ReadonlySet<string>; anchor?: string };
 type InlineColumnRename = { owner: string; columnId: string; name: string };
 
 export default function TablesEngine({ projectId }: EngineComponentProps) {
@@ -62,7 +64,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     filterFlush.current = flush;
     return () => { if (filterFlush.current === flush) filterFlush.current = null; };
   }, []);
-  const [matchAt, setMatchAt] = useState(0); const [selectedRows, setSelectedRows] = useState<string[]>([]); const [insertAt, setInsertAt] = useState<number | null>(null);
+  const [matchAt, setMatchAt] = useState(0); const [rowSelection, setRowSelection] = useState<RowSelection>(); const [insertAt, setInsertAt] = useState<number | null>(null);
   const [creating, setCreating] = useState(false); const [name, setName] = useState(''); const [mode, setMode] = useState<'table' | 'sheet' | 'live'>('table'); const [sourceType, setSourceType] = useState<CodexEntryType>('character'); const [sourceTemplateId,setSourceTemplateId]=useState(''); const [allSources, setAllSources] = useState(false);
   const [columnDraft, setColumnDraft] = useState<DataColumn | null>(null); const [addingColumn, setAddingColumn] = useState(false);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
@@ -103,6 +105,9 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   }, [findTarget, rowKey]);
   const rowOwner = useRef({ key: rowKey, epoch: 0, mounted: true });
   if (rowOwner.current.key !== rowKey) rowOwner.current = { key: rowKey, epoch: rowOwner.current.epoch + 1, mounted: true };
+  const selectionEpoch = rowOwner.current.epoch;
+  const selectedRows = rowSelection?.epoch === selectionEpoch ? rowSelection.rows : emptyRowSelection;
+  const clearRowSelection = () => setRowSelection(current => current?.epoch === selectionEpoch ? undefined : current);
   const [rowRead, setRowRead] = useState<{ key: string; table: WorldTable; version: string }>();
   const [rowPending, setRowPending] = useState<number | null>(null);
   const draggedRow = useRef<{ id: string; epoch: number; version: string; pointerId: number; x: number; y: number; moved: boolean; handle: HTMLButtonElement; table: HTMLTableElement; end: Element | null } | undefined>(undefined);
@@ -264,7 +269,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const foldKey = JSON.stringify([rowKey, groupRules.map(rule => rule.columnId)]);
   const foldedGroups = groupFolds?.key === foldKey ? groupFolds.folded : emptyFolds;
   const resetFolds = () => setGroupFolds(undefined);
-  const resetLocalView = () => { setQuery(''); setMatchAt(0); setSelectedRows([]); resetFolds(); };
+  const resetLocalView = () => { setQuery(''); setMatchAt(0); clearRowSelection(); resetFolds(); };
   const flushFilters = async () => {
     if (filterFlush.current && !await filterFlush.current()) throw new Error(copy.reloadFilters);
   };
@@ -290,6 +295,29 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     const title = column.kind === 'reference' ? entryTitles.get(raw) : undefined;
     return { identity, label: identity ? title ?? displayValue(row, column) : '', number: Number.isFinite(number) ? number : undefined };
   }, foldedGroups, locale);
+  const selectRow = (rowId: string, checked: boolean, extend: boolean) => setRowSelection(current => {
+    const previous = current?.epoch === selectionEpoch ? current : undefined;
+    const rows = new Set(previous?.rows);
+    const anchor = previous?.anchor;
+    const first = extend && anchor ? expandedRows.findIndex(row => row.id === anchor) : -1;
+    const last = first >= 0 ? expandedRows.findIndex(row => row.id === rowId) : -1;
+    if (first >= 0 && last >= 0) {
+      for (const row of expandedRows.slice(Math.min(first, last), Math.max(first, last) + 1)) rows.add(row.id);
+      return { epoch: selectionEpoch, rows, anchor };
+    }
+    if (checked) rows.add(rowId);
+    else rows.delete(rowId);
+    return { epoch: selectionEpoch, rows, anchor: rowId };
+  });
+  const selectShownRows = (checked: boolean) => setRowSelection(current => {
+    const previous = current?.epoch === selectionEpoch ? current : undefined;
+    const rows = new Set(groupRules.length ? previous?.rows : undefined);
+    for (const row of expandedRows) {
+      if (checked) rows.add(row.id);
+      else rows.delete(row.id);
+    }
+    return { epoch: selectionEpoch, rows, anchor: previous?.anchor };
+  });
   const visiblePosition = new Map(visible.map((row, index) => [row.id, index]));
   const updateFolded = (update: (folded: Set<string>) => void) => setGroupFolds(previous => {
     const folded = new Set(previous?.key === foldKey ? previous.folded : emptyFolds);
@@ -412,16 +440,13 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
         <TableFilters key={JSON.stringify([rowKey, filterEpoch])} columns={table.columns} conditions={conditions} stored={savedView.conditions} revision={savedView.conditionsRevision} busy={busy} copy={copy} registerFlush={registerFilterFlush}
           onDiscard={() => { setError(''); setFilterEpoch(value => value + 1); }}
           save={(next, expected) => saveTableView(projectId, table.id, { conditions: next }, { conditions: expected }, scope.eraId)} />
-        {selectedRows.length > 0 && !live && <div className="flex flex-wrap items-center gap-2 px-4 pb-3 text-sm" data-testid="table-selection"><span className="text-text-muted">{copy.selected.replace('{count}', String(selectedRows.length))}</span>
-          <button type="button" data-testid="table-selection-duplicate" className={button} disabled={busy} onClick={() => change(current => { for (const id of selectedRows) duplicateRow(current, id); })}><Copy size={14} />{copy.duplicateRows}</button>
-          <button type="button" data-testid="table-selection-delete" className={`${button} text-danger`} disabled={busy} onClick={() => requestDelete(copy.removeRows.replace('{count}', String(selectedRows.length)), async () => { const ids = [...selectedRows]; await changeTable(projectId, table.id, current => { removeRows(current, ids); }); setSelectedRows([]); })}><Trash2 size={14} />{copy.deleteRows}</button>
-          <button type="button" className={button} onClick={() => setSelectedRows([])}>{copy.clearSelection}</button></div>}
+        {selectedRows.size > 0 && !live && <div className="flex flex-wrap items-center gap-2 px-4 pb-3 text-sm" data-testid="table-selection"><span className="text-text-muted">{copy.selected.replace('{count}', String(selectedRows.size))}</span>
+          <button type="button" data-testid="table-selection-duplicate" className={button} disabled={busy} onClick={() => change(current => { duplicateRows(current, [...selectedRows]); })}><Copy size={14} />{copy.duplicateRows}</button>
+          <button type="button" data-testid="table-selection-delete" className={`${button} text-danger`} disabled={busy} onClick={() => requestDelete(copy.removeRows.replace('{count}', String(selectedRows.size)), async () => { const ids = [...selectedRows]; await changeTable(projectId, table.id, current => { removeRows(current, ids); }); clearRowSelection(); })}><Trash2 size={14} />{copy.deleteRows}</button>
+          <button type="button" className={button} onClick={clearRowSelection}>{copy.clearSelection}</button></div>}
         {table.mode === 'sheet' && <p className="px-4 pb-3 text-xs leading-relaxed text-text-muted">{copy.formulaHelp}</p>}
         <div className="min-h-0 flex-1 overflow-auto border-y border-border">
-          <table ref={tableRef} className="w-max min-w-full border-collapse text-sm text-text-primary"><thead className="sticky top-0 z-10 bg-surface"><tr><th className="border-r border-b border-border px-3 py-2 text-text-muted">{!live && <input type="checkbox" data-testid="table-select-all" aria-label={copy.selectAll} className="mr-2 accent-accent-gold" disabled={!expandedRows.length} checked={expandedRows.length > 0 && expandedRows.every(row => selectedRows.includes(row.id))} onChange={event => {
-            const ids = new Set(expandedRows.map(row => row.id));
-            setSelectedRows(!groupRules.length ? event.target.checked ? [...ids] : [] : event.target.checked ? [...new Set([...selectedRows, ...ids])] : selectedRows.filter(id => !ids.has(id)));
-          }} />}#</th>{table.columns.map((column, index) => <TableColumnHeader key={JSON.stringify([rowKey, column.id])} column={column}
+          <table ref={tableRef} className="w-max min-w-full border-collapse text-sm text-text-primary"><thead className="sticky top-0 z-10 bg-surface"><tr><th className="border-r border-b border-border px-3 py-2 text-text-muted">{!live && <input type="checkbox" data-testid="table-select-all" aria-label={copy.selectAll} className="mr-2 accent-accent-gold" disabled={!expandedRows.length} checked={expandedRows.length > 0 && expandedRows.every(row => selectedRows.has(row.id))} onChange={event => selectShownRows(event.target.checked)} />}#</th>{table.columns.map((column, index) => <TableColumnHeader key={JSON.stringify([rowKey, column.id])} column={column}
             sort={sorts[0]?.id === column.id ? sorts[0].descending ? 'descending' : 'ascending' : 'none'}
             drop={columnDrag.target?.id === column.id ? columnDrag.target.side : undefined}
             resize={canResizeColumns ? { label: `${copy.resizeColumn} ${column.name}`, disabled: columnsBusy, save: (width, expected) => resizeColumn(column.id, width, expected) } : undefined}>
@@ -475,7 +500,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
               </tr>;
               const row = item.row, index = visiblePosition.get(row.id)!;
               const savedIndex = rowPosition.get(row.id) ?? -1;
-              return <TableRow key={`row:${row.id}`} row={row} hidden={item.hidden} savedIndex={savedIndex} columns={table.columns} calculatedColumnIds={allTypes ? table.columns.map(column => column.id) : projected?.calculatedColumnIds??[]} display={displayValue} calculatedFields={live ? Object.entries(projectedEntries.get(row.id)?.properties ?? {}).filter(([, value]) => value.calculated).map(([key]) => key) : []} entries={entries} sheet={table.mode === 'sheet'} disabled={busy || allTypes} copy={copy} value={rowValue} save={saveValue} openEntry={id => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(id)}`)} selected={selectedRows.includes(row.id)} onSelect={live ? undefined : checked => setSelectedRows(checked ? [...selectedRows, row.id] : selectedRows.filter(id => id !== row.id))} matchColumnId={currentMatch?.rowId === row.id ? currentMatch.columnId : undefined} onDuplicate={live ? undefined : () => change(current => { duplicateRow(current, row.id); })} onInsertBelow={live ? undefined : () => change(current => { const at = current.rows.findIndex(item => item.id === row.id); insertRow(current, at + 1); })} rowOrderDisabled={!rowReady || rowWorking || busy} onInsertAbove={live ? undefined : () => void changeRows({ action: 'insert-row', beforeRowId: row.id })} onMoveUp={index === 0 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index - 1].id })} onMoveDown={index === visible.length - 1 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index + 2]?.id })} onRowPointerDown={event => beginRowDrag(row.id, event)} onRowPointerMove={moveRowPointer} onRowPointerEnd={endRowPointer} dropBefore={rowDrop?.epoch === rowOwner.current.epoch && rowDrop.id === row.id} action={live ? () => setEntryDraft(entries.find(entry => entry.id === row.id)!) : () => requestDelete(copy.removeRow, () => changeTable(projectId, table.id, current => { current.rows = current.rows.filter(item => item.id !== row.id); }))} live={live} />;
+              return <TableRow key={`row:${row.id}`} row={row} hidden={item.hidden} savedIndex={savedIndex} columns={table.columns} calculatedColumnIds={allTypes ? table.columns.map(column => column.id) : projected?.calculatedColumnIds??[]} display={displayValue} calculatedFields={live ? Object.entries(projectedEntries.get(row.id)?.properties ?? {}).filter(([, value]) => value.calculated).map(([key]) => key) : []} entries={entries} sheet={table.mode === 'sheet'} disabled={busy || allTypes} copy={copy} value={rowValue} save={saveValue} openEntry={id => navigate(`/project/${encodeURIComponent(projectId)}/codex?entry=${encodeURIComponent(id)}`)} selected={selectedRows.has(row.id)} onSelect={live ? undefined : (checked, extend) => selectRow(row.id, checked, extend)} matchColumnId={currentMatch?.rowId === row.id ? currentMatch.columnId : undefined} onDuplicate={live ? undefined : () => change(current => { duplicateRow(current, row.id); })} onInsertBelow={live ? undefined : () => change(current => { const at = current.rows.findIndex(item => item.id === row.id); insertRow(current, at + 1); })} rowOrderDisabled={!rowReady || rowWorking || busy} onInsertAbove={live ? undefined : () => void changeRows({ action: 'insert-row', beforeRowId: row.id })} onMoveUp={index === 0 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index - 1].id })} onMoveDown={index === visible.length - 1 ? undefined : () => void changeRows({ action: 'move-row', rowId: row.id, beforeRowId: visible[index + 2]?.id })} onRowPointerDown={event => beginRowDrag(row.id, event)} onRowPointerMove={moveRowPointer} onRowPointerEnd={endRowPointer} dropBefore={rowDrop?.epoch === rowOwner.current.epoch && rowDrop.id === row.id} action={live ? () => setEntryDraft(entries.find(entry => entry.id === row.id)!) : () => requestDelete(copy.removeRow, () => changeTable(projectId, table.id, current => { current.rows = current.rows.filter(item => item.id !== row.id); }))} live={live} />;
             })}</tbody>
           </table>
           {visible.length === 0 && <p className="p-5 text-sm text-text-muted">{copy.noRows}</p>}
@@ -538,9 +563,9 @@ function TableFilters({ columns, conditions, stored, revision, copy, busy, save,
 function TableRow({ row, savedIndex, columns, calculatedColumnIds,display,calculatedFields, entries, sheet, disabled, copy, hidden, value, save, openEntry, action, live, selected, onSelect, matchColumnId, onDuplicate, onInsertBelow, rowOrderDisabled, onInsertAbove, onMoveUp, onMoveDown, onRowPointerDown, onRowPointerMove, onRowPointerEnd, dropBefore }: {
   row: DataRow; savedIndex: number; columns: DataColumn[];calculatedColumnIds:string[];display:(row:DataRow,column:DataColumn)=>string; calculatedFields: string[]; entries: CodexEntry[]; sheet: boolean; disabled: boolean; copy: typeof tableCopy.en; hidden: boolean;
   value: (row: DataRow, column: DataColumn) => string; save: (row: DataRow, column: DataColumn, value: string) => Promise<void>; openEntry: (id: string) => void; action: () => void; live: boolean;
-  selected?: boolean; onSelect?: (checked: boolean) => void; matchColumnId?: string; onDuplicate?: () => void; onInsertBelow?: () => void; rowOrderDisabled?: boolean; onInsertAbove?: () => void; onMoveUp?: () => void; onMoveDown?: () => void; onRowPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerEnd?: (event: ReactPointerEvent<HTMLButtonElement>, cancelled?: boolean) => void; dropBefore?: boolean;
+  selected?: boolean; onSelect?: (checked: boolean, extend: boolean) => void; matchColumnId?: string; onDuplicate?: () => void; onInsertBelow?: () => void; rowOrderDisabled?: boolean; onInsertAbove?: () => void; onMoveUp?: () => void; onMoveDown?: () => void; onRowPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void; onRowPointerEnd?: (event: ReactPointerEvent<HTMLButtonElement>, cancelled?: boolean) => void; dropBefore?: boolean;
 }) {
-  return <tr hidden={hidden} className={selected ? 'bg-accent-gold/10' : 'hover:bg-surface/50'} data-row-id={row.id} style={dropBefore ? { boxShadow: 'inset 0 2px 0 var(--color-accent-gold)' } : undefined}><th className="border-r border-b border-border px-3 text-xs font-normal tabular-nums text-text-muted">{onRowPointerDown && <button type="button" data-table-row-handle disabled={rowOrderDisabled} aria-label={`${copy.dragRow} ${savedIndex + 1}`} title={copy.dragRow} className="inline-flex h-9 w-9 items-center justify-center rounded text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40" style={{ touchAction: 'none' }} onPointerDown={onRowPointerDown} onPointerMove={onRowPointerMove} onPointerUp={event => onRowPointerEnd?.(event)} onPointerCancel={event => onRowPointerEnd?.(event, true)} onLostPointerCapture={event => onRowPointerEnd?.(event, true)}><GripVertical size={15} /></button>}{onSelect && <input type="checkbox" data-testid={`table-select-row-${savedIndex + 1}`} aria-label={`${copy.selectRow} ${savedIndex + 1}`} className="mr-2 accent-accent-gold" checked={!!selected} onChange={event => onSelect(event.target.checked)} />}{savedIndex + 1}</th>{columns.map((column, columnIndex) => {
+  return <tr hidden={hidden} className={selected ? 'bg-accent-gold/10' : 'hover:bg-surface/50'} data-row-id={row.id} style={dropBefore ? { boxShadow: 'inset 0 2px 0 var(--color-accent-gold)' } : undefined}><th className="border-r border-b border-border px-3 text-xs font-normal tabular-nums text-text-muted">{onRowPointerDown && <button type="button" data-table-row-handle disabled={rowOrderDisabled} aria-label={`${copy.dragRow} ${savedIndex + 1}`} title={copy.dragRow} className="inline-flex h-9 w-9 items-center justify-center rounded text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40" style={{ touchAction: 'none' }} onPointerDown={onRowPointerDown} onPointerMove={onRowPointerMove} onPointerUp={event => onRowPointerEnd?.(event)} onPointerCancel={event => onRowPointerEnd?.(event, true)} onLostPointerCapture={event => onRowPointerEnd?.(event, true)}><GripVertical size={15} /></button>}{onSelect && <input type="checkbox" data-testid={`table-select-row-${savedIndex + 1}`} aria-label={`${copy.selectRow} ${savedIndex + 1}`} className="mr-2 accent-accent-gold" checked={!!selected} onChange={event => onSelect(event.target.checked, 'shiftKey' in event.nativeEvent && event.nativeEvent.shiftKey === true)} />}{savedIndex + 1}</th>{columns.map((column, columnIndex) => {
     const raw = row.cells[column.id] ?? ''; const computed = value(row, column); const label = `${cellKey(columnIndex, savedIndex)} ${column.name}`;
     return <td key={column.id} data-cell={`${row.id}:${column.id}`} data-match={matchColumnId === column.id ? 'current' : undefined} className="border-r border-b border-border p-0 align-top" style={{ maxWidth: column.width ?? 180, ...(matchColumnId === column.id ? { outline: '2px solid #c4973b', outlineOffset: -2 } : {}) }}>
       {calculatedColumnIds.includes(column.id)?<output className={`block min-h-11 break-words px-3 py-2 ${computed.startsWith('#')?'text-danger':'text-text-primary'}`} aria-label={label}>{display(row,column)||'—'}</output>:<TableCell raw={raw} label={label} column={column} entries={entries} sheet={sheet} disabled={disabled || calculatedFields.includes(column.field ?? column.name)} copy={copy} save={value => save(row, column, value)} openEntry={openEntry} />}

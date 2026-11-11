@@ -11,7 +11,7 @@ import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
 import { sheetValues } from './formulas';
 import { cellKey, tableCsv, validateCell, type ColumnKind, type WorldTable } from './types';
-import { changeTableColumnKind, CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, insertColumn, isLiveTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, type TableCondition, type TableSort } from './tableEdits';
+import { changeTableColumnKind, CONDITION_OPS, duplicateColumn, duplicateRow, duplicateRows, filterRows, insertColumn, isLiveTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, type TableCondition, type TableSort } from './tableEdits';
 const scope = async (args: ToolArgs) => ({ projectId: await resolveProjectForEngine(args, 'tables'), eraId: optString(args, 'eraId') });
 async function read(args: ToolArgs) {
   const target = await scope(args), project = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId);
@@ -87,12 +87,16 @@ export const TABLE_HANDLERS = {
       return result.receiptId ? withAudit(result, { projectId: target.projectId, entityId: table.id, kind: 'update', summary: action === 'move-row' ? 'Moved table row' : 'Inserted table row', before: { __tableRowReceipt: result.receiptId } }) : result;
     }
     if (table.codexAllTypes) throw Error('table_all_types_read_only');
-    let result: Record<string, unknown> = {};
-    await db.transaction('rw', db.tables, async () => {
+    return db.transaction('rw', db.tables, async () => {
       if ((await readWorldDocument(target, 'tables', table.id))?.version !== expected) throw Error('table_conflict');
+      let result: Record<string, unknown> = {};
       await changeTable(target.projectId, table.id, current => {
         if (action === 'duplicate-row') result = { row: duplicateRow(current, requireString(args, 'rowId')) };
-        else if (action === 'remove-rows') { const ids = args.rowIds; if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw Error('table_rows_invalid'); result = { removed: removeRows(current, ids as string[]) }; }
+        else if (action === 'duplicate-rows' || action === 'remove-rows') {
+          const ids = args.rowIds;
+          if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw Error('table_rows_invalid');
+          result = action === 'duplicate-rows' ? { rows: duplicateRows(current, ids) } : { removed: removeRows(current, ids) };
+        }
         else if (action === 'insert-column') {
           if (current.codexType) throw Error('table_live_codex_column_needs_field');
           const kind = String(args.kind ?? 'text'); if (!['text', 'number', 'reference', 'checkbox'].includes(kind)) throw Error('table_column_invalid');
@@ -101,8 +105,8 @@ export const TABLE_HANDLERS = {
         else if (action === 'duplicate-column') { if (current.codexType) throw Error('table_live_codex_column_needs_field'); result = { column: duplicateColumn(current, requireString(args, 'columnId'), typeof args.copyLabel === 'string' ? args.copyLabel : 'copy') }; }
         else throw Error('table_action_invalid');
       }, target.eraId);
+      return { ...result, version: (await readWorldDocument(target, 'tables', table.id))!.version };
     });
-    return { ...result, version: (await readWorldDocument(target, 'tables', table.id))!.version };
   },
   async wh_table_create_cards_view(args: ToolArgs) {
     const target = await scope(args);
