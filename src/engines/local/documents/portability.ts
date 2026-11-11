@@ -1,4 +1,5 @@
 /** Semantic copying may fork the trusted core; portable validators remain in types.ts without it. */
+import {sourceDefaultEntries} from '../stateCodecFormat';
 import {cloneLocalToolJson,type LocalToolJson} from '../stateTypes';
 import {remapLocalToolReferences,type LocalToolRichProseRemap} from '../stateCodec';
 import {worldDocumentPrefixes} from '@/services/worldEras/documentPrefixes';
@@ -8,8 +9,8 @@ import {validateSourceToolDocument,validateSourceToolDocuments,type SourceToolDo
 /** Full copies/restores cannot reseed away an incomplete new-list proof.
  * Live partial receive keeps its existing pending semantics. */
 export function validateSourceListDocumentHistory(document:SourceToolDocument):void{
- const codec=document.codec,spec=codec?.sourceDefault,checkpoint=document.convergence?.checkpoint;
- if(!spec||codec?.fields[spec.field]?.kind!=='list'||!checkpoint)return;
+ const codec=document.codec,checkpoint=document.convergence?.checkpoint;
+ if(!checkpoint||!sourceDefaultEntries(codec).some(([field])=>codec?.fields[field]?.kind==='list'))return;
  if(exportLocalToolConvergenceCheckpoint(checkpoint).pending)throw Error('local_tool_source_additive_history_invalid');
 }
 /** New identity/branch starts from the admitted view, never from patched opaque causal bytes. */

@@ -1,3 +1,4 @@
+import {sourceDefaultHash} from './stateCodecFormat';
 import {toolDockSourceEnvelopes} from '@/engines/writings/toolDock/types';
 import {findLocalToolBlocksInHtml} from './blocks/types';
 import {validateBlockForDefinition} from './blocks/definitions';
@@ -26,7 +27,7 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
   if(row.namespace!==namespace)return;
   if(!definition.document)throw Error('local_tool_document_host_required');
   const source=row as Partial<SourceToolDocument>;
-  if(definition.sourceAdditive||source.codec?.sourceDefault||source.convergence?.checkpoint.engine.version==='8'){validateSourceToolDocument(document);parseSourceToolDocumentState(definition,document);}
+  if(definition.sourceAdditive||sourceDefaultHash(source.codec)||source.convergence?.checkpoint.engine.version==='8'){validateSourceToolDocument(document);parseSourceToolDocumentState(definition,document);}
   else parseLocalToolState(definition,row.data);
  };
  const retained=[...(project.sourceToolDocuments??[])];

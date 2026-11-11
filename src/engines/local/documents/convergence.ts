@@ -1,4 +1,5 @@
 /** Host-only Source operations; the existing Source mutation owns every write. */
+import {hasSourceDefault,sourceDefaultEntries,sourceDefaultHash} from '../stateCodecFormat';
 import {db} from '@/db';
 import type {WorldEraScope} from '@/services/worldEras/types';
 import type {LocalToolDefinition,LocalToolJson,LocalToolSnapshot,LocalToolStateAction} from '../sdk';
@@ -103,22 +104,25 @@ export function adoptSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
 }
 export function applySourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],options:SourceConvergenceOptions){
  return prepare(scope,id,definition,options,read=>{
-  const spec=definition.codec?.sourceDefault;
-  baseline(read,value,id,definition.namespace,!!spec&&!read.document.convergence);
-  if(spec&&read.document.codec?.sourceDefault&&actions.some(action=>'field'in action&&action.field===spec.field)){
+  const codec=definition.codec;
+  baseline(read,value,id,definition.namespace,!!sourceDefaultHash(codec)&&!read.document.convergence);
+  if(sourceDefaultHash(read.document.codec)&&actions.some(action=>'field'in action&&hasSourceDefault(codec,action.field))){
    // An effective baseline equal to the default cannot attest to sparse presence.
    baseline(read,value,id,definition.namespace,true);
   }
   // Core validates the generic three-way subsequence and applies identity splices in original order.
  },(read,checkpoint,replicaOptions)=>{
-  const spec=replicaOptions.contract.codec.sourceDefault;
   let before=value.data;
-  if(spec&&before&&typeof before==='object'&&!Array.isArray(before)&&Object.hasOwn(before,spec.field)&&
-     !Object.hasOwn(read.document.data as object,spec.field)&&convergenceCanonical(before[spec.field])===convergenceCanonical(spec.defaultValue)&&
+  if(before&&typeof before==='object'&&!Array.isArray(before)&&
      (read.document.convergence?.checkpoint.engine.version==='1'||read.document.revision===value.revision)){
-   const raw:Record<string,LocalToolJson>={...before};
-   delete raw[spec.field];
-   before=raw as T;
+   let raw:Record<string,LocalToolJson>|undefined;
+   for(const [field,defaultValue] of sourceDefaultEntries(replicaOptions.contract.codec)){
+    if(!Object.hasOwn(before,field)||Object.hasOwn(read.document.data as object,field)||
+       convergenceCanonical(before[field])!==convergenceCanonical(defaultValue))continue;
+    raw??={...before};
+    delete raw[field];
+   }
+   if(raw)before=raw as T;
   }
   return prepareLocalToolActions(checkpoint,replicaOptions,actions,before);
  },false,true);
