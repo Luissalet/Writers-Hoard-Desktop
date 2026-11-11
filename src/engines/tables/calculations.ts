@@ -1,4 +1,4 @@
-import { shiftSheetReferences } from './tableEdits';
+import { clampTableColumnWidth, DEFAULT_TABLE_COLUMN_WIDTH, shiftSheetReferences } from './tableEdits';
 import {db} from '@/db';
 import type {WorldEraScope} from '@/services/worldEras/types';
 import {getEraProject,readWorldDocument} from '@/services/worldEras/store';
@@ -37,6 +37,6 @@ export async function removeTableColumn(scope:WorldEraScope,tableId:string,colum
 export async function updateTableColumn(scope:WorldEraScope,tableId:string,draft:DataColumn,expectedVersion:string,expectedTemplateRevision?:number):Promise<void>{await db.transaction('rw',db.tables,async()=>{
  const read=await readWorldDocument(scope,'tables',tableId);if(!read||read.version!==expectedVersion)throw Error('table_conflict');const table=read.document.root as unknown as WorldTable,project=await getEraProject(scope),templates=project.codexTemplates??[],columns=effectiveTableColumns(table,templates),current=columns.find(column=>column.id===draft.id);if(!current||!draft.name.trim()||draft.name.includes(']')||columns.some(column=>column.id!==draft.id&&column.name.toLocaleLowerCase()===draft.name.trim().toLocaleLowerCase()))throw Error('table_column_name_invalid');
  if(current.propertyId&&table.codexTemplateId){const template=templates.find(item=>item.id===table.codexTemplateId),definition=tableDefinitions(table,templates).find(item=>item.id===current.propertyId);if(!template||!definition||template.revision!==expectedTemplateRevision)throw Error('template_conflict');await saveCodexTemplate(scope.projectId,{...template,propertyDefinitions:[...template.propertyDefinitions?.filter(item=>item.key!==definition.key)??[],{...definition,label:draft.name.trim()}]},expectedTemplateRevision!);}
- const minWidth=Math.min(100,current.width??100),maxWidth=Math.max(600,current.width??600),width=draft.width??current.width??180;
- await changeTable(scope.projectId,tableId,current=>{const saved={...columns.find(column=>column.id===draft.id)!,name:draft.name.trim(),width:Math.max(minWidth,Math.min(maxWidth,width))};if(current.columns.some(column=>column.id===draft.id))current.columns=current.columns.map(column=>column.id===draft.id?saved:column);else current.columns.push(saved);},scope.eraId);
+ const width=clampTableColumnWidth(draft.width??current.width??DEFAULT_TABLE_COLUMN_WIDTH,current.width);
+ await changeTable(scope.projectId,tableId,current=>{const saved={...columns.find(column=>column.id===draft.id)!,name:draft.name.trim(),width};if(current.columns.some(column=>column.id===draft.id))current.columns=current.columns.map(column=>column.id===draft.id?saved:column);else current.columns.push(saved);},scope.eraId);
  });}

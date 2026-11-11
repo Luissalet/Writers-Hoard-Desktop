@@ -106,6 +106,28 @@ function uniqueName(table: WorldTable, wanted: string): string {
   return name;
 }
 
+export const DEFAULT_TABLE_COLUMN_WIDTH = 180;
+
+export function tableColumnWidthLimits(current?: number) {
+  return { min: Math.min(100, current ?? 100), max: Math.max(600, current ?? 600) };
+}
+
+export function clampTableColumnWidth(width: number, current?: number) {
+  const { min, max } = tableColumnWidthLimits(current);
+  return Math.max(min, Math.min(max, width));
+}
+
+export function resizeTableColumn(table: WorldTable, columnId: string, requested: number, expectedWidth?: number) {
+  if (table.mode !== 'table' || table.codexType || table.codexAllTypes || table.codexTemplateId) throw Error('table_column_resize_unsupported');
+  const column = table.columns.find(item => item.id === columnId);
+  if (!column || column.width !== expectedWidth) throw Error('table_column_width_conflict');
+  if (!Number.isFinite(requested)) throw Error('table_column_width_invalid');
+  const width = clampTableColumnWidth(requested, column.width);
+  const changed = width !== (column.width ?? DEFAULT_TABLE_COLUMN_WIDTH);
+  if (changed) column.width = width;
+  return { width, changed };
+}
+
 /** A new column at `index` (0 = first). Live Codex tables add columns through their type instead. */
 export function insertColumn(table: WorldTable, index: number, column: Omit<DataColumn, 'id'> & { id?: string }): DataColumn {
   if (table.columns.length >= MAX_COLUMNS) throw new Error('Column limit reached.');
