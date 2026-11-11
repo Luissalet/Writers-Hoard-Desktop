@@ -27,7 +27,7 @@ import {JsonMap,JsonArray,Registers,type Toggle} from './registers';
 import {PlainRuns,type PlainSpan,type PlainPlan,type PlainDraft} from './plainRuns';
 import {appendRichAdoption,readRichAdoption,richAdoptionOrigin,inspectLegacyRichUpdate,validateRichAdoption,checkRichAdoptionAncestors,checkRichAdoptionMonotonicity,effectiveRichAdoptionContract} from './richAdoption';
 import {appendSourceAdditiveAuthority,checkSourceAdditiveHistory,SOURCE_ADDITIVE_ROOT} from './sourceAdditiveHistory';
-import {projectSourceDefaults} from './sourceAdditive';
+import {projectSourceDefaults,sourcePromotionFields} from './sourceAdditive';
 import {hasSourceDefault,sourceDefaultEntries,sourceDefaultHash} from '../stateCodecFormat';
 import {appendSourceListPlacement,sourceListFields,sourceListHistoryPending} from './sourceListHistory';
 
@@ -331,7 +331,9 @@ export function createLocalToolGenesis<T extends LocalToolJson>(data:T,contract:
 /** Prepare only a candidate. The Source writer decides whether a user action commits it. */
 export function prepareSourceAdditiveCheckpoint(checkpoint:LocalToolConvergenceCheckpoint,data:LocalToolJson,from:LocalToolConvergenceMetadata,target:LocalToolConvergenceContract):LocalToolConvergenceCheckpoint {
  assertConvergenceIdentity(checkpoint,convergenceIdentity(from,checkpoint.genesisId));
- if(checkpoint.engine.version!=='1'||!sourceDefaultHash(target.codec)||exportLocalToolConvergenceCheckpoint(checkpoint).pending||!accepts(target,data))throw Error('local_tool_source_additive_incompatible');
+ if(!['1','8'].includes(checkpoint.engine.version)||sourceDefaultHash(target.codec)!==convergenceHash(from)||
+    exportLocalToolConvergenceCheckpoint(checkpoint).pending||!accepts(target,data))throw Error('local_tool_source_additive_incompatible');
+ sourcePromotionFields(from.codec,target.codec);
  const doc=new Y.Doc({gc:false}),identity=convergenceIdentity(target,checkpoint.genesisId);
  try{
   Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));

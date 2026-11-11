@@ -1,14 +1,14 @@
 import * as Y from 'yjs';
 import {JsonArray,JsonMap,Registers} from './registers';
-import {assertConvergenceIdentity,convergenceCanonical,convergenceCodecHash,convergenceHash,convergenceIdentity,validateConvergenceIdentity,validateConvergenceMetadata} from './format';
+import {assertConvergenceIdentity,convergenceCanonical,convergenceCodecHash,convergenceEngine,convergenceHash,convergenceIdentity,validateConvergenceIdentity,validateConvergenceMetadata} from './format';
 import {sourceDefaultEntries,sourceDefaultHash} from '../stateCodecFormat';
-import {priorSourceCodec} from './sourceAdditive';
-import {SOURCE_LIST_FORMAT,SOURCE_MULTI_FORMAT,SOURCE_LIST_AUTHORITY_ROOT,inspectSourceListHistory,sourceListRetainedRegisters,sourceListFields} from './sourceListHistory';
+import {priorSourceCodec,sourcePromotionFields} from './sourceAdditive';
+import {SOURCE_LIST_FORMAT,SOURCE_MULTI_FORMAT,SOURCE_SCALAR_FORMAT,SOURCE_SUCCESSIVE_FORMAT,SOURCE_LIST_AUTHORITY_ROOT,inspectSourceListStages,sourceListRetainedRegisters,sourceListFields,type SourceAuthorityFormat,type SourceListStage} from './sourceListHistory';
 import type {CausalTransaction,LocalToolConvergenceIdentity,LocalToolConvergenceMetadata,RegisterActivation,RegisterVersion} from './formatTypes';
 
 export const SOURCE_ADDITIVE_ROOT=SOURCE_LIST_AUTHORITY_ROOT;
 interface SourceAdditiveAuthority {
- format:'writers-hoard-source-additive/1'|typeof SOURCE_LIST_FORMAT|typeof SOURCE_MULTI_FORMAT;
+ format:SourceAuthorityFormat;
  target:LocalToolConvergenceMetadata;
  promotion?:{txId:string;frontier:string[];from:LocalToolConvergenceMetadata};
 }
@@ -19,16 +19,19 @@ const metadata=(value:LocalToolConvergenceMetadata):LocalToolConvergenceMetadata
 const hasSlot=(value:unknown,field:string)=>record(value)&&Object.hasOwn(value,field);
 
 function authorityFormat(codec:LocalToolConvergenceMetadata['codec']):SourceAdditiveAuthority['format'] {
- return codec.sourceDefaults?SOURCE_MULTI_FORMAT:sourceListFields(codec).length?SOURCE_LIST_FORMAT:'writers-hoard-source-additive/1';
+ return codec.sourceDefaults?SOURCE_MULTI_FORMAT:sourceListFields(codec).length?SOURCE_LIST_FORMAT:SOURCE_SCALAR_FORMAT;
 }
 
 export function appendSourceAdditiveAuthority(doc:Y.Doc,target:LocalToolConvergenceMetadata,from?:LocalToolConvergenceMetadata):void {
- const authority:SourceAdditiveAuthority={format:authorityFormat(target.codec),target:metadata(target)};
+ const successive=!!from&&convergenceEngine(from.codec).version==='8';
+ const authority:SourceAdditiveAuthority={format:successive?SOURCE_SUCCESSIVE_FORMAT:authorityFormat(target.codec),target:metadata(target)};
  if(from){
   const registers=new Registers(doc);
   const origin=new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).get('value');
   if(!origin||registers.pending())return invalid();
-  assertConvergenceIdentity(origin,convergenceIdentity(from,origin.genesisId));
+  const prior=convergenceIdentity(from,origin.genesisId);
+  if(successive)checkSourceAdditiveHistory(doc,prior);
+  else assertConvergenceIdentity(origin,prior);
   const txId=crypto.randomUUID(),frontier=registers.frontier();
   authority.promotion={txId,frontier,from:metadata(from)};
   registers.transactions.set(txId,{id:txId,parents:frontier});
@@ -36,44 +39,20 @@ export function appendSourceAdditiveAuthority(doc:Y.Doc,target:LocalToolConverge
  new JsonArray<SourceAdditiveAuthority>(doc.getArray(SOURCE_ADDITIVE_ROOT)).push([authority]);
 }
 
-/** Definition-free validation of the portable declaration and the one promotion frontier. */
-export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergenceIdentity):void {
- if(active.engine.version!=='8'||!doc.share.has(SOURCE_ADDITIVE_ROOT)||doc.share.has('convergence-rich-adoptions'))return invalid();
- const root=doc.getArray<string>(SOURCE_ADDITIVE_ROOT),identityRoot=doc.getMap<string>('convergence-identity');
- for(const items of doc.store.clients.values())for(const item of items){
-  if(item instanceof Y.Item&&item.deleted&&(item.parent===root||item.parent===identityRoot))return invalid();
- }
- const entries=new JsonArray<SourceAdditiveAuthority>(root).toArray();
- if(!entries.length)return invalid();
- const item=entries[0];
+function checkedAuthority(item:SourceAdditiveAuthority,format:SourceAuthorityFormat):void {
  if(!record(item)||!exact(item,item.promotion===undefined?['format','target']:['format','target','promotion'])||
-    !['writers-hoard-source-additive/1',SOURCE_LIST_FORMAT,SOURCE_MULTI_FORMAT].includes(item.format)||!exact(item.target,['namespace','codec','validationId','schemaEpoch']))return invalid();
+    item.format!==format||!exact(item.target,['namespace','codec','validationId','schemaEpoch']))return invalid();
  validateConvergenceMetadata(item.target);
- const codec=item.target.codec,fromHash=sourceDefaultHash(codec);
- if(!fromHash||item.format!==authorityFormat(codec))return invalid();
- const defaults=sourceDefaultEntries(codec),listFields=sourceListFields(codec);
- if(!listFields.length&&entries.length!==1)return invalid();
- const listSet=new Set(listFields);
- const retained=listFields.length?sourceListRetainedRegisters(doc):undefined;
- if(retained?.versions.some(version=>version.root==='scalar'&&listSet.has(version.key)))return invalid();
- const inspectLists=(promotionTxId?:string)=>{
-  if(listFields.length&&item.format!=='writers-hoard-source-additive/1')inspectSourceListHistory(doc,listFields,item.format,promotionTxId);
- };
- const origin=new JsonMap<LocalToolConvergenceIdentity>(identityRoot).get('value');
- validateConvergenceIdentity(origin);
- assertConvergenceIdentity(active,convergenceIdentity(item.target,origin.genesisId));
- if(item.promotion===undefined){
-  assertConvergenceIdentity(origin,active);
-  inspectLists();
-  return;
+ if(!sourceDefaultHash(item.target.codec))return invalid();
+ if(item.promotion!==undefined){
+  if(!exact(item.promotion,['txId','frontier','from'])||!exact(item.promotion.from,['namespace','codec','validationId','schemaEpoch']))return invalid();
+  validateConvergenceMetadata(item.promotion.from);
  }
- if(!exact(item.promotion,['txId','frontier','from']))return invalid();
- const {txId,frontier,from}=item.promotion;
- if(!exact(from,['namespace','codec','validationId','schemaEpoch']))return invalid();
- validateConvergenceMetadata(from);
- if(origin.engine.version!=='1'||from.namespace!==active.namespace||convergenceHash(from)!==fromHash||
-    origin.codecHash!==convergenceCodecHash(priorSourceCodec(codec,defaults.map(([field])=>field))))return invalid();
- assertConvergenceIdentity(origin,convergenceIdentity(from,active.genesisId));
+}
+
+function checkPromotionBoundary(doc:Y.Doc,authority:SourceAdditiveAuthority,fields:readonly string[],retained:ReturnType<typeof sourceListRetainedRegisters>|undefined,previousPromotion?:string):void {
+ if(!authority.promotion)return invalid();
+ const {txId,frontier}=authority.promotion,codec=authority.target.codec;
  if(typeof txId!=='string'||!txId||
     !Array.isArray(frontier)||!frontier.length||frontier.some(id=>typeof id!=='string'||!id)||new Set(frontier).size!==frontier.length)return invalid();
  const transactions=new Map(new JsonMap<CausalTransaction>(doc.getMap('causal-transactions')));
@@ -102,6 +81,7 @@ export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergence
    before.push(parent);
   }
  }
+ if(previousPromotion&&!ancestors.has(previousPromotion))return invalid();
  // The normal register validator checks the graph too. Here only complete transactions
  // decide admission, so an unrelated missing dependency cannot hide a known old writer.
  const after=new Set([txId]);
@@ -119,7 +99,7 @@ export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergence
  for(const version of retained?.versions??new JsonMap<RegisterVersion>(doc.getMap('register-versions')).values()){
   if(version.txId===txId)return invalid();
   const ancestor=ancestors.has(version.txId);
-  for(const [field] of defaults){
+  for(const field of fields){
    const kind=codec.fields[field]?.kind,scalar=version.root==='scalar'&&version.key===field;
    if(kind==='map'&&scalar)return invalid();
    if(!ancestor)continue;
@@ -131,5 +111,50 @@ export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergence
   }
  }
  for(const activation of retained?.activations??new JsonMap<RegisterActivation>(doc.getMap('register-activations')).values())if(activation.txId===txId)return invalid();
- inspectLists(txId);
+}
+
+/** Definition-free validation of the portable declaration and every exact promotion frontier. */
+export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergenceIdentity):void {
+ if(active.engine.version!=='8'||!doc.share.has(SOURCE_ADDITIVE_ROOT)||doc.share.has('convergence-rich-adoptions'))return invalid();
+ const root=doc.getArray<string>(SOURCE_ADDITIVE_ROOT),identityRoot=doc.getMap<string>('convergence-identity');
+ for(const items of doc.store.clients.values())for(const item of items){
+  if(item instanceof Y.Item&&item.deleted&&(item.parent===root||item.parent===identityRoot))return invalid();
+ }
+ const entries=new JsonArray<SourceAdditiveAuthority>(root).toArray();
+ if(!entries.length||!entries[0]?.target?.codec)return invalid();
+ const initial=entries[0];
+ checkedAuthority(initial,authorityFormat(initial.target.codec));
+ const successors=entries.slice(1).filter(item=>item?.format===SOURCE_SUCCESSIVE_FORMAT);
+ for(const stage of successors)checkedAuthority(stage,SOURCE_SUCCESSIVE_FORMAT);
+ if(!successors.length&&!sourceListFields(initial.target.codec).length&&entries.length!==1)return invalid();
+ const origin=new JsonMap<LocalToolConvergenceIdentity>(identityRoot).get('value');
+ validateConvergenceIdentity(origin);
+ const initialIdentity=convergenceIdentity(initial.target,origin.genesisId);
+ const initialFields=sourceDefaultEntries(initial.target.codec).map(([field])=>field);
+ const chained=successors.length>0;
+ const retained=chained||sourceListFields(initial.target.codec).length?sourceListRetainedRegisters(doc,chained):undefined;
+ if(initial.promotion===undefined)assertConvergenceIdentity(origin,initialIdentity);
+ else{
+  const {from}=initial.promotion;
+  if(origin.engine.version!=='1'||from.namespace!==initial.target.namespace||convergenceHash(from)!==sourceDefaultHash(initial.target.codec)||
+     origin.codecHash!==convergenceCodecHash(priorSourceCodec(initial.target.codec,initialFields)))return invalid();
+  assertConvergenceIdentity(origin,convergenceIdentity(from,origin.genesisId));
+  checkPromotionBoundary(doc,initial,initialFields,retained);
+ }
+ const stages:SourceListStage[]=[{format:initial.format,fields:sourceListFields(initial.target.codec),promotionTxId:initial.promotion?.txId}];
+ let previous=initial;
+ for(const stage of successors){
+  if(!stage.promotion||stage.target.namespace!==previous.target.namespace||
+     convergenceCanonical(stage.promotion.from)!==convergenceCanonical(previous.target)||
+     sourceDefaultHash(stage.target.codec)!==convergenceHash(previous.target))return invalid();
+  let fields:string[];
+  try{fields=sourcePromotionFields(previous.target.codec,stage.target.codec);}catch{return invalid();}
+  checkPromotionBoundary(doc,stage,fields,retained,previous.promotion?.txId);
+  stages.push({format:stage.format,fields:fields.filter(field=>stage.target.codec.fields[field].kind==='list'),promotionTxId:stage.promotion.txId});
+  previous=stage;
+ }
+ assertConvergenceIdentity(active,convergenceIdentity(previous.target,origin.genesisId));
+ const listSet=new Set(stages.flatMap(stage=>stage.fields));
+ if(retained?.versions.some(version=>version.root==='scalar'&&listSet.has(version.key)))return invalid();
+ if(listSet.size||stages.length>1)inspectSourceListStages(doc,stages);
 }

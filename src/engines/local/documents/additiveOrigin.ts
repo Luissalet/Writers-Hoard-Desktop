@@ -1,6 +1,7 @@
 import {assertConvergenceIdentity,convergenceCanonical,convergenceIdentity} from '../convergence/format';
 import type {LocalToolConvergenceMetadata} from '../convergence/formatTypes';
 import type {SourceToolDocument} from './types';
+import type {LocalToolSourceAdditive} from '../convergence/sourceAdditive';
 
 type Lookup=(namespace:string,contentHash:string|null|undefined)=>LocalToolConvergenceMetadata|undefined;
 let lookup:Lookup|undefined;
@@ -21,4 +22,10 @@ export function isSourceAdditivePredecessor(document:SourceToolDocument,from:Loc
  const checkpoint=document.convergence?.checkpoint;
  if(checkpoint)assertConvergenceIdentity(checkpoint,convergenceIdentity(from,checkpoint.genesisId));
  return true;
+}
+
+/** Match a declared ancestor by its complete retained identity, not its release version. */
+export function findSourceAdditivePredecessor(document:SourceToolDocument,declaration:LocalToolSourceAdditive|undefined):LocalToolConvergenceMetadata|undefined {
+ if(!declaration)return undefined;
+ return [...(declaration.ancestors??[]),declaration.from].find(candidate=>isSourceAdditivePredecessor(document,candidate));
 }

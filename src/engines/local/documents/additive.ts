@@ -6,7 +6,7 @@ import {projectSourceDefaults} from '../convergence/sourceAdditive';
 import type {LocalToolJson} from '../stateTypes';
 import type {LocalToolDefinition} from '../sdk';
 import type {SourceToolDocument} from './types';
-import {isSourceAdditivePredecessor} from './additiveOrigin';
+import {findSourceAdditivePredecessor} from './additiveOrigin';
 
 export function assertSourceAdditiveTarget<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>):void {
  const codec=definition.codec,checkpoint=document.convergence?.checkpoint;
@@ -17,16 +17,18 @@ export function assertSourceAdditiveTarget<T extends LocalToolJson>(document:Sou
 /** Project the default for the selected package only. Durable Source data stays sparse. */
 export function parseSourceToolDocumentState<T extends LocalToolJson>(definition:LocalToolDefinition<T>,document:SourceToolDocument):T {
  const declaration=definition.sourceAdditive;
+ const predecessor=findSourceAdditivePredecessor(document,declaration);
+ const defaults=sourceDefaultEntries(definition.codec);
+ if(predecessor){
+  const data=document.data;
+  const newFields=defaults.filter(([field])=>!Object.hasOwn(predecessor.codec.fields,field));
+  if(!data||typeof data!=='object'||Array.isArray(data)||newFields.some(([field])=>Object.hasOwn(data,field)))throw Error('local_tool_source_additive_incompatible');
+  return parseLocalToolState(definition,projectSourceDefaults(data,defaults));
+ }
  if(document.convergence?.checkpoint.engine.version==='8'||sourceDefaultHash(document.codec)){
   assertSourceAdditiveTarget(document,definition);
-  return parseLocalToolState(definition,projectSourceDefaults(document.data,sourceDefaultEntries(definition.codec)));
+  return parseLocalToolState(definition,projectSourceDefaults(document.data,defaults));
  }
- if(!declaration)return parseLocalToolState(definition,document.data);
- if(!isSourceAdditivePredecessor(document,declaration.from)){
-  if(document.convergence)throw Error('local_tool_source_additive_incompatible');
-  return parseLocalToolState(definition,document.data);
- }
- const data=document.data,defaults=sourceDefaultEntries(definition.codec);
- if(!data||typeof data!=='object'||Array.isArray(data)||defaults.some(([field])=>Object.hasOwn(data,field)))throw Error('local_tool_source_additive_incompatible');
- return parseLocalToolState(definition,projectSourceDefaults(data,defaults));
+ if(declaration&&document.convergence)throw Error('local_tool_source_additive_incompatible');
+ return parseLocalToolState(definition,document.data);
 }

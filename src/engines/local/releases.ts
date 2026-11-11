@@ -12,6 +12,7 @@ import {validateLocalToolInstallations,type LocalToolInstallation} from './insta
 import {localToolContentHash} from './releaseFormat.mjs';
 import {parseLocalToolState} from './clientContract';
 import {parseSourceToolDocumentState} from './documents/additive';
+import {validateSourceDocumentCheckpoint} from './documents/portability';
 import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
 import {localToolNamespace} from './stateTypes';
 export function resolveProjectLocalTool(namespace:string,project:Pick<Project,'localToolInstallations'>){validateLocalToolInstallations(project.localToolInstallations);const pin=project.localToolInstallations?.[namespace],definition=getLocalToolDefinition(namespace,pin?.contentHash);if(!definition)throw Error(pin?.contentHash?'local_tool_pinned_release_unavailable':getLocalToolReleases(namespace).length?'local_tool_pin_required':'local_tool_source_unavailable');return definition;}
@@ -27,8 +28,11 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
   if(row.namespace!==namespace)return;
   if(!definition.document)throw Error('local_tool_document_host_required');
   const source=row as Partial<SourceToolDocument>;
-  if(definition.sourceAdditive||sourceDefaultHash(source.codec)||source.convergence?.checkpoint.engine.version==='8'){validateSourceToolDocument(document);parseSourceToolDocumentState(definition,document);}
-  else parseLocalToolState(definition,row.data);
+  if(definition.sourceAdditive||sourceDefaultHash(source.codec)||source.convergence?.checkpoint.engine.version==='8'){
+   validateSourceToolDocument(document);
+   parseSourceToolDocumentState(definition,document);
+   if(sourceDefaultHash(definition.sourceAdditive?.from.codec))validateSourceDocumentCheckpoint(document);
+  }else parseLocalToolState(definition,row.data);
  };
  const retained=[...(project.sourceToolDocuments??[])];
  const appTargets=new Map<string,string>();
