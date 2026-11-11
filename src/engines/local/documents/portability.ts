@@ -6,9 +6,9 @@ import {remapLocalToolReferences,type LocalToolRichProseRemap} from '../stateCod
 import {worldDocumentPrefixes} from '@/services/worldEras/documentPrefixes';
 import {remapLocalToolIndexReferences} from '../documentIndex';
 import {convergenceHash} from '../convergence/format';
-import {prepareLocalToolFork,inspectLocalToolConvergence} from '../convergence/replica';
+import {prepareLocalToolFork,inspectLocalToolSourceConvergence} from '../convergence/replica';
 import {validateSourceToolDocument,validateSourceToolDocuments,type SourceToolDocument} from './types';
-export function validateSourceDocumentCheckpoint(document:SourceToolDocument):void {
+export function validateSourceDocumentCheckpoint(document:SourceToolDocument,validateState?:(value:LocalToolJson)=>value is LocalToolJson) {
  const state=document.convergence;
  if(!state)return;
  if(!document.codec)throw Error('source_tool_convergence_invalid');
@@ -17,10 +17,11 @@ export function validateSourceDocumentCheckpoint(document:SourceToolDocument):vo
  // with valid bindings without requiring its executable validator.
  const selected=state.conflict?convergenceHash(projectSourceDefaults(document.data,sourceDefaultEntries(document.codec))):undefined;
  const contract={namespace:document.namespace,codec:document.codec,validationId:checkpoint.validationId,schemaEpoch:checkpoint.schemaEpoch,
-  validateState:(value:LocalToolJson):value is LocalToolJson=>selected===undefined||convergenceHash(value)===selected};
- const view=inspectLocalToolConvergence(checkpoint,{authorId:'source-portable-read',contract});
- if(view.pending||convergenceHash(view.data)!==convergenceHash(document.data)||
+  validateState:validateState??((value:LocalToolJson):value is LocalToolJson=>selected===undefined||convergenceHash(value)===selected)};
+ const {view,pending,sourceHistory}=inspectLocalToolSourceConvergence(checkpoint,{authorId:'source-portable-read',contract});
+ if(pending||convergenceHash(view.data)!==convergenceHash(document.data)||
     convergenceHash(view.conflict)!==convergenceHash(state.conflict??null))throw Error('local_tool_source_additive_history_invalid');
+ return sourceHistory;
 }
 /** Full copies and restores validate additive history before reseeding. */
 export function validateSourceListDocumentHistory(document:SourceToolDocument):void{

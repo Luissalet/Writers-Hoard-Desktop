@@ -2,7 +2,7 @@ import { db } from '@/db';
 import { deleteProject } from '@/db/operations';
 import { localToolConvergenceContext } from '@/engines/local/convergence/context';
 import * as Y from 'yjs';
-import { convergenceBase64, convergenceBytes, convergenceCanonical, convergenceIdentity } from '@/engines/local/convergence/format';
+import { convergenceBase64, convergenceBytes, convergenceCanonical, convergenceHash, convergenceIdentity } from '@/engines/local/convergence/format';
 import type { LocalToolConvergenceCheckpoint } from '@/engines/local/convergence/types';
 import { createLocalToolReplica, exportLocalToolConvergenceCheckpoint } from '@/engines/local/convergence/replica';
 import { createSourceToolDocument, readSourceToolDocument } from '@/engines/local/documents/store';
@@ -13,6 +13,7 @@ import { localToolReleaseIdentity, type LocalToolReleaseManifest } from '@/engin
 import { pinLocalToolRelease } from '@/engines/local/releases';
 import { defineLocalTool, type LocalToolJson, type LocalToolStateAction } from '@/engines/local/sdk';
 import { createLocalToolClient } from '@/engines/local/storage';
+import { createFakeLocalToolHost } from '@/engines/local/testing';
 import fixtureSource from './local-tool-source-successive-additive.browser.ts?raw';
 
 type State = Record<string, LocalToolJson>;
@@ -61,7 +62,7 @@ export async function testSourceSuccessiveAdditive(priorList = false): Promise<s
       ...middle.codec!.fields, threat: { kind: 'scalar' }, traits: { kind: 'list', idKey: 'key' },
     } },
     sourceAdditive: { from: metadata(middle), ancestors: [metadata(original)], fields: threat },
-    validateState: valid,
+    validateState: middle.validateState,
   });
   const rejects = (label: string, operation: () => unknown) => {
     let rejected = false;
@@ -235,10 +236,10 @@ export async function testSourceSuccessiveAdditive(priorList = false): Promise<s
       const after = { ...expected[index], threat: 7,
         ...(priorList ? { traits: [newItem], relics: index ? [olderItem, newRelic] : [newRelic] } : {}) };
       expect('First V3 write preserves old values ' + document.id, change.snapshot.data, after);
-      const saved = (await raw(document.id))!, original = old[index]!;
+      const saved = (await raw(document.id))!, retained = old[index]!;
       expect('Single durable revision ' + document.id,
         [saved.document.revision, saved.lineage, saved.document.convergence!.checkpoint.genesisId],
-        [original.document.revision + 1, original.lineage, original.document.convergence!.checkpoint.genesisId]);
+        [retained.document.revision + 1, retained.lineage, retained.document.convergence!.checkpoint.genesisId]);
       const checkpoint = saved.document.convergence!.checkpoint;
       const cold = createLocalToolReplica(checkpoint, {
         authorId: 'QA cold', contract: { ...metadata(latest), validateState: latest.validateState },
@@ -252,7 +253,82 @@ export async function testSourceSuccessiveAdditive(priorList = false): Promise<s
       }
       const retagged = { ...checkpoint, ...convergenceIdentity(metadata(middle), checkpoint.genesisId) };
       rejects('Reject V3 bytes relabelled as V2 ' + document.id, () => exportLocalToolConvergenceCheckpoint(retagged));
+      const updatedHabitat = 'V3 edits a V2 field';
+      const extra = await api.state!.apply(await api.read(), [{ type: 'set', field: 'habitat', value: updatedHabitat }]);
+      const beforeProjection = await raw(document.id);
+      const selectedBefore = (await db.projects.get(projectId))?.localToolInstallations?.[namespace];
+      const older = await api.convergence!.readAs(convergenceHash(metadata(middle)));
+      const earliest = await api.convergence!.readAs(convergenceHash(metadata(original)));
+      const expectedOlder = Object.fromEntries(Object.keys(middle.codec!.fields)
+        .map(field => [field, field === 'habitat' ? updatedHabitat : (after as State)[field]]));
+      expect('V2 sees current shared fields without V3 fields ' + document.id, older.data, expectedOlder);
+      expect('V1 projects only its own field ' + document.id, earliest.data, { name: 'Edited V1' });
+      const fixture = createFakeLocalToolHost(latest, { projects: [
+        { id: projectId, updatedAt: 1, sourceToolDocuments: [beforeProjection!.document] },
+      ] });
+      const fixtureBefore = fixture.inspect();
+      const fake = fixture.createClient(scope, true, document.id);
+      expect('Memory host projects the same certified fields and keeps fixtures exact ' + document.id,
+        [await fake.convergence!.readAs(convergenceHash(metadata(middle))), fixture.inspect()], [older, fixtureBefore]);
+      expect('Projection identifies both exact contracts ' + document.id, [older.identity, older.activeIdentity, older.conflicted],
+        [convergenceIdentity(metadata(middle), checkpoint.genesisId), convergenceIdentity(metadata(latest), checkpoint.genesisId), false]);
+      expect('Projection does not supply a write baseline ' + document.id,
+        ['revision', 'document', 'checkpoint', 'lineage'].some(key => Object.hasOwn(older, key)), false);
+      let refused = false;
+      try { await api.convergence!.readAs('0'.repeat(64)); } catch { refused = true; }
+      expect('Unknown projection identity is refused ' + document.id, refused, true);
+      expect('Projection preserves saved state and selected release ' + document.id,
+        [await raw(document.id), (await db.projects.get(projectId))?.localToolInstallations?.[namespace]], [beforeProjection, selectedBefore]);
+      if (!priorList && index === 1) {
+        const authentic = beforeProjection!.document;
+        const permissive = createLocalToolReplica(authentic.convergence!.checkpoint, {
+          authorId: 'untrusted Source sender',
+          contract: { ...metadata(latest), validateState: (_value): _value is State => true },
+        });
+        let forged: SourceToolDocument;
+        try {
+          permissive.apply([
+            { type: 'set', field: 'habitat', value: 'Swamp' },
+            { type: 'map-set', field: 'stats', key: 'armor', value: 42 },
+          ]);
+          forged = { ...authentic, data: permissive.read(), convergence: { checkpoint: permissive.checkpoint() } };
+        } finally { permissive.destroy(); }
+        expect('Portable validation has no executable release validator', forkSourceToolDocument(forged).data, forged.data);
+        const project = (await db.projects.get(projectId))!;
+        const originalRows = project.sourceToolDocuments!;
+        await db.projects.update(projectId, { sourceToolDocuments: originalRows.map(row => row.id === forged.id ? forged : row) });
+        try {
+          const hash = convergenceHash(metadata(middle));
+          const forgedHost = createFakeLocalToolHost(latest, { projects: [
+            { id: projectId, updatedAt: 1, sourceToolDocuments: [forged] },
+          ] });
+          const results = await Promise.allSettled([
+            api.read(), api.convergence!.readAs(hash),
+            forgedHost.createClient(scope, true, forged.id).convergence!.readAs(hash),
+          ]);
+          expect('Browser and memory projections enforce the active validator', results.map(result => result.status),
+            ['rejected', 'rejected', 'rejected']);
+        } finally { await db.projects.update(projectId, { sourceToolDocuments: originalRows }); }
+      }
+      await api.state!.undo(extra.receiptId!);
       expect('V3 Undo ' + document.id, (await api.state!.undo(change.receiptId!)).snapshot.data, expected[index]);
+      if (!priorList && index === 1) {
+        const checkpoint = (await raw(document.id))!.document.convergence!.checkpoint;
+        const contract = { ...metadata(latest), validateState: latest.validateState };
+        const left = createLocalToolReplica(checkpoint, { authorId: 'left V3', contract });
+        const right = createLocalToolReplica(checkpoint, { authorId: 'right V3', contract });
+        try {
+          await api.convergence!.import(left.apply([{ type: 'set', field: 'habitat', value: 'Swamp' }]).update);
+          await api.convergence!.import(right.apply([{ type: 'map-set', field: 'stats', key: 'armor', value: 42 }]).update);
+          const savedConflict = (await raw(document.id))!.document;
+          if (!savedConflict.convergence?.conflict) throw Error('Expected a genuine active conflict');
+          const projection = await api.convergence!.readAs(convergenceHash(metadata(middle)));
+          const admitted = savedConflict.data as State;
+          expect('Projection returns the admitted V2 fields during a V3 conflict',
+            [projection.data, projection.conflicted, Object.hasOwn(projection, 'conflict')],
+            [{ name: admitted.name, habitat: admitted.habitat, stats: admitted.stats }, true, false]);
+        } finally { left.destroy(); right.destroy(); }
+      }
     }
     return checks;
   } finally { await deleteProject(projectId); }

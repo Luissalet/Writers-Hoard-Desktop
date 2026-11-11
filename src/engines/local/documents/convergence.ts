@@ -5,10 +5,12 @@ import type {WorldEraScope} from '@/services/worldEras/types';
 import type {LocalToolDefinition,LocalToolJson,LocalToolSnapshot,LocalToolStateAction} from '../sdk';
 import type {LocalToolConvergenceCheckpoint,LocalToolConvergencePreparation,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolReplicaOptions} from '../convergence/types';
 import {convergenceCanonical,convergenceHash,validateLocalToolConvergenceUpdate} from '../convergence/format';
+import type {LocalToolSourceProjection} from '../convergence/clientTypes';
 import {createLocalToolGenesis,forkLocalToolGenesis,prepareLocalToolAdoption,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,prepareSourceAdditiveCheckpoint,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
 import {findSourceAdditivePredecessor} from './additiveOrigin';
+import {projectSourceToolAs} from './additive';
 export type {SourceConvergenceOptions} from './store';
 export interface SourceConvergenceReadOptions {stateVectorBase64?:string}
 interface StoredPlan {
@@ -51,6 +53,12 @@ export function startSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
   });return result(scope,id,definition,plan);
  });
 }
+/** Read through the active authority and expose only the fields of a certified earlier stage. */
+export async function readSourceToolProjection<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,identityHash:string):Promise<LocalToolSourceProjection> {
+ const read=source(await readSourceToolDocument(scope,id,definition.namespace),id,definition.namespace);
+ return projectSourceToolAs(read.document,definition,identityHash,read.provenance);
+}
+
 /** An old epoch is exported without interpreting it with a newly pinned validator. */
 export function exportSourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,options:SourceConvergenceReadOptions={}):Promise<SourceConvergenceResult<T>>{
  return db.transaction('r',[db.projects,db.worldEraVariants],async()=>{

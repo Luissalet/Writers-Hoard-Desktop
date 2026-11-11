@@ -248,8 +248,8 @@ function semanticPending(r:Roots,proofs?:SnapshotBindingProofs):boolean {
  }
  return false;
 }
-function checkDocumentIdentity(doc:Y.Doc,identity:LocalToolConvergenceIdentity):void {
- if(identity.engine.version==='8'||doc.share.has(SOURCE_ADDITIVE_ROOT)){checkSourceAdditiveHistory(doc,identity);return;}
+function checkDocumentIdentity(doc:Y.Doc,identity:LocalToolConvergenceIdentity):readonly LocalToolConvergenceMetadata[]|undefined {
+ if(identity.engine.version==='8'||doc.share.has(SOURCE_ADDITIVE_ROOT))return checkSourceAdditiveHistory(doc,identity);
  if(convergenceCanonical(new JsonMap<LocalToolConvergenceIdentity>(doc.getMap('convergence-identity')).get('value'))!==convergenceCanonical(identity)||doc.share.has('convergence-rich-adoptions'))readRichAdoption(doc,identity);
 }
 function capsule(identity:LocalToolConvergenceIdentity,doc:Y.Doc):LocalToolConvergenceCheckpoint {
@@ -697,8 +697,9 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
  doc.on('afterTransaction',proofMetadataChanged);
  const current=()=>{if(closed)throw Error('local_tool_convergence_destroyed');};
  const onUpdate=(update:Uint8Array)=>{captured?.push(update);};doc.on('update',onUpdate);
+ let sourceHistory:readonly LocalToolConvergenceMetadata[]|undefined;
  try{
-  Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));checkDocumentIdentity(doc,identity);r.registers.validate();checkPlainDocument(r,doc);
+  Y.applyUpdate(doc,convergenceBytes(checkpoint.checkpointBase64));sourceHistory=checkDocumentIdentity(doc,identity);r.registers.validate();checkPlainDocument(r,doc);
   if(identity.engine.version==='4'&&richAdoptionOrigin(doc).engine.version==='3'){if(!contract.richAdoption)throw Error('local_tool_rich_adoption_invalid');const adoption=readRichAdoption(doc,identity,contract.richAdoption)!;checkRichAdoptionAncestors(doc,adoption);}
   if(convergenceBase64(Y.encodeStateVector(doc))!==checkpoint.stateVectorBase64)throw Error('local_tool_convergence_vector_invalid');inspect(r,contract);
   if(restore){validateLocalToolConvergenceReceipt(restore);assertConvergenceIdentity(restore.identity,identity);recipeRecord(restore,r);receipts.set(restore.id,clone(restore));(restore.mode==='undo'?undo:redo).push(restore.id);}
@@ -837,7 +838,7 @@ function instantiate<T extends LocalToolJson>(checkpoint:LocalToolConvergenceChe
   export(stateVectorBase64?:string){current();return packet(identity,Y.encodeStateAsUpdate(doc,stateVectorBase64===undefined?undefined:convergenceBytes(stateVectorBase64)));},
   destroy(){if(!closed){invalidateSnapshotProofs();invalidateRaw();r.projectionReader=undefined;closed=true;receipts.clear();undo.length=redo.length=0;doc.off('update',onUpdate);doc.off('afterTransaction',proofMetadataChanged);doc.off('afterTransaction',invalidateRaw);doc.destroy();}},
  });
- return{replica,applyObserved,
+ return{replica,applyObserved,sourceHistory,
   receipt(id:string|null){current();if(id===null)return null;const receipt=receipts.get(id);if(!receipt)throw Error('local_tool_convergence_receipt_unavailable');return clone(receipt);},
   replace(data:T){current();invalidateSnapshotProofs();projectionEpoch={};const plan=prepareReplacement(r,contract,data,options.authorId);return author(plan,()=>mutateReplacement(r,plan));},
   pending(){current();return pending(doc)||semanticPending(r,snapshotProofs);},
@@ -859,6 +860,12 @@ export function prepareLocalToolAdoption<T extends LocalToolJson>(checkpoint:Loc
 export function prepareLocalToolReverse<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>,receipt:LocalToolConvergenceReceipt):LocalToolConvergencePreparation<T> {return prepare(checkpoint,options,host=>receipt.mode==='undo'?host.replica.undo(receipt.id):host.replica.redo(receipt.id),receipt);}
 export function inspectLocalToolConvergence<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>):LocalToolConvergenceView<T>&{pending:boolean} {
  const host=instantiate(checkpoint,options);try{return{...host.replica.inspect(),pending:host.pending()};}finally{host.replica.destroy();}
+}
+
+export function inspectLocalToolSourceConvergence<T extends LocalToolJson>(checkpoint:LocalToolConvergenceCheckpoint,options:LocalToolReplicaOptions<T>) {
+ const host=instantiate(checkpoint,options);
+ try{return{view:host.replica.inspect(),pending:host.pending(),sourceHistory:host.sourceHistory};}
+ finally{host.replica.destroy();}
 }
 
 /** Include historical and inactive versions: Undo or a causal merge can expose them. */

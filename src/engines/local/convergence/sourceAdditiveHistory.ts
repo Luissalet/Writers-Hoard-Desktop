@@ -114,7 +114,7 @@ function checkPromotionBoundary(doc:Y.Doc,authority:SourceAdditiveAuthority,fiel
 }
 
 /** Definition-free validation of the portable declaration and every exact promotion frontier. */
-export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergenceIdentity):void {
+export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergenceIdentity):readonly LocalToolConvergenceMetadata[] {
  if(active.engine.version!=='8'||!doc.share.has(SOURCE_ADDITIVE_ROOT)||doc.share.has('convergence-rich-adoptions'))return invalid();
  const root=doc.getArray<string>(SOURCE_ADDITIVE_ROOT),identityRoot=doc.getMap<string>('convergence-identity');
  for(const items of doc.store.clients.values())for(const item of items){
@@ -157,4 +157,5 @@ export function checkSourceAdditiveHistory(doc:Y.Doc,active:LocalToolConvergence
  const listSet=new Set(stages.flatMap(stage=>stage.fields));
  if(retained?.versions.some(version=>version.root==='scalar'&&listSet.has(version.key)))return invalid();
  if(listSet.size||stages.length>1)inspectSourceListStages(doc,stages);
+ return [...(initial.promotion?[initial.promotion.from]:[]),initial.target,...successors.map(stage=>stage.target)];
 }

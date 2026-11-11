@@ -6,7 +6,16 @@ import type {LocalToolConvergenceIdentity,LocalToolConvergenceCheckpoint,LocalTo
 export type LocalToolConvergenceSnapshot=LocalToolConvergenceIdentity&{conflict?:LocalToolValidationConflict};
 export interface LocalToolConvergenceImportOptions {expectedLineage?:string}
 export interface LocalToolAdoptionReceiptSuccessor {previous:string;successor:string}
+/** A verified view of an earlier additive stage, with no writable baseline. */
+export interface LocalToolSourceProjection {
+ identity:LocalToolConvergenceIdentity;
+ activeIdentity:LocalToolConvergenceIdentity;
+ provenance:'base'|'variant';
+ conflicted:boolean;
+ data:LocalToolJson;
+}
 export interface LocalToolDocumentConvergence<T extends LocalToolJson>{
+ readAs(identityHash:string):Promise<LocalToolSourceProjection>;
  richImageCapture(field:string,nodeId:string,channel:import('./imageFormat').RichImageChannel):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./imageFormat').RichImageCapture}>;
  richTableColumnWidthCapture(field:string,tableId:string,columnId:string):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./tableAxesEditing').RichTableColumnWidthCapture}>;
  richTableAxisCapture(field:string,tableId:string,axis:import('./tableAxesFormat').RichTableAxis,afterId:string|null):Promise<{snapshot:LocalToolSnapshot<T>;capture:import('./tableAxesEditing').RichTableAxisCapture}>;
