@@ -1,6 +1,6 @@
 import '@/engines';
 import Dexie from 'dexie';
-import {act, Suspense, useLayoutEffect} from 'react';
+import {act, Suspense, useLayoutEffect, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {MemoryRouter, Route, Routes, useLocation, useParams} from 'react-router-dom';
 import {db} from '@/db';
@@ -8,7 +8,7 @@ import {deleteProject} from '@/db/operations';
 import {getEngine} from '@/engines/_registry';
 import {getPrimaryEnginePaneOpenBeside} from '@/engines/_shared/EnginePaneContext';
 import {registerLocalToolModules} from '@/engines/local/registry';
-import {defineLocalTool, type LocalToolClient, type LocalToolProps} from '@/engines/local/sdk';
+import {defineLocalTool, nextLocalToolUndoStep, useLocalToolUndoProvider, type LocalToolClient, type LocalToolProps, type LocalToolUndoMode} from '@/engines/local/sdk';
 import {createLocalToolClient} from '@/engines/local/storage';
 import documentNotebook from '@/engines/local/examples/documentNotebookDefinition';
 import type {LinkedNotebookState} from '@/engines/local/examples/LinkedNotebook';
@@ -66,11 +66,11 @@ interface Fixture {
   unmountWorkspace(): Promise<void>;
 }
 
-async function withFixture<T>(label: string, observeClient: boolean, run: (fixture: Fixture) => Promise<T>, blockFocus = false): Promise<T> {
+async function withFixture<T>(label: string, observeClient: boolean, run: (fixture: Fixture) => Promise<T>, blockFocus = false, component?: typeof documentNotebook.component): Promise<T> {
   const projectId = `beside-${label}-${crypto.randomUUID()}`, targetId = `${projectId}-target`, ownerId = `${projectId}-owner`;
   const targetTitle = `Target B ${label}`, targetMarker = `EFFECTIVE_TARGET_${targetId}`, ownerTitle = `Owner O ${label}`, blockId = `${projectId}-world-cards`;
   const emitted = new Map<string, LocalToolClient<LinkedNotebookState>>();
-  const Original = documentNotebook.component;
+  const Original = component ?? documentNotebook.component;
   function Observe(props: LocalToolProps<LinkedNotebookState>) {
     useLayoutEffect(() => {
       const id = props.client.documentId; if (!id) return;
@@ -79,7 +79,7 @@ async function withFixture<T>(label: string, observeClient: boolean, run: (fixtu
     }, [props.client]);
     return <Original {...props}/>;
   }
-  const definition = observeClient ? defineLocalTool({...documentNotebook, component: Observe}) : documentNotebook;
+  const definition = observeClient || component ? defineLocalTool({...documentNotebook, component: observeClient ? Observe : Original}) : documentNotebook;
   registerLocalToolModules({
     './installed/examples.document-notebook/module.tsx': {default: definition},
     './installed/examples.initiative/module.tsx': {default: initiative},
@@ -475,7 +475,7 @@ export async function testLocalToolBesidePickerStates(): Promise<string[]> {
 }
 
 export async function testLocalToolBesideAll(): Promise<string[]> {
-  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates(), ...await testSourceAuthorUndoCommand()];
+  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates(), ...await testSourceAuthorUndoCommand(), ...await testSourceAuthorUndoProvider()];
 }
 
 /** Product CSS runner handshake only; ROOT executes this export in its later UI batch. */
@@ -753,4 +753,198 @@ export async function testSourceAuthorUndoCommand(): Promise<string[]> {
       JSON.stringify(await reader.read())===JSON.stringify(beforeRetire),'A retired command committed or remained reachable');
     return ['Real Source author command uses one normal receipt, shares Undo/Redo and branch with state, preserves text handling and rejects stale or pending mounts'];
   });
+}
+
+export async function testSourceAuthorUndoProvider(): Promise<string[]> {
+  type Scope={projectId:string;namespace:string;documentId:string};
+  type Provider={instanceId:string;providerId:string;providerToken:string;label?:{en:string;es:string};canUndo:boolean;canRedo:boolean};
+  const checks:string[]=[];
+  async function list(scope:Scope){
+    const reply=await runBridgeTool('wh_local_tool_undo_provider_list',scope);assert(reply.ok,JSON.stringify(reply));
+    return (reply.result as {providers:Provider[]}).providers;
+  }
+  function invoke(scope:Scope,provider:Provider,mode:LocalToolUndoMode,overrides={}){
+    const {instanceId,providerId,providerToken}=provider;
+    return runBridgeTool('wh_local_tool_undo_provider_run',{...scope,instanceId,providerId,providerToken,mode,...overrides});
+  }
+  function expect(reply:Awaited<ReturnType<typeof invoke>>,available:boolean,applied:boolean){
+    assert(reply.ok&&JSON.stringify(reply.result)===JSON.stringify({available,applied}),JSON.stringify(reply));
+  }
+  async function key(target:HTMLElement,redo=false){
+    const event=new KeyboardEvent('keydown',{key:'z',ctrlKey:true,shiftKey:redo,bubbles:true,cancelable:true});
+    await act(async()=>{target.dispatchEvent(event);await pause();});return event.defaultPrevented;
+  }
+  async function note(host:HTMLElement,value:string){
+    const textarea=node<HTMLTextAreaElement>('textarea[aria-label="Notes"]',host);
+    await act(async()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(textarea,value);textarea.dispatchEvent(new Event('input',{bubbles:true}));await pause();});
+    assert(!button(host,'Save notes').disabled,'The note draft was not accepted');
+    await click(button(host,'Save notes'));
+  }
+  async function holdAccess(projectId:string){
+    let enter!:()=>void,release!:()=>void;
+    const entered=new Promise<void>(resolve=>{enter=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
+    const done=db.transaction('rw',db.projects,async()=>{await db.projects.get(projectId);enter();await Dexie.waitFor(held);});
+    await entered;return{release,done};
+  }
+  await withSourceBlockFocusFixture(async fixture=>{
+    const scope={projectId:fixture.projectId,documentId:fixture.documentId,namespace:fixture.namespace};
+    const reader=createLocalToolClient(scope.projectId,documentNotebook,{documentId:scope.documentId,readOnly:true});
+    const host=()=>sourceHost(main(),scope.documentId)!;
+    const region=(within=host())=>node<HTMLElement>('section[aria-label="Rehearsal order"]',within);
+    const names=(within=host())=>[...region(within).querySelectorAll('ol > li > span')].map(row=>row.textContent).join('|');
+    const snapshot=async()=>JSON.stringify(await reader.read());
+    const before=await reader.read(),original='Block focus checklist item Ω',authored=`${original}|Review continuity|Check names`,reordered=`Review continuity|${original}|Check names`;
+    const first=(await list(scope))[0];
+    assert(first?.providerId==='rehearsal-order'&&first.label?.en==='Rehearsal order'&&!first.canUndo&&!first.canRedo,'Initial live model was not listed without history');
+    await note(host(),'Normal note before rehearsal');
+    await click(button(host(),'Add review checklist'));
+    await until(()=>names()===authored,'Author command was not visible in the rehearsal');
+    const edited=await snapshot(),move=()=>node<HTMLButtonElement>(`button[aria-label="Move ${original} down"]`,region());
+    await click(move());
+    assert(names()===reordered&&await snapshot()===edited,'A rehearsal edit changed saved data');
+    assert(!await key(node('textarea',host()))&&await snapshot()===edited,'Text Undo was intercepted by the provider');
+    assert(await key(button(region(),'Undo rehearsal'))&&names()===authored&&await snapshot()===edited,'Keyboard did not undo the provisional order');
+    assert(await key(button(host(),'Add review checklist'))&&names()===original&&(await reader.read()).data.notes==='Normal note before rehearsal','The normal command receipt did not follow the provider');
+    assert(await key(button(host(),'Add review checklist'))&&(await reader.read()).data.notes===before.data.notes,'The older state receipt did not follow the command');
+    assert(!button(region(),'Redo rehearsal').disabled&&!button(host(),'Redo').disabled,'Both redo directions must be ready for ordering');
+    assert(await key(button(host(),'Add review checklist'),true)&&(await reader.read()).data.notes==='Normal note before rehearsal'&&names()===original,'Redo picked the provider before the newer normal step');
+    assert(await key(button(host(),'Add review checklist'),true)&&names()===authored,'The next normal Redo did not restore the command');
+    assert(await key(button(region(),'Redo rehearsal'),true)&&names()===reordered,'Redo did not return to the provider after the normal steps');
+    assert((await list(scope))[0]?.providerToken===first.providerToken,'Inline handle rerender replaced the model token');
+    const retained=await snapshot(),hold=await holdAccess(scope.projectId);
+    let pending:ReturnType<typeof invoke>|undefined;
+    try{
+      await act(async()=>{pending=Dexie.ignoreTransaction(()=>invoke(scope,first,'undo'));await pause();});
+      await until(()=>button(region(),'Undo rehearsal').disabled&&move().disabled&&button(region(),'Apply order').disabled,'Pending provider did not guard its model controls');
+      await click(move());await click(button(region(),'Apply order'));
+      expect(await invoke(scope,first,'undo'),true,false);
+      assert(names()===reordered,'A second operation changed the model while Undo waited');
+    }finally{hold.release();await hold.done;}
+    assert(pending,'The pending provider request was not started');
+    await act(async()=>{expect(await pending!,true,true);await pause();});
+    assert(names()===authored&&await snapshot()===retained,'Provider MCP Undo changed persistence or skipped the live model');
+    await act(async()=>{expect(await invoke(scope,first,'redo'),true,true);await pause();});
+    assert(names()===reordered&&await snapshot()===retained,'Provider MCP Redo did not use the same model');
+    const invalid=await invoke(scope,first,'undo',{mode:'invalid'});
+    assert(!invalid.ok&&invalid.code==='bad-args','Invalid mode reached the provider');
+    expect(await invoke(scope,first,'undo',{eraId:'another-era'}),false,false);
+    await click(button(region(),'Discard rehearsal'));
+    await until(()=>names()===authored&&button(region(),'Undo rehearsal').disabled,'Deliberate discard did not clear the rehearsal');
+
+    await act(async()=>{const opened=await runBridgeTool('wh_local_tool_document_open',{projectId:scope.projectId,documentId:scope.documentId,blockId:'items'});assert(opened.ok&&JSON.stringify(opened.result)===JSON.stringify({available:true,applied:true}),JSON.stringify(opened));await pause();});
+    const companion=()=>sourceHost(activeCompanion()!,scope.documentId)!;
+    await until(()=>!!activeCompanion()?.querySelector('section[aria-label="Rehearsal order"]'),'Real Items companion did not publish its provider');
+    const both=await list(scope),second=both.find(row=>row.providerToken!==first.providerToken);
+    assert(both.length===2&&second&&second.instanceId!==first.instanceId,'The companion reused the principal model identity');
+    const moveCompanion=()=>node<HTMLButtonElement>(`button[aria-label="Move ${original} down"]`,region(companion()));
+    await click(moveCompanion());
+    assert(names(companion())===reordered&&names()===authored&&await snapshot()===retained,'Companion rehearsal retargeted the principal or saved data');
+    await click(button(region(companion()),'Apply order'));
+    await until(()=>names()===reordered&&button(region(companion()),'Undo rehearsal').disabled,'Apply did not synchronize the saved order and clear the provisional stack');
+    const applied=await reader.read();
+    assert(applied.revision===JSON.parse(retained).revision+1&&applied.data.items.map(row=>row.text).join('|')===reordered,'Apply did not use one normal writer revision');
+    await click(button(companion(),'Undo'));
+    await until(()=>names()===authored&&names(companion())===authored,'Regular Undo did not restore the applied order');
+    await click(moveCompanion());
+    const other=createLocalToolClient(scope.projectId,documentNotebook,{documentId:scope.documentId});
+    const remoteItem='A different view added this item';
+    await act(async()=>{const baseline=await other.read();await other.state!.apply(baseline,[{type:'list-insert',field:'items',item:{id:'remote-rehearsal-item',text:remoteItem},afterId:baseline.data.items.at(-1)!.id}]);await pause();});
+    const remote=await snapshot();
+    await click(button(region(companion()),'Apply order'));
+    await until(()=>!!region(companion()).querySelector('[role="alert"]'),'Changed baseline did not surface a conflict');
+    assert(names(companion())===reordered&&await snapshot()===remote,'Conflicting Apply lost the draft or changed saved data');
+    await click(button(region(companion()),'Discard rehearsal'));
+    await until(()=>names(companion())===`${authored}|${remoteItem}`,'Discard did not recover the latest saved list');
+    const paneId=activeCompanion()!.dataset.enginePaneId;
+    await click(node(`[data-testid="workspace-close-tab-${paneId}"]`));
+    await until(()=>!activeCompanion(),'The companion did not close');
+    expect(await invoke(scope,second,'undo'),false,false);
+    assert((await list(scope)).map(row=>row.providerToken).join()===first.providerToken,'Closing a companion retired another provider');
+    checks.push('Real Source rehearsal stays local through ordered keyboard and MCP, isolates panes, applies one Writer receipt, preserves conflicts and retires the closed token');
+  });
+
+  type Step={value:number;step:number};
+  type Model={value:number;undo:Step[];redo:Step[];calls:number;fault?:'false'|'throw'|'getter';gate?:()=>Promise<void>};
+  const createModel=():Model=>({value:0,undo:[],redo:[],calls:0});
+  let model=createModel();
+  const Notebook=documentNotebook.component;
+  function ModelNotebook(props:LocalToolProps<LinkedNotebookState>){
+    const [selected,setSelected]=useState(model),[stamped,setStamped]=useState(true),[allowUndo,setAllowUndo]=useState(true),[,refresh]=useState(0);
+    const redraw=()=>refresh(value=>value+1);
+    async function reverse(target:Model,mode:LocalToolUndoMode,operation:{isCurrent():boolean}){
+      target.calls++;
+      await target.gate?.();
+      if(!operation.isCurrent())return false;
+      if(target.fault==='throw')throw Error('Model refused the change');
+      if(target.fault==='false')return false;
+      const step=target[mode].at(-1);if(!step)return false;
+      target[mode==='undo'?'redo':'undo'].push({value:target.value,step:nextLocalToolUndoStep()});
+      target[mode].pop();target.value=step.value;redraw();return true;
+    }
+    const provider=useLocalToolUndoProvider(props.client,props.context,{id:'probe',model:selected,
+      canUndo:target=>allowUndo&&!!target.undo.length,canRedo:target=>!!target.redo.length,
+      ...(stamped?{lastStep:(target:Model,mode:LocalToolUndoMode)=>target.fault==='getter'?undefined:target[mode].at(-1)?.step}:{}),
+      undo:(target,operation)=>reverse(target,'undo',operation),redo:(target,operation)=>reverse(target,'redo',operation)});
+    return <><Notebook {...props}/><section aria-label="Model history probe">
+      <output>{selected.value}</output>
+      <button type="button" onClick={()=>{selected.undo.push({value:selected.value,step:nextLocalToolUndoStep()});selected.value++;selected.redo=[];redraw();}}>Model edit</button>
+      <button type="button" onClick={()=>setStamped(false)}>Use unranked model</button>
+      <button type="button" onClick={()=>setAllowUndo(value=>!value)}>Toggle model Undo</button>
+      <button type="button" onClick={redraw}>Render model again</button>
+      <button type="button" onClick={()=>{model=createModel();setSelected(model);}}>Replace model</button>
+      <button type="button" disabled={!provider.canUndo||provider.busy} onClick={()=>void provider.undo().catch(()=>undefined)}>Undo model</button>
+      {provider.error&&<p role="alert">{provider.error}</p>}
+    </section></>;
+  }
+  await withFixture('undo-provider-sdk',false,async fixture=>{
+    const scope={projectId:fixture.projectId,namespace:documentNotebook.namespace,documentId:fixture.sourceId};
+    const reader=createLocalToolClient(scope.projectId,documentNotebook,{documentId:scope.documentId,readOnly:true});
+    const host=()=>sourceHost(main(),scope.documentId)!,probe=()=>node<HTMLElement>('section[aria-label="Model history probe"]',host());
+    const action=(label:string)=>button(probe(),label),display=()=>node('output',probe()).textContent;
+    const descriptor=async()=>{const found=(await list(scope)).find(row=>row.providerId==='probe');assert(found,'The actual Source host did not publish the author model');return found;};
+    const first=await descriptor(),initial=await reader.read();
+    await click(action('Model edit'));await click(action('Model edit'));
+    assert(!action('Undo model').disabled,'The author stack did not become available');
+    await click(action('Toggle model Undo'));
+    assert(action('Undo model').disabled,'The UI did not use the current inline getter on its only render');
+    const disabled=await descriptor();
+    assert(!disabled.canUndo&&disabled.providerToken===first.providerToken,'The list did not agree with the new getter on the same model');
+    await click(action('Toggle model Undo'));
+    assert(!action('Undo model').disabled&&(await descriptor()).canUndo,'Re-enabling the same model did not refresh UI and MCP');
+    await note(host(),'Newer normal receipt');
+    assert(await key(action('Model edit'))&&display()==='2'&&(await reader.read()).data.notes===initial.data.notes,'A stamped older provider beat a newer ready Writer receipt');
+    await note(host(),'Normal receipt remains after getter error');
+    model.fault='getter';const beforeFault=JSON.stringify(await reader.read());
+    assert(await key(action('Model edit'))&&!!probe().querySelector('[role="alert"]')&&model.calls===0&&JSON.stringify(await reader.read())===beforeFault,'Invalid getter fell through to another history or invoked a callback');
+    model.fault=undefined;
+    await click(action('Use unranked model'));
+    assert(await key(action('Model edit'))&&display()==='1'&&JSON.stringify(await reader.read())===beforeFault,'An available unranked model did not take precedence');
+    const branches=JSON.stringify([model.value,model.undo,model.redo]);
+    model.fault='false';expect(await invoke(scope,first,'undo'),true,false);
+    model.fault='throw';const refused=await invoke(scope,first,'undo');
+    assert(!refused.ok&&JSON.stringify([model.value,model.undo,model.redo])===branches,'No-op or rejected provider changed an author branch');
+    model.fault=undefined;
+    const hold=await holdAccess(scope.projectId);let delayed:ReturnType<typeof invoke>|undefined;
+    try{
+      await act(async()=>{delayed=Dexie.ignoreTransaction(()=>invoke(scope,first,'redo'));await pause();});
+      await click(action('Render model again'));
+      assert(action('Undo model').disabled,'The provider did not stay busy across the inline render');
+    }finally{hold.release();await hold.done;}
+    assert(delayed,'No delayed operation was admitted');
+    await act(async()=>{expect(await delayed!,true,true);await pause();});
+    assert(display()==='2'&&(await descriptor()).providerToken===first.providerToken,'Rerender replaced the model or canceled its pending operation');
+    const old=model,oldBranch=JSON.stringify([old.value,old.undo,old.redo]);
+    let entered=false,release!:()=>void;
+    const held=new Promise<void>(resolve=>{release=resolve;});
+    old.gate=()=>{entered=true;return held;};
+    const retiring=invoke(scope,first,'undo');
+    try{await until(()=>entered,'The callback never reached its own await');await click(action('Replace model'));}finally{release();}
+    expect(await retiring,false,false);
+    const replacement=await descriptor();
+    assert(replacement.instanceId===first.instanceId&&replacement.providerToken!==first.providerToken&&display()==='0'&&JSON.stringify([old.value,old.undo,old.redo])===oldBranch,'An asynchronous old model mutated after replacement or kept its token');
+    expect(await invoke(scope,first,'redo'),false,false);
+    assert(JSON.stringify(await reader.read())===beforeFault&&!probe().querySelector('[role="alert"]'),'Old work changed the replacement or persisted data');
+    checks.push('Live SDK model selection checks stamps and unranked priority, handles errors without fallback, preserves branches and invalidates an async old model within the same mount');
+  },true,ModelNotebook);
+  return checks;
 }

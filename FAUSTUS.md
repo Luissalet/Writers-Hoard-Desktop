@@ -617,3 +617,9 @@ Una definición Source puede añadir una lista vacía con `sourceAdditive`, pred
 En Cuaderno vinculado, **Añadir pauta de revisión** incorpora los dos apuntes que falten en un paso. La acción usa el mismo historial de la edición normal. Deshacer y Rehacer se aplican desde el editor o compañero que la ejecutó, y una edición efectiva posterior al Deshacer inicia una nueva rama.
 
 `useLocalToolUndoCommand` declara el lote con el mismo controlador `useLocalToolState`; un recibo efectivo añade un paso a su pila. MCP permite listar y ejecutar el comando en una instancia visible exacta mediante `wh_local_tool_command_list/run`. El token de la instancia se renueva al cambiar su binding o visibilidad. El comando se ofrece en el editor Source ordinario y en su compañero. [Contrato y verificación](tasks/vvd1095/verification-sdk-author-undo2602.md).
+
+## Deshacer el orden de ensayo en Source
+
+En Cuaderno vinculado, **Orden de ensayo** permite mover Apuntes y deshacer o rehacer sus movimientos durante la sesión. Cada vista mantiene su ensayo. **Aplicar orden** guarda una edición que se revierte con el Deshacer normal. Si los apuntes guardados cambiaron durante el ensayo, Aplicar conserva el ensayo para que puedas revisarlo o descartarlo.
+
+`useLocalToolUndoProvider` registra el modelo vivo del autor y su historial en el editor Source ordinario o su compañero. El teclado usa la pila de esa vista. MCP lista y ejecuta Deshacer o Rehacer mediante `wh_local_tool_undo_provider_list` y `wh_local_tool_undo_provider_run` para la instancia y el token vigentes. [Uso, contrato y verificación](tasks/vvd1095/verification-sdk-undo-provider2614.md).

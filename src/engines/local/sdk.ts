@@ -21,6 +21,9 @@ export type {LocalToolRichAdoption,LocalToolConvergenceContract,LocalToolConverg
 export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot,LocalToolConvergenceImportOptions,LocalToolAdoptionReceiptSuccessor} from './convergence/clientTypes';
 export {useLocalToolUndoCommand} from './undoCommands';
 export type {LocalToolUndoCommand} from './undoCommands';
+export {useLocalToolUndoProvider} from './undoProviders';
+export type {LocalToolUndoProvider,LocalToolUndoMode} from './undoProviders';
+export {nextLocalToolUndoStep} from './stateUndoContext';
 export {useLocalToolFocusMode} from './useLocalToolFocusMode';
 export {createRecordingLocalToolFocusMode} from './focusMode';
 export type {LocalToolFocusMode,LocalToolFocusSnapshot,LocalToolFocusCommand} from './focusMode';

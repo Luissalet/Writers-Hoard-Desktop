@@ -1,4 +1,5 @@
 import {listLocalToolUndoCommands,LocalToolCommandInputError,runLocalToolUndoCommand} from './undoCommands';
+import {listLocalToolUndoProviders,runLocalToolUndoProvider} from './undoProviders';
 import {queryLocalToolPresence} from './presence/query';
 import {LOCAL_LIVE_CONTENT_HANDLERS} from './liveContent/bridge';
 import {recordRuntimeError,runtimeErrorIdentity} from './runtimeErrors';
@@ -36,6 +37,12 @@ async function stateClient(args:ToolArgs){const scoped=await client(args);await 
 async function defaultsClient(args:ToolArgs,readOnly=false){const scoped=await client(args,readOnly);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.defaults)throw new BridgeError('bad-args','This host does not provide shared tool defaults.');return scoped;}
 const undoCommandScope=(args:ToolArgs)=>({projectId:requireString(args,'projectId'),eraId:optString(args,'eraId')||undefined,namespace:requireString(args,'namespace'),documentId:requireString(args,'documentId')});
 export const LOCAL_TOOL_HANDLERS={
+ async wh_local_tool_undo_provider_list(args:ToolArgs){return{providers:await listLocalToolUndoProviders(undoCommandScope(args))};},
+ async wh_local_tool_undo_provider_run(args:ToolArgs){
+  const scope=undoCommandScope(args),instanceId=requireString(args,'instanceId'),providerId=requireString(args,'providerId'),providerToken=requireString(args,'providerToken');
+  if(args.mode!=='undo'&&args.mode!=='redo')throw new BridgeError('bad-args','Choose undo or redo for this exact live provider.');
+  return runLocalToolUndoProvider(scope,instanceId,providerId,providerToken,args.mode);
+ },
  async wh_local_tool_command_list(args:ToolArgs){return {commands:await listLocalToolUndoCommands(undoCommandScope(args))};},
  async wh_local_tool_command_run(args:ToolArgs){
   try{return await runLocalToolUndoCommand(undoCommandScope(args),requireString(args,'instanceId'),requireString(args,'commandId'),args.input);}
