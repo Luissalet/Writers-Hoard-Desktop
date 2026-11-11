@@ -1,6 +1,6 @@
 # Navegación de celdas con teclado en tablas normales
 
-Pulsa una celda con el ratón para seleccionarla. Las flechas y Tab o Mayús+Tab siguen el orden de las celdas visibles. Mayús+flecha amplía la selección en rectángulo. Intro o doble clic abre una celda editable. Intro guarda y Escape descarta el borrador pendiente y vuelve a la cuadrícula. Escape desde la cuadrícula quita la selección y permite salir con Tab.
+Pulsa una celda con el ratón para seleccionarla. Las flechas y Tab o Mayús+Tab siguen el orden de las celdas visibles. Mayús+flecha o Mayús+clic amplía el rectángulo desde la celda inicial. Otro Mayús+clic ajusta el mismo rango en cualquier dirección. Un clic normal empieza una selección nueva. Intro o doble clic abre una celda editable. Intro guarda y Escape descarta el borrador pendiente y vuelve a la cuadrícula. Escape desde la cuadrícula quita la selección y permite salir con Tab.
 
 Tab desde el último editor guarda y devuelve el foco a la misma celda. Desde la última celda de la cuadrícula, pulsa Tab una vez guardada la edición. Writer añade la fila si queda visible en la vista actual. La fila se añade en Base o en la era activa y se puede deshacer. Si el filtro oculta la fila vacía, Tab conserva el cursor.
 
@@ -15,3 +15,9 @@ Por MCP, `wh_table_save_cell` admite `expected: ""` para rellenar una celda vac�
 - Quick y build r3 terminaron con EOF 0. De las 1046 herramientas, el catálogo sólo modifica los campos `expected` y `value` de `wh_table_save_cell`.
 
 La revisión 1 de la tarea 2715 aprobó `83f2a991b86021cc1d48dfb822fc74296ad98d95`, integrado por fast-forward. Los recibos están en `Research/writer-parity-20261110/table-cell-keyboard`. El manual de Google recoge la navegación, la edición y el apéndice con Tab.
+
+## Ampliar la selección con Mayús y clic
+
+La tabla pública de VVD permitió ampliar el rectángulo con Mayús+clic en ambos sentidos. Writer en Brave reprodujo la selección de una sola celda antes del cambio y después conservó el ancla al combinar clic y flechas. El focal verificó el TSV del rango. Suprimir vació sólo el rectángulo y un Deshacer restauró sus valores. El puente con dos claves verificó la operación equivalente por IDs, con 15 IPC. Quick y build terminaron con EOF 0.
+
+La revisión 1 de #2743 aprobó `501ae7e69f08731dd9a5647ffde1799822970eb8`, integrado por fast-forward. El manual de Google incluye la ampliación con Mayús+clic. Los recibos están en `Research/writer-parity-20261110/table-cell-shift-click`.
