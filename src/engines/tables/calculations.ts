@@ -1,4 +1,4 @@
-import { clampTableColumnWidth, DEFAULT_TABLE_COLUMN_WIDTH, shiftSheetReferences, validateTableColumnName } from './tableEdits';
+import { canChangeTableColumnKind, changeTableColumnKind, clampTableColumnWidth, DEFAULT_TABLE_COLUMN_WIDTH, shiftSheetReferences, validateTableColumnName } from './tableEdits';
 import {db} from '@/db';
 import type {WorldEraScope} from '@/services/worldEras/types';
 import {getEraProject,readWorldDocument} from '@/services/worldEras/store';
@@ -39,5 +39,16 @@ export async function updateTableColumn(scope:WorldEraScope,tableId:string,draft
  const name=validateTableColumnName(columns,draft.id,draft.name);
  if(current.propertyId&&table.codexTemplateId){const template=templates.find(item=>item.id===table.codexTemplateId),definition=tableDefinitions(table,templates).find(item=>item.id===current.propertyId);if(!template||!definition||template.revision!==expectedTemplateRevision)throw Error('template_conflict');await saveCodexTemplate(scope.projectId,{...template,propertyDefinitions:[...template.propertyDefinitions?.filter(item=>item.key!==definition.key)??[],{...definition,label:name}]},expectedTemplateRevision!);}
  const width=clampTableColumnWidth(draft.width??current.width??DEFAULT_TABLE_COLUMN_WIDTH,current.width);
- await changeTable(scope.projectId,tableId,current=>{const saved={...columns.find(column=>column.id===draft.id)!,name,width};if(current.columns.some(column=>column.id===draft.id))current.columns=current.columns.map(column=>column.id===draft.id?saved:column);else current.columns.push(saved);},scope.eraId);
+ const changeKind=canChangeTableColumnKind(table,current)&&draft.kind!==current.kind;
+ await changeTable(scope.projectId,tableId,updated=>{
+  if(changeKind)changeTableColumnKind(updated,draft.id,draft.kind);
+  const saved={
+   ...current,name,
+   ...(changeKind?{kind:draft.kind}:{}),
+   ...(!changeKind||draft.width!==undefined||current.width!==undefined?{width}:{}),
+  };
+  const at=updated.columns.findIndex(column=>column.id===draft.id);
+  if(at>=0)updated.columns[at]=saved;
+  else updated.columns.push(saved);
+ },scope.eraId);
  });}
