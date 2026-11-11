@@ -881,6 +881,14 @@ MCP exposes the same option as `asIdentity` on `wh_local_tool_state_apply`. Use 
 
 [Fresh-document verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#usar-etapas-declaradas-en-un-documento-nuevo).
 
+## Migrate a Source scalar to a new field name
+
+Declare `sourceScalarRename: { from, oldField: 'name', newField: 'title' }` in the selected Source release. `from` identifies the prior namespace, codec, validationId and schemaEpoch. Both releases must use codec version 1 and convergence engine 1. The declaration cannot be combined with `sourceAdditive` or `richAdoption`. Keep the descriptor and every other field unchanged. The target validator must accept the mapped data. An unstarted document can match the persisted predecessor codec. When a checkpoint exists, Writer also checks its exact origin and contents.
+
+Read the full current snapshot. `client.convergence.start(snapshot, { migrate: true })` applies the rename once with the normal document revision and version check. MCP accepts `migrate: true` in `wh_local_tool_convergence_start`. Ordinary read and start leave the old checkpoint in place. The migrated document keeps its ID and uses the selected codec, index and preview. Its new genesis accepts updates in the new contract and document history retains the complete old root. An era must have its own saved variant to migrate it.
+
+[Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#migrar-un-escalar-a-un-nombre-nuevo).
+
 ## Add fields to an existing Owned block
 
 An Owned declaration may opt in with `codecEvolution:'additive'`. Without it, the existing strict JSON descriptor check remains. Additions must preserve each stored field's kind, prose format, list identity/reference key and flags; removing or changing an existing field is refused. The author validator must accept both the real stored data and the editable view, and the declared initial state must validate. This option does not migrate standalone Source state.
