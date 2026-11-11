@@ -49,6 +49,27 @@ export function moveRow(table: WorldTable, rowId: string, beforeRowId?: string):
   return true;
 }
 
+/** Move a normal table column while preserving its identity and cell keys. */
+export function moveTableColumn(
+  table: WorldTable, columnId: string, targetId: string, side: 'before' | 'after', expectedOrder: readonly string[],
+): boolean {
+  if (table.mode !== 'table' || table.codexType || table.codexTemplateId || table.codexAllTypes) {
+    throw new Error('table_column_drag_requires_normal_table');
+  }
+  if (table.columns.length !== expectedOrder.length || table.columns.some((column, index) => column.id !== expectedOrder[index])) {
+    throw new Error('table_column_order_conflict');
+  }
+  const from = expectedOrder.indexOf(columnId), target = expectedOrder.indexOf(targetId);
+  if (from < 0 || target < 0) throw new Error('table_column_missing');
+  if (from === target) return false;
+  const insertion = target + (side === 'after' ? 1 : 0);
+  const at = insertion > from ? insertion - 1 : insertion;
+  if (from === at) return false;
+  const [column] = table.columns.splice(from, 1);
+  table.columns.splice(at, 0, column);
+  return true;
+}
+
 /** A new empty row at `index` (0 = first; past the end appends). */
 export function insertRow(table: WorldTable, index: number, cells: Record<string, string> = {}): DataRow {
   if (table.codexType) throw new Error('table_live_codex_requires_entry');
