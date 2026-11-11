@@ -12,7 +12,7 @@ import {createBrowserLocalToolAudio} from './audioBrowser';
 import {queryLocalToolDocuments} from './queryDocuments';
 import {createBrowserLocalToolOpenDocuments} from './queryOpenDocuments';
 import {readSourceToolState,saveSourceToolState,readSourceToolDocument} from './documents/store';
-import {startSourceToolConvergence,adoptSourceToolConvergence,exportSourceToolConvergence,importSourceToolConvergence,applySourceToolConvergence,reverseSourceToolConvergence,readSourceToolPlainRange,readSourceToolRichCapture,readSourceToolRichPoint} from './documents/convergence';
+import {startSourceToolConvergence,adoptSourceToolConvergence,exportSourceToolConvergence,importSourceToolConvergence,applySourceToolConvergence,reverseSourceToolConvergence,readSourceToolProjection,readSourceToolPlainRange,readSourceToolRichCapture,readSourceToolRichPoint} from './documents/convergence';
 import {localToolConvergenceContext} from './convergence/context';
 import type {LocalToolDocumentConvergence} from './convergence/clientTypes';
 import {createLocalToolStateActions,prepareLocalToolConvergenceBranch,prepareLocalToolStateAdoption} from './stateRuntime';
@@ -133,6 +133,11 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
  const theme=Object.freeze({get:async()=>{const row=await project(),appearance=appearanceFromProject(row,scope);current();return Object.freeze({...scope,...resolveWorkspaceTheme(appearance.effective)});},subscribe:base.subscribe});
  const richCapture=async(request:import('./convergence/richTypes').RichCaptureRequest)=>{await project();const convergenceOptions=await convergenceOptionsFor();if(!convergenceOptions)throw Error('local_tool_convergence_codec_required');const result=await readSourceToolRichCapture(scope,options.documentId!,definition,request,convergenceOptions);current();return result;};
  const convergence:LocalToolDocumentConvergence<T>|undefined=options.documentId?Object.freeze({
+  readAs:async(identityHash:string)=>db.transaction('r',[db.projects,db.worldEraVariants],async()=>{
+   await project();
+   const projection=await readSourceToolProjection(scope,options.documentId!,definition,identityHash);
+   current();return projection;
+  }),
   richImageCapture:async(field:string,nodeId:string,channel:import('./convergence/imageFormat').RichImageChannel)=>{const r=await richCapture({kind:'image',field,nodeId,channel});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/imageFormat').RichImageCapture};},
   richTableColumnWidthCapture:async(field:string,tableId:string,columnId:string)=>{const r=await richCapture({kind:'table-column-width',field,tableId,columnId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/tableAxesEditing').RichTableColumnWidthCapture};},
   richTableAxisCapture:async(field:string,tableId:string,axis:import('./convergence/tableAxesFormat').RichTableAxis,afterId:string|null)=>{const r=await richCapture({kind:'table-axis',field,tableId,axis,afterId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/tableAxesEditing').RichTableAxisCapture};},

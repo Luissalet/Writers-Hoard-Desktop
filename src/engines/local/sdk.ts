@@ -18,7 +18,7 @@ export type {RichTableAxisCapture,RichTableCellCapture,RichTableColumnWidthCaptu
 export type {RichBlockDocument,RichBlock,RichBlockKind,RichBlockPlacement,RichBlockCapture,RichBlockMoveCapture,RichBlockAction} from './convergence/blocks';
 export {createLocalToolReplica} from './convergence/replica';
 export type {LocalToolRichAdoption,LocalToolConvergenceContract,LocalToolConvergenceCheckpoint,LocalToolConvergenceUpdate,LocalToolReplica,LocalToolReplicaEdit,LocalToolValidationConflict,LocalToolPlainRange} from './convergence/types';
-export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot,LocalToolConvergenceImportOptions,LocalToolAdoptionReceiptSuccessor} from './convergence/clientTypes';
+export type {LocalToolDocumentConvergence,LocalToolConvergenceSnapshot,LocalToolConvergenceImportOptions,LocalToolAdoptionReceiptSuccessor,LocalToolSourceProjection} from './convergence/clientTypes';
 export {useLocalToolUndoCommand} from './undoCommands';
 export type {LocalToolUndoCommand} from './undoCommands';
 export {useLocalToolUndoProvider} from './undoProviders';

@@ -15,6 +15,7 @@ import {evaluateLocalToolIndex,queryLocalToolIndexRows,type LocalToolDocumentQue
 import {createLocalToolOpenDocumentRegistry,normalizeLocalToolOpenDocumentQuery,normalizeLocalToolPublishedOpenDocumentQuery,type LocalToolOpenDocumentQuery,type LocalToolOpenDocuments} from './openDocuments';
 import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
 import {forkSourceToolDocument} from './documents/portability';
+import {projectSourceToolAs} from './documents/additive';
 import {createLocalToolStateActions,prepareLocalToolConvergenceBranch,prepareLocalToolStateAdoption} from './stateRuntime';
 import {localToolConvergenceContext} from './convergence/context';
 import {assertTableAxesOrigin,validateLocalToolConvergenceUpdate,convergenceCodecHash,convergenceClone,convergenceHash,convergenceIdentity,convergenceIdentityOf} from './convergence/format';
@@ -177,6 +178,10 @@ export function createFakeLocalToolHost<T extends LocalToolJson>(definition:Loca
     return documentSnapshot(scope,working,documentId);
    }const next={...current,data:parseLocalToolState(definition,data),revision:current.revision+1,updatedAt:Math.max(Date.now(),current.updatedAt+1),...(definition.codec?{codec:structuredClone(definition.codec)}:{}),...(definition.index?{index:structuredClone(definition.index)}:{})};if(!definition.index)delete next.index;validateSourceToolDocument(next);if(scope.eraId)working.documents.set(key(scope,'local-tool',documentId),{...scope,kind:'local-tool',id:documentId,document:{root:next as unknown as EraDocument['root'],children:{}},version:`fixture:${++version}`,revision:(read?.variantRevision??0)+1});else{const owner=project(scope,working);working.projects.set(scope.projectId,{...owner,sourceToolDocuments:[...(owner.sourceToolDocuments??[]).filter(row=>row.id!==documentId),next]});}return createClient(scope,readOnly,working,documentId).read();}const row=project(scope,working),prepared=prepareLocalToolSave(row,definition,data,expected,scope.eraId);working.projects.set(scope.projectId,prepared.project);return prepared.snapshot;}),
    ...(documentId?{convergence:Object.freeze({
+  readAs:async(identityHash:string)=>{
+   const {read,document}=documentRead(scope,state(),documentId);
+   return projectSourceToolAs(document,definition,identityHash,read.provenance);
+  },
   richImageCapture:async(field:string,nodeId:string,channel:import('./convergence/imageFormat').RichImageChannel)=>{const r=fixtureRich({kind:'image',field,nodeId,channel});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/imageFormat').RichImageCapture};},
   richTableColumnWidthCapture:async(field:string,tableId:string,columnId:string)=>{const r=fixtureRich({kind:'table-column-width',field,tableId,columnId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/tableAxesEditing').RichTableColumnWidthCapture};},
   richTableAxisCapture:async(field:string,tableId:string,axis:import('./convergence/tableAxesFormat').RichTableAxis,afterId:string|null)=>{const r=fixtureRich({kind:'table-axis',field,tableId,axis,afterId});return{snapshot:r.snapshot,capture:r.capture as import('./convergence/tableAxesEditing').RichTableAxisCapture};},
