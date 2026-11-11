@@ -1,28 +1,29 @@
 import type {CodexEntry} from '@/types';
 import type {CodexTemplate,CodexPropertyDefinition} from '@/engines/codex/templateTypes';
 import {effectiveCodexTemplate} from '@/engines/codex/templateHierarchy';
-import {evaluatePropertyFormula,parsePropertyFormula,projectCodexEntry,propertyDefinitions,formatCalculationValue,type FormulaValue,type FormulaNode} from '@/engines/codex/properties';
+import {evaluatePropertyFormula,parsePropertyFormula,projectCodexEntry,propertyDefinitions,propertyFormulaOperands,propertyFormulaColumnName,formatCalculationValue,type FormulaValue,type FormulaNode} from '@/engines/codex/properties';
 import type {DataColumn,DataRow,WorldTable,TableCalculation} from './types';
 import { isLiveTable } from './tableEdits';
-const tokens=(source:string)=>source.match(/@\[[^\]]+\]|\[[^\]]+\]|"(?:[^"\\]|\\.)*"|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[\p{L}_][\p{L}\p{N}_]*/gu)??[];
 export function tableDefinitions(table:WorldTable,templates:readonly CodexTemplate[]):CodexPropertyDefinition[]{const template=templates.find(item=>item.id===table.codexTemplateId);return template?propertyDefinitions(effectiveCodexTemplate(template,templates)):[];}
 export function effectiveTableColumns(table:WorldTable,templates:readonly CodexTemplate[]):DataColumn[]{
  const definitions=tableDefinitions(table,templates),columns=table.columns.map(column=>{const definition=definitions.find(item=>item.id===column.propertyId);return definition?{...column,name:definition.label,field:definition.key,kind:definition.kind==='number'?'number' as const:'text' as const}:column;});
  for(const definition of definitions)if(!table.hiddenPropertyIds?.includes(definition.id)&&!columns.some(column=>column.propertyId===definition.id||column.field===definition.key))columns.push({id:`property:${definition.id}`,name:definition.label,field:definition.key,propertyId:definition.id,kind:definition.kind==='number'?'number':'text'});
  return columns;
 }
+const tableFormulaColumnReference=(token:string,suffix:string)=>token.endsWith(']')||!(/^(TRUE|FALSE)$/i.test(token)||suffix.trimStart().startsWith('('));
+
 /** Bind user-facing names once; subsequent label changes never change identity. */
 export function bindTableFormula(formula:string,columns:readonly DataColumn[],previous?:TableCalculation):Pick<TableCalculation,'formula'|'rowBindings'|'columnBindings'>{
  const rowBindings:Record<string,string>={},columnBindings:Record<string,string>={};
  const source=formula.replace(/^\s*=/,'');let cursor=0;
- for(const token of tokens(source)){const at=source.indexOf(token,cursor);cursor=at+token.length;if(token.startsWith('"')||/^(?:\d|\.)/.test(token))continue;const row=token.startsWith('@['),name=row?token.slice(2,-1):token.startsWith('[')?token.slice(1,-1):token;if(!row&&!token.startsWith('[')&&(source.slice(cursor).trimStart().startsWith('(')||/^(TRUE|FALSE)$/i.test(token)))continue;
+ for(const token of source.match(propertyFormulaOperands)??[]){const at=source.indexOf(token,cursor);cursor=at+token.length;if(token.startsWith('"')||/^(?:\d|\.)/.test(token))continue;const row=token.startsWith('@['),name=row?token.slice(2,-1):propertyFormulaColumnName(token);if(!row&&!tableFormulaColumnReference(token,source.slice(cursor)))continue;
  const target=columns.find(column=>column.name.toLocaleLowerCase()===name.toLocaleLowerCase()||column.field?.toLocaleLowerCase()===name.toLocaleLowerCase());
  (row?rowBindings:columnBindings)[name]=(row?previous?.rowBindings:previous?.columnBindings)?.[name]??target?.id??`missing:${name}`;
  }
  return{formula,rowBindings,columnBindings};
 }
 export function displayTableFormula(calculation:TableCalculation,columns:readonly DataColumn[]):string{
- return calculation.formula.replace(/@\[[^\]]+\]|\[[^\]]+\]|"(?:[^"\\]|\\.)*"|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[\p{L}_][\p{L}\p{N}_]*/gu,token=>{if(token.startsWith('"'))return token;const row=token.startsWith('@['),name=row?token.slice(2,-1):token.startsWith('[')?token.slice(1,-1):token,id=(row?calculation.rowBindings:calculation.columnBindings)[name],label=columns.find(column=>column.id===id)?.name;if(!label)return token;return row?`@[${label}]`:`[${label}]`;});
+ return calculation.formula.replace(propertyFormulaOperands,(token,offset:number,formula:string)=>{if(token.startsWith('"')||!tableFormulaColumnReference(token,formula.slice(offset+token.length)))return token;const row=token.startsWith('@['),name=row?token.slice(2,-1):propertyFormulaColumnName(token),id=(row?calculation.rowBindings:calculation.columnBindings)[name],label=columns.find(column=>column.id===id)?.name;if(!label)return token;return (row?'@':token.startsWith('Table[')?'Table':'')+'['+label+']';});
 }
 export function columnCalculation(table:WorldTable,column:DataColumn,templates:readonly CodexTemplate[]):TableCalculation|undefined{
  if(column.calculation)return column.calculation;const definitions=tableDefinitions(table,templates),definition=definitions.find(item=>item.id===column.propertyId||item.key===column.field);if(!definition?.formula)return;

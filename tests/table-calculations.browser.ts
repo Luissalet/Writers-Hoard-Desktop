@@ -7,6 +7,7 @@ import {projectCodexEntry,codexPropertyHtml} from '@/engines/codex/properties';
 import {createTypeTable,saveTableCalculation,removeTableColumn,updateTableColumn} from '@/engines/tables/calculations';
 import {projectWorldTable,displayTableFormula} from '@/engines/tables/projection';
 import {addTable,addColumn,saveCell} from '@/engines/tables/operations';
+import {runBridgeTool} from '@/services/aiBridge/dispatch';
 import {readWorldDocument,getEraProject,listEraRows,saveWorldEra} from '@/services/worldEras/store';
 import type {CodexEntry,Project} from '@/types';
 import type {CodexTemplate} from '@/engines/codex/templateTypes';
@@ -21,6 +22,47 @@ export async function testTableCalculations(){const P='synthetic-table-calculati
  const live=await createTypeTable(scope,'Sales','sale-type');assert((await projectTable(live.id)).rows.length===3,'Concrete type includes unrelated category entry');
  const promoted=await saveTableCalculation(scope,{tableId:live.id,name:'Total',formula:'=@[Price]*@[Quantity]',resultType:'decimal',expectedVersion:await version(live.id),expectedTemplateRevision:template.revision});assert(promoted.promoted,'Row-local formula not promoted');template=(await db.projects.get(P))!.codexTemplates![0];const total=template.propertyDefinitions!.find(item=>item.label==='Total')!,a=(await db.codexEntries.get('sale-a'))!;assert(projectCodexEntry(a,[template]).fields[total.key]==='20','Type property depends on an open table');assert(!Object.hasOwn(a.fields,total.key),'Computed output persisted into card');assert(projectCodexEntry((await db.codexEntries.get('sale-empty'))!,[template]).fields[total.key]==='','Empty input became zero');
  const localTotal=await saveTableCalculation(scope,{tableId:live.id,name:'Sum total',formula:'=SUM([Total])',resultType:'decimal',expectedVersion:await version(live.id)});assert((await projectTable(live.id)).rows[0].cells[localTotal.column.id]==='80','Aggregate of calculated column did not skip empty result');
+ const holdings:WorldTable={id:'demo-holdings',title:'Holdings',mode:'table',columns:[{id:'hold',name:'Hold',kind:'text'},{id:'souls',name:'Souls',kind:'number'}],rows:[
+  {id:'greyvale',cells:{hold:'Greyvale',souls:'2450'}},{id:'rillford',cells:{hold:'Rillford',souls:'8100'}},
+  {id:'stonewatch',cells:{hold:'Stonewatch',souls:'1750'}},{id:'ashen',cells:{hold:'Ashen Deep',souls:'3200'}},
+  {id:'thornhallow',cells:{hold:'Thornhallow',souls:'900'}},
+ ]};
+ await addTable(P,holdings);
+ const literal='=IFERROR(@[Souls]/SUM(Table[Souls]),0)';
+ const shareOfSouls=await saveTableCalculation(scope,{tableId:holdings.id,name:'% of total Souls',formula:literal,resultType:'percent',expectedVersion:await version(holdings.id)});
+ const shareColumn=shareOfSouls.column.id;
+ const holdingsProjection=await projectTable(holdings.id);
+ assert(JSON.stringify(holdingsProjection.displayRows.map(row=>row.cells[shareColumn]))===JSON.stringify(['14.94%','49.39%','10.67%','19.51%','5.49%']),'VVD preset formula did not yield its five visible percentages');
+ assert(holdingsProjection.rows[0].cells[shareColumn]===String(2450/16400),'Structured calculation must retain its raw numeric value');
+ const filtered=await runBridgeTool('wh_table_query',{projectId:P,tableId:holdings.id,conditions:[{columnId:'hold',op:'contains',value:'Greyvale'}]});
+ assert(filtered.ok,'Filtered structured calculation query failed');
+ const matches=(filtered.result as {rows:{id:string;cells:Record<string,string>}[]}).rows;
+ assert(matches.length===1&&matches[0].cells['% of total Souls']==='14.94%','Filter changed the denominator');
+ await updateTableColumn(scope,holdings.id,{...holdings.columns[1],name:'Souls in hold'},await version(holdings.id));
+ const renamed=await projectTable(holdings.id);
+ assert(renamed.rows[0].cells[shareColumn]===String(2450/16400)&&displayTableFormula(shareOfSouls.column.calculation!,renamed.columns)==='=IFERROR(@[Souls in hold]/SUM(Table[Souls in hold]),0)','Structured formula did not retain column identity and syntax after rename');
+ const spaces=await saveTableCalculation(scope,{tableId:holdings.id,name:'Combined',formula:'=SUM(Table[Souls in hold])',resultType:'whole',expectedVersion:await version(holdings.id)});
+ const quoted=await saveTableCalculation(scope,{tableId:holdings.id,name:'Literal',formula:'="Table[Souls]"',resultType:'text',expectedVersion:await version(holdings.id)});
+ const afterRename=await projectTable(holdings.id);
+ assert(afterRename.rows[0].cells[spaces.column.id]==='16400'&&afterRename.rows[0].cells[quoted.column.id]==='Table[Souls]','Structured token broke column names with spaces or string literals');
+ await updateTableColumn(scope,holdings.id,{...holdings.columns[1],name:'SUM'},await version(holdings.id));
+ const sumFormula='=SUM(Table[SUM])';
+ const sumName=await saveTableCalculation(scope,{tableId:holdings.id,name:'Column named SUM',formula:sumFormula,resultType:'whole',expectedVersion:await version(holdings.id)});
+ const beforeKeywordRename=await projectTable(holdings.id);
+ assert(displayTableFormula(sumName.column.calculation!,beforeKeywordRename.columns)===sumFormula,'Reopening a structured calculation rewrote the SUM function name');
+ await updateTableColumn(scope,holdings.id,{...holdings.columns[1],name:'TRUE'},await version(holdings.id));
+ const afterKeywordRename=await projectTable(holdings.id);
+ assert(displayTableFormula(sumName.column.calculation!,afterKeywordRename.columns)==='=SUM(Table[TRUE])','Renaming a column rewrote the SUM function name');
+ const booleanFormula='=IF(TRUE,SUM(Table[TRUE]),0)';
+ const booleanName=await saveTableCalculation(scope,{tableId:holdings.id,name:'Column named TRUE',formula:booleanFormula,resultType:'whole',expectedVersion:await version(holdings.id)});
+ const booleanView=await projectTable(holdings.id);
+ const reopened=displayTableFormula(booleanName.column.calculation!,booleanView.columns);
+ assert(reopened===booleanFormula,'Reopening a structured calculation rewrote the TRUE literal');
+ await saveTableCalculation(scope,{tableId:holdings.id,columnId:booleanName.column.id,name:booleanName.column.name,formula:reopened,resultType:'whole',expectedVersion:await version(holdings.id)});
+ assert((await projectTable(holdings.id)).rows[0].cells[booleanName.column.id]==='16400','Reopened calculation cannot be saved without changing its result');
+ const structured=await saveTableCalculation(scope,{tableId:live.id,name:'Structured sum',formula:'=SUM(Table[Total])',resultType:'decimal',expectedVersion:await version(live.id)});
+ assert(!structured.promoted&&(await projectTable(live.id)).rows.every(row=>row.cells[structured.column.id]==='80'),'Structured reference does not read the complete column');
+ assert(!(await db.projects.get(P))!.codexTemplates![0].propertyDefinitions!.some(definition=>definition.label==='Structured sum'),'Structured reference promoted to Codex');
  const before=await version(live.id),revision=template.revision;await rejects(()=>saveTableCalculation(scope,{tableId:live.id,name:'Rejected',formula:'=@[Price]*2',resultType:'decimal',expectedVersion:before,expectedTemplateRevision:revision-1}));assert(await version(live.id)===before&&!(await db.projects.get(P))!.codexTemplates![0].propertyDefinitions!.some(item=>item.label==='Rejected'),'Failed CAS partially added column/type property');
  const share=await saveTableCalculation(scope,{tableId:live.id,name:'Share',formula:'=@[Price]/SUM(Price)',resultType:'percent',expectedVersion:await version(live.id)});assert(!share.promoted,'Set aggregate escaped into type');let projected=await projectTable(live.id);assert(projected.rows[0].cells[share.column.id]==='0.25'&&projected.displayRows[0].cells[share.column.id]==='25%'&&!template.propertyDefinitions!.some(item=>item.label==='Share'),'Percent overwrote raw numeric value or persisted to type');assert(projected.rows[2].cells[share.column.id]==='','Empty aggregate-row input became zero');
  const price=projected.columns.find(item=>item.propertyId==='price-id')!;await updateTableColumn(scope,live.id,{...price,name:'Cost'},await version(live.id),template.revision);template=(await db.projects.get(P))!.codexTemplates![0];projected=await projectTable(live.id);assert(projected.rows[0].cells[share.column.id]==='0.25'&&displayTableFormula(share.column.calculation!,projected.columns).includes('@[Cost]'),'Rename lost stable column binding');assert(projectCodexEntry(a,[template]).fields[total.key]==='20','Property rename broke promoted formula identity');
@@ -57,5 +99,5 @@ export async function testTableCalculations(){const P='synthetic-table-calculati
  assert(cloneRows.rows[0].cells[clonedFallback.id]==='7','Clone lost the IFERROR binding or fallback');
  const cloneEra=cloneProject.worldEras!.find(item=>item.name==='Past')!;const clonePastProject=await getEraProject({projectId:cloned,eraId:cloneEra.id}),clonePastTable=clonePastProject.dataTables!.find(item=>item.title==='Manual')!,eraColumn=clonePastTable.columns.find(item=>item.name==='Era only')!;assert(projectWorldTable(clonePastTable,[],cloneProject.codexTemplates).rows[0].cells[eraColumn.id]==='7','Own-era clone lost calculation bindings');
  const zip=await createProjectZipArchive(P);await importProjectZip(new File([zip.blob],'table-calculations.zip',{type:'application/zip'}),{replaceProjectIds:[P]});assert((await projectTable(manual.id)).rows[0].cells[(await table(manual.id)).columns.find(item=>item.name==='Scientific')!.id]==='250','ZIP lost calculations');
- return ['Concrete type view excludes unrelated cards; row calculation promotes atomically, computes on closed card and preserves blank input','Raw versus percent display, shared card/wiki formatting, lazy decisions and ID-stable property/column renames','Local aggregates, dependency cycles, result errors, missing references, calculated-cell protection and in-transaction reference integrity','Base/era isolation, template/table CAS with no partial promotion and normal JSON clone remapping'];
+ return ['Concrete type view excludes unrelated cards; row calculation promotes atomically, computes on closed card and preserves blank input','Raw versus percent display, shared card/wiki formatting, lazy decisions and ID-stable property/column renames','Local aggregates, dependency cycles, result errors, missing references, calculated-cell protection and in-transaction reference integrity','Base/era isolation, template/table CAS with no partial promotion and normal JSON clone remapping','VVD structured column references, local aggregates, filtering, stable rename, spaces and quoted strings'];
  }finally{if(cloned)await deleteProject(cloned);await deleteProject(P);await db.codexEntries.delete('foreign-ref');}}

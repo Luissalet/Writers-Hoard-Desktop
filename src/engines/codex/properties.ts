@@ -31,9 +31,16 @@ const fail = (code: string): never => { throw new Error(code); };
 const recoverableFormulaErrors = new Set(['#VALUE!', '#DIV/0!', '#NAME?', '#REF!', '#NUM!', '#N/A', '#N/A!', '#FORMULA!', '#CALC!']);
 const number = (value: Value): number => typeof value === 'boolean' || typeof value === 'string' && !value.trim() || !Number.isFinite(Number(value)) ? fail('#VALUE!') : Number(value);
 
+export const propertyFormulaOperands = /Table\[[^\]]+\]|@\[[^\]]+\]|\[[^\]]+\]|"(?:[^"\\]|\\.)*"|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[\p{L}_][\p{L}\p{N}_]*/gu;
+const propertyFormulaTokens = new RegExp(propertyFormulaOperands.source + '|<=|>=|<>|!=|[-+*/^&=<>(),]', 'gu');
+export function propertyFormulaColumnName(token: string): string {
+  if (token.startsWith('Table[')) return token.slice(6, -1);
+  return token.startsWith('[') ? token.slice(1, -1) : token;
+}
+
 /** Parse into inert nodes so IF/IFS evaluate only their selected branch. */
 export function parsePropertyFormula(source: string, bindings: Record<string, string>, columns?: Record<string,string>): Node {
-  const tokens = source.replace(/^\s*=/, '').match(/@\[[^\]]+\]|\[[^\]]+\]|"(?:[^"\\]|\\.)*"|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[\p{L}_][\p{L}\p{N}_]*|<=|>=|<>|!=|[+\-*/^&=<>(),]/gu) ?? [];
+  const tokens = source.replace(/^\s*=/, '').match(propertyFormulaTokens) ?? [];
   // Remove whitespace only outside quoted strings and property references.
   let compact = '', quoted = false, referenced = false, escaped = false;
   for (const char of source.replace(/^\s*=/, '')) { if (char === '"' && !escaped && !referenced) quoted = !quoted; if (char === '[' && !quoted) referenced = true; if (!/\s/.test(char) || quoted || referenced) compact += char; if (char === ']' && !quoted) referenced = false; escaped = char === '\\' && !escaped; }
@@ -47,7 +54,7 @@ export function parsePropertyFormula(source: string, bindings: Record<string, st
     if (token.startsWith('"')) { try { return { value: JSON.parse(token) as string }; } catch { return fail('#FORMULA!'); } }
     if (/^(?:\d|\.)/.test(token)) return { value: Number(token) };
     if (/^(TRUE|FALSE)$/i.test(token) && tokens[at] !== '(') return { value: token.toUpperCase() === 'TRUE' };
-    if (tokens[at] !== '(') return columns?{column:columns[token.startsWith('[')?token.slice(1,-1):token]??`missing:${token}`} : fail('#NAME?');
+    if (tokens[at] !== '(') return columns?{column:columns[propertyFormulaColumnName(token)]??`missing:${token}`} : fail('#NAME?');
     at++;
     const args: Node[] = [];
     if (tokens[at] !== ')') do { args.push(comparison()); if (tokens[at] !== ',') break; at++; } while (at < tokens.length);
