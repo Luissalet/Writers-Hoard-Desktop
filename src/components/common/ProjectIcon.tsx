@@ -26,7 +26,7 @@ export function ProjectIcon({ name, fallback = BookOpen, ...props }: ProjectIcon
     if (!name || curatedIcon) return;
     let active = true;
     void loadFullProjectIconCatalog().then(catalog => {
-      if (active) setLoadedIcon({ name, icon: catalog[name] ?? null });
+      if (active) setLoadedIcon({ name, icon: Object.hasOwn(catalog, name) ? catalog[name] : null });
     }).catch(error => {
       console.error(`Failed to load persisted project icon "${name}"`, error);
     });
