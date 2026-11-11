@@ -351,7 +351,7 @@ calculator and picker, a calendar grid, repeats and banners, tags, saved views
 and a Gregorian correlation that shows both calendars' events on either grid.
 Relation trees gain a catalogue of relationship sets, groups, variants and
 multi-select; tables gain find, insert/duplicate rows and columns (formula
-references follow, a removed one reads #REF!), multi-sort and filters. Calculated table columns and Codex type properties support [IFERROR with a lazy fallback](tasks/vvd1095/verification-table-iferror2709.md).
+references follow, a removed one reads #REF!), multi-sort and filters. Calculated table columns and Codex type properties support [IFERROR with a lazy fallback](tasks/vvd1095/verification-table-iferror2709.md). Calculated tables also accept [structured column references](tasks/vvd1095/verification-table-iferror2709.md#referencias-estructuradas-de-columna) for whole-column formulas.
 Everything has bridge tools (docs/AI-BRIDGE.md, section 29); the matrix with
 evidence is tasks/vvd1095/C-writing.md.
 

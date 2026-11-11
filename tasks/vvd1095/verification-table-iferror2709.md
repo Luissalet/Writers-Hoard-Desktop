@@ -13,3 +13,9 @@ Para probarlo en una tabla con la columna numérica Amount, abre **Añadir cálc
 - Quick y build r2 terminaron con EOF 0. El catálogo de 1046 herramientas conserva sus esquemas. Cambiaron la descripción de `wh_table_save_calculation` y la descripción del campo de fórmula de `wh_save_codex_template`.
 
 La tarea 2709 aprobó en revisión 1 el commit `43a27346f36c3e5b795114ded594deb0904ecdb5`, integrado por fast-forward. Los recibos están en `Research/writer-parity-20261110/table-iferror`. El manual de Google recoge el ejemplo de uso de la función.
+
+## Referencias estructuradas de columna
+
+Usa `Table[Columna]` para leer la columna completa en un cálculo de tabla. En `=IFERROR(@[Souls]/SUM(Table[Souls]),0)`, `@[Souls]` toma el valor de la fila y `Table[Souls]` aporta toda la columna a la suma. Al filtrar, el porcentaje conserva el denominador. La fórmula conserva la referencia al renombrar la columna, admite nombres con espacios y se mantiene en la tabla.
+
+La demo pública de VVD y la interfaz normal de Writer mostraron 14,94 %, 49,39 %, 10,67 %, 19,51 % y 5,49 %. El filtro Greyvale mantuvo 14,94 %. En Writer, los resultados reaparecieron al recargar. La regresión de reapertura comprobó columnas llamadas `SUM` y `TRUE`, un nuevo guardado y el total 16400. Native r2 pasó 12 llamadas MCP con dos claves, CAS sin escritura, CSV y variante de era. Quick y Build r2 terminaron con código 0. Revisión 1 de #2889 aprobó `b89e845eb65e29a6d4dcb9730664759c4288b675`, integrado por fast-forward.
