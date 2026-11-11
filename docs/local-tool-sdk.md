@@ -849,7 +849,17 @@ In the new `defineLocalTool` definition, pass `sourceAdditive: { from, fields: {
 
 Reads project every missing default without writing a slot. Apply a batch with the normal Source state actions or `wh_local_tool_state_apply`. The first effective batch promotes the existing document and stores only the authored slots in a single revision. A no-op keeps the predecessor. An explicit scalar write equal to its default still has a receipt. Undo removes the authored effects while continuing to show the defaults. Different lists and maps keep their own identities and edits, including when two lists contain the same item ID.
 
-This form starts from the initial register profile and requires empty defaults for maps and stable-ID lists. The existing singular declaration remains available. See [verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md).
+The example starts from the initial register profile. Both maps and stable-ID lists require empty defaults. The existing singular declaration remains available. See [verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md).
+
+### Chain additive Source releases
+
+A release can use an already-promoted Source definition as its exact predecessor. For example, V2 adds habitat and stats, and V3 adds threat and traits. In V3, set `sourceAdditive` to `{ from: v2Identity, ancestors: [v1Identity], fields: { threat: 4, traits: [] } }`. Each identity contains `namespace`, `codec`, `validationId` and `schemaEpoch`. List `ancestors` from oldest to closest. Omit `ancestors` when you only support the immediate predecessor.
+
+Declare every previous field with its original descriptor. The new definition inherits the earlier defaults and declares defaults only for its new fields. You can keep `stateSchemaVersion` when the changes are additive. An old document projects missing defaults on read. Existing stored values take precedence.
+
+The selected package can open a document that skipped V2 or that V2 already edited. Its first effective action records the required promotion boundaries and the edit in one durable revision while preserving the causal origin. A no-op leaves the checkpoint unchanged. The existing SDK and MCP state methods return session receipts for effective changes. Each list keeps its own physical placement history, including after another list was added later. A previous epoch's update needs the matching contract.
+
+[Verification and examples](../tasks/vvd1095/verification-sdk-source-multiple2745.md#encadenar-ampliaciones-desde-otra-versión-aditiva).
 
 ## Add fields to an existing Owned block
 
