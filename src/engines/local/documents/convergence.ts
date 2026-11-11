@@ -1,16 +1,16 @@
 /** Host-only Source operations; the existing Source mutation owns every write. */
-import {hasSourceDefault,sourceDefaultEntries,sourceDefaultHash} from '../stateCodecFormat';
+import {hasSourceDefault,sourceDefaultHash} from '../stateCodecFormat';
 import {db} from '@/db';
 import type {WorldEraScope} from '@/services/worldEras/types';
 import type {LocalToolDefinition,LocalToolJson,LocalToolSnapshot,LocalToolStateAction} from '../sdk';
 import type {LocalToolConvergenceCheckpoint,LocalToolConvergencePreparation,LocalToolConvergenceReceipt,LocalToolConvergenceUpdate,LocalToolReplicaOptions} from '../convergence/types';
-import {convergenceCanonical,convergenceHash,validateLocalToolConvergenceUpdate} from '../convergence/format';
+import {convergenceHash,validateLocalToolConvergenceUpdate} from '../convergence/format';
 import type {LocalToolSourceProjection} from '../convergence/clientTypes';
 import {createLocalToolGenesis,forkLocalToolGenesis,prepareLocalToolAdoption,exportLocalToolConvergenceCheckpoint,prepareLocalToolActions,prepareLocalToolReceive,prepareLocalToolReverse,prepareSourceAdditiveCheckpoint,captureLocalToolPlainRange,captureLocalToolRich,resolveLocalToolRichPoint} from '../convergence/replica';
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
 import {findSourceAdditivePredecessor} from './additiveOrigin';
-import {projectSourceToolAs} from './additive';
+import {assertSourceToolActionsAs,projectSourceToolAs,sourceToolActionBaselineData} from './additive';
 export type {SourceConvergenceOptions} from './store';
 export interface SourceConvergenceReadOptions {stateVectorBase64?:string}
 interface StoredPlan {
@@ -121,8 +121,12 @@ export function adoptSourceToolConvergence<T extends LocalToolJson>(scope:WorldE
  if(full!==undefined){validateLocalToolConvergenceUpdate(full);if(full.engine.version!=='4')throw Error('local_tool_rich_adoption_invalid');}
  return prepare(scope,id,definition,options,(read,inherited)=>{baseline(read,value,id,definition.namespace,true);if(inherited)throw Error('local_tool_convergence_era_start_required');},(_read,checkpoint,replicaOptions)=>full?prepareLocalToolReceive(checkpoint,replicaOptions,full):prepareLocalToolAdoption(checkpoint,replicaOptions),true);
 }
-export function applySourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],options:SourceConvergenceOptions){
- return prepare(scope,id,definition,options,read=>{
+export function applySourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,actions:readonly LocalToolStateAction[],options:SourceConvergenceOptions,asIdentity?:string){
+ return prepare(scope,id,definition,options,(read,inherited)=>{
+  if(asIdentity!==undefined){
+   if(inherited)throw Error('local_tool_source_stage_write_unavailable');
+   assertSourceToolActionsAs(read.document,definition,asIdentity,actions);
+  }
   const codec=definition.codec,addition=definition.sourceAdditive;
   const promotingChain=!!sourceDefaultHash(addition?.from.codec)&&!!findSourceAdditivePredecessor(read.document,addition);
   baseline(read,value,id,definition.namespace,promotingChain||!!sourceDefaultHash(codec)&&!read.document.convergence);
@@ -132,19 +136,7 @@ export function applySourceToolConvergence<T extends LocalToolJson>(scope:WorldE
   }
   // Core validates the generic three-way subsequence and applies identity splices in original order.
  },(read,checkpoint,replicaOptions)=>{
-  let before=value.data;
-  if(before&&typeof before==='object'&&!Array.isArray(before)&&
-     (read.document.convergence?.checkpoint.engine.version==='1'||read.document.revision===value.revision)){
-   let raw:Record<string,LocalToolJson>|undefined;
-   for(const [field,defaultValue] of sourceDefaultEntries(replicaOptions.contract.codec)){
-    if(!Object.hasOwn(before,field)||Object.hasOwn(read.document.data as object,field)||
-       convergenceCanonical(before[field])!==convergenceCanonical(defaultValue))continue;
-    raw??={...before};
-    delete raw[field];
-   }
-   if(raw)before=raw as T;
-  }
-  return prepareLocalToolActions(checkpoint,replicaOptions,actions,before);
+  return prepareLocalToolActions(checkpoint,replicaOptions,actions,sourceToolActionBaselineData(read.document,value,replicaOptions.contract.codec));
  },false,true);
 }
 export function reverseSourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,receipt:LocalToolConvergenceReceipt,options:SourceConvergenceOptions){

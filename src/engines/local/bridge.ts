@@ -77,7 +77,10 @@ export const LOCAL_TOOL_HANDLERS={
  async wh_local_tool_document_create(args:ToolArgs){const namespace=requireString(args,'namespace'),projectId=resolveProjectId(args);await assertEngineEnabled(projectId,localToolEngineId(namespace));return createSourceToolDocument({projectId,eraId:optString(args,'eraId')},namespace,requireString(args,'title'),Object.hasOwn(args,'initialActions')?{initialActions:args.initialActions}:undefined);},
  async wh_local_tool_document_rename(args:ToolArgs){return renameSourceToolDocument({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'documentId'),requireString(args,'namespace'),requireString(args,'title'),Number(args.expectedRevision),requireString(args,'expectedVersion'));},
  async wh_local_tool_document_archive(args:ToolArgs){await archiveSourceToolDocument({projectId:resolveProjectId(args),eraId:optString(args,'eraId')},requireString(args,'documentId'),requireString(args,'namespace'),Number(args.expectedRevision),requireString(args,'expectedVersion'));return{archived:true};},
- async wh_local_tool_state_apply(args:ToolArgs){const scoped=await stateClient(args);return scoped.state!.apply(args.baseline as LocalToolSnapshot<LocalToolJson>,args.actions as LocalToolStateAction[]);},
+ async wh_local_tool_state_apply(args:ToolArgs){
+  const scoped=await stateClient(args),asIdentity=args.asIdentity===undefined?undefined:requireString(args,'asIdentity');
+  return scoped.state!.apply(args.baseline as LocalToolSnapshot<LocalToolJson>,args.actions as LocalToolStateAction[],asIdentity===undefined?undefined:{asIdentity});
+ },
  async wh_local_tool_state_undo(args:ToolArgs){const scoped=await stateClient(args);return scoped.state!.undo(requireString(args,'receiptId'));},
  async wh_local_tool_state_redo(args:ToolArgs){const scoped=await stateClient(args);return scoped.state!.redo(requireString(args,'receiptId'));},
  async wh_local_tool_reference_resolve(args:ToolArgs){const scoped=await client(args,true),reference=args.reference as LocalToolDocumentReference;return args.includePath===true?scoped.refs.resolve(reference,{includePath:true}):scoped.refs.resolve(reference);},
