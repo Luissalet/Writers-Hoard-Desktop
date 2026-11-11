@@ -57,12 +57,11 @@ function requireSourceToolStage<T extends LocalToolJson>(document:SourceToolDocu
  const addition=definition.sourceAdditive,checkpoint=document.convergence?.checkpoint;
  if(!addition||!checkpoint)throw Error('local_tool_source_projection_unavailable');
  assertSourceAdditiveTarget(document,definition);
- const declared=[...(addition.ancestors??[]),addition.from].some(epoch=>convergenceHash(epoch)===identityHash);
- if(!declared)throw Error('local_tool_source_projection_unavailable');
- const history=validateSourceDocumentCheckpoint(document,definition.validateState);
- const previous=history?.find(epoch=>convergenceHash(epoch)===identityHash);
+ const previous=[...(addition.ancestors??[]),addition.from].find(epoch=>convergenceHash(epoch)===identityHash);
  if(!previous)throw Error('local_tool_source_projection_unavailable');
- return {previous,checkpoint};
+ const history=validateSourceDocumentCheckpoint(document,definition.validateState);
+ if(!history?.length)throw Error('local_tool_source_projection_unavailable');
+ return {previous,checkpoint,stageInHistory:history.some(epoch=>convergenceHash(epoch)===identityHash)};
 }
 
 export function assertSourceToolActionsAs<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,identityHash:string,actions:readonly LocalToolStateAction[]):void {
@@ -71,10 +70,10 @@ export function assertSourceToolActionsAs<T extends LocalToolJson>(document:Sour
 }
 
 export function projectSourceToolAs<T extends LocalToolJson>(document:SourceToolDocument,definition:LocalToolDefinition<T>,identityHash:string,provenance:LocalToolSourceProjection['provenance']):LocalToolSourceProjection {
- const {previous,checkpoint}=requireSourceToolStage(document,definition,identityHash);
+ const {previous,checkpoint,stageInHistory}=requireSourceToolStage(document,definition,identityHash);
  const data=document.data;
  if(!data||typeof data!=='object'||Array.isArray(data))throw Error('local_tool_source_projection_unavailable');
  const selected=Object.fromEntries(Object.entries(data).filter(([field])=>Object.hasOwn(previous.codec.fields,field)));
  return{identity:convergenceIdentity(previous,checkpoint.genesisId),activeIdentity:convergenceIdentityOf(checkpoint),
-  provenance,conflicted:!!document.convergence?.conflict,data:cloneLocalToolJson(projectSourceDefaults(selected,sourceDefaultEntries(previous.codec)))};
+  provenance,stageInHistory,conflicted:!!document.convergence?.conflict,data:cloneLocalToolJson(projectSourceDefaults(selected,sourceDefaultEntries(previous.codec)))};
 }

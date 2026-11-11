@@ -10,6 +10,8 @@ export interface LocalToolAdoptionReceiptSuccessor {previous:string;successor:st
 export interface LocalToolSourceProjection {
  identity:LocalToolConvergenceIdentity;
  activeIdentity:LocalToolConvergenceIdentity;
+ /** True when the earlier stage also appears in the document's physical history. */
+ stageInHistory:boolean;
  provenance:'base'|'variant';
  conflicted:boolean;
  data:LocalToolJson;

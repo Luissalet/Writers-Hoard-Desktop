@@ -7,7 +7,7 @@ import type { LocalToolConvergenceCheckpoint } from '@/engines/local/convergence
 import { createLocalToolReplica, exportLocalToolConvergenceCheckpoint } from '@/engines/local/convergence/replica';
 import { createSourceToolDocument, readSourceToolDocument } from '@/engines/local/documents/store';
 import type { SourceToolDocument } from '@/engines/local/documents/types';
-import { forkSourceToolDocument } from '@/engines/local/documents/portability';
+import { forkSourceToolDocument, validateSourceDocumentCheckpoint } from '@/engines/local/documents/portability';
 import { registerLocalToolModules } from '@/engines/local/registry';
 import { localToolReleaseIdentity, type LocalToolReleaseManifest } from '@/engines/local/releaseFormat.mjs';
 import { pinLocalToolRelease } from '@/engines/local/releases';
@@ -18,7 +18,7 @@ import fixtureSource from './local-tool-source-successive-additive.browser.ts?ra
 
 type State = Record<string, LocalToolJson>;
 
-export async function testSourceSuccessiveAdditive(priorList = false, writeAs = false): Promise<string[]> {
+export async function testSourceSuccessiveAdditive(priorList = false, writeAs = false, freshStage = false): Promise<string[]> {
   const namespace = 'tests.source-additive-successive' + (priorList ? '-lists' : '');
   const projectId = 'qa-source-successive-' + crypto.randomUUID();
   const scope = { projectId };
@@ -383,6 +383,47 @@ export async function testSourceSuccessiveAdditive(priorList = false, writeAs = 
             [{ name: admitted.name, habitat: admitted.habitat, stats: admitted.stats }, true, false]);
         } finally { left.destroy(); right.destroy(); }
       }
+    }
+    if (freshStage) {
+      const fresh = await createSourceToolDocument(scope, namespace, 'Born in V3');
+      const api = client(fresh.id, 2), priorHash = convergenceHash(metadata(middle));
+      await api.state!.apply(await api.read(), [
+        { type: 'set', field: 'name', value: 'Born in V3' },
+        { type: 'set', field: 'threat', value: 7 },
+        { type: 'list-insert', field: 'traits', item: newItem, afterId: null },
+      ]);
+      const saved = (await raw(fresh.id))!;
+      const histories = (document: SourceToolDocument) => validateSourceDocumentCheckpoint(document)?.map(convergenceHash);
+      const activeStages = [convergenceHash(metadata(latest))];
+      expect('A new V3 document retains only its own physical stage', histories(saved.document), activeStages);
+      const projected = await api.convergence!.readAs(priorHash);
+      const olderData = { name: 'Born in V3', ...habitat };
+      expect('V2 reads only its declared fields on the fresh V3 document',
+        [projected.data, projected.stageInHistory], [olderData, false]);
+      expect('Reading a declared stage leaves the physical document unchanged', await raw(fresh.id), saved);
+      const active = await api.read();
+      const changes: LocalToolStateAction[] = [
+        { type: 'set', field: 'habitat', value: 'Swamp' },
+        { type: 'map-set', field: 'stats', key: 'armor', value: 10 },
+      ];
+      const wrote = await api.state!.apply(active, changes, { asIdentity: priorHash });
+      const changed = (await raw(fresh.id))!;
+      const after = { ...active.data, habitat: 'Swamp', stats: { armor: 10 } };
+      expect('V2 writes shared fields without creating a historical stage',
+        [wrote.snapshot.data, wrote.snapshot.revision, wrote.snapshot.convergence?.genesisId, histories(changed.document)],
+        [after, active.revision! + 1, active.convergence?.genesisId, activeStages]);
+      expect('V2 sees its changes and V3 preserves threat and its authored list',
+        (await api.convergence!.readAs(priorHash)).data, { ...olderData, habitat: 'Swamp', stats: { armor: 10 } });
+      expect('Undo for the declared stage restores the active document',
+        (await api.state!.undo(wrote.receiptId!)).snapshot.data, active.data);
+      const memory = createFakeLocalToolHost(latest, { projects: [
+        { id: projectId, updatedAt: 1, sourceToolDocuments: [saved.document] },
+      ] }).createClient(scope, false, fresh.id);
+      expect('Memory host identifies the same declared stage', await memory.convergence!.readAs(priorHash), projected);
+      expect('Memory host also edits shared fields on a fresh document',
+        (await memory.state!.apply(await memory.read(), changes, { asIdentity: priorHash })).snapshot.data, after);
+      const promotedProjection = await client(promoted.id, 2).convergence!.readAs(priorHash);
+      expect('A genuinely retained stage reports physical history', promotedProjection.stageInHistory, true);
     }
     return checks;
   } finally { await deleteProject(projectId); }
