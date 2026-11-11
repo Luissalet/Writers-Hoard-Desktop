@@ -161,6 +161,30 @@ The ordinary native MCP transport exposes sixteen static tools: `wh_local_tool_l
 
 Use query for `writes:false`, call for `writes:true`. Queries receive a read-only client: namespace save, variant writes, media import and writing `callTool` invocations reject. Calls require the existing native writes switch and an enabled source engine. Writing operations run in one database transaction; an exception or invalid JSON return rolls back database edits. Keep them to local database work and await every edit. Network/filesystem effects, navigation and arbitrary trusted source code cannot be rolled back by this transaction. Input schema validation happens before running the operation. Operation implementations remain renderer-side; Electron's generic manifest is pure data and never imports React or source functions.
 
+### Derive agent operations from a field declaration
+
+Use stateFields in place of codec when an author wants one declaration for a field's storage and its optional agent surface. Each entry contains the normal codec descriptor. An agent entry supplies a bilingual description and an input schema. Without that entry, the field keeps its normal storage behaviour and is not exposed by generated operations.
+
+    stateFields: {version: 1, fields: {
+      score: {
+        codec: {kind: 'scalar'},
+        agent: {
+          description: {en: 'Quest score', es: 'Puntuación del encargo'},
+          schema: {type: 'integer', minimum: 0},
+          index: true,
+        },
+      },
+      briefing: {codec: {kind: 'prose'}},
+    }}
+
+For an opted-in field, scalar values generate set_<field>; maps generate set_<field>_key and remove_<field>_key; stable-ID lists generate add_<field>_item, update_<field>_item and remove_<field>_item. List schemas describe the complete item, including its declared idKey. Adding takes an explicit afterId (null inserts first); an update must preserve that ID. Prose, rich text, asset references and document references do not receive generated operations. IDs use lowercase letters, digits and underscores; duplicates with explicit operations are refused.
+
+For opted-in scalar strings, numbers (including integer schemas) and booleans, index: true creates the matching selector. An explicit index on the tool still takes precedence. Existing tool definitions without stateFields keep their current catalogue. The authoring declaration is discarded after compilation; the persisted codec, history and package format do not change.
+
+Enable Quest log / Cuaderno de encargos to try the compiled example. Open an actual quest document, then read it with wh_local_tool_read. Discover the generated schemas with wh_local_tool_describe and invoke a named write with wh_local_tool_call. The input includes expectedRevision and, for a Source document, expectedDocumentVersion from that read; give the actual documentId on the call. The operation returns the new revision, documentVersion and the normal state receipt (null for a no-op). Stale versions are rejected, and the existing project, era, pin and writes gates still apply. Use the ordinary state Undo/Redo tools with that receipt. The call never creates a missing document or exposes author code over MCP.
+
+The example has a focused author test: node scripts/test-local-tool.mjs --id examples.derived-quest.
+
 ## Distribute and select local source releases
 
 The scaffold includes `local-tool.source.json`. Keep its `files` array explicit: include your own `module.tsx`, imported local sources and assets. Do not include the app, dependencies or project data. For example:

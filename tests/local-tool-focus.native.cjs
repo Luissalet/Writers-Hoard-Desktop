@@ -8,10 +8,11 @@ const sourceCommand=process.env.WH_NATIVE_SOURCE_UNDO_COMMAND==='1';
 const sourceProvider=process.env.WH_NATIVE_SOURCE_UNDO_PROVIDER==='1';
 const sourcePushed=process.env.WH_NATIVE_SOURCE_PUSHED_UNDO==='1';
 const sourceOwned=process.env.WH_NATIVE_SOURCE_OWNED_BLOCK_PANEL==='1';
-assert([sourceBlock,sourceCommand,sourceProvider,sourcePushed,sourceOwned].filter(Boolean).length<=1,'Select one Native Source scenario');
-const sourceScenario=sourceOwned?'source-owned-block-panel':sourcePushed?'source-pushed-undo':sourceProvider?'source-undo-provider':sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
+const sourceDerived=process.env.WH_NATIVE_SOURCE_DERIVED_AGENT==='1';
+assert([sourceBlock,sourceCommand,sourceProvider,sourcePushed,sourceOwned,sourceDerived].filter(Boolean).length<=1,'Select one Native Source scenario');
+const sourceScenario=sourceDerived?'source-derived-agent':sourceOwned?'source-owned-block-panel':sourcePushed?'source-pushed-undo':sourceProvider?'source-undo-provider':sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
 const revocations=[];
-const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceOwned?'source-owned-native-':sourcePushed?'source-pushed-native-':sourceProvider?'source-provider-native-':sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
+const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceDerived?'source-derived-native-':sourceOwned?'source-owned-native-':sourcePushed?'source-pushed-native-':sourceProvider?'source-provider-native-':sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
 const preloadFile=path.join(directory,'focus-preload.cjs'),adapterFile=path.join(directory,'focus-stdio.cjs');
 // QuickNote is unrelated to focus; this fixture does not capture/relay notes or start its window.
 fs.writeFileSync(preloadFile,"const{contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('electronAPI',{platform:process.platform,quickNote:{setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}},aiBridge:{onRequest:callback=>{const listener=(_,payload)=>callback(payload);ipcRenderer.on('aibridge:request',listener);return()=>ipcRenderer.removeListener('aibridge:request',listener);},reply:payload=>ipcRenderer.invoke('aibridge:reply',payload)}});");
@@ -47,7 +48,7 @@ async function close(){
  console.log('FOCUS_NATIVE_EVIDENCE '+evidence);console.log('FOCUS_NATIVE_PRIVATE_TEMP '+directory);console.log('FOCUS_NATIVE_RESULT '+JSON.stringify(result));assert.equal(errors.length,0,errors.join('\n'));
 }
 async function adapter(token,label){
- const child=spawn(process.execPath,[adapterFile],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,ELECTRON_RUN_AS_NODE:'1',WH_BRIDGE_TOKEN:token,WH_BRIDGE_TOKEN_FILE:'',WH_BRIDGE_URL:`http://127.0.0.1:${port}`,WH_PUBLISHING_MODULE:'',...(sourceOwned?{WH_BRIDGE_GROUPS:''}:{}),WH_MCP_NO_AUTOSTART:'0',HOARD_EVENTS:'0'}});
+ const child=spawn(process.execPath,[adapterFile],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,ELECTRON_RUN_AS_NODE:'1',WH_BRIDGE_TOKEN:token,WH_BRIDGE_TOKEN_FILE:'',WH_BRIDGE_URL:`http://127.0.0.1:${port}`,WH_PUBLISHING_MODULE:'',...(sourceOwned||sourceDerived?{WH_BRIDGE_GROUPS:''}:{}),WH_MCP_NO_AUTOSTART:'0',HOARD_EVENTS:'0'}});
  const waiting=new Map();let next=0,stderr='',ended=false,actualExit=null;child.stderr.on('data',chunk=>{stderr+=chunk.toString();});
  const exit=new Promise(resolve=>{child.once('close',(code,signal)=>resolve({code,signal}));child.once('error',error=>resolve({error:String(error)}));});
  const lines=createInterface({input:child.stdout});lines.on('line',line=>{try{const value=JSON.parse(line),pending=waiting.get(value.id);assert(pending,'Unexpected stdio reply');clearTimeout(pending.timer);waiting.delete(value.id);pending.resolve(value);}catch(error){failure=String(error);for(const pending of waiting.values())pending.reject(error);waiting.clear();}});
@@ -71,8 +72,8 @@ async function drive(win){
  async function call(session,name,args,relayed=true){const prior=replies.length,response=await session.rpc('tools/call',{name,arguments:args});toolCalls++;assert(!response.error);assert.equal(replies.length-prior,relayed?1:0);assert.equal(response.result.content.length,1);assert.equal(response.result.content[0].type,'text');const outcome={isError:response.result.isError===true,value:JSON.parse(response.result.content[0].text)};transcript.push({session:session.report().label,name,args,outcome,ipcReplies:replies.length-prior});return outcome;}
  async function ok(session,name,args){const result=await call(session,name,args);assert.equal(result.isError,false,JSON.stringify(result.value));return result.value;}
  if(sourceScenario){
-  const run=sourceOwned?driveSourceOwned:sourcePushed?driveSourcePushed:sourceProvider?driveSourceProvider:sourceCommand?driveSourceCommand:driveSourceBlock;
-  await run({a,b,ok,renderer,fixture});
+  const run=sourceDerived?driveSourceDerived:sourceOwned?driveSourceOwned:sourcePushed?driveSourcePushed:sourceProvider?driveSourceProvider:sourceCommand?driveSourceCommand:driveSourceBlock;
+  await run({a,b,ok,call,renderer,fixture});
   await renderer('__focusNativeFinish',{ok:true});
   return;
  }
@@ -476,8 +477,136 @@ async function driveSourceOwned({a,b,ok,renderer,fixture}){
  save('owned-panel-observations.json',{before,inline,beforeTabs,beforeOwner,beforeOther,eraOwner,opened,firstTabs,dedup,secondTabs,negative,retired,retiredTabs,after});
  checks.push({label:'Two authenticated keys opened one exact Owned pane; another owner or era and the retired owner stayed unavailable; durable data and stored tabs unchanged'});
 }
+async function driveSourceDerived({a,b,ok,call,renderer,fixture}){
+ const {projectId,namespace,documentId,controlId,eraId}=fixture;
+ const base={projectId,namespace},target={...base,documentId},control={...base,documentId:controlId},era={...target,eraId};
+ const DESCRIBE='wh_local_tool_describe',READ='wh_local_tool_read',CALL='wh_local_tool_call',INDEX='wh_local_tool_document_query',UNDO='wh_local_tool_state_undo';
+ const catalogue=async session=>{
+  const prior=replies.length,response=await session.rpc('tools/list',{});
+  assert(!response.error);
+  assert.equal(replies.length,prior);
+  const tools=[DESCRIBE,READ,CALL,INDEX,UNDO].map(name=>{
+   const found=response.result.tools.filter(tool=>tool.name===name);
+   assert.equal(found.length,1);
+   return found[0];
+  });
+  return tools;
+ };
+ const catalogueA=await catalogue(a),catalogueB=await catalogue(b);
+ assert.deepEqual(catalogueB,catalogueA);
+ const description=await ok(a,DESCRIBE,base);
+ assert.deepEqual(await ok(b,DESCRIBE,base),description);
+ assert.equal(description.namespace,'examples.derived-quest');
+ assert.equal(description.engineId,'local-tool-examples.derived-quest');
+ assert.equal(description.contentHash,null);
+ assert(!Object.hasOwn(description,'stateFields'));
+ assert.deepEqual(description.codec,{version:1,fields:{title:{kind:'scalar'},score:{kind:'scalar'},ready:{kind:'scalar'},objectives:{kind:'list',idKey:'id'},rewards:{kind:'map'},briefing:{kind:'prose'}}});
+ assert.deepEqual(description.index,{version:1,fields:{title:{path:'$.title',type:'string'},score:{path:'$.score',type:'number'},ready:{path:'$.ready',type:'boolean'}}});
+ const stringId={type:'string',minLength:1},itemSchema={type:'object',properties:{id:stringId,text:{type:'string',minLength:1,maxLength:200},done:{type:'boolean'}},required:['id','text','done'],additionalProperties:false};
+ const inputs={
+  set_title:{value:{type:'string',maxLength:100}},
+  set_score:{value:{type:'integer',minimum:0}},
+  set_ready:{value:{type:'boolean'}},
+  add_objectives_item:{item:itemSchema,afterId:{type:['string','null'],minLength:1}},
+  update_objectives_item:{id:stringId,item:itemSchema},
+  remove_objectives_item:{id:stringId},
+  set_rewards_key:{key:stringId,value:{type:'number',minimum:0}},
+  remove_rewards_key:{key:stringId},
+ };
+ assert.deepEqual(description.operations.map(op=>op.id).sort(),Object.keys(inputs).sort());
+ for(const {id,description:labels,writes,inputSchema} of description.operations){
+  assert.equal(writes,true);
+  assert(typeof labels.en==='string'&&labels.en.trim()&&typeof labels.es==='string'&&labels.es.trim());
+  assert.equal(inputSchema.type,'object');
+  assert.equal(inputSchema.additionalProperties,false);
+  const {expectedRevision,expectedDocumentVersion,...fields}=inputSchema.properties;
+  assert.deepEqual(expectedRevision,{type:'integer',minimum:0,maximum:Number.MAX_SAFE_INTEGER});
+  assert.deepEqual(expectedDocumentVersion,stringId);
+  assert.deepEqual(fields,inputs[id]);
+  assert.deepEqual([...inputSchema.required].sort(),Object.keys(inputSchema.properties).sort());
+ }
+ save('derived-catalogue.json',{catalogueA,catalogueB,description});
+ const read=(session,scope=target)=>ok(session,READ,scope);
+ const baseline=snapshot=>({expectedRevision:snapshot.revision,expectedDocumentVersion:snapshot.document.version});
+ const clean=({_undo,...value})=>value;
+ const callInput=(operation,input)=>({...target,operation,input});
+ const run=async(session,operation,input)=>clean(await ok(session,CALL,callInput(operation,input)));
+ const query=async(session,scope,score)=>{
+  const {documents}=await ok(session,INDEX,{...scope,where:{score:{eq:score}}});
+  assert.equal(documents.length,1);
+  return documents[0];
+ };
+ const before=await read(a),sibling=await read(b,control),variant=await read(a,era);
+ const persistedControls=await renderer('__focusNativeDerivedControls');
+ assert.equal(before.document.id,documentId);
+ assert.equal(before.document.namespace,namespace);
+ assert.equal(before.provenance,'base');
+ assert.equal(before.data.score,0);
+ assert.deepEqual(before.data.objectives,[]);
+ assert.equal(sibling.document.id,controlId);
+ assert.equal(sibling.data.score,3);
+ assert.equal(variant.document.id,documentId);
+ assert.equal(variant.provenance,'variant');
+ assert.equal(variant.data.score,19);
+ const assertIndex=(row,snapshot)=>{
+  assert.equal(row.id,snapshot.document.id);
+  assert.equal(row.namespace,namespace);
+  assert.equal(row.provenance,snapshot.provenance);
+  assert.deepEqual(row.fields,{title:snapshot.data.title,score:snapshot.data.score,ready:snapshot.data.ready});
+  assert.deepEqual(row.refs,[]);
+ };
+ const indexBefore=await query(b,base,0);
+ assertIndex(indexBefore,before);
+ const domBefore=await renderer('__focusNativeDerivedObserve',{title:before.data.title,score:0,objectives:[]});
+ const identity=({revision,updatedAt,data,document:{version,...document},...rest})=>({document,...rest});
+ const receipt=(result,current,previous,expected)=>{
+  assert.deepEqual(Object.keys(result).sort(),['documentVersion','receiptId','revision']);
+  assert(typeof result.receiptId==='string'&&result.receiptId.startsWith('local-state-'));
+  assert.equal(result.revision,previous.revision+1);
+  assert.equal(result.revision,current.revision);
+  assert.equal(result.documentVersion,current.document.version);
+  assert.notEqual(current.document.version,previous.document.version);
+  assert.deepEqual(identity(current),identity(previous));
+  assert.deepEqual(current.data,expected);
+ };
+ const scored=await run(a,'set_score',{...baseline(before),value:31}),afterScore=await read(b);
+ receipt(scored,afterScore,before,{...before.data,score:31});
+ const objective={id:'native-derived-objective',text:'Trace the source Ω',done:false};
+ const added=await run(b,'add_objectives_item',{...baseline(afterScore),item:objective,afterId:null}),afterAdd=await read(a);
+ receipt(added,afterAdd,afterScore,{...afterScore.data,objectives:[objective]});
+ assert.notEqual(scored.receiptId,added.receiptId);
+ const indexWritten=await query(b,base,31);
+ assertIndex(indexWritten,afterAdd);
+ const domWritten=await renderer('__focusNativeDerivedObserve',{title:before.data.title,score:31,objectives:[objective]});
+
+ const staleRevision=await call(b,CALL,callInput('set_score',{...baseline(afterAdd),expectedRevision:before.revision,value:73}));
+ const staleVersion=await call(a,CALL,callInput('set_score',{...baseline(afterAdd),expectedDocumentVersion:before.document.version,value:74}));
+ for(const failure of [staleRevision,staleVersion]){
+  assert.equal(failure.isError,true);
+  assert.deepEqual(failure.value,{code:'tool-error',error:'conflict'});
+ }
+ assert.deepEqual(await read(b),afterAdd);
+
+ const undone=clean(await ok(a,UNDO,{...target,receiptId:added.receiptId}));
+ const afterUndo=await read(b);
+ assert.deepEqual(undone.snapshot,afterUndo);
+ assert(typeof undone.receiptId==='string'&&undone.receiptId.startsWith('local-state-'));
+ assert.notEqual(undone.receiptId,added.receiptId);
+ assert.equal(afterUndo.revision,afterAdd.revision+1);
+ assert.notEqual(afterUndo.document.version,afterAdd.document.version);
+ assert.deepEqual(identity(afterUndo),identity(before));
+ assert.deepEqual(afterUndo.data,afterScore.data);
+ const domUndone=await renderer('__focusNativeDerivedObserve',{title:before.data.title,score:31,objectives:[]});
+ assert.deepEqual(await read(a,control),sibling);
+ assert.deepEqual(await read(b,era),variant);
+ const indexUndo=await query(a,base,31);
+ assertIndex(indexUndo,afterUndo);
+ assert.deepEqual(await renderer('__focusNativeDerivedControls'),persistedControls);
+ save('derived-observations.json',{before,sibling,variant,persistedControls,domBefore,indexBefore,scored,afterScore,objective,added,afterAdd,indexWritten,domWritten,staleRevision,staleVersion,undone,afterUndo,indexUndo,domUndone});
+ checks.push({label:'Two keys used exact revisions and versions on one derived Source, indexed its scalar edit, rejected two stale baselines, and reversed the list receipt without changing the sibling or named-era variant'});
+}
 process.argv[2]='tests/local-tool-focus.native.renderer.ts';
-process.argv[3]=sourceOwned?'testLocalToolSourceOwnedNative':sourcePushed?'testLocalToolSourcePushedNative':sourceProvider?'testLocalToolSourceProviderNative':sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
+process.argv[3]=sourceDerived?'testLocalToolSourceDerivedNative':sourceOwned?'testLocalToolSourceOwnedNative':sourcePushed?'testLocalToolSourcePushedNative':sourceProvider?'testLocalToolSourceProviderNative':sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
 harness.main({preloadFile,setup,window:async win=>{window=win;bridge.setBridgeWindowResolver(()=>win);win.webContents.once('did-finish-load',()=>{driver=drive(win).catch(async error=>{failure=error.stack||String(error);console.error(failure);await win.webContents.executeJavaScript(`window.__focusNativeFinish?.(${JSON.stringify({ok:false,error:failure})});0`).catch(()=>{});});});},close:async()=>{
  await driver;
  if(failure)throw Error(failure);
