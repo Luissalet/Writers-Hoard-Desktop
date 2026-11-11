@@ -6,13 +6,13 @@ import {projectWorldTable,columnCalculation,displayTableFormula} from './project
 import {createTypeTable,saveTableCalculation,removeTableColumn,updateTableColumn,type SaveTableCalculation} from './calculations';
 import TableCalculationEditor from './TableCalculationEditor';
 import { projectCodexEntry } from '@/engines/codex/properties';
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useDeepLinkParam } from '@/engines/_shared';
 import { ArrowDownUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, ExternalLink, Filter, GripVertical, Plus, Settings2, Table2, Trash2, Upload, X } from 'lucide-react';
 import { editTableRows, undoTableRows, type TableRowAction } from './rowActions';
 import { WorldEraConflict } from '@/services/worldEras/types';
 import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
-import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, removeRows, sortRows, toggleSort, type TableCondition, type TableSort } from './tableEdits';
+import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, removeRows, sortRows, toggleSort, type TableCondition } from './tableEdits';
 import CsvDialog from './CsvDialog';
 import WorkbookTabs from './WorkbookTabs';
 import { workbookTabs } from './workbook';
@@ -27,11 +27,11 @@ import Modal from '@/components/common/Modal';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
 import { saveCodexDraft } from '@/engines/codex/operations';
 import { createCodexEntry } from '@/db/operations';
-import { cellKey, validateCell, type DataColumn, type DataRow, type TableGroupRule, type WorldTable } from './types';
-import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped, saveTableGrouping } from './operations';
+import { cellKey, validateCell, type DataColumn, type DataRow, type TableViewSettings, type WorldTable } from './types';
+import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped, saveTableView } from './operations';
 import { sheetValues } from './formulas';
 import { tableCopy } from './copy';
-import { effectiveTableGrouping, projectTableGroups, storedTableGrouping } from './viewGroups';
+import { confirmedTableFilters, effectiveTableView, filterStamp, projectTableGroups, storedTableView, tableViewParts } from './viewGroups';
 import { useDebouncedField } from '@/engines/_shared/useDebouncedField';
 
 const control = 'min-h-9 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
@@ -54,8 +54,13 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const entries = useEraRows<import('@/types').CodexEntry>('codexEntries', projectId);
   const [selectedId, setSelectedId] = useState(''); const [query, setQuery] = useState('');
   const [groupFolds, setGroupFolds] = useState<{ key: string; folded: ReadonlySet<string> }>();
-  const [sorts, setSorts] = useState<TableSort[]>([]); const setSort = (next: TableSort | null) => { setSorts(next ? [next] : []); if (!next) { setConditions([]); setSelectedRows([]); } };
-  const [conditions, setConditions] = useState<TableCondition[]>([]); const [matchAt, setMatchAt] = useState(0); const [selectedRows, setSelectedRows] = useState<string[]>([]); const [insertAt, setInsertAt] = useState<number | null>(null);
+  const [filterEpoch, setFilterEpoch] = useState(0);
+  const filterFlush = useRef<(() => Promise<boolean>) | null>(null);
+  const registerFilterFlush = useCallback((flush: () => Promise<boolean>) => {
+    filterFlush.current = flush;
+    return () => { if (filterFlush.current === flush) filterFlush.current = null; };
+  }, []);
+  const [matchAt, setMatchAt] = useState(0); const [selectedRows, setSelectedRows] = useState<string[]>([]); const [insertAt, setInsertAt] = useState<number | null>(null);
   const [creating, setCreating] = useState(false); const [name, setName] = useState(''); const [mode, setMode] = useState<'table' | 'sheet' | 'live'>('table'); const [sourceType, setSourceType] = useState<CodexEntryType>('character'); const [sourceTemplateId,setSourceTemplateId]=useState(''); const [allSources, setAllSources] = useState(false);
   const [columnDraft, setColumnDraft] = useState<DataColumn | null>(null); const [addingColumn, setAddingColumn] = useState(false);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
@@ -172,6 +177,9 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const beginCalculation=async(column?:DataColumn)=>{if(!table)return;await run(async()=>{const read=await readWorldDocument(scope,'tables',table.id);if(!read)throw Error('table_missing');const calc=column?columnCalculation(table,column,project?.codexTemplates??[]):undefined;setFormulaDraft({tableId:table.id,columnId:column?.id,name:column?.name??'',formula:calc?displayTableFormula(calc,table.columns):'=',resultType:calc?.resultType??'decimal',expectedVersion:read.version,expectedTemplateRevision:project?.codexTemplates?.find(item=>item.id===table.codexTemplateId)?.revision});});};
   const insertToken=(token:string)=>{const input=formulaRef.current,start=input?.selectionStart??formulaDraft?.formula.length??0,end=input?.selectionEnd??start;setFormulaDraft(draft=>draft?{...draft,formula:draft.formula.slice(0,start)+token+draft.formula.slice(end)}:draft);requestAnimationFrame(()=>{input?.focus();input?.setSelectionRange(start+token.length,start+token.length);});};
   const columnById = (id: string) => table?.columns.find(column => column.id === id);
+  const savedView = storedTableView(project?.tableGroupingViews, storedTable?.id ?? '', scope.eraId);
+  const view = effectiveTableView(savedView, table?.columns ?? []);
+  const { conditions, sorts, rules: groupRules } = view;
   const candidates = filterRows(rows, conditions, (row, id) => { const column = columnById(id); return column ? displayValue(row, column) : undefined; });
   const matchesByRow = new Map<string, { rowId: string; columnId: string }[]>();
   const hasSearch = Boolean(query.trim());
@@ -186,15 +194,19 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const filteredRows = sortRows(hasSearch ? candidates.filter(row => matchesByRow.has(row.id)) : candidates, sorts, (row, id) => {
     const column = columnById(id); return column ? rowValue(row, column) : '';
   }, id => columnById(id)?.kind === 'number');
-  const savedGroupRules = storedTable ? storedTableGrouping(project?.tableGroupingViews, storedTable.id, scope.eraId) : [];
-  const groupRules = effectiveTableGrouping(savedGroupRules, table?.columns ?? []);
   const foldKey = JSON.stringify([rowKey, groupRules.map(rule => rule.columnId)]);
   const foldedGroups = groupFolds?.key === foldKey ? groupFolds.folded : emptyFolds;
   const resetFolds = () => setGroupFolds(undefined);
-  const saveGrouping = (rules: TableGroupRule[], done?: () => void) => {
+  const resetLocalView = () => { setQuery(''); setMatchAt(0); setSelectedRows([]); resetFolds(); };
+  const flushFilters = async () => {
+    if (filterFlush.current && !await filterFlush.current()) throw new Error(copy.reloadFilters);
+  };
+  const selectTable = (id: string) => { if (id !== table?.id) void run(flushFilters, () => { setSelectedId(id); resetLocalView(); }); };
+  const saveView = (patch: Partial<TableViewSettings>, done?: () => void) => {
     if (!storedTable) return;
     const epoch = rowOwner.current.epoch;
-    void run(() => saveTableGrouping(projectId, storedTable.id, rules, JSON.stringify(savedGroupRules), scope.eraId), () => {
+    const expected = Object.fromEntries(tableViewParts.filter(key => patch[key] !== undefined).map(key => [key, JSON.stringify(savedView[key])]));
+    void run(async () => { await saveTableView(projectId, storedTable.id, patch, expected, scope.eraId); }, () => {
       if (rowOwner.current.mounted && rowOwner.current.epoch === epoch) done?.();
     });
   };
@@ -202,7 +214,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     const rules = columnId
       ? [...groupRules.slice(0, depth), { columnId, direction: groupRules[depth]?.direction ?? 'asc' as const }, ...groupRules.slice(depth + 1)]
       : groupRules.slice(0, depth);
-    saveGrouping(rules, resetFolds);
+    saveView({ rules }, resetFolds);
   };
   const { orderedRows: visible, expandedRows, items: groupItems, pathsByRow } = projectTableGroups(filteredRows, groupRules, (row, id) => {
     const column = columnById(id)!;
@@ -241,11 +253,11 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       } else await saveCell(projectId, table.id, row.id, column.id, value, row.cells[column.id] ?? '');
   };
   const createDocument = async () => {
-    if(mode==='live'&&sourceTemplateId&&!allSources){await run(async()=>{const created=await createTypeTable(scope,name,sourceTemplateId);setSelectedId(created.id);},()=>{setCreating(false);setName('');setQuery('');resetFolds();setSort(null);});return;}
+    if(mode==='live'&&sourceTemplateId&&!allSources){await run(async()=>{const created=await createTypeTable(scope,name,sourceTemplateId);setSelectedId(created.id);},()=>{setCreating(false);setName('');resetLocalView();});return;}
     const columns: DataColumn[] = mode === 'sheet' ? Array.from({ length: 6 }, (_, index) => ({ id: crypto.randomUUID(), name: cellKey(index, 0).replace(/\d+$/, ''), kind: 'text' })) : [{ id: crypto.randomUUID(), name: t('codex.field.name'), kind: 'text', field: 'title' }];
     const everyType = mode === 'live' && allSources;
     const document: WorldTable = { id: crypto.randomUUID(), title: name.trim(), mode: mode === 'sheet' ? 'sheet' : 'table', codexType: mode === 'live' && !everyType ? sourceType : undefined, ...(everyType ? { codexAllTypes: true } : {}), columns: everyType ? [...columns, { id: crypto.randomUUID(), name: copy.typeColumn, kind: 'text', field: '__type' }] : columns, rows: mode === 'sheet' ? Array.from({ length: 20 }, () => ({ id: crypto.randomUUID(), cells: {} })) : [] };
-    await run(() => addTable(projectId, document), () => { setSelectedId(document.id); setCreating(false); setName(''); setQuery(''); resetFolds(); setSort(null); });
+    await run(() => addTable(projectId, document), () => { setSelectedId(document.id); setCreating(false); setName(''); resetLocalView(); });
   };
   const requestDelete = (message: string, work: () => Promise<void>) => setConfirmation({ message, work });
   // An Excel workbook comes in as one sheet per worksheet, grouped as tabs of one book; what could not come is said.
@@ -283,14 +295,18 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     {csvInput&&<CsvDialog locale={locale} input={csvInput} onClose={()=>setCsvInput(undefined)} onImport={async imported=>{await addTable(projectId,imported);setSelectedId(imported.id);}}/>}
     {csvExport&&table&&<CsvDialog locale={locale} output={{table,rows,value:displayValue}} onClose={()=>setCsvExport(false)}/>}
     {error && <p role="alert" className="p-4 text-sm text-danger">{error}</p>}
-    {notice && <p role="status" data-testid="table-import-report" className="flex flex-wrap items-start gap-2 p-4 text-sm text-text-muted">{notice}{(sorts.length > 0 || groupRules.length > 0) && <button type="button" className="underline underline-offset-2" disabled={busy} onClick={() => { if (groupRules.length) saveGrouping([], () => { setSorts([]); resetFolds(); }); else setSorts([]); }}>{copy.manualOrder}</button>}<button type="button" className="underline" onClick={() => setNotice('')}>{locale === 'es' ? 'Cerrar' : 'Close'}</button></p>}
+    {notice && <p role="status" data-testid="table-import-report" className="flex flex-wrap items-start gap-2 p-4 text-sm text-text-muted">{notice}{(sorts.length > 0 || groupRules.length > 0) && <button type="button" className="underline underline-offset-2" disabled={busy} onClick={() => { saveView({ ...(groupRules.length ? { rules: [] } : {}), ...(sorts.length ? { sorts: [] } : {}) }, resetFolds); }}>{copy.manualOrder}</button>}<button type="button" className="underline" onClick={() => setNotice('')}>{locale === 'es' ? 'Cerrar' : 'Close'}</button></p>}
     {creating && <form className="flex flex-wrap items-end gap-3 border-b border-border p-4" onSubmit={event => { event.preventDefault(); void createDocument(); }}><label className="flex flex-col gap-1 text-sm text-text-primary">{copy.name}<input required maxLength={200} autoFocus className={control} value={name} onChange={event => setName(event.target.value)} /></label><select aria-label={copy.newTable} className={control} value={mode} onChange={event => setMode(event.target.value as typeof mode)}><option value="table">{copy.table}</option><option value="sheet">{copy.sheet}</option><option value="live">{copy.live}</option></select>{mode === 'live' && <select className={control} aria-label={copy.live} data-testid="table-live-source" value={allSources?'__all':sourceTemplateId?`template:${sourceTemplateId}`:sourceType} onChange={event => {if(event.target.value==='__all'){setAllSources(true);setSourceTemplateId('');}else if(event.target.value.startsWith('template:')){setAllSources(false);setSourceTemplateId(event.target.value.slice(9));}else{setAllSources(false);setSourceTemplateId('');setSourceType(event.target.value as CodexEntryType);}}}><option value="__all">{copy.allTypes}</option><optgroup label={locale==='es'?'Tipos del Códice':'Codex types'}>{project.codexTemplates?.map(template=><option key={template.id} value={`template:${template.id}`}>{template.name}</option>)}</optgroup><optgroup label={locale==='es'?'Categorías existentes':'Existing categories'}>{codexTypes.map(type => <option key={type} value={type}>{t(`codex.types.${type}`)}</option>)}</optgroup></select>}<button disabled={busy} className={`${button} bg-accent-gold text-deep`} type="submit">{copy.create}</button><button className={button} type="button" onClick={() => setCreating(false)}>{copy.cancel}</button></form>}
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <nav className="shrink-0 overflow-auto border-b border-border p-3 md:w-52 md:border-r md:border-b-0" aria-label={copy.title}>{tables.length === 0 && <p className="p-2 text-sm text-text-muted">{copy.empty}</p>}{navTables.map(item => <button key={item.id} disabled={busy || Boolean(columnDraft)||Boolean(formulaDraft)} aria-current={item.id === table?.id || (item.workbook && item.workbook.id === table?.workbook?.id) ? 'page' : undefined} className={`mb-1 block w-full break-words rounded-lg p-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-accent-gold ${item.id === table?.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} onClick={() => { setSelectedId(item.id); setQuery(''); resetFolds(); setSort(null); }}>{item.workbook ? item.workbook.name : item.title}<span className="mt-1 block text-xs text-text-muted">{item.codexType ? copy.live : item.workbook ? (locale === 'es' ? `Libro · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} pestañas` : `Workbook · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} tabs`) : item.mode === 'sheet' ? copy.sheet : copy.table}</span></button>)}</nav>
+      <nav className="shrink-0 overflow-auto border-b border-border p-3 md:w-52 md:border-r md:border-b-0" aria-label={copy.title}>{tables.length === 0 && <p className="p-2 text-sm text-text-muted">{copy.empty}</p>}{navTables.map(item => <button key={item.id} disabled={busy || Boolean(columnDraft)||Boolean(formulaDraft)} aria-current={item.id === table?.id || (item.workbook && item.workbook.id === table?.workbook?.id) ? 'page' : undefined} className={`mb-1 block w-full break-words rounded-lg p-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-accent-gold ${item.id === table?.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} onClick={() => selectTable(item.id)}>{item.workbook ? item.workbook.name : item.title}<span className="mt-1 block text-xs text-text-muted">{item.codexType ? copy.live : item.workbook ? (locale === 'es' ? `Libro · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} pestañas` : `Workbook · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} tabs`) : item.mode === 'sheet' ? copy.sheet : copy.table}</span></button>)}</nav>
       {table && <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2 p-4"><h3 className="mr-auto min-w-0 break-words font-display text-xl text-text-primary">{table.title}{table.codexTemplateId&&<span className="mt-1 block font-sans text-xs font-normal text-text-muted">{locale==='es'?'Tipo del Códice':'Codex type'} · {project.codexTemplates?.find(item=>item.id===table.codexTemplateId)?.name??table.codexTemplateId}</span>}</h3><button className={button} disabled={busy || allTypes} onClick={() => { setInsertAt(null); setAddingColumn(true); setColumnDraft({ id: crypto.randomUUID(), name: '', kind: 'text' }); }}><Plus size={15} />{copy.column}</button>{table.mode!=='sheet'&&<button className={button} disabled={busy||!!formulaDraft} onClick={()=>void beginCalculation()}>{locale==='es'?'Añadir cálculo':'Add calculation'}</button>}<button className={button} onClick={() => setCsvExport(true)}><Download size={15} />{copy.export}</button><button className={button} data-testid="table-export-xlsx" disabled={busy} onClick={() => void downloadWorkbook()}><FileSpreadsheet size={15} />{locale === 'es' ? 'Excel (.xlsx)' : 'Excel (.xlsx)'}</button><button className={button} disabled={busy} aria-label={`${copy.remove} ${table.title}`} onClick={() => requestDelete(copy.removeDocument, () => deleteTable(projectId, table.id))}><Trash2 size={15} /></button></div>
-        <WorkbookTabs tables={tables} table={table} grouping={groupRules} locale={locale} busy={busy} onSelect={id => { setSelectedId(id); setQuery(''); resetFolds(); setSort(null); }} onError={setError}
-          onAdd={(sheet, makeWorkbook, grouping) => void run(async () => { if (makeWorkbook) await changeTable(projectId, table.id, current => { current.workbook = { ...makeWorkbook, order: 0 }; }); await addTableScoped(projectId, sheet, scope.eraId, grouping); }, () => setSelectedId(sheet.id))}
+        <WorkbookTabs tables={tables} table={table} locale={locale} busy={busy} onSelect={selectTable} onError={setError}
+          onAdd={(sheet, makeWorkbook, viewCopy) => void run(async () => {
+            await flushFilters();
+            if (makeWorkbook) await changeTable(projectId, table.id, current => { current.workbook = { ...makeWorkbook, order: 0 }; });
+            await addTableScoped(projectId, sheet, scope.eraId, viewCopy);
+          }, () => { setSelectedId(sheet.id); resetLocalView(); })}
           onChange={(id, update) => void run(() => changeTable(projectId, id, update))}
           onDelete={id => { const sibling = workbookTabs(tables, table).find(item => item.id !== id && !item.workbook?.hidden); requestDelete(copy.removeDocument, async () => { await deleteTable(projectId, id); if (sibling) setSelectedId(sibling.id); }); }} />
         {formulaDraft&&<TableCalculationEditor draft={formulaDraft} columns={table.columns} inputRef={formulaRef} sharedType={Boolean(table.codexTemplateId)} busy={busy} locale={locale} onChange={setFormulaDraft} onToken={insertToken} onCancel={()=>setFormulaDraft(null)} onSave={()=>void run(async()=>{await saveTableCalculation(scope,formulaDraft);},()=>setFormulaDraft(null))}/>}
@@ -307,23 +323,19 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
         </form>}
         <div className="flex flex-wrap items-center gap-3 px-4 pb-3"><input className={`${control} min-w-40 flex-1`} aria-label={copy.search} placeholder={copy.search} value={query} onChange={event => { setQuery(event.target.value); setMatchAt(0); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); stepMatch(event.shiftKey ? -1 : 1); } }} />
           {query.trim() && <span className="flex items-center gap-1 text-xs tabular-nums text-text-muted" data-testid="table-find"><button type="button" className={button} aria-label={copy.findPrevious} disabled={!matches.length} onClick={() => stepMatch(-1)}><ChevronUp size={14} /></button><span data-testid="table-find-count">{matches.length ? `${Math.min(matchAt, matches.length - 1) + 1}/${matches.length}` : '0/0'}</span><button type="button" className={button} aria-label={copy.findNext} disabled={!matches.length} onClick={() => stepMatch(1)}><ChevronDown size={14} /></button></span>}
-          <button type="button" data-testid="table-filter-add" className={button} onClick={() => setConditions([...conditions, { columnId: table.columns[0].id, op: 'contains', value: '' }])}><Filter size={14} />{copy.addFilter}</button>{(groupRules.length && table.columns.length > 1 ? [0, 1] : [0]).map(depth => {
+          {sorts.length > 0 && <button type="button" className={button} disabled={busy} onClick={() => saveView({ sorts: [] })}>{copy.clearSort}</button>}{(groupRules.length && table.columns.length > 1 ? [0, 1] : [0]).map(depth => {
             const rule = groupRules[depth], label = depth ? copy.groupThen : copy.group;
             return <div key={depth} className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 text-sm text-text-muted">{label}<select className={control} value={rule?.columnId ?? ''} disabled={busy} onChange={event => setGroupColumn(depth, event.target.value)}><option value="">{copy.none}</option>{table.columns.filter(column => !groupRules.some((other, index) => index !== depth && other.columnId === column.id)).map(column => <option key={column.id} value={column.id}>{column.name}</option>)}</select></label>
               {rule && <select className={control} aria-label={copy.groupOrder + ' · ' + label} value={rule.direction} disabled={busy} onChange={event => {
                 const direction = event.target.value === 'desc' ? 'desc' : 'asc';
-                saveGrouping(groupRules.map((current, index) => index === depth ? { ...current, direction } : current));
+                saveView({ rules: groupRules.map((current, index) => index === depth ? { ...current, direction } : current) });
               }}><option value="asc">{copy.ascending}</option><option value="desc">{copy.descending}</option></select>}
             </div>;
           })}<span className="text-sm tabular-nums text-text-muted">{visible.length} {copy.count}</span></div>
-        {conditions.length > 0 && <div className="space-y-2 px-4 pb-3" data-testid="table-filters">{conditions.map((condition, at) => <div key={at} className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-xs text-text-muted">{at === 0 ? copy.where : copy.and}</span>
-          <select data-testid={`table-filter-column-${at}`} className={control} value={condition.columnId} onChange={event => setConditions(conditions.map((item, i) => i === at ? { ...item, columnId: event.target.value } : item))}>{table.columns.map(column => <option key={column.id} value={column.id}>{column.name}</option>)}</select>
-          <select data-testid={`table-filter-op-${at}`} className={control} value={condition.op} onChange={event => setConditions(conditions.map((item, i) => i === at ? { ...item, op: event.target.value as TableCondition['op'] } : item))}>{CONDITION_OPS.map(op => <option key={op} value={op}>{copy.ops[op]}</option>)}</select>
-          {!['empty', 'notEmpty', 'checked', 'unchecked'].includes(condition.op) && <input data-testid={`table-filter-value-${at}`} className={control} value={condition.value ?? ''} onChange={event => setConditions(conditions.map((item, i) => i === at ? { ...item, value: event.target.value } : item))} />}
-          <button type="button" className={button} aria-label={copy.removeFilter} onClick={() => setConditions(conditions.filter((_, i) => i !== at))}><X size={14} /></button>
-        </div>)}</div>}
+        <TableFilters key={JSON.stringify([rowKey, filterEpoch])} columns={table.columns} conditions={conditions} stored={savedView.conditions} revision={savedView.conditionsRevision} busy={busy} copy={copy} registerFlush={registerFilterFlush}
+          onDiscard={() => { setError(''); setFilterEpoch(value => value + 1); }}
+          save={(next, expected) => saveTableView(projectId, table.id, { conditions: next }, { conditions: expected }, scope.eraId)} />
         {selectedRows.length > 0 && !live && <div className="flex flex-wrap items-center gap-2 px-4 pb-3 text-sm" data-testid="table-selection"><span className="text-text-muted">{copy.selected.replace('{count}', String(selectedRows.length))}</span>
           <button type="button" data-testid="table-selection-duplicate" className={button} disabled={busy} onClick={() => change(current => { for (const id of selectedRows) duplicateRow(current, id); })}><Copy size={14} />{copy.duplicateRows}</button>
           <button type="button" data-testid="table-selection-delete" className={`${button} text-danger`} disabled={busy} onClick={() => requestDelete(copy.removeRows.replace('{count}', String(selectedRows.length)), async () => { const ids = [...selectedRows]; await changeTable(projectId, table.id, current => { removeRows(current, ids); }); setSelectedRows([]); })}><Trash2 size={14} />{copy.deleteRows}</button>
@@ -334,7 +346,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
             const ids = new Set(expandedRows.map(row => row.id));
             setSelectedRows(!groupRules.length ? event.target.checked ? [...ids] : [] : event.target.checked ? [...new Set([...selectedRows, ...ids])] : selectedRows.filter(id => !ids.has(id)));
           }} />}#</th>{table.columns.map((column, index) => <th key={column.id} style={{ width: column.width ?? 180, minWidth: column.width ?? 180 }} className="border-r border-b border-border p-2 text-left font-medium" aria-sort={sorts[0]?.id === column.id ? sorts[0].descending ? 'descending' : 'ascending' : 'none'}>
-            <div className={(column.width ?? 180) < 100 ? "flex w-full min-w-0 max-w-full flex-col items-start gap-1" : "flex items-center justify-between gap-1"}><button className={(column.width ?? 180) < 100 ? "flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 text-left hover:text-accent-gold" : "flex min-h-9 items-center gap-2 text-left hover:text-accent-gold"} onClick={event => formulaDraft?insertToken(`@[${column.name}]`):setSorts(toggleSort(sorts, column.id, event.shiftKey))} title={(column.width ?? 180) < 100 ? `${column.name} · ${copy.sortMore}` : copy.sortMore}><span className={(column.width ?? 180) < 100 ? "w-0 min-w-0 flex-1 truncate" : undefined}>{table.mode === 'sheet' ? `${cellKey(index, 0).replace(/\d+$/, '')} · ` : ''}{column.name}</span><ArrowDownUp size={12} className={(column.width ?? 180) < 100 ? "shrink-0" : undefined} />{sorts.length > 1 && sorts.some(item => item.id === column.id) && <span data-testid={`table-sort-rank-${column.name}`} className="rounded bg-elevated px-1 text-[10px] text-accent-gold">{sorts.findIndex(item => item.id === column.id) + 1}{sorts.find(item => item.id === column.id)!.descending ? '↓' : '↑'}</span>}</button>
+            <div className={(column.width ?? 180) < 100 ? "flex w-full min-w-0 max-w-full flex-col items-start gap-1" : "flex items-center justify-between gap-1"}><button className={(column.width ?? 180) < 100 ? "flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 text-left hover:text-accent-gold" : "flex min-h-9 items-center gap-2 text-left hover:text-accent-gold"} disabled={busy && !formulaDraft} onClick={event => formulaDraft?insertToken(`@[${column.name}]`):saveView({ sorts: toggleSort(sorts, column.id, event.shiftKey) })} title={(column.width ?? 180) < 100 ? `${column.name} · ${copy.sortMore}` : copy.sortMore}><span className={(column.width ?? 180) < 100 ? "w-0 min-w-0 flex-1 truncate" : undefined}>{table.mode === 'sheet' ? `${cellKey(index, 0).replace(/\d+$/, '')} · ` : ''}{column.name}</span><ArrowDownUp size={12} className={(column.width ?? 180) < 100 ? "shrink-0" : undefined} />{sorts.length > 1 && sorts.some(item => item.id === column.id) && <span data-testid={`table-sort-rank-${column.name}`} className="rounded bg-elevated px-1 text-[10px] text-accent-gold">{sorts.findIndex(item => item.id === column.id) + 1}{sorts.find(item => item.id === column.id)!.descending ? '↓' : '↑'}</span>}</button>
               <details className="relative"><summary aria-label={`${copy.columnActions} ${column.name}`} className="flex min-h-9 min-w-9 cursor-pointer list-none items-center justify-center rounded-lg text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold"><Settings2 size={15} /></summary>
                 <div className="absolute right-0 z-20 mt-1 w-52 space-y-1 rounded-lg border border-border bg-surface p-2 shadow-lg" onClick={event => { if ((event.target as Element).closest('button')) event.currentTarget.parentElement?.removeAttribute('open'); }}>
                   <button aria-label={`${copy.editColumn} ${column.name}`} className={`${button} w-full justify-start`} disabled={busy} onClick={() => {if(columnCalculation(table,column,project.codexTemplates??[]))void beginCalculation(column);else void run(async()=>{const read=await readWorldDocument(scope,'tables',table.id);if(!read)throw Error('table_missing');setColumnVersion(read.version);setColumnTemplateRevision(project.codexTemplates?.find(item=>item.id===table.codexTemplateId)?.revision);setAddingColumn(false);setColumnDraft({...column});});}}><Settings2 size={15} />{copy.editColumn}</button>
@@ -373,6 +385,50 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     <ConfirmDialog open={Boolean(confirmation)} destructive message={confirmation?.message ?? ''} onCancel={() => setConfirmation(null)} onConfirm={async () => { if (confirmation) await run(confirmation.work, () => setConfirmation(null)); }} />
     <Modal open={Boolean(entryDraft)} title={copy.editCard} onClose={() => setEntryDraft(null)} wide>{entryDraft && <CodexEntryForm key={entryDraft.id} projectId={projectId} entry={entryDraft} onCancel={() => setEntryDraft(null)} onSave={async (draft, base) => { const existing = await readEraRow<CodexEntry>(scope, 'codexEntries', draft.id); if (existing && base) await saveCodexDraft(base, draft, scope); else if (scope.eraId) await mutateEraRows(scope, [{ table: 'codexEntries', id: draft.id, row: draft as unknown as EraRow }]); else await createCodexEntry(draft); notifyDataChanged({ source: 'other', table: 'codexEntries', projectId, entityId: draft.id }); setEntryDraft(null); }} />}</Modal>
   </section>;
+}
+
+function TableFilters({ columns, conditions, stored, revision, copy, busy, save, onDiscard, registerFlush }: {
+  columns: readonly DataColumn[]; conditions: TableCondition[]; stored: TableCondition[]; revision: number;
+  copy: typeof tableCopy.en; busy: boolean;
+  save: (conditions: TableCondition[], expected: string) => Promise<number>;
+  onDiscard: () => void;
+  registerFlush: (flush: () => Promise<boolean>) => () => void;
+}) {
+  const [acknowledged, setAcknowledged] = useState<{ revision: number; conditions: TableCondition[] }>();
+  const confirmed = confirmedTableFilters(revision, stored, conditions, acknowledged);
+  const expected = useRef(confirmed.stamp);
+  const [discarding, setDiscarding] = useState(false);
+  const field = useDebouncedField(JSON.stringify(confirmed.visible), async encoded => {
+    const next = JSON.parse(encoded) as TableCondition[];
+    const savedRevision = await save(next, expected.current);
+    // The shared hook serializes its writes; queued text follows the prior successful draft.
+    expected.current = filterStamp(savedRevision, next);
+    setAcknowledged({ revision: savedRevision, conditions: next });
+  });
+  const { flush } = field;
+  useEffect(() => registerFlush(flush), [registerFlush, flush]);
+  const draft = JSON.parse(field.value) as TableCondition[];
+  const edit = (next: TableCondition[], immediate = true) => {
+    if (!field.dirty && !field.saving && !field.error) expected.current = confirmed.stamp;
+    field.onChange(JSON.stringify(next));
+    if (immediate) void field.flush();
+  };
+  return <div className="space-y-2 px-4 pb-3" data-testid={draft.length ? 'table-filters' : undefined}>
+    <button type="button" data-testid="table-filter-add" className={button} disabled={busy || !columns.length || Boolean(field.error)}
+      onClick={() => edit([...draft, { columnId: columns[0].id, op: 'contains', value: '' }])}><Filter size={14} />{copy.addFilter}</button>
+    {draft.map((condition, at) => <div key={at} className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-xs text-text-muted">{at === 0 ? copy.where : copy.and}</span>
+      <select data-testid={'table-filter-column-' + at} className={control} value={condition.columnId} disabled={busy || Boolean(field.error)} onChange={event => edit(draft.map((item, i) => i === at ? { ...item, columnId: event.target.value } : item))}>{columns.map(column => <option key={column.id} value={column.id}>{column.name}</option>)}</select>
+      <select data-testid={'table-filter-op-' + at} className={control} value={condition.op} disabled={busy || Boolean(field.error)} onChange={event => edit(draft.map((item, i) => i === at ? { ...item, op: event.target.value as TableCondition['op'] } : item))}>{CONDITION_OPS.map(op => <option key={op} value={op}>{copy.ops[op]}</option>)}</select>
+      {!['empty', 'notEmpty', 'checked', 'unchecked'].includes(condition.op) && <input data-testid={'table-filter-value-' + at} className={control} value={condition.value ?? ''} disabled={Boolean(field.error)}
+        onChange={event => edit(draft.map((item, i) => i === at ? { ...item, value: event.target.value } : item), false)} onBlur={field.onBlur}
+        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void field.flush(); } }} />}
+      <button type="button" className={button} disabled={busy || Boolean(field.error)} aria-label={copy.removeFilter} onClick={() => edit(draft.filter((_, i) => i !== at))}><X size={14} /></button>
+    </div>)}
+    {field.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-danger">
+      {field.error.message}<button type="button" className={button} disabled={discarding} onClick={async () => { setDiscarding(true); await field.discard(); onDiscard(); }}>{copy.reloadFilters}</button>
+    </div>}
+  </div>;
 }
 
 function TableRow({ row, savedIndex, columns, calculatedColumnIds,display,calculatedFields, entries, sheet, disabled, copy, hidden, value, save, openEntry, action, live, selected, onSelect, matchColumnId, onDuplicate, onInsertBelow, rowOrderDisabled, onInsertAbove, onMoveUp, onMoveDown, onRowPointerDown, onRowPointerMove, onRowPointerEnd, dropBefore }: {

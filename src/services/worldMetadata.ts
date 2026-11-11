@@ -17,6 +17,7 @@ import { remapPublishedEditions, validatePublishedEditionsProject } from '@/serv
 import { remapPublishedEditionContent } from '@/services/publishedEditions/portability';
 import type { Project } from '@/types';
 import { safeDictionaryFont } from '@/engines/dictionary/fonts';
+import { remapTableView } from '@/engines/tables/viewGroups';
 import type { ReaderAudioTrack } from '@/engines/writings/readerPresentationTypes';
 import { remapWorkspaceLibrary } from '@/components/project/workspace/library/portability';
 import {cloneLocalToolStates,validateLocalToolProjectStates} from '@/engines/local/stateTypes';
@@ -159,10 +160,10 @@ export function remapWorldMetadata(project: Project, remap: (id: string, prefix:
       rows: table.rows.map(row => ({ id: remap(row.id, 'row'), cells: Object.fromEntries(table.columns.map(column => [remap(column.id, 'column'), column.kind === 'reference' ? entry(row.cells[column.id]) ?? '' : row.cells[column.id] ?? ''])) })),
     })),
     ...(Array.isArray(project.tableGroupingViews) ? {
-      tableGroupingViews: project.tableGroupingViews.filter(view => typeof view?.tableId === 'string' && Array.isArray(view.rules)).map(view => ({
+      tableGroupingViews: project.tableGroupingViews.filter(view => typeof view?.tableId === 'string').map(view => ({
         tableId: remap(view.tableId, 'table'),
         ...(typeof view.eraId === 'string' ? { eraId: remap(view.eraId, 'era') } : {}),
-        rules: view.rules.filter(rule => typeof rule?.columnId === 'string').map(rule => ({ ...rule, columnId: rule.columnId.startsWith('property:') ? rule.columnId : remap(rule.columnId, 'column') })),
+        ...remapTableView(view, id => id.startsWith('property:') ? id : remap(id, 'column')),
       })),
     } : {}),
     relationTrees: project.relationTrees?.map(tree => ({

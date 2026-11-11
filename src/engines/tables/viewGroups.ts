@@ -1,11 +1,61 @@
-import type { DataColumn, TableGroupingView, TableGroupRule } from './types';
+import type { DataColumn, TableGroupingView, TableGroupRule, TableViewSettings } from './types';
+import { CONDITION_OPS } from './tableEdits.ts';
 
-export function storedTableGrouping(views: readonly TableGroupingView[] | undefined, tableId: string, eraId?: string): readonly TableGroupRule[] {
-  if (!Array.isArray(views)) return [];
+export const tableViewParts = ['rules', 'sorts', 'conditions'] as const;
+
+export type StoredTableView = TableViewSettings & { conditionsRevision: number };
+
+export function storedTableView(views: readonly TableGroupingView[] | undefined, tableId: string, eraId?: string): StoredTableView {
+  if (!Array.isArray(views)) return { rules: [], sorts: [], conditions: [], conditionsRevision: 0 };
   const own = views.find(view => view?.tableId === tableId && view.eraId === eraId);
   const base = eraId ? views.find(view => view?.tableId === tableId && view.eraId === undefined) : undefined;
-  const rules = (own ?? base)?.rules;
-  return Array.isArray(rules) ? rules : [];
+  const read = <K extends keyof TableViewSettings>(key: K): TableViewSettings[K] => {
+    const part = own?.[key] ?? base?.[key];
+    return Array.isArray(part) ? part : [];
+  };
+  const revision = (Array.isArray(own?.conditions) ? own : base)?.conditionsRevision;
+  return { rules: read('rules'), sorts: read('sorts'), conditions: read('conditions'), conditionsRevision: Number.isSafeInteger(revision) ? Math.max(0, revision!) : 0 };
+}
+
+export const filterStamp = (revision: number, conditions: readonly TableViewSettings['conditions'][number][]) => JSON.stringify([revision, conditions]);
+
+/** Dexie may deliver an intermediate snapshot after a newer local save was acknowledged. */
+export function confirmedTableFilters(
+  revision: number, stored: TableViewSettings['conditions'], visible: TableViewSettings['conditions'],
+  acknowledged: { revision: number; conditions: TableViewSettings['conditions'] } | undefined,
+) {
+  return acknowledged && acknowledged.revision > revision
+    ? { stamp: filterStamp(acknowledged.revision, acknowledged.conditions), visible: acknowledged.conditions }
+    : { stamp: filterStamp(revision, stored), visible };
+}
+
+export function effectiveTableView(view: Partial<TableViewSettings>, columns: readonly DataColumn[]): TableViewSettings {
+  const ids = new Set(columns.map(column => column.id));
+  const sorted = new Set<string>();
+  const sorts = (Array.isArray(view.sorts) ? view.sorts : []).flatMap(item => {
+    if (!item || !ids.has(item.id) || typeof item.descending !== 'boolean' || sorted.has(item.id)) return [];
+    sorted.add(item.id);
+    return [{ id: item.id, descending: item.descending }];
+  });
+  const conditions = (Array.isArray(view.conditions) ? view.conditions : []).flatMap(item => {
+    if (!item || !ids.has(item.columnId) || !CONDITION_OPS.includes(item.op) || (item.value !== undefined && typeof item.value !== 'string')) return [];
+    return [{ columnId: item.columnId, op: item.op, ...(item.value === undefined ? {} : { value: item.value }) }];
+  });
+  return { rules: effectiveTableGrouping(view.rules, columns), sorts, conditions };
+}
+
+/** Project and workbook copies retain view rules against the new column identities. */
+export function remapTableView(view: Partial<TableViewSettings>, column: (id: string) => string | undefined): Partial<TableViewSettings> {
+  const remap = <T>(items: T[], key: 'id' | 'columnId') => items.flatMap(item => {
+    const source = (item as Record<string, unknown> | null)?.[key];
+    const target = typeof source === 'string' ? column(source) : undefined;
+    return target ? [{ ...item, [key]: target }] : [];
+  });
+  return {
+    ...(Array.isArray(view.rules) ? { rules: remap(view.rules, 'columnId') } : {}),
+    ...(Array.isArray(view.sorts) ? { sorts: remap(view.sorts, 'id') } : {}),
+    ...(Array.isArray(view.conditions) ? { conditions: remap(view.conditions, 'columnId') } : {}),
+  };
 }
 
 /** A saved view can outlive a deleted or hidden schema column. */

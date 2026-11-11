@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { registerPendingFlusher, trackPendingWrite } from '@/services/pendingWrites';
+import { discardPendingOwner, registerPendingFlusher, trackPendingWrite } from '@/services/pendingWrites';
 
 let nextFieldId = 0;
 
@@ -19,6 +19,8 @@ export interface DebouncedField {
   flush: () => Promise<boolean>;
   /** Retry the last rejected value without losing newer text. */
   retry: () => Promise<boolean>;
+  /** Explicitly discard a draft and its failure before remounting its editor. */
+  discard: () => Promise<void>;
   /** True while there are keystrokes not yet confirmed by storage. */
   dirty: boolean;
   saving: boolean;
@@ -68,6 +70,8 @@ export function useDebouncedField(
   const valueRef = useRef(remoteValue);
   const mountedRef = useRef(true);
   const queueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const queued = useRef(0);
+  const generation = useRef(0);
   const fieldIdRef = useRef(`debounced-field:${++nextFieldId}`);
   const commitRef = useRef(commit);
   const flushRef = useRef<() => Promise<boolean>>(async () => true);
@@ -102,7 +106,10 @@ export function useDebouncedField(
     pending.current = null;
     if (next === null) return queueRef.current;
 
+    const ownerGeneration = generation.current;
+    queued.current++;
     const task = queueRef.current.then(async () => {
+      if (ownerGeneration !== generation.current) { queued.current--; return false; }
       if (mountedRef.current) setSaving(true);
       const operation = Promise.resolve().then(() => commitRef.current(next));
       try {
@@ -114,20 +121,21 @@ export function useDebouncedField(
         failedValue.current = null;
         if (mountedRef.current) {
           setError(null);
-          if (pending.current === null) setDirty(false);
+          if (pending.current === null && queued.current === 1) setDirty(false);
         }
         return true;
       } catch (reason) {
         // A newer buffered value contains the complete field and supersedes
         // this one. Otherwise keep the rejected value as the retry payload.
-        if (pending.current === null) failedValue.current = next;
+        if (pending.current === null && queued.current === 1) failedValue.current = next;
         if (mountedRef.current) {
           setDirty(true);
           setError(reason instanceof Error ? reason : new Error(String(reason)));
         }
         return false;
       } finally {
-        if (mountedRef.current) setSaving(false);
+        queued.current--;
+        if (mountedRef.current) setSaving(queued.current > 0);
       }
     });
     queueRef.current = task;
@@ -138,6 +146,17 @@ export function useDebouncedField(
     if (pending.current === null) pending.current = failedValue.current ?? valueRef.current;
     if (mountedRef.current) setDirty(true);
     return flushRef.current();
+  }, []);
+
+  const discard = useCallback(async () => {
+    generation.current++;
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = null;
+    failedValue.current = null;
+    await queueRef.current;
+    discardPendingOwner(fieldIdRef.current);
+    queueRef.current = Promise.resolve(true);
   }, []);
 
   useEffect(() => {
@@ -185,5 +204,5 @@ export function useDebouncedField(
     void flushRef.current();
   }, []);
 
-  return { value, onChange, onBlur, flush, retry, dirty, saving, error };
+  return { value, onChange, onBlur, flush, retry, discard, dirty, saving, error };
 }
