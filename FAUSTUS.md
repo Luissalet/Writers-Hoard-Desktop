@@ -629,3 +629,7 @@ En Cuaderno vinculado, **Orden de ensayo** permite mover Apuntes y deshacer o re
 En Cuaderno vinculado, **Lista para revisar** marca apuntes temporalmente en cada vista. Las marcas consecutivas se deshacen y rehacen juntas. Al cerrar la vista se pierde su selección. Los apuntes guardados y el orden de ensayo conservan sus estados.
 
 `useLocalToolUndoableCommand` registra las inversas de un modelo del autor. `LocalToolUndoAnchor` dirige el teclado al historial de la región activa. La lista publica voluntariamente `review-shortlist` para usar el mismo historial mediante las herramientas MCP de proveedor. [Contrato y verificación](tasks/vvd1095/verification-sdk-pushed-undo2620.md).
+
+## Skills for the agents that connect
+
+This app carries procedures from the skill library of the family's workspace for the agents that connect to it: writer: `manuscript-continuity-edit`, `writing-plans`, `notes-from-templates`; borges: `read-later-digest`, `deep-research`, `web-to-clean-markdown`, `notes-from-templates`; gutenberg: `hallmark-page-design`, `web-accessibility-design`, `docs-release-review`; scheherazade: `manuscript-continuity-edit`, `game-design-document`. They are named in what an agent reads on connecting, read with `skills_list` and `skill_read`, searched and assigned with `skills_library` and `skills_assign`, and offered as prompts. The person chooses them on the skills page (`/api/agent/skills/page`) or in the hub's Skills tab; the `skills` block of `faustus-plugin.json` holds what the app asks for by default.
