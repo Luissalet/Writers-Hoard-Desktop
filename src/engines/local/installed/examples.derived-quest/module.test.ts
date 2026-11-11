@@ -44,6 +44,7 @@ export async function testLocalToolScaffold(){
  await assert.rejects(fake.runOperation(base,'set_title',args(snapshot,{value:'Wrong call'}),false,D),/writing operation/);
  await assert.rejects(fake.runOperation(base,'set_score',args(snapshot,{value:'string'}),true,D),/integer/);
  await assert.rejects(fake.runOperation(base,'set_title',args(snapshot,{value:'Wrong scope',field:'briefing'}),true,D),/does not accept field/);
+ await assert.rejects(fake.runOperation(base,'set_title',args(snapshot,{value:'Extra key',toString:'not declared'}),true,D),/does not accept toString/);
  await assert.rejects(fake.runOperation(base,'set_briefing',args(snapshot,{value:'No'}),true,D),/Operation is absent/);
  await assert.rejects(fake.runOperation({projectId:Q},'set_title',args(snapshot,{value:'Wrong project'}),true,D));
  assert.deepEqual(await client.read(),snapshot);
@@ -68,6 +69,15 @@ export async function testLocalToolScaffold(){
  const changed=await invoke('update_objectives_item',{id:'obj-a',item:{id:'obj-a',text:'First Ω',done:true}});
  assert.equal(changed.after.data.objectives[0].done,true);
  const removed=await invoke('remove_objectives_item',{id:'obj-a'});assert.deepEqual(removed.after.data.objectives,[]);
+ const missingReward=await invoke('remove_rewards_key',{key:'toString'});
+ assert.equal(missingReward.value.receiptId,null);assert.deepEqual(missingReward.after,missingReward.old);
+ const ownReward=await invoke('set_rewards_key',{key:'toString',value:1});
+ assert.equal(Object.hasOwn(ownReward.after.data.rewards,'toString'),true);assert(ownReward.value.receiptId);
+ const removeOwnReward=await invoke('remove_rewards_key',{key:'toString'});
+ assert.deepEqual(removeOwnReward.after.data.rewards,{});assert(removeOwnReward.value.receiptId);
+ const restoreOwnReward=await client.state!.undo(removeOwnReward.value.receiptId);
+ assert.deepEqual(restoreOwnReward.snapshot.data.rewards,{toString:1});
+ await invoke('remove_rewards_key',{key:'toString'});
  const gold=await invoke('set_rewards_key',{key:'gold',value:3});assert.deepEqual(gold.after.data.rewards,{gold:3});
  await invoke('set_rewards_key',{key:'cloth',value:2});
  const removeGold=await invoke('remove_rewards_key',{key:'gold'});assert.deepEqual(removeGold.after.data.rewards,{cloth:2});
