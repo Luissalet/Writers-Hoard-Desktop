@@ -1,12 +1,13 @@
 import { shiftSheetReferences } from './tableEdits';
 import {csvNumeric,detectCsvDelimiter,type CsvOptions,type CsvDelimiter} from './csv';
-import { assertWorldEra, getEraProject, updateEraProjectMetadata, listEraRows, readWorldDocument } from '@/services/worldEras/store';
+import { assertWorldEra, getEraProject, updateEraProjectMetadata, listEraRows, readWorldDocument, resetEraDocument } from '@/services/worldEras/store';
 import { db } from '@/db';
+import type { WorldEraScope } from '@/services/worldEras/types';
 import Dexie from 'dexie';
 import { archiveMetadataWithMutation } from '@/services/documentArchive/metadata';
 import { notifyProjectsChanged } from '@/db/operations';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
-import { validateCell, type DataColumn, type TableGroupingView, type TableViewCopy, type TableViewSettings, type WorldTable } from './types';
+import { validateCell, type DataColumn, type DataRow, type TableGroupingView, type TableViewCopy, type TableViewSettings, type WorldTable } from './types';
 import type { Project } from '@/types';
 import { effectiveTableColumns } from './projection';
 import { effectiveTableView, filterStamp, remapTableView, storedTableView, tableViewParts } from './viewGroups';
@@ -78,15 +79,75 @@ async function writeTableView(project: Project, table: WorldTable, patch: Partia
   await db.projects.update(project.id, { tableGroupingViews: next });
   return own.conditionsRevision ?? 0;
 }
+function editableCell(table: WorldTable, rowId: string, columnId: string) {
+  const row = table.rows.find(item => item.id === rowId), column = table.columns.find(item => item.id === columnId);
+  if (!row || !column) throw Error('Cell not found.');
+  if (column.calculation || column.propertyId && table.codexTemplateId) throw Error('Calculated/live property requires its normal operation.');
+  return { row, column };
+}
+
+function writeCellValue(table: WorldTable, row: DataRow, column: DataColumn, value: string | null) {
+  if (value === null) {
+    delete row.cells[column.id];
+    return;
+  }
+  if (table.mode !== 'sheet' && !validateCell(column, value)) throw Error('Value does not match the column type.');
+  row.cells[column.id] = value;
+}
+
+const cellConflict = () => Error('This cell changed. Reopen the table to review its current value.');
+
 export function saveCell(projectId: string, tableId: string, rowId: string, columnId: string, value: string, expected: string, eraId?: string): Promise<void> {
   return changeTable(projectId, tableId, table => {
-    const row = table.rows.find(row => row.id === rowId); const column = table.columns.find(column => column.id === columnId);
-    if (!row || !column) throw new Error('Cell not found.');
-    if(column.calculation||column.propertyId&&table.codexTemplateId)throw new Error('Calculated/live property requires its normal operation.');
-    if ((row.cells[columnId] ?? '') !== expected) throw new Error('This cell changed. Reopen the table to review its current value.');
-    if (table.mode !== 'sheet' && !validateCell(column, value)) throw new Error('Value does not match the column type.');
-    row.cells[columnId] = value;
+    const { row, column } = editableCell(table, rowId, columnId);
+    if ((row.cells[columnId] ?? '') !== expected) throw cellConflict();
+    writeCellValue(table, row, column, value);
   }, eraId);
+}
+
+export interface TableCellAuditReceipt {
+  rowId: string;
+  columnId: string;
+  previous: string | null;
+  saved: string;
+  inheritedVersion?: string;
+}
+
+/** Capture the raw slot with the same transaction that owns the ordinary cell save. */
+export async function saveAuditedTableCell(scope: WorldEraScope, tableId: string, rowId: string, columnId: string, value: string, expected: string): Promise<TableCellAuditReceipt | undefined> {
+  return db.transaction('rw', db.tables, async () => {
+    const current = await readWorldDocument(scope, 'tables', tableId);
+    if (!current) throw Error('Table not found.');
+    const { row } = editableCell(current.document.root as unknown as WorldTable, rowId, columnId);
+    const previous = row.cells[columnId] ?? null;
+    if ((previous ?? '') !== expected) throw cellConflict();
+    if ((previous ?? '') === value) return;
+    await saveCell(scope.projectId, tableId, rowId, columnId, value, expected, scope.eraId);
+    const inheritedVersion = scope.eraId && current.provenance === 'base'
+      ? (await readWorldDocument(scope, 'tables', tableId))!.version : undefined;
+    return { rowId, columnId, previous, saved: value, ...(inheritedVersion ? { inheritedVersion } : {}) };
+  });
+}
+
+export async function undoAuditedTableCell(scope: WorldEraScope, tableId: string, receipt: TableCellAuditReceipt): Promise<void> {
+  const { rowId, columnId, previous, saved, inheritedVersion } = receipt;
+  await db.transaction('rw', db.tables, async () => {
+    if (scope.eraId) {
+      const current = await readWorldDocument(scope, 'tables', tableId);
+      if (!current || current.provenance !== 'variant' || typeof current.variantRevision !== 'number') throw cellConflict();
+      if (inheritedVersion && current.version === inheritedVersion) {
+        const { row } = editableCell(current.document.root as unknown as WorldTable, rowId, columnId);
+        if (row.cells[columnId] !== saved) throw cellConflict();
+        await resetEraDocument(scope, 'tables', tableId, current.variantRevision);
+        return;
+      }
+    }
+    await changeTable(scope.projectId, tableId, table => {
+      const { row, column } = editableCell(table, rowId, columnId);
+      if (row.cells[columnId] !== saved) throw cellConflict();
+      writeCellValue(table, row, column, previous);
+    }, scope.eraId);
+  });
 }
 export function addColumn(projectId: string, tableId: string, column: DataColumn, eraId?: string): Promise<void> {
   return changeTable(projectId, tableId, table => {

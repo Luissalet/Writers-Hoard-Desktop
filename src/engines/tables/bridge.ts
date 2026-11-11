@@ -5,7 +5,7 @@ import { editTableRows, type TableRowAction } from './rowActions';
 import {projectWorldTable} from './projection';
 import {createTypeTable,saveTableCalculation,removeTableColumn,type SaveTableCalculation} from './calculations';
 import type { CodexEntry } from '@/types';
-import { addTable, changeTable, deleteTable, saveCell, importCsv, previewCsv } from './operations';
+import { addTable, changeTable, deleteTable, saveAuditedTableCell, importCsv, previewCsv } from './operations';
 import { exportXlsxReport, importXlsx, sheetsToTables } from './xlsx';
 import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
@@ -139,7 +139,22 @@ export const TABLE_HANDLERS = {
     const result = sortRows(filterRows(rows, conditions, value), sorts, (row, id) => value(row, id) ?? '', id => table.columns.find(column => column.id === id)?.kind === 'number');
     return { columns: table.columns.map(column => ({ id: column.id, name: column.name, kind: column.kind })), total: rows.length, matched: result.length, rows: result.slice(0, 500).map(row => ({ id: row.id, cells: Object.fromEntries(table.columns.map(column => [column.name, value(row, column.id) ?? ''])) })) };
   },
-  async wh_table_save_cell(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType || table.codexAllTypes) throw Error('table_live_codex_requires_entry'); const value = stringArg(args, 'value'), column = table.columns.find(item => item.id === requireString(args, 'columnId')); if (!column) throw Error('table_column_missing'); if (table.mode !== 'sheet' && column.kind === 'reference' && value && !(await listEraRows<CodexEntry>(target, 'codexEntries')).some(entry => entry.id === value)) throw Error('table_reference_invalid'); await saveCell(target.projectId, table.id, requireString(args, 'rowId'), column.id, value, stringArg(args, 'expected'), target.eraId); return { saved: true }; },
+  async wh_table_save_cell(args: ToolArgs) {
+    const { table, target } = await read(args);
+    if (table.codexType || table.codexAllTypes) throw Error('table_live_codex_requires_entry');
+    const value = stringArg(args, 'value'), column = table.columns.find(item => item.id === requireString(args, 'columnId'));
+    if (!column) throw Error('table_column_missing');
+    if (table.mode !== 'sheet' && column.kind === 'reference' && value &&
+        !(await listEraRows<CodexEntry>(target, 'codexEntries')).some(entry => entry.id === value)) throw Error('table_reference_invalid');
+    const receipt = await saveAuditedTableCell(target, table.id, requireString(args, 'rowId'), column.id, value, stringArg(args, 'expected'));
+    if (!receipt) return withAudit({ saved: true }, {
+      projectId: target.projectId, kind: 'update', summary: 'Table cell already has that value', reversible: false,
+    });
+    return withAudit({ saved: true }, {
+      projectId: target.projectId, entityId: table.id, kind: 'update', summary: 'Saved table cell',
+      before: { __tableCell: receipt },
+    });
+  },
   async wh_table_export_csv(args: ToolArgs) { const { table, rows,displayRows } = await read(args), computed = table.mode === 'sheet' ? sheetValues(table) : undefined; const options:CsvExportOptions={delimiter:csvDelimiter(args.delimiter) as CsvExportOptions['delimiter'],decimal:args.decimal as CsvExportOptions['decimal'],encoding:args.encoding as CsvExportOptions['encoding']};if(options.decimal!==undefined&&options.decimal!=='.'&&options.decimal!==',')throw Error('csv_decimal_invalid');const csv=tableCsv(table.columns, rows, (row, column) => computed ? String(computed.get(cellKey(table.columns.indexOf(column), rows.indexOf(row))) ?? '') : displayRows.find(item=>item.id===row.id)?.cells[column.id] ?? row.cells[column.id] ?? '',options),bytes=encodeCsv(csv,options.encoding);let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return{title:table.title,csv,encoding:options.encoding??'utf-8',base64:btoa(raw)}; },
   async wh_table_import_xlsx(args: ToolArgs) {
     const target = await scope(args); let raw: string; try { raw = atob(requireString(args, 'base64')); } catch { throw Error('xlsx_base64_invalid'); }

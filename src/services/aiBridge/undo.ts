@@ -305,6 +305,26 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     }
   }
 
+  if (entry.tool === 'wh_table_save_cell' && entry.before && typeof entry.before === 'object' && '__tableCell' in entry.before) {
+    const receipt = entry.before.__tableCell;
+    if (!receipt || typeof receipt !== 'object' || !('rowId' in receipt) || typeof receipt.rowId !== 'string' ||
+        !('columnId' in receipt) || typeof receipt.columnId !== 'string' || !('previous' in receipt) ||
+        receipt.previous !== null && typeof receipt.previous !== 'string' || !('saved' in receipt) ||
+        typeof receipt.saved !== 'string' || typeof entry.projectId !== 'string' ||
+        'inheritedVersion' in receipt && typeof receipt.inheritedVersion !== 'string') {
+      throw new BridgeError('cannot-undo', 'This table cell edit has no valid receipt.');
+    }
+    const { undoAuditedTableCell } = await import('@/engines/tables/operations');
+    const inheritedVersion = 'inheritedVersion' in receipt && typeof receipt.inheritedVersion === 'string' ? receipt.inheritedVersion : undefined;
+    try {
+      await undoAuditedTableCell({ projectId: entry.projectId, eraId: typeof entry.eraId === 'string' ? entry.eraId : undefined },
+        entityId, { rowId: receipt.rowId, columnId: receipt.columnId, previous: receipt.previous, saved: receipt.saved, inheritedVersion });
+    } catch (error) {
+      throw new BridgeError('cannot-undo', error instanceof Error ? error.message : String(error));
+    }
+    return { undone: true, kind, entityId, what: summary };
+  }
+
   if (entry.tool === 'wh_table_edit' && entry.before && typeof entry.before === 'object' && '__tableRowReceipt' in entry.before) {
     const receiptId = (entry.before as Record<string, unknown>).__tableRowReceipt;
     if (typeof receiptId !== 'string' || typeof entry.projectId !== 'string') throw new BridgeError('cannot-undo', 'This table edit has no valid receipt.');
