@@ -10,7 +10,8 @@ import {createLocalToolGenesis,forkLocalToolGenesis,prepareLocalToolAdoption,exp
 import {readSourceToolDocument,readSourceToolState,sourceToolSnapshot,transformSourceToolDocument,sourceConvergenceContract,prepareSourceConvergenceContext,type SourceToolRead,type SourceConvergenceOptions} from './store';
 import type {SourceToolConvergence,SourceToolDocument} from './types';
 import {findSourceAdditivePredecessor} from './additiveOrigin';
-import {assertSourceToolActionsAs,projectSourceToolAs,sourceToolActionBaselineData} from './additive';
+import {assertSourceToolActionsAs,parseSourceToolDocumentState,projectSourceToolAs,sourceToolActionBaselineData} from './additive';
+import {assertSourceScalarRenameBaseline,isSourceScalarRenamePending,migratedSourceScalarRoot} from './scalarRename';
 export type {SourceConvergenceOptions} from './store';
 export interface SourceConvergenceReadOptions {stateVectorBase64?:string}
 interface StoredPlan {
@@ -33,21 +34,40 @@ async function result<T extends LocalToolJson>(scope:WorldEraScope,id:string,def
  return{...plan,snapshot:await readSourceToolState(scope,id,definition)};
 }
 /** Snapshot and causal bytes are collected in the same RW; an outer owner still controls commit. */
-export function startSourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,options:SourceConvergenceOptions):Promise<SourceConvergenceResult<T>>{
+export function startSourceToolConvergence<T extends LocalToolJson>(scope:WorldEraScope,id:string,definition:LocalToolDefinition<T>,value:LocalToolSnapshot<T>,options:SourceConvergenceOptions,migrate=false):Promise<SourceConvergenceResult<T>>{
  return db.transaction('rw',db.tables,async()=>{
   const plan=await transformSourceToolDocument<StoredPlan>(scope,id,read=>{
    const actual=source(read,id,definition.namespace);baseline(actual,value,id,definition.namespace,true);
+   const inherited=!!scope.eraId&&actual.provenance==='base',rename=definition.sourceScalarRename;
+   if(migrate&&!rename)throw Error('local_tool_source_migration_unavailable');
+   if(migrate&&inherited)throw Error('local_tool_source_migration_era_required');
+   if(isSourceScalarRenamePending(actual.document,rename,definition.codec)){
+    const data=parseSourceToolDocumentState(definition,actual.document),old=actual.document.convergence?.checkpoint;
+    if(!migrate){
+     if(!old)throw Error('local_tool_source_migration_required');
+     return{result:{checkpoint:old,update:null,changed:false,causalChanged:false,pending:false}};
+    }
+    if(actual.document.convergence?.conflict)throw Error('local_tool_source_migration_conflict');
+    assertSourceScalarRenameBaseline(actual.document,data,value);
+    const contract=sourceConvergenceContract(actual.document,definition,options),checkpoint=createLocalToolGenesis(data,contract);
+    const next=migratedSourceScalarRoot(touch(actual.document),data,contract.codec,checkpoint,definition);
+    return{next,result:{checkpoint,update:null,changed:true,causalChanged:true,pending:false}};
+   }
    if(findSourceAdditivePredecessor(actual.document,definition.sourceAdditive)){
     const checkpoint=actual.document.convergence?.checkpoint;
     if(!checkpoint)throw Error('local_tool_source_additive_write_unavailable');
     sourceToolSnapshot(actual,definition);
     return{result:{checkpoint,update:null,changed:false,causalChanged:false,pending:exportLocalToolConvergenceCheckpoint(checkpoint).pending}};
    }
-   const inherited=!!scope.eraId&&actual.provenance==='base';
    if(actual.document.convergence){
     const prepared=prepareSourceConvergenceContext(actual.document,definition,options,inherited);
+    if(migrate){
+     if(prepared.reset)throw Error('local_tool_source_migration_unavailable');
+     assertSourceScalarRenameBaseline(actual.document,sourceToolSnapshot(actual,definition).data,value);
+    }
     return{next:prepared.reset?touch(prepared.document):undefined,result:{checkpoint:prepared.checkpoint,update:null,changed:false,causalChanged:prepared.reset,pending:prepared.view.pending}};
    }
+   if(migrate)throw Error('local_tool_source_migration_unavailable');
    const contract=sourceConvergenceContract(actual.document,definition,options),checkpoint=createLocalToolGenesis(actual.document.data as T,contract);
    return{next:{...touch(actual.document),generation:crypto.randomUUID(),codec:structuredClone(contract.codec),convergence:{checkpoint}},result:{checkpoint,update:null,changed:false,causalChanged:true,pending:false}};
   });return result(scope,id,definition,plan);

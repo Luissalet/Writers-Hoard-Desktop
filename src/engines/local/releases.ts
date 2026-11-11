@@ -12,6 +12,7 @@ import {validateLocalToolInstallations,type LocalToolInstallation} from './insta
 import {localToolContentHash} from './releaseFormat.mjs';
 import {parseLocalToolState} from './clientContract';
 import {parseSourceToolDocumentState} from './documents/additive';
+import {isSourceScalarRenamePending} from './documents/scalarRename';
 import {validateSourceDocumentCheckpoint} from './documents/portability';
 import {validateSourceToolDocument,type SourceToolDocument} from './documents/types';
 import {localToolNamespace} from './stateTypes';
@@ -22,14 +23,15 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
  const result=await db.transaction('rw',[db.projects,db.worldEraVariants,db.documentHistory,db.documentArchives,db.codexEntries,db.writings,db.boardNodes],async tx=>{const project=await db.projects.get(projectId);if(!project)throw Error('project_missing');validateLocalToolInstallations(project.localToolInstallations);const current=project.localToolInstallations?.[namespace];if((current?.revision??null)!==expectedRevision)throw Error('local_tool_pin_conflict');for(const states of [project.localToolStates,...(project.worldEras??[]).map(era=>era.localToolStates)])if(states?.[namespace])parseLocalToolState(definition,states[namespace].data);// Hidden, reinherited and historic source states can be restored by normal
  // product actions. Validate raw retained roots too, without loading source code
  // or hashing documents in a database hook or a second transaction.
- const validateDocument=(document:unknown)=>{
+ const validateDocument=(document:unknown,active=false)=>{
   if(!document||typeof document!=='object'||Array.isArray(document))return;
   const row=document as {namespace?:unknown;data:Parameters<typeof parseLocalToolState>[1]};
   if(row.namespace!==namespace)return;
   if(!definition.document)throw Error('local_tool_document_host_required');
   const source=row as Partial<SourceToolDocument>;
-  if(definition.sourceAdditive||sourceDefaultHash(source.codec)||source.convergence?.checkpoint.engine.version==='8'){
+  if(definition.sourceScalarRename||definition.sourceAdditive||sourceDefaultHash(source.codec)||source.convergence?.checkpoint.engine.version==='8'){
    validateSourceToolDocument(document);
+   if(active&&document.convergence?.conflict&&isSourceScalarRenamePending(document,definition.sourceScalarRename,definition.codec))throw Error('local_tool_source_migration_conflict');
    parseSourceToolDocumentState(definition,document);
    if(sourceDefaultHash(definition.sourceAdditive?.from.codec))validateSourceDocumentCheckpoint(document);
   }else parseLocalToolState(definition,row.data);
@@ -42,8 +44,8 @@ export async function pinLocalToolRelease(projectId:string,namespace:string,cont
  for(const entry of await db.documentHistory.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray()){retained.push(entry.document.root as never);rememberTarget(entry.document.root);}
  for(const entry of await db.documentArchives.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())if(entry.metadata?.item){retained.push(entry.metadata.item as never);rememberTarget(entry.metadata.item);}
  if(definition.app)for(const document of retained)if(document.namespace===namespace){const data=document.data as {children?:{document?:{documentId?:string}}[]};for(const member of data.children??[]){const known=member.document?.documentId&&appTargets.get(member.document.documentId);if(known&&!definition.app.descriptor.tools.includes(known))throw Error('local_app_retained_child_incompatible');}}
- for(const document of project.sourceToolDocuments??[])validateDocument(document);
- for(const variant of await db.worldEraVariants.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())for(const state of [variant,...variant.history??[]])validateDocument(state.document?.root);
+ for(const document of project.sourceToolDocuments??[])validateDocument(document,true);
+ for(const variant of await db.worldEraVariants.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())for(const state of [variant,...variant.history??[]])validateDocument(state.document?.root,state===variant&&!variant.hidden&&!variant.archived);
  for(const entry of await db.documentHistory.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())validateDocument(entry.document.root);
  for(const entry of await db.documentArchives.where('projectId').equals(projectId).filter(row=>row.kind==='local-tool').toArray())validateDocument(entry.metadata?.item);
  const validateBlocks=(value:unknown):void=>{if(Array.isArray(value)){value.forEach(validateBlocks);return;}if(!value||typeof value!=='object'||value instanceof Blob)return;for(const [key,child]of Object.entries(value)){if(['toolDock','writingToolDock'].includes(key)){for(const envelope of toolDockSourceEnvelopes(child)){if(envelope.namespace!==namespace)continue;const block=definition.blocks?.find(block=>block.key===envelope.key);if(!block)throw Error('local_tool_block_definition_changed');validateBlockForDefinition(envelope,block);}continue;}if(['data','localToolStates'].includes(key))continue;if(['content','html','body','richContent'].includes(key)&&typeof child==='string'&&child.includes('data-wh-source-block'))for(const {envelope}of findLocalToolBlocksInHtml(child)){if(envelope.namespace!==namespace)continue;const block=definition.blocks?.find(block=>block.key===envelope.key);if(!block)throw Error('local_tool_block_definition_changed');validateBlockForDefinition(envelope,block);}else if(child&&typeof child==='object')validateBlocks(child);}};
