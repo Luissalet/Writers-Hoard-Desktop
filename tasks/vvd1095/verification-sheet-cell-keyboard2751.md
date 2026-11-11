@@ -19,3 +19,11 @@ Selecciona una celda o un rectángulo con Mayús+clic o Mayús+flecha. Ctrl+C co
 En MCP, `wh_table_edit` con `paste-cells` recibe los IDs de filas y columnas de destino y los valores crudos. Usa la versión de `wh_table_get`. Un pegado efectivo devuelve recibo para Deshacer. Repetirlo con los mismos valores mantiene la versión y deja un registro de auditoría sin acción Deshacer.
 
 Brave verificó fórmula copiada, recorte en ambos bordes, vaciado y Deshacer. El puente real verificó 13 llamadas MCP y un IPC de Deshacer con dos claves, CSV calculado, Base y era. Quick y Build r2 terminaron con EOF 0. La revisión 2 de #2752 aprobó `368c9e3ba4a09081d61e39d20966b97f9bb30715`, integrado por fast-forward. El manual de Google recoge los atajos.
+
+## Suma de las columnas numéricas
+
+El pie muestra la suma de cada columna numérica en todas las filas guardadas de la hoja del ámbito activo. Incluye resultados numéricos de fórmulas e ignora texto y errores. Una columna vacía muestra cero. Al editar, vaciar o deshacer, la suma se recalcula. Los filtros y el orden de la vista mantienen la suma de toda la columna.
+
+`wh_table_get` devuelve los mismos resultados en `columnTotals`, con los IDs de las columnas numéricas como claves. La hoja sigue devolviendo `computed` por dirección de celda. Las tablas normales conservan su respuesta.
+
+Brave comprobó 98 en Base y 100 tras editar una era, 84 con texto, 42 con una fórmula errónea y 0 al vaciar. Deshacer restauró 42. El puente real verificó 14 llamadas MCP y un IPC de Deshacer con dos claves. Quick y Build r1 terminaron con EOF 0. La revisión 2 de #2772 aprobó `3ee951d57563ed2074fd97531d2f9089f0d45a38`, integrado por fast-forward. El manual de Google recoge la suma y el ámbito.
