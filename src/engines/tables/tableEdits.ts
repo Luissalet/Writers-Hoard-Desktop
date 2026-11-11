@@ -165,10 +165,14 @@ export function toggleSort(sorts: readonly TableSort[], id: string, add: boolean
 }
 
 /** Every cell holding the text, in reading order (row by row, left to right). */
-export function findMatches<T extends { id: string }>(rows: readonly T[], columns: readonly DataColumn[], query: string, value: (row: T, column: DataColumn) => string): { rowId: string; columnId: string }[] {
+export function findMatches<T extends { id: string }>(rows: readonly T[], columns: readonly DataColumn[], query: string, value: (row: T, column: DataColumn) => string | readonly string[]): { rowId: string; columnId: string }[] {
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return [];
   const result: { rowId: string; columnId: string }[] = [];
-  for (const row of rows) for (const column of columns) if (value(row, column).toLocaleLowerCase().includes(needle)) result.push({ rowId: row.id, columnId: column.id });
+  const includes = (text: string) => text.toLocaleLowerCase().includes(needle);
+  for (const row of rows) for (const column of columns) {
+    const candidates = value(row, column);
+    if (typeof candidates === 'string' ? includes(candidates) : candidates.some(includes)) result.push({ rowId: row.id, columnId: column.id });
+  }
   return result;
 }
