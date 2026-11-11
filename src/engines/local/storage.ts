@@ -29,7 +29,15 @@ import type {CodexEntry} from '@/types';
 import {localToolNamespace,LocalToolStateError,type LocalToolJson} from './stateTypes';
 import {readLocalToolState,prepareLocalToolSave,projectLocalToolCodex} from './clientContract';
 import type {LocalToolClient,LocalToolCodexQuery,LocalToolDefinition,LocalToolOpenDocumentOptions} from './sdk';
-export interface LocalToolClientOptions{mapAuthority?:LocalMapAuthority;/** Host-owned publication token captured before a normal Save. */capturePublishedFields?:()=>()=>void;/** Editable Owned host port only; world/media/query facilities remain readonly. */assetImportWritable?:()=>boolean;assetDefaultsWritable?:()=>boolean;/** Injectable silent backend coordinator for host contract tests. */audioEngine?:ReturnType<typeof import('./audio').createLocalAudioEngine>;documentId?:string;eraId?:string;navigate?:(path:string)=>void;openBeside?:(path:string)=>void;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
+export async function sourceToolBlockDestination(scope:{projectId:string;eraId?:string},documentId:string,blockId:string){
+ if(typeof blockId!=='string'||!blockId.trim())throw Error('local_tool_block_id_invalid');
+ const read=await readSourceToolDocument(scope,documentId);
+ if(!read)return undefined;
+ const namespace=read.document.namespace;
+ const query=new URLSearchParams({document:documentId,era:scope.eraId??'',block:blockId});
+ return {namespace,path:`/project/${encodeURIComponent(scope.projectId)}/local-tool-${namespace}?${query}`};
+}
+export interface LocalToolClientOptions{mapAuthority?:LocalMapAuthority;/** Host-owned publication token captured before a normal Save. */capturePublishedFields?:()=>()=>void;/** Editable Owned host port only; world/media/query facilities remain readonly. */assetImportWritable?:()=>boolean;assetDefaultsWritable?:()=>boolean;/** Injectable silent backend coordinator for host contract tests. */audioEngine?:ReturnType<typeof import('./audio').createLocalAudioEngine>;documentId?:string;eraId?:string;navigate?:(path:string)=>void;openBeside?:(path:string,isCurrent?:()=>boolean)=>unknown;readOnly?:boolean;releaseHash?:string|null;requireSelectedRelease?:boolean;/** Optional live host lease; never persisted or used by headless/native clients. */isCurrent?:()=>boolean}
 function announce(projectId:string){const emit=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',projectId});});let transaction=Dexie.currentTransaction;if(!transaction){emit();return;}while(transaction.parent)transaction=transaction.parent;transaction.on('complete',emit);}
 export function createLocalToolClient<T extends LocalToolJson>(projectId:string,definition:LocalToolDefinition<T>,options:LocalToolClientOptions={}):LocalToolClient<T>{
  if(typeof projectId!=='string'||!projectId||projectId.length>500||Array.from(projectId).some(character=>character.charCodeAt(0)<32))throw new LocalToolStateError('missing-project');
@@ -98,7 +106,18 @@ export function createLocalToolClient<T extends LocalToolJson>(projectId:string,
   async queryDocuments(query:import('./documentIndex').LocalToolDocumentQuery={}){await project();const rows=await queryLocalToolDocuments(scope,query);current();return rows;},
   async tools(){const {BRIDGE_TOOLS}=await import('@/services/aiBridge/manifest');return structuredClone(BRIDGE_TOOLS);},
   async callTool(name:string,args:Record<string,LocalToolJson>={}){const {getBridgeTool}=await import('@/services/aiBridge/manifest'),tool=getBridgeTool(name);if(!tool)throw new Error('unknown_tool');current();if(tool.writes)writable();if(scope.eraId&&tool.writes&&!Object.hasOwn(tool.schema.properties,'eraId')&&!['wh_enable_engine','wh_local_tool_pin'].includes(name))throw new Error('tool_does_not_support_era');const {applyProjectScope,validateToolArgs}=await import('@/services/aiRuntime/toolPolicy');const validated=validateToolArgs(tool.schema,{...args,projectId,eraId:scope.eraId});if(!validated.ok)throw new Error(validated.error);const pinned=applyProjectScope(tool,validated.args,{origin:'copilot',projectId});if(!pinned.ok)throw new Error(pinned.error);const {runBridgeTool}=await import('@/services/aiBridge/dispatch');current();if(tool.writes){writable();if(options.mapAuthority){await mapWritable();writable();}}const reply=await runBridgeTool(name,{...pinned.args,...(scope.eraId?{eraId:scope.eraId}:{})});if(!reply.ok)throw new Error(reply.error);return JSON.parse(JSON.stringify(reply.result)??'null')as LocalToolJson;},
-  async openDocument(documentKind:EraDocumentKind,id:string,openOptions?:LocalToolOpenDocumentOptions){current();const resolved=await destination(documentKind,id);if(!resolved.read)throw new Error('world_document_missing');if(resolved.path!==null){current();const {navigateTo}=await import('@/engines/_shared/anchoring');current();(openOptions?.placement==='beside'&&options.openBeside?options.openBeside:options.navigate??navigateTo)(resolved.path);}},
+  async openDocument(documentKind:EraDocumentKind,id:string,openOptions?:LocalToolOpenDocumentOptions){
+   current();
+   if(openOptions?.blockId!==undefined){
+    if(documentKind!=='local-tool')throw Error('local_tool_block_focus_document_kind_invalid');
+    if(!options.openBeside)throw Error('local_tool_block_focus_unavailable');
+    const target=await sourceToolBlockDestination(scope,id,openOptions.blockId);current();
+    if(!target)throw Error('world_document_missing');
+    const isCurrent=()=>{try{current();return true;}catch{return false;}};
+    if(await options.openBeside(target.path,isCurrent)===false){current();throw Error('local_tool_block_focus_unavailable');}
+    return;
+   }
+   const resolved=await destination(documentKind,id);if(!resolved.read)throw new Error('world_document_missing');if(resolved.path!==null){current();const {navigateTo}=await import('@/engines/_shared/anchoring');current();(openOptions?.placement==='beside'&&options.openBeside?options.openBeside:options.navigate??navigateTo)(resolved.path);}},
  } satisfies Omit<LocalToolClient<T>,'refs'|'state'|'openDocuments'>;
  const openDocuments=createBrowserLocalToolOpenDocuments(scope,{validate:project,current,subscribe:base.subscribe});
  const theme=Object.freeze({get:async()=>{const row=await project(),appearance=appearanceFromProject(row,scope);current();return Object.freeze({...scope,...resolveWorkspaceTheme(appearance.effective)});},subscribe:base.subscribe});

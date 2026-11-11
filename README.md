@@ -1098,3 +1098,8 @@ Source `82eafc27` is independently approved at revision 2 and integrated locally
 ## Add review steps to an existing Source notebook
 
 A new Source release can add one empty stable-ID list while keeping its previous fields. The normal notebook example upgrades V1 to V2, then adds, edits, checks, reorders and removes review steps with Undo/Redo. Reads and version selection leave the stored predecessor unchanged; the first effective action creates the declared history atomically. This is one declared addition, not a general migration API. [API and bounded evidence](tasks/vvd1095/verification-sdk-source-list-additive2540.md).
+
+
+## Open a Source block beside its document
+
+In Linked Notebook, **Open notes beside** and **Open items beside** keep the full document in the main pane. Each companion opens the selected section of the same document. Open the same section again to select its tab. Saving and undoing changes in the companion updates the document in both views. [SDK and verification](tasks/vvd1095/verification-sdk-source-block-focus2590.md).

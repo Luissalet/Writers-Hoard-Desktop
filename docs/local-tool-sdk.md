@@ -299,6 +299,20 @@ const resolved = await client.refs.resolve(reference, {includePath: true});
 
 `LocalToolReferenceResolveOptions` and `LocalToolResolvedReference` are public SDK types. The result type declares `path?:string|null` because the option is optional. Omitting options, passing `{}`, or passing `{includePath:false}` preserves the previous JSON shape exactly: no `path` property and no additional destination resolution. `refs.open`, `acceptDrag`, ordinary `openDocument` and its optional beside placement keep their existing contracts.
 
+### Open a Source block beside the document
+
+A Source document can give an author-defined block its own companion view. Use the same document ID and pass the exact block ID.
+
+```ts
+await client.openDocument('local-tool', client.documentId!, {blockId: 'notes'});
+```
+
+With a block ID, opening is always beside the main view. The workspace needs to be mounted and admit the request through its existing navigation guard. A repeated route selects its existing tab. Each tab gets a separate editor mount of the same effective Source document. The host supplies `context.focus?.blockId` to the component, including in fullscreen. Render the matching section using the usual state hook and editing controls. A component can render the whole document for an unrecognized ID or ignore the focus. This field is independent of `context.focusMode`, which controls the workspace chrome.
+
+`wh_local_tool_document_open` accepts `projectId`, `documentId`, `blockId` and optional `eraId`. Omit the era for Shared base. Its `{available, applied}` result reports the matching workspace and logical navigation admission. A workspace that is absent or closed returns both false. The writer can inspect `wh_workspace_tabs` for the admitted route. Opening or closing a focused view adds no content, history or era variant; normal navigation still flushes pending work and may decline.
+
+### Resolve a reference path
+
 The true branch uses the same internal destination resolver as `openDocument`: the caller's captured project/Base-or-era, the target Source document's effective namespace, a Worldgen root, and the registered anchor adapter or existing tool fallback. It does not open B to discover its route. Renaming changes the current effective title, while the reference's logical ID and identity-based destination stay stable. The path contains no title-derived identity. A missing, foreign or era-hidden document returns `available:false` and `path:null`. An available document can also have `path:null` when an adapter emits no destination; availability remains a document-read result, not an engine-enabled/editability/navigation-permission test. Invalid reference/project/era and normal resolver errors remain errors.
 
 Reading the path does not dispatch main/beside navigation, flush notes, save data or create workspace state. The production opt-in checks its existing client's current lease before and after asynchronous resolution; it does not extend that policy to the old `world.read` or default `refs.resolve` path. The adapter receives only a local synchronous path collector. Normal application engine imports register adapters before B needs to be opened. An isolated storage import without that registration retains the old fallback, which can differ from the registered adapter's query parameters; this is not a universal cold-router destination guarantee.

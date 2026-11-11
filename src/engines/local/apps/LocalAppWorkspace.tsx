@@ -2,7 +2,7 @@ import {useMemo,useRef,useState} from 'react';
 import {useTranslation} from '@/i18n/useTranslation';
 import {LocalToolAtomPendingContext} from '../blocks/pending';
 import {SourceToolWorkspaceSession,type SourceToolWorkspaceProps} from '../documents/SourceToolWorkspace';
-const key=(props:SourceToolWorkspaceProps)=>JSON.stringify([props.projectId,props.eraId??null,props.definition.namespace,props.documentId??null]);
+const key=(props:SourceToolWorkspaceProps)=>JSON.stringify([props.projectId,props.eraId??null,props.definition.namespace,props.documentId??null,props.blockId??null]);
 /** Query retargeting shares the same pending protocol as normal navigation.
  * A blocked owner retains its actual mounted subtree until Save or Discard. */
 export default function LocalAppWorkspace(props:SourceToolWorkspaceProps){
