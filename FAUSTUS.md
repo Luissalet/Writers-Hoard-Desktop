@@ -313,7 +313,7 @@ El visor 3D permite guardar etiquetas y ordenar todos los clips originales sin r
 
 ## Filas, vínculos, intensidad y concentración
 
-Tablas y hojas ofrecen Insertar fila encima, Subir/Bajar y asa de puntero, con IDs/celdas conservados y Deshacer normal. Ordenar/agrupar sigue separado del orden manual; las vistas vivas del Códex mantienen su alcance previo. El inspector de lugar reutiliza el buscador normal de fichas por título o alias y conserva los enlaces a escenas/escritos/sucesos. Zonas añade intensidad0–100; cero conserva zona y rótulo.
+Tablas y hojas ofrecen Insertar fila encima, Subir/Bajar y asa de puntero, con IDs/celdas conservados y Deshacer normal. Ordenar/agrupar sigue separado del orden manual. Las tablas vivas del Códex también admiten [orden manual de filas por ámbito Base/era](tasks/vvd1095/verification-table-live-row2688.md). El inspector de lugar reutiliza el buscador normal de fichas por título o alias y conserva los enlaces a escenas/escritos/sucesos. Zonas añade intensidad0–100; cero conserva zona y rótulo.
 
 Source y editor antiguo reciben `context.focusMode` opcional y hook de concentración: chrome oculto/inert pero montado, borradores/clientes retenidos y salida explícita/Escape; Pantalla completa independiente. MCP get/set usa hosts reales, sin guardado implícito y con IDs efímeros. Catálogo949. Fuente a8e9ba6+a55e6e aprobada exactamente CAS49 e integrada por FF; Main manifest949/contratos6/Nativefoco2claves pasan. Gates ROOT quick/build/crítica396 y pruebas reales Brave tienen recibos separados. [Contrato y atribución](tasks/vvd1095/verification-rows-places-zones-focus.md). 1095 y paridad general siguen abiertos; sin push.
 
