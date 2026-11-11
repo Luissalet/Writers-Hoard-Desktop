@@ -229,7 +229,7 @@ Roll with `wh_dice_roll` instead of inventing results, and say natural 20s and 1
 as they came. Offer names from `wh_name_generate` (with the author's brief) and
 make a card only on request. Tasks and boards (`wh_todo_*`, `wh_kanban`) are the
 author's: add or change them when asked. In sheets, formulas may use Spanish or
-English function names. Calculated table columns and Codex properties also support [IFERROR](tasks/vvd1095/verification-table-iferror2709.md), with a lazy fallback for recoverable formula errors. Excel import/export preserves explicit positive column
+English function names. Calculated table columns and Codex properties also support [IFERROR](tasks/vvd1095/verification-table-iferror2709.md), with a lazy fallback for recoverable formula errors. Calculated tables accept [structured column references](tasks/vvd1095/verification-table-iferror2709.md#referencias-estructuradas-de-columna) for whole-column formulas. Excel import/export preserves explicit positive column
 widths, including empty columns, with a Calibri 11 / 96 dpi conversion basis.
 Renaming a column retains its saved width. Other formatting, fonts and merged
 cells are not imported; the import report lists detected losses. See
