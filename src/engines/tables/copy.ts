@@ -22,8 +22,8 @@ const en = {
   error: 'The change could not be saved. Check the value and retry. Another edit to the same cell may require reopening this document.',
   invalid: 'Use a number with a decimal point for this column.', width: 'Column width', noLink: 'No linked entry', openCard: 'Open entry',
   formulaHelp: 'Enter =SUM(A1:A5), =AVERAGE(B1:B4), arithmetic, comparisons (=, <>, <, >) and & to join text; also IF, IFERROR, AND, OR, NOT, SUMIF, COUNTIF, AVERAGEIF, VLOOKUP, MIN, MAX, COUNT, COUNTA, MEDIAN, ROUND, ROUNDUP, ROUNDDOWN, INT, MOD, POWER, SQRT, CONCAT, LEN, UPPER, LOWER, TRIM (Spanish names such as SI or BUSCARV work too). Cell addresses follow the saved row order, even while sorting or filtering.',
-  cellKeyboardHint: 'Click a cell, then use the arrows or Tab to move. Enter edits. Escape exits editing or navigation. Ctrl+C copies and Ctrl+V pastes cells.',
-  cellsPasted: 'Cells pasted', cellPasteInvalid: 'Check that the pasted cells match the editable columns and that new rows will be visible.',
+  cellKeyboardHint: 'Click a cell, then use the arrows or Tab to move. Enter edits. Escape exits editing or navigation. Ctrl+C copies, Ctrl+V pastes, and Delete or Backspace clears the selected cells.',
+  cellsPasted: 'Cells pasted', cellsCleared: 'Cells cleared', cellPasteInvalid: 'Check that the pasted cells match the editable columns and that new rows will be visible.',
   cellHint: 'Changes save after a pause or when you leave the cell. Press Enter to save, Escape to cancel.', count: 'rows', value: 'Calculated value', editCard: 'Edit Codex entry', retry: 'Retry save', missingLink: 'Entry unavailable',
 };
 const es: typeof en = {
@@ -50,8 +50,8 @@ const es: typeof en = {
   error: 'No se ha podido guardar el cambio. Comprueba el valor y vuelve a intentarlo. Si ha cambiado la misma celda en otro lugar, vuelve a abrir el documento.',
   invalid: 'Esta columna requiere un número; usa el punto decimal.', width: 'Anchura de columna', noLink: 'Sin ficha vinculada', openCard: 'Abrir ficha',
   formulaHelp: 'Escribe =SUMA(A1:A5), =PROMEDIO(B1:B4), operaciones, comparaciones (=, <>, <, >) y & para unir texto; también SI, SI.ERROR, Y, O, NO, SUMAR.SI, CONTAR.SI, PROMEDIO.SI, BUSCARV, MIN, MAX, CONTAR, CONTARA, MEDIANA, REDONDEAR, REDONDEAR.MAS, REDONDEAR.MENOS, ENTERO, RESIDUO, POTENCIA, RAIZ, CONCATENAR, LARGO, MAYUSC, MINUSC, ESPACIOS (o sus nombres en inglés; separa con , o ;). Las direcciones siguen el orden guardado de las filas aunque ordenes o filtres la vista.',
-  cellKeyboardHint: 'Pulsa una celda y usa las flechas o Tab para moverte. Intro edita. Escape sale de la edición o de la navegación. Ctrl+C copia y Ctrl+V pega celdas.',
-  cellsPasted: 'Celdas pegadas', cellPasteInvalid: 'Comprueba los tipos de las columnas editables y que las filas nuevas queden visibles.',
+  cellKeyboardHint: 'Pulsa una celda y usa las flechas o Tab para moverte. Intro edita. Escape sale de la edición o de la navegación. Ctrl+C copia, Ctrl+V pega y Suprimir o Retroceso vacía las celdas seleccionadas.',
+  cellsPasted: 'Celdas pegadas', cellsCleared: 'Celdas vaciadas', cellPasteInvalid: 'Comprueba los tipos de las columnas editables y que las filas nuevas queden visibles.',
   cellHint: 'Se guarda tras una pausa o al salir de la celda. Intro guarda y Escape cancela.', count: 'filas', value: 'Valor calculado', editCard: 'Editar ficha del Códice', retry: 'Reintentar guardado', missingLink: 'Ficha no disponible',
 };
 export const tableCopy = { en, es };
