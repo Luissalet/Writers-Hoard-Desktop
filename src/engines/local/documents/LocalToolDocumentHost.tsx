@@ -30,6 +30,7 @@ import {sourceDocumentPreview} from './preview';
 import {LocalToolHostAncestors} from './hostContext';
 import {LocalToolAtomPendingContext} from '../blocks/pending';
 import {LocalToolUndoBoundary} from '../LocalToolUndoBoundary';
+import type {LocalToolCommandMount} from '../undoCommands';
 import {mountedSourceDocuments} from '../queryOpenDocuments';
 export interface LocalToolDocumentHostProps {mapContext?:LocalToolMapContext;mapAuthority?:LocalMapAuthority;projectId:string;eraId?:string;documentId:string;namespace?:string;blockId?:string;view?:LocalToolHostContext['view'];interactive?:boolean;readOnly?:boolean;chrome?:boolean;retainPresentation?:boolean;showUnavailable?:boolean;allowedNamespaces?:readonly string[]}
 /** Every surface mounts one real document; collection lists belong to its engine. */
@@ -68,7 +69,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,blockId,vie
  const stableOpenBeside=useMemo(()=>(to:string,isCurrent?:()=>boolean)=>navRef.current.parentOpenBeside?.(to,isCurrent),[]),bindingOpenBeside=stableNavigation&&parentOpenBeside?stableOpenBeside:parentOpenBeside;
  // Every committed setup owns a new irrevocable lease. StrictMode cleanup
  // cannot reactivate an older emitted client when the surface sets up again.
- const [binding,setBinding]=useState<{client:LocalToolClient<LocalToolJson>;definition:LocalToolDefinition;namespace:string;hash:string|null;canEdit:boolean;navigate:typeof navigate;documentFields?:import('../openDocuments').LocalToolDocumentFields;presence?:LocalDocumentPresenceHost;content?:LocalDocumentContentHost;mapAuthority?:LocalMapAuthority}>();
+ const [binding,setBinding]=useState<{client:LocalToolClient<LocalToolJson>;definition:LocalToolDefinition;namespace:string;hash:string|null;canEdit:boolean;isCurrent:()=>boolean;navigate:typeof navigate;documentFields?:import('../openDocuments').LocalToolDocumentFields;presence?:LocalDocumentPresenceHost;content?:LocalDocumentContentHost;mapAuthority?:LocalMapAuthority}>();
  useLayoutEffect(()=>{
   let active=true;const current=()=>active&&(!mapAuthority||mapAuthority.isCurrent());
   if(!definition||!documentNamespace){setBinding(undefined);return()=>{active=false;};}
@@ -77,7 +78,7 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,blockId,vie
   const client=createLocalToolClient(projectId,definition,{eraId,documentId,navigate,openBeside:bindingOpenBeside,requireSelectedRelease:true,releaseHash:hash,readOnly:!canEdit,isCurrent:current,mapAuthority,capturePublishedFields:publisher?.capture});
   const content=canEdit?new LocalDocumentContentHost(instanceId,current,client,hash,savePreference):undefined;
   const presence=canEdit?new LocalDocumentPresenceHost(client,instanceId,current,content):undefined;
-  setBinding({client,definition,namespace:documentNamespace,hash,canEdit,navigate,documentFields,presence,content,mapAuthority});
+  setBinding({client,definition,namespace:documentNamespace,hash,canEdit,isCurrent:current,navigate,documentFields,presence,content,mapAuthority});
   return()=>{active=false;publisher?.dispose();presence?.dispose();content?.dispose();};
  },[projectId,definition,eraId,documentId,navigate,bindingOpenBeside,hash,canEdit,documentNamespace,instanceId,savePreference,mapAuthority]);
  // A navigation-only rebind retains the editor draft while the layout effect issues a new client.
@@ -92,7 +93,25 @@ function SourceDocumentSession({projectId,eraId,documentId,namespace,blockId,vie
  const changeFullscreen=async(next:boolean)=>{if(busy)return;setBusy(true);setBlocked(false);try{const result=await flushPendingWrites();if(alive.current){if(result.ok&&(!mapAuthority||mapAuthority.isCurrent()))setFullscreen(next);else setBlocked(true);}}finally{if(alive.current)setBusy(false);}};
  const semantic=document?sourceDocumentPreview(document,locale):{title:'',fields:[]},preview=useLocalToolAssetPreview(semantic,projectId,document?.namespace??'',eraId);
  const richContext=useRichProseHostContext({view,canEdit,scope:{projectId,eraId},...(document?{document:{id:documentId,namespace:document.namespace,title:document.title}}:{})},client,document?.codec,definition);
- const context=useMemo(()=>({...richContext,...(blockId?{focus:{blockId}}:{}),...(mapContext?{map:mapContext}:{})}),[richContext,blockId,mapContext]);
+ const [commandMount,setCommandMount]=useState<LocalToolCommandMount>();
+ const offerCommands=canEdit&&visible&&!fullscreen&&view==='editor'&&!mapContext&&!mapAuthority&&!definition?.app&&!retainPresentation&&!allowedNamespaces;
+ useLayoutEffect(()=>{
+  if(!offerCommands||!selectedClient||!binding||!documentNamespace){setCommandMount(undefined);return;}
+  let active=true;
+  const isCurrent=()=>active&&binding.isCurrent();
+  const checkAccess=async()=>{
+   if(!isCurrent())return false;
+   const project=await db.projects.get(projectId);
+   return !!project&&isCurrent()&&project.enabledEngines.includes('local-tool-'+documentNamespace)&&
+    (!eraId||!!project.worldEras?.some(era=>era.id===eraId))&&
+    (project.localToolInstallations?.[documentNamespace]?.contentHash??null)===binding.hash;
+  };
+  setCommandMount(Object.freeze({projectId,eraId,namespace:documentNamespace,documentId,instanceId:`source-command-${crypto.randomUUID()}`,
+   client:selectedClient,isCurrent,checkAccess}));
+  return()=>{active=false;};
+ },[offerCommands,selectedClient,binding,documentNamespace,projectId,eraId,documentId]);
+ const undoCommands=offerCommands&&commandMount?.client===selectedClient?commandMount:undefined;
+ const context=useMemo(()=>({...richContext,...(blockId?{focus:{blockId}}:{}),...(mapContext?{map:mapContext}:{}),...(undoCommands?{undoCommands}:{})}),[richContext,blockId,mapContext,undoCommands]);
  if(ancestors.includes(identity))return <p className="text-sm text-text-muted">{es?'Referencia circular al documento abierto.':'Circular reference to the open document.'}</p>;
  if(!record)return <p role="status">{es?'Cargando documento…':'Loading document…'}</p>;
  if(!document)return showUnavailable?<p role="alert">{es?'El documento no está disponible en este contexto.':'This document is unavailable in this context.'}</p>:null;

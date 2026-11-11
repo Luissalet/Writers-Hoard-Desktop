@@ -610,3 +610,10 @@ Una definición Source puede añadir una lista vacía con `sourceAdditive`, pred
 `client.openDocument('local-tool', documentId, {blockId: 'notes'})` pide abrir un bloque del documento en un compañero. El componente recibe `context.focus?.blockId` y decide qué sección mostrar, también en pantalla completa. La vista principal conserva el documento completo. Guardar y Deshacer desde la vista lateral usan el mismo documento y el ámbito efectivo del panel.
 
 `wh_local_tool_document_open` recibe `projectId`, `documentId`, `blockId` y, para una época, `eraId`. `available` informa de si hay un espacio de trabajo que pueda atenderlo y `applied` de si la navegación admitió la solicitud. `wh_workspace_tabs` permite consultar la ruta. La apertura respeta el tratamiento habitual de borradores. [Uso y verificación](tasks/vvd1095/verification-sdk-source-block-focus2590.md).
+
+
+## Comandos propios con Deshacer en Source
+
+En Cuaderno vinculado, **Añadir pauta de revisión** incorpora los dos apuntes que falten en un paso. La acción usa el mismo historial de la edición normal. Deshacer y Rehacer se aplican desde el editor o compañero que la ejecutó, y una edición efectiva posterior al Deshacer inicia una nueva rama.
+
+`useLocalToolUndoCommand` declara el lote con el mismo controlador `useLocalToolState`; un recibo efectivo añade un paso a su pila. MCP permite listar y ejecutar el comando en una instancia visible exacta mediante `wh_local_tool_command_list/run`. El token de la instancia se renueva al cambiar su binding o visibilidad. El comando se ofrece en el editor Source ordinario y en su compañero. [Contrato y verificación](tasks/vvd1095/verification-sdk-author-undo2602.md).

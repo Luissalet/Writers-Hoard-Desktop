@@ -4,8 +4,11 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const harness=require('../scripts/run-codex-properties-ui.cjs'),root=path.resolve(__dirname,'..'),directory=harness.directory;
 process.env.HOARD_EVENTS='0';
 const sourceBlock=process.env.WH_NATIVE_SOURCE_BLOCK_FOCUS==='1';
+const sourceCommand=process.env.WH_NATIVE_SOURCE_UNDO_COMMAND==='1';
+assert(!(sourceBlock&&sourceCommand),'Select one Native Source scenario');
+const sourceScenario=sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
 const revocations=[];
-const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
+const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
 const preloadFile=path.join(directory,'focus-preload.cjs'),adapterFile=path.join(directory,'focus-stdio.cjs');
 // QuickNote is unrelated to focus; this fixture does not capture/relay notes or start its window.
 fs.writeFileSync(preloadFile,"const{contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('electronAPI',{platform:process.platform,quickNote:{setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}},aiBridge:{onRequest:callback=>{const listener=(_,payload)=>callback(payload);ipcRenderer.on('aibridge:request',listener);return()=>ipcRenderer.removeListener('aibridge:request',listener);},reply:payload=>ipcRenderer.invoke('aibridge:reply',payload)}});");
@@ -15,7 +18,7 @@ const save=(name,value)=>fs.writeFileSync(path.join(evidence,name),JSON.stringif
 async function bounded(promise,ms,message){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(message)),ms);})]);}finally{clearTimeout(timer);}}
 async function close(){
  if(closing)return;closing=true;const errors=[];
- if(sourceBlock&&bridge){
+ if(sourceScenario&&bridge){
   for(const key of keys??[]){
    if(!key.ok)continue;
    try{
@@ -37,7 +40,7 @@ async function close(){
  for(const session of sessions)try{await session.close();}catch(error){errors.push(String(error));}
  if(bridge){bridge.stopAiBridge();await bounded(new Promise((resolve,reject)=>{const socket=net.connect({host:'127.0.0.1',port});socket.once('connect',()=>{socket.destroy();reject(Error('Private focus port still open'));});socket.once('error',error=>error.code==='ECONNREFUSED'?resolve():reject(error));}),5000,'Focus close deadline').catch(error=>errors.push(String(error)));}
  ipcMain.removeHandler('aibridge:reply');
- const result={...(sourceBlock?{scenario:'source-block-open',revocations}:{}),ok:!failure&&errors.length===0,toolCalls,rpcCalls,ipcReplies:replies.length,sessions:sessions.map(item=>item.report()),checks,errors,failure,sourceHostMounted,profileRetained:true,privateProfile:directory,serverNeverStarted:!serverStarted,serverClosed:serverStarted&&errors.length===0};save('RESULT.json',result);save('mcp-transcript.json',transcript);save('ipc-replies.json',replies);
+ const result={...(sourceScenario?{scenario:sourceScenario,revocations}:{}),ok:!failure&&errors.length===0,toolCalls,rpcCalls,ipcReplies:replies.length,sessions:sessions.map(item=>item.report()),checks,errors,failure,sourceHostMounted,profileRetained:true,privateProfile:directory,serverNeverStarted:!serverStarted,serverClosed:serverStarted&&errors.length===0};save('RESULT.json',result);save('mcp-transcript.json',transcript);save('ipc-replies.json',replies);
  console.log('FOCUS_NATIVE_EVIDENCE '+evidence);console.log('FOCUS_NATIVE_PRIVATE_TEMP '+directory);console.log('FOCUS_NATIVE_RESULT '+JSON.stringify(result));assert.equal(errors.length,0,errors.join('\n'));
 }
 async function adapter(token,label){
@@ -46,7 +49,7 @@ async function adapter(token,label){
  const exit=new Promise(resolve=>{child.once('close',(code,signal)=>resolve({code,signal}));child.once('error',error=>resolve({error:String(error)}));});
  const lines=createInterface({input:child.stdout});lines.on('line',line=>{try{const value=JSON.parse(line),pending=waiting.get(value.id);assert(pending,'Unexpected stdio reply');clearTimeout(pending.timer);waiting.delete(value.id);pending.resolve(value);}catch(error){failure=String(error);for(const pending of waiting.values())pending.reject(error);waiting.clear();}});
  child.once('close',()=>{for(const pending of waiting.values()){clearTimeout(pending.timer);pending.reject(Error('Focus stdio closed before reply'));}waiting.clear();});
- const session={rpc:(method,params)=>new Promise((resolve,reject)=>{rpcCalls++;const id=++next,timer=setTimeout(()=>{waiting.delete(id);reject(Error('Focus RPC deadline'));},20000);waiting.set(id,{resolve,reject,timer});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');}),close:async()=>{if(ended)return;ended=true;child.stdin.end();try{actualExit=await bounded(exit,5000,'Focus stdio EOF deadline');}catch(error){if(sourceBlock)throw error;child.kill();actualExit=await bounded(exit,3000,'Focus child close deadline');throw error;}finally{lines.close();fs.writeFileSync(path.join(evidence,label+'.stderr.log'),stderr);}assert.deepEqual(actualExit,{code:0,signal:null});},report:()=>({label,exit:actualExit,pending:waiting.size,stderrBytes:Buffer.byteLength(stderr)})};sessions.push(session);
+ const session={rpc:(method,params)=>new Promise((resolve,reject)=>{rpcCalls++;const id=++next,timer=setTimeout(()=>{waiting.delete(id);reject(Error('Focus RPC deadline'));},20000);waiting.set(id,{resolve,reject,timer});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');}),close:async()=>{if(ended)return;ended=true;child.stdin.end();try{actualExit=await bounded(exit,5000,'Focus stdio EOF deadline');}catch(error){if(sourceScenario)throw error;child.kill();actualExit=await bounded(exit,3000,'Focus child close deadline');throw error;}finally{lines.close();fs.writeFileSync(path.join(evidence,label+'.stderr.log'),stderr);}assert.deepEqual(actualExit,{code:0,signal:null});},report:()=>({label,exit:actualExit,pending:waiting.size,stderrBytes:Buffer.byteLength(stderr)})};sessions.push(session);
  const initialized=await session.rpc('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'focus-native-fixture',version:'1'}});assert(!initialized.error);assert.equal(initialized.result.serverInfo.name,'writers-hoard');return session;
 }
 async function setup(){
@@ -64,8 +67,9 @@ async function drive(win){
  await bridge.startAiBridge({version:'private-focus-native',hasWindow:()=>true});serverStarted=true;const a=await adapter(keys[0].token,'A'),b=await adapter(keys[1].token,'B');
  async function call(session,name,args,relayed=true){const prior=replies.length,response=await session.rpc('tools/call',{name,arguments:args});toolCalls++;assert(!response.error);assert.equal(replies.length-prior,relayed?1:0);assert.equal(response.result.content.length,1);assert.equal(response.result.content[0].type,'text');const outcome={isError:response.result.isError===true,value:JSON.parse(response.result.content[0].text)};transcript.push({session:session.report().label,name,args,outcome,ipcReplies:replies.length-prior});return outcome;}
  async function ok(session,name,args){const result=await call(session,name,args);assert.equal(result.isError,false,JSON.stringify(result.value));return result.value;}
- if(sourceBlock){
-  await driveSourceBlock({a,b,ok,renderer,fixture});
+ if(sourceScenario){
+  const run=sourceCommand?driveSourceCommand:driveSourceBlock;
+  await run({a,b,ok,renderer,fixture});
   await renderer('__focusNativeFinish',{ok:true});
   return;
  }
@@ -163,12 +167,80 @@ async function driveSourceBlock({a,b,ok,renderer,fixture}){
  save('source-block-observations.json',{before,notes,saved,undone,items,withoutWorkspace,tabsBefore,tabsAfter});
  checks.push({label:'Source block open, live tabs/DOM, saved edit and Undo, unavailable after workspace unmount'});
 }
+async function driveSourceCommand({a,b,ok,renderer,fixture}){
+ const scope={projectId:fixture.projectId,namespace:fixture.namespace,documentId:fixture.documentId};
+ const LIST='wh_local_tool_command_list',RUN='wh_local_tool_command_run',READ='wh_local_tool_read';
+ const commandId='add-review-checklist';
+ const list=async session=>{
+  const {commands}=await ok(session,LIST,scope);
+  assert(Array.isArray(commands));
+  return commands.filter(command=>command.id===commandId);
+ };
+ const before=await ok(b,READ,scope);
+ assert.equal(before.document.id,fixture.documentId);
+ assert.equal(before.document.namespace,fixture.namespace);
+ assert.equal(before.provenance,'base');
+ assert(Array.isArray(before.data.items));
+ const principal=await list(b);
+ assert.equal(principal.length,1);
+ assert.equal(typeof principal[0].instanceId,'string');
+ assert(principal[0].instanceId.length>0);
+ const opened=await renderer('__focusNativeCommandOpen');
+ assert.equal(opened.documentId,fixture.documentId);
+ const mounted=await list(a);
+ assert.equal(mounted.length,2);
+ assert.deepEqual(mounted.find(command=>command.instanceId===principal[0].instanceId),principal[0]);
+ const companion=mounted.find(command=>command.instanceId!==principal[0].instanceId);
+ assert(companion&&typeof companion.instanceId==='string'&&companion.instanceId.length>0);
+ assert.deepEqual(companion.label,{en:'Add review checklist',es:'Añadir pauta de revisión'});
+ assert.equal(companion.inputSchema.type,'object');
+ assert.deepEqual(await ok(a,READ,scope),before);
+ const run=async(session,available,applied)=>{
+  const {_undo,...result}=await ok(session,RUN,{...scope,instanceId:companion.instanceId,commandId,input:{locale:'en'}});
+  assert.deepEqual(result,{available,applied});
+ };
+ const identity=({revision,updatedAt,data,document:{version,...document},...rest})=>({document,...rest});
+ function appended(snapshot,revisionDelta){
+  assert.equal(snapshot.revision,before.revision+revisionDelta);
+  assert.deepEqual(identity(snapshot),identity(before));
+  const {items,...fields}=snapshot.data,{items:oldItems,...oldFields}=before.data;
+  assert.deepEqual(fields,oldFields);
+  assert.equal(items.length,oldItems.length+2);
+  assert.deepEqual(items.slice(0,oldItems.length),oldItems);
+  const added=items.slice(oldItems.length);
+  assert(added.every(item=>typeof item.id==='string'&&item.id&&typeof item.text==='string'&&item.text.trim()));
+  assert.equal(new Set(items.map(item=>item.id)).size,items.length);
+  return items.map(item=>item.text);
+ }
+ await run(a,true,true);
+ const savedA=await ok(b,READ,scope), textsA=appended(savedA,1);
+ const visibleA=await renderer('__focusNativeCommandObserve',{texts:textsA,applied:true});
+ const visibleUndo=await renderer('__focusNativeCommandUndo',before.data.items.map(item=>item.text));
+ const undone=await ok(b,READ,scope);
+ assert.equal(undone.revision,before.revision+2);
+ assert.deepEqual(identity(undone),identity(before));
+ assert.deepEqual(undone.data,before.data);
+ const listedByB=await list(b);
+ assert.equal(listedByB.length,2);
+ assert.deepEqual(listedByB.find(command=>command.instanceId===companion.instanceId),companion);
+ await run(b,true,true);
+ const savedB=await ok(a,READ,scope), textsB=appended(savedB,3);
+ const visibleB=await renderer('__focusNativeCommandObserve',{texts:textsB,applied:true});
+ const closed=await renderer('__focusNativeCommandClose');
+ assert.equal(closed.paneId,opened.paneId);
+ assert.deepEqual(await list(a),principal);
+ await run(b,false,false);
+ assert.deepEqual(await ok(a,READ,scope),savedB);
+ await renderer('__focusNativeCommandCheckPrincipal');
+ save('source-command-observations.json',{before,principal,mounted,opened,savedA,visibleA,undone,visibleUndo,listedByB,savedB,visibleB,closed});
+ checks.push({label:'Two keys used one Source command instance, real Undo changed only its stack, closed instance unavailable'});
+}
 process.argv[2]='tests/local-tool-focus.native.renderer.ts';
-process.argv[3]=sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
+process.argv[3]=sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
 harness.main({preloadFile,setup,window:async win=>{window=win;bridge.setBridgeWindowResolver(()=>win);win.webContents.once('did-finish-load',()=>{driver=drive(win).catch(async error=>{failure=error.stack||String(error);console.error(failure);await win.webContents.executeJavaScript(`window.__focusNativeFinish?.(${JSON.stringify({ok:false,error:failure})});0`).catch(()=>{});});});},close:async()=>{
  await driver;
  if(failure)throw Error(failure);
- if(sourceBlock){
+ if(sourceScenario){
   const cleanup=await window.webContents.executeJavaScript('window.__focusNativeBlockCleanupReceipt');
   assert.deepEqual(cleanup,{projects:0,sourceHosts:0,pendingExact:true});
   save('cleanup.json',cleanup);

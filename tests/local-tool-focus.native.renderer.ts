@@ -56,7 +56,7 @@ export async function testLocalToolFocusNative(){
 }
 
 /** Opt-in scenario with the normal LinkedNotebook and ProjectWorkspace. */
-export async function testLocalToolSourceBlockNative(){
+export async function testLocalToolSourceBlockNative(sourceCommand=false){
  check(await db.projects.count()===0,'Private Source block profile must start empty');
  const pendingCounts=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
  const pendingBefore=pendingCounts();
@@ -86,10 +86,59 @@ export async function testLocalToolSourceBlockNative(){
    const marker=data.items?.[0]?.text;
    check(data.notes&&marker&&marker!==data.notes,'Fixture needs distinct persisted Notes and Items markers');
    const noteIn=(root:ParentNode|null)=>host(root)?.querySelector<HTMLTextAreaElement>('textarea');
-   const control=(labels:string[])=>Array.from(host(panel())?.querySelectorAll<HTMLButtonElement>('button')??[]).find(node=>labels.includes(node.textContent?.trim()??''));
+   const control=(labels:string[],root:ParentNode|null=panel())=>Array.from(host(root)?.querySelectorAll<HTMLButtonElement>('button')??[]).find(node=>labels.includes(node.textContent?.trim()??''));
    const samePrimary=()=>{
     check(host(primary())===primaryHost&&primaryRoute()===routeBefore,'Block opening replaced the primary host or route');
    };
+   if(sourceCommand){
+    const itemTexts=(root:ParentNode|null)=>Array.from(host(root)?.querySelectorAll('section[aria-label="Linked notebook"] ul > li > span')??[],node=>node.textContent);
+    const matches=(root:ParentNode|null,texts:string[])=>JSON.stringify(itemTexts(root))===JSON.stringify(texts);
+    const commandLabels=['Add review checklist','Añadir pauta de revisión'];
+    const undoLabels=['Undo','Deshacer'],redoLabels=['Redo','Rehacer'];
+    const checkPrincipal=()=>{
+     samePrimary();
+     check(control(undoLabels,primary())?.disabled===true&&control(redoLabels,primary())?.disabled===true,'Principal acquired the companion Undo or Redo step');
+    };
+    const observeCommand=async(input:{texts:string[];applied:boolean})=>{
+     await until(()=>{
+      const {main,companion}=fixture.observe();
+      if(!main?.items||!companion?.items||!control(commandLabels))return false;
+      return matches(primary(),input.texts)&&matches(panel(),input.texts)
+       && (input.applied?control(undoLabels):control(redoLabels))?.disabled===false;
+     },'Persisted command data and its actual Undo/Redo did not settle in both views');
+     checkPrincipal();
+     return {view:fixture.observe(),principalItems:itemTexts(primary()),companionItems:itemTexts(panel())};
+    };
+    Reflect.set(window,'__focusNativeCommandOpen',async()=>{
+     checkPrincipal();
+     const open=control(['Open items beside','Abrir apuntes al lado'],primary());
+     check(open&&!open.disabled,'Normal Items companion action unavailable');
+     await act(async()=>{open.click();});
+     await until(()=>!!fixture.observe().companion?.items&&control(commandLabels)?.disabled===false,'Real command companion did not mount');
+     checkPrincipal();
+     const paneId=fixture.observe().companion?.paneId,documentId=host(panel())?.dataset.sourceDocumentHost;
+     check(paneId&&documentId===fixture.documentId&&control(undoLabels)?.disabled===true,'Companion identity or initial Undo stack differs');
+     return {paneId,documentId};
+    });
+    Reflect.set(window,'__focusNativeCommandObserve',observeCommand);
+    Reflect.set(window,'__focusNativeCommandUndo',async(texts:string[])=>{
+     const undo=control(undoLabels);
+     check(undo&&!undo.disabled,'Companion Undo unavailable');
+     await act(async()=>{undo.click();});
+     return observeCommand({texts,applied:false});
+    });
+    Reflect.set(window,'__focusNativeCommandClose',async()=>{
+     const paneId=fixture.observe().companion?.paneId;
+     check(paneId,'Companion pane missing before close');
+     const close=document.querySelector<HTMLButtonElement>(`[data-testid="workspace-close-tab-${paneId}"]`);
+     check(close&&!close.disabled,'Normal companion close control unavailable');
+     await act(async()=>{close.click();});
+     await until(()=>!panel()&&fixture.observe().companion===null,'Companion did not unmount');
+     checkPrincipal();
+     return {paneId};
+    });
+    Reflect.set(window,'__focusNativeCommandCheckPrincipal',()=>{checkPrincipal();return true;});
+   }
    Reflect.set(window,'__focusNativeBlockSnapshot',snapshot);
    Reflect.set(window,'__focusNativeBlockObserve',async(block:'notes'|'items')=>{
     await until(()=>{
@@ -139,6 +188,13 @@ export async function testLocalToolSourceBlockNative(){
   const cleanup={projects:await db.projects.count(),sourceHosts:document.querySelectorAll('[data-source-document-host]').length,pendingExact:JSON.stringify(pendingCounts())===JSON.stringify(pendingBefore)};
   check(cleanup.projects===0&&cleanup.sourceHosts===0&&cleanup.pendingExact,'Source block fixture cleanup failed');
   Reflect.set(window,'__focusNativeBlockCleanupReceipt',cleanup);
-  return ['actual ProjectWorkspace Source block opened with two keys, same document saved and undone, unavailable without workspace'];
+  return sourceCommand
+   ? ['two keys ran the same Source command instance, real companion Undo reversed it and closing retired it']
+   : ['actual ProjectWorkspace Source block opened with two keys, same document saved and undone, unavailable without workspace'];
  }finally{clearTimeout(completionTimer!);}
+}
+
+
+export async function testLocalToolSourceCommandNative(){
+ return testLocalToolSourceBlockNative(true);
 }

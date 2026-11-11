@@ -1,3 +1,4 @@
+import {listLocalToolUndoCommands,LocalToolCommandInputError,runLocalToolUndoCommand} from './undoCommands';
 import {queryLocalToolPresence} from './presence/query';
 import {LOCAL_LIVE_CONTENT_HANDLERS} from './liveContent/bridge';
 import {recordRuntimeError,runtimeErrorIdentity} from './runtimeErrors';
@@ -33,7 +34,13 @@ async function client(args:ToolArgs,readOnly=false){const selected=await sourceF
 async function invoke(args:ToolArgs,writes:boolean){const {source,releaseHash}=await sourceFor(args),scoped=createLocalToolClient(resolveProjectId(args),source,{documentId:optString(args,'documentId'),eraId:optString(args,'eraId'),readOnly:!writes,requireSelectedRelease:true,releaseHash});await assertEngineEnabled(scoped.projectId,localToolEngineId(source.namespace));try{return await runLocalToolOperation(source,requireString(args,'operation'),args.input??{},writes,scoped,run=>db.transaction('rw',db.tables,async()=>{const row=await db.projects.get(scoped.projectId);if((row?.localToolInstallations?.[source.namespace]?.contentHash??null)!==releaseHash)throw Error('local_tool_pin_conflict');return await run(scoped);}),error=>{const identity=runtimeErrorIdentity(source.namespace,releaseHash);if(identity)recordRuntimeError(identity,'operation',error,{operation:requireString(args,'operation')});});}catch(error){if(error instanceof LocalToolOperationError)throw new BridgeError(error.code,error.message);throw error;}}
 async function stateClient(args:ToolArgs){const scoped=await client(args);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.state)throw new BridgeError('bad-args','This source has no declarative state codec.');return scoped;}
 async function defaultsClient(args:ToolArgs,readOnly=false){const scoped=await client(args,readOnly);await assertEngineEnabled(scoped.projectId,localToolEngineId(scoped.namespace));if(!scoped.defaults)throw new BridgeError('bad-args','This host does not provide shared tool defaults.');return scoped;}
+const undoCommandScope=(args:ToolArgs)=>({projectId:requireString(args,'projectId'),eraId:optString(args,'eraId')||undefined,namespace:requireString(args,'namespace'),documentId:requireString(args,'documentId')});
 export const LOCAL_TOOL_HANDLERS={
+ async wh_local_tool_command_list(args:ToolArgs){return {commands:await listLocalToolUndoCommands(undoCommandScope(args))};},
+ async wh_local_tool_command_run(args:ToolArgs){
+  try{return await runLocalToolUndoCommand(undoCommandScope(args),requireString(args,'instanceId'),requireString(args,'commandId'),args.input);}
+  catch(reason){if(reason instanceof LocalToolCommandInputError)throw new BridgeError('bad-args',reason.message);throw reason;}
+ },
  ...LOCAL_LIVE_CONTENT_HANDLERS,
  ...LOCAL_RUNTIME_HANDLERS,
  ...LOCAL_CONVERGENCE_HANDLERS,

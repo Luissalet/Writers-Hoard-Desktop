@@ -1,4 +1,5 @@
 import '@/engines';
+import Dexie from 'dexie';
 import {act, Suspense, useLayoutEffect} from 'react';
 import {createRoot} from 'react-dom/client';
 import {MemoryRouter, Route, Routes, useLocation, useParams} from 'react-router-dom';
@@ -474,7 +475,7 @@ export async function testLocalToolBesidePickerStates(): Promise<string[]> {
 }
 
 export async function testLocalToolBesideAll(): Promise<string[]> {
-  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates()];
+  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates(), ...await testSourceAuthorUndoCommand()];
 }
 
 /** Product CSS runner handshake only; ROOT executes this export in its later UI batch. */
@@ -627,5 +628,129 @@ export async function testSourceBlockFocus(): Promise<string[]> {
     const unavailable = await open('notes');
     assert(!unavailable.available && !unavailable.applied && fixture.observe().main === null && await snapshot() === unmounted, 'Opening without a mounted workspace had an effect');
     return ['Real Source block panes retain full view, dedup, pending draft, fullscreen, normal save and Undo, close/reopen, unknown fallback, scoped inheritance and unavailable shell'];
+  });
+}
+
+export async function testSourceAuthorUndoCommand(): Promise<string[]> {
+  return withSourceBlockFocusFixture(async fixture => {
+    const scope = {projectId: fixture.projectId, namespace: fixture.namespace, documentId: fixture.documentId};
+    const reader = createLocalToolClient(scope.projectId, documentNotebook, {documentId: scope.documentId, readOnly: true});
+    const documentHost = () => sourceHost(main(), scope.documentId)!;
+    const action = (label: string) => button(documentHost(), label);
+    const textbox = () => node<HTMLTextAreaElement>('textarea[aria-label="Notes"]', documentHost());
+    const initial = await reader.read();
+    const commandId = 'add-review-checklist';
+    async function commands() {
+      const reply = await runBridgeTool('wh_local_tool_command_list', scope);
+      assert(reply.ok, JSON.stringify(reply));
+      return (reply.result as {commands: {instanceId:string;id:string;label:{en:string;es:string};inputSchema:unknown}[]}).commands;
+    }
+    async function invoke(instanceId: string, input?: unknown, overrides = {}) {
+      return runBridgeTool('wh_local_tool_command_run', {...scope,instanceId,commandId,...(input===undefined?{}:{input}),...overrides});
+    }
+    async function change(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, value);
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+        await pause();
+      });
+    }
+    async function saveNote(value: string) {
+      await change(textbox(), value);
+      await click(action('Save notes'));
+      await until(() => textbox().value === value && !action('Undo').disabled, 'Normal note edit did not enter history');
+      assert((await reader.read()).data.notes===value,'Normal note edit was not committed');
+    }
+    async function shortcut(target: HTMLElement, redo = false) {
+      const event = new KeyboardEvent('keydown',{key:'z',ctrlKey:true,shiftKey:redo,bubbles:true,cancelable:true});
+      await act(async () => {target.dispatchEvent(event);await pause();});
+      return event.defaultPrevented;
+    }
+    async function holdProjectAccess() {
+      let enter!:()=>void,release!:()=>void;
+      const entered=new Promise<void>(resolve=>{enter=resolve;});
+      const held=new Promise<void>(resolve=>{release=resolve;});
+      const transaction=db.transaction('rw',db.projects,async()=>{
+        await db.projects.get(scope.projectId);
+        enter();
+        await Dexie.waitFor(held);
+      });
+      await entered;
+      return {release,transaction};
+    }
+    async function expectAction(reply: Awaited<ReturnType<typeof invoke>>, available: boolean, applied: boolean) {
+      assert(reply.ok && JSON.stringify(reply.result)===JSON.stringify({available,applied}), JSON.stringify(reply));
+    }
+    const listed = await commands();
+    assert(listed.length===1 && listed[0].id===commandId && listed[0].label.en==='Add review checklist' && !!listed[0].inputSchema, 'Live author command was not discoverable');
+    const first = listed[0].instanceId;
+
+    await saveNote('Normal note before the review');
+    const edited=await reader.read();
+    const hold=await holdProjectAccess();
+    try {
+      await act(async()=>{Dexie.ignoreTransaction(()=>action('Add review checklist').click());await pause();});
+      await until(()=>action('Add review checklist').disabled,'The inline author command did not render busy during the queued access check');
+    } finally {hold.release();await hold.transaction;}
+    await until(()=>documentHost().textContent?.includes('Check names')===true,'The inline command did not commit after its access check');
+    assert((await commands())[0]?.instanceId===first,'A busy render replaced the live command binding');
+    const authored=await reader.read();
+    assert(authored.revision===edited.revision!+1 && authored.data.items.length===initial.data.items.length+2 &&
+      authored.data.items.slice(-2).map(item=>item.text).join('|')==='Review continuity|Check names' && authored.data.notes===edited.data.notes,
+      'The author command did not apply two related actions in one revision');
+    assert(!await shortcut(textbox()) && (await reader.read()).revision===authored.revision,'Text-field Undo was intercepted by the command history');
+    assert(await shortcut(action('Add review checklist')),'The command did not enter the normal keyboard dispatcher');
+    assert((await reader.read()).data.items.length===initial.data.items.length && (await reader.read()).data.notes===edited.data.notes,'First Undo was not the single author command');
+    assert(await shortcut(action('Add review checklist')) && (await reader.read()).data.notes===initial.data.notes,'Second Undo was not the prior normal edit');
+    assert(await shortcut(action('Add review checklist'),true) && (await reader.read()).data.notes===edited.data.notes,'First Redo did not restore the normal edit');
+    assert(await shortcut(action('Add review checklist'),true) && (await reader.read()).data.items.length===authored.data.items.length,'Second Redo did not restore the command');
+
+    await saveNote('Redo branch remains after a no-op');
+    await click(action('Undo'));
+    const beforeNoop=await reader.read();
+    assert(!action('Redo').disabled,'Normal Redo branch was not ready');
+    await expectAction(await invoke(first,{locale:'en'}),true,false);
+    const invalid=await invoke(first,{locale:'unknown'});
+    assert(!invalid.ok && invalid.code==='bad-args' && JSON.stringify(await reader.read())===JSON.stringify(beforeNoop) && !action('Redo').disabled,
+      'No-op or invalid input modified the saved state or removed Redo');
+    const draft=node<HTMLInputElement>('[aria-label="New item"]',documentHost());
+    await change(draft,'Uncommitted item');
+    await expectAction(await invoke(first,{locale:'es'}),true,false);
+    assert(draft.value==='Uncommitted item' && JSON.stringify(await reader.read())===JSON.stringify(beforeNoop),'Author command consumed a pending draft or wrote data');
+    await change(draft,'');
+    await until(()=>!action('Redo').disabled,'Declined draft command erased the old Redo branch');
+
+    await act(async()=>{await expectAction(await invoke(first,{locale:'es'}),true,true);await pause();});
+    assert(action('Redo').disabled && (await reader.read()).data.items.some(item=>item.text==='Comprobar los nombres'),'Author command did not replace normal Redo');
+    await click(action('Undo'));
+    assert(!action('Redo').disabled && !(await reader.read()).data.items.some(item=>item.text==='Comprobar los nombres'),'Command Undo/Redo branch was not created');
+    await saveNote('Normal edit replaces the command Redo');
+    assert(action('Redo').disabled,'Normal edit did not replace author Redo');
+
+    await click(action('Fullscreen'));
+    await until(()=>!!document.querySelector('[data-source-document-view="fullscreen"]'),'Fullscreen did not mount');
+    assert((await commands()).length===0,'Fullscreen advertised the hidden parent or the child');
+    await expectAction(await invoke(first,{locale:'es'}),false,false);
+    await click(button(node('[role="dialog"]'),'Save and return'));
+    await until(()=>!document.querySelector('[data-source-document-view="fullscreen"]'),'Fullscreen did not close');
+    const reissued=await commands();
+    assert(reissued.length===1 && reissued[0].instanceId!==first,'The command instance did not rotate after fullscreen');
+    const liveInstance=reissued[0].instanceId;
+    await expectAction(await invoke(first,{locale:'es'}),false,false);
+    await expectAction(await invoke(liveInstance,{locale:'es'},{eraId:'different-era'}),false,false);
+    await expectAction(await invoke(liveInstance,{locale:'es'},{documentId:'other-document'}),false,false);
+
+    const beforeRetire=await reader.read(),paused=await holdProjectAccess();
+    const retiring:{call?:ReturnType<typeof invoke>}={};
+    try{
+      await act(async()=>{retiring.call=Dexie.ignoreTransaction(()=>invoke(liveInstance,{locale:'es'}));await pause();});
+      await until(()=>action('Add review checklist').disabled,'Retirement case never reached the guarded access check');
+      await fixture.unmountWorkspace();
+    }finally{paused.release();await paused.transaction;}
+    assert(retiring.call,'Missing retiring request');
+    const late=await retiring.call;
+    assert(late.ok && JSON.stringify(late.result)===JSON.stringify({available:false,applied:false}) && (await commands()).length===0 &&
+      JSON.stringify(await reader.read())===JSON.stringify(beforeRetire),'A retired command committed or remained reachable');
+    return ['Real Source author command uses one normal receipt, shares Undo/Redo and branch with state, preserves text handling and rejects stale or pending mounts'];
   });
 }
