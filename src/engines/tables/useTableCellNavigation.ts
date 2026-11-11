@@ -16,15 +16,16 @@ interface CellBounds {
 }
 interface TableCellNavigationOptions {
   enabled: boolean;
+  sheet?: boolean;
   owner: number;
   viewKey: string;
   tableRef: RefObject<HTMLTableElement | null>;
   rows: readonly { id: string }[];
   columns: readonly { id: string }[];
   appendRow?: () => Promise<string | undefined>;
-  readCell: (row: number, column: number) => string;
-  pasteFrom: (text: string, row: number, column: number) => void;
-  clearRange: (bounds: CellBounds) => void;
+  readCell?: (row: number, column: number) => string;
+  pasteFrom?: (text: string, row: number, column: number) => void;
+  clearRange?: (bounds: CellBounds) => void;
 }
 
 const arrowSteps: Record<string, readonly [number, number]> = {
@@ -42,12 +43,13 @@ function positionAt(target: EventTarget | null): CellPosition | undefined {
   return rowId !== undefined && columnId !== undefined ? { rowId, columnId } : undefined;
 }
 
-export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows, columns, appendRow, readCell, pasteFrom, clearRange }: TableCellNavigationOptions) {
+export function useTableCellNavigation({ enabled, sheet, owner, viewKey, tableRef, rows, columns, appendRow, readCell, pasteFrom, clearRange }: TableCellNavigationOptions) {
   const id = useId();
   const hintId = id + '-hint';
   const [selection, setSelection] = useState<CellSelection>();
   const appending = useRef<{ owner: number }>(undefined);
   const flushing = useRef(new Map<Promise<boolean>, number>());
+  const textEditors = useRef(new WeakMap<HTMLInputElement, (text: string) => void>());
   const rowIndices = new Map(enabled ? rows.map((row, index) => [row.id, index]) : []);
   const columnIndices = new Map(enabled ? columns.map((column, index) => [column.id, index]) : []);
   const cellAt = (row: number, column: number): CellPosition | undefined =>
@@ -103,11 +105,18 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
     event.preventDefault();
     focusGrid(event.currentTarget, position, event.shiftKey ? anchor : undefined);
   };
-  const beginEdit = (position: CellPosition) => {
+  const bindTextEditor = (editor: HTMLInputElement, replaceText: (text: string) => void) => {
+    textEditors.current.set(editor, replaceText);
+  };
+  const beginEdit = (position: CellPosition, text?: string): boolean => {
     const editor = lookup(position)?.querySelector<HTMLElement>('input:not([disabled]), textarea:not([disabled]), select:not([disabled])');
-    if (!editor) return;
+    if (!editor) return false;
+    const replaceText = editor instanceof HTMLInputElement ? textEditors.current.get(editor) : undefined;
+    if (text !== undefined && !replaceText) return false;
     select(position);
     editor.focus();
+    if (text !== undefined) replaceText?.(text);
+    return true;
   };
   const onDoubleClick = (event: MouseEvent<HTMLTableElement>) => {
     const position = positionAt(event.target);
@@ -149,10 +158,17 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       if (fromGrid) beginEdit(position);
-      else focusGrid(grid, position);
+      else if (sheet) {
+        const row = rowIndices.get(position.rowId), column = columnIndices.get(position.columnId);
+        focusGrid(grid, row !== undefined && column !== undefined ? cellAt(row + 1, column) ?? position : position);
+      } else focusGrid(grid, position);
       return;
     }
-    if (fromGrid && bounds && !event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {
+    if (fromGrid && sheet && !event.repeat && [...event.key].length === 1 && beginEdit(position, event.key)) {
+      event.preventDefault();
+      return;
+    }
+    if (fromGrid && bounds && clearRange && !event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {
       event.preventDefault();
       if (!event.repeat && !hasPendingWrite()) clearRange(bounds);
       return;
@@ -184,7 +200,7 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
   };
 
   const onCopy = (event: ClipboardEvent<HTMLTableElement>) => {
-    if (event.target !== event.currentTarget || !bounds) return;
+    if (event.target !== event.currentTarget || !bounds || !readCell) return;
     const values: string[][] = [];
     for (let row = bounds.firstRow; row <= bounds.lastRow; row++) {
       const cells: string[] = [];
@@ -195,7 +211,7 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
     event.preventDefault();
   };
   const onPaste = (event: ClipboardEvent<HTMLTableElement>) => {
-    if (event.target !== event.currentTarget || !bounds) return;
+    if (event.target !== event.currentTarget || !bounds || !pasteFrom) return;
     const text = event.clipboardData.getData('text/plain');
     if (!text) return;
     event.preventDefault();
@@ -215,7 +231,7 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
       'data-keyboard-cell-row': rowId, 'data-keyboard-cell-column': columnId,
       'data-keyboard-selected': selected, 'data-keyboard-active': sameCell(active, position) };
   };
-  return { enabled, hintId, cellProps, trackWrite, gridProps: enabled ? {
+  return { enabled, hintId, cellProps, trackWrite, bindTextEditor, gridProps: enabled ? {
     role: 'grid' as const, tabIndex: 0, 'aria-activedescendant': activeId, 'aria-multiselectable': true,
     'aria-describedby': hintId,
     onFocus, onPointerDown, onDoubleClick, onKeyDown, onCopy, onPaste,
