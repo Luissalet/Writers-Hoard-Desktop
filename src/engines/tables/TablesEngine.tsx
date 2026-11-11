@@ -12,8 +12,9 @@ import { ArrowDownUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, D
 import { editTableRows, undoTableRows, type TableRowAction } from './rowActions';
 import { WorldEraConflict } from '@/services/worldEras/types';
 import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
-import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, moveTableColumn, removeRows, sortRows, toggleSort, type TableCondition } from './tableEdits';
+import { CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, moveTableColumn, removeRows, resizeTableColumn, sortRows, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
 import { useTableColumnDrag } from './useTableColumnDrag';
+import TableColumnHeader from './TableColumnHeader';
 import CsvDialog from './CsvDialog';
 import WorkbookTabs from './WorkbookTabs';
 import { workbookTabs } from './workbook';
@@ -159,13 +160,15 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const projected=storedTable?projectWorldTable(storedTable,entries,project?.codexTemplates??[]):undefined;
   const table=storedTable?{...storedTable,columns:projected!.columns}:undefined;
   const editedColumnWidth = table?.columns.find(column => column.id === columnDraft?.id)?.width;
+  const editedWidthLimits = tableColumnWidthLimits(editedColumnWidth);
   const run = async (work: () => Promise<void>, done?: () => void) => { if (busy) return; setBusy(true); setError(''); try { await work(); done?.(); } catch (reason) { setError(`${copy.error} ${reason instanceof Error?reason.message:''}`); } finally { setBusy(false); } };
   const change = (update: (table: WorldTable) => void) => { if (table) void run(() => changeTable(projectId, table.id, update)); };
   const projectedEntries = new Map(table?.codexType || table?.codexAllTypes ? entries.filter(entry => table.codexAllTypes || entry.type === table.codexType).map(entry => [entry.id, projectCodexEntry(entry, project?.codexTemplates ?? [])]) : []);
   // A live view of Codex cards: of one type, or of every type (read here, edited on the card).
   const live = Boolean(table?.codexType || table?.codexAllTypes), allTypes = Boolean(table?.codexAllTypes);
-  const columnDragEnabled = Boolean(table?.mode === 'table' && table.columns.length > 1 && !live &&
-    !table.codexTemplateId && !busy && !rowWorking && !columnDraft && !formulaDraft);
+  const canResizeColumns = table?.mode === 'table' && !live && !table.codexTemplateId;
+  const columnsBusy = busy || rowWorking || Boolean(columnDraft) || Boolean(formulaDraft);
+  const columnDragEnabled = Boolean(canResizeColumns && table.columns.length > 1 && !columnsBusy);
   const columnDrag = useTableColumnDrag(rowKey, table?.columns ?? [], columnDragEnabled, (id, target, expectedOrder) => {
     if (!table) return;
     void run(async () => {
@@ -177,6 +180,17 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       }
     });
   });
+  const resizeColumn = (id: string, width: number, expectedWidth?: number) => {
+    if (!table) return;
+    void run(async () => {
+      try {
+        await changeTable(projectId, table.id, current => { resizeTableColumn(current, id, width, expectedWidth); });
+      } catch (reason) {
+        if (reason instanceof Error && reason.message === 'table_column_width_conflict') throw new Error(copy.columnWidthConflict);
+        throw reason;
+      }
+    });
+  };
   const rows:DataRow[]=projected?.rows??[];
   const values = table?.mode === 'sheet' ? sheetValues(table) : null;
   const displayById = new Map(projected?.displayRows.map(row => [row.id, row]) ?? []);
@@ -334,7 +348,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
           <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.columnName}<input className={control} required value={columnDraft.name} onChange={event => setColumnDraft({ ...columnDraft, name: event.target.value })} /></label>
           {addingColumn && table.mode !== 'sheet' && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.columnKind}<select className={control} value={columnDraft.kind} onChange={event => setColumnDraft({ ...columnDraft, kind: event.target.value as DataColumn['kind'] })}>{kinds.map(kind => <option key={kind} value={kind}>{copy[kind]}</option>)}</select></label>}
           {addingColumn && table.codexType && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.field}<input className={control} value={columnDraft.field ?? ''} onChange={event => setColumnDraft({ ...columnDraft, field: event.target.value })} maxLength={200} /></label>}
-          {!addingColumn && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.width}<input type="number" min={Math.min(100, editedColumnWidth ?? 100)} max={Math.max(600, editedColumnWidth ?? 600)} className={`${control} w-28`} value={columnDraft.width ?? 180} onChange={event => setColumnDraft({ ...columnDraft, width: Number(event.target.value) })} /></label>}
+          {!addingColumn && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.width}<input type="number" min={editedWidthLimits.min} max={editedWidthLimits.max} className={`${control} w-28`} value={columnDraft.width ?? DEFAULT_TABLE_COLUMN_WIDTH} onChange={event => setColumnDraft({ ...columnDraft, width: Number(event.target.value) })} /></label>}
           <button disabled={busy} type="submit" className={button}>{copy.save}</button><button type="button" className={button} onClick={() => setColumnDraft(null)}>{copy.cancel}</button>
         </form>}
         <div className="flex flex-wrap items-center gap-3 px-4 pb-3"><input className={`${control} min-w-40 flex-1`} aria-label={copy.search} placeholder={copy.search} value={query} onChange={event => { setQuery(event.target.value); setMatchAt(0); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); stepMatch(event.shiftKey ? -1 : 1); } }} />
@@ -362,10 +376,11 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
           <table ref={tableRef} className="w-max min-w-full border-collapse text-sm text-text-primary"><thead className="sticky top-0 z-10 bg-surface"><tr><th className="border-r border-b border-border px-3 py-2 text-text-muted">{!live && <input type="checkbox" data-testid="table-select-all" aria-label={copy.selectAll} className="mr-2 accent-accent-gold" disabled={!expandedRows.length} checked={expandedRows.length > 0 && expandedRows.every(row => selectedRows.includes(row.id))} onChange={event => {
             const ids = new Set(expandedRows.map(row => row.id));
             setSelectedRows(!groupRules.length ? event.target.checked ? [...ids] : [] : event.target.checked ? [...new Set([...selectedRows, ...ids])] : selectedRows.filter(id => !ids.has(id)));
-          }} />}#</th>{table.columns.map((column, index) => <th key={column.id} data-table-column-id={column.id} data-table-column-drop={columnDrag.target?.id === column.id ? columnDrag.target.side : undefined} style={{ width: column.width ?? 180, minWidth: column.width ?? 180 }} className="relative border-r border-b border-border p-2 text-left font-medium" aria-sort={sorts[0]?.id === column.id ? sorts[0].descending ? 'descending' : 'ascending' : 'none'}>
-            {columnDrag.target?.id === column.id && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 w-0.5 bg-accent-gold"
-              style={columnDrag.target.side === 'before' ? { insetInlineStart: 0 } : { insetInlineEnd: 0 }} />}
-            <div className={(column.width ?? 180) < 100 ? "flex w-full min-w-0 max-w-full flex-col items-start gap-1" : "flex items-center justify-between gap-1"}><button {...columnDrag.bind(column.id)} className={(column.width ?? 180) < 100 ? "flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 text-left hover:text-accent-gold" : "flex min-h-9 items-center gap-2 text-left hover:text-accent-gold"} disabled={busy && !formulaDraft} onClick={event => formulaDraft?insertToken(`@[${column.name}]`):saveView({ sorts: toggleSort(sorts, column.id, event.shiftKey) })} title={[(column.width ?? 180) < 100 ? column.name : '', copy.sortMore, columnDragEnabled ? copy.dragColumn : ''].filter(Boolean).join(' · ')}><span className={(column.width ?? 180) < 100 ? "w-0 min-w-0 flex-1 truncate" : undefined}>{table.mode === 'sheet' ? `${cellKey(index, 0).replace(/\d+$/, '')} · ` : ''}{column.name}</span><ArrowDownUp size={12} className={(column.width ?? 180) < 100 ? "shrink-0" : undefined} />{sorts.length > 1 && sorts.some(item => item.id === column.id) && <span data-testid={`table-sort-rank-${column.name}`} className="rounded bg-elevated px-1 text-[10px] text-accent-gold">{sorts.findIndex(item => item.id === column.id) + 1}{sorts.find(item => item.id === column.id)!.descending ? '↓' : '↑'}</span>}</button>
+          }} />}#</th>{table.columns.map((column, index) => <TableColumnHeader key={JSON.stringify([rowKey, column.id])} column={column}
+            sort={sorts[0]?.id === column.id ? sorts[0].descending ? 'descending' : 'ascending' : 'none'}
+            drop={columnDrag.target?.id === column.id ? columnDrag.target.side : undefined}
+            resize={canResizeColumns ? { label: `${copy.resizeColumn} ${column.name}`, disabled: columnsBusy, save: (width, expected) => resizeColumn(column.id, width, expected) } : undefined}>
+            <div className={(column.width ?? 180) < 100 ? "flex w-full min-w-0 max-w-full flex-col items-start gap-1" : "flex items-center justify-between gap-1"}><button {...columnDrag.bind(column.id)} className={(column.width ?? 180) < 100 ? "flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 text-left hover:text-accent-gold" : "flex min-h-9 min-w-0 items-center gap-2 text-left hover:text-accent-gold"} disabled={busy && !formulaDraft} onClick={event => formulaDraft?insertToken(`@[${column.name}]`):saveView({ sorts: toggleSort(sorts, column.id, event.shiftKey) })} title={[canResizeColumns || (column.width ?? 180) < 100 ? column.name : '', copy.sortMore, columnDragEnabled ? copy.dragColumn : ''].filter(Boolean).join(' · ')}><span className={(column.width ?? 180) < 100 ? "w-0 min-w-0 flex-1 truncate" : canResizeColumns ? "min-w-0 truncate" : undefined}>{table.mode === 'sheet' ? `${cellKey(index, 0).replace(/\d+$/, '')} · ` : ''}{column.name}</span><ArrowDownUp size={12} className={canResizeColumns || (column.width ?? 180) < 100 ? "shrink-0" : undefined} />{sorts.length > 1 && sorts.some(item => item.id === column.id) && <span data-testid={`table-sort-rank-${column.name}`} className="rounded bg-elevated px-1 text-[10px] text-accent-gold">{sorts.findIndex(item => item.id === column.id) + 1}{sorts.find(item => item.id === column.id)!.descending ? '↓' : '↑'}</span>}</button>
               <details className="relative"><summary aria-label={`${copy.columnActions} ${column.name}`} className="flex min-h-9 min-w-9 cursor-pointer list-none items-center justify-center rounded-lg text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold"><Settings2 size={15} /></summary>
                 <div className="absolute right-0 z-20 mt-1 w-52 space-y-1 rounded-lg border border-border bg-surface p-2 shadow-lg" onClick={event => { if ((event.target as Element).closest('button')) event.currentTarget.parentElement?.removeAttribute('open'); }}>
                   <button aria-label={`${copy.editColumn} ${column.name}`} className={`${button} w-full justify-start`} disabled={busy} onClick={() => {if(columnCalculation(table,column,project.codexTemplates??[]))void beginCalculation(column);else void run(async()=>{const read=await readWorldDocument(scope,'tables',table.id);if(!read)throw Error('table_missing');setColumnVersion(read.version);setColumnTemplateRevision(project.codexTemplates?.find(item=>item.id===table.codexTemplateId)?.revision);setAddingColumn(false);setColumnDraft({...column});});}}><Settings2 size={15} />{copy.editColumn}</button>
@@ -378,7 +393,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
                 </div>
               </details>
             </div>
-          </th>)}<th className="border-b border-border px-2" /></tr></thead>
+          </TableColumnHeader>)}<th className="border-b border-border px-2" /></tr></thead>
             <tbody>{groupItems.map(item => {
               if (item.kind === 'group') return <tr key={`group:${item.key}`} hidden={item.hidden} data-table-group-depth={item.depth + 1}>
                 <th colSpan={table.columns.length + 2} className="bg-elevated px-2 py-1 text-left font-medium">
