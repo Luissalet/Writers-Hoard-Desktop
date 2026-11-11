@@ -8,7 +8,8 @@ import {deleteProject} from '@/db/operations';
 import {getEngine} from '@/engines/_registry';
 import {getPrimaryEnginePaneOpenBeside} from '@/engines/_shared/EnginePaneContext';
 import {registerLocalToolModules} from '@/engines/local/registry';
-import {defineLocalTool, nextLocalToolUndoStep, useLocalToolUndoProvider, type LocalToolClient, type LocalToolProps, type LocalToolUndoMode} from '@/engines/local/sdk';
+import {defineLocalTool, LocalToolUndoAnchor, nextLocalToolUndoStep, useLocalToolUndoableCommand, useLocalToolUndoProvider, type LocalToolClient, type LocalToolProps, type LocalToolUndoableCommand, type LocalToolUndoMode} from '@/engines/local/sdk';
+import {LocalToolUndoBoundary} from '@/engines/local/LocalToolUndoBoundary';
 import {createLocalToolClient} from '@/engines/local/storage';
 import documentNotebook from '@/engines/local/examples/documentNotebookDefinition';
 import type {LinkedNotebookState} from '@/engines/local/examples/LinkedNotebook';
@@ -475,7 +476,7 @@ export async function testLocalToolBesidePickerStates(): Promise<string[]> {
 }
 
 export async function testLocalToolBesideAll(): Promise<string[]> {
-  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates(), ...await testSourceAuthorUndoCommand(), ...await testSourceAuthorUndoProvider()];
+  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates(), ...await testSourceAuthorUndoCommand(), ...await testSourceAuthorUndoProvider(), ...await testSourceAuthorUndoableCommand()];
 }
 
 /** Product CSS runner handshake only; ROOT executes this export in its later UI batch. */
@@ -946,5 +947,277 @@ export async function testSourceAuthorUndoProvider(): Promise<string[]> {
     assert(JSON.stringify(await reader.read())===beforeFault&&!probe().querySelector('[role="alert"]'),'Old work changed the replacement or persisted data');
     checks.push('Live SDK model selection checks stamps and unranked priority, handles errors without fallback, preserves branches and invalidates an async old model within the same mount');
   },true,ModelNotebook);
+  return checks;
+}
+
+export async function testSourceAuthorUndoableCommand(): Promise<string[]> {
+  const checks: string[] = [];
+  type Provider = {instanceId: string; providerToken: string; providerId: string; canUndo: boolean; canRedo: boolean};
+  type Scope = {projectId: string; documentId: string; namespace: string};
+  async function listed(scope: Scope, id: string): Promise<Provider[]> {
+    const reply = await runBridgeTool('wh_local_tool_undo_provider_list', scope);
+    assert(reply.ok, JSON.stringify(reply));
+    return (reply.result as {providers: Provider[]}).providers.filter(provider => provider.providerId === id);
+  }
+  function invoke(scope: Scope, provider: Provider, mode: LocalToolUndoMode) {
+    const {instanceId, providerId, providerToken} = provider;
+    return runBridgeTool('wh_local_tool_undo_provider_run', {...scope, instanceId, providerId, providerToken, mode});
+  }
+  function expectProvider(reply: Awaited<ReturnType<typeof invoke>>, available: boolean, applied: boolean) {
+    assert(reply.ok && JSON.stringify(reply.result) === JSON.stringify({available, applied}), JSON.stringify(reply));
+  }
+  async function shortcut(target: HTMLElement, redo = false) {
+    const event = new KeyboardEvent('keydown', {key: 'z', ctrlKey: true, shiftKey: redo, bubbles: true, cancelable: true});
+    await act(async () => { target.dispatchEvent(event); await pause(); });
+    return event.defaultPrevented;
+  }
+
+  await withSourceBlockFocusFixture(async fixture => {
+    const scope = {projectId: fixture.projectId, documentId: fixture.documentId, namespace: fixture.namespace};
+    const reader = createLocalToolClient(scope.projectId, documentNotebook, {documentId: scope.documentId, readOnly: true});
+    const principal = () => sourceHost(main(), scope.documentId)!;
+    const list = (host: HTMLElement) => node<HTMLElement>('section[aria-label="Review shortlist"]', host);
+    const marks = (host: HTMLElement) => [...list(host).querySelectorAll('button[aria-pressed="true"]')].map(item => item.getAttribute('aria-label'));
+    await click(button(principal(), 'Add review checklist'));
+    await until(() => list(principal()).querySelectorAll('button[aria-pressed]').length >= 3, 'Checklist items did not become available');
+    const saved = JSON.stringify(await reader.read());
+    const choices = [...list(principal()).querySelectorAll<HTMLButtonElement>('button[aria-pressed]')];
+    await click(choices[0]); await click(choices[1]);
+    assert(marks(principal()).length === 2, 'Shortlist did not mark both items');
+    assert(!await shortcut(node('textarea', principal())), 'Native note Undo was intercepted');
+    assert(await shortcut(choices[1]), 'Shortlist Undo shortcut was not handled');
+    await until(() => marks(principal()).length === 0, 'One anchored Undo did not reverse both marks');
+    assert(await shortcut(choices[0], true), 'Shortlist Redo shortcut was not handled');
+    await until(() => marks(principal()).length === 2, 'One anchored Redo did not restore both marks');
+    const entries = await listed(scope, 'review-shortlist');
+    assert(entries.length === 1 && entries[0].canUndo && !entries[0].canRedo, 'Shortlist did not publish its live journal');
+    const principalProvider = entries[0];
+    await act(async () => { expectProvider(await invoke(scope, principalProvider, 'undo'), true, true); });
+    assert(marks(principal()).length === 0, 'Provider Undo did not reverse the visible batch');
+    await act(async () => { expectProvider(await invoke(scope, principalProvider, 'redo'), true, true); });
+    assert(marks(principal()).length === 2, 'Provider Redo did not restore the visible batch');
+
+    await act(async () => {
+      const opened = await runBridgeTool('wh_local_tool_document_open', {projectId: scope.projectId, documentId: scope.documentId, blockId: 'items'});
+      assert(opened.ok && JSON.stringify(opened.result) === JSON.stringify({available: true, applied: true}), JSON.stringify(opened));
+      await pause();
+    });
+    await until(() => (activeCompanion()?.querySelectorAll('section[aria-label="Review shortlist"] button[aria-pressed]').length ?? 0) >= 3, 'Companion shortlist rows were not available');
+    const companion = () => sourceHost(activeCompanion()!, scope.documentId)!;
+    assert(marks(companion()).length === 0 && marks(principal()).length === 2, 'Companion reused the principal selection');
+    await click(node('button[aria-pressed]', list(companion())));
+    await click(button(list(companion()), 'Undo selection'));
+    await until(() => marks(companion()).length === 0, 'Companion Undo did not settle');
+    assert(marks(principal()).length === 2, 'Companion Undo changed the principal');
+    const both = await listed(scope, 'review-shortlist');
+    assert(both.length === 2 && both.some(entry => entry.providerToken === principalProvider.providerToken) &&
+      both.some(entry => entry.providerToken !== principalProvider.providerToken && entry.canRedo), 'Companion did not publish its own journal');
+    const primaryButtons = () => [...list(principal()).querySelectorAll<HTMLButtonElement>('button[aria-pressed]')];
+    await click(primaryButtons()[2]);
+    await click(node('button[aria-pressed]', list(companion())));
+    await click(primaryButtons()[0]);
+    assert(await shortcut(primaryButtons()[0]), 'Principal Undo did not run after an intervening companion step');
+    await until(() => marks(principal()).length === 3, 'A companion step did not break the principal group');
+    assert(marks(companion()).length === 1, 'Principal Undo changed the companion selection');
+    assert(JSON.stringify(await reader.read()) === saved, 'Session selection wrote the Source document');
+    checks.push('Real shortlist reverses consecutive marks through keys and the opt-in provider, preserves native text Undo and keeps companion selection and saved data separate');
+  });
+
+  interface Model {
+    marks: Set<string>;
+    stale: Set<string>;
+    failUndo?: string;
+    failRedo?: string;
+    staleError?: string;
+    wait?: {id: string; promise: Promise<void>};
+  }
+  const model = (): Model => ({marks: new Set(), stale: new Set()});
+  const models = {root: model(), child: model(), peer: model(), sibling: model(), nested: model(), unavailable: model()};
+  type Name = keyof typeof models;
+  type History = ReturnType<typeof useLocalToolUndoableCommand<LinkedNotebookState, Model>>;
+  const histories = new Map<Name, History>();
+  const calls: string[] = [];
+  const Notebook = documentNotebook.component;
+  const command = (id: string, batchKey?: string): LocalToolUndoableCommand<Model> => ({
+    label: {en: id, es: id}, batchKey,
+    isStale(current) {
+      if (current.staleError === id) throw Error('stale probe failed');
+      return current.stale.has(id);
+    },
+    async undo(current, operation) {
+      calls.push('undo:' + id);
+      if (current.wait?.id === id) await current.wait.promise;
+      if (!operation.isCurrent() || current.failUndo === id) return false;
+      current.marks.delete(id);
+      return true;
+    },
+    async redo(current, operation) {
+      calls.push('redo:' + id);
+      if (!operation.isCurrent() || current.failRedo === id) return false;
+      current.marks.add(id);
+      return true;
+    },
+  });
+  function Probe({name, client, context, selected, expose = false}: LocalToolProps<LinkedNotebookState> & {name: Name; selected: Model; expose?: boolean}) {
+    const history = useLocalToolUndoableCommand(name === 'unavailable' ? null : client, context, selected,
+      expose ? {expose: {id: 'exposed-inverse-probe'}} : undefined);
+    useLayoutEffect(() => {
+      histories.set(name, history);
+      return () => { histories.delete(name); };
+    }, [name, history]);
+    return <button type="button" data-undo-probe={name}>{name}</button>;
+  }
+  function ProbedNotebook(props: LocalToolProps<LinkedNotebookState>) {
+    const [child, setChild] = useState(models.child);
+    const [anchor, setAnchor] = useState(true);
+    const [expose, setExpose] = useState(false);
+    return <><Notebook {...props}/>
+      <Probe {...props} name="root" selected={models.root}/>
+      <Probe {...props} name="unavailable" selected={models.unavailable}/>
+      <LocalToolUndoAnchor>
+        <Probe {...props} name="sibling" selected={models.sibling}/>
+      </LocalToolUndoAnchor>
+      {anchor && <LocalToolUndoAnchor>
+        <Probe {...props} name="child" selected={child} expose={expose}/>
+        <Probe {...props} name="peer" selected={models.peer}/>
+        <input aria-label="Native text in anchor"/>
+        <LocalToolUndoBoundary><Probe {...props} name="nested" selected={models.nested}/></LocalToolUndoBoundary>
+      </LocalToolUndoAnchor>}
+      <button type="button" onClick={() => { models.child = model(); setChild(models.child); }}>Replace command model</button>
+      <button type="button" onClick={() => setExpose(value => !value)}>Toggle command exposure</button>
+      <button type="button" onClick={() => setAnchor(false)}>Retire command anchor</button>
+    </>;
+  }
+
+  await withFixture('undoable-command-sdk', false, async fixture => {
+    const host = () => sourceHost(main(), fixture.sourceId)!;
+    const target = (name: Name) => node<HTMLElement>('[data-undo-probe="' + name + '"]', host());
+    const history = (name: Name) => { const value = histories.get(name); assert(value, 'Missing controller ' + name); return value; };
+    const record = async (name: Name, id: string, key?: string) => {
+      const spec = command(id, key);
+      await act(async () => {
+        models[name].marks.add(id);
+        assert(history(name).push(spec), 'Refused fixture push: ' + id);
+      });
+      // Existing entries keep the callbacks captured at push.
+      spec.undo = async () => { throw Error('mutated callback'); };
+    };
+    const reverse = async (name: Name, mode: LocalToolUndoMode, expected: boolean) => {
+      await act(async () => { assert(await history(name)[mode]() === expected, 'Unexpected ' + mode + ' result for ' + name); });
+    };
+    const expectCalls = (expected: string[]) => assert(JSON.stringify(calls.splice(0)) === JSON.stringify(expected), 'Wrong inversion order: ' + JSON.stringify(expected));
+    await until(() => !!histories.get('child')?.available && !!histories.get('nested')?.available, 'Command probes did not mount');
+    assert(!history('unavailable').available && !history('unavailable').push(command('no-client')) && !await history('unavailable').undo(), 'Null client offered a history');
+
+    await record('child', 'old-child');
+    await record('root', 'new-root');
+    await record('sibling', 'latest-sibling');
+    assert(!await shortcut(target('nested')), 'An empty nested Boundary consumed an outer history');
+    assert(!await shortcut(node('input[aria-label="Native text in anchor"]', host())), 'Native input in anchor consumed Undo');
+    assert(await shortcut(target('child')), 'Child did not consume its own Undo');
+    await until(() => !history('child').busy && calls.length > 0, 'Child inversion did not settle');
+    expectCalls(['undo:old-child']);
+    assert(models.root.marks.has('new-root') && models.sibling.marks.has('latest-sibling'), 'A deeper candidate did not beat root and exclude sibling');
+    assert(await shortcut(target('root')), 'Root did not retain its own Undo');
+    await until(() => !history('root').busy && calls.length > 0, 'Root inversion did not settle');
+    expectCalls(['undo:new-root']);
+    await record('child', 'rank-child');
+    await record('peer', 'rank-peer');
+    assert(await shortcut(target('child')), 'Same-level Undo was not handled');
+    await until(() => !history('peer').busy && calls.length > 0, 'Same-level inversion did not settle');
+    expectCalls(['undo:rank-peer']);
+
+    await record('child', 'barrier-before', 'barrier');
+    await record('sibling', 'intervening-anchor');
+    await record('child', 'barrier-after', 'barrier');
+    await reverse('child', 'undo', true);
+    expectCalls(['undo:barrier-after']);
+    assert(models.child.marks.has('barrier-before'), 'A shared step in a sibling anchor did not break batching');
+
+    for (const id of ['group-a', 'group-b', 'group-c']) await record('child', id, 'partial');
+    models.child.failUndo = 'group-b';
+    await reverse('child', 'undo', false);
+    expectCalls(['undo:group-c', 'undo:group-b']);
+    assert(models.child.marks.has('group-b') && !models.child.marks.has('group-c') &&
+      !history('child').canRedo && !!history('child').error &&
+      !history('child').push(command('partial-push')), 'Partial Undo lost its unfinished direction');
+    models.child.failUndo = undefined;
+    await reverse('child', 'undo', true);
+    expectCalls(['undo:group-b', 'undo:group-a']);
+    models.child.failRedo = 'group-b';
+    await reverse('child', 'redo', false);
+    expectCalls(['redo:group-a', 'redo:group-b']);
+    assert(models.child.marks.has('group-a') && !models.child.marks.has('group-b') && !history('child').canUndo, 'Partial Redo advanced past the refusal');
+    models.child.failRedo = undefined;
+    await reverse('child', 'redo', true);
+    expectCalls(['redo:group-b', 'redo:group-c']);
+
+    await record('child', 'stale-skip', 'stale');
+    models.child.staleError = 'stale-skip';
+    await reverse('child', 'undo', false);
+    expectCalls([]);
+    assert(history('child').error === 'stale probe failed', 'A throwing stale predicate lost feedback');
+    models.child.staleError = undefined;
+    models.child.stale.add('stale-skip');
+    await reverse('child', 'undo', true);
+    expectCalls(['undo:group-c', 'undo:group-b', 'undo:group-a']);
+
+    await record('child', 'old-first', 'late'); await record('child', 'old-last', 'late');
+    const old = models.child;
+    const oldHistory = history('child');
+    let release!: () => void;
+    old.wait = {id: 'old-last', promise: new Promise<void>(resolve => { release = resolve; })};
+    let running!: Promise<boolean>;
+    await act(async () => { running = oldHistory.undo(); await pause(); });
+    try {
+      await until(() => calls.includes('undo:old-last'), 'The inverse did not reach its await');
+      assert(oldHistory.busy && !oldHistory.push(command('busy-push')), 'Busy push was accepted');
+      await click(button(host(), 'Replace command model'));
+    } finally {
+      release();
+    }
+    await act(async () => { assert(!await running, 'Retired inverse reported completion'); });
+    expectCalls(['undo:old-last']);
+    assert(old.marks.has('old-last') && old.marks.has('old-first') && models.child.marks.size === 0 &&
+      !oldHistory.push(command('old-model')) && !await oldHistory.undo(), 'Old work retargeted the replacement model');
+
+    const scope = {projectId: fixture.projectId, documentId: fixture.sourceId, namespace: documentNotebook.namespace};
+    await click(button(host(), 'Toggle command exposure'));
+    await until(() => !!histories.get('child')?.available, 'Opt-in provider did not become available');
+    await record('child', 'exposed-busy');
+    const exposed = await listed(scope, 'exposed-inverse-probe');
+    assert(exposed.length === 1 && exposed[0].canUndo, 'Opt-in probe did not list its live step');
+    let unlock!: () => void;
+    let holdEntered = false;
+    const held = new Promise<void>(resolve => { unlock = resolve; });
+    const transaction = db.transaction('rw', db.projects, async () => {
+      await db.projects.get(scope.projectId);
+      holdEntered = true;
+      await Dexie.waitFor(held);
+    });
+    let pending!: ReturnType<typeof invoke>;
+    try {
+      await until(() => holdEntered, 'Project access hold did not start');
+      await act(async () => { pending = Dexie.ignoreTransaction(() => invoke(scope, exposed[0], 'undo')); await pause(); });
+      assert(history('child').busy && !history('child').push(command('during-access')), 'Push was accepted during provider access');
+      expectCalls([]);
+    } finally {
+      unlock();
+      await transaction;
+    }
+    await act(async () => { expectProvider(await pending, true, true); });
+    expectCalls(['undo:exposed-busy']);
+    const exposedHistory = history('child');
+    await click(button(host(), 'Toggle command exposure'));
+    expectProvider(await invoke(scope, exposed[0], 'redo'), false, false);
+    assert(!exposedHistory.push(command('retired-exposure')) && !history('child').canRedo, 'Changed opt-in retained the old journal or token');
+
+    await record('child', 'retired-anchor');
+    const retired = history('child');
+    await click(button(host(), 'Retire command anchor'));
+    assert(!retired.push(command('after-anchor')) && !await retired.undo(), 'A withdrawn anchor retained live commands');
+    expectCalls([]);
+    checks.push('Anchor depth and same-level chronology, batch barriers, partial inverse cursors, stale handling and retirement work through the Source host');
+  }, true, ProbedNotebook);
   return checks;
 }

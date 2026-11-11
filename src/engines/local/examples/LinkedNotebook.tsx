@@ -1,9 +1,9 @@
 import {registerPendingFlusher} from '@/services/pendingWrites';
 /** Normal trusted-source example; import this definition from an installed module to enable it. */
-import {useEffect,useId,useLayoutEffect,useMemo,useState} from 'react';
+import {useEffect,useId,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {useTranslation} from '@/i18n/useTranslation';
-import {nextLocalToolUndoStep,useLocalToolUndoCommand,useLocalToolUndoProvider,type LocalToolJson,type LocalToolProps,type LocalToolSnapshot} from '../sdk';
+import {LocalToolUndoAnchor,nextLocalToolUndoStep,useLocalToolUndoableCommand,useLocalToolUndoCommand,useLocalToolUndoProvider,type LocalToolJson,type LocalToolProps,type LocalToolSnapshot} from '../sdk';
 import type {LocalToolStateAction} from '../stateActions';
 import {useLocalToolState} from '../useLocalToolState';
 import {LocalToolReferencePicker} from '../ReferencePicker';
@@ -15,6 +15,68 @@ interface RehearsalStep {order:string[]|undefined;step:number}
 interface RehearsalModel {
  client:LocalToolProps<LinkedNotebookState>['client'];active:boolean;applying:boolean;baseline?:LocalToolSnapshot<LinkedNotebookState>;order?:string[];
  undo:RehearsalStep[];redo:RehearsalStep[];error:boolean;
+}
+
+function ReviewShortlist({client, context, items, es}: Pick<LocalToolProps<LinkedNotebookState>, 'client' | 'context'> & {
+ items: LinkedNotebookState['items'];
+ es: boolean;
+}) {
+ const itemIds = useRef(new Set<string>());
+ const model = useMemo(() => ({client, included: new Set<string>()}), [client]);
+ const history = useLocalToolUndoableCommand(model.client, context, model, {
+  expose: {id: 'review-shortlist', label: {en: 'Review shortlist', es: 'Lista para revisar'}},
+ });
+ useLayoutEffect(() => { itemIds.current = new Set(items.map(item => item.id)); }, [items]);
+ if (!history.available) return null;
+ function setIncluded(included: Set<string>, id: string, selected: boolean) {
+  if (selected) included.add(id);
+  else included.delete(id);
+ }
+ function toggle(id: string) {
+  if (history.busy || !itemIds.current.has(id)) return;
+  const wasIncluded = model.included.has(id);
+  setIncluded(model.included, id, !wasIncluded);
+  const recorded = history.push({
+   label: wasIncluded ? {en: 'Remove from review', es: 'Quitar de la revisión'} : {en: 'Include in review', es: 'Incluir en la revisión'},
+   batchKey: 'review-shortlist',
+   isStale: () => !itemIds.current.has(id),
+   async undo(current, operation) {
+    if (!operation.isCurrent()) return false;
+    setIncluded(current.included, id, wasIncluded);
+    return true;
+   },
+   async redo(current, operation) {
+    if (!operation.isCurrent()) return false;
+    setIncluded(current.included, id, !wasIncluded);
+    return true;
+   },
+  });
+  if (!recorded) setIncluded(model.included, id, wasIncluded);
+ }
+ return <section aria-label={es ? 'Lista para revisar' : 'Review shortlist'} className="space-y-2 border-t border-border pt-4">
+  <h3 className="font-medium">{es ? 'Lista para revisar' : 'Review shortlist'}</h3>
+  <p className="max-w-prose text-sm text-text-muted">{es ? 'Marca los apuntes que quieras revisar en esta vista.' : 'Mark the items you want to review in this view.'}</p>
+  {items.length === 0 && <p className="text-sm text-text-muted">{es ? 'Añade un apunte para empezar la lista.' : 'Add an item to start the shortlist.'}</p>}
+  <ol className="space-y-2">{items.map(row => {
+   const selected = model.included.has(row.id);
+   return <li key={row.id} className="flex flex-wrap items-center justify-between gap-2">
+    <span className="min-w-0 flex-1 break-words">{row.text}</span>
+    <button type="button" className={button} aria-pressed={selected} disabled={history.busy}
+     aria-label={es ? `Revisar ${row.text}` : `Review ${row.text}`} onClick={() => toggle(row.id)}>
+     {selected ? (es ? 'En la lista' : 'On the list') : (es ? 'Incluir' : 'Include')}
+    </button>
+   </li>;
+  })}</ol>
+  <div className="flex flex-wrap gap-2">
+   <button type="button" className={button} disabled={!history.canUndo || history.busy} onClick={() => void history.undo()}>
+    {es ? 'Deshacer selección' : 'Undo selection'}
+   </button>
+   <button type="button" className={button} disabled={!history.canRedo || history.busy} onClick={() => void history.redo()}>
+    {es ? 'Rehacer selección' : 'Redo selection'}
+   </button>
+  </div>
+  {history.error && <p role="alert" className="text-sm text-danger">{es ? 'No se pudo cambiar la selección.' : 'The selection could not be changed.'}</p>}
+ </section>;
 }
 
 export function LinkedNotebook({client,context}:LocalToolProps<LinkedNotebookState>){
@@ -160,6 +222,9 @@ export function LinkedNotebook({client,context}:LocalToolProps<LinkedNotebookSta
     {rehearsal.applying&&<p role="status" className="text-sm text-text-muted">{es?'Actualizando el orden…':'Updating order…'}</p>}
     {(rehearsal.error||rehearsalHistory.error)&&<p role="alert" className="max-w-prose text-sm text-danger">{es?'No se cambió el orden guardado. El ensayo sigue aquí; si los apuntes cambiaron, descártalo para partir de su versión actual.':'The saved order was not changed. Your rehearsal remains here; if the saved items changed, discard it to start from their current version.'}</p>}
    </section>}
+   {context?.canEdit && context.undoCommands && <LocalToolUndoAnchor>
+    <ReviewShortlist client={client} context={context} items={state.snapshot?.data.items ?? []} es={es}/>
+   </LocalToolUndoAnchor>}
   </div>}
   {whole&&<LocalToolReferencePicker client={client} value={state.snapshot?.data.linked??null} disabled={!state.snapshot||state.busy} onChange={reference=>state.apply([{type:'set',field:'linked',value:reference as unknown as LocalToolJson}])}/>}
  </section>;

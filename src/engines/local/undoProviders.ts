@@ -107,7 +107,7 @@ export async function runLocalToolUndoProvider(scope:Scope,instanceId:string,pro
 }
 
 /** Register a live author-owned model; its stack is never serialized into Writer. */
-export function useLocalToolUndoProvider<T extends LocalToolJson,M extends object>(client:LocalToolClient<T>,context:LocalToolHostContext|undefined,handle:LocalToolUndoProvider<M>|null){
+export function useLocalToolUndoProvider<T extends LocalToolJson,M extends object>(client:LocalToolClient<T>|null,context:LocalToolHostContext|undefined,handle:LocalToolUndoProvider<M>|null){
  const boundary=useContext(ToolUndoContext),mount=context?.undoCommands,latest=useRef(handle),registered=useRef<Entry|undefined>(undefined);
  const [,refresh]=useState(0),model=handle?.model,id=handle?.id;
  const offered=!!boundary&&!!context?.canEdit&&mount?.client===client&&!!handle;

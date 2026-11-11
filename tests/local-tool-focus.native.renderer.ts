@@ -56,7 +56,7 @@ export async function testLocalToolFocusNative(){
 }
 
 /** Opt-in scenario with the normal LinkedNotebook and ProjectWorkspace. */
-export async function testLocalToolSourceBlockNative(sourceCommand=false,sourceProvider=false){
+export async function testLocalToolSourceBlockNative(sourceCommand=false,sourceProvider=false,sourcePushed=false){
  check(await db.projects.count()===0,'Private Source block profile must start empty');
  const pendingCounts=()=>{const {pending,failed,dirty}=getPendingWritesSnapshot();return {pending,failed,dirty};};
  const pendingBefore=pendingCounts();
@@ -192,6 +192,63 @@ export async function testLocalToolSourceBlockNative(sourceCommand=false,sourceP
      return {saved:saved(primary()),rehearsal:order(primary())};
     });
    }
+   if(sourcePushed){
+    const section=(root:ParentNode|null)=>host(root)?.querySelector('section[aria-label="Review shortlist"]');
+    const marks=(root:ParentNode|null)=>Array.from(section(root)?.querySelectorAll<HTMLButtonElement>('button[aria-pressed][aria-label^="Review "]')??[]);
+    const text=(button:HTMLButtonElement)=>button.getAttribute('aria-label')!.slice('Review '.length);
+    const read=(root:ParentNode|null)=>{
+     const rows=marks(root);
+     const buttons=Array.from(section(root)?.querySelectorAll<HTMLButtonElement>('button')??[]);
+     const direction=(label:string)=>buttons.find(button=>button.textContent?.trim()===label);
+     const undo=direction('Undo selection'),redo=direction('Redo selection');
+     if(!undo||!redo)return;
+     return {items:rows.map(text),selected:rows.filter(button=>button.getAttribute('aria-pressed')==='true').map(text),canUndo:!undo.disabled,canRedo:!redo.disabled};
+    };
+    const equals=(left:unknown,right:unknown)=>JSON.stringify(left)===JSON.stringify(right);
+    const principalClean=(items:string[])=>equals(read(primary()),{items,selected:[],canUndo:false,canRedo:false});
+    const click=async(button:HTMLButtonElement|null|undefined,label:string)=>{
+     check(button&&!button.disabled,label+' unavailable');
+     await act(async()=>{button.click();});
+    };
+    Reflect.set(window,'__focusNativePushedPrepare',async()=>{
+     await until(()=>!!read(primary())&&control(['Add review checklist'],primary())?.disabled===false,'Principal shortlist and setup command did not mount');
+     await click(control(['Add review checklist'],primary()),'Add review checklist');
+     await until(()=>{const model=read(primary());return model?.items.length===3&&principalClean(model.items);},'Three saved items did not reach the shortlist');
+     samePrimary();
+     return read(primary())!.items;
+    });
+    Reflect.set(window,'__focusNativePushedOpen',async()=>{
+     await click(control(['Open items beside'],primary()),'Open items beside');
+     await until(()=>!!fixture.observe().companion?.items&&!!read(panel()),'Companion shortlist did not mount');
+     samePrimary();
+     return {paneId:fixture.observe().companion?.paneId,documentId:host(panel())?.dataset.sourceDocumentHost};
+    });
+    Reflect.set(window,'__focusNativePushedObserve',async(expected:{items:string[];selected:string[];canUndo:boolean;canRedo:boolean})=>{
+     await until(()=>principalClean(expected.items)&&equals(read(panel()),expected),'Shortlist marks or grouped Undo/Redo did not settle in both views');
+     samePrimary();
+     return {principal:read(primary()),companion:read(panel())};
+    });
+    Reflect.set(window,'__focusNativePushedMark',async(items:string[])=>{
+     for(const item of items){
+      const button=marks(panel()).find(button=>text(button)===item);
+      check(button?.getAttribute('aria-pressed')==='false','Expected an unmarked shortlist row');
+      await click(button,'Review '+item);
+      await until(()=>marks(panel()).find(button=>text(button)===item)?.getAttribute('aria-pressed')==='true','Real shortlist click did not mark the row');
+     }
+    });
+    Reflect.set(window,'__focusNativePushedClose',async()=>{
+     const paneId=fixture.observe().companion?.paneId;
+     check(paneId,'Companion pane missing before close');
+     await click(document.querySelector<HTMLButtonElement>(`[data-testid="workspace-close-tab-${paneId}"]`),'Close companion');
+     await until(()=>!panel()&&fixture.observe().companion===null,'Companion shortlist did not unmount');
+     return paneId;
+    });
+    Reflect.set(window,'__focusNativePushedPrincipal',(items:string[])=>{
+     samePrimary();
+     check(principalClean(items),'Retired companion token affected the principal');
+     return read(primary());
+    });
+   }
    Reflect.set(window,'__focusNativeBlockSnapshot',snapshot);
    Reflect.set(window,'__focusNativeBlockObserve',async(block:'notes'|'items')=>{
     await until(()=>{
@@ -241,6 +298,7 @@ export async function testLocalToolSourceBlockNative(sourceCommand=false,sourceP
   const cleanup={projects:await db.projects.count(),sourceHosts:document.querySelectorAll('[data-source-document-host]').length,pendingExact:JSON.stringify(pendingCounts())===JSON.stringify(pendingBefore)};
   check(cleanup.projects===0&&cleanup.sourceHosts===0&&cleanup.pendingExact,'Source block fixture cleanup failed');
   Reflect.set(window,'__focusNativeBlockCleanupReceipt',cleanup);
+  if(sourcePushed)return ['two keys undo and redo the same grouped shortlist, saved data exact and retired provider unavailable'];
   if(sourceProvider)return ['two keys used the same rehearsal provider, Apply and normal Undo changed saved order, and closing retired its token'];
   return sourceCommand
    ? ['two keys ran the same Source command instance, real companion Undo reversed it and closing retired it']
@@ -256,4 +314,9 @@ export async function testLocalToolSourceCommandNative(){
 
 export async function testLocalToolSourceProviderNative(){
  return testLocalToolSourceBlockNative(false,true);
+}
+
+
+export async function testLocalToolSourcePushedNative(){
+ return testLocalToolSourceBlockNative(false,false,true);
 }
