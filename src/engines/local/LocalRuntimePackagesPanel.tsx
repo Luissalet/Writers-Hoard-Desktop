@@ -81,6 +81,14 @@ export default function LocalRuntimePackagesPanel({onNavigate}:{onNavigate?:()=>
     {inspection&&<div className="space-y-2 border-t border-border pt-3">
       <p className="break-words text-sm font-medium text-text-primary">{inspection.manifest.namespace} · {inspection.manifest.version}</p>
       <ul className="space-y-1 text-sm text-text-muted">{inspection.manifest.members.map(member=><li key={member.namespace} className="break-words">{member.namespace} · {member.kind==='app'?(es?'App':'App'):(es?'Herramienta':'Tool')}</li>)}</ul>
+      {inspection.catalogue&&<details className="space-y-2 text-sm text-text-muted">
+        <summary className="cursor-pointer text-text-primary">{es?'Operaciones e índice declarados':'Declared operations and index'}</summary>
+        {inspection.catalogue.tools.map(tool=><div key={tool.namespace} className="space-y-1">
+          <p className="break-words font-medium">{tool.namespace}</p>
+          <ul className="space-y-1">{tool.operations.map(operation=><li key={operation.id} className="break-words"><code>{operation.id}</code> · {operation.description[es?'es':'en']}</li>)}</ul>
+          {tool.index&&<p className="break-words">{es?'Campos indexados: ':'Indexed fields: '}{Object.keys(tool.index.fields).join(', ')}</p>}
+        </div>)}
+      </details>}
       <p className="break-all text-xs text-text-muted">{inspection.bytes.toLocaleString(locale)} bytes · {inspection.manifest.contentHash.slice(0,12)}</p>
       <button type="button" disabled={busy||inspection.installed} onClick={()=>void install()} className="min-h-10 rounded-lg bg-accent-gold px-3 text-sm font-medium text-deep hover:bg-accent-amber disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent-gold">{inspection.installed?(es?'Instalado':'Installed'):(es?'Instalar paquete':'Install package')}</button>
     </div>}

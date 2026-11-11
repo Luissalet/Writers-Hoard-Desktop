@@ -32,6 +32,38 @@ export function validateRuntimeManifest(manifest){
  if(!manifest.files.some(file=>file.path===manifest.entry&&file.mime==='text/javascript'))return invalid('entry_invalid');
 }
 export function runtimeManifestIdentity(manifest){const {contentHash:ignored,...identity}=manifest;void ignored;return canonicalRuntimeJson(identity);}
+export const RUNTIME_CATALOGUE_PATH='metadata/derived-agent-catalogue.json';
+export const RUNTIME_CATALOGUE_MIME='application/vnd.writers-hoard.derived-agent-catalogue+json';
+export const runtimeCatalogueFile=file=>file.path===RUNTIME_CATALOGUE_PATH&&file.mime===RUNTIME_CATALOGUE_MIME;
+const optionalIndexKeys=(value,required)=>keys(value,Object.hasOwn(value,'index')?[...required,'index']:required);
+function readRuntimeCatalogue(manifest,files){
+ const file=manifest.files.find(runtimeCatalogueFile);
+ if(!file)return undefined;
+ if(file.bytes>128*1024)return invalid('catalogue_too_large');
+ const bytes=files.get(file.path);
+ if(bytes[0]===0xef&&bytes[1]===0xbb&&bytes[2]===0xbf)return invalid('catalogue_not_canonical');
+ let source,value;
+ try{source=new TextDecoder('utf-8',{fatal:true}).decode(bytes);value=JSON.parse(source);}catch{return invalid('catalogue_invalid');}
+ if(!keys(value,['version','tools'])||value.version!==1||!Array.isArray(value.tools)||!value.tools.length||value.tools.length>manifest.members.length)return invalid('catalogue_invalid');
+ const memberTools=new Set(manifest.members.filter(member=>member.kind==='tool').map(member=>member.namespace));
+ let previous='';
+ for(const tool of value.tools){
+  if(!object(tool)||!optionalIndexKeys(tool,['namespace','documentBacked','operations'])||!memberTools.has(tool.namespace)||tool.namespace<=previous||typeof tool.documentBacked!=='boolean'||!Array.isArray(tool.operations)||!tool.operations.length||tool.operations.length>256)return invalid('catalogue_tool_invalid');
+  previous=tool.namespace;let operationId='';
+  for(const op of tool.operations){
+   if(!keys(op,['id','description','inputSchema','writes'])||typeof op.id!=='string'||!/^[a-z][a-z0-9_]{0,79}$/.test(op.id)||op.id<=operationId||op.writes!==true||
+      !keys(op.description,['en','es'])||!text(op.description.en)||!text(op.description.es)||op.description.en.length>550||op.description.es.length>550||
+      !object(op.inputSchema)||op.inputSchema.type!=='object'||!object(op.inputSchema.properties)||op.inputSchema.additionalProperties!==false||!Array.isArray(op.inputSchema.required))return invalid('catalogue_operation_invalid');
+   operationId=op.id;
+  }
+  if(Object.hasOwn(tool,'index')){
+   const index=tool.index;
+   if(!object(index)||!keys(index,Object.hasOwn(index,'refs')?['version','fields','refs']:['version','fields'])||index.version!==1||!object(index.fields)||Object.hasOwn(index,'refs')&&!Array.isArray(index.refs))return invalid('catalogue_index_invalid');
+  }
+ }
+ if(source!==canonicalRuntimeJson(value)+'\n')return invalid('catalogue_not_canonical');
+ return value;
+}
 export async function inspectRuntimePacket(packet){
  const bytes=new Uint8Array(packet);let source,value;
  if(bytes[0]===0xef&&bytes[1]===0xbb&&bytes[2]===0xbf)return invalid('packet_not_canonical');
@@ -44,5 +76,6 @@ export async function inspectRuntimePacket(packet){
  const decoded=new Map();
  for(const file of value.manifest.files){if(!Object.hasOwn(value.files,file.path))return invalid('files_mismatch');const content=runtimeDecodeBase64(value.files[file.path]);if(content.length!==file.bytes||await runtimeBytesHash(content)!==file.sha256)return invalid('file_hash_mismatch');decoded.set(file.path,content);}
  try{new TextDecoder('utf-8',{fatal:true}).decode(decoded.get(value.manifest.entry));}catch{return invalid('entry_utf8_invalid');}
- return {manifest:value.manifest,files:decoded,packet:bytes,fileSha256:await runtimeBytesHash(bytes),bytes:bytes.length};
+ const catalogue=readRuntimeCatalogue(value.manifest,decoded);
+ return {manifest:value.manifest,files:decoded,packet:bytes,fileSha256:await runtimeBytesHash(bytes),bytes:bytes.length,...(catalogue?{catalogue}:{})};
 }

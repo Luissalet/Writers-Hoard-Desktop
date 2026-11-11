@@ -9,14 +9,16 @@ const sourceProvider=process.env.WH_NATIVE_SOURCE_UNDO_PROVIDER==='1';
 const sourcePushed=process.env.WH_NATIVE_SOURCE_PUSHED_UNDO==='1';
 const sourceOwned=process.env.WH_NATIVE_SOURCE_OWNED_BLOCK_PANEL==='1';
 const sourceDerived=process.env.WH_NATIVE_SOURCE_DERIVED_AGENT==='1';
-assert([sourceBlock,sourceCommand,sourceProvider,sourcePushed,sourceOwned,sourceDerived].filter(Boolean).length<=1,'Select one Native Source scenario');
-const sourceScenario=sourceDerived?'source-derived-agent':sourceOwned?'source-owned-block-panel':sourcePushed?'source-pushed-undo':sourceProvider?'source-undo-provider':sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
+const sourceCatalogue=process.env.WH_NATIVE_RUNTIME_CATALOGUE==='1';
+const packageSha=bytes=>require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+assert([sourceBlock,sourceCommand,sourceProvider,sourcePushed,sourceOwned,sourceDerived,sourceCatalogue].filter(Boolean).length<=1,'Select one Native Source scenario');
+const sourceScenario=sourceCatalogue?'runtime-package-catalogue':sourceDerived?'source-derived-agent':sourceOwned?'source-owned-block-panel':sourcePushed?'source-pushed-undo':sourceProvider?'source-undo-provider':sourceCommand?'source-undo-command':sourceBlock?'source-block-open':null;
 const revocations=[];
-const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceDerived?'source-derived-native-':sourceOwned?'source-owned-native-':sourcePushed?'source-pushed-native-':sourceProvider?'source-provider-native-':sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
+const evidence=path.join(root,'_stage/parity-completion-next/sdk-platform',(sourceCatalogue?'runtime-catalogue-native-':sourceDerived?'source-derived-native-':sourceOwned?'source-owned-native-':sourcePushed?'source-pushed-native-':sourceProvider?'source-provider-native-':sourceCommand?'source-command-native-':sourceBlock?'source-block-native-':'native-')+Date.now()+'-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
 const preloadFile=path.join(directory,'focus-preload.cjs'),adapterFile=path.join(directory,'focus-stdio.cjs');
 // QuickNote is unrelated to focus; this fixture does not capture/relay notes or start its window.
 fs.writeFileSync(preloadFile,"const{contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('electronAPI',{platform:process.platform,quickNote:{setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}},aiBridge:{onRequest:callback=>{const listener=(_,payload)=>callback(payload);ipcRenderer.on('aibridge:request',listener);return()=>ipcRenderer.removeListener('aibridge:request',listener);},reply:payload=>ipcRenderer.invoke('aibridge:reply',payload)}});");
-let bridge,window,port,keys,driver,closing=false,toolCalls=0,rpcCalls=0,failure,sourceHostMounted=false,ownedHostMounted=false,serverStarted=false;
+let bridge,window,port,keys,driver,closing=false,toolCalls=0,rpcCalls=0,failure,sourceHostMounted=false,ownedHostMounted=false,runtimeRendererReady=false,serverStarted=false;
 const sessions=[],replies=[],transcript=[],checks=[],sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const save=(name,value)=>fs.writeFileSync(path.join(evidence,name),JSON.stringify(value,null,2)+'\n');
 async function bounded(promise,ms,message){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(message)),ms);})]);}finally{clearTimeout(timer);}}
@@ -44,11 +46,11 @@ async function close(){
  for(const session of sessions)try{await session.close();}catch(error){errors.push(String(error));}
  if(bridge){bridge.stopAiBridge();await bounded(new Promise((resolve,reject)=>{const socket=net.connect({host:'127.0.0.1',port});socket.once('connect',()=>{socket.destroy();reject(Error('Private focus port still open'));});socket.once('error',error=>error.code==='ECONNREFUSED'?resolve():reject(error));}),5000,'Focus close deadline').catch(error=>errors.push(String(error)));}
  ipcMain.removeHandler('aibridge:reply');
- const result={...(sourceScenario?{scenario:sourceScenario,revocations}:{}),ok:!failure&&errors.length===0,toolCalls,rpcCalls,ipcReplies:replies.length,sessions:sessions.map(item=>item.report()),checks,errors,failure,sourceHostMounted,...(sourceOwned?{ownedHostMounted}:{}),profileRetained:true,privateProfile:directory,serverNeverStarted:!serverStarted,serverClosed:serverStarted&&errors.length===0};save('RESULT.json',result);save('mcp-transcript.json',transcript);save('ipc-replies.json',replies);
+ const result={...(sourceScenario?{scenario:sourceScenario,revocations}:{}),ok:!failure&&errors.length===0,toolCalls,rpcCalls,ipcReplies:replies.length,sessions:sessions.map(item=>item.report()),checks,errors,failure,sourceHostMounted,...(sourceOwned?{ownedHostMounted}:{}),...(sourceCatalogue?{runtimeRendererReady}:{}),profileRetained:true,privateProfile:directory,serverNeverStarted:!serverStarted,serverClosed:serverStarted&&errors.length===0};save('RESULT.json',result);save('mcp-transcript.json',transcript);save('ipc-replies.json',replies);
  console.log('FOCUS_NATIVE_EVIDENCE '+evidence);console.log('FOCUS_NATIVE_PRIVATE_TEMP '+directory);console.log('FOCUS_NATIVE_RESULT '+JSON.stringify(result));assert.equal(errors.length,0,errors.join('\n'));
 }
 async function adapter(token,label){
- const child=spawn(process.execPath,[adapterFile],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,ELECTRON_RUN_AS_NODE:'1',WH_BRIDGE_TOKEN:token,WH_BRIDGE_TOKEN_FILE:'',WH_BRIDGE_URL:`http://127.0.0.1:${port}`,WH_PUBLISHING_MODULE:'',...(sourceOwned||sourceDerived?{WH_BRIDGE_GROUPS:''}:{}),WH_MCP_NO_AUTOSTART:'0',HOARD_EVENTS:'0'}});
+ const child=spawn(process.execPath,[adapterFile],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,ELECTRON_RUN_AS_NODE:'1',WH_BRIDGE_TOKEN:token,WH_BRIDGE_TOKEN_FILE:'',WH_BRIDGE_URL:`http://127.0.0.1:${port}`,WH_PUBLISHING_MODULE:'',...(sourceOwned||sourceDerived||sourceCatalogue?{WH_BRIDGE_GROUPS:''}:{}),WH_MCP_NO_AUTOSTART:'0',HOARD_EVENTS:'0'}});
  const waiting=new Map();let next=0,stderr='',ended=false,actualExit=null;child.stderr.on('data',chunk=>{stderr+=chunk.toString();});
  const exit=new Promise(resolve=>{child.once('close',(code,signal)=>resolve({code,signal}));child.once('error',error=>resolve({error:String(error)}));});
  const lines=createInterface({input:child.stdout});lines.on('line',line=>{try{const value=JSON.parse(line),pending=waiting.get(value.id);assert(pending,'Unexpected stdio reply');clearTimeout(pending.timer);waiting.delete(value.id);pending.resolve(value);}catch(error){failure=String(error);for(const pending of waiting.values())pending.reject(error);waiting.clear();}});
@@ -67,12 +69,12 @@ async function setup(){
 async function drive(win){
  const renderer=(name,args)=>win.webContents.executeJavaScript(`window.${name}(${args===undefined?'':JSON.stringify(args)})`);let fixture;const deadline=Date.now()+45000;
  while(!fixture){const result=await win.webContents.executeJavaScript('({ready:window.__focusNativeReady??null,result:window.__result??null})');if(result.result?.ok===false)throw Error(result.result.error);fixture=result.ready;if(!fixture){if(Date.now()>deadline)throw Error('Actual focus UI did not mount');await sleep(40);}}
- if(sourceOwned){assert.equal(fixture.ownedHostMounted,true);ownedHostMounted=true;}else{assert.equal(fixture.sourceHostMounted,true);sourceHostMounted=true;}save('fixture.json',fixture);const base={projectId:fixture.projectId},GET='wh_workspace_focus_get',SET='wh_workspace_focus_set';
+ if(sourceCatalogue){assert.equal(fixture.runtimeRendererReady,true);runtimeRendererReady=true;}else if(sourceOwned){assert.equal(fixture.ownedHostMounted,true);ownedHostMounted=true;}else{assert.equal(fixture.sourceHostMounted,true);sourceHostMounted=true;}save('fixture.json',fixture);const base={projectId:fixture.projectId},GET='wh_workspace_focus_get',SET='wh_workspace_focus_set';
  await bridge.startAiBridge({version:'private-focus-native',hasWindow:()=>true});serverStarted=true;const a=await adapter(keys[0].token,'A'),b=await adapter(keys[1].token,'B');
- async function call(session,name,args,relayed=true){const prior=replies.length,response=await session.rpc('tools/call',{name,arguments:args});toolCalls++;assert(!response.error);assert.equal(replies.length-prior,relayed?1:0);assert.equal(response.result.content.length,1);assert.equal(response.result.content[0].type,'text');const outcome={isError:response.result.isError===true,value:JSON.parse(response.result.content[0].text)};transcript.push({session:session.report().label,name,args,outcome,ipcReplies:replies.length-prior});return outcome;}
+ async function call(session,name,args,relayed=true){const prior=replies.length,response=await session.rpc('tools/call',{name,arguments:args});toolCalls++;assert(!response.error);assert.equal(replies.length-prior,relayed?1:0);assert.equal(response.result.content.length,1);assert.equal(response.result.content[0].type,'text');const outcome={isError:response.result.isError===true,value:JSON.parse(response.result.content[0].text)};const loggedArgs=sourceCatalogue&&args.file?{file:{name:args.file.name,mime:args.file.mime,bytes:Buffer.from(args.file.base64,'base64').length,fileSha256:packageSha(Buffer.from(args.file.base64,'base64'))}}:args;transcript.push({session:session.report().label,name,args:loggedArgs,outcome,ipcReplies:replies.length-prior});return outcome;}
  async function ok(session,name,args){const result=await call(session,name,args);assert.equal(result.isError,false,JSON.stringify(result.value));return result.value;}
  if(sourceScenario){
-  const run=sourceDerived?driveSourceDerived:sourceOwned?driveSourceOwned:sourcePushed?driveSourcePushed:sourceProvider?driveSourceProvider:sourceCommand?driveSourceCommand:driveSourceBlock;
+  const run=sourceCatalogue?driveRuntimeCatalogue:sourceDerived?driveSourceDerived:sourceOwned?driveSourceOwned:sourcePushed?driveSourcePushed:sourceProvider?driveSourceProvider:sourceCommand?driveSourceCommand:driveSourceBlock;
   await run({a,b,ok,call,renderer,fixture});
   await renderer('__focusNativeFinish',{ok:true});
   return;
@@ -605,12 +607,138 @@ async function driveSourceDerived({a,b,ok,call,renderer,fixture}){
  save('derived-observations.json',{before,sibling,variant,persistedControls,domBefore,indexBefore,scored,afterScore,objective,added,afterAdd,indexWritten,domWritten,staleRevision,staleVersion,undone,afterUndo,indexUndo,domUndone});
  checks.push({label:'Two keys used exact revisions and versions on one derived Source, indexed its scalar edit, rejected two stale baselines, and reversed the list receipt without changing the sibling or named-era variant'});
 }
+async function driveRuntimeCatalogue({a,b,ok,call,renderer,fixture}){
+ const namespace='qa.package-quest2639',projectId=fixture.projectId,engineId='local-tool-'+namespace,scope={projectId,namespace};
+ const file=(label,environment,expectedSha,contentHash)=>{
+  const filename=process.env[environment];
+  assert(typeof filename==='string'&&path.isAbsolute(filename),'Exact fixture path required: '+environment);
+  const bytes=fs.readFileSync(filename),fileSha256=packageSha(bytes);
+  assert.equal(fileSha256,expectedSha);
+  const packet=JSON.parse(bytes.toString('utf8'));
+  assert.equal(packet.manifest.namespace,namespace);
+  assert.equal(packet.manifest.contentHash,contentHash);
+  const catalogue=JSON.parse(Buffer.from(packet.files['metadata/derived-agent-catalogue.json'],'base64').toString('utf8'));
+  return {file:{name:label+'.whpackage.json',mime:'application/json',base64:bytes.toString('base64')},fileSha256,bytes:bytes.length,contentHash,catalogue};
+ };
+ const good=file('good','WH_NATIVE_CATALOGUE_GOOD','86b84bab388d85ec275d66a379f74f64ee6a40d498f30ee1eaa13afff9f47632','b4f952ccdb61fc223a3af47a8d6fa1ebe62ed29e2eed24fb82e9b95d663ee09d');
+ const mismatch=file('mismatch','WH_NATIVE_CATALOGUE_MISMATCH','b16a89c79f4810f7c7301a3aa5b8e2afdf8393ba00fd6d24d620f2bb2ba2df67','bd4408edc8ba59c0ed540571802bb131dd41af749ebb20eef3693367435eb19c');
+ const inspect='wh_local_package_inspect',install='wh_local_package_install',inventory='wh_local_package_list',list='wh_local_tool_list';
+ const describe='wh_local_tool_describe',pinTool='wh_local_tool_pin',create='wh_local_tool_document_create',read='wh_local_tool_read',invoke='wh_local_tool_call',query='wh_local_tool_document_query';
+ const catalogue=async session=>{
+  const prior=replies.length,response=await session.rpc('tools/list',{});
+  assert(!response.error);
+  assert.equal(replies.length,prior);
+  return [inspect,install,inventory,list,describe,pinTool,create,read,invoke,query,'wh_enable_engine'].map(name=>{
+   const matches=response.result.tools.filter(tool=>tool.name===name);
+   assert.equal(matches.length,1);
+   return matches[0];
+  });
+ };
+ const aTools=await catalogue(a),bTools=await catalogue(b);
+ assert.deepEqual(aTools,bTools);
+ const getInventory=session=>ok(session,inventory,{namespace});
+ const getTool=async session=>(await ok(session,list,{projectId})).tools.filter(tool=>tool.namespace===namespace);
+ const snapshot=()=>renderer('__focusNativeCatalogueSnapshot');
+ const clean=({_undo,...value})=>value;
+ const before=await snapshot();
+ assert.deepEqual(before.registry,{engine:false,hashes:[]});
+ assert.deepEqual(await getInventory(a),{packages:[]});
+ assert.deepEqual(await getTool(b),[]);
+ const ids=['add_items_item','remove_items_item','remove_tags_key','set_active','set_count','set_tags_key','set_title','update_items_item'];
+ const fields={active:{path:'$.active',type:'boolean'},count:{path:'$.count',type:'number'},title:{path:'$.title',type:'string'}};
+ const inspected=[];
+ for(const [session,packet,documentBacked] of [[a,good,true],[b,mismatch,false]]){
+  const summary=await ok(session,inspect,{file:packet.file});
+  assert.equal(summary.installed,false);
+  assert.equal(summary.fileSha256,packet.fileSha256);
+  assert.equal(summary.bytes,packet.bytes);
+  assert.equal(summary.manifest.contentHash,packet.contentHash);
+  assert.deepEqual(summary.catalogue,packet.catalogue);
+  const [tool]=summary.catalogue.tools;
+  assert.equal(summary.catalogue.tools.length,1);
+  assert.equal(tool.namespace,namespace);
+  assert.equal(tool.documentBacked,documentBacked);
+  assert.deepEqual(tool.operations.map(op=>op.id).sort(),ids);
+  assert(tool.operations.every(op=>op.writes&&op.inputSchema.additionalProperties===false&&op.inputSchema.required.includes('expectedRevision')&&op.inputSchema.required.includes('expectedDocumentVersion')===documentBacked));
+  assert.deepEqual(tool.index,{version:1,fields});
+  assert.deepEqual(await snapshot(),before);
+  inspected.push(summary);
+ }
+ assert.deepEqual(await getInventory(b),{packages:[]});
+ const rejected=await call(b,install,{file:mismatch.file});
+ assert.equal(rejected.isError,true);
+ assert.deepEqual(rejected.value,{code:'bad-args',error:'local_runtime_package_prepare: local_runtime_package_catalogue_mismatch'});
+ assert.deepEqual(await snapshot(),before);
+ assert.deepEqual(await getInventory(a),{packages:[]});
+ assert.deepEqual(await getTool(b),[]);
+
+ const installed=clean(await ok(a,install,{file:good.file}));
+ assert.equal(installed.installed,true);
+ assert.equal(installed.alreadyInstalled,false);
+ assert.equal(installed.rebuildRequired,false);
+ assert.equal(installed.fileSha256,good.fileSha256);
+ assert.equal(installed.manifest.contentHash,good.contentHash);
+ assert.deepEqual(installed.catalogue,good.catalogue);
+ assert.deepEqual(installed.members,[{namespace,contentHash:good.contentHash,kind:'tool',available:true}]);
+ const inventoryGood=await getInventory(b);
+ assert.equal(inventoryGood.packages.length,1);
+ assert.equal(inventoryGood.packages[0].manifest.contentHash,good.contentHash);
+ assert.equal(inventoryGood.packages[0].fileSha256,good.fileSha256);
+ assert.equal(inventoryGood.packages[0].status,'available');
+ const [unselected]=await getTool(b);
+ assert(unselected&&unselected.enabled===false&&unselected.pin===null);
+ assert.deepEqual((await snapshot()).registry,{engine:true,hashes:[good.contentHash]});
+
+ const enabled=clean(await ok(a,'wh_enable_engine',{projectId,engineId}));
+ assert.equal(enabled.engineId,engineId);
+ assert(enabled.enabledEngines.includes(engineId));
+ const pinned=clean(await ok(b,pinTool,{...scope,contentHash:good.contentHash,expectedRevision:null}));
+ assert.equal(pinned.namespace,namespace);
+ assert.equal(pinned.pin.contentHash,good.contentHash);
+ assert.equal(pinned.pin.revision,1);
+ const [selected]=await getTool(a);
+ assert.equal(selected.enabled,true);
+ assert.deepEqual(selected.pin,pinned.pin);
+ assert.deepEqual(selected.operations.map(op=>op.id).sort(),ids);
+ const described=await ok(a,describe,scope);
+ assert.equal(described.contentHash,good.contentHash);
+ assert(described.document);
+ assert.deepEqual(described.index,{version:1,fields});
+ assert.deepEqual([...described.operations].sort((x,y)=>x.id.localeCompare(y.id)),[...good.catalogue.tools[0].operations].sort((x,y)=>x.id.localeCompare(y.id)));
+
+ const document=clean(await ok(a,create,{...scope,title:'Native package quest'}));
+ const exact={...scope,documentId:document.id};
+ const baseline=await ok(b,read,exact);
+ assert.equal(baseline.document.id,document.id);
+ assert.deepEqual(baseline.data,{title:'Synthetic quest',count:0,active:true,items:[],tags:{},notes:'QA Ω'});
+ const written=clean(await ok(b,invoke,{...exact,operation:'set_count',input:{expectedRevision:baseline.revision,expectedDocumentVersion:baseline.document.version,value:9}}));
+ const after=await ok(a,read,exact);
+ assert.equal(after.revision,baseline.revision+1);
+ assert.equal(written.revision,after.revision);
+ assert.equal(written.documentVersion,after.document.version);
+ assert.notEqual(after.document.version,baseline.document.version);
+ assert(typeof written.receiptId==='string'&&written.receiptId.startsWith('local-state-'));
+ assert.deepEqual(after.data,{...baseline.data,count:9});
+ const indexed=await ok(b,query,{...scope,where:{count:{eq:9}}});
+ assert.equal(indexed.documents.length,1);
+ assert.equal(indexed.documents[0].id,document.id);
+ assert.deepEqual(indexed.documents[0].fields,{title:'Synthetic quest',count:9,active:true});
+ save('runtime-catalogue-observations.json',{aTools,bTools,before,inspected,rejected,installed,inventoryGood,unselected,enabled,pinned,selected,described,document,baseline,written,after,indexed});
+ checks.push({label:'Data-only inspection, exact mismatch rejection, explicit runtime pin and one derived operation on a real Source document'});
+}
 process.argv[2]='tests/local-tool-focus.native.renderer.ts';
-process.argv[3]=sourceDerived?'testLocalToolSourceDerivedNative':sourceOwned?'testLocalToolSourceOwnedNative':sourcePushed?'testLocalToolSourcePushedNative':sourceProvider?'testLocalToolSourceProviderNative':sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
+process.argv[3]=sourceCatalogue?'testLocalToolRuntimeCatalogueNative':sourceDerived?'testLocalToolSourceDerivedNative':sourceOwned?'testLocalToolSourceOwnedNative':sourcePushed?'testLocalToolSourcePushedNative':sourceProvider?'testLocalToolSourceProviderNative':sourceCommand?'testLocalToolSourceCommandNative':sourceBlock?'testLocalToolSourceBlockNative':'testLocalToolFocusNative';
 harness.main({preloadFile,setup,window:async win=>{window=win;bridge.setBridgeWindowResolver(()=>win);win.webContents.once('did-finish-load',()=>{driver=drive(win).catch(async error=>{failure=error.stack||String(error);console.error(failure);await win.webContents.executeJavaScript(`window.__focusNativeFinish?.(${JSON.stringify({ok:false,error:failure})});0`).catch(()=>{});});});},close:async()=>{
  await driver;
  if(failure)throw Error(failure);
- if(sourceOwned){
+ if(sourceCatalogue){
+  const cleanup=await window.webContents.executeJavaScript('window.__focusNativeCatalogueCleanupReceipt');
+  assert.equal(cleanup.allTablesEmpty,true);
+  assert.equal(cleanup.pendingExact,true);
+  assert.equal(Object.keys(cleanup.tableCounts).length,89);
+  assert(Object.values(cleanup.tableCounts).every(count=>count===0));
+  save('cleanup.json',cleanup);
+ }else if(sourceOwned){
   const cleanup=await window.webContents.executeJavaScript('window.__focusNativeOwnedCleanupReceipt');
   assert.deepEqual(cleanup,{projects:0,ownedInline:0,ownedPanels:0,unavailablePanels:0,pendingExact:true});
   save('cleanup.json',cleanup);

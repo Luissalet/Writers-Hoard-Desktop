@@ -3,7 +3,8 @@ import {db} from '@/db';
 import {notifyDataChanged} from '@/engines/_shared/dataChanged';
 import {getLocalToolCatalog} from './definitions';
 import {prepareLocalToolRegistrations} from './registry';
-import {canonicalRuntimeJson,inspectRuntimePacket,runtimeBase64,runtimeDecodeBase64,type CheckedRuntimePacket} from './runtimeFormat.mjs';
+import {canonicalRuntimeJson,inspectRuntimePacket,runtimeBase64,runtimeDecodeBase64,runtimeCatalogueFile,type CheckedRuntimePacket} from './runtimeFormat.mjs';
+import {readCompiledLocalToolCatalogue,validateLocalToolDerivedCatalogue} from './agentStateFields';
 import type {RuntimeMemberRelease} from './releaseMetadata';
 import type {LocalToolDefinition} from './sdk';
 import type {LocalRuntimePackageRow,RuntimePackageFailure,RuntimePackageInput} from './runtimeTypes';
@@ -13,11 +14,13 @@ function notifyPublished(checked:CheckedRuntimePacket){const hash=checked.manife
 let tail:Promise<unknown>=Promise.resolve();
 const serialized=<T>(run:()=>Promise<T>):Promise<T>=>{const next=tail.then(run,run);tail=next.catch(()=>undefined);return next;};
 function inputBytes(file:RuntimePackageInput){if(!file||typeof file.name!=='string'||!file.name||!['application/json','application/octet-stream'].includes(file.mime)||typeof file.base64!=='string'||Object.keys(file).sort().join(',')!=='base64,mime,name')throw Error('local_runtime_package_file_invalid');return runtimeDecodeBase64(file.base64);}
-const summary=(checked:CheckedRuntimePacket)=>({manifest:structuredClone(checked.manifest),fileSha256:checked.fileSha256,bytes:checked.bytes});
-export async function inspectLocalRuntimePackage(file:RuntimePackageInput){const checked=await inspectRuntimePacket(inputBytes(file));return {...summary(checked),installed:!!await db.localToolPackages.get(checked.manifest.contentHash)};}
+const summary=(checked:CheckedRuntimePacket)=>({manifest:structuredClone(checked.manifest),fileSha256:checked.fileSha256,bytes:checked.bytes,...(checked.catalogue?{catalogue:structuredClone(checked.catalogue)}:{})});
+function validateCatalogue(checked:CheckedRuntimePacket){if(checked.catalogue)validateLocalToolDerivedCatalogue(checked.catalogue);}
+export async function inspectLocalRuntimePackage(file:RuntimePackageInput){const checked=await inspectRuntimePacket(inputBytes(file));validateCatalogue(checked);return {...summary(checked),installed:!!await db.localToolPackages.get(checked.manifest.contentHash)};}
 async function prepare(checked:CheckedRuntimePacket){
  let phase:RuntimeErrorPhase='load';
  try{
+ validateCatalogue(checked);
  const manifest=checked.manifest,url=URL.createObjectURL(new Blob([new Uint8Array(checked.files.get(manifest.entry)!).buffer],{type:'text/javascript'}));
  let module:Record<string,unknown>;
  try{module=await import(/* @vite-ignore */ url);}finally{URL.revokeObjectURL(url);}
@@ -30,8 +33,14 @@ async function prepare(checked:CheckedRuntimePacket){
   const meta=manifest.members.find(item=>item.namespace===member.namespace),source=member.definition;
   if(!meta||seen.has(member.namespace)||member.version!==meta.version||source?.namespace!==meta.namespace||Object.keys(member).sort().join(',')!=='definition,namespace,version'||!!source.app!==(meta.kind==='app')||meta.kind==='app'&&canonicalRuntimeJson(source.app?.descriptor)!==canonicalRuntimeJson(meta.descriptor))throw Error('local_runtime_package_members_mismatch');
   if(meta.kind==='app'&&(typeof source.app?.Host!=='function'||typeof source.app?.Surface!=='function'))throw Error('local_runtime_package_app_components_invalid');
+  const listed=checked.catalogue?.tools.find(tool=>tool.namespace===member.namespace);
+  if(listed){
+   const {namespace,...declared}=listed;
+   const actual=readCompiledLocalToolCatalogue(source);
+   if(namespace!==source.namespace||!actual||canonicalRuntimeJson(actual)!==canonicalRuntimeJson(declared))throw Error('local_runtime_package_catalogue_mismatch');
+  }
   seen.add(member.namespace);
-  const assetFiles=Object.fromEntries(manifest.files.filter(file=>file.path!==manifest.entry).map(file=>[file.path,async()=>new Blob([new Uint8Array(checked.files.get(file.path)!).buffer],{type:file.mime})]));
+  const assetFiles=Object.fromEntries(manifest.files.filter(file=>file.path!==manifest.entry&&!runtimeCatalogueFile(file)).map(file=>[file.path,async()=>new Blob([new Uint8Array(checked.files.get(file.path)!).buffer],{type:file.mime})]));
   const definition={...source,assetFiles};
   const release:RuntimeMemberRelease={format:'writers-hoard-local-runtime-member/1',apiVersion:1,runtimeVersion:1,namespace:meta.namespace,version:meta.version,contentHash:manifest.contentHash,packageNamespace:manifest.namespace,kind:meta.kind,files:manifest.files};
   return {definition,release,origin:{kind:'runtime' as const,packageHash:manifest.contentHash,namespace:meta.namespace}};

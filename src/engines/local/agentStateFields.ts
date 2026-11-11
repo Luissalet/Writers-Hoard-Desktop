@@ -88,3 +88,43 @@ export function prepareLocalToolStateFields<T extends LocalToolJson>(spec:LocalT
  if(Object.keys(index.fields).length)validateLocalToolIndexSpec(index);
  return {codec,operations,index:Object.keys(index.fields).length?index:undefined};
 }
+
+type OperationCatalogueEntry=Pick<LocalToolOperation,'id'|'description'|'writes'|'inputSchema'>;
+export interface LocalToolDerivedCatalogue {
+ documentBacked:boolean;
+ operations:OperationCatalogueEntry[];
+ index?:LocalToolIndexSpec;
+}
+
+function describeOperations(documentBacked:boolean,operations:readonly OperationCatalogueEntry[],index?:LocalToolIndexSpec):LocalToolDerivedCatalogue {
+ const items=operations.map(({id,description,writes,inputSchema})=>({id,description,writes,inputSchema}))
+  .sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+ return cloneLocalToolJson({documentBacked,operations:items,...(index?{index}:{})} as unknown as LocalToolJson) as unknown as LocalToolDerivedCatalogue;
+}
+
+/** Used by the package author CLI; it does not import the author's module. */
+export function describeLocalToolStateFields(spec:LocalToolStateFields,documentBacked:boolean,index?:LocalToolIndexSpec):LocalToolDerivedCatalogue {
+ const prepared=prepareLocalToolStateFields(spec,documentBacked);
+ if(index)validateLocalToolIndexSpec(index);
+ return describeOperations(documentBacked,prepared.operations,index??prepared.index);
+}
+
+/** The same semantic checks apply to the inert catalogue in CLI and renderer previews. */
+export function validateLocalToolDerivedCatalogue(catalogue:{tools:readonly {operations:readonly {inputSchema:object}[];index?:object}[]}):void{
+ cloneLocalToolJson(catalogue as unknown as LocalToolJson);
+ for(const tool of catalogue.tools){
+  for(const operation of tool.operations)validateLocalOperationSchema(operation.inputSchema as BridgeToolSchema);
+  if(tool.index)validateLocalToolIndexSpec(tool.index as LocalToolIndexSpec);
+ }
+}
+
+const compiledFields=new WeakMap<object,ReadonlySet<string>>();
+export function rememberCompiledLocalToolFields(definition:object,operations:readonly Pick<LocalToolOperation,'id'>[]):void{
+ compiledFields.set(definition,new Set(operations.map(operation=>operation.id)));
+}
+
+export function readCompiledLocalToolCatalogue(definition:{document?:unknown;operations?:readonly OperationCatalogueEntry[];index?:LocalToolIndexSpec}):LocalToolDerivedCatalogue|undefined {
+ const derived=compiledFields.get(definition);
+ if(!derived)return undefined;
+ return describeOperations(!!definition.document,(definition.operations??[]).filter(operation=>derived.has(operation.id)),definition.index);
+}

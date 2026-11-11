@@ -88,7 +88,7 @@ import type { EraDocument, EraDocumentKind, EraDocumentRead } from '@/services/w
 import type { LocalMediaAsset } from '@/engines/media/types';
 import type { ContentSearchHit } from '@/services/projectSearchIndex';
 import {validateLocalOperationSchema} from './operationSchema';
-import {prepareLocalToolStateFields,type LocalToolStateFields} from './agentStateFields';
+import {prepareLocalToolStateFields,rememberCompiledLocalToolFields,type LocalToolStateFields} from './agentStateFields';
 export type {LocalToolAgentField,LocalToolStateFields} from './agentStateFields';
 import {validateLocalToolIndexSpec,type LocalToolDocumentQuery,type LocalToolIndexRow,type LocalToolIndexSpec} from './documentIndex';
 export {evaluateLocalToolIndex,queryLocalToolIndexRows} from './documentIndex';
@@ -166,7 +166,9 @@ export function defineLocalTool<T extends LocalToolJson>(input:LocalToolAuthorDe
     validateLocalOperationSchema(schema);
     return Object.freeze({...operation,description:{...operation.description},inputSchema:schema});
   });
-  return Object.freeze({...definition,stateSchemaVersion,...(mapPanel?{mapPanel}:{}),...(sourceAdditive?{sourceAdditive}:{}),...(definition.richAdoption?{richAdoption:cloneLocalToolJson(definition.richAdoption as unknown as LocalToolJson) as unknown as import('./convergence/types').LocalToolRichAdoption}:{}),...(definition.tours!==undefined?{tours:prepareLocalToolTours(definition.tours)}:{}),...(definition.locales?{locales:prepareLocalToolLocales(definition.locales)}:{}),...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(codec?{codec:cloneLocalToolJson(codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
+  const compiled=Object.freeze({...definition,stateSchemaVersion,...(mapPanel?{mapPanel}:{}),...(sourceAdditive?{sourceAdditive}:{}),...(definition.richAdoption?{richAdoption:cloneLocalToolJson(definition.richAdoption as unknown as LocalToolJson) as unknown as import('./convergence/types').LocalToolRichAdoption}:{}),...(definition.tours!==undefined?{tours:prepareLocalToolTours(definition.tours)}:{}),...(definition.locales?{locales:prepareLocalToolLocales(definition.locales)}:{}),...(definition.index?{index:cloneLocalToolJson(definition.index as unknown as LocalToolJson) as unknown as LocalToolIndexSpec}:{}),...(codec?{codec:cloneLocalToolJson(codec as unknown as LocalToolJson) as unknown as LocalToolStateCodec}:{}),initialState,operations:Object.freeze(operations),apiVersion:1 as const});
+  if(derived)rememberCompiledLocalToolFields(compiled,derived.operations);
+  return compiled;
 }
 
 export {useLocalToolFontFace} from './useLocalToolFontFace';
