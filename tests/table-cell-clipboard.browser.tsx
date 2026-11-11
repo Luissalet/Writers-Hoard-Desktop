@@ -65,10 +65,10 @@ export async function testTableCellClipboard(): Promise<string[]> {
   const grid = () => host.querySelector<HTMLTableElement>('table[role="grid"]')!;
   const input = (label: string) => [...host.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')]
     .find(node => node.getAttribute('aria-label') === label)!;
-  const pick = async (label: string) => {
+  const pick = async (label: string, shiftKey = false) => {
     const target = input(label);
     assert(target, 'Missing cell editor');
-    await act(async () => { target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse' })); });
+    await act(async () => { target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse', shiftKey })); });
   };
   const key = async (key: string, shiftKey = false, target: Element = grid()) => {
     const event = new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
@@ -93,6 +93,24 @@ export async function testTableCellClipboard(): Promise<string[]> {
     const data = new DataTransfer();
     assert(await event('copy', data) && data.getData('text/plain') === 'Alfa\tNorth\nBravo\tSouth', 'Grid did not copy the rectangle');
     assert((await read())?.version === before.version, 'Copy wrote table data');
+
+    await pick('B2 Region');
+    await pick('A1 Name', true);
+    const reversed = new DataTransfer();
+    assert(await event('copy', reversed) && reversed.getData('text/plain') === data.getData('text/plain'),
+      'Shift-click did not select the same rectangle in reverse');
+    await pick('A3 Name', true);
+    const extended = new DataTransfer();
+    assert(await event('copy', extended) && extended.getData('text/plain') === 'Bravo\tSouth\nCharlie\t',
+      'A second Shift-click lost the anchor');
+    await pick('A1 Name');
+    const single = new DataTransfer();
+    assert(await event('copy', single) && single.getData('text/plain') === 'Alfa', 'Plain click did not reset the range');
+    await key('ArrowDown', true);
+    await pick('B2 Region', true);
+    const mixed = new DataTransfer();
+    assert(await event('copy', mixed) && mixed.getData('text/plain') === data.getData('text/plain'),
+      'Shift-click and Shift-arrow did not share the anchor');
 
     await key('Enter');
     assert(document.activeElement === input('B2 Region'), 'Enter did not focus the editor');
@@ -146,7 +164,8 @@ export async function testTableCellClipboard(): Promise<string[]> {
     await until(() => input('A1 Name').value === '', 'Backspace did not clear the single selected cell');
     assert(input('A2 Name').value === 'Bravo' && input('B1 Region').value === 'North', 'Backspace changed a neighboring cell');
     return ['TSV quoting and typed validation', 'Grid copy and paste preserve unrelated cells and row IDs',
-      'One Undo restores the whole block', 'Delete and Backspace clear only editable selected cells'];
+      'One Undo restores the whole block', 'Delete and Backspace clear only editable selected cells',
+      'Shift-click and Shift-arrow share a visible range'];
   } finally {
     await act(async () => { root.unmount(); });
     clearUndoJournal();
