@@ -11,3 +11,11 @@ Para el mismo cambio por MCP, lee `version` con `wh_table_get`. Llama a `wh_tabl
 - Quick y build finalizaron con EOF 0. Se preservó el contrato MCP del portapapeles.
 
 La revisión 1 de la tarea 2736 aprobó `98ddea70be68bee211b15eec26490a5aa86b0f2f`, integrado por fast-forward. El manual de Google recoge las teclas y Deshacer. Los recibos están en `Research/writer-parity-20261110/table-cell-clear`.
+
+## Deshacer una celda guardada por MCP
+
+Una escritura efectiva de `wh_table_save_cell` devuelve el recibo de Deshacer para esa celda. Puedes usar el Deshacer habitual del puente. Writer comprueba que la celda conserva el valor de esa escritura y restaura el valor anterior o el hueco original. Las ediciones en otras celdas se conservan. En una era, Deshacer vuelve a la herencia si la edición creó la variante y ésta sigue en la misma versión. Una llamada con el mismo valor conserva la versión y no ofrece Deshacer.
+
+La prueba RED del puente devolvió un recibo que no identificaba la tabla. Brave r3 verificó ausencia, vecino, CAS y era. Native r3 pasó con dos claves, 17 llamadas MCP y cuatro respuestas IPC de Deshacer. Una de ellas confirmó el rechazo tras una edición posterior en la misma celda. Repetir un Deshacer ya aplicado devolvió `already-undone` sin IPC. Quick y build r3 terminaron con EOF 0.
+
+La revisión 1 de #2759 aprobó `ea3d832b1ce56905719d65e346881634885c8bfa`, integrado por fast-forward. El manual de Google recoge el recibo de celda. Recibos en `Research/writer-parity-20261110/sheet-grid/cell-undo`.
