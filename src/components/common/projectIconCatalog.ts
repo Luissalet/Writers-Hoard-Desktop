@@ -100,6 +100,6 @@ export function loadFullProjectIconCatalog(): Promise<ProjectIconCatalog> {
 }
 
 export function resolveCuratedProjectIcon(name?: string): LucideIcon | null {
-  if (!name) return null;
-  return curatedProjectIconCatalog[name] ?? null;
+  if (!name || !Object.hasOwn(curatedProjectIconCatalog, name)) return null;
+  return curatedProjectIconCatalog[name];
 }
