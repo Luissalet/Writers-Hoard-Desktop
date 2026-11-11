@@ -4,7 +4,7 @@
 // when a tab is added.
 import { useState } from 'react';
 import { Copy, Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
-import type { TableGroupRule, WorldTable } from './types';
+import type { TableViewCopy, WorldTable } from './types';
 import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 
 const TAB_COLOURS = ['', '#c4463a', '#d4a843', '#4a9e6d', '#4a7ec4', '#7c5cbf', '#888888'];
@@ -13,11 +13,10 @@ const COPY = {
   en: { tabs: 'Workbook tabs', add: 'Add tab', rename: 'Rename tab', duplicate: 'Duplicate tab', colour: 'Tab colour', none: 'No colour', hide: 'Hide tab', show: 'Show tab', remove: 'Delete tab', hidden: (n: number) => `${n} hidden`, showHidden: 'Show hidden', newTab: (n: number) => `Sheet ${n}`, copyOf: (title: string) => `${title} (copy)`, last: 'A workbook needs at least one visible tab.', name: 'Name' },
 };
 
-export default function WorkbookTabs({ tables, table, grouping = [], locale, busy, onSelect, onAdd, onChange, onDelete, onError }: {
+export default function WorkbookTabs({ tables, table, locale, busy, onSelect, onAdd, onChange, onDelete, onError }: {
   tables: WorldTable[]; table: WorldTable; locale: 'es' | 'en'; busy: boolean;
-  grouping?: readonly TableGroupRule[];
   onSelect: (id: string) => void;
-  onAdd: (sheet: WorldTable, makeWorkbook?: NonNullable<WorldTable['workbook']>, grouping?: readonly TableGroupRule[]) => void;
+  onAdd: (sheet: WorldTable, makeWorkbook?: NonNullable<WorldTable['workbook']>, viewCopy?: TableViewCopy) => void;
   onChange: (id: string, update: (table: WorldTable) => void) => void;
   onDelete: (id: string) => void;
   onError: (message: string) => void;
@@ -32,11 +31,8 @@ export default function WorkbookTabs({ tables, table, grouping = [], locale, bus
   const copyCurrent = () => {
     const workbook = ensureWorkbook(), source = table.workbook ? table : { ...table, workbook };
     const sheet = duplicateSheet(source, c.copyOf(table.title), table.workbook ? nextOrder : 1);
-    const rules = grouping.flatMap(rule => {
-      const column = sheet.columns[source.columns.findIndex(item => item.id === rule.columnId)];
-      return column ? [{ ...rule, columnId: column.id }] : [];
-    });
-    onAdd(sheet, table.workbook ? undefined : workbook, rules);
+    const columnIds = new Map(source.columns.map((column, index) => [column.id, sheet.columns[index].id]));
+    onAdd(sheet, table.workbook ? undefined : workbook, { tableId: table.id, columnIds });
   };
   return <div className="flex flex-wrap items-center gap-1 border-t border-border bg-surface/40 px-4 py-2" role="tablist" aria-label={c.tabs} data-testid="workbook-tabs">
     {visibleTabs.map(item => <button key={item.id} type="button" role="tab" aria-selected={item.id === table.id} data-testid={`workbook-tab-${item.title}`} disabled={busy} onClick={() => onSelect(item.id)} className={`inline-flex items-center gap-1.5 rounded-t-lg border-b-2 px-3 py-1 text-sm ${item.id === table.id ? 'bg-elevated text-accent-gold' : 'text-text-muted hover:bg-elevated'} ${item.workbook?.hidden ? 'italic opacity-60' : ''}`} style={{ borderBottomColor: item.workbook?.color || 'transparent' }}>{item.title}</button>)}

@@ -6,10 +6,10 @@ import Dexie from 'dexie';
 import { archiveMetadataWithMutation } from '@/services/documentArchive/metadata';
 import { notifyProjectsChanged } from '@/db/operations';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
-import { validateCell, type DataColumn, type TableGroupRule, type WorldTable } from './types';
+import { validateCell, type DataColumn, type TableGroupingView, type TableViewCopy, type TableViewSettings, type WorldTable } from './types';
 import type { Project } from '@/types';
 import { effectiveTableColumns } from './projection';
-import { effectiveTableGrouping, storedTableGrouping } from './viewGroups';
+import { effectiveTableView, filterStamp, remapTableView, storedTableView, tableViewParts } from './viewGroups';
 
 async function mutate(projectId: string, change: (tables: WorldTable[], project: Project) => void|Promise<void>, eraId?: string): Promise<void> {
   await db.transaction('rw', eraId ? db.tables : [db.projects,db.codexEntries,db.worldEraVariants,db.worldEraAssets], async () => {
@@ -20,11 +20,16 @@ async function mutate(projectId: string, change: (tables: WorldTable[], project:
   const notify=()=>Dexie.ignoreTransaction(()=>{notifyProjectsChanged();notifyDataChanged({source:'other',table:'projects',projectId});});
   let outer=Dexie.currentTransaction;if(outer){while(outer.parent)outer=outer.parent;outer.on('complete',notify);}else notify();
 }
-export function addTable(projectId: string, table: WorldTable, eraId?: string, grouping?: readonly TableGroupRule[]): Promise<void> {
+export function addTable(projectId: string, table: WorldTable, eraId?: string, viewCopy?: TableViewCopy): Promise<void> {
   return mutate(projectId, async (tables, project) => {
     if (tables.some(item => item.id === table.id)) throw new Error('Duplicate table.');
     await validateReferences(projectId, table, eraId);
-    if (grouping?.length) await writeGrouping(project, table, grouping, eraId);
+    if (viewCopy) {
+      const currentView = storedTableView(project.tableGroupingViews, viewCopy.tableId, eraId);
+      const mapped = remapTableView(currentView, id => viewCopy.columnIds.get(id));
+      const view = effectiveTableView(mapped, table.columns);
+      if (tableViewParts.some(key => view[key].length)) await writeTableView(project, table, view, eraId);
+    }
     tables.push(table);
   }, eraId);
 }
@@ -34,24 +39,44 @@ export function deleteTable(projectId: string, tableId: string, eraId?: string):
 export function changeTable(projectId: string, tableId: string, change: (table: WorldTable) => void|Promise<void>, eraId?: string): Promise<void> {
   return mutate(projectId, async tables => { const table = tables.find(table => table.id === tableId); if (!table) throw new Error('Table not found.');const before=structuredClone(table); await change(table);await validateReferences(projectId,table,eraId,before); }, eraId);
 }
-export function saveTableGrouping(projectId: string, tableId: string, rules: readonly TableGroupRule[], expected: string, eraId?: string): Promise<void> {
+export function saveTableView(projectId: string, tableId: string, patch: Partial<TableViewSettings>, expected: Partial<Record<keyof TableViewSettings, string>>, eraId?: string): Promise<number> {
   return db.transaction('rw', eraId ? db.tables : [db.projects], async () => {
     const scope = { projectId, eraId };
     const project = await assertWorldEra(scope);
     const table = eraId ? (await readWorldDocument(scope, 'tables', tableId))?.document.root as WorldTable | undefined : project.dataTables?.find(item => item.id === tableId);
     if (!table) throw new Error('Table not found.');
-    if (JSON.stringify(storedTableGrouping(project.tableGroupingViews, tableId, eraId)) !== expected) throw new Error('This table grouping changed. Review its current settings.');
-    await writeGrouping(project, table, rules, eraId);
+    const current = storedTableView(project.tableGroupingViews, tableId, eraId);
+    if (tableViewParts.some(key => patch[key] !== undefined && (key === 'conditions' ? filterStamp(current.conditionsRevision, current.conditions) : JSON.stringify(current[key])) !== expected[key])) {
+      throw new Error('This table view changed. Review its current settings.');
+    }
+    return writeTableView(project, table, patch, eraId);
   });
 }
-async function writeGrouping(project: Project, table: WorldTable, rules: readonly TableGroupRule[], eraId?: string): Promise<void> {
-  const grouping = effectiveTableGrouping(rules, effectiveTableColumns(table, project.codexTemplates ?? []));
-  if (grouping.length !== rules.length) throw new Error('The grouping columns are no longer available.');
+async function writeTableView(project: Project, table: WorldTable, patch: Partial<TableViewSettings>, eraId?: string): Promise<number> {
+  const checked = effectiveTableView(patch, effectiveTableColumns(table, project.codexTemplates ?? []));
+  if (tableViewParts.some(key => patch[key] !== undefined && checked[key].length !== patch[key]?.length)) {
+    throw new Error('The view columns are no longer available.');
+  }
   const views = Array.isArray(project.tableGroupingViews) ? project.tableGroupingViews : [];
-  const next = views.filter(view => view?.tableId !== table.id || view.eraId !== eraId);
-  // An empty era view explicitly overrides Base without creating a table variant.
-  if (grouping.length || eraId) next.push({ tableId: table.id, ...(eraId ? { eraId } : {}), rules: grouping });
+  const matches = (view: TableGroupingView) => view?.tableId === table.id && view.eraId === eraId;
+  const own: TableGroupingView = { ...views.find(matches), tableId: table.id, ...(eraId ? { eraId } : {}) };
+  const change = (key: keyof TableViewSettings) => {
+    if (patch[key] === undefined) return;
+    // Empty in an era explicitly overrides that part of Base. Other parts still inherit.
+    if (key === 'conditions' || eraId || checked[key].length) Object.assign(own, { [key]: checked[key] });
+    else delete own[key];
+  };
+  tableViewParts.forEach(change);
+  if (patch.conditions !== undefined) {
+    // Keep the stamp even for an empty Base filter so later writes cannot reuse it.
+    const latest = views.reduce((max, view) => Number.isSafeInteger(view?.conditionsRevision) ? Math.max(max, view.conditionsRevision!) : max, 0);
+    if (latest === Number.MAX_SAFE_INTEGER) throw new Error('The filter revision limit was reached.');
+    own.conditionsRevision = latest + 1;
+  }
+  const next = views.filter(view => !matches(view));
+  if (tableViewParts.some(key => own[key] !== undefined)) next.push(own);
   await db.projects.update(project.id, { tableGroupingViews: next });
+  return own.conditionsRevision ?? 0;
 }
 export function saveCell(projectId: string, tableId: string, rowId: string, columnId: string, value: string, expected: string, eraId?: string): Promise<void> {
   return changeTable(projectId, tableId, table => {

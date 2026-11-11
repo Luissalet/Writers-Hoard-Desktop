@@ -1,13 +1,16 @@
 import type {CsvExportOptions} from './csv';
 import type { CalculationResultType } from '@/engines/codex/templateTypes';
 import type { CodexEntryType } from '@/types';
+import type { TableCondition, TableSort } from './tableEdits';
 
 export type ColumnKind = 'text' | 'number' | 'reference' | 'checkbox';
 export interface TableCalculation { formula:string; rowBindings:Record<string,string>; columnBindings:Record<string,string>; resultType:CalculationResultType }
 export interface DataColumn { id: string; name: string; kind: ColumnKind; width?: number; field?: string; propertyId?:string; calculation?:TableCalculation }
 export interface DataRow { id: string; cells: Record<string, string> }
 export type TableGroupRule = { columnId: string; direction: 'asc' | 'desc' };
-export interface TableGroupingView { tableId: string; eraId?: string; rules: TableGroupRule[] }
+export interface TableViewSettings { rules: TableGroupRule[]; sorts: TableSort[]; conditions: TableCondition[] }
+export interface TableGroupingView extends Partial<TableViewSettings> { tableId: string; eraId?: string; conditionsRevision?: number }
+export interface TableViewCopy { tableId: string; columnIds: ReadonlyMap<string, string> }
 export interface WorldTable {
   id: string;
   title: string;
