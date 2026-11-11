@@ -129,9 +129,7 @@
   },
   "notes": "The AI bridge is off by default; turn it on in Writers Hoard \u2192 Settings \u2192 AI bridge. /api/health answers without a token; every other route needs the bridge token as a Bearer.",
   "provides": {
-    "skills": [
-      "skills/narrator-loop/SKILL.md"
-    ]
+    "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates"], "limit": 3}
   },
   "skills": {"slugs": ["manuscript-continuity-edit", "writing-plans", "notes-from-templates"], "limit": 3}
 }
