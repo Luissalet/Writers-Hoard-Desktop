@@ -101,7 +101,7 @@ export function useTableCellNavigation({ enabled, owner, viewKey, tableRef, rows
     if (event.target.closest('button, select, input[type="checkbox"]') ||
         event.target.matches('input:focus, textarea:focus')) return;
     event.preventDefault();
-    focusGrid(event.currentTarget, position);
+    focusGrid(event.currentTarget, position, event.shiftKey ? anchor : undefined);
   };
   const beginEdit = (position: CellPosition) => {
     const editor = lookup(position)?.querySelector<HTMLElement>('input:not([disabled]), textarea:not([disabled]), select:not([disabled])');
