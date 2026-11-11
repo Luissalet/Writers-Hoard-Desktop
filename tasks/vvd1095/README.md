@@ -1,4 +1,4 @@
-## Estado vigente — 10 de noviembre de 2026
+## Estado vigente — 11 de noviembre de 2026
 
 Esta cabecera distingue las entregas acreditadas del historial inferior. No es una nueva ejecución de todo el inventario ni un porcentaje de paridad. Los antiguos «pendiente», checks sin marcar o «1095 abierta» describen sus respectivos cortes: antes de convertirlos en trabajo nuevo se consulta la verificación posterior correspondiente. El bloque HISTORIAL conserva íntegros los bytes anteriores.
 
@@ -6,13 +6,14 @@ Esta cabecera distingue las entregas acreditadas del historial inferior. No es u
 | --- | --- | --- |
 | Filas/columnas compartidas por ID y ancho de columna | [Ejes 2047](../../docs/local-tool-sdk.md#collaborative-row-and-column-editing-2047), [anchos 2082](../../docs/local-tool-sdk.md#shared-table-column-widths-2082) | No equivale a cerrar toda la tabla, schema general o adopción arbitraria. |
 | Campo escalar y map vacío añadidos a Source | [Escalar 2088](../../docs/local-tool-sdk.md#add-a-scalar-or-map-field-to-an-existing-source-document), [map 2455](verification-sdk-source-map-additive2455.md) | Declaraciones propias y evolución acotada; no schema persistente arbitrario ni migración general. |
+| Lista vacía añadida a Source (2540) | [Contrato y evidencia acotados](verification-sdk-source-list-additive2540.md) | Source `38db3169` aprobado CAS r3 e integrado en Main; Native warm/cold acreditado. Sin migración general ni cambio de tipos. |
 | Pausa, reanudación y búsqueda de audio local | [Transporte 2475](verification-sdk-audio-transport2475.md) | Runtime SDK; no playback guardado ni unificación de reproductores legacy. |
 | Preparación reutilizable de audio local | [Precarga 2494](verification-sdk-audio-preload2494.md) | Retenciones por owner/coordinador, sin salida por preparar ni caché portable. |
 | Oyente por owner, emisor puntual y modelos equalpower/HRTF | [Espacial 2505](verification-sdk-audio-spatial2505.md), Source `82eafc27` en Main con CAS r2 | Contrato propio del SDK, controles MCP y SoundPad; no room/occlusión, altavoz, curva HRTF universal o migración de Soundscape/Reader/wiki. |
 
 La continuidad documental SourceMap/transporte está integrada en 441e y la de precarga en 471; sus WTs/tareas documentales se cerraron normalmente. Estos recibos superan los pasos de entrega aún sin marcar en sus notas antiguas, sin alterarlas retrospectivamente. Espacial 2505 tiene Brave real, Native autenticado warm/cold y acabado revisados por separado; las observaciones Browser no son un recuento de tests y la prueba offline no es salida física.
 
-**Pendientes actuales de este seguimiento:** rendimiento de texto rico con historial retenido en 2318 (open; objetivo 100 ms todavía sin aceptación) y continuidad MEM/KG 2464 bajo sus leases/recibos. El manual espacial ya está actualizado por Root; la continuidad MEM/KG combinada sigue en una fase Root separada de estos Markdown. No se dan por resueltos hosting, IME físico, schema general o los demás subcontratos no acreditados sólo por una entrega de audio; tampoco se vuelven a declarar ausencias actuales a partir de una fila histórica sin contraste nuevo.
+**Pendientes actuales de este seguimiento:** rendimiento de texto rico con historial retenido en 2318 (open; objetivo 100 ms todavía sin aceptación). La continuidad MEM/KG específica de Source 2540 está completada según los recibos de memoria y del grafo de Writer. Source `38db3169` está aprobado en revisión CAS 3 e integrado en Main, con Native warm/cold y manual específico acreditados. La continuidad MEM/KG combinada de 2464/2504 y el manual espacial están completados; las frases equivalentes pendientes del historial inferior pertenecen a sus cortes anteriores. No se dan por resueltos hosting, IME físico, schema general o los demás subcontratos sin evidencia actual, ni se convierten filas históricas en ausencias actuales sin contraste nuevo.
 
 La tarea 1095 mantiene su Done y voto históricos. La instrucción de continuar hasta paridad se sigue en el hilo 1195, reabierto, y en tareas nuevas. La paridad global continúa abierta; no se modifican los recuentos antiguos.
 

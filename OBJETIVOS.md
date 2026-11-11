@@ -6,7 +6,7 @@ Las vistas de Writer (`src/engines/publishing/native/links` y `paperwork`) sigue
 
 ## Evolución del estado de herramientas Source
 
-2088 permite añadir un campo escalar con valor por defecto desde el perfil inicial sin reiniciar el historial. Quedan cambios de nombre, tipo o valor por defecto, perfiles adicionales, varios campos e indexación de campos nuevos en documentos existentes. [Pruebas y alcance](tasks/vvd1095/verification-sdk-source-additive2088.md).
+2088 permite añadir un campo escalar con valor por defecto sin reiniciar el historial; 2455 añade un mapa simple vacío y 2540 una lista vacía con idKey estable. Son adiciones independientes desde el perfil inicial, declaradas con el predecessor completo. Quedan cambios de nombre, tipo o valor por defecto, perfiles adicionales, varios campos e indexación de campos nuevos en documentos existentes. [Escalar](docs/local-tool-sdk.md#add-a-scalar-or-map-field-to-an-existing-source-document), [mapa vacío](tasks/vvd1095/verification-sdk-source-map-additive2455.md) y [lista vacía](tasks/vvd1095/verification-sdk-source-list-additive2540.md).
 
 ## Ejes de tablas compartidas entregados
 
