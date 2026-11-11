@@ -6,13 +6,13 @@ import {projectWorldTable,columnCalculation,displayTableFormula} from './project
 import {createTypeTable,saveTableCalculation,removeTableColumn,updateTableColumn,type SaveTableCalculation} from './calculations';
 import TableCalculationEditor from './TableCalculationEditor';
 import { projectCodexEntry } from '@/engines/codex/properties';
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useDeepLinkParam } from '@/engines/_shared';
-import { ArrowDownUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, ExternalLink, Filter, GripVertical, Plus, Settings2, Table2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, ExternalLink, Filter, GripVertical, Pencil, Plus, Settings2, Table2, Trash2, Upload, X } from 'lucide-react';
 import { editTableRows, undoTableRows, type TableRowAction } from './rowActions';
 import { WorldEraConflict } from '@/services/worldEras/types';
 import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
-import { CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, moveTableColumn, removeRows, resizeTableColumn, sortRows, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
+import { CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
 import { useTableColumnDrag } from './useTableColumnDrag';
 import TableColumnHeader from './TableColumnHeader';
 import CsvDialog from './CsvDialog';
@@ -41,6 +41,7 @@ const button = `${control} inline-flex items-center justify-center gap-2 hover:b
 const codexTypes: CodexEntryType[] = ['character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
 const kinds = ['text', 'number', 'reference', 'checkbox'] as const;
 const emptyFolds: ReadonlySet<string> = new Set();
+type InlineColumnRename = { owner: string; columnId: string; name: string };
 
 export default function TablesEngine({ projectId }: EngineComponentProps) {
   const { locale, t } = useTranslation(); const copy = tableCopy[locale]; const navigate = useEraNavigate();
@@ -78,7 +79,20 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   if(deepLink&&deepLink!==appliedLink&&tables.some(table=>table.id===deepLink)){setSelectedId(deepLink);setAppliedLink(deepLink);}
   const storedTable = tables.find(item => item.id === selectedId) ?? tables[0];
   const rowKey = JSON.stringify([scope.projectId, scope.eraId, storedTable?.id]);
+  const [inlineRename, setInlineRename] = useState<InlineColumnRename>();
+  if (inlineRename && (inlineRename.owner !== rowKey || !storedTable?.columns.some(column => column.id === inlineRename.columnId))) {
+    setInlineRename(undefined);
+  }
   const tableRef = useRef<HTMLTableElement>(null);
+  const renameFocus = useRef<InlineColumnRename>(undefined);
+  useLayoutEffect(() => {
+    const edit = renameFocus.current;
+    if (!edit || inlineRename || busy) return;
+    renameFocus.current = undefined;
+    if (edit.owner !== rowKey) return;
+    const id = CSS.escape(edit.columnId);
+    tableRef.current?.querySelector<HTMLButtonElement>(`th[data-table-column-id="${id}"] [data-table-column-sort]`)?.focus({ preventScroll: true });
+  }, [inlineRename, busy, rowKey]);
   const [findTarget, setFindTarget] = useState<{ owner: string; rowId: string; columnId: string }>();
   const lastFindTarget = useRef<typeof findTarget>(undefined);
   useEffect(() => {
@@ -167,7 +181,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   // A live view of Codex cards: of one type, or of every type (read here, edited on the card).
   const live = Boolean(table?.codexType || table?.codexAllTypes), allTypes = Boolean(table?.codexAllTypes);
   const canResizeColumns = table?.mode === 'table' && !live && !table.codexTemplateId;
-  const columnsBusy = busy || rowWorking || Boolean(columnDraft) || Boolean(formulaDraft);
+  const columnsBusy = busy || rowWorking || Boolean(columnDraft || formulaDraft || inlineRename);
   const columnDragEnabled = Boolean(canResizeColumns && table.columns.length > 1 && !columnsBusy);
   const columnDrag = useTableColumnDrag(rowKey, table?.columns ?? [], columnDragEnabled, (id, target, expectedOrder) => {
     if (!table) return;
@@ -190,6 +204,30 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
         throw reason;
       }
     });
+  };
+  const beginInlineRename = (column: DataColumn) => {
+    if (columnDrag.hasActivePointer()) return;
+    setError('');
+    setInlineRename({ owner: rowKey, columnId: column.id, name: column.name });
+  };
+  const closeInlineRename = (edit: InlineColumnRename) => {
+    if (rowOwner.current.key !== edit.owner) return;
+    renameFocus.current = edit;
+    setError('');
+    setInlineRename(current => current === edit ? undefined : current);
+  };
+  const submitInlineRename = (edit: InlineColumnRename, name: string) => {
+    if (!table || busy || edit.owner !== rowKey) return;
+    if (name.trim() === edit.name) { closeInlineRename(edit); return; }
+    void run(async () => {
+      try {
+        await changeTable(projectId, table.id, current => { renameTableColumn(current, edit.columnId, name, edit.name); });
+      } catch (reason) {
+        if (reason instanceof Error && reason.message === 'table_column_name_conflict') throw new Error(copy.columnNameConflict);
+        if (reason instanceof Error && reason.message === 'table_column_name_invalid') throw new Error(copy.columnNameInvalid);
+        throw reason;
+      }
+    }, () => closeInlineRename(edit));
   };
   const rows:DataRow[]=projected?.rows??[];
   const values = table?.mode === 'sheet' ? sheetValues(table) : null;
@@ -380,7 +418,32 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
             sort={sorts[0]?.id === column.id ? sorts[0].descending ? 'descending' : 'ascending' : 'none'}
             drop={columnDrag.target?.id === column.id ? columnDrag.target.side : undefined}
             resize={canResizeColumns ? { label: `${copy.resizeColumn} ${column.name}`, disabled: columnsBusy, save: (width, expected) => resizeColumn(column.id, width, expected) } : undefined}>
-            <div className={(column.width ?? 180) < 100 ? "flex w-full min-w-0 max-w-full flex-col items-start gap-1" : "flex items-center justify-between gap-1"}><button {...columnDrag.bind(column.id)} className={(column.width ?? 180) < 100 ? "flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 text-left hover:text-accent-gold" : "flex min-h-9 min-w-0 items-center gap-2 text-left hover:text-accent-gold"} disabled={busy && !formulaDraft} onClick={event => formulaDraft?insertToken(`@[${column.name}]`):saveView({ sorts: toggleSort(sorts, column.id, event.shiftKey) })} title={[canResizeColumns || (column.width ?? 180) < 100 ? column.name : '', copy.sortMore, columnDragEnabled ? copy.dragColumn : ''].filter(Boolean).join(' · ')}><span className={(column.width ?? 180) < 100 ? "w-0 min-w-0 flex-1 truncate" : canResizeColumns ? "min-w-0 truncate" : undefined}>{table.mode === 'sheet' ? `${cellKey(index, 0).replace(/\d+$/, '')} · ` : ''}{column.name}</span><ArrowDownUp size={12} className={canResizeColumns || (column.width ?? 180) < 100 ? "shrink-0" : undefined} />{sorts.length > 1 && sorts.some(item => item.id === column.id) && <span data-testid={`table-sort-rank-${column.name}`} className="rounded bg-elevated px-1 text-[10px] text-accent-gold">{sorts.findIndex(item => item.id === column.id) + 1}{sorts.find(item => item.id === column.id)!.descending ? '↓' : '↑'}</span>}</button>
+            {inlineRename?.columnId === column.id ? <form className={`flex min-w-0 gap-1 ${(column.width ?? DEFAULT_TABLE_COLUMN_WIDTH) < 100 ? 'flex-col' : 'items-center'}`}
+              onSubmit={event => {
+                event.preventDefault();
+                const name = new FormData(event.currentTarget).get('name');
+                if (typeof name === 'string') submitInlineRename(inlineRename, name);
+              }} onKeyDown={event => {
+                if (event.key !== 'Escape' || busy) return;
+                event.preventDefault();
+                event.stopPropagation();
+                closeInlineRename(inlineRename);
+              }}>
+              <input name="name" required autoFocus defaultValue={inlineRename.name} aria-label={`${copy.columnName} · ${column.name}`}
+                className={`${control} min-w-0 flex-1`} readOnly={busy} onFocus={event => event.currentTarget.select()} />
+              <div className="flex shrink-0 gap-1">
+                <button type="submit" aria-label={copy.save} title={copy.save} disabled={busy} className="rounded p-1.5 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold"><Check size={14} /></button>
+                <button type="button" aria-label={copy.cancel} title={copy.cancel} disabled={busy} onClick={() => closeInlineRename(inlineRename)} className="rounded p-1.5 hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold"><X size={14} /></button>
+              </div>
+            </form> :
+            <div className={(column.width ?? 180) < 100 ? "flex w-full min-w-0 max-w-full flex-col items-start gap-1" : "flex items-center justify-between gap-1"} onKeyDown={event => {
+              if (event.key !== 'F2' || !canResizeColumns || columnsBusy) return;
+              event.preventDefault();
+              event.stopPropagation();
+              beginInlineRename(column);
+            }}><button data-table-column-sort {...columnDrag.bind(column.id)} className={(column.width ?? 180) < 100 ? "flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 text-left hover:text-accent-gold" : "flex min-h-9 min-w-0 items-center gap-2 text-left hover:text-accent-gold"} disabled={busy && !formulaDraft} onClick={event => formulaDraft?insertToken(`@[${column.name}]`):saveView({ sorts: toggleSort(sorts, column.id, event.shiftKey) })} title={[canResizeColumns || (column.width ?? 180) < 100 ? column.name : '', copy.sortMore, columnDragEnabled ? copy.dragColumn : ''].filter(Boolean).join(' · ')}><span className={(column.width ?? 180) < 100 ? "w-0 min-w-0 flex-1 truncate" : canResizeColumns ? "min-w-0 truncate" : undefined}>{table.mode === 'sheet' ? `${cellKey(index, 0).replace(/\d+$/, '')} · ` : ''}{column.name}</span><ArrowDownUp size={12} className={canResizeColumns || (column.width ?? 180) < 100 ? "shrink-0" : undefined} />{sorts.length > 1 && sorts.some(item => item.id === column.id) && <span data-testid={`table-sort-rank-${column.name}`} className="rounded bg-elevated px-1 text-[10px] text-accent-gold">{sorts.findIndex(item => item.id === column.id) + 1}{sorts.find(item => item.id === column.id)!.descending ? '↓' : '↑'}</span>}</button>
+              {canResizeColumns && <button type="button" aria-label={`${copy.renameColumn} ${column.name}`} aria-keyshortcuts="F2" title={`${copy.renameColumn} (F2)`}
+                disabled={columnsBusy} onClick={() => beginInlineRename(column)} className="inline-flex min-h-9 min-w-7 shrink-0 items-center justify-center rounded text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40"><Pencil size={14} /></button>}
               <details className="relative"><summary aria-label={`${copy.columnActions} ${column.name}`} className="flex min-h-9 min-w-9 cursor-pointer list-none items-center justify-center rounded-lg text-text-muted hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold"><Settings2 size={15} /></summary>
                 <div className="absolute right-0 z-20 mt-1 w-52 space-y-1 rounded-lg border border-border bg-surface p-2 shadow-lg" onClick={event => { if ((event.target as Element).closest('button')) event.currentTarget.parentElement?.removeAttribute('open'); }}>
                   <button aria-label={`${copy.editColumn} ${column.name}`} className={`${button} w-full justify-start`} disabled={busy} onClick={() => {if(columnCalculation(table,column,project.codexTemplates??[]))void beginCalculation(column);else void run(async()=>{const read=await readWorldDocument(scope,'tables',table.id);if(!read)throw Error('table_missing');setColumnVersion(read.version);setColumnTemplateRevision(project.codexTemplates?.find(item=>item.id===table.codexTemplateId)?.revision);setAddingColumn(false);setColumnDraft({...column});});}}><Settings2 size={15} />{copy.editColumn}</button>
@@ -392,7 +455,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
                   <button disabled={busy || table.columns.length <= 1} className={`${button} w-full justify-start text-danger`} aria-label={`${copy.remove} ${column.name}`} onClick={() => requestDelete(column.propertyId?(locale==='es'?'¿Ocultar esta propiedad en esta tabla? La propiedad compartida y sus valores siguen disponibles en las fichas.':'Hide this property in this table? The shared property and its card values remain available.'):copy.removeColumn, async()=>{const current=await readWorldDocument(scope,'tables',table.id);if(!current)throw Error('table_missing');await removeTableColumn(scope,table.id,column.id,current.version);})}><Trash2 size={15} />{copy.remove}</button>
                 </div>
               </details>
-            </div>
+            </div>}
           </TableColumnHeader>)}<th className="border-b border-border px-2" /></tr></thead>
             <tbody>{groupItems.map(item => {
               if (item.kind === 'group') return <tr key={`group:${item.key}`} hidden={item.hidden} data-table-group-depth={item.depth + 1}>

@@ -1,4 +1,4 @@
-import { clampTableColumnWidth, DEFAULT_TABLE_COLUMN_WIDTH, shiftSheetReferences } from './tableEdits';
+import { clampTableColumnWidth, DEFAULT_TABLE_COLUMN_WIDTH, shiftSheetReferences, validateTableColumnName } from './tableEdits';
 import {db} from '@/db';
 import type {WorldEraScope} from '@/services/worldEras/types';
 import {getEraProject,readWorldDocument} from '@/services/worldEras/store';
@@ -35,8 +35,9 @@ export async function removeTableColumn(scope:WorldEraScope,tableId:string,colum
 
 /** A type-bound column label is the property label, never a second alias. */
 export async function updateTableColumn(scope:WorldEraScope,tableId:string,draft:DataColumn,expectedVersion:string,expectedTemplateRevision?:number):Promise<void>{await db.transaction('rw',db.tables,async()=>{
- const read=await readWorldDocument(scope,'tables',tableId);if(!read||read.version!==expectedVersion)throw Error('table_conflict');const table=read.document.root as unknown as WorldTable,project=await getEraProject(scope),templates=project.codexTemplates??[],columns=effectiveTableColumns(table,templates),current=columns.find(column=>column.id===draft.id);if(!current||!draft.name.trim()||draft.name.includes(']')||columns.some(column=>column.id!==draft.id&&column.name.toLocaleLowerCase()===draft.name.trim().toLocaleLowerCase()))throw Error('table_column_name_invalid');
- if(current.propertyId&&table.codexTemplateId){const template=templates.find(item=>item.id===table.codexTemplateId),definition=tableDefinitions(table,templates).find(item=>item.id===current.propertyId);if(!template||!definition||template.revision!==expectedTemplateRevision)throw Error('template_conflict');await saveCodexTemplate(scope.projectId,{...template,propertyDefinitions:[...template.propertyDefinitions?.filter(item=>item.key!==definition.key)??[],{...definition,label:draft.name.trim()}]},expectedTemplateRevision!);}
+ const read=await readWorldDocument(scope,'tables',tableId);if(!read||read.version!==expectedVersion)throw Error('table_conflict');const table=read.document.root as unknown as WorldTable,project=await getEraProject(scope),templates=project.codexTemplates??[],columns=effectiveTableColumns(table,templates),current=columns.find(column=>column.id===draft.id);if(!current)throw Error('table_column_name_invalid');
+ const name=validateTableColumnName(columns,draft.id,draft.name);
+ if(current.propertyId&&table.codexTemplateId){const template=templates.find(item=>item.id===table.codexTemplateId),definition=tableDefinitions(table,templates).find(item=>item.id===current.propertyId);if(!template||!definition||template.revision!==expectedTemplateRevision)throw Error('template_conflict');await saveCodexTemplate(scope.projectId,{...template,propertyDefinitions:[...template.propertyDefinitions?.filter(item=>item.key!==definition.key)??[],{...definition,label:name}]},expectedTemplateRevision!);}
  const width=clampTableColumnWidth(draft.width??current.width??DEFAULT_TABLE_COLUMN_WIDTH,current.width);
- await changeTable(scope.projectId,tableId,current=>{const saved={...columns.find(column=>column.id===draft.id)!,name:draft.name.trim(),width};if(current.columns.some(column=>column.id===draft.id))current.columns=current.columns.map(column=>column.id===draft.id?saved:column);else current.columns.push(saved);},scope.eraId);
+ await changeTable(scope.projectId,tableId,current=>{const saved={...columns.find(column=>column.id===draft.id)!,name,width};if(current.columns.some(column=>column.id===draft.id))current.columns=current.columns.map(column=>column.id===draft.id?saved:column);else current.columns.push(saved);},scope.eraId);
  });}
