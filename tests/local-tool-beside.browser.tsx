@@ -1,5 +1,6 @@
 import '@/engines';
 import Dexie from 'dexie';
+import type {Editor} from '@tiptap/core';
 import {act, Suspense, useLayoutEffect, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {MemoryRouter, Route, Routes, useLocation, useParams} from 'react-router-dom';
@@ -67,7 +68,7 @@ interface Fixture {
   unmountWorkspace(): Promise<void>;
 }
 
-async function withFixture<T>(label: string, observeClient: boolean, run: (fixture: Fixture) => Promise<T>, blockFocus = false, component?: typeof documentNotebook.component): Promise<T> {
+async function withFixture<T>(label: string, observeClient: boolean, run: (fixture: Fixture) => Promise<T>, blockFocus = false, component?: typeof documentNotebook.component, owned?: 'codex' | 'writings'): Promise<T> {
   const projectId = `beside-${label}-${crypto.randomUUID()}`, targetId = `${projectId}-target`, ownerId = `${projectId}-owner`;
   const targetTitle = `Target B ${label}`, targetMarker = `EFFECTIVE_TARGET_${targetId}`, ownerTitle = `Owner O ${label}`, blockId = `${projectId}-world-cards`;
   const emitted = new Map<string, LocalToolClient<LinkedNotebookState>>();
@@ -86,7 +87,7 @@ async function withFixture<T>(label: string, observeClient: boolean, run: (fixtu
     './installed/examples.initiative/module.tsx': {default: initiative},
   });
   const sourceEngineId = `local-tool-${documentNotebook.namespace}`;
-  const engineIds = [sourceEngineId, 'codex', `local-tool-${initiative.namespace}`];
+  const engineIds = [sourceEngineId, 'codex', `local-tool-${initiative.namespace}`, ...(owned === 'writings' ? ['writings'] : [])];
   const engines = engineIds.map(id => { const engine = getEngine(id); assert(engine, `Registered engine missing ${id}`); return engine; });
   const root = createRoot(node('#root')), focus = blockFocus ? createWorkspaceFocusController() : undefined;
   let mounted = true;
@@ -98,11 +99,16 @@ async function withFixture<T>(label: string, observeClient: boolean, run: (fixtu
   useLocaleStore.setState({locale: 'en', loaded: true});
   try {
     await db.projects.put({id: projectId, title: `Beside ${label}`, description: '', mode: 'custom', type: 'standalone', status: 'draft', color: '#777777', enabledEngines: engineIds, engineOrder: engineIds, createdAt: 1, updatedAt: 1});
-    const worldBlock = initiative.blocks?.find(block => block.key === 'cards'); assert(worldBlock, 'Original world cards block absent');
+    const definition = initiative.blocks?.find(block => block.key === (owned ? 'initiative' : 'cards'));
+    assert(definition, 'Source block definition absent');
+    const atom = serializeLocalToolBlock(projectId, createLocalToolBlockEnvelope(initiative.namespace, definition, blockId));
+    const neighbor = owned ? serializeLocalToolBlock(projectId, createLocalToolBlockEnvelope(initiative.namespace, definition, blockId + '-neighbor')) : '';
+    const ownerContent = '<p>Owner prose remains exact.</p>' + atom + neighbor + (owned ? '<p>Tail prose remains exact.</p>' : '');
     await db.codexEntries.bulkPut([
-      {...authorCard(projectId, targetTitle), id: targetId, content: `<p>${targetMarker}</p>`},
-      {...authorCard(projectId, ownerTitle), id: ownerId, content: '<p>Owner prose remains exact.</p>' + serializeLocalToolBlock(projectId, createLocalToolBlockEnvelope(initiative.namespace, worldBlock, blockId))},
+      {...authorCard(projectId, targetTitle), id: targetId, content: `<p>${targetMarker}</p>` + (owned === 'codex' ? atom : '')},
+      {...authorCard(projectId, ownerTitle), id: ownerId, content: ownerContent},
     ]);
+    if (owned === 'writings') await db.writings.put({id: ownerId, projectId, title: ownerTitle, status: 'draft', content: ownerContent, wordCount: 9, tags: [], createdAt: 1, updatedAt: 1});
     const source = await createSourceToolDocument({projectId}, documentNotebook.namespace, `Source A ${label}`);
     const initialClient = createLocalToolClient(projectId, documentNotebook, {documentId: source.id});
     const initial = await initialClient.read();
@@ -376,7 +382,7 @@ async function pickerFlow(css: boolean): Promise<string[]> {
         assert(resolved?.reference?.kind === 'codex' && resolved.reference.documentId === fixture.targetId && resolved.title === fixture.targetTitle && resolved.available === true && resolved.provenance === 'base' && targetVisible && sourceScopeExact, 'Normal reference resolver disagrees with visible B or principal Source/Base scope');
       }
       const current = await readySource(main(), fixture.sourceId), actual = {route: mainLocation(), expectedRoute: fixture.sourceRoute, documentId: current.documentId,
-        ready: current.ready, draft: current.value, expectedDraft: draft, base: current.host?.querySelector('header span')?.textContent, businessExact: await fixture.business() === before};
+        ready: current.ready, draft: current.value, expectedDraft: draft, base: current.host?.querySelector(':is(section[aria-label="Linked notebook"], section[aria-label="Cuaderno vinculado"]) > header > span')?.textContent, businessExact: await fixture.business() === before};
       console.error('PICKER_FLOW_DIAGNOSTIC ' + JSON.stringify({locale, ...actual}));
       console.error('PICKER_BUSINESS_DIAGNOSTIC ' + JSON.stringify({before: JSON.parse(before), after: JSON.parse(await fixture.business())}));
       assert(actual.route === fixture.sourceRoute && actual.documentId === fixture.sourceId && actual.ready && actual.draft === draft && actual.base === (locale === 'es' ? 'Base compartida' : 'Shared base'), `Picker changed logical Source/draft/scope: ${JSON.stringify(actual)}`);
@@ -391,12 +397,18 @@ async function pickerFlow(css: boolean): Promise<string[]> {
       normalizedSource.updatedAt = sourceBefore.updatedAt; normalized.project.updatedAt = beforeData.project.updatedAt;
       assert(JSON.stringify(normalized) === before, 'Beside flush changed business fields beyond Source notes/revision and Source/project timestamps');
       assert(button(sourceHost(main(), fixture.sourceId)!, locale === 'es' ? 'Guardar notas' : 'Save notes').disabled, 'Normally flushed notes still appear unsaved');
-      await until(() => !!fixture.emitted.get(fixture.sourceId) && fixture.emitted.get(fixture.sourceId) !== previousClient, 'Navigation change did not emit a current Source client');
-      await rejected(() => previousClient.openDocument('codex', fixture.targetId, {placement: 'beside'}), 'local_tool_context_expired');
-      assert(mainLocation() === fixture.sourceRoute && await fixture.business() === postFlush, 'Expired Source client changed post-flush route/data');
+      assert(fixture.emitted.get(fixture.sourceId) === previousClient, 'Opening beside replaced the current primary client');
+      const live = await previousClient.read();
+      assert(previousClient.projectId === fixture.projectId && previousClient.eraId === undefined &&
+        previousClient.documentId === fixture.sourceId && live.data.notes === draft &&
+        mainLocation() === fixture.sourceRoute && await fixture.business() === postFlush,
+        'Retained Source client did not read the exact document, Base and flushed notes');
       if (css) await capturePicker(fixture, locale, 'after');
+      await fixture.unmountWorkspace();
+      await rejected(() => previousClient.openDocument('codex', fixture.targetId, {placement: 'beside'}), 'local_tool_context_expired');
+      assert(await fixture.business() === postFlush, 'Withdrawn Source client changed post-flush data');
     });
-    passed.push(`Real ${locale} picker beside keeps principal logical A/Base/ready exact pending notes flushed and preserved with only normal save metadata changes while normal Codex B opens; previous navigation client remains revoked`);
+    passed.push(`Real ${locale} picker beside keeps principal logical A/Base/ready exact pending notes flushed and preserved with only normal save metadata changes while normal Codex B opens; the primary client stays live until its host unmounts`);
   }
   return passed;
 }
@@ -476,7 +488,7 @@ export async function testLocalToolBesidePickerStates(): Promise<string[]> {
 }
 
 export async function testLocalToolBesideAll(): Promise<string[]> {
-  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates(), ...await testSourceAuthorUndoCommand(), ...await testSourceAuthorUndoProvider(), ...await testSourceAuthorUndoableCommand()];
+  return [...await testLocalToolBesideBaseline(), ...await testLocalToolBesideContract(), ...await testLocalToolBesidePicker(), ...await testLocalToolBesideRoutes(), ...await testLocalToolBesidePickerStates(), ...await testSourceAuthorUndoCommand(), ...await testSourceAuthorUndoProvider(), ...await testSourceAuthorUndoableCommand(), ...await testOwnedBlockPanel()];
 }
 
 /** Product CSS runner handshake only; ROOT executes this export in its later UI batch. */
@@ -795,7 +807,8 @@ export async function testSourceAuthorUndoProvider(): Promise<string[]> {
     const names=(within=host())=>[...region(within).querySelectorAll('ol > li > span')].map(row=>row.textContent).join('|');
     const snapshot=async()=>JSON.stringify(await reader.read());
     const before=await reader.read(),original='Block focus checklist item Ω',authored=`${original}|Review continuity|Check names`,reordered=`Review continuity|${original}|Check names`;
-    const first=(await list(scope))[0];
+    const listRehearsals=async()=>(await list(scope)).filter(row=>row.providerId==='rehearsal-order');
+    const first=(await listRehearsals())[0];
     assert(first?.providerId==='rehearsal-order'&&first.label?.en==='Rehearsal order'&&!first.canUndo&&!first.canRedo,'Initial live model was not listed without history');
     await note(host(),'Normal note before rehearsal');
     await click(button(host(),'Add review checklist'));
@@ -811,7 +824,7 @@ export async function testSourceAuthorUndoProvider(): Promise<string[]> {
     assert(await key(button(host(),'Add review checklist'),true)&&(await reader.read()).data.notes==='Normal note before rehearsal'&&names()===original,'Redo picked the provider before the newer normal step');
     assert(await key(button(host(),'Add review checklist'),true)&&names()===authored,'The next normal Redo did not restore the command');
     assert(await key(button(region(),'Redo rehearsal'),true)&&names()===reordered,'Redo did not return to the provider after the normal steps');
-    assert((await list(scope))[0]?.providerToken===first.providerToken,'Inline handle rerender replaced the model token');
+    assert((await listRehearsals())[0]?.providerToken===first.providerToken,'Inline handle rerender replaced the model token');
     const retained=await snapshot(),hold=await holdAccess(scope.projectId);
     let pending:ReturnType<typeof invoke>|undefined;
     try{
@@ -835,7 +848,7 @@ export async function testSourceAuthorUndoProvider(): Promise<string[]> {
     await act(async()=>{const opened=await runBridgeTool('wh_local_tool_document_open',{projectId:scope.projectId,documentId:scope.documentId,blockId:'items'});assert(opened.ok&&JSON.stringify(opened.result)===JSON.stringify({available:true,applied:true}),JSON.stringify(opened));await pause();});
     const companion=()=>sourceHost(activeCompanion()!,scope.documentId)!;
     await until(()=>!!activeCompanion()?.querySelector('section[aria-label="Rehearsal order"]'),'Real Items companion did not publish its provider');
-    const both=await list(scope),second=both.find(row=>row.providerToken!==first.providerToken);
+    const both=await listRehearsals(),second=both.find(row=>row.providerToken!==first.providerToken);
     assert(both.length===2&&second&&second.instanceId!==first.instanceId,'The companion reused the principal model identity');
     const moveCompanion=()=>node<HTMLButtonElement>(`button[aria-label="Move ${original} down"]`,region(companion()));
     await click(moveCompanion());
@@ -860,7 +873,7 @@ export async function testSourceAuthorUndoProvider(): Promise<string[]> {
     await click(node(`[data-testid="workspace-close-tab-${paneId}"]`));
     await until(()=>!activeCompanion(),'The companion did not close');
     expect(await invoke(scope,second,'undo'),false,false);
-    assert((await list(scope)).map(row=>row.providerToken).join()===first.providerToken,'Closing a companion retired another provider');
+    assert((await listRehearsals()).map(row=>row.providerToken).join()===first.providerToken,'Closing a companion retired another provider');
     checks.push('Real Source rehearsal stays local through ordered keyboard and MCP, isolates panes, applies one Writer receipt, preserves conflicts and retires the closed token');
   });
 
@@ -1220,4 +1233,238 @@ export async function testSourceAuthorUndoableCommand(): Promise<string[]> {
     checks.push('Anchor depth and same-level chronology, batch barriers, partial inverse cursors, stale handling and retirement work through the Source host');
   }, true, ProbedNotebook);
   return checks;
+}
+
+function ownedInline(blockId: string) {
+  return document.querySelector<HTMLElement>(`[data-wh-source-live-view][data-source-block-id="${blockId}"]`);
+}
+function ownedPanel(blockId: string) {
+  return document.querySelector<HTMLElement>(`[data-owned-block-panel="${blockId}"]`);
+}
+const ownedRound = (view: ParentNode | null) =>
+  view?.querySelector('section[aria-label="Initiative turns"] .tabular-nums')?.textContent ?? null;
+
+export interface OwnedBlockPanelFixture {
+  projectId: string;
+  ownerKind: 'codex';
+  ownerId: string;
+  blockId: string;
+  otherOwnerId: string;
+  otherEraId: string;
+  observe(): {inline: boolean; panel: boolean; unavailable: boolean; companionCount: number; inlineRound: string | null; panelRound: string | null};
+  openOtherOwner(): Promise<string>;
+  retireOwner(): Promise<void>;
+}
+
+export async function withOwnedBlockPanelFixture<T>(run: (fixture: OwnedBlockPanelFixture) => Promise<T>): Promise<T> {
+  return withFixture('owned-panel', false, async fixture => {
+    const {projectId, ownerId, blockId} = fixture, otherEraId = crypto.randomUUID();
+    await saveWorldEra(projectId, {id: otherEraId, name: 'Past', description: '', revision: 0, createdAt: 1, updatedAt: 1}, null);
+    await openFromLibrary(fixture, 'codex', ownerId, 'main');
+    await until(() => !!dialogInPane(main().dataset.enginePaneId!, fixture.ownerTitle), 'Codex owner detail did not open');
+    await click(button(dialogInPane(main().dataset.enginePaneId!, fixture.ownerTitle)!, 'Edit'));
+    const ownerDialog = () => dialogInPane(main().dataset.enginePaneId!, 'Edit Entry');
+    await until(() => ownedRound(ownedInline(blockId)) === '1' && !!ownerDialog(), 'Live Codex editor and Owned atom did not mount');
+    return run({
+      projectId, ownerKind: 'codex', ownerId, blockId, otherOwnerId: fixture.targetId, otherEraId,
+      observe: () => ({
+        inline: !!ownedInline(blockId), panel: !!ownedPanel(blockId),
+        unavailable: !!document.querySelector('[data-owned-block-panel-unavailable]'),
+        companionCount: document.querySelectorAll('[data-testid^="workspace-panel-"]').length,
+        inlineRound: ownedRound(ownedInline(blockId)), panelRound: ownedRound(ownedPanel(blockId)),
+      }),
+      openOtherOwner: async () => {
+        await openFromLibrary(fixture, 'codex', fixture.targetId, 'beside');
+        const paneId = activeCompanion()?.dataset.enginePaneId;
+        assert(paneId, 'Other owner tab missing');
+        await until(() => !!dialogInPane(paneId, fixture.targetTitle), 'Other Codex owner detail missing');
+        await click(button(dialogInPane(paneId, fixture.targetTitle)!, 'Edit'));
+        await until(() => !!dialogInPane(paneId, 'Edit Entry')?.querySelector('[data-wh-source-live-view]'), 'Other Codex owner not mounted');
+        return paneId;
+      },
+      retireOwner: async () => {
+        await click(button(ownerDialog()!, 'Cancel'));
+        await until(() => !ownerDialog() && !ownedInline(blockId) && !ownedPanel(blockId), 'Closing the Codex editor did not revoke its atom panel');
+      },
+    });
+  }, false, undefined, 'codex');
+}
+
+export async function testOwnedBlockPanel(): Promise<string[]> {
+  const checks = await withOwnedBlockPanelFixture(async fixture => {
+    const {projectId, ownerId, blockId} = fixture;
+    const owner = {kind: 'codex', documentId: ownerId};
+    const args = {projectId, owner, blockId};
+    const mounted = () => ownedPanel(blockId);
+    const editorOf = () => {
+      const view = ownedInline(blockId)?.closest('.ProseMirror') as (HTMLElement & {editor?: Editor}) | null;
+      assert(view?.editor, 'Real mounted Tiptap editor missing');
+      return view.editor;
+    };
+    const atom = (id: string) => {
+      const editor = editorOf();
+      let value: {pos: number; size: number; attrs: {envelope: {revision: number}}} | undefined;
+      editor.state.doc.descendants((child, pos) => {
+        if (child.type.name === 'sourceToolBlock' && child.attrs.envelope?.id === id)
+          value = {pos, size: child.nodeSize, attrs: child.attrs as NonNullable<typeof value>['attrs']};
+      });
+      assert(value, 'Exact mounted atom missing ' + id);
+      return value;
+    };
+    const persisted = () => db.codexEntries.get(ownerId);
+    const read = () => runBridgeTool('wh_local_tool_block_read', args);
+    const open = async (overrides = {}) => {
+      let result;
+      await act(async () => { result = await runBridgeTool('wh_local_tool_block_open', {...args, ...overrides}); });
+      assert(result && (result as {ok: boolean}).ok, JSON.stringify(result));
+      return (result as {result: {available: boolean; applied: boolean}}).result;
+    };
+    const before = await persisted(), route = mainLocation(), editor = editorOf();
+    const prose = editor.state.doc.textContent, selection = JSON.stringify(editor.state.selection.toJSON());
+    const neighbor = JSON.stringify(atom(blockId + '-neighbor').attrs), revision = atom(blockId).attrs.envelope.revision;
+    const tabs = await runBridgeTool('wh_workspace_tabs', {projectId});
+    assert(tabs.ok, JSON.stringify(tabs));
+    await click(button(ownedInline(blockId)!, 'Open block beside'));
+    await until(() => ownedRound(mounted()) === '1', 'Normal inline action did not open live Owned panel');
+    assert(mainLocation() === route && editorOf() === editor && !mounted()!.closest('[inert]'), 'Panel must retain actual editor and be reachable');
+    const panelControl = button(mounted()!, 'Next round');
+    panelControl.focus();
+    assert(document.activeElement === panelControl, 'The companion cannot receive focus while the Codex editor is open');
+    await act(async () => {
+      panelControl.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true, cancelable: true}));
+    });
+    assert(editorOf() === editor && document.activeElement === panelControl, 'Codex dialog intercepted a companion key');
+    const dedup = await open();
+    assert(dedup.available && dedup.applied && fixture.observe().companionCount === 1, 'Exact open did not deduplicate');
+    for (const testId of ['workspace-to-main', 'workspace-tab-pin', 'workspace-tab-duplicate']) {
+      const control = node<HTMLButtonElement>(`[data-testid="${testId}"]`);
+      assert(control.disabled, 'Temporary panel exposed unavailable control ' + testId);
+      await click(control);
+    }
+    assert(mainLocation() === route && editorOf() === editor && fixture.observe().companionCount === 1,
+      'Temporary panel changed its owner, placement or tab identity');
+    const tabsAfter = await runBridgeTool('wh_workspace_tabs', {projectId});
+    assert(JSON.stringify(tabsAfter) === JSON.stringify(tabs) && JSON.stringify(await persisted()) === JSON.stringify(before), 'Opening wrote owner or durable tab state');
+    for (const outside of [{owner: {...owner, documentId: fixture.otherOwnerId}}, {eraId: fixture.otherEraId}]) {
+      const result = await open(outside);
+      assert(!result.available && !result.applied, 'Open escaped live owner or era');
+    }
+    for (const [label, round, increment] of [['Next round', '2', 1], ['Undo', '1', 2], ['Redo', '2', 3]] as const) {
+      await click(button(mounted()!, label));
+      await until(() => ownedRound(mounted()) === round && ownedRound(ownedInline(blockId)) === round, 'Two presentations did not converge after ' + label);
+      assert(atom(blockId).attrs.envelope.revision === revision + increment, 'Expected one exact atom revision after ' + label);
+      assert(editor.state.doc.textContent === prose && JSON.stringify(atom(blockId + '-neighbor').attrs) === neighbor &&
+        JSON.stringify(editor.state.selection.toJSON()) === selection, 'Panel changed neighboring atom, prose or selection');
+    }
+    const companionId = activeCompanion()?.dataset.enginePaneId;
+    assert(companionId, 'Active companion not found');
+    const otherPaneId = await fixture.openOtherOwner();
+    const otherDialog = () => dialogInPane(otherPaneId, 'Edit Entry');
+    await click(node(`[data-testid="workspace-tab-${companionId}"]`));
+    const ownerDialog = () => dialogInPane(main().dataset.enginePaneId!, 'Edit Entry');
+    await act(async () => {
+      editor.view.dispatch(editor.state.tr.insertText('Local retained prose ', 1));
+    });
+    const baseline = await read();
+    assert(baseline.ok, JSON.stringify(baseline));
+    const expectedVersion = (baseline.result as {ownerVersion: string}).ownerVersion;
+    const remove = () => runBridgeTool('wh_local_tool_block_remove', {...args, expectedVersion});
+    const input = node<HTMLInputElement>('form input:not([type="number"])', mounted()!);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Unsaved participant');
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+    assert(!button(mounted()!, 'Add participant').disabled, 'Panel draft did not reach React state');
+    await click(button(ownerDialog()!, 'Save Changes'));
+    assert(ownerDialog()?.textContent?.includes('Save or discard the block changes before saving the card.'), 'Save ignored the exact owner draft');
+    await click(button(ownerDialog()!, 'Cancel'));
+    assert(ownerDialog()?.querySelector('[data-testid="codex-owned-close-pending"]') && input.value === 'Unsaved participant', 'Owner Cancel discarded the panel draft');
+    await click(node('[aria-label="Close"]', ownerDialog()!));
+    assert(ownerDialog() && mounted() && input.value === 'Unsaved participant', 'Owner X discarded the panel draft');
+    await click(node(`[data-testid="workspace-tab-${otherPaneId}"]`));
+    await click(button(otherDialog()!, 'Save Changes'));
+    await until(() => !otherDialog(), 'A draft in A blocked saving distinct mounted owner B');
+    await click(node(`[data-testid="workspace-tab-${companionId}"]`));
+    assert(input.value === 'Unsaved participant', 'Saving another owner altered the draft');
+    await click(node(`[data-testid="workspace-close-tab-${companionId}"]`));
+    assert(mounted() && input.value === 'Unsaved participant', 'Closing companion discarded the draft');
+    const current = atom(blockId);
+    await act(async () => { editor.view.dispatch(editor.state.tr.delete(current.pos, current.pos + current.size)); });
+    assert(atom(blockId), 'Owner editor removed an atom with a panel draft');
+    const denied = await remove();
+    assert(!denied.ok && JSON.stringify(denied).includes('pending') && JSON.stringify(await persisted()) === JSON.stringify(before),
+      'Durable removal was not blocked by the exact panel draft: ' + JSON.stringify(denied));
+    await click(button(mounted()!, 'Discard draft and reload'));
+    await until(() => input.value === '', 'Normal Discard did not release the draft');
+    const removed = await remove();
+    assert(removed.ok, JSON.stringify(removed));
+    await until(() => fixture.observe().unavailable && !mounted(), 'Durable deletion did not retire the panel');
+    const late = await open();
+    assert(!late.available && !late.applied, 'Dirty retained owner reopened a durably removed atom');
+    const missing = await read();
+    assert(!missing.ok && JSON.stringify(missing).includes('local_tool_block_missing_or_ambiguous'), 'Removed atom was still persisted');
+    assert(ownerDialog() && ownedInline(blockId), 'The dirty editor did not retain the cached atom needed to exercise its save guard');
+    await click(button(ownerDialog()!, 'Save Changes'));
+    await until(() => !!ownerDialog()?.querySelector('[data-conflict-field="content"]'), 'Stale owner save did not show an exact content conflict');
+    await click(button(node('[data-conflict-field="content"]', ownerDialog()!), 'Keep my version'));
+    await until(() => !ownerDialog()?.querySelector('[data-conflict-field="content"]'), 'Normal conflict resolution did not rebase the owner');
+    await click(button(ownerDialog()!, 'Save Changes'));
+    await until(() => !ownerDialog(), 'Saving after rebasing local prose did not finish');
+    const saved = await persisted();
+    assert(saved?.content.includes('Local retained prose ') && saved.content.includes('Tail prose remains exact.') &&
+      saved.content.includes(blockId + '-neighbor'), 'Rebasing the retired atom lost unrelated prose or neighboring block');
+    const afterStaleSave = await read();
+    assert(!afterStaleSave.ok && JSON.stringify(afterStaleSave).includes('local_tool_block_missing_or_ambiguous'), 'Stale owner save resurrected the removed atom');
+    return [
+      'Real Codex inline and panel share one atom, deduplicate exact MCP opens and leave business/tab persistence intact on open.',
+      'Panel action, Undo and Redo update one atom revision and preserve editor, selection, prose and neighbor.',
+      'Temporary panel cannot be promoted, pinned or duplicated. Draft protects owner close, same-owner Save, tab close and both removal paths. Other-owner Save is isolated. Keeping local prose after a conflict does not restore the retired atom.',
+    ];
+  });
+
+  await withOwnedBlockPanelFixture(async fixture => {
+    const {projectId, ownerId, blockId} = fixture;
+    const before = await db.codexEntries.get(ownerId);
+    let started = false, release = () => {};
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const unregister = registerPendingFlusher('owned-open-' + projectId, async () => {
+      started = true;
+      await waiting;
+      return true;
+    });
+    let pending: ReturnType<typeof runBridgeTool> | undefined;
+    try {
+      await act(async () => {
+        pending = runBridgeTool('wh_local_tool_block_open', {projectId, owner: {kind: 'codex', documentId: ownerId}, blockId});
+        await pause();
+      });
+      await until(() => started, 'Normal workspace flusher did not intercept the open');
+      await fixture.retireOwner();
+    } finally {
+      release();
+      unregister();
+      await act(async () => { await pending; });
+    }
+    const reply = await pending;
+    assert(reply?.ok && JSON.stringify(reply.result) === JSON.stringify({available: false, applied: false}) &&
+      fixture.observe().companionCount === 0 && JSON.stringify(await db.codexEntries.get(ownerId)) === JSON.stringify(before),
+      'Admission used the withdrawn session after the workspace flush');
+  });
+  checks.push('Owner retirement during the real pending flush rejects admission and leaves owner and tabs exact.');
+  await withFixture('owned-writing', false, async fixture => {
+    const {projectId, ownerId, blockId} = fixture;
+    const before = await db.writings.get(ownerId);
+    await openFromLibrary(fixture, 'writings', ownerId, 'beside');
+    await until(() => ownedRound(ownedInline(blockId)) === '1' && !!activeCompanion(), 'Real Writing owner editor did not mount in its tab');
+    const ownerPane = activeCompanion()!, inline = ownedInline(blockId)!;
+    await click(button(inline, 'Open block beside'));
+    await until(() => ownerPane.hidden && ownedRound(ownedPanel(blockId)) === '1', 'Writing owner should stay mounted but hidden behind the atom panel');
+    assert(inline.isConnected && JSON.stringify(await db.writings.get(ownerId)) === JSON.stringify(before), 'Opening remounted or persisted the Writing owner');
+    await click(button(ownedPanel(blockId)!, 'Next round'));
+    await until(() => ownedRound(ownedPanel(blockId)) === '2' && ownedRound(inline) === '2', 'Panel did not edit the still-live hidden Writing owner');
+    const result = await runBridgeTool('wh_local_tool_block_open', {projectId, owner: {kind: 'writings', documentId: ownerId}, blockId});
+    assert(result.ok && JSON.stringify(result.result) === JSON.stringify({available: true, applied: true}), 'Hidden Writing owner lost exact MCP access');
+    assert(document.querySelectorAll('[data-testid^="workspace-panel-"]').length === 2, 'Writing atom request did not deduplicate');
+  }, false, undefined, 'writings');
+  return [...checks, 'An editable Writing in a hidden companion keeps its exact atom and shares edits and MCP admission with its panel.'];
 }

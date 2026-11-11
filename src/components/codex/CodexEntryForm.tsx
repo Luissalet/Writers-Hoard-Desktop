@@ -3,13 +3,14 @@ import { missingRequiredProperties, projectCodexEntry, propertyDefinitions } fro
 import { freezeCodexEntry } from '@/engines/codex/freeze';
 import type { CodexPropertyDefinition } from '@/engines/codex/templateTypes';
 import PropertyValueInput from './PropertyValueInput';
-import { useEffect, useId, useState, useRef } from 'react';
+import { useEffect, useId, useLayoutEffect, useState, useRef } from 'react';
 import type { CodexEntry, CodexEntryType } from '@/types';
 import { getTemplateFields } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import type {Editor} from '@tiptap/core';
 import {localToolAtomKey,localToolAtomPending} from '@/engines/local/blocks/pending';
+import {findLocalToolBlocksInHtml} from '@/engines/local/blocks/types';
 import TagInput from '@/components/common/TagInput';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus, Plus, X } from 'lucide-react';
@@ -91,11 +92,12 @@ interface CodexEntryFormProps {
   onPendingChange?: (pending: boolean) => void;
   /** Whether the form holds unsaved input (typed now or recovered). */
   onDirtyChange?: (dirty: boolean) => void;
+  registerOwnerCloseGuard?: (guard: (() => boolean) | null) => void;
   /** Closing keeps the recovery draft; only Save, Discard or deleting the entry retire it. */
   onCancel: () => void;
 }
 
-export default function CodexEntryForm({ projectId, entry, template, onSave, onCancel, onPendingChange, onDirtyChange }: CodexEntryFormProps) {
+export default function CodexEntryForm({ projectId, entry, template, onSave, onCancel, onPendingChange, onDirtyChange, registerOwnerCloseGuard }: CodexEntryFormProps) {
   const { t,locale } = useTranslation();
   const presentationCopy=templatePresentationCopy[locale];
   const { project } = useProject(projectId);
@@ -134,8 +136,23 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [pendingBlock, setPendingBlock] = useState(false);
+  const [pendingOwnerClose, setPendingOwnerClose] = useState(false);
   const contentEditor = useRef<Editor|null>(null);
   const savingRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!registerOwnerCloseGuard) return;
+    registerOwnerCloseGuard(() => {
+      const editor = contentEditor.current;
+      let pending = false;
+      if (editor && !editor.isDestroyed) editor.state.doc.descendants(node => {
+        if (node.type.name === 'sourceToolBlock' && node.attrs.envelope?.scope === 'host' &&
+          localToolAtomPending(editor, 'owned:' + node.attrs.envelope.id)) pending = true;
+      });
+      setPendingOwnerClose(pending);
+      return !pending;
+    });
+    return () => registerOwnerCloseGuard(null);
+  }, [registerOwnerCloseGuard]);
   // The entry this edit started from, advanced field by field as conflicts are resolved.
   const [base, setBase] = useState(initial.base);
   const [externalEntry,setExternalEntry]=useState<CodexEntry>();
@@ -201,6 +218,21 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
     } else {
       const key = item.key as 'title' | 'content' | 'tags' | 'avatar' | 'avatarOriginal' | 'templateId' | 'type';
       Object.assign(nextBase, { [key]: conflict.current[key] });
+      if (keepDraft && key === 'content') {
+        // Retain local prose without restoring an Owned atom removed from the saved owner.
+        const currentIds = new Set(findLocalToolBlocksInHtml(conflict.current.content).map(span => span.envelope.id));
+        const removed = new Set(findLocalToolBlocksInHtml(base.content)
+          .filter(span => span.envelope.scope === 'host' && !currentIds.has(span.envelope.id))
+          .map(span => span.envelope.id));
+        if (removed.size) setContent(previous => {
+          let next = previous;
+          for (const span of findLocalToolBlocksInHtml(previous).reverse()) {
+            if (span.envelope.scope === 'host' && removed.has(span.envelope.id))
+              next = next.slice(0, span.from) + next.slice(span.to);
+          }
+          return next;
+        });
+      }
       if (!keepDraft) {
         if (key === 'title') setTitle(conflict.current.title);
         if (key === 'content') setContent(conflict.current.content);
@@ -533,7 +565,7 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
           <BookOpen size={14} />
           {t('codex.extendedNotes')}
         </label>
-        <TiptapEditor entityCandidateContext={entry ? { kind: 'codex', documentId: entry.id } : undefined} onEditorReady={editor=>{contentEditor.current=editor;}} documentOwner={entry?{kind:'codex',documentId:entry.id}:undefined} prepareExternal={async()=>!dirty} canAcceptExternalBlock={()=>!dirty&&!saving} onExternalBlockCommit={(_owner,root)=>{const updated=root as unknown as CodexEntry;setExternalEntry(updated);setBase(updated);setContent(updated.content);}} content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
+        <TiptapEditor allowOwnedBlockPanel={!!registerOwnerCloseGuard} entityCandidateContext={entry ? { kind: 'codex', documentId: entry.id } : undefined} onEditorReady={editor=>{contentEditor.current=editor;}} documentOwner={entry?{kind:'codex',documentId:entry.id}:undefined} prepareExternal={async()=>!dirty} canAcceptExternalBlock={()=>!dirty&&!saving} onExternalBlockCommit={(_owner,root)=>{const updated=root as unknown as CodexEntry;setExternalEntry(updated);setBase(updated);setContent(updated.content);}} content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} referenceContext={{ projectId, scopeId: `codex:${entry?.id ?? 'new'}`, entryId: entry?.id }} />
       </div>
 
       {/* Tags */}
@@ -572,6 +604,9 @@ export default function CodexEntryForm({ projectId, entry, template, onSave, onC
       {requiredMissing.length > 0 && <p role="alert" data-testid="codex-required-missing" className="text-sm text-danger">{t('codex.property.requiredMissing').replace('{names}', requiredMissing.join(', '))}</p>}
       {saveError && <p role="alert" className="text-sm text-red-400">{t('codex.saveError')}</p>}
       {pendingBlock && <p role="alert" className="text-sm text-danger">{locale==='es'?'Guarda o descarta los cambios del bloque antes de guardar la tarjeta.':'Save or discard the block changes before saving the card.'}</p>}
+      {pendingOwnerClose && <p role="alert" data-testid="codex-owned-close-pending" className="text-sm text-danger">
+        {locale === 'es' ? 'Guarda o descarta los cambios del bloque antes de cerrar la tarjeta.' : 'Save or discard the block changes before closing the card.'}
+      </p>}
       <div className="flex gap-3 pt-2">
         <button
           onClick={() => void handleSave()}

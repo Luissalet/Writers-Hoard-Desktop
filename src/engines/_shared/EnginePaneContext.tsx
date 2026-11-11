@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react';
 
+export type OpenBesideGuard = () => boolean | Promise<boolean>;
+
 export interface EnginePaneValue {
   instanceId: string;
   projectId?: string;
@@ -8,15 +10,17 @@ export interface EnginePaneValue {
   primary?: boolean;
   navigate?: (to: string) => void;
   /** Open a fixed embedded editor’s link without retargeting its owner. */
-  openBeside?: (to: string, isCurrent?: () => boolean) => void | Promise<boolean>;
+  openBeside?: (to: string, isCurrent?: OpenBesideGuard) => void | Promise<boolean>;
   reportTitle?: (title: string | undefined) => void;
   width?: number;
   overlayTarget?: HTMLElement | null;
+  /** Stable container for editors that coexist with another pane. */
+  dialogTarget?: HTMLElement | null;
 }
 export const EnginePaneContext = createContext<EnginePaneValue | null>(null);
 export const useEnginePane = () => useContext(EnginePaneContext);
 let lastActivePane: string | undefined;
-export interface ActiveEnginePaneScope { projectId: string; eraId?: string; navigate?: (to: string) => void; openBeside?: (to: string, isCurrent?: () => boolean) => Promise<boolean> }
+export interface ActiveEnginePaneScope { projectId: string; eraId?: string; navigate?: (to: string) => void; openBeside?: (to: string, isCurrent?: OpenBesideGuard) => Promise<boolean> }
 const paneScopes = new Map<string, ActiveEnginePaneScope>();
 /** Focus context for commands outside the pane tree, never a storage-wide active era. */
 export function registerEnginePaneScope(instanceId: string, scope: ActiveEnginePaneScope): () => void {

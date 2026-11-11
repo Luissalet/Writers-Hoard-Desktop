@@ -17,4 +17,7 @@ export function paneEngineId(route: WorkspaceRoute, projectId: string, enabledId
 }
 
 export function workspaceEra(route: WorkspaceRoute): string | undefined { return new URLSearchParams(route.search).get('era') || undefined; }
+export function ownedBlockPanelToken(route: WorkspaceRoute): string | null {
+  return new URLSearchParams(route.search).get('ownedBlockSession');
+}
 export function routeInEra(route: WorkspaceRoute, eraId?: string): WorkspaceRoute { const search = new URLSearchParams(route.search); search.set('era', eraId ?? ''); return { ...route, search: `?${search}` }; }
