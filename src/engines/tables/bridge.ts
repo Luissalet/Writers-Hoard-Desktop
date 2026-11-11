@@ -10,8 +10,8 @@ import { exportXlsxReport, importXlsx, sheetsToTables } from './xlsx';
 import { blankSheet, duplicateSheet, workbookTabs } from './workbook';
 import {csvDelimiter,csvEncoding,decodeCsv,encodeCsv,type CsvOptions,type CsvExportOptions} from './csv';
 import { sheetValues } from './formulas';
-import { cellKey, tableCsv, validateCell, type WorldTable } from './types';
-import { CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, insertColumn, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, type TableCondition, type TableSort } from './tableEdits';
+import { cellKey, tableCsv, validateCell, type ColumnKind, type WorldTable } from './types';
+import { changeTableColumnKind, CONDITION_OPS, duplicateColumn, duplicateRow, filterRows, insertColumn, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, type TableCondition, type TableSort } from './tableEdits';
 const scope = async (args: ToolArgs) => ({ projectId: await resolveProjectForEngine(args, 'tables'), eraId: optString(args, 'eraId') });
 async function read(args: ToolArgs) {
   const target = await scope(args), project = target.eraId ? await getEraProject(target) : await db.projects.get(target.projectId);
@@ -50,14 +50,14 @@ export const TABLE_HANDLERS = {
   async wh_table_append_row(args: ToolArgs) { const { table, target } = await read(args); if (table.codexType || table.codexAllTypes) throw Error('table_live_codex_requires_entry'); const values = await valuesFor(table, args.values, target), row = { id: crypto.randomUUID(), cells: Object.fromEntries(values.map((value, index) => [table.columns[index].id, value])) }; await db.transaction('rw', db.tables, async () => { if ((await readWorldDocument(target, 'tables', table.id))?.version !== requireString(args, 'expectedVersion')) throw Error('table_conflict'); await changeTable(target.projectId, table.id, current => { current.rows.push(row); }, target.eraId); }); return { row }; },
   async wh_table_edit(args: ToolArgs) {
     const { table, target } = await read(args), action = requireString(args, 'action'), expected = requireString(args, 'expectedVersion');
-    if (action === 'move-column' || action === 'resize-column' || action === 'rename-column') {
+    if (action === 'move-column' || action === 'resize-column' || action === 'rename-column' || action === 'change-column-kind') {
       const columnId = requireString(args, 'columnId');
       return db.transaction('rw', db.tables, async () => {
         const read = await readWorldDocument(target, 'tables', table.id);
         if (!read || read.version !== expected) throw Error('table_conflict');
         const stored = read.document.root as unknown as WorldTable;
         const candidate = { ...stored, columns: stored.columns.map(column => ({ ...column })) };
-        let result: { changed: boolean; width?: number; name?: string };
+        let result: { changed: boolean; width?: number; name?: string; kind?: ColumnKind };
         if (action === 'move-column') {
           const { side } = args;
           if (side !== 'before' && side !== 'after') throw Error('table_column_position_invalid');
@@ -67,10 +67,12 @@ export const TABLE_HANDLERS = {
           const { width } = args;
           if (typeof width !== 'number') throw Error('table_column_width_invalid');
           result = resizeTableColumn(candidate, columnId, width, stored.columns.find(column => column.id === columnId)?.width);
-        } else {
+        } else if (action === 'rename-column') {
           const column = stored.columns.find(item => item.id === columnId);
           if (!column) throw Error('table_column_missing');
           result = renameTableColumn(candidate, columnId, requireString(args, 'name'), column.name);
+        } else {
+          result = changeTableColumnKind(candidate, columnId, requireString(args, 'kind') as ColumnKind);
         }
         if (!result.changed) return { ...result, version: read.version };
         await changeTable(target.projectId, table.id, current => { current.columns = candidate.columns; }, target.eraId);

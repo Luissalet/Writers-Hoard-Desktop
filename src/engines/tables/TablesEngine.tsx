@@ -12,7 +12,7 @@ import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, 
 import { editTableRows, undoTableRows, type TableRowAction } from './rowActions';
 import { WorldEraConflict } from '@/services/worldEras/types';
 import { recordUndoable, UndoStaleError } from '@/services/undoJournal';
-import { CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
+import { canChangeTableColumnKind, CONDITION_OPS, DEFAULT_TABLE_COLUMN_WIDTH, duplicateColumn, duplicateRow, filterRows, findMatches, insertRow, isNormalTable, moveTableColumn, removeRows, renameTableColumn, resizeTableColumn, sortRows, TABLE_COLUMN_KINDS, tableColumnWidthLimits, toggleSort, type TableCondition } from './tableEdits';
 import { useTableColumnDrag } from './useTableColumnDrag';
 import TableColumnHeader from './TableColumnHeader';
 import CsvDialog from './CsvDialog';
@@ -39,7 +39,6 @@ import { useDebouncedField } from '@/engines/_shared/useDebouncedField';
 const control = 'min-h-9 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
 const button = `${control} inline-flex items-center justify-center gap-2 hover:bg-elevated disabled:cursor-not-allowed`;
 const codexTypes: CodexEntryType[] = ['character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
-const kinds = ['text', 'number', 'reference', 'checkbox'] as const;
 const emptyFolds: ReadonlySet<string> = new Set();
 type InlineColumnRename = { owner: string; columnId: string; name: string };
 
@@ -180,7 +179,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const projectedEntries = new Map(table?.codexType || table?.codexAllTypes ? entries.filter(entry => table.codexAllTypes || entry.type === table.codexType).map(entry => [entry.id, projectCodexEntry(entry, project?.codexTemplates ?? [])]) : []);
   // A live view of Codex cards: of one type, or of every type (read here, edited on the card).
   const live = Boolean(table?.codexType || table?.codexAllTypes), allTypes = Boolean(table?.codexAllTypes);
-  const canResizeColumns = table?.mode === 'table' && !live && !table.codexTemplateId;
+  const canResizeColumns = table !== undefined && isNormalTable(table);
   const columnsBusy = busy || rowWorking || Boolean(columnDraft || formulaDraft || inlineRename);
   const columnDragEnabled = Boolean(canResizeColumns && table.columns.length > 1 && !columnsBusy);
   const columnDrag = useTableColumnDrag(rowKey, table?.columns ?? [], columnDragEnabled, (id, target, expectedOrder) => {
@@ -381,10 +380,18 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
         {columnDraft && <form className="flex flex-wrap items-end gap-3 border-y border-border p-4" onSubmit={event => { event.preventDefault(); void run(async () => {
           if (addingColumn && insertAt !== null) await insertColumnAt(projectId, table.id, { ...columnDraft, field: table.codexType ? columnDraft.field?.trim() || columnDraft.name.trim() : undefined }, insertAt);
           else if (addingColumn) await addColumn(projectId, table.id, { ...columnDraft, field: table.codexType ? columnDraft.field?.trim() || columnDraft.name.trim() : undefined });
-          else await updateTableColumn(scope,table.id,columnDraft,columnVersion,columnTemplateRevision);
+          else {
+            try {
+              await updateTableColumn(scope, table.id, columnDraft, columnVersion, columnTemplateRevision);
+            } catch (reason) {
+              if (reason instanceof Error && reason.message === 'table_column_kind_incompatible') throw new Error(copy.columnKindIncompatible);
+              if (reason instanceof Error && reason.message === 'table_reference_invalid') throw new Error(copy.columnKindReferenceInvalid);
+              throw reason;
+            }
+          }
         }, () => setColumnDraft(null)); }}>
           <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.columnName}<input className={control} required value={columnDraft.name} onChange={event => setColumnDraft({ ...columnDraft, name: event.target.value })} /></label>
-          {addingColumn && table.mode !== 'sheet' && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.columnKind}<select className={control} value={columnDraft.kind} onChange={event => setColumnDraft({ ...columnDraft, kind: event.target.value as DataColumn['kind'] })}>{kinds.map(kind => <option key={kind} value={kind}>{copy[kind]}</option>)}</select></label>}
+          {(addingColumn ? table.mode !== 'sheet' : canChangeTableColumnKind(table, columnDraft)) && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.columnKind}<select className={control} value={columnDraft.kind} disabled={busy} onChange={event => setColumnDraft({ ...columnDraft, kind: event.target.value as DataColumn['kind'] })}>{TABLE_COLUMN_KINDS.map(kind => <option key={kind} value={kind}>{copy[kind]}</option>)}</select></label>}
           {addingColumn && table.codexType && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.field}<input className={control} value={columnDraft.field ?? ''} onChange={event => setColumnDraft({ ...columnDraft, field: event.target.value })} maxLength={200} /></label>}
           {!addingColumn && <label className="flex flex-col gap-1 text-sm text-text-primary">{copy.width}<input type="number" min={editedWidthLimits.min} max={editedWidthLimits.max} className={`${control} w-28`} value={columnDraft.width ?? DEFAULT_TABLE_COLUMN_WIDTH} onChange={event => setColumnDraft({ ...columnDraft, width: Number(event.target.value) })} /></label>}
           <button disabled={busy} type="submit" className={button}>{copy.save}</button><button type="button" className={button} onClick={() => setColumnDraft(null)}>{copy.cancel}</button>

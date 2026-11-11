@@ -6,10 +6,33 @@
 // several columns and find-in-table matches. Shared by the table UI and the
 // bridge so both do exactly the same thing.
 
-import type { DataColumn, DataRow, WorldTable } from './types';
+import { validateCell, type ColumnKind, type DataColumn, type DataRow, type WorldTable } from './types.ts';
 
 const MAX_COLUMNS = 100;
 const MAX_ROWS = 20000;
+export const TABLE_COLUMN_KINDS = ['text', 'number', 'reference', 'checkbox'] as const;
+
+export function isNormalTable(table: WorldTable): boolean {
+  return table.mode === 'table' && !table.codexType && !table.codexTemplateId && !table.codexAllTypes;
+}
+
+export function canChangeTableColumnKind(table: WorldTable, column: DataColumn): boolean {
+  return isNormalTable(table) && !column.calculation && !column.propertyId;
+}
+
+export function changeTableColumnKind(table: WorldTable, columnId: string, kind: ColumnKind) {
+  const column = table.columns.find(item => item.id === columnId);
+  if (!column) throw Error('table_column_missing');
+  if (!canChangeTableColumnKind(table, column)) throw Error('table_column_kind_unsupported');
+  if (!TABLE_COLUMN_KINDS.includes(kind)) throw Error('table_column_kind_invalid');
+  const changed = kind !== column.kind;
+  if (changed) {
+    const candidate = { ...column, kind };
+    if (table.rows.some(row => !validateCell(candidate, row.cells[columnId] ?? ''))) throw Error('table_column_kind_incompatible');
+    column.kind = kind;
+  }
+  return { kind, changed };
+}
 
 // ── sheet references ──────────────────────────────────────────────────────
 // A sheet's formulas point at cells by position (B3). Inserting or removing a
@@ -53,7 +76,7 @@ export function moveRow(table: WorldTable, rowId: string, beforeRowId?: string):
 export function moveTableColumn(
   table: WorldTable, columnId: string, targetId: string, side: 'before' | 'after', expectedOrder: readonly string[],
 ): boolean {
-  if (table.mode !== 'table' || table.codexType || table.codexTemplateId || table.codexAllTypes) {
+  if (!isNormalTable(table)) {
     throw new Error('table_column_drag_requires_normal_table');
   }
   if (table.columns.length !== expectedOrder.length || table.columns.some((column, index) => column.id !== expectedOrder[index])) {
@@ -117,7 +140,7 @@ export function validateTableColumnName(columns: readonly DataColumn[], columnId
 }
 
 export function renameTableColumn(table: WorldTable, columnId: string, requested: string, expectedName: string) {
-  if (table.mode !== 'table' || table.codexType || table.codexAllTypes || table.codexTemplateId) throw Error('table_column_rename_unsupported');
+  if (!isNormalTable(table)) throw Error('table_column_rename_unsupported');
   const column = table.columns.find(item => item.id === columnId);
   if (!column || column.name !== expectedName) throw Error('table_column_name_conflict');
   const name = validateTableColumnName(table.columns, columnId, requested);
@@ -136,7 +159,7 @@ export function clampTableColumnWidth(width: number, current?: number) {
 }
 
 export function resizeTableColumn(table: WorldTable, columnId: string, requested: number, expectedWidth?: number) {
-  if (table.mode !== 'table' || table.codexType || table.codexAllTypes || table.codexTemplateId) throw Error('table_column_resize_unsupported');
+  if (!isNormalTable(table)) throw Error('table_column_resize_unsupported');
   const column = table.columns.find(item => item.id === columnId);
   if (!column || column.width !== expectedWidth) throw Error('table_column_width_conflict');
   if (!Number.isFinite(requested)) throw Error('table_column_width_invalid');
