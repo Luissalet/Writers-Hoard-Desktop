@@ -865,7 +865,7 @@ The selected package can open a document that skipped V2 or that V2 already edit
 
 Use `client.convergence.readAs(identityHash)` on a Source document to read the fields of an earlier additive stage from the current data. The immediate predecessor hash is `fromHash` in the selected codec. It identifies the earlier `namespace`, `codec`, `validationId` and `schemaEpoch`.
 
-Both the selected release and the document's portable history must identify the stage. The result contains the old and active identities, Base or era provenance, a conflict indicator and the admitted data restricted to the earlier fields. Missing fields use that stage's defaults. Newer edits to earlier fields remain visible. A new origin or fork that lacks the stage cannot use its identity.
+The selected release must declare the stage, and Writer verifies the document's active checkpoint before projecting it. The result contains the old and active identities, Base or era provenance, a conflict indicator and the admitted data restricted to the earlier fields. Missing fields use that stage's defaults. Newer edits to earlier fields remain visible. The `stageInHistory` flag reports whether the saved history also includes that stage. A new origin can use the declared stage once it has an active checkpoint.
 
 MCP exposes the same projection through `wh_local_tool_read` with `documentId` and `readAs`. Keep using the normal active read for a write baseline. Projection does not alter the pin or document.
 
@@ -875,9 +875,11 @@ MCP exposes the same projection through `wh_local_tool_read` with `documentId` a
 
 Read the full active snapshot, then call `client.state.apply(baseline, actions, { asIdentity })` with the earlier stage hash. Every action must address a field declared by that stage. The active revision and document version must still match the snapshot. The normal writer preserves newer fields and returns its Undo receipt for an effective edit.
 
-MCP exposes the same option as `asIdentity` on `wh_local_tool_state_apply`. Use `wh_local_tool_read` without `readAs` for the write baseline. This operation requires the stage in the saved document's history. An era that still inherits Base cannot write with this selector.
+MCP exposes the same option as `asIdentity` on `wh_local_tool_state_apply`. Use `wh_local_tool_read` without `readAs` for the write baseline. This operation uses the stage declared by the selected release and validates the active checkpoint before checking the allowed fields. An era that still inherits Base cannot write with this selector.
 
 [Verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#editar-los-campos-de-una-etapa-anterior).
+
+[Fresh-document verification](../tasks/vvd1095/verification-sdk-source-multiple2745.md#usar-etapas-declaradas-en-un-documento-nuevo).
 
 ## Add fields to an existing Owned block
 
