@@ -27,17 +27,18 @@ import Modal from '@/components/common/Modal';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
 import { saveCodexDraft } from '@/engines/codex/operations';
 import { createCodexEntry } from '@/db/operations';
-import { cellKey, validateCell, type DataColumn, type DataRow, type WorldTable } from './types';
-import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped } from './operations';
+import { cellKey, validateCell, type DataColumn, type DataRow, type TableGroupRule, type WorldTable } from './types';
+import { addColumn as addColumnScoped, addTable as addTableScoped, changeTable as changeTableScoped, deleteTable as deleteTableScoped, insertColumnAt as insertColumnAtScoped, saveCell as saveCellScoped, saveTableGrouping } from './operations';
 import { sheetValues } from './formulas';
 import { tableCopy } from './copy';
-import { projectTableGroups, type TableGroupRule } from './viewGroups';
+import { effectiveTableGrouping, projectTableGroups, storedTableGrouping } from './viewGroups';
 import { useDebouncedField } from '@/engines/_shared/useDebouncedField';
 
 const control = 'min-h-9 rounded-lg border border-border bg-deep px-3 py-2 text-sm text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50';
 const button = `${control} inline-flex items-center justify-center gap-2 hover:bg-elevated disabled:cursor-not-allowed`;
 const codexTypes: CodexEntryType[] = ['character', 'location', 'item', 'faction', 'concept', 'magic', 'custom'];
 const kinds = ['text', 'number', 'reference', 'checkbox'] as const;
+const emptyFolds: ReadonlySet<string> = new Set();
 
 export default function TablesEngine({ projectId }: EngineComponentProps) {
   const { locale, t } = useTranslation(); const copy = tableCopy[locale]; const navigate = useEraNavigate();
@@ -52,7 +53,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const project = useEraProject(projectId);
   const entries = useEraRows<import('@/types').CodexEntry>('codexEntries', projectId);
   const [selectedId, setSelectedId] = useState(''); const [query, setQuery] = useState('');
-  const [groupView, setGroupView] = useState<{ key: string; rules: TableGroupRule[]; folded: ReadonlySet<string> }>({ key: '', rules: [], folded: new Set() });
+  const [groupFolds, setGroupFolds] = useState<{ key: string; folded: ReadonlySet<string> }>();
   const [sorts, setSorts] = useState<TableSort[]>([]); const setSort = (next: TableSort | null) => { setSorts(next ? [next] : []); if (!next) { setConditions([]); setSelectedRows([]); } };
   const [conditions, setConditions] = useState<TableCondition[]>([]); const [matchAt, setMatchAt] = useState(0); const [selectedRows, setSelectedRows] = useState<string[]>([]); const [insertAt, setInsertAt] = useState<number | null>(null);
   const [creating, setCreating] = useState(false); const [name, setName] = useState(''); const [mode, setMode] = useState<'table' | 'sheet' | 'live'>('table'); const [sourceType, setSourceType] = useState<CodexEntryType>('character'); const [sourceTemplateId,setSourceTemplateId]=useState(''); const [allSources, setAllSources] = useState(false);
@@ -185,13 +186,23 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
   const filteredRows = sortRows(hasSearch ? candidates.filter(row => matchesByRow.has(row.id)) : candidates, sorts, (row, id) => {
     const column = columnById(id); return column ? rowValue(row, column) : '';
   }, id => columnById(id)?.kind === 'number');
-  const groupRules = groupView.key === rowKey ? groupView.rules.filter(rule => columnById(rule.columnId)) : [];
-  const clearGroup = () => setGroupView({ key: rowKey, rules: [], folded: new Set() });
+  const savedGroupRules = storedTable ? storedTableGrouping(project?.tableGroupingViews, storedTable.id, scope.eraId) : [];
+  const groupRules = effectiveTableGrouping(savedGroupRules, table?.columns ?? []);
+  const foldKey = JSON.stringify([rowKey, groupRules.map(rule => rule.columnId)]);
+  const foldedGroups = groupFolds?.key === foldKey ? groupFolds.folded : emptyFolds;
+  const resetFolds = () => setGroupFolds(undefined);
+  const saveGrouping = (rules: TableGroupRule[], done?: () => void) => {
+    if (!storedTable) return;
+    const epoch = rowOwner.current.epoch;
+    void run(() => saveTableGrouping(projectId, storedTable.id, rules, JSON.stringify(savedGroupRules), scope.eraId), () => {
+      if (rowOwner.current.mounted && rowOwner.current.epoch === epoch) done?.();
+    });
+  };
   const setGroupColumn = (depth: number, columnId: string) => {
     const rules = columnId
       ? [...groupRules.slice(0, depth), { columnId, direction: groupRules[depth]?.direction ?? 'asc' as const }, ...groupRules.slice(depth + 1)]
       : groupRules.slice(0, depth);
-    setGroupView({ key: rowKey, rules, folded: new Set() });
+    saveGrouping(rules, resetFolds);
   };
   const { orderedRows: visible, expandedRows, items: groupItems, pathsByRow } = projectTableGroups(filteredRows, groupRules, (row, id) => {
     const column = columnById(id)!;
@@ -199,11 +210,11 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     const number = identity && column.kind === 'number' ? Number(identity) : undefined;
     const title = column.kind === 'reference' ? entryTitles.get(raw) : undefined;
     return { identity, label: identity ? title ?? displayValue(row, column) : '', number: Number.isFinite(number) ? number : undefined };
-  }, groupView.folded, locale);
+  }, foldedGroups, locale);
   const visiblePosition = new Map(visible.map((row, index) => [row.id, index]));
-  const updateFolded = (update: (folded: Set<string>) => void) => setGroupView(previous => {
-    if (previous.key !== rowKey) return previous;
-    const folded = new Set(previous.folded); update(folded); return { ...previous, folded };
+  const updateFolded = (update: (folded: Set<string>) => void) => setGroupFolds(previous => {
+    const folded = new Set(previous?.key === foldKey ? previous.folded : emptyFolds);
+    update(folded); return { key: foldKey, folded };
   });
   // Find: every cell holding the search text, stepped through with next / previous.
   const matches = hasSearch ? visible.flatMap(row => matchesByRow.get(row.id) ?? []) : [];
@@ -213,7 +224,7 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     const next = (Math.min(matchAt, matches.length - 1) + by + matches.length) % matches.length;
     setMatchAt(next);
     const target = matches[next], ancestors = pathsByRow.get(target.rowId);
-    if (ancestors?.some(key => groupView.folded.has(key))) updateFolded(folded => ancestors.forEach(key => folded.delete(key)));
+    if (ancestors?.some(key => foldedGroups.has(key))) updateFolded(folded => ancestors.forEach(key => folded.delete(key)));
     setFindTarget({ ...target, owner: rowKey });
   };
   const saveValue = async (row: DataRow, column: DataColumn, value: string) => {
@@ -230,11 +241,11 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
       } else await saveCell(projectId, table.id, row.id, column.id, value, row.cells[column.id] ?? '');
   };
   const createDocument = async () => {
-    if(mode==='live'&&sourceTemplateId&&!allSources){await run(async()=>{const created=await createTypeTable(scope,name,sourceTemplateId);setSelectedId(created.id);},()=>{setCreating(false);setName('');setQuery('');clearGroup();setSort(null);});return;}
+    if(mode==='live'&&sourceTemplateId&&!allSources){await run(async()=>{const created=await createTypeTable(scope,name,sourceTemplateId);setSelectedId(created.id);},()=>{setCreating(false);setName('');setQuery('');resetFolds();setSort(null);});return;}
     const columns: DataColumn[] = mode === 'sheet' ? Array.from({ length: 6 }, (_, index) => ({ id: crypto.randomUUID(), name: cellKey(index, 0).replace(/\d+$/, ''), kind: 'text' })) : [{ id: crypto.randomUUID(), name: t('codex.field.name'), kind: 'text', field: 'title' }];
     const everyType = mode === 'live' && allSources;
     const document: WorldTable = { id: crypto.randomUUID(), title: name.trim(), mode: mode === 'sheet' ? 'sheet' : 'table', codexType: mode === 'live' && !everyType ? sourceType : undefined, ...(everyType ? { codexAllTypes: true } : {}), columns: everyType ? [...columns, { id: crypto.randomUUID(), name: copy.typeColumn, kind: 'text', field: '__type' }] : columns, rows: mode === 'sheet' ? Array.from({ length: 20 }, () => ({ id: crypto.randomUUID(), cells: {} })) : [] };
-    await run(() => addTable(projectId, document), () => { setSelectedId(document.id); setCreating(false); setName(''); setQuery(''); clearGroup(); setSort(null); });
+    await run(() => addTable(projectId, document), () => { setSelectedId(document.id); setCreating(false); setName(''); setQuery(''); resetFolds(); setSort(null); });
   };
   const requestDelete = (message: string, work: () => Promise<void>) => setConfirmation({ message, work });
   // An Excel workbook comes in as one sheet per worksheet, grouped as tabs of one book; what could not come is said.
@@ -272,14 +283,14 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
     {csvInput&&<CsvDialog locale={locale} input={csvInput} onClose={()=>setCsvInput(undefined)} onImport={async imported=>{await addTable(projectId,imported);setSelectedId(imported.id);}}/>}
     {csvExport&&table&&<CsvDialog locale={locale} output={{table,rows,value:displayValue}} onClose={()=>setCsvExport(false)}/>}
     {error && <p role="alert" className="p-4 text-sm text-danger">{error}</p>}
-    {notice && <p role="status" data-testid="table-import-report" className="flex flex-wrap items-start gap-2 p-4 text-sm text-text-muted">{notice}{(sorts.length > 0 || groupRules.length > 0) && <button type="button" className="underline underline-offset-2" onClick={() => { setSorts([]); clearGroup(); }}>{copy.manualOrder}</button>}<button type="button" className="underline" onClick={() => setNotice('')}>{locale === 'es' ? 'Cerrar' : 'Close'}</button></p>}
+    {notice && <p role="status" data-testid="table-import-report" className="flex flex-wrap items-start gap-2 p-4 text-sm text-text-muted">{notice}{(sorts.length > 0 || groupRules.length > 0) && <button type="button" className="underline underline-offset-2" disabled={busy} onClick={() => { if (groupRules.length) saveGrouping([], () => { setSorts([]); resetFolds(); }); else setSorts([]); }}>{copy.manualOrder}</button>}<button type="button" className="underline" onClick={() => setNotice('')}>{locale === 'es' ? 'Cerrar' : 'Close'}</button></p>}
     {creating && <form className="flex flex-wrap items-end gap-3 border-b border-border p-4" onSubmit={event => { event.preventDefault(); void createDocument(); }}><label className="flex flex-col gap-1 text-sm text-text-primary">{copy.name}<input required maxLength={200} autoFocus className={control} value={name} onChange={event => setName(event.target.value)} /></label><select aria-label={copy.newTable} className={control} value={mode} onChange={event => setMode(event.target.value as typeof mode)}><option value="table">{copy.table}</option><option value="sheet">{copy.sheet}</option><option value="live">{copy.live}</option></select>{mode === 'live' && <select className={control} aria-label={copy.live} data-testid="table-live-source" value={allSources?'__all':sourceTemplateId?`template:${sourceTemplateId}`:sourceType} onChange={event => {if(event.target.value==='__all'){setAllSources(true);setSourceTemplateId('');}else if(event.target.value.startsWith('template:')){setAllSources(false);setSourceTemplateId(event.target.value.slice(9));}else{setAllSources(false);setSourceTemplateId('');setSourceType(event.target.value as CodexEntryType);}}}><option value="__all">{copy.allTypes}</option><optgroup label={locale==='es'?'Tipos del Códice':'Codex types'}>{project.codexTemplates?.map(template=><option key={template.id} value={`template:${template.id}`}>{template.name}</option>)}</optgroup><optgroup label={locale==='es'?'Categorías existentes':'Existing categories'}>{codexTypes.map(type => <option key={type} value={type}>{t(`codex.types.${type}`)}</option>)}</optgroup></select>}<button disabled={busy} className={`${button} bg-accent-gold text-deep`} type="submit">{copy.create}</button><button className={button} type="button" onClick={() => setCreating(false)}>{copy.cancel}</button></form>}
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <nav className="shrink-0 overflow-auto border-b border-border p-3 md:w-52 md:border-r md:border-b-0" aria-label={copy.title}>{tables.length === 0 && <p className="p-2 text-sm text-text-muted">{copy.empty}</p>}{navTables.map(item => <button key={item.id} disabled={busy || Boolean(columnDraft)||Boolean(formulaDraft)} aria-current={item.id === table?.id || (item.workbook && item.workbook.id === table?.workbook?.id) ? 'page' : undefined} className={`mb-1 block w-full break-words rounded-lg p-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-accent-gold ${item.id === table?.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} onClick={() => { setSelectedId(item.id); setQuery(''); clearGroup(); setSort(null); }}>{item.workbook ? item.workbook.name : item.title}<span className="mt-1 block text-xs text-text-muted">{item.codexType ? copy.live : item.workbook ? (locale === 'es' ? `Libro · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} pestañas` : `Workbook · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} tabs`) : item.mode === 'sheet' ? copy.sheet : copy.table}</span></button>)}</nav>
+      <nav className="shrink-0 overflow-auto border-b border-border p-3 md:w-52 md:border-r md:border-b-0" aria-label={copy.title}>{tables.length === 0 && <p className="p-2 text-sm text-text-muted">{copy.empty}</p>}{navTables.map(item => <button key={item.id} disabled={busy || Boolean(columnDraft)||Boolean(formulaDraft)} aria-current={item.id === table?.id || (item.workbook && item.workbook.id === table?.workbook?.id) ? 'page' : undefined} className={`mb-1 block w-full break-words rounded-lg p-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-accent-gold ${item.id === table?.id ? 'bg-elevated text-accent-gold' : 'text-text-primary hover:bg-surface'}`} onClick={() => { setSelectedId(item.id); setQuery(''); resetFolds(); setSort(null); }}>{item.workbook ? item.workbook.name : item.title}<span className="mt-1 block text-xs text-text-muted">{item.codexType ? copy.live : item.workbook ? (locale === 'es' ? `Libro · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} pestañas` : `Workbook · ${tables.filter(other => other.workbook?.id === item.workbook!.id).length} tabs`) : item.mode === 'sheet' ? copy.sheet : copy.table}</span></button>)}</nav>
       {table && <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2 p-4"><h3 className="mr-auto min-w-0 break-words font-display text-xl text-text-primary">{table.title}{table.codexTemplateId&&<span className="mt-1 block font-sans text-xs font-normal text-text-muted">{locale==='es'?'Tipo del Códice':'Codex type'} · {project.codexTemplates?.find(item=>item.id===table.codexTemplateId)?.name??table.codexTemplateId}</span>}</h3><button className={button} disabled={busy || allTypes} onClick={() => { setInsertAt(null); setAddingColumn(true); setColumnDraft({ id: crypto.randomUUID(), name: '', kind: 'text' }); }}><Plus size={15} />{copy.column}</button>{table.mode!=='sheet'&&<button className={button} disabled={busy||!!formulaDraft} onClick={()=>void beginCalculation()}>{locale==='es'?'Añadir cálculo':'Add calculation'}</button>}<button className={button} onClick={() => setCsvExport(true)}><Download size={15} />{copy.export}</button><button className={button} data-testid="table-export-xlsx" disabled={busy} onClick={() => void downloadWorkbook()}><FileSpreadsheet size={15} />{locale === 'es' ? 'Excel (.xlsx)' : 'Excel (.xlsx)'}</button><button className={button} disabled={busy} aria-label={`${copy.remove} ${table.title}`} onClick={() => requestDelete(copy.removeDocument, () => deleteTable(projectId, table.id))}><Trash2 size={15} /></button></div>
-        <WorkbookTabs tables={tables} table={table} locale={locale} busy={busy} onSelect={id => { setSelectedId(id); setQuery(''); clearGroup(); setSort(null); }} onError={setError}
-          onAdd={(sheet, makeWorkbook) => void run(async () => { if (makeWorkbook) await changeTable(projectId, table.id, current => { current.workbook = { ...makeWorkbook, order: 0 }; }); await addTable(projectId, sheet); }, () => setSelectedId(sheet.id))}
+        <WorkbookTabs tables={tables} table={table} grouping={groupRules} locale={locale} busy={busy} onSelect={id => { setSelectedId(id); setQuery(''); resetFolds(); setSort(null); }} onError={setError}
+          onAdd={(sheet, makeWorkbook, grouping) => void run(async () => { if (makeWorkbook) await changeTable(projectId, table.id, current => { current.workbook = { ...makeWorkbook, order: 0 }; }); await addTableScoped(projectId, sheet, scope.eraId, grouping); }, () => setSelectedId(sheet.id))}
           onChange={(id, update) => void run(() => changeTable(projectId, id, update))}
           onDelete={id => { const sibling = workbookTabs(tables, table).find(item => item.id !== id && !item.workbook?.hidden); requestDelete(copy.removeDocument, async () => { await deleteTable(projectId, id); if (sibling) setSelectedId(sibling.id); }); }} />
         {formulaDraft&&<TableCalculationEditor draft={formulaDraft} columns={table.columns} inputRef={formulaRef} sharedType={Boolean(table.codexTemplateId)} busy={busy} locale={locale} onChange={setFormulaDraft} onToken={insertToken} onCancel={()=>setFormulaDraft(null)} onSave={()=>void run(async()=>{await saveTableCalculation(scope,formulaDraft);},()=>setFormulaDraft(null))}/>}
@@ -299,10 +310,10 @@ export default function TablesEngine({ projectId }: EngineComponentProps) {
           <button type="button" data-testid="table-filter-add" className={button} onClick={() => setConditions([...conditions, { columnId: table.columns[0].id, op: 'contains', value: '' }])}><Filter size={14} />{copy.addFilter}</button>{(groupRules.length && table.columns.length > 1 ? [0, 1] : [0]).map(depth => {
             const rule = groupRules[depth], label = depth ? copy.groupThen : copy.group;
             return <div key={depth} className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 text-sm text-text-muted">{label}<select className={control} value={rule?.columnId ?? ''} onChange={event => setGroupColumn(depth, event.target.value)}><option value="">{copy.none}</option>{table.columns.filter(column => !groupRules.some((other, index) => index !== depth && other.columnId === column.id)).map(column => <option key={column.id} value={column.id}>{column.name}</option>)}</select></label>
-              {rule && <select className={control} aria-label={copy.groupOrder + ' · ' + label} value={rule.direction} onChange={event => {
+              <label className="flex items-center gap-2 text-sm text-text-muted">{label}<select className={control} value={rule?.columnId ?? ''} disabled={busy} onChange={event => setGroupColumn(depth, event.target.value)}><option value="">{copy.none}</option>{table.columns.filter(column => !groupRules.some((other, index) => index !== depth && other.columnId === column.id)).map(column => <option key={column.id} value={column.id}>{column.name}</option>)}</select></label>
+              {rule && <select className={control} aria-label={copy.groupOrder + ' · ' + label} value={rule.direction} disabled={busy} onChange={event => {
                 const direction = event.target.value === 'desc' ? 'desc' : 'asc';
-                setGroupView({ key: rowKey, folded: groupView.folded, rules: groupRules.map((current, index) => index === depth ? { ...current, direction } : current) });
+                saveGrouping(groupRules.map((current, index) => index === depth ? { ...current, direction } : current));
               }}><option value="asc">{copy.ascending}</option><option value="desc">{copy.descending}</option></select>}
             </div>;
           })}<span className="text-sm tabular-nums text-text-muted">{visible.length} {copy.count}</span></div>
