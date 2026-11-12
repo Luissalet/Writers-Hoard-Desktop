@@ -11,6 +11,7 @@ export type {LocalToolSourceAdditive} from './convergence/sourceAdditive';
 import {localToolConvergenceContext,localToolValidationId} from './convergence/context';
 export type {LocalToolDocumentContent,LocalToolDocumentContentSnapshot,LocalToolSaveMode} from './liveContent/types';
 export {useLocalToolDocumentContent} from './liveContent/hooks';
+export {LocalToolDocumentGate,type LocalToolDocumentGateProps} from './LocalToolDocumentGate';
 export type {RichBlockEmptyItemFrame,RichBlockEmptyItemCapture,RichBlockExitAction} from './convergence/blockExit';
 export {useLocalToolDocumentPresence,useLocalToolCollabPresence,useLocalToolDocumentPresenceById,useLocalToolDocumentAwareness} from './presence/hooks';
 export type {LocalToolDocumentPresence,LocalToolPresenceProfile,LocalToolPresenceDocument,LocalToolPresencePeer,LocalToolPresenceConnection,LocalToolCollabPresencePeer,LocalToolPresenceSnapshot} from './presence/types';
@@ -134,10 +135,17 @@ export interface LocalToolClient<T extends LocalToolJson>{
 export interface LocalToolOperation<T extends LocalToolJson=LocalToolJson>{id:string;description:{en:string;es:string};writes:boolean;inputSchema:BridgeToolSchema;run:(input:Record<string,LocalToolJson>,client:LocalToolClient<T>)=>Promise<LocalToolJson>}
 export interface LocalToolHostContext {blockPresentation?:'inline'|'panel';map?:import('./mapTools/contracts').LocalToolMapContext;documentContent?:import('./liveContent/types').LocalToolDocumentContent;presence?:import('./presence/types').LocalToolDocumentPresence;documentFields?:import('./openDocuments').LocalToolDocumentFields;undoCommands?:import('./undoCommands').LocalToolCommandMount;app?:import('./apps/types').LocalAppDetails;focus?:{readonly blockId:string};focusMode?:import('./focusMode').LocalToolFocusMode;contextMenu?:import('./contextMenus').LocalToolContextMenuPort;tutorial?:LocalToolTutorialPort;view:'editor'|'embed'|'fullscreen';canEdit:boolean;scope:{projectId:string;eraId?:string};document?:{id:string;namespace:string;title:string};renderRichProse?:(props:import('./RichProse').LocalToolRichProseProps)=>import('react').ReactNode;renderCollaborativeRich?:(props:import('./CollaborativeRich').LocalToolCollaborativeRichProps)=>import('react').ReactNode}
 export interface LocalToolProps<T extends LocalToolJson>{projectId:string;client:LocalToolClient<T>;context?:LocalToolHostContext}
-export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;mapPanel?:import('./mapTools/contracts').LocalToolMapPanelSpec;sourceAdditive?:LocalToolSourceAdditive;sourceScalarRename?:LocalToolSourceScalarRename;sourceMigration?:LocalToolSourceMigration<T>;richAdoption?:import('./convergence/types').LocalToolRichAdoption;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};panelTitle?:boolean;preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
+export interface LocalToolDefinition<T extends LocalToolJson=LocalToolJson>{readonly apiVersion:1;mapPanel?:import('./mapTools/contracts').LocalToolMapPanelSpec;sourceAdditive?:LocalToolSourceAdditive;sourceScalarRename?:LocalToolSourceScalarRename;sourceMigration?:LocalToolSourceMigration<T>;richAdoption?:import('./convergence/types').LocalToolRichAdoption;/** Declared data-contract version; bump when validator semantics change. Defaults to 1. */stateSchemaVersion?:string;app?:import('./apps/types').LocalAppDetails;tours?:readonly LocalToolTourSpec[];locales?:LocalToolLocaleDefinition;assets?:LocalAssetManifest;assetFiles?:LocalAssetFiles;blocks?:readonly LocalToolBlockDefinition[];codec?:LocalToolStateCodec;index?:LocalToolIndexSpec;document?:{defaultTitle:{en:string;es:string};embed?:'preview'|'interactive'};panelTitle?:boolean;Skeleton?:ComponentType;preview?:LocalToolPreviewSpec;namespace:string;name:{en:string;es:string};description:{en:string;es:string};initialState:T;validateState:(value:LocalToolJson)=>value is T;component:ComponentType<LocalToolProps<T>>;operations?:readonly LocalToolOperation<T>[]}
 type LocalToolAuthorDefinition<T extends LocalToolJson>=Omit<LocalToolDefinition<T>,'apiVersion'|'codec'>&(
   {codec?:LocalToolStateCodec;stateFields?:never}|{codec?:never;stateFields:LocalToolStateFields}
 );
+const reactComponentWrappers = new Set([Symbol.for('react.memo'), Symbol.for('react.forward_ref'), Symbol.for('react.lazy')]);
+function isLocalToolSkeleton(value: unknown): boolean {
+  if (typeof value === 'function') return true;
+  if (!value || typeof value !== 'object') return false;
+  const kind = (value as { $$typeof?: unknown }).$$typeof;
+  return typeof kind === 'symbol' && reactComponentWrappers.has(kind);
+}
 export function defineLocalTool<T extends LocalToolJson>(input:LocalToolAuthorDefinition<T>):LocalToolDefinition<T>{
   const {stateFields,...provided}=input;
   if(stateFields!==undefined&&provided.codec!==undefined)throw Error('local_tool_state_fields_conflict');
@@ -155,6 +163,7 @@ export function defineLocalTool<T extends LocalToolJson>(input:LocalToolAuthorDe
   for(const copy of [definition.name,definition.description])for(const locale of ['en','es']as const)if(typeof copy?.[locale]!=='string'||!copy[locale].trim()||copy[locale].length>500)throw new Error('invalid_local_tool_metadata');
   if(definition.document)for(const locale of ['en','es']as const)if(typeof definition.document.defaultTitle?.[locale]!=='string'||!definition.document.defaultTitle[locale].trim())throw Error('source_tool_document_invalid');
   if(definition.panelTitle!==undefined&&typeof definition.panelTitle!=='boolean')throw Error('source_tool_document_invalid');
+  if(definition.Skeleton!==undefined&&!isLocalToolSkeleton(definition.Skeleton))throw Error('source_tool_document_invalid');
   if(definition.document?.embed&&!['preview','interactive'].includes(definition.document.embed))throw Error('source_tool_document_invalid');if(definition.preview)validateLocalToolPreviewSpec(definition.preview);
   if(definition.codec)validateLocalToolCodec(definition.codec);
   if(definition.sourceAdditive!==undefined&&!definition.document)throw Error('local_tool_source_additive_invalid');
